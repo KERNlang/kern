@@ -72,6 +72,16 @@ interface BodyEmitContext {
    *  entry, decrement on try exit; the let/return propagation paths
    *  check `tryDepth > 0` and throw with a let-bind hint. */
   tryDepth: number;
+  /** Finally slice (Codex review fix) — separate counter so the
+   *  propagation rejection inside `finally` surfaces a finally-specific
+   *  diagnostic. Inside finally, a `?` would lower to a `return` that
+   *  *overrides* the pending exception/return/break/continue from the
+   *  protected block, which is a sharper hazard than the try-block
+   *  "bypasses catch" wording. Incremented on finally entry, decremented
+   *  on exit; checked in `rejectPropagationInsideTry` after `tryDepth`
+   *  so a nested `try` inside `finally` still reports the inner-try
+   *  message. */
+  finallyDepth: number;
 }
 
 const INDENT_STEP = '  ';
@@ -94,7 +104,7 @@ export function emitNativeKernBodyTS(handlerNode: IRNode, options?: BodyEmitOpti
  *  Provided for symmetry with the Python target so generators that drive
  *  both languages have a uniform call shape. */
 export function emitNativeKernBodyTSWithImports(handlerNode: IRNode, _options?: BodyEmitOptions): BodyEmitResult {
-  const ctx: BodyEmitContext = { gensymCounter: 0, tryDepth: 0 };
+  const ctx: BodyEmitContext = { gensymCounter: 0, tryDepth: 0, finallyDepth: 0 };
   const code = emitChildrenTS(handlerNode.children ?? [], ctx, '').join('\n');
   return { code, imports: new Set<string>() };
 }
@@ -186,13 +196,44 @@ function emitChildrenTS(children: IRNode[], ctx: BodyEmitContext, indent: string
       // was bypassed. Read child `catch` here to match the schema; treat
       // legacy sibling shape as orphan since callers writing schema-valid
       // IR will never emit it.
+      //
+      // Finally slice — a body-statement `try` may also have an optional
+      // `finally` child sibling to `catch`. Either `catch` or `finally`
+      // (or both) must be present; a `try` with neither is rejected. The
+      // finally body emits last and is wrapped by the same tryDepth
+      // counter as the `try` block so propagation `?` inside finally
+      // surfaces the existing let-bind hint instead of compiling to a
+      // `return` that suppresses the original exception/return.
       const tryChildren = child.children ?? [];
-      const catchIdx = tryChildren.findIndex((c) => c.type === 'catch');
-      if (catchIdx === -1) {
-        throw new Error('`try` must contain a `catch` child. Found orphan `try` in handler body.');
+      // Codex review fix — defense-in-depth duplicate guards. The semantic
+      // validator already reports duplicates at source level with a line
+      // number; these throws cover hand-built IR cases (tests, codemods)
+      // that bypass validation, so a second `catch`/`finally` cannot be
+      // silently dropped.
+      const catchChildren = tryChildren.filter((c) => c.type === 'catch');
+      const finallyChildren = tryChildren.filter((c) => c.type === 'finally');
+      if (catchChildren.length > 1) {
+        throw new Error('`try` supports at most one `catch` child — found multiple in handler body.');
       }
-      const catchNode = tryChildren[catchIdx];
-      const tryBlockChildren = tryChildren.filter((c) => c.type !== 'catch');
+      if (finallyChildren.length > 1) {
+        throw new Error('`try` supports at most one `finally` child — found multiple in handler body.');
+      }
+      // Body-statement `try` carries no `name` prop (async-orchestration
+      // form does). A `name` prop here means the IR is the orchestration
+      // shape, which has no `finally` codegen path. Reject loudly.
+      if (finallyChildren.length > 0 && typeof child.props?.name === 'string' && child.props.name.length > 0) {
+        throw new Error(
+          '`finally` is only supported on body-statement `try` (inside `handler lang="kern"`). Found `finally` under async-orchestration `try name=…` — move cleanup into the surrounding handler.',
+        );
+      }
+      const catchIdx = catchChildren.length === 0 ? -1 : tryChildren.indexOf(catchChildren[0]);
+      const finallyIdx = finallyChildren.length === 0 ? -1 : tryChildren.indexOf(finallyChildren[0]);
+      if (catchIdx === -1 && finallyIdx === -1) {
+        throw new Error('`try` must contain a `catch` or `finally` child. Found orphan `try` in handler body.');
+      }
+      const catchNode = catchIdx === -1 ? null : tryChildren[catchIdx];
+      const finallyNode = finallyIdx === -1 ? null : tryChildren[finallyIdx];
+      const tryBlockChildren = tryChildren.filter((c) => c.type !== 'catch' && c.type !== 'finally');
       // Slice 5a deferred-fix (Codex): the schema allows `step` and `handler`
       // as `try` children for the *async orchestration* form (`try name=…`),
       // not for body-statement try/catch. Body-emit only knows how to emit
@@ -209,12 +250,22 @@ function emitChildrenTS(children: IRNode[], ctx: BodyEmitContext, indent: string
       ctx.tryDepth++;
       for (const sl of emitChildrenTS(tryBlockChildren, ctx, indent + INDENT_STEP)) lines.push(sl);
       ctx.tryDepth--;
-      const errName = String(catchNode.props?.name ?? 'e');
-      lines.push(`${indent}} catch (${errName}) {`);
-      for (const cl of emitChildrenTS(catchNode.children ?? [], ctx, indent + INDENT_STEP)) lines.push(cl);
+      if (catchNode !== null) {
+        const errName = String(catchNode.props?.name ?? 'e');
+        lines.push(`${indent}} catch (${errName}) {`);
+        for (const cl of emitChildrenTS(catchNode.children ?? [], ctx, indent + INDENT_STEP)) lines.push(cl);
+      }
+      if (finallyNode !== null) {
+        lines.push(`${indent}} finally {`);
+        ctx.finallyDepth++;
+        for (const fl of emitChildrenTS(finallyNode.children ?? [], ctx, indent + INDENT_STEP)) lines.push(fl);
+        ctx.finallyDepth--;
+      }
       lines.push(`${indent}}`);
     } else if (child.type === 'catch') {
       throw new Error('`catch` must be a child of `try`. Found top-level `catch` in handler body.');
+    } else if (child.type === 'finally') {
+      throw new Error('`finally` must be a child of `try`. Found top-level `finally` in handler body.');
     } else if (child.type === 'throw') {
       // Slice 4c — throw statement.
       for (const line of emitThrowTS(child, ctx)) lines.push(`${indent}${line}`);
@@ -316,12 +367,26 @@ function emitBranchTS(node: IRNode, ctx: BodyEmitContext, indent: string): strin
  *  enclosing `catch`. That's almost never what users mean — they wrote
  *  `?` to flag a Result.err and (presumably) to let the catch handle
  *  it. Reject at codegen with a let-bind hint. Same shape as
- *  slice-2's reject-`?`-in-`if-cond` rule. */
+ *  slice-2's reject-`?`-in-`if-cond` rule.
+ *
+ *  Finally slice (Codex review fix) — the same rejection now applies
+ *  inside `finally`, but the hazard is sharper: a `return tmp` from
+ *  the err branch *overrides* the pending exception/return/break/continue
+ *  that the protected block was unwinding with. Surface a
+ *  finally-specific message so authors don't see the misleading
+ *  "bypasses catch" wording. `tryDepth` is checked first so a `try`
+ *  nested inside a `finally` still reports the inner-try diagnostic. */
 function rejectPropagationInsideTry(ctx: BodyEmitContext): void {
   if (ctx.tryDepth > 0) {
     throw new Error(
       "Propagation '?' is not allowed inside a `try` block — `return` from the err branch exits the function and bypasses the enclosing `catch`. " +
         'Bind the call to a `let` outside the try, then use `if x.kind === "err" throw new Error(...)` inside the try, OR use raw `lang=ts`/`lang=python` for the affected handler.',
+    );
+  }
+  if (ctx.finallyDepth > 0) {
+    throw new Error(
+      "Propagation '?' is not allowed inside a `finally` block — `return` from the err branch overrides the pending exception/return/break/continue from the protected block. " +
+        'Bind the call to a `let` outside the `try` if you need conditional fallthrough, OR use raw `lang=ts`/`lang=python` for the affected handler.',
     );
   }
 }

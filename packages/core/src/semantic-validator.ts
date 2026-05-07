@@ -168,7 +168,7 @@ function validateNode(
   // Both are consumed by `generateTry`'s walk — placed elsewhere they hit
   // the defensive throw in the core dispatcher. Flagging semantically
   // surfaces the error with a line number during validation.
-  if (node.type === 'step' || node.type === 'catch') {
+  if (node.type === 'step' || node.type === 'catch' || node.type === 'finally') {
     const parent = ancestry[ancestry.length - 1];
     if (parent !== 'try') {
       violations.push({
@@ -197,6 +197,46 @@ function validateNode(
             '`try` supports at most one `catch` child — JavaScript has no multi-catch. Merge the error-handling logic or switch on `err instanceof …` inside a single catch.',
           line: extra.loc?.line,
           col: extra.loc?.col,
+        });
+      }
+    }
+
+    // ── try may have at most one finally (Codex review fix) ─────────────
+    // Both JS and Python only model a single `finally` clause. The body-
+    // statement emitter uses `findIndex` and would silently ignore a
+    // second `finally` sibling; flag it during validation so the author
+    // sees the duplicate at source level with a line number.
+    const finallies = node.children.filter((c) => c.type === 'finally');
+    if (finallies.length > 1) {
+      for (const extra of finallies.slice(1)) {
+        violations.push({
+          rule: 'try-single-finally-only',
+          nodeType: 'finally',
+          message:
+            '`try` supports at most one `finally` child — both JS and Python model a single finally clause. Merge the cleanup logic into one block.',
+          line: extra.loc?.line,
+          col: extra.loc?.col,
+        });
+      }
+    }
+
+    // ── finally is body-statement only (Codex review fix) ──────────────
+    // Async-orchestration `try name=…` is consumed by `generateTry` in
+    // `codegen/ground-layer.ts`, which only reads `step`/`handler`/`catch`.
+    // A `finally` child of an orchestration `try` would pass the schema
+    // (allowedChildren is shared between both shapes) but be silently
+    // dropped at codegen. Reject it here so the author sees the mistake
+    // at source level rather than discovering at runtime that cleanup
+    // never ran.
+    if (typeof node.props?.name === 'string' && node.props.name.length > 0 && finallies.length > 0) {
+      for (const f of finallies) {
+        violations.push({
+          rule: 'finally-only-in-body-statement-try',
+          nodeType: 'finally',
+          message:
+            '`finally` is only supported on body-statement `try` (inside `handler lang="kern"`). Async-orchestration `try name=…` does not have a finally codegen path; move cleanup into the surrounding handler or use a body-statement `try` for the protected block.',
+          line: f.loc?.line,
+          col: f.loc?.col,
         });
       }
     }
