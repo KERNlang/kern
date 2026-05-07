@@ -1,6 +1,6 @@
 /** Expression-mode tokenizer + recursive-descent parser producing ValueIR.
  *  Supports: identifiers, literals (number/string/true/false/null/undefined/none),
- *  member access (. and ?.), index access ([]), call (() and ?.()), spread
+ *  member access (. and ?.), index access ([] and ?.[), call (() and ?.()), spread
  *  (...), logical ?? || &&, parenthesized grouping, template literals with
  *  ${...} interpolation, `await` prefix, TS-style `as Type` assertion nodes,
  *  propagation `?` postfix on call/await-call.
@@ -10,9 +10,9 @@
  *  retained for legacy/round-trip compatibility.
  *
  *  Slice 2c added arithmetic and comparisons; slice α-2 added ternary
- *  `a ? b : c`. Still NOT supported: indexing (`xs[0]`), bitwise ops,
- *  assignment — these would require shape changes the body emitter
- *  doesn't have, so the parser deliberately rejects them. */
+ *  `a ? b : c`. Still NOT supported: bitwise ops, assignment — these would
+ *  require shape changes the body emitter doesn't have, so the parser
+ *  deliberately rejects them. */
 
 import type { ValueIR } from './value-ir.js';
 
@@ -710,7 +710,12 @@ class Parser {
       } else if (t.kind === 'optDot') {
         this.advance();
         const next = this.peek();
-        if (next.kind === 'lparen') {
+        if (next.kind === 'lbracket') {
+          this.advance();
+          const index = this.parseConditional();
+          this.expect('rbracket');
+          node = { kind: 'index', object: node, index, optional: true };
+        } else if (next.kind === 'lparen') {
           this.advance();
           const args = this.parseArgs();
           this.expect('rparen');
@@ -728,7 +733,7 @@ class Parser {
         this.advance();
         const index = this.parseConditional();
         this.expect('rbracket');
-        node = { kind: 'index', object: node, index };
+        node = { kind: 'index', object: node, index, optional: false };
       } else {
         break;
       }

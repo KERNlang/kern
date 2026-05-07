@@ -69,7 +69,7 @@ export function emitExpression(node: ValueIR): string {
     case 'index': {
       const obj = emitExpression(node.object);
       const wrapped = needsReceiverParens(node.object) ? `(${obj})` : obj;
-      return `${wrapped}[${emitExpression(node.index)}]`;
+      return `${wrapped}${node.optional ? '?.' : ''}[${emitExpression(node.index)}]`;
     }
     case 'call': {
       // Slice 2a — KERN-stdlib dispatch. When the callee is `Module.method`

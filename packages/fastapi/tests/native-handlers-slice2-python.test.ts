@@ -209,6 +209,31 @@ describe('emitPyExpression — index access', () => {
     expect(emitPyExpression(parseExpression('matrix[0][1]'))).toBe('matrix[0][1]');
     expect(emitPyExpression(parseExpression('obj["key"]'))).toBe('obj["key"]');
   });
+
+  test('optional element access short-circuits trailing chains', () => {
+    expect(emitPyExpression(parseExpression('arr?.[i]'))).toBe('(arr[i] if arr is not None else None)');
+    expect(emitPyExpression(parseExpression('users?.[id].name'))).toBe(
+      '(users[id].name if users is not None else None)',
+    );
+    expect(emitPyExpression(parseExpression('users?.[id]?.name'))).toBe(
+      '(users[id].name if users is not None and users[id] is not None else None)',
+    );
+    expect(emitPyExpression(parseExpression('obj?.field[0]'))).toBe('(obj.field[0] if obj is not None else None)');
+    expect(emitPyExpression(parseExpression('arr?.[i][j]'))).toBe('(arr[i][j] if arr is not None else None)');
+    expect(emitPyExpression(parseExpression('users[id]?.name'))).toBe(
+      '(users[id].name if users[id] is not None else None)',
+    );
+  });
+
+  test('optional element access keeps index expressions branch-local', () => {
+    expect(emitPyExpression(parseExpression('arr?.[nextIndex()]'))).toBe(
+      '(arr[nextIndex()] if arr is not None else None)',
+    );
+  });
+
+  test('optional element access rejects side-effecting Python receiver inputs', () => {
+    expect(() => emitPyExpression(parseExpression('load()?.[i]'))).toThrow(/requires a side-effect-free receiver/);
+  });
 });
 
 describe('emitPyExpression — type assertions', () => {

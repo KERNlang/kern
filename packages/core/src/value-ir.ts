@@ -39,7 +39,7 @@ export type ValueIR =
   | { kind: 'regexLit'; pattern: string; flags: string; loc?: IRSourceLocation }
   | { kind: 'ident'; name: string; loc?: IRSourceLocation }
   | { kind: 'member'; object: ValueIR; property: string; optional: boolean; loc?: IRSourceLocation }
-  | { kind: 'index'; object: ValueIR; index: ValueIR; loc?: IRSourceLocation }
+  | { kind: 'index'; object: ValueIR; index: ValueIR; optional: boolean; loc?: IRSourceLocation }
   | { kind: 'call'; callee: ValueIR; args: ValueIR[]; optional: boolean; loc?: IRSourceLocation }
   | { kind: 'binary'; op: BinaryOp; left: ValueIR; right: ValueIR; loc?: IRSourceLocation }
   | { kind: 'unary'; op: UnaryOp; argument: ValueIR; loc?: IRSourceLocation }

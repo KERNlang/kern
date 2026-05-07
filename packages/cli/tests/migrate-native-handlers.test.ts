@@ -195,6 +195,22 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(result.output).toContain('return value="first"');
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
+
+  test('migrates optional element access inside expressions', () => {
+    const source = [
+      'fn name=first returns=string',
+      '  handler <<<',
+      '    const first = items?.[0];',
+      '    return users?.[first]?.name;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('let name=first value="items?.[0]"');
+    expect(result.output).toContain('return value="users?.[first]?.name"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
 });
 
 describe('rewriteNativeHandlers — bail conditions', () => {
@@ -718,5 +734,22 @@ describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalenc
     const ts = emitNativeKernBodyTS(handler as IRNode);
     expect(ts).toContain('const first = items[0];');
     expect(ts).toContain('return users[first].name;');
+  });
+
+  test('optional element access compiles byte-equivalent through ValueIR index', () => {
+    const source = [
+      'fn name=first returns=string',
+      '  handler <<<',
+      '    const first = items?.[0];',
+      '    return users?.[first]?.name;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toContain('const first = items?.[0];');
+    expect(ts).toContain('return users?.[first]?.name;');
   });
 });

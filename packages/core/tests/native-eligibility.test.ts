@@ -88,6 +88,11 @@ describe('classifyHandlerBody — slice 4d additions are now eligible', () => {
     expect(classifyHandlerBody(`const first = items[0];\nreturn first;`).eligible).toBe(true);
     expect(classifyHandlerBody(`return record[key];`).eligible).toBe(true);
   });
+
+  test('optional element access is eligible in let and return expressions', () => {
+    expect(classifyHandlerBody(`const maybe = items?.[0];\nreturn maybe;`).eligible).toBe(true);
+    expect(classifyHandlerBody(`return users?.[id]?.name;`).eligible).toBe(true);
+  });
 });
 
 describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => {

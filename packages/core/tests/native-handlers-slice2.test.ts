@@ -249,8 +249,16 @@ describe('parseExpression + emitExpression — index access', () => {
     expect(emitExpression(parseExpression('obj["key"]'))).toBe('obj["key"]');
   });
 
-  test('optional element access is not supported yet', () => {
-    expect(() => parseExpression('arr?.[i]')).toThrow(/Expected ident/);
+  test('optional element access composes with index and trailing chains', () => {
+    expect(emitExpression(parseExpression('arr?.[i]'))).toBe('arr?.[i]');
+    expect(emitExpression(parseExpression('users?.[id].name'))).toBe('users?.[id].name');
+    expect(emitExpression(parseExpression('users?.[id]?.name'))).toBe('users?.[id]?.name');
+    expect(emitExpression(parseExpression('items?.[0]?.[1]'))).toBe('items?.[0]?.[1]');
+    expect(emitExpression(parseExpression('items[0]?.[1]'))).toBe('items[0]?.[1]');
+  });
+
+  test('optional index receiver wraps lower-precedence expression', () => {
+    expect(emitExpression(parseExpression('(load ?? fallback)?.[i]'))).toBe('(load ?? fallback)?.[i]');
   });
 });
 
