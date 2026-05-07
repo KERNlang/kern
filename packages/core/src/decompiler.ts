@@ -108,6 +108,10 @@ export function decompile(root: IRNode): DecompileResult {
       renderLet(node, indent);
       return;
     }
+    if (node.type === 'assign') {
+      renderAssign(node, indent);
+      return;
+    }
     if (node.type === 'field') {
       renderField(node, indent);
       return;
@@ -333,6 +337,16 @@ export function decompile(root: IRNode): DecompileResult {
         render(child, `${indent}  `);
       }
     }
+  }
+
+  function renderAssign(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    const parts = ['assign', renderScalarProp('target', props.target ?? '', quoted)];
+    if (props.op !== undefined && props.op !== '' && props.op !== '=')
+      parts.push(renderScalarProp('op', props.op, quoted));
+    parts.push(renderScalarProp('value', props.value ?? '', quoted));
+    lines.push(`${indent}${parts.join(' ')}`);
   }
 
   function renderField(node: IRNode, indent: string): void {
@@ -647,6 +661,7 @@ export function decompile(root: IRNode): DecompileResult {
 
   function renderEach(node: IRNode, indent: string): void {
     const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
     const rawIn = props.in;
     const inExpr =
       rawIn && typeof rawIn === 'object' && (rawIn as ExprObject).__expr
@@ -681,6 +696,7 @@ export function decompile(root: IRNode): DecompileResult {
 
     const parts: string[] = [`each name=${name}`, `in=${JSON.stringify(inExpr)}`];
     if (index) parts.push(`index=${index}`);
+    if (props.type !== undefined) parts.push(renderScalarProp('type', props.type, quoted));
     if (isAwait) parts.push('await=true');
     if (keyExpr) parts.push(`key=${JSON.stringify(keyExpr)}`);
     lines.push(`${indent}${parts.join(' ')}`);

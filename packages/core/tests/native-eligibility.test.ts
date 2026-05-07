@@ -6,6 +6,23 @@ import {
   extractRawBodies,
   scanFileForEligibility,
 } from '../src/native-eligibility.js';
+import { isValidKernTypeAnnotation } from '../src/native-eligibility-ast.js';
+
+describe('isValidKernTypeAnnotation', () => {
+  test('accepts common safe TypeScript annotations', () => {
+    expect(isValidKernTypeAnnotation('User | null')).toBe(true);
+    expect(isValidKernTypeAnnotation('"on" | "off"')).toBe(true);
+    expect(isValidKernTypeAnnotation('Map<string, number>')).toBe(true);
+  });
+
+  test('rejects unsafe or malformed annotations', () => {
+    expect(isValidKernTypeAnnotation('string\nnumber')).toBe(false);
+    expect(isValidKernTypeAnnotation('typeof import("fs")')).toBe(false);
+    expect(isValidKernTypeAnnotation('`${evil}`')).toBe(false);
+    expect(isValidKernTypeAnnotation('string; process.exit(1)')).toBe(false);
+    expect(isValidKernTypeAnnotation('Map<string')).toBe(false);
+  });
+});
 
 describe('classifyHandlerBody — eligible bodies', () => {
   test('empty body is eligible', () => {
@@ -77,6 +94,17 @@ describe('classifyHandlerBody — slice 4d additions are now eligible', () => {
     expect(result).toEqual({ eligible: true, reason: 'ok' });
   });
 
+  test('typed for-of block is eligible when the annotation is safe', () => {
+    expect(classifyHandlerBody(`for (const user: User | null of users) {\n  notify(user);\n}`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+    expect(classifyHandlerBody(`for await (const event: Event of events) {\n  await notify(event);\n}`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
   test('for-await-of with unsupported body is rejected by inner reason', () => {
     const body = `for await (const x of xs) {\n  x++;\n}`;
     const result = classifyHandlerBody(body);
@@ -106,6 +134,13 @@ describe('classifyHandlerBody — slice 4d additions are now eligible', () => {
     expect(classifyHandlerBody(`return users?.[id]?.name;`).eligible).toBe(true);
   });
 
+  test('typed const bindings are eligible when the annotation is safe', () => {
+    expect(classifyHandlerBody(`const user: User | null = loadUser();\nreturn user;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
   test('plain assignment statements are eligible', () => {
     expect(classifyHandlerBody(`x = 1;\nreturn x;`).eligible).toBe(true);
     expect(classifyHandlerBody(`obj.x = value;\nreturn obj;`).eligible).toBe(true);
@@ -114,9 +149,36 @@ describe('classifyHandlerBody — slice 4d additions are now eligible', () => {
     expect(classifyHandlerBody(`arr[obj?.idx] = value;\nreturn arr;`).eligible).toBe(true);
   });
 
+  test('cross-target-safe compound assignment statements are eligible', () => {
+    expect(classifyHandlerBody(`total += item.value;\nreturn total;`)).toEqual({ eligible: true, reason: 'ok' });
+    expect(classifyHandlerBody(`mask |= Flag.Ready;\nreturn mask;`)).toEqual({ eligible: true, reason: 'ok' });
+    expect(classifyHandlerBody(`count **= 2;\nreturn count;`)).toEqual({ eligible: true, reason: 'ok' });
+  });
+
   test('while block with migratable body is eligible', () => {
     const body = `while (queue.length > 0) {\n  const item = queue.shift();\n  process(item);\n}\nreturn queue;`;
     expect(classifyHandlerBody(body)).toEqual({ eligible: true, reason: 'ok' });
+  });
+
+  test('break and continue are eligible inside migratable loops', () => {
+    expect(
+      classifyHandlerBody(`for (const user of users) {\n  if (skip(user)) {\n    continue;\n  }\n  notify(user);\n}`),
+    ).toEqual({ eligible: true, reason: 'ok' });
+    expect(classifyHandlerBody(`while (running) {\n  tick();\n  break;\n}`)).toEqual({ eligible: true, reason: 'ok' });
+  });
+
+  test('break and continue keep loop context through try blocks', () => {
+    expect(
+      classifyHandlerBody(`for (const item of items) {\n  try {\n    break;\n  } catch (err) {\n    continue;\n  }\n}`),
+    ).toEqual({ eligible: true, reason: 'ok' });
+  });
+
+  test('nested loops with break and continue are eligible', () => {
+    expect(
+      classifyHandlerBody(
+        `while (outer) {\n  for (const item of items) {\n    if (skip(item)) {\n      continue;\n    }\n    break;\n  }\n}`,
+      ),
+    ).toEqual({ eligible: true, reason: 'ok' });
   });
 });
 
@@ -153,8 +215,15 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
   test('for-of destructured binding rejected until each supports patterns', () =>
     rejected(`for (const [k, v] of pairs) {\n  use(k, v);\n}`, 'for-of-destructure'));
 
-  test('for-of with mutation body rejected by inner reason', () =>
-    rejected(`for (const x of xs) {\n  y += x;\n}\nreturn y;`, 'expr-stmt-assignment'));
+  test('for-of with unsafe type annotation rejected', () =>
+    rejected(`for (const user: typeof import("fs") of users) {\n  notify(user);\n}`, 'for-of-bad-type'));
+
+  test('for-of with compound assignment body is eligible', () => {
+    expect(classifyHandlerBody(`for (const x of xs) {\n  y += x;\n}\nreturn y;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
 
   test('while non-block rejected to preserve verify byte-equivalence', () =>
     rejected(`while (i < 10) i++;\nreturn i;`, 'while-non-block'));
@@ -165,6 +234,16 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
   test('while with bad condition rejected', () => rejected(`while (x => x) {\n  return 1;\n}`, 'while-bad-cond'));
 
   test('do-while rejected', () => rejected(`do { i = i + 1; } while (i < 10);`, 'do-while-stmt'));
+
+  test('break and continue outside loops rejected', () => {
+    rejected(`break;`, 'break-outside-loop');
+    rejected(`continue;`, 'continue-outside-loop');
+  });
+
+  test('labeled break and continue rejected', () => {
+    rejected(`while (running) {\n  break outer;\n}`, 'break-labeled');
+    rejected(`while (running) {\n  continue outer;\n}`, 'continue-labeled');
+  });
 
   test('switch rejected', () => rejected(`switch (k) { case 1: return 'a'; }`, 'switch-stmt'));
 
@@ -190,10 +269,27 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
   test('pre-decrement rejected (mutation ExpressionStatement)', () =>
     rejected(`const x = 5;\n--x;\nreturn x;`, 'expr-stmt-mutation'));
 
-  test('compound add-assign rejected (assignment ExpressionStatement)', () =>
-    rejected(`const x = 1;\nx += 2;\nreturn x;`, 'expr-stmt-assignment'));
+  test('JS-only logical assignment rejected (assignment ExpressionStatement)', () =>
+    rejected(`x &&= next;\nreturn x;`, 'expr-stmt-assignment'));
+
+  test('JS-only unsigned right shift assignment rejected (assignment ExpressionStatement)', () =>
+    rejected(`x >>>= 1;\nreturn x;`, 'expr-stmt-assignment'));
 
   test('void operator rejected (parser-expression bails)', () => rejected(`return void 0;`, 'return-bad-expr'));
+
+  test('unsafe type annotation rejected', () =>
+    rejected(`const mod: typeof import("fs") = value;\nreturn mod;`, 'var-bad-type'));
+
+  test('typed destructuring is eligible when the annotation is safe', () => {
+    expect(classifyHandlerBody(`const { x }: { x: number } = obj;\nreturn x;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+    expect(classifyHandlerBody(`const [x, y]: [number, string] = pair;\nreturn x;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
 
   test('debugger statement rejected', () =>
     // TS SyntaxKind[kind] returns the LAST registered name — DebuggerStatement
@@ -314,7 +410,7 @@ describe('scanFileForEligibility', () => {
       `  return 1 + 2;`,
       `>>>`,
       `fn name="loop" handler<<<`,
-      `  for (const x of xs) { y += x; }`,
+      `  for (const x of xs) { y &&= x; }`,
       `  return y;`,
       `>>>`,
       `fn name="empty" handler<<<`,

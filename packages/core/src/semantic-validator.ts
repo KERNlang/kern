@@ -142,6 +142,23 @@ function validateNode(
     }
   }
 
+  // ── each type= is body-stmt only (2026-05-07) ─────────────────────────
+  // `type=` annotates a TS `for...of` binding. The render-path JSX emitter
+  // lowers `each` to `.map(...)` and does not preserve that annotation, so
+  // reject it in render/group scope instead of silently dropping it.
+  if (node.type === 'each' && 'type' in (node.props ?? {})) {
+    if (ancestry.includes('render') || ancestry.includes('group')) {
+      violations.push({
+        rule: 'each-type-body-stmt-only',
+        nodeType: 'each',
+        message:
+          '`each type=` is a body-statement form for TS for...of bindings and cannot appear inside a `render`/`group` JSX context. Move the typed iteration above the render block, or omit type= in JSX composition.',
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+  }
+
   // ── let must be a direct child of each OR handler (slice 1 native bodies) ──
   // `let` has two valid parents:
   //   - `each` — iteration-scoped binding (emits `const` inside the `.map` callback).

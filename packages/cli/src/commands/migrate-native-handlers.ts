@@ -3,8 +3,8 @@
  * `lang="kern"` body-statement form.
  *
  * Input:  raw JS body in `<<<…>>>` that passes the slice 5a `classifyHandlerBody`
- *         eligibility check (no arrow functions, unsupported loops, mutation, destructuring,
- *         indexing, regex literals, console/process/req/res access, …).
+ *         eligibility check (no arrow functions, unsupported loops, unsafe mutation,
+ *         regex literals, console/process/req/res access, …).
  *
  * Output: `handler lang="kern"` with structured body-statement children
  *         (`let`/`return`/`if`/`else`/`try`/`catch`/`throw`). Slice 5b-pre
@@ -23,6 +23,8 @@ import {
   isValidKernAssignmentTarget,
   isValidKernAssignmentValue,
   isValidKernExpression,
+  isValidKernTypeAnnotation,
+  supportedCompoundAssignmentOperator,
 } from '@kernlang/core';
 import ts from 'typescript';
 
@@ -50,6 +52,10 @@ interface HandlerBlock {
   headerProps: string;
   /** Body interior (between `<<<` and `>>>`), dedented to column 0. */
   bodyText: string;
+}
+
+interface MapContext {
+  loopDepth: number;
 }
 
 /**
@@ -106,7 +112,7 @@ function dedent(lines: string[]): string {
  * already applied). Returns null on any unsupported shape — caller bails on
  * the whole handler.
  */
-function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string): string[] | null {
+function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string, ctx: MapContext): string[] | null {
   if (ts.isVariableStatement(stmt)) {
     // Only `const` is byte-preserving — KERN body `let` lowers to TS `const`,
     // so migrating raw `let X = …` to body-statement `let` would silently
@@ -118,12 +124,14 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string)
     if (decls.length !== 1) return null;
     const decl = decls[0];
     if (!decl.initializer) return null;
-    if (decl.type) return null; // bail on type annotations (body-`let` ignores `type`)
-    if (!ts.isIdentifier(decl.name)) return mapDestructureDecl(decl, source, indent);
+    const typeText = decl.type?.getText(source);
+    if (typeText && !isValidKernTypeAnnotation(typeText)) return null;
+    if (!ts.isIdentifier(decl.name)) return mapDestructureDecl(decl, source, indent, typeText);
     const name = decl.name.text;
     const exprText = decl.initializer.getText(source);
     if (!isValidKernExpression(exprText)) return null;
-    return [`${indent}let name=${name} value="${escapeKernString(exprText)}"`];
+    const typeAttr = typeText ? ` type="${escapeKernString(typeText)}"` : '';
+    return [`${indent}let name=${name}${typeAttr} value="${escapeKernString(exprText)}"`];
   }
 
   if (ts.isReturnStatement(stmt)) {
@@ -140,20 +148,30 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string)
     return [`${indent}throw value="${escapeKernString(exprText)}"`];
   }
 
+  if (ts.isBreakStatement(stmt)) {
+    if (stmt.label || ctx.loopDepth <= 0) return null;
+    return [`${indent}break`];
+  }
+
+  if (ts.isContinueStatement(stmt)) {
+    if (stmt.label || ctx.loopDepth <= 0) return null;
+    return [`${indent}continue`];
+  }
+
   if (ts.isIfStatement(stmt)) {
-    return mapIf(stmt, source, indent);
+    return mapIf(stmt, source, indent, ctx);
   }
 
   if (ts.isTryStatement(stmt)) {
-    return mapTry(stmt, source, indent);
+    return mapTry(stmt, source, indent, ctx);
   }
 
   if (ts.isForOfStatement(stmt)) {
-    return mapForOf(stmt, source, indent);
+    return mapForOf(stmt, source, indent, ctx);
   }
 
   if (ts.isWhileStatement(stmt)) {
-    return mapWhile(stmt, source, indent);
+    return mapWhile(stmt, source, indent, ctx);
   }
 
   if (ts.isExpressionStatement(stmt)) {
@@ -162,22 +180,26 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string)
     // pre-α — see project_alpha_migrator_ast_plan.md.
     //
     // Plain `=` assignment maps to the structured `assign` body-statement.
-    // Compound assignment and prefix/postfix mutations remain unsupported
-    // because they need distinct cross-target semantics.
+    // Cross-target-safe compound assignment maps to `assign op=...`.
+    // Prefix/postfix mutations remain unsupported because `x++` would not be
+    // byte-equivalent to the `x += 1` body-statement shape under --verify.
     //
-    // Gemini review: cover ALL assignment operators, not just `=`. The classifier
-    // regex `[+\-*/%]=` misses bitwise (`|=`, `&=`, `^=`, `<<=`, `>>=`, `>>>=`),
-    // logical (`&&=`, `||=`, `??=`), and exponentiation (`**=`) assignments.
-    // TS's FirstAssignment/LastAssignment range covers the full set.
+    // TS's FirstAssignment/LastAssignment range covers the full assignment
+    // family. We then admit only the cross-target-safe subset; JS-only
+    // `>>>=`, `&&=`, `||=`, and `??=` deliberately stay foreign/raw.
     if (ts.isBinaryExpression(stmt.expression)) {
       const op = stmt.expression.operatorToken.kind;
       if (op >= ts.SyntaxKind.FirstAssignment && op <= ts.SyntaxKind.LastAssignment) {
-        if (op !== ts.SyntaxKind.EqualsToken) return null;
+        const opText = op === ts.SyntaxKind.EqualsToken ? '=' : supportedCompoundAssignmentOperator(op);
+        if (!opText) return null;
         const targetText = stmt.expression.left.getText(source);
         const valueText = stmt.expression.right.getText(source);
         if (!isValidKernAssignmentTarget(targetText)) return null;
         if (!isValidKernAssignmentValue(valueText)) return null;
-        return [`${indent}assign target="${escapeKernString(targetText)}" value="${escapeKernString(valueText)}"`];
+        const opAttr = opText === '=' ? '' : ` op="${escapeKernString(opText)}"`;
+        return [
+          `${indent}assign target="${escapeKernString(targetText)}"${opAttr} value="${escapeKernString(valueText)}"`,
+        ];
       }
     }
     if (ts.isPostfixUnaryExpression(stmt.expression) || ts.isPrefixUnaryExpression(stmt.expression)) {
@@ -193,13 +215,13 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string)
   return null;
 }
 
-function mapIf(stmt: ts.IfStatement, source: ts.SourceFile, indent: string): string[] | null {
+function mapIf(stmt: ts.IfStatement, source: ts.SourceFile, indent: string, ctx: MapContext): string[] | null {
   const condText = stmt.expression.getText(source);
   if (!isValidKernExpression(condText)) return null;
   const innerIndent = indent + INDENT_STEP;
   const out: string[] = [`${indent}if cond="${escapeKernString(condText)}"`];
 
-  const thenLines = mapBranch(stmt.thenStatement, source, innerIndent);
+  const thenLines = mapBranch(stmt.thenStatement, source, innerIndent, ctx);
   if (thenLines === null) return null;
   out.push(...thenLines);
 
@@ -210,11 +232,11 @@ function mapIf(stmt: ts.IfStatement, source: ts.SourceFile, indent: string): str
       // The TS+Python body emitters detect this shape and emit `else if`/
       // `elif` directly, so the migration is byte-equivalent to the raw
       // `else if` chain that --verify diffs against.
-      const nested = mapIf(stmt.elseStatement, source, innerIndent);
+      const nested = mapIf(stmt.elseStatement, source, innerIndent, ctx);
       if (nested === null) return null;
       out.push(...nested);
     } else {
-      const elseLines = mapBranch(stmt.elseStatement, source, innerIndent);
+      const elseLines = mapBranch(stmt.elseStatement, source, innerIndent, ctx);
       if (elseLines === null) return null;
       out.push(...elseLines);
     }
@@ -222,14 +244,14 @@ function mapIf(stmt: ts.IfStatement, source: ts.SourceFile, indent: string): str
   return out;
 }
 
-function mapTry(stmt: ts.TryStatement, source: ts.SourceFile, indent: string): string[] | null {
+function mapTry(stmt: ts.TryStatement, source: ts.SourceFile, indent: string, ctx: MapContext): string[] | null {
   if (!stmt.catchClause) return null; // body-statement try requires catch
   if (stmt.finallyBlock) return null; // body emitter has no `finally`
 
   const innerIndent = indent + INDENT_STEP;
   const out: string[] = [`${indent}try`];
 
-  const tryLines = mapBranch(stmt.tryBlock, source, innerIndent);
+  const tryLines = mapBranch(stmt.tryBlock, source, innerIndent, ctx);
   if (tryLines === null) return null;
   out.push(...tryLines);
 
@@ -243,17 +265,23 @@ function mapTry(stmt: ts.TryStatement, source: ts.SourceFile, indent: string): s
   }
   out.push(`${innerIndent}catch name=${errName}`);
 
-  const catchLines = mapBranch(catchClause.block, source, innerIndent + INDENT_STEP);
+  const catchLines = mapBranch(catchClause.block, source, innerIndent + INDENT_STEP, ctx);
   if (catchLines === null) return null;
   out.push(...catchLines);
   return out;
 }
 
-function mapDestructureDecl(decl: ts.VariableDeclaration, source: ts.SourceFile, indent: string): string[] | null {
+function mapDestructureDecl(
+  decl: ts.VariableDeclaration,
+  source: ts.SourceFile,
+  indent: string,
+  typeText?: string,
+): string[] | null {
   if (!decl.initializer) return null;
   const sourceText = decl.initializer.getText(source);
   if (!isValidKernExpression(sourceText)) return null;
-  const out: string[] = [`${indent}destructure kind=const source="${escapeKernString(sourceText)}"`];
+  const typeAttr = typeText ? ` type="${escapeKernString(typeText)}"` : '';
+  const out: string[] = [`${indent}destructure kind=const${typeAttr} source="${escapeKernString(sourceText)}"`];
   const name = decl.name;
 
   if (ts.isObjectBindingPattern(name)) {
@@ -286,7 +314,7 @@ function mapDestructureDecl(decl: ts.VariableDeclaration, source: ts.SourceFile,
   return null;
 }
 
-function mapForOf(stmt: ts.ForOfStatement, source: ts.SourceFile, indent: string): string[] | null {
+function mapForOf(stmt: ts.ForOfStatement, source: ts.SourceFile, indent: string, ctx: MapContext): string[] | null {
   if (!ts.isVariableDeclarationList(stmt.initializer)) return null;
   const flags = stmt.initializer.flags;
   if (!(flags & ts.NodeFlags.Const)) return null;
@@ -295,7 +323,8 @@ function mapForOf(stmt: ts.ForOfStatement, source: ts.SourceFile, indent: string
   const decl = decls[0];
   if (!ts.isIdentifier(decl.name)) return null;
   if (decl.initializer) return null;
-  if (decl.type) return null;
+  const typeText = decl.type?.getText(source);
+  if (typeText && !isValidKernTypeAnnotation(typeText)) return null;
   if (!ts.isBlock(stmt.statement)) return null;
   if (stmt.statement.statements.length === 0) return null;
 
@@ -304,14 +333,17 @@ function mapForOf(stmt: ts.ForOfStatement, source: ts.SourceFile, indent: string
 
   const innerIndent = indent + INDENT_STEP;
   const awaitAttr = stmt.awaitModifier ? ' await=true' : '';
-  const out: string[] = [`${indent}each name=${decl.name.text} in="${escapeKernString(collectionText)}"${awaitAttr}`];
-  const bodyLines = mapBranch(stmt.statement, source, innerIndent);
+  const typeAttr = typeText ? ` type="${escapeKernString(typeText)}"` : '';
+  const out: string[] = [
+    `${indent}each name=${decl.name.text} in="${escapeKernString(collectionText)}"${typeAttr}${awaitAttr}`,
+  ];
+  const bodyLines = mapBranch(stmt.statement, source, innerIndent, { ...ctx, loopDepth: ctx.loopDepth + 1 });
   if (bodyLines === null) return null;
   out.push(...bodyLines);
   return out;
 }
 
-function mapWhile(stmt: ts.WhileStatement, source: ts.SourceFile, indent: string): string[] | null {
+function mapWhile(stmt: ts.WhileStatement, source: ts.SourceFile, indent: string, ctx: MapContext): string[] | null {
   const condText = stmt.expression.getText(source);
   if (!isValidKernExpression(condText)) return null;
   if (!ts.isBlock(stmt.statement)) return null;
@@ -319,18 +351,18 @@ function mapWhile(stmt: ts.WhileStatement, source: ts.SourceFile, indent: string
 
   const innerIndent = indent + INDENT_STEP;
   const out: string[] = [`${indent}while cond="${escapeKernString(condText)}"`];
-  const bodyLines = mapBranch(stmt.statement, source, innerIndent);
+  const bodyLines = mapBranch(stmt.statement, source, innerIndent, { ...ctx, loopDepth: ctx.loopDepth + 1 });
   if (bodyLines === null) return null;
   out.push(...bodyLines);
   return out;
 }
 
 /** Branch can be a Block (`{ … }`) or a single statement. Walk uniformly. */
-function mapBranch(node: ts.Statement, source: ts.SourceFile, indent: string): string[] | null {
+function mapBranch(node: ts.Statement, source: ts.SourceFile, indent: string, ctx: MapContext): string[] | null {
   const stmts = ts.isBlock(node) ? Array.from(node.statements) : [node];
   const out: string[] = [];
   for (const s of stmts) {
-    const lines = mapStatement(s, source, indent);
+    const lines = mapStatement(s, source, indent, ctx);
     if (lines === null) return null;
     out.push(...lines);
   }
@@ -382,7 +414,7 @@ export function rewriteNativeHandlers(source: string): NativeHandlerResult {
     const stmtLines: string[] = [];
     let bailed = false;
     for (const stmt of sourceFile.statements) {
-      const mapped = mapStatement(stmt, sourceFile, bodyIndent);
+      const mapped = mapStatement(stmt, sourceFile, bodyIndent, { loopDepth: 0 });
       if (mapped === null) {
         bailed = true;
         break;

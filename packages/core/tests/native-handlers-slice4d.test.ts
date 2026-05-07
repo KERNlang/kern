@@ -24,6 +24,32 @@ describe('slice 4d — TS each/spread', () => {
     expect(out).toContain('}');
   });
 
+  test('typed each loop', () => {
+    const handler = makeHandler([
+      {
+        type: 'each',
+        props: { in: 'users', name: 'user', type: 'User | null' },
+        children: [{ type: 'do', props: { value: 'notify(user)' } }],
+      },
+    ]);
+    const out = emitNativeKernBodyTS(handler);
+    expect(out).toContain('for (const user: User | null of users) {');
+    expect(out).toContain('  notify(user);');
+  });
+
+  test('typed index each loop annotates entries tuple', () => {
+    const handler = makeHandler([
+      {
+        type: 'each',
+        props: { in: 'users', name: 'user', index: 'i', type: 'User' },
+        children: [{ type: 'do', props: { value: 'notify(i, user)' } }],
+      },
+    ]);
+    const out = emitNativeKernBodyTS(handler);
+    expect(out).toContain('for (const [i, user]: [number, User] of (users).entries()) {');
+    expect(out).toContain('  notify(i, user);');
+  });
+
   test('async each loop', () => {
     const handler = makeHandler([
       {
@@ -35,6 +61,19 @@ describe('slice 4d — TS each/spread', () => {
     const out = emitNativeKernBodyTS(handler);
     expect(out).toContain('for await (const chunk of stream) {');
     expect(out).toContain('  sink(chunk);');
+  });
+
+  test('typed async each loop', () => {
+    const handler = makeHandler([
+      {
+        type: 'each',
+        props: { in: 'stream', name: 'event', type: 'Event', await: true },
+        children: [{ type: 'do', props: { value: 'sink(event)' } }],
+      },
+    ]);
+    const out = emitNativeKernBodyTS(handler);
+    expect(out).toContain('for await (const event: Event of stream) {');
+    expect(out).toContain('  sink(event);');
   });
 
   test('async each rejects index mode', () => {

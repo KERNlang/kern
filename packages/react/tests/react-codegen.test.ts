@@ -1,5 +1,5 @@
 import { parse } from '../../core/src/parser.js';
-import { generateReactNode, isReactNode } from '../src/codegen-react.js';
+import { generateGroundNode, generateReactNode, isReactNode } from '../src/codegen-react.js';
 
 function gen(source: string): string {
   const root = parse(source);
@@ -7,6 +7,13 @@ function gen(source: string): string {
 }
 
 describe('React Codegen', () => {
+  describe('ground each override', () => {
+    it('throws for type= because React JSX each would drop it', () => {
+      const node = parse('each name=user in=users type=User');
+      expect(() => generateGroundNode(node)).toThrow(/each type=.*React JSX each/);
+    });
+  });
+
   // ── provider ──
 
   describe('provider', () => {

@@ -42,10 +42,12 @@
  *  `if`/`else` branches indent correctly. The caller adds the leading indent
  *  for the surrounding function body. */
 
+import { isSupportedAssignOperator } from '../assignment-operators.js';
 import { emitExpression } from '../codegen-expression.js';
 import { parseExpression } from '../parser-expression.js';
 import type { IRNode } from '../types.js';
 import type { ValueIR } from '../value-ir.js';
+import { emitTypeAnnotation } from './emitters.js';
 
 /** Slice 3e — caller-provided options, parity with the Python body emitter.
  *  `symbolMap` is currently unused on the TS target; reserved for future
@@ -296,20 +298,28 @@ function emitChildrenTS(children: IRNode[], ctx: BodyEmitContext, indent: string
       const pairValue = child.props?.pairValue;
       const isAwait = child.props?.await === true || child.props?.await === 'true';
       const awaitPrefix = isAwait ? ' await' : '';
+      const rawItemType = child.props?.type;
       if (pairKey && pairValue) {
+        if (rawItemType !== undefined && rawItemType !== '') {
+          throw new Error('body-statement `each type=` cannot be combined with pair-mode `pairKey=`/`pairValue=`.');
+        }
         lines.push(
           `${indent}for${awaitPrefix} (const [${String(pairKey)}, ${String(pairValue)}] of ${emitExpression(listIR)}) {`,
         );
       } else if (child.props?.index) {
+        const itemType = rawItemType ? emitTypeAnnotation(String(rawItemType), 'unknown', child) : '';
         const idxName = String(child.props.index);
         const asName = String(child.props?.name ?? child.props?.as ?? 'item');
         if (isAwait) {
           throw new Error('body-statement `each await=true` cannot be combined with `index=`.');
         }
-        lines.push(`${indent}for (const [${idxName}, ${asName}] of (${emitExpression(listIR)}).entries()) {`);
+        const typeAnn = itemType ? `: [number, ${itemType}]` : '';
+        lines.push(`${indent}for (const [${idxName}, ${asName}]${typeAnn} of (${emitExpression(listIR)}).entries()) {`);
       } else {
+        const itemType = rawItemType ? emitTypeAnnotation(String(rawItemType), 'unknown', child) : '';
         const asName = String(child.props?.name ?? child.props?.as ?? 'item');
-        lines.push(`${indent}for${awaitPrefix} (const ${asName} of ${emitExpression(listIR)}) {`);
+        const typeAnn = itemType ? `: ${itemType}` : '';
+        lines.push(`${indent}for${awaitPrefix} (const ${asName}${typeAnn} of ${emitExpression(listIR)}) {`);
       }
       for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
       lines.push(`${indent}}`);
@@ -394,29 +404,38 @@ function rejectPropagationInsideTry(ctx: BodyEmitContext): void {
 function emitLetTS(node: IRNode, ctx: BodyEmitContext): string[] {
   const props = (node.props ?? {}) as Record<string, unknown>;
   const name = String(props.name ?? '_');
+  const typeAnn = props.type ? `: ${emitTypeAnnotation(String(props.type), 'unknown', node)}` : '';
   const rawValue = props.value;
   if (rawValue === undefined || rawValue === '') {
-    return [`const ${name} = undefined;`];
+    return [`const ${name}${typeAnn} = undefined;`];
   }
   const valueIR = parseExpression(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
     const inner = emitExpression(valueIR.argument);
-    return [`const ${tmp} = ${inner};`, `if (${tmp}.kind === 'err') return ${tmp};`, `const ${name} = ${tmp}.value;`];
+    return [
+      `const ${tmp} = ${inner};`,
+      `if (${tmp}.kind === 'err') return ${tmp};`,
+      `const ${name}${typeAnn} = ${tmp}.value;`,
+    ];
   }
-  return [`const ${name} = ${emitExpression(valueIR)};`];
+  return [`const ${name}${typeAnn} = ${emitExpression(valueIR)};`];
 }
 
 function emitAssignTS(node: IRNode, _ctx: BodyEmitContext): string[] {
   const props = (node.props ?? {}) as Record<string, unknown>;
   const rawTarget = props.target;
   const rawValue = props.value;
+  const rawOp = props.op === undefined || props.op === '' ? '=' : String(props.op);
   if (rawTarget === undefined || rawTarget === '') {
     throw new Error('body-statement `assign` requires `target=`.');
   }
   if (rawValue === undefined || rawValue === '') {
     throw new Error('body-statement `assign` requires `value=`.');
+  }
+  if (!isSupportedAssignOperator(rawOp)) {
+    throw new Error(`body-statement \`assign op=\` does not support \`${rawOp}\`.`);
   }
   const targetIR = parseExpression(String(rawTarget));
   if (!isAssignableTarget(targetIR)) {
@@ -428,7 +447,7 @@ function emitAssignTS(node: IRNode, _ctx: BodyEmitContext): string[] {
       `Propagation \`${valueIR.op}\` is not supported in \`assign value=\` — bind to \`let\` first, then assign.`,
     );
   }
-  return [`${emitExpression(targetIR)} = ${emitExpression(valueIR)};`];
+  return [`${emitExpression(targetIR)} ${rawOp} ${emitExpression(valueIR)};`];
 }
 
 function isAssignableTarget(node: ValueIR): boolean {
@@ -453,9 +472,10 @@ function emitDestructureTS(node: IRNode, ctx: BodyEmitContext): string[] {
   }
   const pattern = formatBodyDestructurePattern(node);
   const kind = props.kind === 'let' ? 'let' : 'const';
+  const typeAnn = props.type ? `: ${emitTypeAnnotation(String(props.type), 'unknown', node)}` : '';
   const sourceIR = parseExpression(String(rawSource));
   if (sourceIR.kind === 'propagate' && sourceIR.op === '?') rejectPropagationInsideTry(ctx);
-  return [`${kind} ${pattern} = ${emitExpression(sourceIR)};`];
+  return [`${kind} ${pattern}${typeAnn} = ${emitExpression(sourceIR)};`];
 }
 
 function formatBodyDestructurePattern(node: IRNode): string {

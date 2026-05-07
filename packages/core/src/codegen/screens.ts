@@ -512,6 +512,9 @@ function generateEachJSX(node: IRNode): string[] {
   if (props.await === true || props.await === 'true') {
     throw new KernCodegenError('each await=true is only valid in statement/native-body context, not render JSX', node);
   }
+  if (props.type !== undefined && props.type !== '') {
+    throw new KernCodegenError('each type= is only valid in statement/native-body context, not render JSX', node);
+  }
 
   const index = (props.index as string) || '__i';
   const rawKey = props.key;

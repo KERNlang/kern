@@ -15,6 +15,7 @@ import {
   exportPrefix,
   generateCoreNode,
   handlerCode,
+  KernCodegenError,
 } from '@kernlang/core';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -244,6 +245,9 @@ function generateReactEach(node: IRNode): string[] {
   const name = (props.name as string) || 'item';
   const collection = props.in as string;
   const index = props.index as string | undefined;
+  if (props.type !== undefined && props.type !== '') {
+    throw new KernCodegenError('each type= is only valid in statement/native-body context, not React JSX each', node);
+  }
 
   const lines: string[] = [];
   const paramStr = index ? `(${name}, ${index})` : `(${name})`;

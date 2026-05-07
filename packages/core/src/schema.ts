@@ -16,6 +16,7 @@
  *   - 'number'         → numeric value
  */
 
+import { isSupportedAssignOperator, SUPPORTED_ASSIGN_OPERATORS } from './assignment-operators.js';
 import { type KernTarget, VALID_TARGETS } from './config.js';
 import { defaultRuntime, type KernRuntime } from './runtime.js';
 import { KERN_VERSION, NODE_TYPES, STYLE_SHORTHANDS, VALUE_SHORTHANDS } from './spec.js';
@@ -536,7 +537,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     // Two shapes share this `try` node type:
     // 1. Async-orchestration: `try name=loadUser` with `step`/`handler`/`catch` children.
     // 2. Body-statement (slice 4c+4d, opt-in via parent `handler lang="kern"`):
-    //    `try` with `let`/`assign`/`return`/`if`/`throw`/`each`/`try` body-statement children
+    //    `try` with `let`/`assign`/`destructure`/`return`/`if`/`throw`/`each`/`try` body-statement children
     //    plus a required `catch` child. Schema permits both child sets;
     //    body-ts.ts disambiguates by inspecting the children, and validateBodyStatements
     //    enforces the body-statement-only constraints when the enclosing handler is `lang="kern"`.
@@ -547,6 +548,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'finally',
       'let',
       'assign',
+      'destructure',
       'do',
       'return',
       'if',
@@ -581,6 +583,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'handler',
       'let',
       'assign',
+      'destructure',
       'do',
       'return',
       'if',
@@ -1235,7 +1238,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   each: {
     description:
-      'Iteration — renders children for each item in a collection. Inside a render block emits `items.map(...)` with auto-key; elsewhere emits `for...of`. `let` children become iteration-scoped `const` bindings inside the callback (hook-safe, unlike `derive`). Three forms in body-statement position: (1) `each name=x in=xs` → `for (const x of xs)`; (2) `each name=x index=i in=xs` → `for (const [i, x] of xs.entries())`; (3) `each pairKey=k pairValue=v in=map` → `for (const [k, v] of map)` (TS) / `for k, v in map.items():` (Python). Add `await=true` for async iterables (`for await` / `async for`); it cannot be combined with `index=` and is rejected inside render JSX. Async pair-mode expects an async iterable of pairs, not a mapping (`async for k, v in stream`). In pair-mode `name` is optional. `key=` (render-only) is the React render key, distinct from `pairKey=`.',
+      'Iteration — renders children for each item in a collection. Inside a render block emits `items.map(...)` with auto-key; elsewhere emits `for...of`. `let` children become iteration-scoped `const` bindings inside the callback (hook-safe, unlike `derive`). Three forms in body-statement position: (1) `each name=x in=xs` → `for (const x of xs)`; (2) `each name=x index=i in=xs` → `for (const [i, x] of xs.entries())`; (3) `each pairKey=k pairValue=v in=map` → `for (const [k, v] of map)` (TS) / `for k, v in map.items():` (Python). Add `type=` to preserve a TS item binding annotation in body-statement form (`each name=x type=User in=users` → `for (const x: User of users)`). Add `await=true` for async iterables (`for await` / `async for`); it cannot be combined with `index=` and is rejected inside render JSX. Async pair-mode expects an async iterable of pairs, not a mapping (`async for k, v in stream`). In pair-mode `name` is optional. `key=` (render-only) is the React render key, distinct from `pairKey=`.',
     example:
       'each name=f in=files index=i key="f.path"\n  let name=isSel expr="focused && i === selIdx"\n  handler <<<\n    <Text bold={isSel}>{f.path}</Text>\n  >>>',
     props: {
@@ -1249,6 +1252,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       in: { required: true, kind: 'rawExpr' },
       index: { kind: 'identifier' },
       key: { kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
       pairKey: { kind: 'identifier' },
       pairValue: { kind: 'identifier' },
       await: { kind: 'boolean' },
@@ -1555,11 +1559,12 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   assign: {
     description:
-      'Body-statement assignment — emits `target = value` inside a `lang="kern"` handler body. Supports assignable targets only: identifier, member access, and index access. Compound assignment (`+=`) and increment/decrement are deliberately separate future features.',
-    example: 'assign target="user.name" value="nextName"',
+      'Body-statement assignment — emits `target = value` inside a `lang="kern"` handler body. Supports assignable targets only: identifier, member access, and index access. Add `op=` for target-native compound operators (`+=`, `-=`, `*=`, `/=`, `%=`, `**=`, `&=`, `|=`, `^=`, `<<=`, `>>=`). Compound assignment follows the target runtime model: `/=` may mutate Python int-like bindings to floats, `**=` has JS/Python edge-case differences, bitwise ops use JS int32 coercion on TS but arbitrary-precision integers on Python, and closure/global rebinding may require target-specific scoping (`nonlocal`/`global` in Python). JS-only logical/nullish/unsigned-right-shift assignment stays foreign/raw.',
+    example: 'assign target="user.name" value="nextName"\nassign target="count" op="+=" value="1"',
     props: {
       target: { required: true, kind: 'expression' },
       value: { required: true, kind: 'expression' },
+      op: { kind: 'string' },
     },
   },
   throw: {
@@ -2778,6 +2783,17 @@ function checkRequiredProps(node: IRNode, schema: NodeSchema, violations: Schema
 
 function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
   const props = node.props || {};
+  if (node.type === 'assign' && props.op !== undefined && props.op !== '') {
+    const op = String(props.op);
+    if (!isSupportedAssignOperator(op)) {
+      violations.push({
+        nodeType: 'assign',
+        message: `'assign op=' supports only ${SUPPORTED_ASSIGN_OPERATORS.map((v) => `\`${v}\``).join(', ')} (got \`${op}\`)`,
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+  }
   if (node.type === 'component' && !('ref' in props) && !('name' in props)) {
     violations.push({
       nodeType: 'component',
@@ -3090,7 +3106,9 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
     // `pairKey=` + `pairValue=` for `for (const [k, v] of m)`. Three rules:
     //   1. pairKey and pairValue come as a pair — neither alone is meaningful.
     //   2. pair-mode is incompatible with `index=` (entries-with-index form).
-    //   3. `name=` becomes optional in pair-mode (relaxes schema `required`).
+    //   3. pair-mode is incompatible with `type=` in this slice; type= annotates
+    //      the simple item binding, not the `[key, value]` tuple.
+    //   4. `name=` becomes optional in pair-mode (relaxes schema `required`).
     // Codex review-fix (2026-05-06, mid-build, confidence 0.91): use a strict
     // string check so malformed source like `pairKey: null` / `pairValue: 0`
     // is treated as ABSENT rather than as a truthy pair-mode declaration.
@@ -3102,6 +3120,7 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
     const hasPairKey = isPairProp(props.pairKey);
     const hasPairValue = isPairProp(props.pairValue);
     const hasIndex = isPairProp(props.index);
+    const hasType = isPairProp(props.type);
     const hasAwait = props.await === true || props.await === 'true';
     if (hasPairKey !== hasPairValue) {
       violations.push({
@@ -3115,6 +3134,14 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       violations.push({
         nodeType: 'each',
         message: "'each' pair-mode ('pairKey'+'pairValue') is mutually exclusive with 'index='",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasPairKey && hasPairValue && hasType) {
+      violations.push({
+        nodeType: 'each',
+        message: "'each' pair-mode ('pairKey'+'pairValue') is mutually exclusive with 'type='",
         line: node.loc?.line,
         col: node.loc?.col,
       });
