@@ -25,6 +25,7 @@ import { paramNameSwap } from './param-name-swap.js';
 import { requestValidationDrift } from './request-validation-drift.js';
 import { syncHandlerDoesIo } from './sync-handler-does-io.js';
 import { taintedAcrossWire } from './tainted-across-wire.js';
+import { trailingSlashDrift } from './trailing-slash-drift.js';
 import { unboundedCollectionQuery } from './unbounded-collection-query.js';
 import { unguardedEffect } from './unguarded-effect.js';
 import { unhandledApiErrorShape } from './unhandled-api-error-shape.js';
@@ -63,6 +64,7 @@ export const conceptRules: ConceptRule[] = [
   requestValidationDrift,
   syncHandlerDoesIo,
   taintedAcrossWire,
+  trailingSlashDrift,
   unboundedCollectionQuery,
   unguardedEffect,
   unhandledApiErrorShape,

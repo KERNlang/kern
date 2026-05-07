@@ -170,6 +170,149 @@ export function C({ onDone }: { onDone: () => void }) {
       expect(r.findings.find((f) => f.ruleId === 'usecallback-no-benefit')).toBeUndefined();
     });
   });
+
+  describe('unstable-deps-literal', () => {
+    it('flags inline object literal in useEffect deps', () => {
+      const src = `
+import { useEffect } from 'react';
+export function C({ userId }: { userId: string }) {
+  useEffect(() => { console.log(userId); }, [{ id: userId }]);
+  return null;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      const f = r.findings.find((x) => x.ruleId === 'unstable-deps-literal');
+      expect(f).toBeDefined();
+      expect(f!.message).toMatch(/object/);
+    });
+
+    it('flags inline array literal in useMemo deps', () => {
+      const src = `
+import { useMemo } from 'react';
+export function C({ a, b }: { a: number; b: number }) {
+  const total = useMemo(() => a + b, [[a, b]]);
+  return <span>{total}</span>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      const f = r.findings.find((x) => x.ruleId === 'unstable-deps-literal');
+      expect(f).toBeDefined();
+      expect(f!.message).toMatch(/array/);
+    });
+
+    it('flags inline arrow function in useCallback deps', () => {
+      const src = `
+import { useCallback } from 'react';
+export function C({ onSave }: { onSave: () => void }) {
+  const handle = useCallback(() => onSave(), [() => onSave()]);
+  return <button onClick={handle}>Save</button>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      const f = r.findings.find((x) => x.ruleId === 'unstable-deps-literal');
+      expect(f).toBeDefined();
+      expect(f!.message).toMatch(/function/);
+    });
+
+    it('does not flag normal identifiers in deps', () => {
+      const src = `
+import { useEffect } from 'react';
+export function C({ userId }: { userId: string }) {
+  useEffect(() => { console.log(userId); }, [userId]);
+  return null;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'unstable-deps-literal')).toBeUndefined();
+    });
+
+    it('does not flag property access in deps', () => {
+      const src = `
+import { useEffect } from 'react';
+export function C({ user }: { user: { id: string } }) {
+  useEffect(() => { console.log(user.id); }, [user.id]);
+  return null;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'unstable-deps-literal')).toBeUndefined();
+    });
+  });
+
+  describe('usememo-primitive-cheap', () => {
+    it('flags useMemo wrapping a primitive sum', () => {
+      const src = `
+import { useMemo } from 'react';
+export function C({ a, b }: { a: number; b: number }) {
+  const total = useMemo(() => a + b, [a, b]);
+  return <span>{total}</span>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'usememo-primitive-cheap')).toBeDefined();
+    });
+
+    it('flags useMemo wrapping a property read like list.length', () => {
+      const src = `
+import { useMemo } from 'react';
+export function C({ list }: { list: number[] }) {
+  const len = useMemo(() => list.length, [list]);
+  return <span>{len}</span>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'usememo-primitive-cheap')).toBeDefined();
+    });
+
+    it('flags useMemo wrapping a comparison', () => {
+      const src = `
+import { useMemo } from 'react';
+export function C({ x }: { x: number }) {
+  const positive = useMemo(() => x > 0, [x]);
+  return <span>{positive ? 'y' : 'n'}</span>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'usememo-primitive-cheap')).toBeDefined();
+    });
+
+    it('does not flag useMemo wrapping array.filter().map()', () => {
+      const src = `
+import { useMemo } from 'react';
+export function C({ list }: { list: number[] }) {
+  const result = useMemo(() => list.filter((x) => x > 0).map((x) => x * 2), [list]);
+  return <span>{result.length}</span>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'usememo-primitive-cheap')).toBeUndefined();
+    });
+
+    it('does not flag useMemo wrapping a function call', () => {
+      const src = `
+import { useMemo } from 'react';
+declare const heavy: (n: number) => number;
+export function C({ x }: { x: number }) {
+  const v = useMemo(() => heavy(x), [x]);
+  return <span>{v}</span>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'usememo-primitive-cheap')).toBeUndefined();
+    });
+
+    it('does not flag useMemo wrapping object/array allocation (stability use case)', () => {
+      const src = `
+import { useMemo } from 'react';
+export function C({ a, b }: { a: number; b: number }) {
+  const opts = useMemo(() => ({ a, b }), [a, b]);
+  return <span>{opts.a}</span>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'usememo-primitive-cheap')).toBeUndefined();
+    });
+  });
 });
 
 describe('Boundary gate — hook rules skip server/api files', () => {
