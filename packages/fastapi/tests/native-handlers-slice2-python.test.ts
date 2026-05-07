@@ -185,6 +185,32 @@ describe('emitPyExpression — literals', () => {
   });
 });
 
+describe('emitPyExpression — index access', () => {
+  test('array index access', () => {
+    expect(emitPyExpression(parseExpression('items[0]'))).toBe('items[0]');
+  });
+
+  test('computed object key access', () => {
+    expect(emitPyExpression(parseExpression('record[key]'))).toBe('record[key]');
+  });
+
+  test('index access composes with member and call chains', () => {
+    expect(emitPyExpression(parseExpression('items[0].name'))).toBe('items[0].name');
+    expect(emitPyExpression(parseExpression('load()[idx]'))).toBe('load()[idx]');
+  });
+
+  test('index receiver wraps lower-precedence expression', () => {
+    expect(emitPyExpression(parseExpression('(a || b)[0]'))).toBe('(a or b)[0]');
+    expect(emitPyExpression(parseExpression('(c ? a : b)[0]'))).toBe('(a if c else b)[0]');
+    expect(emitPyExpression(parseExpression('(await load())[0]'))).toBe('(await load())[0]');
+  });
+
+  test('nested and string-literal index access', () => {
+    expect(emitPyExpression(parseExpression('matrix[0][1]'))).toBe('matrix[0][1]');
+    expect(emitPyExpression(parseExpression('obj["key"]'))).toBe('obj["key"]');
+  });
+});
+
 describe('emitPyExpression — type assertions', () => {
   test('TS-style as-expression erases to the underlying expression', () => {
     expect(emitPyExpression(parseExpression('params.filePath as string'))).toBe('params.filePath');

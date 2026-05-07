@@ -1,9 +1,9 @@
 /** Expression-mode tokenizer + recursive-descent parser producing ValueIR.
  *  Supports: identifiers, literals (number/string/true/false/null/undefined/none),
- *  member access (. and ?.), call (() and ?.()), spread (...), logical ?? || &&,
- *  parenthesized grouping, template literals with ${...} interpolation,
- *  `await` prefix, TS-style `as Type` assertion nodes, propagation `?`
- *  postfix on call/await-call.
+ *  member access (. and ?.), index access ([]), call (() and ?.()), spread
+ *  (...), logical ?? || &&, parenthesized grouping, template literals with
+ *  ${...} interpolation, `await` prefix, TS-style `as Type` assertion nodes,
+ *  propagation `?` postfix on call/await-call.
  *
  *  `none` is a KERN-side alias for `null` — both produce nullLit. Per native-handler
  *  spec, `none` is the canonical empty-value form in `lang=kern` bodies; `null` is
@@ -724,6 +724,11 @@ class Parser {
         const args = this.parseArgs();
         this.expect('rparen');
         node = { kind: 'call', callee: node, args, optional: false };
+      } else if (t.kind === 'lbracket') {
+        this.advance();
+        const index = this.parseConditional();
+        this.expect('rbracket');
+        node = { kind: 'index', object: node, index };
       } else {
         break;
       }

@@ -219,6 +219,41 @@ describe('parseExpression + emitExpression — literals', () => {
   });
 });
 
+describe('parseExpression + emitExpression — index access', () => {
+  test('array index access', () => {
+    expect(emitExpression(parseExpression('items[0]'))).toBe('items[0]');
+  });
+
+  test('computed object key access', () => {
+    expect(emitExpression(parseExpression('record[key]'))).toBe('record[key]');
+  });
+
+  test('index access composes with member and call chains', () => {
+    expect(emitExpression(parseExpression('items[0].name'))).toBe('items[0].name');
+    expect(emitExpression(parseExpression('load()[idx]'))).toBe('load()[idx]');
+  });
+
+  test('index receiver wraps lower-precedence expression', () => {
+    expect(emitExpression(parseExpression('(a || b)[0]'))).toBe('(a || b)[0]');
+    expect(emitExpression(parseExpression('(c ? a : b)[0]'))).toBe('(c ? a : b)[0]');
+    expect(emitExpression(parseExpression('(await load())[0]'))).toBe('(await load())[0]');
+  });
+
+  test('member receiver wraps lower-precedence expression', () => {
+    expect(emitExpression(parseExpression('(c ? a : b).field'))).toBe('(c ? a : b).field');
+    expect(emitExpression(parseExpression('(await load()).field'))).toBe('(await load()).field');
+  });
+
+  test('nested and string-literal index access', () => {
+    expect(emitExpression(parseExpression('matrix[0][1]'))).toBe('matrix[0][1]');
+    expect(emitExpression(parseExpression('obj["key"]'))).toBe('obj["key"]');
+  });
+
+  test('optional element access is not supported yet', () => {
+    expect(() => parseExpression('arr?.[i]')).toThrow(/Expected ident/);
+  });
+});
+
 describe('parseExpression + emitExpression — type assertions', () => {
   test('simple as-expression preserves TS assertion', () => {
     expect(emitExpression(parseExpression('params.filePath as string'))).toBe('params.filePath as string');

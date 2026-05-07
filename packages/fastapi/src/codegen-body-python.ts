@@ -592,6 +592,11 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       const lowered = lowerMemberOrCall(node, ctx);
       return wrapGuardIfAny(lowered);
     }
+    case 'index': {
+      const obj = emitPyExprCtx(node.object, ctx);
+      const wrapped = needsIndexReceiverParens(node.object) ? `(${obj})` : obj;
+      return `${wrapped}[${emitPyExprCtx(node.index, ctx)}]`;
+    }
     case 'await':
       return `await ${emitPyExprCtx(node.argument, ctx)}`;
     case 'new':
@@ -790,6 +795,17 @@ function lowerMemberOrCall(node: MemberOrCall, ctx: BodyEmitContext): GuardedExp
 
 function wrapGuardIfAny(g: GuardedExpr): string {
   return g.guard === null ? g.expr : `(${g.expr} if ${g.guard} else None)`;
+}
+
+function needsIndexReceiverParens(child: ValueIR): boolean {
+  return (
+    child.kind === 'binary' ||
+    child.kind === 'conditional' ||
+    child.kind === 'unary' ||
+    child.kind === 'spread' ||
+    child.kind === 'typeAssert' ||
+    child.kind === 'await'
+  );
 }
 
 /** Slice 3d (review fix) — receiver-purity walk for the optional-chain

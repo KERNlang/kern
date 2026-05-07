@@ -66,6 +66,11 @@ export function emitExpression(node: ValueIR): string {
       const wrapped = needsReceiverParens(node.object) ? `(${obj})` : obj;
       return `${wrapped}${node.optional ? '?.' : '.'}${node.property}`;
     }
+    case 'index': {
+      const obj = emitExpression(node.object);
+      const wrapped = needsReceiverParens(node.object) ? `(${obj})` : obj;
+      return `${wrapped}[${emitExpression(node.index)}]`;
+    }
     case 'call': {
       // Slice 2a — KERN-stdlib dispatch. When the callee is `Module.method`
       // and `Module` is a known stdlib module, route through the per-target
@@ -167,7 +172,14 @@ function needsParens(child: ValueIR, parentOp: string, side: 'left' | 'right'): 
 }
 
 function needsReceiverParens(child: ValueIR): boolean {
-  return child.kind === 'binary' || child.kind === 'unary' || child.kind === 'spread' || child.kind === 'typeAssert';
+  return (
+    child.kind === 'binary' ||
+    child.kind === 'unary' ||
+    child.kind === 'spread' ||
+    child.kind === 'typeAssert' ||
+    child.kind === 'conditional' ||
+    child.kind === 'await'
+  );
 }
 
 function needsTypeAssertionParens(child: ValueIR): boolean {

@@ -179,6 +179,22 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(result.output).toContain('return value="p"');
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
+
+  test('migrates indexed access inside expressions', () => {
+    const source = [
+      'fn name=first returns=string',
+      '  handler <<<',
+      '    const first = items[0];',
+      '    return first;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('let name=first value="items[0]"');
+    expect(result.output).toContain('return value="first"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
 });
 
 describe('rewriteNativeHandlers — bail conditions', () => {
@@ -685,5 +701,22 @@ describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalenc
     const ts = emitNativeKernBodyTS(handler as IRNode);
     expect(ts).toContain('const p = params.filePath as string;');
     expect(ts).toContain('return { role: "user" as const, p: p };');
+  });
+
+  test('indexed access compiles byte-equivalent through ValueIR index', () => {
+    const source = [
+      'fn name=first returns=string',
+      '  handler <<<',
+      '    const first = items[0];',
+      '    return users[first].name;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toContain('const first = items[0];');
+    expect(ts).toContain('return users[first].name;');
   });
 });
