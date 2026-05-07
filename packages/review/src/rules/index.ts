@@ -801,6 +801,24 @@ const REGISTRY: RuleInfo[] = [
     precision: 'experimental',
     rolloutPhase: 3,
   },
+  {
+    id: 'nondeterministic-in-render',
+    layer: 'perf',
+    severity: 'warning',
+    description:
+      'Date.now / Math.random / crypto.randomUUID / new Date() called in component render path — defeats memoization and breaks SSR hydration',
+    precision: 'high',
+    rolloutPhase: 5,
+  },
+  {
+    id: 'regex-literal-in-render',
+    layer: 'perf',
+    severity: 'info',
+    description:
+      'RegExp literal in render path — recompiled every render, defeats memoization for downstream consumers',
+    precision: 'medium',
+    rolloutPhase: 5,
+  },
 
   // CLI (target: cli)
   {

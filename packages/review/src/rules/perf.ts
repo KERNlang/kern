@@ -172,6 +172,213 @@ function largeListNoVirtualization(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Render-path classifier (shared) ─────────────────────────────────────
+// True when a node sits in the synchronous render path of a React component:
+// inside a component function body but NOT inside a hook callback, lazy
+// initializer, JSX event handler, or async timer. The whitelist is
+// intentionally generous — a "render-path" finding only fires when we can
+// prove the node is reached on every render.
+
+const HOOK_AND_TIMER_GATES = new Set([
+  'useEffect',
+  'useLayoutEffect',
+  'useCallback',
+  'useMemo',
+  'useReducer',
+  'useTransition',
+  'useDeferredValue',
+  'useState', // lazy initializer
+  'useRef', // lazy initializer (rare but valid)
+  'setTimeout',
+  'setInterval',
+  'queueMicrotask',
+  'requestAnimationFrame',
+  'requestIdleCallback',
+]);
+
+function nodeIsRenderPath(node: Node): boolean {
+  let cur: Node | undefined = node;
+  let foundComponentBoundary = false;
+  while (cur) {
+    // 1. Function-like ancestor — check whether it's a hook callback / event handler
+    if (Node.isArrowFunction(cur) || Node.isFunctionExpression(cur)) {
+      const parent: Node | undefined = cur.getParent();
+      if (parent && Node.isCallExpression(parent)) {
+        const callee = parent.getExpression().getText();
+        const name = callee.includes('.') ? callee.split('.').pop() : callee;
+        if (name && HOOK_AND_TIMER_GATES.has(name)) {
+          if (parent.getArguments().includes(cur)) return false;
+        }
+      }
+      // JSX onXxx attribute → event handler
+      if (parent && Node.isJsxExpression(parent)) {
+        const grand = parent.getParent();
+        if (grand && Node.isJsxAttribute(grand)) {
+          const attrName = grand.getNameNode().getText();
+          if (attrName.startsWith('on') && attrName.length > 2 && /^[A-Z]/.test(attrName.charAt(2))) {
+            return false;
+          }
+        }
+      }
+    } else if (Node.isFunctionDeclaration(cur)) {
+      const fnName = cur.getName();
+      if (fnName && /^[A-Z]/.test(fnName)) foundComponentBoundary = true;
+      // A non-component named function passed as a hook callback would have been caught above
+    } else if (Node.isVariableDeclaration(cur)) {
+      const nameNode = cur.getNameNode();
+      if (Node.isIdentifier(nameNode) && /^[A-Z]/.test(nameNode.getText())) {
+        const init = cur.getInitializer();
+        if (init && (Node.isArrowFunction(init) || Node.isFunctionExpression(init))) {
+          foundComponentBoundary = true;
+        }
+      }
+    }
+    cur = cur.getParent();
+  }
+  return foundComponentBoundary;
+}
+
+// ── Rule: nondeterministic-in-render ────────────────────────────────────
+// Date.now() / new Date() / Math.random() / crypto.randomUUID() / performance.now()
+// in the render path defeats memoization (every render gets a new value),
+// breaks hydration in SSR, and produces unstable keys/IDs. The fix is to
+// move the call into useState/useMemo/useEffect or hoist it out of render.
+
+const NONDETERMINISTIC_PROPERTY_CALLS = new Set([
+  'Date.now',
+  'Math.random',
+  'crypto.randomUUID',
+  'crypto.getRandomValues',
+  'performance.now',
+]);
+
+function nondeterministicInRender(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+  const reportedLines = new Set<number>(); // dedup multiple matches on the same line
+
+  // Property-call form: Date.now(), Math.random(), crypto.randomUUID(), performance.now()
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    let label: string | undefined;
+    if (Node.isPropertyAccessExpression(callee)) {
+      const text = callee.getText();
+      if (NONDETERMINISTIC_PROPERTY_CALLS.has(text)) label = `${text}()`;
+    }
+    if (!label) continue;
+    if (!nodeIsRenderPath(call)) continue;
+
+    const line = call.getStartLineNumber();
+    const dedupKey = line * 100 + call.getStart();
+    if (reportedLines.has(dedupKey)) continue;
+    reportedLines.add(dedupKey);
+
+    findings.push(
+      finding(
+        'nondeterministic-in-render',
+        'warning',
+        'bug',
+        `${label} called in component render path — produces a new value every render, defeats memoization, and breaks SSR hydration`,
+        ctx.filePath,
+        line,
+        1,
+        {
+          suggestion: `Move the call into useState's lazy initializer (useState(() => ${label})) for a per-mount value, useMemo for a derived stable value, or useEffect for a per-mount side effect`,
+        },
+      ),
+    );
+  }
+
+  // `new Date()` with no args — same hazard as Date.now() but distinct AST shape.
+  for (const newExpr of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.NewExpression)) {
+    const ctor = newExpr.getExpression();
+    if (!Node.isIdentifier(ctor) || ctor.getText() !== 'Date') continue;
+    if (newExpr.getArguments().length > 0) continue; // new Date(timestamp) is deterministic
+    if (!nodeIsRenderPath(newExpr)) continue;
+
+    const line = newExpr.getStartLineNumber();
+    const dedupKey = line * 100 + newExpr.getStart();
+    if (reportedLines.has(dedupKey)) continue;
+    reportedLines.add(dedupKey);
+
+    findings.push(
+      finding(
+        'nondeterministic-in-render',
+        'warning',
+        'bug',
+        '`new Date()` (no args) called in component render path — produces a new value every render, defeats memoization, and breaks SSR hydration',
+        ctx.filePath,
+        line,
+        1,
+        {
+          suggestion:
+            'Move it into useState lazy init (useState(() => new Date())), useMemo with stable deps, or useEffect for a per-mount side effect',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+// ── Rule: regex-literal-in-render ───────────────────────────────────────
+// `/pattern/g` literal sitting in the render path is recompiled and gets a
+// new identity every render. Harmful when it is passed as a prop to a
+// memoized child (defeats memo) or used inside .replace/.match in a hot
+// loop (recompile cost). Fires conservatively — only when the regex is
+// actually used in a call (str.replace, str.match, etc.) or referenced as
+// a JSX attribute value.
+
+function regexLiteralInRender(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const re of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.RegularExpressionLiteral)) {
+    if (!nodeIsRenderPath(re)) continue;
+
+    // Only fire when the literal is used in a "hot" position:
+    //   1) argument to .replace/.match/.test/.exec
+    //   2) JSX attribute value
+    let isHotUse = false;
+    const parent = re.getParent();
+    if (parent && Node.isCallExpression(parent)) {
+      const callee = parent.getExpression();
+      if (Node.isPropertyAccessExpression(callee)) {
+        const method = callee.getName();
+        if (method === 'replace' || method === 'replaceAll' || method === 'match' || method === 'matchAll') {
+          isHotUse = true;
+        }
+      }
+    } else if (parent && Node.isJsxExpression(parent)) {
+      const grand = parent.getParent();
+      if (grand && Node.isJsxAttribute(grand)) isHotUse = true;
+    }
+    if (!isHotUse) continue;
+
+    findings.push(
+      finding(
+        'regex-literal-in-render',
+        'info',
+        'pattern',
+        'RegExp literal sits in the render path — it is recompiled every render and gets a new identity, defeating memoized children that receive it as a prop',
+        ctx.filePath,
+        re.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'Hoist the regex literal to module scope (or wrap in useMemo with stable deps) so it is constructed once and shared across renders',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
 // ── Exported perf rules ──────────────────────────────────────────────────
 
-export const perfRules = [imageNoLazy, heavyComputationInRender, largeListNoVirtualization];
+export const perfRules = [
+  imageNoLazy,
+  heavyComputationInRender,
+  largeListNoVirtualization,
+  nondeterministicInRender,
+  regexLiteralInRender,
+];
