@@ -318,7 +318,8 @@ function mapForOf(stmt: ts.ForOfStatement, source: ts.SourceFile, indent: string
   const decl = decls[0];
   if (!ts.isIdentifier(decl.name)) return null;
   if (decl.initializer) return null;
-  if (decl.type) return null;
+  const typeText = decl.type?.getText(source);
+  if (typeText && !isValidKernTypeAnnotation(typeText)) return null;
   if (!ts.isBlock(stmt.statement)) return null;
   if (stmt.statement.statements.length === 0) return null;
 
@@ -327,7 +328,10 @@ function mapForOf(stmt: ts.ForOfStatement, source: ts.SourceFile, indent: string
 
   const innerIndent = indent + INDENT_STEP;
   const awaitAttr = stmt.awaitModifier ? ' await=true' : '';
-  const out: string[] = [`${indent}each name=${decl.name.text} in="${escapeKernString(collectionText)}"${awaitAttr}`];
+  const typeAttr = typeText ? ` type="${escapeKernString(typeText)}"` : '';
+  const out: string[] = [
+    `${indent}each name=${decl.name.text} in="${escapeKernString(collectionText)}"${typeAttr}${awaitAttr}`,
+  ];
   const bodyLines = mapBranch(stmt.statement, source, innerIndent, { ...ctx, loopDepth: ctx.loopDepth + 1 });
   if (bodyLines === null) return null;
   out.push(...bodyLines);

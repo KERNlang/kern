@@ -204,7 +204,7 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
     const decl = decls[0];
     if (!ts.isIdentifier(decl.name)) return 'for-of-destructure';
     if (decl.initializer) return 'for-of-init';
-    if (decl.type) return 'for-of-typed';
+    if (decl.type && !isValidKernTypeAnnotation(decl.type.getText(sf))) return 'for-of-bad-type';
     if (!isValidKernExpression(stmt.expression.getText(sf))) return 'for-of-bad-expr';
     // Only block-shaped loops are currently migratable. `each` always emits
     // braces, so migrating `for (const x of xs) do(x);` would drift under

@@ -647,6 +647,7 @@ export function decompile(root: IRNode): DecompileResult {
 
   function renderEach(node: IRNode, indent: string): void {
     const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
     const rawIn = props.in;
     const inExpr =
       rawIn && typeof rawIn === 'object' && (rawIn as ExprObject).__expr
@@ -681,6 +682,7 @@ export function decompile(root: IRNode): DecompileResult {
 
     const parts: string[] = [`each name=${name}`, `in=${JSON.stringify(inExpr)}`];
     if (index) parts.push(`index=${index}`);
+    if (props.type !== undefined) parts.push(renderScalarProp('type', props.type, quoted));
     if (isAwait) parts.push('await=true');
     if (keyExpr) parts.push(`key=${JSON.stringify(keyExpr)}`);
     lines.push(`${indent}${parts.join(' ')}`);

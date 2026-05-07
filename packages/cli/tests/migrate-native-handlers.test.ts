@@ -115,6 +115,24 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
+  test('migrates typed for-of block to typed each body-statement', () => {
+    const source = [
+      'fn name=notify returns=void',
+      '  handler <<<',
+      '    for (const user: User | null of users) {',
+      '      notify(user);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toContain('each name=user in="users" type="User | null"');
+    expect(result.output).toContain('do value="notify(user)"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
   test('migrates for-await-of block to async each body-statement', () => {
     const source = [
       'fn name=notify returns=void async=true',
@@ -130,6 +148,24 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(result.hits).toHaveLength(1);
     expect(result.output).toContain('handler lang="kern"');
     expect(result.output).toContain('each name=event in="events" await=true');
+    expect(result.output).toContain('do value="await notify(event)"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates typed for-await-of block to typed async each body-statement', () => {
+    const source = [
+      'fn name=notify returns=void async=true',
+      '  handler <<<',
+      '    for await (const event: Event of events) {',
+      '      await notify(event);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toContain('each name=event in="events" type="Event" await=true');
     expect(result.output).toContain('do value="await notify(event)"');
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
@@ -638,6 +674,32 @@ describe('rewriteNativeHandlers — bail conditions', () => {
     expect(result.hits).toHaveLength(0);
   });
 
+  test('bails on for-of with unsafe type annotation', () => {
+    const source = [
+      'fn name=ok returns=void',
+      '  handler <<<',
+      '    for (const user: typeof import("fs") of users) {',
+      '      notify(user);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+  });
+
+  test('typed for-of still bails on unsupported body mutation', () => {
+    const source = [
+      'fn name=ok returns=void',
+      '  handler <<<',
+      '    for (const user: User of users) {',
+      '      count += 1;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+  });
+
   test('bails on typed destructuring with unsafe type annotation', () => {
     const source = [
       'fn name=ok returns=number',
@@ -981,6 +1043,40 @@ describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalenc
     expect(ts).toContain('  notify(user);');
     expect(ts).toContain('}');
     expect(ts).toContain('return;');
+  });
+
+  test('typed for-of block compiles byte-equivalent through each body-statement', () => {
+    const source = [
+      'fn name=notify returns=void',
+      '  handler <<<',
+      '    for (const user: User | null of users) {',
+      '      notify(user);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(['for (const user: User | null of users) {', '  notify(user);', '}'].join('\n'));
+  });
+
+  test('typed for-await-of block compiles byte-equivalent through each body-statement', () => {
+    const source = [
+      'fn name=notify returns=void async=true',
+      '  handler <<<',
+      '    for await (const event: Event of events) {',
+      '      await notify(event);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(['for await (const event: Event of events) {', '  await notify(event);', '}'].join('\n'));
   });
 
   test('while block compiles through while body-statement', () => {

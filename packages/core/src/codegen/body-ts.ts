@@ -246,20 +246,28 @@ function emitChildrenTS(children: IRNode[], ctx: BodyEmitContext, indent: string
       const pairValue = child.props?.pairValue;
       const isAwait = child.props?.await === true || child.props?.await === 'true';
       const awaitPrefix = isAwait ? ' await' : '';
+      const rawItemType = child.props?.type;
       if (pairKey && pairValue) {
+        if (rawItemType !== undefined && rawItemType !== '') {
+          throw new Error('body-statement `each type=` cannot be combined with pair-mode `pairKey=`/`pairValue=`.');
+        }
         lines.push(
           `${indent}for${awaitPrefix} (const [${String(pairKey)}, ${String(pairValue)}] of ${emitExpression(listIR)}) {`,
         );
       } else if (child.props?.index) {
+        const itemType = rawItemType ? emitTypeAnnotation(String(rawItemType), 'unknown', child) : '';
         const idxName = String(child.props.index);
         const asName = String(child.props?.name ?? child.props?.as ?? 'item');
         if (isAwait) {
           throw new Error('body-statement `each await=true` cannot be combined with `index=`.');
         }
-        lines.push(`${indent}for (const [${idxName}, ${asName}] of (${emitExpression(listIR)}).entries()) {`);
+        const typeAnn = itemType ? `: [number, ${itemType}]` : '';
+        lines.push(`${indent}for (const [${idxName}, ${asName}]${typeAnn} of (${emitExpression(listIR)}).entries()) {`);
       } else {
+        const itemType = rawItemType ? emitTypeAnnotation(String(rawItemType), 'unknown', child) : '';
         const asName = String(child.props?.name ?? child.props?.as ?? 'item');
-        lines.push(`${indent}for${awaitPrefix} (const ${asName} of ${emitExpression(listIR)}) {`);
+        const typeAnn = itemType ? `: ${itemType}` : '';
+        lines.push(`${indent}for${awaitPrefix} (const ${asName}${typeAnn} of ${emitExpression(listIR)}) {`);
       }
       for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
       lines.push(`${indent}}`);

@@ -94,6 +94,17 @@ describe('classifyHandlerBody — slice 4d additions are now eligible', () => {
     expect(result).toEqual({ eligible: true, reason: 'ok' });
   });
 
+  test('typed for-of block is eligible when the annotation is safe', () => {
+    expect(classifyHandlerBody(`for (const user: User | null of users) {\n  notify(user);\n}`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+    expect(classifyHandlerBody(`for await (const event: Event of events) {\n  await notify(event);\n}`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
   test('for-await-of with unsupported body is rejected by inner reason', () => {
     const body = `for await (const x of xs) {\n  x++;\n}`;
     const result = classifyHandlerBody(body);
@@ -197,6 +208,9 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
 
   test('for-of destructured binding rejected until each supports patterns', () =>
     rejected(`for (const [k, v] of pairs) {\n  use(k, v);\n}`, 'for-of-destructure'));
+
+  test('for-of with unsafe type annotation rejected', () =>
+    rejected(`for (const user: typeof import("fs") of users) {\n  notify(user);\n}`, 'for-of-bad-type'));
 
   test('for-of with mutation body rejected by inner reason', () =>
     rejected(`for (const x of xs) {\n  y += x;\n}\nreturn y;`, 'expr-stmt-assignment'));

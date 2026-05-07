@@ -126,6 +126,36 @@ describe('semantic-validator — no-derive-inside-render-each', () => {
   });
 });
 
+describe('semantic-validator — each type= is body-statement only', () => {
+  it('flags type= on each inside a render block because JSX codegen drops it', () => {
+    const screen = mk('screen', { name: 'Bad', target: 'ink' }, [
+      mk('render', {}, [
+        mk('each', { name: 'user', in: 'users', type: 'User' }, [mk('handler', { code: '<Text />' })]),
+      ]),
+    ]);
+    const violations = validateSemantics(screen);
+    expect(violations.some((v) => v.rule === 'each-type-body-stmt-only')).toBe(true);
+  });
+
+  it('core render codegen throws if validation is bypassed for type=', () => {
+    const screen = mk('screen', { name: 'Bad', target: 'ink' }, [
+      mk('prop', { name: 'users', type: 'User[]' }),
+      mk('render', {}, [
+        mk('each', { name: 'user', in: 'users', type: 'User' }, [mk('handler', { code: '<Text>{user.name}</Text>' })]),
+      ]),
+    ]);
+    expect(() => generateCoreNode(screen)).toThrow(/each type=.*render JSX/);
+  });
+
+  it('does NOT flag type= on statement-position each', () => {
+    const node = mk('fn', { name: 'compute' }, [
+      mk('handler', { lang: 'kern' }, [mk('each', { name: 'user', in: 'users', type: 'User' }, [])]),
+    ]);
+    const violations = validateSemantics(node);
+    expect(violations.some((v) => v.rule === 'each-type-body-stmt-only')).toBe(false);
+  });
+});
+
 describe('decompiler — each canonical grammar', () => {
   it('emits canonical `each name=X in="Y"` instead of debug shape', () => {
     const node = mk('each', { name: 'item', in: 'items' });
@@ -146,6 +176,16 @@ describe('decompiler — each canonical grammar', () => {
     const { code } = decompile(node);
     expect(code).toContain('index=i');
     expect(code).toContain('key="item.id"');
+  });
+
+  it('includes bare type= when it is a simple identifier', () => {
+    const node = mk('each', {
+      name: 'user',
+      in: 'users',
+      type: 'User',
+    });
+    const { code } = decompile(node);
+    expect(code).toContain('type=User');
   });
 
   it('includes await=true when set', () => {
@@ -177,6 +217,34 @@ describe('decompiler — each canonical grammar', () => {
     const reparsedEach = reparsed.type === 'each' ? reparsed : reparsed.children?.find((c) => c.type === 'each');
     expect(reparsedEach).toBeDefined();
     expect((reparsedEach as IRNode).props?.name).toBe('item');
+  });
+
+  it('round-trips typed each with quoted type annotation', () => {
+    const src = 'each name=user in=users type="User | null"';
+    const ast = parse(src);
+    const eachNode = ast.type === 'each' ? ast : ast.children?.find((c) => c.type === 'each');
+    expect(eachNode).toBeDefined();
+
+    const { code: decompiled } = decompile(eachNode as IRNode);
+    expect(decompiled).toContain('type="User | null"');
+
+    const reparsed = parse(decompiled);
+    const reparsedEach = reparsed.type === 'each' ? reparsed : reparsed.children?.find((c) => c.type === 'each');
+    expect((reparsedEach as IRNode).props?.type).toBe('User | null');
+  });
+
+  it('round-trips typed index each through parse and decompile', () => {
+    const src = 'each name=user in=users index=i type=User';
+    const ast = parse(src);
+    const eachNode = ast.type === 'each' ? ast : ast.children?.find((c) => c.type === 'each');
+    const { code: decompiled } = decompile(eachNode as IRNode);
+    expect(decompiled).toContain('index=i');
+    expect(decompiled).toContain('type=User');
+
+    const reparsed = parse(decompiled);
+    const reparsedEach = reparsed.type === 'each' ? reparsed : reparsed.children?.find((c) => c.type === 'each');
+    expect((reparsedEach as IRNode).props?.index).toBe('i');
+    expect((reparsedEach as IRNode).props?.type).toBe('User');
   });
 });
 
