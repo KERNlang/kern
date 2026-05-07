@@ -218,11 +218,29 @@ export function runTSCDiagnostics(
       //   ts2580 / ts2591 — "Cannot find name 'process'/'require'/'module'. Install @types/node?"
       //     (TS emits 2580 when the name resolves via global lib shims, 2591 when it doesn't —
       //     both point at the same user-side remedy, both are environmental from review's POV.)
+      //   ts2304 / ts2552 with a Node-global name — same class as 2580/2591, but TS only emits
+      //     the Install-@types/node hint for a small denylist of names. URL, URLSearchParams,
+      //     __dirname, __filename, Buffer, NodeJS, AbortController, etc. fail through 2304/2552
+      //     instead. kern-guard runs review on shallow-cloned repos with no node_modules — the
+      //     same root cause as 2580/2591 but a much wider FP surface (kern-sight PR #7 hit it
+      //     on plain `let url: URL`). Suppress when the missing name matches a known
+      //     @types/node-provided global; non-matching 2304/2552 still surface as type errors.
       const isLoadingNoise = code === 6059 || code === 6307;
       const isEnvironmentalNoise = code === 2792 || code === 17004 || code === 2580 || code === 2591;
+      // TS2503 ("Cannot find namespace 'X'") is the same class for type-position
+      // uses like `let x: NodeJS.Timeout` — the @types/node `NodeJS` namespace
+      // isn't reachable. TS2584 ("Cannot find name 'console'. Do you need to
+      // change your target library?") fires for `console` specifically and
+      // belongs in the same noise class. Both are environmental, gated on
+      // the same review-mode flag. Gemini + Codex caught these.
+      const isNodeGlobalUnresolved =
+        (code === 2304 || code === 2552 || code === 2503 || code === 2584) && isNodeGlobalCannotFindName(messageStr);
       if (
         options.downgradeProjectLoadingErrors &&
-        (isLoadingNoise || isEnvironmentalNoise || isReviewModeModuleResolutionNoise(code, messageStr, filePath))
+        (isLoadingNoise ||
+          isEnvironmentalNoise ||
+          isNodeGlobalUnresolved ||
+          isReviewModeModuleResolutionNoise(code, messageStr, filePath))
       ) {
         continue;
       }
@@ -250,6 +268,68 @@ export function runTSCDiagnostics(
   }
 
   return findings;
+}
+
+// Names provided as globals by @types/node. When a TS2304/TS2552 references
+// one of these, the missing-types diagnosis is the same as TS2580/TS2591
+// for `process`/`require`/`module` — @types/node isn't reachable, which is
+// expected when reviewing a shallow-cloned repo with no node_modules.
+//
+// The list deliberately stops at "names dev code commonly types directly".
+// More exotic Node globals (Worker, MessageChannel, etc.) typically appear
+// only in code that already imports them — leaving them out keeps real
+// usage errors visible.
+const NODE_GLOBAL_NAMES = new Set([
+  // URL / module-system globals
+  'URL',
+  'URLSearchParams',
+  '__dirname',
+  '__filename',
+  'Buffer',
+  'NodeJS',
+  // Modern Node globals — Node 18+ exposes `fetch`/Web-platform fetch types as globals
+  'fetch',
+  'Request',
+  'Response',
+  'Headers',
+  'FormData',
+  'Blob',
+  'File',
+  // Timers — return types depend on @types/node (`NodeJS.Timeout`)
+  'setTimeout',
+  'setInterval',
+  'clearTimeout',
+  'clearInterval',
+  'setImmediate',
+  'clearImmediate',
+  'queueMicrotask',
+  // Web crypto / encoding (global in Node 18+)
+  'crypto',
+  'TextEncoder',
+  'TextDecoder',
+  'atob',
+  'btoa',
+  // Abort & events
+  'AbortController',
+  'AbortSignal',
+  'Event',
+  'EventTarget',
+  // Misc
+  'performance',
+  'structuredClone',
+  'global',
+  'console',
+  'navigator',
+]);
+
+// True when a TS2304/TS2552/TS2503 message references one of the
+// @types/node-provided globals above. Handles both:
+//   - "Cannot find name 'X'." (TS2304 / TS2552 — value position)
+//   - "Cannot find namespace 'X'." (TS2503 — type position, e.g. `NodeJS.Timeout`)
+function isNodeGlobalCannotFindName(message: string): boolean {
+  const m = message.match(/^Cannot find (?:name|namespace) '([^']+)'\.?/);
+  if (!m) return false;
+  return NODE_GLOBAL_NAMES.has(m[1]);
 }
 
 function isReviewModeModuleResolutionNoise(code: number, message: string, importerFilePath: string): boolean {

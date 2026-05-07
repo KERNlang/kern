@@ -453,7 +453,11 @@ function extractEntrypoints(sf: SourceFile, filePath: string, nodes: ConceptNode
 
     const bodyFieldsInfo = handlerFn
       ? extractHandlerBodyFields(handlerFn)
-      : { fields: undefined as readonly string[] | undefined, resolved: false };
+      : {
+          fields: undefined as readonly string[] | undefined,
+          resolved: false,
+          types: undefined as FieldTypeMap | undefined,
+        };
     const routeAnalysis = handlerFn
       ? analyzeExpressRouteHandler(handlerFn, args, methodName.toUpperCase(), routePath)
       : EMPTY_ROUTE_ANALYSIS;
@@ -474,6 +478,7 @@ function extractEntrypoints(sf: SourceFile, filePath: string, nodes: ConceptNode
         handlerConceptId,
         bodyFields: bodyFieldsInfo.fields,
         bodyFieldsResolved: bodyFieldsInfo.resolved,
+        bodyFieldTypes: bodyFieldsInfo.types,
         errorStatusCodes: routeAnalysis.errorStatusCodes,
         hasUnboundedCollectionQuery: routeAnalysis.hasUnboundedCollectionQuery,
         hasDbWrite: routeAnalysis.hasDbWrite,
@@ -481,6 +486,7 @@ function extractEntrypoints(sf: SourceFile, filePath: string, nodes: ConceptNode
         hasBodyValidation: routeAnalysis.hasBodyValidation,
         validatedBodyFields: routeAnalysis.validatedBodyFields,
         bodyValidationResolved: routeAnalysis.bodyValidationResolved,
+        validatedBodyFieldTypes: routeAnalysis.validatedBodyFieldTypes,
       },
     });
   }
@@ -525,6 +531,7 @@ interface RouteHandlerAnalysis {
   hasBodyValidation?: boolean;
   validatedBodyFields?: readonly string[];
   bodyValidationResolved?: boolean;
+  validatedBodyFieldTypes?: FieldTypeMap;
 }
 
 type ExpressRouteHandlerFn =
@@ -561,6 +568,7 @@ function analyzeExpressRouteHandler(
     hasBodyValidation: validation.has,
     validatedBodyFields: validation.fields,
     bodyValidationResolved: validation.resolved,
+    validatedBodyFieldTypes: validation.types,
   };
 }
 
@@ -708,8 +716,14 @@ function isDbLikeReceiver(receiver: string): boolean {
 function extractExpressValidation(
   handlerFn: ExpressRouteHandlerFn,
   routeArgs: readonly import('ts-morph').Node[],
-): { has: boolean; fields: readonly string[] | undefined; resolved: boolean } {
+): {
+  has: boolean;
+  fields: readonly string[] | undefined;
+  resolved: boolean;
+  types: FieldTypeMap | undefined;
+} {
   const fields = new Set<string>();
+  const types: Record<string, FieldTypeTag> = {};
   let hasValidation = false;
   let resolved = false;
 
@@ -732,9 +746,23 @@ function extractExpressValidation(
     if (!schemaCallValidatesRequestBody(call)) continue;
     const arg = call.getArguments()[0];
     if (!arg || arg.getKind() !== SyntaxKind.ObjectLiteralExpression) continue;
-    const extracted = extractLiteralObjectFields(arg as import('ts-morph').ObjectLiteralExpression);
+    const callee = call.getExpression().getText();
+    const isZod = callee === 'z.object';
+    // Only Zod produces reliable wire-shape tags via the chain coarsener.
+    // Joi/Yup/Valibot chains coarsen through the generic literal-fields path
+    // which (correctly) returns 'unknown' for the schema-builder calls. We
+    // gather field NAMES from both, but only TYPES from Zod — recording
+    // 'unknown' tags would lock the field set into a less-useful map.
+    const extracted = isZod
+      ? extractZodSchemaFields(arg as import('ts-morph').ObjectLiteralExpression)
+      : extractLiteralObjectFields(arg as import('ts-morph').ObjectLiteralExpression);
     if (!extracted.resolved || !extracted.fields) continue;
     for (const field of extracted.fields) fields.add(field);
+    if (isZod && extracted.types) {
+      for (const [name, tag] of Object.entries(extracted.types)) {
+        if (tag !== 'unknown') types[name] = tag;
+      }
+    }
     hasValidation = true;
     resolved = true;
   }
@@ -743,6 +771,7 @@ function extractExpressValidation(
     has: hasValidation,
     fields: fields.size > 0 ? Array.from(fields).sort() : undefined,
     resolved,
+    types: Object.keys(types).length > 0 ? Object.freeze(types) : undefined,
   };
 }
 
@@ -767,13 +796,64 @@ function isSchemaObjectCall(call: import('ts-morph').CallExpression): boolean {
   return callee === 'z.object' || callee === 'Joi.object' || callee.endsWith('.object');
 }
 
+// Object-level Zod modifiers that don't change which fields are validated
+// for the purposes of /type comparison. `.partial()` / `.required()` only
+// flip optionality — same fields, same types. `.strict()` / `.passthrough()`
+// / `.strip()` change extra-field handling but preserve the recorded set.
+// Modifiers that DO change the field set (`omit`, `pick`, `extend`, `merge`)
+// are deliberately absent — encountering them in the chain bails extraction
+// to avoid recording stale or missing field tags.
+const SCHEMA_PRESERVING_OBJECT_MODIFIERS = new Set([
+  'partial',
+  'required',
+  'passthrough',
+  'strict',
+  'strip',
+  'refine',
+  'superRefine',
+  'transform',
+  'describe',
+  'brand',
+  'readonly',
+  'optional',
+  'nullable',
+  'nullish',
+  'default',
+  'catch',
+]);
+
+// Decide whether THIS specific `z.object({...})` call is the schema being
+// `.parse(req.body)`'d, by walking strictly along its method chain rather
+// than text-searching ancestor blocks. Codex caught the old text-based
+// version: any unrelated `z.object(...)` whose enclosing block also
+// contained a separate `.parse(req.body)` (e.g. response validators) was
+// mis-tagged as the request schema, producing false /type findings.
+//
+// True ONLY when:
+//   1. Each chained method between this z.object and the terminating call
+//      is a known shape-preserving modifier (so the recorded field tags
+//      still describe what the schema validates), AND
+//   2. The terminating call is `.parse|.safeParse|.validate(req.body)`.
 function schemaCallValidatesRequestBody(call: import('ts-morph').CallExpression): boolean {
-  let cursor: import('ts-morph').Node | undefined = call;
-  for (let depth = 0; depth < 5; depth++) {
-    cursor = cursor.getParent();
-    if (!cursor) return false;
-    const text = cursor.getText();
-    if (/\.(parse|safeParse|validate)\s*\(\s*(req|request)\.body\b/.test(text)) return true;
+  let cur: import('ts-morph').Node = call;
+  for (let depth = 0; depth < 8; depth++) {
+    const parent = cur.getParent();
+    if (!parent) return false;
+    if (parent.getKind() !== SyntaxKind.PropertyAccessExpression) return false;
+    const grand = parent.getParent();
+    if (!grand || grand.getKind() !== SyntaxKind.CallExpression) return false;
+    const pa = parent as import('ts-morph').PropertyAccessExpression;
+    const callExpr = grand as import('ts-morph').CallExpression;
+    // pa must be the CALLEE (cur.method(...)), not an argument (foo(cur.method)).
+    if (callExpr.getExpression() !== pa) return false;
+    const methodName = pa.getName();
+    if (methodName === 'parse' || methodName === 'safeParse' || methodName === 'validate') {
+      const arg = callExpr.getArguments()[0];
+      if (!arg) return false;
+      return /^(req|request)\.body\b/.test(arg.getText());
+    }
+    if (!SCHEMA_PRESERVING_OBJECT_MODIFIERS.has(methodName)) return false;
+    cur = grand;
   }
   return false;
 }
@@ -878,18 +958,39 @@ function pathSuffixBetween(mountFile: string, targetFile: string): string {
 function extractHandlerBodyFields(fn: ExpressRouteHandlerFn): {
   fields: readonly string[] | undefined;
   resolved: boolean;
+  types: FieldTypeMap | undefined;
 } {
   const body = fn.getBody();
-  if (!body) return { fields: undefined, resolved: false };
+  if (!body) return { fields: undefined, resolved: false, types: undefined };
 
   const required = new Set<string>();
+  // Collected tag per field. A field may surface in multiple readings
+  // (destructuring AND property access). If the readings disagree we
+  // downgrade to 'unknown' rather than pick a winner.
+  const tagByField = new Map<string, FieldTypeTag>();
+  const recordTag = (name: string, tag: FieldTypeTag) => {
+    const prev = tagByField.get(name);
+    if (prev === undefined) tagByField.set(name, tag);
+    else if (prev !== tag) tagByField.set(name, 'unknown');
+  };
   let poisoned = false;
+
+  // Accept `req.body`, `(req.body)`, `req.body as Body`, `req.body!`,
+  // `req.body satisfies Body`, and any nesting of those. Without this the
+  // common typed-body pattern `const { x } = req.body as CreateUser` stays
+  // dark even though ts-morph already carries the right type on the binding
+  // element. Codex caught this gap.
+  const isReqBodyExpr = (node: import('ts-morph').Node | undefined): boolean => {
+    if (!node) return false;
+    const inner = unwrapPayloadExpression(node);
+    return inner.getKind() === SyntaxKind.PropertyAccessExpression && inner.getText() === 'req.body';
+  };
 
   // 1. Destructuring: walk VariableDeclarations whose initializer is `req.body`
   //    or a reference that aliases it. V1 matches only direct `req.body`.
   for (const decl of body.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
     const init = decl.getInitializer();
-    if (!init || init.getText() !== 'req.body') continue;
+    if (!isReqBodyExpr(init)) continue;
     const name = decl.getNameNode();
     if (name.getKind() !== SyntaxKind.ObjectBindingPattern) {
       // `const body = req.body` whole-body alias — handler may read anything
@@ -913,6 +1014,12 @@ function extractHandlerBodyFields(fn: ExpressRouteHandlerFn): {
         // `propertyNameNode` when aliased, `nameNode` otherwise.
         const propName = el.getPropertyNameNode()?.getText() ?? elName.getText();
         required.add(propName);
+        // Type tag from the binding identifier's inferred type. With the
+        // default Express `Request` type this is `any` → 'unknown', which
+        // body-shape-drift's type-aware step then skips. When the handler
+        // is typed (e.g. `Request<{}, {}, CreateUser>` or `req.body as
+        // CreateUser`) it lights up.
+        recordTag(propName, coarsenTsType(elName.getType()));
       } else {
         // Nested destructuring or other exotic shape — give up for v1.
         poisoned = true;
@@ -920,25 +1027,30 @@ function extractHandlerBodyFields(fn: ExpressRouteHandlerFn): {
     }
   }
 
-  // 2. Property access: `req.body.name` / `req.body['name']`.
+  // 2. Property access: `req.body.name`, `(req.body as Body).name`, etc.
   for (const pa of body.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)) {
-    if (pa.getExpression().getText() !== 'req.body') continue;
+    if (!isReqBodyExpr(pa.getExpression())) continue;
     required.add(pa.getName());
+    recordTag(pa.getName(), coarsenTsType(pa.getType()));
   }
   for (const el of body.getDescendantsOfKind(SyntaxKind.ElementAccessExpression)) {
-    if (el.getExpression().getText() !== 'req.body') continue;
+    if (!isReqBodyExpr(el.getExpression())) continue;
     const arg = el.getArgumentExpression();
     if (arg && arg.getKind() === SyntaxKind.StringLiteral) {
-      required.add((arg as import('ts-morph').StringLiteral).getLiteralValue());
+      const lit = (arg as import('ts-morph').StringLiteral).getLiteralValue();
+      required.add(lit);
+      recordTag(lit, coarsenTsType(el.getType()));
     } else {
       // `req.body[key]` dynamic — unknowable.
       poisoned = true;
     }
   }
 
-  if (poisoned) return { fields: undefined, resolved: false };
-  if (required.size === 0) return { fields: undefined, resolved: false };
-  return { fields: Array.from(required), resolved: true };
+  if (poisoned) return { fields: undefined, resolved: false, types: undefined };
+  if (required.size === 0) return { fields: undefined, resolved: false, types: undefined };
+  const types: Record<string, FieldTypeTag> = {};
+  for (const f of required) types[f] = tagByField.get(f) ?? 'unknown';
+  return { fields: Array.from(required), resolved: true, types };
 }
 
 function guessResolvedSuffix(specifier: string, mountFile: string): string | undefined {
@@ -1897,6 +2009,197 @@ function coarsenValueExpression(expr: import('ts-morph').Node): FieldTypeTag {
   // `PropertyAccessExpression`, `ConditionalExpression` (`x ?? null`),
   // `BinaryExpression`, etc.
   return coarsenTsType(expr.getType());
+}
+
+// Zod call-chain modifiers — methods that wrap a base type without changing
+// its coarse on-the-wire shape. We peel these off until we hit the base
+// constructor (`z.string`, `z.number`, …).
+const ZOD_MODIFIERS = new Set([
+  'optional',
+  'nullable',
+  'nullish',
+  'min',
+  'max',
+  'length',
+  'default',
+  'nonempty',
+  'refine',
+  'transform',
+  'describe',
+  'brand',
+  'pipe',
+  'catch',
+  'readonly',
+  'positive',
+  'negative',
+  'nonnegative',
+  'nonpositive',
+  'multipleOf',
+  'finite',
+  'safe',
+  'trim',
+  'lowercase',
+  'uppercase',
+  'startsWith',
+  'endsWith',
+  'regex',
+  'email',
+  'url',
+  'uuid',
+  'cuid',
+  'cuid2',
+  'datetime',
+  'ip',
+  'emoji',
+  // `.or(...)` / `.and(...)` are intentionally absent: they widen the
+  // accepted shape (`z.string().or(z.number())` accepts both), so peeling
+  // them like a passthrough modifier creates a false-positive on the
+  // OTHER branch. They fall through to the default → 'unknown' below.
+  // Codex flagged this as a real precision miss.
+]);
+
+// True when the given expression is `z.coerce` (or any `*.coerce`) — used
+// to reject `z.coerce.<primitive>()` calls in the Zod coarsener.
+function isZodCoerceReceiver(expr: import('ts-morph').Node): boolean {
+  if (expr.getKind() !== SyntaxKind.PropertyAccessExpression) return false;
+  return (expr as import('ts-morph').PropertyAccessExpression).getName() === 'coerce';
+}
+
+// Coarsen a Zod schema call expression (`z.string().optional()`) to the same
+// FieldTypeTag union used elsewhere. Walks chained modifier calls inward to
+// the base type-producing method, tags it, and returns. Unknown chains
+// collapse to `'unknown'` rather than guessing.
+function coarsenZodCall(expr: import('ts-morph').Node): FieldTypeTag {
+  let cur: import('ts-morph').Node = expr;
+  // Bound the walk so a runaway chain can't loop. 16 is generous — even
+  // pathological Zod chains (`.min().max().refine().transform()...`) stay well
+  // below this in practice.
+  for (let depth = 0; depth < 16; depth++) {
+    if (cur.getKind() !== SyntaxKind.CallExpression) return 'unknown';
+    const call = cur as import('ts-morph').CallExpression;
+    const callee = call.getExpression();
+    if (callee.getKind() !== SyntaxKind.PropertyAccessExpression) {
+      // Bare call like `MySchema()` or `customSchema()` — we can't classify it.
+      return 'unknown';
+    }
+    const pa = callee as import('ts-morph').PropertyAccessExpression;
+    const methodName = pa.getName();
+    if (ZOD_MODIFIERS.has(methodName)) {
+      cur = pa.getExpression();
+      continue;
+    }
+    // Reject `z.coerce.X()` regardless of which X: coerce explicitly
+    // accepts cross-primitive inputs (string ↔ number ↔ boolean ↔ bigint
+    // ↔ date) and converts them. The wire shape is therefore unknowable —
+    // tagging `z.coerce.number()` as 'number' fired FPs on clients
+    // legitimately sending strings ("42" → 42). Codex caught this.
+    if (isZodCoerceReceiver(pa.getExpression())) return 'unknown';
+    switch (methodName) {
+      case 'string':
+      case 'enum':
+      case 'nativeEnum':
+        return 'string';
+      case 'date':
+        // Zod's `z.date()` only accepts JS Date objects, NOT JSON strings.
+        // On the wire, dates serialise as strings — so a client sending
+        // `{date: '2024-01-01'}` against `z.date()` would fail at runtime
+        // even though both ends "agree on string". Tagging 'unknown' keeps
+        // /type silent here; users typically reach for `z.coerce.date()`
+        // (which the modifier path handles by drilling into z.coerce.date).
+        return 'unknown';
+      case 'number':
+      case 'bigint':
+      case 'int':
+        return 'number';
+      case 'boolean':
+        return 'boolean';
+      case 'null':
+        return 'null';
+      case 'array':
+      case 'set':
+      case 'tuple':
+        return 'array';
+      case 'object':
+      case 'record':
+      case 'map':
+      case 'discriminatedUnion':
+        return 'object';
+      case 'literal': {
+        // `z.literal('admin')` — coarsen the literal arg to its primitive tag.
+        const arg = call.getArguments()[0];
+        if (!arg) return 'unknown';
+        return coarsenValueExpression(arg);
+      }
+      case 'union': {
+        // `z.union([z.string(), z.number()])` — only stable if every branch
+        // coarsens to the same non-null tag, else 'unknown'. Mirrors
+        // `coarsenTsType`'s union handling: drop `z.null()` branches
+        // first, then check tag agreement on what remains. This keeps
+        // `z.union([z.string(), z.null()])` reading as 'string' so a
+        // client sending `number` against it still flags. Gemini-flagged
+        // precision miss in v1.
+        //
+        // ANY 'unknown' branch poisons the result — we'd be guessing
+        // optimistically otherwise. Drop only literal nulls.
+        const arg = call.getArguments()[0];
+        if (!arg || arg.getKind() !== SyntaxKind.ArrayLiteralExpression) return 'unknown';
+        const elements = (arg as import('ts-morph').ArrayLiteralExpression).getElements();
+        if (elements.length === 0) return 'unknown';
+        const allTags = elements.map(coarsenZodCall);
+        if (allTags.includes('unknown')) return 'unknown';
+        const branches = allTags.filter((t) => t !== 'null');
+        if (branches.length === 0) return 'null';
+        const tags = new Set(branches);
+        if (tags.size === 1) return [...tags][0];
+        return 'unknown';
+      }
+      default:
+        return 'unknown';
+    }
+  }
+  return 'unknown';
+}
+
+// Walk a Zod schema literal (the object passed to `z.object({...})`) and
+// produce {fieldName -> FieldTypeTag}. Mirrors `extractLiteralObjectFields`
+// but uses `coarsenZodCall` for value classification — the values here are
+// Zod chains (`z.string().optional()`), not plain TS literals.
+function extractZodSchemaFields(obj: import('ts-morph').ObjectLiteralExpression): {
+  fields: readonly string[] | undefined;
+  resolved: boolean;
+  types: FieldTypeMap | undefined;
+} {
+  const fields: string[] = [];
+  const types: Record<string, FieldTypeTag> = {};
+  for (const prop of obj.getProperties()) {
+    const kind = prop.getKind();
+    if (kind === SyntaxKind.SpreadAssignment) {
+      return { fields: undefined, resolved: false, types: undefined };
+    }
+    if (kind !== SyntaxKind.PropertyAssignment) {
+      // Shorthand / method assignments aren't valid Zod shape entries; bail
+      // rather than emit half-resolved types.
+      return { fields: undefined, resolved: false, types: undefined };
+    }
+    const pa = prop as import('ts-morph').PropertyAssignment;
+    const nameNode = pa.getNameNode();
+    const nameKind = nameNode.getKind();
+    if (nameKind === SyntaxKind.ComputedPropertyName) {
+      return { fields: undefined, resolved: false, types: undefined };
+    }
+    if (nameKind !== SyntaxKind.Identifier && nameKind !== SyntaxKind.StringLiteral) {
+      return { fields: undefined, resolved: false, types: undefined };
+    }
+    const fieldName = nameNode.getText().replace(/['"]/g, '');
+    fields.push(fieldName);
+    const init = pa.getInitializer();
+    types[fieldName] = init ? coarsenZodCall(init) : 'unknown';
+  }
+  return {
+    fields,
+    resolved: true,
+    types,
+  };
 }
 
 // ── Const literal resolution (phase-1 IR depth) ─────────────────────────

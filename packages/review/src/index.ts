@@ -60,7 +60,13 @@ import {
 import { buildPublicApiMap, expandPublicApiThroughReExports } from './public-api.js';
 import { extractPythonConceptsFallback } from './python-fallback.js';
 import { runQualityRules } from './quality-rules.js';
-import { assignDefaultConfidence, calculateStats, sortAndDedup, sortFindings } from './reporter.js';
+import {
+  applyDiffNoveltyGate,
+  assignDefaultConfidence,
+  calculateStats,
+  sortAndDedup,
+  sortFindings,
+} from './reporter.js';
 import { debugDetail, ReviewHealthBuilder } from './review-health.js';
 import { loadBuiltinNativeRules, loadNativeRules } from './rule-loader.js';
 import { applyOverlapCalibration, applyRoleAwareConfidence, applyRuleQualityCalibration } from './rule-quality.js';
@@ -1157,7 +1163,7 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
   // Build file context map — every file gets import chain awareness
   const fileContextMap = buildFileContextMap(graph);
   const graphFileMap = new Map(graph.files.map((gf) => [gf.path, gf] as const));
-  const graphConfig: ReviewConfig = { ...config, fileContextMap, graphFileMap };
+  const graphConfig: ReviewConfig = { ...config, fileContextMap, graphFileMap, entryFiles: entrySet };
 
   for (const gf of graph.files) {
     if (!existsSync(gf.path)) continue;
@@ -1525,6 +1531,24 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
       report.suppressedFindings = suppression.suppressed.length > 0 ? sortAndDedup(suppression.suppressed) : undefined;
     } catch {
       report.findings = sortAndDedup(report.findings);
+    }
+    // Diff-novelty noise gate (opt-in). Drops out-of-diff non-bug-class
+    // findings while preserving cross-stack rules whose rootCause node IDs
+    // reference an entry file. Stash suppressed-by-gate findings into a
+    // dedicated `noiseGatedFindings` bucket — NOT `suppressedFindings`,
+    // because that field is exported as `kern-ignore` directives in SARIF
+    // (Codex review fix). The gate uses `entrySet` directly rather than
+    // `config.entryFiles` because the user's `config` object may not
+    // include the entry-file set we computed locally.
+    if (config?.noiseGate && entrySet.size > 0) {
+      const beforeCount = report.findings.length;
+      const kept = applyDiffNoveltyGate(report.findings, entrySet);
+      if (kept.length !== beforeCount) {
+        const droppedSet = new Set(kept);
+        const dropped = report.findings.filter((f) => !droppedSet.has(f));
+        report.findings = kept;
+        report.noiseGatedFindings = sortAndDedup([...(report.noiseGatedFindings ?? []), ...dropped]);
+      }
     }
   }
 

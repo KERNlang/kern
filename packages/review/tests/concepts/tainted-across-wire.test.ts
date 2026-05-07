@@ -45,7 +45,10 @@ describe('tainted-across-wire', () => {
     expect(findings.length).toBe(1);
     expect(findings[0].ruleId).toBe('tainted-across-wire');
     expect(findings[0].message).toContain('/api/signup');
-    expect(findings[0].category).toBe('pattern');
+    // 'bug' (was 'pattern'): unvalidated user-controlled body crossing the
+    // wire is the SQL-injection / mass-assignment precursor. Bumped so
+    // diff-novelty noise gate's category bypass covers it directly.
+    expect(findings[0].category).toBe('bug');
   });
 
   it('is silent when the server handler validates with zod (schema.parse in scope)', () => {

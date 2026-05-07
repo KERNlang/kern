@@ -430,11 +430,25 @@ export function generateBranch(node: IRNode): string[] {
   lines.push(`/** branch: ${name} */`);
   lines.push(`switch (${on}) {`);
 
-  // 'path' children don't have a typed interface in NodePropsMap
+  // 'path' children don't have a typed interface in NodePropsMap.
+  // Codex final-review fix (2026-05-06): the schema now advertises
+  // `path default=true` and unquoted-identifier `path value=Status.X` as
+  // legal shapes; the body-stmt emitter (body-ts.ts:emitBranchTS) honours
+  // both via __quotedProps + a dedicated default branch. Mirror that here
+  // so top-level `branch` doesn't silently emit `case 'undefined':` for
+  // default paths or string-quote identifier cases.
   for (const pathNode of paths) {
     const pp = p(pathNode);
-    const value = pp.value as string;
-    lines.push(`  case '${value}': {`);
+    const isDefault = pp.default === true || pp.default === 'true';
+    if (isDefault) {
+      lines.push(`  default: {`);
+    } else {
+      const rawValue = pp.value;
+      const valueText = rawValue === undefined ? '' : String(rawValue);
+      const isIdentifier = !pathNode.__quotedProps?.includes('value');
+      const lit = isIdentifier ? valueText : JSON.stringify(valueText);
+      lines.push(`  case ${lit}: {`);
+    }
     for (const child of kids(pathNode)) {
       const childLines = generateCoreNode(child);
       for (const line of childLines) {

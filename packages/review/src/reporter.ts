@@ -167,6 +167,86 @@ export function sortAndDedup(findings: ReviewFinding[]): ReviewFinding[] {
   return result;
 }
 
+// ── Diff-novelty noise gate ──────────────────────────────────────────────
+//
+// When enabled (config.noiseGate=true) and a non-empty diff entry-file set
+// is present, drop findings whose primary span lives outside the diff —
+// EXCEPT bug/security-class findings, severity:'error', and high-precision
+// cross-stack rules whose `rootCause` node IDs reference a file inside the
+// diff. The cross-stack escape uses the fact that ConceptNode IDs encode
+// their owning file via `${path}#${kind}@${offset}`, so we don't need a
+// separate nodeId→file index.
+//
+// Categories considered "real bug class" (always fire): explicit security
+// subcategories the codebase already uses, plus `'bug'`. Everything else
+// — `'structure'`, `'style'`, `'template'`, `'codegen'`, `'type'`,
+// `'pattern'` — is treated as noise-class and gated. The high-precision
+// cross-stack ruleId allowlist below is BELT-AND-SUSPENDERS coverage:
+// every entry should also be `category: 'bug'`, but if a future rule
+// regresses to 'pattern' or 'style' the allowlist still keeps it firing.
+
+const BUG_CLASS_CATEGORIES = new Set<string>(['bug', 'ssrf', 'sql', 'command', 'fs', 'eval', 'redirect']);
+
+const HIGH_PRECISION_CROSS_STACK_RULES = new Set<string>([
+  'tainted-across-wire',
+  'contract-drift',
+  'contract-method-drift',
+  'body-shape-drift',
+  'body-shape-drift/type',
+  'auth-drift',
+  'auth-propagation-drift',
+  'mixed-host-same-endpoint',
+  'untyped-api-response',
+  'untyped-both-ends-response',
+  'orphan-route',
+  'duplicate-route',
+  'param-name-swap',
+  'missing-response-model',
+  'unhandled-api-error-shape',
+  'unbounded-collection-query',
+  'mutation-without-idempotency',
+  'request-validation-drift',
+  'error-contract-drift',
+]);
+
+function rootCauseTouchesDiff(finding: ReviewFinding, entryFiles: ReadonlySet<string>): boolean {
+  const facets = finding.rootCause?.facets;
+  if (!facets) return false;
+  for (const key of ['clientNodeId', 'routeNodeId']) {
+    const value = (facets as Record<string, unknown>)[key];
+    if (typeof value !== 'string') continue;
+    // ConceptNode ids: `${filePath}#${kind}@${offset}`. File paths can
+    // legally contain `#` on darwin/linux, so split on the LAST `#` to
+    // recover the path correctly. Codex review fix.
+    const hashIdx = value.lastIndexOf('#');
+    const file = hashIdx > 0 ? value.slice(0, hashIdx) : value;
+    if (entryFiles.has(file)) return true;
+  }
+  return false;
+}
+
+export function applyDiffNoveltyGate(
+  findings: ReviewFinding[],
+  entryFiles: ReadonlySet<string> | undefined,
+): ReviewFinding[] {
+  if (!entryFiles || entryFiles.size === 0) return findings;
+
+  return findings.filter((f) => {
+    // Bypass list — never drop these even when outside the diff.
+    if (f.severity === 'error') return true;
+    if (f.category && BUG_CLASS_CATEGORIES.has(f.category)) return true;
+    if (HIGH_PRECISION_CROSS_STACK_RULES.has(f.ruleId)) return true;
+
+    // In-diff signals (any one is sufficient).
+    if (entryFiles.has(f.primarySpan.file)) return true;
+    if (f.origin === 'changed') return true;
+    if (rootCauseTouchesDiff(f, entryFiles)) return true;
+
+    // Confidently outside the diff and not bug-class — drop.
+    return false;
+  });
+}
+
 // ── Enforcement ──────────────────────────────────────────────────────────
 
 export function checkEnforcement(report: ReviewReport, config: ReviewConfig): EnforceResult {
@@ -593,6 +673,7 @@ function buildSARIFRunProperties(
     ...reports.flatMap((report) => report.suppressedFindings ?? []),
     ...(extraSuppressedFindings ?? []),
   ];
+  const noiseGated = reports.flatMap((report) => report.noiseGatedFindings ?? []);
   const healthEntries = reports.flatMap((report) => report.health?.entries ?? []);
 
   return {
@@ -606,6 +687,12 @@ function buildSARIFRunProperties(
       },
       suppressed: {
         total: suppressed.length,
+      },
+      noiseGated: {
+        // Findings filtered by the diff-novelty noise gate (out-of-PR scope).
+        // Distinct from `suppressed`, which is reserved for `kern-ignore`
+        // user directives.
+        total: noiseGated.length,
       },
       fixable: findings.filter((finding) => finding.autofix).length,
       relatedEvidence: findings.filter((finding) => (finding.relatedSpans?.length ?? 0) > 0).length,
@@ -683,6 +770,7 @@ export function formatSummary(reports: ReviewReport[]): string {
   let totalLines = 0;
   let coveredLines = 0;
   let totalFindings = 0;
+  let totalNoiseGated = 0;
 
   for (const r of reports) {
     totalConstructs += r.stats.constructCount;
@@ -691,6 +779,7 @@ export function formatSummary(reports: ReviewReport[]): string {
     totalLines += r.stats.totalLines;
     coveredLines += r.stats.coveredLines;
     totalFindings += r.findings.length;
+    totalNoiseGated += r.noiseGatedFindings?.length ?? 0;
   }
 
   const coveragePct = totalLines > 0 ? Math.round((coveredLines / totalLines) * 100) : 0;
@@ -702,6 +791,12 @@ export function formatSummary(reports: ReviewReport[]): string {
   lines.push(`  Coverage:         ${coveragePct}%`);
   lines.push(`  Token reduction:  ${reductionPct}% (~${totalTsTokens} → ${totalKernTokens} KERN tokens)`);
   lines.push(`  Findings:         ${totalFindings}`);
+  // Noise-gate audit line — only when the gate actually filtered something,
+  // so unconfigured runs stay quiet. Gives the user visibility on what was
+  // dropped without flooding the summary.
+  if (totalNoiseGated > 0) {
+    lines.push(`  Filtered:         ${totalNoiseGated} (out-of-PR-scope, see noiseGatedFindings)`);
+  }
 
   return lines.join('\n');
 }

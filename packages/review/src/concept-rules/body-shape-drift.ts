@@ -41,11 +41,14 @@ import {
 import type { ConceptRuleContext } from './index.js';
 import { apiCallRootCause } from './root-cause.js';
 
+type FieldTypeTag = 'string' | 'number' | 'boolean' | 'null' | 'object' | 'array' | 'unknown';
+
 interface ClientCall {
   target: string;
   normalizedPath: string;
   method?: string;
   sentFields: readonly string[];
+  sentFieldTypes?: Readonly<Record<string, FieldTypeTag>>;
   node: ConceptNode;
 }
 
@@ -66,7 +69,14 @@ export function bodyShapeDrift(ctx: ConceptRuleContext): ReviewFinding[] {
       if (typeof target !== 'string') continue;
       const normalized = normalizeClientUrl(target);
       if (!normalized || !API_PATH_RE.test(normalized)) continue;
-      clientCalls.push({ target, normalizedPath: normalized, method: node.payload.method, sentFields: fields, node });
+      clientCalls.push({
+        target,
+        normalizedPath: normalized,
+        method: node.payload.method,
+        sentFields: fields,
+        sentFieldTypes: node.payload.sentFieldTypes,
+        node,
+      });
     }
   }
   if (clientCalls.length === 0) return [];
@@ -80,34 +90,130 @@ export function bodyShapeDrift(ctx: ConceptRuleContext): ReviewFinding[] {
     const route = findMatchingRoute(call.normalizedPath, serverRoutes);
     if (!route?.node) continue;
     if (route.node.payload.kind !== 'entrypoint') continue;
-    if (route.node.payload.bodyFieldsResolved !== true) continue;
-    const serverFields = route.node.payload.bodyFields;
-    if (!serverFields || serverFields.length === 0) continue;
+    // V1 fired only when the handler's `req.body.X` reads were resolved.
+    // We now also accept schema-validated routes (`Schema.parse(req.body)`
+    // with no per-field `req.body.X` access) — the schema's tags drive
+    // /type alone, while missing-fields stays gated on handler reads.
+    const handlerResolved = route.node.payload.bodyFieldsResolved === true;
+    const validationResolved = route.node.payload.bodyValidationResolved === true;
+    if (!handlerResolved && !validationResolved) continue;
+    const handlerFields = handlerResolved ? (route.node.payload.bodyFields ?? []) : [];
+    const validatedFields = validationResolved ? (route.node.payload.validatedBodyFields ?? []) : [];
+    if (handlerFields.length === 0 && validatedFields.length === 0) continue;
 
-    const missing = serverFields.filter((f) => !call.sentFields.includes(f));
-    if (missing.length === 0) continue;
+    // Missing-fields detection — handler-read evidence only. A schema
+    // declaring a field doesn't mean the handler will fail without it
+    // (the schema might reject the request, but that's a different
+    // failure mode best surfaced by a separate rule).
+    const missing = handlerFields.filter((f) => !call.sentFields.includes(f));
 
-    const fingerprint = createFingerprint(
-      'body-shape-drift',
-      call.node.primarySpan.startLine,
-      call.node.primarySpan.startCol,
-    );
-    if (seen.has(fingerprint)) continue;
-    seen.add(fingerprint);
+    // Type-mismatch step: when both ends are typed (neither side 'unknown'),
+    // a tag disagreement on a name that DOES overlap is a high-precision
+    // bug — `userId: string` (client) vs `userId: number` (server) silently
+    // matches by name today but breaks at runtime. We emit this as a
+    // distinct finding so devs can fix it independently of the
+    // missing-fields class.
+    //
+    // Method-aware: the legacy missing-fields branch keeps the path-only
+    // match for backward compatibility. The new /type branch is
+    // additionally gated on HTTP method agreement so it never fires
+    // against a wrong-verb collision (e.g. PUT and PATCH on the same
+    // path with different body shapes). If either method is unknown we
+    // skip /type — precision over recall.
+    const routeMethod = route.node.payload.httpMethod?.toUpperCase();
+    const callMethod = call.method?.toUpperCase();
+    const methodsAgree = !!routeMethod && !!callMethod && routeMethod === callMethod;
 
-    const missingList = missing.map((f) => `\`${f}\``).join(', ');
-    const plural = missing.length === 1 ? 'field' : 'fields';
-    findings.push({
-      source: 'kern',
-      ruleId: 'body-shape-drift',
-      severity: 'warning',
-      category: 'bug',
-      message: `Frontend POSTs to \`${call.normalizedPath}\` without ${plural} ${missingList}, but the matching server handler reads ${missing.length === 1 ? 'it' : 'them'} off \`req.body\`. The handler will see \`undefined\` for the missing ${plural}.`,
-      primarySpan: call.node.primarySpan,
-      fingerprint,
-      confidence: call.node.confidence * CROSS_STACK_HEURISTIC_CONFIDENCE,
-      rootCause: apiCallRootCause(call.node, call.normalizedPath, call.method, route.node),
-    });
+    const serverTypes = route.node.payload.bodyFieldTypes;
+    const validatedTypes = route.node.payload.validatedBodyFieldTypes;
+    const clientTypes = call.sentFieldTypes;
+    const typeMismatches: Array<{ field: string; client: FieldTypeTag; server: FieldTypeTag }> = [];
+    // Server-side type resolution prefers the handler-read tag from
+    // `bodyFieldTypes` (the actual TS type the handler sees). When that
+    // is `'unknown'` — typical when `req.body` is the Express-default
+    // `any` — fall back to a Zod-validated tag from
+    // `validatedBodyFieldTypes` if one exists. Catches the common shape:
+    //   const Schema = z.object({ active: z.boolean() });
+    //   app.post('/x', (req, res) => { const d = Schema.parse(req.body); ... });
+    // where the handler doesn't TS-type req.body but the schema knows
+    // the field types.
+    //
+    // Iterates the UNION of handler-read and schema-validated field
+    // names so schema-only handlers (no per-field `req.body.X` reads)
+    // still get type checks against the schema.
+    if (methodsAgree && clientTypes && (serverTypes || validatedTypes)) {
+      const compareFields = new Set<string>([...handlerFields, ...validatedFields]);
+      for (const f of compareFields) {
+        if (!call.sentFields.includes(f)) continue;
+        const handlerTag = serverTypes?.[f];
+        const validatedTag = validatedTypes?.[f];
+        const serverTag = handlerTag && handlerTag !== 'unknown' ? handlerTag : validatedTag;
+        const clientTag = clientTypes[f];
+        if (!serverTag || !clientTag) continue;
+        if (serverTag === 'unknown' || clientTag === 'unknown') continue;
+        // Client sending `null` against a nullable server type is fine,
+        // but coarseners drop null branches (`Optional[str]` → 'string',
+        // `string | null` → 'string') for the non-null mismatch case.
+        // Skip /type when the client value IS null — we can't prove a
+        // mismatch from coarse tags alone. Codex caught this on the
+        // Pydantic mirror review.
+        if (clientTag === 'null') continue;
+        if (serverTag !== clientTag) typeMismatches.push({ field: f, client: clientTag, server: serverTag });
+      }
+    }
+
+    if (missing.length === 0 && typeMismatches.length === 0) continue;
+
+    if (missing.length > 0) {
+      const fingerprint = createFingerprint(
+        'body-shape-drift',
+        call.node.primarySpan.startLine,
+        call.node.primarySpan.startCol,
+      );
+      if (!seen.has(fingerprint)) {
+        seen.add(fingerprint);
+        const missingList = missing.map((f) => `\`${f}\``).join(', ');
+        const plural = missing.length === 1 ? 'field' : 'fields';
+        findings.push({
+          source: 'kern',
+          ruleId: 'body-shape-drift',
+          severity: 'warning',
+          category: 'bug',
+          message: `Frontend POSTs to \`${call.normalizedPath}\` without ${plural} ${missingList}, but the matching server handler reads ${missing.length === 1 ? 'it' : 'them'} off \`req.body\`. The handler will see \`undefined\` for the missing ${plural}.`,
+          primarySpan: call.node.primarySpan,
+          fingerprint,
+          confidence: call.node.confidence * CROSS_STACK_HEURISTIC_CONFIDENCE,
+          rootCause: apiCallRootCause(call.node, call.normalizedPath, call.method, route.node),
+        });
+      }
+    }
+
+    if (typeMismatches.length > 0) {
+      const fingerprint = createFingerprint(
+        'body-shape-drift/type',
+        call.node.primarySpan.startLine,
+        call.node.primarySpan.startCol,
+      );
+      if (!seen.has(fingerprint)) {
+        seen.add(fingerprint);
+        const detail = typeMismatches
+          .map((m) => `\`${m.field}\` (client \`${m.client}\` vs server \`${m.server}\`)`)
+          .join(', ');
+        const plural = typeMismatches.length === 1 ? 'a field whose type' : 'fields whose types';
+        const verb = callMethod ?? 'sends';
+        findings.push({
+          source: 'kern',
+          ruleId: 'body-shape-drift/type',
+          severity: 'warning',
+          category: 'bug',
+          message: `Frontend ${verb} to \`${call.normalizedPath}\` with ${plural} disagree with the server handler: ${detail}.`,
+          primarySpan: call.node.primarySpan,
+          fingerprint,
+          confidence: call.node.confidence * CROSS_STACK_HEURISTIC_CONFIDENCE,
+          rootCause: apiCallRootCause(call.node, call.normalizedPath, call.method, route.node),
+        });
+      }
+    }
   }
 
   return findings;

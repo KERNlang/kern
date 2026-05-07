@@ -122,6 +122,26 @@ function validateNode(
     }
   }
 
+  // ── each pair-mode is body-stmt only (2026-05-06) ──────────────────────
+  // `pairKey`/`pairValue` lower to TS `for (const [k, v] of m)` and Python
+  // `for k, v in m.items()`. The render-path JSX emitter (codegen/screens.ts)
+  // doesn't read these props, so a render-position `each pairKey=k pairValue=v`
+  // would silently emit `m.map((item, __i) => ...)` and lose the destructure.
+  // Reject in render/group ancestor scope so the LLM sees the error rather
+  // than a silently-wrong `.map()`.
+  if (node.type === 'each' && ('pairKey' in (node.props ?? {}) || 'pairValue' in (node.props ?? {}))) {
+    if (ancestry.includes('render') || ancestry.includes('group')) {
+      violations.push({
+        rule: 'each-pair-mode-body-stmt-only',
+        nodeType: 'each',
+        message:
+          '`each pairKey=/pairValue=` is a body-statement form (TS Map iteration / Python dict.items()) and cannot appear inside a `render`/`group` JSX context. Iterate the map ahead of the render block, or use the `name=` form with a render-key.',
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+  }
+
   // ── let must be a direct child of each OR handler (slice 1 native bodies) ──
   // `let` has two valid parents:
   //   - `each` — iteration-scoped binding (emits `const` inside the `.map` callback).

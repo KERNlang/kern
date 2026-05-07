@@ -101,6 +101,19 @@ export interface EntrypointPayload {
    */
   bodyFieldsResolved?: boolean;
   /**
+   * Coarse type tag per `bodyFields` entry — server-side mirror of
+   * `EffectPayload.sentFieldTypes`. Same tag union: `'string' | 'number' |
+   * 'boolean' | 'null' | 'object' | 'array' | 'unknown'`. Populated only
+   * when `bodyFieldsResolved === true`.
+   *
+   * Keys are a subset of `bodyFields`. When the handler reads `req.body`
+   * with no usable type information (the default Express `any`), every
+   * entry is `'unknown'`. The `body-shape-drift` rule's type-aware step
+   * skips any pair where either side is `'unknown'` to keep precision
+   * high — type-mismatch findings only fire when both ends are typed.
+   */
+  bodyFieldTypes?: Readonly<Record<string, 'string' | 'number' | 'boolean' | 'null' | 'object' | 'array' | 'unknown'>>;
+  /**
    * For server route entrypoints only — HTTP error status codes the handler can
    * explicitly return/raise. Mappers only populate high-signal statuses such as
    * 401/403/404/422/500 from constructs like Express `res.status(404)` or
@@ -131,6 +144,21 @@ export interface EntrypointPayload {
    * True when the mapper is confident the validation field list is complete.
    */
   bodyValidationResolved?: boolean;
+  /**
+   * Coarse type tag per validated body field, derived from a recognised
+   * schema literal (e.g. Zod `z.object({ name: z.string(), age: z.number() })`).
+   * Same tag union as `bodyFieldTypes`. Populated only when the validator
+   * is a recognised schema DSL whose call shapes can be coarsened.
+   *
+   * Used by `body-shape-drift/type` as a precision fallback: when the
+   * handler reads `req.body` with no usable TS type info (the default
+   * Express `any`, so `bodyFieldTypes[f] === 'unknown'`), the rule consults
+   * this map. Catches `userId: string` (client) vs `userId: z.number()`
+   * (server schema) on handlers that validate but don't type `req.body`.
+   */
+  validatedBodyFieldTypes?: Readonly<
+    Record<string, 'string' | 'number' | 'boolean' | 'null' | 'object' | 'array' | 'unknown'>
+  >;
 }
 
 export interface EffectPayload {
