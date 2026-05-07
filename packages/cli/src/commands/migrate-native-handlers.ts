@@ -52,6 +52,10 @@ interface HandlerBlock {
   bodyText: string;
 }
 
+interface MapContext {
+  loopDepth: number;
+}
+
 /**
  * Locate every multi-line `handler <<< … >>>` block in the source. Mirrors
  * the parser's multiline shape (parser-core.ts:463-520) — content after `<<<`
@@ -106,7 +110,7 @@ function dedent(lines: string[]): string {
  * already applied). Returns null on any unsupported shape — caller bails on
  * the whole handler.
  */
-function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string): string[] | null {
+function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string, ctx: MapContext): string[] | null {
   if (ts.isVariableStatement(stmt)) {
     // Only `const` is byte-preserving — KERN body `let` lowers to TS `const`,
     // so migrating raw `let X = …` to body-statement `let` would silently
@@ -140,20 +144,30 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string)
     return [`${indent}throw value="${escapeKernString(exprText)}"`];
   }
 
+  if (ts.isBreakStatement(stmt)) {
+    if (stmt.label || ctx.loopDepth <= 0) return null;
+    return [`${indent}break`];
+  }
+
+  if (ts.isContinueStatement(stmt)) {
+    if (stmt.label || ctx.loopDepth <= 0) return null;
+    return [`${indent}continue`];
+  }
+
   if (ts.isIfStatement(stmt)) {
-    return mapIf(stmt, source, indent);
+    return mapIf(stmt, source, indent, ctx);
   }
 
   if (ts.isTryStatement(stmt)) {
-    return mapTry(stmt, source, indent);
+    return mapTry(stmt, source, indent, ctx);
   }
 
   if (ts.isForOfStatement(stmt)) {
-    return mapForOf(stmt, source, indent);
+    return mapForOf(stmt, source, indent, ctx);
   }
 
   if (ts.isWhileStatement(stmt)) {
-    return mapWhile(stmt, source, indent);
+    return mapWhile(stmt, source, indent, ctx);
   }
 
   if (ts.isExpressionStatement(stmt)) {
@@ -193,13 +207,13 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string)
   return null;
 }
 
-function mapIf(stmt: ts.IfStatement, source: ts.SourceFile, indent: string): string[] | null {
+function mapIf(stmt: ts.IfStatement, source: ts.SourceFile, indent: string, ctx: MapContext): string[] | null {
   const condText = stmt.expression.getText(source);
   if (!isValidKernExpression(condText)) return null;
   const innerIndent = indent + INDENT_STEP;
   const out: string[] = [`${indent}if cond="${escapeKernString(condText)}"`];
 
-  const thenLines = mapBranch(stmt.thenStatement, source, innerIndent);
+  const thenLines = mapBranch(stmt.thenStatement, source, innerIndent, ctx);
   if (thenLines === null) return null;
   out.push(...thenLines);
 
@@ -210,11 +224,11 @@ function mapIf(stmt: ts.IfStatement, source: ts.SourceFile, indent: string): str
       // The TS+Python body emitters detect this shape and emit `else if`/
       // `elif` directly, so the migration is byte-equivalent to the raw
       // `else if` chain that --verify diffs against.
-      const nested = mapIf(stmt.elseStatement, source, innerIndent);
+      const nested = mapIf(stmt.elseStatement, source, innerIndent, ctx);
       if (nested === null) return null;
       out.push(...nested);
     } else {
-      const elseLines = mapBranch(stmt.elseStatement, source, innerIndent);
+      const elseLines = mapBranch(stmt.elseStatement, source, innerIndent, ctx);
       if (elseLines === null) return null;
       out.push(...elseLines);
     }
@@ -222,14 +236,14 @@ function mapIf(stmt: ts.IfStatement, source: ts.SourceFile, indent: string): str
   return out;
 }
 
-function mapTry(stmt: ts.TryStatement, source: ts.SourceFile, indent: string): string[] | null {
+function mapTry(stmt: ts.TryStatement, source: ts.SourceFile, indent: string, ctx: MapContext): string[] | null {
   if (!stmt.catchClause) return null; // body-statement try requires catch
   if (stmt.finallyBlock) return null; // body emitter has no `finally`
 
   const innerIndent = indent + INDENT_STEP;
   const out: string[] = [`${indent}try`];
 
-  const tryLines = mapBranch(stmt.tryBlock, source, innerIndent);
+  const tryLines = mapBranch(stmt.tryBlock, source, innerIndent, ctx);
   if (tryLines === null) return null;
   out.push(...tryLines);
 
@@ -243,7 +257,7 @@ function mapTry(stmt: ts.TryStatement, source: ts.SourceFile, indent: string): s
   }
   out.push(`${innerIndent}catch name=${errName}`);
 
-  const catchLines = mapBranch(catchClause.block, source, innerIndent + INDENT_STEP);
+  const catchLines = mapBranch(catchClause.block, source, innerIndent + INDENT_STEP, ctx);
   if (catchLines === null) return null;
   out.push(...catchLines);
   return out;
@@ -286,7 +300,7 @@ function mapDestructureDecl(decl: ts.VariableDeclaration, source: ts.SourceFile,
   return null;
 }
 
-function mapForOf(stmt: ts.ForOfStatement, source: ts.SourceFile, indent: string): string[] | null {
+function mapForOf(stmt: ts.ForOfStatement, source: ts.SourceFile, indent: string, ctx: MapContext): string[] | null {
   if (!ts.isVariableDeclarationList(stmt.initializer)) return null;
   const flags = stmt.initializer.flags;
   if (!(flags & ts.NodeFlags.Const)) return null;
@@ -305,13 +319,13 @@ function mapForOf(stmt: ts.ForOfStatement, source: ts.SourceFile, indent: string
   const innerIndent = indent + INDENT_STEP;
   const awaitAttr = stmt.awaitModifier ? ' await=true' : '';
   const out: string[] = [`${indent}each name=${decl.name.text} in="${escapeKernString(collectionText)}"${awaitAttr}`];
-  const bodyLines = mapBranch(stmt.statement, source, innerIndent);
+  const bodyLines = mapBranch(stmt.statement, source, innerIndent, { ...ctx, loopDepth: ctx.loopDepth + 1 });
   if (bodyLines === null) return null;
   out.push(...bodyLines);
   return out;
 }
 
-function mapWhile(stmt: ts.WhileStatement, source: ts.SourceFile, indent: string): string[] | null {
+function mapWhile(stmt: ts.WhileStatement, source: ts.SourceFile, indent: string, ctx: MapContext): string[] | null {
   const condText = stmt.expression.getText(source);
   if (!isValidKernExpression(condText)) return null;
   if (!ts.isBlock(stmt.statement)) return null;
@@ -319,18 +333,18 @@ function mapWhile(stmt: ts.WhileStatement, source: ts.SourceFile, indent: string
 
   const innerIndent = indent + INDENT_STEP;
   const out: string[] = [`${indent}while cond="${escapeKernString(condText)}"`];
-  const bodyLines = mapBranch(stmt.statement, source, innerIndent);
+  const bodyLines = mapBranch(stmt.statement, source, innerIndent, { ...ctx, loopDepth: ctx.loopDepth + 1 });
   if (bodyLines === null) return null;
   out.push(...bodyLines);
   return out;
 }
 
 /** Branch can be a Block (`{ … }`) or a single statement. Walk uniformly. */
-function mapBranch(node: ts.Statement, source: ts.SourceFile, indent: string): string[] | null {
+function mapBranch(node: ts.Statement, source: ts.SourceFile, indent: string, ctx: MapContext): string[] | null {
   const stmts = ts.isBlock(node) ? Array.from(node.statements) : [node];
   const out: string[] = [];
   for (const s of stmts) {
-    const lines = mapStatement(s, source, indent);
+    const lines = mapStatement(s, source, indent, ctx);
     if (lines === null) return null;
     out.push(...lines);
   }
@@ -382,7 +396,7 @@ export function rewriteNativeHandlers(source: string): NativeHandlerResult {
     const stmtLines: string[] = [];
     let bailed = false;
     for (const stmt of sourceFile.statements) {
-      const mapped = mapStatement(stmt, sourceFile, bodyIndent);
+      const mapped = mapStatement(stmt, sourceFile, bodyIndent, { loopDepth: 0 });
       if (mapped === null) {
         bailed = true;
         break;

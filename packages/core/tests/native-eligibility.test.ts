@@ -118,6 +118,27 @@ describe('classifyHandlerBody — slice 4d additions are now eligible', () => {
     const body = `while (queue.length > 0) {\n  const item = queue.shift();\n  process(item);\n}\nreturn queue;`;
     expect(classifyHandlerBody(body)).toEqual({ eligible: true, reason: 'ok' });
   });
+
+  test('break and continue are eligible inside migratable loops', () => {
+    expect(
+      classifyHandlerBody(`for (const user of users) {\n  if (skip(user)) {\n    continue;\n  }\n  notify(user);\n}`),
+    ).toEqual({ eligible: true, reason: 'ok' });
+    expect(classifyHandlerBody(`while (running) {\n  tick();\n  break;\n}`)).toEqual({ eligible: true, reason: 'ok' });
+  });
+
+  test('break and continue keep loop context through try blocks', () => {
+    expect(
+      classifyHandlerBody(`for (const item of items) {\n  try {\n    break;\n  } catch (err) {\n    continue;\n  }\n}`),
+    ).toEqual({ eligible: true, reason: 'ok' });
+  });
+
+  test('nested loops with break and continue are eligible', () => {
+    expect(
+      classifyHandlerBody(
+        `while (outer) {\n  for (const item of items) {\n    if (skip(item)) {\n      continue;\n    }\n    break;\n  }\n}`,
+      ),
+    ).toEqual({ eligible: true, reason: 'ok' });
+  });
 });
 
 describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => {
@@ -165,6 +186,16 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
   test('while with bad condition rejected', () => rejected(`while (x => x) {\n  return 1;\n}`, 'while-bad-cond'));
 
   test('do-while rejected', () => rejected(`do { i = i + 1; } while (i < 10);`, 'do-while-stmt'));
+
+  test('break and continue outside loops rejected', () => {
+    rejected(`break;`, 'break-outside-loop');
+    rejected(`continue;`, 'continue-outside-loop');
+  });
+
+  test('labeled break and continue rejected', () => {
+    rejected(`while (running) {\n  break outer;\n}`, 'break-labeled');
+    rejected(`while (running) {\n  continue outer;\n}`, 'continue-labeled');
+  });
 
   test('switch rejected', () => rejected(`switch (k) { case 1: return 'a'; }`, 'switch-stmt'));
 

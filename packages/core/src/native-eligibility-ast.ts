@@ -34,6 +34,10 @@ export interface AstEligibilityResult {
   reason: string;
 }
 
+interface ClassifyContext {
+  loopDepth: number;
+}
+
 /** True when `exprText` parses cleanly under KERN's parser-expression. The
  *  multi-line guard catches body-statement attributes (`value="…"`) where
  *  raw newlines would break the line shape.
@@ -104,7 +108,7 @@ export function hasComments(bodyText: string): boolean {
 
 /** Classify a single statement. Returns null if the migrator can emit it,
  *  otherwise a kebab-case reason. Recurses through if/try branches. */
-function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile): string | null {
+function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContext): string | null {
   if (ts.isVariableStatement(stmt)) {
     const flags = stmt.declarationList.flags;
     if (!(flags & ts.NodeFlags.Const)) return 'var-non-const';
@@ -127,9 +131,17 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile): string | null {
     if (!isValidKernExpression(stmt.expression.getText(sf))) return 'throw-bad-expr';
     return null;
   }
+  if (ts.isBreakStatement(stmt)) {
+    if (stmt.label) return 'break-labeled';
+    return ctx.loopDepth > 0 ? null : 'break-outside-loop';
+  }
+  if (ts.isContinueStatement(stmt)) {
+    if (stmt.label) return 'continue-labeled';
+    return ctx.loopDepth > 0 ? null : 'continue-outside-loop';
+  }
   if (ts.isIfStatement(stmt)) {
     if (!isValidKernExpression(stmt.expression.getText(sf))) return 'if-bad-cond';
-    const thenReason = classifyBranch(stmt.thenStatement, sf);
+    const thenReason = classifyBranch(stmt.thenStatement, sf, ctx);
     if (thenReason !== null) return thenReason;
     if (stmt.elseStatement) {
       // `else if (…)` is a nested IfStatement here. The migrator's mapIf
@@ -137,7 +149,7 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile): string | null {
       // resulting `else > if` shape back to `else if` / `elif` (commit
       // 88c06dcc on dev). classifyBranch handles the nested IfStatement
       // by re-entering classifyStmt, so the recursion is automatic.
-      const elseReason = classifyBranch(stmt.elseStatement, sf);
+      const elseReason = classifyBranch(stmt.elseStatement, sf, ctx);
       if (elseReason !== null) return elseReason;
     }
     return null;
@@ -147,9 +159,9 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile): string | null {
     if (stmt.finallyBlock) return 'try-finally';
     const cc = stmt.catchClause;
     if (cc.variableDeclaration && !ts.isIdentifier(cc.variableDeclaration.name)) return 'try-destruct-catch';
-    const tryReason = classifyBranch(stmt.tryBlock, sf);
+    const tryReason = classifyBranch(stmt.tryBlock, sf, ctx);
     if (tryReason !== null) return tryReason;
-    return classifyBranch(cc.block, sf);
+    return classifyBranch(cc.block, sf, ctx);
   }
   if (ts.isExpressionStatement(stmt)) {
     // Slice α-1: ExpressionStatement → `do value="…"`. Plain `=` maps to
@@ -185,13 +197,13 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile): string | null {
     // --verify even though it is semantically close.
     if (!ts.isBlock(stmt.statement)) return 'for-of-non-block';
     if (stmt.statement.statements.length === 0) return 'for-of-empty-body';
-    return classifyBranch(stmt.statement, sf);
+    return classifyBranch(stmt.statement, sf, { ...ctx, loopDepth: ctx.loopDepth + 1 });
   }
   if (ts.isWhileStatement(stmt)) {
     if (!isValidKernExpression(stmt.expression.getText(sf))) return 'while-bad-cond';
     if (!ts.isBlock(stmt.statement)) return 'while-non-block';
     if (stmt.statement.statements.length === 0) return 'while-empty-body';
-    return classifyBranch(stmt.statement, sf);
+    return classifyBranch(stmt.statement, sf, { ...ctx, loopDepth: ctx.loopDepth + 1 });
   }
   if (ts.isForStatement(stmt) || ts.isForInStatement(stmt)) return 'for-stmt';
   if (ts.isDoStatement(stmt)) return 'do-while-stmt';
@@ -231,10 +243,10 @@ function classifyDestructureDecl(decl: ts.VariableDeclaration, sf: ts.SourceFile
   return 'var-destructure';
 }
 
-function classifyBranch(node: ts.Statement, sf: ts.SourceFile): string | null {
+function classifyBranch(node: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContext): string | null {
   const stmts = ts.isBlock(node) ? Array.from(node.statements) : [node];
   for (const s of stmts) {
-    const r = classifyStmt(s, sf);
+    const r = classifyStmt(s, sf, ctx);
     if (r !== null) return r;
   }
   return null;
@@ -254,7 +266,7 @@ export function classifyHandlerBodyAst(rawBody: string): AstEligibilityResult {
   const diags = (sf as unknown as { parseDiagnostics?: ts.Diagnostic[] }).parseDiagnostics;
   if (diags && diags.length > 0) return { eligible: false, reason: 'ts-parse-error' };
   for (const stmt of sf.statements) {
-    const r = classifyStmt(stmt, sf);
+    const r = classifyStmt(stmt, sf, { loopDepth: 0 });
     if (r !== null) return { eligible: false, reason: r };
   }
   return { eligible: true, reason: 'ok' };

@@ -155,6 +155,51 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
+  test('migrates break and continue inside loop bodies', () => {
+    const source = [
+      'fn name=notify returns=void',
+      '  handler <<<',
+      '    for (const user of users) {',
+      '      if (skip(user)) {',
+      '        continue;',
+      '      }',
+      '      notify(user);',
+      '      break;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('each name=user in="users"');
+    expect(result.output).toContain('continue');
+    expect(result.output).toContain('break');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates break and continue inside try blocks in loops', () => {
+    const source = [
+      'fn name=scan returns=void',
+      '  handler <<<',
+      '    for (const item of items) {',
+      '      try {',
+      '        break;',
+      '      } catch (err) {',
+      '        continue;',
+      '      }',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('each name=item in="items"');
+    expect(result.output).toContain('try');
+    expect(result.output).toContain('break');
+    expect(result.output).toContain('continue');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
   test('migrates object destructuring const to destructure body-statement', () => {
     const source = [
       'fn name=load returns=string',
@@ -486,6 +531,34 @@ describe('rewriteNativeHandlers — bail conditions', () => {
     expect(result.hits).toHaveLength(0);
     expect(result.output).toBe(source);
   });
+
+  test('bails on break and continue outside loops', () => {
+    const breakSource = ['fn name=bad returns=void', '  handler <<<', '    break;', '  >>>'].join('\n');
+    const continueSource = ['fn name=bad returns=void', '  handler <<<', '    continue;', '  >>>'].join('\n');
+    expect(rewriteNativeHandlers(breakSource).hits).toHaveLength(0);
+    expect(rewriteNativeHandlers(continueSource).hits).toHaveLength(0);
+  });
+
+  test('bails on labeled break and continue', () => {
+    const breakSource = [
+      'fn name=bad returns=void',
+      '  handler <<<',
+      '    while (running) {',
+      '      break outer;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const continueSource = [
+      'fn name=bad returns=void',
+      '  handler <<<',
+      '    while (running) {',
+      '      continue outer;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    expect(rewriteNativeHandlers(breakSource).hits).toHaveLength(0);
+    expect(rewriteNativeHandlers(continueSource).hits).toHaveLength(0);
+  });
 });
 
 describe('rewriteNativeHandlers — round-trip', () => {
@@ -806,6 +879,84 @@ describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalenc
     expect(ts).toContain('  process();');
     expect(ts.split('\n').filter((line: string) => line === '}')).toHaveLength(1);
     expect(ts.split('\n').filter((line: string) => line === '  }')).toHaveLength(1);
+  });
+
+  test('loop-control compiles through break and continue body-statements', () => {
+    const source = [
+      'fn name=notify returns=void',
+      '  handler <<<',
+      '    for (const user of users) {',
+      '      if (skip(user)) {',
+      '        continue;',
+      '      }',
+      '      notify(user);',
+      '      break;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(
+      [
+        'for (const user of users) {',
+        '  if (skip(user)) {',
+        '    continue;',
+        '  }',
+        '  notify(user);',
+        '  break;',
+        '}',
+      ].join('\n'),
+    );
+  });
+
+  test('loop-control compiles through try blocks inside loops', () => {
+    const source = [
+      'fn name=scan returns=void',
+      '  handler <<<',
+      '    for (const item of items) {',
+      '      try {',
+      '        break;',
+      '      } catch (err) {',
+      '        continue;',
+      '      }',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(
+      ['for (const item of items) {', '  try {', '    break;', '  } catch (err) {', '    continue;', '  }', '}'].join(
+        '\n',
+      ),
+    );
+  });
+
+  test('nested loops compile break and continue byte-equivalent', () => {
+    const source = [
+      'fn name=scan returns=void',
+      '  handler <<<',
+      '    for (const group of groups) {',
+      '      while (active) {',
+      '        continue;',
+      '      }',
+      '      break;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(
+      ['for (const group of groups) {', '  while (active) {', '    continue;', '  }', '  break;', '}'].join('\n'),
+    );
   });
 
   test('for-of block with nested destructuring composes each and destructure', () => {
