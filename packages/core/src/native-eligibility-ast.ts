@@ -22,6 +22,7 @@
 
 import ts from 'typescript';
 import { parseExpression } from './parser-expression.js';
+import type { ValueIR } from './value-ir.js';
 
 export interface AstEligibilityResult {
   eligible: boolean;
@@ -50,6 +51,39 @@ export function isValidKernExpression(exprText: string): boolean {
   } catch {
     return false;
   }
+}
+
+export function isValidKernAssignmentTarget(exprText: string): boolean {
+  if (/\n/.test(exprText)) return false;
+  try {
+    return isAssignableTarget(parseExpression(exprText));
+  } catch {
+    return false;
+  }
+}
+
+export function isValidKernAssignmentValue(exprText: string): boolean {
+  if (/\n/.test(exprText)) return false;
+  try {
+    const expr = parseExpression(exprText);
+    return expr.kind !== 'propagate';
+  } catch {
+    return false;
+  }
+}
+
+function isAssignableTarget(node: ValueIR): boolean {
+  if (node.kind === 'ident') return true;
+  if (node.kind === 'member') return !node.optional && !containsOptionalAccess(node.object);
+  if (node.kind === 'index') return !node.optional && !containsOptionalAccess(node.object);
+  return false;
+}
+
+function containsOptionalAccess(node: ValueIR): boolean {
+  if (node.kind === 'member') return node.optional || containsOptionalAccess(node.object);
+  if (node.kind === 'index') return node.optional || containsOptionalAccess(node.object);
+  if (node.kind === 'call') return node.optional || containsOptionalAccess(node.callee);
+  return false;
 }
 
 /** True when `bodyText` contains any line or block comment. The migrator
@@ -118,12 +152,16 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile): string | null {
     return classifyBranch(cc.block, sf);
   }
   if (ts.isExpressionStatement(stmt)) {
-    // Slice α-1: ExpressionStatement → `do value="…"`. Reject mutation
-    // (assignments, ++, --) here so the classifier matches what the migrator
-    // emits — the migrator has the same defensive guards.
+    // Slice α-1: ExpressionStatement → `do value="…"`. Plain `=` maps to
+    // `assign`; compound assignment and ++/-- remain unsupported.
     if (ts.isBinaryExpression(stmt.expression)) {
       const op = stmt.expression.operatorToken.kind;
-      if (op >= ts.SyntaxKind.FirstAssignment && op <= ts.SyntaxKind.LastAssignment) return 'expr-stmt-assignment';
+      if (op >= ts.SyntaxKind.FirstAssignment && op <= ts.SyntaxKind.LastAssignment) {
+        if (op !== ts.SyntaxKind.EqualsToken) return 'expr-stmt-assignment';
+        if (!isValidKernAssignmentTarget(stmt.expression.left.getText(sf))) return 'expr-stmt-bad-assign-target';
+        if (!isValidKernAssignmentValue(stmt.expression.right.getText(sf))) return 'expr-stmt-bad-assign-value';
+        return null;
+      }
     }
     if (ts.isPostfixUnaryExpression(stmt.expression) || ts.isPrefixUnaryExpression(stmt.expression)) {
       const op = (stmt.expression as ts.PrefixUnaryExpression | ts.PostfixUnaryExpression).operator;

@@ -276,14 +276,58 @@ describe('rewriteNativeHandlers — bail conditions', () => {
     expect(result.output).toContain('do value="doIt()"');
   });
 
-  test('bails on bare property assignment ExpressionStatement (mutation)', () => {
-    // `obj.x = 1` parses as an ExpressionStatement containing a BinaryExpression
-    // with `=`. The slice 5a regex classifier already rejects this at the
-    // mutation-pattern stage, so this test asserts the regex catches it
-    // BEFORE the α-1 ExpressionStatement path. The defensive guard inside
-    // mapStatement is exercised separately in the rewriter unit (it would
-    // only fire if the classifier regex were loosened).
-    const source = ['fn name=ok returns=void', '  handler <<<', '    obj.x = 1;', '  >>>'].join('\n');
+  test('migrates plain assignment ExpressionStatement to `assign` body-statement', () => {
+    const source = [
+      'fn name=ok returns=void',
+      '  handler <<<',
+      '    x = 1;',
+      '    obj.x = x;',
+      '    arr[0] = obj.x;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('assign target="x" value="1"');
+    expect(result.output).toContain('assign target="obj.x" value="x"');
+    expect(result.output).toContain('assign target="arr[0]" value="obj.x"');
+  });
+
+  test('migrates `this` assignment and escaped string assignment values', () => {
+    const source = [
+      'fn name=ok returns=void',
+      '  handler <<<',
+      '    this.value = "a \\"quoted\\" value";',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('assign target="this.value" value="\\"a \\\\\\"quoted\\\\\\" value\\""');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates assignment inside for-of body', () => {
+    const source = [
+      'fn name=ok returns=void',
+      '  handler <<<',
+      '    for (const item of items) {',
+      '      last = item.value;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('each name=item in="items"');
+    expect(result.output).toContain('assign target="last" value="item.value"');
+  });
+
+  test('bails on compound assignment ExpressionStatement', () => {
+    const source = ['fn name=ok returns=void', '  handler <<<', '    x += 1;', '  >>>'].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+  });
+
+  test('bails on optional-chain assignment targets', () => {
+    const source = ['fn name=ok returns=void', '  handler <<<', '    obj?.x = 1;', '  >>>'].join('\n');
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(0);
   });
@@ -751,5 +795,34 @@ describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalenc
     const ts = emitNativeKernBodyTS(handler as IRNode);
     expect(ts).toContain('const first = items?.[0];');
     expect(ts).toContain('return users?.[first]?.name;');
+  });
+
+  test('plain assignment compiles byte-equivalent through body assign', () => {
+    const source = [
+      'fn name=mutate returns=void',
+      '  handler <<<',
+      '    x = 1;',
+      '    obj.x = x;',
+      '    arr[0] = obj.x;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toContain('x = 1;');
+    expect(ts).toContain('obj.x = x;');
+    expect(ts).toContain('arr[0] = obj.x;');
+  });
+
+  test('this assignment compiles byte-equivalent through body assign', () => {
+    const source = ['fn name=mutate returns=void', '  handler <<<', '    this.value = "ready";', '  >>>'].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toContain('this.value = "ready";');
   });
 });

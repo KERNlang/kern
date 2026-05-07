@@ -162,6 +162,8 @@ function emitChildrenPy(children: IRNode[], ctx: BodyEmitContext, indent: string
     const child = children[i];
     if (child.type === 'let') {
       for (const line of emitLetPy(child, ctx)) lines.push(`${indent}${line}`);
+    } else if (child.type === 'assign') {
+      for (const line of emitAssignPy(child, ctx)) lines.push(`${indent}${line}`);
     } else if (child.type === 'destructure') {
       for (const line of emitDestructurePy(child, ctx)) lines.push(`${indent}${line}`);
     } else if (child.type === 'return') {
@@ -409,6 +411,43 @@ function emitLetPy(node: IRNode, ctx: BodyEmitContext): string[] {
     return [`${tmp} = ${inner}`, `if ${tmp}.kind == 'err':`, errPropagationLine(tmp, ctx), `${name} = ${tmp}.value`];
   }
   return [`${name} = ${emitPyExprCtx(valueIR, ctx)}`];
+}
+
+function emitAssignPy(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const rawTarget = props.target;
+  const rawValue = props.value;
+  if (rawTarget === undefined || rawTarget === '') {
+    throw new Error('body-statement `assign` requires `target=`.');
+  }
+  if (rawValue === undefined || rawValue === '') {
+    throw new Error('body-statement `assign` requires `value=`.');
+  }
+  const targetIR = parseExpression(String(rawTarget));
+  if (!isAssignableTarget(targetIR)) {
+    throw new Error('body-statement `assign target=` must be an identifier, member access, or index access.');
+  }
+  const valueIR = parseExpression(String(rawValue));
+  if (valueIR.kind === 'propagate') {
+    throw new Error(
+      `Propagation \`${valueIR.op}\` is not supported in \`assign value=\` — bind to \`let\` first, then assign.`,
+    );
+  }
+  return [`${emitPyExprCtx(targetIR, ctx)} = ${emitPyExprCtx(valueIR, ctx)}`];
+}
+
+function isAssignableTarget(node: ValueIR): boolean {
+  if (node.kind === 'ident') return true;
+  if (node.kind === 'member') return !node.optional && !containsOptionalAccess(node.object);
+  if (node.kind === 'index') return !node.optional && !containsOptionalAccess(node.object);
+  return false;
+}
+
+function containsOptionalAccess(node: ValueIR): boolean {
+  if (node.kind === 'member') return node.optional || containsOptionalAccess(node.object);
+  if (node.kind === 'index') return node.optional || containsOptionalAccess(node.object);
+  if (node.kind === 'call') return node.optional || containsOptionalAccess(node.callee);
+  return false;
 }
 
 function emitDestructurePy(node: IRNode, ctx: BodyEmitContext): string[] {

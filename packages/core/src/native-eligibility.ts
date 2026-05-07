@@ -80,15 +80,11 @@ export const LEGACY_NEG_PATTERNS: ReadonlyArray<RegExp> = [
   // single-binding form. `const { a, b } = obj` and `let [x, y] = arr` would
   // need the slice 5b rewriter to expand into multiple let-bindings.
   /\b(?:const|let|var)\s*[{[]/,
-  // Mutation / re-assignment — slice 4d's `let` lowers to `const`, and the
-  // expression parser explicitly rejects `=` in expressions. Caught: `x++`,
-  // `++x`, `x += 1`, `x -= 1`, `x *= 2`, `x /= 2`, `x %= 2`, `obj.x = 1`,
-  // `arr[i] = v`, `delete obj.x`. Bare ident reassignment (`x = 1`) needs
-  // line-leading detection to avoid colliding with `const x = 1` declarations.
+  // Mutation forms that native KERN does not lower yet. Plain `=` assignment
+  // is supported by the `assign` body-statement; compound assignment and
+  // increment/decrement remain separate future features.
   /\+\+|--/,
   /[+\-*/%]=/,
-  /^\s*\w+(?:\.\w+|\[[^\]]+\])+\s*=[^=]/m,
-  /^\s*\w+\s*=[^=>]/m,
   /\bdelete\s/,
   // Indexing (`xs[0]`, `arr[i]`, `arr[0][1]`) — slice 4d's expression parser
   // rejects lbracket in `parseCall`. Pattern matches an ident-char or `]`
@@ -101,7 +97,6 @@ export const LEGACY_NEG_PATTERNS: ReadonlyArray<RegExp> = [
   /\bdebugger\b/,
   /\bwith\s*\(/,
   /\beval\s*\(/,
-  /\bthis\.\w+\s*=/,
   /\bconsole\.\w/,
   /\bprocess\.\w/,
   /\bBuffer\b/,

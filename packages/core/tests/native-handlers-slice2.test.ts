@@ -183,6 +183,64 @@ describe('emitNativeKernBodyTS — if / else control flow', () => {
   });
 });
 
+describe('emitNativeKernBodyTS — assignment body statement', () => {
+  test('plain assignment targets emit as statements', () => {
+    const handler = makeHandler([
+      { type: 'assign', props: { target: 'x', value: '1' } },
+      { type: 'assign', props: { target: 'obj.x', value: 'x' } },
+      { type: 'assign', props: { target: 'arr[0]', value: 'obj.x' } },
+    ]);
+    const out = emitNativeKernBodyTS(handler);
+    expect(out).toContain('x = 1;');
+    expect(out).toContain('obj.x = x;');
+    expect(out).toContain('arr[0] = obj.x;');
+  });
+
+  test('assignment rejects non-lvalue targets', () => {
+    const handler = makeHandler([{ type: 'assign', props: { target: 'a + b', value: '1' } }]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/identifier, member access, or index access/);
+  });
+
+  test('assignment rejects optional-chain targets', () => {
+    expect(() =>
+      emitNativeKernBodyTS(makeHandler([{ type: 'assign', props: { target: 'obj?.x', value: '1' } }])),
+    ).toThrow(/identifier, member access, or index access/);
+    expect(() =>
+      emitNativeKernBodyTS(makeHandler([{ type: 'assign', props: { target: 'arr?.[0]', value: '1' } }])),
+    ).toThrow(/identifier, member access, or index access/);
+  });
+
+  test('assignment rejects propagation values', () => {
+    const handler = makeHandler([{ type: 'assign', props: { target: 'x', value: 'load()?' } }]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/bind to `let` first/);
+  });
+
+  test('assignment allows optional access inside index rvalue', () => {
+    const handler = makeHandler([{ type: 'assign', props: { target: 'arr[obj?.idx]', value: '1' } }]);
+    expect(emitNativeKernBodyTS(handler)).toContain('arr[obj?.idx] = 1;');
+  });
+
+  test('assignment composes inside nested control-flow body statements', () => {
+    const handler = makeHandler([
+      {
+        type: 'each',
+        props: { name: 'item', in: 'items' },
+        children: [
+          {
+            type: 'if',
+            props: { cond: 'item.ok' },
+            children: [{ type: 'assign', props: { target: 'last', value: 'item.value' } }],
+          },
+        ],
+      },
+    ]);
+    const out = emitNativeKernBodyTS(handler);
+    expect(out).toContain('for (const item of items) {');
+    expect(out).toContain('if (item.ok) {');
+    expect(out).toContain('last = item.value;');
+  });
+});
+
 // ── 2d: object + array literals ───────────────────────────────────────────
 
 describe('parseExpression + emitExpression — literals', () => {

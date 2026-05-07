@@ -16,7 +16,14 @@
  * codegen drift.
  */
 
-import { classifyHandlerBody, escapeKernString, hasComments, isValidKernExpression } from '@kernlang/core';
+import {
+  classifyHandlerBody,
+  escapeKernString,
+  hasComments,
+  isValidKernAssignmentTarget,
+  isValidKernAssignmentValue,
+  isValidKernExpression,
+} from '@kernlang/core';
 import ts from 'typescript';
 
 export interface NativeHandlerHit {
@@ -150,10 +157,9 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string)
     // `do value="…"` body-statement (slice α-1). Largest AST-rejection bucket
     // pre-α — see project_alpha_migrator_ast_plan.md.
     //
-    // Reject assignments and prefix/postfix mutations explicitly — the slice 5a
-    // regex classifier already rejects these structurally, but a defensive
-    // check here keeps `do` from silently miscompiling if the classifier ever
-    // loosens (e.g. `arr[i] = v` would parse as a BinaryExpression with `=`).
+    // Plain `=` assignment maps to the structured `assign` body-statement.
+    // Compound assignment and prefix/postfix mutations remain unsupported
+    // because they need distinct cross-target semantics.
     //
     // Gemini review: cover ALL assignment operators, not just `=`. The classifier
     // regex `[+\-*/%]=` misses bitwise (`|=`, `&=`, `^=`, `<<=`, `>>=`, `>>>=`),
@@ -161,7 +167,14 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string)
     // TS's FirstAssignment/LastAssignment range covers the full set.
     if (ts.isBinaryExpression(stmt.expression)) {
       const op = stmt.expression.operatorToken.kind;
-      if (op >= ts.SyntaxKind.FirstAssignment && op <= ts.SyntaxKind.LastAssignment) return null;
+      if (op >= ts.SyntaxKind.FirstAssignment && op <= ts.SyntaxKind.LastAssignment) {
+        if (op !== ts.SyntaxKind.EqualsToken) return null;
+        const targetText = stmt.expression.left.getText(source);
+        const valueText = stmt.expression.right.getText(source);
+        if (!isValidKernAssignmentTarget(targetText)) return null;
+        if (!isValidKernAssignmentValue(valueText)) return null;
+        return [`${indent}assign target="${escapeKernString(targetText)}" value="${escapeKernString(valueText)}"`];
+      }
     }
     if (ts.isPostfixUnaryExpression(stmt.expression) || ts.isPrefixUnaryExpression(stmt.expression)) {
       const op = (stmt.expression as ts.PrefixUnaryExpression | ts.PostfixUnaryExpression).operator;

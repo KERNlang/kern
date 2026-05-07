@@ -117,6 +117,7 @@ export const NODE_TYPES = [
   'then',
   'each',
   'let',
+  'assign',
   'local',
   // Native KERN handler-body statements (slice 1)
   'return',

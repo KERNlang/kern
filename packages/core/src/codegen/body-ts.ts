@@ -44,6 +44,7 @@
 import { emitExpression } from '../codegen-expression.js';
 import { parseExpression } from '../parser-expression.js';
 import type { IRNode } from '../types.js';
+import type { ValueIR } from '../value-ir.js';
 
 /** Slice 3e — caller-provided options, parity with the Python body emitter.
  *  `symbolMap` is currently unused on the TS target; reserved for future
@@ -103,6 +104,8 @@ function emitChildrenTS(children: IRNode[], ctx: BodyEmitContext, indent: string
     const child = children[i];
     if (child.type === 'let') {
       for (const line of emitLetTS(child, ctx)) lines.push(`${indent}${line}`);
+    } else if (child.type === 'assign') {
+      for (const line of emitAssignTS(child, ctx)) lines.push(`${indent}${line}`);
     } else if (child.type === 'destructure') {
       for (const line of emitDestructureTS(child, ctx)) lines.push(`${indent}${line}`);
     } else if (child.type === 'return') {
@@ -319,6 +322,43 @@ function emitLetTS(node: IRNode, ctx: BodyEmitContext): string[] {
     return [`const ${tmp} = ${inner};`, `if (${tmp}.kind === 'err') return ${tmp};`, `const ${name} = ${tmp}.value;`];
   }
   return [`const ${name} = ${emitExpression(valueIR)};`];
+}
+
+function emitAssignTS(node: IRNode, _ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const rawTarget = props.target;
+  const rawValue = props.value;
+  if (rawTarget === undefined || rawTarget === '') {
+    throw new Error('body-statement `assign` requires `target=`.');
+  }
+  if (rawValue === undefined || rawValue === '') {
+    throw new Error('body-statement `assign` requires `value=`.');
+  }
+  const targetIR = parseExpression(String(rawTarget));
+  if (!isAssignableTarget(targetIR)) {
+    throw new Error('body-statement `assign target=` must be an identifier, member access, or index access.');
+  }
+  const valueIR = parseExpression(String(rawValue));
+  if (valueIR.kind === 'propagate') {
+    throw new Error(
+      `Propagation \`${valueIR.op}\` is not supported in \`assign value=\` — bind to \`let\` first, then assign.`,
+    );
+  }
+  return [`${emitExpression(targetIR)} = ${emitExpression(valueIR)};`];
+}
+
+function isAssignableTarget(node: ValueIR): boolean {
+  if (node.kind === 'ident') return true;
+  if (node.kind === 'member') return !node.optional && !containsOptionalAccess(node.object);
+  if (node.kind === 'index') return !node.optional && !containsOptionalAccess(node.object);
+  return false;
+}
+
+function containsOptionalAccess(node: ValueIR): boolean {
+  if (node.kind === 'member') return node.optional || containsOptionalAccess(node.object);
+  if (node.kind === 'index') return node.optional || containsOptionalAccess(node.object);
+  if (node.kind === 'call') return node.optional || containsOptionalAccess(node.callee);
+  return false;
 }
 
 function emitDestructureTS(node: IRNode, ctx: BodyEmitContext): string[] {

@@ -872,6 +872,10 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       // codegen/screens.ts::generateEachJSX). Outside of that context
       // `let` produces no standalone output — the validator rejects it.
       return [];
+    case 'assign':
+      // Consumed only by native handler-body emitters. Outside that context
+      // the body-statement validator rejects it before codegen.
+      return [];
     case 'collect':
       return generateCollect(node);
     case 'branch':

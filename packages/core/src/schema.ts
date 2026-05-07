@@ -536,7 +536,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     // Two shapes share this `try` node type:
     // 1. Async-orchestration: `try name=loadUser` with `step`/`handler`/`catch` children.
     // 2. Body-statement (slice 4c+4d, opt-in via parent `handler lang="kern"`):
-    //    `try` with `let`/`return`/`if`/`throw`/`each`/`try` body-statement children
+    //    `try` with `let`/`assign`/`return`/`if`/`throw`/`each`/`try` body-statement children
     //    plus a required `catch` child. Schema permits both child sets;
     //    body-ts.ts disambiguates by inspecting the children, and validateBodyStatements
     //    enforces the body-statement-only constraints when the enclosing handler is `lang="kern"`.
@@ -545,6 +545,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'handler',
       'catch',
       'let',
+      'assign',
       'do',
       'return',
       'if',
@@ -577,6 +578,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: [
       'handler',
       'let',
+      'assign',
       'do',
       'return',
       'if',
@@ -1489,7 +1491,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
 
   handler: {
     description:
-      'Code block — the body of a function, method, route, tool, or event handler. Use <<<...>>> for raw multiline code, or `lang="kern"` with body-statement children (`let`/`do`/`return`/`if`/`else`/`each`/`try`/`catch`/`throw`/`continue`/`break`/`branch`) for cross-target structured bodies. Use `continue` inside `each` to skip the current iteration; use `break` inside `each` to exit the innermost loop. Use `branch` for switch-style structural matching (TS `switch`, Python `if/elif/else`). Prefer these over raw handlers for loop-control and dispatch bodies.',
+      'Code block — the body of a function, method, route, tool, or event handler. Use <<<...>>> for raw multiline code, or `lang="kern"` with body-statement children (`let`/`assign`/`do`/`return`/`if`/`else`/`each`/`try`/`catch`/`throw`/`continue`/`break`/`branch`) for cross-target structured bodies. Use `continue` inside `each` to skip the current iteration; use `break` inside `each` to exit the innermost loop. Use `branch` for switch-style structural matching (TS `switch`, Python `if/elif/else`). Prefer these over raw handlers for loop-control and dispatch bodies.',
     example: 'handler <<<\n  const result = await doWork();\n  return result;\n>>>',
     props: {
       code: { kind: 'rawBlock' },
@@ -1501,6 +1503,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     // context-aware error).
     allowedChildren: [
       'let',
+      'assign',
       'destructure',
       'do',
       'return',
@@ -1521,6 +1524,15 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     example: 'return value="exists"',
     props: {
       value: { kind: 'expression' },
+    },
+  },
+  assign: {
+    description:
+      'Body-statement assignment — emits `target = value` inside a `lang="kern"` handler body. Supports assignable targets only: identifier, member access, and index access. Compound assignment (`+=`) and increment/decrement are deliberately separate future features.',
+    example: 'assign target="user.name" value="nextName"',
+    props: {
+      target: { required: true, kind: 'expression' },
+      value: { required: true, kind: 'expression' },
     },
   },
   throw: {

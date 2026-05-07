@@ -93,6 +93,14 @@ describe('classifyHandlerBody — slice 4d additions are now eligible', () => {
     expect(classifyHandlerBody(`const maybe = items?.[0];\nreturn maybe;`).eligible).toBe(true);
     expect(classifyHandlerBody(`return users?.[id]?.name;`).eligible).toBe(true);
   });
+
+  test('plain assignment statements are eligible', () => {
+    expect(classifyHandlerBody(`x = 1;\nreturn x;`).eligible).toBe(true);
+    expect(classifyHandlerBody(`obj.x = value;\nreturn obj;`).eligible).toBe(true);
+    expect(classifyHandlerBody(`arr[0] = value;\nreturn arr;`).eligible).toBe(true);
+    expect(classifyHandlerBody(`this.value = 1;\nreturn this.value;`).eligible).toBe(true);
+    expect(classifyHandlerBody(`arr[obj?.idx] = value;\nreturn arr;`).eligible).toBe(true);
+  });
 });
 
 describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => {
@@ -142,8 +150,14 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
   test('import statement rejected', () =>
     rejected(`import { foo } from 'bar';\nreturn foo();`, 'unsupported-stmt-ImportDeclaration'));
 
-  test('this.X = Y rejected (assignment ExpressionStatement)', () =>
-    rejected(`this.value = 1;\nreturn this.value;`, 'expr-stmt-assignment'));
+  test('computed non-expression assignment target rejected', () =>
+    rejected(`obj[a => a] = 1;\nreturn obj;`, 'expr-stmt-bad-assign-target'));
+
+  test('optional-chain assignment targets rejected', () => {
+    rejected(`obj?.x = 1;\nreturn obj;`, 'expr-stmt-bad-assign-target');
+    rejected(`arr?.[0] = 1;\nreturn arr;`, 'expr-stmt-bad-assign-target');
+    rejected(`obj.x?.y = 1;\nreturn obj;`, 'expr-stmt-bad-assign-target');
+  });
 
   test('post-increment rejected (mutation ExpressionStatement)', () =>
     rejected(`const x = 0;\nx++;\nreturn x;`, 'expr-stmt-mutation'));
@@ -153,15 +167,6 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
 
   test('compound add-assign rejected (assignment ExpressionStatement)', () =>
     rejected(`const x = 1;\nx += 2;\nreturn x;`, 'expr-stmt-assignment'));
-
-  test('property assignment rejected (assignment ExpressionStatement)', () =>
-    rejected(`obj.x = 1;\nreturn obj;`, 'expr-stmt-assignment'));
-
-  test('bracket-index assignment rejected (assignment ExpressionStatement)', () =>
-    rejected(`arr[0] = 1;\nreturn arr;`, 'expr-stmt-assignment'));
-
-  test('bare reassignment rejected (assignment ExpressionStatement)', () =>
-    rejected(`x = 1;\nreturn x;`, 'expr-stmt-assignment'));
 
   test('void operator rejected (parser-expression bails)', () => rejected(`return void 0;`, 'return-bad-expr'));
 
