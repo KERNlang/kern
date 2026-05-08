@@ -39,6 +39,7 @@ import { securityV4Rules } from './security-v4.js';
 import { securityV5Rules } from './security-v5.js';
 import { suggestKernPrimitiveRules } from './suggest-kern-primitive.js';
 import { terminalRules } from './terminal.js';
+import { testQualityRules } from './test-quality.js';
 import { vueRules } from './vue.js';
 
 const REACT_TARGETS = new Set(['nextjs', 'tailwind', 'web', 'native', 'ink']);
@@ -62,6 +63,7 @@ export function getActiveRules(target?: string): ReviewRule[] {
     ...nullSafetyRules,
     ...asyncRules,
     ...suggestKernPrimitiveRules,
+    ...testQualityRules,
   ];
 
   // Backend targets never load frontend-specific rules
@@ -635,6 +637,24 @@ const REGISTRY: RuleInfo[] = [
     rolloutPhase: 2,
   },
 
+  // Test-quality — phantom assertions and empty test files
+  {
+    id: 'expect-no-matcher',
+    layer: 'test-quality',
+    severity: 'error',
+    description: '`expect(x);` with no matcher chained — the assertion is a no-op and silently passes',
+    precision: 'high',
+    rolloutPhase: 5,
+  },
+  {
+    id: 'empty-test-file',
+    layer: 'test-quality',
+    severity: 'warning',
+    description: 'Test file (.test/.spec) with no `it()` / `test()` calls — likely a stub left behind after a refactor',
+    precision: 'high',
+    rolloutPhase: 5,
+  },
+
   // React composition — Wave 4 (children-as-perf, prop drilling)
   {
     id: 'children-not-used',
@@ -1050,9 +1070,18 @@ const REGISTRY: RuleInfo[] = [
     id: 'server-api-in-client',
     layer: 'nextjs-app-router',
     severity: 'error',
-    description: 'next/headers (cookies/headers/draftMode) or server-only imported in a Client Component',
+    description: 'next/headers (cookies/headers/draftMode), server-only, or Node fs imported in a Client Component',
     precision: 'high',
     rolloutPhase: 1,
+  },
+  {
+    id: 'env-var-leak-to-client',
+    layer: 'nextjs-app-router',
+    severity: 'error',
+    description:
+      'process.env.<NAME> referenced in a Client Component without NEXT_PUBLIC_ prefix — value is undefined in the browser bundle',
+    precision: 'high',
+    rolloutPhase: 5,
   },
   {
     id: 'browser-api-in-server',
@@ -1349,6 +1378,7 @@ const LAYER_TARGET_MAP: Record<string, string[] | null> = {
   'dead-logic': null,
   'null-safety': null,
   async: null,
+  'test-quality': null,
   concept: null,
   react: ['nextjs', 'tailwind', 'web', 'native', 'ink'],
   'react-hooks': ['nextjs', 'tailwind', 'web', 'native', 'ink'],

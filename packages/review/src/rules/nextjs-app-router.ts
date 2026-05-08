@@ -856,20 +856,42 @@ function useClientDrilledTooHigh(ctx: RuleContext): ReviewFinding[] {
 // These will fail at build or runtime.
 
 const SERVER_API_CALLS = new Set(['cookies', 'headers', 'draftMode']);
+/** Node built-ins that have no business running in a Client Component bundle.
+ *  Limited to file/process modules that the bundler cannot polyfill safely.
+ *  Excludes neutral-by-default modules (`crypto`, `stream`, `path`) that are
+ *  routinely browser-polyfilled and would generate false positives. */
+const SERVER_ONLY_NODE_MODULES = new Set(['fs', 'node:fs', 'fs/promises', 'node:fs/promises']);
+
+/** True when an import is fully erased at compile time:
+ *  `import type X from 'm'` (declaration-level type-only), OR every named specifier
+ *  uses the `type` modifier `import { type X, type Y } from 'm'`, AND there is no
+ *  default-import/namespace-import (those carry runtime references). */
+function isFullyTypeOnlyImport(imp: import('ts-morph').ImportDeclaration): boolean {
+  if (imp.isTypeOnly()) return true;
+  if (imp.getDefaultImport() || imp.getNamespaceImport()) return false;
+  const named = imp.getNamedImports();
+  if (named.length === 0) return false; // bare `import 'm'` — runs at runtime
+  return named.every((n) => n.isTypeOnly());
+}
 
 function serverApiInClient(ctx: RuleContext): ReviewFinding[] {
   if (ctx.fileRole !== 'runtime') return [];
 
   const fullText = ctx.sourceFile.getFullText();
+  // 'use server' files are server actions/functions — they legitimately use
+  // server-only APIs and fs. Skip them even when imported by a Client Component
+  // (the file-context propagation could otherwise mark them as client-bound).
+  if (hasServerDirective(fullText)) return [];
   const isClient = isClientBoundary(ctx, fullText);
   if (!isClient) return [];
 
   const findings: ReviewFinding[] = [];
 
-  // Import check: `from 'next/headers'` or `from 'server-only'`
+  // Import check: `from 'next/headers'` / `from 'server-only'` / Node fs modules
   for (const imp of ctx.sourceFile.getImportDeclarations()) {
     const mod = imp.getModuleSpecifierValue();
-    if (mod === 'next/headers' || mod === 'server-only') {
+    if (isFullyTypeOnlyImport(imp)) continue; // erased at compile time
+    if (mod === 'next/headers' || mod === 'server-only' || SERVER_ONLY_NODE_MODULES.has(mod)) {
       const hit = finding(
         'server-api-in-client',
         'error',
@@ -962,6 +984,33 @@ function serverApiInClient(ctx: RuleContext): ReviewFinding[] {
       ],
     };
     findings.push(hit);
+  }
+
+  // CommonJS form: const fs = require('fs') — also crashes in the client bundle.
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (!Node.isIdentifier(callee) || callee.getText() !== 'require') continue;
+    const args = call.getArguments();
+    if (args.length !== 1) continue;
+    const arg = args[0];
+    if (!Node.isStringLiteral(arg)) continue;
+    const mod = arg.getLiteralValue();
+    if (!SERVER_ONLY_NODE_MODULES.has(mod)) continue;
+    findings.push(
+      finding(
+        'server-api-in-client',
+        'error',
+        'bug',
+        `Client Component calls require('${mod}') — server-only Node module will not resolve in the browser bundle`,
+        ctx.filePath,
+        call.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            "Move this logic to a Server Component or server action, or drop the 'use client' directive if this file does not need it",
+        },
+      ),
+    );
   }
 
   return findings;
@@ -1374,6 +1423,208 @@ function serverActionUnvalidatedInput(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule: env-var-leak-to-client ─────────────────────────────────────────
+//
+// In Next.js, env vars referenced in Client Components must be prefixed with
+// `NEXT_PUBLIC_` to be inlined at build time. A `process.env.SECRET_KEY`
+// reference in a `'use client'` file produces `undefined` at runtime in the
+// browser AND, worse, signals confusion about what's actually exposed.
+//
+// Detection: PropertyAccessExpression of shape `process.env.<NAME>`,
+// element-access `process.env['NAME']`, or destructuring `const { X } = process.env`,
+// in a client-boundary file, where <NAME> does not start with `NEXT_PUBLIC_`
+// and isn't on the framework-public allowlist.
+//
+// FP avoidance:
+//   - Skip 'use server' files entirely (server actions/functions reference
+//     process.env legitimately — file-context propagation could otherwise
+//     mark them as client-bound).
+//   - Allowlist `NODE_ENV` and known Vercel-public env vars — Next/Vercel
+//     bundlers inline these for the browser bundle.
+//   - Skip references inside a `typeof process.env.X` guard.
+//   - Skip references inside a `typeof window === 'undefined'` SSR-only branch.
+
+const PUBLIC_ENV_PREFIX = 'NEXT_PUBLIC_';
+/** Env vars Next.js / Vercel inline into the client bundle without the
+ *  NEXT_PUBLIC_ prefix. Flagging these would generate massive false-positive
+ *  noise in any real Next.js codebase. */
+const KNOWN_PUBLIC_ENV_VARS = new Set(['NODE_ENV', 'VERCEL_ENV', 'VERCEL_URL', 'VERCEL_BRANCH_URL', 'VERCEL_REGION']);
+
+function isInTypeofExpression(node: Node): boolean {
+  let cur: Node | undefined = node.getParent();
+  while (cur) {
+    if (Node.isTypeOfExpression(cur)) return true;
+    if (Node.isFunctionLikeDeclaration(cur)) return false;
+    cur = cur.getParent();
+  }
+  return false;
+}
+
+/** True when `node` is inside the consequent of a `typeof window === 'undefined'`
+ *  branch (or the alternate of `typeof window !== 'undefined'`). Such branches
+ *  never execute on the client and so referencing server-only env there is OK. */
+function isInsideSsrOnlyBranch(node: Node): boolean {
+  let cur: Node | undefined = node;
+  while (cur) {
+    const parent: Node | undefined = cur.getParent();
+    if (!parent) break;
+    if (Node.isIfStatement(parent)) {
+      const condition = parent.getExpression();
+      const thenBranch = parent.getThenStatement();
+      const elseBranch = parent.getElseStatement();
+      const guard = readTypeofWindowGuard(condition);
+      if (guard) {
+        const inThen = thenBranch && cur === thenBranch;
+        const inElse = elseBranch && cur === elseBranch;
+        if (guard === 'undefined' && inThen) return true;
+        if (guard === 'defined' && inElse) return true;
+      }
+    }
+    if (Node.isConditionalExpression(parent)) {
+      const condition = parent.getCondition();
+      const guard = readTypeofWindowGuard(condition);
+      if (guard) {
+        const inWhenTrue = cur === parent.getWhenTrue();
+        const inWhenFalse = cur === parent.getWhenFalse();
+        if (guard === 'undefined' && inWhenTrue) return true;
+        if (guard === 'defined' && inWhenFalse) return true;
+      }
+    }
+    if (Node.isFunctionLikeDeclaration(parent) || Node.isSourceFile(parent)) break;
+    cur = parent;
+  }
+  return false;
+}
+
+/** Recognises `typeof window === 'undefined'` / `!==` / `!=`, returning the
+ *  effective state of `window` inside the truthy branch. */
+function readTypeofWindowGuard(node: Node | undefined): 'undefined' | 'defined' | undefined {
+  if (!node) return undefined;
+  if (!Node.isBinaryExpression(node)) return undefined;
+  const op = node.getOperatorToken().getText();
+  if (op !== '===' && op !== '==' && op !== '!==' && op !== '!=') return undefined;
+  const left = node.getLeft();
+  const right = node.getRight();
+  const isTypeofWindow = (n: Node) =>
+    Node.isTypeOfExpression(n) && Node.isIdentifier(n.getExpression()) && n.getExpression().getText() === 'window';
+  const isUndefStr = (n: Node) => Node.isStringLiteral(n) && n.getLiteralValue() === 'undefined';
+  if (!((isTypeofWindow(left) && isUndefStr(right)) || (isUndefStr(left) && isTypeofWindow(right)))) return undefined;
+  const eq = op === '===' || op === '==';
+  return eq ? 'undefined' : 'defined';
+}
+
+function isExemptEnvVarName(name: string): boolean {
+  return name.startsWith(PUBLIC_ENV_PREFIX) || KNOWN_PUBLIC_ENV_VARS.has(name);
+}
+
+function envVarLeakToClient(ctx: RuleContext): ReviewFinding[] {
+  if (ctx.fileRole !== 'runtime') return [];
+  const fullText = ctx.sourceFile.getFullText();
+  // Server actions/functions legitimately reference process.env — never flag them
+  // even if file-context propagation marks the file as client-bound.
+  if (hasServerDirective(fullText)) return [];
+  if (!isClientBoundary(ctx, fullText)) return [];
+
+  const findings: ReviewFinding[] = [];
+
+  for (const access of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)) {
+    // Match `process.env.<NAME>`
+    const left = access.getExpression();
+    if (!Node.isPropertyAccessExpression(left)) continue;
+    if (left.getName() !== 'env') continue;
+    const procIdent = left.getExpression();
+    if (!Node.isIdentifier(procIdent) || procIdent.getText() !== 'process') continue;
+
+    const name = access.getName();
+    if (isExemptEnvVarName(name)) continue;
+    if (isInTypeofExpression(access)) continue;
+    if (isInsideSsrOnlyBranch(access)) continue;
+
+    findings.push(
+      finding(
+        'env-var-leak-to-client',
+        'error',
+        'bug',
+        `'process.env.${name}' is referenced in a Client Component — server-only env vars are not bundled to the browser; only NEXT_PUBLIC_* vars are inlined`,
+        ctx.filePath,
+        access.getStartLineNumber(),
+        1,
+        {
+          suggestion: `If '${name}' is intentionally public, rename it to NEXT_PUBLIC_${name}. Otherwise, read it on the server and pass the result through props or a server action.`,
+        },
+      ),
+    );
+  }
+
+  // Also catch element-access form: `process.env['SECRET']`
+  for (const access of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.ElementAccessExpression)) {
+    const left = access.getExpression();
+    if (!Node.isPropertyAccessExpression(left)) continue;
+    if (left.getName() !== 'env') continue;
+    const procIdent = left.getExpression();
+    if (!Node.isIdentifier(procIdent) || procIdent.getText() !== 'process') continue;
+
+    const arg = access.getArgumentExpression();
+    if (!arg || !Node.isStringLiteral(arg)) continue;
+    const name = arg.getLiteralValue();
+    if (isExemptEnvVarName(name)) continue;
+    if (isInTypeofExpression(access)) continue;
+    if (isInsideSsrOnlyBranch(access)) continue;
+
+    findings.push(
+      finding(
+        'env-var-leak-to-client',
+        'error',
+        'bug',
+        `'process.env[${JSON.stringify(name)}]' is referenced in a Client Component — server-only env vars are not bundled to the browser; only NEXT_PUBLIC_* vars are inlined`,
+        ctx.filePath,
+        access.getStartLineNumber(),
+        1,
+        {
+          suggestion: `If '${name}' is intentionally public, rename it to NEXT_PUBLIC_${name}. Otherwise, read it on the server and pass the result through props or a server action.`,
+        },
+      ),
+    );
+  }
+
+  // Destructuring form: `const { SECRET } = process.env;`
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const init = decl.getInitializer();
+    if (!init || !Node.isPropertyAccessExpression(init)) continue;
+    if (init.getName() !== 'env') continue;
+    const procIdent = init.getExpression();
+    if (!Node.isIdentifier(procIdent) || procIdent.getText() !== 'process') continue;
+    const nameNode = decl.getNameNode();
+    if (!Node.isObjectBindingPattern(nameNode)) continue;
+    if (isInsideSsrOnlyBranch(decl)) continue;
+
+    for (const element of nameNode.getElements()) {
+      // The destructured key — `propertyNameNode` is set when the user renames
+      // (`{ SECRET: s }`); otherwise it's the binding name.
+      const keyNode = element.getPropertyNameNode() ?? element.getNameNode();
+      if (!Node.isIdentifier(keyNode)) continue;
+      const name = keyNode.getText();
+      if (isExemptEnvVarName(name)) continue;
+      findings.push(
+        finding(
+          'env-var-leak-to-client',
+          'error',
+          'bug',
+          `'${name}' is destructured from process.env in a Client Component — server-only env vars are not bundled to the browser`,
+          ctx.filePath,
+          element.getStartLineNumber(),
+          1,
+          {
+            suggestion: `If '${name}' is intentionally public, rename it to NEXT_PUBLIC_${name}. Otherwise, read it on the server and pass the result through props or a server action.`,
+          },
+        ),
+      );
+    }
+  }
+
+  return findings;
+}
+
 // ── Exported App Router Rules ────────────────────────────────────────────
 
 export const nextjsAppRouterRules = [
@@ -1386,4 +1637,5 @@ export const nextjsAppRouterRules = [
   serverActionFormReturnValueIgnored,
   serverActionFormMutationMissingInvalidation,
   serverActionUnvalidatedInput,
+  envVarLeakToClient,
 ];

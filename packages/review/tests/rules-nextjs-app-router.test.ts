@@ -159,6 +159,231 @@ export default function Page() {
       const r = reviewSource(src, 'page.tsx', cfg);
       expect(r.findings.find((f) => f.ruleId === 'server-api-in-client')).toBeUndefined();
     });
+
+    it("flags `import 'fs'` in a Client Component", () => {
+      const src = `'use client';
+import { readFileSync } from 'fs';
+export function C() {
+  const t = readFileSync('/etc/hosts', 'utf8');
+  return <pre>{t}</pre>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'server-api-in-client')).toBeDefined();
+    });
+
+    it("flags `import 'node:fs/promises'` in a Client Component", () => {
+      const src = `'use client';
+import { readFile } from 'node:fs/promises';
+export function C() {
+  return <div onClick={() => readFile('/x')}>x</div>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'server-api-in-client')).toBeDefined();
+    });
+
+    it('does NOT flag a type-only fs import (erased at build)', () => {
+      const src = `'use client';
+import type { Stats } from 'fs';
+export function C(props: { s: Stats }) {
+  return <div>{String(props.s.size)}</div>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'server-api-in-client')).toBeUndefined();
+    });
+
+    it('does NOT flag inline type-only specifier `import { type Stats } from "fs"` (Codex final review)', () => {
+      const src = `'use client';
+import { type Stats } from 'fs';
+export function C(props: { s: Stats }) {
+  return <div>{String(props.s.size)}</div>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'server-api-in-client')).toBeUndefined();
+    });
+
+    it("does NOT flag fs in a 'use server' file (server actions can use fs) (Gemini final review)", () => {
+      const src = `'use server';
+import { readFile } from 'fs/promises';
+export async function loadConfig() {
+  return readFile('/etc/config', 'utf8');
+}
+`;
+      const r = reviewSource(src, 'actions.ts', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'server-api-in-client')).toBeUndefined();
+    });
+
+    it("flags require('fs') in a Client Component (CommonJS form, Gemini final review)", () => {
+      const src = `'use client';
+export function C() {
+  const fs = require('fs');
+  return <div>{fs.toString()}</div>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'server-api-in-client')).toBeDefined();
+    });
+  });
+
+  describe('env-var-leak-to-client', () => {
+    it('flags process.env.SECRET_KEY in a client component', () => {
+      const src = `'use client';
+export function C() {
+  const k = process.env.SECRET_KEY;
+  return <div>{k}</div>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'env-var-leak-to-client')).toBeDefined();
+    });
+
+    it('does NOT flag NEXT_PUBLIC_API_URL in a client component', () => {
+      const src = `'use client';
+export function C() {
+  const url = process.env.NEXT_PUBLIC_API_URL;
+  return <div>{url}</div>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'env-var-leak-to-client')).toBeUndefined();
+    });
+
+    it("flags element-access form process.env['SECRET']", () => {
+      const src = `'use client';
+export function C() {
+  const k = process.env['DATABASE_URL'];
+  return <div>{k}</div>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'env-var-leak-to-client')).toBeDefined();
+    });
+
+    it('does NOT flag in a server component (no use client)', () => {
+      const src = `
+export default function Page() {
+  const k = process.env.SECRET_KEY;
+  return <div>{k}</div>;
+}
+`;
+      const r = reviewSource(src, 'page.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'env-var-leak-to-client')).toBeUndefined();
+    });
+
+    it('does NOT flag inside a typeof guard', () => {
+      const src = `'use client';
+export function C() {
+  const has = typeof process.env.NODE_ENV !== 'undefined';
+  return <div>{has ? 'y' : 'n'}</div>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'env-var-leak-to-client')).toBeUndefined();
+    });
+
+    it('does NOT flag NODE_ENV in a client component (Codex/Gemini/OpenCode final review — bundler-inlined)', () => {
+      const src = `'use client';
+export function C() {
+  if (process.env.NODE_ENV === 'development') {
+    console.log('dev');
+  }
+  return <div>x</div>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'env-var-leak-to-client')).toBeUndefined();
+    });
+
+    it('does NOT flag VERCEL_URL in a client component (Vercel-public)', () => {
+      const src = `'use client';
+export function C() {
+  return <div>{process.env.VERCEL_URL}</div>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'env-var-leak-to-client')).toBeUndefined();
+    });
+
+    it("does NOT flag in a 'use server' file (server actions reference process.env legitimately, Gemini final review)", () => {
+      const src = `'use server';
+export async function loadSecret() {
+  return process.env.SECRET_KEY;
+}
+`;
+      const r = reviewSource(src, 'actions.ts', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'env-var-leak-to-client')).toBeUndefined();
+    });
+
+    it("does NOT flag inside a 'typeof window === undefined' SSR-only branch (OpenCode/Gemini final review)", () => {
+      const src = `'use client';
+export function C() {
+  if (typeof window === 'undefined') {
+    const k = process.env.SECRET_KEY;
+    console.log(k);
+  }
+  return <div />;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'env-var-leak-to-client')).toBeUndefined();
+    });
+
+    it('does NOT flag in the alternate of `typeof window !== undefined`', () => {
+      const src = `'use client';
+export function C() {
+  if (typeof window !== 'undefined') {
+    // browser branch — would be wrong to read SECRET here, so we don't
+  } else {
+    const k = process.env.SECRET_KEY;
+    console.log(k);
+  }
+  return <div />;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'env-var-leak-to-client')).toBeUndefined();
+    });
+
+    it('flags destructuring `const { API_KEY } = process.env` in a client component (Gemini final review)', () => {
+      const src = `'use client';
+export function C() {
+  const { API_KEY, DATABASE_URL } = process.env;
+  return <div>{API_KEY ?? DATABASE_URL}</div>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      const hits = r.findings.filter((f) => f.ruleId === 'env-var-leak-to-client');
+      expect(hits.length).toBeGreaterThanOrEqual(2);
+      expect(hits.some((h) => h.message.includes('API_KEY'))).toBe(true);
+      expect(hits.some((h) => h.message.includes('DATABASE_URL'))).toBe(true);
+    });
+
+    it('does NOT flag NEXT_PUBLIC vars in destructuring', () => {
+      const src = `'use client';
+export function C() {
+  const { NEXT_PUBLIC_API_URL } = process.env;
+  return <div>{NEXT_PUBLIC_API_URL}</div>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'env-var-leak-to-client')).toBeUndefined();
+    });
+
+    it('flags renamed destructuring `const { SECRET: s } = process.env`', () => {
+      const src = `'use client';
+export function C() {
+  const { SECRET: s } = process.env;
+  return <div>{s}</div>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      const hit = r.findings.find((f) => f.ruleId === 'env-var-leak-to-client');
+      expect(hit).toBeDefined();
+      expect(hit!.message).toContain('SECRET');
+    });
   });
 
   describe('browser-api-in-server', () => {
