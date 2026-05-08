@@ -135,6 +135,91 @@ describe('continue / break body-statements — parser + validator', () => {
     expect(errs.length).toBeGreaterThan(0);
   });
 
+  test('continue rejected inside native handler but outside loop', () => {
+    const src = ['fn name=bad returns=void', '  handler lang="kern"', '    continue'].join('\n');
+    const { diagnostics } = parseDocumentWithDiagnostics(src);
+    const errs = diagnostics.filter((d) => d.severity === 'error' && d.code === 'BODY_LOOP_CONTROL_OUTSIDE_LOOP');
+    expect(errs.length).toBeGreaterThan(0);
+  });
+
+  test('break rejected inside native handler but outside loop', () => {
+    const src = ['fn name=bad returns=void', '  handler lang="kern"', '    break'].join('\n');
+    const { diagnostics } = parseDocumentWithDiagnostics(src);
+    const errs = diagnostics.filter((d) => d.severity === 'error' && d.code === 'BODY_LOOP_CONTROL_OUTSIDE_LOOP');
+    expect(errs.length).toBeGreaterThan(0);
+  });
+
+  test('continue valid inside for loop', () => {
+    const src = [
+      'fn name=ok returns=void',
+      '  handler lang="kern"',
+      '    for name=i from=0 to=10',
+      '      continue',
+    ].join('\n');
+    const { diagnostics } = parseDocumentWithDiagnostics(src);
+    expect(diagnostics.filter((d) => d.severity === 'error')).toHaveLength(0);
+  });
+
+  test('break valid inside for loop', () => {
+    const src = ['fn name=ok returns=void', '  handler lang="kern"', '    for name=i from=0 to=10', '      break'].join(
+      '\n',
+    );
+    const { diagnostics } = parseDocumentWithDiagnostics(src);
+    expect(diagnostics.filter((d) => d.severity === 'error')).toHaveLength(0);
+  });
+
+  test('continue and break valid inside while loop', () => {
+    const src = [
+      'fn name=ok returns=void',
+      '  handler lang="kern"',
+      '    while cond="running"',
+      '      if cond="skip"',
+      '        continue',
+      '      break',
+    ].join('\n');
+    const { diagnostics } = parseDocumentWithDiagnostics(src);
+    expect(diagnostics.filter((d) => d.severity === 'error')).toHaveLength(0);
+  });
+
+  test('loop control valid inside nested loops', () => {
+    const src = [
+      'fn name=ok returns=void',
+      '  handler lang="kern"',
+      '    for name=i from=0 to=10',
+      '      while cond="active"',
+      '        continue',
+    ].join('\n');
+    const { diagnostics } = parseDocumentWithDiagnostics(src);
+    expect(diagnostics.filter((d) => d.severity === 'error')).toHaveLength(0);
+  });
+
+  test('continue inside try inside each emits no loop-control diagnostic', () => {
+    const src = [
+      'fn name=ok returns=void',
+      '  handler lang="kern"',
+      '    each name=x in=xs',
+      '      try',
+      '        continue',
+      '        catch name=e',
+      '          do value="log(e)"',
+    ].join('\n');
+    const { diagnostics } = parseDocumentWithDiagnostics(src);
+    expect(diagnostics.filter((d) => d.severity === 'error')).toHaveLength(0);
+  });
+
+  test('continue rejected when sibling to loop rather than nested in it', () => {
+    const src = [
+      'fn name=bad returns=void',
+      '  handler lang="kern"',
+      '    for name=i from=0 to=10',
+      '      do value="step()"',
+      '    continue',
+    ].join('\n');
+    const { diagnostics } = parseDocumentWithDiagnostics(src);
+    const errs = diagnostics.filter((d) => d.code === 'BODY_LOOP_CONTROL_OUTSIDE_LOOP');
+    expect(errs.length).toBeGreaterThan(0);
+  });
+
   // Codex-flagged BLOCKER on the prior commit: continue / break must appear
   // in the allowedChildren of `try` and `catch`, otherwise schema validation
   // rejects valid loop-control IR. parseDocumentStrict throws on schema

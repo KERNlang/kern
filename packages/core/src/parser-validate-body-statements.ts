@@ -10,6 +10,8 @@
  *  Rules:
  *    - `assign`, `return`, `throw`, `do`, `continue`, `break`, `while`, `for` are rejected outside
  *      a native-body scope.
+ *    - `continue` and `break` are rejected inside native-body scope unless
+ *      nested under `for`/`each`/`while`.
  *    - `if` with a `cond` prop is body-statement form (vs `conditional`'s
  *      `if=` prop); rejected outside native-body scope.
  *    - `else` whose parent is not `conditional` is body-statement form
@@ -31,11 +33,13 @@ import type { IRNode } from './types.js';
 interface WalkContext {
   /** True once we've entered a `handler lang="kern"` scope (and all descendants). */
   inNativeBody: boolean;
+  /** Depth of body-statement loops (`for`/`each`/`while`) in the native body. */
+  loopDepth: number;
   /** Type of the immediate parent — used to disambiguate `else` form. */
   parentType: string | null;
 }
 
-const ROOT_CTX: WalkContext = { inNativeBody: false, parentType: null };
+const ROOT_CTX: WalkContext = { inNativeBody: false, loopDepth: 0, parentType: null };
 
 export function validateBodyStatements(state: ParseState, root: IRNode): void {
   walk(state, root, ROOT_CTX);
@@ -54,15 +58,40 @@ function walk(state: ParseState, node: IRNode, ctx: WalkContext): void {
       { endCol: loc.endCol ?? loc.col + 1 },
     );
   }
+  if (ctx.inNativeBody && isLoopControlOutsideLoop(node, ctx)) {
+    const loc = node.loc ?? { line: 1, col: 1, endCol: 2 };
+    emitDiagnostic(
+      state,
+      'BODY_LOOP_CONTROL_OUTSIDE_LOOP',
+      'error',
+      `\`${node.type}\` is only valid inside a \`for\`, \`each\`, or \`while\` body-statement loop.`,
+      loc.line,
+      loc.col,
+      { endCol: loc.endCol ?? loc.col + 1 },
+    );
+  }
   if (ctx.inNativeBody && node.type === 'for') validateForStatementShape(state, node);
 
+  const inNativeBody = ctx.inNativeBody || isNativeBodyHandler(node);
   const childCtx: WalkContext = {
-    inNativeBody: ctx.inNativeBody || isNativeBodyHandler(node),
+    inNativeBody,
+    loopDepth: inNativeBody && isBodyStatementLoop(node) ? ctx.loopDepth + 1 : ctx.loopDepth,
     parentType: node.type,
   };
   if (node.children) {
     for (const child of node.children) walk(state, child, childCtx);
   }
+}
+
+function isLoopControlOutsideLoop(node: IRNode, ctx: WalkContext): boolean {
+  return (node.type === 'continue' || node.type === 'break') && ctx.loopDepth <= 0;
+}
+
+function isBodyStatementLoop(node: IRNode): boolean {
+  // This validator currently has no native body-statement node that opens a
+  // nested function scope. Revisit loopDepth propagation if closure/lambda
+  // body nodes are added.
+  return node.type === 'for' || node.type === 'each' || node.type === 'while';
 }
 
 function validateForStatementShape(state: ParseState, node: IRNode): void {
