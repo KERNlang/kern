@@ -115,6 +115,39 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
+  test('does not auto-migrate sync destructured pair for-of block', () => {
+    const source = [
+      'fn name=notify returns=void',
+      '  handler <<<',
+      '    for (const [key, value] of cache) {',
+      '      notify(key, value);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
+
+  test('migrates destructured pair for-await-of block to async pair-mode each', () => {
+    const source = [
+      'fn name=notify returns=void async=true',
+      '  handler <<<',
+      '    for await (const [key, value] of cache) {',
+      '      await notify(key, value);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toContain('each pairKey=key pairValue=value in="cache" await=true');
+    expect(result.output).toContain('do value="await notify(key, value)"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
   test('migrates typed for-of block to typed each body-statement', () => {
     const source = [
       'fn name=notify returns=void',
@@ -700,12 +733,34 @@ describe('rewriteNativeHandlers — bail conditions', () => {
     expect(result.output).toBe(source);
   });
 
-  test('bails on destructured for-of binding until each supports patterns', () => {
+  test('bails on unsupported destructured for-of binding shapes', () => {
     const source = [
       'fn name=ok returns=void',
       '  handler <<<',
-      '    for (const [k, v] of pairs) {',
-      '      use(k, v);',
+      '    for (const { id } of users) {',
+      '      use(id);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
+
+  test.each([
+    ['single element', '[only]', 'use(only);'],
+    ['hole', '[, value]', 'use(value);'],
+    ['rest element', '[k, ...rest]', 'use(k, rest);'],
+    ['default value', '[k = "fallback", v]', 'use(k, v);'],
+    ['nested pattern', '[[k], v]', 'use(k, v);'],
+    ['typed async pair', '[k, v]: [string, number]', 'use(k, v);'],
+  ])('bails on unsupported array for-of binding shape: %s', (_name, pattern, body) => {
+    const awaitPrefix = pattern.includes(':') ? 'await ' : '';
+    const source = [
+      'fn name=ok returns=void',
+      '  handler <<<',
+      `    for ${awaitPrefix}(const ${pattern} of pairs) {`,
+      `      ${body}`,
       '    }',
       '  >>>',
     ].join('\n');
@@ -1261,6 +1316,40 @@ describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalenc
         '}',
       ].join('\n'),
     );
+  });
+
+  test('sync destructured pair for-of remains raw to avoid Python target drift', () => {
+    const source = [
+      'fn name=notify returns=void',
+      '  handler <<<',
+      '    for (const [key, value] of cache) {',
+      '      if (skip(key)) {',
+      '        continue;',
+      '      }',
+      '      notify(key, value);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
+
+  test('destructured pair for-await-of compiles byte-equivalent through async pair-mode each', () => {
+    const source = [
+      'fn name=notify returns=void async=true',
+      '  handler <<<',
+      '    for await (const [key, value] of cache) {',
+      '      await notify(key, value);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(['for await (const [key, value] of cache) {', '  await notify(key, value);', '}'].join('\n'));
   });
 
   test('loop-control compiles through try blocks inside loops', () => {
