@@ -62,13 +62,16 @@ describe('body-statement for — TS target', () => {
     expect(() => emitNativeKernBodyTS(handler)).toThrow(/Propagation '\?' is not allowed in `for from=`/);
   });
 
-  test.each(['0', '-1', '0.5', '1.0', 'someStep'])(
-    'rejects non-positive, non-integer, or non-literal step %s',
-    (step) => {
-      const handler = makeHandler([{ type: 'for', props: { name: 'i', from: '0', to: '10', step }, children: [] }]);
-      expect(() => emitNativeKernBodyTS(handler)).toThrow(/for step=.*positive integer literal/);
-    },
-  );
+  test.each([
+    '0',
+    '-1',
+    '0.5',
+    '1.0',
+    'someStep',
+  ])('rejects non-positive, non-integer, or non-literal step %s', (step) => {
+    const handler = makeHandler([{ type: 'for', props: { name: 'i', from: '0', to: '10', step }, children: [] }]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/for step=.*positive integer literal/);
+  });
 
   test('rejects non-cross-target loop identifier', () => {
     const handler = makeHandler([{ type: 'for', props: { name: 'bad-name', from: '0', to: '10' }, children: [] }]);
@@ -77,9 +80,12 @@ describe('body-statement for — TS target', () => {
 
   test('parses for inside native handler', () => {
     const root = parseDocumentStrict(
-      ['fn name=visitAll returns=void', '  handler lang="kern"', '    for name=i from=0 to="List.length(items)"', '      break'].join(
-        '\n',
-      ),
+      [
+        'fn name=visitAll returns=void',
+        '  handler lang="kern"',
+        '    for name=i from=0 to="List.length(items)"',
+        '      break',
+      ].join('\n'),
     );
     const fn = root.children?.find((c) => c.type === 'fn') ?? root;
     const handler = fn.children?.find((c) => c.type === 'handler');

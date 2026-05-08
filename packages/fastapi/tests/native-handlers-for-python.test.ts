@@ -46,13 +46,16 @@ describe('body-statement for — Python target', () => {
     expect(out).toContain('    pass');
   });
 
-  test.each(['0', '-1', '0.5', '1.0', 'someStep'])(
-    'rejects non-positive, non-integer, or non-literal step %s',
-    (step) => {
-      const handler = makeHandler([{ type: 'for', props: { name: 'i', from: '0', to: '10', step }, children: [] }]);
-      expect(() => emitNativeKernBodyPython(handler)).toThrow(/for step=.*positive integer literal/);
-    },
-  );
+  test.each([
+    '0',
+    '-1',
+    '0.5',
+    '1.0',
+    'someStep',
+  ])('rejects non-positive, non-integer, or non-literal step %s', (step) => {
+    const handler = makeHandler([{ type: 'for', props: { name: 'i', from: '0', to: '10', step }, children: [] }]);
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/for step=.*positive integer literal/);
+  });
 
   test('rejects non-cross-target loop identifier', () => {
     const handler = makeHandler([{ type: 'for', props: { name: 'bad-name', from: '0', to: '10' }, children: [] }]);
