@@ -205,9 +205,15 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
     const decls = stmt.initializer.declarations;
     if (decls.length !== 1) return 'for-of-multi-decl';
     const decl = decls[0];
-    if (!ts.isIdentifier(decl.name)) return 'for-of-destructure';
     if (decl.initializer) return 'for-of-init';
-    if (decl.type && !isValidKernTypeAnnotation(decl.type.getText(sf))) return 'for-of-bad-type';
+    if (!ts.isIdentifier(decl.name)) {
+      const pairReason = classifyForOfPairBinding(decl.name);
+      if (pairReason !== null) return pairReason;
+      if (!stmt.awaitModifier) return 'for-of-sync-pair';
+      if (decl.type) return 'for-of-destructure-type';
+    } else if (decl.type && !isValidKernTypeAnnotation(decl.type.getText(sf))) {
+      return 'for-of-bad-type';
+    }
     if (!isValidKernExpression(stmt.expression.getText(sf))) return 'for-of-bad-expr';
     // Only block-shaped loops are currently migratable. `each` always emits
     // braces, so migrating `for (const x of xs) do(x);` would drift under
@@ -258,6 +264,21 @@ function classifyDestructureDecl(decl: ts.VariableDeclaration, sf: ts.SourceFile
     return null;
   }
   return 'var-destructure';
+}
+
+function classifyForOfPairBinding(name: ts.BindingName): string | null {
+  if (!ts.isArrayBindingPattern(name)) return 'for-of-destructure';
+  if (name.elements.length !== 2) return 'for-of-destructure';
+  for (const element of name.elements) {
+    if (ts.isOmittedExpression(element)) return 'for-of-destructure';
+    if (element.dotDotDotToken || element.initializer) return 'for-of-destructure';
+    if (!ts.isIdentifier(element.name)) return 'for-of-destructure';
+  }
+  // This maps only for `for await` loops. Sync pair-mode is ambiguous across
+  // targets: TS can iterate any iterable of pairs, while Python pair-mode emits
+  // mapping `.items()`. Hand-write `each pairKey=/pairValue=` when the source
+  // is intentionally map/dict-shaped.
+  return null;
 }
 
 function classifyBranch(node: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContext): string | null {

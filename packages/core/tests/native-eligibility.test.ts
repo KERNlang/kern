@@ -112,6 +112,13 @@ describe('classifyHandlerBody — slice 4d additions are now eligible', () => {
     });
   });
 
+  test('async destructured pair for-of block is eligible', () => {
+    expect(classifyHandlerBody(`for await (const [key, value] of cache) {\n  await notify(key, value);\n}`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
   test('for-await-of with unsupported body is rejected by inner reason', () => {
     const body = `for await (const x of xs) {\n  x++;\n}`;
     const result = classifyHandlerBody(body);
@@ -220,8 +227,17 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
   test('empty for-of block rejected to preserve verify byte-equivalence', () =>
     rejected(`for (const x of xs) {}\nreturn xs;`, 'for-of-empty-body'));
 
-  test('for-of destructured binding rejected until each supports patterns', () =>
-    rejected(`for (const [k, v] of pairs) {\n  use(k, v);\n}`, 'for-of-destructure'));
+  test('unsupported for-of destructured bindings are still rejected', () => {
+    rejected(`for (const [key, value] of cache) {\n  notify(key, value);\n}`, 'for-of-sync-pair');
+    rejected(`for (const { id } of users) {\n  use(id);\n}`, 'for-of-destructure');
+    rejected(`for (const [only] of pairs) {\n  use(only);\n}`, 'for-of-destructure');
+    rejected(`for (const [, value] of pairs) {\n  use(value);\n}`, 'for-of-destructure');
+    rejected(`for (const [k, v, extra] of pairs) {\n  use(k, v, extra);\n}`, 'for-of-destructure');
+    rejected(`for (const [k, ...rest] of pairs) {\n  use(k, rest);\n}`, 'for-of-destructure');
+    rejected(`for (const [k = "fallback", v] of pairs) {\n  use(k, v);\n}`, 'for-of-destructure');
+    rejected(`for (const [[k], v] of pairs) {\n  use(k, v);\n}`, 'for-of-destructure');
+    rejected(`for await (const [k, v]: [string, number] of pairs) {\n  use(k, v);\n}`, 'for-of-destructure-type');
+  });
 
   test('for-of with unsafe type annotation rejected', () =>
     rejected(`for (const user: typeof import("fs") of users) {\n  notify(user);\n}`, 'for-of-bad-type'));

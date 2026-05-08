@@ -21,8 +21,10 @@ import { missingResponseModel } from './missing-response-model.js';
 import { mixedHostSameEndpoint } from './mixed-host-same-endpoint.js';
 import { mutationWithoutIdempotency } from './mutation-without-idempotency.js';
 import { orphanRoute } from './orphan-route.js';
+import { paginationKeyDrift } from './pagination-key-drift.js';
 import { paramNameSwap } from './param-name-swap.js';
 import { requestValidationDrift } from './request-validation-drift.js';
+import { statusCodeDrift } from './status-code-drift.js';
 import { syncHandlerDoesIo } from './sync-handler-does-io.js';
 import { taintedAcrossWire } from './tainted-across-wire.js';
 import { trailingSlashDrift } from './trailing-slash-drift.js';
@@ -60,8 +62,10 @@ export const conceptRules: ConceptRule[] = [
   mixedHostSameEndpoint,
   mutationWithoutIdempotency,
   orphanRoute,
+  paginationKeyDrift,
   paramNameSwap,
   requestValidationDrift,
+  statusCodeDrift,
   syncHandlerDoesIo,
   taintedAcrossWire,
   trailingSlashDrift,
