@@ -166,6 +166,27 @@ describe('emitNativeKernBodyPython — assignment body statement', () => {
     expect(out).toContain('arr[0] = obj.x');
   });
 
+  test('compound assignment emits supported Python operators', () => {
+    const handler = makeHandler([
+      { type: 'assign', props: { target: 'total', op: '+=', value: 'item.value' } },
+      { type: 'assign', props: { target: 'obj.count', op: '+=', value: '1' } },
+      { type: 'assign', props: { target: 'arr[0]', op: '|=', value: 'mask' } },
+      { type: 'assign', props: { target: 'mask', op: '|=', value: 'Flag.Ready' } },
+      { type: 'assign', props: { target: 'count', op: '**=', value: '2' } },
+    ]);
+    const out = emitNativeKernBodyPython(handler);
+    expect(out).toContain('total += item.value');
+    expect(out).toContain('obj.count += 1');
+    expect(out).toContain('arr[0] |= mask');
+    expect(out).toContain('mask |= Flag.Ready');
+    expect(out).toContain('count **= 2');
+  });
+
+  test('assignment rejects unsupported Python operators', () => {
+    const handler = makeHandler([{ type: 'assign', props: { target: 'x', op: '&&=', value: 'next' } }]);
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/assign op=.*&&=/);
+  });
+
   test('assignment rejects non-lvalue targets', () => {
     const handler = makeHandler([{ type: 'assign', props: { target: 'a + b', value: '1' } }]);
     expect(() => emitNativeKernBodyPython(handler)).toThrow(/identifier, member access, or index access/);

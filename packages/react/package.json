@@ -1,6 +1,6 @@
 {
   "name": "@kernlang/react",
-  "version": "3.4.4",
+  "version": "3.4.5",
   "description": "Kern React transpilers — Tailwind, Next.js, Web",
   "type": "module",
   "main": "./dist/index.js",

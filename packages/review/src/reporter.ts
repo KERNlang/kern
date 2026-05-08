@@ -207,6 +207,8 @@ const HIGH_PRECISION_CROSS_STACK_RULES = new Set<string>([
   'mutation-without-idempotency',
   'request-validation-drift',
   'error-contract-drift',
+  'status-code-drift',
+  'pagination-key-drift',
 ]);
 
 function rootCauseTouchesDiff(finding: ReviewFinding, entryFiles: ReadonlySet<string>): boolean {

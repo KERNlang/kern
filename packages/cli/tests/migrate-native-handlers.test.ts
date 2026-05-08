@@ -3,8 +3,8 @@
  *  Verifies the pure rewriter in isolation. The rewriter takes raw `.kern`
  *  source containing `handler <<< … >>>` blocks and converts the eligible
  *  ones to `handler lang="kern"` body-statement form. Anything outside the
- *  supported AST shape (let/var, destructuring, unsupported loops, comments,
- *  arrow functions etc.) is skipped — never half-migrated.
+ *  supported AST shape (`var`, mutable destructuring, unsupported loops, comments,
+ *  block-bodied arrow functions etc.) is skipped — never half-migrated.
  *
  *  Round-trip safety is provided by the slice 5b-pre parser surface
  *  (commit aa5d69e6): rewritten output parses strict and emits the same
@@ -115,6 +115,57 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
+  test('does not auto-migrate sync destructured pair for-of block', () => {
+    const source = [
+      'fn name=notify returns=void',
+      '  handler <<<',
+      '    for (const [key, value] of cache) {',
+      '      notify(key, value);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
+
+  test('migrates destructured pair for-await-of block to async pair-mode each', () => {
+    const source = [
+      'fn name=notify returns=void async=true',
+      '  handler <<<',
+      '    for await (const [key, value] of cache) {',
+      '      await notify(key, value);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toContain('each pairKey=key pairValue=value in="cache" await=true');
+    expect(result.output).toContain('do value="await notify(key, value)"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates typed for-of block to typed each body-statement', () => {
+    const source = [
+      'fn name=notify returns=void',
+      '  handler <<<',
+      '    for (const user: User | null of users) {',
+      '      notify(user);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toContain('each name=user in="users" type="User | null"');
+    expect(result.output).toContain('do value="notify(user)"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
   test('migrates for-await-of block to async each body-statement', () => {
     const source = [
       'fn name=notify returns=void async=true',
@@ -130,6 +181,24 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(result.hits).toHaveLength(1);
     expect(result.output).toContain('handler lang="kern"');
     expect(result.output).toContain('each name=event in="events" await=true');
+    expect(result.output).toContain('do value="await notify(event)"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates typed for-await-of block to typed async each body-statement', () => {
+    const source = [
+      'fn name=notify returns=void async=true',
+      '  handler <<<',
+      '    for await (const event: Event of events) {',
+      '      await notify(event);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toContain('each name=event in="events" type="Event" await=true');
     expect(result.output).toContain('do value="await notify(event)"');
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
@@ -155,6 +224,137 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
+  test('migrates typed const binding to typed let body-statement', () => {
+    const source = [
+      'fn name=load returns="User | null"',
+      '  handler <<<',
+      '    const user: User | null = loadUser();',
+      '    return user;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('let name=user type="User | null" value="loadUser()"');
+    expect(result.output).toContain('return value="user"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates mutable let binding with compound assignment', () => {
+    const source = [
+      'fn name=sum returns=number',
+      '  handler <<<',
+      '    let total = 0;',
+      '    total += item.value;',
+      '    return total;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('let name=total kind=let value="0"');
+    expect(result.output).toContain('assign target="total" op="+=" value="item.value"');
+    expect(result.output).toContain('return value="total"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates typed const binding inside loop bodies', () => {
+    const source = [
+      'fn name=scan returns=void',
+      '  handler <<<',
+      '    while (running) {',
+      '      const user: User = loadUser();',
+      '      process(user);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('while cond="running"');
+    expect(result.output).toContain('let name=user type="User" value="loadUser()"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates expression-bodied callback values', () => {
+    const source = [
+      'fn name=names returns="string[]"',
+      '  handler <<<',
+      '    const names = List.map(users, user => user.name);',
+      '    return names;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('let name=names value="List.map(users, user => user.name)"');
+    expect(result.output).toContain('return value="names"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+    const handler = findHandler(parseDocumentStrict(result.output));
+    expect(handler).toBeDefined();
+    expect(emitNativeKernBodyTS(handler!)).toContain('const names = users.map(user => user.name);');
+  });
+
+  test('migrates string-literal union type with escaping', () => {
+    const source = [
+      'fn name=mode returns="string"',
+      '  handler <<<',
+      '    const mode: "on" | "off" = readMode();',
+      '    return mode;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('let name=mode type="\\"on\\" | \\"off\\"" value="readMode()"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates break and continue inside loop bodies', () => {
+    const source = [
+      'fn name=notify returns=void',
+      '  handler <<<',
+      '    for (const user of users) {',
+      '      if (skip(user)) {',
+      '        continue;',
+      '      }',
+      '      notify(user);',
+      '      break;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('each name=user in="users"');
+    expect(result.output).toContain('continue');
+    expect(result.output).toContain('break');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates break and continue inside try blocks in loops', () => {
+    const source = [
+      'fn name=scan returns=void',
+      '  handler <<<',
+      '    for (const item of items) {',
+      '      try {',
+      '        break;',
+      '      } catch (err) {',
+      '        continue;',
+      '      }',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('each name=item in="items"');
+    expect(result.output).toContain('try');
+    expect(result.output).toContain('break');
+    expect(result.output).toContain('continue');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
   test('migrates object destructuring const to destructure body-statement', () => {
     const source = [
       'fn name=load returns=string',
@@ -170,6 +370,43 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(result.output).toContain('binding name=trackId');
     expect(result.output).toContain('binding name=options');
     expect(result.output).toContain('return value="trackId"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates typed object destructuring const', () => {
+    const source = [
+      'fn name=load returns=string',
+      '  handler <<<',
+      '    const { trackId, options }: { trackId: string; options: Options } = req.body;',
+      '    return trackId;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain(
+      'destructure kind=const type="{ trackId: string; options: Options }" source="req.body"',
+    );
+    expect(result.output).toContain('binding name=trackId');
+    expect(result.output).toContain('binding name=options');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates renamed typed object destructuring with string-literal type', () => {
+    const source = [
+      'fn name=load returns=string',
+      '  handler <<<',
+      '    const { status: mode }: { status: "active" | "paused" } = req.body;',
+      '    return mode;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain(
+      'destructure kind=const type="{ status: \\"active\\" | \\"paused\\" }" source="req.body"',
+    );
+    expect(result.output).toContain('binding name=mode key=status');
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
@@ -202,6 +439,40 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(result.output).toContain('destructure kind=const source="values"');
     expect(result.output).toContain('element name=first index=0');
     expect(result.output).toContain('element name=second index=1');
+  });
+
+  test('migrates typed array destructuring const', () => {
+    const source = [
+      'fn name=pair returns=string',
+      '  handler <<<',
+      '    const [first, second]: [string, number] = values;',
+      '    return first;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('destructure kind=const type="[string, number]" source="values"');
+    expect(result.output).toContain('element name=first index=0');
+    expect(result.output).toContain('element name=second index=1');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates typed array destructuring with elision', () => {
+    const source = [
+      'fn name=pair returns=boolean',
+      '  handler <<<',
+      '    const [first, , third]: [string, number, boolean] = values;',
+      '    return third;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('destructure kind=const type="[string, number, boolean]" source="values"');
+    expect(result.output).toContain('element name=first index=0');
+    expect(result.output).toContain('element name=third index=2');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
   test('migrates TS-style type assertions inside expressions', () => {
@@ -254,11 +525,11 @@ describe('rewriteNativeHandlers — supported statement types', () => {
 });
 
 describe('rewriteNativeHandlers — bail conditions', () => {
-  test('skips handlers whose body is ineligible (arrow function in classifier reject set)', () => {
+  test('skips handlers whose body is ineligible (block-bodied callback)', () => {
     const source = [
       'fn name=fold returns=number',
       '  handler <<<',
-      '    return items.reduce((s, x) => s + x, 0);',
+      '    return items.map((x) => { return x.id; });',
       '  >>>',
     ].join('\n');
     const result = rewriteNativeHandlers(source);
@@ -278,13 +549,15 @@ describe('rewriteNativeHandlers — bail conditions', () => {
     expect(result.hits).toHaveLength(0);
   });
 
-  test('bails on `let X = …` (KERN body `let` lowers to TS `const` — not byte-preserving)', () => {
+  test('migrates `let X = …` to mutable KERN let', () => {
     const source = ['fn name=ok returns=number', '  handler <<<', '    let x = 1;', '    return x;', '  >>>'].join(
       '\n',
     );
     const result = rewriteNativeHandlers(source);
-    expect(result.hits).toHaveLength(0);
-    expect(result.output).toBe(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('let name=x kind=let value="1"');
+    expect(result.output).toContain('return value="x"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
   test('bails on `var X = …` (function-scoped, body-`let` cannot preserve)', () => {
@@ -293,6 +566,19 @@ describe('rewriteNativeHandlers — bail conditions', () => {
     );
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(0);
+  });
+
+  test('bails on mutable destructuring let', () => {
+    const source = [
+      'fn name=ok returns=number',
+      '  handler <<<',
+      '    let { x } = obj;',
+      '    return x;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
   });
 
   test('bails on destructuring (const { a } = obj)', () => {
@@ -361,9 +647,42 @@ describe('rewriteNativeHandlers — bail conditions', () => {
   });
 
   test('bails on compound assignment ExpressionStatement', () => {
-    const source = ['fn name=ok returns=void', '  handler <<<', '    x += 1;', '  >>>'].join('\n');
+    const source = ['fn name=ok returns=void', '  handler <<<', '    x &&= next;', '  >>>'].join('\n');
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(0);
+  });
+
+  test('bails on JS-only unsigned right shift assignment', () => {
+    const source = ['fn name=ok returns=void', '  handler <<<', '    x >>>= 1;', '  >>>'].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+  });
+
+  test('bails on compound assignment with optional-chain target', () => {
+    const source = ['fn name=ok returns=void', '  handler <<<', '    obj?.x += 1;', '  >>>'].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+  });
+
+  test('migrates compound assignment ExpressionStatement to assign op', () => {
+    const source = [
+      'fn name=ok returns=number',
+      '  handler <<<',
+      '    total += item.value;',
+      '    obj.count += 1;',
+      '    arr[0] |= mask;',
+      '    this.count += 1;',
+      '    mask |= Flag.Ready;',
+      '    return total;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('assign target="total" op="+=" value="item.value"');
+    expect(result.output).toContain('assign target="obj.count" op="+=" value="1"');
+    expect(result.output).toContain('assign target="arr[0]" op="|=" value="mask"');
+    expect(result.output).toContain('assign target="mask" op="|=" value="Flag.Ready"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
   test('bails on optional-chain assignment targets', () => {
@@ -447,12 +766,12 @@ describe('rewriteNativeHandlers — bail conditions', () => {
     expect(result.output).toBe(source);
   });
 
-  test('bails on destructured for-of binding until each supports patterns', () => {
+  test('bails on unsupported destructured for-of binding shapes', () => {
     const source = [
       'fn name=ok returns=void',
       '  handler <<<',
-      '    for (const [k, v] of pairs) {',
-      '      use(k, v);',
+      '    for (const { id } of users) {',
+      '      use(id);',
       '    }',
       '  >>>',
     ].join('\n');
@@ -461,16 +780,97 @@ describe('rewriteNativeHandlers — bail conditions', () => {
     expect(result.output).toBe(source);
   });
 
-  test('bails on const with type annotation (body-`let` ignores `type` prop)', () => {
+  test.each([
+    ['single element', '[only]', 'use(only);'],
+    ['hole', '[, value]', 'use(value);'],
+    ['rest element', '[k, ...rest]', 'use(k, rest);'],
+    ['default value', '[k = "fallback", v]', 'use(k, v);'],
+    ['nested pattern', '[[k], v]', 'use(k, v);'],
+    ['typed async pair', '[k, v]: [string, number]', 'use(k, v);'],
+  ])('bails on unsupported array for-of binding shape: %s', (_name, pattern, body) => {
+    const awaitPrefix = pattern.includes(':') ? 'await ' : '';
     const source = [
-      'fn name=ok returns=number',
+      'fn name=ok returns=void',
       '  handler <<<',
-      '    const x: number = 1;',
+      `    for ${awaitPrefix}(const ${pattern} of pairs) {`,
+      `      ${body}`,
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
+
+  test('bails on unsafe const type annotation', () => {
+    const source = [
+      'fn name=ok returns=unknown',
+      '  handler <<<',
+      '    const x: typeof import("fs") = value;',
       '    return x;',
       '  >>>',
     ].join('\n');
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(0);
+  });
+
+  test('bails on for-of with unsafe type annotation', () => {
+    const source = [
+      'fn name=ok returns=void',
+      '  handler <<<',
+      '    for (const user: typeof import("fs") of users) {',
+      '      notify(user);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+  });
+
+  test('typed for-of migrates compound assignment body', () => {
+    const source = [
+      'fn name=ok returns=void',
+      '  handler <<<',
+      '    for (const user: User of users) {',
+      '      count += 1;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('each name=user in="users" type="User"');
+    expect(result.output).toContain('assign target="count" op="+=" value="1"');
+  });
+
+  test('bails on typed destructuring with unsafe type annotation', () => {
+    const source = [
+      'fn name=ok returns=number',
+      '  handler <<<',
+      '    const { x }: typeof import("fs") = obj;',
+      '    return x;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+  });
+
+  test('migrates typed destructuring inside try blocks', () => {
+    const source = [
+      'fn name=load returns=void',
+      '  handler <<<',
+      '    try {',
+      '      const { id }: { id: string } = req.body;',
+      '      use(id);',
+      '    } catch (err) {',
+      '      return;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('try');
+    expect(result.output).toContain('destructure kind=const type="{ id: string }" source="req.body"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
   test('bails on while without a block to avoid verify drift', () => {
@@ -485,6 +885,34 @@ describe('rewriteNativeHandlers — bail conditions', () => {
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(0);
     expect(result.output).toBe(source);
+  });
+
+  test('bails on break and continue outside loops', () => {
+    const breakSource = ['fn name=bad returns=void', '  handler <<<', '    break;', '  >>>'].join('\n');
+    const continueSource = ['fn name=bad returns=void', '  handler <<<', '    continue;', '  >>>'].join('\n');
+    expect(rewriteNativeHandlers(breakSource).hits).toHaveLength(0);
+    expect(rewriteNativeHandlers(continueSource).hits).toHaveLength(0);
+  });
+
+  test('bails on labeled break and continue', () => {
+    const breakSource = [
+      'fn name=bad returns=void',
+      '  handler <<<',
+      '    while (running) {',
+      '      break outer;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const continueSource = [
+      'fn name=bad returns=void',
+      '  handler <<<',
+      '    while (running) {',
+      '      continue outer;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    expect(rewriteNativeHandlers(breakSource).hits).toHaveLength(0);
+    expect(rewriteNativeHandlers(continueSource).hits).toHaveLength(0);
   });
 });
 
@@ -759,6 +1187,40 @@ describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalenc
     expect(ts).toContain('return;');
   });
 
+  test('typed for-of block compiles byte-equivalent through each body-statement', () => {
+    const source = [
+      'fn name=notify returns=void',
+      '  handler <<<',
+      '    for (const user: User | null of users) {',
+      '      notify(user);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(['for (const user: User | null of users) {', '  notify(user);', '}'].join('\n'));
+  });
+
+  test('typed for-await-of block compiles byte-equivalent through each body-statement', () => {
+    const source = [
+      'fn name=notify returns=void async=true',
+      '  handler <<<',
+      '    for await (const event: Event of events) {',
+      '      await notify(event);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(['for await (const event: Event of events) {', '  await notify(event);', '}'].join('\n'));
+  });
+
   test('while block compiles through while body-statement', () => {
     const source = [
       'fn name=drain returns=void',
@@ -780,6 +1242,91 @@ describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalenc
     expect(ts.split('\n').filter((line: string) => line === '}')).toHaveLength(1);
     expect(ts).not.toContain('}}\n');
     expect(ts).not.toContain('while (queue.length > 0) {\n}');
+  });
+
+  test('typed const binding compiles byte-equivalent', () => {
+    const source = [
+      'fn name=load returns="User | null"',
+      '  handler <<<',
+      '    const user: User | null = loadUser();',
+      '    return user;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(['const user: User | null = loadUser();', 'return user;'].join('\n'));
+  });
+
+  test('mutable let binding compiles byte-equivalent', () => {
+    const source = [
+      'fn name=sum returns=number',
+      '  handler <<<',
+      '    let total = 0;',
+      '    total += item.value;',
+      '    return total;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(['let total = 0;', 'total += item.value;', 'return total;'].join('\n'));
+  });
+
+  test('typed mutable let binding compiles byte-equivalent', () => {
+    const source = [
+      'fn name=sum returns=number',
+      '  handler <<<',
+      '    let total: number = 0;',
+      '    total += item.value;',
+      '    return total;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('let name=total type="number" kind=let value="0"');
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(['let total: number = 0;', 'total += item.value;', 'return total;'].join('\n'));
+  });
+
+  test('typed const binding inside loop compiles byte-equivalent', () => {
+    const source = [
+      'fn name=scan returns=void',
+      '  handler <<<',
+      '    while (running) {',
+      '      const user: User = loadUser();',
+      '      process(user);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(['while (running) {', '  const user: User = loadUser();', '  process(user);', '}'].join('\n'));
+  });
+
+  test('string-literal union type compiles byte-equivalent', () => {
+    const source = [
+      'fn name=mode returns="string"',
+      '  handler <<<',
+      '    const mode: "on" | "off" = readMode();',
+      '    return mode;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(['const mode: "on" | "off" = readMode();', 'return mode;'].join('\n'));
   });
 
   test('nested while block compiles through while body-statement', () => {
@@ -806,6 +1353,118 @@ describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalenc
     expect(ts).toContain('  process();');
     expect(ts.split('\n').filter((line: string) => line === '}')).toHaveLength(1);
     expect(ts.split('\n').filter((line: string) => line === '  }')).toHaveLength(1);
+  });
+
+  test('loop-control compiles through break and continue body-statements', () => {
+    const source = [
+      'fn name=notify returns=void',
+      '  handler <<<',
+      '    for (const user of users) {',
+      '      if (skip(user)) {',
+      '        continue;',
+      '      }',
+      '      notify(user);',
+      '      break;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(
+      [
+        'for (const user of users) {',
+        '  if (skip(user)) {',
+        '    continue;',
+        '  }',
+        '  notify(user);',
+        '  break;',
+        '}',
+      ].join('\n'),
+    );
+  });
+
+  test('sync destructured pair for-of remains raw to avoid Python target drift', () => {
+    const source = [
+      'fn name=notify returns=void',
+      '  handler <<<',
+      '    for (const [key, value] of cache) {',
+      '      if (skip(key)) {',
+      '        continue;',
+      '      }',
+      '      notify(key, value);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
+
+  test('destructured pair for-await-of compiles byte-equivalent through async pair-mode each', () => {
+    const source = [
+      'fn name=notify returns=void async=true',
+      '  handler <<<',
+      '    for await (const [key, value] of cache) {',
+      '      await notify(key, value);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(['for await (const [key, value] of cache) {', '  await notify(key, value);', '}'].join('\n'));
+  });
+
+  test('loop-control compiles through try blocks inside loops', () => {
+    const source = [
+      'fn name=scan returns=void',
+      '  handler <<<',
+      '    for (const item of items) {',
+      '      try {',
+      '        break;',
+      '      } catch (err) {',
+      '        continue;',
+      '      }',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(
+      ['for (const item of items) {', '  try {', '    break;', '  } catch (err) {', '    continue;', '  }', '}'].join(
+        '\n',
+      ),
+    );
+  });
+
+  test('nested loops compile break and continue byte-equivalent', () => {
+    const source = [
+      'fn name=scan returns=void',
+      '  handler <<<',
+      '    for (const group of groups) {',
+      '      while (active) {',
+      '        continue;',
+      '      }',
+      '      break;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(
+      ['for (const group of groups) {', '  while (active) {', '    continue;', '  }', '  break;', '}'].join('\n'),
+    );
   });
 
   test('for-of block with nested destructuring composes each and destructure', () => {
@@ -847,6 +1506,96 @@ describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalenc
     const ts = emitNativeKernBodyTS(handler as IRNode);
     expect(ts).toContain('const { trackId, options } = req.body;');
     expect(ts).toContain('return trackId;');
+  });
+
+  test('typed object destructuring compiles byte-equivalent through destructure body-statement', () => {
+    const source = [
+      'fn name=load returns=string',
+      '  handler <<<',
+      '    const { trackId, options }: { trackId: string; options: Options } = req.body;',
+      '    return trackId;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toContain('const { trackId, options }: { trackId: string; options: Options } = req.body;');
+    expect(ts).toContain('return trackId;');
+  });
+
+  test('renamed typed object destructuring compiles byte-equivalent', () => {
+    const source = [
+      'fn name=load returns=string',
+      '  handler <<<',
+      '    const { status: mode }: { status: "active" | "paused" } = req.body;',
+      '    return mode;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(['const { status: mode }: { status: "active" | "paused" } = req.body;', 'return mode;'].join('\n'));
+  });
+
+  test('typed array destructuring compiles byte-equivalent through destructure body-statement', () => {
+    const source = [
+      'fn name=pair returns=string',
+      '  handler <<<',
+      '    const [first, second]: [string, number] = values;',
+      '    return first;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toContain('const [first, second]: [string, number] = values;');
+    expect(ts).toContain('return first;');
+  });
+
+  test('typed array destructuring with elision compiles byte-equivalent', () => {
+    const source = [
+      'fn name=pair returns=boolean',
+      '  handler <<<',
+      '    const [first, , third]: [string, number, boolean] = values;',
+      '    return third;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(['const [first, , third]: [string, number, boolean] = values;', 'return third;'].join('\n'));
+  });
+
+  test('typed destructuring inside try compiles byte-equivalent', () => {
+    const source = [
+      'fn name=load returns=void',
+      '  handler <<<',
+      '    try {',
+      '      const { id }: { id: string } = req.body;',
+      '      use(id);',
+      '    } catch (err) {',
+      '      return;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(
+      ['try {', '  const { id }: { id: string } = req.body;', '  use(id);', '} catch (err) {', '  return;', '}'].join(
+        '\n',
+      ),
+    );
   });
 
   test('type assertion compiles byte-equivalent through ValueIR typeAssert', () => {
@@ -917,6 +1666,76 @@ describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalenc
     expect(ts).toContain('x = 1;');
     expect(ts).toContain('obj.x = x;');
     expect(ts).toContain('arr[0] = obj.x;');
+  });
+
+  test('compound assignment compiles byte-equivalent through body assign op', () => {
+    const source = [
+      'fn name=mutate returns=void',
+      '  handler <<<',
+      '    total += item.value;',
+      '    obj.count += 1;',
+      '    arr[0] |= mask;',
+      '    this.count += 1;',
+      '    mask |= Flag.Ready;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(
+      ['total += item.value;', 'obj.count += 1;', 'arr[0] |= mask;', 'this.count += 1;', 'mask |= Flag.Ready;'].join(
+        '\n',
+      ),
+    );
+  });
+
+  test('compound assignment with optional-chain value compiles byte-equivalent', () => {
+    const source = ['fn name=mutate returns=void', '  handler <<<', '    total += item?.value;', '  >>>'].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe('total += item?.value;');
+  });
+
+  test('compound assignment nested in typed for-of compiles byte-equivalent', () => {
+    const source = [
+      'fn name=mutate returns=void',
+      '  handler <<<',
+      '    for (const user: User of users) {',
+      '      count += user.score;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(['for (const user: User of users) {', '  count += user.score;', '}'].join('\n'));
+  });
+
+  test.each([
+    '-=',
+    '*=',
+    '/=',
+    '%=',
+    '**=',
+    '&=',
+    '^=',
+    '<<=',
+    '>>=',
+  ])('compound assignment %s compiles byte-equivalent through body assign op', (op) => {
+    const source = ['fn name=mutate returns=void', '  handler <<<', `    value ${op} delta;`, '  >>>'].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(`value ${op} delta;`);
   });
 
   test('this assignment compiles byte-equivalent through body assign', () => {

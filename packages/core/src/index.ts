@@ -2,6 +2,11 @@
  * @kernlang/core — parser, types, spec, config, style engines, codegen
  */
 
+export {
+  isSupportedAssignOperator,
+  SUPPORTED_ASSIGN_OPERATORS,
+  supportedCompoundAssignmentOperator,
+} from './assignment-operators.js';
 export type { BodyEmitOptions, BodyEmitResult } from './codegen/body-ts.js';
 export { emitNativeKernBodyTS, emitNativeKernBodyTSWithImports } from './codegen/body-ts.js';
 export type { StdlibEntry } from './codegen/kern-stdlib.js';
@@ -134,6 +139,7 @@ export {
   isValidKernAssignmentTarget,
   isValidKernAssignmentValue,
   isValidKernExpression,
+  isValidKernTypeAnnotation,
 } from './native-eligibility-ast.js';
 export type {
   ActionProps,

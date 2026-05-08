@@ -512,6 +512,9 @@ function generateEachJSX(node: IRNode): string[] {
   if (props.await === true || props.await === 'true') {
     throw new KernCodegenError('each await=true is only valid in statement/native-body context, not render JSX', node);
   }
+  if (props.type !== undefined && props.type !== '') {
+    throw new KernCodegenError('each type= is only valid in statement/native-body context, not render JSX', node);
+  }
 
   const index = (props.index as string) || '__i';
   const rawKey = props.key;
@@ -696,5 +699,11 @@ function renderLetBinding(node: IRNode): string {
 
   const t = lp.type as string | undefined;
   const typeAnn = t ? `: ${emitTypeAnnotation(t, 'unknown', node)}` : '';
-  return `const ${lname}${typeAnn} = ${rhs};`;
+  return `${renderLetBindingKind(lp.kind)} ${lname}${typeAnn} = ${rhs};`;
+}
+
+function renderLetBindingKind(rawKind: unknown): 'const' | 'let' {
+  if (rawKind === undefined || rawKind === '' || rawKind === 'const') return 'const';
+  if (rawKind === 'let') return 'let';
+  throw new Error('let kind= supports only `const` or `let`.');
 }

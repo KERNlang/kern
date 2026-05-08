@@ -12,6 +12,7 @@
  */
 
 import { emitNativeKernBodyTS } from '../src/codegen/body-ts.js';
+import { decompile } from '../src/decompiler.js';
 import { parseDocumentStrict, parseDocumentWithDiagnostics } from '../src/parser.js';
 import type { IRNode } from '../src/types.js';
 
@@ -52,6 +53,30 @@ describe('slice 5b-pre — body-statement source round-trip (positive)', () => {
     const emitted = emitNativeKernBodyTS(handler);
     expect(emitted).toContain('const msg = who;');
     expect(emitted).toContain('return msg;');
+  });
+
+  test('let kind=let round-trips and decompiles re-parseably', () => {
+    const src = [
+      'fn name=count returns=void',
+      '  handler lang="kern"',
+      '    let name=total kind=let value=0',
+      '    assign target=total op="+=" value=1',
+    ].join('\n');
+
+    const root = parseDocumentStrict(src);
+    const handler = findFirstHandler(root);
+    const letNode = (handler.children ?? [])[0] as IRNode;
+    expect(letNode.props).toMatchObject({ name: 'total', kind: 'let', value: '0' });
+
+    const emitted = emitNativeKernBodyTS(handler);
+    expect(emitted).toContain('let total = 0;');
+    expect(emitted).toContain('total += 1;');
+
+    const text = decompile(letNode).code;
+    expect(text).toBe('let name=total value="0" kind=let');
+    expect(() =>
+      parseDocumentStrict(['fn name=count returns=void', '  handler lang="kern"', `    ${text}`].join('\n')),
+    ).not.toThrow();
   });
 
   test('body-statement if + sibling else round-trips', () => {
@@ -132,6 +157,47 @@ describe('slice 5b-pre — body-statement source round-trip (positive)', () => {
     expect(emitted).toContain('obj.x = 1;');
   });
 
+  test('body-statement compound assign round-trips and decompiles re-parseably', () => {
+    const src = [
+      'fn name=setValue returns=void',
+      '  handler lang="kern"',
+      '    assign target=total op="+=" value="item.value"',
+    ].join('\n');
+
+    const root = parseDocumentStrict(src);
+    const handler = findFirstHandler(root);
+    expect((handler.children ?? [])[0]?.props).toMatchObject({ target: 'total', op: '+=', value: 'item.value' });
+    expect(emitNativeKernBodyTS(handler)).toContain('total += item.value;');
+
+    // Decompile the body statement directly; handler decompile still renders
+    // raw `props.code` blocks and intentionally does not reconstruct children.
+    const text = decompile((handler.children ?? [])[0] as IRNode).code;
+    expect(text).toContain('assign target=total op="+=" value="item.value"');
+    expect(() =>
+      parseDocumentStrict(['fn name=setValue returns=void', '  handler lang="kern"', `    ${text}`].join('\n')),
+    ).not.toThrow();
+  });
+
+  test.each([
+    '+=',
+    '-=',
+    '*=',
+    '/=',
+    '%=',
+    '**=',
+    '&=',
+    '|=',
+    '^=',
+    '<<=',
+    '>>=',
+  ])('body-statement compound assign op %s decompiles re-parseably', (op) => {
+    const text = decompile({ type: 'assign', props: { target: 'value', op, value: 'delta' } }).code;
+    expect(text).toBe(`assign target=value op="${op}" value=delta`);
+    expect(() =>
+      parseDocumentStrict(['fn name=setValue returns=void', '  handler lang="kern"', `    ${text}`].join('\n')),
+    ).not.toThrow();
+  });
+
   test('body-statement while round-trips', () => {
     const src = [
       'fn name=drain returns=void',
@@ -150,6 +216,48 @@ describe('slice 5b-pre — body-statement source round-trip (positive)', () => {
     expect(emitted).toContain('while (queue.length > 0) {');
     expect(emitted).toContain('const item = queue.shift();');
     expect(emitted).toContain('process(item);');
+  });
+
+  test('body-statement for round-trips and decompiles re-parseably', () => {
+    const src = [
+      'fn name=visitAll returns=void',
+      '  handler lang="kern"',
+      '    for name=i from=0 to="List.length(items)" step=2',
+      '      do value="visit(items[i])"',
+    ].join('\n');
+
+    const root = parseDocumentStrict(src);
+    const handler = findFirstHandler(root);
+    const forNode = (handler.children ?? [])[0] as IRNode;
+    expect(forNode.type).toBe('for');
+
+    const emitted = emitNativeKernBodyTS(handler);
+    expect(emitted).toContain('const __k_for_start_1 = 0;');
+    expect(emitted).toContain('const __k_for_end_2 = items.length;');
+    expect(emitted).toContain('for (let i = __k_for_start_1; i < __k_for_end_2; i += 2) {');
+    expect(emitted).toContain('visit(items[i]);');
+
+    const text = decompile(forNode).code;
+    expect(text).toContain('for name=i from=0 to="List.length(items)" step=2');
+    const indented = text
+      .split('\n')
+      .map((line) => `    ${line}`)
+      .join('\n');
+    expect(() =>
+      parseDocumentStrict(['fn name=visitAll returns=void', '  handler lang="kern"', indented].join('\n')),
+    ).not.toThrow();
+  });
+
+  test('body-statement do decompiles re-parseably', () => {
+    const src = ['fn name=touch returns=void', '  handler lang="kern"', '    do value="touch(x)"'].join('\n');
+    const root = parseDocumentStrict(src);
+    const handler = findFirstHandler(root);
+    const doNode = (handler.children ?? [])[0] as IRNode;
+    const text = decompile(doNode).code;
+    expect(text).toBe('do value="touch(x)"');
+    expect(() =>
+      parseDocumentStrict(['fn name=touch returns=void', '  handler lang="kern"', `    ${text}`].join('\n')),
+    ).not.toThrow();
   });
 });
 
@@ -207,6 +315,13 @@ describe('slice 5b-pre — body-statement context validator (negative)', () => {
     expect(violation?.message).toMatch(/`while`/);
   });
 
+  test('body-statement `for` outside scope errors', () => {
+    const src = ['fn name=top returns=void', '  for name=i from=0 to=10', '    break'].join('\n');
+    const { diagnostics } = parseDocumentWithDiagnostics(src);
+    const violation = diagnostics.find((d) => d.code === 'BODY_STATEMENT_OUTSIDE_NATIVE_HANDLER');
+    expect(violation?.message).toMatch(/`for`/);
+  });
+
   test('async-orchestration `try name=…` is NOT flagged (different shape)', () => {
     const src = [
       'fn name=loadUser returns=any',
@@ -228,5 +343,13 @@ describe('slice 5b-pre — body-statement context validator (negative)', () => {
     const { diagnostics } = parseDocumentWithDiagnostics(src);
     const violation = diagnostics.find((d) => d.code === 'BODY_STATEMENT_OUTSIDE_NATIVE_HANDLER');
     expect(violation).toBeUndefined();
+  });
+
+  test('invalid let kind is a parser diagnostic', () => {
+    const src = ['fn name=bad returns=void', '  handler lang="kern"', '    let name=x kind=var value=0'].join('\n');
+    const { diagnostics } = parseDocumentWithDiagnostics(src);
+    const violation = diagnostics.find((d) => d.code === 'LET_INVALID_KIND');
+    expect(violation).toBeDefined();
+    expect(violation?.message).toMatch(/`const` or `let`/);
   });
 });

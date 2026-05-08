@@ -1,7 +1,7 @@
 /** Expression-mode tokenizer + recursive-descent parser producing ValueIR.
  *  Supports: identifiers, literals (number/string/true/false/null/undefined/none),
  *  member access (. and ?.), index access ([] and ?.[), call (() and ?.()), spread
- *  (...), logical ?? || &&, parenthesized grouping, template literals with
+ *  (...), expression-bodied lambdas (`x => x.id`), logical ?? || &&, parenthesized grouping, template literals with
  *  ${...} interpolation, `await` prefix, TS-style `as Type` assertion nodes,
  *  propagation `?` postfix on call/await-call.
  *
@@ -41,6 +41,7 @@ export type ExprTokenKind =
   | 'spread'
   | 'qmark'
   | 'eq'
+  | 'arrow'
   | 'neq'
   | 'strictEq'
   | 'strictNeq'
@@ -272,6 +273,11 @@ export function tokenizeExpression(input: string): ExprToken[] {
       continue;
     }
     // Slice 2c — equality / strict-equality / negation. Multi-char first.
+    if (ch === '=' && input[i + 1] === '>') {
+      tokens.push({ kind: 'arrow', value: '=>', pos: i });
+      i += 2;
+      continue;
+    }
     if (ch === '=' && input[i + 1] === '=' && input[i + 2] === '=') {
       tokens.push({ kind: 'strictEq', value: '===', pos: i });
       i += 3;
@@ -476,12 +482,109 @@ class Parser {
   }
 
   parse(): ValueIR {
-    const result = this.parseConditional();
+    const result = this.parseLambda();
     if (this.peek().kind !== 'eof') {
       const t = this.peek();
       throw new Error(`Unexpected token ${t.kind} ('${t.value}') at column ${t.pos + 1}`);
     }
     return result;
+  }
+
+  private parseLambda(): ValueIR {
+    if (this.peek().kind === 'ident' && this.peek(1).kind === 'arrow') {
+      const param = this.advance();
+      this.advance();
+      return { kind: 'lambda', params: [{ name: param.value }], body: this.parseLambda(), parenthesized: false };
+    }
+    if (this.peek().kind === 'lparen' && this.isParenthesizedLambdaAhead()) {
+      const params = this.parseLambdaParams();
+      this.expect('arrow');
+      return { kind: 'lambda', params, body: this.parseLambda(), parenthesized: true };
+    }
+    return this.parseConditional();
+  }
+
+  private isParenthesizedLambdaAhead(): boolean {
+    let depth = 0;
+    for (let j = this.i; j < this.tokens.length; j++) {
+      const t = this.tokens[j];
+      if (t.kind === 'lparen') depth++;
+      else if (t.kind === 'rparen') {
+        depth--;
+        if (depth === 0) return this.tokens[j + 1]?.kind === 'arrow';
+      } else if (t.kind === 'eof') {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  private parseLambdaParams(): { name: string; type?: string }[] {
+    const params: { name: string; type?: string }[] = [];
+    this.expect('lparen');
+    if (this.peek().kind === 'rparen') {
+      this.advance();
+      return params;
+    }
+    while (true) {
+      const name = this.expect('ident');
+      let type: string | undefined;
+      if (this.peek().kind === 'colon') {
+        this.advance();
+        type = this.consumeLambdaParamTypeText();
+      }
+      params.push(type ? { name: name.value, type } : { name: name.value });
+      if (this.peek().kind !== 'comma') break;
+      this.advance();
+      if (this.peek().kind === 'rparen') break;
+    }
+    this.expect('rparen');
+    return params;
+  }
+
+  private consumeLambdaParamTypeText(): string {
+    const first = this.peek();
+    const start = first.pos;
+    let end = start;
+    let parenDepth = 0;
+    let bracketDepth = 0;
+    let braceDepth = 0;
+    let angleDepth = 0;
+    while (true) {
+      const t = this.peek();
+      if (t.kind === 'eof') break;
+      if (
+        parenDepth === 0 &&
+        bracketDepth === 0 &&
+        braceDepth === 0 &&
+        angleDepth === 0 &&
+        (t.kind === 'comma' || t.kind === 'rparen')
+      ) {
+        break;
+      }
+      if (t.kind === 'lparen') parenDepth++;
+      else if (t.kind === 'rparen') {
+        if (parenDepth === 0) break;
+        parenDepth--;
+      } else if (t.kind === 'lbracket') bracketDepth++;
+      else if (t.kind === 'rbracket') {
+        if (bracketDepth === 0) break;
+        bracketDepth--;
+      } else if (t.kind === 'lbrace') braceDepth++;
+      else if (t.kind === 'rbrace') {
+        if (braceDepth === 0) break;
+        braceDepth--;
+      } else if (t.kind === 'lt') angleDepth++;
+      else if (t.kind === 'gt') {
+        if (angleDepth === 0) break;
+        angleDepth--;
+      }
+      const advanced = this.advance();
+      end = advanced.pos + advanced.value.length;
+    }
+    const text = this.input.slice(start, end).trim();
+    if (text === '') throw new Error(`Expected type after ':' at column ${first.pos + 1}`);
+    return text;
   }
 
   // Slice α-2: ternary `test ? consequent : alternate`. Right-associative —
@@ -504,9 +607,9 @@ class Parser {
       );
     }
     this.advance(); // consume `?`
-    const consequent = this.parseConditional();
+    const consequent = this.parseLambda();
     this.expect('colon');
-    const alternate = this.parseConditional();
+    const alternate = this.parseLambda();
     return { kind: 'conditional', test, consequent, alternate };
   }
 
@@ -712,7 +815,7 @@ class Parser {
         const next = this.peek();
         if (next.kind === 'lbracket') {
           this.advance();
-          const index = this.parseConditional();
+          const index = this.parseLambda();
           this.expect('rbracket');
           node = { kind: 'index', object: node, index, optional: true };
         } else if (next.kind === 'lparen') {
@@ -731,7 +834,7 @@ class Parser {
         node = { kind: 'call', callee: node, args, optional: false };
       } else if (t.kind === 'lbracket') {
         this.advance();
-        const index = this.parseConditional();
+        const index = this.parseLambda();
         this.expect('rbracket');
         node = { kind: 'index', object: node, index, optional: false };
       } else {
@@ -744,10 +847,10 @@ class Parser {
   private parseArgs(): ValueIR[] {
     const args: ValueIR[] = [];
     if (this.peek().kind === 'rparen') return args;
-    args.push(this.parseConditional());
+    args.push(this.parseLambda());
     while (this.peek().kind === 'comma') {
       this.advance();
-      args.push(this.parseConditional());
+      args.push(this.parseLambda());
     }
     return args;
   }
@@ -785,7 +888,7 @@ class Parser {
         return { kind: 'undefLit' };
       case 'lparen': {
         this.advance();
-        const inner = this.parseConditional();
+        const inner = this.parseLambda();
         this.expect('rparen');
         return inner;
       }
@@ -839,7 +942,7 @@ class Parser {
           entries.push({ key, value: { kind: 'ident', name: key } });
         } else {
           this.expect('colon');
-          const value = this.parseConditional();
+          const value = this.parseLambda();
           entries.push({ key, value });
         }
       }
@@ -863,7 +966,7 @@ class Parser {
       return { kind: 'arrayLit', items };
     }
     while (true) {
-      items.push(this.parseConditional());
+      items.push(this.parseLambda());
       if (this.peek().kind === 'comma') {
         this.advance();
         if (this.peek().kind === 'rbracket') break;

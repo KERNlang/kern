@@ -49,6 +49,17 @@ describe('each pair-mode — TS target', () => {
     expect(out).not.toContain('.entries()');
   });
 
+  test('pairKey + pairValue rejects type= because type annotates the simple item binding', () => {
+    const handler = makeHandler([
+      {
+        type: 'each',
+        props: { pairKey: 'k', pairValue: 'v', type: 'User', in: 'cache' },
+        children: [{ type: 'do', props: { value: 'log(k, v)' } }],
+      },
+    ]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/cannot be combined with pair-mode/);
+  });
+
   test('index= still emits .entries() form (regression check)', () => {
     const handler = makeHandler([
       {
@@ -141,6 +152,16 @@ describe('each pair-mode — schema validation', () => {
     };
     const violations = validateSchema(node);
     expect(violations.some((v) => v.message.includes('mutually exclusive with'))).toBe(true);
+  });
+
+  test('pairKey + pairValue + type= is rejected (type annotates simple item binding)', () => {
+    const node: IRNode = {
+      type: 'each',
+      props: { pairKey: 'k', pairValue: 'v', type: 'User', in: 'm' },
+      children: [],
+    };
+    const violations = validateSchema(node);
+    expect(violations.some((v) => v.message.includes("mutually exclusive with 'type='"))).toBe(true);
   });
 
   test('await=true + index= is rejected (async iterators have no stable entries index)', () => {

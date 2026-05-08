@@ -445,4 +445,56 @@ export function Parent({ children }: { children: React.ReactNode }) {
       expect(r.findings.find((f) => f.ruleId === 'parent-rerender-via-state')).toBeUndefined();
     });
   });
+
+  describe('react-memo-defeated-by-spread', () => {
+    it('does not flag inline object literal spread (Codex review: shallow compare still bails on primitives)', () => {
+      const src = `
+import { memo } from 'react';
+const Row = memo(function Row(props: { a: number; b: number }) { return <div>{props.a + props.b}</div>; });
+export function Parent({ a, b }: { a: number; b: number }) {
+  return <Row {...{ a, b }} />;
+}
+`;
+      const r = reviewSource(src, 'p.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'react-memo-defeated-by-spread')).toBeUndefined();
+    });
+
+    it('flags spread of parent props parameter on memoized child', () => {
+      const src = `
+import { memo } from 'react';
+const Row = memo(function Row(props: { a: number }) { return <div>{props.a}</div>; });
+export function Parent(props: { a: number }) {
+  return <Row {...props} />;
+}
+`;
+      const r = reviewSource(src, 'p.tsx', cfg);
+      const f = r.findings.find((x) => x.ruleId === 'react-memo-defeated-by-spread');
+      expect(f).toBeDefined();
+      expect(f!.message).toMatch(/parameter/);
+    });
+
+    it('does not flag spread of useMemo-backed identifier', () => {
+      const src = `
+import { memo, useMemo } from 'react';
+const Row = memo(function Row(props: { a: number; b: number }) { return <div>{props.a + props.b}</div>; });
+export function Parent({ a, b }: { a: number; b: number }) {
+  const stable = useMemo(() => ({ a, b }), [a, b]);
+  return <Row {...stable} />;
+}
+`;
+      const r = reviewSource(src, 'p.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'react-memo-defeated-by-spread')).toBeUndefined();
+    });
+
+    it('does not flag spread on a non-memoized child', () => {
+      const src = `
+function Row(props: { a: number; b: number }) { return <div>{props.a + props.b}</div>; }
+export function Parent(props: { a: number; b: number }) {
+  return <Row {...props} />;
+}
+`;
+      const r = reviewSource(src, 'p.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'react-memo-defeated-by-spread')).toBeUndefined();
+    });
+  });
 });

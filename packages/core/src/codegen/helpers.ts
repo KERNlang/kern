@@ -122,10 +122,31 @@ function splitParamsRespectingDepth(s: string): string[] {
   const parts: string[] = [];
   let depth = 0;
   let current = '';
+  let quote: '"' | "'" | '`' | '' = '';
+  let escaped = false;
   for (let i = 0; i < s.length; i++) {
     const ch = s[i];
-    if (ch === '<' || ch === '(' || ch === '{') depth++;
-    else if ((ch === '>' || ch === ')' || ch === '}') && depth > 0) depth--;
+    if (quote) {
+      current += ch;
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === quote) {
+        quote = '';
+      }
+      continue;
+    }
+
+    if (ch === '"' || ch === "'" || ch === '`') {
+      // Backtick defaults are treated as opaque string spans here; this
+      // splitter does not parse `${...}` interpolation internals.
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === '<' || ch === '(' || ch === '{' || ch === '[') depth++;
+    else if ((ch === '>' || ch === ')' || ch === '}' || ch === ']') && depth > 0) depth--;
     if (ch === ',' && depth === 0) {
       parts.push(current);
       current = '';
@@ -140,10 +161,28 @@ function splitParamsRespectingDepth(s: string): string[] {
 /** Find '=' separating type from default, skipping '=>' arrows. */
 function findDefaultSeparator(rest: string): number {
   let depth = 0;
+  let quote: '"' | "'" | '`' | '' = '';
+  let escaped = false;
   for (let i = 0; i < rest.length; i++) {
     const ch = rest[i];
-    if (ch === '<' || ch === '(' || ch === '{') depth++;
-    else if (ch === '>' || ch === ')' || ch === '}') depth--;
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === quote) {
+        quote = '';
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      // Backtick defaults are treated as opaque string spans here; this
+      // splitter does not parse `${...}` interpolation internals.
+      quote = ch;
+      continue;
+    }
+    if (ch === '<' || ch === '(' || ch === '{' || ch === '[') depth++;
+    else if ((ch === '>' || ch === ')' || ch === '}' || ch === ']') && depth > 0) depth--;
     else if (ch === '=' && depth === 0) {
       if (rest[i + 1] === '>') continue;
       return i;

@@ -90,6 +90,74 @@ describe('emitNativeKernBodyTS — slice 1 statements', () => {
     expect(emitNativeKernBodyTS(handler)).toBe('const x = foo();');
   });
 
+  test('let with type annotation emits typed const', () => {
+    const handler = makeHandler([{ type: 'let', props: { name: 'user', type: 'User | null', value: 'loadUser()' } }]);
+    expect(emitNativeKernBodyTS(handler)).toBe('const user: User | null = loadUser();');
+  });
+
+  test('let kind=let emits mutable TS let', () => {
+    const handler = makeHandler([{ type: 'let', props: { name: 'total', kind: 'let', value: '0' } }]);
+    expect(emitNativeKernBodyTS(handler)).toBe('let total = 0;');
+  });
+
+  test('let kind=let with type annotation emits typed mutable TS let', () => {
+    const handler = makeHandler([{ type: 'let', props: { name: 'total', kind: 'let', type: 'number', value: '0' } }]);
+    expect(emitNativeKernBodyTS(handler)).toBe('let total: number = 0;');
+  });
+
+  test('let kind=let can be reassigned by assign', () => {
+    const handler = makeHandler([
+      { type: 'let', props: { name: 'total', kind: 'let', value: '0' } },
+      { type: 'assign', props: { target: 'total', op: '+=', value: '1' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(['let total = 0;', 'total += 1;'].join('\n'));
+  });
+
+  test('assign rejects reassignment of default immutable let binding', () => {
+    const handler = makeHandler([
+      { type: 'let', props: { name: 'total', value: '0' } },
+      { type: 'assign', props: { target: 'total', value: '1' } },
+    ]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/cannot reassign immutable/);
+  });
+
+  test('let kind=let can be reassigned inside a nested block', () => {
+    const handler = makeHandler([
+      { type: 'let', props: { name: 'total', kind: 'let', value: '0' } },
+      {
+        type: 'if',
+        props: { cond: 'ready' },
+        children: [{ type: 'assign', props: { target: 'total', op: '+=', value: '1' }, children: [] }],
+      },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(['let total = 0;', 'if (ready) {', '  total += 1;', '}'].join('\n'));
+  });
+
+  test('duplicate local let in the same scope is rejected', () => {
+    const handler = makeHandler([
+      { type: 'let', props: { name: 'total', kind: 'let', value: '0' } },
+      { type: 'let', props: { name: 'total', kind: 'let', value: '1' } },
+    ]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/already declared/);
+  });
+
+  test('assign rejects reassignment of loop binding that shadows an outer mutable let', () => {
+    const handler = makeHandler([
+      { type: 'let', props: { name: 'item', kind: 'let', value: 'null' } },
+      {
+        type: 'each',
+        props: { name: 'item', in: 'items' },
+        children: [{ type: 'assign', props: { target: 'item', value: '2' }, children: [] }],
+      },
+    ]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/cannot reassign immutable/);
+  });
+
+  test('let invalid kind is rejected', () => {
+    const handler = makeHandler([{ type: 'let', props: { name: 'total', kind: 'var', value: '0' } }]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/supports only `const` or `let`/);
+  });
+
   test('let with await call', () => {
     const handler = makeHandler([{ type: 'let', props: { name: 'u', value: 'await fetchUser(raw)' } }]);
     expect(emitNativeKernBodyTS(handler)).toBe('const u = await fetchUser(raw);');
@@ -101,6 +169,24 @@ describe('emitNativeKernBodyTS — slice 1 statements', () => {
     expect(out).toContain('const __k_t1 = fetchUser(raw);');
     expect(out).toContain("if (__k_t1.kind === 'err') return __k_t1;");
     expect(out).toContain('const u = __k_t1.value;');
+  });
+
+  test('let with type annotation preserves type after propagation hoist', () => {
+    const handler = makeHandler([{ type: 'let', props: { name: 'u', type: 'User', value: 'fetchUser(raw)?' } }]);
+    const out = emitNativeKernBodyTS(handler);
+    expect(out).toContain('const __k_t1 = fetchUser(raw);');
+    expect(out).toContain("if (__k_t1.kind === 'err') return __k_t1;");
+    expect(out).toContain('const u: User = __k_t1.value;');
+  });
+
+  test('let kind=let preserves mutability after propagation hoist', () => {
+    const handler = makeHandler([
+      { type: 'let', props: { name: 'u', kind: 'let', type: 'User', value: 'fetchUser(raw)?' } },
+    ]);
+    const out = emitNativeKernBodyTS(handler);
+    expect(out).toContain('const __k_t1 = fetchUser(raw);');
+    expect(out).toContain("if (__k_t1.kind === 'err') return __k_t1;");
+    expect(out).toContain('let u: User = __k_t1.value;');
   });
 
   test('let with await + propagation prefixes await on the hoisted call', () => {
@@ -167,6 +253,23 @@ describe('emitNativeKernBodyTS — destructure body statement', () => {
     expect(out).toContain('return trackId;');
   });
 
+  test('emits typed object destructuring inside native body', () => {
+    const handler = makeHandler([
+      {
+        type: 'destructure',
+        props: { kind: 'const', source: 'req.body', type: '{ trackId: string; options: Options }' },
+        children: [
+          { type: 'binding', props: { name: 'trackId' } },
+          { type: 'binding', props: { name: 'opts', key: 'options' } },
+        ],
+      },
+    ]);
+
+    expect(emitNativeKernBodyTS(handler)).toContain(
+      'const { trackId, options: opts }: { trackId: string; options: Options } = req.body;',
+    );
+  });
+
   test('emits array destructuring inside native body', () => {
     const handler = makeHandler([
       {
@@ -180,6 +283,21 @@ describe('emitNativeKernBodyTS — destructure body statement', () => {
     ]);
 
     expect(emitNativeKernBodyTS(handler)).toContain('const [first, , third] = pair;');
+  });
+
+  test('emits typed array destructuring inside native body', () => {
+    const handler = makeHandler([
+      {
+        type: 'destructure',
+        props: { kind: 'const', source: 'pair', type: '[string, number]' },
+        children: [
+          { type: 'element', props: { name: 'first', index: '0' } },
+          { type: 'element', props: { name: 'second', index: '1' } },
+        ],
+      },
+    ]);
+
+    expect(emitNativeKernBodyTS(handler)).toContain('const [first, second]: [string, number] = pair;');
   });
 
   test('rejects propagation source inside try with try-specific guidance', () => {

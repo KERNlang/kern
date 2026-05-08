@@ -480,6 +480,198 @@ function useCallbackNoBenefit(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule: unstable-deps-literal ──────────────────────────────────────────
+// An array, object, or function literal sitting INSIDE a hook's dependency
+// array. The literal is a fresh reference every render, which silently
+// defeats the memoization the hook is supposed to provide.
+//
+//   useEffect(fn, [{ id: 1 }])      // new object every render
+//   useMemo(fn, [() => doX()])      // new function every render
+//   useCallback(fn, [foo, [a, b]])  // new array every render
+//
+// Distinct from `exhaustive-deps` (missing deps) and `ref-in-deps` (stable
+// ref noise) — this is "you put a freshly-allocated value where stability
+// was required."
+
+function unstableDepsLiteral(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const calleeText = call.getExpression().getText();
+    const calleeName = calleeText.includes('.') ? calleeText.split('.').pop()! : calleeText;
+    if (!EFFECT_HOOKS.has(calleeName) && !MEMO_HOOKS.has(calleeName)) continue;
+
+    const args = call.getArguments();
+    if (args.length < 2) continue;
+    const depsArg = args[1];
+    if (!Node.isArrayLiteralExpression(depsArg)) continue;
+
+    for (const el of depsArg.getElements()) {
+      let kind: 'object' | 'array' | 'function' | undefined;
+      if (Node.isObjectLiteralExpression(el)) kind = 'object';
+      else if (Node.isArrayLiteralExpression(el)) kind = 'array';
+      else if (Node.isArrowFunction(el) || Node.isFunctionExpression(el)) kind = 'function';
+      if (!kind) continue;
+
+      findings.push(
+        finding(
+          'unstable-deps-literal',
+          'warning',
+          'bug',
+          `${calleeName} dependency contains an inline ${kind} literal — it has a new reference every render and silently defeats memoization`,
+          ctx.filePath,
+          el.getStartLineNumber(),
+          1,
+          {
+            suggestion:
+              kind === 'function'
+                ? 'Hoist the function into useCallback (with its own deps) or out of the component'
+                : `Hoist the ${kind} into a useMemo (with its own deps) or move it outside the component if it never depends on render state`,
+          },
+        ),
+      );
+    }
+  }
+
+  return findings;
+}
+
+// ── Rule: usememo-primitive-cheap ────────────────────────────────────────
+// useMemo wrapping a trivially cheap primitive computation — the memoization
+// machinery costs more than re-running the expression. Heuristic: fires only
+// when the body returns a single primitive expression (literal, identifier,
+// short binary op chain, or a length/property read) and the deps array is
+// short. Conservative on purpose — `precision: 'medium'`.
+//
+//   const total = useMemo(() => a + b, [a, b]);                  // flagged
+//   const len   = useMemo(() => list.length, [list]);            // flagged
+//   const flag  = useMemo(() => x > 0, [x]);                     // flagged
+//   const heavy = useMemo(() => list.filter(...).map(...), ...); // NOT flagged
+
+const PRIMITIVE_BINARY_OPS = new Set([
+  SyntaxKind.PlusToken,
+  SyntaxKind.MinusToken,
+  SyntaxKind.AsteriskToken,
+  SyntaxKind.SlashToken,
+  SyntaxKind.PercentToken,
+  SyntaxKind.LessThanToken,
+  SyntaxKind.LessThanEqualsToken,
+  SyntaxKind.GreaterThanToken,
+  SyntaxKind.GreaterThanEqualsToken,
+  SyntaxKind.EqualsEqualsToken,
+  SyntaxKind.EqualsEqualsEqualsToken,
+  SyntaxKind.ExclamationEqualsToken,
+  SyntaxKind.ExclamationEqualsEqualsToken,
+  SyntaxKind.AmpersandAmpersandToken,
+  SyntaxKind.BarBarToken,
+  SyntaxKind.QuestionQuestionToken,
+]);
+
+/** True when the expression is provably "cheap" — memoization costs more than re-running it. */
+function isCheapPrimitiveExpression(expr: Node, depth = 0): boolean {
+  if (depth > 4) return false; // bounded recursion — anything deeper is "complex enough"
+
+  // Literals
+  if (
+    Node.isStringLiteral(expr) ||
+    Node.isNumericLiteral(expr) ||
+    Node.isNoSubstitutionTemplateLiteral(expr) ||
+    expr.getKind() === SyntaxKind.TrueKeyword ||
+    expr.getKind() === SyntaxKind.FalseKeyword ||
+    expr.getKind() === SyntaxKind.NullKeyword
+  ) {
+    return true;
+  }
+
+  // Bare identifier
+  if (Node.isIdentifier(expr)) return true;
+
+  // Property access on identifier chain (e.g. list.length, user.name)
+  if (Node.isPropertyAccessExpression(expr)) {
+    return isCheapPrimitiveExpression(expr.getExpression(), depth + 1);
+  }
+
+  // Non-null/parenthesized wrappers
+  if (Node.isNonNullExpression(expr) || Node.isParenthesizedExpression(expr)) {
+    return isCheapPrimitiveExpression(expr.getExpression(), depth + 1);
+  }
+
+  // Prefix unary on cheap operand (!, -, +)
+  if (Node.isPrefixUnaryExpression(expr)) {
+    return isCheapPrimitiveExpression(expr.getOperand(), depth + 1);
+  }
+
+  // Binary primitive op on two cheap operands
+  if (Node.isBinaryExpression(expr)) {
+    if (!PRIMITIVE_BINARY_OPS.has(expr.getOperatorToken().getKind())) return false;
+    return (
+      isCheapPrimitiveExpression(expr.getLeft(), depth + 1) && isCheapPrimitiveExpression(expr.getRight(), depth + 1)
+    );
+  }
+
+  // Conditional: cond ? a : b — cheap if all three branches are cheap
+  if (Node.isConditionalExpression(expr)) {
+    return (
+      isCheapPrimitiveExpression(expr.getCondition(), depth + 1) &&
+      isCheapPrimitiveExpression(expr.getWhenTrue(), depth + 1) &&
+      isCheapPrimitiveExpression(expr.getWhenFalse(), depth + 1)
+    );
+  }
+
+  return false;
+}
+
+function useMemoPrimitiveCheap(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const calleeText = call.getExpression().getText();
+    const calleeName = calleeText.includes('.') ? calleeText.split('.').pop()! : calleeText;
+    if (calleeName !== 'useMemo') continue;
+
+    const args = call.getArguments();
+    if (args.length < 1) continue;
+    const fnArg = args[0];
+    if (!Node.isArrowFunction(fnArg) && !Node.isFunctionExpression(fnArg)) continue;
+
+    const body = fnArg.getBody();
+    if (!body) continue;
+
+    let returned: Node | undefined;
+    if (Node.isBlock(body)) {
+      const statements = body.getStatements();
+      if (statements.length !== 1) continue; // multi-statement bodies are not "trivial"
+      const only = statements[0];
+      if (!Node.isReturnStatement(only)) continue;
+      returned = only.getExpression();
+    } else {
+      // Expression body: () => expr
+      returned = body;
+    }
+
+    if (!returned) continue;
+    if (!isCheapPrimitiveExpression(returned)) continue;
+
+    findings.push(
+      finding(
+        'usememo-primitive-cheap',
+        'info',
+        'pattern',
+        'useMemo wraps a trivially cheap expression — the memoization bookkeeping costs more than re-running it on every render',
+        ctx.filePath,
+        call.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'Drop the useMemo and assign the value directly. Reserve useMemo for expensive work (large array transforms, deep clones, parsers) or stable reference identity required by a memoized child or hook dep.',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
 // ── Exported React Hooks Rules ───────────────────────────────────────────
 
 /** All rules in this file assume a client runtime — skip on server/api/middleware
@@ -493,4 +685,6 @@ export const reactHooksRules = [
   clientOnly(refInDeps),
   clientOnly(stateDerivedFromProps),
   clientOnly(useCallbackNoBenefit),
+  clientOnly(unstableDepsLiteral),
+  clientOnly(useMemoPrimitiveCheap),
 ];

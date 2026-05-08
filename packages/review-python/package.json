@@ -1,6 +1,6 @@
 {
   "name": "@kernlang/review-python",
-  "version": "3.4.4",
+  "version": "3.4.5",
   "description": "Python concept mapper for kern review — tree-sitter based",
   "type": "module",
   "main": "dist/index.js",

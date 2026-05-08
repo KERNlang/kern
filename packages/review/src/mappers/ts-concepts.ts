@@ -7,7 +7,8 @@
 
 import type { ConceptEdge, ConceptMap, ConceptNode, ConceptSpan, ErrorHandlePayload } from '@kernlang/core';
 import { conceptId, conceptSpan } from '@kernlang/core';
-import { type SourceFile, SyntaxKind, VariableDeclarationKind } from 'ts-morph';
+import { Node, type SourceFile, SyntaxKind, VariableDeclarationKind } from 'ts-morph';
+import { classifyPaginationAnchor } from '../concept-rules/cross-stack-utils.js';
 
 const EXTRACTOR_VERSION = '1.0.0';
 
@@ -480,6 +481,10 @@ function extractEntrypoints(sf: SourceFile, filePath: string, nodes: ConceptNode
         bodyFieldsResolved: bodyFieldsInfo.resolved,
         bodyFieldTypes: bodyFieldsInfo.types,
         errorStatusCodes: routeAnalysis.errorStatusCodes,
+        successStatusCodes: routeAnalysis.successStatusCodes,
+        successStatusCodesResolved: routeAnalysis.successStatusCodesResolved,
+        paginationStrategy: routeAnalysis.paginationStrategy,
+        paginationStrategyResolved: routeAnalysis.paginationStrategyResolved,
         hasUnboundedCollectionQuery: routeAnalysis.hasUnboundedCollectionQuery,
         hasDbWrite: routeAnalysis.hasDbWrite,
         hasIdempotencyProtection: routeAnalysis.hasIdempotencyProtection,
@@ -525,6 +530,10 @@ function extractEntrypoints(sf: SourceFile, filePath: string, nodes: ConceptNode
 
 interface RouteHandlerAnalysis {
   errorStatusCodes?: readonly number[];
+  successStatusCodes?: readonly number[];
+  successStatusCodesResolved?: boolean;
+  paginationStrategy?: 'page' | 'offset' | 'cursor' | 'mixed' | 'none';
+  paginationStrategyResolved?: boolean;
   hasUnboundedCollectionQuery?: boolean;
   hasDbWrite?: boolean;
   hasIdempotencyProtection?: boolean;
@@ -559,9 +568,15 @@ function analyzeExpressRouteHandler(
 ): RouteHandlerAnalysis {
   const text = handlerFn.getText();
   const errorStatusCodes = extractExpressErrorStatusCodes(handlerFn);
+  const successStatuses = extractExpressSuccessStatusCodes(handlerFn);
+  const pagination = extractExpressPaginationStrategy(handlerFn);
   const validation = extractExpressValidation(handlerFn, routeArgs);
   return {
     errorStatusCodes,
+    successStatusCodes: successStatuses.codes,
+    successStatusCodesResolved: successStatuses.resolved,
+    paginationStrategy: pagination.strategy,
+    paginationStrategyResolved: pagination.resolved,
     hasUnboundedCollectionQuery: hasUnboundedExpressCollectionQuery(handlerFn, method, routePath),
     hasDbWrite: handlerHasDbWrite(handlerFn),
     hasIdempotencyProtection: IDEMPOTENCY_RE.test(text),
@@ -662,6 +677,299 @@ function extractExpressErrorStatusCodes(handlerFn: ExpressRouteHandlerFn): reado
   }
 
   return codes.size > 0 ? Array.from(codes).sort((a, b) => a - b) : undefined;
+}
+
+// ── Express success-status extraction ────────────────────────────────────
+// Walks the handler body for `res.status(2xx)` / `res.sendStatus(2xx)`. If no
+// explicit 2xx is present BUT there is a terminal `.json()`/`.send()`/`.end()`
+// call, infers an implicit 200 (Express default). Implicit 204 is never
+// inferred — only explicit `sendStatus(204)` or `status(204)` adds 204.
+
+const API_SUCCESS_STATUS_CODES = new Set([200, 201, 202, 204, 206]);
+const TERMINAL_RESPONSE_METHODS = new Set(['json', 'send', 'end', 'render', 'jsonp']);
+
+function extractExpressSuccessStatusCodes(handlerFn: ExpressRouteHandlerFn): {
+  codes: readonly number[] | undefined;
+  resolved: boolean;
+} {
+  const explicit = new Set<number>();
+  let sawTerminalWithoutPrecedingStatus = false;
+  let sawDynamicStatus = false;
+  let sawAnyExplicitStatusCall = false;
+
+  for (const call of handlerFn.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (callee.getKind() !== SyntaxKind.PropertyAccessExpression) continue;
+    const pa = callee as import('ts-morph').PropertyAccessExpression;
+    const name = pa.getName();
+    const receiverNode = pa.getExpression();
+    const receiverText = receiverNode.getText();
+    if (!/\b(res|reply|response)\b/i.test(receiverText)) continue;
+
+    if (name === 'status' || name === 'sendStatus') {
+      sawAnyExplicitStatusCall = true;
+      const arg = call.getArguments()[0];
+      const code = numericLiteralValue(arg);
+      if (code === undefined) {
+        // Dynamic argument like `res.status(code)` — the mapper has incomplete
+        // visibility into success codes. Mark unresolved.
+        sawDynamicStatus = true;
+        continue;
+      }
+      if (API_SUCCESS_STATUS_CODES.has(code)) explicit.add(code);
+      continue;
+    }
+
+    if (TERMINAL_RESPONSE_METHODS.has(name)) {
+      // Per-terminal check, walking up the receiver chain (Gemini/Codex final
+      // review #2): the implicit-200 inference must NOT fire for a terminal
+      // whose ANY ancestor receiver is a status()/sendStatus() call. Examples:
+      //   - `res.status(201).json(...)` — direct receiver IS status() → no 200
+      //   - `res.status(404).type('json').send()` — chain has status() → no 200
+      //   - `res.status(201).set('X-Count', 10).json(data)` — chain has status() → no 200
+      //   - `res.json(...)` (bare) — chain has no status() → implicit 200 candidate
+      // P2-D: also skip implicit-200 when an UNCONDITIONAL preceding statement
+      // in any ancestor block sets `<sameReceiver>.status(N)` — covers the
+      // `res.status(201); res.json(...)` separate-statement pattern.
+      if (
+        !chainContainsStatusOrSendStatusCall(receiverNode) &&
+        !hasUnconditionalPrecedingStatusCall(call, receiverText, handlerFn)
+      ) {
+        sawTerminalWithoutPrecedingStatus = true;
+      }
+    }
+  }
+
+  if (sawDynamicStatus) {
+    // The dynamic argument hides part of the success-code set. Even if we saw
+    // explicit codes, we can't claim resolved: true without potentially missing
+    // a code overlapping with what the client checks. Conservative skip — the
+    // rule won't fire on this handler, but it also won't FP.
+    return { codes: explicit.size > 0 ? Array.from(explicit).sort((a, b) => a - b) : undefined, resolved: false };
+  }
+
+  // Implicit 200 contributed only when at least one terminal call has NO
+  // preceding `.status(...)` anywhere in its receiver chain.
+  if (sawTerminalWithoutPrecedingStatus) {
+    explicit.add(200);
+  }
+
+  if (explicit.size === 0) {
+    // Gemini final review #3: when the mapper had FULL visibility (no dynamic
+    // status) and confirmed the handler emits NO 2xx (e.g. a permission guard
+    // that only does `res.status(403).send()`), report `resolved: true` with
+    // empty codes. Lets `status-code-drift` flag a client that incorrectly
+    // checks 200 on a route that never returns 200.
+    if (sawAnyExplicitStatusCall) return { codes: [], resolved: true };
+    return { codes: undefined, resolved: false };
+  }
+  return { codes: Array.from(explicit).sort((a, b) => a - b), resolved: true };
+}
+
+/** True when `node` is a CallExpression of shape `<receiver>.status(...)` or
+ *  `<receiver>.sendStatus(...)`, OR when any node up its property/call chain
+ *  is. Walks through intermediate `.set(...)` / `.type(...)` / `.cookie(...)`
+ *  links so that `res.status(201).set('X-Count', 10).json(data)` correctly
+ *  reports that `.json` is preceded by an explicit status. */
+function chainContainsStatusOrSendStatusCall(node: import('ts-morph').Node): boolean {
+  let cur: import('ts-morph').Node = node;
+  // Walk inward: each step either unwraps a CallExpression to its callee, or
+  // unwraps a PropertyAccessExpression to its receiver. Stop when neither.
+  while (true) {
+    if (Node.isCallExpression(cur)) {
+      const callee = cur.getExpression();
+      if (callee.getKind() === SyntaxKind.PropertyAccessExpression) {
+        const pa = callee as import('ts-morph').PropertyAccessExpression;
+        const name = pa.getName();
+        if (name === 'status' || name === 'sendStatus') return true;
+        cur = pa.getExpression();
+        continue;
+      }
+      return false;
+    }
+    if (Node.isPropertyAccessExpression(cur)) {
+      cur = cur.getExpression();
+      continue;
+    }
+    return false;
+  }
+}
+
+/** Variant of `chainContainsStatusOrSendStatusCall` that also requires the
+ *  IMMEDIATE receiver of the matched `.status(...)` / `.sendStatus(...)` call
+ *  to text-match `receiverText`. Used by P2-D to guard against unrelated
+ *  status calls on different receivers in preceding statements. */
+function chainContainsStatusOrSendStatusCallWithReceiver(node: import('ts-morph').Node, receiverText: string): boolean {
+  let cur: import('ts-morph').Node = node;
+  while (true) {
+    if (Node.isCallExpression(cur)) {
+      const callee = cur.getExpression();
+      if (callee.getKind() === SyntaxKind.PropertyAccessExpression) {
+        const pa = callee as import('ts-morph').PropertyAccessExpression;
+        const name = pa.getName();
+        if ((name === 'status' || name === 'sendStatus') && pa.getExpression().getText() === receiverText) {
+          return true;
+        }
+        cur = pa.getExpression();
+        continue;
+      }
+      return false;
+    }
+    if (Node.isPropertyAccessExpression(cur)) {
+      cur = cur.getExpression();
+      continue;
+    }
+    return false;
+  }
+}
+
+/** P2-D: scan unconditional preceding statements in the terminal's ancestor
+ *  blocks for any `<receiverText>.status(N)` / `.sendStatus(N)` call. When
+ *  found, the implicit-200 inference for the terminal is suppressed.
+ *
+ *  Walk algorithm (plan-review consensus, Codex/Gemini/OpenCode):
+ *   - Start from the terminal call. Walk up parent-by-parent.
+ *   - At each ancestor Block within the handler function, scan preceding
+ *     siblings of the current statement for an ExpressionStatement whose
+ *     expression chain contains a status call on the same immediate receiver.
+ *   - Branching ancestors (if / try / switch / loop) do NOT have their
+ *     descendant statements peeked into — only their direct sibling form
+ *     in the OUTER block is considered. This preserves correctness for
+ *     conditional status calls.
+ *   - Bounded by the handler function body. */
+function hasUnconditionalPrecedingStatusCall(
+  terminal: import('ts-morph').CallExpression,
+  receiverText: string,
+  handlerFn: ExpressRouteHandlerFn,
+): boolean {
+  const handlerBody = handlerFn.getBody();
+  if (!handlerBody || !Node.isBlock(handlerBody)) return false;
+
+  let cur: import('ts-morph').Node = terminal;
+  let parent: import('ts-morph').Node | undefined = cur.getParent();
+  while (parent) {
+    if (cur === handlerFn) return false;
+
+    if (Node.isBlock(parent)) {
+      for (const sibling of parent.getStatements()) {
+        if (sibling === cur) break;
+        // We only care about preceding siblings; if `cur` is the same node as
+        // `sibling`, we've reached the current statement and stop.
+        if (Node.isExpressionStatement(sibling)) {
+          const expr = sibling.getExpression();
+          if (chainContainsStatusOrSendStatusCallWithReceiver(expr, receiverText)) return true;
+        }
+        // Branching/looping siblings (IfStatement, TryStatement, SwitchStatement,
+        // ForStatement, etc.) are intentionally NOT inspected internally — any
+        // `.status(N)` inside them is conditional. We just skip past.
+      }
+      if (parent === handlerBody) return false;
+    }
+    cur = parent;
+    parent = cur.getParent();
+  }
+  return false;
+}
+
+// ── Express pagination-strategy extraction ───────────────────────────────
+// Walks for `req.query.X` / `req.query['X']` / destructuring `const {a, b} =
+// req.query`, classifies each key against anchor sets, and returns the strategy.
+// Size keys (`limit`, `take`, `pageSize`, `perPage`) are pagination *parameters*
+// but not anchor families on their own — a server reading only `limit` is
+// classified as `'none'` (it doesn't pin a strategy).
+//
+// Anchor sets are imported from `concept-rules/cross-stack-utils` so the
+// server-side classification stays in lockstep with the client-side one used
+// by `pagination-key-drift`.
+
+function classifyAnchor(key: string): 'page' | 'offset' | 'cursor' | undefined {
+  return classifyPaginationAnchor(key);
+}
+
+function extractExpressPaginationStrategy(handlerFn: ExpressRouteHandlerFn): {
+  strategy: 'page' | 'offset' | 'cursor' | 'mixed' | 'none' | undefined;
+  resolved: boolean;
+} {
+  const families = new Set<'page' | 'offset' | 'cursor'>();
+  let sawDynamicAccess = false;
+
+  // Pattern 1: `req.query.X` / `req.query[<lit>]` / destructuring
+  for (const access of handlerFn.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)) {
+    if (access.getName() !== 'query') continue;
+    const reqIdent = access.getExpression();
+    if (!/\b(req|request)\b/i.test(reqIdent.getText())) continue;
+    const parent = access.getParent();
+
+    // Form 1: `req.query.X` — direct dotted read
+    if (parent && Node.isPropertyAccessExpression(parent) && parent.getExpression() === access) {
+      const family = classifyAnchor(parent.getName());
+      if (family) families.add(family);
+      continue;
+    }
+
+    // Form 2: `req.query['X']` — element access with literal
+    if (parent && Node.isElementAccessExpression(parent) && parent.getExpression() === access) {
+      const arg = parent.getArgumentExpression();
+      if (arg && Node.isStringLiteral(arg)) {
+        const family = classifyAnchor(arg.getLiteralValue());
+        if (family) families.add(family);
+      } else {
+        // Dynamic key — `req.query[name]` — mapper can't resolve.
+        sawDynamicAccess = true;
+      }
+      continue;
+    }
+
+    // Form 3: `const { page, limit } = req.query` — destructuring
+    if (parent && Node.isVariableDeclaration(parent) && parent.getInitializer() === access) {
+      const nameNode = parent.getNameNode();
+      if (Node.isObjectBindingPattern(nameNode)) {
+        for (const elem of nameNode.getElements()) {
+          if (elem.getDotDotDotToken()) {
+            // `const { ...rest } = req.query` — rest captures everything;
+            // mapper has lost visibility into which keys are then read.
+            sawDynamicAccess = true;
+            continue;
+          }
+          const keyNode = elem.getPropertyNameNode() ?? elem.getNameNode();
+          if (Node.isIdentifier(keyNode)) {
+            const family = classifyAnchor(keyNode.getText());
+            if (family) families.add(family);
+          } else if (Node.isStringLiteral(keyNode)) {
+            const family = classifyAnchor(keyNode.getLiteralValue());
+            if (family) families.add(family);
+          }
+        }
+        continue;
+      }
+      // `const q = req.query` — aliased to a single identifier. The mapper
+      // has no visibility into what keys are subsequently read on `q`, so
+      // the analysis is opaque (Gemini final review #2).
+      sawDynamicAccess = true;
+      continue;
+    }
+
+    // Any OTHER use of `req.query` (passed as argument, spread, returned,
+    // assigned to property, etc.) is a leak the mapper can't follow. Mark
+    // unresolved rather than silently treating as `'none'`.
+    sawDynamicAccess = true;
+  }
+
+  if (sawDynamicAccess) {
+    return { strategy: undefined, resolved: false };
+  }
+
+  if (families.size === 0) {
+    // No pagination anchors found. Either the handler reads non-anchor query
+    // keys (e.g. `?filter=`, `?sort=`) or it reads no query at all. Either
+    // way the strategy is `'none'` from a pagination perspective and the
+    // analysis is fully resolved.
+    return { strategy: 'none', resolved: true };
+  }
+
+  if (families.size > 1) return { strategy: 'mixed', resolved: true };
+  const only = families.values().next().value as 'page' | 'offset' | 'cursor';
+  return { strategy: only, resolved: true };
 }
 
 function numericLiteralValue(node: import('ts-morph').Node | undefined): number | undefined {
@@ -2545,12 +2853,39 @@ const STATUS_PROP_RE = /(?:^|\.)status$/;
 const STATUS_LIKELY_RECEIVER_RE = /\b(res|response|reply|err|error|e|ex|result|r)\b/i;
 
 function extractHandledErrorStatusCodes(call: import('ts-morph').CallExpression): readonly number[] | undefined {
+  // P2-B: `.then((res) => { if (res.status === N) ... })` — the response is
+  // the callback's first parameter, and the scope must be the callback body
+  // (NOT the enclosing function), otherwise sibling `.then()` callbacks could
+  // cross-bind on the same param name. When matched, scope and varName both
+  // come from the callback.
+  const thenBinding = findThenCallbackBinding(call);
+
   const enclosing =
+    thenBinding?.scope ??
     call.getFirstAncestorByKind(SyntaxKind.FunctionDeclaration) ??
     call.getFirstAncestorByKind(SyntaxKind.ArrowFunction) ??
     call.getFirstAncestorByKind(SyntaxKind.FunctionExpression) ??
     call.getFirstAncestorByKind(SyntaxKind.MethodDeclaration);
   if (!enclosing) return undefined;
+
+  // Call-binding (Codex final review): when the network call's result is
+  // assigned to a local variable like `const res = await fetch(...)`, only
+  // count status checks whose receiver chain references that variable. This
+  // prevents the multi-call FP where every fetch in a function inherits
+  // every status check anywhere in that function. Falls back to function-wide
+  // attribution (existing behaviour) when no response variable can be found.
+  //
+  // Catch-clause exemption (Gemini final review #1): axios-style libraries
+  // throw on 4xx/5xx, so the status check happens in `catch (err) { if
+  // (err.status === ...) }` against an entirely different variable. A
+  // status check inside a catch clause whose try block contains THIS call
+  // is accepted regardless of the response variable name.
+  const responseVarName = thenBinding?.varName ?? findResponseVarForCall(call);
+  const matchesBoundReceiver = (statusNode: import('ts-morph').Node, receiverText: string): boolean => {
+    if (!responseVarName) return true;
+    if (new RegExp(`\\b${responseVarName}\\b`).test(receiverText)) return true;
+    return isInsideCatchOfTryContaining(statusNode, call);
+  };
 
   const codes = new Set<number>();
 
@@ -2564,6 +2899,7 @@ function extractHandledErrorStatusCodes(call: import('ts-morph').CallExpression)
     if (code === undefined) continue;
     const other = code === numericLiteralValue(left) ? right : left;
     if (!isStatusPropertyAccess(other)) continue;
+    if (!matchesBoundReceiver(bin, other.getText())) continue;
     codes.add(code);
   }
 
@@ -2571,6 +2907,7 @@ function extractHandledErrorStatusCodes(call: import('ts-morph').CallExpression)
   for (const sw of enclosing.getDescendantsOfKind(SyntaxKind.SwitchStatement)) {
     const expr = sw.getExpression();
     if (!isStatusPropertyAccess(expr)) continue;
+    if (!expr || !matchesBoundReceiver(sw, expr.getText())) continue;
     for (const caseClause of sw.getDescendantsOfKind(SyntaxKind.CaseClause)) {
       const code = numericLiteralValue(caseClause.getExpression());
       if (code !== undefined) codes.add(code);
@@ -2578,6 +2915,82 @@ function extractHandledErrorStatusCodes(call: import('ts-morph').CallExpression)
   }
 
   return Array.from(codes).sort((a, b) => a - b);
+}
+
+/** True when `node` is inside a CatchClause whose enclosing TryStatement's
+ *  try block contains `call`. Used to allow `if (err.status === N)` in the
+ *  catch arm to count toward the bound call's handled-status set, even when
+ *  `err` is a different variable name from the response binding. */
+function isInsideCatchOfTryContaining(node: import('ts-morph').Node, call: import('ts-morph').CallExpression): boolean {
+  let cur: import('ts-morph').Node | undefined = node;
+  while (cur) {
+    if (Node.isCatchClause(cur)) {
+      const tryStmt = cur.getParent();
+      if (Node.isTryStatement(tryStmt)) {
+        const tryBlock = tryStmt.getTryBlock();
+        if (tryBlock && nodeContains(tryBlock, call)) return true;
+      }
+    }
+    cur = cur.getParent();
+  }
+  return false;
+}
+
+function nodeContains(container: import('ts-morph').Node, target: import('ts-morph').Node): boolean {
+  return target.getStart() >= container.getStart() && target.getEnd() <= container.getEnd();
+}
+
+// P2-B: detect the `.then((res) => { ... })` shape and return the callback's
+// first parameter as the response var, scoped to the callback function. Without
+// scope narrowing, two sibling `.then(res => ...)` callbacks in the same
+// function would cross-bind on the same `res` name. Plan-review consensus
+// (Codex/Gemini/OpenCode): scan only the callback body, use ts-morph's
+// `getParameters()` for the name, support both ArrowFunction and
+// FunctionExpression callbacks.
+//
+// Scope is the callback FUNCTION (not its body) so that arrow concise bodies
+// (`res => res.status === 201`) — where the body IS the BinaryExpression —
+// are still picked up by `getDescendantsOfKind(BinaryExpression)`. Parameter
+// nodes inside the function are harmless: the scan looks for `<X>.status`
+// shapes which a bare parameter identifier cannot match.
+function findThenCallbackBinding(
+  call: import('ts-morph').CallExpression,
+): { varName: string; scope: import('ts-morph').Node } | undefined {
+  const parent = call.getParent();
+  if (!parent || !Node.isPropertyAccessExpression(parent)) return undefined;
+  if (parent.getName() !== 'then') return undefined;
+  const grand = parent.getParent();
+  if (!grand || !Node.isCallExpression(grand)) return undefined;
+  const cb = grand.getArguments()[0];
+  if (!cb) return undefined;
+  if (!Node.isArrowFunction(cb) && !Node.isFunctionExpression(cb)) return undefined;
+  const param = cb.getParameters()[0];
+  if (!param) return undefined;
+  const nameNode = param.getNameNode();
+  if (!Node.isIdentifier(nameNode)) return undefined;
+  return { varName: nameNode.getText(), scope: cb };
+}
+
+// Find the local variable name receiving this call's result. Covers the
+// common pattern `const res = await fetch(...)` (with optional parens / type
+// assertions). Returns undefined for bare `await fetch(...)` or `.then(res =>
+// ...)` chains — those fall back to function-wide attribution to preserve
+// existing rule recall.
+function findResponseVarForCall(call: import('ts-morph').CallExpression): string | undefined {
+  let cur: import('ts-morph').Node = call;
+  let parent: import('ts-morph').Node | undefined = cur.getParent();
+  while (
+    parent &&
+    (Node.isAwaitExpression(parent) || Node.isParenthesizedExpression(parent) || Node.isAsExpression(parent))
+  ) {
+    cur = parent;
+    parent = cur.getParent();
+  }
+  if (parent && Node.isVariableDeclaration(parent)) {
+    const name = parent.getNameNode();
+    if (Node.isIdentifier(name)) return name.getText();
+  }
+  return undefined;
 }
 
 // Recogniser for `<expr>.status` shape. The `<expr>` is intentionally

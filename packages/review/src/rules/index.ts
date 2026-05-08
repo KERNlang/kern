@@ -31,6 +31,7 @@ import { perfRules } from './perf.js';
 import { reactRules } from './react.js';
 import { reactCompositionRules } from './react-composition.js';
 import { reactHooksRules } from './react-hooks.js';
+import { reactHtmlRules } from './react-html.js';
 import { securityRules } from './security.js';
 import { securityV2Rules } from './security-v2.js';
 import { securityV3Rules } from './security-v3.js';
@@ -38,6 +39,7 @@ import { securityV4Rules } from './security-v4.js';
 import { securityV5Rules } from './security-v5.js';
 import { suggestKernPrimitiveRules } from './suggest-kern-primitive.js';
 import { terminalRules } from './terminal.js';
+import { testQualityRules } from './test-quality.js';
 import { vueRules } from './vue.js';
 
 const REACT_TARGETS = new Set(['nextjs', 'tailwind', 'web', 'native', 'ink']);
@@ -61,6 +63,7 @@ export function getActiveRules(target?: string): ReviewRule[] {
     ...nullSafetyRules,
     ...asyncRules,
     ...suggestKernPrimitiveRules,
+    ...testQualityRules,
   ];
 
   // Backend targets never load frontend-specific rules
@@ -70,6 +73,7 @@ export function getActiveRules(target?: string): ReviewRule[] {
     rules.push(...reactRules);
     rules.push(...reactHooksRules);
     rules.push(...reactCompositionRules);
+    rules.push(...reactHtmlRules);
     rules.push(...a11yRules);
     rules.push(...perfRules);
   }
@@ -595,6 +599,24 @@ const REGISTRY: RuleInfo[] = [
     precision: 'high',
     rolloutPhase: 2,
   },
+  {
+    id: 'unstable-deps-literal',
+    layer: 'react-hooks',
+    severity: 'warning',
+    description:
+      'Hook dependency array contains an inline object/array/function literal — fresh reference every render, silently defeats memoization',
+    precision: 'high',
+    rolloutPhase: 5,
+  },
+  {
+    id: 'usememo-primitive-cheap',
+    layer: 'react-hooks',
+    severity: 'info',
+    description:
+      'useMemo wraps a trivially cheap expression (literal, identifier, primitive arithmetic) — memoization overhead exceeds the work saved',
+    precision: 'medium',
+    rolloutPhase: 5,
+  },
 
   // Async — Wave 2 net-new rules
   {
@@ -613,6 +635,24 @@ const REGISTRY: RuleInfo[] = [
       'AbortController created in useEffect without .abort() in cleanup — in-flight requests survive unmount',
     precision: 'high',
     rolloutPhase: 2,
+  },
+
+  // Test-quality — phantom assertions and empty test files
+  {
+    id: 'expect-no-matcher',
+    layer: 'test-quality',
+    severity: 'error',
+    description: '`expect(x);` with no matcher chained — the assertion is a no-op and silently passes',
+    precision: 'high',
+    rolloutPhase: 5,
+  },
+  {
+    id: 'empty-test-file',
+    layer: 'test-quality',
+    severity: 'warning',
+    description: 'Test file (.test/.spec) with no `it()` / `test()` calls — likely a stub left behind after a refactor',
+    precision: 'high',
+    rolloutPhase: 5,
   },
 
   // React composition — Wave 4 (children-as-perf, prop drilling)
@@ -668,6 +708,50 @@ const REGISTRY: RuleInfo[] = [
       'Parent with useState renders a child that does not receive that state — lift child to children prop to avoid re-render',
     precision: 'medium',
     rolloutPhase: 4,
+  },
+  {
+    id: 'react-memo-defeated-by-spread',
+    layer: 'react-composition',
+    severity: 'warning',
+    description:
+      'React.memo child receives a spread of an inline object or the parent props parameter — defeats shallow comparison bail-out',
+    precision: 'high',
+    rolloutPhase: 5,
+  },
+
+  // React HTML quality (Wave 5) — JSX-element correctness footguns
+  {
+    id: 'controlled-input-no-onchange',
+    layer: 'react-html',
+    severity: 'warning',
+    description: '<input/select/textarea> with value but no onChange — read-only field, React warns at runtime',
+    precision: 'high',
+    rolloutPhase: 5,
+  },
+  {
+    id: 'form-onsubmit-no-preventdefault',
+    layer: 'react-html',
+    severity: 'warning',
+    description: '<form onSubmit={fn}> handler missing preventDefault() — browser will reload the page on submit',
+    precision: 'high',
+    rolloutPhase: 5,
+  },
+  {
+    id: 'submit-button-implicit-type',
+    layer: 'react-html',
+    severity: 'warning',
+    description:
+      '<button> inside <form> without explicit type attribute — defaults to type="submit" and triggers submission',
+    precision: 'high',
+    rolloutPhase: 5,
+  },
+  {
+    id: 'target-blank-no-rel-noopener',
+    layer: 'react-html',
+    severity: 'warning',
+    description: '<a target="_blank"> without rel="noopener noreferrer" — tab-jacking risk and process-isolation cost',
+    precision: 'high',
+    rolloutPhase: 5,
   },
 
   // a11y — Wave 3
@@ -736,6 +820,24 @@ const REGISTRY: RuleInfo[] = [
     description: 'Large list rendered with .map() without a virtualization library',
     precision: 'experimental',
     rolloutPhase: 3,
+  },
+  {
+    id: 'nondeterministic-in-render',
+    layer: 'perf',
+    severity: 'warning',
+    description:
+      'Date.now / Math.random / crypto.randomUUID / new Date() called in component render path — defeats memoization and breaks SSR hydration',
+    precision: 'high',
+    rolloutPhase: 5,
+  },
+  {
+    id: 'regex-literal-in-render',
+    layer: 'perf',
+    severity: 'info',
+    description:
+      'RegExp literal in render path — recompiled every render, defeats memoization for downstream consumers',
+    precision: 'medium',
+    rolloutPhase: 5,
   },
 
   // CLI (target: cli)
@@ -968,9 +1070,18 @@ const REGISTRY: RuleInfo[] = [
     id: 'server-api-in-client',
     layer: 'nextjs-app-router',
     severity: 'error',
-    description: 'next/headers (cookies/headers/draftMode) or server-only imported in a Client Component',
+    description: 'next/headers (cookies/headers/draftMode), server-only, or Node fs imported in a Client Component',
     precision: 'high',
     rolloutPhase: 1,
+  },
+  {
+    id: 'env-var-leak-to-client',
+    layer: 'nextjs-app-router',
+    severity: 'error',
+    description:
+      'process.env.<NAME> referenced in a Client Component without NEXT_PUBLIC_ prefix — value is undefined in the browser bundle',
+    precision: 'high',
+    rolloutPhase: 5,
   },
   {
     id: 'browser-api-in-server',
@@ -1245,6 +1356,33 @@ const REGISTRY: RuleInfo[] = [
     precision: 'medium',
     rolloutPhase: 3,
   },
+  {
+    id: 'trailing-slash-drift',
+    layer: 'concept',
+    severity: 'warning',
+    description:
+      'Frontend URL differs from declared server route only by trailing slash — silent 307 redirects strip body/auth headers in many clients',
+    precision: 'high',
+    rolloutPhase: 5,
+  },
+  {
+    id: 'status-code-drift',
+    layer: 'concept',
+    severity: 'warning',
+    description:
+      'Client branches on a 2xx status the server route does not emit — e.g. `if (res.status === 201)` against a route that returns 200',
+    precision: 'high',
+    rolloutPhase: 5,
+  },
+  {
+    id: 'pagination-key-drift',
+    layer: 'concept',
+    severity: 'warning',
+    description:
+      'Client paginates with one anchor family (page/offset/cursor) against a server route that reads only a different family — server silently returns the same page',
+    precision: 'medium',
+    rolloutPhase: 5,
+  },
 ];
 
 /** Layer → target mapping for filtering */
@@ -1258,10 +1396,12 @@ const LAYER_TARGET_MAP: Record<string, string[] | null> = {
   'dead-logic': null,
   'null-safety': null,
   async: null,
+  'test-quality': null,
   concept: null,
   react: ['nextjs', 'tailwind', 'web', 'native', 'ink'],
   'react-hooks': ['nextjs', 'tailwind', 'web', 'native', 'ink'],
   'react-composition': ['nextjs', 'tailwind', 'web', 'native', 'ink'],
+  'react-html': ['nextjs', 'tailwind', 'web', 'native', 'ink'],
   a11y: ['nextjs', 'tailwind', 'web', 'native', 'ink'],
   perf: ['nextjs', 'tailwind', 'web', 'native', 'ink'],
   cli: ['cli'],

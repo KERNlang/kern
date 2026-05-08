@@ -884,6 +884,100 @@ function parentRerenderViaState(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule: react-memo-defeated-by-spread ─────────────────────────────────
+// `<MemoChild {...props} />` — spread of the WHOLE props parameter from
+// the parent component couples the memoized child to every ancestor prop
+// and is unmemoizable in practice. This is the only spread shape we flag:
+// inline-object spreads (`{...{ a, b }}`) actually fan out into individual
+// props that React.memo's shallow compare can still bail on for primitive
+// values, so flagging them produces false positives (Codex review caught
+// this). useMemo-backed identifier spreads are also exempt.
+
+function isPropsParamIdentifier(expr: Node, fn: ComponentFn): boolean {
+  if (!Node.isIdentifier(expr)) return false;
+  const name = expr.getText();
+  for (const param of fn.getParameters()) {
+    const nameNode = param.getNameNode();
+    if (Node.isIdentifier(nameNode) && nameNode.getText() === name) return true;
+  }
+  return false;
+}
+
+function reactMemoDefeatedBySpread(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+  const memoizedNames = collectMemoizedComponentNames(ctx);
+  const memoizedImportCache = new Map<string, boolean>();
+
+  // Collect identifiers known to be useMemo-backed — exempt those.
+  const useMemoBacked = new Set<string>();
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const init = decl.getInitializer();
+    if (!init || !Node.isCallExpression(init)) continue;
+    const calleeText = init.getExpression().getText();
+    const calleeName = calleeText.includes('.') ? calleeText.split('.').pop()! : calleeText;
+    if (calleeName === 'useMemo') {
+      const nameNode = decl.getNameNode();
+      if (Node.isIdentifier(nameNode)) useMemoBacked.add(nameNode.getText());
+    }
+  }
+
+  for (const fn of iterComponentFunctions(ctx)) {
+    const body = fn.getBody();
+    if (!body) continue;
+
+    const jsxNodes: (JsxOpeningElement | JsxSelfClosingElement)[] = [
+      ...body.getDescendantsOfKind(SyntaxKind.JsxOpeningElement),
+      ...body.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement),
+    ];
+
+    for (const jsx of jsxNodes) {
+      const tag = jsx.getTagNameNode().getText();
+      let isMemoizedChild = memoizedNames.has(tag);
+      if (!isMemoizedChild) {
+        if (!memoizedImportCache.has(tag)) {
+          const binding = findImportBinding(ctx, tag);
+          const importedSf = binding ? resolveImportedSourceFile(ctx, binding.importDecl) : undefined;
+          memoizedImportCache.set(tag, !!(binding && importedSf && isMemoizedExport(importedSf, binding)));
+        }
+        isMemoizedChild = memoizedImportCache.get(tag) ?? false;
+      }
+      if (!isMemoizedChild) continue;
+
+      for (const attr of jsx.getAttributes()) {
+        if (!Node.isJsxSpreadAttribute(attr)) continue;
+        const expr = attr.getExpression();
+        if (!expr) continue;
+
+        // Exempt: useMemo-backed identifier
+        if (Node.isIdentifier(expr) && useMemoBacked.has(expr.getText())) continue;
+
+        // Only flag spread of the parent's props parameter — that couples the
+        // memoized child to every ancestor prop. Inline object literals get
+        // shallow-compared field-by-field so primitives still memoize correctly.
+        if (!isPropsParamIdentifier(expr, fn)) continue;
+
+        findings.push(
+          finding(
+            'react-memo-defeated-by-spread',
+            'warning',
+            'pattern',
+            `<${tag}> is memoized with React.memo, but spreading the parent's '${expr.getText()}' parameter couples it to every render of the parent and undermines the memo bail-out`,
+            ctx.filePath,
+            attr.getStartLineNumber(),
+            1,
+            {
+              suggestion:
+                'Pass props explicitly so memoization can compare a stable surface, or destructure the props the child actually needs',
+            },
+          ),
+        );
+      }
+    }
+  }
+
+  return findings;
+}
+
 // ── Exported composition rules ───────────────────────────────────────────
 
 export const reactCompositionRules = [
@@ -893,4 +987,5 @@ export const reactCompositionRules = [
   memoizedChildInlineProp,
   memoizedChildInlineChildren,
   parentRerenderViaState,
+  reactMemoDefeatedBySpread,
 ];

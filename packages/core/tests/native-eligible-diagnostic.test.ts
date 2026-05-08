@@ -95,9 +95,9 @@ describe('NATIVE_KERN_ELIGIBLE diagnostic — silence cases', () => {
     expect(nativeHints(src)).toHaveLength(0);
   });
 
-  test('no hint when raw body uses arrow function', () => {
+  test('emits hint when raw body uses expression-bodied callback', () => {
     const src = ['fn name="dbl" type=any', '  handler <<<', '    return xs.map(x => x * 2);', '  >>>'].join('\n');
-    expect(nativeHints(src)).toHaveLength(0);
+    expect(nativeHints(src)).toHaveLength(1);
   });
 
   test('no hint on documents without handlers', () => {
@@ -149,7 +149,7 @@ describe('NATIVE_KERN_ELIGIBLE diagnostic — multi-handler walk', () => {
       '  >>>',
       'fn name="c" type=any',
       '  handler <<<',
-      '    return xs.map(x => x);', // disqualified by =>
+      '    return xs.map((x) => { return x; });', // disqualified by block-bodied callback
       '  >>>',
     ].join('\n');
     expect(nativeHints(src)).toHaveLength(2);
