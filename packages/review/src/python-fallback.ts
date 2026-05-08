@@ -236,7 +236,8 @@ function successStatusCodesFromDecoratorAndBody(
   // Match any identifier prefix (Codex impl-review #2): the injected Response
   // param name varies — `response`, `resp`, `r`, `out`, etc.
   const mutationCodes = new Set<number>();
-  const mutateRe = /\b[A-Za-z_]\w*\.status_code\s*=\s*([^\n;]+)/g;
+  // `=(?!=)` distinguishes assignment from `==` comparison (forge round, Claude engine).
+  const mutateRe = /\b[A-Za-z_]\w*\.status_code\s*=(?!=)\s*([^\n;]+)/g;
   for (const match of body.matchAll(mutateRe)) {
     const code = parseFastApiStatusValueFb(match[1].trim());
     if (code === undefined) sawDynamic = true;

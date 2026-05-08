@@ -686,7 +686,10 @@ function extractFastApiSuccessStatusCodes(
   //    rather than a name whitelist; the API_SUCCESS_STATUS_CODES filter
   //    keeps the noise tax low.
   const mutationCodes = new Set<number>();
-  const mutateRe = /\b[A-Za-z_]\w*\.status_code\s*=\s*([^\n;]+)/g;
+  // `=(?!=)` distinguishes assignment from `==` comparison so
+  // `if response.status_code == 200:` doesn't masquerade as a dynamic
+  // mutation (forge round, Claude engine).
+  const mutateRe = /\b[A-Za-z_]\w*\.status_code\s*=(?!=)\s*([^\n;]+)/g;
   for (const match of bodyText.matchAll(mutateRe)) {
     const code = parseFastApiStatusValue(match[1].trim());
     if (code === undefined) sawDynamic = true;
