@@ -20,6 +20,11 @@ const DB_METHODS = new Set([
   'delete_one',
 ]);
 const API_ERROR_STATUS_CODES = new Set([401, 403, 404, 422, 500]);
+const API_SUCCESS_STATUS_CODES_FB = new Set([200, 201, 202, 204, 206]);
+const FASTAPI_DEFAULT_SUCCESS_FB = 200;
+const FB_PAGE_ANCHORS = new Set(['page', 'page_number', 'pageNumber']);
+const FB_OFFSET_ANCHORS = new Set(['offset', 'skip']);
+const FB_CURSOR_ANCHORS = new Set(['cursor', 'after', 'before', 'next', 'previous']);
 const PAGINATION_RE = /\b(limit|offset|skip|cursor|page|page_size|per_page)\b|\.limit\s*\(/i;
 const DB_COLLECTION_RE = /\.(find|all|fetchall|to_list|scalars)\s*\(|\bselect\s*\(/i;
 const DB_WRITE_RE =
@@ -198,6 +203,252 @@ function functionBody(lines: LineInfo[], fn: FunctionBlock | undefined): string 
 
 function nextFunctionAfter(blocks: readonly FunctionBlock[], line: number): FunctionBlock | undefined {
   return blocks.find((block) => block.startLine > line);
+}
+
+// P2-A fallback parity: mirror of `extractFastApiSuccessStatusCodes` in
+// `packages/review-python/src/mapper.ts`. The fallback handles repos where
+// the tree-sitter native build is unavailable. Both extractors must produce
+// identical outputs for the same FastAPI source so cross-stack rules behave
+// the same regardless of which path was used.
+function successStatusCodesFromDecoratorAndBody(
+  decoratorText: string,
+  body: string,
+): { codes: readonly number[] | undefined; resolved: boolean } {
+  let sawDynamic = false;
+
+  const decStatusMatch = decoratorText.match(/\bstatus_code\s*=\s*([^,)]+)/);
+  let decoratorCode: number | undefined;
+  if (decStatusMatch) {
+    const code = parseFastApiStatusValueFb(decStatusMatch[1].trim());
+    if (code === undefined) sawDynamic = true;
+    else if (API_SUCCESS_STATUS_CODES_FB.has(code)) decoratorCode = code;
+  }
+
+  const responseCodes = new Set<number>();
+  const responseRe =
+    /\b(?:Response|JSONResponse|HTMLResponse|PlainTextResponse|RedirectResponse|StreamingResponse|FileResponse|ORJSONResponse|UJSONResponse)\s*\([^)]*?\bstatus_code\s*=\s*([^,)\n]+)/g;
+  for (const match of body.matchAll(responseRe)) {
+    const code = parseFastApiStatusValueFb(match[1].trim());
+    if (code === undefined) sawDynamic = true;
+    else if (API_SUCCESS_STATUS_CODES_FB.has(code)) responseCodes.add(code);
+  }
+
+  // Match any identifier prefix (Codex impl-review #2): the injected Response
+  // param name varies — `response`, `resp`, `r`, `out`, etc.
+  const mutationCodes = new Set<number>();
+  const mutateRe = /\b[A-Za-z_]\w*\.status_code\s*=\s*([^\n;]+)/g;
+  for (const match of body.matchAll(mutateRe)) {
+    const code = parseFastApiStatusValueFb(match[1].trim());
+    if (code === undefined) sawDynamic = true;
+    else if (API_SUCCESS_STATUS_CODES_FB.has(code)) mutationCodes.add(code);
+  }
+
+  if (sawDynamic) return { codes: undefined, resolved: false };
+
+  const plainReturnRe =
+    /\breturn\b(?!\s+(?:Response|JSONResponse|HTMLResponse|PlainTextResponse|RedirectResponse|StreamingResponse|FileResponse|ORJSONResponse|UJSONResponse)\s*\()/;
+  const hasPlainReturn = plainReturnRe.test(body);
+
+  const final = new Set<number>();
+  if (hasPlainReturn) {
+    if (mutationCodes.size > 0) {
+      for (const c of mutationCodes) final.add(c);
+    } else if (decoratorCode !== undefined) {
+      final.add(decoratorCode);
+    } else {
+      final.add(FASTAPI_DEFAULT_SUCCESS_FB);
+    }
+  } else if (decoratorCode !== undefined && responseCodes.size === 0 && mutationCodes.size === 0) {
+    final.add(decoratorCode);
+  }
+  for (const c of responseCodes) final.add(c);
+  for (const c of mutationCodes) final.add(c);
+
+  return {
+    codes: Array.from(final).sort((a, b) => a - b),
+    resolved: true,
+  };
+}
+
+/** Collect the full decorator text starting at line `startIdx`, walking
+ *  forward through continuation lines until the outer parentheses balance.
+ *  Used by the fallback success-status extraction so multi-line decorators
+ *  like `@router.post(\n    "/x",\n    status_code=201,\n)` aren't truncated
+ *  to the first line (Codex impl-review #3). */
+function collectFullDecoratorText(lines: readonly LineInfo[], startIdx: number): string {
+  const parts: string[] = [];
+  let depth = 0;
+  let started = false;
+  for (let i = startIdx; i < lines.length; i++) {
+    const line = lines[i].text;
+    parts.push(line);
+    for (const ch of line) {
+      if (ch === '(') {
+        depth++;
+        started = true;
+      } else if (ch === ')') {
+        depth--;
+      }
+    }
+    if (started && depth === 0) break;
+  }
+  return parts.join('\n');
+}
+
+function parseFastApiStatusValueFb(val: string): number | undefined {
+  const trimmed = val.trim();
+  const litMatch = trimmed.match(/^(\d{3})$/);
+  if (litMatch) return Number(litMatch[1]);
+  const httpMatch = trimmed.match(/HTTP_(\d{3})_/);
+  if (httpMatch) return Number(httpMatch[1]);
+  return undefined;
+}
+
+// P2-A fallback parity: classify the route handler's parameter signature
+// against pagination anchor families. The fallback parses the function-def
+// signature line(s) since it has no AST; tree-sitter mapper is preferred
+// when available.
+function paginationStrategyFromSignature(
+  routeFn: FunctionBlock | undefined,
+  lines: readonly LineInfo[],
+): {
+  strategy: 'page' | 'offset' | 'cursor' | 'mixed' | 'none' | undefined;
+  resolved: boolean;
+} {
+  if (!routeFn) return { strategy: 'none', resolved: true };
+  const headerLine = lines.find((line) => line.line === routeFn.startLine)?.text ?? '';
+  // Multi-line signatures: collect lines from startLine until we close the
+  // outer `(` introducing parameters.
+  let sig = headerLine;
+  let depth = 0;
+  let foundOpen = false;
+  for (const ch of headerLine) {
+    if (ch === '(') {
+      depth++;
+      foundOpen = true;
+    } else if (ch === ')') {
+      depth--;
+    }
+  }
+  if (foundOpen && depth > 0) {
+    for (let i = routeFn.startLine; i < lines.length && depth > 0; i++) {
+      const text = lines[i]?.text ?? '';
+      sig += `\n${text}`;
+      for (const ch of text) {
+        if (ch === '(') depth++;
+        else if (ch === ')') depth--;
+        if (depth === 0) break;
+      }
+    }
+  }
+
+  const openIdx = sig.indexOf('(');
+  if (openIdx === -1) return { strategy: 'none', resolved: true };
+  // Find matching close paren.
+  let d = 0;
+  let closeIdx = -1;
+  for (let i = openIdx; i < sig.length; i++) {
+    const ch = sig[i];
+    if (ch === '(') d++;
+    else if (ch === ')') {
+      d--;
+      if (d === 0) {
+        closeIdx = i;
+        break;
+      }
+    }
+  }
+  if (closeIdx === -1) return { strategy: undefined, resolved: false };
+
+  const paramsText = sig.substring(openIdx + 1, closeIdx);
+  // Split by top-level commas, respecting nested parens/brackets.
+  const params: string[] = [];
+  let bracketDepth = 0;
+  let cur = '';
+  for (const ch of paramsText) {
+    if (ch === '(' || ch === '[' || ch === '{') bracketDepth++;
+    else if (ch === ')' || ch === ']' || ch === '}') bracketDepth--;
+    else if (ch === ',' && bracketDepth === 0) {
+      if (cur.trim()) params.push(cur.trim());
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur.trim()) params.push(cur.trim());
+
+  const families = new Set<'page' | 'offset' | 'cursor'>();
+  let sawOpaque = false;
+
+  for (const raw of params) {
+    if (raw.startsWith('**')) {
+      sawOpaque = true;
+      continue;
+    }
+    if (raw.startsWith('*')) continue;
+
+    // Drop default value (after first top-level `=`) and trailing type annotation
+    // separators to extract the parameter name.
+    let nameAndType = raw;
+    let defaultExpr = '';
+    let eqDepth = 0;
+    for (let i = 0; i < raw.length; i++) {
+      const ch = raw[i];
+      if (ch === '(' || ch === '[' || ch === '{') eqDepth++;
+      else if (ch === ')' || ch === ']' || ch === '}') eqDepth--;
+      else if (ch === '=' && eqDepth === 0) {
+        nameAndType = raw.substring(0, i);
+        defaultExpr = raw.substring(i + 1);
+        break;
+      }
+    }
+    const colonIdx = nameAndType.indexOf(':');
+    const namePart = colonIdx === -1 ? nameAndType.trim() : nameAndType.substring(0, colonIdx).trim();
+    const typePart = colonIdx === -1 ? '' : nameAndType.substring(colonIdx + 1).trim();
+    if (!namePart) continue;
+    if (/\bRequest\b/.test(typePart)) {
+      sawOpaque = true;
+      continue;
+    }
+
+    // Modern FastAPI (≥0.95): `x: Annotated[int, Query(alias="page")]` —
+    // Query() lives in the type annotation, not the default. Older syntax
+    // puts it in the default: `x: int = Query(0, alias="page")`. Both are
+    // valid; default-form takes precedence when both are present.
+    const aliasFromDefault = extractQueryAliasFb(defaultExpr);
+    const aliasFromType = aliasFromDefault.alias === undefined ? extractQueryAliasFb(typePart) : aliasFromDefault;
+    if (aliasFromDefault.opaque || aliasFromType.opaque) {
+      sawOpaque = true;
+      continue;
+    }
+    let key = namePart;
+    if (aliasFromDefault.alias) key = aliasFromDefault.alias;
+    else if (aliasFromType.alias) key = aliasFromType.alias;
+
+    const family = classifyAnchorFb(key);
+    if (family) families.add(family);
+  }
+
+  if (sawOpaque) return { strategy: undefined, resolved: false };
+  if (families.size === 0) return { strategy: 'none', resolved: true };
+  if (families.size === 1) return { strategy: [...families][0], resolved: true };
+  return { strategy: 'mixed', resolved: true };
+}
+
+function classifyAnchorFb(key: string): 'page' | 'offset' | 'cursor' | undefined {
+  if (FB_PAGE_ANCHORS.has(key)) return 'page';
+  if (FB_OFFSET_ANCHORS.has(key)) return 'offset';
+  if (FB_CURSOR_ANCHORS.has(key)) return 'cursor';
+  return undefined;
+}
+
+function extractQueryAliasFb(text: string | undefined): { alias?: string; opaque: boolean } {
+  if (!text) return { opaque: false };
+  if (!/\bQuery\s*\(/.test(text)) return { opaque: false };
+  const aliasMatch = text.match(/\balias\s*=\s*['"]([^'"]+)['"]/);
+  if (aliasMatch) return { alias: aliasMatch[1], opaque: false };
+  if (/\balias\s*=/.test(text)) return { opaque: true };
+  return { opaque: false };
 }
 
 function errorStatusCodesFromBody(body: string): readonly number[] | undefined {
@@ -502,6 +753,12 @@ export function extractPythonConceptsFallback(source: string, filePath: string):
       const routeFn = nextFunctionAfter(functionBlocks, info.line);
       const body = functionBody(lines, routeFn);
       const validation = fallbackBodyValidation(routeFn, lines, pydanticModels);
+      // Codex impl-review #3: multi-line decorators put `status_code=` on
+      // continuation lines. Collect the full decorator text across lines
+      // until the outer `(` closes.
+      const decoratorFullText = collectFullDecoratorText(lines, info.line - 1);
+      const success = successStatusCodesFromDecoratorAndBody(decoratorFullText, body);
+      const pagination = paginationStrategyFromSignature(routeFn, lines);
       addNode(nodes, {
         id: conceptId(filePath, 'entrypoint', info.offset),
         kind: 'entrypoint',
@@ -517,6 +774,10 @@ export function extractPythonConceptsFallback(source: string, filePath: string):
           httpMethod: method,
           responseModel,
           errorStatusCodes: errorStatusCodesFromBody(body),
+          successStatusCodes: success.codes,
+          successStatusCodesResolved: success.resolved,
+          paginationStrategy: pagination.strategy,
+          paginationStrategyResolved: pagination.resolved,
           hasUnboundedCollectionQuery:
             method === 'GET' &&
             !/[{:]/.test(path) &&

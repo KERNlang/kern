@@ -728,7 +728,13 @@ function extractExpressSuccessStatusCodes(handlerFn: ExpressRouteHandlerFn): {
       //   - `res.status(404).type('json').send()` — chain has status() → no 200
       //   - `res.status(201).set('X-Count', 10).json(data)` — chain has status() → no 200
       //   - `res.json(...)` (bare) — chain has no status() → implicit 200 candidate
-      if (!chainContainsStatusOrSendStatusCall(receiverNode)) {
+      // P2-D: also skip implicit-200 when an UNCONDITIONAL preceding statement
+      // in any ancestor block sets `<sameReceiver>.status(N)` — covers the
+      // `res.status(201); res.json(...)` separate-statement pattern.
+      if (
+        !chainContainsStatusOrSendStatusCall(receiverNode) &&
+        !hasUnconditionalPrecedingStatusCall(call, receiverText, handlerFn)
+      ) {
         sawTerminalWithoutPrecedingStatus = true;
       }
     }
@@ -787,6 +793,82 @@ function chainContainsStatusOrSendStatusCall(node: import('ts-morph').Node): boo
     }
     return false;
   }
+}
+
+/** Variant of `chainContainsStatusOrSendStatusCall` that also requires the
+ *  IMMEDIATE receiver of the matched `.status(...)` / `.sendStatus(...)` call
+ *  to text-match `receiverText`. Used by P2-D to guard against unrelated
+ *  status calls on different receivers in preceding statements. */
+function chainContainsStatusOrSendStatusCallWithReceiver(node: import('ts-morph').Node, receiverText: string): boolean {
+  let cur: import('ts-morph').Node = node;
+  while (true) {
+    if (Node.isCallExpression(cur)) {
+      const callee = cur.getExpression();
+      if (callee.getKind() === SyntaxKind.PropertyAccessExpression) {
+        const pa = callee as import('ts-morph').PropertyAccessExpression;
+        const name = pa.getName();
+        if ((name === 'status' || name === 'sendStatus') && pa.getExpression().getText() === receiverText) {
+          return true;
+        }
+        cur = pa.getExpression();
+        continue;
+      }
+      return false;
+    }
+    if (Node.isPropertyAccessExpression(cur)) {
+      cur = cur.getExpression();
+      continue;
+    }
+    return false;
+  }
+}
+
+/** P2-D: scan unconditional preceding statements in the terminal's ancestor
+ *  blocks for any `<receiverText>.status(N)` / `.sendStatus(N)` call. When
+ *  found, the implicit-200 inference for the terminal is suppressed.
+ *
+ *  Walk algorithm (plan-review consensus, Codex/Gemini/OpenCode):
+ *   - Start from the terminal call. Walk up parent-by-parent.
+ *   - At each ancestor Block within the handler function, scan preceding
+ *     siblings of the current statement for an ExpressionStatement whose
+ *     expression chain contains a status call on the same immediate receiver.
+ *   - Branching ancestors (if / try / switch / loop) do NOT have their
+ *     descendant statements peeked into — only their direct sibling form
+ *     in the OUTER block is considered. This preserves correctness for
+ *     conditional status calls.
+ *   - Bounded by the handler function body. */
+function hasUnconditionalPrecedingStatusCall(
+  terminal: import('ts-morph').CallExpression,
+  receiverText: string,
+  handlerFn: ExpressRouteHandlerFn,
+): boolean {
+  const handlerBody = handlerFn.getBody();
+  if (!handlerBody || !Node.isBlock(handlerBody)) return false;
+
+  let cur: import('ts-morph').Node = terminal;
+  let parent: import('ts-morph').Node | undefined = cur.getParent();
+  while (parent) {
+    if (cur === handlerFn) return false;
+
+    if (Node.isBlock(parent)) {
+      for (const sibling of parent.getStatements()) {
+        if (sibling === cur) break;
+        // We only care about preceding siblings; if `cur` is the same node as
+        // `sibling`, we've reached the current statement and stop.
+        if (Node.isExpressionStatement(sibling)) {
+          const expr = sibling.getExpression();
+          if (chainContainsStatusOrSendStatusCallWithReceiver(expr, receiverText)) return true;
+        }
+        // Branching/looping siblings (IfStatement, TryStatement, SwitchStatement,
+        // ForStatement, etc.) are intentionally NOT inspected internally — any
+        // `.status(N)` inside them is conditional. We just skip past.
+      }
+      if (parent === handlerBody) return false;
+    }
+    cur = parent;
+    parent = cur.getParent();
+  }
+  return false;
 }
 
 // ── Express pagination-strategy extraction ───────────────────────────────
@@ -2771,7 +2853,15 @@ const STATUS_PROP_RE = /(?:^|\.)status$/;
 const STATUS_LIKELY_RECEIVER_RE = /\b(res|response|reply|err|error|e|ex|result|r)\b/i;
 
 function extractHandledErrorStatusCodes(call: import('ts-morph').CallExpression): readonly number[] | undefined {
+  // P2-B: `.then((res) => { if (res.status === N) ... })` — the response is
+  // the callback's first parameter, and the scope must be the callback body
+  // (NOT the enclosing function), otherwise sibling `.then()` callbacks could
+  // cross-bind on the same param name. When matched, scope and varName both
+  // come from the callback.
+  const thenBinding = findThenCallbackBinding(call);
+
   const enclosing =
+    thenBinding?.scope ??
     call.getFirstAncestorByKind(SyntaxKind.FunctionDeclaration) ??
     call.getFirstAncestorByKind(SyntaxKind.ArrowFunction) ??
     call.getFirstAncestorByKind(SyntaxKind.FunctionExpression) ??
@@ -2790,7 +2880,7 @@ function extractHandledErrorStatusCodes(call: import('ts-morph').CallExpression)
   // (err.status === ...) }` against an entirely different variable. A
   // status check inside a catch clause whose try block contains THIS call
   // is accepted regardless of the response variable name.
-  const responseVarName = findResponseVarForCall(call);
+  const responseVarName = thenBinding?.varName ?? findResponseVarForCall(call);
   const matchesBoundReceiver = (statusNode: import('ts-morph').Node, receiverText: string): boolean => {
     if (!responseVarName) return true;
     if (new RegExp(`\\b${responseVarName}\\b`).test(receiverText)) return true;
@@ -2848,6 +2938,37 @@ function isInsideCatchOfTryContaining(node: import('ts-morph').Node, call: impor
 
 function nodeContains(container: import('ts-morph').Node, target: import('ts-morph').Node): boolean {
   return target.getStart() >= container.getStart() && target.getEnd() <= container.getEnd();
+}
+
+// P2-B: detect the `.then((res) => { ... })` shape and return the callback's
+// first parameter as the response var, scoped to the callback function. Without
+// scope narrowing, two sibling `.then(res => ...)` callbacks in the same
+// function would cross-bind on the same `res` name. Plan-review consensus
+// (Codex/Gemini/OpenCode): scan only the callback body, use ts-morph's
+// `getParameters()` for the name, support both ArrowFunction and
+// FunctionExpression callbacks.
+//
+// Scope is the callback FUNCTION (not its body) so that arrow concise bodies
+// (`res => res.status === 201`) — where the body IS the BinaryExpression —
+// are still picked up by `getDescendantsOfKind(BinaryExpression)`. Parameter
+// nodes inside the function are harmless: the scan looks for `<X>.status`
+// shapes which a bare parameter identifier cannot match.
+function findThenCallbackBinding(
+  call: import('ts-morph').CallExpression,
+): { varName: string; scope: import('ts-morph').Node } | undefined {
+  const parent = call.getParent();
+  if (!parent || !Node.isPropertyAccessExpression(parent)) return undefined;
+  if (parent.getName() !== 'then') return undefined;
+  const grand = parent.getParent();
+  if (!grand || !Node.isCallExpression(grand)) return undefined;
+  const cb = grand.getArguments()[0];
+  if (!cb) return undefined;
+  if (!Node.isArrowFunction(cb) && !Node.isFunctionExpression(cb)) return undefined;
+  const param = cb.getParameters()[0];
+  if (!param) return undefined;
+  const nameNode = param.getNameNode();
+  if (!Node.isIdentifier(nameNode)) return undefined;
+  return { varName: nameNode.getText(), scope: cb };
 }
 
 // Find the local variable name receiving this call's result. Covers the
