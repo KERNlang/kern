@@ -121,6 +121,50 @@ export interface EntrypointPayload {
    */
   errorStatusCodes?: readonly number[];
   /**
+   * For server route entrypoints only — HTTP success status codes (2xx) the
+   * handler emits. Populated from explicit `res.status(2xx)` / `res.sendStatus(2xx)`
+   * on Express, or `@app.get(..., status_code=201)` on FastAPI. Implicit 200 is
+   * inferred only when the handler has a terminal call (`.json()` / `.send()` /
+   * `.end()`) AND the mapper sees no explicit 2xx anywhere in the body.
+   *
+   * Consumed by `status-code-drift` to flag clients that branch on a 2xx the
+   * server doesn't actually emit (e.g. `if (res.status === 201)` against a
+   * route that returns 200).
+   */
+  successStatusCodes?: readonly number[];
+  /**
+   * True when the mapper had full visibility into the handler body to enumerate
+   * success status codes. False/undefined when the handler is imported, dynamic,
+   * or has wrappers/middleware the mapper can't statically resolve. Cross-stack
+   * rules consume `successStatusCodes` only when this flag is `true` to keep
+   * precision high.
+   */
+  successStatusCodesResolved?: boolean;
+  /**
+   * For server route entrypoints only — pagination strategy the handler accepts,
+   * inferred from the query keys it reads. Anchor sets:
+   *   - `'page'`   → handler reads `page` / `pageNumber` / `page_number`
+   *   - `'offset'` → handler reads `offset` / `skip`
+   *   - `'cursor'` → handler reads `cursor` / `after` / `before` / `next` / `previous`
+   *   - `'mixed'`  → handler reads keys from multiple anchor families (e.g. both
+   *                  `page` and `offset`) — server tolerates either, so cross-stack
+   *                  rules MUST stay silent
+   *   - `'none'`   → handler reads no pagination anchors at all (size-only keys
+   *                  like `limit` count as no anchor; non-pagination keys count
+   *                  as no anchor)
+   *
+   * Consumed by `pagination-key-drift` to flag a client that uses a different
+   * anchor family from the server.
+   */
+  paginationStrategy?: 'page' | 'offset' | 'cursor' | 'mixed' | 'none';
+  /**
+   * True when the mapper had full visibility into the handler body for
+   * pagination-key extraction (no dynamic `req.query[varName]` accesses, no
+   * unresolved imports). Cross-stack rules consume `paginationStrategy` only
+   * when this flag is `true`.
+   */
+  paginationStrategyResolved?: boolean;
+  /**
    * True when the route appears to return a DB-backed collection without a
    * limit/page/cursor/offset bound. Used with client query evidence by
    * `unbounded-collection-query`.

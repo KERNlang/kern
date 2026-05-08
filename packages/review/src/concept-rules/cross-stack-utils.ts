@@ -32,6 +32,40 @@ export const CROSS_STACK_EXACT_CONFIDENCE = 0.9;
 /** Client URLs we consider "internal" to the reviewed project. */
 export const API_PATH_RE = /^\/api\//;
 
+/** Pagination anchor sets — exposed for both the mapper (server-side handler
+ *  inspection) and `pagination-key-drift` (client-side query inspection).
+ *  Size keys (`limit`, `take`, `pageSize`, `perPage`) are intentionally NOT
+ *  anchors — `limit` works with offset OR cursor pagination; classifying it
+ *  as offset-anchor would produce false positives against cursor-paginated
+ *  servers that also accept a limit. */
+export const PAGE_ANCHORS: ReadonlySet<string> = new Set(['page', 'pageNumber', 'page_number']);
+export const OFFSET_ANCHORS: ReadonlySet<string> = new Set(['offset', 'skip']);
+export const CURSOR_ANCHORS: ReadonlySet<string> = new Set(['cursor', 'after', 'before', 'next', 'previous']);
+
+/** Classifies a single query-key string against the anchor sets. Returns
+ *  `undefined` when the key is not a pagination anchor (size keys, filters,
+ *  sort keys, etc.). */
+export function classifyPaginationAnchor(key: string): 'page' | 'offset' | 'cursor' | undefined {
+  if (PAGE_ANCHORS.has(key)) return 'page';
+  if (OFFSET_ANCHORS.has(key)) return 'offset';
+  if (CURSOR_ANCHORS.has(key)) return 'cursor';
+  return undefined;
+}
+
+/** Aggregates a list of query-key strings into a single strategy. Mirrors the
+ *  server-side classification done in the Express mapper so client and server
+ *  can be compared on equal terms. */
+export function aggregatePaginationStrategy(keys: readonly string[]): 'page' | 'offset' | 'cursor' | 'mixed' | 'none' {
+  const families = new Set<'page' | 'offset' | 'cursor'>();
+  for (const key of keys) {
+    const family = classifyPaginationAnchor(key);
+    if (family) families.add(family);
+  }
+  if (families.size === 0) return 'none';
+  if (families.size > 1) return 'mixed';
+  return families.values().next().value as 'page' | 'offset' | 'cursor';
+}
+
 export interface ServerRoute {
   path: string;
   method: string | undefined;

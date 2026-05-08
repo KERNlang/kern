@@ -1365,6 +1365,24 @@ const REGISTRY: RuleInfo[] = [
     precision: 'high',
     rolloutPhase: 5,
   },
+  {
+    id: 'status-code-drift',
+    layer: 'concept',
+    severity: 'warning',
+    description:
+      'Client branches on a 2xx status the server route does not emit — e.g. `if (res.status === 201)` against a route that returns 200',
+    precision: 'high',
+    rolloutPhase: 5,
+  },
+  {
+    id: 'pagination-key-drift',
+    layer: 'concept',
+    severity: 'warning',
+    description:
+      'Client paginates with one anchor family (page/offset/cursor) against a server route that reads only a different family — server silently returns the same page',
+    precision: 'medium',
+    rolloutPhase: 5,
+  },
 ];
 
 /** Layer → target mapping for filtering */
