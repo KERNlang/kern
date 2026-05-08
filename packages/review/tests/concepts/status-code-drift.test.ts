@@ -82,7 +82,7 @@ describe('status-code-drift', () => {
     expect(findings).toHaveLength(0);
   });
 
-  it('does NOT fire when server has multiple 2xx codes (skip multi-2xx case in v1)', () => {
+  it('FIRES on multi-2xx server when client code is not in the emitted set (P2-C)', () => {
     const ctx = ctxFrom(
       [
         {
@@ -91,6 +91,41 @@ describe('status-code-drift', () => {
             async function load() {
               const response = await fetch('/api/users', { method: 'POST' });
               if (response.status === 200) return await response.json();
+              return null;
+            }
+          `,
+        },
+        {
+          path: 'src/server.ts',
+          source: `
+            const router: any = {};
+            router.post('/api/users', (req: any, res: any) => {
+              if (req.body.skip) {
+                res.status(202).json({ queued: true });
+              } else {
+                res.status(201).json({ id: 1 });
+              }
+            });
+          `,
+        },
+      ],
+      'src/client.ts',
+    );
+    const findings = statusCodeDrift(ctx);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].message).toContain('one of [`201`, `202`]');
+    expect(findings[0].message).toContain('200');
+  });
+
+  it('does NOT fire on multi-2xx server when client code IS in the emitted set (P2-C)', () => {
+    const ctx = ctxFrom(
+      [
+        {
+          path: 'src/client.ts',
+          source: `
+            async function load() {
+              const response = await fetch('/api/users', { method: 'POST' });
+              if (response.status === 201) return await response.json();
               return null;
             }
           `,
@@ -475,5 +510,192 @@ describe('status-code-drift', () => {
     expect(findings.length).toBeGreaterThanOrEqual(1);
     expect(findings[0].ruleId).toBe('error-contract-drift');
     expect(findings[0].message).toContain('422');
+  });
+
+  // ── P2-D: separate-statement status tracking ─────────────────────────────
+
+  it('does NOT infer implicit 200 when status is set in a preceding sibling statement (P2-D)', () => {
+    // `res.status(201); res.json(data);` — status and terminal are separate
+    // statements. The terminal's receiver chain has no status() call; without
+    // P2-D the mapper falsely contributes implicit 200, making the route
+    // appear as multi-2xx [200, 201]. With P2-D, the preceding-statement scan
+    // finds the explicit 201 and suppresses the implicit-200 inference.
+    const ctx = ctxFrom(
+      [
+        {
+          path: 'src/client.ts',
+          source: `
+            async function load() {
+              const response = await fetch('/api/items', { method: 'POST' });
+              if (response.status === 200) return await response.json();
+              return null;
+            }
+          `,
+        },
+        {
+          path: 'src/server.ts',
+          source: `
+            const router: any = {};
+            router.post('/api/items', (req: any, res: any) => {
+              res.status(201);
+              res.json({ id: 1 });
+            });
+          `,
+        },
+      ],
+      'src/client.ts',
+    );
+    const findings = statusCodeDrift(ctx);
+    // Server emits exactly 201, client checks 200 → real drift, must fire.
+    expect(findings).toHaveLength(1);
+    expect(findings[0].message).toContain('201');
+    expect(findings[0].message).toContain('200');
+  });
+
+  it('P2-D: preceding status in conditional branch does NOT suppress implicit 200', () => {
+    // `if (cond) res.status(201); res.json(data);` — the 201 is conditional,
+    // so the implicit 200 path is real. P2-D's branching-ancestor stop must
+    // NOT peek inside the if-block; the implicit 200 stays.
+    const ctx = ctxFrom(
+      [
+        {
+          path: 'src/client.ts',
+          source: `
+            async function load() {
+              const response = await fetch('/api/items', { method: 'POST' });
+              if (response.status === 201) return await response.json();
+              return null;
+            }
+          `,
+        },
+        {
+          path: 'src/server.ts',
+          source: `
+            const router: any = {};
+            router.post('/api/items', (req: any, res: any) => {
+              if (req.body.created) {
+                res.status(201);
+              }
+              res.json({});
+            });
+          `,
+        },
+      ],
+      'src/client.ts',
+    );
+    const findings = statusCodeDrift(ctx);
+    // Server emits {200, 201} — client check 201 IS in set → no fire.
+    expect(findings).toHaveLength(0);
+  });
+
+  it('P2-D: preceding status on different receiver does NOT suppress implicit 200', () => {
+    // Two responses in scope (rare but plausible in middleware). `other.status(201);
+    // res.json(data);` — the 201 is on `other`, not `res`, so the receiver-text
+    // gate must reject it and the implicit 200 stays.
+    const ctx = ctxFrom(
+      [
+        {
+          path: 'src/client.ts',
+          source: `
+            async function load() {
+              const response = await fetch('/api/x', { method: 'GET' });
+              if (response.status === 201) return await response.json();
+              return null;
+            }
+          `,
+        },
+        {
+          path: 'src/server.ts',
+          source: `
+            const router: any = {};
+            router.get('/api/x', (req: any, res: any) => {
+              const other: any = res;
+              other.status(201);
+              res.json({});
+            });
+          `,
+        },
+      ],
+      'src/client.ts',
+    );
+    const findings = statusCodeDrift(ctx);
+    // P2-D requires receiver-text equality. `other` ≠ `res`, so suppression
+    // does NOT trigger. Server emits implicit 200 → client check 201 vs server [200] → fire.
+    expect(findings).toHaveLength(1);
+    expect(findings[0].message).toContain('201');
+    expect(findings[0].message).toContain('200');
+  });
+
+  // ── P2-B: .then() callback call-binding ──────────────────────────────────
+
+  it('P2-B handles arrow concise body: .then(res => res.status === N)', () => {
+    // Concise body: the callback's body IS a binary expression, not a Block.
+    // `enclosing.getDescendantsOfKind(BinaryExpression)` returns proper
+    // descendants — would miss the body itself if the body IS the binary.
+    // Verifies extraction still picks up the status check.
+    const ctx = ctxFrom(
+      [
+        {
+          path: 'src/client.ts',
+          source: `
+            function check() {
+              return fetch('/api/items', { method: 'POST' }).then((res) => res.status === 201);
+            }
+          `,
+        },
+        {
+          path: 'src/server.ts',
+          source: `
+            const router: any = {};
+            router.post('/api/items', (req: any, res: any) => { res.status(200).json({}); });
+          `,
+        },
+      ],
+      'src/client.ts',
+    );
+    const findings = statusCodeDrift(ctx);
+    // Server returns 200, client checks 201 → drift, must fire.
+    expect(findings).toHaveLength(1);
+    expect(findings[0].message).toContain('201');
+    expect(findings[0].message).toContain('200');
+  });
+
+  it('binds .then((res) => ...) callback param as the response var (P2-B)', () => {
+    // Two sibling fetches both using .then(res => ...). Client only checks
+    // res.status === 201 in the FIRST .then. Without callback-scoped binding,
+    // the second fetch (server returns 200) would inherit handled=[201] from
+    // function-wide attribution → false positive on the second call. With
+    // P2-B, the param binding scopes the check to the first callback only.
+    const ctx = ctxFrom(
+      [
+        {
+          path: 'src/client.ts',
+          source: `
+            function loadAll() {
+              fetch('/api/users', { method: 'POST' }).then((res) => {
+                if (res.status === 201) return res.json();
+              });
+              fetch('/api/posts', { method: 'GET' }).then((res) => {
+                return res.json();
+              });
+            }
+          `,
+        },
+        {
+          path: 'src/server.ts',
+          source: `
+            const router: any = {};
+            router.post('/api/users', (req: any, res: any) => { res.status(201).json({}); });
+            router.get('/api/posts', (req: any, res: any) => { res.status(200).json([]); });
+          `,
+        },
+      ],
+      'src/client.ts',
+    );
+    const findings = statusCodeDrift(ctx);
+    // No drift — client check 201 matches server 201, second call has no
+    // status check at all. With function-wide attribution the second call's
+    // handled would falsely include 201, triggering drift on /api/posts.
+    expect(findings).toHaveLength(0);
   });
 });

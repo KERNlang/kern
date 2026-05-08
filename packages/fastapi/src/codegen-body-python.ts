@@ -8,6 +8,7 @@
  *    - `return value="EXPR"` / bare `return` (slice 1)
  *    - `if cond="EXPR"` / sibling `else` — `if EXPR:\n    body\nelse:\n    body` (slice 2c).
  *    - `while cond="EXPR"` — `while EXPR:\n    body`
+ *    - `for name=i from=0 to="List.length(xs)"` — `for i in range(...)`
  *      `else > if(…)` and `else > [if(…), else_inner]` collapse to `elif EXPR:` so
  *      raw `elif` chains round-trip byte-equivalent through slice 5b migration.
  *
@@ -241,6 +242,8 @@ function emitChildrenPy(children: IRNode[], ctx: BodyEmitContext, indent: string
       const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP);
       if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
       for (const sl of inner) lines.push(sl);
+    } else if (child.type === 'for') {
+      for (const line of emitRangeForPy(child, ctx, indent)) lines.push(line);
     } else if (child.type === 'try') {
       // Slice 4c — try/except control flow.
       //
@@ -382,6 +385,85 @@ function emitChildrenPy(children: IRNode[], ctx: BodyEmitContext, indent: string
     }
   }
   return lines;
+}
+
+function emitRangeForPy(node: IRNode, ctx: BodyEmitContext, indent: string): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const name = String(props.name ?? '');
+  if (!name) throw new Error('body-statement `for` requires `name=`.');
+  validateRangeLoopIdentifier(name);
+  const rawFrom = props.from;
+  const rawTo = props.to;
+  const rawStep = props.step === undefined || props.step === '' ? '1' : String(props.step);
+  if (rawFrom === undefined || rawFrom === '') throw new Error('body-statement `for` requires `from=`.');
+  if (rawTo === undefined || rawTo === '') throw new Error('body-statement `for` requires `to=`.');
+  validateIntegerRangeBound(String(rawFrom), 'from');
+  validateIntegerRangeBound(String(rawTo), 'to');
+  validatePositiveRangeStep(rawStep);
+  const fromIR = parseExpression(String(rawFrom));
+  const toIR = parseExpression(String(rawTo));
+  const stepIR = parseExpression(rawStep);
+  if (fromIR.kind === 'propagate' || toIR.kind === 'propagate' || stepIR.kind === 'propagate') {
+    throw new Error(
+      "Propagation '?' is not allowed in `for from=`/`to=`/`step=` — bind the value to a `let` before the loop.",
+    );
+  }
+  const fromExpr = emitPyExprCtx(fromIR, ctx);
+  const toExpr = emitPyExprCtx(toIR, ctx);
+  const stepExpr = emitPyExprCtx(stepIR, ctx);
+  const rangeArgs = isRangeStepOne(rawStep) ? `${fromExpr}, ${toExpr}` : `${fromExpr}, ${toExpr}, ${stepExpr}`;
+  const scopeId = ++ctx.gensymCounter;
+  const missingVar = `__k_for_missing_${scopeId}`;
+  const prevVar = `__k_for_prev_${scopeId}`;
+  const tryIndent = indent + INDENT_STEP;
+  const bodyIndent = tryIndent + INDENT_STEP;
+  const out = [
+    `${indent}${missingVar} = object()`,
+    `${indent}${prevVar} = locals().get(${JSON.stringify(name)}, ${missingVar})`,
+    `${indent}try:`,
+    `${tryIndent}for ${name} in range(${rangeArgs}):`,
+  ];
+  const inner = emitChildrenPy(node.children ?? [], ctx, bodyIndent);
+  if (inner.length === 0) out.push(`${bodyIndent}pass`);
+  for (const sl of inner) out.push(sl);
+  out.push(`${indent}finally:`);
+  out.push(`${tryIndent}if ${prevVar} is ${missingVar}:`);
+  out.push(`${bodyIndent}try:`);
+  out.push(`${bodyIndent}${INDENT_STEP}del ${name}`);
+  out.push(`${bodyIndent}except NameError:`);
+  out.push(`${bodyIndent}${INDENT_STEP}pass`);
+  out.push(`${tryIndent}else:`);
+  out.push(`${bodyIndent}${name} = ${prevVar}`);
+  return out;
+}
+
+function validatePositiveRangeStep(rawStep: string): void {
+  const trimmed = rawStep.trim();
+  const numeric = Number(trimmed);
+  if (!/^[0-9]+$/.test(trimmed) || !Number.isSafeInteger(numeric) || numeric <= 0) {
+    throw new Error(
+      'body-statement `for step=` must be a positive integer literal in this cross-target range-loop slice.',
+    );
+  }
+}
+
+function validateIntegerRangeBound(rawBound: string, propName: 'from' | 'to'): void {
+  const trimmed = rawBound.trim();
+  const numeric = Number(trimmed);
+  if (trimmed !== '' && Number.isFinite(numeric) && !Number.isInteger(numeric)) {
+    throw new Error(`body-statement \`for ${propName}=\` must be an integer expression.`);
+  }
+}
+
+function isRangeStepOne(rawStep: string): boolean {
+  const numeric = Number(rawStep.trim());
+  return /^[0-9]+$/.test(rawStep.trim()) && Number.isSafeInteger(numeric) && numeric === 1;
+}
+
+function validateRangeLoopIdentifier(name: string): void {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+    throw new Error('body-statement `for name=` must be a cross-target identifier.');
+  }
 }
 
 function emitBranchPy(node: IRNode, ctx: BodyEmitContext, indent: string): string[] {

@@ -45,6 +45,10 @@ interface PydanticModel {
 
 interface PythonRouteAnalysis {
   errorStatusCodes?: readonly number[];
+  successStatusCodes?: readonly number[];
+  successStatusCodesResolved?: boolean;
+  paginationStrategy?: 'page' | 'offset' | 'cursor' | 'mixed' | 'none';
+  paginationStrategyResolved?: boolean;
   hasUnboundedCollectionQuery?: boolean;
   hasDbWrite?: boolean;
   hasIdempotencyProtection?: boolean;
@@ -55,6 +59,19 @@ interface PythonRouteAnalysis {
 }
 
 const PY_API_ERROR_STATUS_CODES = new Set([401, 403, 404, 422, 500]);
+const PY_API_SUCCESS_STATUS_CODES = new Set([200, 201, 202, 204, 206]);
+// FastAPI's documented default success status is 200, regardless of HTTP method
+// (Codex plan-review #1, FastAPI docs:
+// https://fastapi.tiangolo.com/tutorial/response-status-code/). 201 for POST is
+// a per-route opt-in via `status_code=201`, not a method-derived default.
+const FASTAPI_DEFAULT_SUCCESS_STATUS = 200;
+// Pagination anchor families — mirror the TS classification in
+// `packages/review/src/concept-rules/cross-stack-utils.ts`. The size keys
+// (`limit`, `take`, `page_size`, `per_page`) are intentionally NOT anchors
+// — they're compatible with either offset or cursor pagination.
+const PY_PAGE_ANCHORS = new Set(['page', 'page_number', 'pageNumber']);
+const PY_OFFSET_ANCHORS = new Set(['offset', 'skip']);
+const PY_CURSOR_ANCHORS = new Set(['cursor', 'after', 'before', 'next', 'previous']);
 const PY_PAGINATION_RE = /\b(limit|offset|skip|cursor|page|page_size|per_page)\b|\.limit\s*\(/i;
 const PY_DB_COLLECTION_RE = /\.(find|all|fetchall|to_list|scalars)\s*\(|\bselect\s*\(/i;
 const PY_DB_WRITE_RE =
@@ -356,7 +373,15 @@ function extractEntrypoints(root: Parser.SyntaxNode, source: string, filePath: s
 
       const responseModel = extractResponseModel(decText);
       const routeContainerId = getSelfContainerId(fnDef, filePath);
-      const routeAnalysis = analyzePythonRoute(fnDef, source, method, routePath, responseModel, pydanticModels);
+      const routeAnalysis = analyzePythonRoute(
+        fnDef,
+        source,
+        method,
+        routePath,
+        responseModel,
+        pydanticModels,
+        decText,
+      );
 
       nodes.push({
         id: conceptId(filePath, 'entrypoint', child.startIndex),
@@ -375,6 +400,10 @@ function extractEntrypoints(root: Parser.SyntaxNode, source: string, filePath: s
           isAsync: isAsyncFunction(fnDef),
           routerName,
           errorStatusCodes: routeAnalysis.errorStatusCodes,
+          successStatusCodes: routeAnalysis.successStatusCodes,
+          successStatusCodesResolved: routeAnalysis.successStatusCodesResolved,
+          paginationStrategy: routeAnalysis.paginationStrategy,
+          paginationStrategyResolved: routeAnalysis.paginationStrategyResolved,
           hasUnboundedCollectionQuery: routeAnalysis.hasUnboundedCollectionQuery,
           hasDbWrite: routeAnalysis.hasDbWrite,
           hasIdempotencyProtection: routeAnalysis.hasIdempotencyProtection,
@@ -576,11 +605,18 @@ function analyzePythonRoute(
   routePath: string,
   responseModel: string | undefined,
   pydanticModels: ReadonlyMap<string, PydanticModel>,
+  decText: string,
 ): PythonRouteAnalysis {
   const text = source.substring(fnDef.startIndex, fnDef.endIndex);
   const validation = extractFastApiBodyValidation(fnDef, source, pydanticModels);
+  const success = extractFastApiSuccessStatusCodes(decText, fnDef, source);
+  const pagination = extractFastApiPaginationStrategy(fnDef, source);
   return {
     errorStatusCodes: extractPythonHttpExceptionStatusCodes(text),
+    successStatusCodes: success.codes,
+    successStatusCodesResolved: success.resolved,
+    paginationStrategy: pagination.strategy,
+    paginationStrategyResolved: pagination.resolved,
     hasUnboundedCollectionQuery: hasUnboundedPythonCollectionQuery(text, method, routePath, responseModel),
     hasDbWrite: PY_DB_WRITE_RE.test(text),
     hasIdempotencyProtection: PY_IDEMPOTENCY_RE.test(text),
@@ -589,6 +625,237 @@ function analyzePythonRoute(
     bodyValidationResolved: validation.resolved,
     validatedBodyFieldTypes: validation.types,
   };
+}
+
+// ── FastAPI success status codes ─────────────────────────────────────────
+// Phase 2 of cross-stack `status-code-drift`. Populates the
+// `successStatusCodes` / `successStatusCodesResolved` payload fields so the
+// rule can flag clients checking a 2xx the FastAPI server doesn't emit.
+//
+// Sources of evidence (per buddy plan-review consensus):
+//   1. Decorator `status_code=N` (literal) or `status_code=status.HTTP_NNN_*`.
+//   2. Body-side `Response(status_code=N)` / `JSONResponse(...)` returns.
+//   3. Body-side `<param>.status_code = N` mutations (FastAPI's documented
+//      pattern for routes that take a `Response` parameter).
+//   4. When the decorator omits status_code AND the body has no explicit
+//      Response / mutation, default to 200 — FastAPI's documented default
+//      regardless of HTTP method. Codex caught Gemini's POST→201 premise as
+//      wrong (FastAPI docs:
+//      https://fastapi.tiangolo.com/tutorial/response-status-code/).
+//
+// Marked unresolved when:
+//   - Decorator status_code is set to a non-literal/non-status-constant
+//     expression (variable, function call).
+//   - Any `Response(status_code=...)` / `<x>.status_code = ...` RHS is dynamic.
+function extractFastApiSuccessStatusCodes(
+  decText: string,
+  fnDef: Parser.SyntaxNode,
+  source: string,
+): { codes: readonly number[] | undefined; resolved: boolean } {
+  let sawDynamic = false;
+
+  // 1. Decorator `status_code=N` — applies ONLY to plain `return data` paths.
+  //    For routes whose return paths all use explicit Response/JSONResponse,
+  //    the decorator code is dead (Codex impl-review #1).
+  const decStatusMatch = decText.match(/\bstatus_code\s*=\s*([^,)]+)/);
+  let decoratorCode: number | undefined;
+  if (decStatusMatch) {
+    const code = parseFastApiStatusValue(decStatusMatch[1].trim());
+    if (code === undefined) sawDynamic = true;
+    else if (PY_API_SUCCESS_STATUS_CODES.has(code)) decoratorCode = code;
+  }
+
+  const body = fnDef.childForFieldName('body') ?? fnDef.namedChildren.find((c) => c.type === 'block');
+  const bodyText = body ? source.substring(body.startIndex, body.endIndex) : '';
+
+  // 2. Response(status_code=N) / JSONResponse(...) etc. — applies only to
+  //    that specific return path. Multiple Response codes contribute a
+  //    multi-2xx route.
+  const responseCodes = new Set<number>();
+  const responseRe =
+    /\b(?:Response|JSONResponse|HTMLResponse|PlainTextResponse|RedirectResponse|StreamingResponse|FileResponse|ORJSONResponse|UJSONResponse)\s*\([^)]*?\bstatus_code\s*=\s*([^,)\n]+)/g;
+  for (const match of bodyText.matchAll(responseRe)) {
+    const code = parseFastApiStatusValue(match[1].trim());
+    if (code === undefined) sawDynamic = true;
+    else if (PY_API_SUCCESS_STATUS_CODES.has(code)) responseCodes.add(code);
+  }
+
+  // 3. `<paramName>.status_code = N` — mutation on the injected Response
+  //    parameter. The parameter name varies (`response`, `resp`, `r`, `out`,
+  //    custom names — Codex impl-review #2). Match any identifier prefix
+  //    rather than a name whitelist; the API_SUCCESS_STATUS_CODES filter
+  //    keeps the noise tax low.
+  const mutationCodes = new Set<number>();
+  const mutateRe = /\b[A-Za-z_]\w*\.status_code\s*=\s*([^\n;]+)/g;
+  for (const match of bodyText.matchAll(mutateRe)) {
+    const code = parseFastApiStatusValue(match[1].trim());
+    if (code === undefined) sawDynamic = true;
+    else if (PY_API_SUCCESS_STATUS_CODES.has(code)) mutationCodes.add(code);
+  }
+
+  if (sawDynamic) return { codes: undefined, resolved: false };
+
+  // Plain return paths inherit the route's "primary" success code, computed
+  // as: mutation > decorator > FastAPI default 200. When a mutation is
+  // present we treat it as the plain-return code (the conditional-mutation
+  // case is a documented v1 false-negative — would require control-flow
+  // analysis to disambiguate).
+  const plainReturnRe =
+    /\breturn\b(?!\s+(?:Response|JSONResponse|HTMLResponse|PlainTextResponse|RedirectResponse|StreamingResponse|FileResponse|ORJSONResponse|UJSONResponse)\s*\()/;
+  const hasPlainReturn = plainReturnRe.test(bodyText);
+
+  const final = new Set<number>();
+
+  if (hasPlainReturn) {
+    if (mutationCodes.size > 0) {
+      for (const c of mutationCodes) final.add(c);
+    } else if (decoratorCode !== undefined) {
+      final.add(decoratorCode);
+    } else {
+      final.add(FASTAPI_DEFAULT_SUCCESS_STATUS);
+    }
+  } else if (decoratorCode !== undefined && responseCodes.size === 0 && mutationCodes.size === 0) {
+    // Handler with no plain return, no Response, no mutation — likely an
+    // implicit-None-return stub or all-raise. Decorator is the only signal.
+    final.add(decoratorCode);
+  }
+
+  // Response and mutation codes ALWAYS contribute (they're explicit choices
+  // for their respective return paths).
+  for (const c of responseCodes) final.add(c);
+  for (const c of mutationCodes) final.add(c);
+
+  return {
+    codes: Array.from(final).sort((a, b) => a - b),
+    resolved: true,
+  };
+}
+
+function parseFastApiStatusValue(val: string): number | undefined {
+  const trimmed = val.trim();
+  // Literal 3-digit int.
+  const litMatch = trimmed.match(/^(\d{3})$/);
+  if (litMatch) return Number(litMatch[1]);
+  // status.HTTP_NNN_NAME / starlette.status.HTTP_NNN_NAME / fastapi.status.HTTP_NNN_NAME.
+  const httpMatch = trimmed.match(/HTTP_(\d{3})_/);
+  if (httpMatch) return Number(httpMatch[1]);
+  return undefined;
+}
+
+// ── FastAPI pagination strategy ──────────────────────────────────────────
+// Iterates the route handler's parameters and classifies each by name (or
+// `Query(alias=...)` literal alias when present) against page/offset/cursor
+// anchor sets. Returns:
+//   - `none` / resolved=true  — handler reads no anchor params (and no opaque
+//     paths to query data).
+//   - `page` / `offset` / `cursor` / resolved=true — handler reads exactly
+//     one family.
+//   - `mixed` / resolved=true — handler reads multiple families.
+//   - `undefined` / resolved=false — handler has a `Request` parameter,
+//     `**kwargs`, or a `Query(alias=<dynamic>)` we can't statically resolve.
+function extractFastApiPaginationStrategy(
+  fnDef: Parser.SyntaxNode,
+  source: string,
+): {
+  strategy: 'page' | 'offset' | 'cursor' | 'mixed' | 'none' | undefined;
+  resolved: boolean;
+} {
+  const paramsNode = fnDef.childForFieldName('parameters');
+  if (!paramsNode) return { strategy: 'none', resolved: true };
+
+  const families = new Set<'page' | 'offset' | 'cursor'>();
+  let sawOpaque = false;
+
+  for (const child of paramsNode.namedChildren) {
+    // **kwargs — handler may read any query key dynamically; opaque.
+    if (child.type === 'dictionary_splat_pattern') {
+      sawOpaque = true;
+      continue;
+    }
+    // *args — positional spread, irrelevant for query keys but rare in
+    // FastAPI handlers; keep silent.
+    if (child.type === 'list_splat_pattern') continue;
+
+    // Drop typing wrappers to find the param identifier.
+    const paramName = extractParamName(child);
+    if (!paramName) continue;
+
+    // `request: Request` — handler may call `request.query_params.get(...)`
+    // arbitrarily; mark opaque.
+    const typeText = extractParamTypeText(child, source);
+    if (typeText && /\bRequest\b/.test(typeText)) {
+      sawOpaque = true;
+      continue;
+    }
+
+    // Default-value AND type expression both can carry a `Query(alias="...")`
+    // call. Modern FastAPI (≥0.95) puts the call inside the type annotation
+    // via `Annotated[int, Query(alias="page")]` (Gemini/OpenCode impl-review).
+    // Older / classic syntax puts it in the default: `Query(0, alias="page")`.
+    // Check both — default-value form takes precedence when both are present.
+    const defaultText = extractParamDefaultText(child, source);
+    const aliasFromDefault = extractQueryAlias(defaultText);
+    const aliasFromType = aliasFromDefault.alias === undefined ? extractQueryAlias(typeText) : aliasFromDefault;
+    let key = paramName;
+    if (aliasFromDefault.opaque || aliasFromType.opaque) {
+      sawOpaque = true;
+      continue;
+    }
+    if (aliasFromDefault.alias) key = aliasFromDefault.alias;
+    else if (aliasFromType.alias) key = aliasFromType.alias;
+
+    const family = classifyPyAnchor(key);
+    if (family) families.add(family);
+  }
+
+  if (sawOpaque) return { strategy: undefined, resolved: false };
+  if (families.size === 0) return { strategy: 'none', resolved: true };
+  if (families.size === 1) return { strategy: [...families][0], resolved: true };
+  return { strategy: 'mixed', resolved: true };
+}
+
+function extractParamName(node: Parser.SyntaxNode): string | undefined {
+  if (node.type === 'identifier') return node.text;
+  if (node.type === 'typed_parameter' || node.type === 'typed_default_parameter' || node.type === 'default_parameter') {
+    const nameChild = node.childForFieldName('name') ?? node.namedChildren.find((c) => c.type === 'identifier');
+    if (nameChild) return nameChild.text;
+  }
+  return undefined;
+}
+
+function extractParamTypeText(node: Parser.SyntaxNode, source: string): string | undefined {
+  if (node.type !== 'typed_parameter' && node.type !== 'typed_default_parameter') return undefined;
+  const typeChild = node.childForFieldName('type');
+  if (typeChild) return source.substring(typeChild.startIndex, typeChild.endIndex);
+  return undefined;
+}
+
+function extractParamDefaultText(node: Parser.SyntaxNode, source: string): string | undefined {
+  if (node.type !== 'default_parameter' && node.type !== 'typed_default_parameter') return undefined;
+  const valueChild = node.childForFieldName('value');
+  if (valueChild) return source.substring(valueChild.startIndex, valueChild.endIndex);
+  return undefined;
+}
+
+function classifyPyAnchor(key: string): 'page' | 'offset' | 'cursor' | undefined {
+  if (PY_PAGE_ANCHORS.has(key)) return 'page';
+  if (PY_OFFSET_ANCHORS.has(key)) return 'offset';
+  if (PY_CURSOR_ANCHORS.has(key)) return 'cursor';
+  return undefined;
+}
+
+/** Extract a `Query(..., alias="...")` literal alias from a parameter's
+ *  default-value or type-annotation text. Used to support both classic
+ *  (`x = Query(0, alias="p")`) and modern (`x: Annotated[int, Query(alias="p")]`)
+ *  FastAPI patterns. Returns `{alias?, opaque}` where `opaque=true` indicates
+ *  a `Query(alias=<non-literal>)` we cannot statically resolve. */
+function extractQueryAlias(text: string | undefined): { alias?: string; opaque: boolean } {
+  if (!text) return { opaque: false };
+  if (!/\bQuery\s*\(/.test(text)) return { opaque: false };
+  const aliasMatch = text.match(/\balias\s*=\s*['"]([^'"]+)['"]/);
+  if (aliasMatch) return { alias: aliasMatch[1], opaque: false };
+  if (/\balias\s*=/.test(text)) return { opaque: true };
+  return { opaque: false };
 }
 
 function extractPythonHttpExceptionStatusCodes(text: string): readonly number[] | undefined {

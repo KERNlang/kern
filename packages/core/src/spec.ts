@@ -125,6 +125,7 @@ export const NODE_TYPES = [
   // Native KERN handler-body control flow (slice 2c)
   'if',
   'while',
+  'for',
   // Next.js App Router
   'layout',
   'loading',

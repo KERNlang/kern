@@ -3,9 +3,7 @@
  *
  * Cross-stack rule — fires when a frontend network call branches on a 2xx
  * status code that the matched server route does not actually emit. Sibling
- * to `error-contract-drift` (which handles 4xx/5xx), but with a different
- * gate design because success codes don't have the "client already handles
- * one other server code" overlap to lean on (most routes emit a single 2xx).
+ * to `error-contract-drift` (which handles 4xx/5xx).
  *
  * Common production foot-gun:
  *   - Client: `if (res.status === 201) showCreatedToast()`
@@ -13,29 +11,23 @@
  *
  * Confidence multiplier: `CROSS_STACK_EXACT_CONFIDENCE` (0.9).
  *
- * V1 gate design (tight, may evolve as signal data lands):
+ * Gate design:
  *   1. Path + method match (`findHighConfidenceRouteForMethod`).
- *   2. Server has resolved success-status evidence with EXACTLY ONE 2xx code.
- *      Multi-2xx routes are skipped — the rule can't yet distinguish "server
- *      returns 200 OR 201 depending on body" from genuine drift.
+ *   2. Server has resolved success-status evidence with at least one 2xx code.
+ *      Multi-2xx routes are supported: the rule fires when the client's
+ *      checked code is NOT in the server's emitted set.
  *   3. Client branches on EXACTLY ONE 2xx code (200/201/202). When the client
  *      checks multiple 2xx codes, the call-site has dispatch logic that's
  *      probably wired to the actual contract; skip to avoid double-counting
  *      with `error-contract-drift`-style designs.
- *   4. The client's checked 2xx must NOT match the server's emitted 2xx.
- *   5. Skip the 200/204 pair entirely — DELETE/PATCH routes commonly return
- *      204 and clients commonly check 200; the semantics overlap enough that
- *      the rule needs more signal data before firing on it.
+ *   4. The client's checked 2xx must NOT be in the server's emitted set.
+ *   5. Skip the 200/204 pair when the server emits a SINGLE code — DELETE/
+ *      PATCH routes commonly return 204 and clients commonly check 200; the
+ *      semantics overlap enough that the rule needs more signal data before
+ *      firing on it. For multi-2xx servers the skip does not apply (the
+ *      client's check is an unambiguous miss).
  *
  * Requires graph mode; silent in single-file review.
- *
- * Documented coverage gaps (intentional v1 limits — buddy review consensus):
- *   - Multi-2xx server routes are skipped (gate 2) — false negatives accepted.
- *   - FastAPI server routes are skipped because the Python mapper doesn't yet
- *     populate `successStatusCodesResolved`. Phase 2 work.
- *   - `.then(res => res.status === 201)` callback form isn't call-bound — the
- *     mapper falls back to function-wide attribution there, which only fires
- *     when the function has a single network call. Phase 2 work.
  */
 
 import type { ConceptNode } from '@kernlang/core';
@@ -86,26 +78,35 @@ export function statusCodeDrift(ctx: ConceptRuleContext): ReviewFinding[] {
     if (!route?.node) continue;
     if (route.node.payload.kind !== 'entrypoint') continue;
 
-    // Gate 2: server must have resolved success-status evidence with EXACTLY ONE 2xx code.
+    // Gate 2: server must have resolved success-status evidence with at least one 2xx code.
     if (route.node.payload.successStatusCodesResolved !== true) continue;
     const serverCodes = route.node.payload.successStatusCodes;
-    if (!serverCodes || serverCodes.length !== 1) continue;
-    const serverCode = serverCodes[0];
+    if (!serverCodes || serverCodes.length === 0) continue;
 
-    // Gate 4: drift exists only when the codes differ.
-    if (clientCode === serverCode) continue;
+    // Gate 4: drift exists only when the client's code is NOT in the server's emitted set.
+    if (serverCodes.includes(clientCode)) continue;
 
-    // Gate 5: skip 200/204 pair — too much legitimate ambiguity.
-    if ((clientCode === 200 && serverCode === 204) || (clientCode === 204 && serverCode === 200)) continue;
+    // Gate 5: skip 200/204 pair when server emits a SINGLE code (legacy
+    // single-code mismatch case). For multi-2xx servers the client's miss is
+    // unambiguous — the rule should fire even on the 200/204 pair.
+    if (serverCodes.length === 1) {
+      const serverCode = serverCodes[0];
+      if ((clientCode === 200 && serverCode === 204) || (clientCode === 204 && serverCode === 200)) continue;
+    }
 
+    const sortedServerCodes = [...serverCodes].sort((a, b) => a - b);
+    const serverCodeText =
+      sortedServerCodes.length === 1
+        ? `\`${sortedServerCodes[0]}\``
+        : `one of [${sortedServerCodes.map((c) => `\`${c}\``).join(', ')}]`;
     findings.push({
       source: 'kern',
       ruleId: 'status-code-drift',
       severity: 'warning',
       category: 'bug',
       message:
-        `Client branches on status \`${clientCode}\` but server route \`${call.method} ${route.path}\` returns \`${serverCode}\`. ` +
-        `The \`if (res.status === ${clientCode})\` branch will never run — either change the client check to \`${serverCode}\` ` +
+        `Client branches on status \`${clientCode}\` but server route \`${call.method} ${route.path}\` returns ${serverCodeText}. ` +
+        `The \`if (res.status === ${clientCode})\` branch will never run — either change the client check to match a server-emitted code, ` +
         `or change the server to return \`${clientCode}\`.`,
       primarySpan: call.node.primarySpan,
       fingerprint: createFingerprint(
