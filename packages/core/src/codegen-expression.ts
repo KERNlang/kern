@@ -82,6 +82,13 @@ export function emitExpression(node: ValueIR): string {
       const args = node.args.map(emitExpression).join(', ');
       return node.optional ? `${wrapped}?.(${args})` : `${wrapped}(${args})`;
     }
+    case 'lambda': {
+      const params =
+        !node.parenthesized && node.params.length === 1 && !node.params[0].type
+          ? node.params[0].name
+          : `(${node.params.map((p) => (p.type ? `${p.name}: ${p.type}` : p.name)).join(', ')})`;
+      return `${params} => ${emitExpression(node.body)}`;
+    }
     case 'binary': {
       const left = emitExpression(node.left);
       const right = emitExpression(node.right);
@@ -178,7 +185,8 @@ function needsReceiverParens(child: ValueIR): boolean {
     child.kind === 'spread' ||
     child.kind === 'typeAssert' ||
     child.kind === 'conditional' ||
-    child.kind === 'await'
+    child.kind === 'await' ||
+    child.kind === 'lambda'
   );
 }
 
@@ -190,7 +198,8 @@ function needsTypeAssertionParens(child: ValueIR): boolean {
     child.kind === 'spread' ||
     child.kind === 'await' ||
     child.kind === 'new' ||
-    child.kind === 'typeAssert'
+    child.kind === 'typeAssert' ||
+    child.kind === 'lambda'
   );
 }
 
@@ -200,7 +209,8 @@ function needsPrefixArgParens(child: ValueIR): boolean {
     child.kind === 'conditional' ||
     child.kind === 'unary' ||
     child.kind === 'spread' ||
-    child.kind === 'typeAssert'
+    child.kind === 'typeAssert' ||
+    child.kind === 'lambda'
   );
 }
 
@@ -217,6 +227,7 @@ function needsConditionalChildParens(child: ValueIR): boolean {
     case 'new':
     case 'typeAssert':
     case 'conditional':
+    case 'lambda':
       return true;
     default:
       return false;
@@ -262,6 +273,8 @@ function applyStdlibLoweringTS(call: Extract<ValueIR, { kind: 'call' }>): string
       `KERN-stdlib '${moduleName}.${methodName}' takes ${entry.arity} arg${entry.arity === 1 ? '' : 's'}, got ${call.args.length}.`,
     );
   }
+  const listLambda = lowerListLambdaTS(moduleName, methodName, call);
+  if (listLambda !== null) return listLambda;
   const args = call.args.map((a) => {
     const emitted = emitExpression(a);
     return needsArgParens(a) ? `(${emitted})` : emitted;
@@ -269,9 +282,31 @@ function applyStdlibLoweringTS(call: Extract<ValueIR, { kind: 'call' }>): string
   return applyTemplate(entry.ts, args);
 }
 
+function lowerListLambdaTS(
+  moduleName: string,
+  methodName: string,
+  call: Extract<ValueIR, { kind: 'call' }>,
+): string | null {
+  if (moduleName !== 'List') return null;
+  if (methodName !== 'map' && methodName !== 'filter') return null;
+  const callback = call.args[1];
+  if (callback.kind !== 'lambda') return null;
+  const source = emitExpression(call.args[0]);
+  const wrappedSource = needsArgParens(call.args[0]) ? `(${source})` : source;
+  return `${wrappedSource}.${methodName}(${emitExpression(callback)})`;
+}
+
 /** Slice 2b helper — wrap an arg in parens when it's structurally a binary,
  *  unary, or spread expression. Templates like `'$0.length'` would otherwise
  *  bind member-access tighter than the arg's own ops. */
 export function needsArgParens(arg: ValueIR): boolean {
-  return arg.kind === 'binary' || arg.kind === 'unary' || arg.kind === 'spread' || arg.kind === 'typeAssert';
+  return (
+    arg.kind === 'binary' ||
+    arg.kind === 'unary' ||
+    arg.kind === 'spread' ||
+    arg.kind === 'typeAssert' ||
+    arg.kind === 'conditional' ||
+    arg.kind === 'await' ||
+    arg.kind === 'lambda'
+  );
 }
