@@ -1,6 +1,6 @@
 /** @internal Native KERN body-statement context validator — slice 5b-pre.
  *
- *  Body-statement nodes (`assign`, `return`, `throw`, `do`, `continue`, `break`, `while`,
+ *  Body-statement nodes (`assign`, `return`, `throw`, `do`, `continue`, `break`, `while`, `for`,
  *  body-form `if`/`else`, body-form `try`) are valid only inside a
  *  `handler lang="kern"` scope (or nested inside another body-statement
  *  under such a handler). Without this rule, the parser silently accepts
@@ -8,7 +8,7 @@
  *  errors deep in the body emitter.
  *
  *  Rules:
- *    - `assign`, `return`, `throw`, `do`, `continue`, `break`, `while` are rejected outside
+ *    - `assign`, `return`, `throw`, `do`, `continue`, `break`, `while`, `for` are rejected outside
  *      a native-body scope.
  *    - `if` with a `cond` prop is body-statement form (vs `conditional`'s
  *      `if=` prop); rejected outside native-body scope.
@@ -54,6 +54,7 @@ function walk(state: ParseState, node: IRNode, ctx: WalkContext): void {
       { endCol: loc.endCol ?? loc.col + 1 },
     );
   }
+  if (ctx.inNativeBody && node.type === 'for') validateForStatementShape(state, node);
 
   const childCtx: WalkContext = {
     inNativeBody: ctx.inNativeBody || isNativeBodyHandler(node),
@@ -62,6 +63,65 @@ function walk(state: ParseState, node: IRNode, ctx: WalkContext): void {
   if (node.children) {
     for (const child of node.children) walk(state, child, childCtx);
   }
+}
+
+function validateForStatementShape(state: ParseState, node: IRNode): void {
+  const loc = node.loc ?? { line: 1, col: 1, endCol: 2 };
+  const rawName = node.props?.name;
+  if (rawName !== undefined && rawName !== '' && !isCrossTargetIdentifier(String(rawName))) {
+    emitDiagnostic(
+      state,
+      'BODY_FOR_INVALID_NAME',
+      'error',
+      '`for name=` must be a cross-target identifier using letters, digits, and underscores only.',
+      loc.line,
+      loc.col,
+      { endCol: loc.endCol ?? loc.col + 1 },
+    );
+  }
+  const rawStep = node.props?.step;
+  if (rawStep !== undefined && rawStep !== '' && !isPositiveIntegerLiteral(String(rawStep))) {
+    emitDiagnostic(
+      state,
+      'BODY_FOR_INVALID_STEP',
+      'error',
+      '`for step=` must be a positive integer literal in this cross-target range-loop slice.',
+      loc.line,
+      loc.col,
+      { endCol: loc.endCol ?? loc.col + 1 },
+    );
+  }
+  for (const propName of ['from', 'to']) {
+    const rawBound = node.props?.[propName];
+    if (rawBound !== undefined && rawBound !== '' && isNonIntegerNumericLiteral(String(rawBound))) {
+      emitDiagnostic(
+        state,
+        'BODY_FOR_INVALID_BOUND',
+        'error',
+        `\`for ${propName}=\` must be an integer expression; fractional numeric literals are not cross-target range bounds.`,
+        loc.line,
+        loc.col,
+        { endCol: loc.endCol ?? loc.col + 1 },
+      );
+    }
+  }
+}
+
+function isCrossTargetIdentifier(name: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name);
+}
+
+function isPositiveIntegerLiteral(raw: string): boolean {
+  const trimmed = raw.trim();
+  const numeric = Number(trimmed);
+  return /^[0-9]+$/.test(trimmed) && Number.isSafeInteger(numeric) && numeric > 0;
+}
+
+function isNonIntegerNumericLiteral(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (trimmed === '') return false;
+  const numeric = Number(trimmed);
+  return Number.isFinite(numeric) && !Number.isInteger(numeric);
 }
 
 function isNativeBodyHandler(node: IRNode): boolean {
@@ -79,6 +139,7 @@ function isBodyStatementMisplaced(node: IRNode, ctx: WalkContext): boolean {
     case 'continue':
     case 'break':
     case 'while':
+    case 'for':
       return true;
     case 'if':
       // Body-statement `if` carries a `cond` prop. `conditional` and route-

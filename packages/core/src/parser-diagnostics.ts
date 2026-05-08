@@ -40,6 +40,12 @@ const DIAGNOSTIC_SUGGESTIONS: Record<ParseErrorCode, string> = {
     'Add `lang="kern"` to this handler and convert the body to KERN structured statements (let/return/if/each/try/throw) for native cross-target validation.',
   BODY_STATEMENT_OUTSIDE_NATIVE_HANDLER:
     'Body-statement nodes (`let`/`return`/`if`/`else`/`each`/`try`/`catch`/`throw`) are only valid inside a `handler lang="kern"` block (or nested in another body-statement). Add `lang="kern"` to the parent handler, or move this node into one.',
+  BODY_FOR_INVALID_NAME:
+    'Use a loop variable name that can compile unchanged to both TypeScript and Python: letters, digits, and underscores only, starting with a letter or underscore.',
+  BODY_FOR_INVALID_STEP:
+    'Use a literal positive integer step such as `step=1` or omit `step=`. Expression-valued and fractional steps are deferred until range-loop direction semantics are explicit.',
+  BODY_FOR_INVALID_BOUND:
+    'Use integer range bounds. Literal fractional bounds are rejected because Python range() cannot represent them.',
 };
 
 export function createParseState(): ParseState {

@@ -537,7 +537,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     // Two shapes share this `try` node type:
     // 1. Async-orchestration: `try name=loadUser` with `step`/`handler`/`catch` children.
     // 2. Body-statement (slice 4c+4d, opt-in via parent `handler lang="kern"`):
-    //    `try` with `let`/`assign`/`destructure`/`return`/`if`/`throw`/`each`/`try` body-statement children
+    //    `try` with `let`/`assign`/`destructure`/`return`/`if`/`throw`/`for`/`each`/`try` body-statement children
     //    plus a required `catch` child. Schema permits both child sets;
     //    body-ts.ts disambiguates by inspecting the children, and validateBodyStatements
     //    enforces the body-statement-only constraints when the enclosing handler is `lang="kern"`.
@@ -553,6 +553,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'if',
       'else',
       'while',
+      'for',
       'each',
       'try',
       'throw',
@@ -588,6 +589,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'if',
       'else',
       'while',
+      'for',
       'each',
       'try',
       'throw',
@@ -1498,7 +1500,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
 
   handler: {
     description:
-      'Code block — the body of a function, method, route, tool, or event handler. Use <<<...>>> for raw multiline code, or `lang="kern"` with body-statement children (`let`/`assign`/`do`/`return`/`if`/`else`/`while`/`each`/`try`/`catch`/`throw`/`continue`/`break`/`branch`) for cross-target structured bodies. Use `continue` inside `each`/`while` to skip the current iteration; use `break` inside `each`/`while` to exit the innermost loop. Use `branch` for switch-style structural matching (TS `switch`, Python `if/elif/else`). Prefer these over raw handlers for loop-control and dispatch bodies.',
+      'Code block — the body of a function, method, route, tool, or event handler. Use <<<...>>> for raw multiline code, or `lang="kern"` with body-statement children (`let`/`assign`/`do`/`return`/`if`/`else`/`while`/`for`/`each`/`try`/`catch`/`throw`/`continue`/`break`/`branch`) for cross-target structured bodies. Use `continue` inside `for`/`each`/`while` to skip the current iteration; use `break` inside `for`/`each`/`while` to exit the innermost loop. Use `branch` for switch-style structural matching (TS `switch`, Python `if/elif/else`). Prefer these over raw handlers for loop-control and dispatch bodies.',
     example: 'handler <<<\n  const result = await doWork();\n  return result;\n>>>',
     props: {
       code: { kind: 'rawBlock' },
@@ -1517,6 +1519,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'if',
       'else',
       'while',
+      'for',
       'each',
       'try',
       'catch',
@@ -1562,13 +1565,13 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   continue: {
     description:
-      'Body-statement loop-continue — emits `continue;` (TS) or `continue` (Python). Only valid inside a `lang="kern"` handler body, and the surrounding TS/Python compiler still rejects use outside an enclosing loop. Pair with `each` to express skip-this-iteration logic without dropping into a raw handler.',
+      'Body-statement loop-continue — emits `continue;` (TS) or `continue` (Python). Only valid inside a `lang="kern"` handler body, and the surrounding TS/Python compiler still rejects use outside an enclosing loop. Pair with `for`/`each` to express skip-this-iteration logic without dropping into a raw handler.',
     example: 'each name=item in=items\n  if cond="item.skip"\n    continue\n  do value="process(item)"',
     props: {},
   },
   break: {
     description:
-      'Body-statement loop-break — emits `break;` (TS) or `break` (Python). Only valid inside a `lang="kern"` handler body, and the surrounding TS/Python compiler still rejects use outside an enclosing loop. Pair with `each` to express early-exit search/find loops without dropping into a raw handler.',
+      'Body-statement loop-break — emits `break;` (TS) or `break` (Python). Only valid inside a `lang="kern"` handler body, and the surrounding TS/Python compiler still rejects use outside an enclosing loop. Pair with `for`/`each` to express early-exit search/find loops without dropping into a raw handler.',
     example: 'each name=item in=items\n  if cond="item.matches"\n    let name=found value="item"\n    break',
     props: {},
   },
@@ -1596,6 +1599,36 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'if',
       'else',
       'while',
+      'for',
+      'each',
+      'try',
+      'catch',
+      'throw',
+      'continue',
+      'break',
+      'branch',
+    ],
+  },
+  for: {
+    description:
+      'Body-statement numeric range loop — emits a TS `for` loop with a single-evaluated end bound and Python `range(from, to, step)` inside a `lang="kern"` handler body. `step` defaults to `1` and must be a positive integer literal for this first cross-target slice. Use KERN stdlib calls such as `List.length(items)` for cross-target bounds instead of target-specific `.length` expressions.',
+    example: 'for name=i from=0 to="List.length(items)"\n  do value="visit(items[i])"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      from: { required: true, kind: 'expression' },
+      to: { required: true, kind: 'expression' },
+      step: { kind: 'expression' },
+    },
+    allowedChildren: [
+      'let',
+      'assign',
+      'destructure',
+      'do',
+      'return',
+      'if',
+      'else',
+      'while',
+      'for',
       'each',
       'try',
       'catch',

@@ -112,6 +112,14 @@ export function decompile(root: IRNode): DecompileResult {
       renderAssign(node, indent);
       return;
     }
+    if (node.type === 'do') {
+      renderDo(node, indent);
+      return;
+    }
+    if (node.type === 'for') {
+      renderFor(node, indent);
+      return;
+    }
     if (node.type === 'field') {
       renderField(node, indent);
       return;
@@ -347,6 +355,29 @@ export function decompile(root: IRNode): DecompileResult {
       parts.push(renderScalarProp('op', props.op, quoted));
     parts.push(renderScalarProp('value', props.value ?? '', quoted));
     lines.push(`${indent}${parts.join(' ')}`);
+  }
+
+  function renderDo(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    lines.push(`${indent}do ${renderScalarProp('value', props.value ?? '', quoted)}`);
+  }
+
+  function renderFor(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    if (props.name === undefined || props.from === undefined || props.to === undefined) {
+      throw new Error('Cannot decompile `for` without required `name=`, `from=`, and `to=` props.');
+    }
+    const parts = [
+      'for',
+      renderScalarProp('name', props.name, quoted),
+      renderScalarProp('from', props.from, quoted),
+      renderScalarProp('to', props.to, quoted),
+    ];
+    if (props.step !== undefined && props.step !== '') parts.push(renderScalarProp('step', props.step, quoted));
+    lines.push(`${indent}${parts.join(' ')}`);
+    for (const child of node.children ?? []) render(child, `${indent}  `);
   }
 
   function renderField(node: IRNode, indent: string): void {

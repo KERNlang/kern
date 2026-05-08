@@ -8,6 +8,7 @@
  *    - `return value="EXPR"` / bare `return` — `return EXPR;` (slice 1)
  *    - `if cond="EXPR"` / sibling `else` — `if (EXPR) { … } else { … }` (slice 2c)
  *    - `while cond="EXPR"` — `while (EXPR) { … }`
+ *    - `for name=i from=0 to="List.length(xs)"` — numeric range loop
  *
  *  Statement-level propagation `?` lowers to the same hoisted shape that
  *  slice 7 established for raw-body propagation:
@@ -175,6 +176,8 @@ function emitChildrenTS(children: IRNode[], ctx: BodyEmitContext, indent: string
       lines.push(`${indent}while (${emitExpression(condIR)}) {`);
       for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
       lines.push(`${indent}}`);
+    } else if (child.type === 'for') {
+      for (const line of emitRangeForTS(child, ctx, indent)) lines.push(line);
     } else if (child.type === 'try') {
       // Slice 4c — try/catch control flow.
       //
@@ -288,6 +291,69 @@ function emitChildrenTS(children: IRNode[], ctx: BodyEmitContext, indent: string
     // Other child types fall through silently — slice 3 adds more.
   }
   return lines;
+}
+
+function emitRangeForTS(node: IRNode, ctx: BodyEmitContext, indent: string): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const name = String(props.name ?? '');
+  if (!name) throw new Error('body-statement `for` requires `name=`.');
+  validateRangeLoopIdentifier(name);
+  const rawFrom = props.from;
+  const rawTo = props.to;
+  const rawStep = props.step === undefined || props.step === '' ? '1' : String(props.step);
+  if (rawFrom === undefined || rawFrom === '') throw new Error('body-statement `for` requires `from=`.');
+  if (rawTo === undefined || rawTo === '') throw new Error('body-statement `for` requires `to=`.');
+  validateIntegerRangeBound(String(rawFrom), 'from');
+  validateIntegerRangeBound(String(rawTo), 'to');
+  validatePositiveRangeStep(rawStep);
+  const fromIR = parseExpression(String(rawFrom));
+  const toIR = parseExpression(String(rawTo));
+  const stepIR = parseExpression(rawStep);
+  if (fromIR.kind === 'propagate' || toIR.kind === 'propagate' || stepIR.kind === 'propagate') {
+    throw new Error(
+      "Propagation '?' is not allowed in `for from=`/`to=`/`step=` — bind the value to a `let` before the loop.",
+    );
+  }
+  const fromExpr = emitExpression(fromIR);
+  const toExpr = emitExpression(toIR);
+  const stepExpr = emitExpression(stepIR);
+  const update = isRangeStepOne(rawStep) ? `${name}++` : `${name} += ${stepExpr}`;
+  const startVar = `__k_for_start_${++ctx.gensymCounter}`;
+  const endVar = `__k_for_end_${++ctx.gensymCounter}`;
+  const lines = [`${indent}const ${startVar} = ${fromExpr};`, `${indent}const ${endVar} = ${toExpr};`];
+  lines.push(`${indent}for (let ${name} = ${startVar}; ${name} < ${endVar}; ${update}) {`);
+  for (const sl of emitChildrenTS(node.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
+  lines.push(`${indent}}`);
+  return lines;
+}
+
+function validatePositiveRangeStep(rawStep: string): void {
+  const trimmed = rawStep.trim();
+  const numeric = Number(trimmed);
+  if (!/^[0-9]+$/.test(trimmed) || !Number.isSafeInteger(numeric) || numeric <= 0) {
+    throw new Error(
+      'body-statement `for step=` must be a positive integer literal in this cross-target range-loop slice.',
+    );
+  }
+}
+
+function validateIntegerRangeBound(rawBound: string, propName: 'from' | 'to'): void {
+  const trimmed = rawBound.trim();
+  const numeric = Number(trimmed);
+  if (trimmed !== '' && Number.isFinite(numeric) && !Number.isInteger(numeric)) {
+    throw new Error(`body-statement \`for ${propName}=\` must be an integer expression.`);
+  }
+}
+
+function isRangeStepOne(rawStep: string): boolean {
+  const numeric = Number(rawStep.trim());
+  return /^[0-9]+$/.test(rawStep.trim()) && Number.isSafeInteger(numeric) && numeric === 1;
+}
+
+function validateRangeLoopIdentifier(name: string): void {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+    throw new Error('body-statement `for name=` must be a cross-target identifier.');
+  }
 }
 
 function emitBranchTS(node: IRNode, ctx: BodyEmitContext, indent: string): string[] {

@@ -193,6 +193,48 @@ describe('slice 5b-pre — body-statement source round-trip (positive)', () => {
     expect(emitted).toContain('const item = queue.shift();');
     expect(emitted).toContain('process(item);');
   });
+
+  test('body-statement for round-trips and decompiles re-parseably', () => {
+    const src = [
+      'fn name=visitAll returns=void',
+      '  handler lang="kern"',
+      '    for name=i from=0 to="List.length(items)" step=2',
+      '      do value="visit(items[i])"',
+    ].join('\n');
+
+    const root = parseDocumentStrict(src);
+    const handler = findFirstHandler(root);
+    const forNode = (handler.children ?? [])[0] as IRNode;
+    expect(forNode.type).toBe('for');
+
+    const emitted = emitNativeKernBodyTS(handler);
+    expect(emitted).toContain('const __k_for_start_1 = 0;');
+    expect(emitted).toContain('const __k_for_end_2 = items.length;');
+    expect(emitted).toContain('for (let i = __k_for_start_1; i < __k_for_end_2; i += 2) {');
+    expect(emitted).toContain('visit(items[i]);');
+
+    const text = decompile(forNode).code;
+    expect(text).toContain('for name=i from=0 to="List.length(items)" step=2');
+    const indented = text
+      .split('\n')
+      .map((line) => `    ${line}`)
+      .join('\n');
+    expect(() =>
+      parseDocumentStrict(['fn name=visitAll returns=void', '  handler lang="kern"', indented].join('\n')),
+    ).not.toThrow();
+  });
+
+  test('body-statement do decompiles re-parseably', () => {
+    const src = ['fn name=touch returns=void', '  handler lang="kern"', '    do value="touch(x)"'].join('\n');
+    const root = parseDocumentStrict(src);
+    const handler = findFirstHandler(root);
+    const doNode = (handler.children ?? [])[0] as IRNode;
+    const text = decompile(doNode).code;
+    expect(text).toBe('do value="touch(x)"');
+    expect(() =>
+      parseDocumentStrict(['fn name=touch returns=void', '  handler lang="kern"', `    ${text}`].join('\n')),
+    ).not.toThrow();
+  });
 });
 
 describe('slice 5b-pre — body-statement context validator (negative)', () => {
@@ -247,6 +289,13 @@ describe('slice 5b-pre — body-statement context validator (negative)', () => {
     const { diagnostics } = parseDocumentWithDiagnostics(src);
     const violation = diagnostics.find((d) => d.code === 'BODY_STATEMENT_OUTSIDE_NATIVE_HANDLER');
     expect(violation?.message).toMatch(/`while`/);
+  });
+
+  test('body-statement `for` outside scope errors', () => {
+    const src = ['fn name=top returns=void', '  for name=i from=0 to=10', '    break'].join('\n');
+    const { diagnostics } = parseDocumentWithDiagnostics(src);
+    const violation = diagnostics.find((d) => d.code === 'BODY_STATEMENT_OUTSIDE_NATIVE_HANDLER');
+    expect(violation?.message).toMatch(/`for`/);
   });
 
   test('async-orchestration `try name=…` is NOT flagged (different shape)', () => {
