@@ -338,6 +338,7 @@ export function decompile(root: IRNode): DecompileResult {
       parts.push(`expr=${JSON.stringify(expr)}`);
     }
     if (t) parts.push(`type=${t}`);
+    if (props.kind === 'let') parts.push('kind=let');
     lines.push(`${indent}${parts.join(' ')}`);
     // `let` has no children in normal use, but preserve generic recursion.
     if (node.children) {

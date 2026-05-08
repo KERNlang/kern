@@ -43,6 +43,12 @@ describe('let.value — slice 3a (native ValueIR form)', () => {
       expect(code).toContain('const who = user.name;');
     });
 
+    it('honours kind=let in the each-block render path', () => {
+      const screen = screenWithLet(mk('let', { name: 'count', kind: 'let', value: '0' }));
+      const code = generateCoreNode(screen).join('\n');
+      expect(code).toContain('let count = 0;');
+    });
+
     it('{{ expr }} ExprObject form is emitted raw (escape hatch)', () => {
       const screen = screenWithLet(
         mk('let', {

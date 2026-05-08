@@ -339,6 +339,25 @@ def create():
     expect(routes[0].payload.successStatusCodes).toEqual([202]);
   });
 
+  it('does NOT treat `== 200` comparison as a dynamic mutation (forge round, Claude engine)', () => {
+    // `if response.status_code == 200:` is a comparison, not an assignment.
+    // Without the `=(?!=)` lookahead, the mutation regex captured `200) ...`
+    // as a dynamic RHS and incorrectly marked the route resolved=false.
+    const routes = routePayloads(`
+from fastapi import Response
+
+@router.post("/items", status_code=201)
+def create(response: Response):
+    if response.status_code == 200:
+        return {"unreachable": True}
+    return {"id": 1}
+`);
+    expect(routes[0].payload.successStatusCodesResolved).toBe(true);
+    // Decorator says 201, plain returns inherit it. The `==` comparison
+    // contributes nothing.
+    expect(routes[0].payload.successStatusCodes).toEqual([201]);
+  });
+
   it('detects status_code mutation under non-conventional Response param name (Codex impl-review #2)', () => {
     // Param injected as `out: Response` instead of the conventional
     // `response`. Without broadened receiver matching, mutation is missed and

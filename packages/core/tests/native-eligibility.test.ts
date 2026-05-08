@@ -38,6 +38,13 @@ describe('classifyHandlerBody — eligible bodies', () => {
     expect(classifyHandlerBody(body).eligible).toBe(true);
   });
 
+  test('simple mutable let + assignment + return is eligible', () => {
+    expect(classifyHandlerBody(`let total = 0;\ntotal += item.value;\nreturn total;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
   test('KERN-stdlib call is eligible', () => {
     expect(classifyHandlerBody(`return Text.upper(name);`).eligible).toBe(true);
   });
@@ -325,8 +332,8 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
   test('object destructuring with rest rejected', () =>
     rejected(`const { a, ...rest } = obj;\nreturn a;`, 'var-destructure-rest'));
 
-  test('object destructuring let rejected (var-non-const)', () =>
-    rejected(`let { a } = obj;\nreturn a;`, 'var-non-const'));
+  test('object destructuring let rejected (var-destructure-non-const)', () =>
+    rejected(`let { a } = obj;\nreturn a;`, 'var-destructure-non-const'));
 
   test('array destructuring with rest rejected', () =>
     rejected(`const [first, ...rest] = xs;\nreturn first;`, 'var-destructure-rest'));
@@ -338,10 +345,9 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
 
   test('var destructuring rejected (var-non-const)', () => rejected(`var { x } = obj;\nreturn x;`, 'var-non-const'));
 
-  // `let name = …` (mutable binding) — the migrator only emits `let` from
-  // `const`, so any `let` declaration in the body is rejected.
-  test('let-bind without destructure rejected (var-non-const)', () =>
-    rejected(`let x = 1;\nreturn x;`, 'var-non-const'));
+  test('simple mutable let is eligible', () => {
+    expect(classifyHandlerBody(`let x = 1;\nreturn x;`)).toEqual({ eligible: true, reason: 'ok' });
+  });
 
   // Comments-present bails the migrator silently, so the classifier mirrors
   // that bail as a top-level reason (BEFORE statement walking).

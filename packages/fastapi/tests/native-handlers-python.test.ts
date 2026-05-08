@@ -73,6 +73,64 @@ describe('emitNativeKernBodyPython — slice 1 statements', () => {
     expect(emitNativeKernBodyPython(h)).toBe('x = foo()');
   });
 
+  test('let kind=let lowers to Python assignment', () => {
+    const h = makeHandler([{ type: 'let', props: { name: 'x', kind: 'let', value: 'foo()' } }]);
+    expect(emitNativeKernBodyPython(h)).toBe('x = foo()');
+  });
+
+  test('let kind=let can be reassigned by assign', () => {
+    const h = makeHandler([
+      { type: 'let', props: { name: 'total', kind: 'let', value: '0' } },
+      { type: 'assign', props: { target: 'total', op: '+=', value: '1' } },
+    ]);
+    expect(emitNativeKernBodyPython(h)).toBe(['total = 0', 'total += 1'].join('\n'));
+  });
+
+  test('assign rejects reassignment of default immutable let binding', () => {
+    const h = makeHandler([
+      { type: 'let', props: { name: 'total', value: '0' } },
+      { type: 'assign', props: { target: 'total', value: '1' } },
+    ]);
+    expect(() => emitNativeKernBodyPython(h)).toThrow(/cannot reassign immutable/);
+  });
+
+  test('let kind=let can be reassigned inside a nested block', () => {
+    const h = makeHandler([
+      { type: 'let', props: { name: 'total', kind: 'let', value: '0' } },
+      {
+        type: 'if',
+        props: { cond: 'ready' },
+        children: [{ type: 'assign', props: { target: 'total', op: '+=', value: '1' }, children: [] }],
+      },
+    ]);
+    expect(emitNativeKernBodyPython(h)).toBe(['total = 0', 'if ready:', '    total += 1'].join('\n'));
+  });
+
+  test('duplicate local let in the same scope is rejected', () => {
+    const h = makeHandler([
+      { type: 'let', props: { name: 'total', kind: 'let', value: '0' } },
+      { type: 'let', props: { name: 'total', kind: 'let', value: '1' } },
+    ]);
+    expect(() => emitNativeKernBodyPython(h)).toThrow(/already declared/);
+  });
+
+  test('assign rejects reassignment of loop binding that shadows an outer mutable let', () => {
+    const h = makeHandler([
+      { type: 'let', props: { name: 'item', kind: 'let', value: 'null' } },
+      {
+        type: 'each',
+        props: { name: 'item', in: 'items' },
+        children: [{ type: 'assign', props: { target: 'item', value: '2' }, children: [] }],
+      },
+    ]);
+    expect(() => emitNativeKernBodyPython(h)).toThrow(/cannot reassign immutable/);
+  });
+
+  test('let invalid kind is rejected', () => {
+    const h = makeHandler([{ type: 'let', props: { name: 'x', kind: 'var', value: 'foo()' } }]);
+    expect(() => emitNativeKernBodyPython(h)).toThrow(/supports only `const` or `let`/);
+  });
+
   test('let with propagation hoists in Python form', () => {
     const h = makeHandler([{ type: 'let', props: { name: 'u', value: 'fetchUser(raw)?' } }]);
     const out = emitNativeKernBodyPython(h);

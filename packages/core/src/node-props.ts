@@ -68,6 +68,7 @@ export interface LetProps extends BaseProps {
   value?: string | ExprObject;
   expr?: string | ExprObject;
   type?: string;
+  kind?: string;
 }
 
 export interface IndexerProps extends BaseProps {

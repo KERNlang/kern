@@ -68,6 +68,7 @@ export interface BodyEmitResult {
 
 interface BodyEmitContext {
   gensymCounter: number;
+  localScopes: Array<Map<string, 'const' | 'let'>>;
   /** Slice 4c review fix (OpenCode + Gemini critical) — depth of nested
    *  `try` blocks the emitter is currently inside. Propagation `?` lowers
    *  to a `return` that exits the function — that bypasses the enclosing
@@ -75,15 +76,8 @@ interface BodyEmitContext {
    *  entry, decrement on try exit; the let/return propagation paths
    *  check `tryDepth > 0` and throw with a let-bind hint. */
   tryDepth: number;
-  /** Finally slice (Codex review fix) — separate counter so the
-   *  propagation rejection inside `finally` surfaces a finally-specific
-   *  diagnostic. Inside finally, a `?` would lower to a `return` that
-   *  *overrides* the pending exception/return/break/continue from the
-   *  protected block, which is a sharper hazard than the try-block
-   *  "bypasses catch" wording. Incremented on finally entry, decremented
-   *  on exit; checked in `rejectPropagationInsideTry` after `tryDepth`
-   *  so a nested `try` inside `finally` still reports the inner-try
-   *  message. */
+  /** Depth of nested `finally` blocks. Propagation from finally would
+   *  override pending control flow, so it gets a finally-specific error. */
   finallyDepth: number;
 }
 
@@ -107,239 +101,237 @@ export function emitNativeKernBodyTS(handlerNode: IRNode, options?: BodyEmitOpti
  *  Provided for symmetry with the Python target so generators that drive
  *  both languages have a uniform call shape. */
 export function emitNativeKernBodyTSWithImports(handlerNode: IRNode, _options?: BodyEmitOptions): BodyEmitResult {
-  const ctx: BodyEmitContext = { gensymCounter: 0, tryDepth: 0, finallyDepth: 0 };
+  const ctx: BodyEmitContext = { gensymCounter: 0, localScopes: [], tryDepth: 0, finallyDepth: 0 };
   const code = emitChildrenTS(handlerNode.children ?? [], ctx, '').join('\n');
   return { code, imports: new Set<string>() };
 }
 
-function emitChildrenTS(children: IRNode[], ctx: BodyEmitContext, indent: string): string[] {
+function emitChildrenTS(
+  children: IRNode[],
+  ctx: BodyEmitContext,
+  indent: string,
+  initialBindings: Array<[string, 'const' | 'let']> = [],
+): string[] {
   const lines: string[] = [];
-  for (let i = 0; i < children.length; i++) {
-    const child = children[i];
-    if (child.type === 'let') {
-      for (const line of emitLetTS(child, ctx)) lines.push(`${indent}${line}`);
-    } else if (child.type === 'assign') {
-      for (const line of emitAssignTS(child, ctx)) lines.push(`${indent}${line}`);
-    } else if (child.type === 'destructure') {
-      for (const line of emitDestructureTS(child, ctx)) lines.push(`${indent}${line}`);
-    } else if (child.type === 'return') {
-      for (const line of emitReturnTS(child, ctx)) lines.push(`${indent}${line}`);
-    } else if (child.type === 'if') {
-      const condRaw = String(child.props?.cond ?? '');
-      const condIR = parseExpression(condRaw);
-      // Slice-2 review fix: propagation `?` in an `if` condition has no
-      // sensible single-line lowering; reject early with a clear message
-      // pointing users at the let-bind workaround.
-      if (condIR.kind === 'propagate') {
-        throw new Error(
-          "Propagation '?' is not allowed in `if cond=` — bind the call to a `let` first, then test the bound name.",
-        );
-      }
-      lines.push(`${indent}if (${emitExpression(condIR)}) {`);
-      for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
-      // Walk the `else` chain so byte-equivalent `else if` chains compile back
-      // out as `else if (...)` instead of `else { if (...) {...} else {...} }`.
-      // Recognised shapes for `else`:
-      //   1. else > [if, else_inner]  → chain: `} else if (cond) {...`, recurse on else_inner
-      //   2. else > [if]              → terminal chain: `} else if (cond) {...}` (no else)
-      //   3. else > anything else     → plain `} else { ... }`, chain ends
-      // Slice 5b's migration emits shape 1/2; hand-written KERN can use any.
-      let elseCandidate: IRNode | undefined = children[i + 1];
-      if (elseCandidate?.type === 'else') i++;
-      while (elseCandidate && elseCandidate.type === 'else') {
-        const ec: IRNode[] = elseCandidate.children ?? [];
-        const isChainable =
-          ec.length >= 1 && ec[0].type === 'if' && (ec.length === 1 || (ec.length === 2 && ec[1].type === 'else'));
-        if (isChainable) {
-          const ifNode = ec[0];
-          const nestedCondRaw = String(ifNode.props?.cond ?? '');
-          const nestedCondIR = parseExpression(nestedCondRaw);
-          if (nestedCondIR.kind === 'propagate') {
-            throw new Error(
-              "Propagation '?' is not allowed in `if cond=` — bind the call to a `let` first, then test the bound name.",
-            );
+  ctx.localScopes.push(new Map(initialBindings));
+  try {
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i];
+      if (child.type === 'let') {
+        for (const line of emitLetTS(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'assign') {
+        for (const line of emitAssignTS(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'destructure') {
+        for (const line of emitDestructureTS(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'return') {
+        for (const line of emitReturnTS(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'if') {
+        const condRaw = String(child.props?.cond ?? '');
+        const condIR = parseExpression(condRaw);
+        // Slice-2 review fix: propagation `?` in an `if` condition has no
+        // sensible single-line lowering; reject early with a clear message
+        // pointing users at the let-bind workaround.
+        if (condIR.kind === 'propagate') {
+          throw new Error(
+            "Propagation '?' is not allowed in `if cond=` — bind the call to a `let` first, then test the bound name.",
+          );
+        }
+        lines.push(`${indent}if (${emitExpression(condIR)}) {`);
+        for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
+        // Walk the `else` chain so byte-equivalent `else if` chains compile back
+        // out as `else if (...)` instead of `else { if (...) {...} else {...} }`.
+        // Recognised shapes for `else`:
+        //   1. else > [if, else_inner]  → chain: `} else if (cond) {...`, recurse on else_inner
+        //   2. else > [if]              → terminal chain: `} else if (cond) {...}` (no else)
+        //   3. else > anything else     → plain `} else { ... }`, chain ends
+        // Slice 5b's migration emits shape 1/2; hand-written KERN can use any.
+        let elseCandidate: IRNode | undefined = children[i + 1];
+        if (elseCandidate?.type === 'else') i++;
+        while (elseCandidate && elseCandidate.type === 'else') {
+          const ec: IRNode[] = elseCandidate.children ?? [];
+          const isChainable =
+            ec.length >= 1 && ec[0].type === 'if' && (ec.length === 1 || (ec.length === 2 && ec[1].type === 'else'));
+          if (isChainable) {
+            const ifNode = ec[0];
+            const nestedCondRaw = String(ifNode.props?.cond ?? '');
+            const nestedCondIR = parseExpression(nestedCondRaw);
+            if (nestedCondIR.kind === 'propagate') {
+              throw new Error(
+                "Propagation '?' is not allowed in `if cond=` — bind the call to a `let` first, then test the bound name.",
+              );
+            }
+            lines.push(`${indent}} else if (${emitExpression(nestedCondIR)}) {`);
+            for (const sl of emitChildrenTS(ifNode.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
+            elseCandidate = ec.length === 2 ? ec[1] : undefined;
+          } else {
+            lines.push(`${indent}} else {`);
+            for (const el of emitChildrenTS(ec, ctx, indent + INDENT_STEP)) lines.push(el);
+            break;
           }
-          lines.push(`${indent}} else if (${emitExpression(nestedCondIR)}) {`);
-          for (const sl of emitChildrenTS(ifNode.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
-          elseCandidate = ec.length === 2 ? ec[1] : undefined;
+        }
+        lines.push(`${indent}}`);
+      } else if (child.type === 'else') {
+        // Slice-2 review fix: orphan `else` (without a preceding `if` sibling)
+        // is a structural error — silently dropping it produced confusing
+        // miscompiles. The `if` arm above consumes its paired `else` via i++,
+        // so reaching one here means it was orphaned.
+        throw new Error('`else` must immediately follow an `if` sibling. Found orphan `else` in handler body.');
+      } else if (child.type === 'while') {
+        const condRaw = String(child.props?.cond ?? '');
+        const condIR = parseExpression(condRaw);
+        if (condIR.kind === 'propagate') {
+          throw new Error(
+            "Propagation '?' is not allowed in `while cond=` — bind the call to a `let` first, then test the bound name.",
+          );
+        }
+        lines.push(`${indent}while (${emitExpression(condIR)}) {`);
+        for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
+        lines.push(`${indent}}`);
+      } else if (child.type === 'for') {
+        for (const line of emitRangeForTS(child, ctx, indent)) lines.push(line);
+      } else if (child.type === 'try') {
+        // Slice 4c — try/catch control flow.
+        //
+        // Slice 5a deferred-fix (Codex P2-2): the schema declares
+        // `try.allowedChildren = ['step', 'handler', 'catch']` — `catch` is a
+        // CHILD of `try`, NOT a sibling. The previous body-emit read `catch`
+        // as a sibling, which (a) put it out of step with the validator
+        // (schema-compliant `try { catch { … } }` shape couldn't body-emit at
+        // all because validator rejected the legacy sibling shape first) and
+        // (b) silently mis-handled schema-compliant source if the validator
+        // was bypassed. Read child `catch` here to match the schema; treat
+        // legacy sibling shape as orphan since callers writing schema-valid
+        // IR will never emit it.
+        const tryChildren = child.children ?? [];
+        const catchChildren = tryChildren.filter((c) => c.type === 'catch');
+        const finallyChildren = tryChildren.filter((c) => c.type === 'finally');
+        if (catchChildren.length > 1) {
+          throw new Error('`try` supports at most one `catch` child — found multiple in handler body.');
+        }
+        if (finallyChildren.length > 1) {
+          throw new Error('`try` supports at most one `finally` child — found multiple in handler body.');
+        }
+        if (finallyChildren.length > 0 && typeof child.props?.name === 'string' && child.props.name.length > 0) {
+          throw new Error(
+            '`finally` is only supported on body-statement `try` (inside `handler lang="kern"`). Found `finally` under async-orchestration `try name=…` — move cleanup into the surrounding handler.',
+          );
+        }
+        const catchNode = catchChildren[0] ?? null;
+        const finallyNode = finallyChildren[0] ?? null;
+        if (catchNode === null && finallyNode === null) {
+          throw new Error('`try` must contain a `catch` or `finally` child. Found orphan `try` in handler body.');
+        }
+        const tryBlockChildren = tryChildren.filter((c) => c.type !== 'catch' && c.type !== 'finally');
+        // Slice 5a deferred-fix (Codex): the schema allows `step` and `handler`
+        // as `try` children for the *async orchestration* form (`try name=…`),
+        // not for body-statement try/catch. Body-emit only knows how to emit
+        // body-statements (let/return/if/each/throw/nested try). Reject the
+        // orchestration-only nodes loudly instead of silently dropping them
+        // through the unmatched-child path in emitChildrenTS.
+        const orchestrationChild = tryBlockChildren.find((c) => c.type === 'step' || c.type === 'handler');
+        if (orchestrationChild) {
+          throw new Error(
+            `\`${orchestrationChild.type}\` is only valid inside an async-orchestration \`try name=…\` block, not inside a body-statement \`try\`. Move the steps into the surrounding fn or use a structured orchestration block.`,
+          );
+        }
+        lines.push(`${indent}try {`);
+        ctx.tryDepth++;
+        for (const sl of emitChildrenTS(tryBlockChildren, ctx, indent + INDENT_STEP)) lines.push(sl);
+        ctx.tryDepth--;
+        if (catchNode !== null) {
+          const errName = String(catchNode.props?.name ?? 'e');
+          lines.push(`${indent}} catch (${errName}) {`);
+          for (const cl of emitChildrenTS(catchNode.children ?? [], ctx, indent + INDENT_STEP)) lines.push(cl);
+        }
+        if (finallyNode !== null) {
+          lines.push(`${indent}} finally {`);
+          ctx.finallyDepth++;
+          for (const fl of emitChildrenTS(finallyNode.children ?? [], ctx, indent + INDENT_STEP)) lines.push(fl);
+          ctx.finallyDepth--;
+        }
+        lines.push(`${indent}}`);
+      } else if (child.type === 'catch') {
+        throw new Error('`catch` must be a child of `try`. Found top-level `catch` in handler body.');
+      } else if (child.type === 'finally') {
+        throw new Error('`finally` must be a child of `try`. Found top-level `finally` in handler body.');
+      } else if (child.type === 'throw') {
+        // Slice 4c — throw statement.
+        for (const line of emitThrowTS(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'do') {
+        for (const line of emitDoTS(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'continue') {
+        lines.push(`${indent}continue;`);
+      } else if (child.type === 'break') {
+        lines.push(`${indent}break;`);
+      } else if (child.type === 'each') {
+        // Slice 4d — each loop.
+        // Slice 4c+4d review fix (Codex P1): the schema's `each` already
+        // declares `name` (binding) and `in` (iterable expression). The
+        // earlier slice-4d body-emit read `list`/`as` instead, which meant
+        // (a) schema-validated source `each name=x in=items` fell back to
+        // `for (const item of [])` (empty list, wrong binding) and
+        // (b) tests that used `list`/`as` failed schema validation.
+        // Read schema-compliant `name`/`in` first; accept legacy
+        // `list`/`as` as a fallback for tests that pre-date this fix.
+        const listRaw = String(child.props?.in ?? child.props?.list ?? '[]');
+        const listIR = parseExpression(listRaw);
+        // 2026-05-06 — pair-mode (`pairKey=k pairValue=v`) emits Map/iterable-of-pairs
+        // destructuring `for (const [k, v] of m)`. Index-mode (`index=i`) emits
+        // `for (const [i, x] of xs.entries())`. Default form is `for (const x of xs)`.
+        // Schema/cross-prop rules already enforce mutual exclusion; here we
+        // dispatch on shape only.
+        const pairKey = child.props?.pairKey;
+        const pairValue = child.props?.pairValue;
+        const isAwait = child.props?.await === true || child.props?.await === 'true';
+        const awaitPrefix = isAwait ? ' await' : '';
+        const rawItemType = child.props?.type;
+        const loopBindings: Array<[string, 'const' | 'let']> = [];
+        if (pairKey && pairValue) {
+          if (rawItemType !== undefined && rawItemType !== '') {
+            throw new Error('body-statement `each type=` cannot be combined with pair-mode `pairKey=`/`pairValue=`.');
+          }
+          loopBindings.push([String(pairKey), 'const'], [String(pairValue), 'const']);
+          lines.push(
+            `${indent}for${awaitPrefix} (const [${String(pairKey)}, ${String(pairValue)}] of ${emitExpression(listIR)}) {`,
+          );
+        } else if (child.props?.index) {
+          const itemType = rawItemType ? emitTypeAnnotation(String(rawItemType), 'unknown', child) : '';
+          const idxName = String(child.props.index);
+          const asName = String(child.props?.name ?? child.props?.as ?? 'item');
+          if (isAwait) {
+            throw new Error('body-statement `each await=true` cannot be combined with `index=`.');
+          }
+          const typeAnn = itemType ? `: [number, ${itemType}]` : '';
+          loopBindings.push([idxName, 'const'], [asName, 'const']);
+          lines.push(
+            `${indent}for (const [${idxName}, ${asName}]${typeAnn} of (${emitExpression(listIR)}).entries()) {`,
+          );
         } else {
-          lines.push(`${indent}} else {`);
-          for (const el of emitChildrenTS(ec, ctx, indent + INDENT_STEP)) lines.push(el);
-          break;
+          const itemType = rawItemType ? emitTypeAnnotation(String(rawItemType), 'unknown', child) : '';
+          const asName = String(child.props?.name ?? child.props?.as ?? 'item');
+          const typeAnn = itemType ? `: ${itemType}` : '';
+          loopBindings.push([asName, 'const']);
+          lines.push(`${indent}for${awaitPrefix} (const ${asName}${typeAnn} of ${emitExpression(listIR)}) {`);
         }
+        for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP, loopBindings)) lines.push(sl);
+        lines.push(`${indent}}`);
+      } else if (child.type === 'branch') {
+        // 2026-05-06 — body-statement `branch` lowers to a TS `switch`. Distinct
+        // emit path from top-level `generateBranch` (codegen-core.ts:420) which
+        // is reached only outside body-stmt scope.
+        //
+        // path quote handling: `value` is `kind: 'string'` so the parser stores
+        // the textual prop. Quoted source (`path value="paid"`) carries
+        // `__quotedProps` containing `value`; unquoted (`path value=Status.Paid`)
+        // does not. Codex review-fix: use `JSON.stringify` for quoted form so
+        // backslashes/apostrophes/escapes survive (the original top-level
+        // emitter's `case '${value}':` is sloppy and we don't reuse it here).
+        for (const line of emitBranchTS(child, ctx, indent)) lines.push(line);
       }
-      lines.push(`${indent}}`);
-    } else if (child.type === 'else') {
-      // Slice-2 review fix: orphan `else` (without a preceding `if` sibling)
-      // is a structural error — silently dropping it produced confusing
-      // miscompiles. The `if` arm above consumes its paired `else` via i++,
-      // so reaching one here means it was orphaned.
-      throw new Error('`else` must immediately follow an `if` sibling. Found orphan `else` in handler body.');
-    } else if (child.type === 'while') {
-      const condRaw = String(child.props?.cond ?? '');
-      const condIR = parseExpression(condRaw);
-      if (condIR.kind === 'propagate') {
-        throw new Error(
-          "Propagation '?' is not allowed in `while cond=` — bind the call to a `let` first, then test the bound name.",
-        );
-      }
-      lines.push(`${indent}while (${emitExpression(condIR)}) {`);
-      for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
-      lines.push(`${indent}}`);
-    } else if (child.type === 'for') {
-      for (const line of emitRangeForTS(child, ctx, indent)) lines.push(line);
-    } else if (child.type === 'try') {
-      // Slice 4c — try/catch control flow.
-      //
-      // Slice 5a deferred-fix (Codex P2-2): the schema declares
-      // `try.allowedChildren = ['step', 'handler', 'catch']` — `catch` is a
-      // CHILD of `try`, NOT a sibling. The previous body-emit read `catch`
-      // as a sibling, which (a) put it out of step with the validator
-      // (schema-compliant `try { catch { … } }` shape couldn't body-emit at
-      // all because validator rejected the legacy sibling shape first) and
-      // (b) silently mis-handled schema-compliant source if the validator
-      // was bypassed. Read child `catch` here to match the schema; treat
-      // legacy sibling shape as orphan since callers writing schema-valid
-      // IR will never emit it.
-      //
-      // Finally slice — a body-statement `try` may also have an optional
-      // `finally` child sibling to `catch`. Either `catch` or `finally`
-      // (or both) must be present; a `try` with neither is rejected. The
-      // finally body emits last and is wrapped by the same tryDepth
-      // counter as the `try` block so propagation `?` inside finally
-      // surfaces the existing let-bind hint instead of compiling to a
-      // `return` that suppresses the original exception/return.
-      const tryChildren = child.children ?? [];
-      // Codex review fix — defense-in-depth duplicate guards. The semantic
-      // validator already reports duplicates at source level with a line
-      // number; these throws cover hand-built IR cases (tests, codemods)
-      // that bypass validation, so a second `catch`/`finally` cannot be
-      // silently dropped.
-      const catchChildren = tryChildren.filter((c) => c.type === 'catch');
-      const finallyChildren = tryChildren.filter((c) => c.type === 'finally');
-      if (catchChildren.length > 1) {
-        throw new Error('`try` supports at most one `catch` child — found multiple in handler body.');
-      }
-      if (finallyChildren.length > 1) {
-        throw new Error('`try` supports at most one `finally` child — found multiple in handler body.');
-      }
-      // Body-statement `try` carries no `name` prop (async-orchestration
-      // form does). A `name` prop here means the IR is the orchestration
-      // shape, which has no `finally` codegen path. Reject loudly.
-      if (finallyChildren.length > 0 && typeof child.props?.name === 'string' && child.props.name.length > 0) {
-        throw new Error(
-          '`finally` is only supported on body-statement `try` (inside `handler lang="kern"`). Found `finally` under async-orchestration `try name=…` — move cleanup into the surrounding handler.',
-        );
-      }
-      const catchIdx = catchChildren.length === 0 ? -1 : tryChildren.indexOf(catchChildren[0]);
-      const finallyIdx = finallyChildren.length === 0 ? -1 : tryChildren.indexOf(finallyChildren[0]);
-      if (catchIdx === -1 && finallyIdx === -1) {
-        throw new Error('`try` must contain a `catch` or `finally` child. Found orphan `try` in handler body.');
-      }
-      const catchNode = catchIdx === -1 ? null : tryChildren[catchIdx];
-      const finallyNode = finallyIdx === -1 ? null : tryChildren[finallyIdx];
-      const tryBlockChildren = tryChildren.filter((c) => c.type !== 'catch' && c.type !== 'finally');
-      // Slice 5a deferred-fix (Codex): the schema allows `step` and `handler`
-      // as `try` children for the *async orchestration* form (`try name=…`),
-      // not for body-statement try/catch. Body-emit only knows how to emit
-      // body-statements (let/return/if/each/throw/nested try). Reject the
-      // orchestration-only nodes loudly instead of silently dropping them
-      // through the unmatched-child path in emitChildrenTS.
-      const orchestrationChild = tryBlockChildren.find((c) => c.type === 'step' || c.type === 'handler');
-      if (orchestrationChild) {
-        throw new Error(
-          `\`${orchestrationChild.type}\` is only valid inside an async-orchestration \`try name=…\` block, not inside a body-statement \`try\`. Move the steps into the surrounding fn or use a structured orchestration block.`,
-        );
-      }
-      lines.push(`${indent}try {`);
-      ctx.tryDepth++;
-      for (const sl of emitChildrenTS(tryBlockChildren, ctx, indent + INDENT_STEP)) lines.push(sl);
-      ctx.tryDepth--;
-      if (catchNode !== null) {
-        const errName = String(catchNode.props?.name ?? 'e');
-        lines.push(`${indent}} catch (${errName}) {`);
-        for (const cl of emitChildrenTS(catchNode.children ?? [], ctx, indent + INDENT_STEP)) lines.push(cl);
-      }
-      if (finallyNode !== null) {
-        lines.push(`${indent}} finally {`);
-        ctx.finallyDepth++;
-        for (const fl of emitChildrenTS(finallyNode.children ?? [], ctx, indent + INDENT_STEP)) lines.push(fl);
-        ctx.finallyDepth--;
-      }
-      lines.push(`${indent}}`);
-    } else if (child.type === 'catch') {
-      throw new Error('`catch` must be a child of `try`. Found top-level `catch` in handler body.');
-    } else if (child.type === 'finally') {
-      throw new Error('`finally` must be a child of `try`. Found top-level `finally` in handler body.');
-    } else if (child.type === 'throw') {
-      // Slice 4c — throw statement.
-      for (const line of emitThrowTS(child, ctx)) lines.push(`${indent}${line}`);
-    } else if (child.type === 'do') {
-      for (const line of emitDoTS(child, ctx)) lines.push(`${indent}${line}`);
-    } else if (child.type === 'continue') {
-      lines.push(`${indent}continue;`);
-    } else if (child.type === 'break') {
-      lines.push(`${indent}break;`);
-    } else if (child.type === 'each') {
-      // Slice 4d — each loop.
-      // Slice 4c+4d review fix (Codex P1): the schema's `each` already
-      // declares `name` (binding) and `in` (iterable expression). The
-      // earlier slice-4d body-emit read `list`/`as` instead, which meant
-      // (a) schema-validated source `each name=x in=items` fell back to
-      // `for (const item of [])` (empty list, wrong binding) and
-      // (b) tests that used `list`/`as` failed schema validation.
-      // Read schema-compliant `name`/`in` first; accept legacy
-      // `list`/`as` as a fallback for tests that pre-date this fix.
-      const listRaw = String(child.props?.in ?? child.props?.list ?? '[]');
-      const listIR = parseExpression(listRaw);
-      // 2026-05-06 — pair-mode (`pairKey=k pairValue=v`) emits Map/iterable-of-pairs
-      // destructuring `for (const [k, v] of m)`. Index-mode (`index=i`) emits
-      // `for (const [i, x] of xs.entries())`. Default form is `for (const x of xs)`.
-      // Schema/cross-prop rules already enforce mutual exclusion; here we
-      // dispatch on shape only.
-      const pairKey = child.props?.pairKey;
-      const pairValue = child.props?.pairValue;
-      const isAwait = child.props?.await === true || child.props?.await === 'true';
-      const awaitPrefix = isAwait ? ' await' : '';
-      const rawItemType = child.props?.type;
-      if (pairKey && pairValue) {
-        if (rawItemType !== undefined && rawItemType !== '') {
-          throw new Error('body-statement `each type=` cannot be combined with pair-mode `pairKey=`/`pairValue=`.');
-        }
-        lines.push(
-          `${indent}for${awaitPrefix} (const [${String(pairKey)}, ${String(pairValue)}] of ${emitExpression(listIR)}) {`,
-        );
-      } else if (child.props?.index) {
-        const itemType = rawItemType ? emitTypeAnnotation(String(rawItemType), 'unknown', child) : '';
-        const idxName = String(child.props.index);
-        const asName = String(child.props?.name ?? child.props?.as ?? 'item');
-        if (isAwait) {
-          throw new Error('body-statement `each await=true` cannot be combined with `index=`.');
-        }
-        const typeAnn = itemType ? `: [number, ${itemType}]` : '';
-        lines.push(`${indent}for (const [${idxName}, ${asName}]${typeAnn} of (${emitExpression(listIR)}).entries()) {`);
-      } else {
-        const itemType = rawItemType ? emitTypeAnnotation(String(rawItemType), 'unknown', child) : '';
-        const asName = String(child.props?.name ?? child.props?.as ?? 'item');
-        const typeAnn = itemType ? `: ${itemType}` : '';
-        lines.push(`${indent}for${awaitPrefix} (const ${asName}${typeAnn} of ${emitExpression(listIR)}) {`);
-      }
-      for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
-      lines.push(`${indent}}`);
-    } else if (child.type === 'branch') {
-      // 2026-05-06 — body-statement `branch` lowers to a TS `switch`. Distinct
-      // emit path from top-level `generateBranch` (codegen-core.ts:420) which
-      // is reached only outside body-stmt scope.
-      //
-      // path quote handling: `value` is `kind: 'string'` so the parser stores
-      // the textual prop. Quoted source (`path value="paid"`) carries
-      // `__quotedProps` containing `value`; unquoted (`path value=Status.Paid`)
-      // does not. Codex review-fix: use `JSON.stringify` for quoted form so
-      // backslashes/apostrophes/escapes survive (the original top-level
-      // emitter's `case '${value}':` is sloppy and we don't reuse it here).
-      for (const line of emitBranchTS(child, ctx, indent)) lines.push(line);
+      // Other child types fall through silently — slice 3 adds more.
     }
-    // Other child types fall through silently — slice 3 adds more.
+  } finally {
+    ctx.localScopes.pop();
   }
   return lines;
 }
@@ -373,7 +365,7 @@ function emitRangeForTS(node: IRNode, ctx: BodyEmitContext, indent: string): str
   const endVar = `__k_for_end_${++ctx.gensymCounter}`;
   const lines = [`${indent}const ${startVar} = ${fromExpr};`, `${indent}const ${endVar} = ${toExpr};`];
   lines.push(`${indent}for (let ${name} = ${startVar}; ${name} < ${endVar}; ${update}) {`);
-  for (const sl of emitChildrenTS(node.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
+  for (const sl of emitChildrenTS(node.children ?? [], ctx, indent + INDENT_STEP, [[name, 'const']])) lines.push(sl);
   lines.push(`${indent}}`);
   return lines;
 }
@@ -443,15 +435,9 @@ function emitBranchTS(node: IRNode, ctx: BodyEmitContext, indent: string): strin
  *  enclosing `catch`. That's almost never what users mean — they wrote
  *  `?` to flag a Result.err and (presumably) to let the catch handle
  *  it. Reject at codegen with a let-bind hint. Same shape as
- *  slice-2's reject-`?`-in-`if-cond` rule.
- *
- *  Finally slice (Codex review fix) — the same rejection now applies
- *  inside `finally`, but the hazard is sharper: a `return tmp` from
- *  the err branch *overrides* the pending exception/return/break/continue
- *  that the protected block was unwinding with. Surface a
- *  finally-specific message so authors don't see the misleading
- *  "bypasses catch" wording. `tryDepth` is checked first so a `try`
- *  nested inside a `finally` still reports the inner-try diagnostic. */
+ *  slice-2's reject-`?`-in-`if-cond` rule. Propagation inside `finally`
+ *  gets a sharper diagnostic because it would override pending control
+ *  flow from the protected block. */
 function rejectPropagationInsideTry(ctx: BodyEmitContext): void {
   if (ctx.tryDepth > 0) {
     throw new Error(
@@ -470,10 +456,12 @@ function rejectPropagationInsideTry(ctx: BodyEmitContext): void {
 function emitLetTS(node: IRNode, ctx: BodyEmitContext): string[] {
   const props = (node.props ?? {}) as Record<string, unknown>;
   const name = String(props.name ?? '_');
+  const bindingKind = bodyLetBindingKind(props.kind);
+  declareLocalBinding(ctx, name, bindingKind);
   const typeAnn = props.type ? `: ${emitTypeAnnotation(String(props.type), 'unknown', node)}` : '';
   const rawValue = props.value;
   if (rawValue === undefined || rawValue === '') {
-    return [`const ${name}${typeAnn} = undefined;`];
+    return [`${bindingKind} ${name}${typeAnn} = undefined;`];
   }
   const valueIR = parseExpression(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
@@ -483,13 +471,19 @@ function emitLetTS(node: IRNode, ctx: BodyEmitContext): string[] {
     return [
       `const ${tmp} = ${inner};`,
       `if (${tmp}.kind === 'err') return ${tmp};`,
-      `const ${name}${typeAnn} = ${tmp}.value;`,
+      `${bindingKind} ${name}${typeAnn} = ${tmp}.value;`,
     ];
   }
-  return [`const ${name}${typeAnn} = ${emitExpression(valueIR)};`];
+  return [`${bindingKind} ${name}${typeAnn} = ${emitExpression(valueIR)};`];
 }
 
-function emitAssignTS(node: IRNode, _ctx: BodyEmitContext): string[] {
+function bodyLetBindingKind(rawKind: unknown): 'const' | 'let' {
+  if (rawKind === undefined || rawKind === '' || rawKind === 'const') return 'const';
+  if (rawKind === 'let') return 'let';
+  throw new Error('body-statement `let kind=` supports only `const` or `let`.');
+}
+
+function emitAssignTS(node: IRNode, ctx: BodyEmitContext): string[] {
   const props = (node.props ?? {}) as Record<string, unknown>;
   const rawTarget = props.target;
   const rawValue = props.value;
@@ -507,6 +501,7 @@ function emitAssignTS(node: IRNode, _ctx: BodyEmitContext): string[] {
   if (!isAssignableTarget(targetIR)) {
     throw new Error('body-statement `assign target=` must be an identifier, member access, or index access.');
   }
+  assertAssignableLocalTarget(targetIR, ctx);
   const valueIR = parseExpression(String(rawValue));
   if (valueIR.kind === 'propagate') {
     throw new Error(
@@ -514,6 +509,33 @@ function emitAssignTS(node: IRNode, _ctx: BodyEmitContext): string[] {
     );
   }
   return [`${emitExpression(targetIR)} ${rawOp} ${emitExpression(valueIR)};`];
+}
+
+function declareLocalBinding(ctx: BodyEmitContext, name: string, kind: 'const' | 'let'): void {
+  const scope = ctx.localScopes.at(-1);
+  if (!scope) return;
+  if (scope.has(name)) {
+    throw new Error(`body-statement local binding \`${name}\` is already declared in this scope.`);
+  }
+  scope.set(name, kind);
+}
+
+function assertAssignableLocalTarget(target: ValueIR, ctx: BodyEmitContext): void {
+  if (target.kind !== 'ident') return;
+  const bindingKind = lookupLocalBinding(ctx, target.name);
+  if (bindingKind === 'const') {
+    throw new Error(
+      `body-statement \`assign target=${target.name}\` cannot reassign immutable \`let name=${target.name}\`; declare it with \`kind=let\`.`,
+    );
+  }
+}
+
+function lookupLocalBinding(ctx: BodyEmitContext, name: string): 'const' | 'let' | undefined {
+  for (let i = ctx.localScopes.length - 1; i >= 0; i--) {
+    const found = ctx.localScopes[i].get(name);
+    if (found) return found;
+  }
+  return undefined;
 }
 
 function isAssignableTarget(node: ValueIR): boolean {

@@ -42,6 +42,7 @@ const DIAGNOSTIC_SUGGESTIONS: Record<ParseErrorCode, string> = {
     'Body-statement nodes (`let`/`return`/`if`/`else`/`each`/`try`/`catch`/`throw`) are only valid inside a `handler lang="kern"` block (or nested in another body-statement). Add `lang="kern"` to the parent handler, or move this node into one.',
   BODY_LOOP_CONTROL_OUTSIDE_LOOP:
     'Move this statement inside a `for`, `each`, or `while` body-statement loop, or remove it.',
+  LET_INVALID_KIND: 'Use `kind=let` for mutable bindings, `kind=const` for explicit immutable bindings, or omit it.',
   BODY_FOR_INVALID_NAME:
     'Use a loop variable name that can compile unchanged to both TypeScript and Python: letters, digits, and underscores only, starting with a letter or underscore.',
   BODY_FOR_INVALID_STEP:
