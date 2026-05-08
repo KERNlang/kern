@@ -126,13 +126,15 @@ export function hasComments(bodyText: string): boolean {
 function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContext): string | null {
   if (ts.isVariableStatement(stmt)) {
     const flags = stmt.declarationList.flags;
-    if (!(flags & ts.NodeFlags.Const)) return 'var-non-const';
+    const isConst = (flags & ts.NodeFlags.Const) !== 0;
+    const isLet = (flags & ts.NodeFlags.Let) !== 0;
+    if (!isConst && !isLet) return 'var-non-const';
     const decls = stmt.declarationList.declarations;
     if (decls.length !== 1) return 'var-multi-decl';
     const decl = decls[0];
     if (!decl.initializer) return 'var-no-init';
     if (decl.type && !isValidKernTypeAnnotation(decl.type.getText(sf))) return 'var-bad-type';
-    if (!ts.isIdentifier(decl.name)) return classifyDestructureDecl(decl, sf);
+    if (!ts.isIdentifier(decl.name)) return isConst ? classifyDestructureDecl(decl, sf) : 'var-destructure-non-const';
     if (!isValidKernExpression(decl.initializer.getText(sf))) return 'var-bad-expr';
     return null;
   }

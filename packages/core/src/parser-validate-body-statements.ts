@@ -71,6 +71,7 @@ function walk(state: ParseState, node: IRNode, ctx: WalkContext): void {
     );
   }
   if (ctx.inNativeBody && node.type === 'for') validateForStatementShape(state, node);
+  if (node.type === 'let') validateLetKind(state, node);
 
   const inNativeBody = ctx.inNativeBody || isNativeBodyHandler(node);
   const childCtx: WalkContext = {
@@ -81,6 +82,15 @@ function walk(state: ParseState, node: IRNode, ctx: WalkContext): void {
   if (node.children) {
     for (const child of node.children) walk(state, child, childCtx);
   }
+}
+
+function validateLetKind(state: ParseState, node: IRNode): void {
+  const rawKind = node.props?.kind;
+  if (rawKind === undefined || rawKind === '' || rawKind === 'const' || rawKind === 'let') return;
+  const loc = node.loc ?? { line: 1, col: 1, endCol: 2 };
+  emitDiagnostic(state, 'LET_INVALID_KIND', 'error', '`let kind=` supports only `const` or `let`.', loc.line, loc.col, {
+    endCol: loc.endCol ?? loc.col + 1,
+  });
 }
 
 function isLoopControlOutsideLoop(node: IRNode, ctx: WalkContext): boolean {

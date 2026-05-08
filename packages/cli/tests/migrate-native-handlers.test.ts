@@ -3,7 +3,7 @@
  *  Verifies the pure rewriter in isolation. The rewriter takes raw `.kern`
  *  source containing `handler <<< … >>>` blocks and converts the eligible
  *  ones to `handler lang="kern"` body-statement form. Anything outside the
- *  supported AST shape (mutable declarations, unsupported loops, comments,
+ *  supported AST shape (`var`, mutable destructuring, unsupported loops, comments,
  *  block-bodied arrow functions etc.) is skipped — never half-migrated.
  *
  *  Round-trip safety is provided by the slice 5b-pre parser surface
@@ -237,6 +237,24 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(result.hits).toHaveLength(1);
     expect(result.output).toContain('let name=user type="User | null" value="loadUser()"');
     expect(result.output).toContain('return value="user"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates mutable let binding with compound assignment', () => {
+    const source = [
+      'fn name=sum returns=number',
+      '  handler <<<',
+      '    let total = 0;',
+      '    total += item.value;',
+      '    return total;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('let name=total kind=let value="0"');
+    expect(result.output).toContain('assign target="total" op="+=" value="item.value"');
+    expect(result.output).toContain('return value="total"');
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
@@ -531,13 +549,15 @@ describe('rewriteNativeHandlers — bail conditions', () => {
     expect(result.hits).toHaveLength(0);
   });
 
-  test('bails on `let X = …` (KERN body `let` lowers to TS `const` — not byte-preserving)', () => {
+  test('migrates `let X = …` to mutable KERN let', () => {
     const source = ['fn name=ok returns=number', '  handler <<<', '    let x = 1;', '    return x;', '  >>>'].join(
       '\n',
     );
     const result = rewriteNativeHandlers(source);
-    expect(result.hits).toHaveLength(0);
-    expect(result.output).toBe(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('let name=x kind=let value="1"');
+    expect(result.output).toContain('return value="x"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
   test('bails on `var X = …` (function-scoped, body-`let` cannot preserve)', () => {
@@ -546,6 +566,19 @@ describe('rewriteNativeHandlers — bail conditions', () => {
     );
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(0);
+  });
+
+  test('bails on mutable destructuring let', () => {
+    const source = [
+      'fn name=ok returns=number',
+      '  handler <<<',
+      '    let { x } = obj;',
+      '    return x;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
   });
 
   test('bails on destructuring (const { a } = obj)', () => {
@@ -1225,6 +1258,41 @@ describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalenc
     const handler = findHandler(parseDocumentStrict(result.output));
     const ts = emitNativeKernBodyTS(handler as IRNode);
     expect(ts).toBe(['const user: User | null = loadUser();', 'return user;'].join('\n'));
+  });
+
+  test('mutable let binding compiles byte-equivalent', () => {
+    const source = [
+      'fn name=sum returns=number',
+      '  handler <<<',
+      '    let total = 0;',
+      '    total += item.value;',
+      '    return total;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(['let total = 0;', 'total += item.value;', 'return total;'].join('\n'));
+  });
+
+  test('typed mutable let binding compiles byte-equivalent', () => {
+    const source = [
+      'fn name=sum returns=number',
+      '  handler <<<',
+      '    let total: number = 0;',
+      '    total += item.value;',
+      '    return total;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('let name=total type="number" kind=let value="0"');
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(['let total: number = 0;', 'total += item.value;', 'return total;'].join('\n'));
   });
 
   test('typed const binding inside loop compiles byte-equivalent', () => {

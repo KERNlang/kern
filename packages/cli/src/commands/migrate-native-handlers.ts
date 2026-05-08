@@ -114,24 +114,26 @@ function dedent(lines: string[]): string {
  */
 function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string, ctx: MapContext): string[] | null {
   if (ts.isVariableStatement(stmt)) {
-    // Only `const` is byte-preserving — KERN body `let` lowers to TS `const`,
-    // so migrating raw `let X = …` to body-statement `let` would silently
-    // promote a mutable binding to a fresh `const`. Same for `var` (which
-    // also has function-scoping semantics that body-`let` can't preserve).
+    // `const` is the default KERN body binding. TS `let` is now preserved as
+    // `let kind=let`; `var` remains unsupported because function scoping
+    // cannot be represented by native body bindings.
     const flags = stmt.declarationList.flags;
-    if (!(flags & ts.NodeFlags.Const)) return null;
+    const isConst = (flags & ts.NodeFlags.Const) !== 0;
+    const isLet = (flags & ts.NodeFlags.Let) !== 0;
+    if (!isConst && !isLet) return null;
     const decls = stmt.declarationList.declarations;
     if (decls.length !== 1) return null;
     const decl = decls[0];
     if (!decl.initializer) return null;
     const typeText = decl.type?.getText(source);
     if (typeText && !isValidKernTypeAnnotation(typeText)) return null;
-    if (!ts.isIdentifier(decl.name)) return mapDestructureDecl(decl, source, indent, typeText);
+    if (!ts.isIdentifier(decl.name)) return isConst ? mapDestructureDecl(decl, source, indent, typeText) : null;
     const name = decl.name.text;
     const exprText = decl.initializer.getText(source);
     if (!isValidKernExpression(exprText)) return null;
     const typeAttr = typeText ? ` type="${escapeKernString(typeText)}"` : '';
-    return [`${indent}let name=${name}${typeAttr} value="${escapeKernString(exprText)}"`];
+    const kindAttr = isLet ? ' kind=let' : '';
+    return [`${indent}let name=${name}${typeAttr}${kindAttr} value="${escapeKernString(exprText)}"`];
   }
 
   if (ts.isReturnStatement(stmt)) {

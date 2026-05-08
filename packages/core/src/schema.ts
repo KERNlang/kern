@@ -1243,13 +1243,14 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   let: {
     description:
-      'Iteration-scoped binding — emits a plain `const` inside the containing `each` callback. Use for values that depend on the iteration variable or index. Unlike `derive` (which compiles to `useMemo` and violates Rules of Hooks inside `.map`), `let` is hook-safe by construction. Provide either `value=` (native expression form, ValueIR-canonicalised — slice 3a) or `expr=` (raw passthrough escape hatch).',
-    example: 'let name=idx value=i+1',
+      'Scoped binding — defaults to an immutable TS `const` binding in native body/codegen contexts. Use `kind=let` when the binding must be reassigned later with `assign`; the Python target emits the same assignment syntax either way. Provide either `value=` (native expression form, ValueIR-canonicalised — slice 3a) or `expr=` (raw passthrough escape hatch).',
+    example: 'let name=idx value=i+1\nlet name=total kind=let value=0',
     props: {
       name: { required: true, kind: 'identifier' },
       value: { kind: 'expression' },
       expr: { kind: 'rawExpr' },
       type: { kind: 'typeAnnotation' },
+      kind: { kind: 'identifier' },
     },
   },
   local: {

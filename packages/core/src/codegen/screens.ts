@@ -699,5 +699,11 @@ function renderLetBinding(node: IRNode): string {
 
   const t = lp.type as string | undefined;
   const typeAnn = t ? `: ${emitTypeAnnotation(t, 'unknown', node)}` : '';
-  return `const ${lname}${typeAnn} = ${rhs};`;
+  return `${renderLetBindingKind(lp.kind)} ${lname}${typeAnn} = ${rhs};`;
+}
+
+function renderLetBindingKind(rawKind: unknown): 'const' | 'let' {
+  if (rawKind === undefined || rawKind === '' || rawKind === 'const') return 'const';
+  if (rawKind === 'let') return 'let';
+  throw new Error('let kind= supports only `const` or `let`.');
 }
