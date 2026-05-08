@@ -9,6 +9,7 @@
  * for callers that need to opt out of canonicalisation. */
 
 import { capabilitySupport } from '../src/capability-matrix.js';
+import { parseParamList } from '../src/codegen/helpers.js';
 import { generateCoreNode } from '../src/codegen-core.js';
 import { decompile } from '../src/decompiler.js';
 import { importTypeScript } from '../src/importer.js';
@@ -195,6 +196,46 @@ describe('param.value — slice 3c (native ValueIR form)', () => {
         ].join('\n'),
       );
       expect(code).toContain('function load(id: string, retries: number = 3): string {');
+    });
+
+    it('legacy params handles comma-bearing default expressions', () => {
+      const node = mk('fn', {
+        name: 'defaults',
+        params: 'label:string="Ada, Lovelace",ids:number[]=[1, 2],lookup:Map<string, number>=new Map([["a", 1]])',
+        returns: 'void',
+      });
+      const code = generateCoreNode(node).join('\n');
+      expect(code).toContain(
+        'function defaults(label: string = "Ada, Lovelace", ids: number[] = [1, 2], lookup: Map<string, number> = new Map([["a", 1]])): void {',
+      );
+    });
+
+    it('legacy params does not treat arrows as default separators', () => {
+      const node = mk('fn', {
+        name: 'predicate',
+        params: 'test:(value:number)=>boolean=(value) => value > 0',
+        returns: 'void',
+      });
+      const code = generateCoreNode(node).join('\n');
+      expect(code).toContain('function predicate(test: (value:number)=>boolean = (value) => value > 0): void {');
+    });
+
+    it('legacy params handles arrow return types with generic defaults', () => {
+      expect(parseParamList('build:(value:number)=>Array<number>=[]')).toBe(
+        'build: (value:number)=>Array<number> = []',
+      );
+    });
+
+    it('legacy params handles quoted comma defaults', () => {
+      expect(parseParamList("single:string='Ada, Lovelace',template:string=`a, b`")).toBe(
+        "single: string = 'Ada, Lovelace', template: string = `a, b`",
+      );
+    });
+
+    it('legacy params handles escaped quotes inside quoted defaults', () => {
+      expect(parseParamList(String.raw`escaped:string="a\",b",next:number=1`)).toBe(
+        String.raw`escaped: string = "a\",b", next: number = 1`,
+      );
     });
 
     it('structured param children win over legacy params= string', () => {

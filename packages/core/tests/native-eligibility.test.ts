@@ -42,6 +42,13 @@ describe('classifyHandlerBody — eligible bodies', () => {
     expect(classifyHandlerBody(`return Text.upper(name);`).eligible).toBe(true);
   });
 
+  test('expression-bodied callbacks are eligible', () => {
+    expect(classifyHandlerBody(`const names = List.map(users, user => user.name);\nreturn names;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
   test('await + ? propagation rejected as ts-parse-error (slice α-3)', () => {
     // KERN-syntax postfix `?` (propagation) is NOT valid TS — `tsc` reports
     // a parse error. Slice α-3's classifier mirrors the migrator's TS parse
@@ -193,9 +200,10 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
     expect(result.reason).toBe(expectedReason);
   }
 
-  // Arrow / function inside expressions are rejected by the expression parser,
+  // Block-bodied callbacks are still rejected by the expression parser,
   // surfacing as `<stmt>-bad-expr` rather than a syntactic top-level bail.
-  test('arrow function rejected (return-bad-expr)', () => rejected(`return xs.map(x => x * 2);`, 'return-bad-expr'));
+  test('block-bodied callback rejected (return-bad-expr)', () =>
+    rejected(`return xs.map((x) => { return x * 2; });`, 'return-bad-expr'));
 
   test('function declaration rejected (unsupported-stmt)', () =>
     rejected(`function inner() { return 1; }\nreturn inner();`, 'unsupported-stmt-FunctionDeclaration'));
@@ -231,7 +239,8 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
   test('empty while block rejected to preserve verify byte-equivalence', () =>
     rejected(`while (i < 10) {}\nreturn i;`, 'while-empty-body'));
 
-  test('while with bad condition rejected', () => rejected(`while (x => x) {\n  return 1;\n}`, 'while-bad-cond'));
+  test('while with bad condition rejected', () =>
+    rejected(`while (function () { return true; }) {\n  return 1;\n}`, 'while-bad-cond'));
 
   test('do-while rejected', () => rejected(`do { i = i + 1; } while (i < 10);`, 'do-while-stmt'));
 
@@ -255,7 +264,7 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
     rejected(`import { foo } from 'bar';\nreturn foo();`, 'unsupported-stmt-ImportDeclaration'));
 
   test('computed non-expression assignment target rejected', () =>
-    rejected(`obj[a => a] = 1;\nreturn obj;`, 'expr-stmt-bad-assign-target'));
+    rejected(`obj[(a) => { return a; }] = 1;\nreturn obj;`, 'expr-stmt-bad-assign-target'));
 
   test('optional-chain assignment targets rejected', () => {
     rejected(`obj?.x = 1;\nreturn obj;`, 'expr-stmt-bad-assign-target');

@@ -93,6 +93,7 @@ interface BodyEmitContext {
   gensymCounter: number;
   imports: Set<string>;
   symbolMap: Record<string, string>;
+  shadowedSymbols: Set<string>;
   propagateStyle: 'value' | 'http-exception';
   usedPropagation: boolean;
   /** Slice 4c review fix (OpenCode + Gemini critical) — depth of nested
@@ -116,6 +117,7 @@ function freshCtx(options?: BodyEmitOptions): BodyEmitContext {
     gensymCounter: 0,
     imports: new Set<string>(),
     symbolMap: options?.symbolMap ?? {},
+    shadowedSymbols: new Set<string>(),
     propagateStyle: options?.propagateStyle ?? 'value',
     usedPropagation: false,
     tryDepth: 0,
@@ -693,6 +695,7 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       // Slice 3a — apply symbol-map rename so KERN-form `userId` becomes
       // Python-form `user_id`. Identifiers not in the map (locals, globals,
       // module names) pass through unchanged.
+      if (ctx.shadowedSymbols.has(node.name)) return node.name;
       return ctx.symbolMap[node.name] ?? node.name;
     case 'member':
     case 'call':
@@ -808,6 +811,8 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
     }
     case 'arrayLit':
       return `[${node.items.map((i) => emitPyExprCtx(i, ctx)).join(', ')}]`;
+    case 'lambda':
+      return emitLambdaPy(node, ctx);
     case 'conditional': {
       // Slice α-2: TS `test ? consequent : alternate` lowers to Python's
       // expression-form conditional `consequent if test else alternate`
@@ -842,6 +847,18 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
         `Propagation '${node.op}' is only allowed at statement level (top of \`let value=\` or \`return value=\`). ` +
           `Mid-expression \`${node.op}\` is rejected — bind the call to a \`let\` first, then use the bound name.`,
       );
+  }
+}
+
+function emitLambdaPy(node: Extract<ValueIR, { kind: 'lambda' }>, ctx: BodyEmitContext): string {
+  const names = node.params.map((p) => p.name);
+  const previous = new Set(ctx.shadowedSymbols);
+  for (const name of names) ctx.shadowedSymbols.add(name);
+  try {
+    const params = names.length === 0 ? '' : ` ${names.join(', ')}`;
+    return `lambda${params}: ${emitPyExprCtx(node.body, ctx)}`;
+  } finally {
+    ctx.shadowedSymbols = previous;
   }
 }
 
@@ -945,7 +962,8 @@ function needsIndexReceiverParens(child: ValueIR): boolean {
     child.kind === 'unary' ||
     child.kind === 'spread' ||
     child.kind === 'typeAssert' ||
-    child.kind === 'await'
+    child.kind === 'await' ||
+    child.kind === 'lambda'
   );
 }
 
@@ -1044,6 +1062,8 @@ function applyStdlibLoweringPython(call: Extract<ValueIR, { kind: 'call' }>, ctx
       `KERN-stdlib '${moduleName}.${methodName}' takes ${entry.arity} arg${entry.arity === 1 ? '' : 's'}, got ${call.args.length}.`,
     );
   }
+  const listLambda = lowerListLambdaPython(moduleName, methodName, call, ctx);
+  if (listLambda !== null) return listLambda;
   // Slice 3b — register required imports (e.g., `Number.floor` ⇒ `import math`).
   if (entry.requires?.py) ctx.imports.add(entry.requires.py);
   const args = call.args.map((a) => {
@@ -1051,4 +1071,34 @@ function applyStdlibLoweringPython(call: Extract<ValueIR, { kind: 'call' }>, ctx
     return needsArgParens(a) ? `(${emitted})` : emitted;
   });
   return applyTemplate(entry.py, args);
+}
+
+function lowerListLambdaPython(
+  moduleName: string,
+  methodName: string,
+  call: Extract<ValueIR, { kind: 'call' }>,
+  ctx: BodyEmitContext,
+): string | null {
+  if (moduleName !== 'List') return null;
+  if (methodName !== 'map' && methodName !== 'filter') return null;
+  const source = emitPyExprCtx(call.args[0], ctx);
+  const callback = call.args[1];
+  if (callback.kind !== 'lambda') {
+    const fn = emitPyExprCtx(callback, ctx);
+    return methodName === 'map' ? `list(map(${fn}, ${source}))` : `list(filter(${fn}, ${source}))`;
+  }
+  if (callback.params.length !== 1) {
+    throw new Error(`List.${methodName} expects a one-parameter lambda on the Python target.`);
+  }
+  const name = callback.params[0].name;
+  const previous = new Set(ctx.shadowedSymbols);
+  ctx.shadowedSymbols.add(name);
+  try {
+    const body = emitPyExprCtx(callback.body, ctx);
+    return methodName === 'map'
+      ? `[${body} for ${name} in ${source}]`
+      : `[${name} for ${name} in ${source} if ${body}]`;
+  } finally {
+    ctx.shadowedSymbols = previous;
+  }
 }

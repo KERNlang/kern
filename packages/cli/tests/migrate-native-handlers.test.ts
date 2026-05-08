@@ -4,7 +4,7 @@
  *  source containing `handler <<< … >>>` blocks and converts the eligible
  *  ones to `handler lang="kern"` body-statement form. Anything outside the
  *  supported AST shape (mutable declarations, unsupported loops, comments,
- *  arrow functions etc.) is skipped — never half-migrated.
+ *  block-bodied arrow functions etc.) is skipped — never half-migrated.
  *
  *  Round-trip safety is provided by the slice 5b-pre parser surface
  *  (commit aa5d69e6): rewritten output parses strict and emits the same
@@ -223,6 +223,25 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(result.output).toContain('while cond="running"');
     expect(result.output).toContain('let name=user type="User" value="loadUser()"');
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates expression-bodied callback values', () => {
+    const source = [
+      'fn name=names returns="string[]"',
+      '  handler <<<',
+      '    const names = List.map(users, user => user.name);',
+      '    return names;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('let name=names value="List.map(users, user => user.name)"');
+    expect(result.output).toContain('return value="names"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+    const handler = findHandler(parseDocumentStrict(result.output));
+    expect(handler).toBeDefined();
+    expect(emitNativeKernBodyTS(handler!)).toContain('const names = users.map(user => user.name);');
   });
 
   test('migrates string-literal union type with escaping', () => {
@@ -455,11 +474,11 @@ describe('rewriteNativeHandlers — supported statement types', () => {
 });
 
 describe('rewriteNativeHandlers — bail conditions', () => {
-  test('skips handlers whose body is ineligible (arrow function in classifier reject set)', () => {
+  test('skips handlers whose body is ineligible (block-bodied callback)', () => {
     const source = [
       'fn name=fold returns=number',
       '  handler <<<',
-      '    return items.reduce((s, x) => s + x, 0);',
+      '    return items.map((x) => { return x.id; });',
       '  >>>',
     ].join('\n');
     const result = rewriteNativeHandlers(source);

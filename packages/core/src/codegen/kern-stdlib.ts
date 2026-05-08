@@ -78,6 +78,8 @@ export const KERN_STDLIB: Record<string, Record<string, StdlibEntry>> = {
     // Slice-2 review fix: Python `str.join` requires string elements. Wrap
     // with `map(str, …)` so non-string KERN values stringify like JS does.
     join: { arity: 2, ts: '$0.join($1)', py: '$1.join(map(str, $0))' },
+    map: { arity: 2, ts: '$0.map($1)', py: 'list(map($1, $0))' },
+    filter: { arity: 2, ts: '$0.filter($1)', py: 'list(filter($1, $0))' },
   },
   Map: {
     has: { arity: 2, ts: '$0.has($1)', py: '$1 in $0' },

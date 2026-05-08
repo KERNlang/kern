@@ -84,6 +84,33 @@ describe('emitExpression — TS — KERN-stdlib dispatch', () => {
   test('plain ident.method() (not module-prefixed-call style) still emits as-is when ident is not a known module', () => {
     expect(emitExpression(parseExpression('arr.push(x)'))).toBe('arr.push(x)');
   });
+
+  test('lambda callbacks emit through normal TS calls', () => {
+    expect(emitExpression(parseExpression('() => value'))).toBe('() => value');
+    expect(emitExpression(parseExpression('(a, b) => a + b'))).toBe('(a, b) => a + b');
+    expect(emitExpression(parseExpression('x => y => x + y'))).toBe('x => y => x + y');
+    expect(emitExpression(parseExpression('users.map(user => user.name)'))).toBe('users.map(user => user.name)');
+    expect(emitExpression(parseExpression('users.map((user) => user.name)'))).toBe('users.map((user) => user.name)');
+    expect(emitExpression(parseExpression('users.map((user: User) => user.name)'))).toBe(
+      'users.map((user: User) => user.name)',
+    );
+    expect(emitExpression(parseExpression('(x => x)(5)'))).toBe('(x => x)(5)');
+    expect(emitExpression(parseExpression('cond ? x => 1 : x => 2'))).toBe('cond ? (x => 1) : (x => 2)');
+    expect(emitExpression(parseExpression('{ cb: x => x }'))).toBe('{ cb: x => x }');
+    expect(emitExpression(parseExpression('[x => x]'))).toBe('[x => x]');
+    expect(emitExpression(parseExpression('x => a ? b : c'))).toBe('x => a ? b : c');
+  });
+
+  test('stdlib template args parenthesize lambda receivers', () => {
+    expect(emitExpression(parseExpression('Text.length(x => x)'))).toBe('(x => x).length');
+  });
+
+  test('List.map and List.filter lower callback expressions to TS array methods', () => {
+    expect(emitExpression(parseExpression('List.map(users, user => user.name)'))).toBe('users.map(user => user.name)');
+    expect(emitExpression(parseExpression('List.filter(users, user => user.active)'))).toBe(
+      'users.filter(user => user.active)',
+    );
+  });
 });
 
 // ── Json + Path slice — pure/sync stdlib, no closures, no IO ──────────────

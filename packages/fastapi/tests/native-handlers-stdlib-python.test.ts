@@ -42,6 +42,35 @@ describe('emitPyExpression — KERN-stdlib dispatch (Text module)', () => {
   test('non-stdlib module passes through unchanged in Python', () => {
     expect(emitPyExpression(parseExpression('user.email(x)'))).toBe('user.email(x)');
   });
+
+  test('lambda callbacks lower to Python lambda expressions', () => {
+    expect(emitPyExpression(parseExpression('visit(() => value)'))).toBe('visit(lambda: value)');
+    expect(emitPyExpression(parseExpression('visit((a, b) => a + b)'))).toBe('visit(lambda a, b: a + b)');
+    expect(emitPyExpression(parseExpression('visit(user => user.name)'))).toBe('visit(lambda user: user.name)');
+    expect(emitPyExpression(parseExpression('visit((user: User) => user.name)'))).toBe('visit(lambda user: user.name)');
+  });
+
+  test('List.map and List.filter lower one-param lambdas to Python comprehensions', () => {
+    expect(emitPyExpression(parseExpression('List.map(users, user => user.name)'))).toBe(
+      '[user.name for user in users]',
+    );
+    expect(emitPyExpression(parseExpression('List.filter(users, user => user.active)'))).toBe(
+      '[user for user in users if user.active]',
+    );
+  });
+
+  test('lambda params shadow outer symbol-map renames', () => {
+    expect(
+      emitPyExpression(parseExpression('List.map(users, userId => userId.name)'), {
+        symbolMap: { userId: 'user_id' },
+      }),
+    ).toBe('[userId.name for userId in users]');
+  });
+
+  test('List.map and List.filter reject multi-param lambdas on Python target', () => {
+    expect(() => emitPyExpression(parseExpression('List.map(pairs, (a, b) => a + b)'))).toThrow(/one-parameter/);
+    expect(() => emitPyExpression(parseExpression('List.filter(pairs, (a, b) => a === b)'))).toThrow(/one-parameter/);
+  });
 });
 
 describe('Cross-target parity — same KERN source, idiomatic per target', () => {
