@@ -62,7 +62,9 @@ describe('cross-module registry — end-to-end', () => {
     writeFileSync(bPath, bSource);
 
     const registry = buildCrossModuleRegistry([aPath, bPath]);
-    expect(registry.get(resolve(aPath))?.resultFns.has('parseUser')).toBe(true);
+    const moduleExports = registry.get(resolve(aPath));
+    expect(moduleExports?.resultFns.has('parseUser')).toBe(true);
+    expect(moduleExports?.symbols?.get('parseUser')).toEqual({ name: 'parseUser', kind: 'fn' });
 
     const resolver = makeImportResolverForFile(resolve(bPath), registry);
     const result = parseDocumentWithDiagnostics(bSource, undefined, { resolveImport: resolver });
@@ -71,6 +73,38 @@ describe('cross-module registry — end-to-end', () => {
     expect(code).toContain('const __k_t1 = parseUser(raw);');
     expect(code).toContain("if (__k_t1.kind === 'err') return __k_t1;");
     expect(code).toContain('const u = __k_t1.value;');
+    expect(
+      (result.root.children?.[0] as { props?: Record<string, unknown>; children?: unknown[] }).children?.[0],
+    ).toMatchObject({
+      type: 'from',
+      props: { name: 'parseUser', kind: 'fn' },
+    });
+  });
+
+  test('registry records exported symbol kinds beyond functions', () => {
+    const modulePath = join(tmpDir, 'domain.kern');
+    writeFileSync(
+      modulePath,
+      [
+        'type name=UserId values=string',
+        'interface name=UserProfile',
+        '  field name=id type=UserId',
+        'class name=TokenTracker',
+        '  field name=count type=number',
+        'fn name=makeUser params="id:UserId" returns=UserProfile export=false',
+        '  handler <<<',
+        '    return { id };',
+        '  >>>',
+      ].join('\n'),
+    );
+
+    const registry = buildCrossModuleRegistry([modulePath]);
+    const symbols = registry.get(resolve(modulePath))?.symbols;
+
+    expect(symbols?.get('UserId')).toEqual({ name: 'UserId', kind: 'type' });
+    expect(symbols?.get('UserProfile')).toEqual({ name: 'UserProfile', kind: 'interface' });
+    expect(symbols?.get('TokenTracker')).toEqual({ name: 'TokenTracker', kind: 'class' });
+    expect(symbols?.has('makeUser')).toBe(false);
   });
 
   test('without registry: same import passes through verbatim', () => {

@@ -214,7 +214,7 @@ export { parseExpression } from './parser-expression.js';
 // can't be exercised end-to-end through the parser).
 export { collectNativeEligibleHints, validateNativeEligible } from './parser-validate-native-eligible.js';
 // Slice 7 v2 — cross-module recognition surface for `?`/`!` propagation.
-export type { ImportResolver, ModuleExports } from './parser-validate-propagation.js';
+export type { ImportResolver, ModuleExportSymbol, ModuleExports } from './parser-validate-propagation.js';
 export type { ParserHintsConfig } from './runtime.js';
 // Runtime (instance-based state)
 export { defaultRuntime, KernRuntime } from './runtime.js';

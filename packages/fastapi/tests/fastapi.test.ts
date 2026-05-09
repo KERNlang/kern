@@ -461,6 +461,30 @@ describe('FastAPI Transpiler', () => {
       expect(lines.join('\n')).toBe('from .helpers import parse_user as parseUser');
     });
 
+    test('generates Python use/from import from resolved KERN export metadata', async () => {
+      const { parseDocumentWithDiagnostics } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const result = parseDocumentWithDiagnostics(
+        ['use path="./helpers.kern"', '  from name=parseUser'].join('\n'),
+        undefined,
+        {
+          resolveImport: (path) =>
+            path === './helpers.kern'
+              ? {
+                  symbols: new Map([['parseUser', { name: 'parseUser', kind: 'fn' }]]),
+                  resultFns: new Set(),
+                  optionFns: new Set(),
+                }
+              : null,
+        },
+      );
+      const useNode = result.root.children?.[0];
+      const lines = useNode ? generatePythonCoreNode(useNode) : [];
+
+      expect(lines.join('\n')).toBe('from .helpers import parse_user as parseUser');
+    });
+
     test('generates Python use/from import with explicit alias over function symbol kind', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { generatePythonCoreNode } = await import('../src/codegen-python.js');

@@ -8,7 +8,13 @@
  *  classifies as `result`/`option`). Imports of any other return shape
  *  contribute nothing — the propagation pass leaves those calls alone. */
 
-import { type ImportResolver, type IRNode, type ModuleExports, parseDocument } from '@kernlang/core';
+import {
+  type ImportResolver,
+  type IRNode,
+  type ModuleExportSymbol,
+  type ModuleExports,
+  parseDocument,
+} from '@kernlang/core';
 import { existsSync, readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 
@@ -27,22 +33,55 @@ function unwrapPromise(s: string): { inner: string; wasPromise: boolean } {
 }
 
 function classifyExports(root: IRNode): ModuleExports {
+  const symbols = new Map<string, ModuleExportSymbol>();
   const resultFns = new Set<string>();
   const optionFns = new Set<string>();
   const asyncResultFns = new Set<string>();
   const asyncOptionFns = new Set<string>();
 
+  function exportedName(node: IRNode): string | null {
+    const props = node.props || {};
+    const name = props.name;
+    const exportProp = props.export;
+    if (typeof name !== 'string' || exportProp === 'false' || exportProp === false) return null;
+    return name;
+  }
+
+  function symbolKind(node: IRNode): string | null {
+    switch (node.type) {
+      case 'fn':
+      case 'method':
+        return 'fn';
+      case 'type':
+      case 'interface':
+      case 'union':
+      case 'enum':
+      case 'class':
+      case 'service':
+      case 'model':
+      case 'derive':
+      case 'transform':
+      case 'action':
+      case 'expect':
+      case 'dependency':
+        return node.type;
+      default:
+        return null;
+    }
+  }
+
   function walk(node: IRNode): void {
+    const name = exportedName(node);
+    const kind = symbolKind(node);
+    if (name && kind) {
+      symbols.set(name, { name, kind });
+    }
+
     if (node.type === 'fn' || node.type === 'method') {
       const props = node.props || {};
-      const name = typeof props.name === 'string' ? props.name : null;
       const returns = props.returns;
-      // KERN fns are exported by default; `export=false` opts out. Only
-      // exported names contribute to cross-module recognition.
-      const exportProp = props.export;
-      const isExported = !(exportProp === 'false' || exportProp === false);
       const isAsync = props.async === true || props.async === 'true';
-      if (name && isExported && typeof returns === 'string') {
+      if (name && typeof returns === 'string') {
         const { inner, wasPromise } = unwrapPromise(returns);
         const effectivelyAsync = wasPromise || isAsync;
         if (RESULT_RETURN_RE.test(inner)) {
@@ -56,7 +95,7 @@ function classifyExports(root: IRNode): ModuleExports {
   }
 
   walk(root);
-  return { resultFns, optionFns, asyncResultFns, asyncOptionFns };
+  return { symbols, resultFns, optionFns, asyncResultFns, asyncOptionFns };
 }
 
 /** Walk every `.kern` file in the project once and produce a

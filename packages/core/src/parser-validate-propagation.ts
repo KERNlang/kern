@@ -72,10 +72,24 @@ interface PropagationContext {
   asyncOptionFns?: Set<string>;
 }
 
+/** Exported symbol metadata for a KERN module. This starts small on purpose:
+ *  import/codegen only needs the source symbol's semantic kind to bridge
+ *  target naming conventions such as KERN `parseUser` -> Python `parse_user`.
+ *  More target-specific names can be added later without changing the
+ *  `use/from` source syntax. */
+export interface ModuleExportSymbol {
+  name: string;
+  kind: string;
+}
+
 /** Slice 7 v2 — exported fn signatures of a single KERN module, narrowed
  *  to the names whose `returns` is `Result<…>` / `Option<…>` (sync) or
  *  `Promise<Result<…>>` / `Promise<Option<…>>` (async). */
 export interface ModuleExports {
+  /** All exported source symbols by KERN name. Used to enrich `from` bindings
+   *  with `kind=` metadata after the resolver proves the path is a KERN
+   *  module. Optional for older callers that only provide propagation sets. */
+  symbols?: Map<string, ModuleExportSymbol>;
   /** Names of fns / methods exported by the module that return `Result<…>`. */
   resultFns: Set<string>;
   /** Names of fns / methods exported by the module that return `Option<…>`. */
@@ -720,6 +734,10 @@ function collectKnownFns(root: IRNode, resolveImport?: ImportResolver): Propagat
             if (child.type !== 'from') continue;
             const importedName = child.props?.name;
             if (typeof importedName !== 'string') continue;
+            const symbol = exports.symbols?.get(importedName);
+            if (symbol && child.props && child.props.kind == null) {
+              child.props.kind = symbol.kind;
+            }
             const aliasRaw = child.props?.as;
             const localName = typeof aliasRaw === 'string' && aliasRaw ? aliasRaw : importedName;
             if (exports.resultFns.has(importedName)) resultFns.add(localName);
