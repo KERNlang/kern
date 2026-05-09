@@ -13,7 +13,7 @@ import os
 import uvicorn
 
 
-from ./config.js import getReviewPersona, saveConfig
+from .config import getReviewPersona, saveConfig
 
 registry = [object Object]
 
@@ -62,9 +62,9 @@ import os
 import uvicorn
 
 
-from ./services/db.js import db
+from .services.db import db
 
-from ./services/analyzer.js import analyzeTrack
+from .services.analyzer import analyzeTrack
 
 app = FastAPI(title="MusicAPI")
 
