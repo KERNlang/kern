@@ -187,6 +187,67 @@ export function getRandomColor(): string {
     const f = report.findings.find((f) => f.ruleId === 'insecure-random');
     expect(f).toBeUndefined();
   });
+
+  it('does NOT fire on substring matches like `valid` / `paid` / `inside`', () => {
+    const source = `
+export function isValid(): boolean {
+  return Math.random() > 0.5;
+}
+export function paidJitter(): number {
+  return Math.random();
+}
+const inside = Math.random();
+`;
+    const report = reviewSource(source, 'jitter.ts');
+    const f = report.findings.find((f) => f.ruleId === 'insecure-random');
+    expect(f).toBeUndefined();
+  });
+
+  it('still fires on camelCase identifiers like apiKey', () => {
+    const source = `
+export function makeApiKey(): string {
+  return Math.random().toString(36);
+}
+`;
+    const report = reviewSource(source, 'auth.ts');
+    const f = report.findings.find((f) => f.ruleId === 'insecure-random');
+    expect(f).toBeDefined();
+  });
+
+  it('fires on PascalCase identifiers like SecretToken', () => {
+    const source = `
+export function SecretToken(): string {
+  return Math.random().toString(36);
+}
+`;
+    const report = reviewSource(source, 'auth.ts');
+    const f = report.findings.find((f) => f.ruleId === 'insecure-random');
+    expect(f).toBeDefined();
+  });
+
+  it('fires on acronym-prefixed identifiers like APIKey', () => {
+    // Gemini impl-review: a single camelCase regex misses APIKey because
+    // the runs-of-uppercase boundary needs its own pre-pass.
+    const source = `
+export function APIKey(): string {
+  return Math.random().toString(36);
+}
+`;
+    const report = reviewSource(source, 'auth.ts');
+    const f = report.findings.find((f) => f.ruleId === 'insecure-random');
+    expect(f).toBeDefined();
+  });
+
+  it('does NOT fire in test files', () => {
+    const source = `
+export function generateToken(): string {
+  return Math.random().toString(36);
+}
+`;
+    const report = reviewSource(source, 'auth.test.ts');
+    const f = report.findings.find((f) => f.ruleId === 'insecure-random');
+    expect(f).toBeUndefined();
+  });
 });
 
 // ── cors-wildcard ────────────────────────────────────────────────────

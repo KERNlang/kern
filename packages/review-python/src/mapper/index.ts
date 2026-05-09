@@ -8,6 +8,7 @@
 import type { ConceptEdge, ConceptMap, ConceptNode } from '@kernlang/core';
 import Parser from 'tree-sitter';
 import Python from 'tree-sitter-python';
+import { extractBackgroundTasks } from './extractors/background-tasks.js';
 import { extractDependencyEdges } from './extractors/dependency.js';
 import { extractEffects } from './extractors/effect.js';
 import { extractEntrypoints } from './extractors/entrypoint.js';
@@ -34,6 +35,7 @@ export function extractPythonConcepts(source: string, filePath: string): Concept
   extractErrorRaise(tree.rootNode, source, filePath, nodes);
   extractErrorHandle(tree.rootNode, source, filePath, nodes);
   extractEffects(tree.rootNode, source, filePath, nodes);
+  extractBackgroundTasks(tree.rootNode, source, filePath, nodes);
 
   extractEntrypoints(tree.rootNode, source, filePath, nodes);
   extractGuards(tree.rootNode, source, filePath, nodes);

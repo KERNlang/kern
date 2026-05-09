@@ -72,10 +72,24 @@ interface PropagationContext {
   asyncOptionFns?: Set<string>;
 }
 
+/** Exported symbol metadata for a KERN module. This starts small on purpose:
+ *  import/codegen only needs the source symbol's semantic kind to bridge
+ *  target naming conventions such as KERN `parseUser` -> Python `parse_user`.
+ *  More target-specific names can be added later without changing the
+ *  `use/from` source syntax. */
+export interface ModuleExportSymbol {
+  name: string;
+  kind: string;
+}
+
 /** Slice 7 v2 — exported fn signatures of a single KERN module, narrowed
  *  to the names whose `returns` is `Result<…>` / `Option<…>` (sync) or
  *  `Promise<Result<…>>` / `Promise<Option<…>>` (async). */
 export interface ModuleExports {
+  /** All exported source symbols by KERN name. Used to enrich `from` bindings
+   *  with `kind=` metadata after the resolver proves the path is a KERN
+   *  module. Optional for older callers that only provide propagation sets. */
+  symbols?: Map<string, ModuleExportSymbol>;
   /** Names of fns / methods exported by the module that return `Result<…>`. */
   resultFns: Set<string>;
   /** Names of fns / methods exported by the module that return `Option<…>`. */
@@ -96,6 +110,53 @@ export interface ModuleExports {
  *  Pure-parse callers (browser playground, tests) can omit it; cross-
  *  module recognition is then disabled. */
 export type ImportResolver = (path: string) => ModuleExports | null;
+
+function splitImportNames(value: unknown): string[] {
+  return typeof value === 'string'
+    ? value
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean)
+    : [];
+}
+
+function exportBindingNames(raw: string): { source: string; exported: string } | null {
+  const match = raw.trim().match(/^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/u);
+  if (!match) return null;
+  const source = match[1];
+  return { source, exported: match[2] ?? source };
+}
+
+function parseSymbolKindPairs(raw: unknown): Map<string, string> {
+  const pairs = new Map<string, string>();
+  if (typeof raw !== 'string') return pairs;
+  for (const item of raw.split(',')) {
+    const [name, kind] = item.split(':').map((part) => part.trim());
+    if (name && kind) pairs.set(name, kind);
+  }
+  return pairs;
+}
+
+function serializeSymbolKindPairs(pairs: Map<string, string>): string {
+  return [...pairs.entries()].map(([name, kind]) => `${name}:${kind}`).join(',');
+}
+
+function enrichExportNode(node: IRNode, exports: ModuleExports): void {
+  if (!node.props) return;
+  const pairs = parseSymbolKindPairs(node.props.symbolKinds);
+  for (const rawName of [...splitImportNames(node.props.names), ...splitImportNames(node.props.types)]) {
+    const binding = exportBindingNames(rawName);
+    if (!binding) continue;
+    const symbol = exports.symbols?.get(binding.source);
+    if (symbol) {
+      pairs.set(binding.source, symbol.kind);
+      pairs.set(binding.exported, symbol.kind);
+    }
+  }
+  if (pairs.size > 0) {
+    node.props.symbolKinds = serializeSymbolKindPairs(pairs);
+  }
+}
 
 /** Containing-fn return-type classification for the current handler.
  *  `result`/`option` cover the slice 7 v1 sync shapes; `asyncResult` /
@@ -720,6 +781,10 @@ function collectKnownFns(root: IRNode, resolveImport?: ImportResolver): Propagat
             if (child.type !== 'from') continue;
             const importedName = child.props?.name;
             if (typeof importedName !== 'string') continue;
+            const symbol = exports.symbols?.get(importedName);
+            if (symbol && child.props && child.props.kind == null) {
+              child.props.kind = symbol.kind;
+            }
             const aliasRaw = child.props?.as;
             const localName = typeof aliasRaw === 'string' && aliasRaw ? aliasRaw : importedName;
             if (exports.resultFns.has(importedName)) resultFns.add(localName);
@@ -728,6 +793,12 @@ function collectKnownFns(root: IRNode, resolveImport?: ImportResolver): Propagat
             if (exports.asyncOptionFns?.has(importedName)) asyncOptionFns.add(localName);
           }
         }
+      }
+    } else if (node.type === 'export' && resolveImport) {
+      const from = node.props?.from;
+      if (typeof from === 'string') {
+        const exports = resolveImport(from);
+        if (exports) enrichExportNode(node, exports);
       }
     }
     if (node.children) for (const child of node.children) walk(child);

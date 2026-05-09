@@ -62,7 +62,9 @@ describe('cross-module registry — end-to-end', () => {
     writeFileSync(bPath, bSource);
 
     const registry = buildCrossModuleRegistry([aPath, bPath]);
-    expect(registry.get(resolve(aPath))?.resultFns.has('parseUser')).toBe(true);
+    const moduleExports = registry.get(resolve(aPath));
+    expect(moduleExports?.resultFns.has('parseUser')).toBe(true);
+    expect(moduleExports?.symbols?.get('parseUser')).toEqual({ name: 'parseUser', kind: 'fn' });
 
     const resolver = makeImportResolverForFile(resolve(bPath), registry);
     const result = parseDocumentWithDiagnostics(bSource, undefined, { resolveImport: resolver });
@@ -71,6 +73,178 @@ describe('cross-module registry — end-to-end', () => {
     expect(code).toContain('const __k_t1 = parseUser(raw);');
     expect(code).toContain("if (__k_t1.kind === 'err') return __k_t1;");
     expect(code).toContain('const u = __k_t1.value;');
+    expect(
+      (result.root.children?.[0] as { props?: Record<string, unknown>; children?: unknown[] }).children?.[0],
+    ).toMatchObject({
+      type: 'from',
+      props: { name: 'parseUser', kind: 'fn' },
+    });
+  });
+
+  test('registry records exported symbol kinds beyond functions', () => {
+    const modulePath = join(tmpDir, 'domain.kern');
+    writeFileSync(
+      modulePath,
+      [
+        'type name=UserId values=string',
+        'interface name=UserProfile',
+        '  field name=id type=UserId',
+        'class name=TokenTracker',
+        '  field name=count type=number',
+        'fn name=makeUser params="id:UserId" returns=UserProfile export=false',
+        '  handler <<<',
+        '    return { id };',
+        '  >>>',
+      ].join('\n'),
+    );
+
+    const registry = buildCrossModuleRegistry([modulePath]);
+    const symbols = registry.get(resolve(modulePath))?.symbols;
+
+    expect(symbols?.get('UserId')).toEqual({ name: 'UserId', kind: 'type' });
+    expect(symbols?.get('UserProfile')).toEqual({ name: 'UserProfile', kind: 'interface' });
+    expect(symbols?.get('TokenTracker')).toEqual({ name: 'TokenTracker', kind: 'class' });
+    expect(symbols?.has('makeUser')).toBe(false);
+  });
+
+  test('registry follows named KERN re-exports for barrel modules', () => {
+    const parserPath = join(tmpDir, 'parser.kern');
+    writeFileSync(
+      parserPath,
+      [
+        'type name=UserProfile values="{ id: string }"',
+        'fn name=parseUser params="raw:string" returns="Result<UserProfile, AppError>"',
+        '  handler <<<',
+        '    return Result.ok({ id: raw });',
+        '  >>>',
+      ].join('\n'),
+    );
+
+    const indexPath = join(tmpDir, 'index.kern');
+    writeFileSync(
+      indexPath,
+      ['module name=domain', '  export from="./parser.kern" names="parseUser" types="UserProfile"'].join('\n'),
+    );
+
+    const appPath = join(tmpDir, 'app.kern');
+    const appSource = [
+      'use path="./index"',
+      '  from name=parseUser',
+      'fn name=run params="raw:string" returns="Result<UserProfile, AppError>"',
+      '  handler <<<',
+      '    const user = parseUser(raw)?;',
+      '    return Result.ok(user);',
+      '  >>>',
+    ].join('\n');
+    writeFileSync(appPath, appSource);
+
+    const registry = buildCrossModuleRegistry([parserPath, indexPath, appPath]);
+    const barrelExports = registry.get(resolve(indexPath));
+    expect(barrelExports?.symbols?.get('parseUser')).toEqual({ name: 'parseUser', kind: 'fn' });
+    expect(barrelExports?.symbols?.get('UserProfile')).toEqual({ name: 'UserProfile', kind: 'type' });
+    expect(barrelExports?.resultFns.has('parseUser')).toBe(true);
+
+    const resolver = makeImportResolverForFile(resolve(appPath), registry);
+    const result = parseDocumentWithDiagnostics(appSource, undefined, { resolveImport: resolver });
+    const code = findHandlerCode(result.root)!;
+
+    expect(code).toContain('const __k_t1 = parseUser(raw);');
+    expect(code).toContain("if (__k_t1.kind === 'err') return __k_t1;");
+    expect(
+      (result.root.children?.[0] as { props?: Record<string, unknown>; children?: unknown[] }).children?.[0],
+    ).toMatchObject({
+      type: 'from',
+      props: { name: 'parseUser', kind: 'fn' },
+    });
+  });
+
+  test('registry follows aliased KERN re-exports for barrel modules', () => {
+    const parserPath = join(tmpDir, 'parser.kern');
+    writeFileSync(
+      parserPath,
+      [
+        'type name=UserProfile values="{ id: string }"',
+        'fn name=parseUser params="raw:string" returns="Result<UserProfile, AppError>"',
+        '  handler <<<',
+        '    return Result.ok({ id: raw });',
+        '  >>>',
+      ].join('\n'),
+    );
+
+    const indexPath = join(tmpDir, 'index.kern');
+    writeFileSync(
+      indexPath,
+      [
+        'module name=domain',
+        '  export from="./parser.kern" names="parseUser as parse" types="UserProfile as Profile"',
+      ].join('\n'),
+    );
+
+    const appPath = join(tmpDir, 'app.kern');
+    const appSource = [
+      'use path="./index"',
+      '  from name=parse',
+      'fn name=run params="raw:string" returns="Result<Profile, AppError>"',
+      '  handler <<<',
+      '    const user = parse(raw)?;',
+      '    return Result.ok(user);',
+      '  >>>',
+    ].join('\n');
+    writeFileSync(appPath, appSource);
+
+    const registry = buildCrossModuleRegistry([parserPath, indexPath, appPath]);
+    const barrelExports = registry.get(resolve(indexPath));
+    expect(barrelExports?.symbols?.get('parse')).toEqual({ name: 'parse', kind: 'fn' });
+    expect(barrelExports?.symbols?.get('Profile')).toEqual({ name: 'Profile', kind: 'type' });
+    expect(barrelExports?.resultFns.has('parse')).toBe(true);
+
+    const resolver = makeImportResolverForFile(resolve(appPath), registry);
+    const result = parseDocumentWithDiagnostics(appSource, undefined, { resolveImport: resolver });
+    const code = findHandlerCode(result.root)!;
+
+    expect(code).toContain('const __k_t1 = parse(raw);');
+    expect(code).toContain("if (__k_t1.kind === 'err') return __k_t1;");
+  });
+
+  test('registry follows star KERN re-exports without looping on cycles', () => {
+    const aPath = join(tmpDir, 'a.kern');
+    writeFileSync(
+      aPath,
+      [
+        'module name=a',
+        '  export from="./b.kern" star=true',
+        'type name=AId values=string',
+        'fn name=parseA params="raw:string" returns="Option<AId>"',
+        '  handler <<<',
+        '    return Option.some(raw);',
+        '  >>>',
+      ].join('\n'),
+    );
+
+    const bPath = join(tmpDir, 'b.kern');
+    writeFileSync(
+      bPath,
+      [
+        'module name=b',
+        '  export from="./a.kern" star=true',
+        'type name=BId values=string',
+        'fn name=parseB params="raw:string" returns="Result<BId, AppError>"',
+        '  handler <<<',
+        '    return Result.ok(raw);',
+        '  >>>',
+      ].join('\n'),
+    );
+
+    const registry = buildCrossModuleRegistry([aPath, bPath]);
+    const aExports = registry.get(resolve(aPath));
+    const bExports = registry.get(resolve(bPath));
+
+    expect(aExports?.symbols?.get('AId')).toEqual({ name: 'AId', kind: 'type' });
+    expect(aExports?.symbols?.get('BId')).toEqual({ name: 'BId', kind: 'type' });
+    expect(aExports?.optionFns.has('parseA')).toBe(true);
+    expect(aExports?.resultFns.has('parseB')).toBe(true);
+    expect(bExports?.symbols?.get('AId')).toEqual({ name: 'AId', kind: 'type' });
+    expect(bExports?.symbols?.get('BId')).toEqual({ name: 'BId', kind: 'type' });
   });
 
   test('without registry: same import passes through verbatim', () => {

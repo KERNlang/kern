@@ -568,38 +568,208 @@ export function generateEvent(node: IRNode): string[] {
   return lines;
 }
 
-// ── Import ───────────────────────────────────────────────────────────────
+// ── Import / Use ─────────────────────────────────────────────────────────
 // import from="pathlib" names="Path"
 // → from pathlib import Path
+//
+// use path="./helper.kern"
+//   from name=parseUser
+// → from .helper import parseUser
+
+function emitPythonImportIdent(value: string | undefined, fallback: string, node: IRNode): string {
+  return emitIdentifier(value, fallback, node);
+}
+
+function pythonModuleSpecifier(raw: string, node: IRNode): string {
+  if (!raw) throw new Error('Python import specifier cannot be empty');
+  if (raw.includes("'") || raw.includes('"') || raw.includes('`') || raw.includes('\\')) {
+    throw new Error(`Invalid Python import specifier '${raw.slice(0, 80)}' — contains quote or escape characters`);
+  }
+  if (raw.includes(';') || raw.includes('$') || raw.includes('\n')) {
+    throw new Error(`Invalid Python import specifier '${raw.slice(0, 80)}' — contains unsafe characters`);
+  }
+  if (raw.startsWith('/')) {
+    throw new Error(`Invalid Python import specifier '${raw.slice(0, 80)}' — absolute paths are not importable`);
+  }
+
+  const withoutExt = raw.replace(/\.(kern|py|js|ts)$/u, '');
+  const parts = withoutExt.split('/').filter((part) => part.length > 0 && part !== '.');
+  const relativePrefix = parts.filter((part) => part === '..').length;
+  const moduleParts = parts.filter((part) => part !== '..').map((part) => part.replace(/-/gu, '_'));
+
+  for (const part of moduleParts) {
+    emitPythonImportIdent(part, 'module', node);
+  }
+
+  if (raw.startsWith('./') || raw.startsWith('../')) {
+    return `${'.'.repeat(relativePrefix + 1)}${moduleParts.join('.')}`;
+  }
+  return moduleParts.join('.');
+}
+
+function emitPythonImportBinding(child: IRNode): string {
+  const cp = p(child);
+  const sourceName = emitPythonImportIdent(cp.name as string, 'imported', child);
+  const emittedName = pythonExportedSymbolName(sourceName, cp.kind as string | undefined);
+  const localName = cp.as ? emitPythonImportIdent(cp.as as string, 'alias', child) : sourceName;
+  return emittedName === localName ? emittedName : `${emittedName} as ${localName}`;
+}
+
+function pythonExportedSymbolName(name: string, kind?: string): string {
+  switch ((kind ?? '').toLowerCase()) {
+    case 'fn':
+    case 'function':
+    case 'derive':
+    case 'transform':
+    case 'action':
+    case 'expect':
+    case 'dependency':
+      return toSnakeCase(name);
+    default:
+      return name;
+  }
+}
+
+function exportSymbolKinds(raw: unknown): Map<string, string> {
+  const pairs = new Map<string, string>();
+  if (typeof raw !== 'string') return pairs;
+  for (const item of raw.split(',')) {
+    const [name, kind] = item.split(':').map((part) => part.trim());
+    if (name && kind) pairs.set(name, kind);
+  }
+  return pairs;
+}
+
+function parsePythonExportBinding(raw: string): { source: string; alias?: string } | null {
+  const match = raw.trim().match(/^([A-Za-z_]\w*)(?:\s+as\s+([A-Za-z_]\w*))?$/u);
+  if (!match) return null;
+  return { source: match[1], alias: match[2] };
+}
+
+function emitPythonExportedName(raw: string, symbolKinds: Map<string, string>, node: IRNode): string {
+  const binding = parsePythonExportBinding(raw);
+  if (!binding) {
+    const safeName = emitPythonImportIdent(raw, 'export', node);
+    return pythonExportedSymbolName(safeName, symbolKinds.get(raw) ?? symbolKinds.get(safeName));
+  }
+  const safeSource = emitPythonImportIdent(binding.source, 'export', node);
+  const emittedSource = pythonExportedSymbolName(
+    safeSource,
+    symbolKinds.get(binding.source) ?? symbolKinds.get(safeSource),
+  );
+  if (!binding.alias) return emittedSource;
+  const safeAlias = emitPythonImportIdent(binding.alias, 'export alias', node);
+  return `${emittedSource} as ${safeAlias}`;
+}
+
+function emitPythonModuleImport(moduleSpec: string, alias?: string): string[] {
+  if (!moduleSpec.startsWith('.')) {
+    return alias ? [`import ${moduleSpec} as ${alias}`] : [`import ${moduleSpec}`];
+  }
+  const parts = moduleSpec.split('.');
+  const moduleName = parts.pop();
+  const packageSpec = parts.join('.') || '.';
+  if (!moduleName) return [];
+  return alias
+    ? [`from ${packageSpec} import ${moduleName} as ${alias}`]
+    : [`from ${packageSpec} import ${moduleName}`];
+}
 
 export function generateImport(node: IRNode): string[] {
   const props = p(node);
-  const from = props.from as string;
+  const from = pythonModuleSpecifier(props.from as string, node);
   const names = props.names as string | undefined;
   const defaultImport = props.default as string | undefined;
 
   if (!from) return [];
 
   if (defaultImport && names) {
-    return [
-      `from ${from} import ${defaultImport}, ${names
-        .split(',')
-        .map((s) => s.trim())
-        .join(', ')}`,
-    ];
+    const safeDefault = emitPythonImportIdent(defaultImport, 'default', node);
+    const safeNames = names
+      .split(',')
+      .map((s) => emitPythonImportIdent(s.trim(), 'import', node))
+      .join(', ');
+    return [`from ${from} import ${safeDefault}, ${safeNames}`];
   }
   if (defaultImport) {
-    return [`import ${from} as ${defaultImport}`];
+    const safeDefault = emitPythonImportIdent(defaultImport, 'default', node);
+    return emitPythonModuleImport(from, safeDefault);
   }
   if (names) {
-    return [
-      `from ${from} import ${names
-        .split(',')
-        .map((s) => s.trim())
-        .join(', ')}`,
-    ];
+    const safeNames = names
+      .split(',')
+      .map((s) => emitPythonImportIdent(s.trim(), 'import', node))
+      .join(', ');
+    return [`from ${from} import ${safeNames}`];
   }
-  return [`import ${from}`];
+  return emitPythonModuleImport(from);
+}
+
+export function generateUse(node: IRNode): string[] {
+  const props = p(node);
+  const rawPath = props.path as string;
+  if (!rawPath) return [];
+
+  const moduleSpec = pythonModuleSpecifier(rawPath, node);
+  const fromChildren = kids(node, 'from');
+  if (fromChildren.length > 0) {
+    const bindings = fromChildren.map(emitPythonImportBinding);
+    return bindings.length > 0 ? [`from ${moduleSpec} import ${bindings.join(', ')}`] : [];
+  }
+
+  return emitPythonModuleImport(moduleSpec);
+}
+
+export function generateModule(node: IRNode, dispatch: (node: IRNode) => string[]): string[] {
+  const props = p(node);
+  const lines: string[] = [`# -- Module: ${props.name || 'unknown'} --`, ''];
+
+  for (const child of node.children ?? []) {
+    if (child.type === 'export') {
+      const ep = p(child);
+      const from = ep.from ? pythonModuleSpecifier(ep.from as string, child) : '';
+      const symbolKinds = exportSymbolKinds(ep.symbolKinds);
+      const names = (ep.names as string | undefined)
+        ?.split(',')
+        .map((s) => emitPythonExportedName(s.trim(), symbolKinds, child))
+        .join(', ');
+      const typeNames = (ep.types as string | undefined)
+        ?.split(',')
+        .map((s) => emitPythonExportedName(s.trim(), symbolKinds, child))
+        .join(', ');
+      const star = ep.star === true || ep.star === 'true';
+      const defaultName = ep.default ? emitPythonImportIdent(ep.default as string, 'default', child) : '';
+
+      if (from && star) lines.push(`from ${from} import *`);
+      if (from && names) lines.push(`from ${from} import ${names}`);
+      if (from && typeNames) lines.push(`from ${from} import ${typeNames}`);
+      if (from && defaultName) lines.push(`from ${from} import default as ${defaultName}`);
+      if (!from && names)
+        lines.push(
+          `__all__ = [${names
+            .split(', ')
+            .map((name) => JSON.stringify(name))
+            .join(', ')}]`,
+        );
+      if (!from && typeNames) {
+        lines.push(
+          `__all__ = [${typeNames
+            .split(', ')
+            .map((name) => JSON.stringify(name))
+            .join(', ')}]`,
+        );
+      }
+      continue;
+    }
+
+    const childLines = dispatch(child);
+    if (childLines.length > 0) {
+      lines.push(...childLines);
+      lines.push('');
+    }
+  }
+
+  return lines;
 }
 
 // ── Const ────────────────────────────────────────────────────────────────

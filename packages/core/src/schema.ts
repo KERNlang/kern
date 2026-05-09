@@ -368,11 +368,13 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['from'],
   },
   from: {
-    description: 'Single binding in a `use` block. `as=` aliases the local name; `export=true` re-exports.',
-    example: 'from name=foo as=bar export=true',
+    description:
+      'Single binding in a `use` block. `as=` aliases the local name; `export=true` re-exports. `kind=` carries the exported symbol kind for targets with naming conventions (for example Python fn names snake_case).',
+    example: 'from name=parseUser kind=fn as=parse export=true',
     props: {
       name: { required: true, kind: 'identifier' },
       as: { kind: 'identifier' },
+      kind: { kind: 'string' },
       export: { kind: 'boolean' },
     },
   },

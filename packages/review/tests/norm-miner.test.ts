@@ -58,7 +58,7 @@ function effectNode(
   file: string,
   containerId: string,
   line: number,
-  subtype: 'network' | 'db' | 'fs' | 'process' | 'time' | 'random',
+  subtype: 'network' | 'db' | 'fs' | 'process' | 'time' | 'random' | 'background-task',
 ): ConceptNode {
   return {
     id: `${file}#effect@${line}`,

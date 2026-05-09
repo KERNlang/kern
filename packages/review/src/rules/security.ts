@@ -295,7 +295,49 @@ function noEval(ctx: RuleContext): ReviewFinding[] {
 // ── Rule S5: insecure-random ─────────────────────────────────────────────
 // Math.random() used in security contexts (token/secret/password/key/id generation)
 
+const SENSITIVE_NAME_TOKENS = new Set([
+  'token',
+  'secret',
+  'key',
+  'password',
+  'hash',
+  'salt',
+  'nonce',
+  'csrf',
+  'session',
+  'auth',
+  'id',
+]);
+
+// Substring matching against `/token|secret|key|password|hash|salt|nonce|csrf|session|auth|id/i`
+// fired on innocuous identifiers like `valid`, `paid`, `inside`, `monkey`. Decompose
+// the name into camelCase / snake_case / acronym tokens and check exact tokens
+// against the sensitive set instead.
+//
+//   apiKey      → ['api', 'key']     → match
+//   APIKey      → ['api', 'key']     → match     (acronym + word)
+//   SecretToken → ['secret', 'token']→ match     (PascalCase)
+//   valid       → ['valid']           → skip
+//   tokenless   → ['tokenless']       → skip      (concatenated word, not a real token)
+function isSecuritySensitiveName(name: string): boolean {
+  if (!name) return false;
+  const tokens = name
+    // ACRONYMWord — split runs of caps before a Cap+lower (`APIKey` → `API_Key`)
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+    // camelCase — split lower→Upper boundary (`apiKey` → `api_Key`)
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .toLowerCase()
+    .split(/[_\-\s]+/)
+    .filter(Boolean);
+  return tokens.some((t) => SENSITIVE_NAME_TOKENS.has(t));
+}
+
 function insecureRandom(ctx: RuleContext): ReviewFinding[] {
+  // Math.random in test fixtures and example files is rarely a real
+  // security bug — most often it's seeded mock data. Suppress here to keep
+  // the rule's signal-to-noise high. Production code paths still fire.
+  if (ctx.fileRole === 'test' || ctx.fileRole === 'example') return [];
+
   const findings: ReviewFinding[] = [];
 
   for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
@@ -319,8 +361,7 @@ function insecureRandom(ctx: RuleContext): ReviewFinding[] {
       parent = parent.getParent();
     }
 
-    const securityNames = /token|secret|key|password|hash|salt|nonce|csrf|session|auth|id/i;
-    if (securityNames.test(contextName)) {
+    if (isSecuritySensitiveName(contextName)) {
       findings.push(
         finding(
           'insecure-random',
@@ -457,7 +498,17 @@ function helmetMissing(ctx: RuleContext): ReviewFinding[] {
 }
 
 // ── Rule S8: open-redirect ───────────────────────────────────────────────
-// res.redirect() with req.query/req.params/req.body (unvalidated user input)
+// res.redirect() with req.query/req.params/req.body (unvalidated user input).
+//
+// Coexists with the taint engine's `taint-redirect` rule. The taint engine
+// produces strictly higher-signal findings (it traces flows through bindings
+// and applies sanitizer detection) BUT only walks top-level functions, named
+// function declarations, methods, and arrow-functions assigned to variables.
+// Express-style `app.get('/x', (req, res) => …)` callback arrows are not on
+// that list, so taint silently misses the most common Node web pattern. The
+// substring heuristic below covers the gap. When both fire on the same span
+// the registry's `supersedes: ['open-redirect']` on `taint-redirect` keeps
+// the higher-precision finding.
 
 function openRedirect(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];

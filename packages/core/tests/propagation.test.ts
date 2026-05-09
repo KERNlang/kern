@@ -528,6 +528,39 @@ describe('parseDocumentWithDiagnostics — cross-module recognition (slice 7 v2)
     expect(code).toContain('const u = __k_t1.value;');
   });
 
+  test('with resolver: export-from nodes receive symbol kind metadata', () => {
+    const result = parseDocumentWithDiagnostics(
+      [
+        'module name=domain',
+        '  export from="./parser.kern" names="parseUser as parse" types="UserProfile as Profile"',
+      ].join('\n'),
+      undefined,
+      {
+        resolveImport: (path) =>
+          path === './parser.kern'
+            ? {
+                symbols: new Map([
+                  ['parseUser', { name: 'parseUser', kind: 'fn' }],
+                  ['UserProfile', { name: 'UserProfile', kind: 'type' }],
+                ]),
+                resultFns: new Set(['parseUser']),
+                optionFns: new Set(),
+              }
+            : null,
+      },
+    );
+
+    const moduleNode = result.root.children?.[0];
+    const exportNode = moduleNode?.children?.[0];
+    expect(exportNode).toMatchObject({
+      type: 'export',
+      props: {
+        from: './parser.kern',
+        symbolKinds: 'parseUser:fn,parse:fn,UserProfile:type,Profile:type',
+      },
+    });
+  });
+
   test('with resolver returning null: imported call passes through (bare/non-KERN import)', () => {
     const result = parseDocumentWithDiagnostics(src, undefined, {
       resolveImport: () => null,

@@ -440,6 +440,101 @@ describe('FastAPI Transpiler', () => {
 
       expect(lines.join('\n')).toContain('from pathlib import Path');
     });
+
+    test('generates Python use/from import for a relative .kern module', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse(['use path="./helpers/parse-user.kern"', '  from name=parseUser as=parse_user'].join('\n'));
+      const lines = generatePythonCoreNode(ast);
+
+      expect(lines.join('\n')).toBe('from .helpers.parse_user import parseUser as parse_user');
+    });
+
+    test('generates Python use/from import with function symbol-kind bridge alias', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse(['use path="./helpers.kern"', '  from name=parseUser kind=fn'].join('\n'));
+      const lines = generatePythonCoreNode(ast);
+
+      expect(lines.join('\n')).toBe('from .helpers import parse_user as parseUser');
+    });
+
+    test('generates Python use/from import from resolved KERN export metadata', async () => {
+      const { parseDocumentWithDiagnostics } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const result = parseDocumentWithDiagnostics(
+        ['use path="./helpers.kern"', '  from name=parseUser'].join('\n'),
+        undefined,
+        {
+          resolveImport: (path) =>
+            path === './helpers.kern'
+              ? {
+                  symbols: new Map([['parseUser', { name: 'parseUser', kind: 'fn' }]]),
+                  resultFns: new Set(),
+                  optionFns: new Set(),
+                }
+              : null,
+        },
+      );
+      const useNode = result.root.children?.[0];
+      const lines = useNode ? generatePythonCoreNode(useNode) : [];
+
+      expect(lines.join('\n')).toBe('from .helpers import parse_user as parseUser');
+    });
+
+    test('generates Python use/from import with explicit alias over function symbol kind', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse(['use path="./helpers.kern"', '  from name=parseUser kind=fn as=parse'].join('\n'));
+      const lines = generatePythonCoreNode(ast);
+
+      expect(lines.join('\n')).toBe('from .helpers import parse_user as parse');
+    });
+
+    test('keeps class/type symbol-kind imports in source spelling', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse(['use path="./models.kern"', '  from name=UserProfile kind=class'].join('\n'));
+      const lines = generatePythonCoreNode(ast);
+
+      expect(lines.join('\n')).toBe('from .models import UserProfile');
+    });
+
+    test('generates Python side-effect import for a relative .kern module', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse('use path="./setup.kern"');
+      const lines = generatePythonCoreNode(ast);
+
+      expect(lines.join('\n')).toBe('from . import setup');
+    });
+
+    test('generates Python module with re-export imports and inline definitions', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse(
+        [
+          'module name=auth',
+          '  export from="./roles.kern" names="Role,hasRole"',
+          '  fn name=checkRole params="role:string" returns=boolean',
+          '    handler <<<',
+          '      return role == "admin"',
+          '    >>>',
+        ].join('\n'),
+      );
+      const output = generatePythonCoreNode(ast).join('\n');
+
+      expect(output).toContain('# -- Module: auth --');
+      expect(output).toContain('from .roles import Role, hasRole');
+      expect(output).toContain('def check_role(role: str) -> bool:');
+    });
   });
 
   // ── Model & Union ────────────────────────────────────────────────────

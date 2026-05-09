@@ -1177,6 +1177,27 @@ const REGISTRY: RuleInfo[] = [
     precision: 'high',
     rolloutPhase: 1,
   },
+  // taint-redirect supersedes the heuristic `open-redirect` (rules/security.ts)
+  // when both fire on the same span. The heuristic still emits independently
+  // because the taint engine doesn't walk Express-style callback arrows like
+  // `app.get('/x', (req, res) => …)` — see the `openRedirect` doc-comment.
+  {
+    id: 'taint-redirect',
+    layer: 'security-v5',
+    severity: 'error',
+    description: 'User input flows into res.redirect / res.location / Location header — open redirect',
+    precision: 'high',
+    rolloutPhase: 1,
+    supersedes: ['open-redirect'],
+  },
+  {
+    id: 'insecure-transport',
+    layer: 'concept',
+    severity: 'warning',
+    description: 'Network call uses http:// to a public host — credentials and payload travel unencrypted',
+    precision: 'high',
+    rolloutPhase: 1,
+  },
 
   // Nuxt (target: nuxt)
   {

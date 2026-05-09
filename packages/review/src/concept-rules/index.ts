@@ -17,6 +17,7 @@ import { contractMethodDrift } from './contract-method-drift.js';
 import { duplicateRoute } from './duplicate-route.js';
 import { errorContractDrift } from './error-contract-drift.js';
 import { ignoredError } from './ignored-error.js';
+import { insecureTransport } from './insecure-transport.js';
 import { missingResponseModel } from './missing-response-model.js';
 import { mixedHostSameEndpoint } from './mixed-host-same-endpoint.js';
 import { mutationWithoutIdempotency } from './mutation-without-idempotency.js';
@@ -58,6 +59,7 @@ export const conceptRules: ConceptRule[] = [
   duplicateRoute,
   errorContractDrift,
   ignoredError,
+  insecureTransport,
   missingResponseModel,
   mixedHostSameEndpoint,
   mutationWithoutIdempotency,

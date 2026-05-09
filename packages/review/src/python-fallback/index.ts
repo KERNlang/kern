@@ -1,5 +1,6 @@
 import type { ConceptEdge, ConceptMap, ConceptNode } from '@kernlang/core';
 import { conceptId } from '@kernlang/core';
+import { collectBackgroundTaskParams } from './extractors/background-tasks.js';
 import { addDependency } from './extractors/dependency.js';
 import { classifyExceptDisposition, errorStatusCodesFromBody } from './extractors/error.js';
 import { paginationStrategyFromSignature } from './extractors/fastapi-pagination.js';
@@ -30,6 +31,7 @@ export function extractPythonConceptsFallback(source: string, filePath: string):
   const lines = splitLines(source);
   const functionBlocks = findFunctionBlocks(lines, filePath);
   const pydanticModels = collectPydanticModels(lines);
+  const backgroundTaskParams = collectBackgroundTaskParams(lines, functionBlocks);
   const nodes: ConceptNode[] = [];
   const edges: ConceptEdge[] = [];
   const globalNames = new Set<string>();
@@ -262,6 +264,46 @@ export function extractPythonConceptsFallback(source: string, filePath: string):
         containerId,
         payload: { kind: 'effect', subtype: 'fs', async: Boolean(block?.async), target: 'open' },
       });
+    }
+
+    // FastAPI BackgroundTasks dispatch: `<param>.add_task(fn, ...)` where
+    // `<param>` is typed `BackgroundTasks` in the enclosing function's
+    // signature. Tree-sitter mirror: review-python's background-tasks
+    // extractor.
+    //
+    // The capture group reads the first identifier after `add_task(`. If
+    // that identifier is followed by `=`, it's the keyword name (e.g.,
+    // `func=send_email`) and the real target lives after the `=`. We only
+    // recognize `func=` as the named form; other keyword args (`*args`,
+    // arbitrary kwargs forwarded to the callable) leave `target` undefined.
+    const addTaskMatch = trimmed.match(
+      /(?:^|[^A-Za-z0-9_])([A-Za-z_]\w*)\.add_task\s*\(\s*([A-Za-z_][\w.]*)?(\s*=\s*([A-Za-z_][\w.]*))?/,
+    );
+    if (addTaskMatch && block) {
+      const params = backgroundTaskParams.get(block.id);
+      if (params?.has(addTaskMatch[1])) {
+        const firstIdent = addTaskMatch[2];
+        const followedByEq = Boolean(addTaskMatch[3]);
+        const valueAfterEq = addTaskMatch[4];
+        let target: string | undefined;
+        if (firstIdent && !followedByEq) target = firstIdent;
+        else if (firstIdent === 'func' && valueAfterEq) target = valueAfterEq;
+        addNode(nodes, {
+          id: conceptId(filePath, 'effect', info.offset),
+          kind: 'effect',
+          primarySpan: span,
+          evidence: trimmed,
+          confidence: 0.85,
+          language: 'py',
+          containerId,
+          payload: {
+            kind: 'effect',
+            subtype: 'background-task',
+            async: Boolean(block?.async),
+            target,
+          },
+        });
+      }
     }
 
     const assignment = trimmed.match(/^([A-Za-z_]\w*)\s*(?:=|\+=|-=|\*=|\/=)/);

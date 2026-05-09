@@ -187,14 +187,16 @@ const PY_CORE_CAPABILITIES: CapabilityEntry[] = [
     support: 'unsupported',
     note: 'FastAPI codegen does not yet emit TypeVar / Generic[T] declarations',
   },
-  // Slice 2g — Python could in principle map `.kern → .py` via `from <module>
-  // import <name> as <alias>`, but the FastAPI generator has no such branch
-  // yet. Default to unsupported until the path is wired explicitly.
+  // Slice 2g follow-up — FastAPI maps `.kern` source module paths to Python
+  // module imports (`./lib/parser.kern` → `from .lib.parser import parse`).
+  // `from kind=fn` carries exported-symbol metadata so snake-cased Python
+  // declarations import with a bridge alias (`parse_user as parseUser`).
+  // Re-export markers compile as normal module-level imports; explicit
+  // `__all__` is emitted for local export lists inside `module`.
   {
     feature: 'cross-kern-import',
     position: 'top-level',
-    support: 'unsupported',
-    note: 'FastAPI codegen does not yet translate `.kern` paths to Python `from x import y` syntax',
+    support: 'native',
   },
   // Slice 3b — Python (FastAPI) field codegen reads `fp.default` directly
   // and has no ValueIR pipeline yet, so `field.value` is unsupported until a

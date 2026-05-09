@@ -275,6 +275,14 @@ export function hasEvolvedGenerator(type: string): boolean {
 // module name=@agon/core
 //   export from="./plan.js" names="createPlan,advanceStep"
 
+function emitExportBinding(raw: string, context: string, node: IRNode): string {
+  const match = raw.trim().match(/^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/u);
+  if (!match) return emitIdentifier(raw.trim(), context, node);
+  const source = emitIdentifier(match[1], context, node);
+  const alias = match[2] ? emitIdentifier(match[2], 'export alias', node) : '';
+  return alias ? `${source} as ${alias}` : source;
+}
+
 export function generateModule(node: IRNode): string[] {
   const props = propsOf<'module'>(node);
   const name = emitTemplateSafe(props.name || 'unknown');
@@ -292,14 +300,14 @@ export function generateModule(node: IRNode): string[] {
     const safeNames = rawNames
       ? rawNames
           .split(',')
-          .map((s) => emitIdentifier(s.trim(), 'export', exp))
+          .map((s) => emitExportBinding(s, 'export', exp))
           .join(', ')
       : '';
     const rawTypeNames = ep.types as string;
     const safeTypeNames = rawTypeNames
       ? rawTypeNames
           .split(',')
-          .map((s) => emitIdentifier(s.trim(), 'export', exp))
+          .map((s) => emitExportBinding(s, 'type export', exp))
           .join(', ')
       : '';
     const star = ep.star === 'true' || ep.star === true;
