@@ -1,12 +1,10 @@
-/** Slice 7 v2 — project-wide registry of exported Result/Option-returning
- *  fns. Built once before the compile loop; consulted per-file via a
+/** Project-wide registry of exported KERN module metadata. Built once before
+ *  the compile loop; consulted per-file via a
  *  caller-specific `ImportResolver` that resolves `use path="…"` strings
  *  against the current module's directory.
  *
- *  Scope: the registry only indexes fns whose `returns` is exactly
- *  `Result<…>` or `Option<…>` (the same shape `parser-validate-propagation`
- *  classifies as `result`/`option`). Imports of any other return shape
- *  contribute nothing — the propagation pass leaves those calls alone. */
+ *  Scope: records exported symbol kinds for target-aware import lowering, and
+ *  still indexes Result/Option-returning fns for `?` / `!` propagation. */
 
 import {
   type ImportResolver,
@@ -32,12 +30,60 @@ function unwrapPromise(s: string): { inner: string; wasPromise: boolean } {
   return { inner: t, wasPromise: false };
 }
 
-function classifyExports(root: IRNode): ModuleExports {
+function emptyExports(): ModuleExports {
+  return {
+    symbols: new Map<string, ModuleExportSymbol>(),
+    resultFns: new Set<string>(),
+    optionFns: new Set<string>(),
+    asyncResultFns: new Set<string>(),
+    asyncOptionFns: new Set<string>(),
+  };
+}
+
+function cloneExports(exports: ModuleExports): ModuleExports {
+  return {
+    symbols: new Map(exports.symbols ?? []),
+    resultFns: new Set(exports.resultFns),
+    optionFns: new Set(exports.optionFns),
+    asyncResultFns: new Set(exports.asyncResultFns ?? []),
+    asyncOptionFns: new Set(exports.asyncOptionFns ?? []),
+  };
+}
+
+function copyExportSymbol(target: ModuleExports, source: ModuleExports, name: string): void {
+  const symbol = source.symbols?.get(name);
+  if (symbol) target.symbols?.set(name, symbol);
+  if (source.resultFns.has(name)) target.resultFns.add(name);
+  if (source.optionFns.has(name)) target.optionFns.add(name);
+  if (source.asyncResultFns?.has(name)) target.asyncResultFns?.add(name);
+  if (source.asyncOptionFns?.has(name)) target.asyncOptionFns?.add(name);
+}
+
+function mergeAllExports(target: ModuleExports, source: ModuleExports): void {
+  for (const name of source.symbols?.keys() ?? []) {
+    copyExportSymbol(target, source, name);
+  }
+}
+
+function splitNames(value: unknown): string[] {
+  return typeof value === 'string'
+    ? value
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean)
+    : [];
+}
+
+function resolveKernImportPath(currentFileAbs: string, rawPath: string): string | null {
+  if (!rawPath.startsWith('./') && !rawPath.startsWith('../')) return null;
+  const withExt = rawPath.endsWith('.kern') ? rawPath : `${rawPath}.kern`;
+  const abs = resolve(dirname(currentFileAbs), withExt);
+  return existsSync(abs) ? abs : null;
+}
+
+function classifyDirectExports(root: IRNode): ModuleExports {
+  const moduleExports = emptyExports();
   const symbols = new Map<string, ModuleExportSymbol>();
-  const resultFns = new Set<string>();
-  const optionFns = new Set<string>();
-  const asyncResultFns = new Set<string>();
-  const asyncOptionFns = new Set<string>();
 
   function exportedName(node: IRNode): string | null {
     const props = node.props || {};
@@ -85,9 +131,9 @@ function classifyExports(root: IRNode): ModuleExports {
         const { inner, wasPromise } = unwrapPromise(returns);
         const effectivelyAsync = wasPromise || isAsync;
         if (RESULT_RETURN_RE.test(inner)) {
-          (effectivelyAsync ? asyncResultFns : resultFns).add(name);
+          (effectivelyAsync ? moduleExports.asyncResultFns : moduleExports.resultFns)?.add(name);
         } else if (OPTION_RETURN_RE.test(inner)) {
-          (effectivelyAsync ? asyncOptionFns : optionFns).add(name);
+          (effectivelyAsync ? moduleExports.asyncOptionFns : moduleExports.optionFns)?.add(name);
         }
       }
     }
@@ -95,24 +141,76 @@ function classifyExports(root: IRNode): ModuleExports {
   }
 
   walk(root);
-  return { symbols, resultFns, optionFns, asyncResultFns, asyncOptionFns };
+  moduleExports.symbols = symbols;
+  return moduleExports;
+}
+
+function walkExportNodes(root: IRNode, visit: (node: IRNode) => void): void {
+  if (root.type === 'export') visit(root);
+  for (const child of root.children ?? []) {
+    walkExportNodes(child, visit);
+  }
+}
+
+function resolveExportsForFile(
+  fileAbs: string,
+  roots: Map<string, IRNode>,
+  direct: Map<string, ModuleExports>,
+  resolved: Map<string, ModuleExports>,
+  resolving: Set<string>,
+): ModuleExports {
+  const cached = resolved.get(fileAbs);
+  if (cached) return cached;
+
+  const base = cloneExports(direct.get(fileAbs) ?? emptyExports());
+  if (resolving.has(fileAbs)) return base;
+  resolving.add(fileAbs);
+
+  const root = roots.get(fileAbs);
+  if (root) {
+    walkExportNodes(root, (node) => {
+      const from = node.props?.from;
+      if (typeof from !== 'string') return;
+      const targetAbs = resolveKernImportPath(fileAbs, from);
+      if (!targetAbs || !roots.has(targetAbs)) return;
+      const source = resolveExportsForFile(targetAbs, roots, direct, resolved, resolving);
+      const star = node.props?.star === true || node.props?.star === 'true';
+      if (star) {
+        mergeAllExports(base, source);
+      }
+      for (const name of [...splitNames(node.props?.names), ...splitNames(node.props?.types)]) {
+        copyExportSymbol(base, source, name);
+      }
+    });
+  }
+
+  resolving.delete(fileAbs);
+  resolved.set(fileAbs, base);
+  return base;
 }
 
 /** Walk every `.kern` file in the project once and produce a
  *  `Map<absoluteFilePath, ModuleExports>`. Files that fail to parse are
  *  skipped silently — their per-file compile will surface its own errors. */
 export function buildCrossModuleRegistry(kernFiles: readonly string[]): Map<string, ModuleExports> {
-  const registry = new Map<string, ModuleExports>();
+  const roots = new Map<string, IRNode>();
+  const direct = new Map<string, ModuleExports>();
   for (const file of kernFiles) {
     try {
       const abs = resolve(file);
       const source = readFileSync(abs, 'utf-8');
       const root = parseDocument(source);
-      registry.set(abs, classifyExports(root));
+      roots.set(abs, root);
+      direct.set(abs, classifyDirectExports(root));
     } catch {
       // Parse failures aren't a registry concern — skip and let the
       // per-file compile surface its diagnostics.
     }
+  }
+
+  const registry = new Map<string, ModuleExports>();
+  for (const abs of roots.keys()) {
+    registry.set(abs, resolveExportsForFile(abs, roots, direct, registry, new Set()));
   }
   return registry;
 }
@@ -127,12 +225,9 @@ export function makeImportResolverForFile(
   currentFileAbs: string,
   registry: Map<string, ModuleExports>,
 ): ImportResolver {
-  const dir = dirname(currentFileAbs);
   return (path: string): ModuleExports | null => {
-    if (!path.startsWith('./') && !path.startsWith('../')) return null;
-    const withExt = path.endsWith('.kern') ? path : `${path}.kern`;
-    const abs = resolve(dir, withExt);
-    if (!existsSync(abs)) return null;
+    const abs = resolveKernImportPath(currentFileAbs, path);
+    if (!abs) return null;
     return registry.get(abs) ?? null;
   };
 }
