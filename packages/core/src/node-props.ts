@@ -60,6 +60,7 @@ export interface UseProps extends BaseProps {
 
 export interface FromProps extends BaseProps {
   as?: string;
+  kind?: string;
 }
 
 export interface LetProps extends BaseProps {

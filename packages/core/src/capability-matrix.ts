@@ -189,15 +189,14 @@ const PY_CORE_CAPABILITIES: CapabilityEntry[] = [
   },
   // Slice 2g follow-up — FastAPI maps `.kern` source module paths to Python
   // module imports (`./lib/parser.kern` → `from .lib.parser import parse`).
+  // `from kind=fn` carries exported-symbol metadata so snake-cased Python
+  // declarations import with a bridge alias (`parse_user as parseUser`).
   // Re-export markers compile as normal module-level imports; explicit
-  // `__all__` is emitted for local export lists inside `module`. Marked
-  // lowered because Python function declarations are snake-cased while KERN
-  // import names are source-level until export metadata carries symbol kind.
+  // `__all__` is emitted for local export lists inside `module`.
   {
     feature: 'cross-kern-import',
     position: 'top-level',
-    support: 'lowered',
-    note: 'Path lowering is native; function-name spelling still needs symbol-kind export metadata for automatic snake_case imports',
+    support: 'native',
   },
   // Slice 3b — Python (FastAPI) field codegen reads `fp.default` directly
   // and has no ValueIR pipeline yet, so `field.value` is unsupported until a

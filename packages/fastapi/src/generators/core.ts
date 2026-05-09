@@ -609,9 +609,25 @@ function pythonModuleSpecifier(raw: string, node: IRNode): string {
 
 function emitPythonImportBinding(child: IRNode): string {
   const cp = p(child);
-  const name = emitPythonImportIdent(cp.name as string, 'imported', child);
-  const alias = cp.as ? emitPythonImportIdent(cp.as as string, 'alias', child) : '';
-  return alias ? `${name} as ${alias}` : name;
+  const sourceName = emitPythonImportIdent(cp.name as string, 'imported', child);
+  const emittedName = pythonExportedSymbolName(sourceName, cp.kind as string | undefined);
+  const localName = cp.as ? emitPythonImportIdent(cp.as as string, 'alias', child) : sourceName;
+  return emittedName === localName ? emittedName : `${emittedName} as ${localName}`;
+}
+
+function pythonExportedSymbolName(name: string, kind?: string): string {
+  switch ((kind ?? '').toLowerCase()) {
+    case 'fn':
+    case 'function':
+    case 'derive':
+    case 'transform':
+    case 'action':
+    case 'expect':
+    case 'dependency':
+      return toSnakeCase(name);
+    default:
+      return name;
+  }
 }
 
 function emitPythonModuleImport(moduleSpec: string, alias?: string): string[] {

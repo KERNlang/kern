@@ -451,6 +451,36 @@ describe('FastAPI Transpiler', () => {
       expect(lines.join('\n')).toBe('from .helpers.parse_user import parseUser as parse_user');
     });
 
+    test('generates Python use/from import with function symbol-kind bridge alias', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse(['use path="./helpers.kern"', '  from name=parseUser kind=fn'].join('\n'));
+      const lines = generatePythonCoreNode(ast);
+
+      expect(lines.join('\n')).toBe('from .helpers import parse_user as parseUser');
+    });
+
+    test('generates Python use/from import with explicit alias over function symbol kind', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse(['use path="./helpers.kern"', '  from name=parseUser kind=fn as=parse'].join('\n'));
+      const lines = generatePythonCoreNode(ast);
+
+      expect(lines.join('\n')).toBe('from .helpers import parse_user as parse');
+    });
+
+    test('keeps class/type symbol-kind imports in source spelling', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse(['use path="./models.kern"', '  from name=UserProfile kind=class'].join('\n'));
+      const lines = generatePythonCoreNode(ast);
+
+      expect(lines.join('\n')).toBe('from .models import UserProfile');
+    });
+
     test('generates Python side-effect import for a relative .kern module', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { generatePythonCoreNode } = await import('../src/codegen-python.js');

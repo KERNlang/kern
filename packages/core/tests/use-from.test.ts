@@ -47,6 +47,12 @@ describe('Use/From node (Slice 2g)', () => {
   from name=foo as=bar`;
       expect(gen(src)).toBe(`import { foo as bar } from './helper.js';`);
     });
+
+    test('symbol kind metadata is accepted and ignored by TS import codegen', () => {
+      const src = `use path="./helper.kern"
+  from name=parseUser kind=fn`;
+      expect(gen(src)).toBe(`import { parseUser } from './helper.js';`);
+    });
   });
 
   describe('codegen — multiple bindings', () => {
@@ -137,8 +143,8 @@ describe('Use/From node (Slice 2g)', () => {
       expect(capabilitySupport('express', 'cross-kern-import', 'top-level')).toBe('native');
     });
 
-    test('cross-kern-import is lowered on Python (FastAPI)', () => {
-      expect(capabilitySupport('fastapi', 'cross-kern-import', 'top-level')).toBe('lowered');
+    test('cross-kern-import is native on Python (FastAPI)', () => {
+      expect(capabilitySupport('fastapi', 'cross-kern-import', 'top-level')).toBe('native');
     });
   });
 });
