@@ -530,7 +530,10 @@ describe('parseDocumentWithDiagnostics — cross-module recognition (slice 7 v2)
 
   test('with resolver: export-from nodes receive symbol kind metadata', () => {
     const result = parseDocumentWithDiagnostics(
-      ['module name=domain', '  export from="./parser.kern" names="parseUser" types="UserProfile"'].join('\n'),
+      [
+        'module name=domain',
+        '  export from="./parser.kern" names="parseUser as parse" types="UserProfile as Profile"',
+      ].join('\n'),
       undefined,
       {
         resolveImport: (path) =>
@@ -553,7 +556,7 @@ describe('parseDocumentWithDiagnostics — cross-module recognition (slice 7 v2)
       type: 'export',
       props: {
         from: './parser.kern',
-        symbolKinds: 'parseUser:fn,UserProfile:type',
+        symbolKinds: 'parseUser:fn,parse:fn,UserProfile:type,Profile:type',
       },
     });
   });

@@ -158,6 +158,54 @@ describe('cross-module registry — end-to-end', () => {
     });
   });
 
+  test('registry follows aliased KERN re-exports for barrel modules', () => {
+    const parserPath = join(tmpDir, 'parser.kern');
+    writeFileSync(
+      parserPath,
+      [
+        'type name=UserProfile values="{ id: string }"',
+        'fn name=parseUser params="raw:string" returns="Result<UserProfile, AppError>"',
+        '  handler <<<',
+        '    return Result.ok({ id: raw });',
+        '  >>>',
+      ].join('\n'),
+    );
+
+    const indexPath = join(tmpDir, 'index.kern');
+    writeFileSync(
+      indexPath,
+      [
+        'module name=domain',
+        '  export from="./parser.kern" names="parseUser as parse" types="UserProfile as Profile"',
+      ].join('\n'),
+    );
+
+    const appPath = join(tmpDir, 'app.kern');
+    const appSource = [
+      'use path="./index"',
+      '  from name=parse',
+      'fn name=run params="raw:string" returns="Result<Profile, AppError>"',
+      '  handler <<<',
+      '    const user = parse(raw)?;',
+      '    return Result.ok(user);',
+      '  >>>',
+    ].join('\n');
+    writeFileSync(appPath, appSource);
+
+    const registry = buildCrossModuleRegistry([parserPath, indexPath, appPath]);
+    const barrelExports = registry.get(resolve(indexPath));
+    expect(barrelExports?.symbols?.get('parse')).toEqual({ name: 'parse', kind: 'fn' });
+    expect(barrelExports?.symbols?.get('Profile')).toEqual({ name: 'Profile', kind: 'type' });
+    expect(barrelExports?.resultFns.has('parse')).toBe(true);
+
+    const resolver = makeImportResolverForFile(resolve(appPath), registry);
+    const result = parseDocumentWithDiagnostics(appSource, undefined, { resolveImport: resolver });
+    const code = findHandlerCode(result.root)!;
+
+    expect(code).toContain('const __k_t1 = parse(raw);');
+    expect(code).toContain("if (__k_t1.kind === 'err') return __k_t1;");
+  });
+
   test('registry follows star KERN re-exports without looping on cycles', () => {
     const aPath = join(tmpDir, 'a.kern');
     writeFileSync(

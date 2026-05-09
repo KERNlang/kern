@@ -120,6 +120,13 @@ function splitImportNames(value: unknown): string[] {
     : [];
 }
 
+function exportBindingNames(raw: string): { source: string; exported: string } | null {
+  const match = raw.trim().match(/^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/u);
+  if (!match) return null;
+  const source = match[1];
+  return { source, exported: match[2] ?? source };
+}
+
 function parseSymbolKindPairs(raw: unknown): Map<string, string> {
   const pairs = new Map<string, string>();
   if (typeof raw !== 'string') return pairs;
@@ -137,9 +144,14 @@ function serializeSymbolKindPairs(pairs: Map<string, string>): string {
 function enrichExportNode(node: IRNode, exports: ModuleExports): void {
   if (!node.props) return;
   const pairs = parseSymbolKindPairs(node.props.symbolKinds);
-  for (const name of [...splitImportNames(node.props.names), ...splitImportNames(node.props.types)]) {
-    const symbol = exports.symbols?.get(name);
-    if (symbol) pairs.set(name, symbol.kind);
+  for (const rawName of [...splitImportNames(node.props.names), ...splitImportNames(node.props.types)]) {
+    const binding = exportBindingNames(rawName);
+    if (!binding) continue;
+    const symbol = exports.symbols?.get(binding.source);
+    if (symbol) {
+      pairs.set(binding.source, symbol.kind);
+      pairs.set(binding.exported, symbol.kind);
+    }
   }
   if (pairs.size > 0) {
     node.props.symbolKinds = serializeSymbolKindPairs(pairs);

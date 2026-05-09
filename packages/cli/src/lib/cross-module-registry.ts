@@ -50,13 +50,25 @@ function cloneExports(exports: ModuleExports): ModuleExports {
   };
 }
 
-function copyExportSymbol(target: ModuleExports, source: ModuleExports, name: string): void {
+interface ExportBinding {
+  source: string;
+  exported: string;
+}
+
+function parseExportBinding(raw: string): ExportBinding | null {
+  const match = raw.trim().match(/^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/u);
+  if (!match) return null;
+  const source = match[1];
+  return { source, exported: match[2] ?? source };
+}
+
+function copyExportSymbol(target: ModuleExports, source: ModuleExports, name: string, exportedName = name): void {
   const symbol = source.symbols?.get(name);
-  if (symbol) target.symbols?.set(name, symbol);
-  if (source.resultFns.has(name)) target.resultFns.add(name);
-  if (source.optionFns.has(name)) target.optionFns.add(name);
-  if (source.asyncResultFns?.has(name)) target.asyncResultFns?.add(name);
-  if (source.asyncOptionFns?.has(name)) target.asyncOptionFns?.add(name);
+  if (symbol) target.symbols?.set(exportedName, { ...symbol, name: exportedName });
+  if (source.resultFns.has(name)) target.resultFns.add(exportedName);
+  if (source.optionFns.has(name)) target.optionFns.add(exportedName);
+  if (source.asyncResultFns?.has(name)) target.asyncResultFns?.add(exportedName);
+  if (source.asyncOptionFns?.has(name)) target.asyncOptionFns?.add(exportedName);
 }
 
 function mergeAllExports(target: ModuleExports, source: ModuleExports): void {
@@ -178,8 +190,9 @@ function resolveExportsForFile(
       if (star) {
         mergeAllExports(base, source);
       }
-      for (const name of [...splitNames(node.props?.names), ...splitNames(node.props?.types)]) {
-        copyExportSymbol(base, source, name);
+      for (const rawName of [...splitNames(node.props?.names), ...splitNames(node.props?.types)]) {
+        const binding = parseExportBinding(rawName);
+        if (binding) copyExportSymbol(base, source, binding.source, binding.exported);
       }
     });
   }

@@ -350,6 +350,13 @@ export function closeTask<T extends { state: TaskState }>(entity: T): T {
 "
 `;
 
+exports[`golden: module module re-export aliases 1`] = `
+"// ── Module: auth ──
+
+export { hasRole as checkRole } from './roles.js';
+export type { Role as AuthRole } from './roles.js';"
+`;
+
 exports[`golden: module module with children 1`] = `
 "// ── Module: auth ──
 

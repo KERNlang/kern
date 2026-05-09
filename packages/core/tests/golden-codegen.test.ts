@@ -646,6 +646,16 @@ describe('golden: guard + assume + invariant', () => {
 // ── Module ──
 
 describe('golden: module', () => {
+  it('module re-export aliases', () => {
+    expect(
+      gen(
+        ['module name=auth', '  export from="./roles.js" names="hasRole as checkRole" types="Role as AuthRole"'].join(
+          '\n',
+        ),
+      ),
+    ).toMatchSnapshot();
+  });
+
   it('module with children', () => {
     expect(
       gen(

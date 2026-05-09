@@ -640,9 +640,26 @@ function exportSymbolKinds(raw: unknown): Map<string, string> {
   return pairs;
 }
 
-function emitPythonExportedName(name: string, symbolKinds: Map<string, string>, node: IRNode): string {
-  const safeName = emitPythonImportIdent(name, 'export', node);
-  return pythonExportedSymbolName(safeName, symbolKinds.get(name) ?? symbolKinds.get(safeName));
+function parsePythonExportBinding(raw: string): { source: string; alias?: string } | null {
+  const match = raw.trim().match(/^([A-Za-z_]\w*)(?:\s+as\s+([A-Za-z_]\w*))?$/u);
+  if (!match) return null;
+  return { source: match[1], alias: match[2] };
+}
+
+function emitPythonExportedName(raw: string, symbolKinds: Map<string, string>, node: IRNode): string {
+  const binding = parsePythonExportBinding(raw);
+  if (!binding) {
+    const safeName = emitPythonImportIdent(raw, 'export', node);
+    return pythonExportedSymbolName(safeName, symbolKinds.get(raw) ?? symbolKinds.get(safeName));
+  }
+  const safeSource = emitPythonImportIdent(binding.source, 'export', node);
+  const emittedSource = pythonExportedSymbolName(
+    safeSource,
+    symbolKinds.get(binding.source) ?? symbolKinds.get(safeSource),
+  );
+  if (!binding.alias) return emittedSource;
+  const safeAlias = emitPythonImportIdent(binding.alias, 'export alias', node);
+  return `${emittedSource} as ${safeAlias}`;
 }
 
 function emitPythonModuleImport(moduleSpec: string, alias?: string): string[] {

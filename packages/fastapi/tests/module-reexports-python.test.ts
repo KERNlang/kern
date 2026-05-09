@@ -4,7 +4,9 @@ import { generatePythonCoreNode } from '../src/codegen-python.js';
 describe('FastAPI KERN module re-export metadata', () => {
   test('generates Python re-exports from resolved KERN symbol metadata', () => {
     const result = parseDocumentWithDiagnostics(
-      ['module name=auth', '  export from="./roles.kern" names="hasRole" types="Role"'].join('\n'),
+      ['module name=auth', '  export from="./roles.kern" names="hasRole as checkRole" types="Role as AuthRole"'].join(
+        '\n',
+      ),
       undefined,
       {
         resolveImport: (path) =>
@@ -23,7 +25,7 @@ describe('FastAPI KERN module re-export metadata', () => {
     const moduleNode = result.root.children?.[0];
     const output = moduleNode ? generatePythonCoreNode(moduleNode).join('\n') : '';
 
-    expect(output).toContain('from .roles import has_role');
-    expect(output).toContain('from .roles import Role');
+    expect(output).toContain('from .roles import has_role as checkRole');
+    expect(output).toContain('from .roles import Role as AuthRole');
   });
 });
