@@ -29,8 +29,6 @@ export const DB_METHODS = new Set([
   'delete_one',
 ]);
 
-export const _FS_FUNCTIONS = new Set(['open', 'read', 'write', 'readlines', 'writelines']);
-
 export const PY_API_ERROR_STATUS_CODES = new Set([401, 403, 404, 422, 500]);
 export const PY_API_SUCCESS_STATUS_CODES = new Set([200, 201, 202, 204, 206]);
 // FastAPI's documented default success status is 200, regardless of HTTP method

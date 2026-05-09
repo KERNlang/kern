@@ -1,5 +1,6 @@
 import type { ConceptEdge, ConceptMap, ConceptNode } from '@kernlang/core';
 import { conceptId } from '@kernlang/core';
+import { collectBackgroundTaskParams } from './extractors/background-tasks.js';
 import { addDependency } from './extractors/dependency.js';
 import { classifyExceptDisposition, errorStatusCodesFromBody } from './extractors/error.js';
 import { paginationStrategyFromSignature } from './extractors/fastapi-pagination.js';
@@ -30,6 +31,7 @@ export function extractPythonConceptsFallback(source: string, filePath: string):
   const lines = splitLines(source);
   const functionBlocks = findFunctionBlocks(lines, filePath);
   const pydanticModels = collectPydanticModels(lines);
+  const backgroundTaskParams = collectBackgroundTaskParams(lines, functionBlocks);
   const nodes: ConceptNode[] = [];
   const edges: ConceptEdge[] = [];
   const globalNames = new Set<string>();
@@ -262,6 +264,32 @@ export function extractPythonConceptsFallback(source: string, filePath: string):
         containerId,
         payload: { kind: 'effect', subtype: 'fs', async: Boolean(block?.async), target: 'open' },
       });
+    }
+
+    // FastAPI BackgroundTasks dispatch: `<param>.add_task(fn, ...)` where
+    // `<param>` is typed `BackgroundTasks` in the enclosing function's
+    // signature. Tree-sitter mirror: review-python's background-tasks
+    // extractor.
+    const addTaskMatch = trimmed.match(/(?:^|[^A-Za-z0-9_])([A-Za-z_]\w*)\.add_task\s*\(\s*([A-Za-z_][\w.]*)?/);
+    if (addTaskMatch && block) {
+      const params = backgroundTaskParams.get(block.id);
+      if (params?.has(addTaskMatch[1])) {
+        addNode(nodes, {
+          id: conceptId(filePath, 'effect', info.offset),
+          kind: 'effect',
+          primarySpan: span,
+          evidence: trimmed,
+          confidence: 0.85,
+          language: 'py',
+          containerId,
+          payload: {
+            kind: 'effect',
+            subtype: 'background-task',
+            async: Boolean(block?.async),
+            target: addTaskMatch[2],
+          },
+        });
+      }
     }
 
     const assignment = trimmed.match(/^([A-Za-z_]\w*)\s*(?:=|\+=|-=|\*=|\/=)/);

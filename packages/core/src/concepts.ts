@@ -207,7 +207,7 @@ export interface EntrypointPayload {
 
 export interface EffectPayload {
   readonly kind: 'effect';
-  subtype: 'network' | 'db' | 'fs' | 'process' | 'time' | 'random';
+  subtype: 'network' | 'db' | 'fs' | 'process' | 'time' | 'random' | 'background-task';
   target?: string;
   async: boolean;
   /**
