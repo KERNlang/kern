@@ -137,8 +137,8 @@ describe('Use/From node (Slice 2g)', () => {
       expect(capabilitySupport('express', 'cross-kern-import', 'top-level')).toBe('native');
     });
 
-    test('cross-kern-import is unsupported on Python (FastAPI)', () => {
-      expect(capabilitySupport('fastapi', 'cross-kern-import', 'top-level')).toBe('unsupported');
+    test('cross-kern-import is lowered on Python (FastAPI)', () => {
+      expect(capabilitySupport('fastapi', 'cross-kern-import', 'top-level')).toBe('lowered');
     });
   });
 });

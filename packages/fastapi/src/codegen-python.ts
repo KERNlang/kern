@@ -17,9 +17,11 @@ import {
   generateImport,
   generateInterface,
   generateMachine,
+  generateModule,
   generateStore,
   generateTest,
   generateType,
+  generateUse,
 } from './generators/core.js';
 // Data layer generators (model, repository, cache, dependency, service, union)
 import {
@@ -63,9 +65,11 @@ export {
   generateImport,
   generateInterface,
   generateMachine,
+  generateModule,
   generateStore,
   generateTest,
   generateType,
+  generateUse,
 } from './generators/core.js';
 export {
   formatPythonDefault,
@@ -111,6 +115,8 @@ export function generatePythonCoreNode(node: IRNode): string[] {
       return generateFunction(node);
     case 'machine':
       return generateMachine(node);
+    case 'module':
+      return generateModule(node, generatePythonCoreNode);
     case 'error':
       return generateError(node);
     case 'config':
@@ -123,6 +129,10 @@ export function generatePythonCoreNode(node: IRNode): string[] {
       return generateEvent(node);
     case 'import':
       return generateImport(node);
+    case 'use':
+      return generateUse(node);
+    case 'from':
+      return [];
     case 'const':
       return generateConst(node);
     // Data layer

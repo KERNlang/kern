@@ -440,6 +440,47 @@ describe('FastAPI Transpiler', () => {
 
       expect(lines.join('\n')).toContain('from pathlib import Path');
     });
+
+    test('generates Python use/from import for a relative .kern module', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse(['use path="./helpers/parse-user.kern"', '  from name=parseUser as=parse_user'].join('\n'));
+      const lines = generatePythonCoreNode(ast);
+
+      expect(lines.join('\n')).toBe('from .helpers.parse_user import parseUser as parse_user');
+    });
+
+    test('generates Python side-effect import for a relative .kern module', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse('use path="./setup.kern"');
+      const lines = generatePythonCoreNode(ast);
+
+      expect(lines.join('\n')).toBe('from . import setup');
+    });
+
+    test('generates Python module with re-export imports and inline definitions', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse(
+        [
+          'module name=auth',
+          '  export from="./roles.kern" names="Role,hasRole"',
+          '  fn name=checkRole params="role:string" returns=boolean',
+          '    handler <<<',
+          '      return role == "admin"',
+          '    >>>',
+        ].join('\n'),
+      );
+      const output = generatePythonCoreNode(ast).join('\n');
+
+      expect(output).toContain('# -- Module: auth --');
+      expect(output).toContain('from .roles import Role, hasRole');
+      expect(output).toContain('def check_role(role: str) -> bool:');
+    });
   });
 
   // ── Model & Union ────────────────────────────────────────────────────
