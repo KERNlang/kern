@@ -630,6 +630,21 @@ function pythonExportedSymbolName(name: string, kind?: string): string {
   }
 }
 
+function exportSymbolKinds(raw: unknown): Map<string, string> {
+  const pairs = new Map<string, string>();
+  if (typeof raw !== 'string') return pairs;
+  for (const item of raw.split(',')) {
+    const [name, kind] = item.split(':').map((part) => part.trim());
+    if (name && kind) pairs.set(name, kind);
+  }
+  return pairs;
+}
+
+function emitPythonExportedName(name: string, symbolKinds: Map<string, string>, node: IRNode): string {
+  const safeName = emitPythonImportIdent(name, 'export', node);
+  return pythonExportedSymbolName(safeName, symbolKinds.get(name) ?? symbolKinds.get(safeName));
+}
+
 function emitPythonModuleImport(moduleSpec: string, alias?: string): string[] {
   if (!moduleSpec.startsWith('.')) {
     return alias ? [`import ${moduleSpec} as ${alias}`] : [`import ${moduleSpec}`];
@@ -696,13 +711,14 @@ export function generateModule(node: IRNode, dispatch: (node: IRNode) => string[
     if (child.type === 'export') {
       const ep = p(child);
       const from = ep.from ? pythonModuleSpecifier(ep.from as string, child) : '';
+      const symbolKinds = exportSymbolKinds(ep.symbolKinds);
       const names = (ep.names as string | undefined)
         ?.split(',')
-        .map((s) => emitPythonImportIdent(s.trim(), 'export', child))
+        .map((s) => emitPythonExportedName(s.trim(), symbolKinds, child))
         .join(', ');
       const typeNames = (ep.types as string | undefined)
         ?.split(',')
-        .map((s) => emitPythonImportIdent(s.trim(), 'export', child))
+        .map((s) => emitPythonExportedName(s.trim(), symbolKinds, child))
         .join(', ');
       const star = ep.star === true || ep.star === 'true';
       const defaultName = ep.default ? emitPythonImportIdent(ep.default as string, 'default', child) : '';

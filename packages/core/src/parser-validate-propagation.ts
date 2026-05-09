@@ -111,6 +111,41 @@ export interface ModuleExports {
  *  module recognition is then disabled. */
 export type ImportResolver = (path: string) => ModuleExports | null;
 
+function splitImportNames(value: unknown): string[] {
+  return typeof value === 'string'
+    ? value
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean)
+    : [];
+}
+
+function parseSymbolKindPairs(raw: unknown): Map<string, string> {
+  const pairs = new Map<string, string>();
+  if (typeof raw !== 'string') return pairs;
+  for (const item of raw.split(',')) {
+    const [name, kind] = item.split(':').map((part) => part.trim());
+    if (name && kind) pairs.set(name, kind);
+  }
+  return pairs;
+}
+
+function serializeSymbolKindPairs(pairs: Map<string, string>): string {
+  return [...pairs.entries()].map(([name, kind]) => `${name}:${kind}`).join(',');
+}
+
+function enrichExportNode(node: IRNode, exports: ModuleExports): void {
+  if (!node.props) return;
+  const pairs = parseSymbolKindPairs(node.props.symbolKinds);
+  for (const name of [...splitImportNames(node.props.names), ...splitImportNames(node.props.types)]) {
+    const symbol = exports.symbols?.get(name);
+    if (symbol) pairs.set(name, symbol.kind);
+  }
+  if (pairs.size > 0) {
+    node.props.symbolKinds = serializeSymbolKindPairs(pairs);
+  }
+}
+
 /** Containing-fn return-type classification for the current handler.
  *  `result`/`option` cover the slice 7 v1 sync shapes; `asyncResult` /
  *  `asyncOption` cover slice 7 v2.1 — async fns whose declared return is
@@ -746,6 +781,12 @@ function collectKnownFns(root: IRNode, resolveImport?: ImportResolver): Propagat
             if (exports.asyncOptionFns?.has(importedName)) asyncOptionFns.add(localName);
           }
         }
+      }
+    } else if (node.type === 'export' && resolveImport) {
+      const from = node.props?.from;
+      if (typeof from === 'string') {
+        const exports = resolveImport(from);
+        if (exports) enrichExportNode(node, exports);
       }
     }
     if (node.children) for (const child of node.children) walk(child);
