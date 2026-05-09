@@ -270,10 +270,24 @@ export function extractPythonConceptsFallback(source: string, filePath: string):
     // `<param>` is typed `BackgroundTasks` in the enclosing function's
     // signature. Tree-sitter mirror: review-python's background-tasks
     // extractor.
-    const addTaskMatch = trimmed.match(/(?:^|[^A-Za-z0-9_])([A-Za-z_]\w*)\.add_task\s*\(\s*([A-Za-z_][\w.]*)?/);
+    //
+    // The capture group reads the first identifier after `add_task(`. If
+    // that identifier is followed by `=`, it's the keyword name (e.g.,
+    // `func=send_email`) and the real target lives after the `=`. We only
+    // recognize `func=` as the named form; other keyword args (`*args`,
+    // arbitrary kwargs forwarded to the callable) leave `target` undefined.
+    const addTaskMatch = trimmed.match(
+      /(?:^|[^A-Za-z0-9_])([A-Za-z_]\w*)\.add_task\s*\(\s*([A-Za-z_][\w.]*)?(\s*=\s*([A-Za-z_][\w.]*))?/,
+    );
     if (addTaskMatch && block) {
       const params = backgroundTaskParams.get(block.id);
       if (params?.has(addTaskMatch[1])) {
+        const firstIdent = addTaskMatch[2];
+        const followedByEq = Boolean(addTaskMatch[3]);
+        const valueAfterEq = addTaskMatch[4];
+        let target: string | undefined;
+        if (firstIdent && !followedByEq) target = firstIdent;
+        else if (firstIdent === 'func' && valueAfterEq) target = valueAfterEq;
         addNode(nodes, {
           id: conceptId(filePath, 'effect', info.offset),
           kind: 'effect',
@@ -286,7 +300,7 @@ export function extractPythonConceptsFallback(source: string, filePath: string):
             kind: 'effect',
             subtype: 'background-task',
             async: Boolean(block?.async),
-            target: addTaskMatch[2],
+            target,
           },
         });
       }

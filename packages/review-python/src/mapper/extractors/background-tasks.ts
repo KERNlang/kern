@@ -87,10 +87,21 @@ function collectBackgroundTasksParams(fnDef: Parser.SyntaxNode, source: string):
 function readTargetName(callNode: Parser.SyntaxNode, source: string): string | undefined {
   const args = callNode.childForFieldName('arguments');
   if (!args) return undefined;
-  // First positional arg is the function being scheduled.
+
+  // The scheduled callable can be passed positionally or as `func=...`
+  // (BackgroundTasks.add_task signature: `add_task(func, *args, **kwargs)`).
+  // Take the first positional arg if present; otherwise look for `func=`.
+  let funcKeywordValue: string | undefined;
   for (const child of args.namedChildren) {
-    if (child.type === 'keyword_argument') continue;
+    if (child.type === 'keyword_argument') {
+      const nameNode = child.childForFieldName('name');
+      if (nameNode && nameNode.text === 'func') {
+        const valueNode = child.childForFieldName('value');
+        if (valueNode) funcKeywordValue = source.substring(valueNode.startIndex, valueNode.endIndex).trim();
+      }
+      continue;
+    }
     return source.substring(child.startIndex, child.endIndex).trim();
   }
-  return undefined;
+  return funcKeywordValue;
 }

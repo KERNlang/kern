@@ -38,6 +38,32 @@ async def send_email(other: SomeOther):
     expect(effects).toHaveLength(0);
   });
 
+  it('handles add_task(func=...) keyword form', () => {
+    const effects = backgroundTasks(`from fastapi import BackgroundTasks
+
+@app.post("/email")
+async def send_email(background_tasks: BackgroundTasks):
+    background_tasks.add_task(func=send_email_func, to="x@y")
+    return {"ok": True}
+`);
+
+    expect(effects).toHaveLength(1);
+    expect(effects[0].payload.target).toBe('send_email_func');
+  });
+
+  it('leaves target undefined when only non-func kwargs are passed', () => {
+    const effects = backgroundTasks(`from fastapi import BackgroundTasks
+
+@app.post("/email")
+async def send_email(background_tasks: BackgroundTasks):
+    background_tasks.add_task(arg=value)
+    return {"ok": True}
+`);
+
+    expect(effects).toHaveLength(1);
+    expect(effects[0].payload.target).toBeUndefined();
+  });
+
   it('matches the named param only', () => {
     const effects = backgroundTasks(`from fastapi import BackgroundTasks
 

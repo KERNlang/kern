@@ -57,6 +57,20 @@ async def send_email(bg: BackgroundTasks):
     expect(effects[0].payload.target).toBe('send_email_func');
   });
 
+  it('handles add_task(func=...) keyword form', () => {
+    const effects = backgroundTasks(`
+from fastapi import BackgroundTasks
+
+@app.post("/email")
+async def send_email(background_tasks: BackgroundTasks):
+    background_tasks.add_task(func=send_email_func, to="x@y")
+    return {"ok": True}
+`);
+
+    expect(effects).toHaveLength(1);
+    expect(effects[0].payload.target).toBe('send_email_func');
+  });
+
   it('records async=false for sync route handlers', () => {
     const effects = backgroundTasks(`
 from fastapi import BackgroundTasks
