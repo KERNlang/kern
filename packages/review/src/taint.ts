@@ -25,6 +25,8 @@ export type {
   TaintSource,
 } from './taint-types.js';
 export {
+  ALL_CATEGORIES,
+  buildSanitizerSufficiency,
   HTTP_PARAM_NAMES,
   HTTP_PARAM_TYPES,
   isSanitizerSufficient,

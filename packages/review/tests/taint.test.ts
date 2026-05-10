@@ -7,11 +7,13 @@ import { resolveImportGraph } from '../src/graph.js';
 import { reviewSource } from '../src/index.js';
 import { inferFromSource } from '../src/inferrer.js';
 import {
+  ALL_CATEGORIES,
   analyzeTaint,
   analyzeTaintCrossFile,
   buildExportMap,
   buildExportMapFromGraph,
   buildImportMapFromGraph,
+  buildSanitizerSufficiency,
   crossFileTaintToFindings,
   isSanitizerSufficient,
   propagateTaintMultiHop,
@@ -262,6 +264,39 @@ describe('isSanitizerSufficient', () => {
 
   it('unknown sanitizer defaults to deny (not sufficient)', () => {
     expect(isSanitizerSufficient('customSanitizer', 'command')).toBe(false);
+  });
+});
+
+// ── Sanitizer family build ────────────────────────────────────────────
+// Guard against silent overwrites if a future merge puts the same name
+// into two families with conflicting coverage. (OpenCode P1.)
+
+describe('buildSanitizerSufficiency', () => {
+  it('throws when a sanitizer name appears in more than one family', () => {
+    expect(() =>
+      buildSanitizerSufficiency([
+        { names: ['parseInt'], coverage: ['sql'] },
+        { names: ['parseInt'], coverage: ['command'] },
+      ]),
+    ).toThrow(/appears in more than one family/);
+  });
+
+  it('builds a working coverage map from a synthetic family table', () => {
+    const map = buildSanitizerSufficiency([
+      { names: ['x'], coverage: ['sql', 'fs'] },
+      { names: ['y', 'z'], coverage: ['template'] },
+    ]);
+    expect(map.x.has('sql')).toBe(true);
+    expect(map.x.has('fs')).toBe(true);
+    expect(map.x.has('command')).toBe(false);
+    expect(map.y).toBe(map.z); // shared coverage Set per family — same reference
+  });
+
+  it('exposes ALL_CATEGORIES as the closed list of categories schema validators cover', () => {
+    // Sanity: schema.parse should cover every category in ALL_CATEGORIES.
+    for (const cat of ALL_CATEGORIES) {
+      expect(isSanitizerSufficient('schema.parse', cat)).toBe(true);
+    }
   });
 });
 

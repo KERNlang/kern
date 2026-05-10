@@ -224,59 +224,142 @@ export const SANITIZER_PATTERNS = [
 
 export type SinkCategory = TaintSink['category'];
 
-// SANITIZER_PATTERN_NAMES emits bare names ('safeParse', 'parse'); SANITIZER_PATTERNS (regex) emits
-// prefixed names ('schema.safeParse', 'path.normalize'). Both call isSanitizerSufficient(), so the
-// table below carries BOTH forms explicitly for each sanitizer.
-//
-// Design rule: only include a BARE key when the name is unlikely to collide with unrelated methods.
-// `safeParse` is distinctive enough (almost always a Zod/Yup schema call), but bare `parse`,
-// `validate`, `normalize`, `resolve`, `basename` are ambiguous — a user's custom `.parse()` or
-// `.normalize()` would otherwise be silently treated as a full sanitizer, producing false negatives
-// on real taint bugs. Those stay prefixed-only so the regex engine catches them and the AST engine
-// defaults to deny (unknown sanitizer → taint still fires, conservative).
-const SANITIZER_SUFFICIENCY: Record<string, Set<SinkCategory>> = {
-  // Coercion sanitizers (bare names are unambiguous)
-  parseInt: new Set(['sql']),
-  parseFloat: new Set(['sql']),
-  Number: new Set(['sql']),
-  'Number()': new Set(['sql']),
-  Boolean: new Set([]), // too weak for any sink — documented for intent
-  'Boolean()': new Set([]),
-  // Schema validation — `safeParse` stays bare (Zod/Yup-specific); `parse`/`validate`/`validateSync` only as prefixed to avoid colliding with JSON.parse, Date.parse, user methods, etc.
-  // `nosql` is included: Zod/Yup parse rejects the entire object when shape doesn't match, killing operator-injection payloads at the boundary.
-  'schema.parse': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template', 'ssrf', 'nosql']),
-  'schema.safeParse': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template', 'ssrf', 'nosql']),
-  safeParse: new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template', 'ssrf', 'nosql']),
-  'schema.validate': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template', 'ssrf', 'nosql']),
-  'schema.validateSync': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template', 'ssrf', 'nosql']),
-  // String sanitization
-  'sanitize()': new Set(['template']),
-  sanitize: new Set(['template']),
-  'escape()': new Set(['sql', 'template']),
-  escape: new Set(['sql', 'template']),
-  escapeHtml: new Set(['template']),
-  DOMPurify: new Set(['template']),
-  purify: new Set(['template']),
-  xss: new Set(['template']),
-  // encodeURIComponent prevents open-redirect but NOT SSRF — the attacker still controls the host
-  encodeURIComponent: new Set(['redirect']),
-  encodeURI: new Set(['redirect']),
-  // Path sanitization — only prefixed; a user's `.normalize()` is not safe to treat as FS-sufficient
-  'path.normalize': new Set(['fs']),
-  'path.resolve': new Set(['fs']),
-  'path.basename': new Set(['fs']),
-  'replace(../)': new Set(['fs']),
-  // SQL parameterization
-  'parameterized query ($N)': new Set(['sql']),
-  'parameterized query (?)': new Set(['sql']),
-  parameterized: new Set(['sql']),
-  sqlstring: new Set(['sql']),
-  // Prompt sanitization
-  sanitizeForPrompt: new Set(['template']),
-  escapePrompt: new Set(['template']),
-  stripDelimiters: new Set(['template']),
-  cleanForPrompt: new Set(['template']),
-};
+/**
+ * The closed list of categories that a "covers everything" sanitizer
+ * (e.g., `schema.safeParse`) is asserted to protect against. Pinned by
+ * design: when a new category is added (last release: `nosql`), every
+ * sanitizer family that should cover it is updated EXPLICITLY here. We
+ * deliberately don't auto-propagate — a new category like `xpath` should
+ * default to "no sanitizer covers it yet" until each family is verified
+ * to actually neutralize that injection vector. Security-conservative.
+ *
+ * NOTE — `codegen` is intentionally OMITTED from this list (and was also
+ * omitted in the prior flat shape). Structural validation (Zod/Yup
+ * `.parse()`) does NOT inherently neutralize code-generation injection:
+ * a validated string field can still contain characters that break out of
+ * a source-code template. Adding `codegen` here would silently downgrade
+ * codegen findings on `schema.parse(input)` shapes.
+ */
+export const ALL_CATEGORIES = [
+  'command',
+  'fs',
+  'sql',
+  'redirect',
+  'eval',
+  'template',
+  'ssrf',
+  'nosql',
+] as const satisfies ReadonlyArray<SinkCategory>;
+
+/**
+ * Family-keyed sanitizer table. Each entry groups names that share the
+ * same coverage set, so adding a new category (`nosql`, `xpath`, …) is
+ * a single edit per family rather than N edits across N duplicated
+ * entries.
+ *
+ * BARE-key design rule (preserved from the prior flat shape):
+ * SANITIZER_PATTERN_NAMES emits bare names (`safeParse`, `parse`);
+ * SANITIZER_PATTERNS (regex) emits prefixed names (`schema.safeParse`,
+ * `path.normalize`). Both call `isSanitizerSufficient()`, so each
+ * family's `names` array carries BOTH forms when relevant. We
+ * intentionally OMIT bare keys for ambiguous methods (bare `parse`,
+ * `validate`, `normalize`, `resolve`, `basename`) — a user's custom
+ * `.parse()` or `.normalize()` would otherwise be silently treated as
+ * a full sanitizer, producing false negatives on real taint bugs.
+ * `safeParse` is distinctive enough (Zod/Yup-specific) to keep bare.
+ *
+ * TODO(tier-followup): dedupe `SANITIZER_PATTERN_NAMES` (line ~398
+ * below) against this table — today they drift independently, so a
+ * sanitizer added to one but not the other gets silent
+ * detection/coverage skew. Out of scope for the family refactor.
+ */
+const SANITIZER_FAMILIES: ReadonlyArray<{
+  names: ReadonlyArray<string>;
+  coverage: ReadonlyArray<SinkCategory>;
+  /** Why this coverage was chosen — audit log for the security decision. */
+  rationale?: string;
+}> = [
+  {
+    names: ['parseInt', 'parseFloat', 'Number', 'Number()'],
+    coverage: ['sql'],
+    rationale: 'Numeric coercion neutralizes SQL string injection; useless for command/path/template payloads.',
+  },
+  {
+    names: ['Boolean', 'Boolean()'],
+    coverage: [],
+    rationale: 'Truthy-coercion provides no injection protection — listed empty so the rule still fires.',
+  },
+  {
+    names: ['schema.parse', 'schema.safeParse', 'safeParse', 'schema.validate', 'schema.validateSync'],
+    coverage: ALL_CATEGORIES,
+    rationale:
+      'Zod/Yup-style structural validation rejects malformed payloads at the boundary, killing all known injection categories — including operator-injection objects (`{$gt:""}`) that bypass NoSQL string-only sanitizers.',
+  },
+  {
+    names: ['sanitize()', 'sanitize'],
+    coverage: ['template'],
+    rationale: 'Generic HTML sanitizer — covers DOM/template injection only, not SQL or shell.',
+  },
+  {
+    names: ['escape()', 'escape'],
+    coverage: ['sql', 'template'],
+    rationale: 'String-escape covers HTML and basic SQL string contexts; insufficient for command/eval.',
+  },
+  {
+    names: ['escapeHtml', 'DOMPurify', 'purify', 'xss'],
+    coverage: ['template'],
+    rationale: 'HTML/XSS-specific sanitizers — DOM injection only.',
+  },
+  {
+    names: ['encodeURIComponent', 'encodeURI'],
+    coverage: ['redirect'],
+    rationale:
+      'URI-encoding prevents open-redirect via path manipulation; does NOT prevent SSRF (attacker still controls the host).',
+  },
+  {
+    names: ['path.normalize', 'path.resolve', 'path.basename', 'replace(../)'],
+    coverage: ['fs'],
+    rationale:
+      'Path normalization neutralizes traversal (`../`) sequences before file IO. Bare names omitted — a user `.normalize()` is not provably path-safe.',
+  },
+  {
+    names: ['parameterized query ($N)', 'parameterized query (?)', 'parameterized', 'sqlstring'],
+    coverage: ['sql'],
+    rationale: 'SQL placeholder substitution is the canonical fix for SQL injection.',
+  },
+  {
+    names: ['sanitizeForPrompt', 'escapePrompt', 'stripDelimiters', 'cleanForPrompt'],
+    coverage: ['template'],
+    rationale: 'LLM-prompt sanitizers — strip delimiters to prevent prompt injection in templates.',
+  },
+];
+
+/**
+ * Build a sanitizer-name → coverage-set lookup map from a family table.
+ * Exported so tests can exercise the duplicate-name-throws contract
+ * without round-tripping through the module-init IIFE. Module load
+ * silently failing on a duplicate would let a security-policy error
+ * land via merge — explicit throw forces it to a CI failure.
+ */
+export function buildSanitizerSufficiency(
+  families: ReadonlyArray<{ names: ReadonlyArray<string>; coverage: ReadonlyArray<SinkCategory> }>,
+): Record<string, Set<SinkCategory>> {
+  const map: Record<string, Set<SinkCategory>> = {};
+  for (const family of families) {
+    const set = new Set<SinkCategory>(family.coverage);
+    for (const name of family.names) {
+      if (map[name] !== undefined) {
+        throw new Error(
+          `SANITIZER_FAMILIES: name "${name}" appears in more than one family — would silently overwrite coverage.`,
+        );
+      }
+      map[name] = set;
+    }
+  }
+  return map;
+}
+
+const SANITIZER_SUFFICIENCY: Record<string, Set<SinkCategory>> = buildSanitizerSufficiency(SANITIZER_FAMILIES);
 
 /**
  * Check if a sanitizer is actually sufficient for a given sink category.
