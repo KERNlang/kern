@@ -51,6 +51,39 @@ export function generateImport(node: IRNode): string[] {
   return [`import '${safePath}';`];
 }
 
+function externChildImport(node: IRNode, child?: IRNode): IRNode {
+  const props = propsOf<'extern'>(node);
+  const packageName = props.package;
+  const childProps = child?.props ?? {};
+  return {
+    type: 'import',
+    props: {
+      ...(child
+        ? childProps
+        : {
+            names: props.names,
+            default: props.default,
+            types: props.types,
+          }),
+      registry: props.registry,
+      target: props.target,
+      package: packageName,
+      from: childProps.from ?? packageName,
+    },
+    children: child?.children ?? [],
+    loc: child?.loc ?? node.loc,
+  };
+}
+
+export function generateExtern(node: IRNode): string[] {
+  const children = kids(node, 'import');
+  const props = propsOf<'extern'>(node);
+  const hasInlineBinding = Boolean(props.names || props.default);
+  const inlineImport = hasInlineBinding ? generateImport(externChildImport(node)) : [];
+  const childImports = children.flatMap((child) => generateImport(externChildImport(node, child)));
+  return [...new Set([...inlineImport, ...childImports])];
+}
+
 // ── Use (cross-`.kern` symbol resolution) ───────────────────────────────
 
 /** Translate a `.kern` source path to its compiled `.js` output path. */

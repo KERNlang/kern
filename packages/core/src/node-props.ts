@@ -619,6 +619,18 @@ export interface ImportProps extends BaseProps {
   package?: string;
 }
 
+export interface ExternProps extends BaseProps {
+  package?: string;
+  registry?: string;
+  target?: string;
+  names?: string;
+  types?: string | boolean;
+  default?: string;
+  version?: string;
+  review?: string;
+  reason?: string;
+}
+
 // ── Children Props (field, variant, etc.) ───────────────────────────────
 
 export interface FieldProps extends BaseProps {
@@ -841,6 +853,7 @@ export interface NodePropsMap {
   select: SelectProps;
   module: ModuleProps;
   import: ImportProps;
+  extern: ExternProps;
   field: FieldProps;
   param: ParamProps;
   getter: GetterProps;

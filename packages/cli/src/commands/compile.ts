@@ -1,6 +1,7 @@
 import type { IRNode, KernTarget, ResolvedKernConfig } from '@kernlang/core';
 import {
   ALL_TARGETS,
+  collectExternalBoundaries,
   detectVersionsFromPackageJson,
   expandTemplateNode,
   generateCoreNode,
@@ -127,13 +128,23 @@ async function compileDefaultSingle(
   if (shadow) {
     const shadowDiagnostics = await runShadowAnalysis(ast);
     if (jsonOutput) {
-      // The JSON path pushes one entry per file; attach shadow results to the last one.
-      const current = jsonDiagnostics[jsonDiagnostics.length - 1];
-      if (current && current.file === file) {
+      const current = jsonDiagnostics.find((entry) => entry.file === file);
+      if (current) {
         current.shadowDiagnostics = shadowDiagnostics;
         const shadowErrors = shadowDiagnostics.filter((d) => d.rule === 'shadow-ts').length;
         errors += shadowErrors;
         if (shadowErrors > 0) current.success = false;
+      } else {
+        const shadowErrors = shadowDiagnostics.filter((d) => d.rule === 'shadow-ts').length;
+        errors += shadowErrors;
+        jsonDiagnostics.push({
+          file,
+          success: shadowErrors === 0,
+          diagnostics: [],
+          schemaViolations: [],
+          externalBoundaries: collectExternalBoundaries(ast),
+          shadowDiagnostics,
+        });
       }
     } else {
       const counts = surfaceShadowDiagnostics(shadowDiagnostics, file);
@@ -371,6 +382,7 @@ export async function runCompile(args: string[]): Promise<void> {
                   success: shadowErrors === 0,
                   diagnostics: [],
                   schemaViolations: [],
+                  externalBoundaries: collectExternalBoundaries(shadowRoot),
                   shadowDiagnostics,
                 });
               }

@@ -430,6 +430,45 @@ describe('golden: import', () => {
     expect(gen('import from=react registry=npm names=useMemo')).toBe("import { useMemo } from 'react';");
     expect(gen('import from=numpy registry=pypi names=array')).toBe('');
   });
+  it('emits extern package child imports for TypeScript targets', () => {
+    expect(
+      gen(['extern package=react registry=npm target=react', '  import names="useState,useEffect"'].join('\n')),
+    ).toBe("import { useState, useEffect } from 'react';");
+  });
+  it('emits extern inline props for TypeScript targets', () => {
+    expect(gen('extern package=react registry=npm target=react names=useState')).toBe(
+      "import { useState } from 'react';",
+    );
+  });
+  it('emits extern default and named child imports for TypeScript targets', () => {
+    expect(
+      gen(['extern package=react registry=npm target=react', '  import default=React names=useState'].join('\n')),
+    ).toBe("import React, { useState } from 'react';");
+  });
+  it('emits extern inline bindings alongside child imports for TypeScript targets', () => {
+    expect(
+      gen(['extern package=react registry=npm target=react names=useMemo', '  import names=useState'].join('\n')),
+    ).toBe(["import { useMemo } from 'react';", "import { useState } from 'react';"].join('\n'));
+  });
+  it('allows extern child imports to target package subpaths', () => {
+    expect(
+      gen(
+        [
+          'extern package=react-dom registry=npm target=react',
+          '  import from="react-dom/client" names=createRoot',
+        ].join('\n'),
+      ),
+    ).toBe("import { createRoot } from 'react-dom/client';");
+  });
+  it('treats declaration-only extern boundaries as metadata-only', () => {
+    expect(gen('extern package=react registry=npm target=react')).toBe('');
+  });
+  it('keeps invalid-target imports emitting under tolerant codegen', () => {
+    expect(gen('import from=react registry=npm target=reacts names=useMemo')).toBe("import { useMemo } from 'react';");
+  });
+  it('skips extern PyPI packages for TypeScript targets', () => {
+    expect(gen(['extern package=numpy registry=pypi target=fastapi', '  import names=array'].join('\n'))).toBe('');
+  });
 });
 
 describe('golden: const', () => {

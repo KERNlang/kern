@@ -33,4 +33,40 @@ describe('FastAPI external import metadata', () => {
       ['import app as App', 'from app import create_app'].join('\n'),
     );
   });
+
+  test('emits extern package child imports for Python targets', () => {
+    expect(py(['extern package=numpy registry=pypi target=fastapi', '  import names=array'].join('\n'))).toBe(
+      'from numpy import array',
+    );
+  });
+
+  test('emits extern inline props for Python targets', () => {
+    expect(py('extern package=numpy registry=pypi target=fastapi names=array')).toBe('from numpy import array');
+  });
+
+  test('skips extern NPM packages for Python targets', () => {
+    expect(py(['extern package=react registry=npm target=react', '  import names=useMemo'].join('\n'))).toBe('');
+  });
+
+  test('emits extern default and named child imports for Python targets', () => {
+    expect(
+      py(['extern package=numpy registry=pypi target=fastapi', '  import default=np names=array'].join('\n')),
+    ).toBe(['import numpy as np', 'from numpy import array'].join('\n'));
+  });
+
+  test('emits extern inline bindings alongside child imports for Python targets', () => {
+    expect(
+      py(['extern package=numpy registry=pypi target=fastapi names=array', '  import names=ndarray'].join('\n')),
+    ).toBe(['from numpy import array', 'from numpy import ndarray'].join('\n'));
+  });
+
+  test('allows extern child imports to target Python package submodules', () => {
+    expect(
+      py(['extern package=numpy registry=pypi target=fastapi', '  import from=numpy.linalg names=norm'].join('\n')),
+    ).toBe('from numpy.linalg import norm');
+  });
+
+  test('treats declaration-only extern boundaries as metadata-only', () => {
+    expect(py('extern package=numpy registry=pypi target=fastapi')).toBe('');
+  });
 });
