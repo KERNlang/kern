@@ -719,3 +719,174 @@ try {
     expect(f).toBeUndefined();
   });
 });
+
+// ── bearer-token-literal ──────────────────────────────────────────────
+
+describe('bearer-token-literal', () => {
+  it('fires on hardcoded JWT in fetch Authorization header (error severity)', () => {
+    const source = `
+async function call(): Promise<void> {
+  await fetch('/api', {
+    headers: { Authorization: 'Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.signature_here' },
+  });
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+  });
+
+  it('fires on Stripe key in axios Authorization header (case-insensitive)', () => {
+    const source = `
+async function call(): Promise<void> {
+  await axios.get('/users', {
+    headers: { authorization: 'Bearer sk_live_abcdefghijklmnopqrstuv' },
+  });
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+  });
+
+  it('fires on GitHub token in headers.set call', () => {
+    const source = `
+async function call(req: Request): Promise<void> {
+  req.headers.set('Authorization', 'Bearer ghp_abcdefghijklmnopqrstuvwxyz0123456789');
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+  });
+
+  it('fires on no-substitution template literal Bearer header', () => {
+    const source = `
+async function call(): Promise<void> {
+  await fetch('/api', {
+    headers: { Authorization: \`Bearer eyJhbGciOiJIUzI1NiJ9.zzzzzzzzzzzzzzzz.signature\` },
+  });
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeDefined();
+  });
+
+  it('fires on string concatenation of literals', () => {
+    const source = `
+async function call(): Promise<void> {
+  await fetch('/api', {
+    headers: { Authorization: 'Bearer ' + 'sk_live_abcdefghijklmnopqrstuv' },
+  });
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeDefined();
+  });
+
+  it('fires on template with literal-only substitution (Codex impl-review)', () => {
+    const source = `
+async function call(): Promise<void> {
+  await fetch('/api', {
+    headers: { Authorization: \`Bearer \${'sk_live_xxxxxxxxxxxxxxxxxxxx'}\` },
+  });
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeDefined();
+  });
+
+  it('fires on opaque-token Bearer with warning severity (not a known pattern)', () => {
+    const source = `
+async function call(): Promise<void> {
+  await fetch('/api', {
+    headers: { Authorization: 'Bearer randomopaquetoken_abcdef123456' },
+  });
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('warning');
+  });
+
+  it('does NOT fire when token comes from process.env interpolation', () => {
+    const source = `
+async function call(): Promise<void> {
+  await fetch('/api', {
+    headers: { Authorization: \`Bearer \${process.env.TOKEN}\` },
+  });
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeUndefined();
+  });
+
+  it('does NOT fire on Basic auth scheme', () => {
+    const source = `
+async function call(): Promise<void> {
+  await fetch('/api', {
+    headers: { Authorization: 'Basic ' + 'dXNlcjpwYXNz' },
+  });
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeUndefined();
+  });
+
+  it('does NOT fire on Bearer literal outside header context', () => {
+    const source = `
+const comment: string = 'Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature';
+console.log(comment);
+`;
+    const report = reviewSource(source, 'doc.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeUndefined();
+  });
+
+  it('does NOT fire on placeholder values', () => {
+    const placeholders = [
+      "'Bearer '",
+      "'Bearer <token>'",
+      "'Bearer YOUR_TOKEN'",
+      "'Bearer TODO'",
+      "'Bearer example'",
+      "'Bearer xxx'",
+      "'Bearer <YOUR-API-KEY>'",
+    ];
+    for (const literal of placeholders) {
+      const source = `
+async function call(): Promise<void> {
+  await fetch('/api', {
+    headers: { Authorization: ${literal} },
+  });
+}
+`;
+      const report = reviewSource(source, 'api.ts');
+      const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+      expect(f).toBeUndefined();
+    }
+  });
+
+  it('does NOT fire on unknown identifier interpolation (FN class — alias tracing deferred)', () => {
+    const source = `
+const TOKEN = 'sk_live_abcdefghijklmnopqrstuv';
+async function call(): Promise<void> {
+  await fetch('/api', {
+    headers: { Authorization: \`Bearer \${TOKEN}\` },
+  });
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeUndefined();
+  });
+});

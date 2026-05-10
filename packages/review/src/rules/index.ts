@@ -1212,6 +1212,15 @@ const REGISTRY: RuleInfo[] = [
     rolloutPhase: 1,
   },
   {
+    id: 'bearer-token-literal',
+    layer: 'security',
+    severity: 'warning',
+    description:
+      'Hardcoded Bearer token in HTTP Authorization header — credential should come from env / secret manager',
+    precision: 'high',
+    rolloutPhase: 1,
+  },
+  {
     id: 'insecure-transport',
     layer: 'concept',
     severity: 'warning',

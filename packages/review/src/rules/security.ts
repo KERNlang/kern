@@ -766,6 +766,239 @@ function errorLeak(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule S11: bearer-token-literal ─────────────────────────────────────
+// Hardcoded `Authorization: Bearer …` headers in fetch/axios/Headers calls.
+// CWE-798 (use of hardcoded credentials), tightly scoped to the auth-header
+// surface where the literal is unambiguously a deployment-risk token.
+//
+// Plan-review consensus (Codex + Gemini + OpenCode):
+// - Don't require JWT shape — Stripe (`sk_live_*`), GitHub (`ghp_*`),
+//   internal opaque tokens are all valid Bearer values.
+// - Use known-secret-pattern match as a confidence/severity hint.
+// - Walk ancestors with a predicate (find `'authorization'` / `'headers'`
+//   key or HTTP-client call) — fixed hop counts miss the 4-5 levels of
+//   nesting in real fetch/axios shapes.
+// - Skip placeholder values (`'Bearer '`, `'Bearer <token>'`, `'Bearer TODO'`).
+// - Const-literal alias tracing and `process.env` alias tracing are
+//   deferred FN classes (out of scope for v1).
+
+const BEARER_HEADER_NAME_RE = /^authorization$/i;
+const BEARER_VALUE_RE = /^Bearer\s+(\S+)/;
+const BEARER_PLACEHOLDER_TOKENS = new Set([
+  '',
+  '<token>',
+  '<your-token>',
+  'YOUR_TOKEN',
+  'YOUR-TOKEN',
+  'TOKEN',
+  'TODO',
+  'CHANGE_ME',
+  'CHANGEME',
+  'example',
+  'example-token',
+  'token',
+  'abc',
+  'xxx',
+  'xxxxx',
+  '...',
+]);
+const HTTP_CLIENT_NAMES = new Set(['fetch', 'axios', 'got', 'request', 'undici']);
+const HEADER_SETTER_METHODS = new Set(['set', 'append']);
+// Known-secret patterns reused from S2 hardcoded-secret intent — when the
+// Bearer token also matches one of these, escalate to error severity.
+const KNOWN_SECRET_PATTERNS_AFTER_BEARER = [
+  /^sk[-_]?(live|test|prod)?[-_]?[A-Za-z0-9]{16,}$/,
+  /^sk-[A-Za-z0-9]{20,}$/,
+  /^ghp_[A-Za-z0-9]{36,}$/,
+  /^gho_[A-Za-z0-9]{36,}$/,
+  /^github_pat_[A-Za-z0-9_]{22,}$/,
+  /^xox[bpras]-[A-Za-z0-9-]{10,}$/,
+  /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/, // JWT three-segment shape
+  /^AKIA[A-Z0-9]{16}$/,
+  /^AIza[A-Za-z0-9_-]{35}$/,
+];
+
+/**
+ * Resolve the static string value of an expression when all parts are
+ * literal-known. Returns `undefined` for any unknown identifier (env vars,
+ * user variables) — that defers to the documented FN class rather than
+ * heuristically guessing.
+ */
+function resolveLiteralStringValue(node: import('ts-morph').Node): string | undefined {
+  const k = node.getKind();
+  if (k === SyntaxKind.StringLiteral) {
+    return (node as import('ts-morph').StringLiteral).getLiteralValue();
+  }
+  if (k === SyntaxKind.NoSubstitutionTemplateLiteral) {
+    return (node as import('ts-morph').NoSubstitutionTemplateLiteral).getLiteralValue();
+  }
+  if (k === SyntaxKind.TemplateExpression) {
+    const tpl = node as import('ts-morph').TemplateExpression;
+    let s = tpl.getHead().getLiteralText();
+    for (const span of tpl.getTemplateSpans()) {
+      const sub = resolveLiteralStringValue(span.getExpression());
+      if (sub === undefined) return undefined;
+      s += sub;
+      s += span.getLiteral().getLiteralText();
+    }
+    return s;
+  }
+  if (k === SyntaxKind.BinaryExpression) {
+    const bin = node as import('ts-morph').BinaryExpression;
+    if (bin.getOperatorToken().getKind() !== SyntaxKind.PlusToken) return undefined;
+    const left = resolveLiteralStringValue(bin.getLeft());
+    if (left === undefined) return undefined;
+    const right = resolveLiteralStringValue(bin.getRight());
+    if (right === undefined) return undefined;
+    return left + right;
+  }
+  return undefined;
+}
+
+/**
+ * Walk ancestors looking for an HTTP-header context. Returns true if the
+ * node sits inside one of:
+ *   - PropertyAssignment whose name matches `Authorization` (any case)
+ *   - PropertyAssignment whose name is `headers` (the value must be the
+ *     enclosing object literal containing this node)
+ *   - new Headers({...}) constructor argument
+ *   - `<x>.headers.set('Authorization', <node>)` or `.append(...)`
+ */
+function isInBearerHeaderContext(node: import('ts-morph').Node): boolean {
+  // Direct PropertyAssignment with Authorization key — fastest path.
+  let cur: import('ts-morph').Node | undefined = node.getParent();
+  while (cur) {
+    const k = cur.getKind();
+    if (k === SyntaxKind.PropertyAssignment) {
+      const pa = cur as import('ts-morph').PropertyAssignment;
+      const name = pa.getNameNode().getText().replace(/['"`]/g, '');
+      if (BEARER_HEADER_NAME_RE.test(name)) return true;
+      if (name === 'headers') {
+        // The literal must descend from this PropertyAssignment's value.
+        return true;
+      }
+    }
+    if (k === SyntaxKind.CallExpression) {
+      const call = cur as import('ts-morph').CallExpression;
+      const args = call.getArguments();
+      // headers.set('Authorization', <node>) / append(...)
+      const callee = call.getExpression();
+      if (callee.getKind() === SyntaxKind.PropertyAccessExpression) {
+        const pae = callee as import('ts-morph').PropertyAccessExpression;
+        if (HEADER_SETTER_METHODS.has(pae.getName())) {
+          const firstArg = args[0];
+          if (firstArg) {
+            const headerName = resolveLiteralStringValue(firstArg);
+            if (headerName && BEARER_HEADER_NAME_RE.test(headerName)) return true;
+          }
+        }
+        // fetch(url, {...}) / axios.get(url, {...}) — receiver is a known HTTP client.
+        const calleeName = pae.getName();
+        const root = pae.getExpression();
+        if (root.getKind() === SyntaxKind.Identifier && HTTP_CLIENT_NAMES.has(root.getText())) {
+          // Caller is axios.get / got.post — accept as header context only
+          // if our literal flowed through a Property assignment named headers
+          // along the way (already returned true above), so reaching here
+          // means we keep walking.
+        }
+        // Avoid relying on this branch — the headers/Authorization PropertyAssignment
+        // check above is the authoritative gate.
+        if (calleeName === 'create' && root.getKind() === SyntaxKind.Identifier && root.getText() === 'axios') {
+          // axios.create({ headers: {...} }) — handled by the headers PropertyAssignment ancestor.
+        }
+      }
+      // new Headers([['Authorization', '...']]) — Map-of-arrays form.
+      if (callee.getKind() === SyntaxKind.NewExpression) {
+        // Handled by ancestor walk into the array's PropertyAssignment.
+      }
+    }
+    if (k === SyntaxKind.NewExpression) {
+      const ne = cur as import('ts-morph').NewExpression;
+      const ctor = ne.getExpression();
+      if (ctor.getKind() === SyntaxKind.Identifier && ctor.getText() === 'Headers') {
+        // Constructor of Headers — check that the enclosing PropertyAssignment
+        // named Authorization already matched. If we reach here without that,
+        // there's no Authorization key (FN: array-of-entries form).
+      }
+    }
+    cur = cur.getParent();
+  }
+  return false;
+}
+
+function isBearerPlaceholder(token: string): boolean {
+  if (BEARER_PLACEHOLDER_TOKENS.has(token)) return true;
+  if (BEARER_PLACEHOLDER_TOKENS.has(token.toLowerCase())) return true;
+  // <UPPER_CASE> placeholders, e.g. <API_TOKEN>
+  if (/^<[^>]+>$/.test(token)) return true;
+  // YOUR_* / EXAMPLE_*
+  if (/^(YOUR|EXAMPLE|TEST|PLACEHOLDER)[_-]/i.test(token)) return true;
+  return false;
+}
+
+function isHighConfidenceBearerToken(token: string): boolean {
+  return KNOWN_SECRET_PATTERNS_AFTER_BEARER.some((p) => p.test(token));
+}
+
+function bearerTokenLiteral(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+  const reportedSpans = new Set<string>(); // dedupe by file:line:col
+
+  // Walk all literal-shaped nodes in one pass.
+  const candidates: import('ts-morph').Node[] = [];
+  for (const k of [
+    SyntaxKind.StringLiteral,
+    SyntaxKind.NoSubstitutionTemplateLiteral,
+    SyntaxKind.TemplateExpression,
+    SyntaxKind.BinaryExpression,
+  ] as const) {
+    candidates.push(...ctx.sourceFile.getDescendantsOfKind(k));
+  }
+
+  for (const node of candidates) {
+    const value = resolveLiteralStringValue(node);
+    if (!value) continue;
+    const match = BEARER_VALUE_RE.exec(value);
+    if (!match) continue;
+    const token = match[1];
+    if (isBearerPlaceholder(token)) continue;
+    if (!isInBearerHeaderContext(node)) continue;
+
+    // Skip if a parent CallExpression node has already been reported (binary
+    // and template often nest — emit on the outermost matched form).
+    const line = node.getStartLineNumber();
+    const col =
+      node.getStart() -
+      node
+        .getSourceFile()
+        .getFullText()
+        .lastIndexOf('\n', node.getStart() - 1);
+    const key = `${ctx.filePath}:${line}:${col}`;
+    if (reportedSpans.has(key)) continue;
+    reportedSpans.add(key);
+
+    const highConfidence = isHighConfidenceBearerToken(token);
+    findings.push(
+      finding(
+        'bearer-token-literal',
+        highConfidence ? 'error' : 'warning',
+        'bug',
+        highConfidence
+          ? 'Hardcoded Bearer token in HTTP header — matches a known secret pattern (Stripe / GitHub / JWT / AWS)'
+          : 'Hardcoded Bearer token in HTTP header — move the credential to an environment variable',
+        ctx.filePath,
+        line,
+        {
+          suggestion:
+            'Replace the literal with `Bearer ${process.env.TOKEN_NAME}` (read at request time) and load the token from a secret manager in production',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
 // ── Exported Security Rules ──────────────────────────────────────────────
 
 export const securityRules = [
@@ -779,4 +1012,5 @@ export const securityRules = [
   helmetMissing,
   openRedirect,
   errorLeak,
+  bearerTokenLiteral,
 ];
