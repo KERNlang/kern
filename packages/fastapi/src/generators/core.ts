@@ -4,7 +4,7 @@
  */
 
 import type { IRNode } from '@kernlang/core';
-import { emitIdentifier, handlerCode } from '@kernlang/core';
+import { emitIdentifier, handlerCode, shouldEmitImportForTarget } from '@kernlang/core';
 import { emitNativeKernBodyPythonWithImports } from '../codegen-body-python.js';
 import { buildPythonParamList, kids, p, parseLegacyParamParts } from '../codegen-helpers.js';
 import { mapTsTypeToPython, toScreamingSnake, toSnakeCase } from '../type-map.js';
@@ -710,6 +710,7 @@ export function generateImport(node: IRNode): string[] {
   const defaultImport = props.default as string | undefined;
 
   if (!from) return [];
+  if (!shouldEmitImportForTarget(props, 'python')) return [];
 
   if (defaultImport && names) {
     const safeDefault = emitPythonImportIdent(defaultImport, 'default', node);

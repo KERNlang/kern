@@ -614,6 +614,9 @@ export interface ImportProps extends BaseProps {
   names?: string;
   types?: string | boolean;
   default?: string;
+  registry?: string;
+  target?: string;
+  package?: string;
 }
 
 // ── Children Props (field, variant, etc.) ───────────────────────────────

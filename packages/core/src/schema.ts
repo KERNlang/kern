@@ -18,6 +18,7 @@
 
 import { isSupportedAssignOperator, SUPPORTED_ASSIGN_OPERATORS } from './assignment-operators.js';
 import { type KernTarget, VALID_TARGETS } from './config.js';
+import { validateImportMetadata } from './import-metadata.js';
 import { defaultRuntime, type KernRuntime } from './runtime.js';
 import { KERN_VERSION, NODE_TYPES, STYLE_SHORTHANDS, VALUE_SHORTHANDS } from './spec.js';
 import type { IRNode } from './types.js';
@@ -349,13 +350,17 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['type'],
   },
   import: {
-    description: 'ES module import — named, default, or type-only',
-    example: 'import from="./user.js" names="User,UserRole" types=true',
+    description:
+      'External import — named, default, or type-only. Optional registry/target metadata lets one KERN source declare NPM and PyPI imports for generated polyglot outputs.',
+    example: 'import from="react" registry=npm names="useMemo"\nimport from="numpy" registry=pypi names="array"',
     props: {
       from: { required: true, kind: 'importPath' },
       names: { kind: 'string' },
       default: { kind: 'identifier' },
       types: { kind: 'boolean' },
+      registry: { kind: 'identifier' },
+      target: { kind: 'identifier' },
+      package: { kind: 'string' },
     },
   },
   use: {
@@ -2825,6 +2830,16 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       violations.push({
         nodeType: 'assign',
         message: `'assign op=' supports only ${SUPPORTED_ASSIGN_OPERATORS.map((v) => `\`${v}\``).join(', ')} (got \`${op}\`)`,
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+  }
+  if (node.type === 'import') {
+    for (const message of validateImportMetadata(node)) {
+      violations.push({
+        nodeType: 'import',
+        message,
         line: node.loc?.line,
         col: node.loc?.col,
       });

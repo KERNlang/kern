@@ -426,6 +426,10 @@ describe('golden: import', () => {
   it('type-only import', () => {
     expect(gen('import from="./types" names="User,Config" types=true')).toMatchSnapshot();
   });
+  it('emits NPM imports and skips PyPI imports for TypeScript targets', () => {
+    expect(gen('import from=react registry=npm names=useMemo')).toBe("import { useMemo } from 'react';");
+    expect(gen('import from=numpy registry=pypi names=array')).toBe('');
+  });
 });
 
 describe('golden: const', () => {

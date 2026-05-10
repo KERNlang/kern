@@ -1,5 +1,12 @@
 import type { IRNode } from '@kernlang/core';
-import { colorToTw, escapeJsxAttr, escapeJsxText, getProps, getStyles } from '@kernlang/core';
+import {
+  colorToTw,
+  escapeJsxAttr,
+  escapeJsxText,
+  getProps,
+  getStyles,
+  shouldEmitImportForTarget,
+} from '@kernlang/core';
 import { addDefaultImport, addNamedImport, exprCode, isExpr } from './nextjs-imports.js';
 import { htmlAttrsToJsx, SVG_ICONS, TEXT_TAG_MAP, twClasses } from './nextjs-style.js';
 import type { Ctx } from './nextjs-types.js';
@@ -646,22 +653,21 @@ function renderRedirect(node: IRNode, ctx: Ctx, _indent: string): void {
 
 function renderImport(node: IRNode, ctx: Ctx): void {
   const p = getProps(node);
-  const name = p.name as string;
-  const from = p.from as string;
-  const isDefault = p.default === 'true' || p.default === true;
+  if (!shouldEmitImportForTarget(p, 'ts')) return;
 
-  if (name && from) {
-    if (isDefault) {
-      addDefaultImport(ctx, from, name);
-    } else {
-      // Support comma-separated named imports: name=Foo,Bar,Baz
-      const names = name
-        .split(',')
-        .map((n) => n.trim())
-        .filter(Boolean);
-      for (const n of names) {
-        addNamedImport(ctx, from, n);
-      }
+  const from = p.from as string;
+  const legacyName = p.name as string;
+  const defaultName = typeof p.default === 'string' ? p.default : p.default === true ? legacyName : '';
+  const names = ((p.names as string | undefined) ?? legacyName) || '';
+  const typeOnly = p.types === 'true' || p.types === true;
+
+  if (from) {
+    if (defaultName) addDefaultImport(ctx, from, defaultName);
+    for (const name of names
+      .split(',')
+      .map((n) => n.trim())
+      .filter(Boolean)) {
+      if (name !== defaultName) addNamedImport(ctx, from, name, typeOnly);
     }
   }
 }

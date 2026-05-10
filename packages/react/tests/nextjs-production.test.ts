@@ -145,6 +145,19 @@ describe('Next.js 15 Production Patterns', () => {
       expect(result.code).toContain("import { useKeyPress } from '~/hooks/use-key-press'");
     });
 
+    test('generates canonical target-specific NPM imports and skips PyPI imports', () => {
+      const ast = parse(
+        [
+          'page name=Test',
+          '  import from=react registry=npm names=useMemo',
+          '  import from=numpy registry=pypi names=array',
+        ].join('\n'),
+      );
+      const result = transpileNextjs(ast);
+      expect(result.code).toContain("import { useMemo } from 'react'");
+      expect(result.code).not.toContain('numpy');
+    });
+
     test('parses default import with default flag', () => {
       const ast = parse('page name=Test\n  import default Link from=next/link');
       const importNode = ast.children?.find((c: any) => c.type === 'import');
