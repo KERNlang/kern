@@ -131,14 +131,22 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
     node: FunctionDeclaration | ArrowFunction | FunctionExpression | MethodDeclaration;
     startLine: number;
   }> = [];
-  for (const fn of sourceFile.getFunctions()) allFns.push({ node: fn, startLine: fn.getStartLineNumber() });
+  const seenFnNodes = new Set<Node>();
+  for (const fn of sourceFile.getFunctions()) {
+    allFns.push({ node: fn, startLine: fn.getStartLineNumber() });
+    seenFnNodes.add(fn);
+  }
   for (const stmt of sourceFile.getVariableStatements()) {
     for (const decl of stmt.getDeclarations()) {
       const init = decl.getInitializer();
       if (init) {
         const initKind = init.getKindName();
         if (initKind === 'ArrowFunction' || initKind === 'FunctionExpression') {
-          allFns.push({ node: init as any, startLine: stmt.getStartLineNumber() });
+          allFns.push({
+            node: init as ArrowFunction | FunctionExpression,
+            startLine: stmt.getStartLineNumber(),
+          });
+          seenFnNodes.add(init);
         }
       }
     }
@@ -146,8 +154,37 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
   for (const cls of sourceFile.getClasses()) {
     for (const method of cls.getMethods()) {
       allFns.push({ node: method, startLine: method.getStartLineNumber() });
+      seenFnNodes.add(method);
     }
   }
+
+  // Sweep for callback arrows / function expressions that aren't already
+  // covered above. The most common Express handler shape
+  // (`app.get('/x', (req, res) => …)`) was previously invisible.
+  //
+  // Codex impl-review caught the original sweep was too greedy: combined with
+  // the name-based `HTTP_PARAM_NAMES` heuristic, an inline callback like
+  // `queue.each((req) => exec(req.cmd))` would be classified as an HTTP
+  // handler and emit a `taint-command` FP. The gate below requires the
+  // inline callback to live in a route-handler call site (`app.get`,
+  // `router.use`, …) OR have an explicitly HTTP-typed parameter. Named
+  // FunctionDeclarations are exempt — they are deliberately written code,
+  // not arbitrary callbacks. Object-literal MethodDeclarations are not yet
+  // covered (would require reference tracing for `app.get('/x', ctrl.fn)`).
+  sourceFile.forEachDescendant((node) => {
+    const k = node.getKindName();
+    if (k !== 'ArrowFunction' && k !== 'FunctionExpression' && k !== 'FunctionDeclaration') return;
+    if (seenFnNodes.has(node)) return;
+    if (k !== 'FunctionDeclaration') {
+      const fnNode = node as ArrowFunction | FunctionExpression;
+      if (!isRouteHandlerCallback(node) && !hasHttpTypedParam(fnNode)) return;
+    }
+    allFns.push({
+      node: node as ArrowFunction | FunctionExpression | FunctionDeclaration,
+      startLine: node.getStartLineNumber(),
+    });
+    seenFnNodes.add(node);
+  });
 
   for (const { node: fn, startLine } of allFns) {
     const params = fn.getParameters();
@@ -248,10 +285,14 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
       if (!resolved) continue;
       const { category: sinkDef, name: calleeName } = resolved;
 
-      // Check if any argument references a tainted variable
+      // Check if any argument references a tainted variable. The shadowing
+      // gate (Gemini impl-review) prevents the parent's body walk from
+      // matching `req` inside a nested arrow that re-binds its own `req`
+      // param — closure capture of OUTER `req` still works (the gate only
+      // fires when the inner scope literally shadows the same name).
       for (const arg of call.getArguments()) {
         const taintedArg = findTaintedIdentifier(arg, taintedNames);
-        if (taintedArg) {
+        if (taintedArg && !isTaintedNameShadowedAt(call, taintedArg, body)) {
           sinks.push({
             name: calleeName,
             category: sinkDef,
@@ -272,7 +313,7 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
           for (const span of (tpl as any).getTemplateSpans()) {
             const expr = span.getExpression();
             const taintedArg = findTaintedIdentifier(expr, taintedNames);
-            if (taintedArg) {
+            if (taintedArg && !isTaintedNameShadowedAt(call, taintedArg, body)) {
               sinks.push({
                 name: `${calleeName} (template)`,
                 category: sinkDef,
@@ -372,6 +413,81 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
   }
 
   return results;
+}
+
+// ── Callback-sweep gate ─────────────────────────────────────────────────
+//
+// Method names that customarily attach an HTTP request handler (Express,
+// Koa, Fastify, hapi). The list is deliberately tight — broader entries
+// like `on` / `once` would re-introduce the FP class Codex flagged
+// (`emitter.on('data', (req) => …)` classifying as an HTTP handler).
+const ROUTE_HANDLER_METHODS = new Set([
+  'get',
+  'post',
+  'put',
+  'delete',
+  'patch',
+  'all',
+  'head',
+  'options',
+  'use',
+  'route',
+  'param',
+  'register',
+  'addHook',
+]);
+
+/**
+ * True when `node` is an inline arrow / function expression / object-method
+ * passed as an argument to a known route-handler call, e.g.
+ * `app.get('/x', <node>)` or `router.use(<node>)`. Walks one level of
+ * call-expression nesting to handle `app.get('/x', mw, <node>)`.
+ */
+function isRouteHandlerCallback(node: Node): boolean {
+  const parent = node.getParent();
+  if (!parent || parent.getKindName() !== 'CallExpression') return false;
+  const call = parent as import('ts-morph').CallExpression;
+  // Make sure `node` is one of the call's arguments, not the callee itself.
+  const args = call.getArguments();
+  if (!args.includes(node as any)) return false;
+  const callee = call.getExpression();
+  const calleeName = callee.getKindName() === 'PropertyAccessExpression' ? (callee as any).getName() : callee.getText();
+  return typeof calleeName === 'string' && ROUTE_HANDLER_METHODS.has(calleeName);
+}
+
+/** True when at least one of the function's params has an HTTP request type annotation. */
+function hasHttpTypedParam(node: ArrowFunction | FunctionExpression): boolean {
+  for (const param of node.getParameters()) {
+    const typeText = param.getType().getText(param);
+    if (HTTP_PARAM_TYPES.test(typeText)) return true;
+  }
+  return false;
+}
+
+/**
+ * True when the path from `from` up to `rootBody` crosses a function-like
+ * scope that re-binds `name` as one of its own parameters — i.e., the
+ * tainted name is shadowed locally and the match against the outer scope's
+ * tainted set is spurious. Catches `(req) => { const f = (req) => exec(req); }`.
+ */
+function isTaintedNameShadowedAt(from: Node, name: string, rootBody: Node): boolean {
+  let cur: Node | undefined = from.getParent();
+  while (cur && cur !== rootBody) {
+    const k = cur.getKindName();
+    if (
+      k === 'ArrowFunction' ||
+      k === 'FunctionExpression' ||
+      k === 'FunctionDeclaration' ||
+      k === 'MethodDeclaration'
+    ) {
+      const fn = cur as ArrowFunction | FunctionExpression | FunctionDeclaration | MethodDeclaration;
+      for (const p of fn.getParameters()) {
+        if (p.getName() === name) return true;
+      }
+    }
+    cur = cur.getParent();
+  }
+  return false;
 }
 
 // ── AST Helpers ─────────────────────────────────────────────────────────

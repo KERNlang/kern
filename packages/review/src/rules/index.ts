@@ -257,6 +257,12 @@ const REGISTRY: RuleInfo[] = [
   },
   { id: 'cors-wildcard', layer: 'security', severity: 'warning', description: 'CORS wildcard (*) origin allowed' },
   {
+    id: 'cors-wildcard-credentials',
+    layer: 'security',
+    severity: 'error',
+    description: 'CORS allows wildcard origin together with credentials — bypasses Same-Origin Policy',
+  },
+  {
     id: 'helmet-missing',
     layer: 'security',
     severity: 'warning',

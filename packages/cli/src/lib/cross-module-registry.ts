@@ -18,6 +18,7 @@ import { dirname, resolve } from 'path';
 
 const RESULT_RETURN_RE = /^Result<[\s\S]*>$/;
 const OPTION_RETURN_RE = /^Option<[\s\S]*>$/;
+const PYTHON_SNAKE_SYMBOL_KINDS = new Set(['fn', 'derive', 'transform', 'action', 'expect', 'dependency']);
 
 /** Strip an outer `Promise<…>` wrapper if present. Mirrors the helper in
  *  `parser-validate-propagation.ts` so the registry classifies async
@@ -62,9 +63,33 @@ function parseExportBinding(raw: string): ExportBinding | null {
   return { source, exported: match[2] ?? source };
 }
 
+function toSnakeCase(name: string): string {
+  return name
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[-\s]+/g, '_')
+    .toLowerCase();
+}
+
+function targetNamesForSymbol(name: string, kind: string): Record<string, string> {
+  return {
+    ts: name,
+    python: PYTHON_SNAKE_SYMBOL_KINDS.has(kind) ? toSnakeCase(name) : name,
+  };
+}
+
 function copyExportSymbol(target: ModuleExports, source: ModuleExports, name: string, exportedName = name): void {
   const symbol = source.symbols?.get(name);
-  if (symbol) target.symbols?.set(exportedName, { ...symbol, name: exportedName });
+  if (symbol) {
+    const targetNames =
+      exportedName === name ? symbol.targetNames : { ...symbol.targetNames, ts: exportedName, python: exportedName };
+    target.symbols?.set(exportedName, {
+      ...symbol,
+      name: exportedName,
+      sourceName: symbol.sourceName ?? name,
+      targetNames,
+    });
+  }
   if (source.resultFns.has(name)) target.resultFns.add(exportedName);
   if (source.optionFns.has(name)) target.optionFns.add(exportedName);
   if (source.asyncResultFns?.has(name)) target.asyncResultFns?.add(exportedName);
@@ -117,6 +142,7 @@ function classifyDirectExports(root: IRNode): ModuleExports {
       case 'class':
       case 'service':
       case 'model':
+      case 'repository':
       case 'derive':
       case 'transform':
       case 'action':
@@ -128,14 +154,20 @@ function classifyDirectExports(root: IRNode): ModuleExports {
     }
   }
 
-  function walk(node: IRNode): void {
+  function walk(node: IRNode, nestedMember = false): void {
+    const structuralContainer =
+      node.type === 'class' ||
+      node.type === 'service' ||
+      node.type === 'interface' ||
+      node.type === 'model' ||
+      node.type === 'repository';
     const name = exportedName(node);
     const kind = symbolKind(node);
-    if (name && kind) {
-      symbols.set(name, { name, kind });
+    if (!nestedMember && name && kind) {
+      symbols.set(name, { name, sourceName: name, kind, targetNames: targetNamesForSymbol(name, kind) });
     }
 
-    if (node.type === 'fn' || node.type === 'method') {
+    if (!nestedMember && (node.type === 'fn' || node.type === 'method')) {
       const props = node.props || {};
       const returns = props.returns;
       const isAsync = props.async === true || props.async === 'true';
@@ -149,7 +181,7 @@ function classifyDirectExports(root: IRNode): ModuleExports {
         }
       }
     }
-    if (node.children) for (const c of node.children) walk(c);
+    if (node.children) for (const c of node.children) walk(c, nestedMember || structuralContainer);
   }
 
   walk(root);

@@ -7,6 +7,7 @@
  * Extracted from codegen-core.ts for modular codegen architecture.
  */
 
+import { shouldEmitImportForTarget } from '../import-metadata.js';
 import { propsOf } from '../node-props.js';
 import type { IRNode } from '../types.js';
 import { emitIdentifier, emitImportSpecifier } from './emitters.js';
@@ -25,6 +26,7 @@ export function generateImport(node: IRNode): string[] {
   const isTypeOnly = props.types === 'true' || props.types === true;
 
   if (!from) return [];
+  if (!shouldEmitImportForTarget(props, 'ts')) return [];
 
   const safePath = emitImportSpecifier(from, node);
   const typeKw = isTypeOnly ? 'type ' : '';

@@ -344,4 +344,55 @@ export async function decide() {
     const f = report.findings.find((f) => f.ruleId === 'missing-output-validation');
     expect(f).toBeUndefined();
   });
+
+  // ── FP regressions (kern-guard CLI bug — `complete`/`sendMessage` greedy) ─
+
+  it('does not flag a local array that happens to share a name', () => {
+    const source = `
+function summary() {
+  const summarySegments = ['a', 'b'].filter(Boolean);
+  return summarySegments.join(' · ');
+}
+`;
+    const report = reviewSource(source, 'summary.ts');
+    const f = report.findings.find((f) => f.ruleId === 'missing-output-validation');
+    expect(f).toBeUndefined();
+  });
+
+  it('does not flag a literal-array parts variable', () => {
+    const source = `
+function fmt(cost: number, time: number) {
+  const parts = ['mode', cost, time];
+  return parts.join(' · ');
+}
+`;
+    const report = reviewSource(source, 'fmt.ts');
+    const f = report.findings.find((f) => f.ruleId === 'missing-output-validation');
+    expect(f).toBeUndefined();
+  });
+
+  it('flags response.parts used without validation', () => {
+    const source = `
+async function handle(response: any) {
+  const parts = response.parts;
+  return parts[0].text;
+}
+`;
+    const report = reviewSource(source, 'handle.ts');
+    const f = report.findings.find((f) => f.ruleId === 'missing-output-validation');
+    expect(f).toBeDefined();
+  });
+
+  it('flags result.parts assigned to a non-canonical name', () => {
+    const source = `
+function use(x: any) { return x; }
+async function handle(result: any) {
+  const summarySegments = result.parts;
+  return use(summarySegments);
+}
+`;
+    const report = reviewSource(source, 'handle.ts');
+    const f = report.findings.find((f) => f.ruleId === 'missing-output-validation');
+    expect(f).toBeDefined();
+  });
 });

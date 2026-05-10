@@ -78,8 +78,16 @@ interface PropagationContext {
  *  More target-specific names can be added later without changing the
  *  `use/from` source syntax. */
 export interface ModuleExportSymbol {
+  /** Public KERN symbol name visible to importers of this module. */
   name: string;
+  /** Original KERN source symbol before barrel aliases, when known. */
+  sourceName?: string;
   kind: string;
+  /** Public emitted names by target. Example: direct `fn parseUser` has
+   *  `{ python: "parse_user", ts: "parseUser" }`; a barrel alias
+   *  `parseUser as parseUserPublic` has public Python/TS name
+   *  `parseUserPublic`. */
+  targetNames?: Record<string, string>;
 }
 
 /** Slice 7 v2 — exported fn signatures of a single KERN module, narrowed
@@ -137,13 +145,42 @@ function parseSymbolKindPairs(raw: unknown): Map<string, string> {
   return pairs;
 }
 
+function parseTargetNamePairs(raw: unknown): Map<string, Record<string, string>> {
+  const pairs = new Map<string, Record<string, string>>();
+  if (typeof raw !== 'string') return pairs;
+  for (const item of raw.split(',')) {
+    const [name, target, value] = item.split(':').map((part) => part.trim());
+    if (!name || !target || !value) continue;
+    const targetNames = pairs.get(name) ?? {};
+    targetNames[target] = value;
+    pairs.set(name, targetNames);
+  }
+  return pairs;
+}
+
 function serializeSymbolKindPairs(pairs: Map<string, string>): string {
   return [...pairs.entries()].map(([name, kind]) => `${name}:${kind}`).join(',');
+}
+
+function serializeTargetNamePairs(pairs: Map<string, Record<string, string>>): string {
+  const items: string[] = [];
+  for (const [name, targets] of pairs) {
+    for (const [target, value] of Object.entries(targets)) {
+      items.push(`${name}:${target}:${value}`);
+    }
+  }
+  return items.join(',');
 }
 
 function enrichExportNode(node: IRNode, exports: ModuleExports): void {
   if (!node.props) return;
   const pairs = parseSymbolKindPairs(node.props.symbolKinds);
+  const targetPairs = parseTargetNamePairs(node.props.targetNames);
+  const from = node.props.from;
+  if (typeof from === 'string' && from.length > 0 && exports.symbols) {
+    node.props.resolvedExportNames = [...exports.symbols.keys()].join(',');
+  }
+
   for (const rawName of [...splitImportNames(node.props.names), ...splitImportNames(node.props.types)]) {
     const binding = exportBindingNames(rawName);
     if (!binding) continue;
@@ -151,10 +188,21 @@ function enrichExportNode(node: IRNode, exports: ModuleExports): void {
     if (symbol) {
       pairs.set(binding.source, symbol.kind);
       pairs.set(binding.exported, symbol.kind);
+      if (symbol.targetNames) {
+        targetPairs.set(binding.source, symbol.targetNames);
+      }
+      if (binding.exported !== binding.source) {
+        targetPairs.set(binding.exported, { python: binding.exported, ts: binding.exported });
+      } else if (symbol.targetNames) {
+        targetPairs.set(binding.exported, symbol.targetNames);
+      }
     }
   }
   if (pairs.size > 0) {
     node.props.symbolKinds = serializeSymbolKindPairs(pairs);
+  }
+  if (targetPairs.size > 0) {
+    node.props.targetNames = serializeTargetNamePairs(targetPairs);
   }
 }
 
@@ -784,6 +832,9 @@ function collectKnownFns(root: IRNode, resolveImport?: ImportResolver): Propagat
             const symbol = exports.symbols?.get(importedName);
             if (symbol && child.props && child.props.kind == null) {
               child.props.kind = symbol.kind;
+            }
+            if (symbol?.targetNames && child.props && child.props.targetNames == null) {
+              child.props.targetNames = serializeTargetNamePairs(new Map([[importedName, symbol.targetNames]]));
             }
             const aliasRaw = child.props?.as;
             const localName = typeof aliasRaw === 'string' && aliasRaw ? aliasRaw : importedName;

@@ -122,6 +122,13 @@ export { decompile } from './decompiler.js';
 // Codegen errors
 export type { CodegenErrorCode } from './errors.js';
 export { KernCodegenError, KernConfigError, KernParseError } from './errors.js';
+export type { ExternalImportRegistry, ExternalImportTarget } from './import-metadata.js';
+export {
+  importRegistryOf,
+  importTargetOf,
+  shouldEmitImportForTarget,
+  validateImportMetadata,
+} from './import-metadata.js';
 // TS → .kern importer
 export type { ImportResult } from './importer.js';
 export { escapeKernString, importTypeScript } from './importer.js';

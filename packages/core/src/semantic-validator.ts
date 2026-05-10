@@ -10,6 +10,9 @@
  *   4. `set name=X` must have a matching `state name=X` declared in an ancestor
  *      screen/component. Otherwise codegen emits `setX(...)` with no bound
  *      setter, which fails at React runtime with no compile-time signal.
+ *   5. `module > export` bindings must reference names visible in that module
+ *      when the source is local, and resolver-enriched re-exports must name
+ *      symbols that the resolver proved exist.
  */
 
 import type { IRNode } from './types.js';
@@ -80,6 +83,11 @@ function validateNode(
         }
       }
     }
+  }
+
+  // ── Module export cross-refs ────────────────────────────────────────
+  if (node.type === 'module' && node.children) {
+    validateModuleExports(node, violations);
   }
 
   // ── Duplicate sibling names ────────────────────────────────────────
@@ -336,6 +344,139 @@ function validateNode(
       validateNode(child, violations, nextAncestry, nextAncestorNodes);
     }
   }
+}
+
+interface ExportBinding {
+  source: string;
+  alias?: string;
+}
+
+function validateModuleExports(node: IRNode, violations: SemanticViolation[]): void {
+  const visibleNames = collectModuleVisibleNames(node);
+
+  for (const child of node.children ?? []) {
+    if (child.type !== 'export') continue;
+    const from = child.props?.from;
+    const sourceNames = exportedSourceNames(child);
+    const resolvedSymbols =
+      typeof child.props?.resolvedExportNames === 'string' ? parseNameSet(child.props.resolvedExportNames) : null;
+
+    for (const raw of sourceNames) {
+      const binding = parseExportBinding(raw);
+      if (!binding) {
+        violations.push({
+          rule: 'export-binding-invalid',
+          nodeType: 'export',
+          message: `Export binding '${raw}' is invalid. Use 'Name' or 'Name as Alias' with valid identifiers.`,
+          line: child.loc?.line,
+          col: child.loc?.col,
+        });
+        continue;
+      }
+
+      if (typeof from === 'string' && from.length > 0) {
+        if (resolvedSymbols && !resolvedSymbols.has(binding.source)) {
+          violations.push({
+            rule: 'export-from-unknown-symbol',
+            nodeType: 'export',
+            message: `Re-export references '${binding.source}', but resolver metadata for '${from}' does not include that symbol.`,
+            line: child.loc?.line,
+            col: child.loc?.col,
+          });
+        }
+        continue;
+      }
+
+      if (!visibleNames.has(binding.source)) {
+        const available = [...visibleNames].sort();
+        const hint = available.length > 0 ? ` Available names: ${available.join(', ')}.` : ' No visible names found.';
+        violations.push({
+          rule: 'export-local-unknown-symbol',
+          nodeType: 'export',
+          message: `Local export references unknown symbol '${binding.source}'.${hint}`,
+          line: child.loc?.line,
+          col: child.loc?.col,
+        });
+      }
+    }
+  }
+}
+
+function collectModuleVisibleNames(moduleNode: IRNode): Set<string> {
+  const names = new Set<string>();
+  for (const child of moduleNode.children ?? []) {
+    const name = child.props?.name;
+    if (typeof name === 'string' && name.length > 0 && child.type !== 'export') {
+      names.add(name);
+    }
+
+    if (child.type === 'use') {
+      for (const fromChild of child.children ?? []) {
+        if (fromChild.type !== 'from') continue;
+        const importedName = fromChild.props?.name;
+        const alias = fromChild.props?.as;
+        if (typeof alias === 'string' && alias.length > 0) names.add(alias);
+        else if (typeof importedName === 'string' && importedName.length > 0) names.add(importedName);
+      }
+    }
+
+    if (child.type === 'import') {
+      for (const imported of importLocalNames(child)) {
+        names.add(imported);
+      }
+    }
+  }
+  return names;
+}
+
+function importLocalNames(node: IRNode): string[] {
+  const names: string[] = [];
+  const props = node.props ?? {};
+  if (typeof props.default === 'string' && props.default.length > 0 && props.default !== 'true') {
+    names.push(props.default);
+  }
+  if (typeof props.names === 'string') {
+    for (const raw of props.names.split(',')) {
+      const name = raw.trim();
+      if (isIdentifier(name)) names.push(name);
+    }
+  }
+  return names;
+}
+
+function exportedSourceNames(node: IRNode): string[] {
+  const props = node.props ?? {};
+  const names = [...splitCsv(props.names), ...splitCsv(props.types)];
+  if (
+    typeof props.default === 'string' &&
+    props.default.length > 0 &&
+    !(typeof props.from === 'string' && props.from.length > 0)
+  ) {
+    names.push(`${props.default} as default`);
+  }
+  return names;
+}
+
+function splitCsv(value: unknown): string[] {
+  if (typeof value !== 'string') return [];
+  return value
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function parseExportBinding(raw: string): ExportBinding | null {
+  const match = raw.match(/^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/u);
+  if (!match) return null;
+  return { source: match[1], alias: match[2] };
+}
+
+function parseNameSet(raw: string): Set<string> {
+  return new Set(splitCsv(raw));
+}
+
+function isIdentifier(value: string): boolean {
+  return /^[A-Za-z_$][\w$]*$/u.test(value);
 }
 
 function hasMatchingState(name: string, ancestors: IRNode[]): boolean {

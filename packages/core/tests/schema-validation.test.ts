@@ -70,6 +70,21 @@ describe('Schema Validation', () => {
       expect(v).toHaveLength(0);
     });
 
+    it('passes target-specific external imports', () => {
+      const v = validate(
+        ['import from=react registry=npm names=useMemo', 'import from=numpy registry=pypi names=array'].join('\n'),
+      );
+      expect(v).toHaveLength(0);
+    });
+
+    it('flags incompatible external import registry targets', () => {
+      const npm = validate('import from=react registry=npm target=python names=useMemo');
+      const pypi = validate('import from=numpy registry=pypi target=ts names=array');
+
+      expect(npm.some((v) => v.message.includes("'import registry=npm' must target ts"))).toBe(true);
+      expect(pypi.some((v) => v.message.includes("'import registry=pypi' must target python"))).toBe(true);
+    });
+
     it('flags assume missing evidence and fallback', () => {
       const v = validate('assume expr={{true}}');
       expect(v.some((v) => v.message.includes("requires prop 'evidence'"))).toBe(true);
