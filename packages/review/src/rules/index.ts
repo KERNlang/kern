@@ -1203,6 +1203,15 @@ const REGISTRY: RuleInfo[] = [
     supersedes: ['open-redirect'],
   },
   {
+    id: 'taint-nosql',
+    layer: 'security-v5',
+    severity: 'error',
+    description:
+      'User input flows into a Mongo/Mongoose query position — operator injection (e.g., {$gt:""}) bypasses authentication',
+    precision: 'high',
+    rolloutPhase: 1,
+  },
+  {
     id: 'insecure-transport',
     layer: 'concept',
     severity: 'warning',

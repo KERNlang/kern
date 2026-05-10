@@ -20,6 +20,7 @@ const categoryLabels: Record<TaintSink['category'], string> = {
   template: 'template injection',
   codegen: 'code generation injection',
   ssrf: 'server-side request forgery',
+  nosql: 'NoSQL operator injection',
 };
 
 export function getSuggestion(category: TaintSink['category']): string {
@@ -40,6 +41,8 @@ export function getSuggestion(category: TaintSink['category']): string {
       return 'Validate type and format of external values before interpolating into generated source code (e.g., parseInt for numeric values)';
     case 'ssrf':
       return 'Validate the target URL against a host allowlist before making outbound requests — encodeURIComponent is NOT sufficient';
+    case 'nosql':
+      return 'Validate query input against a Zod/Yup schema or coerce to a primitive — never pass req.body/req.query directly into Mongo/Mongoose query positions';
   }
 }
 
@@ -58,7 +61,7 @@ export function taintToFindings(results: TaintResult[]): ReviewFinding[] {
 
     for (const path of reportable) {
       const severity =
-        path.sink.category === 'command' || path.sink.category === 'eval'
+        path.sink.category === 'command' || path.sink.category === 'eval' || path.sink.category === 'nosql'
           ? ('error' as const)
           : path.sink.category === 'codegen'
             ? ('warning' as const) // codegen injection: external values in generated source — validate type/format
@@ -117,7 +120,7 @@ export function crossFileTaintToFindings(results: CrossFileTaintResult[]): Revie
 
   for (const r of results) {
     const severity =
-      r.sinkInCallee.category === 'command' || r.sinkInCallee.category === 'eval'
+      r.sinkInCallee.category === 'command' || r.sinkInCallee.category === 'eval' || r.sinkInCallee.category === 'nosql'
         ? ('error' as const)
         : ('warning' as const);
 

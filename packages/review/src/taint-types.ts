@@ -12,7 +12,7 @@ export interface TaintSource {
 
 export interface TaintSink {
   name: string; // Sink function (e.g., "exec", "writeFileSync")
-  category: 'command' | 'fs' | 'sql' | 'redirect' | 'eval' | 'template' | 'codegen' | 'ssrf';
+  category: 'command' | 'fs' | 'sql' | 'redirect' | 'eval' | 'template' | 'codegen' | 'ssrf' | 'nosql';
   taintedArg: string; // The tainted variable used in the call
   line?: number;
 }
@@ -216,11 +216,12 @@ const SANITIZER_SUFFICIENCY: Record<string, Set<SinkCategory>> = {
   Boolean: new Set([]), // too weak for any sink — documented for intent
   'Boolean()': new Set([]),
   // Schema validation — `safeParse` stays bare (Zod/Yup-specific); `parse`/`validate`/`validateSync` only as prefixed to avoid colliding with JSON.parse, Date.parse, user methods, etc.
-  'schema.parse': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template', 'ssrf']),
-  'schema.safeParse': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template', 'ssrf']),
-  safeParse: new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template', 'ssrf']),
-  'schema.validate': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template', 'ssrf']),
-  'schema.validateSync': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template', 'ssrf']),
+  // `nosql` is included: Zod/Yup parse rejects the entire object when shape doesn't match, killing operator-injection payloads at the boundary.
+  'schema.parse': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template', 'ssrf', 'nosql']),
+  'schema.safeParse': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template', 'ssrf', 'nosql']),
+  safeParse: new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template', 'ssrf', 'nosql']),
+  'schema.validate': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template', 'ssrf', 'nosql']),
+  'schema.validateSync': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template', 'ssrf', 'nosql']),
   // String sanitization
   'sanitize()': new Set(['template']),
   sanitize: new Set(['template']),
@@ -304,6 +305,67 @@ export const SINK_NAMES = new Map<string, TaintSink['category']>([
   ['undici.fetch', 'ssrf'],
   ['undici.request', 'ssrf'],
 ]);
+
+// ── NoSQL (MongoDB / Mongoose) sinks — receiver-aware ──────────────────
+//
+// MongoDB query methods share names with `Array.prototype` (`find`,
+// `findOne`-isn't-in-array but `.filter`/`.map` etc. clash conceptually) —
+// adding them flat to SINK_NAMES would FP on every JS array call. This
+// table is consumed by a receiver gate in taint-ast.ts that requires:
+//   1. Capitalized identifier receiver (Mongoose model: `User.find(...)`)
+//   2. `.collection(name)` chain (Mongo driver: `db.collection('x').find(...)`)
+//   3. Receiver name in {db, conn, collection} for assigned-collection
+//      shapes (`const users = db.collection('users'); users.find(...)`)
+//
+// Each method maps to the arg indexes that carry user-controllable query
+// shapes. `find(query, projection?, options?)` only treats arg 0 as the
+// query filter; flagging projection/options would FP on safe configs.
+// `updateOne(filter, update, options?)` treats both arg 0 (filter) and
+// arg 1 (update document) — both are exploitable injection surfaces.
+//
+// `findById` is intentionally restricted to OBJECT-shaped tainted args:
+// `findById(req.params.id)` with a string is not classic operator
+// injection (Mongo treats the string as a literal `_id` value), only
+// `req.body.id` / `req.query.id` parsed as objects (e.g. via qs
+// `extended: true`) are exploitable.
+export const NOSQL_QUERY_ARG_INDEXES: Record<string, ReadonlySet<number>> = {
+  find: new Set([0]),
+  findOne: new Set([0]),
+  findById: new Set([0]),
+  findOneAndUpdate: new Set([0, 1]),
+  findOneAndReplace: new Set([0, 1]),
+  findOneAndDelete: new Set([0]),
+  findByIdAndUpdate: new Set([0, 1]),
+  findByIdAndDelete: new Set([0]),
+  updateOne: new Set([0, 1]),
+  updateMany: new Set([0, 1]),
+  replaceOne: new Set([0, 1]),
+  deleteOne: new Set([0]),
+  deleteMany: new Set([0]),
+  count: new Set([0]),
+  countDocuments: new Set([0]),
+  aggregate: new Set([0]),
+  where: new Set([0]),
+  exists: new Set([0]),
+  equals: new Set([0]),
+  gt: new Set([0, 1]),
+  gte: new Set([0, 1]),
+  lt: new Set([0, 1]),
+  lte: new Set([0, 1]),
+  ne: new Set([0, 1]),
+  in: new Set([0, 1]),
+  nin: new Set([0, 1]),
+  all: new Set([0, 1]),
+  size: new Set([0, 1]),
+  regex: new Set([0, 1]),
+  elemMatch: new Set([0, 1]),
+};
+
+/** Receiver names that signal a Mongo collection without capitalization. */
+export const NOSQL_RECEIVER_ALLOWLIST = new Set(['db', 'conn', 'collection']);
+
+/** Methods whose findById-style scalar `req.params` should NOT fire (string isn't classic operator injection). */
+export const NOSQL_METHODS_REQUIRING_OBJECT_TAINT = new Set(['findById', 'findByIdAndUpdate', 'findByIdAndDelete']);
 
 // Sanitizer names to detect (from SANITIZER_PATTERNS)
 export const SANITIZER_PATTERN_NAMES = [
