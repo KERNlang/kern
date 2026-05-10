@@ -11,6 +11,7 @@ import {
   parseWithDiagnostics,
   resolveConfig,
   sourceComment,
+  validateSchema,
 } from '@kernlang/core';
 import { loadEvolvedNodes } from '@kernlang/evolve';
 import { generateReactNode, isReactNode } from '@kernlang/react';
@@ -36,6 +37,7 @@ import {
   scanOutputForBarrelEntries,
   surfaceParseDiagnostics,
   surfaceShadowDiagnostics,
+  surfaceValidationDiagnostics,
   transpileAndWrite,
 } from '../shared.js';
 
@@ -46,6 +48,26 @@ interface DefaultCompileResult {
   errors: number;
   warnings: number;
   barrelEntry?: BarrelEntry;
+}
+
+function parseStrictWithOptions(source: string, parseOptions?: import('@kernlang/core').ParseOptions): IRNode {
+  if (!parseOptions) return parseStrict(source);
+  const { root, diagnostics } = parseWithDiagnostics(source, undefined, parseOptions);
+  const errors = diagnostics.filter((d) => d.severity === 'error');
+  if (errors.length > 0) {
+    const first = errors[0];
+    const err = new KernParseError(first.message, first.line, first.col, source);
+    err.diagnostics = diagnostics;
+    throw err;
+  }
+  const schemaViolations = validateSchema(root);
+  if (schemaViolations.length > 0) {
+    const first = schemaViolations[0];
+    const err = new KernParseError(first.message, first.line ?? 1, first.col ?? 1, source);
+    err.diagnostics = diagnostics;
+    throw err;
+  }
+  return root;
 }
 
 /** Compile a single .kern file using core/template/react codegen (no target transpiler). */
@@ -67,7 +89,16 @@ async function compileDefaultSingle(
 
   if (strictParse) {
     try {
-      ast = parseStrict(source);
+      ast = parseStrictWithOptions(source, parseOptions);
+      const validation = surfaceValidationDiagnostics(ast, file);
+      if (validation.errors > 0) {
+        if (jsonOutput) {
+          const { json } = parseWithJSONDiagnostics(source, file, parseOptions);
+          jsonDiagnostics.push(json);
+        }
+        if (!jsonOutput) process.exit(1);
+        return { compiled: false, errors: validation.errors, warnings: validation.warnings };
+      }
     } catch (err) {
       if (err instanceof KernParseError) {
         console.error(`\n${file}:`);
@@ -86,9 +117,10 @@ async function compileDefaultSingle(
   } else {
     const result = parseWithDiagnostics(source, undefined, parseOptions);
     const diag = surfaceParseDiagnostics(result.diagnostics, file);
+    const validation = surfaceValidationDiagnostics(result.root, file);
     ast = result.root;
-    errors = diag.errors;
-    warnings = diag.warnings;
+    errors = diag.errors + validation.errors;
+    warnings = diag.warnings + validation.warnings;
   }
 
   // ── Shadow semantic analysis (opt-in) ────────────────────────────────
@@ -266,10 +298,23 @@ export async function runCompile(args: string[]): Promise<void> {
 
     if (targetArg) {
       for (const file of files) {
+        const source = readFileSync(file, 'utf-8');
+        const parseOptions = { resolveImport: makeImportResolverForFile(resolve(file), crossModuleRegistry) };
+        let skipTranspile = false;
+
         if (strictParse) {
-          const source = readFileSync(file, 'utf-8');
           try {
-            parseStrict(source);
+            const ast = parseStrictWithOptions(source, parseOptions);
+            const validation = surfaceValidationDiagnostics(ast, file);
+            if (validation.errors > 0) {
+              totalErrors += validation.errors;
+              if (jsonOutput) {
+                const { json } = parseWithJSONDiagnostics(source, file, parseOptions);
+                jsonDiagnostics.push(json);
+                skipTranspile = true;
+              }
+              if (!jsonOutput) process.exit(1);
+            }
           } catch (err) {
             if (err instanceof KernParseError) {
               console.error(`\n${file}:`);
@@ -279,6 +324,21 @@ export async function runCompile(args: string[]): Promise<void> {
             throw err;
           }
         }
+        if (jsonOutput) {
+          if (!strictParse) {
+            const { json } = parseWithJSONDiagnostics(source, file, parseOptions);
+            jsonDiagnostics.push(json);
+            totalErrors += json.diagnostics.filter((d) => d.severity === 'error').length + json.schemaViolations.length;
+          }
+        } else if (!strictParse) {
+          const result = parseWithDiagnostics(source, undefined, parseOptions);
+          totalErrors += result.diagnostics.filter((d) => d.severity === 'error').length;
+          const validation = surfaceValidationDiagnostics(result.root, file);
+          totalErrors += validation.errors;
+        }
+
+        if (skipTranspile) continue;
+
         try {
           transpileAndWrite(file, cfg as ResolvedKernConfig, args, outDir, isDir ? inputPath : undefined, {
             resolveImport: makeImportResolverForFile(resolve(file), crossModuleRegistry),
@@ -299,13 +359,21 @@ export async function runCompile(args: string[]): Promise<void> {
             const { root: shadowRoot } = parseWithDiagnostics(source);
             const shadowDiagnostics = await runShadowAnalysis(shadowRoot);
             if (jsonOutput) {
-              jsonDiagnostics.push({
-                file,
-                success: shadowDiagnostics.every((d) => d.rule !== 'shadow-ts'),
-                diagnostics: [],
-                schemaViolations: [],
-                shadowDiagnostics,
-              });
+              const shadowErrors = shadowDiagnostics.filter((d) => d.rule === 'shadow-ts').length;
+              totalErrors += shadowErrors;
+              const current = jsonDiagnostics.find((entry) => entry.file === file);
+              if (current) {
+                current.shadowDiagnostics = shadowDiagnostics;
+                if (shadowErrors > 0) current.success = false;
+              } else {
+                jsonDiagnostics.push({
+                  file,
+                  success: shadowErrors === 0,
+                  diagnostics: [],
+                  schemaViolations: [],
+                  shadowDiagnostics,
+                });
+              }
             } else {
               const counts = surfaceShadowDiagnostics(shadowDiagnostics, file);
               totalErrors += counts.errors;
@@ -353,7 +421,7 @@ export async function runCompile(args: string[]): Promise<void> {
   // ── Summary ────────────────────────────────────────────────────────
   if (jsonOutput) {
     const output = targetArg
-      ? { compiled, total: kernFiles.length, outDir, target: targetArg, errors: 0, files: [] }
+      ? { compiled, total: kernFiles.length, outDir, target: targetArg, errors: totalErrors, files: jsonDiagnostics }
       : { compiled, total: kernFiles.length, outDir, errors: totalErrors, files: jsonDiagnostics };
     process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
   } else {
@@ -361,10 +429,10 @@ export async function runCompile(args: string[]): Promise<void> {
     console.log(`\nCompiled ${compiled}/${kernFiles.length} files${targetLabel} → ${outDir}`);
     if (totalErrors > 0 && !strictParse) {
       if (tolerant) {
-        console.log(`  ${totalErrors} parse error(s) recovered — output contains TODO comments at error positions.`);
+        console.log(`  ${totalErrors} diagnostic error(s) recovered — output may contain TODO comments.`);
       } else {
         console.error(
-          `\n${totalErrors} parse error(s) found. Use --strict-parse to fail on errors, or --tolerant for partial compilation.`,
+          `\n${totalErrors} diagnostic error(s) found. Use --strict-parse to fail on parse/schema errors, or --tolerant for partial compilation.`,
         );
       }
     }
@@ -372,7 +440,7 @@ export async function runCompile(args: string[]): Promise<void> {
 
   // ── Exit or watch ──────────────────────────────────────────────────
   if (!watchMode) {
-    process.exit(0);
+    process.exit(strictParse && totalErrors > 0 ? 1 : 0);
   }
 
   // ── Watch mode ─────────────────────────────────────────────────────

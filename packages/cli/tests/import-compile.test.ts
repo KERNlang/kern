@@ -14,10 +14,12 @@ describe('kern import/compile commands', () => {
   let logs: string[];
   let errors: string[];
   let warnings: string[];
+  let stdout: string[];
   let origLog: typeof console.log;
   let origError: typeof console.error;
   let origWarn: typeof console.warn;
   let origExit: typeof process.exit;
+  let origStdoutWrite: typeof process.stdout.write;
 
   beforeEach(() => {
     cwd = process.cwd();
@@ -25,10 +27,12 @@ describe('kern import/compile commands', () => {
     logs = [];
     errors = [];
     warnings = [];
+    stdout = [];
     origLog = console.log;
     origError = console.error;
     origWarn = console.warn;
     origExit = process.exit;
+    origStdoutWrite = process.stdout.write;
     console.log = (...args: unknown[]) => {
       logs.push(args.map((arg) => String(arg)).join(' '));
     };
@@ -38,6 +42,10 @@ describe('kern import/compile commands', () => {
     console.warn = (...args: unknown[]) => {
       warnings.push(args.map((arg) => String(arg)).join(' '));
     };
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      stdout.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
   });
 
   afterEach(() => {
@@ -45,6 +53,7 @@ describe('kern import/compile commands', () => {
     console.error = origError;
     console.warn = origWarn;
     process.exit = origExit;
+    process.stdout.write = origStdoutWrite;
     process.chdir(cwd);
     rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -204,6 +213,83 @@ export async function loadUser(id: string): Promise<User> {
     expect(compiled).toContain('return response.json();');
     expect(logs.join('\n')).toContain('Compiled 1/1 files');
     expect(errors).toEqual([]);
+  });
+
+  it('surfaces semantic validation errors during default compile', async () => {
+    process.chdir(tmpDir);
+
+    const sourceFile = join(tmpDir, 'bad-export.kern');
+    writeFileSync(sourceFile, ['module name=bad', '  export names=missing'].join('\n'));
+
+    const generatedDir = join(tmpDir, 'generated');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceFile, `--outdir=${generatedDir}`])).rejects.toThrow('EXIT:0');
+
+    expect(getExitCode()).toBe(0);
+    expect(errors.join('\n')).toContain('VALIDATION');
+    expect(errors.join('\n')).toContain('export-local-unknown-symbol');
+    expect(errors.join('\n')).toContain("unknown symbol 'missing'");
+    expect(errors.join('\n')).toContain('diagnostic error(s) found');
+  });
+
+  it('surfaces semantic validation errors during target compile', async () => {
+    process.chdir(tmpDir);
+
+    const sourceFile = join(tmpDir, 'bad-target-export.kern');
+    writeFileSync(sourceFile, ['module name=bad', '  export names=missing'].join('\n'));
+
+    const generatedDir = join(tmpDir, 'generated-target');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceFile, '--target=lib', `--outdir=${generatedDir}`])).rejects.toThrow(
+      'EXIT:0',
+    );
+
+    expect(getExitCode()).toBe(0);
+    expect(errors.join('\n')).toContain('VALIDATION');
+    expect(errors.join('\n')).toContain('export-local-unknown-symbol');
+    expect(errors.join('\n')).toContain('diagnostic error(s) found');
+  });
+
+  it('includes semantic validation errors in target JSON compile output', async () => {
+    process.chdir(tmpDir);
+
+    const sourceFile = join(tmpDir, 'bad-target-json.kern');
+    writeFileSync(sourceFile, ['module name=bad', '  export names=missing'].join('\n'));
+
+    const generatedDir = join(tmpDir, 'generated-target-json');
+    const getExitCode = trapExit();
+    await expect(
+      runCompile(['compile', sourceFile, '--target=lib', '--json', `--outdir=${generatedDir}`]),
+    ).rejects.toThrow('EXIT:0');
+
+    expect(getExitCode()).toBe(0);
+    const report = JSON.parse(stdout.join(''));
+    expect(report.errors).toBe(1);
+    expect(report.files).toHaveLength(1);
+    expect(report.files[0].success).toBe(false);
+    expect(report.files[0].schemaViolations[0].message).toContain('export-local-unknown-symbol');
+  });
+
+  it('strict target compile validates resolver-enriched re-exports', async () => {
+    process.chdir(tmpDir);
+
+    writeFileSync(
+      join(tmpDir, 'parser.kern'),
+      ['fn name=parseUser returns=string', '  handler <<<', '    return "ok"', '  >>>'].join('\n'),
+    );
+    writeFileSync(
+      join(tmpDir, 'index.kern'),
+      ['module name=index', '  export from="./parser.kern" names=missing'].join('\n'),
+    );
+
+    const generatedDir = join(tmpDir, 'generated-strict-target');
+    const getExitCode = trapExit();
+    await expect(
+      runCompile(['compile', tmpDir, '--target=lib', '--strict-parse', `--outdir=${generatedDir}`]),
+    ).rejects.toThrow('EXIT:1');
+
+    expect(getExitCode()).toBe(1);
+    expect(errors.join('\n')).toContain('export-from-unknown-symbol');
   });
 
   it('checks TypeScript imports without writing KERN output', () => {

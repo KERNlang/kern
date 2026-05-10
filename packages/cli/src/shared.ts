@@ -298,13 +298,38 @@ export function surfaceParseDiagnostics(
   return { errors, warnings };
 }
 
+function validationViolations(root: IRNode): SchemaViolation[] {
+  return [
+    ...validateSchema(root),
+    ...validateSemantics(root).map((sv) => ({
+      nodeType: sv.nodeType,
+      message: `[${sv.rule}] ${sv.message}`,
+      line: sv.line,
+      col: sv.col,
+    })),
+  ];
+}
+
+export function surfaceValidationDiagnostics(root: IRNode, file?: string): { errors: number; warnings: number } {
+  const violations = validationViolations(root);
+  if (violations.length === 0) return { errors: 0, warnings: 0 };
+  const prefix = file ? `${file}: ` : '';
+  for (const violation of violations) {
+    const where = violation.line != null ? `:${violation.line}${violation.col != null ? `:${violation.col}` : ''}` : '';
+    console.error(`  ${prefix}[ERROR] VALIDATION${where}: ${violation.message}`);
+  }
+  return { errors: violations.length, warnings: 0 };
+}
+
 export function parseAndSurface(
   source: string,
   file?: string,
   options?: import('@kernlang/core').ParseOptions,
+  surfaceValidation = false,
 ): IRNode {
   const result = parseWithDiagnostics(source, undefined, options);
   surfaceParseDiagnostics(result.diagnostics, file);
+  if (surfaceValidation) surfaceValidationDiagnostics(result.root, file);
   return result.root;
 }
 
@@ -325,15 +350,7 @@ export function parseWithJSONDiagnostics(
   options?: import('@kernlang/core').ParseOptions,
 ): { root: IRNode; json: FileDiagnosticsJSON } {
   const result = parseWithDiagnostics(source, undefined, options);
-  const schemaViolations = [
-    ...validateSchema(result.root),
-    ...validateSemantics(result.root).map((sv) => ({
-      nodeType: sv.nodeType,
-      message: `[${sv.rule}] ${sv.message}`,
-      line: sv.line,
-      col: sv.col,
-    })),
-  ];
+  const schemaViolations = validationViolations(result.root);
   const hasErrors = result.diagnostics.some((d) => d.severity === 'error') || schemaViolations.length > 0;
 
   return {
