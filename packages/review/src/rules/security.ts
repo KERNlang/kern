@@ -450,6 +450,72 @@ function corsWildcard(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule S6b: cors-wildcard-credentials ─────────────────────────────────
+// `cors({ origin: '*', credentials: true })` (or `origin: true`) is far more
+// dangerous than wildcard alone — most browsers refuse the literal `*` with
+// credentials, which historically pushes apps to reflect `req.headers.origin`
+// back, making CSRF trivial across any attacker-controlled origin. This rule
+// flags the configuration AS WRITTEN; the reflective-origin variant is a
+// separate concern best caught by taint-tracking.
+
+function corsWildcardCredentials(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (callee.getKind() !== SyntaxKind.Identifier || callee.getText() !== 'cors') continue;
+
+    const args = call.getArguments();
+    if (args.length === 0) continue; // bare cors() handled by cors-wildcard
+    const firstArg = args[0];
+    if (firstArg.getKind() !== SyntaxKind.ObjectLiteralExpression) continue;
+
+    const obj = firstArg as import('ts-morph').ObjectLiteralExpression;
+    let originIsWildcard = false;
+    let credentialsTrue = false;
+
+    for (const prop of obj.getProperties()) {
+      if (prop.getKind() !== SyntaxKind.PropertyAssignment) continue;
+      const pa = prop as import('ts-morph').PropertyAssignment;
+      const name = pa.getName();
+      const init = pa.getInitializer();
+      if (!init) continue;
+
+      if (name === 'origin') {
+        const k = init.getKind();
+        if (k === SyntaxKind.StringLiteral) {
+          if ((init as import('ts-morph').StringLiteral).getLiteralValue() === '*') originIsWildcard = true;
+        } else if (k === SyntaxKind.TrueKeyword) {
+          // `origin: true` instructs the cors middleware to reflect the
+          // request origin — equivalent to wildcard from a CSRF perspective.
+          originIsWildcard = true;
+        }
+      } else if (name === 'credentials') {
+        if (init.getKind() === SyntaxKind.TrueKeyword) credentialsTrue = true;
+      }
+    }
+
+    if (originIsWildcard && credentialsTrue) {
+      findings.push(
+        finding(
+          'cors-wildcard-credentials',
+          'error',
+          'bug',
+          'CORS allows any origin with credentials — bypasses Same-Origin Policy and enables CSRF',
+          ctx.filePath,
+          call.getStartLineNumber(),
+          {
+            suggestion:
+              "Restrict origin to a known allowlist (e.g. ['https://app.example.com']) or set credentials: false",
+          },
+        ),
+      );
+    }
+  }
+
+  return findings;
+}
+
 // ── Rule S7: helmet-missing ──────────────────────────────────────────────
 // Express app without helmet middleware
 
@@ -552,6 +618,7 @@ export const securityRules = [
   noEval,
   insecureRandom,
   corsWildcard,
+  corsWildcardCredentials,
   helmetMissing,
   openRedirect,
 ];

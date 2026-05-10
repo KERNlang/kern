@@ -290,6 +290,83 @@ app.use(cors({ origin: 'https://mysite.com' }));
   });
 });
 
+// ── cors-wildcard-credentials ────────────────────────────────────────
+
+describe('cors-wildcard-credentials', () => {
+  it("fires on origin: '*' + credentials: true (CRITICAL)", () => {
+    const source = `
+import cors from 'cors';
+import express from 'express';
+const app = express();
+app.use(cors({ origin: '*', credentials: true }));
+`;
+    const report = reviewSource(source, 'server.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'cors-wildcard-credentials');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+  });
+
+  it('fires on origin: true + credentials: true (reflects any origin)', () => {
+    const source = `
+import cors from 'cors';
+import express from 'express';
+const app = express();
+app.use(cors({ origin: true, credentials: true }));
+`;
+    const report = reviewSource(source, 'server.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'cors-wildcard-credentials');
+    expect(f).toBeDefined();
+  });
+
+  it('does NOT fire on wildcard origin without credentials', () => {
+    const source = `
+import cors from 'cors';
+import express from 'express';
+const app = express();
+app.use(cors({ origin: '*' }));
+`;
+    const report = reviewSource(source, 'server.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'cors-wildcard-credentials');
+    expect(f).toBeUndefined();
+  });
+
+  it('does NOT fire on credentials: true with restricted origin', () => {
+    const source = `
+import cors from 'cors';
+import express from 'express';
+const app = express();
+app.use(cors({ origin: 'https://app.example.com', credentials: true }));
+`;
+    const report = reviewSource(source, 'server.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'cors-wildcard-credentials');
+    expect(f).toBeUndefined();
+  });
+
+  it('does NOT fire on bare cors() — handled by cors-wildcard', () => {
+    const source = `
+import cors from 'cors';
+import express from 'express';
+const app = express();
+app.use(cors());
+`;
+    const report = reviewSource(source, 'server.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'cors-wildcard-credentials');
+    expect(f).toBeUndefined();
+  });
+
+  it('does NOT fire when credentials is false / absent', () => {
+    const source = `
+import cors from 'cors';
+import express from 'express';
+const app = express();
+app.use(cors({ origin: '*', credentials: false }));
+`;
+    const report = reviewSource(source, 'server.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'cors-wildcard-credentials');
+    expect(f).toBeUndefined();
+  });
+});
+
 // ── helmet-missing ───────────────────────────────────────────────────
 
 describe('helmet-missing', () => {
