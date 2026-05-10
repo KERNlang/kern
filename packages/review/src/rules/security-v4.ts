@@ -896,14 +896,86 @@ function jsonOutputManipulation(ctx: RuleContext): ReviewFinding[] {
 // LLM API response used directly in application logic without validation.
 // OWASP LLM02
 
+// S23 uses a STRICTER set of patterns than the broad LLM_API_PATTERNS.
+// LLM_API_PATTERNS is intentionally permissive — it acts as a "does this file
+// look LLM-adjacent" gate for several rules. S23 by contrast assigns the
+// returned variable to llmVars and then flags downstream uses, so a single
+// false-positive callee (e.g. `array.complete()` or `socket.sendMessage()`)
+// taints an entire helper. Tested against the callee text
+// (`call.getExpression().getText()` — dotted name, no parens), so each
+// alternative anchors at the end of that string.
+//
+// `complete` and `sendMessage` are kept ONLY behind a known-client-name
+// allowlist because both names are common in non-AI codebases. The bare
+// versions caused the kern-guard CLI's `summarySegments` to be flagged.
+const LLM_CALL_RECEIVERS = '(?:anthropic|openai|client|model|ai|llm|chat)';
+const STRICT_LLM_API_PATTERNS = new RegExp(
+  [
+    `\\.generateContent$`,
+    `\\bchat\\.completions\\.create$`,
+    `\\bmessages\\.create$`,
+    `\\bcreateCompletion$`,
+    `\\bcreateChatCompletion$`,
+    `\\b${LLM_CALL_RECEIVERS}\\.complete$`,
+    `\\b${LLM_CALL_RECEIVERS}\\.sendMessage$`,
+  ].join('|'),
+);
+
+// Receivers that customarily hold an LLM response object. Origin tracking
+// via AST — names enter the rule only through this small allowlist. Adding a
+// name here costs nothing if no field-name matches; the field-name check
+// guards against shape collisions like `result.length`.
+const LLM_RECEIVER_NAMES = new Set([
+  'response',
+  'result',
+  'message',
+  'reply',
+  'completion',
+  'aiResponse',
+  'llmResponse',
+  'chatResponse',
+  'aiOutput',
+  'generatedText',
+]);
+
+// Field names that customarily expose the model output payload across SDKs
+// (Gemini `parts`, Anthropic `content`, OpenAI `choices`, generic `text` /
+// `output_text`).
+const LLM_RESPONSE_FIELDS = new Set([
+  'parts',
+  'content',
+  'text',
+  'choices',
+  'message',
+  'output',
+  'output_text',
+  'response',
+  'completion',
+  'generated_text',
+]);
+
+/** Walk leftward through a PropertyAccess chain to its leftmost Identifier. */
+function leftmostIdentifierName(node: import('ts-morph').Node): string | undefined {
+  let cur: import('ts-morph').Node = node;
+  while (cur.getKind() === SyntaxKind.PropertyAccessExpression) {
+    cur = (cur as import('ts-morph').PropertyAccessExpression).getExpression();
+  }
+  if (cur.getKind() === SyntaxKind.Identifier) return cur.getText();
+  return undefined;
+}
+
 function missingOutputValidation(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
 
   // Collect LLM response variables and their declaration lines
   const llmVars = new Map<string, number>(); // varName → line
+
+  // Origin #1 — direct LLM API call assigned to a variable. Uses the strict
+  // pattern (not LLM_API_PATTERNS) to avoid sweeping in `array.complete()` /
+  // `socket.sendMessage()` style helpers that share a name with SDK methods.
   for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
     const callText = call.getExpression().getText();
-    if (!LLM_API_PATTERNS.test(callText)) continue;
+    if (!STRICT_LLM_API_PATTERNS.test(callText)) continue;
 
     let parent = call.getParent();
     if (parent?.getKind() === SyntaxKind.AwaitExpression) parent = parent.getParent();
@@ -911,6 +983,28 @@ function missingOutputValidation(ctx: RuleContext): ReviewFinding[] {
       const decl = parent as import('ts-morph').VariableDeclaration;
       llmVars.set(decl.getName(), decl.getStartLineNumber());
     }
+  }
+
+  // Origin #2 — property access from a known LLM response object.
+  // `const parts = response.parts` / `const summarySegments = result.parts`.
+  // Pure AST: receiver must be Identifier in LLM_RECEIVER_NAMES and the
+  // accessed property must be in LLM_RESPONSE_FIELDS. The declared name is
+  // free — we track origin, not name.
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const init = decl.getInitializer();
+    if (!init) continue;
+    let raw: import('ts-morph').Node = init;
+    if (raw.getKind() === SyntaxKind.AwaitExpression) {
+      raw = (raw as import('ts-morph').AwaitExpression).getExpression();
+    }
+    if (raw.getKind() !== SyntaxKind.PropertyAccessExpression) continue;
+    const pa = raw as import('ts-morph').PropertyAccessExpression;
+    const fieldName = pa.getName();
+    if (!LLM_RESPONSE_FIELDS.has(fieldName)) continue;
+    const receiver = leftmostIdentifierName(pa.getExpression());
+    if (!receiver || !LLM_RECEIVER_NAMES.has(receiver)) continue;
+    const declName = decl.getName();
+    if (!llmVars.has(declName)) llmVars.set(declName, decl.getStartLineNumber());
   }
 
   if (llmVars.size === 0) return findings;
