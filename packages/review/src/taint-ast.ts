@@ -19,6 +19,8 @@ import {
   HTTP_PARAM_NAMES,
   HTTP_PARAM_TYPES,
   isSanitizerSufficient,
+  NEXTJS_ROUTE_FILE_RE,
+  NEXTJS_ROUTE_VERBS,
   NOSQL_METHODS_REQUIRING_OBJECT_TAINT,
   NOSQL_QUERY_ARG_INDEXES,
   NOSQL_RECEIVER_ALLOWLIST,
@@ -138,10 +140,14 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
   // Build intra-file call graph: which internal functions contain sinks?
   const internalSinkMap = buildInternalSinkMap(sourceFile);
 
-  // Collect all function-like AST nodes from the SourceFile
+  // Collect all function-like AST nodes from the SourceFile. `varName`
+  // carries the binding name for `export const GET = async (req) => …`
+  // shapes — without it, fnName falls through to 'anonymous' and Next.js
+  // route-verb detection in Pass 2 can't classify the handler.
   const allFns: Array<{
     node: FunctionDeclaration | ArrowFunction | FunctionExpression | MethodDeclaration;
     startLine: number;
+    varName?: string;
   }> = [];
   const seenFnNodes = new Set<Node>();
   for (const fn of sourceFile.getFunctions()) {
@@ -157,6 +163,7 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
           allFns.push({
             node: init as ArrowFunction | FunctionExpression,
             startLine: stmt.getStartLineNumber(),
+            varName: decl.getName(),
           });
           seenFnNodes.add(init);
         }
@@ -198,17 +205,59 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
     seenFnNodes.add(node);
   });
 
-  for (const { node: fn, startLine } of allFns) {
-    const params = fn.getParameters();
-    const fnName = 'getName' in fn && typeof fn.getName === 'function' ? fn.getName() || 'anonymous' : 'anonymous';
+  const isNextjsRouteFile = NEXTJS_ROUTE_FILE_RE.test(filePath);
 
-    // Step 1: Classify params as tainted using type info
+  for (const { node: fn, startLine, varName } of allFns) {
+    const params = fn.getParameters();
+    const declaredName =
+      varName ?? ('getName' in fn && typeof fn.getName === 'function' ? fn.getName() || undefined : undefined);
+    const fnName = declaredName ?? 'anonymous';
+
+    // Step 1: Classify params as tainted.
+    //   1a — type/name match (Express, Fastify, Koa, plain Request)
+    //   1b — Next.js route handler verb (`export async function GET(req)`
+    //        or `export const GET = async (r) => …`) inside an
+    //        `app/**/route.{ts,tsx}` or `pages/api/**` file: taint param 0
+    //        regardless of its annotation. Untyped App Router handlers
+    //        (`function GET(r) {…}`) were previously invisible because
+    //        `r` doesn't match HTTP_PARAM_NAMES.
     const taintedParams: TaintSource[] = [];
     for (const param of params) {
       const name = param.getName();
       const typeText = param.getType().getText(param);
       if (HTTP_PARAM_NAMES.test(name) || HTTP_PARAM_TYPES.test(typeText)) {
         taintedParams.push({ name, origin: `${name} (HTTP input)` });
+      }
+    }
+    // Codex impl-review: require export+top-level. A local helper
+    // `function GET(r) {…}` inside route.ts is not a Next.js route.
+    const inNextjsRouteContext =
+      isNextjsRouteFile && declaredName != null && NEXTJS_ROUTE_VERBS.has(declaredName) && isExportedTopLevel(fn);
+    if (inNextjsRouteContext) {
+      if (taintedParams.length === 0 && params.length > 0) {
+        const first = params[0];
+        const name = first.getName();
+        taintedParams.push({ name, origin: `${name} (Next.js route handler)` });
+      }
+      // Gemini impl-review: App Router handlers receive route segments as
+      // a second arg `{ params }`. Taint the destructured `params` binding
+      // (or the param itself when not destructured).
+      if (params.length > 1) {
+        const second = params[1];
+        const nameNode = second.getNameNode();
+        if (nameNode.getKindName() === 'ObjectBindingPattern') {
+          for (const element of (nameNode as import('ts-morph').ObjectBindingPattern).getElements()) {
+            const elName = element.getName();
+            if (!taintedParams.some((p) => p.name === elName)) {
+              taintedParams.push({ name: elName, origin: `${elName} (Next.js route context)` });
+            }
+          }
+        } else {
+          const name = second.getName();
+          if (!taintedParams.some((p) => p.name === name)) {
+            taintedParams.push({ name, origin: `${name} (Next.js route context)` });
+          }
+        }
       }
     }
     if (taintedParams.length === 0) continue;
@@ -435,6 +484,33 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
   }
 
   return results;
+}
+
+/**
+ * True when the given node is a top-level export — either a declaration
+ * carrying an `export` modifier directly, or an arrow/function expression
+ * whose containing VariableStatement is exported. Required to distinguish
+ * Next.js route handlers (always exported) from local helpers in the same
+ * file (Codex impl-review).
+ */
+function isExportedTopLevel(fn: Node): boolean {
+  // FunctionDeclaration with `export` modifier.
+  if (fn.getKindName() === 'FunctionDeclaration') {
+    const decl = fn as import('ts-morph').FunctionDeclaration;
+    if (decl.isExported() || decl.isDefaultExport()) return true;
+    return false;
+  }
+  // Arrow / function expression: walk to enclosing VariableStatement.
+  let cur: Node | undefined = fn.getParent();
+  while (cur) {
+    if (cur.getKindName() === 'VariableStatement') {
+      const vs = cur as import('ts-morph').VariableStatement;
+      return vs.isExported() || vs.hasDefaultKeyword();
+    }
+    if (cur.getKindName() === 'ExportAssignment') return true;
+    cur = cur.getParent();
+  }
+  return false;
 }
 
 // ── Callback-sweep gate ─────────────────────────────────────────────────

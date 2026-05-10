@@ -67,7 +67,34 @@ export interface InternalSinkFunction {
 
 /** Param names/types that indicate HTTP handler context */
 export const HTTP_PARAM_NAMES = /^(req|request)$/i;
-export const HTTP_PARAM_TYPES = /Request|IncomingMessage|FastifyRequest|KoaContext|Context/;
+// Word-boundary anchored to avoid matching identifier substrings like
+// `UserRequest` or `InternalRequest` (Codex plan-review). NextRequest and
+// NextApiRequest cover Next.js App Router and Pages Router respectively.
+export const HTTP_PARAM_TYPES =
+  /\b(Request|NextRequest|NextApiRequest|IncomingMessage|FastifyRequest|KoaContext|Context)\b/;
+
+/**
+ * Verb-named exports that Next.js App Router treats as HTTP route handlers
+ * (`app/**\/route.{ts,tsx,js,jsx}` exports `GET` / `POST` / …). When the
+ * file path matches a route file, the engine treats the first param of any
+ * such export as tainted regardless of its type annotation — covers untyped
+ * App Router handlers like `export async function GET(r) { … }`.
+ */
+export const NEXTJS_ROUTE_VERBS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
+
+/**
+ * File-path predicate for Next.js HTTP entry points.
+ * - App Router:  `**\/app/route.{ts,tsx,js,jsx}` (root) and
+ *                `**\/app/**\/route.{ts,tsx,js,jsx}` (nested)
+ * - Pages Router: `**\/pages/api/**\/*.{ts,tsx,js,jsx}`
+ *
+ * Accepts both absolute (`/repo/app/api/x/route.ts`) and relative
+ * (`app/api/x/route.ts`) forms by anchoring the `app` / `pages` segment
+ * either at string start or after a path separator. The intermediate
+ * segment between `app/` and `route` is optional so the root handler
+ * `app/route.ts` matches (Codex impl-review).
+ */
+export const NEXTJS_ROUTE_FILE_RE = /(?:^|[\\/])(?:app[\\/](?:.*[\\/])?route\.(?:ts|tsx|js|jsx)$|pages[\\/]api[\\/])/;
 
 /** User input access patterns — what flows from HTTP params */
 export const USER_INPUT_ACCESS = [
