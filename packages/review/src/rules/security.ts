@@ -783,7 +783,9 @@ function errorLeak(ctx: RuleContext): ReviewFinding[] {
 //   deferred FN classes (out of scope for v1).
 
 const BEARER_HEADER_NAME_RE = /^authorization$/i;
-const BEARER_VALUE_RE = /^Bearer\s+(\S+)/;
+// Codex impl-review: HTTP auth schemes are case-insensitive — match
+// `bearer`, `BEARER`, `Bearer` etc.
+const BEARER_VALUE_RE = /^Bearer\s+(\S+)/i;
 const BEARER_PLACEHOLDER_TOKENS = new Set([
   '',
   '<token>',
@@ -802,7 +804,6 @@ const BEARER_PLACEHOLDER_TOKENS = new Set([
   'xxxxx',
   '...',
 ]);
-const HTTP_CLIENT_NAMES = new Set(['fetch', 'axios', 'got', 'request', 'undici']);
 const HEADER_SETTER_METHODS = new Set(['set', 'append']);
 // Known-secret patterns reused from S2 hardcoded-secret intent — when the
 // Bearer token also matches one of these, escalate to error severity.
@@ -864,63 +865,83 @@ function resolveLiteralStringValue(node: import('ts-morph').Node): string | unde
  *   - new Headers({...}) constructor argument
  *   - `<x>.headers.set('Authorization', <node>)` or `.append(...)`
  */
+/** True when `ancestor` is an ancestor of (or equal to) `node`. */
+function isAncestorOf(ancestor: import('ts-morph').Node | undefined, node: import('ts-morph').Node): boolean {
+  if (!ancestor) return false;
+  let cur: import('ts-morph').Node | undefined = node;
+  while (cur) {
+    if (cur === ancestor) return true;
+    cur = cur.getParent();
+  }
+  return false;
+}
+
 function isInBearerHeaderContext(node: import('ts-morph').Node): boolean {
-  // Direct PropertyAssignment with Authorization key — fastest path.
+  // Codex impl-review: the original gate accepted ANY ancestor
+  // PropertyAssignment named `headers`, even when the literal lived under a
+  // different (non-Authorization) header key — `{ headers: { 'X-Note':
+  // 'Bearer foo' } }` would FP. We now require the literal's nearest
+  // enclosing PropertyAssignment to have an Authorization-shaped key. A
+  // generic `headers` ancestor without an Authorization key is rejected.
   let cur: import('ts-morph').Node | undefined = node.getParent();
   while (cur) {
     const k = cur.getKind();
+
     if (k === SyntaxKind.PropertyAssignment) {
       const pa = cur as import('ts-morph').PropertyAssignment;
       const name = pa.getNameNode().getText().replace(/['"`]/g, '');
       if (BEARER_HEADER_NAME_RE.test(name)) return true;
-      if (name === 'headers') {
-        // The literal must descend from this PropertyAssignment's value.
-        return true;
-      }
+      // Hitting any other PropertyAssignment first means this literal
+      // belongs to that (non-Authorization) key. Stop walking — a `headers`
+      // ancestor higher up doesn't retroactively make this an auth header.
+      return false;
     }
+
+    // headers.set('Authorization', <node>) / .append(...)
     if (k === SyntaxKind.CallExpression) {
       const call = cur as import('ts-morph').CallExpression;
-      const args = call.getArguments();
-      // headers.set('Authorization', <node>) / append(...)
       const callee = call.getExpression();
       if (callee.getKind() === SyntaxKind.PropertyAccessExpression) {
         const pae = callee as import('ts-morph').PropertyAccessExpression;
         if (HEADER_SETTER_METHODS.has(pae.getName())) {
-          const firstArg = args[0];
+          const firstArg = call.getArguments()[0];
           if (firstArg) {
             const headerName = resolveLiteralStringValue(firstArg);
             if (headerName && BEARER_HEADER_NAME_RE.test(headerName)) return true;
           }
         }
-        // fetch(url, {...}) / axios.get(url, {...}) — receiver is a known HTTP client.
-        const calleeName = pae.getName();
-        const root = pae.getExpression();
-        if (root.getKind() === SyntaxKind.Identifier && HTTP_CLIENT_NAMES.has(root.getText())) {
-          // Caller is axios.get / got.post — accept as header context only
-          // if our literal flowed through a Property assignment named headers
-          // along the way (already returned true above), so reaching here
-          // means we keep walking.
-        }
-        // Avoid relying on this branch — the headers/Authorization PropertyAssignment
-        // check above is the authoritative gate.
-        if (calleeName === 'create' && root.getKind() === SyntaxKind.Identifier && root.getText() === 'axios') {
-          // axios.create({ headers: {...} }) — handled by the headers PropertyAssignment ancestor.
-        }
-      }
-      // new Headers([['Authorization', '...']]) — Map-of-arrays form.
-      if (callee.getKind() === SyntaxKind.NewExpression) {
-        // Handled by ancestor walk into the array's PropertyAssignment.
       }
     }
-    if (k === SyntaxKind.NewExpression) {
-      const ne = cur as import('ts-morph').NewExpression;
-      const ctor = ne.getExpression();
-      if (ctor.getKind() === SyntaxKind.Identifier && ctor.getText() === 'Headers') {
-        // Constructor of Headers — check that the enclosing PropertyAssignment
-        // named Authorization already matched. If we reach here without that,
-        // there's no Authorization key (FN: array-of-entries form).
+
+    // `new Headers([['Authorization', 'Bearer ...']])` tuple form.
+    // Walk if the literal is the second element of an array literal whose
+    // first element is `Authorization` AND that array is an element of an
+    // outer array passed to `new Headers(...)`.
+    if (k === SyntaxKind.ArrayLiteralExpression) {
+      const arr = cur as import('ts-morph').ArrayLiteralExpression;
+      const elements = arr.getElements();
+      // The literal must be at index 1 (the value position).
+      if (elements[1] === node || isAncestorOf(elements[1], node)) {
+        const keyNode = elements[0];
+        const keyValue = keyNode ? resolveLiteralStringValue(keyNode) : undefined;
+        if (keyValue && BEARER_HEADER_NAME_RE.test(keyValue)) {
+          // Verify outer context is `new Headers(...)` — the parent of arr
+          // should be an ArrayLiteralExpression whose grandparent is a
+          // NewExpression with constructor `Headers`.
+          const outerArr = arr.getParent();
+          if (outerArr && outerArr.getKind() === SyntaxKind.ArrayLiteralExpression) {
+            const ne = outerArr.getParent();
+            if (ne && ne.getKind() === SyntaxKind.NewExpression) {
+              const ctor = (ne as import('ts-morph').NewExpression).getExpression();
+              if (ctor.getKind() === SyntaxKind.Identifier && ctor.getText() === 'Headers') {
+                return true;
+              }
+            }
+          }
+        }
       }
     }
+
     cur = cur.getParent();
   }
   return false;

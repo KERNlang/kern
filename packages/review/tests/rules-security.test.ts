@@ -889,4 +889,61 @@ async function call(): Promise<void> {
     const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
     expect(f).toBeUndefined();
   });
+
+  // ── Impl-review fixes ──────────────────────────────────────────────
+
+  it('does NOT fire on Bearer-shaped value under a non-Authorization header key (Codex impl-review FP fix)', () => {
+    // Original bug: any `headers` ancestor accepted the literal even when
+    // the literal lived under a different header key like X-Comment. We now
+    // require the nearest enclosing PropertyAssignment to be Authorization.
+    const source = `
+async function call(): Promise<void> {
+  await fetch('/api', {
+    headers: { 'X-Note': 'Bearer tokens are documented at /docs' },
+  });
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeUndefined();
+  });
+
+  it('fires on case-insensitive bearer scheme (Codex impl-review FN fix)', () => {
+    // HTTP auth schemes are case-insensitive — `bearer ` lowercase is
+    // equivalent to `Bearer `.
+    const source = `
+async function call(): Promise<void> {
+  await fetch('/api', {
+    headers: { Authorization: 'bearer sk_live_abcdefghijklmnopqrstuv' },
+  });
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+  });
+
+  it('fires on new Headers tuple form (Codex impl-review + Gemini FN fix)', () => {
+    const source = `
+async function call(): Promise<void> {
+  const h = new Headers([['Authorization', 'Bearer sk_live_abcdefghijklmnopqrstuv']]);
+  await fetch('/api', { headers: h });
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeDefined();
+  });
+
+  it('fires on headers.append (verifying append works alongside set)', () => {
+    const source = `
+async function call(req: Request): Promise<void> {
+  req.headers.append('Authorization', 'Bearer ghp_abcdefghijklmnopqrstuvwxyz0123456789');
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeDefined();
+  });
 });
