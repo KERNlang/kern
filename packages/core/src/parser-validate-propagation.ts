@@ -176,6 +176,11 @@ function enrichExportNode(node: IRNode, exports: ModuleExports): void {
   if (!node.props) return;
   const pairs = parseSymbolKindPairs(node.props.symbolKinds);
   const targetPairs = parseTargetNamePairs(node.props.targetNames);
+  const from = node.props.from;
+  if (typeof from === 'string' && from.length > 0 && exports.symbols) {
+    node.props.resolvedExportNames = [...exports.symbols.keys()].join(',');
+  }
+
   for (const rawName of [...splitImportNames(node.props.names), ...splitImportNames(node.props.types)]) {
     const binding = exportBindingNames(rawName);
     if (!binding) continue;
