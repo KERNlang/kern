@@ -7,7 +7,7 @@
  * Always active, regardless of target.
  */
 
-import { SyntaxKind } from 'ts-morph';
+import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext, SourceSpan } from '../types.js';
 import { createFingerprint } from '../types.js';
 
@@ -609,6 +609,163 @@ function openRedirect(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule S10: error-leak ───────────────────────────────────────────────
+// Caught exceptions leaked back to the client via HTTP response.
+// Discloses stack traces, file paths, internal env, and DB internals.
+// OWASP A04:2021 / CWE-209
+
+const RESPONSE_SINKS = new Set(['send', 'json', 'end', 'write']);
+const RESPONSE_OBJECTS = /^(res(ponse)?|reply|ctx|context|h|fastify)$/;
+
+/**
+ * Returns true if the catch param 'name' is shadowed between 'node' and 'boundary'.
+ * Checks function-like parameters and nested catch clauses.
+ */
+function isCatchParamShadowedAt(node: Node, name: string, boundary: Node): boolean {
+  let cur: Node | undefined = node.getParent();
+  while (cur && cur !== boundary) {
+    if (
+      Node.isArrowFunction(cur) ||
+      Node.isFunctionExpression(cur) ||
+      Node.isFunctionDeclaration(cur) ||
+      Node.isMethodDeclaration(cur)
+    ) {
+      if (cur.getParameters().some((p) => p.getName() === name)) return true;
+    }
+    if (Node.isCatchClause(cur)) {
+      const varDecl = cur.getVariableDeclaration();
+      if (varDecl && varDecl.getName() === name) return true;
+    }
+    cur = cur.getParent();
+  }
+  return false;
+}
+
+/**
+ * Returns true if the node is inside an IF branch that ensures NODE_ENV is not production.
+ * Correctly distinguishes between 'then' and 'else' branches based on the comparison operator.
+ */
+function isInNonProductionBranch(node: Node, boundary: Node): boolean {
+  let cur: Node | undefined = node;
+  while (cur && cur !== boundary) {
+    const parent: Node | undefined = cur.getParent();
+    if (parent && Node.isIfStatement(parent)) {
+      const cond = parent.getExpression().getText();
+      const mentionsNodeEnv = cond.includes('process.env.NODE_ENV');
+      const mentionsProd = cond.includes("'production'") || cond.includes('"production"');
+
+      if (mentionsNodeEnv && mentionsProd) {
+        const isNegated = cond.includes('!==') || cond.includes('!=');
+        const inThen = parent.getThenStatement() === cur;
+        const inElse = parent.getElseStatement() === cur;
+
+        // if (env !== 'production') { dev } else { prod }
+        if (isNegated && inThen) return true;
+        // if (env === 'production') { prod } else { dev }
+        if (!isNegated && inElse) return true;
+      }
+    }
+    cur = parent;
+  }
+  return false;
+}
+
+/**
+ * Peel a sink callee's receiver back through any chain of `.foo(args)` calls
+ * to the leftmost identifier. Handles `res.status(500).json(...)`.
+ */
+function peelChainToRoot(receiver: Node): string {
+  let cur: Node = receiver;
+  while (Node.isCallExpression(cur)) {
+    const innerCallee = cur.getExpression();
+    if (!Node.isPropertyAccessExpression(innerCallee)) break;
+    cur = innerCallee.getExpression();
+  }
+  return cur.getText();
+}
+
+function errorLeak(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const catchClause of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CatchClause)) {
+    const varDecl = catchClause.getVariableDeclaration();
+    if (!varDecl) continue;
+    const catchVarName = varDecl.getName();
+
+    for (const call of catchClause.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+      const callee = call.getExpression();
+      if (!Node.isPropertyAccessExpression(callee)) continue;
+      const methodName = callee.getName();
+      if (!RESPONSE_SINKS.has(methodName)) continue;
+
+      const objName = peelChainToRoot(callee.getExpression());
+      if (!RESPONSE_OBJECTS.test(objName)) continue;
+
+      // Shadowing gate: skip if this call is inside a nested scope that re-binds the catch param.
+      if (isCatchParamShadowedAt(call, catchVarName, catchClause)) continue;
+
+      const args = call.getArguments();
+      let leaked = false;
+      let severity: 'error' | 'warning' = 'warning';
+
+      for (const arg of args) {
+        // Precise identifier walk to find references to the catch variable.
+        // Filters out property keys and non-receiver property access names.
+        // `getDescendantsOfKind` excludes the node itself, so include `arg`
+        // explicitly for the bare-Identifier case (`res.json(err)`).
+        const identifiers = arg.getDescendantsOfKind(SyntaxKind.Identifier);
+        if (Node.isIdentifier(arg)) identifiers.push(arg);
+        const refs = identifiers.filter((id) => {
+          if (id.getText() !== catchVarName) return false;
+          const parent = id.getParent();
+          if (Node.isPropertyAssignment(parent) && parent.getNameNode() === id) return false;
+          if (Node.isPropertyAccessExpression(parent) && parent.getNameNode() === id) return false;
+          // Shorthand property assignment: `{ err }` IS a leak (resolves to `err: err`).
+          // The Identifier's parent is ShorthandPropertyAssignment — keep it as a ref.
+          return true;
+        });
+
+        if (refs.length === 0) continue;
+        leaked = true;
+
+        // err.message alone → warning. Anything else (err whole, err.stack, etc.) → error.
+        const hasHighSeverityRef = refs.some((ref) => {
+          const parent = ref.getParent();
+          if (Node.isPropertyAccessExpression(parent) && parent.getExpression() === ref) {
+            return parent.getName() !== 'message';
+          }
+          return true; // Bare identifier or other expression usage
+        });
+
+        if (hasHighSeverityRef) {
+          severity = 'error';
+        }
+      }
+
+      if (!leaked) continue;
+
+      // Suppress if guarded by a branch that only runs in non-production.
+      if (isInNonProductionBranch(call, catchClause)) continue;
+
+      findings.push(
+        finding(
+          'error-leak',
+          severity,
+          'bug',
+          severity === 'error'
+            ? `Caught exception '${catchVarName}' leaked to response — discloses stack traces or internals`
+            : `Exception message from '${catchVarName}' leaked to response — may disclose sensitive details`,
+          ctx.filePath,
+          call.getStartLineNumber(),
+          { suggestion: 'Send generic error messages to clients and log the full error server-side' },
+        ),
+      );
+    }
+  }
+
+  return findings;
+}
+
 // ── Exported Security Rules ──────────────────────────────────────────────
 
 export const securityRules = [
@@ -621,4 +778,5 @@ export const securityRules = [
   corsWildcardCredentials,
   helmetMissing,
   openRedirect,
+  errorLeak,
 ];

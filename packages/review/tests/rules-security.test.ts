@@ -425,3 +425,297 @@ app.get('/home', (req: any, res: any) => {
     expect(f).toBeUndefined();
   });
 });
+
+// ── error-leak ───────────────────────────────────────────────────────
+
+describe('error-leak', () => {
+  it('detects raw error object in res.json(err)', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  res.status(500).json(err);
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+    expect(f!.message).toContain('stack traces');
+  });
+
+  it('detects err.stack in object literal', () => {
+    const source = `
+try {
+  doWork();
+} catch (error) {
+  res.send({ error: error.stack, message: 'failed' });
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+  });
+
+  it('detects stack in template literal', () => {
+    const source = `
+try {
+  doWork();
+} catch (e) {
+  res.send(\`Error: \${e.stack}\`);
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+  });
+
+  it('flags err.message as warning', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  res.json({ message: err.message });
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('warning');
+  });
+
+  it('does NOT fire on console.error or next(err)', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  console.error(err);
+  next(err);
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeUndefined();
+  });
+
+  it('does NOT fire when guarded by NODE_ENV !== production', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  if (process.env.NODE_ENV !== 'production') {
+    res.json(err);
+  } else {
+    res.status(500).send('Internal Server Error');
+  }
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeUndefined();
+  });
+
+  it('DOES fire when leak is explicitly in the production branch', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  if (process.env.NODE_ENV === 'production') {
+    res.json(err);
+  }
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+  });
+
+  it('does NOT fire when leak is in the else branch of a production check', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  if (process.env.NODE_ENV === 'production') {
+    res.send('error');
+  } else {
+    res.json(err);
+  }
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeUndefined();
+  });
+
+  it('does NOT fire on short name collision in strings (e.g. "e")', () => {
+    const source = `
+try {
+  doWork();
+} catch (e) {
+  res.send("An error occurred: e");
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeUndefined();
+  });
+
+  it('does NOT fire on property key collision', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  res.json({ err: 'some constant' });
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeUndefined();
+  });
+
+  it('detects nested catch shadowing correctly', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  try {
+    inner();
+  } catch (err) {
+    res.json(err.message); // Safe for inner err, rule for outer err should skip
+  }
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const findings = report.findings.filter((f) => f.ruleId === 'error-leak');
+    // It might still fire for the inner catch (as a warning), but it shouldn't
+    // fire for the outer catch as an error.
+    expect(findings.every((f) => f.severity === 'warning')).toBe(true);
+  });
+
+  it('flags err.message in complex object as warning', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  res.json({ success: false, error: err.message, code: 500 });
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('warning');
+  });
+
+  it('flags complex object with both err and err.message as error', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  res.json({ success: false, error: err.message, raw: err });
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+  });
+
+  it('detects leak in Fastify/Koa-like context names', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  ctx.send(err);
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+  });
+
+  // ── Plan-review additions ──────────────────────────────────────────
+
+  it('does NOT fire when an inner arrow shadows the catch param (Codex plan-review)', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  ((err: string) => res.json(err))('safe');
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeUndefined();
+  });
+
+  it('fires on next(err) followed by direct leak (per-call non-sink, not catch-level suppress)', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  next(err);
+  res.json(err);
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+  });
+
+  it('fires on spread of error object', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  res.json({ ...err });
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+  });
+
+  it('fires on JSON.stringify(err)', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  res.send(JSON.stringify(err));
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+  });
+
+  it('fires through deep response chain (res.type().status().send())', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  res.type('json').status(500).send(err.stack);
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+  });
+
+  it('does NOT fire when receiver is a non-allowlisted name (e.g. `c` is too greedy)', () => {
+    // OpenCode plan-review: dropped `c` from RESPONSE_OBJECTS to prevent
+    // unrelated `c.send(err)` callers (queue clients, sockets, etc.) from
+    // firing without an HTTP boundary.
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  c.send(err);
+}
+`;
+    const report = reviewSource(source, 'noise.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeUndefined();
+  });
+});

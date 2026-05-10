@@ -274,6 +274,12 @@ const REGISTRY: RuleInfo[] = [
     severity: 'error',
     description: 'Unvalidated redirect target from user input',
   },
+  {
+    id: 'error-leak',
+    layer: 'security',
+    severity: 'warning',
+    description: 'Caught exception leaked to HTTP response — info disclosure (stack traces, paths, secrets)',
+  },
 
   // Security v2
   {
