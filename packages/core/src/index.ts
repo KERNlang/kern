@@ -122,9 +122,12 @@ export { decompile } from './decompiler.js';
 // Codegen errors
 export type { CodegenErrorCode } from './errors.js';
 export { KernCodegenError, KernConfigError, KernParseError } from './errors.js';
+export type { ExternalBoundary, ExternalImportBinding } from './external-boundary.js';
+export { collectExternalBoundaries } from './external-boundary.js';
 export type { ExternalImportRegistry, ExternalImportTarget } from './import-metadata.js';
 export {
   importRegistryOf,
+  importTargetFamilyOf,
   importTargetOf,
   shouldEmitImportForTarget,
   validateImportMetadata,

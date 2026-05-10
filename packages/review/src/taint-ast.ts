@@ -19,6 +19,11 @@ import {
   HTTP_PARAM_NAMES,
   HTTP_PARAM_TYPES,
   isSanitizerSufficient,
+  NEXTJS_ROUTE_FILE_RE,
+  NEXTJS_ROUTE_VERBS,
+  NOSQL_METHODS_REQUIRING_OBJECT_TAINT,
+  NOSQL_QUERY_ARG_INDEXES,
+  NOSQL_RECEIVER_ALLOWLIST,
   SANITIZER_PATTERN_NAMES,
   SINK_NAMES,
 } from './taint-types.js';
@@ -72,10 +77,17 @@ export function buildInternalSinkMap(sourceFile: SourceFile): Map<string, Intern
       // gating put in for the kern-guard PR #316 false positive.
       const resolved = resolveSinkCategory(call);
       if (!resolved) continue;
-      const sinkDef = resolved.category;
+      const { category: sinkDef, name: calleeName } = resolved;
 
       // Check which parameter names appear in the sink's arguments
-      for (const arg of call.getArguments()) {
+      const allArgs = call.getArguments();
+      for (let argIdx = 0; argIdx < allArgs.length; argIdx++) {
+        // For NoSQL sinks, only scan the method's query positions
+        // (filter / update doc) — `find(query, projection)` must not mark
+        // `projection` as flowing to a sink.
+        if (sinkDef === 'nosql' && !nosqlAcceptsArgIndex(calleeName, argIdx)) continue;
+
+        const arg = allArgs[argIdx];
         const argText = arg.getText();
         for (let i = 0; i < params.length; i++) {
           const paramName = params[i].getName();
@@ -88,7 +100,9 @@ export function buildInternalSinkMap(sourceFile: SourceFile): Map<string, Intern
       }
 
       // Also check template literal arguments
-      for (const arg of call.getArguments()) {
+      for (let argIdx = 0; argIdx < allArgs.length; argIdx++) {
+        if (sinkDef === 'nosql' && !nosqlAcceptsArgIndex(calleeName, argIdx)) continue;
+        const arg = allArgs[argIdx];
         if (arg.getKindName() === 'TemplateExpression') {
           for (const tplSpan of (arg as any).getTemplateSpans()) {
             const expr = tplSpan.getExpression();
@@ -126,10 +140,14 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
   // Build intra-file call graph: which internal functions contain sinks?
   const internalSinkMap = buildInternalSinkMap(sourceFile);
 
-  // Collect all function-like AST nodes from the SourceFile
+  // Collect all function-like AST nodes from the SourceFile. `varName`
+  // carries the binding name for `export const GET = async (req) => …`
+  // shapes — without it, fnName falls through to 'anonymous' and Next.js
+  // route-verb detection in Pass 2 can't classify the handler.
   const allFns: Array<{
     node: FunctionDeclaration | ArrowFunction | FunctionExpression | MethodDeclaration;
     startLine: number;
+    varName?: string;
   }> = [];
   const seenFnNodes = new Set<Node>();
   for (const fn of sourceFile.getFunctions()) {
@@ -145,6 +163,7 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
           allFns.push({
             node: init as ArrowFunction | FunctionExpression,
             startLine: stmt.getStartLineNumber(),
+            varName: decl.getName(),
           });
           seenFnNodes.add(init);
         }
@@ -186,17 +205,59 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
     seenFnNodes.add(node);
   });
 
-  for (const { node: fn, startLine } of allFns) {
-    const params = fn.getParameters();
-    const fnName = 'getName' in fn && typeof fn.getName === 'function' ? fn.getName() || 'anonymous' : 'anonymous';
+  const isNextjsRouteFile = NEXTJS_ROUTE_FILE_RE.test(filePath);
 
-    // Step 1: Classify params as tainted using type info
+  for (const { node: fn, startLine, varName } of allFns) {
+    const params = fn.getParameters();
+    const declaredName =
+      varName ?? ('getName' in fn && typeof fn.getName === 'function' ? fn.getName() || undefined : undefined);
+    const fnName = declaredName ?? 'anonymous';
+
+    // Step 1: Classify params as tainted.
+    //   1a — type/name match (Express, Fastify, Koa, plain Request)
+    //   1b — Next.js route handler verb (`export async function GET(req)`
+    //        or `export const GET = async (r) => …`) inside an
+    //        `app/**/route.{ts,tsx}` or `pages/api/**` file: taint param 0
+    //        regardless of its annotation. Untyped App Router handlers
+    //        (`function GET(r) {…}`) were previously invisible because
+    //        `r` doesn't match HTTP_PARAM_NAMES.
     const taintedParams: TaintSource[] = [];
     for (const param of params) {
       const name = param.getName();
       const typeText = param.getType().getText(param);
       if (HTTP_PARAM_NAMES.test(name) || HTTP_PARAM_TYPES.test(typeText)) {
         taintedParams.push({ name, origin: `${name} (HTTP input)` });
+      }
+    }
+    // Codex impl-review: require export+top-level. A local helper
+    // `function GET(r) {…}` inside route.ts is not a Next.js route.
+    const inNextjsRouteContext =
+      isNextjsRouteFile && declaredName != null && NEXTJS_ROUTE_VERBS.has(declaredName) && isExportedTopLevel(fn);
+    if (inNextjsRouteContext) {
+      if (taintedParams.length === 0 && params.length > 0) {
+        const first = params[0];
+        const name = first.getName();
+        taintedParams.push({ name, origin: `${name} (Next.js route handler)` });
+      }
+      // Gemini impl-review: App Router handlers receive route segments as
+      // a second arg `{ params }`. Taint the destructured `params` binding
+      // (or the param itself when not destructured).
+      if (params.length > 1) {
+        const second = params[1];
+        const nameNode = second.getNameNode();
+        if (nameNode.getKindName() === 'ObjectBindingPattern') {
+          for (const element of (nameNode as import('ts-morph').ObjectBindingPattern).getElements()) {
+            const elName = element.getName();
+            if (!taintedParams.some((p) => p.name === elName)) {
+              taintedParams.push({ name: elName, origin: `${elName} (Next.js route context)` });
+            }
+          }
+        } else {
+          const name = second.getName();
+          if (!taintedParams.some((p) => p.name === name)) {
+            taintedParams.push({ name, origin: `${name} (Next.js route context)` });
+          }
+        }
       }
     }
     if (taintedParams.length === 0) continue;
@@ -290,17 +351,27 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
       // matching `req` inside a nested arrow that re-binds its own `req`
       // param — closure capture of OUTER `req` still works (the gate only
       // fires when the inner scope literally shadows the same name).
-      for (const arg of call.getArguments()) {
+      const allArgs = call.getArguments();
+      for (let argIdx = 0; argIdx < allArgs.length; argIdx++) {
+        // For NoSQL sinks, only scan the method's query positions
+        // (filter / update doc) — `find(query, projection)` must not flag
+        // the projection argument as injection.
+        if (sinkDef === 'nosql' && !nosqlAcceptsArgIndex(calleeName, argIdx)) continue;
+        const arg = allArgs[argIdx];
         const taintedArg = findTaintedIdentifier(arg, taintedNames);
-        if (taintedArg && !isTaintedNameShadowedAt(call, taintedArg, body)) {
-          sinks.push({
-            name: calleeName,
-            category: sinkDef,
-            taintedArg,
-            line: call.getStartLineNumber(),
-          });
-          break;
-        }
+        if (!taintedArg) continue;
+        if (isTaintedNameShadowedAt(call, taintedArg, body)) continue;
+        // findById-style methods: scalar `req.params.*` is not classic
+        // operator injection (Mongo treats string as literal _id). Reject
+        // unless the tainted source is body/query (object-shaped).
+        if (sinkDef === 'nosql' && nosqlByIdRejectsScalarParams(calleeName, arg)) continue;
+        sinks.push({
+          name: calleeName,
+          category: sinkDef,
+          taintedArg,
+          line: call.getStartLineNumber(),
+        });
+        break;
       }
 
       // Also check template literal arguments
@@ -413,6 +484,33 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
   }
 
   return results;
+}
+
+/**
+ * True when the given node is a top-level export — either a declaration
+ * carrying an `export` modifier directly, or an arrow/function expression
+ * whose containing VariableStatement is exported. Required to distinguish
+ * Next.js route handlers (always exported) from local helpers in the same
+ * file (Codex impl-review).
+ */
+function isExportedTopLevel(fn: Node): boolean {
+  // FunctionDeclaration with `export` modifier.
+  if (fn.getKindName() === 'FunctionDeclaration') {
+    const decl = fn as import('ts-morph').FunctionDeclaration;
+    if (decl.isExported() || decl.isDefaultExport()) return true;
+    return false;
+  }
+  // Arrow / function expression: walk to enclosing VariableStatement.
+  let cur: Node | undefined = fn.getParent();
+  while (cur) {
+    if (cur.getKindName() === 'VariableStatement') {
+      const vs = cur as import('ts-morph').VariableStatement;
+      return vs.isExported() || vs.hasDefaultKeyword();
+    }
+    if (cur.getKindName() === 'ExportAssignment') return true;
+    cur = cur.getParent();
+  }
+  return false;
 }
 
 // ── Callback-sweep gate ─────────────────────────────────────────────────
@@ -559,12 +657,167 @@ function resolveSinkCategory(call: import('ts-morph').CallExpression):
     }
   }
   const baseName = getCalleeBaseName(call);
+
+  // NoSQL receiver-aware match takes priority — these names (find, findOne,
+  // updateOne, …) collide with Array.prototype methods and would FP if added
+  // flat to SINK_NAMES. Only treat as a Mongo sink when the receiver
+  // resembles a Mongoose model or Mongo collection. See taint-types.ts for
+  // the gate justification.
+  if (k === 'PropertyAccessExpression' && NOSQL_QUERY_ARG_INDEXES[baseName] && isNoSQLSinkContext(call)) {
+    return { category: 'nosql', name: baseName };
+  }
+
   const byBase = SINK_NAMES.get(baseName);
   if (!byBase) return undefined;
   if (byBase === 'command' && COMMAND_AMBIGUOUS_BASE_NAMES.has(baseName)) {
     if (!isCommandSinkContext(call)) return undefined;
   }
   return { category: byBase, name: baseName };
+}
+
+// ── NoSQL sink receiver gate ────────────────────────────────────────────
+//
+// Returns true when the call's receiver looks like a Mongo collection /
+// Mongoose model rather than a plain JS array. Three accepted shapes:
+//   1. Capitalized identifier: `User.find(...)` (Mongoose convention).
+//   2. `<x>.collection(name).<sink>(...)` — Mongo driver chained access.
+//   3. Receiver name in {db, conn, collection} — for assigned-collection
+//      shapes like `const users = db.collection('users'); users.find(...)`
+//      after one alias hop.
+function isNoSQLSinkContext(call: import('ts-morph').CallExpression): boolean {
+  const expr = call.getExpression();
+  if (expr.getKindName() !== 'PropertyAccessExpression') return false;
+  const receiver = (expr as import('ts-morph').PropertyAccessExpression).getExpression();
+  return isLikelyNoSQLReceiver(receiver, new Set());
+}
+
+function isLikelyNoSQLReceiver(node: Node, visited: Set<Node>): boolean {
+  if (visited.has(node)) return false;
+  visited.add(node);
+  const k = node.getKindName();
+
+  // 1) Capitalized identifier: User, Post, OrderModel
+  if (k === 'Identifier') {
+    const text = node.getText();
+    if (NOSQL_RECEIVER_ALLOWLIST.has(text)) return true;
+    if (/^[A-Z][a-zA-Z0-9_]*$/.test(text)) return true;
+    // Trace one alias hop — `const users = db.collection('users')`
+    const sym = (node as any).getSymbol?.();
+    if (sym && typeof sym.getDeclarations === 'function') {
+      for (const decl of sym.getDeclarations() ?? []) {
+        if (decl.getKindName?.() !== 'VariableDeclaration') continue;
+        const init = (decl as any).getInitializer?.();
+        if (init && isLikelyNoSQLReceiver(init, visited)) return true;
+      }
+    }
+    return false;
+  }
+
+  // 2) PropertyAccess: x.collection (the property), or chains
+  if (k === 'PropertyAccessExpression') {
+    const pa = node as import('ts-morph').PropertyAccessExpression;
+    if (pa.getName() === 'collection' || pa.getName() === 'model') return true;
+    return isLikelyNoSQLReceiver(pa.getExpression(), visited);
+  }
+
+  // 3) Call expressions: db.collection('users'), conn.model('User')
+  if (k === 'CallExpression') {
+    const inner = node as import('ts-morph').CallExpression;
+    const innerCallee = inner.getExpression();
+    if (innerCallee.getKindName() === 'PropertyAccessExpression') {
+      const ipa = innerCallee as import('ts-morph').PropertyAccessExpression;
+      if (ipa.getName() === 'collection' || ipa.getName() === 'model') return true;
+    }
+    return isLikelyNoSQLReceiver(innerCallee, visited);
+  }
+
+  return false;
+}
+
+/**
+ * For NoSQL sinks, restrict tainted-arg detection to the method's query
+ * positions and (for findById-style methods) reject scalar `req.params.*`
+ * tainted sources. Returns the set of arg indexes worth scanning, or
+ * `undefined` when the sink isn't NoSQL.
+ */
+function nosqlAcceptsArgIndex(methodName: string, argIndex: number): boolean {
+  const allowed = NOSQL_QUERY_ARG_INDEXES[methodName];
+  return allowed ? allowed.has(argIndex) : false;
+}
+
+/**
+ * `findById(req.params.id)` with a string is not classic operator injection.
+ * Reject when the call is a *ById method AND the arg traces back to a static
+ * property chain rooted at `req.params` / `request.params` — those are
+ * URL-segment strings, not the object payloads needed for `{$gt:''}`-style
+ * bypass. Codex impl-review caught the original check missed common alias
+ * shapes (`const id = req.params.id; User.findById(id)` and Fastify-style
+ * `request.params.id`); we now trace one alias hop and accept either name.
+ */
+function nosqlByIdRejectsScalarParams(methodName: string, arg: Node): boolean {
+  if (!NOSQL_METHODS_REQUIRING_OBJECT_TAINT.has(methodName)) return false;
+  const path = resolveStaticOriginPath(arg);
+  if (!path) return false;
+  return /^(req|request)\.params(\.|$)/.test(path);
+}
+
+/**
+ * Like `getStaticAccessPath` but follows a single alias hop when the node is
+ * an Identifier whose declaration's initializer is itself a static path.
+ * Cycle protection prevents infinite recursion on `let a = a`.
+ *
+ * For a multi-segment PropertyAccessExpression (`req.params.id`), returns
+ * the full path immediately. For a bare Identifier (`id`), tries symbol
+ * resolution first (works under a ts-morph project) and falls back to a
+ * source-file scan for a matching VariableDeclaration when the symbol
+ * resolver returns undefined (common in test harnesses without full type
+ * checking).
+ */
+function resolveStaticOriginPath(node: Node, visited: Set<Node> = new Set()): string | undefined {
+  if (visited.has(node)) return undefined;
+  visited.add(node);
+  if (node.getKindName() === 'PropertyAccessExpression') {
+    return getStaticAccessPath(node);
+  }
+  if (node.getKindName() !== 'Identifier') return undefined;
+
+  const targetName = node.getText();
+  const candidates: Node[] = [];
+
+  // Symbol-resolution path (best-effort — needs full project type info).
+  const sym = (node as any).getSymbol?.();
+  if (sym && typeof sym.getDeclarations === 'function') {
+    for (const decl of sym.getDeclarations() ?? []) {
+      if (decl.getKindName?.() === 'VariableDeclaration') candidates.push(decl);
+    }
+  }
+
+  // Fallback: scan the source file for a matching VariableDeclaration. Picks
+  // the declaration that lexically precedes the use site to approximate
+  // shadowing without a full scope walker.
+  if (candidates.length === 0) {
+    const sourceFile = node.getSourceFile();
+    if (sourceFile) {
+      const useStart = node.getStart();
+      let best: Node | undefined;
+      sourceFile.forEachDescendant((n) => {
+        if (n.getKindName() !== 'VariableDeclaration') return;
+        const decl = n as import('ts-morph').VariableDeclaration;
+        if (decl.getName() !== targetName) return;
+        if (decl.getStart() > useStart) return;
+        if (!best || decl.getStart() > best.getStart()) best = decl;
+      });
+      if (best) candidates.push(best);
+    }
+  }
+
+  for (const decl of candidates) {
+    const init = (decl as any).getInitializer?.();
+    if (!init) continue;
+    const aliased = resolveStaticOriginPath(init, visited);
+    if (aliased) return aliased;
+  }
+  return undefined;
 }
 
 /** Get the full static access path (e.g., req.query.id). Returns undefined for dynamic access. */

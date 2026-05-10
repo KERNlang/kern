@@ -363,6 +363,24 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       package: { kind: 'string' },
     },
   },
+  extern: {
+    description:
+      'Foreign package boundary. Declares NPM/PyPI/host dependencies as reviewable KERN metadata; may carry direct import props or child import nodes.',
+    example:
+      'extern package=react registry=npm target=react\n  import names="useState,useEffect"\nextern package=numpy registry=pypi target=fastapi\n  import names=array',
+    props: {
+      package: { required: true, kind: 'string' },
+      registry: { kind: 'identifier' },
+      target: { kind: 'identifier' },
+      names: { kind: 'string' },
+      default: { kind: 'identifier' },
+      types: { kind: 'boolean' },
+      version: { kind: 'string' },
+      review: { kind: 'identifier' },
+      reason: { kind: 'string' },
+    },
+    allowedChildren: ['import'],
+  },
   use: {
     description:
       'Cross-`.kern` symbol resolution. Parent of `from` children — one per imported binding. Compositional shape mirrors enum/member, class/method.',
@@ -1803,7 +1821,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       allowedPaths: { kind: 'string' },
       baseDir: { kind: 'string' },
     },
-    allowedChildren: ['import', 'const', 'fn', 'tool', 'resource', 'prompt'],
+    allowedChildren: ['import', 'extern', 'const', 'fn', 'tool', 'resource', 'prompt'],
   },
   tool: {
     description: 'MCP tool definition — a callable function exposed to AI agents with typed params and security guards',
@@ -2106,7 +2124,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       version: { kind: 'string' },
       description: { kind: 'string' },
     },
-    allowedChildren: ['command', 'flag', 'import'],
+    allowedChildren: ['command', 'flag', 'import', 'extern'],
   },
   command: {
     description: 'CLI subcommand with arguments, flags, and handler',
@@ -2117,7 +2135,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       description: { kind: 'string' },
       alias: { kind: 'string' },
     },
-    allowedChildren: ['arg', 'flag', 'handler', 'import'],
+    allowedChildren: ['arg', 'flag', 'handler', 'import', 'extern'],
   },
   arg: {
     description: 'CLI positional argument — required args must come before optional ones',
@@ -2789,11 +2807,14 @@ export function validateSchema(root: IRNode): SchemaViolation[] {
 
 const UNIVERSAL_CHILDREN = new Set(['handler', 'cleanup', 'reason', 'evidence', 'needs', 'signal', 'doc']);
 
-function checkRequiredProps(node: IRNode, schema: NodeSchema, violations: SchemaViolation[]): void {
+function checkRequiredProps(node: IRNode, schema: NodeSchema, violations: SchemaViolation[], parent?: IRNode): void {
   const props = node.props || {};
   for (const [propName, propSchema] of Object.entries(schema.props)) {
     if (!propSchema.required) continue;
     if (propName in props) continue;
+    if (node.type === 'import' && propName === 'from' && parent?.type === 'extern') {
+      continue;
+    }
     // each-pair-mode (2026-05-06): `name` becomes optional when both
     // `pairKey` and `pairValue` are present (Map / iterable-of-pairs form).
     // The schema can't express conditional-required, so suppress the
@@ -2822,7 +2843,7 @@ function checkRequiredProps(node: IRNode, schema: NodeSchema, violations: Schema
   }
 }
 
-function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
+function checkCrossProps(node: IRNode, violations: SchemaViolation[], parent?: IRNode): void {
   const props = node.props || {};
   if (node.type === 'assign' && props.op !== undefined && props.op !== '') {
     const op = String(props.op);
@@ -2835,14 +2856,55 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       });
     }
   }
-  if (node.type === 'import') {
+  if (node.type === 'import' || node.type === 'extern') {
+    if (
+      node.type === 'extern' &&
+      'package' in props &&
+      (typeof props.package !== 'string' || props.package.trim().length === 0)
+    ) {
+      violations.push({
+        nodeType: 'extern',
+        message: "'extern package=' must be a non-empty package specifier",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
     for (const message of validateImportMetadata(node)) {
       violations.push({
-        nodeType: 'import',
+        nodeType: node.type,
         message,
         line: node.loc?.line,
         col: node.loc?.col,
       });
+    }
+  }
+  if (node.type === 'import' && parent?.type === 'extern') {
+    for (const boundaryProp of ['package', 'registry', 'target']) {
+      if (boundaryProp in props) {
+        violations.push({
+          nodeType: 'import',
+          message: `'import' inside 'extern' cannot set '${boundaryProp}' — use the parent extern boundary`,
+          line: node.loc?.line,
+          col: node.loc?.col,
+        });
+      }
+    }
+    if (typeof props.from === 'string' && props.from.length > 0) {
+      const packageName = parent.props?.package;
+      if (typeof packageName === 'string' && packageName.length > 0) {
+        const from = props.from;
+        const isSamePackage = from === packageName;
+        const isTsSubpath = from.startsWith(`${packageName}/`);
+        const isPythonSubmodule = from.startsWith(`${packageName}.`);
+        if (!isSamePackage && !isTsSubpath && !isPythonSubmodule) {
+          violations.push({
+            nodeType: 'import',
+            message: `'import from=' inside 'extern' must reference package '${packageName}' or one of its subpaths`,
+            line: node.loc?.line,
+            col: node.loc?.col,
+          });
+        }
+      }
     }
   }
   if (node.type === 'component' && !('ref' in props) && !('name' in props)) {
@@ -3229,15 +3291,15 @@ function checkAllowedChildren(node: IRNode, schema: NodeSchema, violations: Sche
   }
 }
 
-function validateNode(node: IRNode, violations: SchemaViolation[]): void {
+function validateNode(node: IRNode, violations: SchemaViolation[], parent?: IRNode): void {
   const schema = Object.hasOwn(NODE_SCHEMAS, node.type) ? NODE_SCHEMAS[node.type] : undefined;
   if (schema) {
-    checkRequiredProps(node, schema, violations);
-    checkCrossProps(node, violations);
+    checkRequiredProps(node, schema, violations, parent);
+    checkCrossProps(node, violations, parent);
     checkAllowedChildren(node, schema, violations);
   }
   if (node.children) {
-    for (const child of node.children) validateNode(child, violations);
+    for (const child of node.children) validateNode(child, violations, node);
   }
 }
 

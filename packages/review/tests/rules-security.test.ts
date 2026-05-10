@@ -425,3 +425,525 @@ app.get('/home', (req: any, res: any) => {
     expect(f).toBeUndefined();
   });
 });
+
+// ── error-leak ───────────────────────────────────────────────────────
+
+describe('error-leak', () => {
+  it('detects raw error object in res.json(err)', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  res.status(500).json(err);
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+    expect(f!.message).toContain('stack traces');
+  });
+
+  it('detects err.stack in object literal', () => {
+    const source = `
+try {
+  doWork();
+} catch (error) {
+  res.send({ error: error.stack, message: 'failed' });
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+  });
+
+  it('detects stack in template literal', () => {
+    const source = `
+try {
+  doWork();
+} catch (e) {
+  res.send(\`Error: \${e.stack}\`);
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+  });
+
+  it('flags err.message as warning', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  res.json({ message: err.message });
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('warning');
+  });
+
+  it('does NOT fire on console.error or next(err)', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  console.error(err);
+  next(err);
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeUndefined();
+  });
+
+  it('does NOT fire when guarded by NODE_ENV !== production', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  if (process.env.NODE_ENV !== 'production') {
+    res.json(err);
+  } else {
+    res.status(500).send('Internal Server Error');
+  }
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeUndefined();
+  });
+
+  it('DOES fire when leak is explicitly in the production branch', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  if (process.env.NODE_ENV === 'production') {
+    res.json(err);
+  }
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+  });
+
+  it('does NOT fire when leak is in the else branch of a production check', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  if (process.env.NODE_ENV === 'production') {
+    res.send('error');
+  } else {
+    res.json(err);
+  }
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeUndefined();
+  });
+
+  it('does NOT fire on short name collision in strings (e.g. "e")', () => {
+    const source = `
+try {
+  doWork();
+} catch (e) {
+  res.send("An error occurred: e");
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeUndefined();
+  });
+
+  it('does NOT fire on property key collision', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  res.json({ err: 'some constant' });
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeUndefined();
+  });
+
+  it('detects nested catch shadowing correctly', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  try {
+    inner();
+  } catch (err) {
+    res.json(err.message); // Safe for inner err, rule for outer err should skip
+  }
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const findings = report.findings.filter((f) => f.ruleId === 'error-leak');
+    // It might still fire for the inner catch (as a warning), but it shouldn't
+    // fire for the outer catch as an error.
+    expect(findings.every((f) => f.severity === 'warning')).toBe(true);
+  });
+
+  it('flags err.message in complex object as warning', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  res.json({ success: false, error: err.message, code: 500 });
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('warning');
+  });
+
+  it('flags complex object with both err and err.message as error', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  res.json({ success: false, error: err.message, raw: err });
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+  });
+
+  it('detects leak in Fastify/Koa-like context names', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  ctx.send(err);
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+  });
+
+  // ── Plan-review additions ──────────────────────────────────────────
+
+  it('does NOT fire when an inner arrow shadows the catch param (Codex plan-review)', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  ((err: string) => res.json(err))('safe');
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeUndefined();
+  });
+
+  it('fires on next(err) followed by direct leak (per-call non-sink, not catch-level suppress)', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  next(err);
+  res.json(err);
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+  });
+
+  it('fires on spread of error object', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  res.json({ ...err });
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+  });
+
+  it('fires on JSON.stringify(err)', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  res.send(JSON.stringify(err));
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+  });
+
+  it('fires through deep response chain (res.type().status().send())', () => {
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  res.type('json').status(500).send(err.stack);
+}
+`;
+    const report = reviewSource(source, 'routes.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+  });
+
+  it('does NOT fire when receiver is a non-allowlisted name (e.g. `c` is too greedy)', () => {
+    // OpenCode plan-review: dropped `c` from RESPONSE_OBJECTS to prevent
+    // unrelated `c.send(err)` callers (queue clients, sockets, etc.) from
+    // firing without an HTTP boundary.
+    const source = `
+try {
+  doWork();
+} catch (err) {
+  c.send(err);
+}
+`;
+    const report = reviewSource(source, 'noise.ts', expressConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeUndefined();
+  });
+});
+
+// ── bearer-token-literal ──────────────────────────────────────────────
+
+describe('bearer-token-literal', () => {
+  it('fires on hardcoded JWT in fetch Authorization header (error severity)', () => {
+    const source = `
+async function call(): Promise<void> {
+  await fetch('/api', {
+    headers: { Authorization: 'Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.signature_here' },
+  });
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+  });
+
+  it('fires on Stripe key in axios Authorization header (case-insensitive)', () => {
+    const source = `
+async function call(): Promise<void> {
+  await axios.get('/users', {
+    headers: { authorization: 'Bearer sk_live_abcdefghijklmnopqrstuv' },
+  });
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+  });
+
+  it('fires on GitHub token in headers.set call', () => {
+    const source = `
+async function call(req: Request): Promise<void> {
+  req.headers.set('Authorization', 'Bearer ghp_abcdefghijklmnopqrstuvwxyz0123456789');
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+  });
+
+  it('fires on no-substitution template literal Bearer header', () => {
+    const source = `
+async function call(): Promise<void> {
+  await fetch('/api', {
+    headers: { Authorization: \`Bearer eyJhbGciOiJIUzI1NiJ9.zzzzzzzzzzzzzzzz.signature\` },
+  });
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeDefined();
+  });
+
+  it('fires on string concatenation of literals', () => {
+    const source = `
+async function call(): Promise<void> {
+  await fetch('/api', {
+    headers: { Authorization: 'Bearer ' + 'sk_live_abcdefghijklmnopqrstuv' },
+  });
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeDefined();
+  });
+
+  it('fires on template with literal-only substitution (Codex impl-review)', () => {
+    const source = `
+async function call(): Promise<void> {
+  await fetch('/api', {
+    headers: { Authorization: \`Bearer \${'sk_live_xxxxxxxxxxxxxxxxxxxx'}\` },
+  });
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeDefined();
+  });
+
+  it('fires on opaque-token Bearer with warning severity (not a known pattern)', () => {
+    const source = `
+async function call(): Promise<void> {
+  await fetch('/api', {
+    headers: { Authorization: 'Bearer randomopaquetoken_abcdef123456' },
+  });
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('warning');
+  });
+
+  it('does NOT fire when token comes from process.env interpolation', () => {
+    const source = `
+async function call(): Promise<void> {
+  await fetch('/api', {
+    headers: { Authorization: \`Bearer \${process.env.TOKEN}\` },
+  });
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeUndefined();
+  });
+
+  it('does NOT fire on Basic auth scheme', () => {
+    const source = `
+async function call(): Promise<void> {
+  await fetch('/api', {
+    headers: { Authorization: 'Basic ' + 'dXNlcjpwYXNz' },
+  });
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeUndefined();
+  });
+
+  it('does NOT fire on Bearer literal outside header context', () => {
+    const source = `
+const comment: string = 'Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature';
+console.log(comment);
+`;
+    const report = reviewSource(source, 'doc.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeUndefined();
+  });
+
+  it('does NOT fire on placeholder values', () => {
+    const placeholders = [
+      "'Bearer '",
+      "'Bearer <token>'",
+      "'Bearer YOUR_TOKEN'",
+      "'Bearer TODO'",
+      "'Bearer example'",
+      "'Bearer xxx'",
+      "'Bearer <YOUR-API-KEY>'",
+    ];
+    for (const literal of placeholders) {
+      const source = `
+async function call(): Promise<void> {
+  await fetch('/api', {
+    headers: { Authorization: ${literal} },
+  });
+}
+`;
+      const report = reviewSource(source, 'api.ts');
+      const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+      expect(f).toBeUndefined();
+    }
+  });
+
+  it('does NOT fire on unknown identifier interpolation (FN class — alias tracing deferred)', () => {
+    const source = `
+const TOKEN = 'sk_live_abcdefghijklmnopqrstuv';
+async function call(): Promise<void> {
+  await fetch('/api', {
+    headers: { Authorization: \`Bearer \${TOKEN}\` },
+  });
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeUndefined();
+  });
+
+  // ── Impl-review fixes ──────────────────────────────────────────────
+
+  it('does NOT fire on Bearer-shaped value under a non-Authorization header key (Codex impl-review FP fix)', () => {
+    // Original bug: any `headers` ancestor accepted the literal even when
+    // the literal lived under a different header key like X-Comment. We now
+    // require the nearest enclosing PropertyAssignment to be Authorization.
+    const source = `
+async function call(): Promise<void> {
+  await fetch('/api', {
+    headers: { 'X-Note': 'Bearer tokens are documented at /docs' },
+  });
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeUndefined();
+  });
+
+  it('fires on case-insensitive bearer scheme (Codex impl-review FN fix)', () => {
+    // HTTP auth schemes are case-insensitive — `bearer ` lowercase is
+    // equivalent to `Bearer `.
+    const source = `
+async function call(): Promise<void> {
+  await fetch('/api', {
+    headers: { Authorization: 'bearer sk_live_abcdefghijklmnopqrstuv' },
+  });
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+  });
+
+  it('fires on new Headers tuple form (Codex impl-review + Gemini FN fix)', () => {
+    const source = `
+async function call(): Promise<void> {
+  const h = new Headers([['Authorization', 'Bearer sk_live_abcdefghijklmnopqrstuv']]);
+  await fetch('/api', { headers: h });
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeDefined();
+  });
+
+  it('fires on headers.append (verifying append works alongside set)', () => {
+    const source = `
+async function call(req: Request): Promise<void> {
+  req.headers.append('Authorization', 'Bearer ghp_abcdefghijklmnopqrstuvwxyz0123456789');
+}
+`;
+    const report = reviewSource(source, 'api.ts');
+    const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
+    expect(f).toBeDefined();
+  });
+});

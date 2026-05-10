@@ -77,12 +77,93 @@ describe('Schema Validation', () => {
       expect(v).toHaveLength(0);
     });
 
+    it('passes package extern boundaries with app-level target aliases', () => {
+      const v = validate(
+        ['extern package=react registry=npm target=react', '  import names="useState,useEffect"'].join('\n'),
+      );
+      expect(v).toHaveLength(0);
+    });
+
+    it('allows module-level package extern boundaries', () => {
+      const v = validate(
+        ['module name=app', '  extern package=react registry=npm target=react names=useState'].join('\n'),
+      );
+      expect(v).toHaveLength(0);
+    });
+
     it('flags incompatible external import registry targets', () => {
       const npm = validate('import from=react registry=npm target=python names=useMemo');
-      const pypi = validate('import from=numpy registry=pypi target=ts names=array');
+      const pypiImport = validate('import from=numpy registry=pypi target=ts names=array');
+      const pypiExtern = validate('extern package=numpy registry=pypi target=react names=array');
 
-      expect(npm.some((v) => v.message.includes("'import registry=npm' must target ts"))).toBe(true);
-      expect(pypi.some((v) => v.message.includes("'import registry=pypi' must target python"))).toBe(true);
+      expect(npm.some((v) => v.message.includes("'import registry=npm' must target a TS-family target"))).toBe(true);
+      expect(pypiImport.some((v) => v.message.includes("'import registry=pypi' must target python/fastapi"))).toBe(
+        true,
+      );
+      expect(pypiExtern.some((v) => v.message.includes("'extern registry=pypi' must target python/fastapi"))).toBe(
+        true,
+      );
+    });
+
+    it('flags extern missing package', () => {
+      const v = validate('extern registry=npm target=react names=useMemo');
+      expect(v.some((v) => v.message.includes("'extern' requires prop 'package'"))).toBe(true);
+      expect(v.some((v) => v.message.includes("'extern package=' must be a non-empty package specifier"))).toBe(false);
+    });
+
+    it('flags invalid extern targets', () => {
+      const v = validate('extern package=react registry=npm target=reacts names=useMemo');
+      expect(v.some((v) => v.message.includes("'extern target=' must be one of"))).toBe(true);
+    });
+
+    it('flags empty extern package boundaries', () => {
+      const v = validate('extern package="" registry=npm target=react names=useMemo');
+      expect(v.some((v) => v.message.includes("'extern package=' must be a non-empty package specifier"))).toBe(true);
+    });
+
+    it('flags invalid extern children', () => {
+      const v = validate(['extern package=react registry=npm target=react', '  fn name=bad'].join('\n'));
+      expect(v.some((v) => v.message.includes("'extern' does not allow child type 'fn'"))).toBe(true);
+    });
+
+    it('flags extern child imports that override boundary props', () => {
+      const v = validate(
+        ['extern package=react registry=npm target=react', '  import package=react-dom names=createRoot'].join('\n'),
+      );
+      expect(v.some((v) => v.message.includes("cannot set 'package'"))).toBe(true);
+    });
+
+    it('allows extern child imports to use package subpaths', () => {
+      const v = validate(
+        [
+          'extern package=react-dom registry=npm target=react',
+          '  import from="react-dom/client" names=createRoot',
+        ].join('\n'),
+      );
+      expect(v).toEqual([]);
+    });
+
+    it('flags extern child imports outside the parent package boundary', () => {
+      const v = validate(
+        ['extern package=react registry=npm target=react', '  import from=lodash names=map'].join('\n'),
+      );
+      expect(v.some((v) => v.message.includes("must reference package 'react'"))).toBe(true);
+    });
+
+    it('allows extern where import is allowed in MCP and CLI parents', () => {
+      expect(validate(['mcp name=server', '  extern package=zod registry=npm target=mcp names=z'].join('\n'))).toEqual(
+        [],
+      );
+      expect(
+        validate(['cli name=tool', '  extern package=commander registry=npm target=cli names=program'].join('\n')),
+      ).toEqual([]);
+      expect(
+        validate(
+          ['cli name=tool', '  command name=run', '    extern package=chalk registry=npm target=cli names=green'].join(
+            '\n',
+          ),
+        ),
+      ).toEqual([]);
     });
 
     it('flags assume missing evidence and fallback', () => {

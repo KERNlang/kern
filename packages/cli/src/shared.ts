@@ -12,6 +12,7 @@ import {
   COMMON_TEMPLATES,
   clearTemplates,
   collectCoverageGaps,
+  collectExternalBoundaries,
   detectKernStdlibUsage,
   detectTarget,
   expandTemplateNode,
@@ -341,6 +342,7 @@ export interface FileDiagnosticsJSON {
   diagnostics: ParseDiagnostic[];
   schemaViolations: SchemaViolation[];
   shadowDiagnostics?: ShadowDiagnostic[];
+  externalBoundaries: import('@kernlang/core').ExternalBoundary[];
 }
 
 /** Parse a .kern file and return structured diagnostics as JSON-serializable object. */
@@ -360,6 +362,9 @@ export function parseWithJSONDiagnostics(
       success: !hasErrors,
       diagnostics: result.diagnostics,
       schemaViolations,
+      // Best-effort even when parsing/schema validation reports errors, so
+      // review tools can still show declared foreign boundaries near failures.
+      externalBoundaries: collectExternalBoundaries(result.root),
     },
   };
 }

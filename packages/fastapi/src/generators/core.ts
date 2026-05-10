@@ -774,6 +774,39 @@ export function generateImport(node: IRNode): string[] {
   return emitPythonModuleImport(from);
 }
 
+function externChildImport(node: IRNode, child?: IRNode): IRNode {
+  const props = p(node);
+  const packageName = props.package as string | undefined;
+  const childProps = child?.props ?? {};
+  return {
+    type: 'import',
+    props: {
+      ...(child
+        ? childProps
+        : {
+            names: props.names,
+            default: props.default,
+            types: props.types,
+          }),
+      registry: props.registry,
+      target: props.target,
+      package: packageName,
+      from: childProps.from ?? packageName,
+    },
+    children: child?.children ?? [],
+    loc: child?.loc ?? node.loc,
+  };
+}
+
+export function generateExtern(node: IRNode): string[] {
+  const children = kids(node, 'import');
+  const props = p(node);
+  const hasInlineBinding = Boolean(props.names || props.default);
+  const inlineImport = hasInlineBinding ? generateImport(externChildImport(node)) : [];
+  const childImports = children.flatMap((child) => generateImport(externChildImport(node, child)));
+  return [...new Set([...inlineImport, ...childImports])];
+}
+
 export function generateUse(node: IRNode): string[] {
   const props = p(node);
   const rawPath = props.path as string;

@@ -13,6 +13,7 @@ import {
   generateConst,
   generateError,
   generateEvent,
+  generateExtern,
   generateFunction,
   generateImport,
   generateInterface,
@@ -129,6 +130,8 @@ export function generatePythonCoreNode(node: IRNode): string[] {
       return generateEvent(node);
     case 'import':
       return generateImport(node);
+    case 'extern':
+      return generateExtern(node);
     case 'use':
       return generateUse(node);
     case 'from':

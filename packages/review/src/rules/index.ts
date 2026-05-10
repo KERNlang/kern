@@ -274,6 +274,12 @@ const REGISTRY: RuleInfo[] = [
     severity: 'error',
     description: 'Unvalidated redirect target from user input',
   },
+  {
+    id: 'error-leak',
+    layer: 'security',
+    severity: 'warning',
+    description: 'Caught exception leaked to HTTP response — info disclosure (stack traces, paths, secrets)',
+  },
 
   // Security v2
   {
@@ -1195,6 +1201,24 @@ const REGISTRY: RuleInfo[] = [
     precision: 'high',
     rolloutPhase: 1,
     supersedes: ['open-redirect'],
+  },
+  {
+    id: 'taint-nosql',
+    layer: 'security-v5',
+    severity: 'error',
+    description:
+      'User input flows into a Mongo/Mongoose query position — operator injection (e.g., {$gt:""}) bypasses authentication',
+    precision: 'high',
+    rolloutPhase: 1,
+  },
+  {
+    id: 'bearer-token-literal',
+    layer: 'security',
+    severity: 'warning',
+    description:
+      'Hardcoded Bearer token in HTTP Authorization header — credential should come from env / secret manager',
+    precision: 'high',
+    rolloutPhase: 1,
   },
   {
     id: 'insecure-transport',

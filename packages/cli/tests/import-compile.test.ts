@@ -270,6 +270,130 @@ export async function loadUser(id: string): Promise<User> {
     expect(report.files[0].schemaViolations[0].message).toContain('export-local-unknown-symbol');
   });
 
+  it('includes extern package boundaries in target JSON compile output', async () => {
+    process.chdir(tmpDir);
+
+    const sourceFile = join(tmpDir, 'extern-target-json.kern');
+    writeFileSync(
+      sourceFile,
+      [
+        'module name=app',
+        '  extern package=react registry=npm target=react version=18 review=known reason=ui',
+        '    import default=React names=useState',
+      ].join('\n'),
+    );
+
+    const generatedDir = join(tmpDir, 'generated-extern-target-json');
+    const getExitCode = trapExit();
+    await expect(
+      runCompile(['compile', sourceFile, '--target=lib', '--json', `--outdir=${generatedDir}`]),
+    ).rejects.toThrow('EXIT:0');
+
+    expect(getExitCode()).toBe(0);
+    const report = JSON.parse(stdout.join(''));
+    expect(report.errors).toBe(0);
+    expect(report.files).toHaveLength(1);
+    expect(report.files[0].externalBoundaries).toEqual([
+      {
+        package: 'react',
+        registry: 'npm',
+        target: 'react',
+        targetFamily: 'ts',
+        version: '18',
+        review: 'known',
+        reason: 'ui',
+        imports: [
+          {
+            default: 'React',
+            names: ['useState'],
+            types: false,
+            line: 3,
+            col: 5,
+          },
+        ],
+        line: 2,
+        col: 3,
+      },
+    ]);
+    expect(readFileSync(join(generatedDir, 'extern-target-json.ts'), 'utf-8')).toContain(
+      "import React, { useState } from 'react';",
+    );
+  });
+
+  it('keeps extern package boundaries in strict shadow JSON compile output', async () => {
+    process.chdir(tmpDir);
+
+    const sourceFile = join(tmpDir, 'extern-shadow-json.kern');
+    writeFileSync(
+      sourceFile,
+      [
+        'module name=app',
+        '  extern package=numpy registry=pypi target=fastapi reason=ml',
+        '    import default=np names=array',
+      ].join('\n'),
+    );
+
+    const generatedDir = join(tmpDir, 'generated-extern-shadow-json');
+    const getExitCode = trapExit();
+    await expect(
+      runCompile([
+        'compile',
+        sourceFile,
+        '--target=lib',
+        '--strict-parse',
+        '--shadow',
+        '--json',
+        `--outdir=${generatedDir}`,
+      ]),
+    ).rejects.toThrow('EXIT:0');
+
+    expect(getExitCode()).toBe(0);
+    const report = JSON.parse(stdout.join(''));
+    expect(report.files).toHaveLength(1);
+    expect(report.files[0].externalBoundaries).toMatchObject([
+      {
+        package: 'numpy',
+        registry: 'pypi',
+        target: 'fastapi',
+        targetFamily: 'python',
+        reason: 'ml',
+        imports: [{ default: 'np', names: ['array'], types: false }],
+      },
+    ]);
+  });
+
+  it('reports declaration-only extern package boundaries in target JSON compile output', async () => {
+    process.chdir(tmpDir);
+
+    const sourceFile = join(tmpDir, 'extern-metadata-json.kern');
+    writeFileSync(
+      sourceFile,
+      ['module name=app', '  extern package=react registry=npm target=react review=known reason=ui'].join('\n'),
+    );
+
+    const generatedDir = join(tmpDir, 'generated-extern-metadata-json');
+    const getExitCode = trapExit();
+    await expect(
+      runCompile(['compile', sourceFile, '--target=lib', '--json', `--outdir=${generatedDir}`]),
+    ).rejects.toThrow('EXIT:0');
+
+    expect(getExitCode()).toBe(0);
+    const report = JSON.parse(stdout.join(''));
+    expect(report.errors).toBe(0);
+    expect(report.files[0].externalBoundaries).toMatchObject([
+      {
+        package: 'react',
+        registry: 'npm',
+        target: 'react',
+        targetFamily: 'ts',
+        review: 'known',
+        reason: 'ui',
+        imports: [{ names: [], types: false }],
+      },
+    ]);
+    expect(readFileSync(join(generatedDir, 'extern-metadata-json.ts'), 'utf-8')).not.toContain("import 'react'");
+  });
+
   it('strict target compile validates resolver-enriched re-exports', async () => {
     process.chdir(tmpDir);
 

@@ -95,6 +95,7 @@ export const NODE_TYPES = [
   'arg',
   'flag',
   'import',
+  'extern',
   // Terminal
   'separator',
   'table',
