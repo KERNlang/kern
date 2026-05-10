@@ -18,6 +18,7 @@ import { dirname, resolve } from 'path';
 
 const RESULT_RETURN_RE = /^Result<[\s\S]*>$/;
 const OPTION_RETURN_RE = /^Option<[\s\S]*>$/;
+const PYTHON_SNAKE_SYMBOL_KINDS = new Set(['fn', 'derive', 'transform', 'action', 'expect', 'dependency']);
 
 /** Strip an outer `Promise<…>` wrapper if present. Mirrors the helper in
  *  `parser-validate-propagation.ts` so the registry classifies async
@@ -62,9 +63,32 @@ function parseExportBinding(raw: string): ExportBinding | null {
   return { source, exported: match[2] ?? source };
 }
 
+function toSnakeCase(name: string): string {
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[-\s]+/g, '_')
+    .toLowerCase();
+}
+
+function targetNamesForSymbol(name: string, kind: string): Record<string, string> {
+  return {
+    ts: name,
+    python: PYTHON_SNAKE_SYMBOL_KINDS.has(kind) ? toSnakeCase(name) : name,
+  };
+}
+
 function copyExportSymbol(target: ModuleExports, source: ModuleExports, name: string, exportedName = name): void {
   const symbol = source.symbols?.get(name);
-  if (symbol) target.symbols?.set(exportedName, { ...symbol, name: exportedName });
+  if (symbol) {
+    const targetNames =
+      exportedName === name ? symbol.targetNames : { ...symbol.targetNames, ts: exportedName, python: exportedName };
+    target.symbols?.set(exportedName, {
+      ...symbol,
+      name: exportedName,
+      sourceName: symbol.sourceName ?? name,
+      targetNames,
+    });
+  }
   if (source.resultFns.has(name)) target.resultFns.add(exportedName);
   if (source.optionFns.has(name)) target.optionFns.add(exportedName);
   if (source.asyncResultFns?.has(name)) target.asyncResultFns?.add(exportedName);
@@ -132,7 +156,7 @@ function classifyDirectExports(root: IRNode): ModuleExports {
     const name = exportedName(node);
     const kind = symbolKind(node);
     if (name && kind) {
-      symbols.set(name, { name, kind });
+      symbols.set(name, { name, sourceName: name, kind, targetNames: targetNamesForSymbol(name, kind) });
     }
 
     if (node.type === 'fn' || node.type === 'method') {

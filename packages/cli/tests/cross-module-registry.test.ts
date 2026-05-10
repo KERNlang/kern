@@ -64,7 +64,12 @@ describe('cross-module registry — end-to-end', () => {
     const registry = buildCrossModuleRegistry([aPath, bPath]);
     const moduleExports = registry.get(resolve(aPath));
     expect(moduleExports?.resultFns.has('parseUser')).toBe(true);
-    expect(moduleExports?.symbols?.get('parseUser')).toEqual({ name: 'parseUser', kind: 'fn' });
+    expect(moduleExports?.symbols?.get('parseUser')).toMatchObject({
+      name: 'parseUser',
+      sourceName: 'parseUser',
+      kind: 'fn',
+      targetNames: { ts: 'parseUser', python: 'parse_user' },
+    });
 
     const resolver = makeImportResolverForFile(resolve(bPath), registry);
     const result = parseDocumentWithDiagnostics(bSource, undefined, { resolveImport: resolver });
@@ -101,9 +106,17 @@ describe('cross-module registry — end-to-end', () => {
     const registry = buildCrossModuleRegistry([modulePath]);
     const symbols = registry.get(resolve(modulePath))?.symbols;
 
-    expect(symbols?.get('UserId')).toEqual({ name: 'UserId', kind: 'type' });
-    expect(symbols?.get('UserProfile')).toEqual({ name: 'UserProfile', kind: 'interface' });
-    expect(symbols?.get('TokenTracker')).toEqual({ name: 'TokenTracker', kind: 'class' });
+    expect(symbols?.get('UserId')).toMatchObject({ name: 'UserId', kind: 'type', targetNames: { python: 'UserId' } });
+    expect(symbols?.get('UserProfile')).toMatchObject({
+      name: 'UserProfile',
+      kind: 'interface',
+      targetNames: { python: 'UserProfile' },
+    });
+    expect(symbols?.get('TokenTracker')).toMatchObject({
+      name: 'TokenTracker',
+      kind: 'class',
+      targetNames: { python: 'TokenTracker' },
+    });
     expect(symbols?.has('makeUser')).toBe(false);
   });
 
@@ -140,8 +153,16 @@ describe('cross-module registry — end-to-end', () => {
 
     const registry = buildCrossModuleRegistry([parserPath, indexPath, appPath]);
     const barrelExports = registry.get(resolve(indexPath));
-    expect(barrelExports?.symbols?.get('parseUser')).toEqual({ name: 'parseUser', kind: 'fn' });
-    expect(barrelExports?.symbols?.get('UserProfile')).toEqual({ name: 'UserProfile', kind: 'type' });
+    expect(barrelExports?.symbols?.get('parseUser')).toMatchObject({
+      name: 'parseUser',
+      kind: 'fn',
+      targetNames: { python: 'parse_user' },
+    });
+    expect(barrelExports?.symbols?.get('UserProfile')).toMatchObject({
+      name: 'UserProfile',
+      kind: 'type',
+      targetNames: { python: 'UserProfile' },
+    });
     expect(barrelExports?.resultFns.has('parseUser')).toBe(true);
 
     const resolver = makeImportResolverForFile(resolve(appPath), registry);
@@ -194,8 +215,18 @@ describe('cross-module registry — end-to-end', () => {
 
     const registry = buildCrossModuleRegistry([parserPath, indexPath, appPath]);
     const barrelExports = registry.get(resolve(indexPath));
-    expect(barrelExports?.symbols?.get('parse')).toEqual({ name: 'parse', kind: 'fn' });
-    expect(barrelExports?.symbols?.get('Profile')).toEqual({ name: 'Profile', kind: 'type' });
+    expect(barrelExports?.symbols?.get('parse')).toMatchObject({
+      name: 'parse',
+      sourceName: 'parseUser',
+      kind: 'fn',
+      targetNames: { ts: 'parse', python: 'parse' },
+    });
+    expect(barrelExports?.symbols?.get('Profile')).toMatchObject({
+      name: 'Profile',
+      sourceName: 'UserProfile',
+      kind: 'type',
+      targetNames: { ts: 'Profile', python: 'Profile' },
+    });
     expect(barrelExports?.resultFns.has('parse')).toBe(true);
 
     const resolver = makeImportResolverForFile(resolve(appPath), registry);
@@ -239,12 +270,12 @@ describe('cross-module registry — end-to-end', () => {
     const aExports = registry.get(resolve(aPath));
     const bExports = registry.get(resolve(bPath));
 
-    expect(aExports?.symbols?.get('AId')).toEqual({ name: 'AId', kind: 'type' });
-    expect(aExports?.symbols?.get('BId')).toEqual({ name: 'BId', kind: 'type' });
+    expect(aExports?.symbols?.get('AId')).toMatchObject({ name: 'AId', kind: 'type' });
+    expect(aExports?.symbols?.get('BId')).toMatchObject({ name: 'BId', kind: 'type' });
     expect(aExports?.optionFns.has('parseA')).toBe(true);
     expect(aExports?.resultFns.has('parseB')).toBe(true);
-    expect(bExports?.symbols?.get('AId')).toEqual({ name: 'AId', kind: 'type' });
-    expect(bExports?.symbols?.get('BId')).toEqual({ name: 'BId', kind: 'type' });
+    expect(bExports?.symbols?.get('AId')).toMatchObject({ name: 'AId', kind: 'type' });
+    expect(bExports?.symbols?.get('BId')).toMatchObject({ name: 'BId', kind: 'type' });
   });
 
   test('without registry: same import passes through verbatim', () => {

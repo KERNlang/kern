@@ -610,7 +610,10 @@ function pythonModuleSpecifier(raw: string, node: IRNode): string {
 function emitPythonImportBinding(child: IRNode): string {
   const cp = p(child);
   const sourceName = emitPythonImportIdent(cp.name as string, 'imported', child);
-  const emittedName = pythonExportedSymbolName(sourceName, cp.kind as string | undefined);
+  const targetName = pythonTargetName(cp.targetNames, cp.name as string | undefined);
+  const emittedName = targetName
+    ? emitPythonImportIdent(targetName, 'imported', child)
+    : pythonExportedSymbolName(sourceName, cp.kind as string | undefined);
   const localName = cp.as ? emitPythonImportIdent(cp.as as string, 'alias', child) : sourceName;
   return emittedName === localName ? emittedName : `${emittedName} as ${localName}`;
 }
@@ -640,23 +643,48 @@ function exportSymbolKinds(raw: unknown): Map<string, string> {
   return pairs;
 }
 
+function targetNamePairs(raw: unknown): Map<string, Record<string, string>> {
+  const pairs = new Map<string, Record<string, string>>();
+  if (typeof raw !== 'string') return pairs;
+  for (const item of raw.split(',')) {
+    const [name, target, value] = item.split(':').map((part) => part.trim());
+    if (!name || !target || !value) continue;
+    const targetNames = pairs.get(name) ?? {};
+    targetNames[target] = value;
+    pairs.set(name, targetNames);
+  }
+  return pairs;
+}
+
+function pythonTargetName(raw: unknown, symbolName: string | undefined): string | undefined {
+  if (!symbolName) return undefined;
+  return targetNamePairs(raw).get(symbolName)?.python;
+}
+
 function parsePythonExportBinding(raw: string): { source: string; alias?: string } | null {
   const match = raw.trim().match(/^([A-Za-z_]\w*)(?:\s+as\s+([A-Za-z_]\w*))?$/u);
   if (!match) return null;
   return { source: match[1], alias: match[2] };
 }
 
-function emitPythonExportedName(raw: string, symbolKinds: Map<string, string>, node: IRNode): string {
+function emitPythonExportedName(
+  raw: string,
+  symbolKinds: Map<string, string>,
+  symbolTargets: Map<string, Record<string, string>>,
+  node: IRNode,
+): string {
   const binding = parsePythonExportBinding(raw);
   if (!binding) {
     const safeName = emitPythonImportIdent(raw, 'export', node);
-    return pythonExportedSymbolName(safeName, symbolKinds.get(raw) ?? symbolKinds.get(safeName));
+    return (
+      symbolTargets.get(raw)?.python ??
+      pythonExportedSymbolName(safeName, symbolKinds.get(raw) ?? symbolKinds.get(safeName))
+    );
   }
   const safeSource = emitPythonImportIdent(binding.source, 'export', node);
-  const emittedSource = pythonExportedSymbolName(
-    safeSource,
-    symbolKinds.get(binding.source) ?? symbolKinds.get(safeSource),
-  );
+  const emittedSource =
+    symbolTargets.get(binding.source)?.python ??
+    pythonExportedSymbolName(safeSource, symbolKinds.get(binding.source) ?? symbolKinds.get(safeSource));
   if (!binding.alias) return emittedSource;
   const safeAlias = emitPythonImportIdent(binding.alias, 'export alias', node);
   return `${emittedSource} as ${safeAlias}`;
@@ -729,13 +757,14 @@ export function generateModule(node: IRNode, dispatch: (node: IRNode) => string[
       const ep = p(child);
       const from = ep.from ? pythonModuleSpecifier(ep.from as string, child) : '';
       const symbolKinds = exportSymbolKinds(ep.symbolKinds);
+      const symbolTargets = targetNamePairs(ep.targetNames);
       const names = (ep.names as string | undefined)
         ?.split(',')
-        .map((s) => emitPythonExportedName(s.trim(), symbolKinds, child))
+        .map((s) => emitPythonExportedName(s.trim(), symbolKinds, symbolTargets, child))
         .join(', ');
       const typeNames = (ep.types as string | undefined)
         ?.split(',')
-        .map((s) => emitPythonExportedName(s.trim(), symbolKinds, child))
+        .map((s) => emitPythonExportedName(s.trim(), symbolKinds, symbolTargets, child))
         .join(', ');
       const star = ep.star === true || ep.star === 'true';
       const defaultName = ep.default ? emitPythonImportIdent(ep.default as string, 'default', child) : '';

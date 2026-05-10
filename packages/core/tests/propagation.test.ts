@@ -540,8 +540,24 @@ describe('parseDocumentWithDiagnostics — cross-module recognition (slice 7 v2)
           path === './parser.kern'
             ? {
                 symbols: new Map([
-                  ['parseUser', { name: 'parseUser', kind: 'fn' }],
-                  ['UserProfile', { name: 'UserProfile', kind: 'type' }],
+                  [
+                    'parseUser',
+                    {
+                      name: 'parseUser',
+                      sourceName: 'parseUser',
+                      kind: 'fn',
+                      targetNames: { python: 'parse_user', ts: 'parseUser' },
+                    },
+                  ],
+                  [
+                    'UserProfile',
+                    {
+                      name: 'UserProfile',
+                      sourceName: 'UserProfile',
+                      kind: 'type',
+                      targetNames: { python: 'UserProfile', ts: 'UserProfile' },
+                    },
+                  ],
                 ]),
                 resultFns: new Set(['parseUser']),
                 optionFns: new Set(),
@@ -557,6 +573,8 @@ describe('parseDocumentWithDiagnostics — cross-module recognition (slice 7 v2)
       props: {
         from: './parser.kern',
         symbolKinds: 'parseUser:fn,parse:fn,UserProfile:type,Profile:type',
+        targetNames:
+          'parseUser:python:parse_user,parseUser:ts:parseUser,parse:python:parse,parse:ts:parse,UserProfile:python:UserProfile,UserProfile:ts:UserProfile,Profile:python:Profile,Profile:ts:Profile',
       },
     });
   });
