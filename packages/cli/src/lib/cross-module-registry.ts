@@ -142,6 +142,7 @@ function classifyDirectExports(root: IRNode): ModuleExports {
       case 'class':
       case 'service':
       case 'model':
+      case 'repository':
       case 'derive':
       case 'transform':
       case 'action':
@@ -153,14 +154,20 @@ function classifyDirectExports(root: IRNode): ModuleExports {
     }
   }
 
-  function walk(node: IRNode): void {
+  function walk(node: IRNode, nestedMember = false): void {
+    const structuralContainer =
+      node.type === 'class' ||
+      node.type === 'service' ||
+      node.type === 'interface' ||
+      node.type === 'model' ||
+      node.type === 'repository';
     const name = exportedName(node);
     const kind = symbolKind(node);
-    if (name && kind) {
+    if (!nestedMember && name && kind) {
       symbols.set(name, { name, sourceName: name, kind, targetNames: targetNamesForSymbol(name, kind) });
     }
 
-    if (node.type === 'fn' || node.type === 'method') {
+    if (!nestedMember && (node.type === 'fn' || node.type === 'method')) {
       const props = node.props || {};
       const returns = props.returns;
       const isAsync = props.async === true || props.async === 'true';
@@ -174,7 +181,7 @@ function classifyDirectExports(root: IRNode): ModuleExports {
         }
       }
     }
-    if (node.children) for (const c of node.children) walk(c);
+    if (node.children) for (const c of node.children) walk(c, nestedMember || structuralContainer);
   }
 
   walk(root);

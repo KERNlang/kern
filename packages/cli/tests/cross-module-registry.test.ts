@@ -120,6 +120,55 @@ describe('cross-module registry — end-to-end', () => {
     expect(symbols?.has('makeUser')).toBe(false);
   });
 
+  test('registry ignores nested class methods as module exports', () => {
+    const modulePath = join(tmpDir, 'service.kern');
+    writeFileSync(
+      modulePath,
+      [
+        'fn name=validate params="raw:string" returns="Result<string, AppError>"',
+        '  handler <<<',
+        '    return Result.ok(raw);',
+        '  >>>',
+        'class name=Validator',
+        '  method name=validate params="raw:string" returns=boolean',
+        '    handler <<<',
+        '      return true;',
+        '    >>>',
+        '    fn name=deepValidate returns="Result<string, AppError>"',
+        '      handler <<<',
+        '        return Result.ok(raw);',
+        '      >>>',
+        'service name=UserService',
+        '  method name=loadUser returns="Result<string, AppError>"',
+        '    handler <<<',
+        '      return Result.ok("ok");',
+        '    >>>',
+        'repository name=UserRepo model=User',
+        '  method name=findUser returns="Result<string, AppError>"',
+        '    handler <<<',
+        '      return Result.ok("ok");',
+        '    >>>',
+      ].join('\n'),
+    );
+
+    const registry = buildCrossModuleRegistry([modulePath]);
+    const exports = registry.get(resolve(modulePath));
+
+    expect(exports?.symbols?.get('validate')).toMatchObject({
+      name: 'validate',
+      kind: 'fn',
+    });
+    expect(exports?.symbols?.get('UserService')).toMatchObject({ name: 'UserService', kind: 'service' });
+    expect(exports?.symbols?.get('UserRepo')).toMatchObject({ name: 'UserRepo', kind: 'repository' });
+    expect(exports?.symbols?.has('loadUser')).toBe(false);
+    expect(exports?.symbols?.has('findUser')).toBe(false);
+    expect(exports?.symbols?.has('deepValidate')).toBe(false);
+    expect(exports?.resultFns.has('validate')).toBe(true);
+    expect(exports?.resultFns.has('loadUser')).toBe(false);
+    expect(exports?.resultFns.has('findUser')).toBe(false);
+    expect(exports?.resultFns.has('deepValidate')).toBe(false);
+  });
+
   test('registry follows named KERN re-exports for barrel modules', () => {
     const parserPath = join(tmpDir, 'parser.kern');
     writeFileSync(

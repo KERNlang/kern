@@ -593,9 +593,12 @@ function pythonModuleSpecifier(raw: string, node: IRNode): string {
   }
 
   const withoutExt = raw.replace(/\.(kern|py|js|ts)$/u, '');
-  const parts = withoutExt.split('/').filter((part) => part.length > 0 && part !== '.');
-  const relativePrefix = parts.filter((part) => part === '..').length;
-  const moduleParts = parts.filter((part) => part !== '..').map((part) => part.replace(/-/gu, '_'));
+  const pathParts = withoutExt.split('/').filter((part) => part.length > 0 && part !== '.');
+  const relativePrefix = pathParts.filter((part) => part === '..').length;
+  const moduleParts = pathParts
+    .filter((part) => part !== '..')
+    .flatMap((part) => part.split('.').filter(Boolean))
+    .map((part) => part.replace(/-/gu, '_'));
 
   for (const part of moduleParts) {
     emitPythonImportIdent(part, 'module', node);
@@ -690,13 +693,42 @@ function emitPythonExportedName(
   return `${emittedSource} as ${safeAlias}`;
 }
 
+function emitPythonLocalExport(
+  raw: string,
+  symbolKinds: Map<string, string>,
+  symbolTargets: Map<string, Record<string, string>>,
+  node: IRNode,
+): { publicName: string; aliasLine?: string } {
+  const binding = parsePythonExportBinding(raw);
+  if (!binding) {
+    const safeName = emitPythonImportIdent(raw, 'export', node);
+    return {
+      publicName:
+        symbolTargets.get(raw)?.python ??
+        pythonExportedSymbolName(safeName, symbolKinds.get(raw) ?? symbolKinds.get(safeName)),
+    };
+  }
+
+  const safeSource = emitPythonImportIdent(binding.source, 'export', node);
+  const emittedSource =
+    symbolTargets.get(binding.source)?.python ??
+    pythonExportedSymbolName(safeSource, symbolKinds.get(binding.source) ?? symbolKinds.get(safeSource));
+  if (!binding.alias) return { publicName: emittedSource };
+
+  const safeAlias = emitPythonImportIdent(binding.alias, 'export alias', node);
+  return { publicName: safeAlias, aliasLine: `${safeAlias} = ${emittedSource}` };
+}
+
 function emitPythonModuleImport(moduleSpec: string, alias?: string): string[] {
   if (!moduleSpec.startsWith('.')) {
     return alias ? [`import ${moduleSpec} as ${alias}`] : [`import ${moduleSpec}`];
   }
-  const parts = moduleSpec.split('.');
+  const match = moduleSpec.match(/^(\.+)(.*)$/u);
+  const relativePrefix = match?.[1] ?? '.';
+  const rest = match?.[2] ?? '';
+  const parts = rest.split('.').filter(Boolean);
   const moduleName = parts.pop();
-  const packageSpec = parts.join('.') || '.';
+  const packageSpec = parts.length > 0 ? `${relativePrefix}${parts.join('.')}` : relativePrefix;
   if (!moduleName) return [];
   return alias
     ? [`from ${packageSpec} import ${moduleName} as ${alias}`]
@@ -707,7 +739,13 @@ export function generateImport(node: IRNode): string[] {
   const props = p(node);
   const rawFrom = props.from as string | undefined;
   const names = props.names as string | undefined;
-  const defaultImport = props.default as string | undefined;
+  const legacyName = props.name as string | undefined;
+  const defaultImport =
+    props.default === true || props.default === 'true'
+      ? legacyName
+      : typeof props.default === 'string'
+        ? props.default
+        : undefined;
 
   if (!rawFrom) return [];
   if (!shouldEmitImportForTarget(props, 'python')) return [];
@@ -720,7 +758,7 @@ export function generateImport(node: IRNode): string[] {
       .split(',')
       .map((s) => emitPythonImportIdent(s.trim(), 'import', node))
       .join(', ');
-    return [`from ${from} import ${safeDefault}, ${safeNames}`];
+    return [...emitPythonModuleImport(from, safeDefault), `from ${from} import ${safeNames}`];
   }
   if (defaultImport) {
     const safeDefault = emitPythonImportIdent(defaultImport, 'default', node);
@@ -754,42 +792,79 @@ export function generateUse(node: IRNode): string[] {
 export function generateModule(node: IRNode, dispatch: (node: IRNode) => string[]): string[] {
   const props = p(node);
   const lines: string[] = [`# -- Module: ${props.name || 'unknown'} --`, ''];
+  const localSymbolKinds = new Map<string, string>();
+  const publicExports: string[] = [];
+  const lateAliasLines: string[] = [];
+
+  for (const child of node.children ?? []) {
+    const cp = p(child);
+    const name = cp.name;
+    if (typeof name !== 'string') continue;
+    if (child.type === 'fn') localSymbolKinds.set(name, 'fn');
+    else if (
+      [
+        'type',
+        'interface',
+        'union',
+        'enum',
+        'class',
+        'service',
+        'model',
+        'repository',
+        'derive',
+        'transform',
+        'action',
+        'expect',
+        'dependency',
+      ].includes(child.type)
+    ) {
+      localSymbolKinds.set(name, child.type);
+    }
+  }
 
   for (const child of node.children ?? []) {
     if (child.type === 'export') {
       const ep = p(child);
       const from = ep.from ? pythonModuleSpecifier(ep.from as string, child) : '';
-      const symbolKinds = exportSymbolKinds(ep.symbolKinds);
+      const symbolKinds = new Map([...localSymbolKinds, ...exportSymbolKinds(ep.symbolKinds)]);
       const symbolTargets = targetNamePairs(ep.targetNames);
-      const names = (ep.names as string | undefined)
+      const rawNames = (ep.names as string | undefined)
         ?.split(',')
-        .map((s) => emitPythonExportedName(s.trim(), symbolKinds, symbolTargets, child))
-        .join(', ');
-      const typeNames = (ep.types as string | undefined)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const rawTypeNames = (ep.types as string | undefined)
         ?.split(',')
-        .map((s) => emitPythonExportedName(s.trim(), symbolKinds, symbolTargets, child))
-        .join(', ');
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const nameList = from
+        ? rawNames?.map((s) => emitPythonExportedName(s, symbolKinds, symbolTargets, child)).filter(Boolean)
+        : undefined;
+      const typeNameList = from
+        ? rawTypeNames?.map((s) => emitPythonExportedName(s, symbolKinds, symbolTargets, child)).filter(Boolean)
+        : undefined;
+      const names = nameList?.join(', ');
+      const typeNames = typeNameList?.join(', ');
       const star = ep.star === true || ep.star === 'true';
       const defaultName = ep.default ? emitPythonImportIdent(ep.default as string, 'default', child) : '';
 
       if (from && star) lines.push(`from ${from} import *`);
       if (from && names) lines.push(`from ${from} import ${names}`);
       if (from && typeNames) lines.push(`from ${from} import ${typeNames}`);
-      if (from && defaultName) lines.push(`from ${from} import default as ${defaultName}`);
-      if (!from && names)
-        lines.push(
-          `__all__ = [${names
-            .split(', ')
-            .map((name) => JSON.stringify(name))
-            .join(', ')}]`,
-        );
-      if (!from && typeNames) {
-        lines.push(
-          `__all__ = [${typeNames
-            .split(', ')
-            .map((name) => JSON.stringify(name))
-            .join(', ')}]`,
-        );
+      if (from) {
+        for (const rawExport of [...(rawNames ?? []), ...(rawTypeNames ?? [])]) {
+          publicExports.push(emitPythonLocalExport(rawExport, symbolKinds, symbolTargets, child).publicName);
+        }
+      }
+      if (!from) {
+        for (const rawExport of [...(rawNames ?? []), ...(rawTypeNames ?? [])]) {
+          const localExport = emitPythonLocalExport(rawExport, symbolKinds, symbolTargets, child);
+          if (localExport.aliasLine) lateAliasLines.push(localExport.aliasLine);
+          publicExports.push(localExport.publicName);
+        }
+      }
+      if (from && defaultName) {
+        // Python modules do not have a JS-style `default` export symbol.
+        lines.push(`# KERN TODO: default re-export '${defaultName}' from ${from} is not representable in Python`);
       }
       continue;
     }
@@ -799,6 +874,14 @@ export function generateModule(node: IRNode, dispatch: (node: IRNode) => string[
       lines.push(...childLines);
       lines.push('');
     }
+  }
+
+  if (lateAliasLines.length > 0) {
+    lines.push(...lateAliasLines);
+  }
+
+  if (publicExports.length > 0) {
+    lines.push(`__all__ = [${[...new Set(publicExports)].map((name) => JSON.stringify(name)).join(', ')}]`);
   }
 
   return lines;

@@ -18,4 +18,19 @@ describe('FastAPI external import metadata', () => {
   test('missing import source returns no Python import', () => {
     expect(py('import registry=npm names=useMemo')).toBe('');
   });
+
+  test('emits dotted Python module imports', () => {
+    expect(py('import from=urllib.parse names=quote')).toBe('from urllib.parse import quote');
+    expect(py('import from=numpy.linalg registry=pypi names=norm')).toBe('from numpy.linalg import norm');
+  });
+
+  test('supports legacy default=true import aliases', () => {
+    expect(py('import default=true name=App from=app')).toBe('import app as App');
+  });
+
+  test('emits module alias and named imports separately', () => {
+    expect(py('import default=true name=App from=app names=create_app')).toBe(
+      ['import app as App', 'from app import create_app'].join('\n'),
+    );
+  });
 });
