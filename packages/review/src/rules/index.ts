@@ -37,6 +37,7 @@ import { securityV2Rules } from './security-v2.js';
 import { securityV3Rules } from './security-v3.js';
 import { securityV4Rules } from './security-v4.js';
 import { securityV5Rules } from './security-v5.js';
+import { securityV6Rules } from './security-v6.js';
 import { suggestKernPrimitiveRules } from './suggest-kern-primitive.js';
 import { terminalRules } from './terminal.js';
 import { testQualityRules } from './test-quality.js';
@@ -59,6 +60,7 @@ export function getActiveRules(target?: string): ReviewRule[] {
     ...securityV3Rules,
     ...securityV4Rules,
     ...securityV5Rules,
+    ...securityV6Rules,
     ...deadLogicRules,
     ...nullSafetyRules,
     ...asyncRules,
@@ -273,12 +275,6 @@ const REGISTRY: RuleInfo[] = [
     layer: 'security',
     severity: 'error',
     description: 'Unvalidated redirect target from user input',
-  },
-  {
-    id: 'error-leak',
-    layer: 'security',
-    severity: 'warning',
-    description: 'Caught exception leaked to HTTP response — info disclosure (stack traces, paths, secrets)',
   },
 
   // Security v2
@@ -1211,15 +1207,26 @@ const REGISTRY: RuleInfo[] = [
     precision: 'high',
     rolloutPhase: 1,
   },
+
+  // Security v6 — error-disclosure & hardcoded-credential surface
+  {
+    id: 'error-leak',
+    layer: 'security-v6',
+    severity: 'warning',
+    description: 'Caught exception leaked to HTTP response — info disclosure (stack traces, paths, secrets)',
+    precision: 'high',
+    rolloutPhase: 1,
+  },
   {
     id: 'bearer-token-literal',
-    layer: 'security',
+    layer: 'security-v6',
     severity: 'warning',
     description:
       'Hardcoded Bearer token in HTTP Authorization header — credential should come from env / secret manager',
     precision: 'high',
     rolloutPhase: 1,
   },
+
   {
     id: 'insecure-transport',
     layer: 'concept',
@@ -1444,6 +1451,7 @@ const LAYER_TARGET_MAP: Record<string, string[] | null> = {
   'security-v3': null,
   'security-v4': null,
   'security-v5': null,
+  'security-v6': null,
   'dead-logic': null,
   'null-safety': null,
   async: null,
