@@ -179,6 +179,40 @@ describe('cross-module registry — end-to-end', () => {
     });
   });
 
+  test('registry target names match FastAPI acronym snake_case for functions', () => {
+    const parserPath = join(tmpDir, 'parser.kern');
+    writeFileSync(
+      parserPath,
+      [
+        'fn name=parseHTTPResponse params="raw:string" returns="Result<string, AppError>"',
+        '  handler <<<',
+        '    return Result.ok(raw);',
+        '  >>>',
+      ].join('\n'),
+    );
+
+    const indexPath = join(tmpDir, 'index.kern');
+    writeFileSync(
+      indexPath,
+      ['module name=domain', '  export from="./parser.kern" names="parseHTTPResponse"'].join('\n'),
+    );
+
+    const registry = buildCrossModuleRegistry([parserPath, indexPath]);
+    const directExports = registry.get(resolve(parserPath));
+    const barrelExports = registry.get(resolve(indexPath));
+
+    expect(directExports?.symbols?.get('parseHTTPResponse')).toMatchObject({
+      name: 'parseHTTPResponse',
+      kind: 'fn',
+      targetNames: { python: 'parse_http_response' },
+    });
+    expect(barrelExports?.symbols?.get('parseHTTPResponse')).toMatchObject({
+      name: 'parseHTTPResponse',
+      kind: 'fn',
+      targetNames: { python: 'parse_http_response' },
+    });
+  });
+
   test('registry follows aliased KERN re-exports for barrel modules', () => {
     const parserPath = join(tmpDir, 'parser.kern');
     writeFileSync(

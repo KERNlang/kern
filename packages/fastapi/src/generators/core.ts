@@ -705,12 +705,14 @@ function emitPythonModuleImport(moduleSpec: string, alias?: string): string[] {
 
 export function generateImport(node: IRNode): string[] {
   const props = p(node);
-  const from = pythonModuleSpecifier(props.from as string, node);
+  const rawFrom = props.from as string | undefined;
   const names = props.names as string | undefined;
   const defaultImport = props.default as string | undefined;
 
-  if (!from) return [];
+  if (!rawFrom) return [];
   if (!shouldEmitImportForTarget(props, 'python')) return [];
+  const from = pythonModuleSpecifier(rawFrom, node);
+  if (!from) return [];
 
   if (defaultImport && names) {
     const safeDefault = emitPythonImportIdent(defaultImport, 'default', node);

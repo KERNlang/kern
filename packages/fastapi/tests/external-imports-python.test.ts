@@ -10,4 +10,12 @@ describe('FastAPI external import metadata', () => {
     expect(py('import from=numpy registry=pypi names=array')).toBe('from numpy import array');
     expect(py('import from=react registry=npm names=useMemo')).toBe('');
   });
+
+  test('skips scoped NPM imports before Python module validation', () => {
+    expect(py('import from="@tanstack/react-query" registry=npm names=useQuery')).toBe('');
+  });
+
+  test('missing import source returns no Python import', () => {
+    expect(py('import registry=npm names=useMemo')).toBe('');
+  });
 });
