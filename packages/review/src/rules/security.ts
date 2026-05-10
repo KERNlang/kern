@@ -10,6 +10,12 @@
 import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext, SourceSpan } from '../types.js';
 import { createFingerprint } from '../types.js';
+import {
+  isAncestorOf,
+  isInNonProductionBranch,
+  resolveLiteralStringValue,
+  unwrapMethodChainToReceiver,
+} from './ast-helpers.js';
 
 function span(file: string, line: number, col = 1): SourceSpan {
   return { file, startLine: line, startCol: col, endLine: line, endCol: col };
@@ -641,49 +647,6 @@ function isCatchParamShadowedAt(node: Node, name: string, boundary: Node): boole
   return false;
 }
 
-/**
- * Returns true if the node is inside an IF branch that ensures NODE_ENV is not production.
- * Correctly distinguishes between 'then' and 'else' branches based on the comparison operator.
- */
-function isInNonProductionBranch(node: Node, boundary: Node): boolean {
-  let cur: Node | undefined = node;
-  while (cur && cur !== boundary) {
-    const parent: Node | undefined = cur.getParent();
-    if (parent && Node.isIfStatement(parent)) {
-      const cond = parent.getExpression().getText();
-      const mentionsNodeEnv = cond.includes('process.env.NODE_ENV');
-      const mentionsProd = cond.includes("'production'") || cond.includes('"production"');
-
-      if (mentionsNodeEnv && mentionsProd) {
-        const isNegated = cond.includes('!==') || cond.includes('!=');
-        const inThen = parent.getThenStatement() === cur;
-        const inElse = parent.getElseStatement() === cur;
-
-        // if (env !== 'production') { dev } else { prod }
-        if (isNegated && inThen) return true;
-        // if (env === 'production') { prod } else { dev }
-        if (!isNegated && inElse) return true;
-      }
-    }
-    cur = parent;
-  }
-  return false;
-}
-
-/**
- * Peel a sink callee's receiver back through any chain of `.foo(args)` calls
- * to the leftmost identifier. Handles `res.status(500).json(...)`.
- */
-function peelChainToRoot(receiver: Node): string {
-  let cur: Node = receiver;
-  while (Node.isCallExpression(cur)) {
-    const innerCallee = cur.getExpression();
-    if (!Node.isPropertyAccessExpression(innerCallee)) break;
-    cur = innerCallee.getExpression();
-  }
-  return cur.getText();
-}
-
 function errorLeak(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
 
@@ -698,7 +661,7 @@ function errorLeak(ctx: RuleContext): ReviewFinding[] {
       const methodName = callee.getName();
       if (!RESPONSE_SINKS.has(methodName)) continue;
 
-      const objName = peelChainToRoot(callee.getExpression());
+      const objName = unwrapMethodChainToReceiver(callee.getExpression()).getText();
       if (!RESPONSE_OBJECTS.test(objName)) continue;
 
       // Shadowing gate: skip if this call is inside a nested scope that re-binds the catch param.
@@ -820,43 +783,6 @@ const KNOWN_SECRET_PATTERNS_AFTER_BEARER = [
 ];
 
 /**
- * Resolve the static string value of an expression when all parts are
- * literal-known. Returns `undefined` for any unknown identifier (env vars,
- * user variables) — that defers to the documented FN class rather than
- * heuristically guessing.
- */
-function resolveLiteralStringValue(node: import('ts-morph').Node): string | undefined {
-  const k = node.getKind();
-  if (k === SyntaxKind.StringLiteral) {
-    return (node as import('ts-morph').StringLiteral).getLiteralValue();
-  }
-  if (k === SyntaxKind.NoSubstitutionTemplateLiteral) {
-    return (node as import('ts-morph').NoSubstitutionTemplateLiteral).getLiteralValue();
-  }
-  if (k === SyntaxKind.TemplateExpression) {
-    const tpl = node as import('ts-morph').TemplateExpression;
-    let s = tpl.getHead().getLiteralText();
-    for (const span of tpl.getTemplateSpans()) {
-      const sub = resolveLiteralStringValue(span.getExpression());
-      if (sub === undefined) return undefined;
-      s += sub;
-      s += span.getLiteral().getLiteralText();
-    }
-    return s;
-  }
-  if (k === SyntaxKind.BinaryExpression) {
-    const bin = node as import('ts-morph').BinaryExpression;
-    if (bin.getOperatorToken().getKind() !== SyntaxKind.PlusToken) return undefined;
-    const left = resolveLiteralStringValue(bin.getLeft());
-    if (left === undefined) return undefined;
-    const right = resolveLiteralStringValue(bin.getRight());
-    if (right === undefined) return undefined;
-    return left + right;
-  }
-  return undefined;
-}
-
-/**
  * Walk ancestors looking for an HTTP-header context. Returns true if the
  * node sits inside one of:
  *   - PropertyAssignment whose name matches `Authorization` (any case)
@@ -865,17 +791,6 @@ function resolveLiteralStringValue(node: import('ts-morph').Node): string | unde
  *   - new Headers({...}) constructor argument
  *   - `<x>.headers.set('Authorization', <node>)` or `.append(...)`
  */
-/** True when `ancestor` is an ancestor of (or equal to) `node`. */
-function isAncestorOf(ancestor: import('ts-morph').Node | undefined, node: import('ts-morph').Node): boolean {
-  if (!ancestor) return false;
-  let cur: import('ts-morph').Node | undefined = node;
-  while (cur) {
-    if (cur === ancestor) return true;
-    cur = cur.getParent();
-  }
-  return false;
-}
-
 function isInBearerHeaderContext(node: import('ts-morph').Node): boolean {
   // Codex impl-review: the original gate accepted ANY ancestor
   // PropertyAssignment named `headers`, even when the literal lived under a
