@@ -6,7 +6,11 @@ import {
   extractRawBodies,
   scanFileForEligibility,
 } from '../src/native-eligibility.js';
-import { canonicalKernExpression, isValidKernTypeAnnotation } from '../src/native-eligibility-ast.js';
+import {
+  canonicalKernExpression,
+  isValidKernExpression,
+  isValidKernTypeAnnotation,
+} from '../src/native-eligibility-ast.js';
 
 describe('canonicalKernExpression — single-line normalization', () => {
   test('passes single-line expression through unchanged structure', () => {
@@ -40,6 +44,24 @@ describe('canonicalKernExpression — single-line normalization', () => {
 
   test('bails on unparseable expression', () => {
     expect(canonicalKernExpression('await async (x) => { return x; }')).toBeNull();
+  });
+});
+
+describe('classifier ≡ migrator invariant (codex review)', () => {
+  test('isValidKernExpression rejects multi-line-template-bearing expressions', () => {
+    // Critical: if classifyHandlerBody said "eligible" but
+    // canonicalKernExpression bailed inside the migrator, kern review would
+    // flag the body as native-KERN-eligible and `kern migrate` would silently
+    // skip it — the exact trust-collapse pattern slice α-3 was designed to
+    // prevent.
+    const exprWithEmbeddedMultilineTemplate = 'notify(`hello\nworld ${name}`)';
+    expect(canonicalKernExpression(exprWithEmbeddedMultilineTemplate)).toBeNull();
+    expect(isValidKernExpression(exprWithEmbeddedMultilineTemplate)).toBe(false);
+  });
+
+  test('isValidKernExpression accepts the multi-line cases the migrator now lifts', () => {
+    expect(isValidKernExpression('{\n  a: 1,\n  b: 2,\n}')).toBe(true);
+    expect(isValidKernExpression('fetch(url, {\n  method: "POST"\n})')).toBe(true);
   });
 });
 

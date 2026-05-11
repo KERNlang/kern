@@ -53,15 +53,18 @@ interface ClassifyContext {
  *  bail conditions from drifting away from the classifier's pass
  *  conditions. */
 export function isValidKernExpression(exprText: string): boolean {
-  try {
-    parseExpression(exprText);
-    return true;
-  } catch {
-    return false;
-  }
+  // Defer to `canonicalKernExpression` so the eligibility classifier and the
+  // migrator share the same pass/bail conditions exactly — including the
+  // multi-line-template bailout. Without this delegation, a body like
+  // `notify(\`hello\n${name}\`);` would parse cleanly here (KERN's
+  // parser-expression accepts the template) but later fail in
+  // `canonicalKernExpression`, breaking the documented "eligible ≡ migrates"
+  // invariant from slice α-3.
+  return canonicalKernExpression(exprText) !== null;
 }
 
 export function isValidKernAssignmentTarget(exprText: string): boolean {
+  if (canonicalKernExpression(exprText) === null) return false;
   try {
     return isAssignableTarget(parseExpression(exprText));
   } catch {
@@ -70,6 +73,7 @@ export function isValidKernAssignmentTarget(exprText: string): boolean {
 }
 
 export function isValidKernAssignmentValue(exprText: string): boolean {
+  if (canonicalKernExpression(exprText) === null) return false;
   try {
     const expr = parseExpression(exprText);
     return expr.kind !== 'propagate';
@@ -115,7 +119,7 @@ export function canonicalKernExpression(exprText: string): string | null {
   if (ts.isParenthesizedExpression(expr)) expr = expr.expression;
   if (hasMultilineTemplate(expr, sf)) return null;
   const printed = canonicalPrinter.printNode(ts.EmitHint.Expression, expr, sf);
-  return printed.replace(/\n\s*/g, ' ');
+  return printed.replace(/\r?\n\s*/g, ' ');
 }
 
 const canonicalPrinter = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed, removeComments: true });
