@@ -211,6 +211,7 @@ function makeFinding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
     message: 'test message',
     primarySpan: { file: 'test.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
     fingerprint: 'abc123',
+    confidence: 85,
     ...overrides,
   };
 }
@@ -236,16 +237,16 @@ function makeReport(findings: ReviewFinding[], overrides: Partial<ReviewReport> 
 
 describe('Reporter: confidence display', () => {
   it('shows confidence prefix when showConfidence is set', () => {
-    const report = makeReport([makeFinding({ confidence: 0.72, ruleId: 'guard-without-else' })]);
+    const report = makeReport([makeFinding({ confidence: 72, ruleId: 'guard-without-else' })]);
     const config: ReviewConfig = { showConfidence: true };
     const output = formatReport(report, config);
-    expect(output).toContain('[0.72]');
+    expect(output).toContain('[72]');
   });
 
   it('hides confidence when showConfidence is not set', () => {
-    const report = makeReport([makeFinding({ confidence: 0.72, ruleId: 'guard-without-else' })]);
+    const report = makeReport([makeFinding({ confidence: 72, ruleId: 'guard-without-else' })]);
     const output = formatReport(report);
-    expect(output).not.toContain('[0.72]');
+    expect(output).not.toContain('[72]');
   });
 
   it('shows confidence summary when present', () => {
@@ -263,18 +264,18 @@ describe('Reporter: confidence display', () => {
 
 describe('Reporter: SARIF rank', () => {
   it('includes rank field in SARIF output (0-100 scale per spec)', () => {
-    const report = makeReport([makeFinding({ confidence: 0.72 })]);
+    const report = makeReport([makeFinding({ confidence: 72 })]);
     const sarif = JSON.parse(formatSARIF([report]));
     const result = sarif.runs[0].results[0];
-    expect(result.rank).toBeCloseTo(72);
-    expect(result.properties['kern/confidence']).toBe(0.72);
+    expect(result.rank).toBe(72);
+    expect(result.properties['kern/confidence']).toBe(72);
   });
 
-  it('omits rank when no confidence', () => {
-    const report = makeReport([makeFinding({})]);
+  it('rank always present (confidence is required) and equals the integer 0–100', () => {
+    const report = makeReport([makeFinding({ confidence: 85 })]);
     const sarif = JSON.parse(formatSARIF([report]));
     const result = sarif.runs[0].results[0];
-    expect(result.rank).toBeUndefined();
+    expect(result.rank).toBe(85);
   });
 
   it('exports structured autofixes in SARIF output', () => {
@@ -421,27 +422,25 @@ describe('Reporter: SARIF rank', () => {
 describe('Reporter: enforcement with minConfidence', () => {
   it('filters findings by minConfidence', () => {
     const report = makeReport([
-      makeFinding({ severity: 'error', confidence: 0.3 }),
-      makeFinding({ severity: 'error', confidence: 0.8, ruleId: 'other' }),
+      makeFinding({ severity: 'error', confidence: 30 }),
+      makeFinding({ severity: 'error', confidence: 80, ruleId: 'other' }),
     ]);
-    const config: ReviewConfig = { minConfidence: 0.5, maxErrors: 0 };
+    const config: ReviewConfig = { minConfidence: 50, maxErrors: 0 };
     const result = checkEnforcement(report, config);
-    // Only the 0.8 confidence error should count
+    // Only the confidence-80 error should count
     expect(result.errors.actual).toBe(1);
   });
 
-  it('defaults findings without confidence to 1.0 (fully trusted)', () => {
-    const report = makeReport([
-      makeFinding({ severity: 'error' }), // no confidence → 1.0
-    ]);
-    const config: ReviewConfig = { minConfidence: 0.5, maxErrors: 0 };
+  it('counts findings whose confidence equals the threshold (>= comparison)', () => {
+    const report = makeReport([makeFinding({ severity: 'error', confidence: 50 })]);
+    const config: ReviewConfig = { minConfidence: 50, maxErrors: 0 };
     const result = checkEnforcement(report, config);
     expect(result.errors.actual).toBe(1);
     expect(result.passed).toBe(false);
   });
 
   it('minConfidence=0 counts all findings (backward compat)', () => {
-    const report = makeReport([makeFinding({ severity: 'error', confidence: 0.1 })]);
+    const report = makeReport([makeFinding({ severity: 'error', confidence: 10 })]);
     const config: ReviewConfig = { minConfidence: 0, maxErrors: 0 };
     const result = checkEnforcement(report, config);
     expect(result.errors.actual).toBe(1);

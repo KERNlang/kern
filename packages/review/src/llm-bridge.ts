@@ -224,7 +224,7 @@ function estimateInputTokens(input: LLMReviewInput, cachedIR: string): number {
  * Excludes info-severity and low-confidence findings to save tokens.
  */
 export function isHighValueFinding(f: ReviewFinding): boolean {
-  return f.severity !== 'info' && (f.confidence === undefined || f.confidence >= 0.5);
+  return f.severity !== 'info' && f.confidence >= 50;
 }
 
 /** Default context window for modern frontier coding models. Sized for
@@ -454,6 +454,7 @@ export async function runLLMReview(
         message: `File too large for LLM review (~${Math.round(inputTokens / 1000)}K tokens) and not chunkable (IR-bound or single-line).`,
         primarySpan: { file: input.filePath, startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
         fingerprint: `llm-skipped-${input.filePath}`,
+        confidence: 95,
       });
       continue;
     }
@@ -495,6 +496,7 @@ export async function runLLMReview(
         message: `LLM batch failed: ${describeError(err)}`,
         primarySpan: { file: batch[0]?.filePath || '', startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
         fingerprint: `llm-error-batch-${batch[0]?.filePath || ''}`,
+        confidence: 95,
       });
     }
   }
@@ -605,6 +607,7 @@ async function reviewBatch(
       message: `LLM review failed: ${describeError(err)}`,
       primarySpan: { file: inputs[0]?.filePath || '', startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
       fingerprint: 'llm-error-0',
+      confidence: 95,
     });
   } finally {
     if (!attemptRecorded) {
@@ -800,7 +803,7 @@ function formatStaticFindings(findings: ReviewFinding[], filePath: string): stri
   const warnings = highValue.filter((f) => f.severity === 'warning');
 
   for (const f of [...errors, ...warnings]) {
-    const conf = f.confidence !== undefined ? ` (confidence: ${f.confidence.toFixed(2)})` : '';
+    const conf = ` (confidence: ${f.confidence})`;
     const msg = sanitizeForPrompt(f.message);
     lines.push(`  L${f.primarySpan.startLine} [${f.severity}] ${f.ruleId}: ${msg}${conf}`);
     if (f.suggestion) {

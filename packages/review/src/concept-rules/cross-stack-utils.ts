@@ -21,6 +21,17 @@ import type { ConceptMap, ConceptNode } from '@kernlang/core';
 export const CROSS_STACK_HEURISTIC_CONFIDENCE = 0.7;
 
 /**
+ * Compute the wire-payload confidence (integer 0–100) from a concept-node's
+ * inference confidence (0–1) and a cross-stack quality multiplier (0–1).
+ * Centralizes the unit conversion so every concept-rule emits in the same
+ * format expected by `ReviewFinding.confidence`.
+ */
+export function crossStackConfidence(nodeConfidence: number, multiplier: number): number {
+  if (!Number.isFinite(nodeConfidence) || !Number.isFinite(multiplier)) return 0;
+  return Math.max(0, Math.min(100, Math.round(nodeConfidence * multiplier * 100)));
+}
+
+/**
  * Multiplier for rules where the correlation is unambiguous: the path matches
  * exactly AND a second dimension (HTTP method, auth header, …) disagrees.
  * `contract-method-drift`, `duplicate-route`, and `auth-drift` use this —

@@ -75,6 +75,43 @@ export function taintToFindings(results: TaintResult[]): ReviewFinding[] {
         endCol: 1,
       };
 
+      // Provenance: source → (optional insufficient sanitizer) → sink.
+      // Use per-step locations when the regex extractor populated them — falls
+      // back to the handler-start line otherwise. Earlier iteration reused a
+      // single sinkSpan for every step which collapsed the "data enters here"
+      // pointer for multi-line handlers (OpenCode/Opus review).
+      const spanAt = (line: number | undefined): SourceSpan => ({
+        file: r.filePath,
+        startLine: line ?? r.startLine,
+        startCol: 1,
+        endLine: line ?? r.startLine,
+        endCol: 1,
+      });
+      const sourceSpan = spanAt(path.source.line);
+      const sinkSpan = spanAt(path.sink.line);
+      const provSteps: import('./types.js').ProvenanceStep[] = [
+        {
+          kind: 'source',
+          location: sourceSpan,
+          label: path.source.origin,
+          detail: `Tainted value '${path.sink.taintedArg}' originates from ${path.source.origin}.`,
+        },
+      ];
+      if (path.insufficientSanitizer) {
+        provSteps.push({
+          kind: 'sanitizer',
+          location: sinkSpan,
+          label: path.insufficientSanitizer,
+          detail: `Applied sanitizer does not cover ${path.sink.category} sinks — flow remains exploitable.`,
+        });
+      }
+      provSteps.push({
+        kind: 'sink',
+        location: sinkSpan,
+        label: `${path.sink.name}()`,
+        detail: `Dangerous ${categoryLabels[path.sink.category]} sink reached.`,
+      });
+
       if (path.insufficientSanitizer) {
         // Sanitizer present but wrong for this sink type
         findings.push({
@@ -88,6 +125,11 @@ export function taintToFindings(results: TaintResult[]): ReviewFinding[] {
           primarySpan,
           suggestion: `${path.insufficientSanitizer} is not sufficient for ${path.sink.category} sinks. ${getSuggestion(path.sink.category)}`,
           fingerprint: createFingerprint(`taint-insufficient`, r.startLine, 1),
+          confidence: 88,
+          provenance: {
+            summary: `${path.source.origin} → ${path.insufficientSanitizer} (insufficient) → ${path.sink.name}()`,
+            steps: provSteps,
+          },
         });
       } else {
         // No sanitizer at all
@@ -102,6 +144,11 @@ export function taintToFindings(results: TaintResult[]): ReviewFinding[] {
           primarySpan,
           suggestion: getSuggestion(path.sink.category),
           fingerprint: createFingerprint(`taint-${path.sink.category}`, r.startLine, 1),
+          confidence: 95,
+          provenance: {
+            summary: `${path.source.origin} → ${path.sink.name}()`,
+            steps: provSteps,
+          },
         });
       }
     }
@@ -124,6 +171,20 @@ export function crossFileTaintToFindings(results: CrossFileTaintResult[]): Revie
         ? ('error' as const)
         : ('warning' as const);
 
+    const callerSpan: SourceSpan = {
+      file: r.callerFile,
+      startLine: r.callerLine,
+      startCol: 1,
+      endLine: r.callerLine,
+      endCol: 1,
+    };
+    const calleeSpan: SourceSpan = {
+      file: r.calleeFile,
+      startLine: 1,
+      startCol: 1,
+      endLine: 1,
+      endCol: 1,
+    };
     findings.push({
       source: 'kern',
       ruleId: `taint-crossfile-${r.sinkInCallee.category}`,
@@ -132,24 +193,37 @@ export function crossFileTaintToFindings(results: CrossFileTaintResult[]): Revie
       message:
         `Cross-file taint: ${r.source.origin} in ${r.callerFn}() → ${r.calleeFn}() → ${r.sinkInCallee.name}(). ` +
         `Tainted data crosses file boundary to reach ${categoryLabels[r.sinkInCallee.category]} sink.`,
-      primarySpan: {
-        file: r.callerFile,
-        startLine: r.callerLine,
-        startCol: 1,
-        endLine: r.callerLine,
-        endCol: 1,
-      },
-      relatedSpans: [
-        {
-          file: r.calleeFile,
-          startLine: 1,
-          startCol: 1,
-          endLine: 1,
-          endCol: 1,
-        },
-      ],
+      primarySpan: callerSpan,
+      relatedSpans: [calleeSpan],
       suggestion: `Validate '${r.taintedArgs.join(', ')}' before passing to ${r.calleeFn}(). ${getSuggestion(r.sinkInCallee.category)}`,
       fingerprint: createFingerprint(`taint-xfile-${r.sinkInCallee.category}`, r.callerLine, 1),
+      confidence: 92,
+      // Caller → import boundary → callee sink. Sight renders the boundary
+      // step distinctly so reviewers see the file hop, not just a list of
+      // lines.
+      provenance: {
+        summary: `${r.source.origin} in ${r.callerFn}() → ${r.calleeFn}() → ${r.sinkInCallee.name}()`,
+        steps: [
+          {
+            kind: 'source',
+            location: callerSpan,
+            label: r.source.origin,
+            detail: `Tainted args '${r.taintedArgs.join(', ')}' enter ${r.callerFn}().`,
+          },
+          {
+            kind: 'call',
+            location: callerSpan,
+            label: `${r.callerFn}() → ${r.calleeFn}()`,
+            detail: `Tainted data passed across file boundary to ${r.calleeFile}.`,
+          },
+          {
+            kind: 'sink',
+            location: calleeSpan,
+            label: `${r.sinkInCallee.name}()`,
+            detail: `Dangerous ${categoryLabels[r.sinkInCallee.category]} sink in callee.`,
+          },
+        ],
+      },
     });
   }
 

@@ -6,6 +6,7 @@
 import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext, SourceSpan } from '../types.js';
 import { createFingerprint } from '../types.js';
+import { resolveConfidence } from './confidence-baseline.js';
 
 /**
  * True when the file's runtime boundary is clearly non-client (server
@@ -121,6 +122,9 @@ export function finding(
     primarySpan: span(file, line, col),
     fingerprint: createFingerprint(ruleId, line, col),
     ...extra,
+    // Always last so a per-match `extra.confidence` is clamped, and unset
+    // values fall back to the per-rule baseline.
+    confidence: resolveConfidence(ruleId, extra?.confidence),
   };
 }
 
@@ -265,4 +269,54 @@ export function isRouteHandler(fn: import('ts-morph').FunctionDeclaration, fileP
   if (name == null || !ROUTE_HANDLER_VERBS.has(name)) return false;
   if (!fn.isAsync()) return false;
   return fn.hasModifier(SyntaxKind.ExportKeyword);
+}
+
+// ── Context predicates (Tier C) ────────────────────────────────────────
+//
+// Single source of truth for the carve-out patterns in RULE-FEEDBACK.md.
+// Rules consume these instead of re-implementing path/name heuristics inline
+// so the carve-out can be tuned in one place. Display paths only — these
+// don't need canonicalisation.
+
+// Matches request.ts / fetch.ts / http.ts / api-client.ts at the end of a
+// path across all JS/TS variants. Kept in sync with the inline regex in
+// concept-rules/unrecovered-effect.ts so a future commit can DRY them.
+const TRANSPORT_FILE_RE =
+  /(?:^|[\\/])(?:request|fetch|http|api-client|http-client|transport)\.(?:ts|tsx|js|jsx|mts|cts|mjs|cjs)$/i;
+
+const AUTH_FILENAME_RE = /(?:^|[\\/])(?:auth|login|oauth|session|jwt)(?:\.[^/\\]+)?\.(?:ts|tsx|js|jsx|mjs|cjs)$/i;
+const AUTH_DIR_RE = /(?:^|[\\/])(?:auth|authentication|oauth)(?:[\\/]|$)/i;
+
+/**
+ * True when the file looks like a transport primitive — request wrapper, HTTP
+ * client, or low-level fetch helper. Used by `unrecovered-effect` and
+ * `unguarded-effect` carve-outs (RULE-FEEDBACK.md #6, #7) to allow intentional
+ * throw-as-handler / token-arg patterns at this layer.
+ */
+export function isTransportLayer(filePath: string): boolean {
+  return TRANSPORT_FILE_RE.test(filePath);
+}
+
+/**
+ * True when the file is authentication-related by path or filename. Used by
+ * the `unguarded-effect` auth-endpoint carve-out (RULE-FEEDBACK.md #8) along
+ * with the narrower endpoint-suffix list.
+ */
+export function isAuthFile(filePath: string): boolean {
+  return AUTH_FILENAME_RE.test(filePath) || AUTH_DIR_RE.test(filePath);
+}
+
+const LLM_CALL_RE =
+  /\b(?:generateContent|createChatCompletion|createCompletion|chat\.completions\.create|sendMessage|complete|invokeModel|messages\.create)\b/;
+
+/**
+ * True when a CallExpression text matches a known LLM provider API surface.
+ * Used by `llm-output-execution` / `unsanitized-history` / future LLM-flow
+ * rules so the recognized-provider list lives in one place.
+ *
+ * Accepts a raw expression string for callers that already have it; rules
+ * with a ts-morph Node should pass `node.getText()`.
+ */
+export function isLLMCallExpression(text: string): boolean {
+  return LLM_CALL_RE.test(text);
 }

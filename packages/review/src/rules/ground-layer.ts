@@ -10,6 +10,7 @@ import type { IRNode } from '@kernlang/core';
 import type { KernLintRule } from '../kern-lint.js';
 import type { ReviewFinding } from '../types.js';
 import { createFingerprint } from '../types.js';
+import { resolveConfidence } from './confidence-baseline.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -44,6 +45,7 @@ function finding(
     primarySpan: { file: '', startLine: line, startCol: col, endLine: line, endCol: col },
     fingerprint: createFingerprint(ruleId, line, col),
     ...extra,
+    confidence: resolveConfidence(ruleId, extra?.confidence),
   };
 }
 

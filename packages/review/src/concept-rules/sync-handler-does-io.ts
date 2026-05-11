@@ -49,7 +49,7 @@ export function syncHandlerDoesIo(ctx: ConceptRuleContext): ReviewFinding[] {
       primarySpan: node.primarySpan,
       relatedSpans: effects.map((effect) => effect.primarySpan),
       fingerprint: createFingerprint('sync-handler-does-io', node.primarySpan.startLine, node.primarySpan.startCol),
-      confidence: 0.9,
+      confidence: 90,
     });
   }
 

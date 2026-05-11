@@ -20,6 +20,7 @@
 import { SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext, SourceSpan } from '../types.js';
 import { createFingerprint } from '../types.js';
+import { resolveConfidence } from './confidence-baseline.js';
 
 function span(file: string, line: number, col = 1): SourceSpan {
   return { file, startLine: line, startCol: col, endLine: line, endCol: col };
@@ -43,6 +44,7 @@ function finding(
     primarySpan: span(file, line),
     fingerprint: createFingerprint(ruleId, line, 1),
     ...extra,
+    confidence: resolveConfidence(ruleId, extra?.confidence),
   };
 }
 

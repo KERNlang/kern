@@ -93,7 +93,7 @@ export function Component() {
 
 describe('Confidence-based filtering', () => {
   describe('assignDefaultConfidence', () => {
-    it('assigns TSC findings confidence 1.0', () => {
+    it('assigns TSC findings confidence 95', () => {
       const findings: ReviewFinding[] = [
         {
           source: 'tsc',
@@ -102,11 +102,10 @@ describe('Confidence-based filtering', () => {
           category: 'bug',
           message: 'Cannot find module',
           primarySpan: { file: 'test.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
-          fingerprint: 'tsc-1',
-        },
+        } as unknown as ReviewFinding,
       ];
       assignDefaultConfidence(findings);
-      expect(findings[0].confidence).toBe(1.0);
+      expect(findings[0].confidence).toBe(95);
     });
 
     it('assigns kern findings confidence 0.85', () => {
@@ -119,13 +118,13 @@ describe('Confidence-based filtering', () => {
           message: 'Floating promise',
           primarySpan: { file: 'test.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
           fingerprint: 'kern-1',
-        },
+        } as unknown as ReviewFinding,
       ];
       assignDefaultConfidence(findings);
-      expect(findings[0].confidence).toBe(0.85);
+      expect(findings[0].confidence).toBe(80);
     });
 
-    it('assigns taint findings confidence 0.95', () => {
+    it('assigns taint findings confidence 95', () => {
       const findings: ReviewFinding[] = [
         {
           source: 'kern',
@@ -135,13 +134,13 @@ describe('Confidence-based filtering', () => {
           message: 'Taint flow',
           primarySpan: { file: 'test.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
           fingerprint: 'taint-1',
-        },
+        } as unknown as ReviewFinding,
       ];
       assignDefaultConfidence(findings);
-      expect(findings[0].confidence).toBe(0.95);
+      expect(findings[0].confidence).toBe(95);
     });
 
-    it('assigns structural diff findings confidence 0.60', () => {
+    it('assigns structural diff findings confidence 60', () => {
       const findings: ReviewFinding[] = [
         {
           source: 'kern',
@@ -151,13 +150,13 @@ describe('Confidence-based filtering', () => {
           message: 'Uncovered lines',
           primarySpan: { file: 'test.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
           fingerprint: 'diff-1',
-        },
+        } as unknown as ReviewFinding,
       ];
       assignDefaultConfidence(findings);
-      expect(findings[0].confidence).toBe(0.6);
+      expect(findings[0].confidence).toBe(60);
     });
 
-    it('preserves existing confidence (LLM = 0.7)', () => {
+    it('preserves existing confidence (LLM = 70)', () => {
       const findings: ReviewFinding[] = [
         {
           source: 'llm',
@@ -167,11 +166,11 @@ describe('Confidence-based filtering', () => {
           message: 'LLM finding',
           primarySpan: { file: 'test.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
           fingerprint: 'llm-1',
-          confidence: 0.7,
+          confidence: 70,
         },
       ];
       assignDefaultConfidence(findings);
-      expect(findings[0].confidence).toBe(0.7);
+      expect(findings[0].confidence).toBe(70);
     });
   });
 });

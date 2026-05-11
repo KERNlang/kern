@@ -224,8 +224,13 @@ export function buildImportAliasMap(project: Project, graph: GraphResult): Map<s
   const aliasMap = new Map<string, string>();
 
   for (const gf of graph.files) {
-    if (!supportsTsMorphGraphFile(gf.path)) continue;
-    const sf = project.getSourceFile(gf.path);
+    // Suffix check is path-only; either form works. Use canonical for the
+    // ts-morph lookup since the Project keys files by canonical path
+    // (red-team #9 fix in graph.ts). Map keys are also canonical so callers
+    // looking up by canonical hit; display lookups go through a small
+    // display→canonical convert at call sites.
+    if (!supportsTsMorphGraphFile(gf.canonicalPath)) continue;
+    const sf = project.getSourceFile(gf.canonicalPath);
     if (!sf) continue;
 
     for (const imp of sf.getImportDeclarations()) {
@@ -234,7 +239,7 @@ export function buildImportAliasMap(project: Project, graph: GraphResult): Map<s
         if (!alias) continue; // not aliased — localName IS the exported name
         const localName = alias.getText();
         const exportedName = named.getName();
-        aliasMap.set(`${gf.path}::${localName}`, exportedName);
+        aliasMap.set(`${gf.canonicalPath}::${localName}`, exportedName);
       }
     }
   }
@@ -319,14 +324,18 @@ export function analyzeTaintCrossFile(
   }
 
   // Also walk files that have no IR at all but are present in the graph.
-  // These are the files we previously missed entirely.
+  // These are the files we previously missed entirely. iteratedFiles holds
+  // whatever the caller passed as inferredPerFile keys — could be display or
+  // canonical depending on the caller. We probe both forms so a display key
+  // doesn't cause us to re-iterate the same physical file.
   const iteratedFiles = new Set(inferredPerFile.keys());
   const extraFiles: Array<[string, SourceFile]> = [];
   if (graph?.project) {
     for (const gf of graph.files) {
-      if (iteratedFiles.has(gf.path)) continue;
-      if (!supportsTsMorphGraphFile(gf.path)) continue;
-      const sf = graph.project.getSourceFile(gf.path);
+      if (iteratedFiles.has(gf.canonicalPath) || iteratedFiles.has(gf.path)) continue;
+      if (!supportsTsMorphGraphFile(gf.canonicalPath)) continue;
+      const sf = graph.project.getSourceFile(gf.canonicalPath);
+      // Push the display path so finding spans report the caller-facing form.
       if (sf) extraFiles.push([gf.path, sf]);
     }
   }

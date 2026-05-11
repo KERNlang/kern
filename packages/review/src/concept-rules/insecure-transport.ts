@@ -65,7 +65,7 @@ export function insecureTransport(ctx: ConceptRuleContext): ReviewFinding[] {
       primarySpan: node.primarySpan,
       suggestion: `Switch the URL scheme to https:// (or, if the target genuinely lacks TLS, route through a TLS-terminating proxy you control)`,
       fingerprint: createFingerprint('insecure-transport', node.primarySpan.startLine, node.primarySpan.startCol),
-      confidence: 0.9,
+      confidence: 90,
     });
   }
 

@@ -244,6 +244,7 @@ describe('CLI --lint: linkToNodes', () => {
         message: 'Type mismatch',
         primarySpan: { file: 'test.ts', startLine: 5, startCol: 1, endLine: 5, endCol: 10 },
         fingerprint: 'test-fp',
+        confidence: 95,
       },
     ];
 
@@ -279,6 +280,7 @@ describe('CLI --lint: dedup merges kern + tsc findings', () => {
         message: 'Floating promise on fetchData()',
         primarySpan: { file: 'a.ts', startLine: 5, startCol: 1, endLine: 5, endCol: 10 },
         fingerprint: 'fp-1',
+        confidence: 85,
       },
       {
         source: 'tsc',
@@ -288,6 +290,7 @@ describe('CLI --lint: dedup merges kern + tsc findings', () => {
         message: 'Type error on line 10',
         primarySpan: { file: 'a.ts', startLine: 10, startCol: 1, endLine: 10, endCol: 10 },
         fingerprint: 'fp-2',
+        confidence: 95,
       },
       {
         source: 'kern',
@@ -297,6 +300,7 @@ describe('CLI --lint: dedup merges kern + tsc findings', () => {
         message: 'Floating promise on fetchData()',
         primarySpan: { file: 'a.ts', startLine: 5, startCol: 1, endLine: 5, endCol: 10 },
         fingerprint: 'fp-1',
+        confidence: 85,
       },
     ];
 

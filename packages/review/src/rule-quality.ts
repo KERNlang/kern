@@ -1,4 +1,5 @@
 import type { ExternalLinterConfig } from './project-context.js';
+import { clampConfidence } from './rules/confidence-baseline.js';
 import { getRuleRegistry, type RuleInfo } from './rules/index.js';
 import type { CalibrationStage, FileRole, ReviewConfig, ReviewFinding } from './types.js';
 
@@ -111,19 +112,15 @@ export function applyRuleQualityCalibration(
       });
     }
 
-    if (
-      (profile?.precision === 'experimental' || profile?.lifecycle === 'experimental') &&
-      finding.confidence !== undefined &&
-      finding.confidence > 0.6
-    ) {
+    if ((profile?.precision === 'experimental' || profile?.lifecycle === 'experimental') && finding.confidence > 60) {
       const before = finding.confidence;
-      finding.confidence = 0.6;
+      finding.confidence = 60;
       recordCalibration(finding, {
         stage: 'rule-quality:experimental-cap',
-        factor: 0.6 / before,
-        reason: 'experimental rule capped at 0.6',
+        factor: 60 / before,
+        reason: 'experimental rule capped at 60',
         beforeConfidence: before,
-        afterConfidence: 0.6,
+        afterConfidence: 60,
       });
     }
 
@@ -270,13 +267,9 @@ export function applyOverlapCalibration(
     if (finding.severity !== 'error' && finding.severity !== 'info') {
       finding.severity = 'info';
     }
-    let beforeConfidence: number | undefined;
-    let afterConfidence: number | undefined;
-    if (finding.confidence !== undefined) {
-      beforeConfidence = finding.confidence;
-      afterConfidence = finding.confidence * 0.5;
-      finding.confidence = afterConfidence;
-    }
+    const beforeConfidence = finding.confidence;
+    const afterConfidence = clampConfidence(finding.confidence * 0.5);
+    finding.confidence = afterConfidence;
     recordCalibration(finding, {
       stage: 'overlap:external-linter',
       factor: 0.5,
@@ -285,6 +278,10 @@ export function applyOverlapCalibration(
       afterConfidence,
       ...(beforeSeverity !== finding.severity ? { beforeSeverity, afterSeverity: finding.severity } : {}),
     });
+    // Per Opus review: match the idempotence contract of
+    // applyRuleQualityCalibration so graph-mode rerun cannot re-cap an
+    // already-overlap-demoted finding via experimental-cap.
+    finding.calibrated = true;
   }
 }
 
@@ -309,24 +306,16 @@ export function applyRoleAwareConfidence(
     const factor = roleMultiplierFor(fileRole, finding.ruleId);
     if (factor === 1) continue;
 
-    if (finding.confidence !== undefined) {
-      const before = finding.confidence;
-      const after = before * factor;
-      finding.confidence = after;
-      recordCalibration(finding, {
-        stage: 'role-aware:confidence-multiplier',
-        factor,
-        reason: `role=${fileRole} reduces confidence on rule '${finding.ruleId}'`,
-        beforeConfidence: before,
-        afterConfidence: after,
-      });
-    } else {
-      recordCalibration(finding, {
-        stage: 'role-aware:confidence-multiplier',
-        factor,
-        reason: `role=${fileRole} reduces confidence on rule '${finding.ruleId}' (no native confidence set)`,
-      });
-    }
+    const before = finding.confidence;
+    const after = clampConfidence(before * factor);
+    finding.confidence = after;
+    recordCalibration(finding, {
+      stage: 'role-aware:confidence-multiplier',
+      factor,
+      reason: `role=${fileRole} reduces confidence on rule '${finding.ruleId}'`,
+      beforeConfidence: before,
+      afterConfidence: after,
+    });
   }
 }
 

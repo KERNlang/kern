@@ -11,6 +11,7 @@ function makeFinding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
     message: 'Async call not awaited',
     primarySpan: { file: 'test.ts', startLine: 5, startCol: 1, endLine: 5, endCol: 30 },
     fingerprint: 'fp-1',
+    confidence: 85,
     ...overrides,
   };
 }

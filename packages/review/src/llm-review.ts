@@ -225,6 +225,7 @@ export function parseLLMResponse(response: string, inferred: InferResult[]): Rev
         message: `LLM review returned unparseable output (${jsonStr.substring(0, 60).replace(/\n/g, ' ')}…)`,
         primarySpan: { file: '', startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
         fingerprint: createFingerprint('llm-error', 0, 0),
+        confidence: 95,
       },
     ];
   }
@@ -239,6 +240,7 @@ export function parseLLMResponse(response: string, inferred: InferResult[]): Rev
         message: 'LLM review returned non-array JSON',
         primarySpan: { file: '', startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
         fingerprint: createFingerprint('llm-error', 0, 1),
+        confidence: 95,
       },
     ];
   }
@@ -290,7 +292,7 @@ export function parseLLMResponse(response: string, inferred: InferResult[]): Rev
       message,
       primarySpan,
       ...(nodeIds ? { nodeIds } : {}),
-      confidence: 0.7, // LLM findings get lower confidence
+      confidence: 70, // LLM findings get lower confidence
       fingerprint: createFingerprint(`llm-${category}`, primarySpan.startLine, primarySpan.startCol),
     });
   }

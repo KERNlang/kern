@@ -92,9 +92,9 @@ describe('sync-handler-does-io', () => {
     expect(findings[0].relatedSpans).toHaveLength(2);
   });
 
-  it('uses fixed 0.9 confidence', () => {
+  it('uses fixed 90 confidence', () => {
     const concepts = map([route(false), effect('network')]);
     const findings = syncHandlerDoesIo({ concepts, filePath: 'app.py' });
-    expect(findings[0].confidence).toBe(0.9);
+    expect(findings[0].confidence).toBe(90);
   });
 });

@@ -19,7 +19,7 @@ function finding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
     message: 'Auth drift',
     primarySpan: { file: 'client.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 10 },
     fingerprint: 'auth-drift:1:1',
-    confidence: 0.85,
+    confidence: 85,
     rootCause: {
       kind: 'api-call',
       key: 'api-call client=c1 method=GET path=/api/me',

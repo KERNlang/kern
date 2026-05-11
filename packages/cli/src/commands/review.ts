@@ -804,6 +804,7 @@ async function runReviewPipeline(
                 message: `Re-review failed: ${(err as Error).message}`,
                 primarySpan: { file, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
                 fingerprint: `verify-parse-error:${file}`,
+                confidence: 95,
               },
             ],
           });
