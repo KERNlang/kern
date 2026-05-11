@@ -46,6 +46,7 @@ function xssHrefJavascript(ctx: RuleContext): ReviewFinding[] {
                 span: nodeSpan(init, ctx.filePath),
                 replacement: '"#"',
                 description: 'Replace javascript: URL with inert "#" — wire an onClick handler for real behavior',
+                safety: 'suggested',
               },
             },
           ),
@@ -78,6 +79,7 @@ function xssHrefJavascript(ctx: RuleContext): ReviewFinding[] {
                   span: nodeSpan(expr, ctx.filePath),
                   replacement: '"#"',
                   description: 'Replace javascript: URL with inert "#"',
+                  safety: 'suggested',
                 },
               },
             ),
@@ -255,6 +257,7 @@ function cryptoWeakKdf(ctx: RuleContext): ReviewFinding[] {
                     span: nodeSpan(iterArg, ctx.filePath),
                     replacement: '600_000',
                     description: 'Bump iteration count to 600,000 (OWASP 2023 minimum for SHA-256)',
+                    safety: 'risky' as const,
                   },
                 }
               : {}),

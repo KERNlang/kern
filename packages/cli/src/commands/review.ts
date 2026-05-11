@@ -1,6 +1,13 @@
 import type { IRNode } from '@kernlang/core';
 import { clearTemplates, registerTemplate, VALID_TARGETS } from '@kernlang/core';
-import type { LLMReviewInput, ReviewConfig, ReviewEvalCaseResult, ReviewFinding, ReviewReport } from '@kernlang/review';
+import type {
+  FixSafety,
+  LLMReviewInput,
+  ReviewConfig,
+  ReviewEvalCaseResult,
+  ReviewFinding,
+  ReviewReport,
+} from '@kernlang/review';
 import {
   analyzeTaint,
   applyReviewPolicyDefaults,
@@ -116,7 +123,8 @@ async function runReviewPipeline(
     mcpMode: boolean;
     specMode: boolean;
     fixMode: boolean;
-    autofixMode: boolean;
+    autofixTier: FixSafety | null;
+    verifyMode: boolean;
     lintMode: boolean;
     skipGenerated: boolean;
     exportKern: boolean;
@@ -148,7 +156,8 @@ async function runReviewPipeline(
     mcpMode,
     specMode,
     fixMode,
-    autofixMode,
+    autofixTier,
+    verifyMode,
     lintMode,
     skipGenerated,
     exportKern,
@@ -628,24 +637,60 @@ async function runReviewPipeline(
   }
 
   // Autofix mode
-  if (autofixMode) {
+  if (autofixTier) {
+    const allowed: Record<FixSafety, Set<FixSafety>> = {
+      safe: new Set(['safe']),
+      suggested: new Set(['safe', 'suggested']),
+      risky: new Set(['safe', 'suggested', 'risky']),
+    };
+    const permitted = allowed[autofixTier];
+
     const fixesByFile = new Map<string, { finding: ReviewFinding; fix: NonNullable<ReviewFinding['autofix']> }[]>();
+    const skippedByTier: Record<FixSafety, number> = { safe: 0, suggested: 0, risky: 0 };
     for (const report of reports) {
       for (const f of report.findings) {
         if (!f.autofix) continue;
+        const rawSafety = f.autofix.safety as FixSafety | undefined;
+        const safety: FixSafety =
+          rawSafety === 'safe' || rawSafety === 'suggested' || rawSafety === 'risky' ? rawSafety : 'suggested';
+        if (!permitted.has(safety)) {
+          skippedByTier[safety]++;
+          continue;
+        }
         const file = f.autofix.span.file || report.filePath;
         if (!fixesByFile.has(file)) fixesByFile.set(file, []);
-        fixesByFile.get(file)!.push({ finding: f, fix: f.autofix });
+        fixesByFile.get(file)!.push({ finding: f, fix: { ...f.autofix, safety } });
       }
     }
 
+    const totalSkippedByTier = skippedByTier.safe + skippedByTier.suggested + skippedByTier.risky;
     if (fixesByFile.size === 0) {
-      console.log('  No autofixes available in findings.');
+      if (totalSkippedByTier > 0) {
+        const gatedParts: string[] = [];
+        if (autofixTier === 'safe' && (skippedByTier.suggested > 0 || skippedByTier.risky > 0)) {
+          if (skippedByTier.suggested > 0) gatedParts.push(`${skippedByTier.suggested} suggested`);
+          if (skippedByTier.risky > 0) gatedParts.push(`${skippedByTier.risky} risky`);
+        } else if (autofixTier === 'suggested' && skippedByTier.risky > 0) {
+          gatedParts.push(`${skippedByTier.risky} risky`);
+        }
+        if (gatedParts.length > 0) {
+          const nextTier: FixSafety = skippedByTier.risky > 0 ? 'risky' : 'suggested';
+          console.log(
+            `  No autofixes at tier '${autofixTier}'. Gated: ${gatedParts.join(', ')}. Re-run with --autofix=${nextTier} to include them.`,
+          );
+        } else {
+          console.log('  No autofixes available in findings.');
+        }
+      } else {
+        console.log('  No autofixes available in findings.');
+      }
       return { reports, exitCode: 0 };
     }
 
     let totalApplied = 0;
     let totalSkipped = 0;
+    const appliedByTier: Record<FixSafety, number> = { safe: 0, suggested: 0, risky: 0 };
+    const snapshots = new Map<string, string>();
 
     for (const [file, fixes] of fixesByFile) {
       if (!existsSync(file)) {
@@ -665,7 +710,8 @@ async function runReviewPipeline(
         return appliedSpans.some((s) => sl <= s.el && el >= s.sl);
       }
 
-      const lines = readFileSync(file, 'utf-8').split('\n');
+      const originalContent = readFileSync(file, 'utf-8');
+      const lines = originalContent.split('\n');
       let applied = 0;
 
       for (const { finding, fix } of fixes) {
@@ -687,17 +733,17 @@ async function runReviewPipeline(
           continue;
         }
 
-        if (fix.type === 'replace') {
-          const before = lines[sl].slice(0, startCol - 1);
-          const after = lines[el].slice(endCol - 1);
+        if (fix.type === 'replace' || fix.type === 'insert-before' || fix.type === 'insert-after') {
+          const effSl = fix.type === 'insert-after' ? el : sl;
+          const effEl = fix.type === 'insert-before' ? sl : el;
+          const effStartCol = fix.type === 'insert-after' ? endCol : startCol;
+          const effEndCol = fix.type === 'insert-before' ? startCol : endCol;
+          const before = lines[effSl].slice(0, effStartCol - 1);
+          const after = lines[effEl].slice(effEndCol - 1);
           const replacementLines = fix.replacement.split('\n');
           replacementLines[0] = before + replacementLines[0];
           replacementLines[replacementLines.length - 1] += after;
-          lines.splice(sl, el - sl + 1, ...replacementLines);
-        } else if (fix.type === 'insert-before') {
-          lines.splice(sl, 0, fix.replacement);
-        } else if (fix.type === 'insert-after') {
-          lines.splice(el + 1, 0, fix.replacement);
+          lines.splice(effSl, effEl - effSl + 1, ...replacementLines);
         } else if (fix.type === 'remove') {
           lines.splice(sl, el - sl + 1);
         } else if (fix.type === 'wrap') {
@@ -707,14 +753,90 @@ async function runReviewPipeline(
         }
         appliedSpans.push({ sl, el });
         applied++;
+        appliedByTier[fix.safety]++;
       }
 
-      writeFileSync(file, lines.join('\n'));
-      console.log(`  ${file}: ${applied} fix${applied === 1 ? '' : 'es'} applied`);
-      totalApplied += applied;
+      if (applied > 0) {
+        snapshots.set(file, originalContent);
+        writeFileSync(file, lines.join('\n'));
+        console.log(`  ${file}: ${applied} fix${applied === 1 ? '' : 'es'} applied`);
+        totalApplied += applied;
+      }
     }
 
-    console.log(`\n  ${totalApplied} autofix${totalApplied === 1 ? '' : 'es'} applied, ${totalSkipped} skipped.`);
+    const byTierParts = (['safe', 'suggested', 'risky'] as FixSafety[])
+      .filter((t) => appliedByTier[t] > 0)
+      .map((t) => `${appliedByTier[t]} ${t}`);
+    const byTierStr = byTierParts.length > 0 ? ` (${byTierParts.join(', ')})` : '';
+    console.log(
+      `\n  ${totalApplied} autofix${totalApplied === 1 ? '' : 'es'} applied${byTierStr}, ${totalSkipped} skipped.`,
+    );
+    const gatedParts: string[] = [];
+    if (autofixTier !== 'risky' && skippedByTier.risky > 0) gatedParts.push(`${skippedByTier.risky} risky`);
+    if (autofixTier === 'safe' && skippedByTier.suggested > 0) gatedParts.push(`${skippedByTier.suggested} suggested`);
+    if (gatedParts.length > 0) {
+      const nextTier: FixSafety = skippedByTier.risky > 0 ? 'risky' : 'suggested';
+      console.log(`  Gated by tier: ${gatedParts.join(', ')}. Re-run with --autofix=${nextTier} to include.`);
+    }
+
+    if (verifyMode && snapshots.size > 0) {
+      const preFpsByFile = new Map<string, Set<string>>();
+      for (const report of reports) {
+        preFpsByFile.set(report.filePath, new Set(report.findings.map((f) => f.fingerprint)));
+      }
+
+      const verifyConfig: ReviewConfig = { ...reviewConfig, noCache: true };
+      const regressions: { file: string; newFindings: ReviewFinding[] }[] = [];
+
+      for (const file of snapshots.keys()) {
+        let postReport: ReviewReport;
+        try {
+          postReport = reviewFile(file, verifyConfig);
+        } catch (err) {
+          regressions.push({
+            file,
+            newFindings: [
+              {
+                source: 'kern',
+                ruleId: 'verify-parse-error',
+                severity: 'error',
+                category: 'bug',
+                message: `Re-review failed: ${(err as Error).message}`,
+                primarySpan: { file, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+                fingerprint: `verify-parse-error:${file}`,
+              },
+            ],
+          });
+          continue;
+        }
+        const preFps = preFpsByFile.get(file) ?? new Set();
+        const newFindings = postReport.findings.filter(
+          (f) => !preFps.has(f.fingerprint) && (f.severity === 'error' || f.source === 'tsc'),
+        );
+        if (newFindings.length > 0) regressions.push({ file, newFindings });
+      }
+
+      if (regressions.length > 0) {
+        for (const [file, content] of snapshots) {
+          writeFileSync(file, content);
+        }
+        console.log(`\n  --verify: rolled back batch. ${regressions.length} file(s) regressed:`);
+        for (const r of regressions) {
+          console.log(`    ${r.file}:`);
+          for (const f of r.newFindings.slice(0, 3)) {
+            const msg = f.message.length > 80 ? `${f.message.slice(0, 77)}...` : f.message;
+            console.log(`      - ${f.ruleId} (${f.severity}): ${msg}`);
+          }
+          if (r.newFindings.length > 3) {
+            console.log(`      ...and ${r.newFindings.length - 3} more`);
+          }
+        }
+        return { reports, exitCode: 1 };
+      }
+
+      console.log(`  --verify: no regressions in ${snapshots.size} modified file(s). ✓`);
+    }
+
     return { reports, exitCode: 0 };
   }
 
@@ -956,7 +1078,16 @@ async function runReviewLocal(args: string[]): Promise<void> {
   const specMode = hasFlag(args, '--spec');
   const specFile = args.find((a) => a.endsWith('.kern') && a !== 'review');
   const fixMode = hasFlag(args, '--fix');
-  const autofixMode = hasFlag(args, '--autofix');
+  const autofixTier: FixSafety | null = (() => {
+    const explicit = parseFlag(args, '--autofix');
+    if (explicit !== undefined) {
+      if (explicit === 'safe' || explicit === 'suggested' || explicit === 'risky') return explicit;
+      console.error(`  Error: --autofix=${explicit} invalid. Expected one of: safe, suggested, risky.`);
+      process.exit(1);
+    }
+    return hasFlag(args, '--autofix') ? 'safe' : null;
+  })();
+  const verifyMode = hasFlag(args, '--verify');
   const lintMode = hasFlag(args, '--lint');
   // Phase 6: generated files skipped by default — bugs in compiler output
   // belong to the compiler, not the user, and inference re-fires every
@@ -1258,7 +1389,9 @@ async function runReviewLocal(args: string[]): Promise<void> {
     console.error(
       '       [--policy guard|ci|audit] [--telemetry] [--telemetry-out file] [--telemetry-report file] [--eval-manifest file]',
     );
-    console.error('       [--fix] [--autofix] [--require-confidence] [--rules-dir <dir>] [--include-generated]');
+    console.error(
+      '       [--fix] [--autofix[=safe|suggested|risky]] [--verify] [--require-confidence] [--rules-dir <dir>] [--include-generated]',
+    );
     console.error('');
     console.error('  Default (inside git): reviews changes vs origin/main. Use --full to scan the whole tree.');
     console.error(
@@ -1417,7 +1550,8 @@ async function runReviewLocal(args: string[]): Promise<void> {
     mcpMode,
     specMode,
     fixMode,
-    autofixMode,
+    autofixTier,
+    verifyMode,
     lintMode,
     skipGenerated,
     exportKern,

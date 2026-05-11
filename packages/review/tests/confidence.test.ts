@@ -286,6 +286,7 @@ describe('Reporter: SARIF rank', () => {
           span: { file: 'scripts/run.mjs', startLine: 5, startCol: 1, endLine: 5, endCol: 16 },
           replacement: 'run().catch(console.error);',
           description: 'Handle top-level rejection',
+          safety: 'suggested',
         },
       }),
     ]);
@@ -346,6 +347,7 @@ describe('Reporter: SARIF rank', () => {
             span: { file: 'test.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 10 },
             replacement: 'fixed();',
             description: 'Fix it',
+            safety: 'safe',
           },
         }),
         makeFinding({
