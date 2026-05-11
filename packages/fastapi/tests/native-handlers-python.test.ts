@@ -7,7 +7,11 @@
 
 import type { IRNode } from '@kernlang/core';
 import { parseDocument, parseExpression } from '@kernlang/core';
-import { emitNativeKernBodyPython, emitPyExpression } from '../src/codegen-body-python.js';
+import {
+  emitNativeKernBodyPython,
+  emitNativeKernBodyPythonWithImports,
+  emitPyExpression,
+} from '../src/codegen-body-python.js';
 import { generateFunction } from '../src/generators/core.js';
 
 function makeHandler(stmts: Array<{ type: string; props: Record<string, unknown>; children?: IRNode[] }>): IRNode {
@@ -43,6 +47,36 @@ describe('emitPyExpression — slice 1 lowering rules', () => {
 
   test('call lowers verbatim', () => {
     expect(emitPyExpression(parseExpression('foo(a, b)'))).toBe('foo(a, b)');
+  });
+
+  test('TS generic call args and non-null assertions erase on Python target', () => {
+    expect(emitPyExpression(parseExpression('client.send<Result>("ping")'))).toBe('client.send("ping")');
+    expect(emitPyExpression(parseExpression('new Set<string>()'))).toBe('Set()');
+    expect(emitPyExpression(parseExpression('data[1]!'))).toBe('data[1]');
+    expect(emitPyExpression(parseExpression('user!.name'))).toBe('user.name');
+  });
+
+  test('regex literals lower through Python re for common TS regex calls', () => {
+    const h = makeHandler([
+      { type: 'let', props: { name: 'pattern', value: '/^ok$/i' } },
+      { type: 'let', props: { name: 'ok', value: '/^ok$/i.test(value)' } },
+      { type: 'let', props: { name: 'negated', value: '!/^ok$/i.test(value)' } },
+      { type: 'let', props: { name: 'bound', value: 'pattern.test(value)' } },
+      { type: 'let', props: { name: 'clean', value: 'value.replace(/\\s+/g, " ")' } },
+    ]);
+    const result = emitNativeKernBodyPythonWithImports(h);
+    expect(result.imports).toContain('re');
+    expect(result.code).toContain('pattern = __k_re.compile("^ok$", __k_re.IGNORECASE)');
+    expect(result.code).toContain('__k_re.search("^ok$", value, __k_re.IGNORECASE) is not None');
+    expect(result.code).toContain('not (__k_re.search("^ok$", value, __k_re.IGNORECASE) is not None)');
+    expect(result.code).toContain('bound = (__k_re.search("^ok$", value, __k_re.IGNORECASE) is not None)');
+    expect(result.code).toContain('__k_re.sub("\\\\s+", " ", value, count=0, flags=0)');
+  });
+
+  test('regex lowering rejects JS-only match and flag semantics on Python target', () => {
+    expect(() => emitPyExpression(parseExpression('value.match(/x/g)'))).toThrow(/String\.match/);
+    expect(() => emitPyExpression(parseExpression('/x/g.test(value)'))).toThrow(/RegExp\.test/);
+    expect(() => emitPyExpression(parseExpression('/x/y.test(value)'))).toThrow(/regex flag/);
   });
 
   test('strLit emits with double-quoted Python string', () => {

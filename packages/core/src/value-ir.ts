@@ -40,7 +40,7 @@ export type ValueIR =
   | { kind: 'ident'; name: string; loc?: IRSourceLocation }
   | { kind: 'member'; object: ValueIR; property: string; optional: boolean; loc?: IRSourceLocation }
   | { kind: 'index'; object: ValueIR; index: ValueIR; optional: boolean; loc?: IRSourceLocation }
-  | { kind: 'call'; callee: ValueIR; args: ValueIR[]; optional: boolean; loc?: IRSourceLocation }
+  | { kind: 'call'; callee: ValueIR; args: ValueIR[]; optional: boolean; typeArgs?: string; loc?: IRSourceLocation }
   | {
       kind: 'lambda';
       params: { name: string; type?: string }[];
@@ -54,6 +54,7 @@ export type ValueIR =
   | { kind: 'await'; argument: ValueIR; loc?: IRSourceLocation }
   | { kind: 'new'; argument: ValueIR; loc?: IRSourceLocation }
   | { kind: 'typeAssert'; expression: ValueIR; type: string; loc?: IRSourceLocation }
+  | { kind: 'nonNull'; expression: ValueIR; loc?: IRSourceLocation }
   | { kind: 'propagate'; argument: ValueIR; op: '?' | '!'; loc?: IRSourceLocation }
   | {
       kind: 'objectLit';
@@ -89,6 +90,7 @@ export function isValueIR(x: unknown): x is ValueIR {
     k === 'await' ||
     k === 'new' ||
     k === 'typeAssert' ||
+    k === 'nonNull' ||
     k === 'propagate' ||
     k === 'objectLit' ||
     k === 'arrayLit' ||

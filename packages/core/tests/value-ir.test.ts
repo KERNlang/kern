@@ -24,6 +24,7 @@ describe('ValueIR', () => {
         callee: { kind: 'ident', name: 'fetch' },
         args: [{ kind: 'strLit', value: '/api', quote: '"' }],
         optional: false,
+        typeArgs: 'Response',
       },
       {
         kind: 'binary',
@@ -32,6 +33,7 @@ describe('ValueIR', () => {
         right: { kind: 'ident', name: 'b' },
       },
       { kind: 'unary', op: '!', argument: { kind: 'ident', name: 'flag' } },
+      { kind: 'nonNull', expression: { kind: 'ident', name: 'value' } },
       { kind: 'spread', argument: { kind: 'ident', name: 'rest' } },
     ];
 

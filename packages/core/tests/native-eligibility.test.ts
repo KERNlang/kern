@@ -201,6 +201,21 @@ describe('classifyHandlerBody — slice 4d additions are now eligible', () => {
     expect(classifyHandlerBody(`return { role: "user" as const };`).eligible).toBe(true);
   });
 
+  test('regex literals, generic calls, and non-null assertions are eligible', () => {
+    expect(classifyHandlerBody(`if (/^ok$/i.test(input)) {\n  return input;\n}\nreturn null;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+    expect(classifyHandlerBody(`const seen = new Set<string>();\nreturn seen;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+    expect(classifyHandlerBody(`const value = data[1]!;\nreturn value;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
   test('index access is eligible in let and return expressions', () => {
     expect(classifyHandlerBody(`const first = items[0];\nreturn first;`).eligible).toBe(true);
     expect(classifyHandlerBody(`return record[key];`).eligible).toBe(true);

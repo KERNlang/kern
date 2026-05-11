@@ -280,6 +280,7 @@ function containsOptionalAccess(node: ValueIR): boolean {
   if (node.kind === 'member') return node.optional || containsOptionalAccess(node.object);
   if (node.kind === 'index') return node.optional || containsOptionalAccess(node.object);
   if (node.kind === 'call') return node.optional || containsOptionalAccess(node.callee);
+  if (node.kind === 'nonNull' || node.kind === 'typeAssert') return containsOptionalAccess(node.expression);
   return false;
 }
 
