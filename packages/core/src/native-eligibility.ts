@@ -71,7 +71,6 @@ export const LEGACY_NEG_PATTERNS: ReadonlyArray<RegExp> = [
   /\bfor\s*\(/,
   /\bdo\s*\{/,
   /\bswitch\s*\(/,
-  /\btypeof\b/,
   /\binstanceof\b/,
   /^\s*import\b/m,
   /\brequire\(/,

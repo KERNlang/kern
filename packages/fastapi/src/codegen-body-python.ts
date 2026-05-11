@@ -1020,7 +1020,11 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       return `${lp} ${op} ${rp}`;
     }
     case 'unary': {
-      // Slice 2c — `!x` → `not x`, `-x` → `-x`, others unsupported.
+      // Slice 2c — `!x` → `not x`, `-x` → `-x`.
+      // Slice typeof — expose the now-eligible native KERN `typeof` shape on
+      // Python too. Dynamic Python values are an approximation of JS typeof:
+      // Python has no runtime `undefined`, `symbol`, or bigint distinction.
+      if (node.op === 'typeof') return emitPyTypeof(node.argument, ctx);
       const arg = emitPyExprCtx(node.argument, ctx);
       const wrapped = needsArgParens(node.argument) ? `(${arg})` : arg;
       if (node.op === '!') return `not ${wrapped}`;
@@ -1079,6 +1083,43 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
           `Mid-expression \`${node.op}\` is rejected — bind the call to a \`let\` first, then use the bound name.`,
       );
   }
+}
+
+function emitPyTypeof(argument: ValueIR, ctx: BodyEmitContext): string {
+  switch (argument.kind) {
+    case 'strLit':
+      return '"string"';
+    case 'boolLit':
+      return '"boolean"';
+    case 'numLit':
+      return argument.bigint ? '"bigint"' : '"number"';
+    case 'undefLit':
+      return '"undefined"';
+    case 'nullLit':
+      return '"object"';
+    case 'lambda':
+      return '"function"';
+    case 'arrayLit':
+    case 'objectLit':
+    case 'regexLit':
+      return '"object"';
+    case 'tmplLit':
+      return '"string"';
+    default:
+      break;
+  }
+
+  const value = emitPyExprCtx(argument, ctx);
+  const wrapped = needsArgParens(argument) ? `(${value})` : value;
+  const tmp = `__k_typeof${++ctx.gensymCounter}`;
+  return (
+    `("object" if (${tmp} := ${wrapped}) is None ` +
+    `else "boolean" if isinstance(${tmp}, bool) ` +
+    `else "number" if isinstance(${tmp}, (int, float)) ` +
+    `else "string" if isinstance(${tmp}, str) ` +
+    `else "function" if callable(${tmp}) ` +
+    `else "object")`
+  );
 }
 
 function emitLambdaPy(node: Extract<ValueIR, { kind: 'lambda' }>, ctx: BodyEmitContext): string {

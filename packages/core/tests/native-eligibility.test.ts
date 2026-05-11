@@ -4,6 +4,7 @@ import {
   classifyHandlerBody,
   type EligibilityResult,
   extractRawBodies,
+  LEGACY_NEG_PATTERNS,
   scanFileForEligibility,
 } from '../src/native-eligibility.js';
 import {
@@ -334,7 +335,18 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
 
   test('switch rejected', () => rejected(`switch (k) { case 1: return 'a'; }`, 'switch-stmt'));
 
-  test('typeof rejected (parser-expression bails)', () => rejected(`return typeof x === "string";`, 'return-bad-expr'));
+  test('typeof type guard is eligible', () => {
+    expect(classifyHandlerBody(`return typeof x === "string";`)).toEqual({ eligible: true, reason: 'ok' });
+  });
+
+  test('standalone typeof return is eligible', () => {
+    expect(classifyHandlerBody(`return typeof x;`)).toEqual({ eligible: true, reason: 'ok' });
+  });
+
+  test('legacy fast pre-filter no longer rejects typeof expressions', () => {
+    const body = `return typeof x === "string";\nreturn typeof x;`;
+    expect(LEGACY_NEG_PATTERNS.some((re) => re.test(body))).toBe(false);
+  });
 
   test('instanceof rejected (parser-expression bails)', () => rejected(`return x instanceof Date;`, 'return-bad-expr'));
 
