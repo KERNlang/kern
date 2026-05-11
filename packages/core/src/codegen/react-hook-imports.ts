@@ -59,41 +59,69 @@ function walk(node: IRNode, deps: Set<ReactHookDep>): void {
 /** Smart-merge the required React hook imports into a finished TS module.
  *
  *  Three cases:
- *    1. Generated TS already imports the required names from 'react' — no-op.
- *    2. Generated TS has a `from 'react'` import missing some names — merge
- *       missing names into the existing import's named list, preserving the
- *       default import + ordering of existing names.
+ *    1. Generated TS already imports the required names from 'react' (in
+ *       ANY existing `from 'react'` line) — no-op for those names.
+ *    2. Generated TS has at least one `from 'react'` import but it's
+ *       missing some required names — merge the missing names into the
+ *       FIRST react import's named list, preserving its default import +
+ *       existing-name ordering.
  *    3. No `from 'react'` import present — insert a new line after the
  *       module prologue (hashbang, directives, leading comments) so the
  *       directive `'use client'` (Next.js / RSC) stays on the file's first
  *       non-comment line.
  *
- *  The function is conservative: it only matches single-line react imports
- *  with a default and/or named list. Multi-line `import { a,\n b } from
- *  'react';` is not merged (rare in generated code; treated as case 3 and
- *  a duplicate line is emitted — TS allows it but it's ugly). */
+ *  Codex P2 fix: a module with multiple `from 'react'` imports (e.g. from
+ *  an `extern react` block with several child `import names=...` lines)
+ *  used to merge into the first match without checking the OTHER react
+ *  imports for the required binding — duplicating `useState` and tripping
+ *  TS2300 (duplicate identifier). The names-already-imported check now
+ *  unions across every `from 'react'` line.
+ *
+ *  The function is conservative on import shape: it only matches single-
+ *  line react imports with a default and/or named list. Multi-line `import
+ *  { a,\n b } from 'react';` is not parsed (treated as no-match in case 3
+ *  and a duplicate line is emitted — TS allows it but it's ugly; rare in
+ *  generated code). Namespace imports (`import * as R from 'react'`) are
+ *  also not parsed — the function inserts a separate `import { useState
+ *  } from 'react'` which TS accepts alongside a namespace import. */
 export function injectReactHookImports(code: string, deps: Set<ReactHookDep>): string {
   if (deps.size === 0) return code;
-  const required = [...deps];
 
-  const reactImportRe = /^(\s*)import\s+(?:(?:(\w+)\s*,\s*)?\{\s*([^}]*)\s*\}|(\w+))\s+from\s+(['"])react\5\s*;?\s*$/m;
-  const match = code.match(reactImportRe);
-  if (match) {
-    const [fullLine, indent, namedDefault, existingNames, bareDefault, quote] = match;
+  const reactImportRe = /^(\s*)import\s+(?:(?:(\w+)\s*,\s*)?\{\s*([^}]*)\s*\}|(\w+))\s+from\s+(['"])react\5\s*;?\s*$/gm;
+  const matches = [...code.matchAll(reactImportRe)];
+
+  // Union of names already imported across ALL react imports — Codex P2:
+  // a later import line might already carry useState; merging into the
+  // first line would then produce a duplicate identifier.
+  const alreadyImported = new Set<string>();
+  for (const m of matches) {
+    const existing = (m[3] ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (const n of existing) alreadyImported.add(n);
+    const bareDefault = m[4];
+    if (bareDefault) alreadyImported.add(bareDefault);
+  }
+
+  const missing = [...deps].filter((n) => !alreadyImported.has(n));
+  if (missing.length === 0) return code;
+
+  if (matches.length > 0) {
+    const first = matches[0];
+    const [fullLine, indent, namedDefault, existingNames, bareDefault, quote] = first;
     const defaultImport = namedDefault ?? bareDefault ?? '';
     const existing = (existingNames ?? '')
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
-    const missing = required.filter((n) => !existing.includes(n));
-    if (missing.length === 0) return code;
     const mergedNames = [...existing, ...missing].join(', ');
     const defaultPart = defaultImport ? `${defaultImport}, ` : '';
     const merged = `${indent}import ${defaultPart}{ ${mergedNames} } from ${quote}react${quote};`;
     return code.replace(fullLine, merged);
   }
 
-  const insertLine = `import { ${required.join(', ')} } from 'react';`;
+  const insertLine = `import { ${missing.join(', ')} } from 'react';`;
   return injectAfterPrologue(code, insertLine);
 }
 

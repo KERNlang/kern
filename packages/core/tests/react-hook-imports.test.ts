@@ -95,4 +95,34 @@ describe('injectReactHookImports', () => {
     const out = injectReactHookImports(code, deps);
     expect(out).toBe(['#!/usr/bin/env node', "import { useState } from 'react';", 'export function f() {}'].join('\n'));
   });
+
+  test('Codex P2: multiple react imports — no-op when useState already in second line', () => {
+    // Codex's review found this: with multiple `from 'react'` imports
+    // (e.g. produced by an `extern react` block with several child
+    // `import names=...` lines), v4's first-match-only merge would add
+    // `useState` to import #1 even when import #2 already had it,
+    // producing a TS2300 duplicate identifier.
+    const code = [
+      "import { useEffect } from 'react';",
+      "import { useState } from 'react';",
+      'export function f() { return useState(0); }',
+    ].join('\n');
+    expect(injectReactHookImports(code, deps)).toBe(code);
+  });
+
+  test('Codex P2: multiple react imports — merges into first when no line has the name', () => {
+    const code = [
+      "import { useEffect } from 'react';",
+      "import { useMemo } from 'react';",
+      'export function f() { return useState(0); }',
+    ].join('\n');
+    const out = injectReactHookImports(code, deps);
+    expect(out).toBe(
+      [
+        "import { useEffect, useState } from 'react';",
+        "import { useMemo } from 'react';",
+        'export function f() { return useState(0); }',
+      ].join('\n'),
+    );
+  });
 });
