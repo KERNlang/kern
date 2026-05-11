@@ -180,6 +180,14 @@ export function unguardedEffect(ctx: ConceptRuleContext): ReviewFinding[] {
     // Skip if a related file (≤2 hops) has guards (cross-file guard)
     if (hasCrossFileGuard) continue;
 
+    // RULE-FEEDBACK.md #8: narrow RFC-defined auth-endpoint URL suffix.
+    // These calls are inherently unguarded by their nature — requiring an
+    // auth guard before calling the login endpoint is a contradiction.
+    // Per Evil Twin Challenge 4, broad substring sets (/refresh, /session,
+    // bare /login) are too collision-prone with non-auth endpoints. Only
+    // accept the narrow RFC-defined paths.
+    if (subtype === 'network' && node.payload.target && isAuthEndpointTarget(node.payload.target)) continue;
+
     findings.push({
       source: 'kern',
       ruleId: 'unguarded-effect',
@@ -199,4 +207,27 @@ export function unguardedEffect(ctx: ConceptRuleContext): ReviewFinding[] {
   }
 
   return findings;
+}
+
+/**
+ * True when the effect target URL ends with an RFC-defined auth endpoint
+ * suffix. Per Evil Twin Challenge 4, the broad substring set (/refresh,
+ * /session, bare /login) is dropped — it collides with legitimate non-auth
+ * endpoints like /api/refresh-data or /api/user-sessions. Only the narrow,
+ * conventionally-fixed paths defined by OAuth 2.0 / OpenID Connect / common
+ * auth flows are skipped. The {context:"auth"} marker (extracted as a
+ * guard concept in guard.ts) covers the dynamic-URL cases this misses.
+ *
+ * Exported for the parallel `.kern` native rule's post-collection filter in
+ * index.ts (same pattern as `isWorkerContextFile`).
+ */
+export function isAuthEndpointTarget(target: string): boolean {
+  // Lowercase for case-insensitive matching; strip any query string.
+  const path = target.toLowerCase().split('?')[0].replace(/\/+$/, '');
+  if (path.endsWith('/oauth/token')) return true;
+  if (path.endsWith('/auth/login')) return true;
+  if (path.endsWith('/auth/signin')) return true;
+  if (path.endsWith('/.well-known/openid-configuration')) return true;
+  if (path.endsWith('/.well-known/jwks.json')) return true;
+  return false;
 }

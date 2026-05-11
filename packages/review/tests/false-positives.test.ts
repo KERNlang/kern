@@ -969,4 +969,94 @@ app.get('/items/:id', async (req, res) => {
     const fp = report.findings.find((f) => f.ruleId === 'unguarded-effect');
     expect(fp).toBeDefined();
   });
+
+  // RULE-FEEDBACK.md #6: header-builder call inside a transport wrapper
+  // emits an auth guard, so the surrounding fetch becomes guarded.
+  it('does NOT fire when buildRequestHeaders is called before the fetch', () => {
+    const source = `
+declare function buildRequestHeaders(init: unknown, url: string, accessToken: string): Promise<Headers>;
+export async function request<T>(url: string, accessToken: string, init: RequestInit = {}): Promise<T> {
+  const headers = await buildRequestHeaders(init, url, accessToken);
+  const response = await fetch(url, { ...init, headers });
+  if (!response.ok) throw new Error('failed');
+  return response.json();
+}
+`;
+    const report = reviewSource(source, 'src/lib/request.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'unguarded-effect');
+    expect(fp).toBeUndefined();
+  });
+
+  // #6 secondary signal: token-shaped arg identifies auth-aware function.
+  it('does NOT fire when a token-arg is passed to a helper before the fetch', () => {
+    const source = `
+declare function applyAuth(req: unknown, accessToken: string): void;
+export async function load(accessToken: string): Promise<unknown> {
+  const req = {};
+  applyAuth(req, accessToken);
+  const res = await fetch('https://api.example.com/data', req as RequestInit);
+  return res.json();
+}
+`;
+    const report = reviewSource(source, 'src/lib/load.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'unguarded-effect');
+    expect(fp).toBeUndefined();
+  });
+
+  // RULE-FEEDBACK.md #8: narrow RFC auth-endpoint URL suffix.
+  it('does NOT fire on POST to /oauth/token', () => {
+    const source = `
+export async function login(body: string): Promise<unknown> {
+  const res = await fetch('https://idp.example.com/oauth/token', { method: 'POST', body });
+  return res.json();
+}
+`;
+    const report = reviewSource(source, 'src/auth/login.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'unguarded-effect');
+    expect(fp).toBeUndefined();
+  });
+
+  // #8 author-explicit marker (works on dynamic URLs that wouldn't match
+  // the narrow suffix regex).
+  it('does NOT fire when call options carry { context: "auth" }', () => {
+    const source = `
+declare function getOccPath(path: string, opts: { context: string }): string;
+export async function login(body: string): Promise<unknown> {
+  const path = getOccPath('/token', { context: 'auth' });
+  const res = await fetch(path, { method: 'POST', body });
+  return res.json();
+}
+`;
+    const report = reviewSource(source, 'src/auth/login.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'unguarded-effect');
+    expect(fp).toBeUndefined();
+  });
+
+  // Regression: per Evil Twin Challenge 4, broad substrings must NOT suppress.
+  // `/api/refresh-data/` should STILL fire — it's not an auth endpoint despite
+  // containing "refresh".
+  it('STILL fires on /api/refresh-data (not an auth endpoint)', () => {
+    const source = `
+export async function fetchRefresh(): Promise<unknown> {
+  const res = await fetch('https://api.example.com/api/refresh-data');
+  return res.json();
+}
+`;
+    const report = reviewSource(source, 'src/api/refresh.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'unguarded-effect');
+    expect(fp).toBeDefined();
+  });
+
+  // Regression: /api/user-sessions (listing, not auth) must STILL fire.
+  it('STILL fires on /api/user-sessions listing endpoint', () => {
+    const source = `
+export async function listSessions(): Promise<unknown> {
+  const res = await fetch('https://api.example.com/api/user-sessions');
+  return res.json();
+}
+`;
+    const report = reviewSource(source, 'src/api/sessions.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'unguarded-effect');
+    expect(fp).toBeDefined();
+  });
 });

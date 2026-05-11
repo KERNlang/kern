@@ -39,7 +39,7 @@ function requireOptionalModule(specifier: string): unknown {
 
 import { buildCallGraph } from './call-graph.js';
 import { runConceptRules } from './concept-rules/index.js';
-import { isWorkerContextFile } from './concept-rules/unguarded-effect.js';
+import { isAuthEndpointTarget, isWorkerContextFile } from './concept-rules/unguarded-effect.js';
 import { isTransportPrimitiveCarveOut } from './concept-rules/unrecovered-effect.js';
 import { structuralDiff } from './differ.js';
 import { runTSCDiagnostics } from './external-tools.js';
@@ -830,6 +830,25 @@ function reviewSourceInternal(
     for (let i = allFindings.length - 1; i >= 0; i--) {
       if (allFindings[i].ruleId === 'unguarded-effect') allFindings.splice(i, 1);
     }
+  }
+
+  // Drop unguarded-effect findings whose effect target is a narrow
+  // RFC-defined auth endpoint (/oauth/token etc.). Per RULE-FEEDBACK.md #8
+  // these flows are inherently unguarded by their nature. Same parity
+  // workaround as the worker exemption.
+  for (let i = allFindings.length - 1; i >= 0; i--) {
+    const f = allFindings[i];
+    if (f.ruleId !== 'unguarded-effect') continue;
+    const effectNode = concepts.nodes.find(
+      (n) =>
+        n.kind === 'effect' &&
+        n.primarySpan.file === filePath &&
+        n.primarySpan.startLine === f.primarySpan.startLine &&
+        n.payload.kind === 'effect',
+    );
+    if (!effectNode || effectNode.payload.kind !== 'effect') continue;
+    const target = effectNode.payload.target;
+    if (target && isAuthEndpointTarget(target)) allFindings.splice(i, 1);
   }
 
   // Drop unrecovered-effect findings on transport-primitive files whose
