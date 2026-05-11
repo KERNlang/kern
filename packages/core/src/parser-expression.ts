@@ -2,7 +2,7 @@
  *  Supports: identifiers, literals (number/string/true/false/null/undefined/none),
  *  member access (. and ?.), index access ([] and ?.[), call (() and ?.()), spread
  *  (...), expression-bodied lambdas (`x => x.id`), logical ?? || &&, parenthesized grouping, template literals with
- *  ${...} interpolation, `await` prefix, TS-style `as Type` assertion nodes,
+ *  ${...} interpolation, `await`/`typeof` prefix, TS-style `as Type` assertion nodes,
  *  propagation `?` postfix on call/await-call.
  *
  *  `none` is a KERN-side alias for `null` — both produce nullLit. Per native-handler
@@ -707,6 +707,10 @@ class Parser {
     if (this.peek().kind === 'minus') {
       this.advance();
       return { kind: 'unary', op: '-', argument: this.parseUnary() };
+    }
+    if (this.peek().kind === 'ident' && this.peek().value === 'typeof') {
+      this.advance();
+      return { kind: 'unary', op: 'typeof', argument: this.parseUnary() };
     }
     if (this.peek().kind === 'kwAwait') {
       this.advance();

@@ -71,6 +71,16 @@ describe('NATIVE_KERN_ELIGIBLE diagnostic — lang=kern skip (direct validator)'
     expect(collectNativeEligibleHints(root)).toHaveLength(1);
   });
 
+  test('handler with explicit host lang + reason emits no native migration hint', () => {
+    const root = doc([handler({ code: 'return 1 + 2;', lang: 'ts', reason: 'target-specific adapter glue' })]);
+    expect(collectNativeEligibleHints(root)).toHaveLength(0);
+  });
+
+  test('handler with host lang but no reason still emits migration hint when eligible', () => {
+    const root = doc([handler({ code: 'return 1 + 2;', lang: 'ts' })]);
+    expect(collectNativeEligibleHints(root)).toHaveLength(1);
+  });
+
   test('handler with no code prop emits no hint', () => {
     const root = doc([handler({ lang: 'kern' })]);
     expect(collectNativeEligibleHints(root)).toHaveLength(0);

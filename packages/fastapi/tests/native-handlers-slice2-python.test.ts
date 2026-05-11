@@ -19,6 +19,9 @@ function makeHandler(children: IRNode[]): IRNode {
   return { type: 'handler', props: { lang: 'kern' }, children };
 }
 
+const TYPEOF_VALUE_PY =
+  '("object" if (__k_typeof1 := value) is None else "boolean" if isinstance(__k_typeof1, bool) else "number" if isinstance(__k_typeof1, (int, float)) else "string" if isinstance(__k_typeof1, str) else "function" if callable(__k_typeof1) else "object")';
+
 // ── 2b: stdlib expansion (Python) ────────────────────────────────────────
 
 describe('KERN-stdlib expansion — Python target', () => {
@@ -95,6 +98,60 @@ describe('emitPyExpression — arithmetic + comparison + unary', () => {
 
   test('unary ! lowers to Python not', () => {
     expect(emitPyExpression(parseExpression('!isReady'))).toBe('not isReady');
+  });
+
+  test('unary typeof lowers to a single-eval Python type string expression', () => {
+    expect(emitPyExpression(parseExpression('typeof value'))).toBe(TYPEOF_VALUE_PY);
+  });
+
+  test('typeof type guard composes with strict equality', () => {
+    expect(emitPyExpression(parseExpression('typeof value === "string"'))).toBe(`${TYPEOF_VALUE_PY} == "string"`);
+  });
+
+  test('typeof literals lower without dynamic temp binding', () => {
+    expect(emitPyExpression(parseExpression('typeof "x"'))).toBe('"string"');
+    expect(emitPyExpression(parseExpression('typeof `${x}`'))).toBe('"string"');
+    expect(emitPyExpression(parseExpression('typeof true'))).toBe('"boolean"');
+    expect(emitPyExpression(parseExpression('typeof 1'))).toBe('"number"');
+    expect(emitPyExpression(parseExpression('typeof 1n'))).toBe('"bigint"');
+    expect(emitPyExpression(parseExpression('typeof undefined'))).toBe('"undefined"');
+    expect(emitPyExpression(parseExpression('typeof null'))).toBe('"object"');
+    expect(emitPyExpression(parseExpression('typeof none'))).toBe('"object"');
+  });
+
+  test('typeof in return body codegen does not throw on Python target', () => {
+    const handler = makeHandler([{ type: 'return', props: { value: 'typeof value === "string"' }, children: [] }]);
+    expect(emitNativeKernBodyPython(handler)).toBe(`return ${TYPEOF_VALUE_PY} == "string"`);
+  });
+
+  test('typeof composes in Python if conditions', () => {
+    const handler = makeHandler([
+      {
+        type: 'if',
+        props: { cond: 'typeof value === "string"' },
+        children: [{ type: 'return', props: { value: 'value' }, children: [] }],
+      },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toBe(`if ${TYPEOF_VALUE_PY} == "string":\n    return value`);
+  });
+
+  test('nested typeof and await keep stable temp numbering', () => {
+    expect(emitPyExpression(parseExpression('typeof typeof value'))).toBe(
+      '("object" if (__k_typeof2 := (("object" if (__k_typeof1 := value) is None else "boolean" if isinstance(__k_typeof1, bool) else "number" if isinstance(__k_typeof1, (int, float)) else "string" if isinstance(__k_typeof1, str) else "function" if callable(__k_typeof1) else "object"))) is None else "boolean" if isinstance(__k_typeof2, bool) else "number" if isinstance(__k_typeof2, (int, float)) else "string" if isinstance(__k_typeof2, str) else "function" if callable(__k_typeof2) else "object")',
+    );
+    expect(emitPyExpression(parseExpression('typeof await readValue()'))).toBe(
+      '("object" if (__k_typeof1 := (await readValue())) is None else "boolean" if isinstance(__k_typeof1, bool) else "number" if isinstance(__k_typeof1, (int, float)) else "string" if isinstance(__k_typeof1, str) else "function" if callable(__k_typeof1) else "object")',
+    );
+  });
+
+  test('typeof object shorthand lowers as a normal Python dict entry', () => {
+    expect(emitPyExpression(parseExpression('{ typeof }'))).toBe('{"typeof": typeof}');
+  });
+
+  test('typeof composes in Python ternary expressions', () => {
+    expect(emitPyExpression(parseExpression('typeof value === "string" ? "s" : "x"'))).toBe(
+      `"s" if (${TYPEOF_VALUE_PY} == "string") else "x"`,
+    );
   });
 
   test('combined Text.length + comparison', () => {

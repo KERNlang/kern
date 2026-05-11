@@ -4,6 +4,7 @@ import {
   classifyHandlerBody,
   type EligibilityResult,
   extractRawBodies,
+  LEGACY_NEG_PATTERNS,
   scanFileForEligibility,
 } from '../src/native-eligibility.js';
 import {
@@ -277,6 +278,76 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
   test('function declaration rejected (unsupported-stmt)', () =>
     rejected(`function inner() { return 1; }\nreturn inner();`, 'unsupported-stmt-FunctionDeclaration'));
 
+  test('template placeholder bodies are classified separately from parser errors', () =>
+    rejected(`export const {{name}} = ({{params}}) => {\n  {{CHILDREN}}\n};`, 'template-placeholder'));
+
+  test('framework object-fragment bodies are classified as foreign by design', () =>
+    rejected(`toasts: [],\naddToast: (message) => {\n  set({ message });\n}`, 'foreign-by-design'));
+
+  test('host runtime interop bodies are classified as foreign by design', () => {
+    rejected(
+      `const { Pool } = await import('pg');\nreturn new Pool({ connectionString: process.env.DATABASE_URL });`,
+      'foreign-by-design',
+    );
+    rejected(
+      `// Replace with your actual database connection\nconst { Pool } = await import('pg');\nreturn new Pool();`,
+      'foreign-by-design',
+    );
+    rejected(`const mod = import('pg');\nreturn mod;`, 'foreign-by-design');
+    rejected(
+      `useEffect(() => {\n  const timer = setTimeout(load, 250);\n  return () => clearTimeout(timer);\n}, []);`,
+      'foreign-by-design',
+    );
+    rejected(`res.on('close', () => abort.abort());\nreturn req.body;`, 'foreign-by-design');
+    rejected(`res.statusCode = 200;\nreturn result;`, 'foreign-by-design');
+    rejected(`return req?.body;`, 'foreign-by-design');
+    rejected(`return req?.body.value;`, 'foreign-by-design');
+  });
+
+  test('plain request data reads stay migratable', () => {
+    expect(classifyHandlerBody(`const { id } = req.params;\nreturn id;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+    expect(classifyHandlerBody(`const { name } = req.body;\nreturn name;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
+  test('foreign/template classifiers ignore string literals and comment precedence', () => {
+    expect(classifyHandlerBody(`const banner = "see process.env and {{name}} docs";\nreturn banner;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+    rejected(`// TODO: replace with JSON.parse later\nreturn 1;`, 'comments-present');
+    rejected(`// FIXME\nreturn req.body;`, 'comments-present');
+    rejected(`// comment before broken code\nreturn 1 +;`, 'comments-present');
+    rejected(`return 1 +;`, 'ts-parse-error');
+  });
+
+  test('JSON stdlib-shaped host calls stay migratable instead of foreign-excluded', () => {
+    expect(classifyHandlerBody(`const parsed = JSON.parse(raw);\nreturn parsed;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
+  test('host interop classifier ignores shadowed local names', () => {
+    expect(classifyHandlerBody(`const res = { status: "ok" };\nreturn res.status;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+    expect(classifyHandlerBody(`const fetch = (url: string) => url;\nreturn fetch("/local");`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+    expect(classifyHandlerBody(`const Pool = makePool;\nreturn new Pool();`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
   test('class declaration rejected (unsupported-stmt)', () =>
     rejected(`class Foo {}\nreturn new Foo();`, 'unsupported-stmt-ClassDeclaration'));
 
@@ -334,7 +405,18 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
 
   test('switch rejected', () => rejected(`switch (k) { case 1: return 'a'; }`, 'switch-stmt'));
 
-  test('typeof rejected (parser-expression bails)', () => rejected(`return typeof x === "string";`, 'return-bad-expr'));
+  test('typeof type guard is eligible', () => {
+    expect(classifyHandlerBody(`return typeof x === "string";`)).toEqual({ eligible: true, reason: 'ok' });
+  });
+
+  test('standalone typeof return is eligible', () => {
+    expect(classifyHandlerBody(`return typeof x;`)).toEqual({ eligible: true, reason: 'ok' });
+  });
+
+  test('legacy fast pre-filter no longer rejects typeof expressions', () => {
+    const body = `return typeof x === "string";\nreturn typeof x;`;
+    expect(LEGACY_NEG_PATTERNS.some((re) => re.test(body))).toBe(false);
+  });
 
   test('instanceof rejected (parser-expression bails)', () => rejected(`return x instanceof Date;`, 'return-bad-expr'));
 
@@ -547,6 +629,72 @@ describe('scanFileForEligibility', () => {
     const report = scanFileForEligibility(src);
     expect(report.bodies[0]?.startLine).toBe(2);
     expect(report.bodies[0]?.endLine).toBe(4);
+  });
+
+  test('classifies explicit host-language handler boundaries separately', () => {
+    const src = [
+      `fn name="foreign"`,
+      `  handler lang=ts reason="express response adapter" <<<`,
+      `    return 1 + 2;`,
+      `  >>>`,
+      `fn name="missingReason"`,
+      `  handler lang=ts <<<`,
+      `    return 1 + 2;`,
+      `  >>>`,
+    ].join('\n');
+    const report = scanFileForEligibility(src);
+    expect(report.totalBodies).toBe(2);
+    expect(report.eligibleBodies).toBe(1);
+    expect(report.bodies[0]?.declaredLang).toBe('ts');
+    expect(report.bodies[0]?.declaredReason).toBe('express response adapter');
+    expect(report.bodies[0]?.eligible).toBe(false);
+    expect(report.bodies[0]?.reason).toBe('explicit-foreign');
+    expect(report.bodies[1]?.eligible).toBe(true);
+    expect(report.bodies[1]?.reason).toBe('ok');
+  });
+
+  test('classifies explicit handler boundaries when quoted props contain fence text', () => {
+    const report = scanFileForEligibility(
+      [
+        'fn name=x',
+        '  handler title="my <<< title" lang=TS reason="adapter" <<<',
+        '    return res.body;',
+        '  >>>',
+      ].join('\n'),
+    );
+    expect(report.totalBodies).toBe(1);
+    expect(report.eligibleBodies).toBe(0);
+    expect(report.bodies[0]?.opener).toContain('title="my <<< title"');
+    expect(report.bodies[0]?.declaredLang).toBe('TS');
+    expect(report.bodies[0]?.declaredReason).toBe('adapter');
+    expect(report.bodies[0]?.reason).toBe('explicit-foreign');
+  });
+
+  test('classifies inline explicit host-language handler boundaries separately', () => {
+    const report = scanFileForEligibility(
+      'fn name=x\n  handler lang=python reason="numpy bridge" <<< return 1 + 2; >>>',
+    );
+    expect(report.totalBodies).toBe(1);
+    expect(report.eligibleBodies).toBe(0);
+    expect(report.bodies[0]?.declaredLang).toBe('python');
+    expect(report.bodies[0]?.reason).toBe('explicit-foreign');
+  });
+
+  test('does not treat native handler metadata as explicit foreign in scanner', () => {
+    const report = scanFileForEligibility(
+      ['fn name=x', '  handler lang=kern reason="invalid metadata" <<<', '    return 1 + 2;', '  >>>'].join('\n'),
+    );
+    expect(report.totalBodies).toBe(1);
+    expect(report.bodies[0]?.reason).not.toBe('explicit-foreign');
+  });
+
+  test('does not classify non-handler raw blocks as explicit foreign handlers', () => {
+    const src = [`codeblock lang=ts reason="docs sample" <<<`, `  return 1 + 2;`, `>>>`].join('\n');
+    const report = scanFileForEligibility(src);
+    expect(report.totalBodies).toBe(1);
+    expect(report.bodies[0]?.opener).toBe('codeblock lang=ts reason="docs sample"');
+    expect(report.bodies[0]?.eligible).toBe(true);
+    expect(report.bodies[0]?.reason).toBe('ok');
   });
 });
 

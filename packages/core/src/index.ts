@@ -142,7 +142,12 @@ export { classifyHandlerGap, isInlineSafeExpression, isInlineSafeLiteral } from 
 // Native KERN handler eligibility (slice 5a) — heuristic classifier used by
 // the diagnostic layer and the future `kern migrate native-handlers` CLI.
 export type { EligibilityResult, FileEligibilityReport, RawBody } from './native-eligibility.js';
-export { classifyHandlerBody, extractRawBodies, scanFileForEligibility } from './native-eligibility.js';
+export {
+  classifyHandlerBody,
+  extractRawBodies,
+  isExplicitForeignRawBody,
+  scanFileForEligibility,
+} from './native-eligibility.js';
 // Slice α-3: AST-walker classifier + shared helpers (migrator imports these).
 export type { AstEligibilityResult } from './native-eligibility-ast.js';
 export {

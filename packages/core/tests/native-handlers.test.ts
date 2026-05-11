@@ -55,6 +55,38 @@ describe('parseExpression — slice 1 native body additions', () => {
     const ir = parseExpression('user.profile.email');
     expect(ir.kind).toBe('member');
   });
+
+  test('typeof prefix produces a unary ValueIR node', () => {
+    const ir = parseExpression('typeof value === "string"');
+    expect(ir.kind).toBe('binary');
+    if (ir.kind === 'binary') {
+      expect(ir.left.kind).toBe('unary');
+      if (ir.left.kind === 'unary') {
+        expect(ir.left.op).toBe('typeof');
+      }
+    }
+  });
+
+  test('typeof remains usable as member and object property name', () => {
+    expect(emitExpression(parseExpression('obj.typeof'))).toBe('obj.typeof');
+    expect(emitExpression(parseExpression('{ typeof: "string" }'))).toBe('{ typeof: "string" }');
+    expect(emitExpression(parseExpression('{ typeof }'))).toBe('{ typeof: typeof }');
+  });
+
+  test('typeof prefix composes with postfix and type assertion forms', () => {
+    const propagated = parseExpression('typeof foo()?');
+    expect(propagated.kind).toBe('unary');
+    if (propagated.kind === 'unary') {
+      expect(propagated.op).toBe('typeof');
+      expect(propagated.argument.kind).toBe('propagate');
+    }
+    expect(emitExpression(parseExpression('typeof foo?.bar'))).toBe('typeof foo?.bar');
+    expect(emitExpression(parseExpression('typeof x as string'))).toBe('typeof (x as string)');
+  });
+
+  test('bare typeof without an operand is rejected as a prefix operator', () => {
+    expect(() => parseExpression('typeof')).toThrow();
+  });
 });
 
 // ── TS expression emitter additions ───────────────────────────────────────
@@ -71,6 +103,17 @@ describe('emitExpression — TS — await + propagate', () => {
   test('null and `none` both emit TS `null`', () => {
     expect(emitExpression(parseExpression('null'))).toBe('null');
     expect(emitExpression(parseExpression('none'))).toBe('null');
+  });
+
+  test('typeof emits TS prefix form and composes with strict equality', () => {
+    expect(emitExpression(parseExpression('typeof value === "string"'))).toBe('typeof value === "string"');
+  });
+
+  test('typeof emits standalone and nested prefix forms', () => {
+    expect(emitExpression(parseExpression('typeof value'))).toBe('typeof value');
+    expect(emitExpression(parseExpression('typeof typeof value'))).toBe('typeof (typeof value)');
+    expect(emitExpression(parseExpression('typeof (value === "string")'))).toBe('typeof (value === "string")');
+    expect(emitExpression(parseExpression('typeof await readValue()'))).toBe('typeof (await readValue())');
   });
 });
 
@@ -200,6 +243,22 @@ describe('emitNativeKernBodyTS — slice 1 statements', () => {
   test('return with value', () => {
     const handler = makeHandler([{ type: 'return', props: { value: 'Result.ok(u)' } }]);
     expect(emitNativeKernBodyTS(handler)).toBe('return Result.ok(u);');
+  });
+
+  test('return with typeof guard expression', () => {
+    const handler = makeHandler([{ type: 'return', props: { value: 'typeof value === "string"' } }]);
+    expect(emitNativeKernBodyTS(handler)).toBe('return typeof value === "string";');
+  });
+
+  test('if condition with typeof guard expression', () => {
+    const handler = makeHandler([
+      {
+        type: 'if',
+        props: { cond: 'typeof value === "string"' },
+        children: [{ type: 'return', props: { value: 'value' }, children: [] }],
+      },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(['if (typeof value === "string") {', '  return value;', '}'].join('\n'));
   });
 
   test('bare return emits `return;`', () => {
