@@ -209,7 +209,9 @@ describe('Concept Extraction (TS)', () => {
         async function fetchIt() { return request.get('https://api.example.com'); }
       `);
       const map = extractTsConcepts(sf, 'test.ts');
-      const effects = map.nodes.filter((n) => n.kind === 'effect' && n.payload.kind === 'effect' && n.payload.subtype === 'network');
+      const effects = map.nodes.filter(
+        (n) => n.kind === 'effect' && n.payload.kind === 'effect' && n.payload.subtype === 'network',
+      );
       expect(effects.length).toBe(1);
     });
   });

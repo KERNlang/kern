@@ -323,7 +323,8 @@ function hydrationMismatch(ctx: RuleContext): ReviewFinding[] {
   // skipping whitespace/newlines/comma until we hit a `?` token; if the
   // chunk between that `?` and the preceding non-ws token matches the
   // server-gate token list, treat as gated.
-  const SERVER_GATE_LHS_RE = /(?:__IS_SERVER|__IS_CLIENT|\bisServer\b|\bisClient\b|typeof\s+window\s*[!=]==?\s*['"]undefined['"])\s*$/;
+  const SERVER_GATE_LHS_RE =
+    /(?:__IS_SERVER|__IS_CLIENT|\bisServer\b|\bisClient\b|typeof\s+window\s*[!=]==?\s*['"]undefined['"])\s*$/;
   const guardedByServerCheck = (idx: number): boolean => {
     // Look back up to 400 chars for a `?` not inside parens/braces nested
     // deeper than the start. Cheap heuristic that handles single- and

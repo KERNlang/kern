@@ -51,9 +51,7 @@ export function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptN
 
     const isDirectNetwork = NETWORK_CALLS.has(funcName);
     const isKnownLibraryMethod =
-      !isWebApiAccessor &&
-      NETWORK_METHODS.has(funcName) &&
-      /axios|got|ky|http|request|superagent/i.test(objName);
+      !isWebApiAccessor && NETWORK_METHODS.has(funcName) && /axios|got|ky|http|request|superagent/i.test(objName);
     const isWrappedClientCall = CLIENT_HTTP_METHODS.has(funcName) && clientIdents.has(objName);
 
     if (isDirectNetwork || isKnownLibraryMethod || isWrappedClientCall) {
