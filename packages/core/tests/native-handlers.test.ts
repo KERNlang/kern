@@ -300,6 +300,36 @@ describe('emitNativeKernBodyTS — destructure body statement', () => {
     expect(emitNativeKernBodyTS(handler)).toContain('const [first, second]: [string, number] = pair;');
   });
 
+  test('emits let-kind object destructuring inside native body', () => {
+    const handler = makeHandler([
+      {
+        type: 'destructure',
+        props: { kind: 'let', source: 'req.body' },
+        children: [
+          { type: 'binding', props: { name: 'trackId' } },
+          { type: 'binding', props: { name: 'opts', key: 'options' } },
+        ],
+      },
+    ]);
+
+    expect(emitNativeKernBodyTS(handler)).toContain('let { trackId, options: opts } = req.body;');
+  });
+
+  test('emits let-kind array destructuring inside native body', () => {
+    const handler = makeHandler([
+      {
+        type: 'destructure',
+        props: { kind: 'let', source: 'pair' },
+        children: [
+          { type: 'element', props: { name: 'first', index: '0' } },
+          { type: 'element', props: { name: 'second', index: '1' } },
+        ],
+      },
+    ]);
+
+    expect(emitNativeKernBodyTS(handler)).toContain('let [first, second] = pair;');
+  });
+
   test('rejects propagation source inside try with try-specific guidance', () => {
     const handler = makeHandler([
       {

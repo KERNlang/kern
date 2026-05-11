@@ -332,8 +332,13 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
   test('object destructuring with rest rejected', () =>
     rejected(`const { a, ...rest } = obj;\nreturn a;`, 'var-destructure-rest'));
 
-  test('object destructuring let rejected (var-destructure-non-const)', () =>
-    rejected(`let { a } = obj;\nreturn a;`, 'var-destructure-non-const'));
+  test('object destructuring let is eligible', () => {
+    expect(classifyHandlerBody(`let { a } = obj;\nreturn a;`)).toEqual({ eligible: true, reason: 'ok' });
+  });
+
+  test('array destructuring let is eligible', () => {
+    expect(classifyHandlerBody(`let [first, second] = xs;\nreturn first;`)).toEqual({ eligible: true, reason: 'ok' });
+  });
 
   test('array destructuring with rest rejected', () =>
     rejected(`const [first, ...rest] = xs;\nreturn first;`, 'var-destructure-rest'));

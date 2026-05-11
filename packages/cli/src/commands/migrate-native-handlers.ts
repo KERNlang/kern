@@ -127,7 +127,7 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string,
     if (!decl.initializer) return null;
     const typeText = decl.type?.getText(source);
     if (typeText && !isValidKernTypeAnnotation(typeText)) return null;
-    if (!ts.isIdentifier(decl.name)) return isConst ? mapDestructureDecl(decl, source, indent, typeText) : null;
+    if (!ts.isIdentifier(decl.name)) return mapDestructureDecl(decl, source, indent, typeText, isLet ? 'let' : 'const');
     const name = decl.name.text;
     const exprText = decl.initializer.getText(source);
     if (!isValidKernExpression(exprText)) return null;
@@ -278,12 +278,13 @@ function mapDestructureDecl(
   source: ts.SourceFile,
   indent: string,
   typeText?: string,
+  kind: 'const' | 'let' = 'const',
 ): string[] | null {
   if (!decl.initializer) return null;
   const sourceText = decl.initializer.getText(source);
   if (!isValidKernExpression(sourceText)) return null;
   const typeAttr = typeText ? ` type="${escapeKernString(typeText)}"` : '';
-  const out: string[] = [`${indent}destructure kind=const${typeAttr} source="${escapeKernString(sourceText)}"`];
+  const out: string[] = [`${indent}destructure kind=${kind}${typeAttr} source="${escapeKernString(sourceText)}"`];
   const name = decl.name;
 
   if (ts.isObjectBindingPattern(name)) {

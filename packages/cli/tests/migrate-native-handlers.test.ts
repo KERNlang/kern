@@ -441,6 +441,40 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(result.output).toContain('element name=second index=1');
   });
 
+  test('migrates object destructuring let to destructure kind=let', () => {
+    const source = [
+      'fn name=load returns=string',
+      '  handler <<<',
+      '    let { trackId, options } = req.body;',
+      '    return trackId;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('destructure kind=let source="req.body"');
+    expect(result.output).toContain('binding name=trackId');
+    expect(result.output).toContain('binding name=options');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates array destructuring let to destructure kind=let', () => {
+    const source = [
+      'fn name=pair returns=string',
+      '  handler <<<',
+      '    let [first, second] = values;',
+      '    return first;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('destructure kind=let source="values"');
+    expect(result.output).toContain('element name=first index=0');
+    expect(result.output).toContain('element name=second index=1');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
   test('migrates typed array destructuring const', () => {
     const source = [
       'fn name=pair returns=string',
@@ -568,7 +602,7 @@ describe('rewriteNativeHandlers — bail conditions', () => {
     expect(result.hits).toHaveLength(0);
   });
 
-  test('bails on mutable destructuring let', () => {
+  test('migrates mutable destructuring let to destructure kind=let', () => {
     const source = [
       'fn name=ok returns=number',
       '  handler <<<',
@@ -577,8 +611,9 @@ describe('rewriteNativeHandlers — bail conditions', () => {
       '  >>>',
     ].join('\n');
     const result = rewriteNativeHandlers(source);
-    expect(result.hits).toHaveLength(0);
-    expect(result.output).toBe(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('destructure kind=let source="obj"');
+    expect(result.output).toContain('binding name=x');
   });
 
   test('bails on destructuring (const { a } = obj)', () => {
