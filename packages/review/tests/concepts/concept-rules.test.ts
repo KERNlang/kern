@@ -166,6 +166,52 @@ describe('Concept Extraction (TS)', () => {
         expect(effects[0].payload.subtype).toBe('db');
       }
     });
+
+    // RULE-FEEDBACK.md #3: synchronous Web API accessors (Headers, cookies,
+    // URLSearchParams) must NOT classify as network effects.
+    it('does NOT classify request.headers.get() as network effect', () => {
+      const sf = createSourceFile(`
+        function check(request: Request) {
+          if (request.headers.get('Authorization')?.includes('invalid')) return 401;
+          return 200;
+        }
+      `);
+      const map = extractTsConcepts(sf, 'test.ts');
+      const effects = map.nodes.filter((n) => n.kind === 'effect');
+      expect(effects.length).toBe(0);
+    });
+
+    it('does NOT classify url.searchParams.get() as network effect', () => {
+      const sf = createSourceFile(`
+        function read(url: URL) {
+          return url.searchParams.get('page');
+        }
+      `);
+      const map = extractTsConcepts(sf, 'test.ts');
+      const effects = map.nodes.filter((n) => n.kind === 'effect');
+      expect(effects.length).toBe(0);
+    });
+
+    it('does NOT classify req.cookies.get() as network effect', () => {
+      const sf = createSourceFile(`
+        function token(req: any) { return req.cookies.get('session'); }
+      `);
+      const map = extractTsConcepts(sf, 'test.ts');
+      const effects = map.nodes.filter((n) => n.kind === 'effect');
+      expect(effects.length).toBe(0);
+    });
+
+    // Regression guard for the Evil Twin's challenge #2: chained client
+    // builders must STILL be detected as network effects.
+    it('still detects request.get(url) (express-style http client)', () => {
+      const sf = createSourceFile(`
+        const request = require('http').request;
+        async function fetchIt() { return request.get('https://api.example.com'); }
+      `);
+      const map = extractTsConcepts(sf, 'test.ts');
+      const effects = map.nodes.filter((n) => n.kind === 'effect' && n.payload.kind === 'effect' && n.payload.subtype === 'network');
+      expect(effects.length).toBe(1);
+    });
   });
 });
 
