@@ -40,6 +40,7 @@ function requireOptionalModule(specifier: string): unknown {
 import { buildCallGraph } from './call-graph.js';
 import { runConceptRules } from './concept-rules/index.js';
 import { isWorkerContextFile } from './concept-rules/unguarded-effect.js';
+import { isTransportPrimitiveCarveOut } from './concept-rules/unrecovered-effect.js';
 import { structuralDiff } from './differ.js';
 import { runTSCDiagnostics } from './external-tools.js';
 import { buildFileContextMap } from './file-context.js';
@@ -828,6 +829,17 @@ function reviewSourceInternal(
   if (isWorkerContextFile(filePath, concepts)) {
     for (let i = allFindings.length - 1; i >= 0; i--) {
       if (allFindings[i].ruleId === 'unguarded-effect') allFindings.splice(i, 1);
+    }
+  }
+
+  // Drop unrecovered-effect findings on transport-primitive files whose
+  // container throws — the native .kern rule doesn't see the filename gate.
+  // See RULE-FEEDBACK.md #7 and Evil Twin Challenge 1.
+  for (let i = allFindings.length - 1; i >= 0; i--) {
+    const f = allFindings[i];
+    if (f.ruleId !== 'unrecovered-effect') continue;
+    if (isTransportPrimitiveCarveOut(filePath, concepts, f.primarySpan.startLine)) {
+      allFindings.splice(i, 1);
     }
   }
 

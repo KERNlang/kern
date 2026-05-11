@@ -261,5 +261,67 @@ describe('Concept Rules (universal)', () => {
       const finding = report.findings.find((f) => f.ruleId === 'unrecovered-effect');
       expect(finding).toBeUndefined();
     });
+
+    // RULE-FEEDBACK.md #7: transport primitives in request.ts/fetch.ts/http.ts
+    // /api-client.ts that contain a throw are deliberately propagating to
+    // callers. Suppress here, not at the wrapper.
+    it('does NOT fire on transport primitive in request.ts that throws on !ok', () => {
+      const source = `
+        export async function request<T>(url: string, init?: RequestInit): Promise<T> {
+          const response = await fetch(url, init);
+          if (!response.ok) {
+            throw new Error('transport failure: ' + response.status);
+          }
+          return response.json() as Promise<T>;
+        }
+      `;
+      const report = reviewSource(source, 'src/lib/request.ts');
+      const finding = report.findings.find((f) => f.ruleId === 'unrecovered-effect');
+      expect(finding).toBeUndefined();
+    });
+
+    it('does NOT fire on transport primitive in fetch.ts', () => {
+      const source = `
+        export async function httpGet<T>(url: string): Promise<T> {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error('failed');
+          return res.json();
+        }
+      `;
+      const report = reviewSource(source, 'src/lib/fetch.ts');
+      const finding = report.findings.find((f) => f.ruleId === 'unrecovered-effect');
+      expect(finding).toBeUndefined();
+    });
+
+    // Regression guard for Evil Twin Challenge 1: the throw-as-handler carve-
+    // out must NOT silence the rule outside transport files. A route handler
+    // that fetches and throws a validation error for an unrelated reason
+    // should still warn.
+    it('STILL fires when a route handler throws (not in a transport file)', () => {
+      const source = `
+        export async function POST(request: Request) {
+          const data = await fetch('https://api.example.com/items');
+          if (!data.ok) throw new Error('missing user');
+          return Response.json(await data.json());
+        }
+      `;
+      const report = reviewSource(source, 'app/api/items/route.ts');
+      const finding = report.findings.find((f) => f.ruleId === 'unrecovered-effect');
+      expect(finding).toBeDefined();
+    });
+
+    // Regression: transport-primitive file WITHOUT a throw still fires —
+    // the carve-out requires both signals.
+    it('STILL fires on request.ts function that fetches without throwing', () => {
+      const source = `
+        export async function fetchData(url: string) {
+          const res = await fetch(url);
+          return res.json();
+        }
+      `;
+      const report = reviewSource(source, 'src/lib/request.ts');
+      const finding = report.findings.find((f) => f.ruleId === 'unrecovered-effect');
+      expect(finding).toBeDefined();
+    });
   });
 });
