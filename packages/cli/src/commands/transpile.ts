@@ -299,6 +299,7 @@ export function printHelp(): void {
     '  review <file.ts|dir> [--git=<repo|github-url>] [options]  Static analysis, Cognitive Complexity & CI Gate',
   );
   console.log('  schema                                        Print the current KERN schema JSON');
+  console.log('  self-coverage [dir] [--json] [--verbose]      Measure native/migratable/foreign handler coverage');
   console.log('  evolve <dir|file> [options]                   Detect gaps → propose templates');
   console.log('  evolve:review [options]                       Review staged template proposals');
   console.log('  evolve:review-v4 [options]                    Review & graduate v4 node proposals');
