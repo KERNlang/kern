@@ -40,9 +40,12 @@ interface ClassifyContext {
   loopDepth: number;
 }
 
-/** True when `exprText` parses cleanly under KERN's parser-expression. The
- *  multi-line guard catches body-statement attributes (`value="…"`) where
- *  raw newlines would break the line shape.
+/** True when `exprText` parses cleanly under KERN's parser-expression.
+ *
+ *  Multi-line input is accepted: the parser itself is whitespace-insensitive,
+ *  and the migrator round-trips through `canonicalKernExpression` before
+ *  emitting into a quoted attribute value, so the original line shape never
+ *  reaches the .kern serializer.
  *
  *  Exported so the migrator (`migrate-native-handlers.ts`) shares the
  *  same predicate the classifier uses — slice α-3 gemini review pulled
@@ -50,7 +53,6 @@ interface ClassifyContext {
  *  bail conditions from drifting away from the classifier's pass
  *  conditions. */
 export function isValidKernExpression(exprText: string): boolean {
-  if (/\n/.test(exprText)) return false;
   try {
     parseExpression(exprText);
     return true;
@@ -60,7 +62,6 @@ export function isValidKernExpression(exprText: string): boolean {
 }
 
 export function isValidKernAssignmentTarget(exprText: string): boolean {
-  if (/\n/.test(exprText)) return false;
   try {
     return isAssignableTarget(parseExpression(exprText));
   } catch {
@@ -69,13 +70,67 @@ export function isValidKernAssignmentTarget(exprText: string): boolean {
 }
 
 export function isValidKernAssignmentValue(exprText: string): boolean {
-  if (/\n/.test(exprText)) return false;
   try {
     const expr = parseExpression(exprText);
     return expr.kind !== 'propagate';
   } catch {
     return false;
   }
+}
+
+/** Return a single-line form of `exprText` suitable for a quoted KERN
+ *  attribute value. The migrator uses this so multi-line const initializers
+ *  (`const x = {\n  a: 1,\n};`) can lift to `let name=x value="{ a: 1 }"`
+ *  without leaking the source line shape into the .kern serialization.
+ *
+ *  Returns `null` if:
+ *   - KERN's `parseExpression` rejects it (caller would bail anyway), or
+ *   - the TS parser rejects the wrapped form, or
+ *   - the expression contains a multi-line template literal whose newlines
+ *     are semantically significant and cannot be collapsed.
+ *
+ *  Why not `emitExpression`: that serializer translates KERN stdlib calls
+ *  to their TS-native form (`List.map(arr, fn)` → `arr.map(fn)`), which is
+ *  correct for codegen but wrong here — the migrator must keep the surface
+ *  call shape (`List.map(...)`) so the next round-trip parses to the same
+ *  KERN IR. TS printer + newline-collapse preserves the surface form while
+ *  normalizing whitespace outside string/template literals.
+ *
+ *  The migrator's `--verify` pre/post codegen diff catches any drift the
+ *  normalization introduces. */
+export function canonicalKernExpression(exprText: string): string | null {
+  try {
+    parseExpression(exprText);
+  } catch {
+    return null;
+  }
+  // Wrap in parens so a bare object literal (`{a:1}`) parses as an expression
+  // rather than a block statement.
+  const sf = ts.createSourceFile('__expr.ts', `(${exprText});`, ts.ScriptTarget.Latest, true);
+  const diags = (sf as unknown as { parseDiagnostics?: ts.Diagnostic[] }).parseDiagnostics;
+  if (diags && diags.length > 0) return null;
+  const stmt = sf.statements[0];
+  if (!stmt || !ts.isExpressionStatement(stmt)) return null;
+  let expr: ts.Expression = stmt.expression;
+  if (ts.isParenthesizedExpression(expr)) expr = expr.expression;
+  if (hasMultilineTemplate(expr, sf)) return null;
+  const printed = canonicalPrinter.printNode(ts.EmitHint.Expression, expr, sf);
+  return printed.replace(/\n\s*/g, ' ');
+}
+
+const canonicalPrinter = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed, removeComments: true });
+
+function hasMultilineTemplate(node: ts.Node, sf: ts.SourceFile): boolean {
+  let found = false;
+  const visit = (n: ts.Node) => {
+    if (found) return;
+    if (ts.isNoSubstitutionTemplateLiteral(n) || ts.isTemplateExpression(n)) {
+      if (n.getText(sf).includes('\n')) found = true;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(node);
+  return found;
 }
 
 export function isValidKernTypeAnnotation(typeText: string): boolean {

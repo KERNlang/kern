@@ -144,6 +144,7 @@ export { classifyHandlerBody, extractRawBodies, scanFileForEligibility } from '.
 // Slice α-3: AST-walker classifier + shared helpers (migrator imports these).
 export type { AstEligibilityResult } from './native-eligibility-ast.js';
 export {
+  canonicalKernExpression,
   classifyHandlerBodyAst,
   hasComments,
   isValidKernAssignmentTarget,

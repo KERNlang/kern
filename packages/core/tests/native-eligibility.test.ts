@@ -6,7 +6,42 @@ import {
   extractRawBodies,
   scanFileForEligibility,
 } from '../src/native-eligibility.js';
-import { isValidKernTypeAnnotation } from '../src/native-eligibility-ast.js';
+import { canonicalKernExpression, isValidKernTypeAnnotation } from '../src/native-eligibility-ast.js';
+
+describe('canonicalKernExpression — single-line normalization', () => {
+  test('passes single-line expression through unchanged structure', () => {
+    expect(canonicalKernExpression('x + 1')).toBe('x + 1');
+    expect(canonicalKernExpression('process.env.X || "default"')).toBe('process.env.X || "default"');
+  });
+
+  test('preserves KERN stdlib call surface (does NOT translate List.map → .map)', () => {
+    expect(canonicalKernExpression('List.map(users, user => user.name)')).toBe(
+      'List.map(users, user => user.name)',
+    );
+  });
+
+  test('collapses multi-line object literal to single line', () => {
+    expect(canonicalKernExpression('{\n  a: 1,\n  b: 2,\n}')).toBe('{ a: 1, b: 2, }');
+  });
+
+  test('collapses multi-line call with object arg', () => {
+    expect(canonicalKernExpression('fetch(url, {\n  method: "POST",\n  body: JSON.stringify({a:1}),\n})')).toBe(
+      'fetch(url, { method: "POST", body: JSON.stringify({ a: 1 }), })',
+    );
+  });
+
+  test('preserves single-line template literal verbatim', () => {
+    expect(canonicalKernExpression('`hello ${name} world`')).toBe('`hello ${name} world`');
+  });
+
+  test('bails on multi-line template literal (cannot collapse semantically)', () => {
+    expect(canonicalKernExpression('`hello\nworld`')).toBeNull();
+  });
+
+  test('bails on unparseable expression', () => {
+    expect(canonicalKernExpression('await async (x) => { return x; }')).toBeNull();
+  });
+});
 
 describe('isValidKernTypeAnnotation', () => {
   test('accepts common safe TypeScript annotations', () => {
