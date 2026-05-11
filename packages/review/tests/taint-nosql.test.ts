@@ -228,6 +228,127 @@ export async function get(req: any, res: any) {
     expect(f).toBeDefined();
   });
 
+  // ── SQL-builder FP guard (kern-guard PR #387) ──────────────────────
+  //
+  // Without the SQL_BUILDER_VERBS gate, the receiver allowlist `{db, conn,
+  // collection}` walks past Drizzle/Kysely chain verbs and FPs on every
+  // SQL `.where(...)` call rooted at a variable named `db`. The gate rejects
+  // these chains while preserving Mongoose `.where()` (covered by the
+  // fluent-chain test above).
+
+  it('does NOT fire on Drizzle select with tainted .where (kern-guard PR #387 repro)', () => {
+    const source = `
+import { db, schema } from '@kern-guard/core';
+export async function GET(req: any) {
+  return db.select().from(schema.companies).where(eq(schema.companies.id, req.body.id));
+}
+`;
+    const report = reviewSource(source, 'h.ts');
+    const f = report.findings.find((f) => f.ruleId === 'taint-nosql');
+    expect(f).toBeUndefined();
+  });
+
+  it('does NOT fire on Drizzle update().set().where with tainted body', () => {
+    const source = `
+export async function PATCH(req: any) {
+  return db.update(t).set({ name: 'x' }).where(eq(t.id, req.body.id));
+}
+`;
+    const report = reviewSource(source, 'h.ts');
+    const f = report.findings.find((f) => f.ruleId === 'taint-nosql');
+    expect(f).toBeUndefined();
+  });
+
+  it('does NOT fire on Drizzle delete().where with tainted body', () => {
+    const source = `
+export async function DELETE(req: any) {
+  return db.delete(t).where(eq(t.id, req.body.id));
+}
+`;
+    const report = reviewSource(source, 'h.ts');
+    const f = report.findings.find((f) => f.ruleId === 'taint-nosql');
+    expect(f).toBeUndefined();
+  });
+
+  it('does NOT fire on Kysely selectFrom().where chain', () => {
+    const source = `
+export async function GET(req: any) {
+  return db.selectFrom('t').where('id', '=', req.body.id).execute();
+}
+`;
+    const report = reviewSource(source, 'h.ts');
+    const f = report.findings.find((f) => f.ruleId === 'taint-nosql');
+    expect(f).toBeUndefined();
+  });
+
+  it('fires on Mongoose .select() before .where() (Codex/Gemini impl-review — verb collision)', () => {
+    // Without the allowlist-only verb gate, including `select` in SQL builder
+    // verbs would silently suppress this real Mongoose injection because
+    // Mongoose Query.select() shares the name with Drizzle's select.
+    const source = `
+export async function search(req: any, res: any) {
+  const docs = await User.find().select('name').where('age').gt(req.body.age);
+  res.json(docs);
+}
+`;
+    const report = reviewSource(source, 'h.ts');
+    const f = report.findings.find((f) => f.ruleId === 'taint-nosql');
+    expect(f).toBeDefined();
+  });
+
+  it('fires on Mongoose .limit() before .where() (Gemini impl-review — verb collision)', () => {
+    const source = `
+export async function search(req: any, res: any) {
+  const docs = await User.find().limit(10).where(req.body.field).exec();
+  res.json(docs);
+}
+`;
+    const report = reviewSource(source, 'h.ts');
+    const f = report.findings.find((f) => f.ruleId === 'taint-nosql');
+    expect(f).toBeDefined();
+  });
+
+  it('does NOT fire on Drizzle through alias hop (Gemini impl-review — verb chain hidden behind variable)', () => {
+    // `const q = db.select().from(t); q.where(req.body.id)` — without alias-hop
+    // verb tracing the receiver `q` would be a bare Identifier and the gate
+    // would miss the SQL chain in its initializer.
+    const source = `
+export async function GET(req: any) {
+  const q = db.select().from(t);
+  return q.where(eq(t.id, req.body.id));
+}
+`;
+    const report = reviewSource(source, 'h.ts');
+    const f = report.findings.find((f) => f.ruleId === 'taint-nosql');
+    expect(f).toBeUndefined();
+  });
+
+  it('does NOT fire on Drizzle wrapped in TS as-expression (Gemini impl-review)', () => {
+    const source = `
+export async function GET(req: any) {
+  return (db.select() as any).from(t).where(eq(t.id, req.body.id));
+}
+`;
+    const report = reviewSource(source, 'h.ts');
+    const f = report.findings.find((f) => f.ruleId === 'taint-nosql');
+    expect(f).toBeUndefined();
+  });
+
+  it('does NOT fire on typeorm createQueryBuilder().where with tainted body', () => {
+    // typeorm Repository is conventionally lowercase (`repo`), but a
+    // capitalized `Repo` would otherwise match the Mongoose-model branch
+    // of isLikelyNoSQLReceiver. The SQL-builder gate catches both via the
+    // `createQueryBuilder` verb in the chain.
+    const source = `
+export async function GET(req: any) {
+  return Repo.createQueryBuilder().where('id = :id', { id: req.body.id }).getOne();
+}
+`;
+    const report = reviewSource(source, 'h.ts');
+    const f = report.findings.find((f) => f.ruleId === 'taint-nosql');
+    expect(f).toBeUndefined();
+  });
+
   it('does NOT fire on internal helper that only forwards projection (interprocedural arg-index)', () => {
     // Codex impl-review: buildInternalSinkMap was promoting params into the
     // sink set without arg-index gating, so a helper that forwards a
