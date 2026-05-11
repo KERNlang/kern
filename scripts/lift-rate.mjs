@@ -66,7 +66,7 @@ const rejectionCounts = new Map();
 const excludedCounts = new Map();
 const fileReports = [];
 
-const EXCLUDED_REASONS = new Set(['foreign-by-design', 'template-placeholder']);
+const EXCLUDED_REASONS = new Set(['explicit-foreign', 'foreign-by-design', 'template-placeholder']);
 
 for (const file of files) {
   const content = readFileSync(file, 'utf8');

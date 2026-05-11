@@ -299,8 +299,20 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
       'foreign-by-design',
     );
     rejected(`res.on('close', () => abort.abort());\nreturn req.body;`, 'foreign-by-design');
+    rejected(`res.statusCode = 200;\nreturn result;`, 'foreign-by-design');
     rejected(`return req?.body;`, 'foreign-by-design');
-    rejected(`// FIXME\nreturn req.body;`, 'foreign-by-design');
+    rejected(`return req?.body.value;`, 'foreign-by-design');
+  });
+
+  test('plain request data reads stay migratable', () => {
+    expect(classifyHandlerBody(`const { id } = req.params;\nreturn id;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+    expect(classifyHandlerBody(`const { name } = req.body;\nreturn name;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
   });
 
   test('foreign/template classifiers ignore string literals and comment precedence', () => {
@@ -309,6 +321,7 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
       reason: 'ok',
     });
     rejected(`// TODO: replace with JSON.parse later\nreturn 1;`, 'comments-present');
+    rejected(`// FIXME\nreturn req.body;`, 'comments-present');
     rejected(`// comment before broken code\nreturn 1 +;`, 'comments-present');
     rejected(`return 1 +;`, 'ts-parse-error');
   });
@@ -616,6 +629,72 @@ describe('scanFileForEligibility', () => {
     const report = scanFileForEligibility(src);
     expect(report.bodies[0]?.startLine).toBe(2);
     expect(report.bodies[0]?.endLine).toBe(4);
+  });
+
+  test('classifies explicit host-language handler boundaries separately', () => {
+    const src = [
+      `fn name="foreign"`,
+      `  handler lang=ts reason="express response adapter" <<<`,
+      `    return 1 + 2;`,
+      `  >>>`,
+      `fn name="missingReason"`,
+      `  handler lang=ts <<<`,
+      `    return 1 + 2;`,
+      `  >>>`,
+    ].join('\n');
+    const report = scanFileForEligibility(src);
+    expect(report.totalBodies).toBe(2);
+    expect(report.eligibleBodies).toBe(1);
+    expect(report.bodies[0]?.declaredLang).toBe('ts');
+    expect(report.bodies[0]?.declaredReason).toBe('express response adapter');
+    expect(report.bodies[0]?.eligible).toBe(false);
+    expect(report.bodies[0]?.reason).toBe('explicit-foreign');
+    expect(report.bodies[1]?.eligible).toBe(true);
+    expect(report.bodies[1]?.reason).toBe('ok');
+  });
+
+  test('classifies explicit handler boundaries when quoted props contain fence text', () => {
+    const report = scanFileForEligibility(
+      [
+        'fn name=x',
+        '  handler title="my <<< title" lang=TS reason="adapter" <<<',
+        '    return res.body;',
+        '  >>>',
+      ].join('\n'),
+    );
+    expect(report.totalBodies).toBe(1);
+    expect(report.eligibleBodies).toBe(0);
+    expect(report.bodies[0]?.opener).toContain('title="my <<< title"');
+    expect(report.bodies[0]?.declaredLang).toBe('TS');
+    expect(report.bodies[0]?.declaredReason).toBe('adapter');
+    expect(report.bodies[0]?.reason).toBe('explicit-foreign');
+  });
+
+  test('classifies inline explicit host-language handler boundaries separately', () => {
+    const report = scanFileForEligibility(
+      'fn name=x\n  handler lang=python reason="numpy bridge" <<< return 1 + 2; >>>',
+    );
+    expect(report.totalBodies).toBe(1);
+    expect(report.eligibleBodies).toBe(0);
+    expect(report.bodies[0]?.declaredLang).toBe('python');
+    expect(report.bodies[0]?.reason).toBe('explicit-foreign');
+  });
+
+  test('does not treat native handler metadata as explicit foreign in scanner', () => {
+    const report = scanFileForEligibility(
+      ['fn name=x', '  handler lang=kern reason="invalid metadata" <<<', '    return 1 + 2;', '  >>>'].join('\n'),
+    );
+    expect(report.totalBodies).toBe(1);
+    expect(report.bodies[0]?.reason).not.toBe('explicit-foreign');
+  });
+
+  test('does not classify non-handler raw blocks as explicit foreign handlers', () => {
+    const src = [`codeblock lang=ts reason="docs sample" <<<`, `  return 1 + 2;`, `>>>`].join('\n');
+    const report = scanFileForEligibility(src);
+    expect(report.totalBodies).toBe(1);
+    expect(report.bodies[0]?.opener).toBe('codeblock lang=ts reason="docs sample"');
+    expect(report.bodies[0]?.eligible).toBe(true);
+    expect(report.bodies[0]?.reason).toBe('ok');
   });
 });
 

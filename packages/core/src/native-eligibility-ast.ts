@@ -186,11 +186,10 @@ function isHostInteropBody(sf: ts.SourceFile): boolean {
 function isHostInteropNode(node: ts.Node, localBindings: ReadonlySet<string>): boolean {
   if (ts.isPropertyAccessExpression(node)) {
     const root = rootIdentifierName(node.expression);
-    if (
-      root &&
-      !localBindings.has(root) &&
-      (root === 'req' || root === 'res' || root === 'process' || root === 'db' || root === 'uri')
-    ) {
+    if (root && !localBindings.has(root) && (root === 'res' || root === 'process' || root === 'db' || root === 'uri')) {
+      return true;
+    }
+    if (root && !localBindings.has(root) && root === 'req' && hasOptionalAccess(node)) {
       return true;
     }
   }
@@ -209,7 +208,13 @@ function isHostInteropNode(node: ts.Node, localBindings: ReadonlySet<string>): b
     }
     if (ts.isPropertyAccessExpression(callee)) {
       const root = rootIdentifierName(callee.expression);
-      if (root && !localBindings.has(root) && (root === 'db' || root === 'registry')) return true;
+      if (
+        root &&
+        !localBindings.has(root) &&
+        (root === 'db' || root === 'registry' || root === 'req' || root === 'res')
+      ) {
+        return true;
+      }
     }
   }
 
@@ -253,6 +258,15 @@ function rootIdentifierName(node: ts.Expression): string | null {
   }
   if (ts.isCallExpression(current)) return null;
   return ts.isIdentifier(current) ? current.text : null;
+}
+
+function hasOptionalAccess(node: ts.Expression): boolean {
+  let current: ts.Expression = node;
+  while (ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current)) {
+    if ((current as { questionDotToken?: unknown }).questionDotToken !== undefined) return true;
+    current = current.expression;
+  }
+  return false;
 }
 
 function isAssignableTarget(node: ValueIR): boolean {

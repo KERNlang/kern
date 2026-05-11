@@ -93,6 +93,60 @@ function stripInlineComment(content: string): string {
   return content;
 }
 
+function indexOfFenceOutsideQuotes(content: string, fence: '<<<' | '>>>'): number {
+  let inQuote = false;
+  let quoteChar: '"' | "'" | null = null;
+  let exprDepth = 0;
+
+  for (let i = 0; i < content.length; i++) {
+    const ch = content[i];
+    const next = content[i + 1];
+
+    if (ch === '\\' && inQuote) {
+      i++;
+      continue;
+    }
+    if ((ch === '"' || ch === "'") && (!inQuote || ch === quoteChar)) {
+      if (inQuote) {
+        inQuote = false;
+        quoteChar = null;
+      } else {
+        inQuote = true;
+        quoteChar = ch as '"' | "'";
+      }
+      continue;
+    }
+    if (inQuote) continue;
+
+    if (ch === '{' && next === '{') {
+      exprDepth++;
+      i++;
+      continue;
+    }
+    if (ch === '}' && next === '}' && exprDepth > 0) {
+      exprDepth--;
+      i++;
+      continue;
+    }
+    if (exprDepth > 0) continue;
+
+    if (content.startsWith(fence, i)) return i;
+  }
+
+  return -1;
+}
+
+function findMultilineBlockOpen(trimmed: string, runtime: KernRuntime): { type: string; openIdx: number } | undefined {
+  for (const type of runtime.multilineBlockTypes) {
+    if (!trimmed.startsWith(type)) continue;
+    const afterType = trimmed.slice(type.length);
+    if (!/^\s/.test(afterType)) continue;
+    const openIdx = indexOfFenceOutsideQuotes(trimmed, '<<<');
+    if (openIdx !== -1) return { type, openIdx };
+  }
+  return undefined;
+}
+
 // ── Prop parsing ─────────────────────────────────────────────────────────
 
 /** Map a value token to its JS representation. */
@@ -461,13 +515,16 @@ function parseLines(state: ParseState, source: string, runtime: KernRuntime = de
     // Skip comment lines (// or #)
     if (trimmed.startsWith('//') || trimmed.startsWith('#')) continue;
 
-    const multilineType = [...runtime.multilineBlockTypes].find((type) => trimmed.startsWith(`${type} <<<`));
-    if (multilineType) {
+    const multilineOpen = findMultilineBlockOpen(trimmed, runtime);
+    if (multilineOpen) {
+      const multilineType = multilineOpen.type;
       const indent = lines[i].search(/\S/);
       const codeLines: string[] = [];
       const startLine = i + 1;
-      const blockOpen = `${multilineType} <<<`;
-      const afterOpen = trimmed.slice(blockOpen.length);
+      const openIdx = multilineOpen.openIdx;
+      const opener = trimmed.slice(0, openIdx).trimEnd();
+      const blockOpen = `${opener} <<<`;
+      const afterOpen = trimmed.slice(openIdx + 3);
       let closed = false;
       if (afterOpen.includes('>>>')) {
         closed = true;
@@ -502,14 +559,16 @@ function parseLines(state: ParseState, source: string, runtime: KernRuntime = de
           },
         );
       }
+      const openerParsed = parseLine(state, `${' '.repeat(indent)}${opener}`, startLine, runtime);
       parsed.push({
         indent,
         rawLength: lines[startLine - 1].slice(indent).length,
-        type: multilineType,
-        props: { code: codeLines.join('\n').replace(/^\n+|\n+$/g, '') },
-        styles: {},
-        pseudoStyles: {},
-        themeRefs: [],
+        type: openerParsed?.type ?? multilineType,
+        props: { ...(openerParsed?.props ?? {}), code: codeLines.join('\n').replace(/^\n+|\n+$/g, '') },
+        quotedProps: openerParsed?.quotedProps,
+        styles: openerParsed?.styles ?? {},
+        pseudoStyles: openerParsed?.pseudoStyles ?? {},
+        themeRefs: openerParsed?.themeRefs ?? [],
         loc: {
           line: startLine,
           col: indent + 1,
@@ -531,7 +590,9 @@ function parseLines(state: ParseState, source: string, runtime: KernRuntime = de
     while (lineState.inQuote && i + 1 < lines.length) {
       const nextTrimmed = lines[i + 1].trimStart();
       if (nextTrimmed.startsWith('//') || nextTrimmed.startsWith('#')) break;
-      if ([...runtime.multilineBlockTypes].some((t) => nextTrimmed.startsWith(`${t} <<<`))) break;
+      if (findMultilineBlockOpen(nextTrimmed, runtime)) {
+        break;
+      }
       i++;
       joinedParts.push(lines[i]);
       lineState = scanLineState(lines[i], lineState);

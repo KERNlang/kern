@@ -67,6 +67,17 @@ describe('Parser multi-line quoted strings', () => {
     expect(handler?.props?.code).toContain('const value = "unterminated on purpose;');
   });
 
+  test('raw block opener ignores fence text inside quoted props', () => {
+    const source = ['fn name=demo', '  handler title="my <<< title" <<<', '    return 1;', '  >>>'].join('\n');
+    const { root, diagnostics } = parseDocumentWithDiagnostics(source);
+    const handler = root.children?.[0]?.children?.[0];
+
+    expect(diagnostics.filter((d) => d.severity === 'error')).toHaveLength(0);
+    expect(handler?.type).toBe('handler');
+    expect(handler?.props?.title).toBe('my <<< title');
+    expect(handler?.props?.code).toContain('return 1;');
+  });
+
   test('comments after the closing quote are still stripped', () => {
     const { root, diagnostics } = parseWithDiagnostics(
       ['method name=load params="foo', 'bar"  # real comment'].join('\n'),

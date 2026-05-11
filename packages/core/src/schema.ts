@@ -1567,6 +1567,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       code: { kind: 'rawBlock' },
       lang: { kind: 'string' },
+      reason: { kind: 'string' },
+      review: { kind: 'identifier' },
     },
     // Body-statement children apply when `lang="kern"`. Outside that opt-in,
     // body statements are rejected by validateBodyStatements (the schema list
@@ -2892,6 +2894,17 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[], parent?: I
       violations.push({
         nodeType: node.type,
         message,
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+  }
+  if (node.type === 'handler' && ('reason' in props || 'review' in props)) {
+    const lang = typeof props.lang === 'string' ? props.lang.trim().toLowerCase() : '';
+    if (lang === '' || lang === 'kern') {
+      violations.push({
+        nodeType: 'handler',
+        message: '`handler reason=`/`review=` metadata requires an explicit non-kern `lang=` foreign boundary',
         line: node.loc?.line,
         col: node.loc?.col,
       });

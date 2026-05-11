@@ -17,7 +17,7 @@
  *  filter the code out at the consumer site.
  */
 
-import { classifyHandlerBody } from './native-eligibility.js';
+import { classifyHandlerBody, isExplicitForeignRawBody } from './native-eligibility.js';
 import { createParseState, emitDiagnostic, type ParseState } from './parser-diagnostics.js';
 import type { IRNode, ParseDiagnostic } from './types.js';
 
@@ -41,18 +41,28 @@ function walk(state: ParseState, node: IRNode): void {
     const code = props.code;
     const lang = props.lang;
     if (typeof code === 'string' && lang !== 'kern') {
-      const result = classifyHandlerBody(code);
-      if (result.eligible) {
-        const loc = node.loc ?? { line: 1, col: 1, endCol: 2 };
-        emitDiagnostic(
-          state,
-          'NATIVE_KERN_ELIGIBLE',
-          'warning',
-          'This handler body uses only patterns supported by `lang="kern"` — opt in for native cross-target validation. Run `kern migrate native-handlers --write` to bulk-rewrite eligible bodies.',
-          loc.line,
-          loc.col,
-          { endCol: loc.endCol ?? loc.col + 1 },
-        );
+      if (
+        isExplicitForeignRawBody({
+          opener: 'handler',
+          declaredLang: typeof lang === 'string' ? lang : undefined,
+          declaredReason: typeof props.reason === 'string' ? props.reason : undefined,
+        })
+      ) {
+        // Explicit foreign boundaries are reviewed as interop, not migration gaps.
+      } else {
+        const result = classifyHandlerBody(code);
+        if (result.eligible) {
+          const loc = node.loc ?? { line: 1, col: 1, endCol: 2 };
+          emitDiagnostic(
+            state,
+            'NATIVE_KERN_ELIGIBLE',
+            'warning',
+            'This handler body uses only patterns supported by `lang="kern"` — opt in for native cross-target validation. Run `kern migrate native-handlers --write` to bulk-rewrite eligible bodies.',
+            loc.line,
+            loc.col,
+            { endCol: loc.endCol ?? loc.col + 1 },
+          );
+        }
       }
     }
   }

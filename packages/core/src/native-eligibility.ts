@@ -47,6 +47,12 @@ export interface RawBody {
   startLine: number;
   /** 1-indexed line number of the `>>>` closer. */
   endLine: number;
+  /** Raw opener text before `<<<`, when present. */
+  opener?: string;
+  /** Parsed `lang=` value from the opener, when present. */
+  declaredLang?: string;
+  /** Parsed `reason=` value from the opener, when present. */
+  declaredReason?: string;
 }
 
 /** Aggregate eligibility report for a single file. */
@@ -107,6 +113,77 @@ export const LEGACY_NEG_PATTERNS: ReadonlyArray<RegExp> = [
   /\/\w+\/[gimsy]*/,
 ];
 
+const FOREIGN_HANDLER_LANGS = new Set(['ts', 'typescript', 'js', 'javascript', 'python', 'py']);
+
+function indexOfFenceOutsideQuotes(content: string, fence: '<<<' | '>>>'): number {
+  let inQuote = false;
+  let quoteChar: '"' | "'" | null = null;
+  let exprDepth = 0;
+
+  for (let i = 0; i < content.length; i++) {
+    const ch = content[i];
+    const next = content[i + 1];
+
+    if (ch === '\\' && inQuote) {
+      i++;
+      continue;
+    }
+    if ((ch === '"' || ch === "'") && (!inQuote || ch === quoteChar)) {
+      if (inQuote) {
+        inQuote = false;
+        quoteChar = null;
+      } else {
+        inQuote = true;
+        quoteChar = ch as '"' | "'";
+      }
+      continue;
+    }
+    if (inQuote) continue;
+
+    if (ch === '{' && next === '{') {
+      exprDepth++;
+      i++;
+      continue;
+    }
+    if (ch === '}' && next === '}' && exprDepth > 0) {
+      exprDepth--;
+      i++;
+      continue;
+    }
+    if (exprDepth > 0) continue;
+
+    if (content.startsWith(fence, i)) return i;
+  }
+
+  return -1;
+}
+
+function parseBoundaryProp(opener: string, propName: string): string | undefined {
+  const quoted = new RegExp(`(?:^|\\s)${propName}="([^"]*)"`).exec(opener);
+  if (quoted) return quoted[1];
+  const bare = new RegExp(`(?:^|\\s)${propName}=([^\\s]+)`).exec(opener);
+  return bare?.[1];
+}
+
+function annotateRawBody(text: string, startLine: number, endLine: number, opener: string): RawBody {
+  return {
+    text,
+    startLine,
+    endLine,
+    opener: opener.trim(),
+    declaredLang: parseBoundaryProp(opener, 'lang'),
+    declaredReason: parseBoundaryProp(opener, 'reason'),
+  };
+}
+
+export function isExplicitForeignRawBody(body: Pick<RawBody, 'declaredLang' | 'declaredReason' | 'opener'>): boolean {
+  const opener = body.opener?.trim();
+  if (opener && !/^handler\b/.test(opener)) return false;
+  const lang = body.declaredLang?.trim().toLowerCase();
+  const reason = body.declaredReason?.trim();
+  return Boolean(lang && reason && FOREIGN_HANDLER_LANGS.has(lang));
+}
+
 /** Classify a single raw body. Slice α-3: delegates to the AST walker so
  *  eligibility ≡ migrate-success by construction. */
 export function classifyHandlerBody(rawBody: string): EligibilityResult {
@@ -131,17 +208,18 @@ export function extractRawBodies(content: string): RawBody[] {
   let inBody = false;
   let buf: string[] = [];
   let startLine = 0;
+  let opener = '';
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!inBody) {
-      const openIdx = line.indexOf('<<<');
+      const openIdx = indexOfFenceOutsideQuotes(line, '<<<');
       if (openIdx === -1) continue;
       const afterOpen = line.slice(openIdx + 3);
       const closeIdx = afterOpen.indexOf('>>>');
       if (closeIdx !== -1) {
         // Shape 1: inline single-line `handler <<< body >>>`.
-        bodies.push({ text: afterOpen.slice(0, closeIdx).trim(), startLine: i + 1, endLine: i + 1 });
+        bodies.push(annotateRawBody(afterOpen.slice(0, closeIdx).trim(), i + 1, i + 1, line.slice(0, openIdx)));
         continue;
       }
       // Shape 2/3: multi-line block. parser-core.ts `parseLines` discards
@@ -151,6 +229,7 @@ export function extractRawBodies(content: string): RawBody[] {
       inBody = true;
       buf = [];
       startLine = i + 1;
+      opener = line.slice(0, openIdx);
     } else {
       const closeIdx = line.indexOf('>>>');
       if (closeIdx === -1) {
@@ -159,8 +238,9 @@ export function extractRawBodies(content: string): RawBody[] {
       }
       const before = line.slice(0, closeIdx).trim();
       if (before.length > 0) buf.push(before);
-      bodies.push({ text: buf.join('\n'), startLine, endLine: i + 1 });
+      bodies.push(annotateRawBody(buf.join('\n'), startLine, i + 1, opener));
       inBody = false;
+      opener = '';
     }
   }
   return bodies;
@@ -173,7 +253,9 @@ export function scanFileForEligibility(content: string): FileEligibilityReport {
   const raw = extractRawBodies(content);
   let eligibleBodies = 0;
   const bodies = raw.map((body) => {
-    const result = classifyHandlerBody(body.text);
+    const result = isExplicitForeignRawBody(body)
+      ? { eligible: false, reason: 'explicit-foreign' }
+      : classifyHandlerBody(body.text);
     if (result.eligible) eligibleBodies++;
     return { ...body, ...result };
   });

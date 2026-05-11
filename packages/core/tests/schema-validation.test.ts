@@ -70,6 +70,47 @@ describe('Schema Validation', () => {
       expect(v).toHaveLength(0);
     });
 
+    it('passes explicit foreign handler metadata', () => {
+      const v = validate(
+        [
+          'fn name=bridge',
+          '  handler lang=ts reason="express response adapter" review=manual <<<',
+          '    return res.json({ ok: true });',
+          '  >>>',
+        ].join('\n'),
+      );
+      expect(v).toHaveLength(0);
+    });
+
+    it('rejects foreign handler metadata on native KERN handlers', () => {
+      const v = validate(
+        ['fn name=bridge', '  handler lang=kern reason="already native"', '    return value=ok'].join('\n'),
+      );
+      expect(v.some((violation) => violation.message.includes('metadata requires an explicit non-kern `lang=`'))).toBe(
+        true,
+      );
+    });
+
+    it('rejects foreign handler metadata on case-variant native KERN handlers', () => {
+      const v = validate(
+        ['fn name=bridge', '  handler lang=KERN reason="already native"', '    return value=ok'].join('\n'),
+      );
+      expect(v.some((violation) => violation.message.includes('metadata requires an explicit non-kern `lang=`'))).toBe(
+        true,
+      );
+    });
+
+    it('rejects foreign handler metadata without explicit lang', () => {
+      const v = validate(
+        ['fn name=bridge', '  handler reason="adapter glue" <<<', '    return res.json({ ok: true });', '  >>>'].join(
+          '\n',
+        ),
+      );
+      expect(v.some((violation) => violation.message.includes('metadata requires an explicit non-kern `lang=`'))).toBe(
+        true,
+      );
+    });
+
     it('passes target-specific external imports', () => {
       const v = validate(
         ['import from=react registry=npm names=useMemo', 'import from=numpy registry=pypi names=array'].join('\n'),
