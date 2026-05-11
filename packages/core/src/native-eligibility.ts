@@ -115,42 +115,52 @@ export const LEGACY_NEG_PATTERNS: ReadonlyArray<RegExp> = [
 
 const FOREIGN_HANDLER_LANGS = new Set(['ts', 'typescript', 'js', 'javascript', 'python', 'py']);
 
-function indexOfFenceOutsideQuotes(content: string, fence: '<<<' | '>>>'): number {
-  let inQuote = false;
-  let quoteChar: '"' | "'" | null = null;
-  let exprDepth = 0;
+interface FenceScanState {
+  inQuote: boolean;
+  quoteChar: '"' | "'" | '`' | null;
+  exprDepth: number;
+}
 
+function createFenceScanState(): FenceScanState {
+  return { inQuote: false, quoteChar: null, exprDepth: 0 };
+}
+
+function indexOfFenceOutsideQuotes(
+  content: string,
+  fence: '<<<' | '>>>',
+  state: FenceScanState = createFenceScanState(),
+): number {
   for (let i = 0; i < content.length; i++) {
     const ch = content[i];
     const next = content[i + 1];
 
-    if (ch === '\\' && inQuote) {
+    if (ch === '\\' && state.inQuote) {
       i++;
       continue;
     }
-    if ((ch === '"' || ch === "'") && (!inQuote || ch === quoteChar)) {
-      if (inQuote) {
-        inQuote = false;
-        quoteChar = null;
+    if ((ch === '"' || ch === "'" || ch === '`') && (!state.inQuote || ch === state.quoteChar)) {
+      if (state.inQuote) {
+        state.inQuote = false;
+        state.quoteChar = null;
       } else {
-        inQuote = true;
-        quoteChar = ch as '"' | "'";
+        state.inQuote = true;
+        state.quoteChar = ch as '"' | "'" | '`';
       }
       continue;
     }
-    if (inQuote) continue;
+    if (state.inQuote) continue;
 
     if (ch === '{' && next === '{') {
-      exprDepth++;
+      state.exprDepth++;
       i++;
       continue;
     }
-    if (ch === '}' && next === '}' && exprDepth > 0) {
-      exprDepth--;
+    if (ch === '}' && next === '}' && state.exprDepth > 0) {
+      state.exprDepth--;
       i++;
       continue;
     }
-    if (exprDepth > 0) continue;
+    if (state.exprDepth > 0) continue;
 
     if (content.startsWith(fence, i)) return i;
   }
@@ -209,6 +219,7 @@ export function extractRawBodies(content: string): RawBody[] {
   let buf: string[] = [];
   let startLine = 0;
   let opener = '';
+  let closeScanState = createFenceScanState();
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -216,7 +227,7 @@ export function extractRawBodies(content: string): RawBody[] {
       const openIdx = indexOfFenceOutsideQuotes(line, '<<<');
       if (openIdx === -1) continue;
       const afterOpen = line.slice(openIdx + 3);
-      const closeIdx = afterOpen.indexOf('>>>');
+      const closeIdx = indexOfFenceOutsideQuotes(afterOpen, '>>>');
       if (closeIdx !== -1) {
         // Shape 1: inline single-line `handler <<< body >>>`.
         bodies.push(annotateRawBody(afterOpen.slice(0, closeIdx).trim(), i + 1, i + 1, line.slice(0, openIdx)));
@@ -230,8 +241,9 @@ export function extractRawBodies(content: string): RawBody[] {
       buf = [];
       startLine = i + 1;
       opener = line.slice(0, openIdx);
+      closeScanState = createFenceScanState();
     } else {
-      const closeIdx = line.indexOf('>>>');
+      const closeIdx = indexOfFenceOutsideQuotes(line, '>>>', closeScanState);
       if (closeIdx === -1) {
         buf.push(line);
         continue;
@@ -241,6 +253,7 @@ export function extractRawBodies(content: string): RawBody[] {
       bodies.push(annotateRawBody(buf.join('\n'), startLine, i + 1, opener));
       inBody = false;
       opener = '';
+      closeScanState = createFenceScanState();
     }
   }
   return bodies;

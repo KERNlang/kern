@@ -320,8 +320,11 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
       eligible: true,
       reason: 'ok',
     });
-    rejected(`// TODO: replace with JSON.parse later\nreturn 1;`, 'comments-present');
-    rejected(`// FIXME\nreturn req.body;`, 'comments-present');
+    expect(classifyHandlerBody(`// TODO: replace with JSON.parse later\nreturn 1;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+    expect(classifyHandlerBody(`// FIXME\nreturn req.body;`)).toEqual({ eligible: true, reason: 'ok' });
     rejected(`// comment before broken code\nreturn 1 +;`, 'comments-present');
     rejected(`return 1 +;`, 'ts-parse-error');
   });
@@ -516,9 +519,18 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
     expect(classifyHandlerBody(`let x = 1;\nreturn x;`)).toEqual({ eligible: true, reason: 'ok' });
   });
 
-  // Comments-present bails the migrator silently, so the classifier mirrors
-  // that bail as a top-level reason (BEFORE statement walking).
-  test('comments inside body rejected', () => rejected(`// note\nreturn 1;`, 'comments-present'));
+  test('standalone comments inside body are eligible and preserved by migration', () => {
+    expect(classifyHandlerBody(`// note\nreturn 1;`)).toEqual({ eligible: true, reason: 'ok' });
+    expect(classifyHandlerBody(`if (ok) {\n  // nested note\n  return 1;\n}\nreturn 0;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
+  test('inline and trailing comments remain rejected', () => {
+    rejected(`return 1; // note`, 'comments-present');
+    rejected(`return 1;\n// tail`, 'comments-present');
+  });
 });
 
 describe('classifyHandlerBody — array / object literals stay eligible', () => {
@@ -668,6 +680,31 @@ describe('scanFileForEligibility', () => {
     expect(report.bodies[0]?.declaredLang).toBe('TS');
     expect(report.bodies[0]?.declaredReason).toBe('adapter');
     expect(report.bodies[0]?.reason).toBe('explicit-foreign');
+  });
+
+  test('classifies handler bodies when string literals contain closing fence text', () => {
+    const inline = extractRawBodies('fn name=x\n  handler <<< return ">>>"; >>>');
+    expect(inline).toHaveLength(1);
+    expect(inline[0]?.text).toBe('return ">>>";');
+
+    const template = extractRawBodies('fn name=x\n  handler <<< return `>>>`; >>>');
+    expect(template).toHaveLength(1);
+    expect(template[0]?.text).toBe('return `>>>`;');
+
+    const multiline = extractRawBodies(
+      ['fn name=x', '  handler <<<', '    const marker = ">>>";', '    return marker;', '  >>>'].join('\n'),
+    );
+    expect(multiline).toHaveLength(1);
+    expect(multiline[0]?.text).toContain('const marker = ">>>";');
+    expect(multiline[0]?.text).toContain('return marker;');
+
+    const multilineTemplate = extractRawBodies(
+      ['fn name=x', '  handler <<<', '    const marker = `', '>>>', '`;', '    return marker;', '  >>>'].join('\n'),
+    );
+    expect(multilineTemplate).toHaveLength(1);
+    expect(multilineTemplate[0]?.text).toContain('const marker = `');
+    expect(multilineTemplate[0]?.text).toContain('>>>');
+    expect(multilineTemplate[0]?.text).toContain('return marker;');
   });
 
   test('classifies inline explicit host-language handler boundaries separately', () => {

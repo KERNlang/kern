@@ -154,6 +154,7 @@ export {
   canonicalKernExpression,
   classifyHandlerBodyAst,
   hasComments,
+  hasOnlyMigratableComments,
   isValidKernAssignmentTarget,
   isValidKernAssignmentValue,
   isValidKernExpression,

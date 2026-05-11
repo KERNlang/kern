@@ -73,6 +73,16 @@ describe('emitNativeKernBodyPython — slice 1 statements', () => {
     expect(emitNativeKernBodyPython(h)).toBe('x = foo()');
   });
 
+  test('multiline block comments lower to valid Python comments', () => {
+    const h = makeHandler([{ type: 'comment', props: { raw: '/* first\n * second */' } }]);
+    expect(emitNativeKernBodyPython(h)).toBe(['# first', '# second'].join('\n'));
+  });
+
+  test('multiline text comments lower every line to a Python comment', () => {
+    const h = makeHandler([{ type: 'comment', props: { text: 'first\nsecond' } }]);
+    expect(emitNativeKernBodyPython(h)).toBe(['# first', '# second'].join('\n'));
+  });
+
   test('let kind=let lowers to Python assignment', () => {
     const h = makeHandler([{ type: 'let', props: { name: 'x', kind: 'let', value: 'foo()' } }]);
     expect(emitNativeKernBodyPython(h)).toBe('x = foo()');

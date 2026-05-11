@@ -59,6 +59,15 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       code: { kind: 'rawBlock' },
     },
   },
+  comment: {
+    description:
+      'Native body comment preserved during raw-handler migration. `raw=` may keep a host-style single-line comment; `text=` emits a target-native line comment.',
+    example: 'comment text="explain the early return"',
+    props: {
+      raw: { kind: 'string' },
+      text: { kind: 'string' },
+    },
+  },
   type: {
     description:
       'TypeScript type alias — union of string literals, or alias to another type (including tuple types like [string, number]). Use generics="<T>" for parameterised aliases.',
@@ -582,6 +591,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'handler',
       'catch',
       'finally',
+      'comment',
       'let',
       'assign',
       'destructure',
@@ -619,6 +629,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
     allowedChildren: [
       'handler',
+      'comment',
       'let',
       'assign',
       'destructure',
@@ -643,6 +654,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     example: 'try\n  let name=conn value="acquire()"\n  do value="conn.use()"\nfinally\n  do value="conn.release()"',
     props: {},
     allowedChildren: [
+      'comment',
       'let',
       'assign',
       'do',
@@ -1577,6 +1589,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: [
       'cell',
       'set',
+      'comment',
       'let',
       'assign',
       'destructure',
@@ -1659,6 +1672,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       cond: { required: true, kind: 'expression' },
     },
     allowedChildren: [
+      'comment',
       'let',
       'assign',
       'destructure',
@@ -1689,6 +1703,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       step: { kind: 'expression' },
     },
     allowedChildren: [
+      'comment',
       'let',
       'assign',
       'destructure',

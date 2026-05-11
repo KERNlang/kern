@@ -178,7 +178,9 @@ function emitChildrenPy(
   try {
     for (let i = 0; i < children.length; i++) {
       const child = children[i];
-      if (child.type === 'cell') {
+      if (child.type === 'comment') {
+        for (const line of emitCommentPy(child)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'cell') {
         for (const line of emitCellPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'set') {
         for (const line of emitSetPy(child, ctx)) lines.push(`${indent}${line}`);
@@ -812,6 +814,21 @@ function templateToPyFString(template: string, ctx: BodyEmitContext): string {
   }
   out += '"';
   return out;
+}
+
+function emitCommentPy(node: IRNode): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const raw = props.raw === undefined || props.raw === null ? '' : String(props.raw).trim();
+  if (raw.startsWith('//')) return [`# ${raw.slice(2).trim()}`.trimEnd()];
+  if (raw.startsWith('/*') && raw.endsWith('*/')) {
+    return raw
+      .slice(2, -2)
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => `# ${line.replace(/^\s*\*\s?/, '').trimEnd()}`.trimEnd());
+  }
+  const text = props.text === undefined || props.text === null ? '' : String(props.text);
+  return text.split(/\r?\n/).map((line) => `# ${line}`.trimEnd());
 }
 
 function emitReturnPy(node: IRNode, ctx: BodyEmitContext): string[] {

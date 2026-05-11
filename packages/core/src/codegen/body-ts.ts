@@ -117,7 +117,9 @@ function emitChildrenTS(
   try {
     for (let i = 0; i < children.length; i++) {
       const child = children[i];
-      if (child.type === 'cell') {
+      if (child.type === 'comment') {
+        for (const line of emitCommentTS(child)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'cell') {
         for (const line of emitCellTS(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'set') {
         for (const line of emitSetTS(child, ctx)) lines.push(`${indent}${line}`);
@@ -671,6 +673,14 @@ function formatBodyDestructurePattern(node: IRNode): string {
     slots.push(indexed.find((entry) => entry.index === i)?.name ?? '');
   }
   return `[${slots.join(', ')}]`;
+}
+
+function emitCommentTS(node: IRNode): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const raw = props.raw === undefined || props.raw === null ? '' : String(props.raw).trim();
+  if (raw.startsWith('//') || raw.startsWith('/*')) return raw.split(/\r?\n/).map((line) => line.trimEnd());
+  const text = props.text === undefined || props.text === null ? '' : String(props.text);
+  return text.split(/\r?\n/).map((line) => `// ${line}`.trimEnd());
 }
 
 function emitReturnTS(node: IRNode, ctx: BodyEmitContext): string[] {

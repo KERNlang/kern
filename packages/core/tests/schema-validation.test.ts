@@ -19,6 +19,31 @@ describe('Schema Validation', () => {
       );
       expect(v.some((violation) => violation.message.includes("'assign op=' supports only"))).toBe(true);
     });
+
+    it('allows preserved body comments inside nested native body containers', () => {
+      const v = validate(
+        [
+          'fn name=ok returns=number',
+          '  handler lang="kern"',
+          '    while cond="ready"',
+          '      comment raw="// in while"',
+          '      break',
+          '    for name=i from=0 to=2',
+          '      comment raw="// in for"',
+          '      continue',
+          '    try',
+          '      comment raw="// in try"',
+          '      return value=1',
+          '    catch name=err',
+          '      comment raw="// in catch"',
+          '      return value=0',
+          '    finally',
+          '      comment raw="// in finally"',
+          '      do value="cleanup()"',
+        ].join('\n'),
+      );
+      expect(v).toHaveLength(0);
+    });
   });
 
   describe('required props', () => {
