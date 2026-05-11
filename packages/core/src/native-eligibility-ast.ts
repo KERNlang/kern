@@ -150,6 +150,111 @@ export function isValidKernTypeAnnotation(typeText: string): boolean {
   }
 }
 
+/** Classify bodies that should not count as ordinary language-gap blockers.
+ *
+ *  These are still ineligible for `kern migrate native-handlers`, but the
+ *  reason tells the Self-coverage report that the right next action is an
+ *  explicit foreign/template boundary, not a parser/codegen lift slice.
+ */
+function classifyParseFailureBoundary(bodyText: string): string | null {
+  if (/\{\{\s*[A-Za-z_$][\w$.-]*\s*\}\}/.test(bodyText)) return 'template-placeholder';
+  if (isObjectFragmentBody(bodyText)) return 'foreign-by-design';
+  return null;
+}
+
+function isObjectFragmentBody(bodyText: string): boolean {
+  return /^\s*[A-Za-z_$][\w$]*\s*:\s*[\s\S]*,\s*\n\s*[A-Za-z_$][\w$]*\s*:\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>/.test(
+    bodyText,
+  );
+}
+
+function isHostInteropBody(sf: ts.SourceFile): boolean {
+  let found = false;
+  const localBindings = collectLocalBindings(sf);
+  const visit = (node: ts.Node): void => {
+    if (found) return;
+    if (isHostInteropNode(node, localBindings)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return found;
+}
+
+function isHostInteropNode(node: ts.Node, localBindings: ReadonlySet<string>): boolean {
+  if (ts.isPropertyAccessExpression(node)) {
+    const root = rootIdentifierName(node.expression);
+    if (
+      root &&
+      !localBindings.has(root) &&
+      (root === 'req' || root === 'res' || root === 'process' || root === 'db' || root === 'uri')
+    ) {
+      return true;
+    }
+  }
+
+  if (ts.isCallExpression(node)) {
+    if (node.expression.kind === ts.SyntaxKind.ImportKeyword) return true;
+    const callee = node.expression;
+    if (ts.isIdentifier(callee)) {
+      if (localBindings.has(callee.text)) return false;
+      return (
+        callee.text === 'useEffect' ||
+        callee.text === 'setTimeout' ||
+        callee.text === 'clearTimeout' ||
+        callee.text === 'fetch'
+      );
+    }
+    if (ts.isPropertyAccessExpression(callee)) {
+      const root = rootIdentifierName(callee.expression);
+      if (root && !localBindings.has(root) && (root === 'db' || root === 'registry')) return true;
+    }
+  }
+
+  if (ts.isNewExpression(node) && ts.isIdentifier(node.expression)) {
+    if (localBindings.has(node.expression.text)) return false;
+    return node.expression.text === 'AbortController' || node.expression.text === 'Pool';
+  }
+
+  return false;
+}
+
+function collectLocalBindings(sf: ts.SourceFile): Set<string> {
+  const names = new Set<string>();
+  const visit = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node)) collectBindingName(node.name, names);
+    else if (ts.isFunctionDeclaration(node) && node.name) names.add(node.name.text);
+    else if (ts.isParameter(node)) collectBindingName(node.name, names);
+    else if (ts.isCatchClause(node) && node.variableDeclaration)
+      collectBindingName(node.variableDeclaration.name, names);
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return names;
+}
+
+function collectBindingName(name: ts.BindingName, names: Set<string>): void {
+  if (ts.isIdentifier(name)) {
+    names.add(name.text);
+    return;
+  }
+  for (const element of name.elements) {
+    if (ts.isOmittedExpression(element)) continue;
+    collectBindingName(element.name, names);
+  }
+}
+
+function rootIdentifierName(node: ts.Expression): string | null {
+  let current: ts.Expression = node;
+  while (ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current)) {
+    current = current.expression;
+  }
+  if (ts.isCallExpression(current)) return null;
+  return ts.isIdentifier(current) ? current.text : null;
+}
+
 function isAssignableTarget(node: ValueIR): boolean {
   if (node.kind === 'ident') return true;
   if (node.kind === 'member') return !node.optional && !containsOptionalAccess(node.object);
@@ -380,12 +485,18 @@ function classifyBranch(node: ts.Statement, sf: ts.SourceFile, ctx: ClassifyCont
 export function classifyHandlerBodyAst(rawBody: string): AstEligibilityResult {
   const trimmed = rawBody.trim();
   if (trimmed === '') return { eligible: true, reason: 'empty' };
-  if (hasComments(rawBody)) return { eligible: false, reason: 'comments-present' };
   const sf = ts.createSourceFile('__handler.ts', rawBody, ts.ScriptTarget.Latest, true);
   // ts.SourceFile carries `parseDiagnostics` despite not exposing it on the
   // public type — the migrator reads it the same way.
   const diags = (sf as unknown as { parseDiagnostics?: ts.Diagnostic[] }).parseDiagnostics;
-  if (diags && diags.length > 0) return { eligible: false, reason: 'ts-parse-error' };
+  if (diags && diags.length > 0) {
+    const parseBoundary = classifyParseFailureBoundary(rawBody);
+    if (parseBoundary !== null) return { eligible: false, reason: parseBoundary };
+    if (hasComments(rawBody)) return { eligible: false, reason: 'comments-present' };
+    return { eligible: false, reason: 'ts-parse-error' };
+  }
+  if (isHostInteropBody(sf)) return { eligible: false, reason: 'foreign-by-design' };
+  if (hasComments(rawBody)) return { eligible: false, reason: 'comments-present' };
   for (const stmt of sf.statements) {
     const r = classifyStmt(stmt, sf, { loopDepth: 0 });
     if (r !== null) return { eligible: false, reason: r };

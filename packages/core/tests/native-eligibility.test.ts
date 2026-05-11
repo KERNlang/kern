@@ -278,6 +278,63 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
   test('function declaration rejected (unsupported-stmt)', () =>
     rejected(`function inner() { return 1; }\nreturn inner();`, 'unsupported-stmt-FunctionDeclaration'));
 
+  test('template placeholder bodies are classified separately from parser errors', () =>
+    rejected(`export const {{name}} = ({{params}}) => {\n  {{CHILDREN}}\n};`, 'template-placeholder'));
+
+  test('framework object-fragment bodies are classified as foreign by design', () =>
+    rejected(`toasts: [],\naddToast: (message) => {\n  set({ message });\n}`, 'foreign-by-design'));
+
+  test('host runtime interop bodies are classified as foreign by design', () => {
+    rejected(
+      `const { Pool } = await import('pg');\nreturn new Pool({ connectionString: process.env.DATABASE_URL });`,
+      'foreign-by-design',
+    );
+    rejected(
+      `// Replace with your actual database connection\nconst { Pool } = await import('pg');\nreturn new Pool();`,
+      'foreign-by-design',
+    );
+    rejected(`const mod = import('pg');\nreturn mod;`, 'foreign-by-design');
+    rejected(
+      `useEffect(() => {\n  const timer = setTimeout(load, 250);\n  return () => clearTimeout(timer);\n}, []);`,
+      'foreign-by-design',
+    );
+    rejected(`res.on('close', () => abort.abort());\nreturn req.body;`, 'foreign-by-design');
+    rejected(`return req?.body;`, 'foreign-by-design');
+    rejected(`// FIXME\nreturn req.body;`, 'foreign-by-design');
+  });
+
+  test('foreign/template classifiers ignore string literals and comment precedence', () => {
+    expect(classifyHandlerBody(`const banner = "see process.env and {{name}} docs";\nreturn banner;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+    rejected(`// TODO: replace with JSON.parse later\nreturn 1;`, 'comments-present');
+    rejected(`// comment before broken code\nreturn 1 +;`, 'comments-present');
+    rejected(`return 1 +;`, 'ts-parse-error');
+  });
+
+  test('JSON stdlib-shaped host calls stay migratable instead of foreign-excluded', () => {
+    expect(classifyHandlerBody(`const parsed = JSON.parse(raw);\nreturn parsed;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
+  test('host interop classifier ignores shadowed local names', () => {
+    expect(classifyHandlerBody(`const res = { status: "ok" };\nreturn res.status;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+    expect(classifyHandlerBody(`const fetch = (url: string) => url;\nreturn fetch("/local");`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+    expect(classifyHandlerBody(`const Pool = makePool;\nreturn new Pool();`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
   test('class declaration rejected (unsupported-stmt)', () =>
     rejected(`class Foo {}\nreturn new Foo();`, 'unsupported-stmt-ClassDeclaration'));
 

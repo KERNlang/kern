@@ -6,10 +6,12 @@
  * the same AST walker the migrator uses (`classifyHandlerBody` → slice α-3),
  * and reports:
  *
- *   - totalHandlers     — bodies with `code` content (non-empty)
- *   - eligibleHandlers  — bodies that `kern migrate native-handlers` can lift
- *   - liftRate          — eligible / total, as percent (the "lift rate")
- *   - rejections        — top reasons bodies fall through, with counts
+ *   - totalHandlers      — bodies with `code` content (non-empty)
+ *   - eligibleHandlers   — bodies that `kern migrate native-handlers` can lift
+ *   - excludedHandlers   — deliberate foreign/template bodies, not ordinary gaps
+ *   - liftRate           — eligible / total, as percent (raw lift rate)
+ *   - actionableLiftRate — eligible / (total - excluded), as percent
+ *   - rejections         — top actionable reasons bodies fall through
  *
  * Why: every lift slice ("template literals", "let-destructure", "cell")
  * claims to "lift more code", but without an aggregate metric the claim is
@@ -58,9 +60,13 @@ if (files.length === 0) {
 
 let totalHandlers = 0;
 let eligibleHandlers = 0;
+let excludedHandlers = 0;
 let emptyHandlers = 0;
 const rejectionCounts = new Map();
+const excludedCounts = new Map();
 const fileReports = [];
+
+const EXCLUDED_REASONS = new Set(['foreign-by-design', 'template-placeholder']);
 
 for (const file of files) {
   const content = readFileSync(file, 'utf8');
@@ -74,6 +80,9 @@ for (const file of files) {
     totalHandlers++;
     if (body.eligible) {
       eligibleHandlers++;
+    } else if (EXCLUDED_REASONS.has(body.reason)) {
+      excludedHandlers++;
+      excludedCounts.set(body.reason, (excludedCounts.get(body.reason) ?? 0) + 1);
     } else {
       rejectionCounts.set(body.reason, (rejectionCounts.get(body.reason) ?? 0) + 1);
     }
@@ -81,13 +90,23 @@ for (const file of files) {
 }
 
 const liftRate = totalHandlers === 0 ? 0 : (eligibleHandlers / totalHandlers) * 100;
+const actionableTotal = totalHandlers - excludedHandlers;
+const actionableLiftRate = actionableTotal === 0 ? null : (eligibleHandlers / actionableTotal) * 100;
+const actionableRejected = actionableTotal - eligibleHandlers;
 const rejections = [...rejectionCounts.entries()]
   .sort((a, b) => b[1] - a[1])
   .map(([reason, count]) => ({
     reason,
     count,
     pctOfTotal: totalHandlers === 0 ? 0 : (count / totalHandlers) * 100,
-    pctOfRejections: totalHandlers - eligibleHandlers === 0 ? 0 : (count / (totalHandlers - eligibleHandlers)) * 100,
+    pctOfRejections: actionableRejected === 0 ? 0 : (count / actionableRejected) * 100,
+  }));
+const exclusions = [...excludedCounts.entries()]
+  .sort((a, b) => b[1] - a[1])
+  .map(([reason, count]) => ({
+    reason,
+    count,
+    pctOfTotal: totalHandlers === 0 ? 0 : (count / totalHandlers) * 100,
   }));
 
 const summary = {
@@ -96,8 +115,12 @@ const summary = {
   emptyHandlers,
   totalHandlers,
   eligibleHandlers,
-  ineligibleHandlers: totalHandlers - eligibleHandlers,
+  excludedHandlers,
+  actionableHandlers: actionableTotal,
+  ineligibleHandlers: actionableRejected,
   liftRatePct: Number(liftRate.toFixed(2)),
+  actionableLiftRatePct: actionableLiftRate === null ? null : Number(actionableLiftRate.toFixed(2)),
+  exclusions,
   rejections,
 };
 
@@ -112,14 +135,31 @@ lines.push('');
 lines.push(`- Files scanned: **${summary.filesScanned}**`);
 lines.push(`- Total handler bodies (non-empty): **${summary.totalHandlers}**`);
 lines.push(`- Eligible for migration: **${summary.eligibleHandlers}**`);
-lines.push(`- Ineligible: **${summary.ineligibleHandlers}**`);
+lines.push(`- Excluded as foreign/template: **${summary.excludedHandlers}**`);
+lines.push(`- Actionable language-gap handlers: **${summary.actionableHandlers}**`);
+lines.push(`- Ineligible actionable handlers: **${summary.ineligibleHandlers}**`);
 lines.push(`- Empty (whitespace-only) bodies skipped: ${summary.emptyHandlers}`);
 lines.push('');
 lines.push(`## Lift rate: **${summary.liftRatePct}%**`);
+lines.push(
+  `## Actionable lift rate: **${summary.actionableLiftRatePct === null ? 'N/A' : `${summary.actionableLiftRatePct}%`}**`,
+);
 lines.push('');
-lines.push(`(eligibleHandlers / totalHandlers — what \`kern migrate native-handlers\` can lift today)`);
+lines.push(
+  `(raw: eligibleHandlers / totalHandlers; actionable: eligibleHandlers / (totalHandlers - foreign/template exclusions))`,
+);
+if (exclusions.length > 0) {
+  lines.push('');
+  lines.push('## Excluded foreign/template reasons');
+  lines.push('');
+  lines.push('| Reason | Count | % of total |');
+  lines.push('|---|---:|---:|');
+  for (const r of exclusions) {
+    lines.push(`| \`${r.reason}\` | ${r.count} | ${r.pctOfTotal.toFixed(1)}% |`);
+  }
+}
 lines.push('');
-lines.push('## Top rejection reasons');
+lines.push('## Top actionable rejection reasons');
 lines.push('');
 lines.push('| Reason | Count | % of total | % of rejections |');
 lines.push('|---|---:|---:|---:|');
