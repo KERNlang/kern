@@ -41,6 +41,13 @@ export interface CrossFileTaintResult {
   taintedArgs: string[]; // Which args are tainted
   sinkInCallee: TaintSink; // The sink reached in the callee
   source: TaintSource; // Original taint source
+  /**
+   * Resolved file line of the sink inside the callee — `bodyStartLine + sink.line - 1`.
+   * Before Lift 2 this was hardcoded to line 1 of the callee, sending reviewers to the
+   * wrong location. May still be off by ~1 line for IR-derived callers where the body
+   * start isn't explicitly captured; falls back to the function decl line.
+   */
+  calleeSinkLine: number;
 }
 
 /** Map of exported function names → file path + param info */
@@ -50,6 +57,19 @@ export interface ExportedFunction {
   params: string; // Raw params string
   hasSink: boolean; // Does this function contain a dangerous sink?
   sinks: TaintSink[];
+  /**
+   * File line where the function declaration begins. Used by cross-file taint
+   * to resolve `sink.line` (which is 1-based inside the captured body text) to
+   * an absolute file line for SARIF / display.
+   */
+  startLine: number;
+  /**
+   * File line where the body actually starts. For ts-morph this is the line of
+   * the opening `{`; for IR-derived entries we fall back to `startLine`. The
+   * sink-line resolver prefers this when available because the body usually
+   * begins one line below the function declaration.
+   */
+  bodyStartLine?: number;
 }
 
 // ── Intra-File Call Graph (for interprocedural taint) ────────────────────

@@ -63,6 +63,10 @@ export function buildExportMap(inferredPerFile: Map<string, InferResult[]>): Map
         params,
         hasSink: sinks.length > 0,
         sinks,
+        // IR-derived entries don't separately track the body's start line; the
+        // function decl line is the best fallback. ts-morph augment path
+        // overrides with the precise body line.
+        startLine: r.startLine,
       });
     }
   }
@@ -139,7 +143,7 @@ export function buildExportMapFromGraph(project: Project, graph: GraphResult): M
         const collected = collectFnSignature(decl);
         if (!collected) continue;
 
-        const { params, code } = collected;
+        const { params, code, bodyStartLine } = collected;
         const paramNames = params
           .split(',')
           .map((p) => p.trim().split(':')[0]?.trim())
@@ -165,6 +169,8 @@ export function buildExportMapFromGraph(project: Project, graph: GraphResult): M
           params,
           hasSink: sinks.length > 0,
           sinks,
+          startLine: decl.getStartLineNumber(),
+          bodyStartLine,
         });
       }
     }
@@ -247,8 +253,15 @@ export function buildImportAliasMap(project: Project, graph: GraphResult): Map<s
   return aliasMap;
 }
 
-/** Extract `{ params, code }` from an exported function-ish declaration. */
-function collectFnSignature(decl: import('ts-morph').Node): { params: string; code: string } | undefined {
+/**
+ * Extract `{ params, code, bodyStartLine }` from an exported function-ish
+ * declaration. `bodyStartLine` is the 1-based file line where the body's text
+ * begins; cross-file taint uses it to resolve sink lines inside the body to
+ * absolute file lines.
+ */
+function collectFnSignature(
+  decl: import('ts-morph').Node,
+): { params: string; code: string; bodyStartLine: number } | undefined {
   const kind = decl.getKindName();
 
   if (kind === 'FunctionDeclaration') {
@@ -260,6 +273,7 @@ function collectFnSignature(decl: import('ts-morph').Node): { params: string; co
         .map((p) => p.getText())
         .join(','),
       code: body?.getText() ?? '',
+      bodyStartLine: body?.getStartLineNumber() ?? fn.getStartLineNumber(),
     };
   }
 
@@ -270,12 +284,14 @@ function collectFnSignature(decl: import('ts-morph').Node): { params: string; co
     const initKind = init.getKindName();
     if (initKind !== 'ArrowFunction' && initKind !== 'FunctionExpression') return undefined;
     const fn = init as import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression;
+    const body = fn.getBody();
     return {
       params: fn
         .getParameters()
         .map((p) => p.getText())
         .join(','),
-      code: fn.getBody().getText(),
+      code: body.getText(),
+      bodyStartLine: body.getStartLineNumber(),
     };
   }
 
@@ -392,6 +408,14 @@ export function analyzeTaintCrossFile(
       for (const sink of targetFn.sinks) {
         const source = taintedVars.find((v) => taintedArgs.includes(v.name));
         if (!source) continue;
+        // Resolve the sink's file line. `sink.line` is 1-based inside the
+        // captured body text; for ts-morph callers `bodyStartLine` is the file
+        // line of the opening brace, so `bodyStartLine + sink.line - 1` is the
+        // sink's file line. For IR-derived callers we only have the function
+        // decl line, so the resolved line lands ~1 line above the real sink —
+        // still vastly better than the previous hardcoded `1`.
+        const base = targetFn.bodyStartLine ?? targetFn.startLine;
+        const calleeSinkLine = base + (sink.line ?? 1) - 1;
         results.push({
           callerFile: filePath,
           callerFn: fnName,
@@ -401,6 +425,7 @@ export function analyzeTaintCrossFile(
           taintedArgs,
           sinkInCallee: sink,
           source,
+          calleeSinkLine,
         });
       }
     }
