@@ -129,6 +129,23 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string,
     if (typeText && !isValidKernTypeAnnotation(typeText)) return null;
     if (!ts.isIdentifier(decl.name)) return mapDestructureDecl(decl, source, indent, typeText, isLet ? 'let' : 'const');
     const name = decl.name.text;
+    // Template-literal initializer → emit `fmt name=X template="..."` body-stmt
+    // (slice for "lift more template literals to KERN AST"). Multi-line
+    // templates fall through to the value-form because KERN's quoted-string
+    // attribute doesn't carry embedded newlines. Templates carrying any
+    // backslash escape (`\n`, `\t`, `\${`, etc.) also fall through: KERN's
+    // string-attribute escaping plus codegen-side backtick escaping
+    // round-trip-drifts on raw backslashes, so the value-form preserves the
+    // cooked TS template literal verbatim instead.
+    if (ts.isNoSubstitutionTemplateLiteral(decl.initializer) || ts.isTemplateExpression(decl.initializer)) {
+      const raw = decl.initializer.getText(source);
+      const body = raw.slice(1, -1);
+      if (!body.includes('\n') && !body.includes('\\')) {
+        const typeAttr = typeText ? ` type="${escapeKernString(typeText)}"` : '';
+        const kindAttr = isLet ? ' kind=let' : '';
+        return [`${indent}fmt name=${name}${typeAttr}${kindAttr} template="${escapeKernString(body)}"`];
+      }
+    }
     const exprText = decl.initializer.getText(source);
     if (!isValidKernExpression(exprText)) return null;
     const typeAttr = typeText ? ` type="${escapeKernString(typeText)}"` : '';
@@ -138,6 +155,16 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string,
 
   if (ts.isReturnStatement(stmt)) {
     if (!stmt.expression) return [`${indent}return`];
+    // Template-literal return → `fmt return=true template="..."` body-stmt.
+    // Same single-line + no-backslash restriction as the binding-form path
+    // (see comment above) — guards against escape-sequence round-trip drift.
+    if (ts.isNoSubstitutionTemplateLiteral(stmt.expression) || ts.isTemplateExpression(stmt.expression)) {
+      const raw = stmt.expression.getText(source);
+      const body = raw.slice(1, -1);
+      if (!body.includes('\n') && !body.includes('\\')) {
+        return [`${indent}fmt return=true template="${escapeKernString(body)}"`];
+      }
+    }
     const exprText = stmt.expression.getText(source);
     if (!isValidKernExpression(exprText)) return null;
     return [`${indent}return value="${escapeKernString(exprText)}"`];

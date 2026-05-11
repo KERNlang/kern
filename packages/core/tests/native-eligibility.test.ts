@@ -332,6 +332,31 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
   test('object destructuring with rest rejected', () =>
     rejected(`const { a, ...rest } = obj;\nreturn a;`, 'var-destructure-rest'));
 
+  test('const = template-literal is eligible (fmt body-stmt path)', () => {
+    expect(classifyHandlerBody('const label = `${count} files`;\nreturn label;')).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
+  test('let = template-literal is eligible', () => {
+    expect(classifyHandlerBody('let label = `${count}`;\nreturn label;')).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
+  test('return = template-literal is eligible', () => {
+    expect(classifyHandlerBody('return `${ms}ms`;')).toEqual({ eligible: true, reason: 'ok' });
+  });
+
+  test('no-substitution template (literal-only) is eligible', () => {
+    expect(classifyHandlerBody('const msg = `hello`;\nreturn msg;')).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
   test('object destructuring let is eligible', () => {
     expect(classifyHandlerBody(`let { a } = obj;\nreturn a;`)).toEqual({ eligible: true, reason: 'ok' });
   });

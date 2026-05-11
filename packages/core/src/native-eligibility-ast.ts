@@ -135,11 +135,33 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
     if (!decl.initializer) return 'var-no-init';
     if (decl.type && !isValidKernTypeAnnotation(decl.type.getText(sf))) return 'var-bad-type';
     if (!ts.isIdentifier(decl.name)) return classifyDestructureDecl(decl, sf);
+    // Template-literal initializer is migratable via the `fmt` body-stmt.
+    // Restriction parity with the migrator: single-line, no backslash escape
+    // sequences (avoids round-trip drift between KERN attribute escaping and
+    // codegen-side backtick escaping). Multi-line falls through; templates
+    // with escapes are reported separately so the classifier reason matches
+    // the actual migrator bail.
+    if (ts.isNoSubstitutionTemplateLiteral(decl.initializer) || ts.isTemplateExpression(decl.initializer)) {
+      const raw = decl.initializer.getText(sf);
+      const body = raw.slice(1, -1);
+      if (body.includes('\n')) return 'var-template-multiline';
+      if (body.includes('\\')) return 'var-template-escapes';
+      return null;
+    }
     if (!isValidKernExpression(decl.initializer.getText(sf))) return 'var-bad-expr';
     return null;
   }
   if (ts.isReturnStatement(stmt)) {
     if (!stmt.expression) return null;
+    // Template-literal return is migratable via `fmt return=true`. Same
+    // single-line + no-backslash restriction as the binding-form path.
+    if (ts.isNoSubstitutionTemplateLiteral(stmt.expression) || ts.isTemplateExpression(stmt.expression)) {
+      const raw = stmt.expression.getText(sf);
+      const body = raw.slice(1, -1);
+      if (body.includes('\n')) return 'return-template-multiline';
+      if (body.includes('\\')) return 'return-template-escapes';
+      return null;
+    }
     if (!isValidKernExpression(stmt.expression.getText(sf))) return 'return-bad-expr';
     return null;
   }
