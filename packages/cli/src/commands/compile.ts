@@ -2,9 +2,11 @@ import type { IRNode, KernTarget, ResolvedKernConfig } from '@kernlang/core';
 import {
   ALL_TARGETS,
   collectExternalBoundaries,
+  detectReactHookDeps,
   detectVersionsFromPackageJson,
   expandTemplateNode,
   generateCoreNode,
+  injectReactHookImports,
   isCoreNode,
   isTemplateNode,
   KernParseError,
@@ -196,7 +198,13 @@ async function compileDefaultSingle(
   const targetDir = relSubdir ? resolve(outDir, relSubdir) : outDir;
   mkdirSync(targetDir, { recursive: true });
   const outFile = resolve(targetDir, outName);
-  writeFileSync(outFile, `${lines.join('\n')}\n`);
+  // Slice C-cell-v4 — auto-emit `import { useState } from 'react'` when
+  // body-stmt `cell` nodes appear in the IR. The default compile path
+  // (no --target) doesn't go through `transpileForTarget`, so it needs its
+  // own integration. Targeted compiles get this in `shared.ts`.
+  const reactDeps = detectReactHookDeps(ast);
+  const code = injectReactHookImports(lines.join('\n'), reactDeps);
+  writeFileSync(outFile, `${code}\n`);
   if (!jsonOutput) console.log(`  ${basename(file)} → ${relSubdir ? `${relSubdir}/` : ''}${outName}`);
 
   const exports = extractExportsFromLines(lines);

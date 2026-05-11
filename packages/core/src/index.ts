@@ -17,6 +17,8 @@ export {
   lookupStdlib,
   suggestStdlibMethod,
 } from './codegen/kern-stdlib.js';
+export type { ReactHookDep } from './codegen/react-hook-imports.js';
+export { detectReactHookDeps, injectReactHookImports } from './codegen/react-hook-imports.js';
 export type { KernStdlibUsage } from './codegen/stdlib-preamble.js';
 // Slice 4 layer 2 — Result / Option compact form preamble (TS-family targets)
 export {
