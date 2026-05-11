@@ -71,7 +71,12 @@ export function taintToFindings(results: TaintResult[]): ReviewFinding[] {
       // same handler don't collide on `r.startLine` and silently dedup.
       // Lift 2 — primarySpan also uses sink.line so the SARIF entry points at
       // the actual sink call, not the handler's first line.
-      const sinkLine = path.sink.line ?? r.startLine;
+      //
+      // Codex impl-review caught this: `sink.line` from `findTaintedSinks` is
+      // 1-based inside the handler body, not absolute in the file. Offset by
+      // `r.startLine - 1` to get the file line. Without this, a handler at
+      // file line 50 with `exec()` on body line 3 would land at file line 3.
+      const sinkLine = path.sink.line != null ? r.startLine + path.sink.line - 1 : r.startLine;
       const primarySpan: SourceSpan = {
         file: r.filePath,
         startLine: sinkLine,
@@ -118,18 +123,24 @@ export function taintToFindings(results: TaintResult[]): ReviewFinding[] {
       });
 
       // Lift 3 — data-flow rootCause so duplicate intra+cross-file findings
-      // on the same `(handler-param → sink-category)` chain collapse in the
-      // grouper. Including `source.name` distinguishes `req.body` vs
+      // on the same `(handler, source-param → sink-category)` chain collapse in
+      // the grouper. Including `source.name` distinguishes `req.body` vs
       // `req.query` reaching the same sink in the same file (Codex+Gemini+
-      // OpenCode all flagged this). Sink *category* (not sink name) is the
-      // right granularity: `exec` vs `spawn` get one rolled-up finding
-      // because they need the same remediation.
-      const rootCauseKey = `taint:${r.filePath}:${path.source.name}:${path.source.origin}→${path.sink.category}`;
+      // OpenCode all flagged this on plan-review). Sink *category* (not sink
+      // name) is the right granularity: `exec` vs `spawn` get one rolled-up
+      // finding because they need the same remediation.
+      //
+      // Codex+OpenCode impl-review: handler identity must be in the key.
+      // Without `r.fnName` two distinct routes (`POST /users`, `GET /users`)
+      // in the same file using `req` as the source name would collapse into
+      // one finding even though they're separate vulnerabilities to fix.
+      const rootCauseKey = `taint:${r.filePath}#${r.fnName}:${path.source.name}:${path.source.origin}→${path.sink.category}`;
       const rootCause = {
         key: rootCauseKey,
         kind: 'data-flow' as const,
         facets: {
           file: r.filePath,
+          handler: r.fnName,
           sourceName: path.source.name,
           sourceOrigin: path.source.origin,
           sinkCategory: path.sink.category,
@@ -213,16 +224,17 @@ export function crossFileTaintToFindings(results: CrossFileTaintResult[]): Revie
       endLine: r.calleeSinkLine,
       endCol: 1,
     };
-    // Lift 3 — data-flow rootCause keyed on caller file (OpenCode review:
-    // distinct callers must NOT merge) plus source name + sink category. Same
-    // structure as intra-file so a flow that's seen by both pipelines collapses
-    // to one primary in the grouper.
-    const rootCauseKey = `taint:${r.callerFile}:${r.source.name}:${r.source.origin}→${r.sinkInCallee.category}`;
+    // Lift 3 — data-flow rootCause keyed on (callerFile, callerFn) plus source
+    // name + sink category. Including `callerFn` (OpenCode + Codex impl-review)
+    // prevents two distinct handlers in the same file that both call into the
+    // same unsafe util from collapsing into one finding.
+    const rootCauseKey = `taint:${r.callerFile}#${r.callerFn}:${r.source.name}:${r.source.origin}→${r.sinkInCallee.category}`;
     const rootCause = {
       key: rootCauseKey,
       kind: 'data-flow' as const,
       facets: {
         callerFile: r.callerFile,
+        handler: r.callerFn,
         sourceName: r.source.name,
         sourceOrigin: r.source.origin,
         sinkCategory: r.sinkInCallee.category,

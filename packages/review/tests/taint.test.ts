@@ -817,7 +817,7 @@ describe('taint Lifts 2/3/A — sink line, rootCause, fingerprint', () => {
     expect(findings[0].relatedSpans?.[0].startLine).not.toBe(1);
   });
 
-  it('Lift 3: intra-file taint findings carry a data-flow rootCause keyed on (file, source.name, source.origin, sink.category)', () => {
+  it('Lift 3: intra-file taint findings carry a data-flow rootCause keyed on (file, handler, source, sink category)', () => {
     const results = [
       {
         fnName: 'handler',
@@ -834,8 +834,40 @@ describe('taint Lifts 2/3/A — sink line, rootCause, fingerprint', () => {
     ];
     const findings = taintToFindings(results);
     expect(findings[0].rootCause?.kind).toBe('data-flow');
-    expect(findings[0].rootCause?.key).toBe('taint:/src/api.ts:q:req.query→command');
+    expect(findings[0].rootCause?.key).toBe('taint:/src/api.ts#handler:q:req.query→command');
     expect(findings[0].rootCause?.facets?.sinkCategory).toBe('command');
+    expect(findings[0].rootCause?.facets?.handler).toBe('handler');
+  });
+
+  it('Lift 3: two handlers in the same file with the same source/sink shape do NOT collapse (Codex+OpenCode impl-review)', () => {
+    const findings = taintToFindings([
+      {
+        fnName: 'getUsers',
+        filePath: '/src/api.ts',
+        startLine: 1,
+        paths: [
+          {
+            source: { name: 'req', origin: 'param:req' },
+            sink: { name: 'exec', category: 'command' as const, taintedArg: 'req', line: 1 },
+            sanitized: false,
+          },
+        ],
+      },
+      {
+        fnName: 'createUser',
+        filePath: '/src/api.ts',
+        startLine: 10,
+        paths: [
+          {
+            source: { name: 'req', origin: 'param:req' },
+            sink: { name: 'exec', category: 'command' as const, taintedArg: 'req', line: 1 },
+            sanitized: false,
+          },
+        ],
+      },
+    ]);
+    expect(findings.length).toBe(2);
+    expect(findings[0].rootCause?.key).not.toBe(findings[1].rootCause?.key);
   });
 
   it('Lift 3: two findings with same flow signature share a rootCause.key so the grouper can collapse them', () => {
@@ -924,8 +956,10 @@ describe('taint Lifts 2/3/A — sink line, rootCause, fingerprint', () => {
     ]);
     expect(findings.length).toBe(2);
     expect(findings[0].fingerprint).not.toBe(findings[1].fingerprint);
-    // primarySpan also reflects sink.line (Lift 2 inside intra-file taint).
-    expect(findings[0].primarySpan.startLine).toBe(3);
-    expect(findings[1].primarySpan.startLine).toBe(7);
+    // primarySpan reflects the absolute file line (Codex impl-review): handler
+    // starts at file line 10, sinks are on body lines 3 and 7 → file lines 12
+    // and 16. Pre-Codex-fix this incorrectly used body lines as file lines.
+    expect(findings[0].primarySpan.startLine).toBe(12);
+    expect(findings[1].primarySpan.startLine).toBe(16);
   });
 });
