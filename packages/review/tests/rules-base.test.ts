@@ -139,6 +139,74 @@ export async function fetchData(url: string): Promise<any> {
       const finding = report.findings.find((f) => f.ruleId === 'unhandled-async');
       expect(finding).toBeUndefined();
     });
+
+    // RULE-FEEDBACK.md #1: Next.js App Router React Server Components route
+    // their rejections to the nearest error.tsx boundary. Wrapping every
+    // await in try/catch is an antipattern.
+    it('does not fire on async React Server Component (App Router)', () => {
+      const source = `
+export async function PaymentOptions({ locale }: { locale: string }) {
+  const flag = await fetchFeatureToggle('icons');
+  return <div>{flag ? 'new' : 'old'}</div>;
+}
+`;
+      const report = reviewSource(source, 'app/products/payment-options.tsx');
+      const finding = report.findings.find((f) => f.ruleId === 'unhandled-async');
+      expect(finding).toBeUndefined();
+    });
+
+    it('does not fire on default-export async RSC', () => {
+      const source = `
+export default async function Page() {
+  const data = await loadData();
+  return <main>{data.title}</main>;
+}
+`;
+      const report = reviewSource(source, 'src/app/page.tsx');
+      const finding = report.findings.find((f) => f.ruleId === 'unhandled-async');
+      expect(finding).toBeUndefined();
+    });
+
+    // Regression guard: 'use client' components don't get the RSC carve-out.
+    it('still fires on client component with use client directive', () => {
+      const source = `'use client';
+export async function ClientFetcher() {
+  const r = await fetch('/api');
+  return <div>{r.statusText}</div>;
+}
+`;
+      const report = reviewSource(source, 'app/widget.tsx');
+      const finding = report.findings.find((f) => f.ruleId === 'unhandled-async');
+      expect(finding).toBeDefined();
+    });
+
+    // RULE-FEEDBACK.md #4: route handlers still fire (no error.tsx fallback),
+    // but the message is rewritten to point at observability cost.
+    it('rewords message for App Router route handlers', () => {
+      const source = `
+export async function POST(request: Request) {
+  const body = await request.json();
+  return Response.json({ ok: true, body });
+}
+`;
+      const report = reviewSource(source, 'app/api/items/route.ts');
+      const finding = report.findings.find((f) => f.ruleId === 'unhandled-async');
+      expect(finding).toBeDefined();
+      expect(finding!.message).toMatch(/route handler|500 with no log/i);
+    });
+
+    // Regression guard: non-RSC async fns in app/ still fire (e.g. helpers).
+    it('still fires on non-component async fn in app/ folder', () => {
+      const source = `
+export async function loadProducts() {
+  const data = await fetch('/api/products');
+  return data.json();
+}
+`;
+      const report = reviewSource(source, 'app/_lib/products.ts');
+      const finding = report.findings.find((f) => f.ruleId === 'unhandled-async');
+      expect(finding).toBeDefined();
+    });
   });
 
   // ── empty-catch ──
