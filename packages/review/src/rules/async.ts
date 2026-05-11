@@ -162,6 +162,7 @@ function abortControllerLeak(ctx: RuleContext): ReviewFinding[] {
                       span: insertBeforeSpan(closingBrace, ctx.filePath),
                       replacement: `  return () => ${ctrl.name}.abort();\n`,
                       description: `Insert cleanup return that aborts ${ctrl.name}`,
+                      safety: 'suggested' as const,
                     },
                   }
                 : {}),

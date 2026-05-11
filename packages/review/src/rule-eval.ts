@@ -422,11 +422,18 @@ function buildFixAction(fixNode: IRNode, target: IRNode, bindings: Map<string, u
     endCol: target.loc?.endCol ?? target.loc?.col ?? 0,
   };
 
+  const declaredSafety = fp.safety as FixAction['safety'] | undefined;
+  const safety: FixAction['safety'] =
+    declaredSafety === 'safe' || declaredSafety === 'suggested' || declaredSafety === 'risky'
+      ? declaredSafety
+      : 'suggested';
+
   return {
     type: op as FixAction['type'],
     span,
     replacement,
     description: (fp.description as string) || `Apply ${op} fix`,
+    safety,
   };
 }
 

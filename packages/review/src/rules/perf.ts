@@ -56,6 +56,7 @@ function imageNoLazy(ctx: RuleContext): ReviewFinding[] {
             span: insertAfterSpan(el.getTagNameNode(), ctx.filePath),
             replacement: ' loading="lazy"',
             description: 'Insert loading="lazy" attribute',
+            safety: 'safe',
           },
         },
       ),

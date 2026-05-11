@@ -543,6 +543,7 @@ function missingUseClient(ctx: RuleContext): ReviewFinding[] {
           span: { file: ctx.filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
           replacement: "'use client';\n\n",
           description: "Prepend 'use client' directive",
+          safety: 'safe',
         },
       });
 
