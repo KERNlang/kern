@@ -19,9 +19,7 @@ describe('canonicalKernExpression — single-line normalization', () => {
   });
 
   test('preserves KERN stdlib call surface (does NOT translate List.map → .map)', () => {
-    expect(canonicalKernExpression('List.map(users, user => user.name)')).toBe(
-      'List.map(users, user => user.name)',
-    );
+    expect(canonicalKernExpression('List.map(users, user => user.name)')).toBe('List.map(users, user => user.name)');
   });
 
   test('collapses multi-line object literal to single line', () => {

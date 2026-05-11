@@ -52,7 +52,9 @@ describe('injectReactHookImports', () => {
     const code = ['// @kern-source: x:1', 'export function f() { return useState(0); }'].join('\n');
     const out = injectReactHookImports(code, deps);
     expect(out).toBe(
-      ['// @kern-source: x:1', "import { useState } from 'react';", 'export function f() { return useState(0); }'].join('\n'),
+      ['// @kern-source: x:1', "import { useState } from 'react';", 'export function f() { return useState(0); }'].join(
+        '\n',
+      ),
     );
   });
 
@@ -67,9 +69,7 @@ describe('injectReactHookImports', () => {
   test('merges into existing default+named react import', () => {
     const code = ["import React, { useEffect } from 'react';", 'export function f() {}'].join('\n');
     const out = injectReactHookImports(code, deps);
-    expect(out).toBe(
-      ["import React, { useEffect, useState } from 'react';", 'export function f() {}'].join('\n'),
-    );
+    expect(out).toBe(["import React, { useEffect, useState } from 'react';", 'export function f() {}'].join('\n'));
   });
 
   test('no-op when useState already imported', () => {
