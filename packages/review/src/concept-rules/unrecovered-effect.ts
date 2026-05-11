@@ -40,7 +40,7 @@ export function isTransportPrimitiveCarveOut(
   const effectNode = concepts.nodes.find(
     (n) => n.kind === 'effect' && n.primarySpan.file === filePath && n.primarySpan.startLine === effectSpanStartLine,
   );
-  if (!effectNode || !effectNode.containerId) return false;
+  if (!effectNode?.containerId) return false;
   return concepts.nodes.some((n) => n.kind === 'error_raise' && n.containerId === effectNode.containerId);
 }
 

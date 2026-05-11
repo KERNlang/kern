@@ -1108,10 +1108,13 @@ describe('rewriteNativeHandlers — round-trip', () => {
 });
 
 describe('rewriteNativeHandlers — review-found regressions', () => {
-  // Codex P2: multi-line expression initializers embed literal newlines into
-  // `value="…"` because escapeKernString does not escape `\n`. Without the
-  // fix, the migrated source would split mid-attribute into invalid KERN.
-  test('bails on multi-line expression initializer', () => {
+  // Multi-line expression initializers lift via `canonicalKernExpression`,
+  // which round-trips the TS AST through `ts.createPrinter` and collapses
+  // newlines outside string/template literals before escaping into the
+  // attribute value. The original Codex P2 hazard — literal `\n` inside
+  // `value="…"` splitting the attribute mid-string — is avoided because
+  // canonicalKernExpression returns single-line text by construction.
+  test('lifts multi-line expression initializer to single-line value', () => {
     const source = [
       'fn name=ok returns=any',
       '  handler <<<',
@@ -1122,8 +1125,10 @@ describe('rewriteNativeHandlers — review-found regressions', () => {
       '  >>>',
     ].join('\n');
     const result = rewriteNativeHandlers(source);
-    expect(result.hits).toHaveLength(0);
-    expect(result.output).toBe(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('let name=opts value="{ enabled: true }"');
+    expect(result.output).toContain('return value="opts"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
   // Slice α-2: ternary support shipped — parseExpression accepts `a ? b : c`.

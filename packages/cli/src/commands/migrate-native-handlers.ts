@@ -17,12 +17,12 @@
  */
 
 import {
+  canonicalKernExpression,
   classifyHandlerBody,
   escapeKernString,
   hasComments,
   isValidKernAssignmentTarget,
   isValidKernAssignmentValue,
-  isValidKernExpression,
   isValidKernTypeAnnotation,
   supportedCompoundAssignmentOperator,
 } from '@kernlang/core';
@@ -147,10 +147,11 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string,
       }
     }
     const exprText = decl.initializer.getText(source);
-    if (!isValidKernExpression(exprText)) return null;
+    const canonical = canonicalKernExpression(exprText);
+    if (canonical === null) return null;
     const typeAttr = typeText ? ` type="${escapeKernString(typeText)}"` : '';
     const kindAttr = isLet ? ' kind=let' : '';
-    return [`${indent}let name=${name}${typeAttr}${kindAttr} value="${escapeKernString(exprText)}"`];
+    return [`${indent}let name=${name}${typeAttr}${kindAttr} value="${escapeKernString(canonical)}"`];
   }
 
   if (ts.isReturnStatement(stmt)) {
@@ -166,15 +167,17 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string,
       }
     }
     const exprText = stmt.expression.getText(source);
-    if (!isValidKernExpression(exprText)) return null;
-    return [`${indent}return value="${escapeKernString(exprText)}"`];
+    const canonical = canonicalKernExpression(exprText);
+    if (canonical === null) return null;
+    return [`${indent}return value="${escapeKernString(canonical)}"`];
   }
 
   if (ts.isThrowStatement(stmt)) {
     if (!stmt.expression) return null;
     const exprText = stmt.expression.getText(source);
-    if (!isValidKernExpression(exprText)) return null;
-    return [`${indent}throw value="${escapeKernString(exprText)}"`];
+    const canonical = canonicalKernExpression(exprText);
+    if (canonical === null) return null;
+    return [`${indent}throw value="${escapeKernString(canonical)}"`];
   }
 
   if (ts.isBreakStatement(stmt)) {
@@ -225,9 +228,12 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string,
         const valueText = stmt.expression.right.getText(source);
         if (!isValidKernAssignmentTarget(targetText)) return null;
         if (!isValidKernAssignmentValue(valueText)) return null;
+        const canonicalTarget = canonicalKernExpression(targetText);
+        const canonicalValue = canonicalKernExpression(valueText);
+        if (canonicalTarget === null || canonicalValue === null) return null;
         const opAttr = opText === '=' ? '' : ` op="${escapeKernString(opText)}"`;
         return [
-          `${indent}assign target="${escapeKernString(targetText)}"${opAttr} value="${escapeKernString(valueText)}"`,
+          `${indent}assign target="${escapeKernString(canonicalTarget)}"${opAttr} value="${escapeKernString(canonicalValue)}"`,
         ];
       }
     }
@@ -236,8 +242,9 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string,
       if (op === ts.SyntaxKind.PlusPlusToken || op === ts.SyntaxKind.MinusMinusToken) return null;
     }
     const exprText = stmt.expression.getText(source);
-    if (!isValidKernExpression(exprText)) return null;
-    return [`${indent}do value="${escapeKernString(exprText)}"`];
+    const canonical = canonicalKernExpression(exprText);
+    if (canonical === null) return null;
+    return [`${indent}do value="${escapeKernString(canonical)}"`];
   }
 
   // Block, unsupported loop shapes, switch, etc — no body-statement equivalent. Bail.
@@ -246,9 +253,10 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string,
 
 function mapIf(stmt: ts.IfStatement, source: ts.SourceFile, indent: string, ctx: MapContext): string[] | null {
   const condText = stmt.expression.getText(source);
-  if (!isValidKernExpression(condText)) return null;
+  const canonical = canonicalKernExpression(condText);
+  if (canonical === null) return null;
   const innerIndent = indent + INDENT_STEP;
-  const out: string[] = [`${indent}if cond="${escapeKernString(condText)}"`];
+  const out: string[] = [`${indent}if cond="${escapeKernString(canonical)}"`];
 
   const thenLines = mapBranch(stmt.thenStatement, source, innerIndent, ctx);
   if (thenLines === null) return null;
@@ -309,9 +317,10 @@ function mapDestructureDecl(
 ): string[] | null {
   if (!decl.initializer) return null;
   const sourceText = decl.initializer.getText(source);
-  if (!isValidKernExpression(sourceText)) return null;
+  const canonicalSource = canonicalKernExpression(sourceText);
+  if (canonicalSource === null) return null;
   const typeAttr = typeText ? ` type="${escapeKernString(typeText)}"` : '';
-  const out: string[] = [`${indent}destructure kind=${kind}${typeAttr} source="${escapeKernString(sourceText)}"`];
+  const out: string[] = [`${indent}destructure kind=${kind}${typeAttr} source="${escapeKernString(canonicalSource)}"`];
   const name = decl.name;
 
   if (ts.isObjectBindingPattern(name)) {
@@ -357,7 +366,8 @@ function mapForOf(stmt: ts.ForOfStatement, source: ts.SourceFile, indent: string
   if (stmt.statement.statements.length === 0) return null;
 
   const collectionText = stmt.expression.getText(source);
-  if (!isValidKernExpression(collectionText)) return null;
+  const canonicalCollection = canonicalKernExpression(collectionText);
+  if (canonicalCollection === null) return null;
 
   const innerIndent = indent + INDENT_STEP;
   const awaitAttr = stmt.awaitModifier ? ' await=true' : '';
@@ -371,13 +381,13 @@ function mapForOf(stmt: ts.ForOfStatement, source: ts.SourceFile, indent: string
     if (!stmt.awaitModifier) return null;
     if (typeText) return null;
     out = [
-      `${indent}each pairKey=${pair.key} pairValue=${pair.value} in="${escapeKernString(collectionText)}"${awaitAttr}`,
+      `${indent}each pairKey=${pair.key} pairValue=${pair.value} in="${escapeKernString(canonicalCollection)}"${awaitAttr}`,
     ];
   } else {
     if (!ts.isIdentifier(decl.name)) return null;
     if (typeText && !isValidKernTypeAnnotation(typeText)) return null;
     const typeAttr = typeText ? ` type="${escapeKernString(typeText)}"` : '';
-    out = [`${indent}each name=${decl.name.text} in="${escapeKernString(collectionText)}"${typeAttr}${awaitAttr}`];
+    out = [`${indent}each name=${decl.name.text} in="${escapeKernString(canonicalCollection)}"${typeAttr}${awaitAttr}`];
   }
   const bodyLines = mapBranch(stmt.statement, source, innerIndent, { ...ctx, loopDepth: ctx.loopDepth + 1 });
   if (bodyLines === null) return null;
@@ -397,12 +407,13 @@ function parseForOfPairBinding(name: ts.BindingName): { key: string; value: stri
 
 function mapWhile(stmt: ts.WhileStatement, source: ts.SourceFile, indent: string, ctx: MapContext): string[] | null {
   const condText = stmt.expression.getText(source);
-  if (!isValidKernExpression(condText)) return null;
+  const canonical = canonicalKernExpression(condText);
+  if (canonical === null) return null;
   if (!ts.isBlock(stmt.statement)) return null;
   if (stmt.statement.statements.length === 0) return null;
 
   const innerIndent = indent + INDENT_STEP;
-  const out: string[] = [`${indent}while cond="${escapeKernString(condText)}"`];
+  const out: string[] = [`${indent}while cond="${escapeKernString(canonical)}"`];
   const bodyLines = mapBranch(stmt.statement, source, innerIndent, { ...ctx, loopDepth: ctx.loopDepth + 1 });
   if (bodyLines === null) return null;
   out.push(...bodyLines);

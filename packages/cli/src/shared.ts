@@ -14,11 +14,13 @@ import {
   collectCoverageGaps,
   collectExternalBoundaries,
   detectKernStdlibUsage,
+  detectReactHookDeps,
   detectTarget,
   expandTemplateNode,
   generateCoreNode,
   injectKernStdlibPreamble,
   injectKernStdlibPreambleIntoSFC,
+  injectReactHookImports,
   isCoreNode,
   isTemplateNode,
   KERN_VERSION,
@@ -771,7 +773,34 @@ export function transpileForTarget(ast: IRNode, cfg: ResolvedKernConfig) {
   // Slice 4 layer 2 — auto-emit Result / Option type aliases for every
   // TS-family target. Single integration point so target transpilers don't
   // each need their own preamble plumbing.
-  return applyKernStdlibPreamble(ast, target, result);
+  const withPreamble = applyKernStdlibPreamble(ast, target, result);
+  // Slice C-cell-v4 — auto-emit `import { useState } from 'react'` for
+  // body-statement `cell` usage. Runs after the stdlib preamble so the
+  // hook import lands in the same import region the preamble's directive
+  // skip already established.
+  return applyReactHookImports(ast, target, withPreamble);
+}
+
+function applyReactHookImports(
+  ast: IRNode,
+  target: KernTarget,
+  result: import('@kernlang/core').TranspileResult,
+): import('@kernlang/core').TranspileResult {
+  if (!TS_FAMILY_TARGETS.has(target)) return result;
+  const deps = detectReactHookDeps(ast);
+  if (deps.size === 0) return result;
+  const updatedCode = injectReactHookImports(result.code, deps);
+  const updatedArtifacts = result.artifacts?.map((art) => {
+    if (isTsArtifactPath(art.path)) {
+      return { ...art, content: injectReactHookImports(art.content, deps) };
+    }
+    return art;
+  });
+  return {
+    ...result,
+    code: updatedCode,
+    ...(updatedArtifacts ? { artifacts: updatedArtifacts } : {}),
+  };
 }
 
 // ── Transpile + write ────────────────────────────────────────────────────

@@ -6,7 +6,62 @@ import {
   extractRawBodies,
   scanFileForEligibility,
 } from '../src/native-eligibility.js';
-import { isValidKernTypeAnnotation } from '../src/native-eligibility-ast.js';
+import {
+  canonicalKernExpression,
+  isValidKernExpression,
+  isValidKernTypeAnnotation,
+} from '../src/native-eligibility-ast.js';
+
+describe('canonicalKernExpression — single-line normalization', () => {
+  test('passes single-line expression through unchanged structure', () => {
+    expect(canonicalKernExpression('x + 1')).toBe('x + 1');
+    expect(canonicalKernExpression('process.env.X || "default"')).toBe('process.env.X || "default"');
+  });
+
+  test('preserves KERN stdlib call surface (does NOT translate List.map → .map)', () => {
+    expect(canonicalKernExpression('List.map(users, user => user.name)')).toBe('List.map(users, user => user.name)');
+  });
+
+  test('collapses multi-line object literal to single line', () => {
+    expect(canonicalKernExpression('{\n  a: 1,\n  b: 2,\n}')).toBe('{ a: 1, b: 2, }');
+  });
+
+  test('collapses multi-line call with object arg', () => {
+    expect(canonicalKernExpression('fetch(url, {\n  method: "POST",\n  body: JSON.stringify({a:1}),\n})')).toBe(
+      'fetch(url, { method: "POST", body: JSON.stringify({ a: 1 }), })',
+    );
+  });
+
+  test('preserves single-line template literal verbatim', () => {
+    expect(canonicalKernExpression('`hello ${name} world`')).toBe('`hello ${name} world`');
+  });
+
+  test('bails on multi-line template literal (cannot collapse semantically)', () => {
+    expect(canonicalKernExpression('`hello\nworld`')).toBeNull();
+  });
+
+  test('bails on unparseable expression', () => {
+    expect(canonicalKernExpression('await async (x) => { return x; }')).toBeNull();
+  });
+});
+
+describe('classifier ≡ migrator invariant (codex review)', () => {
+  test('isValidKernExpression rejects multi-line-template-bearing expressions', () => {
+    // Critical: if classifyHandlerBody said "eligible" but
+    // canonicalKernExpression bailed inside the migrator, kern review would
+    // flag the body as native-KERN-eligible and `kern migrate` would silently
+    // skip it — the exact trust-collapse pattern slice α-3 was designed to
+    // prevent.
+    const exprWithEmbeddedMultilineTemplate = 'notify(`hello\nworld ${name}`)';
+    expect(canonicalKernExpression(exprWithEmbeddedMultilineTemplate)).toBeNull();
+    expect(isValidKernExpression(exprWithEmbeddedMultilineTemplate)).toBe(false);
+  });
+
+  test('isValidKernExpression accepts the multi-line cases the migrator now lifts', () => {
+    expect(isValidKernExpression('{\n  a: 1,\n  b: 2,\n}')).toBe(true);
+    expect(isValidKernExpression('fetch(url, {\n  method: "POST"\n})')).toBe(true);
+  });
+});
 
 describe('isValidKernTypeAnnotation', () => {
   test('accepts common safe TypeScript annotations', () => {

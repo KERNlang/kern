@@ -50,7 +50,7 @@ function expectNoMatcher(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
   const reported = new Set<number>();
 
-  function flag(node: Node, line: number) {
+  function flag(_node: Node, line: number) {
     if (reported.has(line)) return;
     reported.add(line);
     findings.push(
