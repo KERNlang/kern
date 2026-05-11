@@ -11,7 +11,7 @@
 import { emitNativeKernBodyTS } from '../src/codegen/body-ts.js';
 import { generateCoreNode } from '../src/codegen-core.js';
 import { emitExpression } from '../src/codegen-expression.js';
-import { parseDocument } from '../src/parser.js';
+import { parseDocument, parseDocumentWithDiagnostics } from '../src/parser.js';
 import { parseExpression } from '../src/parser-expression.js';
 import type { IRNode } from '../src/types.js';
 
@@ -300,6 +300,153 @@ describe('emitNativeKernBodyTS — destructure body statement', () => {
     expect(emitNativeKernBodyTS(handler)).toContain('const [first, second]: [string, number] = pair;');
   });
 
+  test('emits let-kind object destructuring inside native body', () => {
+    const handler = makeHandler([
+      {
+        type: 'destructure',
+        props: { kind: 'let', source: 'req.body' },
+        children: [
+          { type: 'binding', props: { name: 'trackId' } },
+          { type: 'binding', props: { name: 'opts', key: 'options' } },
+        ],
+      },
+    ]);
+
+    expect(emitNativeKernBodyTS(handler)).toContain('let { trackId, options: opts } = req.body;');
+  });
+
+  test('emits let-kind array destructuring inside native body', () => {
+    const handler = makeHandler([
+      {
+        type: 'destructure',
+        props: { kind: 'let', source: 'pair' },
+        children: [
+          { type: 'element', props: { name: 'first', index: '0' } },
+          { type: 'element', props: { name: 'second', index: '1' } },
+        ],
+      },
+    ]);
+
+    expect(emitNativeKernBodyTS(handler)).toContain('let [first, second] = pair;');
+  });
+});
+
+describe('emitNativeKernBodyTS — fmt body statement', () => {
+  test('emits binding-form fmt as const with template literal', () => {
+    const handler = makeHandler([
+      { type: 'fmt', props: { name: 'label', template: '${count} files' } },
+      { type: 'return', props: { value: 'label' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(['const label = `${count} files`;', 'return label;'].join('\n'));
+  });
+
+  test('emits return-form fmt as `return ...;`', () => {
+    const handler = makeHandler([{ type: 'fmt', props: { template: '${ms}ms', return: 'true' } }]);
+    expect(emitNativeKernBodyTS(handler)).toBe('return `${ms}ms`;');
+  });
+
+  test('honours type annotation', () => {
+    const handler = makeHandler([{ type: 'fmt', props: { name: 'label', template: '${count}', type: 'string' } }]);
+    expect(emitNativeKernBodyTS(handler)).toBe('const label: string = `${count}`;');
+  });
+
+  test('emits let-kind when kind=let', () => {
+    const handler = makeHandler([{ type: 'fmt', props: { name: 'label', template: '${count}', kind: 'let' } }]);
+    expect(emitNativeKernBodyTS(handler)).toBe('let label = `${count}`;');
+  });
+
+  test('escapes raw backticks in template', () => {
+    const handler = makeHandler([{ type: 'fmt', props: { name: 'msg', template: 'he said `boo`' } }]);
+    expect(emitNativeKernBodyTS(handler)).toBe('const msg = `he said \\`boo\\``;');
+  });
+
+  test('does NOT emit `export` prefix in body position', () => {
+    const handler = makeHandler([{ type: 'fmt', props: { name: 'msg', template: 'hi', export: 'true' } }]);
+    const out = emitNativeKernBodyTS(handler);
+    expect(out).not.toMatch(/^export\b/);
+    expect(out).toBe('const msg = `hi`;');
+  });
+
+  test('throws on missing template', () => {
+    const handler = makeHandler([{ type: 'fmt', props: { name: 'x' } }]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/template/);
+  });
+
+  test('throws on inline-JSX form (no name, no return=true) in body position', () => {
+    const handler = makeHandler([{ type: 'fmt', props: { template: '${x}' } }]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/name|return/);
+  });
+
+  test('rejects assign to fmt-bound const name (codex review fix — scope tracking)', () => {
+    const handler = makeHandler([
+      { type: 'fmt', props: { name: 'label', template: '${count}' } },
+      { type: 'assign', props: { target: 'label', value: '"x"' } },
+    ]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/cannot reassign immutable/);
+  });
+
+  test('allows assign to fmt-bound let name', () => {
+    const handler = makeHandler([
+      { type: 'fmt', props: { name: 'label', template: '${count}', kind: 'let' } },
+      { type: 'assign', props: { target: 'label', value: '"x"' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(['let label = `${count}`;', 'label = "x";'].join('\n'));
+  });
+
+  test('rejects duplicate fmt binding name in same scope', () => {
+    const handler = makeHandler([
+      { type: 'fmt', props: { name: 'label', template: 'a' } },
+      { type: 'fmt', props: { name: 'label', template: 'b' } },
+    ]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/already declared/);
+  });
+
+  test('throws when return=true combined with name', () => {
+    const handler = makeHandler([{ type: 'fmt', props: { name: 'x', template: 'hi', return: 'true' } }]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/return=true/);
+  });
+
+  test('composes with surrounding let/return', () => {
+    const handler = makeHandler([
+      { type: 'let', props: { name: 'count', value: 'items.length' } },
+      { type: 'fmt', props: { name: 'label', template: '${count} files' } },
+      { type: 'return', props: { value: 'label' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(
+      ['const count = items.length;', 'const label = `${count} files`;', 'return label;'].join('\n'),
+    );
+  });
+
+  test('parser accepts fmt as direct child of handler lang="kern"', () => {
+    const src = [
+      'fn name=summarize params="count:number" returns=string',
+      '  handler lang="kern"',
+      '    fmt name=label template="${count} files"',
+      '    return value="label"',
+    ].join('\n');
+    const { diagnostics } = parseDocumentWithDiagnostics(src);
+    expect(diagnostics.filter((d) => d.severity === 'error')).toHaveLength(0);
+  });
+
+  test('round-trip: parse + codegen', () => {
+    const src = [
+      'fn name=summarize params="count:number" returns=string',
+      '  handler lang="kern"',
+      '    fmt name=label template="${count} files"',
+      '    return value="label"',
+    ].join('\n');
+    const { root, diagnostics } = parseDocumentWithDiagnostics(src);
+    expect(diagnostics.filter((d) => d.severity === 'error')).toHaveLength(0);
+    const fn = root.children?.find((c: IRNode) => c.type === 'fn' && c.props?.name === 'summarize');
+    const handler = fn?.children?.find((c: IRNode) => c.type === 'handler' && c.props?.lang === 'kern');
+    expect(handler).toBeDefined();
+    expect(emitNativeKernBodyTS(handler as IRNode)).toBe(
+      ['const label = `${count} files`;', 'return label;'].join('\n'),
+    );
+  });
+});
+
+describe('emitNativeKernBodyTS — destructure body statement (trailing)', () => {
   test('rejects propagation source inside try with try-specific guidance', () => {
     const handler = makeHandler([
       {

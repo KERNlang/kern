@@ -48,7 +48,7 @@ import { emitExpression } from '../codegen-expression.js';
 import { parseExpression } from '../parser-expression.js';
 import type { IRNode } from '../types.js';
 import type { ValueIR } from '../value-ir.js';
-import { emitTypeAnnotation } from './emitters.js';
+import { emitFmtTemplate, emitIdentifier, emitTypeAnnotation } from './emitters.js';
 
 /** Slice 3e — caller-provided options, parity with the Python body emitter.
  *  `symbolMap` is currently unused on the TS target; reserved for future
@@ -123,6 +123,8 @@ function emitChildrenTS(
         for (const line of emitAssignTS(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'destructure') {
         for (const line of emitDestructureTS(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'fmt') {
+        for (const line of emitFmtTS(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'return') {
         for (const line of emitReturnTS(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'if') {
@@ -650,4 +652,30 @@ function emitDoTS(node: IRNode, ctx: BodyEmitContext): string[] {
     return [`const ${tmp} = ${inner};`, `if (${tmp}.kind === 'err') return ${tmp};`];
   }
   return [`${emitExpression(valueIR)};`];
+}
+
+function emitFmtTS(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const template = props.template;
+  if (template === undefined || template === null) {
+    throw new Error('body-statement `fmt` requires `template=`.');
+  }
+  const escapedTemplate = emitFmtTemplate(String(template));
+  const returnMode = props.return === true || props.return === 'true';
+  if (returnMode) {
+    if (props.name !== undefined && props.name !== '') {
+      throw new Error('body-statement `fmt` with `return=true` must not carry a `name=` prop.');
+    }
+    return [`return \`${escapedTemplate}\`;`];
+  }
+  if (props.name === undefined || props.name === '') {
+    throw new Error(
+      'body-statement `fmt` requires `name=` (or `return=true` for return-position form). Inline-JSX form is only valid as a direct child of `render`/`group`.',
+    );
+  }
+  const name = emitIdentifier(String(props.name), 'formatted', node);
+  const kind = props.kind === 'let' ? 'let' : 'const';
+  declareLocalBinding(ctx, name, kind);
+  const typeAnn = props.type ? `: ${emitTypeAnnotation(String(props.type), 'unknown', node)}` : '';
+  return [`${kind} ${name}${typeAnn} = \`${escapedTemplate}\`;`];
 }

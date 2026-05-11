@@ -441,6 +441,148 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(result.output).toContain('element name=second index=1');
   });
 
+  test('migrates object destructuring let to destructure kind=let', () => {
+    const source = [
+      'fn name=load returns=string',
+      '  handler <<<',
+      '    let { trackId, options } = req.body;',
+      '    return trackId;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('destructure kind=let source="req.body"');
+    expect(result.output).toContain('binding name=trackId');
+    expect(result.output).toContain('binding name=options');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates const = template-literal to fmt body-stmt', () => {
+    const source = [
+      'fn name=summarize params="count:number" returns=string',
+      '  handler <<<',
+      '    const label = `${count} files`;',
+      '    return label;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('fmt name=label template="${count} files"');
+    expect(result.output).toContain('return value="label"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates let = template-literal to fmt kind=let', () => {
+    const source = [
+      'fn name=summarize params="count:number" returns=string',
+      '  handler <<<',
+      '    let label = `${count} files`;',
+      '    return label;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('fmt name=label kind=let template="${count} files"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates `return `template-literal`` to fmt return=true', () => {
+    const source = [
+      'fn name=formatMs params="ms:number" returns=string',
+      '  handler <<<',
+      '    return `${ms}ms`;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('fmt return=true template="${ms}ms"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates const = no-substitution template (literal only)', () => {
+    const source = [
+      'fn name=greet returns=string',
+      '  handler <<<',
+      '    const msg = `hello`;',
+      '    return msg;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('fmt name=msg template="hello"');
+  });
+
+  test('preserves type annotation on template-literal const', () => {
+    const source = [
+      'fn name=summarize params="count:number" returns=string',
+      '  handler <<<',
+      '    const label: string = `${count} files`;',
+      '    return label;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('fmt name=label type="string" template="${count} files"');
+  });
+
+  test('template-literal with backslash escape is NOT migrated (codex review fix — round-trip safety)', () => {
+    const source = [
+      'fn name=summarize returns=string',
+      '  handler <<<',
+      '    const msg = `line\\n`;',
+      '    return msg;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    // Template literal with `\n` would round-trip-drift: KERN attribute
+    // escaping (escapeKernString doubles `\`) + codegen-side backtick
+    // escaping (emitFmtTemplate doubles `\` again) produces a different
+    // cooked string from the original TS template. Migrator falls through;
+    // the whole handler stays raw because TS template literal isn't a valid
+    // KERN expression for the value-form either. Conservative + safe.
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
+
+  test('multi-line template-literal stays in raw handler (not migrated)', () => {
+    const source = [
+      'fn name=summarize params="count:number" returns=string',
+      '  handler <<<',
+      '    const label = `line one',
+      'line two ${count}`;',
+      '    return label;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
+
+  test('migrates array destructuring let to destructure kind=let', () => {
+    const source = [
+      'fn name=pair returns=string',
+      '  handler <<<',
+      '    let [first, second] = values;',
+      '    return first;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('destructure kind=let source="values"');
+    expect(result.output).toContain('element name=first index=0');
+    expect(result.output).toContain('element name=second index=1');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
   test('migrates typed array destructuring const', () => {
     const source = [
       'fn name=pair returns=string',
@@ -568,7 +710,7 @@ describe('rewriteNativeHandlers — bail conditions', () => {
     expect(result.hits).toHaveLength(0);
   });
 
-  test('bails on mutable destructuring let', () => {
+  test('migrates mutable destructuring let to destructure kind=let', () => {
     const source = [
       'fn name=ok returns=number',
       '  handler <<<',
@@ -577,8 +719,9 @@ describe('rewriteNativeHandlers — bail conditions', () => {
       '  >>>',
     ].join('\n');
     const result = rewriteNativeHandlers(source);
-    expect(result.hits).toHaveLength(0);
-    expect(result.output).toBe(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('destructure kind=let source="obj"');
+    expect(result.output).toContain('binding name=x');
   });
 
   test('bails on destructuring (const { a } = obj)', () => {

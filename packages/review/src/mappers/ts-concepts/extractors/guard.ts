@@ -95,4 +95,61 @@ export function extractGuards(sf: SourceFile, filePath: string, nodes: ConceptNo
       payload: { kind: 'guard', subtype, name: calleeName },
     });
   }
+
+  // Pattern 4: header-builder calls — `buildRequestHeaders(init, url, accessToken)`,
+  // `withAuth(req)`, `signRequest(req, token)`, `attachAuth(req)`,
+  // `getAuthHeaders(token)`. Emits an auth guard for the containing function
+  // ONLY when the callee name matches the header-builder regex.
+  //
+  // Codex review: the standalone token-arg signal (`hash(accessToken)`) was
+  // dropped because it suppressed unrelated unguarded effects in the same
+  // container. A function passing a token to any helper is "auth-aware" only
+  // if the helper itself is an auth-applying primitive — encode that via the
+  // name regex, not via the arg shape alone. The token-arg signal is now a
+  // SECONDARY confidence boost on header-builder matches, never standalone.
+  // See RULE-FEEDBACK.md #6.
+  const HEADER_BUILDER_RE = /^(?:build[A-Z]\w*Headers?|with[A-Z]\w*Auth|signRequest|attachAuth|getAuthHeaders?)$/;
+  const TOKEN_ARG_RE = /^(?:accessToken|authToken|apiKey|credentials|bearer|bearerToken)$/;
+  for (const call of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    let calleeName: string | undefined;
+    if (callee.getKind() === SyntaxKind.Identifier) {
+      calleeName = callee.getText();
+    } else if (callee.getKind() === SyntaxKind.PropertyAccessExpression) {
+      calleeName = (callee as import('ts-morph').PropertyAccessExpression).getName();
+    }
+    if (!calleeName) continue;
+    if (!HEADER_BUILDER_RE.test(calleeName)) continue;
+
+    let hasTokenArg = false;
+    for (const arg of call.getArguments()) {
+      if (arg.getKind() !== SyntaxKind.Identifier) continue;
+      if (TOKEN_ARG_RE.test(arg.getText())) {
+        hasTokenArg = true;
+        break;
+      }
+    }
+
+    nodes.push({
+      id: conceptId(filePath, 'guard', call.getStart()),
+      kind: 'guard',
+      primarySpan: span(filePath, call),
+      evidence: call.getText().substring(0, 100),
+      confidence: hasTokenArg ? 0.75 : 0.6,
+      language: 'ts',
+      containerId: getContainerId(call, filePath),
+      payload: { kind: 'guard', subtype: 'auth', name: calleeName },
+    });
+  }
+
+  // Pattern 5 (REMOVED — Codex review):
+  // The previous `{ context: "auth" }` extraction emitted a container-wide
+  // guard, which suppressed any unrelated unguarded effect in the same
+  // function (e.g. `log('x', { context: 'auth' }); await db.update(...)`).
+  // Author-explicit auth-context markers must be evaluated at the network
+  // effect site itself, not promoted to a container guard — that work is
+  // tracked separately (will become a payload flag on the effect). For
+  // now, the narrow RFC auth-endpoint URL list in unguarded-effect.ts
+  // handles the static-URL cases. RULE-FEEDBACK #8 dynamic-URL flow
+  // (`getOccPath('/token', {context:'auth'})`) is a documented gap.
 }

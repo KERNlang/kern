@@ -14,6 +14,8 @@ import {
   findAssignedIdentifier,
   finding,
   getTopLevelCleanupExpressions,
+  isReactServerComponent,
+  isRouteHandler,
   nodeSpan,
   span,
 } from './utils.js';
@@ -1136,20 +1138,25 @@ function unhandledAsync(ctx: RuleContext): ReviewFinding[] {
 
     if (!hasTryCatch && !hasDotCatch && !hasThrow) {
       const hasAwait = body.includes('await ');
-      if (hasAwait) {
-        findings.push(
-          finding(
-            'unhandled-async',
-            'warning',
-            'bug',
-            `Async function '${name}' has await but no try/catch — unhandled rejection risk`,
-            ctx.filePath,
-            line,
-            1,
-            { suggestion: 'Wrap await calls in try/catch or add .catch() handler' },
-          ),
-        );
-      }
+      if (!hasAwait) continue;
+
+      // RULE-FEEDBACK.md #1: skip Next.js App Router React Server Components.
+      // Their rejections are routed to the nearest error.tsx boundary by
+      // the framework; wrapping in try/catch is an antipattern.
+      if (isReactServerComponent(fn, ctx.filePath)) continue;
+
+      // RULE-FEEDBACK.md #4: route handlers don't have an error.tsx fallback,
+      // so we still fire — but with a message that points at the real cost
+      // (silent 500s with no log) instead of generic "wrap in try/catch".
+      const handlerShape = isRouteHandler(fn, ctx.filePath);
+      const message = handlerShape
+        ? `Async route handler '${name}' has await but no catch — uncaught rejection becomes a 500 with no log`
+        : `Async function '${name}' has await but no try/catch — unhandled rejection risk`;
+      const suggestion = handlerShape
+        ? 'Add a top-level try/catch in the handler so failures are observable, then re-throw a typed response'
+        : 'Wrap await calls in try/catch or add .catch() handler';
+
+      findings.push(finding('unhandled-async', 'warning', 'bug', message, ctx.filePath, line, 1, { suggestion }));
     }
   }
 

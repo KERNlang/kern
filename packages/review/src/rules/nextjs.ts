@@ -278,6 +278,16 @@ function hydrationMismatch(ctx: RuleContext): ReviewFinding[] {
   // Skip only for API routes and middleware — they never render.
   if (ctx.fileContext?.boundary === 'api' || ctx.fileContext?.boundary === 'middleware') return findings;
 
+  // RULE-FEEDBACK.md #5: require actual JSX in the file. `isReactFile` accepts
+  // any `from 'next/...'` import as a positive signal — too loose for utility
+  // modules (fetch wrappers, telemetry, theme tokens). Without JSX the file
+  // cannot produce a render mismatch by definition.
+  const hasJsx =
+    ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxOpeningElement).length > 0 ||
+    ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement).length > 0 ||
+    ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxFragment).length > 0;
+  if (!hasJsx) return findings;
+
   const fullText = ctx.sourceFile.getFullText();
 
   // Build a set of character ranges that are inside useEffect/useMemo/event handlers
@@ -305,6 +315,70 @@ function hydrationMismatch(ctx: RuleContext): ReviewFinding[] {
 
   const isInSafeRange = (idx: number) => safeRanges.some(([s, e]) => idx >= s && idx <= e);
 
+  // RULE-FEEDBACK.md #5(b): `__IS_SERVER ? unstable : stable` ternaries are
+  // conventional Next/SSR guards — the asymmetry is deliberate, the unstable
+  // value never runs on the client. Same for typeof-window mirrors.
+  //
+  // Gemini review: support multi-line ternaries. Walk back from `idx`
+  // skipping whitespace/newlines/comma until we hit a `?` token; if the
+  // chunk between that `?` and the preceding non-ws token matches the
+  // server-gate token list, treat as gated.
+  const SERVER_GATE_LHS_RE =
+    /(?:__IS_SERVER|__IS_CLIENT|\bisServer\b|\bisClient\b|typeof\s+window\s*[!=]==?\s*['"]undefined['"])\s*$/;
+  const guardedByServerCheck = (idx: number): boolean => {
+    // Look back up to 400 chars for a `?` not inside parens/braces nested
+    // deeper than the start. Cheap heuristic that handles single- and
+    // multi-line ternaries without parsing the full expression.
+    const lookback = fullText.substring(Math.max(0, idx - 400), idx);
+    // Skip back through whitespace and the unstable expression chunk to
+    // find the most-recent `?`. We accept the `?` as belonging to this
+    // expression if it is the LAST one in the lookback chunk that isn't
+    // immediately preceded by `?` / `??` (optional-chaining / nullish).
+    let q = lookback.length;
+    while (q > 0) {
+      q = lookback.lastIndexOf('?', q - 1);
+      if (q < 0) return false;
+      const next = lookback[q + 1];
+      const prev = lookback[q - 1];
+      if (next === '.' || next === '?' || prev === '?') continue; // ?. or ??
+      break;
+    }
+    if (q < 0) return false;
+    return SERVER_GATE_LHS_RE.test(lookback.substring(0, q));
+  };
+
+  // RULE-FEEDBACK.md #5(c): Date.now() inside a Logger/metrics/telemetry call
+  // flows into observability payload, not into render. The identifiers
+  // Logger/logger/metrics/telemetry/tracer/span are strong "not rendered" hints.
+  //
+  // Gemini review: paren-depth tracking instead of `opens >= closes`. We
+  // compute net depth from a telemetry-call opening `(` to `idx`; "inside"
+  // requires depth > 0, so a closed call followed by an unrelated call on
+  // the same line does NOT spill its match forward.
+  const TELEMETRY_CALL_RE = /\b(?:Logger|logger|metrics|telemetry|tracer|span)\s*\.\s*\w+\s*\(/g;
+  const insideTelemetryCall = (idx: number): boolean => {
+    const windowStart = Math.max(0, idx - 600);
+    const slice = fullText.substring(windowStart, idx);
+    // Find ALL telemetry call openings in the window, then check whether ANY
+    // of them encloses `idx` (paren depth from its `(` to slice end > 0).
+    const re = new RegExp(TELEMETRY_CALL_RE.source, 'g');
+    let m;
+    while ((m = re.exec(slice)) !== null) {
+      const openParenIdx = m.index + m[0].length - 1; // the `(` position
+      let depth = 1;
+      for (let i = openParenIdx + 1; i < slice.length; i++) {
+        const ch = slice[i];
+        if (ch === '(') depth++;
+        else if (ch === ')') {
+          depth--;
+          if (depth === 0) break;
+        }
+      }
+      if (depth > 0) return true; // call not yet closed at slice end (== idx)
+    }
+    return false;
+  };
+
   const nondeterministic = [
     { pattern: /\bDate\.now\s*\(\s*\)/g, name: 'Date.now()' },
     { pattern: /\bMath\.random\s*\(\s*\)/g, name: 'Math.random()' },
@@ -321,6 +395,10 @@ function hydrationMismatch(ctx: RuleContext): ReviewFinding[] {
       const line = fullText.substring(0, match.index).split('\n').length;
       const lineText = fullText.split('\n')[line - 1] || '';
       if (lineText.includes("'use server'")) continue;
+
+      // #5(b) server-gate ternary; #5(c) telemetry call.
+      if (guardedByServerCheck(match.index)) continue;
+      if (insideTelemetryCall(match.index)) continue;
 
       findings.push(
         finding(

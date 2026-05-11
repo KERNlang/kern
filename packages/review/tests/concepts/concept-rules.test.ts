@@ -166,6 +166,54 @@ describe('Concept Extraction (TS)', () => {
         expect(effects[0].payload.subtype).toBe('db');
       }
     });
+
+    // RULE-FEEDBACK.md #3: synchronous Web API accessors (Headers, cookies,
+    // URLSearchParams) must NOT classify as network effects.
+    it('does NOT classify request.headers.get() as network effect', () => {
+      const sf = createSourceFile(`
+        function check(request: Request) {
+          if (request.headers.get('Authorization')?.includes('invalid')) return 401;
+          return 200;
+        }
+      `);
+      const map = extractTsConcepts(sf, 'test.ts');
+      const effects = map.nodes.filter((n) => n.kind === 'effect');
+      expect(effects.length).toBe(0);
+    });
+
+    it('does NOT classify url.searchParams.get() as network effect', () => {
+      const sf = createSourceFile(`
+        function read(url: URL) {
+          return url.searchParams.get('page');
+        }
+      `);
+      const map = extractTsConcepts(sf, 'test.ts');
+      const effects = map.nodes.filter((n) => n.kind === 'effect');
+      expect(effects.length).toBe(0);
+    });
+
+    it('does NOT classify req.cookies.get() as network effect', () => {
+      const sf = createSourceFile(`
+        function token(req: any) { return req.cookies.get('session'); }
+      `);
+      const map = extractTsConcepts(sf, 'test.ts');
+      const effects = map.nodes.filter((n) => n.kind === 'effect');
+      expect(effects.length).toBe(0);
+    });
+
+    // Regression guard for the Evil Twin's challenge #2: chained client
+    // builders must STILL be detected as network effects.
+    it('still detects request.get(url) (express-style http client)', () => {
+      const sf = createSourceFile(`
+        const request = require('http').request;
+        async function fetchIt() { return request.get('https://api.example.com'); }
+      `);
+      const map = extractTsConcepts(sf, 'test.ts');
+      const effects = map.nodes.filter(
+        (n) => n.kind === 'effect' && n.payload.kind === 'effect' && n.payload.subtype === 'network',
+      );
+      expect(effects.length).toBe(1);
+    });
   });
 });
 
@@ -214,6 +262,98 @@ describe('Concept Rules (universal)', () => {
       const report = reviewSource(source, 'test.ts');
       const finding = report.findings.find((f) => f.ruleId === 'unrecovered-effect');
       expect(finding).toBeUndefined();
+    });
+
+    // RULE-FEEDBACK.md #7: transport primitives in request.ts/fetch.ts/http.ts
+    // /api-client.ts that contain a throw are deliberately propagating to
+    // callers. Suppress here, not at the wrapper.
+    it('does NOT fire on transport primitive in request.ts that throws on !ok', () => {
+      const source = `
+        export async function request<T>(url: string, init?: RequestInit): Promise<T> {
+          const response = await fetch(url, init);
+          if (!response.ok) {
+            throw new Error('transport failure: ' + response.status);
+          }
+          return response.json() as Promise<T>;
+        }
+      `;
+      const report = reviewSource(source, 'src/lib/request.ts');
+      const finding = report.findings.find((f) => f.ruleId === 'unrecovered-effect');
+      expect(finding).toBeUndefined();
+    });
+
+    it('does NOT fire on transport primitive in fetch.ts', () => {
+      const source = `
+        export async function httpGet<T>(url: string): Promise<T> {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error('failed');
+          return res.json();
+        }
+      `;
+      const report = reviewSource(source, 'src/lib/fetch.ts');
+      const finding = report.findings.find((f) => f.ruleId === 'unrecovered-effect');
+      expect(finding).toBeUndefined();
+    });
+
+    // Regression guard for Evil Twin Challenge 1: the throw-as-handler carve-
+    // out must NOT silence the rule outside transport files. A route handler
+    // that fetches and throws a validation error for an unrelated reason
+    // should still warn.
+    it('STILL fires when a route handler throws (not in a transport file)', () => {
+      const source = `
+        export async function POST(request: Request) {
+          const data = await fetch('https://api.example.com/items');
+          if (!data.ok) throw new Error('missing user');
+          return Response.json(await data.json());
+        }
+      `;
+      const report = reviewSource(source, 'app/api/items/route.ts');
+      const finding = report.findings.find((f) => f.ruleId === 'unrecovered-effect');
+      expect(finding).toBeDefined();
+    });
+
+    // Regression: transport-primitive file WITHOUT a throw still fires —
+    // the carve-out requires both signals.
+    it('STILL fires on request.ts function that fetches without throwing', () => {
+      const source = `
+        export async function fetchData(url: string) {
+          const res = await fetch(url);
+          return res.json();
+        }
+      `;
+      const report = reviewSource(source, 'src/lib/request.ts');
+      const finding = report.findings.find((f) => f.ruleId === 'unrecovered-effect');
+      expect(finding).toBeDefined();
+    });
+
+    // Hardening per OpenCode review: filenames that *start* with a transport
+    // keyword but aren't exact matches must NOT receive the carve-out. The
+    // regex requires `\.` immediately after the keyword, so `http-status.ts`
+    // and `request-helper.ts` are correctly excluded.
+    it('STILL fires on http-status.ts (basename starts with http but not exact match)', () => {
+      const source = `
+        export async function check(url: string) {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error('bad');
+          return res.status;
+        }
+      `;
+      const report = reviewSource(source, 'src/lib/http-status.ts');
+      const finding = report.findings.find((f) => f.ruleId === 'unrecovered-effect');
+      expect(finding).toBeDefined();
+    });
+
+    it('STILL fires on request-helper.ts (suffix mismatch)', () => {
+      const source = `
+        export async function helper(url: string) {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error('bad');
+          return res.json();
+        }
+      `;
+      const report = reviewSource(source, 'src/lib/request-helper.ts');
+      const finding = report.findings.find((f) => f.ruleId === 'unrecovered-effect');
+      expect(finding).toBeDefined();
     });
   });
 });

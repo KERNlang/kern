@@ -9,11 +9,40 @@
  * Go: http.Get() with err ignored
  */
 
+import type { ConceptMap } from '@kernlang/core';
 import type { ReviewFinding } from '../types.js';
 import { createFingerprint } from '../types.js';
 import type { ConceptRuleContext } from './index.js';
 
 const RECOVERABLE_DISPOSITIONS = new Set(['wrapped', 'returned', 'rethrown', 'retried']);
+
+// RULE-FEEDBACK.md #7: filenames that conventionally house transport-primitive
+// HTTP wrappers. Inside these files, an effect that lives in a container with
+// a `throw` (error_raise) is treated as having its error deliberately
+// propagated — wrapping in try/catch would force the layer to either swallow
+// or invent an envelope. Per Evil Twin, scoped to filename to avoid silencing
+// the rule globally on any function that does ANY defensive throw.
+const TRANSPORT_FILE_RE = /(?:^|[\\/])(?:request|fetch|http|api-client)\.(?:ts|tsx|js|jsx|mts|cts|mjs|cjs)$/i;
+
+/**
+ * True when the unrecovered-effect finding for the given effect span lives in
+ * a transport-primitive file AND its container has a `throw` somewhere. The
+ * `.kern` native rule duplicates this rule but does not see filename context,
+ * so index.ts re-applies this filter to native findings — see
+ * RULE-FEEDBACK.md #7 + Evil Twin Challenge 1 refinement.
+ */
+export function isTransportPrimitiveCarveOut(
+  filePath: string,
+  concepts: ConceptMap,
+  effectSpanStartLine: number,
+): boolean {
+  if (!TRANSPORT_FILE_RE.test(filePath)) return false;
+  const effectNode = concepts.nodes.find(
+    (n) => n.kind === 'effect' && n.primarySpan.file === filePath && n.primarySpan.startLine === effectSpanStartLine,
+  );
+  if (!effectNode || !effectNode.containerId) return false;
+  return concepts.nodes.some((n) => n.kind === 'error_raise' && n.containerId === effectNode.containerId);
+}
 
 export function unrecoveredEffect(ctx: ConceptRuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
@@ -27,6 +56,8 @@ export function unrecoveredEffect(ctx: ConceptRuleContext): ReviewFinding[] {
       recoveredContainers.add(node.containerId);
     }
   }
+
+  const isTransportFile = TRANSPORT_FILE_RE.test(ctx.filePath);
 
   // Find effects without recovery in the same container
   for (const node of ctx.concepts.nodes) {
@@ -45,6 +76,18 @@ export function unrecoveredEffect(ctx: ConceptRuleContext): ReviewFinding[] {
       node.containerId !== undefined &&
       ctx.concepts.nodes.some((n) => n.kind === 'error_handle' && n.containerId === node.containerId);
     if (hasAnyHandler) continue;
+
+    // RULE-FEEDBACK.md #7: transport-primitive carve-out. A function that
+    // lives in `request.ts` / `fetch.ts` / `http.ts` / `api-client.ts` AND
+    // contains a `throw` inside its body is contractually a transport
+    // wrapper that propagates errors to the caller. Suppress here; callers
+    // (routes, server components, queries) remain on the hook.
+    if (isTransportFile && node.containerId) {
+      const containerHasThrow = ctx.concepts.nodes.some(
+        (n) => n.kind === 'error_raise' && n.containerId === node.containerId,
+      );
+      if (containerHasThrow) continue;
+    }
 
     findings.push({
       source: 'kern',

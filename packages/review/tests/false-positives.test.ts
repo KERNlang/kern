@@ -969,4 +969,134 @@ app.get('/items/:id', async (req, res) => {
     const fp = report.findings.find((f) => f.ruleId === 'unguarded-effect');
     expect(fp).toBeDefined();
   });
+
+  // RULE-FEEDBACK.md #6: header-builder call inside a transport wrapper
+  // emits an auth guard, so the surrounding fetch becomes guarded.
+  it('does NOT fire when buildRequestHeaders is called before the fetch', () => {
+    const source = `
+declare function buildRequestHeaders(init: unknown, url: string, accessToken: string): Promise<Headers>;
+export async function request<T>(url: string, accessToken: string, init: RequestInit = {}): Promise<T> {
+  const headers = await buildRequestHeaders(init, url, accessToken);
+  const response = await fetch(url, { ...init, headers });
+  if (!response.ok) throw new Error('failed');
+  return response.json();
+}
+`;
+    const report = reviewSource(source, 'src/lib/request.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'unguarded-effect');
+    expect(fp).toBeUndefined();
+  });
+
+  // #6 secondary signal — token-arg as confidence boost (NOT standalone).
+  // Per Codex review, a token-arg alone is no longer a guard. The callee
+  // must match the header-builder regex; token-arg becomes a confidence
+  // boost. Renamed `applyAuth` → `attachAuth` (matches regex).
+  it('does NOT fire when attachAuth(req, accessToken) precedes the fetch', () => {
+    const source = `
+declare function attachAuth(req: unknown, accessToken: string): void;
+export async function load(accessToken: string): Promise<unknown> {
+  const req = {};
+  attachAuth(req, accessToken);
+  const res = await fetch('https://api.example.com/data', req as RequestInit);
+  return res.json();
+}
+`;
+    const report = reviewSource(source, 'src/lib/load.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'unguarded-effect');
+    expect(fp).toBeUndefined();
+  });
+
+  // Codex regression #1: token-arg alone is NOT a guard. A function that
+  // hashes a token does not become auth-aware for unrelated DB writes.
+  it('STILL fires when hash(accessToken) precedes an unrelated db.update', () => {
+    const source = `
+declare function hash(value: string): string;
+declare const db: { update(args: unknown): Promise<unknown> };
+export async function rotate(accessToken: string): Promise<void> {
+  const digest = hash(accessToken);
+  await db.update({ where: { id: '1' }, data: { digest } });
+}
+`;
+    const report = reviewSource(source, 'src/admin/rotate.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'unguarded-effect');
+    expect(fp).toBeDefined();
+  });
+
+  // RULE-FEEDBACK.md #8: narrow RFC auth-endpoint URL suffix.
+  it('does NOT fire on POST to /oauth/token', () => {
+    const source = `
+export async function login(body: string): Promise<unknown> {
+  const res = await fetch('https://idp.example.com/oauth/token', { method: 'POST', body });
+  return res.json();
+}
+`;
+    const report = reviewSource(source, 'src/auth/login.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'unguarded-effect');
+    expect(fp).toBeUndefined();
+  });
+
+  // Codex regression #2: `{context:"auth"}` on an UNRELATED helper call must
+  // NOT suppress neighbouring unguarded effects in the same container. The
+  // container-wide guard emission for this marker was dropped; auth-aware
+  // suppression now requires either the narrow URL suffix list or future
+  // per-effect payload-flag support.
+  it('STILL fires when log({context:"auth"}) precedes an unrelated db.update', () => {
+    const source = `
+declare function log(msg: string, opts: { context: string }): void;
+declare const db: { update(args: unknown): Promise<unknown> };
+export async function record(): Promise<void> {
+  log('x', { context: 'auth' });
+  await db.update({ where: { id: '1' }, data: { hit: 1 } });
+}
+`;
+    const report = reviewSource(source, 'src/admin/log.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'unguarded-effect');
+    expect(fp).toBeDefined();
+  });
+
+  // Codex regression #3: two effects on the same source line must be
+  // matched by line+col, not line-only. Previously the auth-endpoint filter
+  // could find the auth effect first and suppress an adjacent non-auth
+  // finding that shared the line.
+  it('STILL fires on non-auth fetch sharing a line with /oauth/token call', () => {
+    const source = `
+export async function loginAndPing(body: string): Promise<unknown> {
+  const a = await fetch('https://idp.example.com/oauth/token', { method: 'POST', body }); const b = await fetch('https://api.example.com/delete', { method: 'DELETE' });
+  return { a, b };
+}
+`;
+    const report = reviewSource(source, 'src/auth/login-and-ping.ts');
+    const findings = report.findings.filter((f) => f.ruleId === 'unguarded-effect');
+    // The /oauth/token call should be suppressed by the auth-endpoint
+    // filter, the /api/delete call should still fire.
+    expect(findings.length).toBe(1);
+  });
+
+  // Regression: per Evil Twin Challenge 4, broad substrings must NOT suppress.
+  // `/api/refresh-data/` should STILL fire — it's not an auth endpoint despite
+  // containing "refresh".
+  it('STILL fires on /api/refresh-data (not an auth endpoint)', () => {
+    const source = `
+export async function fetchRefresh(): Promise<unknown> {
+  const res = await fetch('https://api.example.com/api/refresh-data');
+  return res.json();
+}
+`;
+    const report = reviewSource(source, 'src/api/refresh.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'unguarded-effect');
+    expect(fp).toBeDefined();
+  });
+
+  // Regression: /api/user-sessions (listing, not auth) must STILL fire.
+  it('STILL fires on /api/user-sessions listing endpoint', () => {
+    const source = `
+export async function listSessions(): Promise<unknown> {
+  const res = await fetch('https://api.example.com/api/user-sessions');
+  return res.json();
+}
+`;
+    const report = reviewSource(source, 'src/api/sessions.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'unguarded-effect');
+    expect(fp).toBeDefined();
+  });
 });

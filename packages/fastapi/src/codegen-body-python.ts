@@ -184,6 +184,8 @@ function emitChildrenPy(
         for (const line of emitAssignPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'destructure') {
         for (const line of emitDestructurePy(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'fmt') {
+        for (const line of emitFmtPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'return') {
         for (const line of emitReturnPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'if') {
@@ -692,6 +694,77 @@ function emitDestructurePy(node: IRNode, ctx: BodyEmitContext): string[] {
       .sort((a, b) => a.index - b.index)
       .map((entry) => entry.line),
   ];
+}
+
+function emitFmtPy(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const template = props.template;
+  if (template === undefined || template === null) {
+    throw new Error('body-statement `fmt` requires `template=`.');
+  }
+  const fstring = templateToPyFString(String(template), ctx);
+  const returnMode = props.return === true || props.return === 'true';
+  if (returnMode) {
+    if (props.name !== undefined && props.name !== '') {
+      throw new Error('body-statement `fmt` with `return=true` must not carry a `name=` prop.');
+    }
+    return [`return ${fstring}`];
+  }
+  if (props.name === undefined || props.name === '') {
+    throw new Error(
+      'body-statement `fmt` requires `name=` (or `return=true` for return-position form). Inline-JSX form is only valid as a direct child of `render`/`group`.',
+    );
+  }
+  const rawName = String(props.name);
+  const name = ctx.symbolMap[rawName] ?? rawName;
+  return [`${name} = ${fstring}`];
+}
+
+function templateToPyFString(template: string, ctx: BodyEmitContext): string {
+  let out = 'f"';
+  let i = 0;
+  while (i < template.length) {
+    const c = template[i];
+    if (c === '$' && template[i + 1] === '{') {
+      let depth = 1;
+      let j = i + 2;
+      while (j < template.length && depth > 0) {
+        if (template[j] === '{') depth++;
+        else if (template[j] === '}') {
+          depth--;
+          if (depth === 0) break;
+        }
+        j++;
+      }
+      if (depth !== 0) {
+        throw new Error('body-statement `fmt`: unterminated `${...}` in template.');
+      }
+      const inner = template.slice(i + 2, j);
+      const exprIR = parseExpression(inner);
+      if (exprIR.kind === 'propagate') {
+        throw new Error("Propagation '?' is not allowed inside an `fmt` template — bind via `let` first.");
+      }
+      out += `{${emitPyExprCtx(exprIR, ctx)}}`;
+      i = j + 1;
+    } else if (c === '{' || c === '}') {
+      out += c + c;
+      i++;
+    } else if (c === '"') {
+      out += '\\"';
+      i++;
+    } else if (c === '\\') {
+      out += '\\\\';
+      i++;
+    } else if (c === '\n') {
+      out += '\\n';
+      i++;
+    } else {
+      out += c;
+      i++;
+    }
+  }
+  out += '"';
+  return out;
 }
 
 function emitReturnPy(node: IRNode, ctx: BodyEmitContext): string[] {

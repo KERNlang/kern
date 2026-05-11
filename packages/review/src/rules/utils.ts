@@ -197,3 +197,72 @@ export function cleanupExpressionMatches(expr: Node, spec: CleanupMatcherSpec): 
   const texts = resolveCleanupExpressionTexts(expr);
   return texts.some((text) => spec.cleanupPatterns.some((pattern) => pattern.test(text)));
 }
+
+// ── Next.js App Router file/function classification ─────────────────────────
+//
+// Used by the unhandled-async carve-outs (RULE-FEEDBACK.md #1, #4). RSCs
+// route their rejections to error.tsx; wrapping every await in try/catch is
+// an antipattern. Route handlers don't get error.tsx but Next.js converts
+// rejections to 500 — we still warn there, just with a handler-specific
+// message about observability.
+
+const APP_ROUTER_FILE_RE = /(?:^|[\\/])(?:src[\\/])?app[\\/].+\.(?:tsx|jsx|ts|js)$/;
+const APP_ROUTER_ROUTE_FILE_RE = /(?:^|[\\/])(?:src[\\/])?app[\\/](?:.*[\\/])?route\.(?:ts|tsx|js|jsx)$/;
+const ROUTE_HANDLER_VERBS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
+
+function hasUseClientDirective(sf: import('ts-morph').SourceFile): boolean {
+  return /^['"]use client['"];?\s*$/m.test(sf.getFullText().substring(0, 200));
+}
+
+function functionReturnsJsx(fn: Node): boolean {
+  // ts-morph: descendants of any function-like body include nested arrow
+  // bodies; we accept that. A render function with any JSX in its body is
+  // strong enough signal for the RSC carve-out.
+  if (!Node.isFunctionDeclaration(fn) && !Node.isArrowFunction(fn) && !Node.isFunctionExpression(fn)) return false;
+  const body = fn.getBody();
+  if (!body) return false;
+  return (
+    body.getDescendantsOfKind(SyntaxKind.JsxOpeningElement).length > 0 ||
+    body.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement).length > 0 ||
+    body.getDescendantsOfKind(SyntaxKind.JsxFragment).length > 0
+  );
+}
+
+/**
+ * True when `fn` is an async React Server Component. Used to suppress
+ * unhandled-async on RSCs whose rejections are routed to the nearest
+ * `error.tsx` boundary — wrapping the await in try/catch swallows errors
+ * the framework is meant to handle.
+ *
+ * Heuristic: file lives under `(src/)app/**\/<not route>.{tsx,jsx}` (App
+ * Router page/layout/component file), file has no `'use client'` directive,
+ * function returns JSX, and is either the default export or a
+ * PascalCase named export. See RULE-FEEDBACK.md #1.
+ */
+export function isReactServerComponent(fn: import('ts-morph').FunctionDeclaration, filePath: string): boolean {
+  if (!APP_ROUTER_FILE_RE.test(filePath)) return false;
+  if (APP_ROUTER_ROUTE_FILE_RE.test(filePath)) return false;
+  if (!filePath.endsWith('.tsx') && !filePath.endsWith('.jsx')) return false;
+  if (hasUseClientDirective(fn.getSourceFile())) return false;
+  if (!fn.isAsync()) return false;
+  if (!functionReturnsJsx(fn)) return false;
+
+  const isDefault = fn.hasModifier(SyntaxKind.DefaultKeyword);
+  const name = fn.getName();
+  const isPascalNamedExport = name != null && /^[A-Z]/.test(name) && fn.hasModifier(SyntaxKind.ExportKeyword);
+  return isDefault || isPascalNamedExport;
+}
+
+/**
+ * True when `fn` is an exported Next.js App Router route-handler verb
+ * (GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS) in an `app/**\/route.{ts,tsx}`
+ * file. Pages Router API routes use `(req, res) => void` and aren't
+ * recognized here. See RULE-FEEDBACK.md #4.
+ */
+export function isRouteHandler(fn: import('ts-morph').FunctionDeclaration, filePath: string): boolean {
+  if (!APP_ROUTER_ROUTE_FILE_RE.test(filePath)) return false;
+  const name = fn.getName();
+  if (name == null || !ROUTE_HANDLER_VERBS.has(name)) return false;
+  if (!fn.isAsync()) return false;
+  return fn.hasModifier(SyntaxKind.ExportKeyword);
+}
