@@ -49,6 +49,8 @@ const DIAGNOSTIC_SUGGESTIONS: Record<ParseErrorCode, string> = {
     'Use a literal positive integer step such as `step=1` or omit `step=`. Expression-valued and fractional steps are deferred until range-loop direction semantics are explicit.',
   BODY_FOR_INVALID_BOUND:
     'Use integer range bounds. Literal fractional bounds are rejected because Python range() cannot represent them.',
+  CELL_OUTSIDE_HANDLER_TOP_LEVEL:
+    'Lift the `cell` out of any enclosing `if`/`for`/`while`/`try`/`each` and place it directly under `handler lang="kern"`. Use a conditional `set` inside the branch instead.',
 };
 
 export function createParseState(): ParseState {

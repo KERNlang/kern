@@ -58,6 +58,22 @@ function walk(state: ParseState, node: IRNode, ctx: WalkContext): void {
       { endCol: loc.endCol ?? loc.col + 1 },
     );
   }
+  if (ctx.inNativeBody && node.type === 'cell' && ctx.parentType !== 'handler') {
+    // Rules of Hooks: useState must be called unconditionally at the top of
+    // the component. Nesting `cell` inside `if`/`else`/`while`/`for`/`each`/
+    // `try`/`catch`/`finally` would emit a conditional `useState` call and
+    // crash at runtime. Restrict cell to direct child of `handler lang=kern`.
+    const loc = node.loc ?? { line: 1, col: 1, endCol: 2 };
+    emitDiagnostic(
+      state,
+      'CELL_OUTSIDE_HANDLER_TOP_LEVEL',
+      'error',
+      '`cell` must be a direct child of `handler lang="kern"` (Rules of Hooks). Lift the cell out of any enclosing `if`/`for`/`while`/`try` and use a conditional `set` for the dynamic write instead.',
+      loc.line,
+      loc.col,
+      { endCol: loc.endCol ?? loc.col + 1 },
+    );
+  }
   if (ctx.inNativeBody && isLoopControlOutsideLoop(node, ctx)) {
     const loc = node.loc ?? { line: 1, col: 1, endCol: 2 };
     emitDiagnostic(
@@ -171,6 +187,14 @@ function isBodyStatementMisplaced(node: IRNode, ctx: WalkContext): boolean {
   if (ctx.inNativeBody) return false;
 
   switch (node.type) {
+    case 'set':
+      // `set` is dual-purpose: an `on` event-handler shortcut (`on event=click
+      // → set name=count to=...`) AND a body-statement write to a `cell` inside
+      // a `handler lang="kern"`. The on-event form is parented by `on`; the
+      // body-stmt form is parented by handler/try/catch/finally/while/for. Only
+      // flag as misplaced when neither parent context applies.
+      return ctx.parentType !== 'on';
+    case 'cell':
     case 'return':
     case 'assign':
     case 'throw':

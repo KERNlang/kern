@@ -95,7 +95,7 @@ interface BodyEmitContext {
   imports: Set<string>;
   symbolMap: Record<string, string>;
   shadowedSymbols: Set<string>;
-  localScopes: Array<Map<string, 'const' | 'let'>>;
+  localScopes: Array<Map<string, 'const' | 'let' | 'cell'>>;
   propagateStyle: 'value' | 'http-exception';
   usedPropagation: boolean;
   /** Slice 4c review fix (OpenCode + Gemini critical) — depth of nested
@@ -178,7 +178,11 @@ function emitChildrenPy(
   try {
     for (let i = 0; i < children.length; i++) {
       const child = children[i];
-      if (child.type === 'let') {
+      if (child.type === 'cell') {
+        for (const line of emitCellPy(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'set') {
+        for (const line of emitSetPy(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'let') {
         for (const line of emitLetPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'assign') {
         for (const line of emitAssignPy(child, ctx)) lines.push(`${indent}${line}`);
@@ -553,6 +557,49 @@ function errPropagationLine(tmp: string, ctx: BodyEmitContext): string {
   return `    return ${tmp}`;
 }
 
+function emitCellPy(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const rawName = props.name;
+  if (rawName === undefined || rawName === '') {
+    throw new Error('body-statement `cell` requires `name=`.');
+  }
+  const name = String(rawName);
+  declareLocalBinding(ctx, name, 'cell');
+  const pythonName = ctx.symbolMap[name] ?? name;
+  const rawInitial = props.initial;
+  // FastAPI request handlers don't need reactivity — each request resets
+  // state. Cell lowers to plain mutable assignment, indistinguishable from
+  // `let kind=let` at runtime; the distinction is for cross-target semantic
+  // intent (TS+React emits `useState`). Future Python targets (Plotly Dash,
+  // Streamlit) can specialize the lowering without changing author code.
+  if (rawInitial === undefined || rawInitial === '') {
+    return [`${pythonName} = None`];
+  }
+  const initialIR = parseExpression(String(rawInitial));
+  return [`${pythonName} = ${emitPyExprCtx(initialIR, ctx)}`];
+}
+
+function emitSetPy(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const rawName = props.name;
+  if (rawName === undefined || rawName === '') {
+    throw new Error('body-statement `set` requires `name=`.');
+  }
+  const rawTo = props.to;
+  if (rawTo === undefined || rawTo === '') {
+    throw new Error('body-statement `set` requires `to=`.');
+  }
+  const name = String(rawName);
+  const pythonName = ctx.symbolMap[name] ?? name;
+  const valueIR = parseExpression(String(rawTo));
+  if (valueIR.kind === 'propagate') {
+    throw new Error(
+      `Propagation \`${valueIR.op}\` is not supported in \`set to=\` — bind to \`let\` first, then call set.`,
+    );
+  }
+  return [`${pythonName} = ${emitPyExprCtx(valueIR, ctx)}`];
+}
+
 function emitLetPy(node: IRNode, ctx: BodyEmitContext): string[] {
   const props = (node.props ?? {}) as Record<string, unknown>;
   const name = String(props.name ?? '_');
@@ -606,7 +653,7 @@ function emitAssignPy(node: IRNode, ctx: BodyEmitContext): string[] {
   return [`${emitPyExprCtx(targetIR, ctx)} ${rawOp} ${emitPyExprCtx(valueIR, ctx)}`];
 }
 
-function declareLocalBinding(ctx: BodyEmitContext, name: string, kind: 'const' | 'let'): void {
+function declareLocalBinding(ctx: BodyEmitContext, name: string, kind: 'const' | 'let' | 'cell'): void {
   const scope = ctx.localScopes.at(-1);
   if (!scope) return;
   if (scope.has(name)) {
@@ -625,7 +672,7 @@ function assertAssignableLocalTarget(target: ValueIR, ctx: BodyEmitContext): voi
   }
 }
 
-function lookupLocalBinding(ctx: BodyEmitContext, name: string): 'const' | 'let' | undefined {
+function lookupLocalBinding(ctx: BodyEmitContext, name: string): 'const' | 'let' | 'cell' | undefined {
   for (let i = ctx.localScopes.length - 1; i >= 0; i--) {
     const found = ctx.localScopes[i].get(name);
     if (found) return found;
