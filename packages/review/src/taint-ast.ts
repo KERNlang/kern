@@ -365,6 +365,14 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
         // operator injection (Mongo treats string as literal _id). Reject
         // unless the tainted source is body/query (object-shaped).
         if (sinkDef === 'nosql' && nosqlByIdRejectsScalarParams(calleeName, arg)) continue;
+        // Redirect sinks: `new URL("/literal/path", taintedBase)` constant-
+        // folds the path component — the URL constructor discards the path
+        // of `base` when the first arg starts with "/". Result is always
+        // `<own-origin>/literal/path`, a fixed same-origin redirect. The
+        // attacker cannot influence the destination path. See
+        // RULE-FEEDBACK.md #2. Pure string-literal first arg only — template
+        // literals or non-string args may still carry taint.
+        if (sinkDef === 'redirect' && isConstantFoldedUrl(arg)) continue;
         sinks.push({
           name: calleeName,
           category: sinkDef,
@@ -484,6 +492,28 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
   }
 
   return results;
+}
+
+/**
+ * True when `arg` has the shape `new URL("/literal/path", anything)`. The
+ * URL constructor discards the path of `base` whenever the first arg starts
+ * with a leading slash — so the resolved URL is always `<own-origin>/path`
+ * regardless of what flows in as `base`. The attacker can only influence
+ * the origin (via Host header), not the path. See RULE-FEEDBACK.md #2.
+ *
+ * Pure StringLiteral first arg only. Template literals or any non-literal
+ * expression may carry taint and must keep flagging.
+ */
+function isConstantFoldedUrl(arg: Node): boolean {
+  if (arg.getKindName() !== 'NewExpression') return false;
+  const newExpr = arg as import('ts-morph').NewExpression;
+  if (newExpr.getExpression().getText() !== 'URL') return false;
+  const args = newExpr.getArguments();
+  if (args.length < 1) return false;
+  const first = args[0];
+  if (first.getKindName() !== 'StringLiteral') return false;
+  const literal = (first as import('ts-morph').StringLiteral).getLiteralText();
+  return literal.startsWith('/');
 }
 
 /**

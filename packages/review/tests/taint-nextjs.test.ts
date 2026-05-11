@@ -214,4 +214,50 @@ export async function DELETE(req: Request) {
     const delReport = reviewSource(delSource, 'app/api/users/route.ts');
     expect(delReport.findings.find((f) => f.ruleId === 'taint-sql' || f.ruleId === 'taint-template')).toBeDefined();
   });
+
+  // ── RULE-FEEDBACK.md #2: constant-folded new URL(literal, taintedBase) ──
+
+  it('does NOT fire taint-redirect on new URL("/literal", request.url)', () => {
+    // The first arg to `new URL` starting with "/" makes the constructor
+    // ignore the path of `base`. The redirect target is always
+    // `<own-origin>/literal` — attacker can't influence the path.
+    const source = `
+import { NextResponse, type NextRequest } from 'next/server';
+export async function GET(request: NextRequest) {
+  if (request.headers.get('x-fail')) return NextResponse.json({}, { status: 404 });
+  return NextResponse.redirect(new URL('/next-assets/images/placeholder.jpg', request.url));
+}
+`;
+    const report = reviewSource(source, 'app/api/mock/route.ts');
+    const f = report.findings.find((f) => f.ruleId === 'taint-redirect');
+    expect(f).toBeUndefined();
+  });
+
+  // Regression guard: template literals and non-literal first args MUST still
+  // fire — those can carry attacker-controlled path segments.
+  it('STILL fires taint-redirect on new URL(`${tainted}`, request.url)', () => {
+    const source = `
+import { NextResponse, type NextRequest } from 'next/server';
+export async function GET(request: NextRequest) {
+  const next = new URL(request.url).searchParams.get('next') || '';
+  return NextResponse.redirect(new URL(\`/redirect/\${next}\`, request.url));
+}
+`;
+    const report = reviewSource(source, 'app/api/r/route.ts');
+    const f = report.findings.find((f) => f.ruleId === 'taint-redirect');
+    expect(f).toBeDefined();
+  });
+
+  it('STILL fires taint-redirect on raw NextResponse.redirect(req.query.url)', () => {
+    const source = `
+import { NextResponse, type NextRequest } from 'next/server';
+export async function GET(request: NextRequest) {
+  const url = new URL(request.url).searchParams.get('next') || '';
+  return NextResponse.redirect(url);
+}
+`;
+    const report = reviewSource(source, 'app/api/r/route.ts');
+    const f = report.findings.find((f) => f.ruleId === 'taint-redirect');
+    expect(f).toBeDefined();
+  });
 });
