@@ -483,7 +483,9 @@ function hasMatchingState(name: string, ancestors: IRNode[]): boolean {
   for (const ancestor of ancestors) {
     if (!ancestor.children) continue;
     for (const child of ancestor.children) {
-      if (child.type === 'state' && (child.props?.name as string | undefined) === name) {
+      // `cell` (body-stmt) and `state` (top-level / screen) both register a
+      // setter binding. `set name=X` matches either declaration form.
+      if ((child.type === 'state' || child.type === 'cell') && (child.props?.name as string | undefined) === name) {
         return true;
       }
     }
@@ -496,7 +498,7 @@ function collectDeclaredStateNames(ancestors: IRNode[]): string[] {
   for (const ancestor of ancestors) {
     if (!ancestor.children) continue;
     for (const child of ancestor.children) {
-      if (child.type === 'state') {
+      if (child.type === 'state' || child.type === 'cell') {
         const n = child.props?.name as string | undefined;
         if (n) names.push(n);
       }

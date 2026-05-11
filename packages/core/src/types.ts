@@ -156,7 +156,8 @@ export type ParseErrorCode =
   | 'LET_INVALID_KIND'
   | 'BODY_FOR_INVALID_NAME'
   | 'BODY_FOR_INVALID_STEP'
-  | 'BODY_FOR_INVALID_BOUND';
+  | 'BODY_FOR_INVALID_BOUND'
+  | 'CELL_OUTSIDE_HANDLER_TOP_LEVEL';
 
 export type ParseDiagnosticSeverity = 'error' | 'warning' | 'info';
 

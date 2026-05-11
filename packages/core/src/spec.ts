@@ -241,6 +241,7 @@ export const NODE_TYPES = [
   // Ground layer — semantic reasoning
   'derive',
   'fmt',
+  'cell',
   'set',
   'async',
   'try',

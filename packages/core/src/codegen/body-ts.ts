@@ -68,7 +68,7 @@ export interface BodyEmitResult {
 
 interface BodyEmitContext {
   gensymCounter: number;
-  localScopes: Array<Map<string, 'const' | 'let'>>;
+  localScopes: Array<Map<string, 'const' | 'let' | 'cell'>>;
   /** Slice 4c review fix (OpenCode + Gemini critical) — depth of nested
    *  `try` blocks the emitter is currently inside. Propagation `?` lowers
    *  to a `return` that exits the function — that bypasses the enclosing
@@ -110,14 +110,18 @@ function emitChildrenTS(
   children: IRNode[],
   ctx: BodyEmitContext,
   indent: string,
-  initialBindings: Array<[string, 'const' | 'let']> = [],
+  initialBindings: Array<[string, 'const' | 'let' | 'cell']> = [],
 ): string[] {
   const lines: string[] = [];
   ctx.localScopes.push(new Map(initialBindings));
   try {
     for (let i = 0; i < children.length; i++) {
       const child = children[i];
-      if (child.type === 'let') {
+      if (child.type === 'cell') {
+        for (const line of emitCellTS(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'set') {
+        for (const line of emitSetTS(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'let') {
         for (const line of emitLetTS(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'assign') {
         for (const line of emitAssignTS(child, ctx)) lines.push(`${indent}${line}`);
@@ -510,10 +514,73 @@ function emitAssignTS(node: IRNode, ctx: BodyEmitContext): string[] {
       `Propagation \`${valueIR.op}\` is not supported in \`assign value=\` — bind to \`let\` first, then assign.`,
     );
   }
+  // Cell assignment auto-lowers to its React setter so authors can use the
+  // same `assign target=X value=Y` shape regardless of whether X is a `let`
+  // or a `cell`. For compound assigns (`+=`, `-=`, …), use the functional
+  // updater form `setX((prev) => prev + value)` so multiple updates in the
+  // same render turn compose correctly under React's batching (the naive
+  // `setX(X + value)` form captures stale state).
+  if (targetIR.kind === 'ident' && lookupLocalBinding(ctx, targetIR.name) === 'cell') {
+    const setter = cellSetterName(targetIR.name);
+    if (rawOp === '=') {
+      return [`${setter}(${emitExpression(valueIR)});`];
+    }
+    const baseOp = rawOp.slice(0, -1);
+    return [`${setter}((prev) => prev ${baseOp} ${emitExpression(valueIR)});`];
+  }
   return [`${emitExpression(targetIR)} ${rawOp} ${emitExpression(valueIR)};`];
 }
 
-function declareLocalBinding(ctx: BodyEmitContext, name: string, kind: 'const' | 'let'): void {
+function emitCellTS(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const rawName = props.name;
+  if (rawName === undefined || rawName === '') {
+    throw new Error('body-statement `cell` requires `name=`.');
+  }
+  const name = emitIdentifier(String(rawName), 'cell', node);
+  declareLocalBinding(ctx, name, 'cell');
+  const setter = cellSetterName(name);
+  const type = props.type ? String(props.type) : '';
+  const typeArg = type ? `<${emitTypeAnnotation(type, 'unknown', node)}>` : '';
+  const rawInitial = props.initial;
+  const initialEmitted =
+    rawInitial === undefined || rawInitial === '' ? 'undefined' : emitExpression(parseExpression(String(rawInitial)));
+  return [`const [${name}, ${setter}] = useState${typeArg}(${initialEmitted});`];
+}
+
+function emitSetTS(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const rawName = props.name;
+  if (rawName === undefined || rawName === '') {
+    throw new Error('body-statement `set` requires `name=`.');
+  }
+  const rawTo = props.to;
+  if (rawTo === undefined || rawTo === '') {
+    throw new Error('body-statement `set` requires `to=`.');
+  }
+  const name = emitIdentifier(String(rawName), 'cell', node);
+  // Inside body-stmt context, `set` lowers to a React setter call regardless
+  // of whether the named binding is a `cell` (the canonical case) or an
+  // out-of-scope name (a useState declared in an enclosing render scope).
+  // We don't gate on lookupLocalBinding because the cell may be declared in
+  // a parent scope outside this emitter's visibility.
+  const setter = cellSetterName(name);
+  const valueIR = parseExpression(String(rawTo));
+  if (valueIR.kind === 'propagate') {
+    throw new Error(
+      `Propagation \`${valueIR.op}\` is not supported in \`set to=\` — bind to \`let\` first, then call set.`,
+    );
+  }
+  // touch ctx to suppress unused-var lint if needed
+  void ctx;
+  return [`${setter}(${emitExpression(valueIR)});`];
+}
+
+function cellSetterName(cellName: string): string {
+  return `set${cellName.charAt(0).toUpperCase()}${cellName.slice(1)}`;
+}
+
+function declareLocalBinding(ctx: BodyEmitContext, name: string, kind: 'const' | 'let' | 'cell'): void {
   const scope = ctx.localScopes.at(-1);
   if (!scope) return;
   if (scope.has(name)) {
@@ -532,7 +599,7 @@ function assertAssignableLocalTarget(target: ValueIR, ctx: BodyEmitContext): voi
   }
 }
 
-function lookupLocalBinding(ctx: BodyEmitContext, name: string): 'const' | 'let' | undefined {
+function lookupLocalBinding(ctx: BodyEmitContext, name: string): 'const' | 'let' | 'cell' | undefined {
   for (let i = ctx.localScopes.length - 1; i >= 0; i--) {
     const found = ctx.localScopes[i].get(name);
     if (found) return found;

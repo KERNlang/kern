@@ -273,6 +273,17 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       debounce: { kind: 'number' },
     },
   },
+  cell: {
+    description:
+      'Body-statement reactive state cell — KERN-canonical state primitive inside a `handler lang="kern"` body. Read the cell via its `name`; update via `set name=X to=...` or `assign target=X value=...`. Target lowering: TS+React → `const [X, setX] = useState<T>(initial);` (writes auto-rewrite to setter calls). Python+FastAPI → plain mutable `X = initial` (FastAPI per-request handlers don\'t need reactivity; each request resets). Must be a direct child of `handler lang="kern"` — placing it inside `if`/`for`/`while`/`try` violates React\'s Rules of Hooks.',
+    example:
+      'fn name=Counter\n  handler lang="kern"\n    cell name=count initial=0 type=number\n    set name=count to="count + 1"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      initial: { kind: 'expression' },
+      type: { kind: 'typeAnnotation' },
+    },
+  },
   animation: {
     description: 'Interval-driven state update — generates useEffect with setInterval and auto-cleanup',
     example: 'animation name=frame interval=100 update="(prev) => (prev + 1) % 4"',
@@ -1562,6 +1573,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     // is intentionally permissive so the validator can produce a clearer
     // context-aware error).
     allowedChildren: [
+      'cell',
+      'set',
       'let',
       'assign',
       'destructure',
