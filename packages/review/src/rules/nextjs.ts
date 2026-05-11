@@ -318,31 +318,64 @@ function hydrationMismatch(ctx: RuleContext): ReviewFinding[] {
   // RULE-FEEDBACK.md #5(b): `__IS_SERVER ? unstable : stable` ternaries are
   // conventional Next/SSR guards — the asymmetry is deliberate, the unstable
   // value never runs on the client. Same for typeof-window mirrors.
-  const SERVER_GATE_RE =
-    /(?:__IS_SERVER|__IS_CLIENT|\bisServer\b|\bisClient\b|typeof\s+window\s*[!=]==?\s*['"]undefined['"])\s*\?\s*[^?]*$/;
+  //
+  // Gemini review: support multi-line ternaries. Walk back from `idx`
+  // skipping whitespace/newlines/comma until we hit a `?` token; if the
+  // chunk between that `?` and the preceding non-ws token matches the
+  // server-gate token list, treat as gated.
+  const SERVER_GATE_LHS_RE = /(?:__IS_SERVER|__IS_CLIENT|\bisServer\b|\bisClient\b|typeof\s+window\s*[!=]==?\s*['"]undefined['"])\s*$/;
   const guardedByServerCheck = (idx: number): boolean => {
-    const lineStart = fullText.lastIndexOf('\n', idx - 1) + 1;
-    return SERVER_GATE_RE.test(fullText.substring(lineStart, idx));
+    // Look back up to 400 chars for a `?` not inside parens/braces nested
+    // deeper than the start. Cheap heuristic that handles single- and
+    // multi-line ternaries without parsing the full expression.
+    const lookback = fullText.substring(Math.max(0, idx - 400), idx);
+    // Skip back through whitespace and the unstable expression chunk to
+    // find the most-recent `?`. We accept the `?` as belonging to this
+    // expression if it is the LAST one in the lookback chunk that isn't
+    // immediately preceded by `?` / `??` (optional-chaining / nullish).
+    let q = lookback.length;
+    while (q > 0) {
+      q = lookback.lastIndexOf('?', q - 1);
+      if (q < 0) return false;
+      const next = lookback[q + 1];
+      const prev = lookback[q - 1];
+      if (next === '.' || next === '?' || prev === '?') continue; // ?. or ??
+      break;
+    }
+    if (q < 0) return false;
+    return SERVER_GATE_LHS_RE.test(lookback.substring(0, q));
   };
 
   // RULE-FEEDBACK.md #5(c): Date.now() inside a Logger/metrics/telemetry call
   // flows into observability payload, not into render. The identifiers
   // Logger/logger/metrics/telemetry/tracer/span are strong "not rendered" hints.
+  //
+  // Gemini review: paren-depth tracking instead of `opens >= closes`. We
+  // compute net depth from a telemetry-call opening `(` to `idx`; "inside"
+  // requires depth > 0, so a closed call followed by an unrelated call on
+  // the same line does NOT spill its match forward.
   const TELEMETRY_CALL_RE = /\b(?:Logger|logger|metrics|telemetry|tracer|span)\s*\.\s*\w+\s*\(/g;
   const insideTelemetryCall = (idx: number): boolean => {
     const windowStart = Math.max(0, idx - 600);
     const slice = fullText.substring(windowStart, idx);
-    let lastMatchEnd = -1;
+    // Find ALL telemetry call openings in the window, then check whether ANY
+    // of them encloses `idx` (paren depth from its `(` to slice end > 0).
+    const re = new RegExp(TELEMETRY_CALL_RE.source, 'g');
     let m;
-    while ((m = TELEMETRY_CALL_RE.exec(slice)) !== null) {
-      lastMatchEnd = m.index + m[0].length;
+    while ((m = re.exec(slice)) !== null) {
+      const openParenIdx = m.index + m[0].length - 1; // the `(` position
+      let depth = 1;
+      for (let i = openParenIdx + 1; i < slice.length; i++) {
+        const ch = slice[i];
+        if (ch === '(') depth++;
+        else if (ch === ')') {
+          depth--;
+          if (depth === 0) break;
+        }
+      }
+      if (depth > 0) return true; // call not yet closed at slice end (== idx)
     }
-    TELEMETRY_CALL_RE.lastIndex = 0;
-    if (lastMatchEnd < 0) return false;
-    const tail = slice.substring(lastMatchEnd);
-    const opens = (tail.match(/\(/g) || []).length;
-    const closes = (tail.match(/\)/g) || []).length;
-    return opens >= closes;
+    return false;
   };
 
   const nondeterministic = [

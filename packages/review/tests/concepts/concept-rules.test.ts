@@ -323,5 +323,35 @@ describe('Concept Rules (universal)', () => {
       const finding = report.findings.find((f) => f.ruleId === 'unrecovered-effect');
       expect(finding).toBeDefined();
     });
+
+    // Hardening per OpenCode review: filenames that *start* with a transport
+    // keyword but aren't exact matches must NOT receive the carve-out. The
+    // regex requires `\.` immediately after the keyword, so `http-status.ts`
+    // and `request-helper.ts` are correctly excluded.
+    it('STILL fires on http-status.ts (basename starts with http but not exact match)', () => {
+      const source = `
+        export async function check(url: string) {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error('bad');
+          return res.status;
+        }
+      `;
+      const report = reviewSource(source, 'src/lib/http-status.ts');
+      const finding = report.findings.find((f) => f.ruleId === 'unrecovered-effect');
+      expect(finding).toBeDefined();
+    });
+
+    it('STILL fires on request-helper.ts (suffix mismatch)', () => {
+      const source = `
+        export async function helper(url: string) {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error('bad');
+          return res.json();
+        }
+      `;
+      const report = reviewSource(source, 'src/lib/request-helper.ts');
+      const finding = report.findings.find((f) => f.ruleId === 'unrecovered-effect');
+      expect(finding).toBeDefined();
+    });
   });
 });

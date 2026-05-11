@@ -835,7 +835,9 @@ function reviewSourceInternal(
   // Drop unguarded-effect findings whose effect target is a narrow
   // RFC-defined auth endpoint (/oauth/token etc.). Per RULE-FEEDBACK.md #8
   // these flows are inherently unguarded by their nature. Same parity
-  // workaround as the worker exemption.
+  // workaround as the worker exemption. Match by file+line+col (Codex
+  // review): two effects on one line would otherwise let the auth match
+  // suppress the unrelated finding.
   for (let i = allFindings.length - 1; i >= 0; i--) {
     const f = allFindings[i];
     if (f.ruleId !== 'unguarded-effect') continue;
@@ -844,6 +846,7 @@ function reviewSourceInternal(
         n.kind === 'effect' &&
         n.primarySpan.file === filePath &&
         n.primarySpan.startLine === f.primarySpan.startLine &&
+        n.primarySpan.startCol === f.primarySpan.startCol &&
         n.payload.kind === 'effect',
     );
     if (!effectNode || effectNode.payload.kind !== 'effect') continue;

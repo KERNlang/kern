@@ -36,14 +36,18 @@ export function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptN
 
     // Network effects.
     //
-    // Reject calls whose receiver is a well-known Web API accessor like
-    // `request.headers`, `url.searchParams`, `req.cookies`, etc. Those expose
-    // a synchronous `.get(name)` / `.has(name)` returning `string | null`,
-    // not a Promise. Without this gate, `request.headers.get("Authorization")`
+    // Reject calls whose receiver is a well-known Web API accessor that
+    // exposes synchronous `.get(name)` / `.has(name)` returning a scalar (not
+    // a Promise). Without this gate, `request.headers.get("Authorization")`
     // is misclassified as a network call because `objName` ("request.headers")
-    // contains the substring "request", which matches the library regex below
+    // contains the substring "request" — matching the library regex below —
     // and `get` is in NETWORK_METHODS. See RULE-FEEDBACK.md entry #3.
-    const isWebApiAccessor = /\.(headers|cookies|searchParams|params|body|query)$/.test(objName);
+    //
+    // The list is narrow on purpose (Gemini review): `.params`, `.body`,
+    // `.query` were dropped because tRPC / GraphQL clients legitimately use
+    // those as sub-namespaces carrying network methods (`client.query.get(...)`).
+    // Only the three confirmed-synchronous Web API accessors stay.
+    const isWebApiAccessor = /\.(headers|cookies|searchParams)$/.test(objName);
 
     const isDirectNetwork = NETWORK_CALLS.has(funcName);
     const isKnownLibraryMethod =

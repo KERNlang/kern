@@ -1574,5 +1574,40 @@ export default function Page() {
       const finding = report.findings.find((f) => f.ruleId === 'hydration-mismatch');
       expect(finding).toBeDefined();
     });
+
+    // Gemini review #1: multi-line server-gate ternary must also be skipped.
+    it('does NOT fire on multi-line __IS_SERVER ternary', () => {
+      const source = `
+declare const __IS_SERVER: boolean;
+export default function Page() {
+  const t = __IS_SERVER
+    ? Date.now()
+    : 0;
+  return <div>{t}</div>;
+}
+`;
+      const report = reviewSource(source, 'app/page.tsx', nextjsConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'hydration-mismatch');
+      expect(finding).toBeUndefined();
+    });
+
+    // Gemini review #2: bracket-balance spill. A Logger call followed by an
+    // unrelated bare Date.now() on the same source span must still fire on
+    // the unrelated one.
+    it('STILL fires on unrelated Date.now() after a closed Logger.info call', () => {
+      const source = `
+declare const Logger: { info: (...args: unknown[]) => void };
+export default function Page({ startTime }: { startTime: number }) {
+  Logger.info('latency', { ms: Date.now() - startTime });
+  return <div>{Date.now()}</div>;
+}
+`;
+      const report = reviewSource(source, 'app/page.tsx', nextjsConfig);
+      const findings = report.findings.filter((f) => f.ruleId === 'hydration-mismatch');
+      // Exactly one finding — the bare Date.now() in the JSX. The one inside
+      // Logger.info must NOT fire (it's telemetry). The bracket-balance fix
+      // ensures the post-Logger call doesn't get silenced by spillover.
+      expect(findings.length).toBe(1);
+    });
   });
 });

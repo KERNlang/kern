@@ -987,13 +987,16 @@ export async function request<T>(url: string, accessToken: string, init: Request
     expect(fp).toBeUndefined();
   });
 
-  // #6 secondary signal: token-shaped arg identifies auth-aware function.
-  it('does NOT fire when a token-arg is passed to a helper before the fetch', () => {
+  // #6 secondary signal — token-arg as confidence boost (NOT standalone).
+  // Per Codex review, a token-arg alone is no longer a guard. The callee
+  // must match the header-builder regex; token-arg becomes a confidence
+  // boost. Renamed `applyAuth` → `attachAuth` (matches regex).
+  it('does NOT fire when attachAuth(req, accessToken) precedes the fetch', () => {
     const source = `
-declare function applyAuth(req: unknown, accessToken: string): void;
+declare function attachAuth(req: unknown, accessToken: string): void;
 export async function load(accessToken: string): Promise<unknown> {
   const req = {};
-  applyAuth(req, accessToken);
+  attachAuth(req, accessToken);
   const res = await fetch('https://api.example.com/data', req as RequestInit);
   return res.json();
 }
@@ -1001,6 +1004,22 @@ export async function load(accessToken: string): Promise<unknown> {
     const report = reviewSource(source, 'src/lib/load.ts');
     const fp = report.findings.find((f) => f.ruleId === 'unguarded-effect');
     expect(fp).toBeUndefined();
+  });
+
+  // Codex regression #1: token-arg alone is NOT a guard. A function that
+  // hashes a token does not become auth-aware for unrelated DB writes.
+  it('STILL fires when hash(accessToken) precedes an unrelated db.update', () => {
+    const source = `
+declare function hash(value: string): string;
+declare const db: { update(args: unknown): Promise<unknown> };
+export async function rotate(accessToken: string): Promise<void> {
+  const digest = hash(accessToken);
+  await db.update({ where: { id: '1' }, data: { digest } });
+}
+`;
+    const report = reviewSource(source, 'src/admin/rotate.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'unguarded-effect');
+    expect(fp).toBeDefined();
   });
 
   // RULE-FEEDBACK.md #8: narrow RFC auth-endpoint URL suffix.
@@ -1016,20 +1035,41 @@ export async function login(body: string): Promise<unknown> {
     expect(fp).toBeUndefined();
   });
 
-  // #8 author-explicit marker (works on dynamic URLs that wouldn't match
-  // the narrow suffix regex).
-  it('does NOT fire when call options carry { context: "auth" }', () => {
+  // Codex regression #2: `{context:"auth"}` on an UNRELATED helper call must
+  // NOT suppress neighbouring unguarded effects in the same container. The
+  // container-wide guard emission for this marker was dropped; auth-aware
+  // suppression now requires either the narrow URL suffix list or future
+  // per-effect payload-flag support.
+  it('STILL fires when log({context:"auth"}) precedes an unrelated db.update', () => {
     const source = `
-declare function getOccPath(path: string, opts: { context: string }): string;
-export async function login(body: string): Promise<unknown> {
-  const path = getOccPath('/token', { context: 'auth' });
-  const res = await fetch(path, { method: 'POST', body });
-  return res.json();
+declare function log(msg: string, opts: { context: string }): void;
+declare const db: { update(args: unknown): Promise<unknown> };
+export async function record(): Promise<void> {
+  log('x', { context: 'auth' });
+  await db.update({ where: { id: '1' }, data: { hit: 1 } });
 }
 `;
-    const report = reviewSource(source, 'src/auth/login.ts');
+    const report = reviewSource(source, 'src/admin/log.ts');
     const fp = report.findings.find((f) => f.ruleId === 'unguarded-effect');
-    expect(fp).toBeUndefined();
+    expect(fp).toBeDefined();
+  });
+
+  // Codex regression #3: two effects on the same source line must be
+  // matched by line+col, not line-only. Previously the auth-endpoint filter
+  // could find the auth effect first and suppress an adjacent non-auth
+  // finding that shared the line.
+  it('STILL fires on non-auth fetch sharing a line with /oauth/token call', () => {
+    const source = `
+export async function loginAndPing(body: string): Promise<unknown> {
+  const a = await fetch('https://idp.example.com/oauth/token', { method: 'POST', body }); const b = await fetch('https://api.example.com/delete', { method: 'DELETE' });
+  return { a, b };
+}
+`;
+    const report = reviewSource(source, 'src/auth/login-and-ping.ts');
+    const findings = report.findings.filter((f) => f.ruleId === 'unguarded-effect');
+    // The /oauth/token call should be suppressed by the auth-endpoint
+    // filter, the /api/delete call should still fire.
+    expect(findings.length).toBe(1);
   });
 
   // Regression: per Evil Twin Challenge 4, broad substrings must NOT suppress.

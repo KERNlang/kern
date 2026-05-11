@@ -38,18 +38,39 @@ remain intact.
   RULE-FEEDBACK #7.
 - **`unguarded-effect`** — recognise header-builder calls
   (`build*Headers` / `with*Auth` / `signRequest` / `attachAuth` /
-  `getAuthHeaders`) and token-arg helpers (passing `accessToken` /
-  `authToken` / `apiKey` / `credentials` / `bearer`) as satisfied auth
-  guards. New guard-extraction patterns 4 + 5 in `guard.ts`. Both the TS
-  concept rule and the parallel `.kern` native rule consume the new
-  guards. RULE-FEEDBACK #6.
+  `getAuthHeaders`) as satisfied auth guards. Token-arg detection
+  (`accessToken` / `authToken` / `apiKey` / `credentials` / `bearer`) is
+  a confidence boost ON header-builder matches, not a standalone signal
+  (Codex review caught the standalone case suppressing unrelated DB
+  writes after `hash(accessToken)`). Both the TS concept rule and the
+  parallel `.kern` native rule consume the new guards. RULE-FEEDBACK #6.
 - **`unguarded-effect`** (auth endpoints) — skip narrow RFC-defined auth
   paths (`/oauth/token`, `/auth/login`, `/auth/signin`,
-  `/.well-known/openid-configuration`, `/.well-known/jwks.json`) and
-  calls carrying `{ context: "auth" }`. Per Evil Twin Challenge 4, the
-  broad substring set (`/refresh`, `/session`, bare `/login`) is dropped
-  to avoid collisions with legitimate non-auth endpoints like
-  `/api/refresh-data` or `/api/user-sessions`. RULE-FEEDBACK #8.
+  `/.well-known/openid-configuration`, `/.well-known/jwks.json`). The
+  broad substring set (`/refresh`, `/session`, bare `/login`) was
+  dropped per Evil Twin Challenge 4. The previously-shipped
+  `{ context: "auth" }` author marker was also dropped per Codex review
+  — emitting it as a container-wide guard suppressed unrelated effects
+  in the same function (`log('x', {context:'auth'}); await db.update(...)`).
+  Dynamic-URL auth flows remain a documented gap. RULE-FEEDBACK #8.
+
+#### Buddy-review follow-ups (Codex + Gemini)
+
+- Effect-extractor Web API denylist narrowed from
+  `{.headers, .cookies, .searchParams, .params, .body, .query}` to
+  `{.headers, .cookies, .searchParams}` only — `.params` / `.body` /
+  `.query` were over-broad and would silently drop network effects on
+  tRPC / GraphQL sub-namespaces like `client.query.get(...)`.
+- `hydrationMismatch` server-gate ternary detection now handles
+  multi-line ternaries (walks back through the lookback window for the
+  most recent `?` not inside `?.` or `??`).
+- `hydrationMismatch` telemetry-call detection now tracks paren depth
+  from each `Logger.x(` opening instead of comparing total opens vs
+  closes — fixes spill-over where a closed `Logger.info(...)` could
+  silence an adjacent unrelated `Date.now()` on the same line.
+- Auth-endpoint post-filter in `index.ts` matches effect nodes by
+  file+line+col rather than file+line — two effects on one source line
+  no longer cross-suppress.
 
 ## Unreleased
 
