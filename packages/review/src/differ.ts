@@ -57,6 +57,7 @@ export function structuralDiff(
           message: `${consecutiveUncovered} uncovered lines (L${uncoveredStart}-${uncoveredStart + consecutiveUncovered - 1}) — not expressible as KERN`,
           primarySpan: span(filePath, uncoveredStart),
           fingerprint: createFingerprint('extra-code', uncoveredStart, 1),
+          confidence: 60,
         });
       }
       consecutiveUncovered = 0;
@@ -73,6 +74,7 @@ export function structuralDiff(
       message: `${consecutiveUncovered} uncovered lines (L${uncoveredStart}-${uncoveredStart + consecutiveUncovered - 1}) — not expressible as KERN`,
       primarySpan: span(filePath, uncoveredStart),
       fingerprint: createFingerprint('extra-code', uncoveredStart, 1),
+      confidence: 60,
     });
   }
 
@@ -91,6 +93,7 @@ export function structuralDiff(
           primarySpan: span(filePath, r.startLine),
           fingerprint: createFingerprint('inconsistent-pattern', r.startLine, 1),
           nodeIds: [r.nodeId],
+          confidence: 60,
         });
       }
     }
@@ -106,6 +109,7 @@ export function structuralDiff(
           primarySpan: span(filePath, r.startLine),
           fingerprint: createFingerprint('missing-type', r.startLine, 1),
           nodeIds: [r.nodeId],
+          confidence: 60,
         });
       }
     }
@@ -133,6 +137,7 @@ export function structuralDiff(
           primarySpan: span(filePath, r.startLine),
           fingerprint: createFingerprint('style-difference', r.startLine, 1),
           nodeIds: [r.nodeId],
+          confidence: 55,
         });
       }
     } catch (_err) {

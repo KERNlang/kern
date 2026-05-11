@@ -101,6 +101,7 @@ export async function runESLint(
           primarySpan,
           suggestion: msg.fix ? 'Auto-fixable' : undefined,
           fingerprint: createFingerprint(msg.ruleId || 'eslint', msg.line, msg.column),
+          confidence: 88,
         });
       }
     }
@@ -259,6 +260,7 @@ export function runTSCDiagnostics(
           endCol,
         },
         fingerprint: createFingerprint(`ts${code}`, startLine, startCol),
+        confidence: 95,
       });
     }
   } catch (err) {

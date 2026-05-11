@@ -63,6 +63,10 @@ export function buildExportMap(inferredPerFile: Map<string, InferResult[]>): Map
         params,
         hasSink: sinks.length > 0,
         sinks,
+        // IR-derived entries don't separately track the body's start line; the
+        // function decl line is the best fallback. ts-morph augment path
+        // overrides with the precise body line.
+        startLine: r.startLine,
       });
     }
   }
@@ -139,7 +143,7 @@ export function buildExportMapFromGraph(project: Project, graph: GraphResult): M
         const collected = collectFnSignature(decl);
         if (!collected) continue;
 
-        const { params, code } = collected;
+        const { params, code, bodyStartLine } = collected;
         const paramNames = params
           .split(',')
           .map((p) => p.trim().split(':')[0]?.trim())
@@ -165,6 +169,8 @@ export function buildExportMapFromGraph(project: Project, graph: GraphResult): M
           params,
           hasSink: sinks.length > 0,
           sinks,
+          startLine: decl.getStartLineNumber(),
+          bodyStartLine,
         });
       }
     }
@@ -224,8 +230,13 @@ export function buildImportAliasMap(project: Project, graph: GraphResult): Map<s
   const aliasMap = new Map<string, string>();
 
   for (const gf of graph.files) {
-    if (!supportsTsMorphGraphFile(gf.path)) continue;
-    const sf = project.getSourceFile(gf.path);
+    // Suffix check is path-only; either form works. Use canonical for the
+    // ts-morph lookup since the Project keys files by canonical path
+    // (red-team #9 fix in graph.ts). Map keys are also canonical so callers
+    // looking up by canonical hit; display lookups go through a small
+    // display→canonical convert at call sites.
+    if (!supportsTsMorphGraphFile(gf.canonicalPath)) continue;
+    const sf = project.getSourceFile(gf.canonicalPath);
     if (!sf) continue;
 
     for (const imp of sf.getImportDeclarations()) {
@@ -234,7 +245,7 @@ export function buildImportAliasMap(project: Project, graph: GraphResult): Map<s
         if (!alias) continue; // not aliased — localName IS the exported name
         const localName = alias.getText();
         const exportedName = named.getName();
-        aliasMap.set(`${gf.path}::${localName}`, exportedName);
+        aliasMap.set(`${gf.canonicalPath}::${localName}`, exportedName);
       }
     }
   }
@@ -242,8 +253,15 @@ export function buildImportAliasMap(project: Project, graph: GraphResult): Map<s
   return aliasMap;
 }
 
-/** Extract `{ params, code }` from an exported function-ish declaration. */
-function collectFnSignature(decl: import('ts-morph').Node): { params: string; code: string } | undefined {
+/**
+ * Extract `{ params, code, bodyStartLine }` from an exported function-ish
+ * declaration. `bodyStartLine` is the 1-based file line where the body's text
+ * begins; cross-file taint uses it to resolve sink lines inside the body to
+ * absolute file lines.
+ */
+function collectFnSignature(
+  decl: import('ts-morph').Node,
+): { params: string; code: string; bodyStartLine: number } | undefined {
   const kind = decl.getKindName();
 
   if (kind === 'FunctionDeclaration') {
@@ -255,6 +273,7 @@ function collectFnSignature(decl: import('ts-morph').Node): { params: string; co
         .map((p) => p.getText())
         .join(','),
       code: body?.getText() ?? '',
+      bodyStartLine: body?.getStartLineNumber() ?? fn.getStartLineNumber(),
     };
   }
 
@@ -265,12 +284,14 @@ function collectFnSignature(decl: import('ts-morph').Node): { params: string; co
     const initKind = init.getKindName();
     if (initKind !== 'ArrowFunction' && initKind !== 'FunctionExpression') return undefined;
     const fn = init as import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression;
+    const body = fn.getBody();
     return {
       params: fn
         .getParameters()
         .map((p) => p.getText())
         .join(','),
-      code: fn.getBody().getText(),
+      code: body.getText(),
+      bodyStartLine: body.getStartLineNumber(),
     };
   }
 
@@ -319,14 +340,18 @@ export function analyzeTaintCrossFile(
   }
 
   // Also walk files that have no IR at all but are present in the graph.
-  // These are the files we previously missed entirely.
+  // These are the files we previously missed entirely. iteratedFiles holds
+  // whatever the caller passed as inferredPerFile keys — could be display or
+  // canonical depending on the caller. We probe both forms so a display key
+  // doesn't cause us to re-iterate the same physical file.
   const iteratedFiles = new Set(inferredPerFile.keys());
   const extraFiles: Array<[string, SourceFile]> = [];
   if (graph?.project) {
     for (const gf of graph.files) {
-      if (iteratedFiles.has(gf.path)) continue;
-      if (!supportsTsMorphGraphFile(gf.path)) continue;
-      const sf = graph.project.getSourceFile(gf.path);
+      if (iteratedFiles.has(gf.canonicalPath) || iteratedFiles.has(gf.path)) continue;
+      if (!supportsTsMorphGraphFile(gf.canonicalPath)) continue;
+      const sf = graph.project.getSourceFile(gf.canonicalPath);
+      // Push the display path so finding spans report the caller-facing form.
       if (sf) extraFiles.push([gf.path, sf]);
     }
   }
@@ -383,6 +408,14 @@ export function analyzeTaintCrossFile(
       for (const sink of targetFn.sinks) {
         const source = taintedVars.find((v) => taintedArgs.includes(v.name));
         if (!source) continue;
+        // Resolve the sink's file line. `sink.line` is 1-based inside the
+        // captured body text; for ts-morph callers `bodyStartLine` is the file
+        // line of the opening brace, so `bodyStartLine + sink.line - 1` is the
+        // sink's file line. For IR-derived callers we only have the function
+        // decl line, so the resolved line lands ~1 line above the real sink —
+        // still vastly better than the previous hardcoded `1`.
+        const base = targetFn.bodyStartLine ?? targetFn.startLine;
+        const calleeSinkLine = base + (sink.line ?? 1) - 1;
         results.push({
           callerFile: filePath,
           callerFn: fnName,
@@ -392,6 +425,7 @@ export function analyzeTaintCrossFile(
           taintedArgs,
           sinkInCallee: sink,
           source,
+          calleeSinkLine,
         });
       }
     }

@@ -541,6 +541,7 @@ export function specViolationsToFindings(result: SpecCheckResult): ReviewFinding
       ...(relatedSpans.length > 0 ? { relatedSpans } : {}),
       suggestion: v.suggestion,
       fingerprint: createFingerprint(v.kind, line, 1),
+      confidence: 90,
     };
   });
 }

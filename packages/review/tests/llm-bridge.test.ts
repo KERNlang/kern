@@ -134,7 +134,7 @@ describe('buildReviewInstructions', () => {
 // ── isHighValueFinding ──
 
 describe('isHighValueFinding', () => {
-  const makeFinding = (severity: string, confidence?: number): ReviewFinding => ({
+  const makeFinding = (severity: string, confidence = 80): ReviewFinding => ({
     source: 'kern',
     ruleId: 'test',
     severity: severity as ReviewFinding['severity'],
@@ -142,19 +142,15 @@ describe('isHighValueFinding', () => {
     message: 'test',
     primarySpan: { file: 'test.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
     fingerprint: 'test',
-    ...(confidence !== undefined ? { confidence } : {}),
+    confidence,
   });
 
-  it('keeps errors with no confidence', () => {
+  it('keeps errors at default confidence', () => {
     expect(isHighValueFinding(makeFinding('error'))).toBe(true);
   });
 
   it('keeps warnings with high confidence', () => {
-    expect(isHighValueFinding(makeFinding('warning', 0.8))).toBe(true);
-  });
-
-  it('keeps warnings with no confidence (undefined)', () => {
-    expect(isHighValueFinding(makeFinding('warning'))).toBe(true);
+    expect(isHighValueFinding(makeFinding('warning', 80))).toBe(true);
   });
 
   it('filters info severity', () => {
@@ -162,15 +158,15 @@ describe('isHighValueFinding', () => {
   });
 
   it('filters low confidence warnings', () => {
-    expect(isHighValueFinding(makeFinding('warning', 0.3))).toBe(false);
+    expect(isHighValueFinding(makeFinding('warning', 30))).toBe(false);
   });
 
   it('filters low confidence errors', () => {
-    expect(isHighValueFinding(makeFinding('error', 0.4))).toBe(false);
+    expect(isHighValueFinding(makeFinding('error', 40))).toBe(false);
   });
 
-  it('keeps findings at exactly 0.5 confidence', () => {
-    expect(isHighValueFinding(makeFinding('warning', 0.5))).toBe(true);
+  it('keeps findings at exactly 50 confidence (threshold)', () => {
+    expect(isHighValueFinding(makeFinding('warning', 50))).toBe(true);
   });
 });
 

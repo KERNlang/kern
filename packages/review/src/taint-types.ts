@@ -41,6 +41,13 @@ export interface CrossFileTaintResult {
   taintedArgs: string[]; // Which args are tainted
   sinkInCallee: TaintSink; // The sink reached in the callee
   source: TaintSource; // Original taint source
+  /**
+   * Resolved file line of the sink inside the callee — `bodyStartLine + sink.line - 1`.
+   * Before Lift 2 this was hardcoded to line 1 of the callee, sending reviewers to the
+   * wrong location. May still be off by ~1 line for IR-derived callers where the body
+   * start isn't explicitly captured; falls back to the function decl line.
+   */
+  calleeSinkLine: number;
 }
 
 /** Map of exported function names → file path + param info */
@@ -50,6 +57,19 @@ export interface ExportedFunction {
   params: string; // Raw params string
   hasSink: boolean; // Does this function contain a dangerous sink?
   sinks: TaintSink[];
+  /**
+   * File line where the function declaration begins. Used by cross-file taint
+   * to resolve `sink.line` (which is 1-based inside the captured body text) to
+   * an absolute file line for SARIF / display.
+   */
+  startLine: number;
+  /**
+   * File line where the body actually starts. For ts-morph this is the line of
+   * the opening `{`; for IR-derived entries we fall back to `startLine`. The
+   * sink-line resolver prefers this when available because the body usually
+   * begins one line below the function declaration.
+   */
+  bodyStartLine?: number;
 }
 
 // ── Intra-File Call Graph (for interprocedural taint) ────────────────────
@@ -476,6 +496,53 @@ export const NOSQL_RECEIVER_ALLOWLIST = new Set(['db', 'conn', 'collection']);
 
 /** Methods whose findById-style scalar `req.params` should NOT fire (string isn't classic operator injection). */
 export const NOSQL_METHODS_REQUIRING_OBJECT_TAINT = new Set(['findById', 'findByIdAndUpdate', 'findByIdAndDelete']);
+
+/**
+ * Verb names whose appearance in the receiver chain of a NoSQL-suspect sink,
+ * combined with a chain root in NOSQL_RECEIVER_ALLOWLIST (`db`/`conn`/
+ * `collection`), proves the call is a SQL query builder (Drizzle / Kysely /
+ * typeorm), not Mongoose. The kern-guard PR #387 FP was
+ * `db.select().from(t).where(eq(t.id, req.body.id))` — the receiver allowlist
+ * matched bare `db` past the SQL builder chain and treated it as Mongo.
+ *
+ * The gate only fires for the receiver-allowlist branch of
+ * `isLikelyNoSQLReceiver`. Capitalized Mongoose Models (`User.find()`) and
+ * `.collection(...)`/`.model(...)` anchors still match regardless of any
+ * verbs in the chain — that preserves Mongoose `select`/`limit`/`update`
+ * coverage (`User.find().select('a').where(req.body.f)` would otherwise
+ * regress if `select` suppressed at the Mongoose-model root, per Codex/
+ * Gemini buddy review).
+ *
+ * Verbs OMITTED on purpose:
+ *   - `select`, `limit`, `where`: shared with Mongoose Query chains —
+ *     defense in depth even though the allowlist-only gate would already
+ *     skip them on a capitalized Mongoose root.
+ *   - `updateMany`: shared with Mongoose Model. Drizzle's `update().set()`
+ *     already disambiguates via `update` + `updateTable` upstream.
+ *   - `groupBy`, `orderBy`: not in Mongoose Query but kept conservatively
+ *     out — `from`/`selectFrom`/`insert`/builder roots already disambiguate.
+ */
+export const SQL_BUILDER_VERBS = new Set([
+  'selectFrom',
+  'from',
+  'insert',
+  'insertInto',
+  'update',
+  'updateTable',
+  'delete',
+  'deleteFrom',
+  'leftJoin',
+  'innerJoin',
+  'rightJoin',
+  'fullJoin',
+  'crossJoin',
+  'union',
+  'unionAll',
+  'returning',
+  'onConflictDoNothing',
+  'onConflictDoUpdate',
+  'createQueryBuilder',
+]);
 
 // Sanitizer names to detect (from SANITIZER_PATTERNS)
 export const SANITIZER_PATTERN_NAMES = [

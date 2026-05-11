@@ -20,7 +20,7 @@ import {
   canonicalKernExpression,
   classifyHandlerBody,
   escapeKernString,
-  hasComments,
+  hasOnlyMigratableComments,
   isValidKernAssignmentTarget,
   isValidKernAssignmentValue,
   isValidKernTypeAnnotation,
@@ -113,6 +113,42 @@ function dedent(lines: string[]): string {
  * the whole handler.
  */
 function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string, ctx: MapContext): string[] | null {
+  const mapped = mapStatementCore(stmt, source, indent, ctx);
+  if (mapped === null) return null;
+  return [...mapLeadingComments(stmt, source, indent), ...mapped];
+}
+
+function mapLeadingComments(stmt: ts.Statement, source: ts.SourceFile, indent: string): string[] {
+  return (ts.getLeadingCommentRanges(source.text, stmt.getFullStart()) ?? [])
+    .filter((range) => isStandaloneCommentRange(source.text, range))
+    .flatMap((range) => {
+      const raw = source.text.slice(range.pos, range.end).trim();
+      return mapComment(raw, indent);
+    });
+}
+
+function mapComment(raw: string, indent: string): string[] {
+  if (raw.startsWith('/*') && raw.endsWith('*/') && raw.includes('\n')) {
+    return raw
+      .slice(2, -2)
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => line.replace(/^\s*\*\s?/, '').trimEnd())
+      .map((line) => `${indent}comment text="${escapeKernString(line)}"`);
+  }
+  return [`${indent}comment raw="${escapeKernString(raw)}"`];
+}
+
+function isStandaloneCommentRange(text: string, range: ts.CommentRange): boolean {
+  const beforeLineStart = text.lastIndexOf('\n', Math.max(0, range.pos - 1)) + 1;
+  const afterLineEndIndex = text.indexOf('\n', range.end);
+  const afterLineEnd = afterLineEndIndex === -1 ? text.length : afterLineEndIndex;
+  const before = text.slice(beforeLineStart, range.pos);
+  const after = text.slice(range.end, afterLineEnd);
+  return before.trim() === '' && after.trim() === '';
+}
+
+function mapStatementCore(stmt: ts.Statement, source: ts.SourceFile, indent: string, ctx: MapContext): string[] | null {
   if (ts.isVariableStatement(stmt)) {
     // `const` is the default KERN body binding. TS `let` is now preserved as
     // `let kind=let`; `var` remains unsupported because function scoping
@@ -432,7 +468,7 @@ function mapBranch(node: ts.Statement, source: ts.SourceFile, indent: string, ct
   return out;
 }
 
-// Slice α-3 (gemini review): `hasComments` and `isValidKernExpression` were
+// Slice α-3 (gemini review): comment and expression predicates were
 // previously duplicated here and in `packages/core/src/native-eligibility-ast.ts`.
 // The classifier needs the same predicates the migrator uses to keep the
 // "eligibility ≡ migrate-success" invariant tight, so the canonical
@@ -466,7 +502,7 @@ export function rewriteNativeHandlers(source: string): NativeHandlerResult {
     const cls = classifyHandlerBody(block.bodyText);
     if (!cls.eligible) continue;
 
-    if (hasComments(block.bodyText)) continue;
+    if (!hasOnlyMigratableComments(block.bodyText)) continue;
 
     const sourceFile = ts.createSourceFile('__handler.ts', block.bodyText, ts.ScriptTarget.Latest, true);
 

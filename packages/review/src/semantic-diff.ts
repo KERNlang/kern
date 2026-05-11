@@ -412,5 +412,6 @@ export function semanticChangesToFindings(changes: SemanticChange[]): import('./
           ? 'Verify this error handling removal was intentional — errors may now go unhandled'
           : undefined,
     fingerprint: `semantic-diff/${c.type}:${c.functionName}:${c.line}`,
+    confidence: 85,
   }));
 }

@@ -43,6 +43,7 @@ function makeFinding(
     suggestion,
     primarySpan,
     fingerprint: createFingerprint(ruleId, primarySpan.startLine, primarySpan.startCol),
+    confidence: 80,
   };
 }
 

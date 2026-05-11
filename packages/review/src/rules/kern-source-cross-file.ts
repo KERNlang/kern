@@ -100,6 +100,7 @@ export function lintKernSourceCrossFile(reports: ReviewReport[]): ReviewFinding[
         relatedSpans,
         suggestion: `Rename '${entry.name}' or consolidate the ${entry.type} into a single source of truth.`,
         fingerprint: createFingerprint(`kern-duplicate-symbol:${entry.type}:${entry.name}`, line, col),
+        confidence: 95,
       });
     }
   }

@@ -348,6 +348,16 @@ export function findTaintedSinks(code: string, taintedVars: TaintSource[]): Tain
   const sinks: TaintSink[] = [];
   const taintedNames = new Set(taintedVars.map((v) => v.name));
 
+  // Lift 2: record sink.line (1-based inside `code`) so cross-file taint can
+  // resolve it to an absolute file line via `bodyStartLine + sink.line - 1`.
+  // Without this the SARIF callee span was hardcoded to line 1 of the callee
+  // file and reviewers had to grep blind.
+  const lineAt = (index: number): number => {
+    let count = 1;
+    for (let i = 0; i < index; i++) if (code.charCodeAt(i) === 10) count++;
+    return count;
+  };
+
   for (const { pattern, name, category } of SINK_PATTERNS) {
     // Scan ALL matches using a global copy (original patterns are non-global)
     const globalPattern = new RegExp(pattern.source, 'g');
@@ -357,11 +367,12 @@ export function findTaintedSinks(code: string, taintedVars: TaintSource[]): Tain
       const callStart = match.index + match[0].length;
       const parenDepth = findClosingParen(code, callStart);
       const argText = code.slice(callStart, parenDepth);
+      const line = lineAt(match.index);
 
       // Check if any tainted variable is used in the arguments
       for (const tName of taintedNames) {
         if (new RegExp(`\\b${tName}\\b`).test(argText)) {
-          sinks.push({ name, category, taintedArg: tName });
+          sinks.push({ name, category, taintedArg: tName, line });
           break;
         }
       }
@@ -369,7 +380,7 @@ export function findTaintedSinks(code: string, taintedVars: TaintSource[]): Tain
       // Also check for template literals with tainted vars in any sink category
       const templateMatch = argText.match(/`[^`]*\$\{(\w+)\}[^`]*`/);
       if (templateMatch && taintedNames.has(templateMatch[1])) {
-        sinks.push({ name: `${name} (template)`, category, taintedArg: templateMatch[1] });
+        sinks.push({ name: `${name} (template)`, category, taintedArg: templateMatch[1], line });
       }
     }
   }

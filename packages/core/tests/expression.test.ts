@@ -40,6 +40,39 @@ describe('Expression tokenizer', () => {
       { k: 'eof', v: '' },
     ]);
   });
+
+  test('regex literals are tokenized only in expression-start positions', () => {
+    expect(tokenizeExpression('/foo\\/[bar]+/gi.test(input)').map((t) => t.kind)).toEqual([
+      'regex',
+      'dot',
+      'ident',
+      'lparen',
+      'ident',
+      'rparen',
+      'eof',
+    ]);
+    expect(tokenizeExpression('!/foo/.test(input)').map((t) => t.kind)).toEqual([
+      'bang',
+      'regex',
+      'dot',
+      'ident',
+      'lparen',
+      'ident',
+      'rparen',
+      'eof',
+    ]);
+    expect(tokenizeExpression('total / count').map((t) => t.kind)).toEqual(['ident', 'slash', 'ident', 'eof']);
+    expect(tokenizeExpression('arr[0]! / total').map((t) => t.kind)).toEqual([
+      'ident',
+      'lbracket',
+      'num',
+      'rbracket',
+      'bang',
+      'slash',
+      'ident',
+      'eof',
+    ]);
+  });
 });
 
 describe('Expression parser → ValueIR', () => {
@@ -77,6 +110,41 @@ describe('Expression parser → ValueIR', () => {
       args: [{ kind: 'strLit', value: '/api', quote: '"' }],
       optional: false,
     });
+  });
+
+  test('generic call expression preserves type arguments for TS emit', () => {
+    expect(parseExpression('new Set<string>()')).toEqual({
+      kind: 'new',
+      argument: {
+        kind: 'call',
+        callee: { kind: 'ident', name: 'Set' },
+        args: [],
+        optional: false,
+        typeArgs: 'string',
+      },
+    });
+    expect(roundtrip('client.send<Record<string, unknown>>("ping")')).toBe(
+      'client.send<Record<string, unknown>>("ping")',
+    );
+    expect(roundtrip('new Map<string, number>()')).toBe('new Map<string, number>()');
+  });
+
+  test('generic-call lookahead does not hijack comparisons', () => {
+    expect(roundtrip('count < limit && count > offset')).toBe('count < limit && count > offset');
+    expect(roundtrip('a < b ? c : d')).toBe('(a < b) ? c : d');
+  });
+
+  test('regex literals and non-null assertions round-trip', () => {
+    expect(parseExpression('/foo\\/[bar]+/gi')).toEqual({ kind: 'regexLit', pattern: 'foo\\/[bar]+', flags: 'gi' });
+    expect(roundtrip('/^x+$/i.test(input)')).toBe('/^x+$/i.test(input)');
+    expect(roundtrip('!/^x+$/i.test(input)')).toBe('!/^x+$/i.test(input)');
+    expect(roundtrip('typeof /x/')).toBe('typeof /x/');
+    expect(roundtrip('data[1]!')).toBe('data[1]!');
+    expect(roundtrip('user!.name')).toBe('user!.name');
+    expect(roundtrip('arr[0]! / total')).toBe('arr[0]! / total');
+    expect(roundtrip('a! / b! / c')).toBe('a! / b! / c');
+    expect(roundtrip('(x as Foo)!')).toBe('(x as Foo)!');
+    expect(roundtrip('x! as Foo')).toBe('x! as Foo');
   });
 
   test('optional call', () => {

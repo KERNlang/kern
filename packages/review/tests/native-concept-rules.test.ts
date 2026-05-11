@@ -675,6 +675,6 @@ describe('illegal-dependency native rule', () => {
     expect(findings[0].message).toBe('Deep cross-boundary import — may violate module architecture');
     expect(findings[0].severity).toBe('warning');
     expect(findings[0].category).toBe('structure');
-    expect(findings[0].confidence).toBe(0.8);
+    expect(findings[0].confidence).toBe(80);
   });
 });

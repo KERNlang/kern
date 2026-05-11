@@ -280,6 +280,7 @@ function containsOptionalAccess(node: ValueIR): boolean {
   if (node.kind === 'member') return node.optional || containsOptionalAccess(node.object);
   if (node.kind === 'index') return node.optional || containsOptionalAccess(node.object);
   if (node.kind === 'call') return node.optional || containsOptionalAccess(node.callee);
+  if (node.kind === 'nonNull' || node.kind === 'typeAssert') return containsOptionalAccess(node.expression);
   return false;
 }
 
@@ -297,6 +298,55 @@ export function hasComments(bodyText: string): boolean {
     if (kind === ts.SyntaxKind.EndOfFileToken) return false;
     if (kind === ts.SyntaxKind.SingleLineCommentTrivia || kind === ts.SyntaxKind.MultiLineCommentTrivia) return true;
   }
+}
+
+export function hasOnlyMigratableComments(bodyText: string): boolean {
+  const all = collectCommentRanges(bodyText);
+  if (all.length === 0) return true;
+  if (all.some((range) => !isStandaloneCommentRange(bodyText, range))) return false;
+
+  const sf = ts.createSourceFile('__handler.ts', bodyText, ts.ScriptTarget.Latest, true);
+  const diags = (sf as unknown as { parseDiagnostics?: ts.Diagnostic[] }).parseDiagnostics;
+  if (diags && diags.length > 0) return false;
+
+  const leading = new Set<string>();
+  const visit = (node: ts.Node): void => {
+    if (ts.isStatement(node)) {
+      for (const range of ts.getLeadingCommentRanges(sf.text, node.getFullStart()) ?? []) {
+        if (isStandaloneCommentRange(sf.text, range)) leading.add(commentRangeKey(range));
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+
+  return all.every((range) => leading.has(commentRangeKey(range)));
+}
+
+function collectCommentRanges(bodyText: string): ts.CommentRange[] {
+  const ranges: ts.CommentRange[] = [];
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, /*skipTrivia*/ false);
+  scanner.setText(bodyText);
+  while (true) {
+    const kind = scanner.scan();
+    if (kind === ts.SyntaxKind.EndOfFileToken) return ranges;
+    if (kind === ts.SyntaxKind.SingleLineCommentTrivia || kind === ts.SyntaxKind.MultiLineCommentTrivia) {
+      ranges.push({ pos: scanner.getTokenPos(), end: scanner.getTextPos(), kind, hasTrailingNewLine: false });
+    }
+  }
+}
+
+function isStandaloneCommentRange(text: string, range: ts.CommentRange): boolean {
+  const beforeLineStart = text.lastIndexOf('\n', Math.max(0, range.pos - 1)) + 1;
+  const afterLineEndIndex = text.indexOf('\n', range.end);
+  const afterLineEnd = afterLineEndIndex === -1 ? text.length : afterLineEndIndex;
+  const before = text.slice(beforeLineStart, range.pos);
+  const after = text.slice(range.end, afterLineEnd);
+  return before.trim() === '' && after.trim() === '';
+}
+
+function commentRangeKey(range: ts.CommentRange): string {
+  return `${range.pos}:${range.end}:${range.kind}`;
 }
 
 /** Classify a single statement. Returns null if the migrator can emit it,
@@ -506,11 +556,15 @@ export function classifyHandlerBodyAst(rawBody: string): AstEligibilityResult {
   if (diags && diags.length > 0) {
     const parseBoundary = classifyParseFailureBoundary(rawBody);
     if (parseBoundary !== null) return { eligible: false, reason: parseBoundary };
-    if (hasComments(rawBody)) return { eligible: false, reason: 'comments-present' };
+    if (hasComments(rawBody) && !hasOnlyMigratableComments(rawBody)) {
+      return { eligible: false, reason: 'comments-present' };
+    }
     return { eligible: false, reason: 'ts-parse-error' };
   }
   if (isHostInteropBody(sf)) return { eligible: false, reason: 'foreign-by-design' };
-  if (hasComments(rawBody)) return { eligible: false, reason: 'comments-present' };
+  if (hasComments(rawBody) && !hasOnlyMigratableComments(rawBody)) {
+    return { eligible: false, reason: 'comments-present' };
+  }
   for (const stmt of sf.statements) {
     const r = classifyStmt(stmt, sf, { loopDepth: 0 });
     if (r !== null) return { eligible: false, reason: r };

@@ -14,6 +14,7 @@ import type {
   ConceptNodePayload,
   IRNode,
 } from '@kernlang/core';
+import { resolveConfidence } from './rules/confidence-baseline.js';
 import type { FixAction, ReviewFinding } from './types.js';
 import { createFingerprint } from './types.js';
 
@@ -477,6 +478,11 @@ export function evaluateRule(rule: IRNode, index: RuleIndex, filePath: string): 
     const line = target.loc?.line ?? 0;
     const col = target.loc?.col ?? 1;
 
+    // Native .kern rules may author confidence as a fraction (0–1, legacy)
+    // or integer (0–100, new contract). Auto-detect and normalize so user
+    // rules don't silently collapse to zero when bumped to the new contract.
+    const normalizedConfidence =
+      confidence !== undefined && confidence > 0 && confidence <= 1 ? confidence * 100 : confidence;
     const finding: ReviewFinding = {
       source: 'kern-native',
       ruleId,
@@ -491,9 +497,8 @@ export function evaluateRule(rule: IRNode, index: RuleIndex, filePath: string): 
         endCol: target.loc?.endCol ?? col,
       },
       fingerprint: createFingerprint(ruleId, line, col),
+      confidence: resolveConfidence(ruleId, normalizedConfidence),
     };
-
-    if (confidence !== undefined) finding.confidence = confidence;
 
     // Build autofix if fix node exists
     if (fixNode) {

@@ -17,42 +17,62 @@ import type {
   TemplateMatch,
 } from './types.js';
 
-// ── Default Confidence Assignment ────────────────────────────────────────
+// ── Default Confidence Assignment (legacy safety net) ────────────────────
+//
+// All `kern` findings now route through `rules/utils.finding()` which injects
+// confidence from `rules/confidence-baseline.ts`. ReviewFinding.confidence is
+// a required field, so a missing value indicates a non-kern emit site that
+// did not provide one. This safety net keeps the wire payload valid; it does
+// not override values set by the rule.
 
-/**
- * Default confidence by finding source.
- * TSC is compiler-verified (1.0), kern AST rules are high (0.85),
- * native .kern rules slightly lower (0.80), ESLint is mature (0.90),
- * LLM findings already have 0.70 set.
- */
+import { clampConfidence } from './rules/confidence-baseline.js';
+
 const SOURCE_CONFIDENCE: Record<string, number> = {
-  tsc: 1.0,
-  eslint: 0.9,
-  kern: 0.85,
-  'kern-native': 0.8,
-  llm: 0.7,
+  tsc: 95,
+  eslint: 88,
+  kern: 80,
+  'kern-native': 78,
+  llm: 70,
 };
 
-/** Taint rules get higher confidence — they trace actual data flow */
+/** Taint rules get higher confidence — they trace actual data flow. */
 const TAINT_RULE_PREFIX = 'taint-';
 
-/** Structural diff findings are heuristic — lower confidence */
+/** Structural diff findings are heuristic — lower confidence. */
 const LOW_CONFIDENCE_RULES = new Set(['extra-code', 'inconsistent-pattern', 'style-difference', 'missing-type']);
 
 /**
- * Assign calibrated confidence scores to findings that don't already have one.
- * Call after all phases, before filtering/display.
+ * Safety net: ensures `confidence` is a valid integer 0..100 even if an emit
+ * site shipped an out-of-range, non-finite, or legacy-0-1 value. Idempotent.
+ *
+ * Concept-rules (`@kernlang/review/concept-rules/*`) emit
+ * `nodeConfidence * multiplier` where both factors are 0–1; the product lands
+ * in `(0, 1]`. We auto-bump those to `0..100` rather than force a 21-file
+ * mechanical migration. The boundary is inclusive of `1.0` because raw
+ * `ConceptNode.confidence === 1.0` ("fully confident inference") is a real
+ * emit value at e.g. boundary-mutation / ignored-error / unguarded-effect —
+ * leaving it as `1` would silence the finding under any non-zero
+ * `minConfidence`. (Reviewers Gemini/OpenCode/Codex/Opus all flagged this.)
+ * Trade-off: a rule that meant to author integer `1` (1% confident) on the
+ * new contract gets bumped to 100. That's an extreme edge — anyone wanting a
+ * very-low-confidence value should write 5+ on the integer scale.
  */
 export function assignDefaultConfidence(findings: ReviewFinding[]): void {
   for (const f of findings) {
-    if (f.confidence !== undefined) continue;
-
+    if (typeof f.confidence === 'number' && Number.isFinite(f.confidence)) {
+      if (f.confidence > 0 && f.confidence <= 1) {
+        f.confidence = clampConfidence(f.confidence * 100);
+      } else {
+        f.confidence = clampConfidence(f.confidence);
+      }
+      continue;
+    }
     if (f.ruleId.startsWith(TAINT_RULE_PREFIX)) {
-      f.confidence = 0.95;
+      f.confidence = 95;
     } else if (LOW_CONFIDENCE_RULES.has(f.ruleId)) {
-      f.confidence = 0.6;
+      f.confidence = 60;
     } else {
-      f.confidence = SOURCE_CONFIDENCE[f.source] ?? 0.85;
+      f.confidence = SOURCE_CONFIDENCE[f.source] ?? 80;
     }
   }
 }
@@ -265,9 +285,9 @@ export function checkEnforcement(report: ReviewReport, config: ReviewConfig): En
     }
   }
 
-  // Filter findings by minConfidence — findings without confidence default to 1.0 (fully trusted)
+  // Filter findings by minConfidence — confidence is required integer 0..100.
   const minConf = config.minConfidence ?? 0;
-  const countable = report.findings.filter((f) => (f.confidence ?? 1.0) >= minConf);
+  const countable = report.findings.filter((f) => f.confidence >= minConf);
   const errors = countable.filter((f) => f.severity === 'error').length;
   const warnings = countable.filter((f) => f.severity === 'warning').length;
   const maxErrors = config.maxErrors ?? 0;
@@ -367,13 +387,12 @@ export function formatReport(report: ReviewReport, config?: ReviewConfig): strin
   // Unified findings — sorted by severity, with source tags
   const showConf = config?.showConfidence === true;
   const minConf = config?.minConfidence ?? 0;
-  const allFindings = dedup(report.findings).filter((f) => (f.confidence ?? 1.0) >= minConf);
+  const allFindings = dedup(report.findings).filter((f) => f.confidence >= minConf);
   if (allFindings.length > 0) {
     const errors = allFindings.filter((f) => f.severity === 'error');
     const warnings = allFindings.filter((f) => f.severity === 'warning');
     const infos = allFindings.filter((f) => f.severity === 'info');
-    const confPrefix = (f: ReviewFinding) =>
-      showConf && f.confidence !== undefined ? ` [${f.confidence.toFixed(2)}]` : '';
+    const confPrefix = (f: ReviewFinding) => (showConf ? ` [${f.confidence}]` : '');
 
     if (errors.length > 0) {
       lines.push(`  BUGS (${errors.length}):`);
@@ -607,16 +626,29 @@ export function formatSARIFWithMetadata(reports: ReviewReport[], options: SARIFM
       result.relatedLocations = relatedLocations;
     }
 
-    // SARIF result.rank is 0.0–100.0 per spec; kern/confidence stays 0–1
-    if (finding.confidence !== undefined) {
-      result.rank = finding.confidence * 100;
-      properties['kern/confidence'] = finding.confidence;
-    }
+    // SARIF result.rank is 0.0–100.0 per spec; kern/confidence is integer 0–100
+    // (per ReviewFinding.confidence contract).
+    result.rank = finding.confidence;
+    properties['kern/confidence'] = finding.confidence;
     if (finding.rootCause) {
       properties['kern/rootCause'] = {
         key: finding.rootCause.key,
         kind: finding.rootCause.kind,
         ...(finding.rootCause.facets ? { facets: finding.rootCause.facets } : {}),
+      };
+    }
+    if (finding.provenance) {
+      // Provenance chain — Sight renders this as a "why this fired" breadcrumb.
+      // Steps already carry SARIF-compatible locations; flatten so the SARIF
+      // properties object stays JSON-only.
+      properties['kern/provenance'] = {
+        ...(finding.provenance.summary ? { summary: finding.provenance.summary } : {}),
+        steps: finding.provenance.steps.map((s) => ({
+          kind: s.kind,
+          label: s.label,
+          ...(s.detail ? { detail: s.detail } : {}),
+          location: { ...s.location },
+        })),
       };
     }
     if (baselineStatus) {

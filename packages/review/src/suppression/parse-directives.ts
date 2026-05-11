@@ -90,6 +90,7 @@ export function parseDirectives(
         message: `Bare kern-ignore without rule ID — specify rules: // kern-ignore <rule-id>`,
         primarySpan: { file: filePath, startLine: lineNum, startCol: 1, endLine: lineNum, endCol: line.length },
         fingerprint: createFingerprint('kern-ignore-bare', lineNum, 1),
+        confidence: 95,
       });
       continue;
     }
@@ -115,6 +116,7 @@ export function parseDirectives(
         message: `kern-ignore-file must appear in the first 5 lines of the file (found at line ${lineNum})`,
         primarySpan: { file: filePath, startLine: lineNum, startCol: 1, endLine: lineNum, endCol: line.length },
         fingerprint: createFingerprint('kern-ignore-position', lineNum, 1),
+        confidence: 95,
       });
       continue;
     }
@@ -131,6 +133,7 @@ export function parseDirectives(
           message: `'${conceptRules.join(', ')}' ${conceptRules.length === 1 ? 'is a' : 'are'} concept rule${conceptRules.length === 1 ? '' : 's'} — use '// kern-ignore-file ${conceptRules.join(', ')}' at the top of the file instead`,
           primarySpan: { file: filePath, startLine: lineNum, startCol: 1, endLine: lineNum, endCol: line.length },
           fingerprint: createFingerprint('kern-ignore-concept', lineNum, 1),
+          confidence: 95,
         });
         // Still process non-concept rules on this line
         const nonConcept = ruleIds.filter((r) => !isConceptRule(r));
@@ -219,6 +222,7 @@ function parseReasonOrWarn(
     message: `Unknown suppression reason '${candidate}' — must be one of ${SUPPRESSION_REASONS.join(', ')}`,
     primarySpan: { file: filePath, startLine: lineNum, startCol: 1, endLine: lineNum, endCol: line.length },
     fingerprint: createFingerprint('kern-ignore-reason', lineNum, 1),
+    confidence: 95,
   });
   return undefined;
 }

@@ -15,6 +15,7 @@ import {
   buildImportMapFromGraph,
   buildSanitizerSufficiency,
   crossFileTaintToFindings,
+  findTaintedSinks,
   isSanitizerSufficient,
   propagateTaintMultiHop,
   taintToFindings,
@@ -349,8 +350,9 @@ describe('crossFileTaintToFindings', () => {
         calleeFile: 'db.ts',
         calleeFn: 'runQuery',
         taintedArgs: ['userInput'],
-        sinkInCallee: { name: 'query', category: 'sql' as const, taintedArg: 'sql' },
+        sinkInCallee: { name: 'query', category: 'sql' as const, taintedArg: 'sql', line: 3 },
         source: { name: 'userInput', origin: 'req.body.query' },
+        calleeSinkLine: 27,
       },
     ];
 
@@ -362,6 +364,9 @@ describe('crossFileTaintToFindings', () => {
     expect(findings[0].message).toContain('runQuery');
     expect(findings[0].relatedSpans).toBeDefined();
     expect(findings[0].relatedSpans![0].file).toBe('db.ts');
+    // Lift 2: calleeSpan must use the resolved sink line, not the legacy
+    // hardcoded `1`. Reviewers click here to navigate to the actual sink.
+    expect(findings[0].relatedSpans![0].startLine).toBe(27);
   });
 });
 
@@ -774,5 +779,187 @@ from mcp.server.fastmcp import FastMCP
     expect(() => buildImportMapFromGraph(project, graph)).not.toThrow();
     const importMap = buildImportMapFromGraph(project, graph);
     expect(importMap.get('/src/handler.ts::runQuery')).toBe('/src/db.ts');
+  });
+});
+
+// ── Regression: Lifts 2 / 3 / A (sink-line, rootCause, fingerprint) ────────
+//
+// Validates the three FP/graph correctness lifts landed after the FP-cleanup
+// pass on 2026-05-11. Each test is small and pins one of the lifts so a future
+// refactor that breaks just one stays caught.
+describe('taint Lifts 2/3/A — sink line, rootCause, fingerprint', () => {
+  it('Lift 2: findTaintedSinks records 1-based sink.line inside the body', () => {
+    const code = ['const x = req.body;', 'console.log(x);', 'exec(x);'].join('\n');
+    const sinks = findTaintedSinks(code, [{ name: 'x', origin: 'param:req' }]);
+    expect(sinks.length).toBeGreaterThan(0);
+    // `exec(x)` is on body line 3 (1-based).
+    expect(sinks[0].line).toBe(3);
+  });
+
+  it('Lift 2: cross-file callee span resolves to bodyStartLine + sink.line - 1', () => {
+    const results = [
+      {
+        callerFile: 'app/route.ts',
+        callerFn: 'POST',
+        callerLine: 4,
+        calleeFile: 'lib/db.ts',
+        calleeFn: 'unsafeQuery',
+        taintedArgs: ['sql'],
+        sinkInCallee: { name: 'query', category: 'sql' as const, taintedArg: 'sql', line: 2 },
+        source: { name: 'sql', origin: 'req.body.sql' },
+        // Body opens at file line 5; sink is body line 2 → resolves to file line 6.
+        calleeSinkLine: 6,
+      },
+    ];
+    const findings = crossFileTaintToFindings(results);
+    expect(findings[0].relatedSpans?.[0].startLine).toBe(6);
+    // Pre-Lift-2 behaviour was 1 — guard against regression.
+    expect(findings[0].relatedSpans?.[0].startLine).not.toBe(1);
+  });
+
+  it('Lift 3: intra-file taint findings carry a data-flow rootCause keyed on (file, handler, source, sink category)', () => {
+    const results = [
+      {
+        fnName: 'handler',
+        filePath: '/src/api.ts',
+        startLine: 1,
+        paths: [
+          {
+            source: { name: 'q', origin: 'req.query' },
+            sink: { name: 'exec', category: 'command' as const, taintedArg: 'q', line: 3 },
+            sanitized: false,
+          },
+        ],
+      },
+    ];
+    const findings = taintToFindings(results);
+    expect(findings[0].rootCause?.kind).toBe('data-flow');
+    expect(findings[0].rootCause?.key).toBe('taint:/src/api.ts#handler:q:req.query→command');
+    expect(findings[0].rootCause?.facets?.sinkCategory).toBe('command');
+    expect(findings[0].rootCause?.facets?.handler).toBe('handler');
+  });
+
+  it('Lift 3: two handlers in the same file with the same source/sink shape do NOT collapse (Codex+OpenCode impl-review)', () => {
+    const findings = taintToFindings([
+      {
+        fnName: 'getUsers',
+        filePath: '/src/api.ts',
+        startLine: 1,
+        paths: [
+          {
+            source: { name: 'req', origin: 'param:req' },
+            sink: { name: 'exec', category: 'command' as const, taintedArg: 'req', line: 1 },
+            sanitized: false,
+          },
+        ],
+      },
+      {
+        fnName: 'createUser',
+        filePath: '/src/api.ts',
+        startLine: 10,
+        paths: [
+          {
+            source: { name: 'req', origin: 'param:req' },
+            sink: { name: 'exec', category: 'command' as const, taintedArg: 'req', line: 1 },
+            sanitized: false,
+          },
+        ],
+      },
+    ]);
+    expect(findings.length).toBe(2);
+    expect(findings[0].rootCause?.key).not.toBe(findings[1].rootCause?.key);
+  });
+
+  it('Lift 3: two findings with same flow signature share a rootCause.key so the grouper can collapse them', () => {
+    const sharedSinkArg = 'input';
+    const intra = taintToFindings([
+      {
+        fnName: 'h',
+        filePath: '/src/api.ts',
+        startLine: 1,
+        paths: [
+          {
+            source: { name: sharedSinkArg, origin: 'req.body' },
+            sink: { name: 'exec', category: 'command' as const, taintedArg: sharedSinkArg, line: 2 },
+            sanitized: false,
+          },
+        ],
+      },
+    ]);
+    const cross = crossFileTaintToFindings([
+      {
+        callerFile: '/src/api.ts',
+        callerFn: 'h',
+        callerLine: 1,
+        calleeFile: '/src/runner.ts',
+        calleeFn: 'run',
+        taintedArgs: [sharedSinkArg],
+        sinkInCallee: { name: 'exec', category: 'command' as const, taintedArg: sharedSinkArg, line: 1 },
+        source: { name: sharedSinkArg, origin: 'req.body' },
+        calleeSinkLine: 10,
+      },
+    ]);
+    expect(intra[0].rootCause?.key).toBe(cross[0].rootCause?.key);
+  });
+
+  it('Lift 3: different source names produce different rootCause keys (no false collapse)', () => {
+    const fromBody = taintToFindings([
+      {
+        fnName: 'h',
+        filePath: '/src/api.ts',
+        startLine: 1,
+        paths: [
+          {
+            source: { name: 'body', origin: 'req.body' },
+            sink: { name: 'exec', category: 'command' as const, taintedArg: 'body' },
+            sanitized: false,
+          },
+        ],
+      },
+    ]);
+    const fromQuery = taintToFindings([
+      {
+        fnName: 'h',
+        filePath: '/src/api.ts',
+        startLine: 1,
+        paths: [
+          {
+            source: { name: 'query', origin: 'req.query' },
+            sink: { name: 'exec', category: 'command' as const, taintedArg: 'query' },
+            sanitized: false,
+          },
+        ],
+      },
+    ]);
+    expect(fromBody[0].rootCause?.key).not.toBe(fromQuery[0].rootCause?.key);
+  });
+
+  it('Lift A: two sinks in the same handler at different lines get different fingerprints (no silent dedup)', () => {
+    const findings = taintToFindings([
+      {
+        fnName: 'h',
+        filePath: '/src/api.ts',
+        startLine: 10,
+        paths: [
+          {
+            source: { name: 'q', origin: 'req.query' },
+            sink: { name: 'exec', category: 'command' as const, taintedArg: 'q', line: 3 },
+            sanitized: false,
+          },
+          {
+            source: { name: 'q', origin: 'req.query' },
+            sink: { name: 'eval', category: 'eval' as const, taintedArg: 'q', line: 7 },
+            sanitized: false,
+          },
+        ],
+      },
+    ]);
+    expect(findings.length).toBe(2);
+    expect(findings[0].fingerprint).not.toBe(findings[1].fingerprint);
+    // primarySpan reflects the absolute file line (Codex impl-review): handler
+    // starts at file line 10, sinks are on body lines 3 and 7 → file lines 12
+    // and 16. Pre-Codex-fix this incorrectly used body lines as file lines.
+    expect(findings[0].primarySpan.startLine).toBe(12);
+    expect(findings[1].primarySpan.startLine).toBe(16);
   });
 });

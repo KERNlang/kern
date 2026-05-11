@@ -100,8 +100,16 @@ export interface ReviewFinding {
   nodeIds?: string[];
   /** Fix suggestion */
   suggestion?: string;
-  /** Confidence (0-1, for LLM findings) */
-  confidence?: number;
+  /**
+   * Confidence in the finding — required integer in `[0, 100]`.
+   *
+   * Bands (informational): high ≥ 90, medium 70–89, low < 70.
+   *
+   * Set by the `finding()` factory from `confidence-baseline.ts`, or by the
+   * rule per-match. Deterministic per (rule, match context). Calibration in
+   * `rule-quality.ts` may adjust it downward but never sets it from scratch.
+   */
+  confidence: number;
   /** Structured autofix */
   autofix?: FixAction;
   /** Stable fingerprint for dedup across sources */
@@ -383,7 +391,7 @@ export interface ReviewConfig {
   policy?: ReviewPolicy;
   /** Optional persistent telemetry for rule/noise calibration. */
   telemetry?: ReviewTelemetryConfig;
-  /** Minimum confidence for findings to count in enforcement (default: 0) */
+  /** Minimum confidence (integer 0–100) for findings to count in enforcement (default: 0). */
   minConfidence?: number;
   /** Show confidence scores in output */
   showConfidence?: boolean;

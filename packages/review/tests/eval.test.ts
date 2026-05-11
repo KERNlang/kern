@@ -15,6 +15,7 @@ function finding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
     message: 'Promise returned from async function is not awaited',
     primarySpan: { file: '/repo/src/bug.ts', startLine: 3, startCol: 3, endLine: 3, endCol: 14 },
     fingerprint: 'floating-promise:3:3',
+    confidence: 85,
     ...overrides,
   };
 }

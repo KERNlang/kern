@@ -27,7 +27,7 @@ function finding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
     message: 'test finding',
     primarySpan: { file: 'input.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
     fingerprint: 'test-rule:1:1',
-    confidence: 0.85,
+    confidence: 85,
     ...overrides,
   };
 }
@@ -99,14 +99,14 @@ describe('rule quality calibration', () => {
       finding({
         ruleId: 'large-list-no-virtualization',
         severity: 'warning',
-        confidence: 0.85,
+        confidence: 85,
       }),
     ];
 
     applyRuleQualityCalibration(findings);
 
     expect(findings[0].severity).toBe('info');
-    expect(findings[0].confidence).toBe(0.6);
+    expect(findings[0].confidence).toBe(60);
   });
 
   it('never demotes errors during guard calibration', () => {
@@ -127,7 +127,7 @@ describe('rule quality calibration', () => {
       finding({
         ruleId: 'large-list-no-virtualization',
         severity: 'warning',
-        confidence: 0.85,
+        confidence: 85,
       }),
     ];
 
@@ -161,7 +161,7 @@ describe('rule quality calibration', () => {
       finding({
         ruleId: 'large-list-no-virtualization',
         severity: 'warning',
-        confidence: 0.85,
+        confidence: 85,
       }),
     ];
 
@@ -172,8 +172,8 @@ describe('rule quality calibration', () => {
       expect.arrayContaining([
         expect.objectContaining({
           stage: 'rule-quality:experimental-cap',
-          beforeConfidence: 0.85,
-          afterConfidence: 0.6,
+          beforeConfidence: 85,
+          afterConfidence: 60,
         }),
       ]),
     );
@@ -192,14 +192,14 @@ describe('rule quality calibration', () => {
     // Simulates the index.ts site D path: per-file calibration runs, then graph
     // mode unions findings + suppressedFindings and runs calibration again. The
     // pre-calibrated entry must not be touched a second time.
-    const findings = [finding({ ruleId: 'dead-export', severity: 'warning', confidence: 0.85 })];
+    const findings = [finding({ ruleId: 'dead-export', severity: 'warning', confidence: 85 })];
     applyRuleQualityCalibration(findings);
     const preCalibrated = findings[0];
 
     const newCrossFileFinding = finding({
       ruleId: 'dead-export',
       severity: 'warning',
-      confidence: 0.85,
+      confidence: 85,
       primarySpan: { file: 'other.ts', startLine: 5, startCol: 1, endLine: 5, endCol: 1 },
       fingerprint: 'dead-export:other:5:1',
     });
@@ -215,7 +215,7 @@ describe('rule quality calibration', () => {
 
 describe('role-aware confidence multipliers', () => {
   it('zeros confidence on dead-export inside a barrel file', () => {
-    const findings = [finding({ ruleId: 'dead-export', confidence: 0.85 })];
+    const findings = [finding({ ruleId: 'dead-export', confidence: 85 })];
 
     applyRoleAwareConfidence(findings, 'barrel');
 
@@ -223,36 +223,36 @@ describe('role-aware confidence multipliers', () => {
     expect(findings[0].calibrationTrail?.[0]).toMatchObject({
       stage: 'role-aware:confidence-multiplier',
       factor: 0,
-      beforeConfidence: 0.85,
+      beforeConfidence: 85,
       afterConfidence: 0,
     });
   });
 
   it('halves cognitive-complexity inside a test file (factor 0.5)', () => {
-    const findings = [finding({ ruleId: 'cognitive-complexity', confidence: 0.8 })];
+    const findings = [finding({ ruleId: 'cognitive-complexity', confidence: 80 })];
 
     applyRoleAwareConfidence(findings, 'test');
 
-    expect(findings[0].confidence).toBeCloseTo(0.4, 5);
+    expect(findings[0].confidence).toBe(40);
   });
 
   it('does not touch findings on runtime files (default factor=1)', () => {
-    const findings = [finding({ ruleId: 'dead-export', confidence: 0.85 })];
+    const findings = [finding({ ruleId: 'dead-export', confidence: 85 })];
 
     applyRoleAwareConfidence(findings, 'runtime');
 
-    expect(findings[0].confidence).toBe(0.85);
+    expect(findings[0].confidence).toBe(85);
     expect(findings[0].calibrationTrail).toBeUndefined();
   });
 
   it('SECURITY: never reduces confidence on a security-layer rule, regardless of role', () => {
     // hardcoded-secret is layer='security' in rules/index.ts. Even if a future edit
     // lists it in ROLE_MULTIPLIER, isProtectedRule() must short-circuit.
-    const findings = [finding({ ruleId: 'hardcoded-secret', confidence: 0.9 })];
+    const findings = [finding({ ruleId: 'hardcoded-secret', confidence: 90 })];
 
     applyRoleAwareConfidence(findings, 'codegen');
 
-    expect(findings[0].confidence).toBe(0.9);
+    expect(findings[0].confidence).toBe(90);
     expect(findings[0].calibrationTrail).toBeUndefined();
   });
 
@@ -268,27 +268,27 @@ describe('role-aware confidence multipliers', () => {
   });
 
   it('preserves findings in audit mode', () => {
-    const findings = [finding({ ruleId: 'dead-export', confidence: 0.85 })];
+    const findings = [finding({ ruleId: 'dead-export', confidence: 85 })];
 
     applyRoleAwareConfidence(findings, 'barrel', { crossStackMode: 'audit' });
 
-    expect(findings[0].confidence).toBe(0.85);
+    expect(findings[0].confidence).toBe(85);
     expect(findings[0].calibrationTrail).toBeUndefined();
   });
 
   it('skips findings already calibrated (graph-mode union safety)', () => {
-    const findings = [finding({ ruleId: 'dead-export', confidence: 0.85, calibrated: true })];
+    const findings = [finding({ ruleId: 'dead-export', confidence: 85, calibrated: true })];
 
     applyRoleAwareConfidence(findings, 'barrel');
 
-    expect(findings[0].confidence).toBe(0.85);
+    expect(findings[0].confidence).toBe(85);
     expect(findings[0].calibrationTrail).toBeUndefined();
   });
 
   it('composes with rule-quality calibration: role first, then quality', () => {
     // Order at the call sites: role-aware → rule-quality. Both record their own
     // trail entries. rule-quality flips `calibrated=true` last.
-    const findings = [finding({ ruleId: 'dead-export', confidence: 0.85, severity: 'warning' })];
+    const findings = [finding({ ruleId: 'dead-export', confidence: 85, severity: 'warning' })];
 
     applyRoleAwareConfidence(findings, 'codegen');
     applyRuleQualityCalibration(findings);
@@ -302,12 +302,12 @@ describe('role-aware confidence multipliers', () => {
 
 describe('overlap calibration with external linters', () => {
   it('demotes dead-export when eslint:no-unused-vars is enabled', () => {
-    const findings = [finding({ ruleId: 'dead-export', severity: 'warning', confidence: 0.85 })];
+    const findings = [finding({ ruleId: 'dead-export', severity: 'warning', confidence: 85 })];
 
     applyOverlapCalibration(findings, externalConfig(['no-unused-vars']));
 
     expect(findings[0].severity).toBe('info');
-    expect(findings[0].confidence).toBe(0.425);
+    expect(findings[0].confidence).toBe(43);
     expect(findings[0].calibrationTrail?.[0]).toMatchObject({
       stage: 'overlap:external-linter',
       reason: expect.stringContaining('no-unused-vars'),
@@ -315,7 +315,7 @@ describe('overlap calibration with external linters', () => {
   });
 
   it('demotes dead-export when biome:noUnusedVariables is enabled', () => {
-    const findings = [finding({ ruleId: 'dead-export', severity: 'warning', confidence: 0.85 })];
+    const findings = [finding({ ruleId: 'dead-export', severity: 'warning', confidence: 85 })];
 
     applyOverlapCalibration(findings, externalConfig([], ['noUnusedVariables']));
 
@@ -324,17 +324,17 @@ describe('overlap calibration with external linters', () => {
   });
 
   it('does not touch findings when no external rule overlap configured', () => {
-    const findings = [finding({ ruleId: 'dead-export', severity: 'warning', confidence: 0.85 })];
+    const findings = [finding({ ruleId: 'dead-export', severity: 'warning', confidence: 85 })];
 
     applyOverlapCalibration(findings, externalConfig([], []));
 
     expect(findings[0].severity).toBe('warning');
-    expect(findings[0].confidence).toBe(0.85);
+    expect(findings[0].confidence).toBe(85);
     expect(findings[0].calibrationTrail).toBeUndefined();
   });
 
   it('does not touch unmapped kern rules even when external is rich', () => {
-    const findings = [finding({ ruleId: 'memory-leak', severity: 'warning', confidence: 0.85 })];
+    const findings = [finding({ ruleId: 'memory-leak', severity: 'warning', confidence: 85 })];
 
     applyOverlapCalibration(findings, externalConfig(['no-unused-vars'], ['noUnusedVariables']));
 
@@ -345,25 +345,25 @@ describe('overlap calibration with external linters', () => {
   it('SECURITY: never demotes a security-layer rule, even if mapped externally', () => {
     // Even if a future edit lists 'hardcoded-secret' in KERN_TO_EXTERNAL,
     // overlapTargetsFor() short-circuits via isProtectedRule.
-    const findings = [finding({ ruleId: 'hardcoded-secret', severity: 'error', confidence: 0.95 })];
+    const findings = [finding({ ruleId: 'hardcoded-secret', severity: 'error', confidence: 95 })];
 
     applyOverlapCalibration(findings, externalConfig(['no-unused-vars'], ['noUnusedVariables']));
 
     expect(findings[0].severity).toBe('error');
-    expect(findings[0].confidence).toBe(0.95);
+    expect(findings[0].confidence).toBe(95);
   });
 
   it('preserves errors at error severity (only demotes warning to info)', () => {
-    const findings = [finding({ ruleId: 'dead-export', severity: 'error', confidence: 0.95 })];
+    const findings = [finding({ ruleId: 'dead-export', severity: 'error', confidence: 95 })];
 
     applyOverlapCalibration(findings, externalConfig(['no-unused-vars']));
 
     expect(findings[0].severity).toBe('error');
-    expect(findings[0].confidence).toBe(0.475);
+    expect(findings[0].confidence).toBe(48);
   });
 
   it('preserves findings in audit mode', () => {
-    const findings = [finding({ ruleId: 'dead-export', severity: 'warning', confidence: 0.85 })];
+    const findings = [finding({ ruleId: 'dead-export', severity: 'warning', confidence: 85 })];
 
     applyOverlapCalibration(findings, externalConfig(['no-unused-vars']), { crossStackMode: 'audit' });
 
@@ -372,7 +372,7 @@ describe('overlap calibration with external linters', () => {
   });
 
   it('skips already-calibrated findings (graph-mode union safety)', () => {
-    const findings = [finding({ ruleId: 'dead-export', severity: 'warning', confidence: 0.85, calibrated: true })];
+    const findings = [finding({ ruleId: 'dead-export', severity: 'warning', confidence: 85, calibrated: true })];
 
     applyOverlapCalibration(findings, externalConfig(['no-unused-vars']));
 

@@ -80,7 +80,8 @@ export function emitExpression(node: ValueIR): string {
       const callee = emitExpression(node.callee);
       const wrapped = needsReceiverParens(node.callee) ? `(${callee})` : callee;
       const args = node.args.map(emitExpression).join(', ');
-      return node.optional ? `${wrapped}?.(${args})` : `${wrapped}(${args})`;
+      const typeArgs = node.typeArgs ? `<${node.typeArgs}>` : '';
+      return node.optional ? `${wrapped}?.${typeArgs}(${args})` : `${wrapped}${typeArgs}(${args})`;
     }
     case 'lambda': {
       const params =
@@ -120,6 +121,11 @@ export function emitExpression(node: ValueIR): string {
       const expr = emitExpression(node.expression);
       const wrapped = needsTypeAssertionParens(node.expression) ? `(${expr})` : expr;
       return `${wrapped} as ${node.type}`;
+    }
+    case 'nonNull': {
+      const expr = emitExpression(node.expression);
+      const wrapped = needsTypeAssertionParens(node.expression) ? `(${expr})` : expr;
+      return `${wrapped}!`;
     }
     case 'objectLit': {
       // Slice 2d — TS object literal. Bare-key when valid identifier; else JSON-quote.

@@ -203,6 +203,33 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
+  test('migrates regex literals, generic calls, and non-null assertions', () => {
+    const source = [
+      'fn name=clean returns=string',
+      '  handler <<<',
+      '    const seen = new Set<string>();',
+      '    const value = data[1]!;',
+      '    if (/^ok$/i.test(value)) {',
+      '      return value.replace(/\\s+/g, " ");',
+      '    }',
+      '    return value;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('let name=seen value="new Set<string>()"');
+    expect(result.output).toContain('let name=value value="data[1]!"');
+    expect(result.output).toContain('if cond="/^ok$/i.test(value)"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toContain('const seen = new Set<string>();');
+    expect(ts).toContain('const value = data[1]!;');
+    expect(ts).toContain('if (/^ok$/i.test(value))');
+    expect(ts).toContain('return value.replace(/\\s+/g, " ");');
+  });
+
   test('migrates while block to while body-statement', () => {
     const source = [
       'fn name=drain returns=void',
@@ -858,7 +885,7 @@ describe('rewriteNativeHandlers — bail conditions', () => {
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
-  test('bails on body containing line comments', () => {
+  test('migrates and preserves standalone line comments', () => {
     const source = [
       'fn name=ok returns=number',
       '  handler <<<',
@@ -867,15 +894,40 @@ describe('rewriteNativeHandlers — bail conditions', () => {
       '  >>>',
     ].join('\n');
     const result = rewriteNativeHandlers(source);
-    expect(result.hits).toHaveLength(0);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('comment raw="// explain things"');
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toContain('// explain things');
+    expect(ts).toContain('return 1;');
   });
 
-  test('bails on body containing block comments', () => {
+  test('migrates and preserves standalone block comments', () => {
     const source = ['fn name=ok returns=number', '  handler <<<', '    /* explain */', '    return 1;', '  >>>'].join(
       '\n',
     );
     const result = rewriteNativeHandlers(source);
-    expect(result.hits).toHaveLength(0);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('comment raw="/* explain */"');
+    const handler = findHandler(parseDocumentStrict(result.output));
+    expect(emitNativeKernBodyTS(handler as IRNode)).toContain('/* explain */');
+  });
+
+  test('migrates multiline block comments as portable comment text nodes', () => {
+    const source = [
+      'fn name=ok returns=number',
+      '  handler <<<',
+      '    /* first',
+      '     * second */',
+      '    return 1;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('comment text="first"');
+    expect(result.output).toContain('comment text="second"');
+    const handler = findHandler(parseDocumentStrict(result.output));
+    expect(emitNativeKernBodyTS(handler as IRNode)).toContain('// first\n// second');
   });
 
   test('bails on try without catch (finally-only or bare)', () => {
@@ -1158,7 +1210,7 @@ describe('rewriteNativeHandlers — review-found regressions', () => {
   // Gemini MED: the prior AST-walk hasComments missed comments inside block
   // bodies (e.g. `if (c) { // … }`). Scanner-based detection catches all
   // comment trivia regardless of position.
-  test('detects comments inside if-block bodies', () => {
+  test('migrates comments inside if-block bodies', () => {
     const source = [
       'fn name=ok returns=number',
       '  handler <<<',
@@ -1170,7 +1222,10 @@ describe('rewriteNativeHandlers — review-found regressions', () => {
       '  >>>',
     ].join('\n');
     const result = rewriteNativeHandlers(source);
-    expect(result.hits).toHaveLength(0);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toMatch(/if cond="c"\n\s+comment raw="\/\/ explain"\n\s+return value="1"/);
+    const handler = findHandler(parseDocumentStrict(result.output));
+    expect(emitNativeKernBodyTS(handler as IRNode)).toContain('  // explain');
   });
 
   // Gemini MED: trailing comment after the last statement was missed.

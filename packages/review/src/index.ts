@@ -46,6 +46,7 @@ import { runTSCDiagnostics } from './external-tools.js';
 import { buildFileContextMap } from './file-context.js';
 import { classifyFileRole, classifyFileRoleByPath } from './file-role.js';
 import { resolveImportGraph } from './graph.js';
+import { groupFindingsByRootCause } from './group-by-root-cause.js';
 import { createInMemoryProject, findTsConfig, inferFromSourceFile } from './inferrer.js';
 import { flattenIR, lintKernIR } from './kern-lint.js';
 import { extractTsConcepts } from './mappers/ts-concepts.js';
@@ -753,6 +754,7 @@ function reviewSourceInternal(
         message: `Review phase '${name}' failed: ${(err as Error).message}`,
         primarySpan: { file: filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
         fingerprint: createFingerprint('internal-error', 1, name.charCodeAt(0)),
+        confidence: 95,
       });
       return fallback;
     }
@@ -947,6 +949,7 @@ export function reviewKernSource(source: string, filePath = 'input.kern', _confi
         message: `Review phase '${name}' failed: ${(err as Error).message}`,
         primarySpan: { file: filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
         fingerprint: createFingerprint('internal-error', 1, name.charCodeAt(0)),
+        confidence: 95,
       });
       return fallback;
     }
@@ -976,6 +979,7 @@ export function reviewKernSource(source: string, filePath = 'input.kern', _confi
       primarySpan: { file: filePath, startLine: d.line, startCol: d.col, endLine: d.line, endCol: d.endCol },
       suggestion: d.suggestion,
       fingerprint: createFingerprint(`parse/${d.code}`, d.line, d.col),
+      confidence: 95,
     });
   }
 
@@ -1140,6 +1144,7 @@ export function reviewPythonSource(source: string, filePath = 'input.py', config
         message: 'Python concept extraction failed — Python findings may be incomplete',
         primarySpan: { file: filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
         fingerprint: 'python-concept-extraction-failed-0',
+        confidence: 95,
       },
     ];
   }
@@ -1246,29 +1251,54 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
     }
   }
 
-  // Cross-file taint analysis — trace tainted data across import boundaries
+  // Cross-file taint analysis — trace tainted data across import boundaries.
+  // Keys are canonical paths so they match the canonical keys used by the
+  // ts-morph-backed maps inside taint-crossfile.ts (red-team #9 fix).
+  // `report.filePath` already runs through `canonicalize` upstream, but we
+  // re-canonicalise via the graph's display→canonical map for symmetry with
+  // the import set we build right below.
+  const displayToCanonical = new Map<string, string>();
+  for (const gf of graph.files) {
+    displayToCanonical.set(gf.path, gf.canonicalPath);
+  }
   const inferredPerFile = new Map<string, InferResult[]>();
   const graphImports = new Map<string, string[]>();
   for (const report of reports) {
-    inferredPerFile.set(report.filePath, report.inferred);
+    const key = displayToCanonical.get(report.filePath) ?? report.filePath;
+    inferredPerFile.set(key, report.inferred);
   }
   for (const gf of graph.files) {
-    graphImports.set(gf.path, gf.imports);
+    graphImports.set(gf.canonicalPath, gf.imports);
   }
 
   const crossFileResults = analyzeTaintCrossFile(inferredPerFile, graphImports, graph);
   if (crossFileResults.length > 0) {
     const crossFileFindings = crossFileTaintToFindings(crossFileResults);
+    // Build a report index keyed by BOTH display and canonical paths.
+    // Cross-file taint results' `callerFile` is the inferredPerFile key
+    // (canonical after Tier B), while `report.filePath` is user-facing
+    // display — equality lookup would miss every find. Per OpenCode review.
+    const reportByPath = new Map<string, ReviewReport>();
+    for (const r of reports) {
+      reportByPath.set(r.filePath, r);
+      const canonical = displayToCanonical.get(r.filePath);
+      if (canonical) reportByPath.set(canonical, r);
+    }
     // Add cross-file findings to the caller's report, then re-run suppression
     for (const f of crossFileFindings) {
-      const callerReport = reports.find((r) => r.filePath === f.primarySpan.file);
+      const callerReport = reportByPath.get(f.primarySpan.file);
       if (callerReport) {
+        // Remap finding span to caller-facing display so downstream renderers
+        // see the user's path, not the canonical one.
+        if (callerReport.filePath !== f.primarySpan.file) {
+          f.primarySpan = { ...f.primarySpan, file: callerReport.filePath };
+        }
         callerReport.findings.push(f);
       }
     }
     // Attach raw cross-file taint results for structured output
     for (const result of crossFileResults) {
-      const callerReport = reports.find((r) => r.filePath === result.callerFile);
+      const callerReport = reportByPath.get(result.callerFile);
       if (callerReport) {
         if (!callerReport.crossFileTaint) callerReport.crossFileTaint = [];
         callerReport.crossFileTaint.push(result);
@@ -1595,6 +1625,12 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
         report.findings = kept;
         report.noiseGatedFindings = sortAndDedup([...(report.noiseGatedFindings ?? []), ...dropped]);
       }
+    }
+    // RootCause grouping (Tier D) — collapse same-rootCause / same-line-same-family
+    // findings so reviewers see one issue per location, not 4-5 separate ones.
+    // Runs after noiseGate so the gate operates on the un-collapsed set.
+    if (config?.crossStackMode !== 'audit') {
+      report.findings = groupFindingsByRootCause(report.findings);
     }
   }
 

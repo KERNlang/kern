@@ -11,6 +11,7 @@ import { type Project, SyntaxKind } from 'ts-morph';
 import { createInMemoryProject } from '../inferrer.js';
 import type { ReviewFinding } from '../types.js';
 import { createFingerprint } from '../types.js';
+import { resolveConfidence } from './confidence-baseline.js';
 import { setSetterCollision } from './set-setter-collision.js';
 
 export type KernSourceRule = (nodes: IRNode[], filePath: string) => ReviewFinding[];
@@ -332,6 +333,7 @@ function finding(
     primarySpan: { file: filePath, startLine: line, startCol: col, endLine: line, endCol: col },
     fingerprint: createFingerprint(ruleId, line, col),
     ...extra,
+    confidence: resolveConfidence(ruleId, extra?.confidence),
   };
 }
 

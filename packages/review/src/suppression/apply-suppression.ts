@@ -98,6 +98,7 @@ export function applySuppression(
           endCol: 1,
         },
         fingerprint: `unused-${d.commentLine}-${d.ruleIds.join(',')}`,
+        confidence: 95,
       });
     }
   }

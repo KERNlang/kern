@@ -2,7 +2,7 @@
  *  Supports: identifiers, literals (number/string/true/false/null/undefined/none),
  *  member access (. and ?.), index access ([] and ?.[), call (() and ?.()), spread
  *  (...), expression-bodied lambdas (`x => x.id`), logical ?? || &&, parenthesized grouping, template literals with
- *  ${...} interpolation, `await`/`typeof` prefix, TS-style `as Type` assertion nodes,
+ *  ${...} interpolation, regex literals, `await`/`typeof` prefix, TS-style `as Type` assertion nodes,
  *  propagation `?` postfix on call/await-call.
  *
  *  `none` is a KERN-side alias for `null` — both produce nullLit. Per native-handler
@@ -22,6 +22,7 @@ export type ExprTokenKind =
   | 'ident'
   | 'num'
   | 'str'
+  | 'regex'
   | 'tmplStart'
   | 'dot'
   | 'optDot'
@@ -120,6 +121,23 @@ function isTypeAssertionBoundary(kind: ExprTokenKind): boolean {
     kind === 'star' ||
     kind === 'slash' ||
     kind === 'percent'
+  );
+}
+
+function isTypeArgumentTokenKind(kind: ExprTokenKind): boolean {
+  return (
+    kind === 'ident' ||
+    kind === 'kwNull' ||
+    kind === 'kwUndef' ||
+    kind === 'kwTrue' ||
+    kind === 'kwFalse' ||
+    kind === 'dot' ||
+    kind === 'comma' ||
+    kind === 'lt' ||
+    kind === 'gt' ||
+    kind === 'lbracket' ||
+    kind === 'rbracket' ||
+    kind === 'qmark'
   );
 }
 
@@ -238,6 +256,85 @@ function consumeString(input: string, start: number): { end: number; value: stri
   return { end: i + 1, value };
 }
 
+function canStartRegex(tokens: ExprToken[]): boolean {
+  const prev = tokens[tokens.length - 1];
+  if (!prev) return true;
+  if (prev.kind === 'bang') return isPrefixBang(tokens, tokens.length - 1);
+  return (
+    prev.kind === 'lparen' ||
+    prev.kind === 'lbrace' ||
+    prev.kind === 'lbracket' ||
+    prev.kind === 'colon' ||
+    prev.kind === 'comma' ||
+    prev.kind === 'qmark' ||
+    prev.kind === 'nullish' ||
+    prev.kind === 'or' ||
+    prev.kind === 'and' ||
+    prev.kind === 'pipe' ||
+    prev.kind === 'amp' ||
+    prev.kind === 'eq' ||
+    prev.kind === 'neq' ||
+    prev.kind === 'strictEq' ||
+    prev.kind === 'strictNeq' ||
+    prev.kind === 'lt' ||
+    prev.kind === 'lte' ||
+    prev.kind === 'gt' ||
+    prev.kind === 'gte' ||
+    prev.kind === 'plus' ||
+    prev.kind === 'minus' ||
+    prev.kind === 'star' ||
+    prev.kind === 'slash' ||
+    prev.kind === 'percent' ||
+    prev.kind === 'arrow' ||
+    prev.kind === 'spread' ||
+    prev.kind === 'kwAwait' ||
+    (prev.kind === 'ident' && (prev.value === 'typeof' || prev.value === 'void'))
+  );
+}
+
+function isPrefixBang(tokens: ExprToken[], bangIndex: number): boolean {
+  const before = tokens[bangIndex - 1];
+  if (!before) return true;
+  if (before.kind === 'bang') return isPrefixBang(tokens, bangIndex - 1);
+  return canStartRegex(tokens.slice(0, bangIndex));
+}
+
+function consumeRegex(input: string, start: number): { end: number; pattern: string; flags: string } {
+  let i = start + 1;
+  let pattern = '';
+  let inClass = false;
+  while (i < input.length) {
+    const ch = input[i];
+    if (ch === '\\' && i + 1 < input.length) {
+      pattern += ch + input[i + 1];
+      i += 2;
+      continue;
+    }
+    if (ch === '[') {
+      inClass = true;
+      pattern += ch;
+      i++;
+      continue;
+    }
+    if (ch === ']' && inClass) {
+      inClass = false;
+      pattern += ch;
+      i++;
+      continue;
+    }
+    if (ch === '/' && !inClass) {
+      i++;
+      const flagsStart = i;
+      while (i < input.length && isIdentChar(input[i])) i++;
+      return { end: i, pattern, flags: input.slice(flagsStart, i) };
+    }
+    if (ch === '\n' || ch === '\r') throw new Error(`Unclosed regex literal starting at column ${start + 1}`);
+    pattern += ch;
+    i++;
+  }
+  throw new Error(`Unclosed regex literal starting at column ${start + 1}`);
+}
+
 /** Tokenize an expression source. Stops at end of input. */
 export function tokenizeExpression(input: string): ExprToken[] {
   const tokens: ExprToken[] = [];
@@ -340,6 +437,12 @@ export function tokenizeExpression(input: string): ExprToken[] {
     if (ch === '*') {
       tokens.push({ kind: 'star', value: '*', pos: i });
       i++;
+      continue;
+    }
+    if (ch === '/' && canStartRegex(tokens)) {
+      const { end, pattern, flags } = consumeRegex(input, i);
+      tokens.push({ kind: 'regex', value: `${pattern}\u0000${flags}`, pos: i });
+      i = end;
       continue;
     }
     if (ch === '/') {
@@ -742,9 +845,18 @@ class Parser {
 
   private parsePostfix(): ValueIR {
     let node = this.parseCall();
-    while (this.peek().kind === 'ident' && this.peek().value === 'as') {
-      this.advance();
-      node = { kind: 'typeAssert', expression: node, type: this.consumeTypeAssertionText() };
+    while (true) {
+      if (this.peek().kind === 'ident' && this.peek().value === 'as') {
+        this.advance();
+        node = { kind: 'typeAssert', expression: node, type: this.consumeTypeAssertionText() };
+        continue;
+      }
+      if (this.peek().kind === 'bang') {
+        this.advance();
+        node = { kind: 'nonNull', expression: node };
+        continue;
+      }
+      break;
     }
     // Slice α-2: only consume postfix `?` as propagation if the token after
     // it is NOT an expression-start. Otherwise leave it for the outer
@@ -831,6 +943,12 @@ class Parser {
           const name = this.expect('ident');
           node = { kind: 'member', object: node, property: name.value, optional: true };
         }
+      } else if (t.kind === 'lt' && this.isTypeArgumentCallAhead()) {
+        const typeArgs = this.consumeCallTypeArgsText();
+        this.expect('lparen');
+        const args = this.parseArgs();
+        this.expect('rparen');
+        node = { kind: 'call', callee: node, args, optional: false, typeArgs };
       } else if (t.kind === 'lparen') {
         this.advance();
         const args = this.parseArgs();
@@ -841,11 +959,59 @@ class Parser {
         const index = this.parseLambda();
         this.expect('rbracket');
         node = { kind: 'index', object: node, index, optional: false };
+      } else if (t.kind === 'bang') {
+        this.advance();
+        node = { kind: 'nonNull', expression: node };
       } else {
         break;
       }
     }
     return node;
+  }
+
+  private isTypeArgumentCallAhead(): boolean {
+    if (this.peek().kind !== 'lt') return false;
+    let angleDepth = 0;
+    for (let j = this.i; j < this.tokens.length; j++) {
+      const t = this.tokens[j];
+      if (t.kind === 'lt') angleDepth++;
+      else if (t.kind === 'gt') {
+        angleDepth--;
+        if (angleDepth === 0) return this.tokens[j + 1]?.kind === 'lparen';
+      } else if (angleDepth > 0 && !isTypeArgumentTokenKind(t.kind)) {
+        return false;
+      } else if (t.kind === 'eof' || t.kind === 'rparen' || t.kind === 'rbracket' || t.kind === 'rbrace') {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  private consumeCallTypeArgsText(): string {
+    const startTok = this.expect('lt');
+    const start = startTok.pos + startTok.value.length;
+    let end = start;
+    let angleDepth = 1;
+    while (true) {
+      const t = this.peek();
+      if (t.kind === 'eof') throw new Error(`Unclosed type argument list at column ${startTok.pos + 1}`);
+      if (t.kind === 'lt') angleDepth++;
+      else if (t.kind === 'gt') {
+        angleDepth--;
+        if (angleDepth === 0) {
+          end = t.pos;
+          this.advance();
+          break;
+        }
+      }
+      if (angleDepth > 0) {
+        const advanced = this.advance();
+        end = advanced.pos + advanced.value.length;
+      }
+    }
+    const text = this.input.slice(start, end).trim();
+    if (text === '') throw new Error(`Expected type argument after '<' at column ${startTok.pos + 1}`);
+    return text;
   }
 
   private parseArgs(): ValueIR[] {
@@ -877,6 +1043,11 @@ class Parser {
         this.advance();
         const quote = ((t as ExprToken & { quote?: string }).quote ?? '"') as '"' | "'";
         return { kind: 'strLit', value: t.value, quote };
+      }
+      case 'regex': {
+        this.advance();
+        const [pattern = '', flags = ''] = t.value.split('\u0000');
+        return { kind: 'regexLit', pattern, flags };
       }
       case 'kwTrue':
         this.advance();

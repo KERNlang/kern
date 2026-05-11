@@ -30,7 +30,7 @@ const REVIEW_POLICY_PROFILES: Record<ReviewPolicy, ReviewPolicyProfile> = {
   ci: {
     policy: 'ci',
     crossStackMode: 'guard',
-    minConfidence: 0.75,
+    minConfidence: 75,
     maxErrors: 0,
     maxWarnings: 0,
     strict: 'inline',

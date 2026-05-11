@@ -28,6 +28,7 @@ function makeFinding(opts: {
     message: `${opts.ruleId} message`,
     primarySpan: { file: opts.file, startLine: 10, startCol: 1, endLine: 10, endCol: 5 },
     fingerprint: `${opts.ruleId}:10:1`,
+    confidence: 80,
     ...(opts.origin ? { origin: opts.origin } : {}),
     ...(opts.rootCause ? { rootCause: opts.rootCause } : {}),
   };

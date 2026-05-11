@@ -175,7 +175,7 @@ export function getUser(id: string): User { return {} as User; }
       ]);
 
       const findings = parseLLMResponse(response, inferred);
-      expect(findings[0].confidence).toBe(0.7);
+      expect(findings[0].confidence).toBe(70);
     });
   });
 

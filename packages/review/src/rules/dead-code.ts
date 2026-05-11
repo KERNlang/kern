@@ -205,7 +205,7 @@ export function crossFileAsyncRule(callGraph: CallGraph, filePath: string): Revi
         primarySpan: span(filePath, call.line),
         relatedSpans: [span(target.filePath, target.line)],
         fingerprint: createFingerprint('floating-promise', call.line, 2),
-        confidence: 0.9,
+        confidence: 90,
         suggestion: `Add 'await' before the call, or use 'void' if intentionally fire-and-forget.`,
         provenance: {
           summary: `${fn.name}() calls async ${target.name}() across a file boundary without await.`,

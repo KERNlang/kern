@@ -96,6 +96,7 @@ interface BodyEmitContext {
   symbolMap: Record<string, string>;
   shadowedSymbols: Set<string>;
   localScopes: Array<Map<string, 'const' | 'let' | 'cell'>>;
+  regexScopes: Array<Map<string, Extract<ValueIR, { kind: 'regexLit' }> | null>>;
   propagateStyle: 'value' | 'http-exception';
   usedPropagation: boolean;
   /** Slice 4c review fix (OpenCode + Gemini critical) — depth of nested
@@ -118,6 +119,7 @@ function freshCtx(options?: BodyEmitOptions): BodyEmitContext {
     symbolMap: options?.symbolMap ?? {},
     shadowedSymbols: new Set<string>(),
     localScopes: [],
+    regexScopes: [],
     propagateStyle: options?.propagateStyle ?? 'value',
     usedPropagation: false,
     tryDepth: 0,
@@ -175,10 +177,13 @@ function emitChildrenPy(
 ): string[] {
   const lines: string[] = [];
   ctx.localScopes.push(new Map(initialBindings));
+  ctx.regexScopes.push(new Map(initialBindings.map(([name]) => [name, null])));
   try {
     for (let i = 0; i < children.length; i++) {
       const child = children[i];
-      if (child.type === 'cell') {
+      if (child.type === 'comment') {
+        for (const line of emitCommentPy(child)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'cell') {
         for (const line of emitCellPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'set') {
         for (const line of emitSetPy(child, ctx)) lines.push(`${indent}${line}`);
@@ -387,6 +392,7 @@ function emitChildrenPy(
     }
   } finally {
     ctx.localScopes.pop();
+    ctx.regexScopes.pop();
   }
   return lines;
 }
@@ -610,6 +616,7 @@ function emitLetPy(node: IRNode, ctx: BodyEmitContext): string[] {
     return [`${name} = None`];
   }
   const valueIR = parseExpression(String(rawValue));
+  setRegexBinding(ctx, name, valueIR.kind === 'regexLit' ? valueIR : null);
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
@@ -660,6 +667,23 @@ function declareLocalBinding(ctx: BodyEmitContext, name: string, kind: 'const' |
     throw new Error(`body-statement local binding \`${name}\` is already declared in this scope.`);
   }
   scope.set(name, kind);
+  setRegexBinding(ctx, name, null);
+}
+
+function setRegexBinding(
+  ctx: BodyEmitContext,
+  name: string,
+  regex: Extract<ValueIR, { kind: 'regexLit' }> | null,
+): void {
+  ctx.regexScopes.at(-1)?.set(name, regex);
+}
+
+function lookupRegexBinding(ctx: BodyEmitContext, name: string): Extract<ValueIR, { kind: 'regexLit' }> | null {
+  for (let i = ctx.regexScopes.length - 1; i >= 0; i--) {
+    const scope = ctx.regexScopes[i];
+    if (scope.has(name)) return scope.get(name) ?? null;
+  }
+  return null;
 }
 
 function assertAssignableLocalTarget(target: ValueIR, ctx: BodyEmitContext): void {
@@ -691,6 +715,7 @@ function containsOptionalAccess(node: ValueIR): boolean {
   if (node.kind === 'member') return node.optional || containsOptionalAccess(node.object);
   if (node.kind === 'index') return node.optional || containsOptionalAccess(node.object);
   if (node.kind === 'call') return node.optional || containsOptionalAccess(node.callee);
+  if (node.kind === 'nonNull' || node.kind === 'typeAssert') return containsOptionalAccess(node.expression);
   return false;
 }
 
@@ -814,6 +839,21 @@ function templateToPyFString(template: string, ctx: BodyEmitContext): string {
   return out;
 }
 
+function emitCommentPy(node: IRNode): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const raw = props.raw === undefined || props.raw === null ? '' : String(props.raw).trim();
+  if (raw.startsWith('//')) return [`# ${raw.slice(2).trim()}`.trimEnd()];
+  if (raw.startsWith('/*') && raw.endsWith('*/')) {
+    return raw
+      .slice(2, -2)
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => `# ${line.replace(/^\s*\*\s?/, '').trimEnd()}`.trimEnd());
+  }
+  const text = props.text === undefined || props.text === null ? '' : String(props.text);
+  return text.split(/\r?\n/).map((line) => `# ${line}`.trimEnd());
+}
+
 function emitReturnPy(node: IRNode, ctx: BodyEmitContext): string[] {
   const props = (node.props ?? {}) as Record<string, unknown>;
   const rawValue = props.value;
@@ -922,6 +962,9 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       return 'None';
     case 'undefLit':
       return 'None';
+    case 'regexLit':
+      ctx.imports.add('re');
+      return `__k_re.compile(${pyRegexPattern(node)}, ${pyRegexFlags(node.flags, { allowGlobal: true })})`;
     case 'ident':
       // Slice 3a — apply symbol-map rename so KERN-form `userId` becomes
       // Python-form `user_id`. Identifiers not in the map (locals, globals,
@@ -953,6 +996,8 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
     case 'new':
       return emitPyExprCtx(node.argument, ctx);
     case 'typeAssert':
+      return emitPyExprCtx(node.expression, ctx);
+    case 'nonNull':
       return emitPyExprCtx(node.expression, ctx);
     case 'tmplLit': {
       // Lower TS template literals to Python f-strings.
@@ -1073,10 +1118,6 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
     }
     case 'spread':
       return `*${emitPyExprCtx(node.argument, ctx)}`;
-    case 'regexLit':
-      throw new Error(
-        `emitPyExpression: ValueIR kind '${node.kind}' is not supported in slice-2 native KERN bodies (Python target).`,
-      );
     case 'propagate':
       throw new Error(
         `Propagation '${node.op}' is only allowed at statement level (top of \`let value=\` or \`return value=\`). ` +
@@ -1212,6 +1253,8 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   // Slice 2a — KERN-stdlib dispatch must run on a top-level Module.method
   // call BEFORE we descend into the callee chain, so `Number.floor(x)`
   // doesn't degrade into a non-stdlib `Number.floor(x)` Python emit.
+  const regex = lowerRegexCallPython(node, ctx);
+  if (regex !== null) return { guard: null, expr: regex };
   const stdlib = applyStdlibLoweringPython(node, ctx);
   if (stdlib !== null) return { guard: null, expr: stdlib };
   const callee = node.callee;
@@ -1221,6 +1264,70 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
       : { guard: null, expr: emitPyExprCtx(callee, ctx) };
   const args = node.args.map((a) => emitPyExprCtx(a, ctx)).join(', ');
   return { guard: inner.guard, expr: `${inner.expr}(${args})` };
+}
+
+function lowerRegexCallPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: BodyEmitContext): string | null {
+  const callee = call.callee;
+  if (callee.kind !== 'member') return null;
+  const receiverRegex = resolveRegexExpr(callee.object, ctx);
+  if (callee.property === 'test' && receiverRegex !== null) {
+    if (call.args.length !== 1) return null;
+    if (receiverRegex.flags.includes('g')) {
+      throw new Error(
+        "Python target does not lower RegExp.test with the 'g' flag because JS mutates lastIndex while Python re.search is stateless. Use Regex.contains once the KERN stdlib grows that cross-target shape.",
+      );
+    }
+    ctx.imports.add('re');
+    return `(__k_re.search(${pyRegexPattern(receiverRegex)}, ${emitPyExprCtx(call.args[0], ctx)}, ${pyRegexFlags(receiverRegex.flags)}) is not None)`;
+  }
+  const matchRegex = call.args.length === 1 ? resolveRegexExpr(call.args[0], ctx) : null;
+  if (callee.property === 'match' && matchRegex !== null) {
+    if (matchRegex.flags.includes('g')) {
+      throw new Error(
+        'Python target does not lower String.match(/.../g) because JS returns an array of matches while Python re.search returns a Match object. Use Regex.findAll once the KERN stdlib grows that cross-target shape.',
+      );
+    }
+    ctx.imports.add('re');
+    return `__k_re.search(${pyRegexPattern(matchRegex)}, ${emitPyExprCtx(callee.object, ctx)}, ${pyRegexFlags(matchRegex.flags)})`;
+  }
+  const replaceRegex = call.args.length === 2 ? resolveRegexExpr(call.args[0], ctx) : null;
+  if (callee.property === 'replace' && replaceRegex !== null) {
+    ctx.imports.add('re');
+    const count = replaceRegex.flags.includes('g') ? '0' : '1';
+    return `__k_re.sub(${pyRegexPattern(replaceRegex)}, ${emitPyExprCtx(call.args[1], ctx)}, ${emitPyExprCtx(callee.object, ctx)}, count=${count}, flags=${pyRegexFlags(replaceRegex.flags, { allowGlobal: true })})`;
+  }
+  return null;
+}
+
+function resolveRegexExpr(node: ValueIR, ctx: BodyEmitContext): Extract<ValueIR, { kind: 'regexLit' }> | null {
+  if (node.kind === 'regexLit') return node;
+  if (node.kind === 'ident') return lookupRegexBinding(ctx, node.name);
+  return null;
+}
+
+function pyRegexPattern(node: Extract<ValueIR, { kind: 'regexLit' }>): string {
+  // JS escapes `/` because it delimits the literal; Python string regexes do not
+  // treat `/` specially, so preserve the semantic pattern without that escape.
+  return JSON.stringify(node.pattern.replace(/\\\//g, '/'));
+}
+
+function pyRegexFlags(flags: string, options: { allowGlobal?: boolean } = {}): string {
+  const unsupported = [...flags].filter((f) => {
+    if (f === 'i' || f === 'm' || f === 's') return false;
+    if (f === 'g' && options.allowGlobal) return false;
+    return true;
+  });
+  if (unsupported.length > 0) {
+    throw new Error(
+      `Python target does not lower regex flag(s) '${unsupported.join('')}'. Supported flags are i, m, s` +
+        (options.allowGlobal ? ', plus g where the call shape gives it JS-compatible meaning.' : '.'),
+    );
+  }
+  const parts: string[] = [];
+  if (flags.includes('i')) parts.push('__k_re.IGNORECASE');
+  if (flags.includes('m')) parts.push('__k_re.MULTILINE');
+  if (flags.includes('s')) parts.push('__k_re.DOTALL');
+  return parts.length > 0 ? parts.join(' | ') : '0';
 }
 
 function wrapGuardIfAny(g: GuardedExpr): string {
@@ -1234,6 +1341,7 @@ function needsIndexReceiverParens(child: ValueIR): boolean {
     child.kind === 'unary' ||
     child.kind === 'spread' ||
     child.kind === 'typeAssert' ||
+    child.kind === 'nonNull' ||
     child.kind === 'await' ||
     child.kind === 'lambda'
   );

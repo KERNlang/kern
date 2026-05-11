@@ -26,6 +26,7 @@ import {
   NOSQL_RECEIVER_ALLOWLIST,
   SANITIZER_PATTERN_NAMES,
   SINK_NAMES,
+  SQL_BUILDER_VERBS,
 } from './taint-types.js';
 import type { InferResult } from './types.js';
 
@@ -718,39 +719,80 @@ function isNoSQLSinkContext(call: import('ts-morph').CallExpression): boolean {
   const expr = call.getExpression();
   if (expr.getKindName() !== 'PropertyAccessExpression') return false;
   const receiver = (expr as import('ts-morph').PropertyAccessExpression).getExpression();
-  return isLikelyNoSQLReceiver(receiver, new Set());
+  return isLikelyNoSQLReceiver(receiver, new Set(), false);
 }
 
-function isLikelyNoSQLReceiver(node: Node, visited: Set<Node>): boolean {
+/**
+ * Walks the receiver chain bottom-up to decide if it resembles a Mongo
+ * collection / Mongoose model. The `sawSqlVerb` flag accumulates as the
+ * recursion descends through PropertyAccess nodes whose names match
+ * SQL_BUILDER_VERBS — it is only consulted at the NOSQL_RECEIVER_ALLOWLIST
+ * Identifier match (`db`/`conn`/`collection`). Capitalized Mongoose Models
+ * and `.collection(...)`/`.model(...)` anchors return true regardless of
+ * verbs in the chain so Mongoose chains like
+ * `User.find().select('x').where(req.body.f)` still fire (Codex/Gemini
+ * buddy review caught the prior gate killing those).
+ *
+ * TypeScript wrappers (`as`, `!`, parens) are unwrapped so chains like
+ * `(db.select() as any).from(t).where(req.body.id)` still suppress.
+ */
+function isLikelyNoSQLReceiver(node: Node, visited: Set<Node>, sawSqlVerb: boolean): boolean {
   if (visited.has(node)) return false;
   visited.add(node);
   const k = node.getKindName();
 
-  // 1) Capitalized identifier: User, Post, OrderModel
+  // 0) Unwrap TS-only wrapper nodes so `(x as any).y(...)`, `x!.y(...)`,
+  //    `<any>x.y(...)`, `(x satisfies T).y(...)`, and `(x).y(...)` are
+  //    treated identically to `x.y(...)` (Gemini + OpenCode impl-review).
+  if (
+    k === 'ParenthesizedExpression' ||
+    k === 'NonNullExpression' ||
+    k === 'AsExpression' ||
+    k === 'TypeAssertionExpression' ||
+    k === 'SatisfiesExpression'
+  ) {
+    const inner = (node as any).getExpression?.();
+    if (inner) return isLikelyNoSQLReceiver(inner, visited, sawSqlVerb);
+    return false;
+  }
+
+  // 1) Identifier — model name, collection-handle alias, or chain root.
   if (k === 'Identifier') {
     const text = node.getText();
-    if (NOSQL_RECEIVER_ALLOWLIST.has(text)) return true;
+    // Capitalized Mongoose Model (User, Post, OrderModel) — strong anchor,
+    // never suppressed by upstream SQL verbs in the chain.
     if (/^[A-Z][a-zA-Z0-9_]*$/.test(text)) return true;
-    // Trace one alias hop — `const users = db.collection('users')`
+    // db / conn / collection — Mongo-shaped names only when no SQL builder
+    // verb appeared upstream. Suppressed when sawSqlVerb is true so chains
+    // like `db.select().from(t).where(...)` don't FP (kern-guard PR #387).
+    if (NOSQL_RECEIVER_ALLOWLIST.has(text)) return !sawSqlVerb;
+    // Trace one alias hop — `const users = db.collection('users')`. The
+    // initializer's chain is walked independently; sawSqlVerb is reset to
+    // the current value so a SQL chain hidden behind an alias
+    // (`const q = db.select().from(t); q.where(...)`) is also caught.
     const sym = (node as any).getSymbol?.();
     if (sym && typeof sym.getDeclarations === 'function') {
       for (const decl of sym.getDeclarations() ?? []) {
         if (decl.getKindName?.() !== 'VariableDeclaration') continue;
         const init = (decl as any).getInitializer?.();
-        if (init && isLikelyNoSQLReceiver(init, visited)) return true;
+        if (init && isLikelyNoSQLReceiver(init, visited, sawSqlVerb)) return true;
       }
     }
     return false;
   }
 
-  // 2) PropertyAccess: x.collection (the property), or chains
+  // 2) PropertyAccess: x.collection (the property), or chains. Accumulate
+  //    SQL builder verbs into sawSqlVerb so the allowlist check downstream
+  //    can suppress the Drizzle/Kysely FP path.
   if (k === 'PropertyAccessExpression') {
     const pa = node as import('ts-morph').PropertyAccessExpression;
-    if (pa.getName() === 'collection' || pa.getName() === 'model') return true;
-    return isLikelyNoSQLReceiver(pa.getExpression(), visited);
+    const name = pa.getName();
+    if (name === 'collection' || name === 'model') return true;
+    const next = sawSqlVerb || SQL_BUILDER_VERBS.has(name);
+    return isLikelyNoSQLReceiver(pa.getExpression(), visited, next);
   }
 
-  // 3) Call expressions: db.collection('users'), conn.model('User')
+  // 3) Call expressions: db.collection('users'), conn.model('User').
   if (k === 'CallExpression') {
     const inner = node as import('ts-morph').CallExpression;
     const innerCallee = inner.getExpression();
@@ -758,7 +800,7 @@ function isLikelyNoSQLReceiver(node: Node, visited: Set<Node>): boolean {
       const ipa = innerCallee as import('ts-morph').PropertyAccessExpression;
       if (ipa.getName() === 'collection' || ipa.getName() === 'model') return true;
     }
-    return isLikelyNoSQLReceiver(innerCallee, visited);
+    return isLikelyNoSQLReceiver(innerCallee, visited, sawSqlVerb);
   }
 
   return false;

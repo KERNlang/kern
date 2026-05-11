@@ -33,6 +33,7 @@ export function lintKernIR(nodes: IRNode[], rules: KernLintRule[], concepts?: Co
           message: `Rule threw: ${(err as Error).message}`,
           primarySpan: { file: 'unknown', startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
           fingerprint: `rule-error-${(err as Error).message.slice(0, 20)}`,
+          confidence: 95,
         },
       ];
     }
