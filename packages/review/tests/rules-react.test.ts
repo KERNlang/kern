@@ -1498,5 +1498,81 @@ export function getTimestamp() { return ts; }
       const finding = report.findings.find((f) => f.ruleId === 'hydration-mismatch');
       expect(finding).toBeUndefined();
     });
+
+    // RULE-FEEDBACK.md #5: a fetch wrapper imports NextRequest from next/server
+    // for type purposes only — no JSX. Today `isReactFile` returns true on
+    // any `from 'next/...'` import and the rule fires on Date.now() inside
+    // the timing instrumentation.
+    it('does NOT fire on a fetch wrapper that imports from next/ but renders no JSX', () => {
+      const source = `
+import type { NextRequest } from 'next/server';
+declare const __IS_SERVER: boolean;
+declare const Logger: { error: (...args: unknown[]) => void };
+declare function buildHeaders(token: string): Promise<Headers>;
+
+export async function request<T>(url: string, token: string): Promise<T> {
+  const startTime = __IS_SERVER ? Date.now() : 0;
+  const headers = await buildHeaders(token);
+  const response = await fetch(url, { headers });
+  Logger.error('API_LOG', { fetchTime: Math.round(Date.now() - startTime), status: response.status });
+  return response.json();
+}
+`;
+      const report = reviewSource(source, 'src/lib/request.ts', nextjsConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'hydration-mismatch');
+      expect(finding).toBeUndefined();
+    });
+
+    // RULE-FEEDBACK.md #5(b): __IS_SERVER ternary guard is explicit author intent.
+    it('does NOT fire when Date.now() is gated by __IS_SERVER ternary', () => {
+      const source = `
+declare const __IS_SERVER: boolean;
+export default function Page() {
+  const t = __IS_SERVER ? Date.now() : 0;
+  return <div>{t}</div>;
+}
+`;
+      const report = reviewSource(source, 'app/page.tsx', nextjsConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'hydration-mismatch');
+      expect(finding).toBeUndefined();
+    });
+
+    it('does NOT fire when typeof window guard precedes', () => {
+      const source = `
+export default function Page() {
+  const t = typeof window === 'undefined' ? Date.now() : 0;
+  return <div>{t}</div>;
+}
+`;
+      const report = reviewSource(source, 'app/page.tsx', nextjsConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'hydration-mismatch');
+      expect(finding).toBeUndefined();
+    });
+
+    // RULE-FEEDBACK.md #5(c): Logger.error / metrics calls are not render.
+    it('does NOT fire when Date.now() is inside Logger.error(...) call', () => {
+      const source = `
+declare const Logger: { error: (...args: unknown[]) => void };
+export default function Page({ startTime }: { startTime: number }) {
+  Logger.error('API', { fetchTime: Date.now() - startTime });
+  return <div>ok</div>;
+}
+`;
+      const report = reviewSource(source, 'app/page.tsx', nextjsConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'hydration-mismatch');
+      expect(finding).toBeUndefined();
+    });
+
+    // Regression guard: bare Date.now() in JSX-rendering function still fires.
+    it('still fires on Date.now() rendered into JSX outside any guard', () => {
+      const source = `
+export default function Page() {
+  return <div>now: {Date.now()}</div>;
+}
+`;
+      const report = reviewSource(source, 'app/page.tsx', nextjsConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'hydration-mismatch');
+      expect(finding).toBeDefined();
+    });
   });
 });

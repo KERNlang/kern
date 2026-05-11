@@ -278,6 +278,16 @@ function hydrationMismatch(ctx: RuleContext): ReviewFinding[] {
   // Skip only for API routes and middleware — they never render.
   if (ctx.fileContext?.boundary === 'api' || ctx.fileContext?.boundary === 'middleware') return findings;
 
+  // RULE-FEEDBACK.md #5: require actual JSX in the file. `isReactFile` accepts
+  // any `from 'next/...'` import as a positive signal — too loose for utility
+  // modules (fetch wrappers, telemetry, theme tokens). Without JSX the file
+  // cannot produce a render mismatch by definition.
+  const hasJsx =
+    ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxOpeningElement).length > 0 ||
+    ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement).length > 0 ||
+    ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxFragment).length > 0;
+  if (!hasJsx) return findings;
+
   const fullText = ctx.sourceFile.getFullText();
 
   // Build a set of character ranges that are inside useEffect/useMemo/event handlers
@@ -305,6 +315,36 @@ function hydrationMismatch(ctx: RuleContext): ReviewFinding[] {
 
   const isInSafeRange = (idx: number) => safeRanges.some(([s, e]) => idx >= s && idx <= e);
 
+  // RULE-FEEDBACK.md #5(b): `__IS_SERVER ? unstable : stable` ternaries are
+  // conventional Next/SSR guards — the asymmetry is deliberate, the unstable
+  // value never runs on the client. Same for typeof-window mirrors.
+  const SERVER_GATE_RE =
+    /(?:__IS_SERVER|__IS_CLIENT|\bisServer\b|\bisClient\b|typeof\s+window\s*[!=]==?\s*['"]undefined['"])\s*\?\s*[^?]*$/;
+  const guardedByServerCheck = (idx: number): boolean => {
+    const lineStart = fullText.lastIndexOf('\n', idx - 1) + 1;
+    return SERVER_GATE_RE.test(fullText.substring(lineStart, idx));
+  };
+
+  // RULE-FEEDBACK.md #5(c): Date.now() inside a Logger/metrics/telemetry call
+  // flows into observability payload, not into render. The identifiers
+  // Logger/logger/metrics/telemetry/tracer/span are strong "not rendered" hints.
+  const TELEMETRY_CALL_RE = /\b(?:Logger|logger|metrics|telemetry|tracer|span)\s*\.\s*\w+\s*\(/g;
+  const insideTelemetryCall = (idx: number): boolean => {
+    const windowStart = Math.max(0, idx - 600);
+    const slice = fullText.substring(windowStart, idx);
+    let lastMatchEnd = -1;
+    let m;
+    while ((m = TELEMETRY_CALL_RE.exec(slice)) !== null) {
+      lastMatchEnd = m.index + m[0].length;
+    }
+    TELEMETRY_CALL_RE.lastIndex = 0;
+    if (lastMatchEnd < 0) return false;
+    const tail = slice.substring(lastMatchEnd);
+    const opens = (tail.match(/\(/g) || []).length;
+    const closes = (tail.match(/\)/g) || []).length;
+    return opens >= closes;
+  };
+
   const nondeterministic = [
     { pattern: /\bDate\.now\s*\(\s*\)/g, name: 'Date.now()' },
     { pattern: /\bMath\.random\s*\(\s*\)/g, name: 'Math.random()' },
@@ -321,6 +361,10 @@ function hydrationMismatch(ctx: RuleContext): ReviewFinding[] {
       const line = fullText.substring(0, match.index).split('\n').length;
       const lineText = fullText.split('\n')[line - 1] || '';
       if (lineText.includes("'use server'")) continue;
+
+      // #5(b) server-gate ternary; #5(c) telemetry call.
+      if (guardedByServerCheck(match.index)) continue;
+      if (insideTelemetryCall(match.index)) continue;
 
       findings.push(
         finding(
