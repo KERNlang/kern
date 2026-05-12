@@ -193,12 +193,30 @@ describe('classifyHandlerBody — slice 4d additions are now eligible', () => {
     });
   });
 
+  test('sync Object.entries key-only and value-only loops are eligible as object/dict entries', () => {
+    expect(classifyHandlerBody(`for (const [key] of Object.entries(raw)) {\n  notify(key);\n}`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+    expect(classifyHandlerBody(`for (const [, value] of Object.entries(raw)) {\n  notify(value);\n}`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
   test('async Object.entries pair for-of is rejected because entries are sync object/dict semantics', () => {
     expect(
       classifyHandlerBody(`for await (const [key, value] of Object.entries(raw)) {\n  await notify(key, value);\n}`),
     ).toEqual({
       eligible: false,
       reason: 'for-of-async-object-entries',
+    });
+  });
+
+  test('async one-binding entry destructure is rejected', () => {
+    expect(classifyHandlerBody(`for await (const [key] of stream) {\n  await notify(key);\n}`)).toEqual({
+      eligible: false,
+      reason: 'for-of-async-entry',
     });
   });
 
@@ -401,8 +419,8 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
   test('unsupported for-of destructured bindings are still rejected', () => {
     rejected(`for (const [key, value] of pairs) {\n  notify(key, value);\n}`, 'for-of-sync-pair');
     rejected(`for (const { id } of users) {\n  use(id);\n}`, 'for-of-destructure');
-    rejected(`for (const [only] of pairs) {\n  use(only);\n}`, 'for-of-destructure');
-    rejected(`for (const [, value] of pairs) {\n  use(value);\n}`, 'for-of-destructure');
+    rejected(`for (const [only] of pairs) {\n  use(only);\n}`, 'for-of-sync-pair');
+    rejected(`for (const [, value] of pairs) {\n  use(value);\n}`, 'for-of-sync-pair');
     rejected(`for (const [k, v, extra] of pairs) {\n  use(k, v, extra);\n}`, 'for-of-destructure');
     rejected(`for (const [k, ...rest] of pairs) {\n  use(k, rest);\n}`, 'for-of-destructure');
     rejected(`for (const [k = "fallback", v] of pairs) {\n  use(k, v);\n}`, 'for-of-destructure');

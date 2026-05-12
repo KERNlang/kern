@@ -130,6 +130,36 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(result.output).toBe(source);
   });
 
+  test('does not auto-migrate arbitrary sync key-only destructured for-of block', () => {
+    const source = [
+      'fn name=notify returns=void',
+      '  handler <<<',
+      '    for (const [key] of pairs) {',
+      '      notify(key);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
+
+  test('does not auto-migrate arbitrary sync value-only destructured for-of block', () => {
+    const source = [
+      'fn name=notify returns=void',
+      '  handler <<<',
+      '    for (const [, value] of pairs) {',
+      '      notify(value);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
+
   test('migrates Object.entries pair for-of block to entries-mode each', () => {
     const source = [
       'fn name=notify returns=void',
@@ -150,12 +180,61 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
+  test('migrates Object.entries key-only for-of block to entryKey mode', () => {
+    const source = [
+      'fn name=notify returns=void',
+      '  handler <<<',
+      '    for (const [key] of Object.entries(raw)) {',
+      '      notify(key);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('each entryKey=key in="raw" entries=true');
+    expect(result.output).toContain('do value="notify(key)"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates Object.entries value-only for-of block to entryValue mode', () => {
+    const source = [
+      'fn name=notify returns=void',
+      '  handler <<<',
+      '    for (const [, value] of Object.entries(raw)) {',
+      '      notify(value);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('each entryValue=value in="raw" entries=true');
+    expect(result.output).toContain('do value="notify(value)"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
   test('does not migrate async Object.entries pair for-of block', () => {
     const source = [
       'fn name=notify returns=void async=true',
       '  handler <<<',
       '    for await (const [key, value] of Object.entries(raw)) {',
       '      await notify(key, value);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
+
+  test('does not migrate async one-binding entry for-of block', () => {
+    const source = [
+      'fn name=notify returns=void async=true',
+      '  handler <<<',
+      '    for await (const [key] of stream) {',
+      '      await notify(key);',
       '    }',
       '  >>>',
     ].join('\n');
@@ -1662,6 +1741,40 @@ describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalenc
         '}',
       ].join('\n'),
     );
+  });
+
+  test('Object.entries key-only for-of compiles byte-equivalent through entryKey mode', () => {
+    const source = [
+      'fn name=notify returns=void',
+      '  handler <<<',
+      '    for (const [key] of Object.entries(raw)) {',
+      '      notify(key);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(['for (const [key] of Object.entries(raw)) {', '  notify(key);', '}'].join('\n'));
+  });
+
+  test('Object.entries value-only for-of compiles byte-equivalent through entryValue mode', () => {
+    const source = [
+      'fn name=notify returns=void',
+      '  handler <<<',
+      '    for (const [, value] of Object.entries(raw)) {',
+      '      notify(value);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(['for (const [, value] of Object.entries(raw)) {', '  notify(value);', '}'].join('\n'));
   });
 
   test('destructured pair for-await-of compiles byte-equivalent through async pair-mode each', () => {

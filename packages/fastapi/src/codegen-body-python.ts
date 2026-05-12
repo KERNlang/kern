@@ -340,6 +340,8 @@ function emitChildrenPy(
         const listIR = parseExpression(listRaw);
         const pairKey = child.props?.pairKey;
         const pairValue = child.props?.pairValue;
+        const entryKey = child.props?.entryKey;
+        const entryValue = child.props?.entryValue;
         const isAwait = child.props?.await === true || child.props?.await === 'true';
         const entriesMode = child.props?.entries === true || child.props?.entries === 'true';
         if (isAwait && child.props?.index) {
@@ -366,6 +368,37 @@ function emitChildrenPy(
           ]);
           if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
           for (const sl of inner) lines.push(sl);
+          continue;
+        }
+        if (entryKey || entryValue) {
+          if (entriesMode && isAwait) {
+            throw new Error('body-statement `each entries=true` cannot be combined with `await=true`.');
+          }
+          if (!entriesMode) {
+            throw new Error('body-statement `each entryKey=`/`entryValue=` requires `entries=true`.');
+          }
+          if (isAwait) {
+            throw new Error('body-statement `each await=true` cannot be combined with `entryKey=`/`entryValue=`.');
+          }
+          if (entryKey && entryValue) {
+            throw new Error('body-statement `each` cannot combine `entryKey=` and `entryValue=`.');
+          }
+          const sourceExpr = emitPyExprCtx(listIR, ctx);
+          if (entryKey) {
+            const k = String(entryKey);
+            const iterableExpr = `${sourceExpr}.keys()`;
+            lines.push(`${indent}for ${k} in ${iterableExpr}:`);
+            const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, [[k, 'const']]);
+            if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
+            for (const sl of inner) lines.push(sl);
+          } else {
+            const v = String(entryValue);
+            const iterableExpr = `${sourceExpr}.values()`;
+            lines.push(`${indent}for ${v} in ${iterableExpr}:`);
+            const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, [[v, 'const']]);
+            if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
+            for (const sl of inner) lines.push(sl);
+          }
           continue;
         }
         // Slice 5a deferred-fix: TS `for (const item of xs)` is block-scoped
