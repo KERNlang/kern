@@ -342,11 +342,30 @@ export function propagateTaint(code: string, params: TaintSource[]): TaintSource
 // ── Sink Detection ──────────────────────────────────────────────────────
 
 /**
+ * Replace `//` and `/* *\/` comments with same-length whitespace so sink
+ * regexes don't false-match sink names (`redirect`, `exec`, `.all(`) inside
+ * JSDoc or trailing comments. Newlines inside block comments are preserved
+ * so `lineAt` still resolves to the original file line.
+ *
+ * Observed FP on kern-guard apps/admin/middleware.ts: a comment explaining
+ * "redirect target" tripped the `redirect` sink at line 115 even though the
+ * real `NextResponse.redirect(...)` calls are at 70/81/84. Stripping fixes
+ * that without affecting string-literal contents (we don't care about
+ * comment-like text inside strings — those aren't reachable as code).
+ */
+function stripCommentsPreservingLines(code: string): string {
+  let out = code.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
+  out = out.replace(/\/\/[^\n]*/g, (m) => ' '.repeat(m.length));
+  return out;
+}
+
+/**
  * Find sink calls that use tainted variables.
  */
 export function findTaintedSinks(code: string, taintedVars: TaintSource[]): TaintSink[] {
   const sinks: TaintSink[] = [];
   const taintedNames = new Set(taintedVars.map((v) => v.name));
+  const scanCode = stripCommentsPreservingLines(code);
 
   // Lift 2: record sink.line (1-based inside `code`) so cross-file taint can
   // resolve it to an absolute file line via `bodyStartLine + sink.line - 1`.
@@ -354,7 +373,7 @@ export function findTaintedSinks(code: string, taintedVars: TaintSource[]): Tain
   // file and reviewers had to grep blind.
   const lineAt = (index: number): number => {
     let count = 1;
-    for (let i = 0; i < index; i++) if (code.charCodeAt(i) === 10) count++;
+    for (let i = 0; i < index; i++) if (scanCode.charCodeAt(i) === 10) count++;
     return count;
   };
 
@@ -362,11 +381,11 @@ export function findTaintedSinks(code: string, taintedVars: TaintSource[]): Tain
     // Scan ALL matches using a global copy (original patterns are non-global)
     const globalPattern = new RegExp(pattern.source, 'g');
     let match;
-    while ((match = globalPattern.exec(code)) !== null) {
+    while ((match = globalPattern.exec(scanCode)) !== null) {
       // Extract the argument region after the match
       const callStart = match.index + match[0].length;
-      const parenDepth = findClosingParen(code, callStart);
-      const argText = code.slice(callStart, parenDepth);
+      const parenDepth = findClosingParen(scanCode, callStart);
+      const argText = scanCode.slice(callStart, parenDepth);
       const line = lineAt(match.index);
 
       // Check if any tainted variable is used in the arguments
