@@ -22,6 +22,10 @@
     },
     "node-line": {
       "patterns": [
+        { "include": "#decorator" },
+        { "include": "#first-class-import" },
+        { "include": "#export-fn" },
+        { "include": "#fn-signature" },
         { "include": "#theme-ref" },
         { "include": "#style-block" },
         { "include": "#pseudo-selector" },
@@ -37,6 +41,43 @@
     "node-type-ui": {
       "match": "(?<=^|\\s)(screen|page|row|col|card|grid|scroll|text|image|progress|divider|codeblock|section|form|button|input|textarea|slider|toggle|modal|list|item|tabs|tab|header|link|icon|svg|separator|table|thead|tbody|tr|th|td|scoreboard|metric|spinner|box|gradient|layout|loading|conditional|component|select|option|input-area|output-area|text-input|select-input|nav)\\b",
       "name": "keyword.control.kern"
+    },
+    "decorator": {
+      "match": "^\\s*(@)([A-Za-z_$][\\w$]*(?:\\.[A-Za-z_$][\\w$]*)*)(?:\\((.*)\\))?\\s*$",
+      "captures": {
+        "1": { "name": "punctuation.definition.annotation.kern" },
+        "2": { "name": "entity.name.function.decorator.kern" },
+        "3": { "name": "meta.decorator.arguments.kern" }
+      }
+    },
+    "first-class-import": {
+      "match": "^\\s*(import)(?:\\s+(type))?\\s+(?:\\{([^}]*)\\}\\s+(from)\\s+)?([\"'][^\"']+[\"'])",
+      "captures": {
+        "1": { "name": "keyword.control.import.kern" },
+        "2": { "name": "storage.modifier.type-only.kern" },
+        "3": { "name": "meta.import.specifiers.kern" },
+        "4": { "name": "keyword.control.from.kern" },
+        "5": { "name": "string.quoted.kern" }
+      }
+    },
+    "export-fn": {
+      "match": "^\\s*(export)\\s+(fn)\\s+([A-Za-z_$][\\w$]*)(?:\\s*(<[^>]+>))?(\\()",
+      "captures": {
+        "1": { "name": "storage.modifier.export.kern" },
+        "2": { "name": "keyword.declaration.function.kern" },
+        "3": { "name": "entity.name.function.kern" },
+        "4": { "name": "storage.type.generic.kern" },
+        "5": { "name": "punctuation.definition.parameters.begin.kern" }
+      }
+    },
+    "fn-signature": {
+      "match": "^\\s*(fn)\\s+([A-Za-z_$][\\w$]*)(?:\\s*(<[^>]+>))?(\\()",
+      "captures": {
+        "1": { "name": "keyword.declaration.function.kern" },
+        "2": { "name": "entity.name.function.kern" },
+        "3": { "name": "storage.type.generic.kern" },
+        "4": { "name": "punctuation.definition.parameters.begin.kern" }
+      }
     },
     "node-type-declaration": {
       "match": "(?<=^|\\s)(type|interface|field|fn|const|union|variant|service|method|singleton|constructor|module|export|import)\\b",

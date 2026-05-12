@@ -789,37 +789,29 @@ function isKernSourcePath(path: unknown): path is string {
   return typeof path === 'string' && path.endsWith('.kern');
 }
 
-function canonicalizeFirstClassModuleImports(node: IRNode): void {
-  if (!node.children) return;
+function canonicalizeFirstClassModuleImportNode(node: IRNode): IRNode {
+  if (node.children) node.children = node.children.map((child) => canonicalizeFirstClassModuleImportNode(child));
 
-  const nextChildren: IRNode[] = [];
-  for (const child of node.children) {
-    canonicalizeFirstClassModuleImports(child);
+  const isFirstClassImport = node.type === 'import' && node.props?.__firstClassImport === true;
+  if (!isFirstClassImport) return node;
 
-    const isFirstClassImport = child.type === 'import' && child.props?.__firstClassImport === true;
-    if (!isFirstClassImport) {
-      nextChildren.push(child);
-      continue;
-    }
+  const existingChildren = node.children ?? [];
+  const props = node.props ?? {};
+  const bindings = Array.isArray(props.__firstClassBindings)
+    ? (props.__firstClassBindings as Array<{ name?: unknown; as?: unknown }>)
+    : [];
+  const from = props.from;
+  delete props.__firstClassImport;
+  delete props.__firstClassBindings;
 
-    const props = child.props ?? {};
-    const bindings = Array.isArray(props.__firstClassBindings)
-      ? (props.__firstClassBindings as Array<{ name?: unknown; as?: unknown }>)
-      : [];
-    const from = props.from;
-    delete props.__firstClassImport;
-    delete props.__firstClassBindings;
+  if (!isKernSourcePath(from)) return node;
 
-    if (!isKernSourcePath(from)) {
-      nextChildren.push(child);
-      continue;
-    }
-
-    const isTypeOnly = props.types === true || props.types === 'true';
-    nextChildren.push({
-      type: 'use',
-      props: { path: from },
-      children: bindings.map((binding) => ({
+  const isTypeOnly = props.types === true || props.types === 'true';
+  return {
+    type: 'use',
+    props: { path: from },
+    children: [
+      ...bindings.map((binding) => ({
         type: 'from',
         props: {
           name: String(binding.name),
@@ -827,13 +819,12 @@ function canonicalizeFirstClassModuleImports(node: IRNode): void {
           ...(isTypeOnly ? { kind: 'type' } : {}),
         },
         children: [],
-        loc: child.loc,
+        loc: node.loc,
       })),
-      loc: child.loc,
-    });
-  }
-
-  node.children = nextChildren;
+      ...existingChildren,
+    ],
+    loc: node.loc,
+  };
 }
 
 function isNativeBodyStatementChild(node: IRNode): boolean {
@@ -919,7 +910,7 @@ export function parseInternal(
   }
 
   canonicalizeFirstClassFunctionBodies(state, root);
-  canonicalizeFirstClassModuleImports(root);
+  root = canonicalizeFirstClassModuleImportNode(root);
   computeEndSpans(root);
   validateExpressions(state, root);
   validateEffects(state, root);
