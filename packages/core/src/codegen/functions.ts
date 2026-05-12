@@ -28,6 +28,15 @@ function fnBodyCode(node: IRNode): string {
   return handlerCode(node);
 }
 
+function emitDecoratorComments(node: IRNode): string[] {
+  return getChildren(node, 'decorator').map((decorator) => {
+    const props = getProps(decorator);
+    const name = String(props.name ?? '');
+    const args = typeof props.args === 'string' ? `(${props.args})` : '';
+    return `// @${name}${args}`;
+  });
+}
+
 const p = getProps;
 const kids = getChildren;
 const firstChild = getFirstChild;
@@ -47,7 +56,7 @@ export function generateFunction(node: IRNode): string[] {
   // brackets/whitespace; same prop also goes on overload signatures (TS overloads
   // can declare their own type parameters when the impl is generic).
   const generics = props.generics ? emitTypeAnnotation(props.generics, '', node) : '';
-  const lines: string[] = [...emitDocComment(node)];
+  const lines: string[] = [...emitDecoratorComments(node), ...emitDocComment(node)];
 
   // Slice 2e — overload signatures emitted before the implementation. Each
   // produces a `function name(...): R;` line; the implementation that follows

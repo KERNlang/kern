@@ -601,8 +601,9 @@ class Parser {
     }
     if (this.peek().kind === 'lparen' && this.isParenthesizedLambdaAhead()) {
       const params = this.parseLambdaParams();
+      const returnType = this.peek().kind === 'colon' ? this.consumeLambdaReturnType() : undefined;
       this.expect('arrow');
-      return { kind: 'lambda', params, body: this.parseLambda(), parenthesized: true };
+      return { kind: 'lambda', params, returnType, body: this.parseLambda(), parenthesized: true };
     }
     return this.parseConditional();
   }
@@ -614,7 +615,26 @@ class Parser {
       if (t.kind === 'lparen') depth++;
       else if (t.kind === 'rparen') {
         depth--;
-        if (depth === 0) return this.tokens[j + 1]?.kind === 'arrow';
+        if (depth === 0) {
+          const next = this.tokens[j + 1];
+          if (next?.kind === 'arrow') return true;
+          if (next?.kind !== 'colon') return false;
+          let typeDepth = 0;
+          for (let k = j + 2; k < this.tokens.length; k++) {
+            const tk = this.tokens[k];
+            if (tk.kind === 'lparen' || tk.kind === 'lbracket' || tk.kind === 'lbrace' || tk.kind === 'lt') {
+              typeDepth++;
+            } else if (tk.kind === 'rparen' || tk.kind === 'rbracket' || tk.kind === 'rbrace' || tk.kind === 'gt') {
+              if (typeDepth === 0) return false;
+              typeDepth--;
+            } else if (tk.kind === 'arrow' && typeDepth === 0) {
+              return true;
+            } else if (tk.kind === 'eof' || (tk.kind === 'comma' && typeDepth === 0)) {
+              return false;
+            }
+          }
+          return false;
+        }
       } else if (t.kind === 'eof') {
         return false;
       }
@@ -643,6 +663,46 @@ class Parser {
     }
     this.expect('rparen');
     return params;
+  }
+
+  private consumeLambdaReturnType(): string {
+    const colon = this.expect('colon');
+    const first = this.peek();
+    const start = first.pos;
+    let end = start;
+    let parenDepth = 0;
+    let bracketDepth = 0;
+    let braceDepth = 0;
+    let angleDepth = 0;
+    while (true) {
+      const t = this.peek();
+      if (t.kind === 'eof') break;
+      if (parenDepth === 0 && bracketDepth === 0 && braceDepth === 0 && angleDepth === 0 && t.kind === 'arrow') {
+        break;
+      }
+      if (t.kind === 'lparen') parenDepth++;
+      else if (t.kind === 'rparen') {
+        if (parenDepth === 0) break;
+        parenDepth--;
+      } else if (t.kind === 'lbracket') bracketDepth++;
+      else if (t.kind === 'rbracket') {
+        if (bracketDepth === 0) break;
+        bracketDepth--;
+      } else if (t.kind === 'lbrace') braceDepth++;
+      else if (t.kind === 'rbrace') {
+        if (braceDepth === 0) break;
+        braceDepth--;
+      } else if (t.kind === 'lt') angleDepth++;
+      else if (t.kind === 'gt') {
+        if (angleDepth === 0) break;
+        angleDepth--;
+      }
+      const advanced = this.advance();
+      end = advanced.pos + advanced.value.length;
+    }
+    const text = this.input.slice(start, end).trim();
+    if (text === '') throw new Error(`Expected return type after ':' at column ${colon.pos + 1}`);
+    return text;
   }
 
   private consumeLambdaParamTypeText(): string {
@@ -1020,6 +1080,7 @@ class Parser {
     args.push(this.parseLambda());
     while (this.peek().kind === 'comma') {
       this.advance();
+      if (this.peek().kind === 'rparen') break;
       args.push(this.parseLambda());
     }
     return args;
@@ -1081,10 +1142,10 @@ class Parser {
     }
   }
 
-  // Slice 2d — object literal: `{ key: value, "str-key": value }`. Computed
-  // keys (`[expr]:`) defer to slice 3.
+  // Slice 2d — object literal: `{ key: value, "str-key": value, 0: value }`.
+  // Computed keys (`[expr]:`) defer to slice 3.
   private parseObjectLiteral(): ValueIR {
-    const entries: ({ key: string; value: ValueIR } | { kind: 'spread'; argument: ValueIR })[] = [];
+    const entries: ({ key: string; rawKey?: string; value: ValueIR } | { kind: 'spread'; argument: ValueIR })[] = [];
     if (this.peek().kind === 'rbrace') {
       this.advance();
       return { kind: 'objectLit', entries };
@@ -1097,16 +1158,23 @@ class Parser {
         entries.push({ kind: 'spread', argument });
       } else {
         let key: string;
+        let rawKey: string | undefined;
         let isIdentKey = false;
         if (keyTok.kind === 'ident') {
           key = keyTok.value;
           isIdentKey = true;
           this.advance();
+        } else if (keyTok.kind === 'num') {
+          key = keyTok.value.replace(/_/g, '');
+          rawKey = keyTok.value;
+          this.advance();
         } else if (keyTok.kind === 'str') {
           key = keyTok.value;
           this.advance();
         } else {
-          throw new Error(`Object literal key must be an identifier, string, or spread at column ${keyTok.pos + 1}`);
+          throw new Error(
+            `Object literal key must be an identifier, string, number, or spread at column ${keyTok.pos + 1}`,
+          );
         }
         // Shorthand property: `{ user }` is equivalent to `{ user: user }`.
         // Only valid when the key is a bare identifier (string keys can't
@@ -1118,7 +1186,7 @@ class Parser {
         } else {
           this.expect('colon');
           const value = this.parseLambda();
-          entries.push({ key, value });
+          entries.push(rawKey ? { key, rawKey, value } : { key, value });
         }
       }
       if (this.peek().kind === 'comma') {

@@ -257,7 +257,16 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       // Validated by parser-validate-effects.ts; see docs/language/effects-pure-spec.md.
       effects: { kind: 'string' },
     },
-    allowedChildren: ['handler', 'signal', 'cleanup', 'overload', 'param'],
+    allowedChildren: ['decorator', 'handler', 'signal', 'cleanup', 'overload', 'param'],
+  },
+  decorator: {
+    description: 'KERN decorator metadata attached to a declaration',
+    example: '@http.get("/users/:id")\nfn getUser(id: string): User',
+    props: {
+      name: { required: true, kind: 'string' },
+      args: { kind: 'string' },
+    },
+    allowedChildren: [],
   },
   machine: {
     description:

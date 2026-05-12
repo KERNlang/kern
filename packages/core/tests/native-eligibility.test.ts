@@ -328,6 +328,22 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
   test('block-bodied callback rejected (return-bad-expr)', () =>
     rejected(`return xs.map((x) => { return x * 2; });`, 'return-bad-expr'));
 
+  test('typed callback return predicate is eligible', () => {
+    expect(
+      classifyHandlerBody(`return values.filter((value: unknown): value is string => typeof value === "string");`),
+    ).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
+  test('call expressions with trailing arg comma are eligible', () => {
+    expect(classifyHandlerBody('notify(message,);')).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
   test('function declaration rejected (unsupported-stmt)', () =>
     rejected(`function inner() { return 1; }\nreturn inner();`, 'unsupported-stmt-FunctionDeclaration'));
 
@@ -599,6 +615,13 @@ describe('classifyHandlerBody — array / object literals stay eligible', () => 
 
   test('array literal as let value is eligible', () => {
     expect(classifyHandlerBody(`const xs = [1, 2, 3];\nreturn xs;`).eligible).toBe(true);
+  });
+
+  test('numeric object literal keys are eligible', () => {
+    expect(classifyHandlerBody(`const colors = { 0: "#000000", 10: "#55ff55" };\nreturn colors;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
   });
 
   test('comparisons (==, ===, !=, <=, >=) stay eligible', () => {

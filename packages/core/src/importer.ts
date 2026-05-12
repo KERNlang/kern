@@ -61,6 +61,29 @@ function _isDefault(node: ts.Node): boolean {
   return modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword) ?? false;
 }
 
+function formatDecorators(node: ts.Node, source: ts.SourceFile): string[] {
+  const decorators = ts.canHaveDecorators(node) ? (ts.getDecorators(node) ?? []) : [];
+  if (decorators.length > 0) return decorators.map((decorator) => `@${decorator.expression.getText(source)}`);
+
+  const lines: string[] = [];
+  const leading = source.text.slice(node.getFullStart(), node.getStart(source));
+  for (const line of `${leading}\n${node.getText(source)}`.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed === '') continue;
+    if (trimmed.startsWith('@')) {
+      lines.push(trimmed);
+      continue;
+    }
+    const commented = /^\/\/\s*(@[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*(?:\([\s\S]*\))?)\s*$/u.exec(trimmed);
+    if (commented) {
+      lines.push(commented[1]);
+      continue;
+    }
+    if (!trimmed.startsWith('*') && !trimmed.startsWith('/**')) break;
+  }
+  return lines;
+}
+
 function typeToString(typeNode: ts.TypeNode | undefined, source: ts.SourceFile): string {
   if (!typeNode) return '';
   const raw = typeNode.getText(source);
@@ -462,6 +485,7 @@ function convertFunction(node: ts.FunctionDeclaration, source: ts.SourceFile): s
   const generatorStr = isGenerator ? (isAsync(node) ? ' stream=true' : ' generator=true') : '';
 
   if (doc) lines.push(`doc text="${escapeKernString(doc)}"`);
+  lines.push(...formatDecorators(node, source));
 
   // Slice 3c — prefer structured `param` child nodes when the signature is
   // simple enough (no `?`/`...`/destructuring). Falls back to the legacy

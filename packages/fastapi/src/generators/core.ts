@@ -160,7 +160,7 @@ export function generateFunction(node: IRNode): string[] {
   const name = toSnakeCase(props.name as string);
   const returns = props.returns as string;
   const isAsync = props.async === 'true' || props.async === true;
-  const lines: string[] = [];
+  const lines: string[] = [...emitPythonFunctionDecorators(node)];
 
   // Slice 3c P2 follow-up: target-neutral helper reads structured `param`
   // children when present, falls back to legacy `params="..."` otherwise.
@@ -179,6 +179,37 @@ export function generateFunction(node: IRNode): string[] {
     lines.push('    pass');
   }
   return lines;
+}
+
+function emitPythonFunctionDecorators(node: IRNode): string[] {
+  const decorators = kids(node, 'decorator');
+  if (decorators.length === 0) return [];
+  return decorators.map((decorator) => {
+    const props = p(decorator);
+    const rawName = String(props.name ?? '');
+    const hasArgs = props.args !== undefined;
+    const args = typeof props.args === 'string' ? props.args : '';
+    const routeMethod = /^http\.(get|post|put|patch|delete|head|options)$/u.exec(rawName);
+    if (routeMethod) {
+      return `@router.${routeMethod[1]}(${rewriteFastApiPathArgs(args)})`;
+    }
+    return hasArgs ? `@${rawName}(${args})` : `@${rawName}`;
+  });
+}
+
+function rewriteFastApiPathArgs(args: string): string {
+  if (/^\s*["']/u.test(args)) return rewriteFirstPathString(args);
+  return args.replace(/(\bpath\s*=\s*)(["'])([^"']*)\2/u, (_match, prefix: string, quote: string, path: string) => {
+    const fastapiPath = path.replace(/:([A-Za-z_]\w*)/gu, '{$1}');
+    return `${prefix}${quote}${fastapiPath}${quote}`;
+  });
+}
+
+function rewriteFirstPathString(args: string): string {
+  return args.replace(/(["'])([^"']*)\1/u, (_match, quote: string, path: string) => {
+    const fastapiPath = path.replace(/:([A-Za-z_]\w*)/gu, '{$1}');
+    return `${quote}${fastapiPath}${quote}`;
+  });
 }
 
 // ── Error Class ──────────────────────────────────────────────────────────

@@ -44,6 +44,7 @@ export type ValueIR =
   | {
       kind: 'lambda';
       params: { name: string; type?: string }[];
+      returnType?: string;
       body: ValueIR;
       parenthesized: boolean;
       loc?: IRSourceLocation;
@@ -58,7 +59,7 @@ export type ValueIR =
   | { kind: 'propagate'; argument: ValueIR; op: '?' | '!'; loc?: IRSourceLocation }
   | {
       kind: 'objectLit';
-      entries: ({ key: string; value: ValueIR } | { kind: 'spread'; argument: ValueIR })[];
+      entries: ({ key: string; rawKey?: string; value: ValueIR } | { kind: 'spread'; argument: ValueIR })[];
       loc?: IRSourceLocation;
     }
   | { kind: 'arrayLit'; items: ValueIR[]; loc?: IRSourceLocation }
