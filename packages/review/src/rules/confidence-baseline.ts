@@ -60,6 +60,7 @@ const RULE_CONFIDENCE_BASELINE: Record<string, number> = {
   'encoding-bypass': 75,
   'event-map-mismatch': 75,
   'exhaustive-deps': 80,
+  'file-too-monolithic': 70,
   'floating-promise': 85,
   'handler-size': 75,
   'indirect-prompt-injection': 72,

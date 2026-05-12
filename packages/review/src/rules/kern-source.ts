@@ -12,6 +12,7 @@ import { createInMemoryProject } from '../inferrer.js';
 import type { ReviewFinding } from '../types.js';
 import { createFingerprint } from '../types.js';
 import { resolveConfidence } from './confidence-baseline.js';
+import { fileTooMonolithic } from './file-too-monolithic.js';
 import { setSetterCollision } from './set-setter-collision.js';
 
 export type KernSourceRule = (nodes: IRNode[], filePath: string) => ReviewFinding[];
@@ -1364,4 +1365,5 @@ export const KERN_SOURCE_RULES: KernSourceRule[] = [
   thisIsOutsideClass,
   multipleStringIndexers,
   trailingPipeEnumValues,
+  fileTooMonolithic,
 ];
