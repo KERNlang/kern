@@ -263,6 +263,46 @@ function parseFirstClassFnSignature(raw: string): Record<string, unknown> | null
   return out;
 }
 
+function stripQuotedModuleSpecifier(raw: string): string | null {
+  const trimmed = raw.trim();
+  const match = /^(["'])([\s\S]+)\1$/u.exec(trimmed);
+  return match ? match[2] : null;
+}
+
+function parseImportBindings(raw: string): Array<{ name: string; as?: string }> | null {
+  const bindings: Array<{ name: string; as?: string }> = [];
+  for (const part of splitTopLevel(raw, ',')) {
+    const match = /^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/u.exec(part.trim());
+    if (!match) return null;
+    bindings.push({ name: match[1], ...(match[2] ? { as: match[2] } : {}) });
+  }
+  return bindings.length > 0 ? bindings : null;
+}
+
+function parseFirstClassImport(raw: string): Record<string, unknown> | null {
+  const trimmed = raw.trim();
+  if (trimmed === '' || /^\w+\s*=/.test(trimmed)) return null;
+
+  const sideEffect = /^from\s+/.test(trimmed) ? null : stripQuotedModuleSpecifier(trimmed);
+  if (sideEffect) {
+    return { from: sideEffect, __firstClassImport: true };
+  }
+
+  const match = /^(type\s+)?\{\s*([\s\S]*?)\s*\}\s+from\s+([\s\S]+)$/u.exec(trimmed);
+  if (!match) return null;
+  const bindings = parseImportBindings(match[2]);
+  const from = stripQuotedModuleSpecifier(match[3]);
+  if (!bindings || !from) return null;
+
+  return {
+    from,
+    names: bindings.map((binding) => (binding.as ? `${binding.name} as ${binding.as}` : binding.name)).join(','),
+    ...(match[1] ? { types: true } : {}),
+    __firstClassImport: true,
+    __firstClassBindings: bindings,
+  };
+}
+
 export const KEYWORD_HANDLERS = new Map<string, KeywordHandler>([
   [
     'fn',
@@ -386,8 +426,18 @@ export const KEYWORD_HANDLERS = new Map<string, KeywordHandler>([
 
   [
     'import',
-    (s, props) => {
+    (s, props, content) => {
       s.skipWS();
+      // remainingRaw() intentionally consumes the stream on probe; rewind if
+      // this is legacy `import from=...` syntax.
+      const firstClassPos = s.position();
+      const firstClass = parseFirstClassImport(s.remainingRaw(content));
+      if (firstClass) {
+        Object.assign(props, firstClass);
+        return;
+      }
+      s.setPosition(firstClassPos);
+
       const pos = s.position();
       const id = s.tryIdent();
       if (id === 'default') {

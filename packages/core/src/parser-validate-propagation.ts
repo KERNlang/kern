@@ -829,6 +829,7 @@ function collectKnownFns(root: IRNode, resolveImport?: ImportResolver): Propagat
             if (child.type !== 'from') continue;
             const importedName = child.props?.name;
             if (typeof importedName !== 'string') continue;
+            if (child.props?.kind === 'type') continue;
             const symbol = exports.symbols?.get(importedName);
             if (symbol && child.props && child.props.kind == null) {
               child.props.kind = symbol.kind;
