@@ -4,7 +4,7 @@
  * every `pnpm install` ensures the local clone has the hooks in place.
  *
  * Hooks installed:
- *   pre-push  — runs `pnpm lint` to block obvious format/style errors
+ *   pre-push  — runs scoped checks for the refs being pushed
  *               from reaching CI. Bypass with `git push --no-verify`
  *               when you genuinely need to.
  *
@@ -30,7 +30,7 @@ const PRE_PUSH_MARKER = '# kern-managed pre-push hook v1';
 const prePushHook = `#!/usr/bin/env bash
 ${PRE_PUSH_MARKER}
 #
-# Runs lint before allowing a push. Bypass with \`git push --no-verify\`
+# Runs scoped package checks before allowing a push. Bypass with \`git push --no-verify\`
 # when you genuinely need to (e.g. mid-rebase, work-in-progress branches
 # you intend to clean up before merging).
 #
@@ -43,10 +43,10 @@ if [ -z "$(git rev-list --max-count=1 HEAD 2>/dev/null)" ]; then
   exit 0
 fi
 
-echo "[pre-push] running pnpm lint…"
-if ! pnpm lint; then
+echo "[pre-push] running scoped package checks..."
+if ! node ./scripts/pre-push.mjs; then
   echo ""
-  echo "[pre-push] pnpm lint failed — push aborted."
+  echo "[pre-push] scoped checks failed — push aborted."
   echo "[pre-push] Fix the issues, or run \\\`git push --no-verify\\\` to bypass."
   exit 1
 fi
@@ -70,5 +70,5 @@ if (existsSync(prePushPath)) {
 if (shouldWrite) {
   writeFileSync(prePushPath, prePushHook);
   chmodSync(prePushPath, 0o755);
-  console.log('[install-git-hooks] installed .git/hooks/pre-push (runs `pnpm lint`).');
+  console.log('[install-git-hooks] installed .git/hooks/pre-push (runs `node ./scripts/pre-push.mjs`).');
 }
