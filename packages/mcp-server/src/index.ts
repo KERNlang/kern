@@ -24,7 +24,8 @@ import {
   NODE_SCHEMAS,
   NODE_TYPES,
   parse,
-  parseWithDiagnostics,
+  parseDocument,
+  parseDocumentWithDiagnostics,
   resolveConfig,
   STYLE_SHORTHANDS,
   serializeIR,
@@ -79,6 +80,10 @@ function err(event: string, details: Record<string, unknown> = {}): void {
 
 function fmtError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function unwrapSingleDocumentNode(root: IRNode): IRNode {
+  return root.type === 'document' && root.children?.length === 1 ? root.children[0] : root;
 }
 
 function transpileLib(ast: IRNode) {
@@ -316,7 +321,7 @@ server.tool(
   async ({ source, target, structure }) => {
     log('tool:compile', { target, structure, len: source.length });
     try {
-      const ast = parse(source);
+      const ast = unwrapSingleDocumentNode(parseDocument(source));
       const config = resolveConfig({ target: target as KernTarget, structure: structure as KernStructure });
       const result = transpile(ast, target as KernTarget, config);
       const structureSuffix = structure !== 'flat' ? ` / ${structure}` : '';
@@ -697,9 +702,10 @@ server.tool(
   async ({ source, target, structure }) => {
     log('tool:compile-json', { target, structure, len: source.length });
     try {
-      const result = parseWithDiagnostics(source);
+      const result = parseDocumentWithDiagnostics(source);
+      const ast = unwrapSingleDocumentNode(result.root);
       const config = resolveConfig({ target: target as KernTarget, structure: structure as KernStructure });
-      const compiled = transpile(result.root, target as KernTarget, config);
+      const compiled = transpile(ast, target as KernTarget, config);
       const output = {
         success: result.diagnostics.filter((d) => d.severity === 'error').length === 0,
         code: compiled.code,
@@ -1035,12 +1041,19 @@ server.resource(
       'prop       = ident "=" value',
       'value      = quoted | bare',
       'style      = "{" spair ("," spair)* "}"',
+      'sugar      = import/export/fn signatures/decorators canonicalize to nodes',
+      'import     = import { Name, Old as New } from "./module.kern"',
+      'fn         = export? fn name(param: Type): Return prop=value*',
+      'decorator  = @name(args) before fn',
       '',
       '── Rules ──',
       '- Indent: 2 spaces (no tabs)',
       '- Props: key=value (strings in double quotes)',
       '- Styles: inline {shorthand: value} blocks',
       '- Handlers: <<< code >>> blocks for inline code',
+      '- First-class KERN modules: import from .kern files with TypeScript-style import syntax; codegen emits .js paths',
+      '- First-class functions: fn name(args): Return supports direct native KERN body statements',
+      '- Decorators: @name(args) attach metadata to the following function and emit as comments for TypeScript targets',
       '- Theme refs: $refName to reference theme nodes',
       '',
       `── Node Types (${NODE_TYPES.length}) ──`,
@@ -1066,6 +1079,7 @@ server.resource(
   new ResourceTemplate('kern://examples/{category}', {
     list: async () => ({
       resources: [
+        { uri: 'kern://examples/modules', name: 'Module examples (imports, exports, native KERN functions)' },
         { uri: 'kern://examples/ui', name: 'UI examples (screens, layouts, lists)' },
         { uri: 'kern://examples/api', name: 'API examples (Express, FastAPI routes)' },
         { uri: 'kern://examples/state-machine', name: 'State machine examples' },
@@ -1077,6 +1091,23 @@ server.resource(
   { description: 'KERN example code by category', mimeType: 'text/plain' },
   async (uri, { category }) => {
     const examples: Record<string, string> = {
+      modules: `# Module Example — first-class KERN imports and functions
+
+import { UserRepo } from "./users.kern"
+import type { User } from "./types.kern"
+import { trace as withTrace } from "observability"
+
+@http.get("/users/:id")
+export fn getUser(id: string): User
+  let user = UserRepo.get(id)?
+  return user
+
+# Legacy node form remains valid when interop metadata is clearer.
+import from=react names="useEffect,useState"
+fn name=normalizeUser params="user:User" returns=User export=true
+  handler lang=kern
+    return value=user`,
+
       ui: `# UI Example — Dashboard Screen
 
 screen name=Dashboard {bg:#F8F9FA}
@@ -1248,6 +1279,9 @@ server.prompt(
 - Theme refs: $refName
 - Comments: // or # (full-line and inline)
 - Documentation: doc text="..." or doc <<< multiline >>>  (emits JSDoc)
+- First-class module imports: import { Name, Old as New } from "./module.kern" (type-only imports use import type)
+- First-class functions: export fn getUser(id: string): User with direct native KERN body statements
+- Decorators: @name(args) immediately before fn attaches metadata to that function
 
 ## Available Node Types
 ${nodeList}
@@ -1282,6 +1316,17 @@ server name=API port=3001
       const items = await db.items.findAll();
       res.json(items);
     >>>
+\`\`\`
+
+### KERN Module
+\`\`\`kern
+import { UserRepo } from "./users.kern"
+import type { User } from "./types.kern"
+
+@http.get("/users/:id")
+export fn getUser(id: string): User
+  let user = UserRepo.get(id)?
+  return user
 \`\`\`
 
 ### State Machine (7 lines → 140+ TypeScript)

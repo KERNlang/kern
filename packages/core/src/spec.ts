@@ -122,8 +122,12 @@ export const NODE_TYPES = [
   'assign',
   'local',
   // Native KERN handler-body statements (slice 1)
+  'comment',
   'return',
   'throw',
+  'do',
+  'continue',
+  'break',
   // Native KERN handler-body control flow (slice 2c)
   'if',
   'while',

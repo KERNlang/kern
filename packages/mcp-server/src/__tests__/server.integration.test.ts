@@ -143,6 +143,47 @@ describe('KERN MCP Server Integration', () => {
     expect(text).toContain('--- features/dashboard/');
   });
 
+  it('should compile first-class module syntax via tools/call', async () => {
+    const { stdout } = await sendMCP([
+      rpc(
+        'initialize',
+        {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'test', version: '1.0' },
+        },
+        1,
+      ),
+      { jsonrpc: '2.0', method: 'notifications/initialized' },
+      rpc(
+        'tools/call',
+        {
+          name: 'compile',
+          arguments: {
+            source: [
+              'import { Users } from "./users.kern"',
+              'import type { User } from "./types.kern"',
+              '@http.get("/users/:id")',
+              'export fn getUser(id: string): User',
+              '  let user = Users.get(id)?',
+              '  return user',
+            ].join('\n'),
+            target: 'lib',
+          },
+        },
+        2,
+      ),
+    ]);
+
+    const lines = stdout.split('\n').filter(Boolean);
+    const callResponse = JSON.parse(lines[lines.length - 1]);
+    const text = callResponse.result.content[0].text;
+    expect(text).toContain("import { Users } from './users.js';");
+    expect(text).toContain("import type { User } from './types.js';");
+    expect(text).toContain('export function getUser(id: string): User');
+    expect(text).toContain('// @http.get("/users/:id")');
+  });
+
   it('should parse .kern source', async () => {
     const { stdout } = await sendMCP([
       rpc(

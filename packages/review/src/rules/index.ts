@@ -1058,6 +1058,15 @@ const REGISTRY: RuleInfo[] = [
     requires: ['graph'],
   },
   {
+    id: 'file-too-monolithic',
+    layer: 'kern-source',
+    severity: 'warning',
+    description:
+      '.kern file accumulates too many top-level concern declarations outside `module` blocks — group related declarations under `module Name` or split into separate files',
+    precision: 'medium',
+    ciDefault: 'guarded',
+  },
+  {
     id: 'suggest-kern-primitive',
     layer: 'kern-source',
     severity: 'info',

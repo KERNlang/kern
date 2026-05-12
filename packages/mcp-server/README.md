@@ -128,7 +128,7 @@ Browse KERN node types by category (layout, backend, state, types, mcp, etc.) wi
 | Resource | URI | Description |
 |----------|-----|-------------|
 | kern-spec | `kern://spec` | Full language specification |
-| kern-examples | `kern://examples/{category}` | Example code by category (ui, api, state-machine, mcp, terminal) |
+| kern-examples | `kern://examples/{category}` | Example code by category (modules, ui, api, state-machine, mcp, terminal) |
 | kern-targets | `kern://targets` | Available compile targets as JSON |
 
 ## Prompts
@@ -157,6 +157,17 @@ No human intervention needed. The LLM can iterate to correct code autonomously.
 
 ```kern
 // Comments work with // or #
+import { UserRepo } from "./users.kern"
+import type { User } from "./types.kern"
+
+@http.get("/users/:id")
+export fn getUser(id: string): User
+  let user = UserRepo.get(id)?
+  return user
+```
+
+```kern
+// Legacy node form remains valid.
 
 doc text="User management API"
 server name=UserAPI port=3001

@@ -1,5 +1,5 @@
 import { generateCoreNode } from '../src/codegen-core.js';
-import { parseDocument, parseDocumentStrict, parseDocumentWithDiagnostics } from '../src/parser.js';
+import { parse, parseDocument, parseDocumentStrict, parseDocumentWithDiagnostics } from '../src/parser.js';
 import { validateSchema } from '../src/schema.js';
 import type { IRNode } from '../src/types.js';
 
@@ -23,6 +23,32 @@ describe('first-class module syntax', () => {
       children: [
         { type: 'from', props: { name: 'Users' } },
         { type: 'from', props: { name: 'Roles', as: 'UserRoles' } },
+      ],
+    });
+    expect(generateCoreNode(node).join('\n')).toBe(`import { Users, Roles as UserRoles } from './users.js';`);
+  });
+
+  test('root first-class .kern import canonicalizes through parse()', () => {
+    const node = parse('import { Users } from "./users.kern"');
+
+    expect(node).toMatchObject({
+      type: 'use',
+      props: { path: './users.kern' },
+      children: [{ type: 'from', props: { name: 'Users' } }],
+    });
+    expect(generateCoreNode(node).join('\n')).toBe(`import { Users } from './users.js';`);
+  });
+
+  test('root first-class .kern import keeps parse() sibling children', () => {
+    const node = parse(
+      ['import { Users } from "./users.kern"', 'fn getUser(): User', '  return Users.get()'].join('\n'),
+    );
+
+    expect(node).toMatchObject({
+      type: 'use',
+      children: [
+        { type: 'from', props: { name: 'Users' } },
+        { type: 'fn', props: { name: 'getUser' } },
       ],
     });
   });
