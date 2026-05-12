@@ -409,10 +409,19 @@ export function analyzeTaintCrossFile(
         const source = taintedVars.find((v) => taintedArgs.includes(v.name));
         if (!source) continue;
         // Resolve the sink's file line. `sink.line` is 1-based inside the
-        // captured body text; for ts-morph callers `bodyStartLine` is the file
-        // line of the opening brace, so `bodyStartLine + sink.line - 1` is the
-        // sink's file line. For IR-derived callers we only have the function
-        // decl line, so the resolved line lands ~1 line above the real sink —
+        // captured body text. For ts-morph callers (the common path) the
+        // body text comes from `body.getText()` which includes the opening
+        // `{`, so body line 1 = the `{` itself and `bodyStartLine` = that
+        // line — `bodyStartLine + sink.line - 1` lands on the sink's file
+        // line. NOTE: this is a different convention from the intra-file
+        // taint path (taint-findings.ts), which receives IR's
+        // `handler.props.code` that strips the `{` — there body line 1 =
+        // first content line and the formula has no `-1`. Don't unify the
+        // two without normalizing one of the sources (Codex impl-review
+        // caught a regression where dropping the `-1` here broke the
+        // ts-morph path even though it fixed intra-file). For IR-derived
+        // callers (no body text), `bodyStartLine` falls back to the function
+        // decl line so the resolved line lands ~1 line above the real sink —
         // still vastly better than the previous hardcoded `1`.
         const base = targetFn.bodyStartLine ?? targetFn.startLine;
         const calleeSinkLine = base + (sink.line ?? 1) - 1;

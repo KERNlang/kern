@@ -72,11 +72,16 @@ export function taintToFindings(results: TaintResult[]): ReviewFinding[] {
       // Lift 2 — primarySpan also uses sink.line so the SARIF entry points at
       // the actual sink call, not the handler's first line.
       //
-      // Codex impl-review caught this: `sink.line` from `findTaintedSinks` is
-      // 1-based inside the handler body, not absolute in the file. Offset by
-      // `r.startLine - 1` to get the file line. Without this, a handler at
-      // file line 50 with `exec()` on body line 3 would land at file line 3.
-      const sinkLine = path.sink.line != null ? r.startLine + path.sink.line - 1 : r.startLine;
+      // Both `findTaintedSinks` (regex) and `analyzeTaintAST` emit `sink.line`
+      // body-relative: 0 means "on the signature line", N means "N lines
+      // below the signature line into the body". Adding `r.startLine`
+      // (signature file line) yields the absolute file line. The earlier
+      // `-1` correction was an off-by-one in the original Codex fix —
+      // verified against real corpora where body line 24 mapped to file
+      // line 70 (signature 46), not 69. AST mode previously emitted
+      // absolute lines into `sink.line`, double-counting `r.startLine` in
+      // this formula; that's fixed in taint-ast.ts.
+      const sinkLine = path.sink.line != null ? r.startLine + path.sink.line : r.startLine;
       const primarySpan: SourceSpan = {
         file: r.filePath,
         startLine: sinkLine,
@@ -90,13 +95,20 @@ export function taintToFindings(results: TaintResult[]): ReviewFinding[] {
       // back to the handler-start line otherwise. Earlier iteration reused a
       // single sinkSpan for every step which collapsed the "data enters here"
       // pointer for multi-line handlers (OpenCode/Opus review).
-      const spanAt = (line: number | undefined): SourceSpan => ({
-        file: r.filePath,
-        startLine: line ?? r.startLine,
-        startCol: 1,
-        endLine: line ?? r.startLine,
-        endCol: 1,
-      });
+      // Same convention as `sinkLine` above: `line` is body-relative.
+      // Falls back to the handler-start file line when the analyzer didn't
+      // populate a body line (e.g. source location for a path without a
+      // resolvable origin line).
+      const spanAt = (line: number | undefined): SourceSpan => {
+        const fileLine = line != null ? r.startLine + line : r.startLine;
+        return {
+          file: r.filePath,
+          startLine: fileLine,
+          startCol: 1,
+          endLine: fileLine,
+          endCol: 1,
+        };
+      };
       const sourceSpan = spanAt(path.source.line);
       const sinkSpan = spanAt(path.sink.line);
       const provSteps: import('./types.js').ProvenanceStep[] = [
