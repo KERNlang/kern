@@ -151,6 +151,11 @@ describe('slice 5a deferred-fix — object literal shorthand properties', () => 
     expect(out).toMatch(/^\{ user: ?user \}$/);
   });
 
+  test('numeric object literal keys parse and preserve TS key spelling', () => {
+    expect(emitExpression(parseExpression('{ 0: "#000000", 10: "#55ff55" }'))).toBe('{ 0: "#000000", 10: "#55ff55" }');
+    expect(emitExpression(parseExpression('{ 1_000: "wide" }'))).toBe('{ 1_000: "wide" }');
+  });
+
   test('string keys still require colon (shorthand is ident-only)', () => {
     expect(() => parseExpression('{ "user" }')).toThrow();
   });

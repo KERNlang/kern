@@ -11,7 +11,224 @@ function consumeBareIdent(s: TokenStream, props: Record<string, unknown>, propNa
   if (id) props[propName] = id;
 }
 
+function splitTopLevel(input: string, delimiter: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+  let angleDepth = 0;
+  let quote: '"' | "'" | '`' | null = null;
+
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (quote) {
+      current += ch;
+      if (ch === '\\') {
+        current += input[++i] ?? '';
+        continue;
+      }
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === '(') parenDepth++;
+    else if (ch === ')') parenDepth--;
+    else if (ch === '[') bracketDepth++;
+    else if (ch === ']') bracketDepth--;
+    else if (ch === '{') braceDepth++;
+    else if (ch === '}') braceDepth--;
+    else if (ch === '<') angleDepth++;
+    else if (ch === '>' && input[i - 1] !== '=' && angleDepth > 0) angleDepth--;
+
+    if (ch === delimiter && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0 && angleDepth === 0) {
+      parts.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  if (current.trim() !== '') parts.push(current.trim());
+  return parts;
+}
+
+function findMatching(input: string, start: number, open: string, close: string): number {
+  let depth = 0;
+  let quote: '"' | "'" | '`' | null = null;
+  for (let i = start; i < input.length; i++) {
+    const ch = input[i];
+    if (quote) {
+      if (ch === '\\') {
+        i++;
+        continue;
+      }
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      continue;
+    }
+    if (ch === open) depth++;
+    else if (ch === close && !(close === '>' && input[i - 1] === '=')) {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function splitTopLevelWhitespace(input: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+  let angleDepth = 0;
+  let quote: '"' | "'" | '`' | null = null;
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (quote) {
+      current += ch;
+      if (ch === '\\') current += input[++i] ?? '';
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === '(') parenDepth++;
+    else if (ch === ')') parenDepth--;
+    else if (ch === '[') bracketDepth++;
+    else if (ch === ']') bracketDepth--;
+    else if (ch === '{') braceDepth++;
+    else if (ch === '}') braceDepth--;
+    else if (ch === '<') angleDepth++;
+    else if (ch === '>' && input[i - 1] !== '=' && angleDepth > 0) angleDepth--;
+    if (/\s/u.test(ch) && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0 && angleDepth === 0) {
+      if (current.trim() !== '') parts.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  if (current.trim() !== '') parts.push(current.trim());
+  return parts;
+}
+
+function splitReturnAndTrailingProps(input: string): { returns: string; trailing: string } {
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+  let angleDepth = 0;
+  let quote: '"' | "'" | '`' | null = null;
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (quote) {
+      if (ch === '\\') i++;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      continue;
+    }
+    if (ch === '(') parenDepth++;
+    else if (ch === ')') parenDepth--;
+    else if (ch === '[') bracketDepth++;
+    else if (ch === ']') bracketDepth--;
+    else if (ch === '{') braceDepth++;
+    else if (ch === '}') braceDepth--;
+    else if (ch === '<') angleDepth++;
+    else if (ch === '>' && input[i - 1] !== '=' && angleDepth > 0) angleDepth--;
+    if (
+      /\s/u.test(ch) &&
+      parenDepth === 0 &&
+      bracketDepth === 0 &&
+      braceDepth === 0 &&
+      angleDepth === 0 &&
+      /^[A-Za-z_][\w-]*=/.test(input.slice(i).trimStart())
+    ) {
+      return { returns: input.slice(0, i).trim(), trailing: input.slice(i).trim() };
+    }
+  }
+  return { returns: input.trim(), trailing: '' };
+}
+
+function assignBareProps(raw: string, props: Record<string, unknown>): void {
+  for (const part of splitTopLevelWhitespace(raw)) {
+    const eq = part.indexOf('=');
+    if (eq <= 0) continue;
+    const key = part.slice(0, eq);
+    const value = part.slice(eq + 1);
+    if (value === 'true') props[key] = true;
+    else if (value === 'false') props[key] = false;
+    else if (/^".*"$/.test(value) || /^'.*'$/.test(value)) props[key] = value.slice(1, -1);
+    else props[key] = value;
+  }
+}
+
+function parseFirstClassFnSignature(raw: string): Record<string, unknown> | null {
+  const trimmed = raw.trim();
+  if (trimmed === '' || /^\w+\s*=/.test(trimmed)) return null;
+  const nameMatch = /^([A-Za-z_$][\w$]*)/u.exec(trimmed);
+  if (!nameMatch) return null;
+  const name = nameMatch[1];
+  let i = name.length;
+  while (/\s/u.test(trimmed[i] ?? '')) i++;
+  const out: Record<string, unknown> = { name };
+
+  if (trimmed[i] === '<') {
+    const close = findMatching(trimmed, i, '<', '>');
+    if (close === -1) return null;
+    out.generics = trimmed.slice(i, close + 1);
+    i = close + 1;
+    while (/\s/u.test(trimmed[i] ?? '')) i++;
+  }
+
+  if (trimmed[i] !== '(') return null;
+  const paramsClose = findMatching(trimmed, i, '(', ')');
+  if (paramsClose === -1) return null;
+  const paramsRaw = trimmed.slice(i + 1, paramsClose);
+  i = paramsClose + 1;
+  while (/\s/u.test(trimmed[i] ?? '')) i++;
+
+  const params = splitTopLevel(paramsRaw, ',')
+    .map((part) => part.replace(/\s*:\s*/u, ':').replace(/\s*=\s*/u, '='))
+    .join(',');
+  if (params) out.params = params;
+
+  let trailing = trimmed.slice(i).trim();
+  if (trailing.startsWith(':')) {
+    const split = splitReturnAndTrailingProps(trailing.slice(1).trim());
+    if (split.returns) out.returns = split.returns;
+    trailing = split.trailing;
+  }
+  if (trailing) assignBareProps(trailing, out);
+  return out;
+}
+
 export const KEYWORD_HANDLERS = new Map<string, KeywordHandler>([
+  [
+    'fn',
+    (s, props, content) => {
+      const pos = s.position();
+      s.skipWS();
+      const parsed = parseFirstClassFnSignature(s.remainingRaw(content));
+      if (!parsed) {
+        s.setPosition(pos);
+        return;
+      }
+      Object.assign(props, parsed);
+    },
+  ],
+
   [
     'doc',
     (s, props, content) => {

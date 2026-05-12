@@ -378,7 +378,7 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
           name: calleeName,
           category: sinkDef,
           taintedArg,
-          line: call.getStartLineNumber(),
+          line: call.getStartLineNumber() - startLine,
         });
         break;
       }
@@ -398,7 +398,7 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
                 name: `${calleeName} (template)`,
                 category: sinkDef,
                 taintedArg,
-                line: call.getStartLineNumber(),
+                line: call.getStartLineNumber() - startLine,
               });
             }
           }
@@ -429,7 +429,7 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
               name: `${calleeName} → sink`,
               category: sinkCategory,
               taintedArg,
-              line: call.getStartLineNumber(),
+              line: call.getStartLineNumber() - startLine,
             });
           }
         }

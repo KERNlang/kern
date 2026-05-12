@@ -88,7 +88,8 @@ export function emitExpression(node: ValueIR): string {
         !node.parenthesized && node.params.length === 1 && !node.params[0].type
           ? node.params[0].name
           : `(${node.params.map((p) => (p.type ? `${p.name}: ${p.type}` : p.name)).join(', ')})`;
-      return `${params} => ${emitExpression(node.body)}`;
+      const returnType = node.returnType ? `: ${node.returnType}` : '';
+      return `${params}${returnType} => ${emitExpression(node.body)}`;
     }
     case 'binary': {
       const left = emitExpression(node.left);
@@ -135,8 +136,8 @@ export function emitExpression(node: ValueIR): string {
         if ('kind' in e && (e as any).kind === 'spread') {
           return `...${emitExpression((e as any).argument)}`;
         }
-        const prop = e as { key: string; value: ValueIR };
-        const k = isValidJSIdent(prop.key) ? prop.key : JSON.stringify(prop.key);
+        const prop = e as { key: string; rawKey?: string; value: ValueIR };
+        const k = prop.rawKey ?? (isValidJSIdent(prop.key) ? prop.key : JSON.stringify(prop.key));
         return `${k}: ${emitExpression(prop.value)}`;
       });
       return `{ ${entries.join(', ')} }`;

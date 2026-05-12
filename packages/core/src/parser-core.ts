@@ -147,6 +147,25 @@ function findMultilineBlockOpen(trimmed: string, runtime: KernRuntime): { type: 
   return undefined;
 }
 
+function parseDecoratorLine(trimmed: string, indent: number, lineNum: number): ParsedLine | null {
+  const m = /^@([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)(?:\(([\s\S]*)\))?\s*$/.exec(trimmed);
+  if (!m) return null;
+  const [, name, args] = m;
+  return {
+    indent,
+    rawLength: trimmed.length,
+    type: 'decorator',
+    props: {
+      name,
+      ...(args !== undefined ? { args: args.trim() } : {}),
+    },
+    styles: {},
+    pseudoStyles: {},
+    themeRefs: [],
+    loc: { line: lineNum, col: indent + 1, endLine: lineNum, endCol: indent + 1 + trimmed.length },
+  };
+}
+
 // ── Prop parsing ─────────────────────────────────────────────────────────
 
 /** Map a value token to its JS representation. */
@@ -376,6 +395,7 @@ function parseLine(
 
 function expandMinified(source: string): string {
   if (!source.includes('(') || source.split('\n').length > 1) return source;
+  if (/^\s*fn\s+[A-Za-z_$][\w$]*/u.test(source)) return source;
 
   const result: string[] = [];
   let depth = 0;
@@ -508,12 +528,57 @@ function scanLineState(s: string, prev?: { inQuote: boolean }): { inQuote: boole
 function parseLines(state: ParseState, source: string, runtime: KernRuntime = defaultRuntime): ParsedLine[] {
   const lines = expandMinified(source).split('\n');
   const parsed: ParsedLine[] = [];
+  const pendingDecorators: ParsedLine[] = [];
+
+  const warnDroppedDecorators = (message: (dec: ParsedLine) => string): void => {
+    for (const dec of pendingDecorators) {
+      emitDiagnostic(state, 'DROPPED_DECORATOR', 'warning', message(dec), dec.loc.line, dec.loc.col, {
+        endCol: dec.loc.endCol,
+      });
+    }
+    pendingDecorators.length = 0;
+  };
+
+  const pushParsed = (line: ParsedLine): void => {
+    parsed.push(line);
+    if (line.type !== 'fn') {
+      warnDroppedDecorators(
+        (dec) => `Decorator '${String(dec.props.name)}' at line ${dec.loc.line} must be followed by a fn declaration`,
+      );
+      return;
+    }
+    for (const dec of pendingDecorators) {
+      if (dec.indent !== line.indent) {
+        emitDiagnostic(
+          state,
+          'DROPPED_DECORATOR',
+          'warning',
+          `Decorator '${String(dec.props.name)}' at line ${dec.loc.line} must use the same indentation as its fn declaration`,
+          dec.loc.line,
+          dec.loc.col,
+          { endCol: dec.loc.endCol },
+        );
+        continue;
+      }
+      parsed.push({ ...dec, indent: line.indent + 2 });
+    }
+    pendingDecorators.length = 0;
+  };
 
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trimStart();
 
     // Skip comment lines (// or #)
     if (trimmed.startsWith('//') || trimmed.startsWith('#')) continue;
+
+    if (trimmed.startsWith('@')) {
+      const indent = lines[i].search(/\S/);
+      const dec = parseDecoratorLine(stripInlineComment(lines[i].slice(indent)).trim(), indent, i + 1);
+      if (dec) {
+        pendingDecorators.push(dec);
+        continue;
+      }
+    }
 
     const multilineOpen = findMultilineBlockOpen(trimmed, runtime);
     if (multilineOpen) {
@@ -560,7 +625,7 @@ function parseLines(state: ParseState, source: string, runtime: KernRuntime = de
         );
       }
       const openerParsed = parseLine(state, `${' '.repeat(indent)}${opener}`, startLine, runtime);
-      parsed.push({
+      pushParsed({
         indent,
         rawLength: lines[startLine - 1].slice(indent).length,
         type: openerParsed?.type ?? multilineType,
@@ -600,8 +665,11 @@ function parseLines(state: ParseState, source: string, runtime: KernRuntime = de
     const joined = joinedParts.length === 1 ? joinedParts[0] : joinedParts.join('\n');
 
     const p = parseLine(state, joined, startLine, runtime);
-    if (p) parsed.push(p); // null only for blank/comment lines; __error nodes are always pushed
+    if (p) pushParsed(p); // null only for blank/comment lines; __error nodes are always pushed
   }
+  warnDroppedDecorators(
+    (dec) => `Decorator '${String(dec.props.name)}' at line ${dec.loc.line} must be followed by a fn declaration`,
+  );
 
   return parsed;
 }

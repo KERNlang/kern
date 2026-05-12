@@ -835,7 +835,45 @@ describe('taint Lifts 2/3/A — sink line, rootCause, fingerprint', () => {
     expect(sinks[0].line).toBe(3);
   });
 
-  it('Lift 2: cross-file callee span resolves to bodyStartLine + sink.line - 1', () => {
+  // Regression: AST mode previously emitted absolute file lines as
+  // `sink.line`, double-counting r.startLine in the consumer formula and
+  // putting findings ~startLine lines past their real position (kern-guard
+  // middleware.ts redirect at file 70 reported as file 115). Pin AST mode
+  // to emit body-relative lines now.
+  it('Lift 2: analyzeTaintAST emits body-relative sink.line (not absolute)', () => {
+    const source = [
+      '',
+      '',
+      '',
+      '',
+      'export function handler(req: Request, res: Response): void {',
+      '  const cmd = req.body.command;',
+      '  exec(cmd);',
+      '}',
+      '',
+    ].join('\n');
+    const project = new Project({
+      useInMemoryFileSystem: true,
+      skipAddingFilesFromTsConfig: true,
+      compilerOptions: { target: 99, module: 99, moduleResolution: 100 },
+    });
+    const sf = project.createSourceFile('/h.ts', source);
+    const inferred = inferFromSource(source, '/h.ts');
+    const results = analyzeTaint(inferred, '/h.ts', sf);
+
+    expect(results.length).toBeGreaterThan(0);
+    const r = results[0];
+    // Handler signature is on file line 5; `exec(cmd)` is on file line 7.
+    // Body-relative: 7 - 5 = 2. Absolute (the bug we're guarding against): 7.
+    expect(r.startLine).toBe(5);
+    const sink = r.paths[0].sink;
+    expect(sink.line).toBe(2);
+    // Sanity-check the resolved file line via taintToFindings.
+    const findings = taintToFindings(results);
+    expect(findings[0].primarySpan.startLine).toBe(7);
+  });
+
+  it('Lift 2: cross-file callee span resolves to bodyStartLine + sink.line', () => {
     const results = [
       {
         callerFile: 'app/route.ts',
@@ -995,10 +1033,12 @@ describe('taint Lifts 2/3/A — sink line, rootCause, fingerprint', () => {
     ]);
     expect(findings.length).toBe(2);
     expect(findings[0].fingerprint).not.toBe(findings[1].fingerprint);
-    // primarySpan reflects the absolute file line (Codex impl-review): handler
-    // starts at file line 10, sinks are on body lines 3 and 7 → file lines 12
-    // and 16. Pre-Codex-fix this incorrectly used body lines as file lines.
-    expect(findings[0].primarySpan.startLine).toBe(12);
-    expect(findings[1].primarySpan.startLine).toBe(16);
+    // primarySpan reflects the absolute file line. `sink.line` is body-
+    // relative: 0 = signature line, N = N lines below. Handler signature
+    // is at file line 10, sinks are on body lines 3 and 7 → file lines 13
+    // and 17. The previous off-by-one (`-1` in the consumer formula) was
+    // corrected after empirical verification on kern-guard middleware.ts.
+    expect(findings[0].primarySpan.startLine).toBe(13);
+    expect(findings[1].primarySpan.startLine).toBe(17);
   });
 });

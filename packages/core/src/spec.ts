@@ -71,6 +71,7 @@ export const NODE_TYPES = [
   // Meta
   'theme',
   'doc',
+  'decorator',
   // Backend
   'server',
   'route',

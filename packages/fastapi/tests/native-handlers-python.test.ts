@@ -49,6 +49,16 @@ describe('emitPyExpression — slice 1 lowering rules', () => {
     expect(emitPyExpression(parseExpression('foo(a, b)'))).toBe('foo(a, b)');
   });
 
+  test('call arguments allow a trailing comma', () => {
+    expect(emitPyExpression(parseExpression('foo(a, b,)'))).toBe('foo(a, b)');
+  });
+
+  test('typed lambda return predicates erase on Python target', () => {
+    expect(
+      emitPyExpression(parseExpression('values.filter((value: unknown): value is string => value !== null)')),
+    ).toBe('values.filter(lambda value: value != None)');
+  });
+
   test('TS generic call args and non-null assertions erase on Python target', () => {
     expect(emitPyExpression(parseExpression('client.send<Result>("ping")'))).toBe('client.send("ping")');
     expect(emitPyExpression(parseExpression('new Set<string>()'))).toBe('Set()');
@@ -81,6 +91,12 @@ describe('emitPyExpression — slice 1 lowering rules', () => {
 
   test('strLit emits with double-quoted Python string', () => {
     expect(emitPyExpression(parseExpression('"hello"'))).toBe('"hello"');
+  });
+
+  test('numeric object literal keys lower to Python string keys', () => {
+    expect(emitPyExpression(parseExpression('{ 0: "#000000", 10: "#55ff55" }'))).toBe(
+      '{"0": "#000000", "10": "#55ff55"}',
+    );
   });
 
   test('propagate at expression level throws — must hoist at statement level', () => {

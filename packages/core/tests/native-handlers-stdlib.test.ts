@@ -85,6 +85,11 @@ describe('emitExpression — TS — KERN-stdlib dispatch', () => {
     expect(emitExpression(parseExpression('arr.push(x)'))).toBe('arr.push(x)');
   });
 
+  test('call arguments allow a trailing comma', () => {
+    expect(emitExpression(parseExpression('notify(message,)'))).toBe('notify(message)');
+    expect(emitExpression(parseExpression('logger.info(prefix, `${value}`,)'))).toBe('logger.info(prefix, `${value}`)');
+  });
+
   test('lambda callbacks emit through normal TS calls', () => {
     expect(emitExpression(parseExpression('() => value'))).toBe('() => value');
     expect(emitExpression(parseExpression('(a, b) => a + b'))).toBe('(a, b) => a + b');
@@ -94,6 +99,9 @@ describe('emitExpression — TS — KERN-stdlib dispatch', () => {
     expect(emitExpression(parseExpression('users.map((user: User) => user.name)'))).toBe(
       'users.map((user: User) => user.name)',
     );
+    expect(
+      emitExpression(parseExpression('values.filter((value: unknown): value is string => typeof value === "string")')),
+    ).toBe('values.filter((value: unknown): value is string => typeof value === "string")');
     expect(emitExpression(parseExpression('(x => x)(5)'))).toBe('(x => x)(5)');
     expect(emitExpression(parseExpression('cond ? x => 1 : x => 2'))).toBe('cond ? (x => 1) : (x => 2)');
     expect(emitExpression(parseExpression('{ cb: x => x }'))).toBe('{ cb: x => x }');
