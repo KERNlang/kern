@@ -726,6 +726,81 @@ function buildTree(state: ParseState, parsed: ParsedLine[], root: IRNode, rootIn
   }
 }
 
+function canonicalizeFirstClassFunctionBodies(state: ParseState, node: IRNode): void {
+  if (node.children) {
+    for (const child of node.children) canonicalizeFirstClassFunctionBodies(state, child);
+  }
+  if (node.type !== 'fn') return;
+  const isFirstClassSyntax = node.props?.__firstClassSyntax === true;
+  if (node.props) delete node.props.__firstClassSyntax;
+  if (!isFirstClassSyntax || !node.children?.some(isNativeBodyStatementChild)) return;
+
+  const existingHandler = node.children.find((child) => child.type === 'handler');
+  if (existingHandler) {
+    const firstBody = node.children.find(isNativeBodyStatementChild);
+    const loc = firstBody?.loc ?? existingHandler.loc ?? node.loc ?? { line: 1, col: 1, endCol: 2 };
+    emitDiagnostic(
+      state,
+      'BODY_STATEMENT_OUTSIDE_NATIVE_HANDLER',
+      'error',
+      'First-class fn bodies cannot mix direct KERN body statements with an explicit `handler` child. Move the direct statements into the handler or remove the explicit handler.',
+      loc.line,
+      loc.col,
+      { endCol: loc.endCol ?? loc.col + 1 },
+    );
+    return;
+  }
+
+  const nextChildren: IRNode[] = [];
+  let implicitHandler: IRNode | null = null;
+  for (const child of node.children) {
+    if (!isNativeBodyStatementChild(child)) {
+      nextChildren.push(child);
+      continue;
+    }
+    if (!implicitHandler) {
+      implicitHandler = {
+        type: 'handler',
+        props: { lang: 'kern' },
+        children: [],
+        loc: { ...(child.loc ?? node.loc ?? { line: 1, col: 1 }) },
+      };
+      nextChildren.push(implicitHandler);
+    }
+    implicitHandler.children!.push(child);
+  }
+  node.children = nextChildren;
+}
+
+function isNativeBodyStatementChild(node: IRNode): boolean {
+  switch (node.type) {
+    case 'cell':
+    case 'set':
+    case 'comment':
+    case 'let':
+    case 'assign':
+    case 'destructure':
+    case 'do':
+    case 'fmt':
+    case 'return':
+    case 'if':
+    case 'else':
+    case 'while':
+    case 'for':
+    case 'each':
+    case 'try':
+    case 'catch':
+    case 'finally':
+    case 'throw':
+    case 'continue':
+    case 'break':
+    case 'branch':
+      return true;
+    default:
+      return false;
+  }
+}
+
 /** Recursively compute endLine/endCol for each node based on its last child. */
 function computeEndSpans(node: IRNode): void {
   if (node.children && node.children.length > 0) {
@@ -779,6 +854,7 @@ export function parseInternal(
     buildTree(state, parsed.slice(1), root, parsed[0].indent);
   }
 
+  canonicalizeFirstClassFunctionBodies(state, root);
   computeEndSpans(root);
   validateExpressions(state, root);
   validateEffects(state, root);

@@ -19,6 +19,28 @@ describe('first-class KERN syntax — Python target', () => {
     );
   });
 
+  test('http decorators work with direct native KERN fn bodies', () => {
+    const root = parseDocument(
+      [
+        '@http.get("/users/:id")',
+        'fn getUser(id: string): User',
+        '  let payload = { id: id }',
+        '  return payload',
+      ].join('\n'),
+    );
+    const fn = root.children?.find((child) => child.type === 'fn');
+    if (!fn) throw new Error('expected fn node');
+
+    expect(generatePythonCoreNode(fn).join('\n')).toBe(
+      [
+        '@router.get("/users/{id}")',
+        'def get_user(id: str) -> User:',
+        '    payload = {"id": id}',
+        '    return payload',
+      ].join('\n'),
+    );
+  });
+
   test('http decorators rewrite named path args without touching other strings', () => {
     const root = parseDocument(
       [

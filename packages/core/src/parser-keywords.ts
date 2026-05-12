@@ -174,6 +174,55 @@ function assignBareProps(raw: string, props: Record<string, unknown>): void {
   }
 }
 
+function findTopLevelAssignment(input: string): number {
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+  let angleDepth = 0;
+  let quote: '"' | "'" | '`' | null = null;
+
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (quote) {
+      if (ch === '\\') i++;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      continue;
+    }
+    if (ch === '(') parenDepth++;
+    else if (ch === ')') parenDepth--;
+    else if (ch === '[') bracketDepth++;
+    else if (ch === ']') bracketDepth--;
+    else if (ch === '{') braceDepth++;
+    else if (ch === '}') braceDepth--;
+    else if (ch === '<') angleDepth++;
+    else if (ch === '>' && input[i - 1] !== '=' && angleDepth > 0) angleDepth--;
+    else if (
+      ch === '=' &&
+      parenDepth === 0 &&
+      bracketDepth === 0 &&
+      braceDepth === 0 &&
+      angleDepth === 0 &&
+      input[i - 1] !== '=' &&
+      input[i - 1] !== '!' &&
+      input[i - 1] !== '<' &&
+      input[i - 1] !== '>' &&
+      input[i + 1] !== '=' &&
+      input[i + 1] !== '>'
+    ) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function hasLegacyLetPropTail(input: string): boolean {
+  return splitTopLevelWhitespace(input).some((part) => /^(name|value|expr|type|kind)=(?![=>])/u.test(part));
+}
+
 function parseFirstClassFnSignature(raw: string): Record<string, unknown> | null {
   const trimmed = raw.trim();
   if (trimmed === '' || /^\w+\s*=/.test(trimmed)) return null;
@@ -226,6 +275,80 @@ export const KEYWORD_HANDLERS = new Map<string, KeywordHandler>([
         return;
       }
       Object.assign(props, parsed);
+      props.__firstClassSyntax = true;
+    },
+  ],
+
+  [
+    'let',
+    (s, props, content) => {
+      s.skipWS();
+      const pos = s.position();
+      const raw = s.remainingRaw(content).trim();
+      const eq = findTopLevelAssignment(raw);
+      if (eq === -1) {
+        s.setPosition(pos);
+        return;
+      }
+      const lhs = raw.slice(0, eq).trim();
+      const value = raw.slice(eq + 1).trim();
+      if (/^(name|value|expr|type|kind)$/u.test(lhs) && hasLegacyLetPropTail(value)) {
+        s.setPosition(pos);
+        return;
+      }
+      const match = /^([A-Za-z_$][\w$]*)(?:\s*:\s*([\s\S]+))?$/u.exec(lhs);
+      if (!match) {
+        s.setPosition(pos);
+        return;
+      }
+      props.name = match[1];
+      if (match[2]?.trim()) props.type = match[2].trim();
+      props.value = value;
+    },
+  ],
+
+  [
+    'return',
+    (s, props, content) => {
+      s.skipWS();
+      if (s.isKeyValue() || !s.hasMore()) return;
+      props.value = s.remainingRaw(content).trim();
+    },
+  ],
+
+  [
+    'throw',
+    (s, props, content) => {
+      s.skipWS();
+      if (s.isKeyValue() || !s.hasMore()) return;
+      props.value = s.remainingRaw(content).trim();
+    },
+  ],
+
+  [
+    'do',
+    (s, props, content) => {
+      s.skipWS();
+      if (s.isKeyValue() || !s.hasMore()) return;
+      props.value = s.remainingRaw(content).trim();
+    },
+  ],
+
+  [
+    'if',
+    (s, props, content) => {
+      s.skipWS();
+      if (s.isKeyValue() || !s.hasMore()) return;
+      props.cond = s.remainingRaw(content).trim();
+    },
+  ],
+
+  [
+    'while',
+    (s, props, content) => {
+      s.skipWS();
+      if (s.isKeyValue() || !s.hasMore()) return;
+      props.cond = s.remainingRaw(content).trim();
     },
   ],
 

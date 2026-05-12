@@ -141,6 +141,15 @@ export interface ReviewFinding {
    * is rejected at parse time.
    */
   suppressionReason?: import('./suppression/types.js').SuppressionReason;
+  /**
+   * BYOM noise-scoring verdict — present when `scoreFindings` (./triage)
+   * has been run over this finding. Either `status:'scored'` with a
+   * `noiseLikelihood ∈ [0, 1]` and a reason category, or
+   * `status:'skipped'` with the reason scoring failed. Distinct from
+   * `calibrationTrail` (which is deterministic, rule-quality-driven) —
+   * triage is model-driven interruption-cost grading.
+   */
+  triage?: import('./triage/types.js').FindingTriage;
 }
 
 /** One step of calibration applied to a finding. */
