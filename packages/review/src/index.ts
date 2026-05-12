@@ -376,6 +376,25 @@ export {
 } from './telemetry.js';
 export { detectTemplates } from './template-detector.js';
 export type {
+  FindingTriage,
+  ScoreFindingsOptions,
+  TriageCompletionInput,
+  TriageLineResult,
+  TriagePromptItem,
+  TriageProvider,
+  TriageReader,
+  TriageReasonCategory,
+} from './triage/index.js';
+// Triage — BYOM noise-scoring for ReviewFinding[]
+export {
+  buildTriageSnippet,
+  buildTriageUserPrompt,
+  parseTriageResponse,
+  scoreFindings,
+  TRIAGE_PROMPT_VERSION,
+  TRIAGE_SYSTEM_PROMPT,
+} from './triage/index.js';
+export type {
   AnalysisContext,
   CalibrationStage,
   Confidence,
