@@ -528,6 +528,31 @@ describe('parseDocumentWithDiagnostics — cross-module recognition (slice 7 v2)
     expect(code).toContain('const u = __k_t1.value;');
   });
 
+  test('type-only .kern imports do not enable runtime propagation lowering', () => {
+    const result = parseDocumentWithDiagnostics(
+      [
+        'import type { parseUser } from "./a.kern"',
+        'fn name=loud params="raw:string" returns="Result<string, AppError>"',
+        '  handler <<<',
+        '    const u = parseUser(raw)?;',
+        '    return Result.ok(u.toUpperCase());',
+        '  >>>',
+      ].join('\n'),
+      undefined,
+      {
+        resolveImport: (path) => {
+          if (path === './a.kern') {
+            return { resultFns: new Set(['parseUser']), optionFns: new Set() };
+          }
+          return null;
+        },
+      },
+    );
+    const code = findHandler(result.root)!;
+    expect(code).toContain('parseUser(raw)?;');
+    expect(code).not.toContain("__k_t1.kind === 'err'");
+  });
+
   test('with resolver: export-from nodes receive symbol kind metadata', () => {
     const result = parseDocumentWithDiagnostics(
       [

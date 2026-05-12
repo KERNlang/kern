@@ -42,10 +42,20 @@ describe('semantic-validator — module export cross references', () => {
     expect(rulesFor(source)).toEqual([]);
   });
 
-  test('does not treat unsupported import alias syntax as a visible binding', () => {
+  test('treats canonical import aliases as visible local bindings', () => {
     const source = ['module name=domain', '  import from=zod names="z as schema"', '  export names=schema'].join('\n');
 
-    expect(rulesFor(source)).toContain('export-local-unknown-symbol');
+    expect(rulesFor(source)).not.toContain('export-local-unknown-symbol');
+  });
+
+  test('first-class external import aliases count as local export names', () => {
+    const source = [
+      'module name=domain',
+      '  import { Component as ReactComponent } from "react"',
+      '  export names=ReactComponent',
+    ].join('\n');
+
+    expect(rulesFor(source)).not.toContain('export-local-unknown-symbol');
   });
 
   test('reports local exports that reference unknown symbols', () => {

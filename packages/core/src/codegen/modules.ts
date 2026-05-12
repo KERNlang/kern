@@ -18,6 +18,14 @@ const kids = getChildren;
 
 // ── Import ──────────────────────────────────────────────────────────────
 
+function emitImportBinding(raw: string, node: IRNode): string {
+  const match = raw.trim().match(/^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/u);
+  if (!match) return emitIdentifier(raw.trim(), 'import', node);
+  const source = emitIdentifier(match[1], 'import', node);
+  const alias = match[2] ? emitIdentifier(match[2], 'import alias', node) : '';
+  return alias ? `${source} as ${alias}` : source;
+}
+
 export function generateImport(node: IRNode): string[] {
   const props = propsOf<'import'>(node);
   const from = props.from;
@@ -34,7 +42,7 @@ export function generateImport(node: IRNode): string[] {
   const namedList = names
     ? names
         .split(',')
-        .map((s) => emitIdentifier(s.trim(), 'import', node))
+        .map((s) => emitImportBinding(s, node))
         .join(', ')
     : '';
 
@@ -110,7 +118,9 @@ export function generateUse(node: IRNode): string[] {
   // create a local binding, so the two lines are independent: an import
   // line for the local binding, plus an export-from line for forwarding.)
   const importBindings: string[] = [];
+  const typeImportBindings: string[] = [];
   const reExportBindings: string[] = [];
+  const typeReExportBindings: string[] = [];
   for (const child of fromChildren) {
     const cp = propsOf<'from'>(child);
     const name = cp.name;
@@ -119,13 +129,16 @@ export function generateUse(node: IRNode): string[] {
     const aliasRaw = cp.as;
     const safeAlias = aliasRaw ? emitIdentifier(aliasRaw, 'alias', child) : '';
     const isReExport = cp.export === 'true' || cp.export === true;
+    const isTypeOnly = cp.kind === 'type';
 
     const binding = safeAlias ? `${safeName} as ${safeAlias}` : safeName;
-    importBindings.push(binding);
+    if (isTypeOnly) typeImportBindings.push(binding);
+    else importBindings.push(binding);
     if (isReExport) {
       // Mirror the same `name as alias` form so the re-exported name matches
       // what consumers will see (`bar`, not `foo`) when an alias is set.
-      reExportBindings.push(binding);
+      if (isTypeOnly) typeReExportBindings.push(binding);
+      else reExportBindings.push(binding);
     }
   }
 
@@ -133,8 +146,14 @@ export function generateUse(node: IRNode): string[] {
   if (importBindings.length > 0) {
     lines.push(`import { ${importBindings.join(', ')} } from '${safePath}';`);
   }
+  if (typeImportBindings.length > 0) {
+    lines.push(`import type { ${typeImportBindings.join(', ')} } from '${safePath}';`);
+  }
   if (reExportBindings.length > 0) {
     lines.push(`export { ${reExportBindings.join(', ')} } from '${safePath}';`);
+  }
+  if (typeReExportBindings.length > 0) {
+    lines.push(`export type { ${typeReExportBindings.join(', ')} } from '${safePath}';`);
   }
   return lines;
 }

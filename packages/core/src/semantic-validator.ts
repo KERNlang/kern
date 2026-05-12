@@ -444,7 +444,9 @@ function importLocalNames(node: IRNode): string[] {
   if (typeof props.names === 'string') {
     for (const raw of props.names.split(',')) {
       const name = raw.trim();
-      if (isIdentifier(name)) names.push(name);
+      const aliasMatch = /^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/u.exec(name);
+      if (aliasMatch) names.push(aliasMatch[2] ?? aliasMatch[1]);
+      else if (isIdentifier(name)) names.push(name);
     }
   }
   return names;

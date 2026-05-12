@@ -148,7 +148,11 @@ function findMultilineBlockOpen(trimmed: string, runtime: KernRuntime): { type: 
 }
 
 function parseDecoratorLine(trimmed: string, indent: number, lineNum: number): ParsedLine | null {
-  const m = /^@([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)(?:\(([\s\S]*)\))?\s*$/.exec(trimmed);
+  const exportMatch = /^export\s+(@[\s\S]+)$/u.exec(trimmed);
+  const exported = Boolean(exportMatch);
+  const decorator = exportMatch ? exportMatch[1].trimStart() : trimmed;
+  const decoratorCol = indent + 1 + (exported ? trimmed.indexOf('@') : 0);
+  const m = /^@([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)(?:\(([\s\S]*)\))?\s*$/.exec(decorator);
   if (!m) return null;
   const [, name, args] = m;
   return {
@@ -158,11 +162,12 @@ function parseDecoratorLine(trimmed: string, indent: number, lineNum: number): P
     props: {
       name,
       ...(args !== undefined ? { args: args.trim() } : {}),
+      ...(exported ? { __exportNextFn: true } : {}),
     },
     styles: {},
     pseudoStyles: {},
     themeRefs: [],
-    loc: { line: lineNum, col: indent + 1, endLine: lineNum, endCol: indent + 1 + trimmed.length },
+    loc: { line: lineNum, col: decoratorCol, endLine: lineNum, endCol: indent + 1 + trimmed.length },
   };
 }
 
@@ -246,6 +251,9 @@ function parseLine(
   const content = stripInlineComment(raw.slice(indent));
   if (content.trim() === '') return null;
   const col = indent + 1;
+  const exportMatch = /^export\s+(fn\b[\s\S]*)$/u.exec(content);
+  const contentForParse = exportMatch ? exportMatch[1] : content;
+  const parseCol = col + content.length - contentForParse.length;
 
   if (indentText.includes('\t')) {
     emitDiagnostic(state, 'INVALID_INDENT', 'warning', `Tab indentation at line ${lineNum}`, lineNum, 1, {
@@ -254,11 +262,11 @@ function parseLine(
   }
 
   const diagBefore = state.diagnostics.length;
-  const tokens = tokenizeLineInternal(content, state);
+  const tokens = tokenizeLineInternal(contentForParse, state);
   for (let d = diagBefore; d < state.diagnostics.length; d++) {
     if (state.diagnostics[d].line === 0) state.diagnostics[d].line = lineNum;
-    state.diagnostics[d].col += indent;
-    state.diagnostics[d].endCol += indent;
+    state.diagnostics[d].col += parseCol - 1;
+    state.diagnostics[d].endCol += parseCol - 1;
   }
   const s = new TokenStream(tokens);
 
@@ -273,7 +281,7 @@ function parseLine(
         'error',
         `Dropped line ${lineNum}: expected a node type at the start of the line`,
         lineNum,
-        col + firstToken.pos,
+        parseCol + firstToken.pos,
         {
           endCol: col + content.length,
         },
@@ -292,7 +300,7 @@ function parseLine(
       styles: {},
       pseudoStyles: {},
       themeRefs: [],
-      loc: { line: lineNum, col, endLine: lineNum, endCol: col + content.length },
+      loc: { line: lineNum, col: parseCol, endLine: lineNum, endCol: col + content.length },
     };
   }
   const type = typeToken;
@@ -303,14 +311,15 @@ function parseLine(
       'warning',
       `Unknown node type '${type}' at line ${lineNum}`,
       lineNum,
-      col,
+      parseCol,
       {
-        endCol: col + type.length,
+        endCol: parseCol + type.length,
       },
     );
   }
 
   const props: Record<string, unknown> = {};
+  if (exportMatch) props.export = true;
   const quotedProps = new Set<string>();
   const styles: Record<string, string> = {};
   const pseudoStyles: Record<string, Record<string, string>> = {};
@@ -336,7 +345,7 @@ function parseLine(
 
   // ── Keyword-specific handling ──────────────────────────────────────
   const handler = KEYWORD_HANDLERS.get(type);
-  if (handler) handler(s, props, content);
+  if (handler) handler(s, props, contentForParse);
 
   // ── Generic prop/style/theme parsing ───────────────────────────────
   while (!s.done()) {
@@ -360,11 +369,11 @@ function parseLine(
     }
 
     // Key=value prop (extracted helper from Codex)
-    if (parseProp(state, s, props, quotedProps, lineNum, col)) continue;
+    if (parseProp(state, s, props, quotedProps, lineNum, parseCol)) continue;
 
     // Unknown token — skip with warning
     const skipped = s.next()!;
-    const errCol = col + skipped.pos;
+    const errCol = parseCol + skipped.pos;
     emitDiagnostic(
       state,
       'UNEXPECTED_TOKEN',
@@ -387,7 +396,7 @@ function parseLine(
     styles,
     pseudoStyles,
     themeRefs,
-    loc: { line: lineNum, col, endLine: lineNum, endCol: col + content.length },
+    loc: { line: lineNum, col: parseCol, endLine: lineNum, endCol: col + content.length },
   };
 }
 
@@ -395,7 +404,7 @@ function parseLine(
 
 function expandMinified(source: string): string {
   if (!source.includes('(') || source.split('\n').length > 1) return source;
-  if (/^\s*fn\s+[A-Za-z_$][\w$]*/u.test(source)) return source;
+  if (/^\s*(?:export\s+)?fn\s+[A-Za-z_$][\w$]*/u.test(source)) return source;
 
   const result: string[] = [];
   let depth = 0;
@@ -560,6 +569,10 @@ function parseLines(state: ParseState, source: string, runtime: KernRuntime = de
         );
         continue;
       }
+      if (dec.props.__exportNextFn === true) {
+        line.props.export = true;
+      }
+      delete dec.props.__exportNextFn;
       parsed.push({ ...dec, indent: line.indent + 2 });
     }
     pendingDecorators.length = 0;
@@ -571,7 +584,7 @@ function parseLines(state: ParseState, source: string, runtime: KernRuntime = de
     // Skip comment lines (// or #)
     if (trimmed.startsWith('//') || trimmed.startsWith('#')) continue;
 
-    if (trimmed.startsWith('@')) {
+    if (trimmed.startsWith('@') || /^export\s+@/u.test(trimmed)) {
       const indent = lines[i].search(/\S/);
       const dec = parseDecoratorLine(stripInlineComment(lines[i].slice(indent)).trim(), indent, i + 1);
       if (dec) {
@@ -772,6 +785,57 @@ function canonicalizeFirstClassFunctionBodies(state: ParseState, node: IRNode): 
   node.children = nextChildren;
 }
 
+function isKernSourcePath(path: unknown): path is string {
+  return typeof path === 'string' && path.endsWith('.kern');
+}
+
+function canonicalizeFirstClassModuleImports(node: IRNode): void {
+  if (!node.children) return;
+
+  const nextChildren: IRNode[] = [];
+  for (const child of node.children) {
+    canonicalizeFirstClassModuleImports(child);
+
+    const isFirstClassImport = child.type === 'import' && child.props?.__firstClassImport === true;
+    if (!isFirstClassImport) {
+      nextChildren.push(child);
+      continue;
+    }
+
+    const props = child.props ?? {};
+    const bindings = Array.isArray(props.__firstClassBindings)
+      ? (props.__firstClassBindings as Array<{ name?: unknown; as?: unknown }>)
+      : [];
+    const from = props.from;
+    delete props.__firstClassImport;
+    delete props.__firstClassBindings;
+
+    if (!isKernSourcePath(from)) {
+      nextChildren.push(child);
+      continue;
+    }
+
+    const isTypeOnly = props.types === true || props.types === 'true';
+    nextChildren.push({
+      type: 'use',
+      props: { path: from },
+      children: bindings.map((binding) => ({
+        type: 'from',
+        props: {
+          name: String(binding.name),
+          ...(typeof binding.as === 'string' ? { as: binding.as } : {}),
+          ...(isTypeOnly ? { kind: 'type' } : {}),
+        },
+        children: [],
+        loc: child.loc,
+      })),
+      loc: child.loc,
+    });
+  }
+
+  node.children = nextChildren;
+}
+
 function isNativeBodyStatementChild(node: IRNode): boolean {
   switch (node.type) {
     case 'cell':
@@ -855,6 +919,7 @@ export function parseInternal(
   }
 
   canonicalizeFirstClassFunctionBodies(state, root);
+  canonicalizeFirstClassModuleImports(root);
   computeEndSpans(root);
   validateExpressions(state, root);
   validateEffects(state, root);
