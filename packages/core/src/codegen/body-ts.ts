@@ -291,16 +291,22 @@ function emitChildrenTS(
         const pairKey = child.props?.pairKey;
         const pairValue = child.props?.pairValue;
         const isAwait = child.props?.await === true || child.props?.await === 'true';
+        const entriesMode = child.props?.entries === true || child.props?.entries === 'true';
         const awaitPrefix = isAwait ? ' await' : '';
         const rawItemType = child.props?.type;
         const loopBindings: Array<[string, 'const' | 'let']> = [];
         if (pairKey && pairValue) {
+          if (entriesMode && isAwait) {
+            throw new Error('body-statement `each entries=true` cannot be combined with `await=true`.');
+          }
           if (rawItemType !== undefined && rawItemType !== '') {
             throw new Error('body-statement `each type=` cannot be combined with pair-mode `pairKey=`/`pairValue=`.');
           }
           loopBindings.push([String(pairKey), 'const'], [String(pairValue), 'const']);
+          const sourceExpr = emitExpression(listIR);
+          const iterableExpr = entriesMode ? `Object.entries(${sourceExpr})` : sourceExpr;
           lines.push(
-            `${indent}for${awaitPrefix} (const [${String(pairKey)}, ${String(pairValue)}] of ${emitExpression(listIR)}) {`,
+            `${indent}for${awaitPrefix} (const [${String(pairKey)}, ${String(pairValue)}] of ${iterableExpr}) {`,
           );
         } else if (child.props?.index) {
           const itemType = rawItemType ? emitTypeAnnotation(String(rawItemType), 'unknown', child) : '';

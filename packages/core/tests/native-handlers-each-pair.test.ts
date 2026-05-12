@@ -49,6 +49,30 @@ describe('each pair-mode — TS target', () => {
     expect(out).not.toContain('.entries()');
   });
 
+  test('pairKey + pairValue + entries=true emits Object.entries for object records', () => {
+    const handler = makeHandler([
+      {
+        type: 'each',
+        props: { pairKey: 'k', pairValue: 'v', in: 'record', entries: true },
+        children: [{ type: 'do', props: { value: 'log(k, v)' } }],
+      },
+    ]);
+    const out = emitNativeKernBodyTS(handler);
+    expect(out).toContain('for (const [k, v] of Object.entries(record)) {');
+    expect(out).toContain('log(k, v);');
+  });
+
+  test('pairKey + pairValue + entries=true rejects async iteration', () => {
+    const handler = makeHandler([
+      {
+        type: 'each',
+        props: { pairKey: 'k', pairValue: 'v', in: 'record', entries: true, await: true },
+        children: [{ type: 'do', props: { value: 'log(k, v)' } }],
+      },
+    ]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/entries=true/);
+  });
+
   test('pairKey + pairValue rejects type= because type annotates the simple item binding', () => {
     const handler = makeHandler([
       {
@@ -172,6 +196,26 @@ describe('each pair-mode — schema validation', () => {
     };
     const violations = validateSchema(node);
     expect(violations.some((v) => v.message.includes('await=true'))).toBe(true);
+  });
+
+  test('entries=true without pair-mode is rejected', () => {
+    const node: IRNode = {
+      type: 'each',
+      props: { name: 'item', entries: true, in: 'record' },
+      children: [],
+    };
+    const violations = validateSchema(node);
+    expect(violations.some((v) => v.message.includes('entries=true') && v.message.includes('pair-mode'))).toBe(true);
+  });
+
+  test('entries=true + await=true is rejected at schema level', () => {
+    const node: IRNode = {
+      type: 'each',
+      props: { pairKey: 'k', pairValue: 'v', entries: true, await: true, in: 'record' },
+      children: [],
+    };
+    const violations = validateSchema(node);
+    expect(violations.some((v) => v.message.includes('entries=true') && v.message.includes('await=true'))).toBe(true);
   });
 
   test('non-pair-mode each still requires name= (regression)', () => {

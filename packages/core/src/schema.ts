@@ -1291,7 +1291,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   each: {
     description:
-      'Iteration — renders children for each item in a collection. Inside a render block emits `items.map(...)` with auto-key; elsewhere emits `for...of`. `let` children become iteration-scoped `const` bindings inside the callback (hook-safe, unlike `derive`). Three forms in body-statement position: (1) `each name=x in=xs` → `for (const x of xs)`; (2) `each name=x index=i in=xs` → `for (const [i, x] of xs.entries())`; (3) `each pairKey=k pairValue=v in=map` → `for (const [k, v] of map)` (TS) / `for k, v in map.items():` (Python). Add `type=` to preserve a TS item binding annotation in body-statement form (`each name=x type=User in=users` → `for (const x: User of users)`). Add `await=true` for async iterables (`for await` / `async for`); it cannot be combined with `index=` and is rejected inside render JSX. Async pair-mode expects an async iterable of pairs, not a mapping (`async for k, v in stream`). In pair-mode `name` is optional. `key=` (render-only) is the React render key, distinct from `pairKey=`.',
+      'Iteration — renders children for each item in a collection. Inside a render block emits `items.map(...)` with auto-key; elsewhere emits `for...of`. `let` children become iteration-scoped `const` bindings inside the callback (hook-safe, unlike `derive`). Three forms in body-statement position: (1) `each name=x in=xs` → `for (const x of xs)`; (2) `each name=x index=i in=xs` → `for (const [i, x] of xs.entries())`; (3) `each pairKey=k pairValue=v in=map` → `for (const [k, v] of map)` (TS) / `for k, v in map.items():` (Python). Use `entries=true` with pair-mode for object/dict entries: `each pairKey=k pairValue=v in=obj entries=true` lowers to `Object.entries(obj)` on TS and `obj.items()` on Python. Add `type=` to preserve a TS item binding annotation in body-statement form (`each name=x type=User in=users` → `for (const x: User of users)`). Add `await=true` for async iterables (`for await` / `async for`); it cannot be combined with `index=` and is rejected inside render JSX. Async pair-mode expects an async iterable of pairs, not a mapping (`async for k, v in stream`). In pair-mode `name` is optional. `key=` (render-only) is the React render key, distinct from `pairKey=`.',
     example:
       'each name=f in=files index=i key="f.path"\n  let name=isSel expr="focused && i === selIdx"\n  handler <<<\n    <Text bold={isSel}>{f.path}</Text>\n  >>>',
     props: {
@@ -1308,6 +1308,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       type: { kind: 'typeAnnotation' },
       pairKey: { kind: 'identifier' },
       pairValue: { kind: 'identifier' },
+      entries: { kind: 'boolean' },
       await: { kind: 'boolean' },
     },
     // Intentionally unrestricted — statement-form `each` composes with `derive`,
@@ -3282,6 +3283,7 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[], parent?: I
     const hasIndex = isPairProp(props.index);
     const hasType = isPairProp(props.type);
     const hasAwait = props.await === true || props.await === 'true';
+    const hasEntries = props.entries === true || props.entries === 'true';
     if (hasPairKey !== hasPairValue) {
       violations.push({
         nodeType: 'each',
@@ -3310,6 +3312,22 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[], parent?: I
       violations.push({
         nodeType: 'each',
         message: "'each await=true' is mutually exclusive with 'index='",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasEntries && (!hasPairKey || !hasPairValue)) {
+      violations.push({
+        nodeType: 'each',
+        message: "'each entries=true' requires pair-mode ('pairKey'+'pairValue')",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasEntries && hasAwait) {
+      violations.push({
+        nodeType: 'each',
+        message: "'each entries=true' is mutually exclusive with 'await=true'",
         line: node.loc?.line,
         col: node.loc?.col,
       });

@@ -122,6 +122,31 @@ export function canonicalKernExpression(exprText: string): string | null {
   return printed.replace(/\r?\n\s*/g, ' ');
 }
 
+export function canonicalObjectEntriesSource(expr: ts.Expression, sf: ts.SourceFile): string | null {
+  const unwrapped = unwrapExpressionForShape(expr);
+  if (!ts.isCallExpression(unwrapped) || unwrapped.arguments.length !== 1) return null;
+  const callee = unwrapped.expression;
+  if (!ts.isPropertyAccessExpression(callee)) return null;
+  if (callee.name.text !== 'entries') return null;
+  if (!ts.isIdentifier(callee.expression) || callee.expression.text !== 'Object') return null;
+  return canonicalKernExpression(unwrapped.arguments[0].getText(sf));
+}
+
+function unwrapExpressionForShape(expr: ts.Expression): ts.Expression {
+  let current = expr;
+  while (true) {
+    if (ts.isParenthesizedExpression(current)) {
+      current = current.expression;
+      continue;
+    }
+    if (ts.isAsExpression(current) || ts.isTypeAssertionExpression(current) || ts.isSatisfiesExpression(current)) {
+      current = current.expression;
+      continue;
+    }
+    return current;
+  }
+}
+
 const canonicalPrinter = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed, removeComments: true });
 
 function hasMultilineTemplate(node: ts.Node, sf: ts.SourceFile): boolean {
@@ -461,7 +486,10 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
     if (!ts.isIdentifier(decl.name)) {
       const pairReason = classifyForOfPairBinding(decl.name);
       if (pairReason !== null) return pairReason;
-      if (!stmt.awaitModifier) return 'for-of-sync-pair';
+      if (stmt.awaitModifier && canonicalObjectEntriesSource(stmt.expression, sf) !== null) {
+        return 'for-of-async-object-entries';
+      }
+      if (!stmt.awaitModifier && canonicalObjectEntriesSource(stmt.expression, sf) === null) return 'for-of-sync-pair';
       if (decl.type) return 'for-of-destructure-type';
     } else if (decl.type && !isValidKernTypeAnnotation(decl.type.getText(sf))) {
       return 'for-of-bad-type';

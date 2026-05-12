@@ -37,6 +37,7 @@ describe('review baseline helpers', () => {
           message: 'A',
           primarySpan: { file: 'a.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
           fingerprint: 'fp-a',
+          confidence: 0.9,
         },
       ]),
     ]);
@@ -58,6 +59,7 @@ describe('review baseline helpers', () => {
           message: 'A',
           primarySpan: { file: 'a.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
           fingerprint: 'fp-a',
+          confidence: 0.9,
         },
       ]),
     ]);
@@ -74,6 +76,7 @@ describe('review baseline helpers', () => {
             message: 'A',
             primarySpan: { file: 'a.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
             fingerprint: 'fp-a',
+            confidence: 0.9,
           },
           {
             source: 'kern',
@@ -83,6 +86,7 @@ describe('review baseline helpers', () => {
             message: 'B',
             primarySpan: { file: 'a.ts', startLine: 2, startCol: 1, endLine: 2, endCol: 1 },
             fingerprint: 'fp-b',
+            confidence: 0.8,
           },
         ]),
       ],
@@ -105,6 +109,7 @@ describe('review baseline helpers', () => {
           message: 'A',
           primarySpan: { file: 'a.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
           fingerprint: 'fp-a',
+          confidence: 0.9,
         },
         {
           source: 'kern',
@@ -114,6 +119,7 @@ describe('review baseline helpers', () => {
           message: 'B',
           primarySpan: { file: 'a.ts', startLine: 2, startCol: 1, endLine: 2, endCol: 1 },
           fingerprint: 'fp-b',
+          confidence: 0.8,
         },
       ]),
     ];
@@ -127,6 +133,7 @@ describe('review baseline helpers', () => {
           message: 'A',
           primarySpan: { file: 'a.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
           fingerprint: 'fp-a',
+          confidence: 0.9,
         },
       ]),
     ]);
@@ -147,6 +154,7 @@ describe('review baseline helpers', () => {
       message: 'A',
       primarySpan: { file: 'a.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
       fingerprint: 'fp-a',
+      confidence: 0.9,
     };
 
     const reports = [{ ...report('a.ts', [finding]), suppressedFindings: [finding] }];
@@ -170,6 +178,7 @@ describe('review baseline helpers', () => {
       message: 'A',
       primarySpan: { file: 'a.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
       fingerprint: 'fp-a',
+      confidence: 0.9,
     };
 
     const reports = [report('a.ts', [finding])];

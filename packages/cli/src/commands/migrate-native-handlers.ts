@@ -18,6 +18,7 @@
 
 import {
   canonicalKernExpression,
+  canonicalObjectEntriesSource,
   classifyHandlerBody,
   escapeKernString,
   hasOnlyMigratableComments,
@@ -410,15 +411,19 @@ function mapForOf(stmt: ts.ForOfStatement, source: ts.SourceFile, indent: string
   const pair = parseForOfPairBinding(decl.name);
   let out: string[];
   if (pair) {
-    // Only async pair loops are migrated automatically. Sync pair-mode is
-    // ambiguous across targets: TS can iterate any iterable of pairs, while
-    // Python pair-mode emits mapping `.items()`. Authors can still hand-write
-    // `each pairKey=/pairValue=` when the source is intentionally map/dict-shaped.
-    if (!stmt.awaitModifier) return null;
     if (typeText) return null;
-    out = [
-      `${indent}each pairKey=${pair.key} pairValue=${pair.value} in="${escapeKernString(canonicalCollection)}"${awaitAttr}`,
-    ];
+    const entriesSource = canonicalObjectEntriesSource(stmt.expression, source);
+    if (stmt.awaitModifier && entriesSource !== null) return null;
+    if (stmt.awaitModifier) {
+      out = [
+        `${indent}each pairKey=${pair.key} pairValue=${pair.value} in="${escapeKernString(canonicalCollection)}"${awaitAttr}`,
+      ];
+    } else {
+      if (entriesSource === null) return null;
+      out = [
+        `${indent}each pairKey=${pair.key} pairValue=${pair.value} in="${escapeKernString(entriesSource)}" entries=true`,
+      ];
+    }
   } else {
     if (!ts.isIdentifier(decl.name)) return null;
     if (typeText && !isValidKernTypeAnnotation(typeText)) return null;

@@ -115,12 +115,47 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
-  test('does not auto-migrate sync destructured pair for-of block', () => {
+  test('does not auto-migrate arbitrary sync destructured pair for-of block', () => {
     const source = [
       'fn name=notify returns=void',
       '  handler <<<',
-      '    for (const [key, value] of cache) {',
+      '    for (const [key, value] of pairs) {',
       '      notify(key, value);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
+
+  test('migrates Object.entries pair for-of block to entries-mode each', () => {
+    const source = [
+      'fn name=notify returns=void',
+      '  handler <<<',
+      '    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {',
+      '      notify(key, value);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toContain(
+      'each pairKey=key pairValue=value in="raw as Record<string, unknown>" entries=true',
+    );
+    expect(result.output).toContain('do value="notify(key, value)"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('does not migrate async Object.entries pair for-of block', () => {
+    const source = [
+      'fn name=notify returns=void async=true',
+      '  handler <<<',
+      '    for await (const [key, value] of Object.entries(raw)) {',
+      '      await notify(key, value);',
       '    }',
       '  >>>',
     ].join('\n');
@@ -1589,11 +1624,11 @@ describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalenc
     );
   });
 
-  test('sync destructured pair for-of remains raw to avoid Python target drift', () => {
+  test('arbitrary sync destructured pair for-of remains raw to avoid Python target drift', () => {
     const source = [
       'fn name=notify returns=void',
       '  handler <<<',
-      '    for (const [key, value] of cache) {',
+      '    for (const [key, value] of pairs) {',
       '      if (skip(key)) {',
       '        continue;',
       '      }',
@@ -1604,6 +1639,29 @@ describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalenc
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(0);
     expect(result.output).toBe(source);
+  });
+
+  test('Object.entries pair for-of compiles byte-equivalent through entries-mode each', () => {
+    const source = [
+      'fn name=notify returns=void',
+      '  handler <<<',
+      '    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {',
+      '      notify(key, value);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(
+      [
+        'for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {',
+        '  notify(key, value);',
+        '}',
+      ].join('\n'),
+    );
   });
 
   test('destructured pair for-await-of compiles byte-equivalent through async pair-mode each', () => {

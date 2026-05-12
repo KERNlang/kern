@@ -341,6 +341,7 @@ function emitChildrenPy(
         const pairKey = child.props?.pairKey;
         const pairValue = child.props?.pairValue;
         const isAwait = child.props?.await === true || child.props?.await === 'true';
+        const entriesMode = child.props?.entries === true || child.props?.entries === 'true';
         if (isAwait && child.props?.index) {
           throw new Error('body-statement `each await=true` cannot be combined with `index=`.');
         }
@@ -351,6 +352,9 @@ function emitChildrenPy(
         // OR pass the iterable directly via `in=`). Schema/cross-prop rules
         // already enforce mutual exclusion with `index=`.
         if (pairKey && pairValue) {
+          if (entriesMode && isAwait) {
+            throw new Error('body-statement `each entries=true` cannot be combined with `await=true`.');
+          }
           const k = String(pairKey);
           const v = String(pairValue);
           const sourceExpr = emitPyExprCtx(listIR, ctx);
