@@ -1048,6 +1048,16 @@ const REGISTRY: RuleInfo[] = [
     description: 'Top-level named KERN declaration defined in multiple files',
   },
   {
+    id: 'dry-duplicate-handlers',
+    layer: 'cross-file',
+    severity: 'info',
+    description:
+      'Handler body is structurally near-identical to one or more other handlers — consider extracting a shared helper',
+    precision: 'medium',
+    ciDefault: 'guarded',
+    requires: ['graph'],
+  },
+  {
     id: 'suggest-kern-primitive',
     layer: 'kern-source',
     severity: 'info',
@@ -1467,6 +1477,7 @@ const LAYER_TARGET_MAP: Record<string, string[] | null> = {
   vue: ['vue', 'nuxt'],
   ink: ['ink'],
   'kern-source': null,
+  'cross-file': null, // always active — operates on graph-level reports
   terminal: ['terminal'],
   nextjs: ['nextjs'],
   'nextjs-app-router': ['nextjs'],
