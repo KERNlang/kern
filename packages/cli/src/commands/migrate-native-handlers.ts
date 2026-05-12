@@ -18,6 +18,7 @@
 
 import {
   canonicalKernExpression,
+  canonicalObjectEntriesSource,
   classifyHandlerBody,
   escapeKernString,
   hasOnlyMigratableComments,
@@ -401,27 +402,37 @@ function mapForOf(stmt: ts.ForOfStatement, source: ts.SourceFile, indent: string
   if (!ts.isBlock(stmt.statement)) return null;
   if (stmt.statement.statements.length === 0) return null;
 
-  const collectionText = stmt.expression.getText(source);
-  const canonicalCollection = canonicalKernExpression(collectionText);
-  if (canonicalCollection === null) return null;
-
   const innerIndent = indent + INDENT_STEP;
   const awaitAttr = stmt.awaitModifier ? ' await=true' : '';
-  const pair = parseForOfPairBinding(decl.name);
+  const entryBinding = parseForOfEntryBinding(decl.name);
   let out: string[];
-  if (pair) {
-    // Only async pair loops are migrated automatically. Sync pair-mode is
-    // ambiguous across targets: TS can iterate any iterable of pairs, while
-    // Python pair-mode emits mapping `.items()`. Authors can still hand-write
-    // `each pairKey=/pairValue=` when the source is intentionally map/dict-shaped.
-    if (!stmt.awaitModifier) return null;
+  if (entryBinding?.kind === 'pair') {
     if (typeText) return null;
-    out = [
-      `${indent}each pairKey=${pair.key} pairValue=${pair.value} in="${escapeKernString(canonicalCollection)}"${awaitAttr}`,
-    ];
+    const entriesSource = canonicalObjectEntriesSource(stmt.expression, source);
+    if (stmt.awaitModifier && entriesSource !== null) return null;
+    if (stmt.awaitModifier) {
+      const canonicalCollection = canonicalKernExpression(stmt.expression.getText(source));
+      if (canonicalCollection === null) return null;
+      out = [
+        `${indent}each pairKey=${entryBinding.key} pairValue=${entryBinding.value} in="${escapeKernString(canonicalCollection)}"${awaitAttr}`,
+      ];
+    } else {
+      if (entriesSource === null) return null;
+      out = [
+        `${indent}each pairKey=${entryBinding.key} pairValue=${entryBinding.value} in="${escapeKernString(entriesSource)}" entries=true`,
+      ];
+    }
+  } else if (entryBinding?.kind === 'key' || entryBinding?.kind === 'value') {
+    if (typeText || stmt.awaitModifier) return null;
+    const entriesSource = canonicalObjectEntriesSource(stmt.expression, source);
+    if (entriesSource === null) return null;
+    const prop = entryBinding.kind === 'key' ? `entryKey=${entryBinding.name}` : `entryValue=${entryBinding.name}`;
+    out = [`${indent}each ${prop} in="${escapeKernString(entriesSource)}" entries=true`];
   } else {
     if (!ts.isIdentifier(decl.name)) return null;
     if (typeText && !isValidKernTypeAnnotation(typeText)) return null;
+    const canonicalCollection = canonicalKernExpression(stmt.expression.getText(source));
+    if (canonicalCollection === null) return null;
     const typeAttr = typeText ? ` type="${escapeKernString(typeText)}"` : '';
     out = [`${indent}each name=${decl.name.text} in="${escapeKernString(canonicalCollection)}"${typeAttr}${awaitAttr}`];
   }
@@ -431,14 +442,30 @@ function mapForOf(stmt: ts.ForOfStatement, source: ts.SourceFile, indent: string
   return out;
 }
 
-function parseForOfPairBinding(name: ts.BindingName): { key: string; value: string } | null {
+function parseForOfEntryBinding(
+  name: ts.BindingName,
+): { kind: 'pair'; key: string; value: string } | { kind: 'key' | 'value'; name: string } | null {
   if (!ts.isArrayBindingPattern(name)) return null;
+  if (name.elements.length === 1) {
+    const [element] = name.elements;
+    if (ts.isOmittedExpression(element)) return null;
+    if (element.dotDotDotToken || element.initializer) return null;
+    if (!ts.isIdentifier(element.name)) return null;
+    return { kind: 'key', name: element.name.text };
+  }
   if (name.elements.length !== 2) return null;
   const [keyEl, valueEl] = name.elements;
-  if (ts.isOmittedExpression(keyEl) || ts.isOmittedExpression(valueEl)) return null;
-  if (keyEl.dotDotDotToken || valueEl.dotDotDotToken || keyEl.initializer || valueEl.initializer) return null;
-  if (!ts.isIdentifier(keyEl.name) || !ts.isIdentifier(valueEl.name)) return null;
-  return { key: keyEl.name.text, value: valueEl.name.text };
+  if (!ts.isOmittedExpression(keyEl)) {
+    if (keyEl.dotDotDotToken || keyEl.initializer) return null;
+    if (!ts.isIdentifier(keyEl.name)) return null;
+  }
+  if (ts.isOmittedExpression(valueEl)) return null;
+  if (valueEl.dotDotDotToken || valueEl.initializer) return null;
+  if (!ts.isIdentifier(valueEl.name)) return null;
+  if (ts.isOmittedExpression(keyEl)) return { kind: 'value', name: valueEl.name.text };
+  const keyName = keyEl.name;
+  if (!ts.isIdentifier(keyName)) return null;
+  return { kind: 'pair', key: keyName.text, value: valueEl.name.text };
 }
 
 function mapWhile(stmt: ts.WhileStatement, source: ts.SourceFile, indent: string, ctx: MapContext): string[] | null {

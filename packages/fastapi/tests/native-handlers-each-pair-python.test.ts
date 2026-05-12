@@ -6,7 +6,7 @@
  *  passed through `.items()` upstream OR call sites should use the regular
  *  `each name=x in=pairs` form. */
 
-import type { IRNode } from '@kernlang/core';
+import { type IRNode, parseDocumentStrict } from '@kernlang/core';
 import { emitNativeKernBodyPython } from '../src/codegen-body-python.js';
 
 function makeHandler(children: IRNode[]): IRNode {
@@ -25,6 +25,88 @@ describe('each pair-mode — Python target', () => {
     const out = emitNativeKernBodyPython(handler);
     expect(out).toContain('for k, v in cache.items():');
     expect(out).toContain('log(k, v)');
+  });
+
+  test('pairKey + pairValue + entries=true keeps dict.items() iteration', () => {
+    const handler = makeHandler([
+      {
+        type: 'each',
+        props: { pairKey: 'k', pairValue: 'v', in: 'record', entries: true },
+        children: [{ type: 'do', props: { value: 'log(k, v)' } }],
+      },
+    ]);
+    const out = emitNativeKernBodyPython(handler);
+    expect(out).toContain('for k, v in record.items():');
+    expect(out).toContain('log(k, v)');
+  });
+
+  test('entryKey emits dict.keys() iteration', () => {
+    const handler = makeHandler([
+      {
+        type: 'each',
+        props: { entryKey: 'k', in: 'record', entries: true },
+        children: [{ type: 'do', props: { value: 'log(k)' } }],
+      },
+    ]);
+    const out = emitNativeKernBodyPython(handler);
+    expect(out).toContain('for k in record.keys():');
+    expect(out).toContain('log(k)');
+  });
+
+  test('entryValue emits dict.values() iteration', () => {
+    const handler = makeHandler([
+      {
+        type: 'each',
+        props: { entryValue: 'v', in: 'record', entries: true },
+        children: [{ type: 'do', props: { value: 'log(v)' } }],
+      },
+    ]);
+    const out = emitNativeKernBodyPython(handler);
+    expect(out).toContain('for v in record.values():');
+    expect(out).toContain('log(v)');
+  });
+
+  test('parsed entries=true KERN handler emits Python dict.items() iteration', () => {
+    const root = parseDocumentStrict(
+      [
+        'fn name=scan returns=void',
+        '  handler lang=kern',
+        '    each pairKey=k pairValue=v in="record" entries=true',
+        '      do value="log(k, v)"',
+      ].join('\n'),
+    );
+    const fn = root.children?.[0] as IRNode;
+    const handler = fn.children?.find((child) => child.type === 'handler') as IRNode;
+    const out = emitNativeKernBodyPython(handler);
+    expect(out).toContain('for k, v in record.items():');
+    expect(out).toContain('log(k, v)');
+  });
+
+  test('parsed entryKey entries=true KERN handler emits Python dict.keys() iteration', () => {
+    const root = parseDocumentStrict(
+      [
+        'fn name=scan returns=void',
+        '  handler lang=kern',
+        '    each entryKey=k in="record" entries=true',
+        '      do value="log(k)"',
+      ].join('\n'),
+    );
+    const fn = root.children?.[0] as IRNode;
+    const handler = fn.children?.find((child) => child.type === 'handler') as IRNode;
+    const out = emitNativeKernBodyPython(handler);
+    expect(out).toContain('for k in record.keys():');
+    expect(out).toContain('log(k)');
+  });
+
+  test('pairKey + pairValue + entries=true rejects async iteration', () => {
+    const handler = makeHandler([
+      {
+        type: 'each',
+        props: { pairKey: 'k', pairValue: 'v', in: 'record', entries: true, await: true },
+        children: [{ type: 'do', props: { value: 'log(k, v)' } }],
+      },
+    ]);
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/entries=true/);
   });
 
   test('plain `name=` regression — still emits gensym + alias form', () => {

@@ -49,6 +49,67 @@ describe('each pair-mode — TS target', () => {
     expect(out).not.toContain('.entries()');
   });
 
+  test('pairKey + pairValue + entries=true emits Object.entries for object records', () => {
+    const handler = makeHandler([
+      {
+        type: 'each',
+        props: { pairKey: 'k', pairValue: 'v', in: 'record', entries: true },
+        children: [{ type: 'do', props: { value: 'log(k, v)' } }],
+      },
+    ]);
+    const out = emitNativeKernBodyTS(handler);
+    expect(out).toContain('for (const [k, v] of Object.entries(record)) {');
+    expect(out).toContain('log(k, v);');
+  });
+
+  test('entryKey + entries=true emits Object.entries key-only destructuring', () => {
+    const handler = makeHandler([
+      {
+        type: 'each',
+        props: { entryKey: 'k', in: 'record', entries: true },
+        children: [{ type: 'do', props: { value: 'log(k)' } }],
+      },
+    ]);
+    const out = emitNativeKernBodyTS(handler);
+    expect(out).toContain('for (const [k] of Object.entries(record)) {');
+    expect(out).toContain('log(k);');
+  });
+
+  test('entryValue + entries=true emits Object.entries value-only destructuring', () => {
+    const handler = makeHandler([
+      {
+        type: 'each',
+        props: { entryValue: 'v', in: 'record', entries: true },
+        children: [{ type: 'do', props: { value: 'log(v)' } }],
+      },
+    ]);
+    const out = emitNativeKernBodyTS(handler);
+    expect(out).toContain('for (const [, v] of Object.entries(record)) {');
+    expect(out).toContain('log(v);');
+  });
+
+  test('entryKey without entries=true is rejected by TS body emitter', () => {
+    const handler = makeHandler([
+      {
+        type: 'each',
+        props: { entryKey: 'k', in: 'record' },
+        children: [{ type: 'do', props: { value: 'log(k)' } }],
+      },
+    ]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/requires `entries=true`/);
+  });
+
+  test('pairKey + pairValue + entries=true rejects async iteration', () => {
+    const handler = makeHandler([
+      {
+        type: 'each',
+        props: { pairKey: 'k', pairValue: 'v', in: 'record', entries: true, await: true },
+        children: [{ type: 'do', props: { value: 'log(k, v)' } }],
+      },
+    ]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/entries=true/);
+  });
+
   test('pairKey + pairValue rejects type= because type annotates the simple item binding', () => {
     const handler = makeHandler([
       {
@@ -134,6 +195,21 @@ describe('each pair-mode — schema validation', () => {
     expect(violations.filter((v) => v.message.includes("requires prop 'name'"))).toHaveLength(0);
   });
 
+  test('entryKey and entryValue modes are schema-valid without name=', () => {
+    for (const props of [
+      { entryKey: 'k', in: 'cache', entries: true },
+      { entryValue: 'v', in: 'cache', entries: true },
+    ]) {
+      const node: IRNode = {
+        type: 'fn',
+        props: { name: 'iter', returns: 'void' },
+        children: [{ type: 'handler', props: { lang: 'kern' }, children: [{ type: 'each', props, children: [] }] }],
+      };
+      const violations = validateSchema(node);
+      expect(violations.filter((v) => v.message.includes("requires prop 'name'"))).toHaveLength(0);
+    }
+  });
+
   test('pairKey alone (without pairValue) is rejected', () => {
     const node: IRNode = {
       type: 'each',
@@ -172,6 +248,76 @@ describe('each pair-mode — schema validation', () => {
     };
     const violations = validateSchema(node);
     expect(violations.some((v) => v.message.includes('await=true'))).toBe(true);
+  });
+
+  test('entries=true without keyed-entry mode is rejected', () => {
+    const node: IRNode = {
+      type: 'each',
+      props: { name: 'item', entries: true, in: 'record' },
+      children: [],
+    };
+    const violations = validateSchema(node);
+    expect(violations.some((v) => v.message.includes('entries=true') && v.message.includes('keyed-entry'))).toBe(true);
+  });
+
+  test('entries=true + await=true is rejected at schema level', () => {
+    const node: IRNode = {
+      type: 'each',
+      props: { pairKey: 'k', pairValue: 'v', entries: true, await: true, in: 'record' },
+      children: [],
+    };
+    const violations = validateSchema(node);
+    expect(violations.some((v) => v.message.includes('entries=true') && v.message.includes('await=true'))).toBe(true);
+  });
+
+  test('entryKey + entryValue is rejected (choose one one-binding entry mode)', () => {
+    const node: IRNode = {
+      type: 'each',
+      props: { entryKey: 'k', entryValue: 'v', in: 'cache' },
+      children: [],
+    };
+    const violations = validateSchema(node);
+    expect(violations.some((v) => v.message.includes('keyed-entry modes are mutually exclusive'))).toBe(true);
+  });
+
+  test('entryKey without entries=true is rejected', () => {
+    const node: IRNode = {
+      type: 'each',
+      props: { entryKey: 'k', in: 'cache' },
+      children: [],
+    };
+    const violations = validateSchema(node);
+    expect(violations.some((v) => v.message.includes('requires entries=true'))).toBe(true);
+  });
+
+  test('entryKey + index= is rejected', () => {
+    const node: IRNode = {
+      type: 'each',
+      props: { entryKey: 'k', index: 'i', in: 'cache', entries: true },
+      children: [],
+    };
+    const violations = validateSchema(node);
+    expect(violations.some((v) => v.message.includes("mutually exclusive with 'index='"))).toBe(true);
+  });
+
+  test('entryValue + type= is rejected', () => {
+    const node: IRNode = {
+      type: 'each',
+      props: { entryValue: 'v', type: 'Value', in: 'cache', entries: true },
+      children: [],
+    };
+    const violations = validateSchema(node);
+    expect(violations.some((v) => v.message.includes("mutually exclusive with 'type='"))).toBe(true);
+  });
+
+  test('entryKey + await=true is rejected', () => {
+    const node: IRNode = {
+      type: 'each',
+      props: { entryKey: 'k', await: true, in: 'stream', entries: true },
+      children: [],
+    };
+    const violations = validateSchema(node);
+    expect(violations.some((v) => v.message.includes('entryKey') && v.message.includes('await=true'))).toBe(true);
   });
 
   test('non-pair-mode each still requires name= (regression)', () => {
@@ -232,7 +378,51 @@ describe('each pair-mode — semantic validation (render scope)', () => {
       ],
     };
     const violations = validateSemantics(tree);
-    expect(violations.some((v) => v.rule === 'each-pair-mode-body-stmt-only')).toBe(true);
+    expect(violations.some((v) => v.rule === 'each-keyed-mode-body-stmt-only')).toBe(true);
+  });
+
+  test('entryKey inside render is rejected', () => {
+    const tree: IRNode = {
+      type: 'screen',
+      props: { name: 'CacheView' },
+      children: [
+        {
+          type: 'render',
+          props: {},
+          children: [
+            {
+              type: 'each',
+              props: { entryKey: 'k', in: 'cache' },
+              children: [{ type: 'handler', props: {}, children: [] }],
+            },
+          ],
+        },
+      ],
+    };
+    const violations = validateSemantics(tree);
+    expect(violations.some((v) => v.rule === 'each-keyed-mode-body-stmt-only')).toBe(true);
+  });
+
+  test('entryValue inside render is rejected', () => {
+    const tree: IRNode = {
+      type: 'screen',
+      props: { name: 'CacheView' },
+      children: [
+        {
+          type: 'render',
+          props: {},
+          children: [
+            {
+              type: 'each',
+              props: { entryValue: 'v', in: 'cache' },
+              children: [{ type: 'handler', props: {}, children: [] }],
+            },
+          ],
+        },
+      ],
+    };
+    const violations = validateSemantics(tree);
+    expect(violations.some((v) => v.rule === 'each-keyed-mode-body-stmt-only')).toBe(true);
   });
 
   test('pair-mode outside render is accepted', () => {
@@ -254,6 +444,6 @@ describe('each pair-mode — semantic validation (render scope)', () => {
       ],
     };
     const violations = validateSemantics(tree);
-    expect(violations.filter((v) => v.rule === 'each-pair-mode-body-stmt-only')).toHaveLength(0);
+    expect(violations.filter((v) => v.rule === 'each-keyed-mode-body-stmt-only')).toHaveLength(0);
   });
 });

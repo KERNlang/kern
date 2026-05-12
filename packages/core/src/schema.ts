@@ -1291,15 +1291,15 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   each: {
     description:
-      'Iteration — renders children for each item in a collection. Inside a render block emits `items.map(...)` with auto-key; elsewhere emits `for...of`. `let` children become iteration-scoped `const` bindings inside the callback (hook-safe, unlike `derive`). Three forms in body-statement position: (1) `each name=x in=xs` → `for (const x of xs)`; (2) `each name=x index=i in=xs` → `for (const [i, x] of xs.entries())`; (3) `each pairKey=k pairValue=v in=map` → `for (const [k, v] of map)` (TS) / `for k, v in map.items():` (Python). Add `type=` to preserve a TS item binding annotation in body-statement form (`each name=x type=User in=users` → `for (const x: User of users)`). Add `await=true` for async iterables (`for await` / `async for`); it cannot be combined with `index=` and is rejected inside render JSX. Async pair-mode expects an async iterable of pairs, not a mapping (`async for k, v in stream`). In pair-mode `name` is optional. `key=` (render-only) is the React render key, distinct from `pairKey=`.',
+      'Iteration — renders children for each item in a collection. Inside a render block emits `items.map(...)` with auto-key; elsewhere emits `for...of`. `let` children become iteration-scoped `const` bindings inside the callback (hook-safe, unlike `derive`). Body-statement forms: (1) `each name=x in=xs` → `for (const x of xs)`; (2) `each name=x index=i in=xs` → `for (const [i, x] of xs.entries())`; (3) `each pairKey=k pairValue=v in=map` → `for (const [k, v] of map)` (TS) / `for k, v in map.items():` (Python). Use `entries=true` with keyed-entry modes for object/dict entries: `pairKey`/`pairValue` lowers to `Object.entries(obj)` / `obj.items()`, `entryKey` lowers to `Object.entries(obj)` / `obj.keys()`, and `entryValue` lowers to `Object.entries(obj)` / `obj.values()`. Add `type=` to preserve a TS item binding annotation in body-statement form (`each name=x type=User in=users` → `for (const x: User of users)`). Add `await=true` for async iterables (`for await` / `async for`); it cannot be combined with `index=` and is rejected inside render JSX. Async pair-mode expects an async iterable of pairs, not a mapping (`async for k, v in stream`). In keyed-entry modes `name` is optional. `key=` (render-only) is the React render key, distinct from `pairKey=` / `entryKey=`.',
     example:
       'each name=f in=files index=i key="f.path"\n  let name=isSel expr="focused && i === selIdx"\n  handler <<<\n    <Text bold={isSel}>{f.path}</Text>\n  >>>',
     props: {
       // `name` is required schema-side for the array-iteration forms; the
-      // pair-mode (`pairKey` + `pairValue`) form relaxes this via a
+      // keyed-entry (`pairKey` + `pairValue`, `entryKey`, `entryValue`) forms relax this via a
       // conditional-required exemption inside `checkRequiredProps` in this
-      // same file. (The `each-pair-mode-body-stmt-only` semantic rule in
-      // semantic-validator.ts is unrelated — it just blocks pair-mode in
+      // same file. (The `each-keyed-mode-body-stmt-only` semantic rule in
+      // semantic-validator.ts is unrelated — it just blocks keyed modes in
       // render/group ancestor scope.)
       name: { required: true, kind: 'identifier' },
       in: { required: true, kind: 'rawExpr' },
@@ -1308,6 +1308,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       type: { kind: 'typeAnnotation' },
       pairKey: { kind: 'identifier' },
       pairValue: { kind: 'identifier' },
+      entryKey: { kind: 'identifier' },
+      entryValue: { kind: 'identifier' },
+      entries: { kind: 'boolean' },
       await: { kind: 'boolean' },
     },
     // Intentionally unrestricted — statement-form `each` composes with `derive`,
@@ -2851,8 +2854,9 @@ function checkRequiredProps(node: IRNode, schema: NodeSchema, violations: Schema
     if (node.type === 'import' && propName === 'from' && parent?.type === 'extern') {
       continue;
     }
-    // each-pair-mode (2026-05-06): `name` becomes optional when both
-    // `pairKey` and `pairValue` are present (Map / iterable-of-pairs form).
+    // keyed-entry modes (2026-05-12): `name` becomes optional when either
+    // pair-mode (`pairKey` + `pairValue`) or one-binding entry-mode
+    // (`entryKey` / `entryValue`) is present.
     // The schema can't express conditional-required, so suppress the
     // `name`-required violation here under that exact shape. Other props
     // (notably `in=`) still error if missing.
@@ -2867,6 +2871,14 @@ function checkRequiredProps(node: IRNode, schema: NodeSchema, violations: Schema
       props.pairKey.length > 0 &&
       typeof props.pairValue === 'string' &&
       props.pairValue.length > 0
+    ) {
+      continue;
+    }
+    if (
+      node.type === 'each' &&
+      propName === 'name' &&
+      ((typeof props.entryKey === 'string' && props.entryKey.length > 0) ||
+        (typeof props.entryValue === 'string' && props.entryValue.length > 0))
     ) {
       continue;
     }
@@ -3262,7 +3274,7 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[], parent?: I
     }
   }
   if (node.type === 'each') {
-    // each-pair-mode (2026-05-06): the Map / iterable-of-pairs form uses
+    // keyed-entry modes (2026-05-12): the Map / iterable-of-pairs form uses
     // `pairKey=` + `pairValue=` for `for (const [k, v] of m)`. Three rules:
     //   1. pairKey and pairValue come as a pair — neither alone is meaningful.
     //   2. pair-mode is incompatible with `index=` (entries-with-index form).
@@ -3279,9 +3291,14 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[], parent?: I
     const isPairProp = (raw: unknown): raw is string => typeof raw === 'string' && raw.length > 0;
     const hasPairKey = isPairProp(props.pairKey);
     const hasPairValue = isPairProp(props.pairValue);
+    const hasEntryKey = isPairProp(props.entryKey);
+    const hasEntryValue = isPairProp(props.entryValue);
+    const hasFullPair = hasPairKey && hasPairValue;
+    const entryBindingCount = Number(hasFullPair) + Number(hasEntryKey) + Number(hasEntryValue);
     const hasIndex = isPairProp(props.index);
     const hasType = isPairProp(props.type);
     const hasAwait = props.await === true || props.await === 'true';
+    const hasEntries = props.entries === true || props.entries === 'true';
     if (hasPairKey !== hasPairValue) {
       violations.push({
         nodeType: 'each',
@@ -3290,18 +3307,26 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[], parent?: I
         col: node.loc?.col,
       });
     }
-    if (hasPairKey && hasPairValue && hasIndex) {
+    if (entryBindingCount > 1) {
       violations.push({
         nodeType: 'each',
-        message: "'each' pair-mode ('pairKey'+'pairValue') is mutually exclusive with 'index='",
+        message: "'each' keyed-entry modes are mutually exclusive: use pairKey+pairValue, entryKey, or entryValue",
         line: node.loc?.line,
         col: node.loc?.col,
       });
     }
-    if (hasPairKey && hasPairValue && hasType) {
+    if ((hasFullPair || hasEntryKey || hasEntryValue) && hasIndex) {
       violations.push({
         nodeType: 'each',
-        message: "'each' pair-mode ('pairKey'+'pairValue') is mutually exclusive with 'type='",
+        message: "'each' keyed-entry modes are mutually exclusive with 'index='",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if ((hasFullPair || hasEntryKey || hasEntryValue) && hasType) {
+      violations.push({
+        nodeType: 'each',
+        message: "'each' keyed-entry modes are mutually exclusive with 'type='",
         line: node.loc?.line,
         col: node.loc?.col,
       });
@@ -3310,6 +3335,38 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[], parent?: I
       violations.push({
         nodeType: 'each',
         message: "'each await=true' is mutually exclusive with 'index='",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasAwait && (hasEntryKey || hasEntryValue)) {
+      violations.push({
+        nodeType: 'each',
+        message: "'each await=true' is mutually exclusive with one-binding entry modes ('entryKey='/'entryValue=')",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasEntries && !hasFullPair && !hasEntryKey && !hasEntryValue) {
+      violations.push({
+        nodeType: 'each',
+        message: "'each entries=true' requires a keyed-entry mode ('pairKey'+'pairValue', 'entryKey', or 'entryValue')",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (!hasEntries && (hasEntryKey || hasEntryValue)) {
+      violations.push({
+        nodeType: 'each',
+        message: "'each entryKey='/entryValue=' requires entries=true for object/dict entry semantics",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasEntries && hasAwait) {
+      violations.push({
+        nodeType: 'each',
+        message: "'each entries=true' is mutually exclusive with 'await=true'",
         line: node.loc?.line,
         col: node.loc?.col,
       });

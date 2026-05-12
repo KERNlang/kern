@@ -290,18 +290,53 @@ function emitChildrenTS(
         // dispatch on shape only.
         const pairKey = child.props?.pairKey;
         const pairValue = child.props?.pairValue;
+        const entryKey = child.props?.entryKey;
+        const entryValue = child.props?.entryValue;
         const isAwait = child.props?.await === true || child.props?.await === 'true';
+        const entriesMode = child.props?.entries === true || child.props?.entries === 'true';
         const awaitPrefix = isAwait ? ' await' : '';
         const rawItemType = child.props?.type;
         const loopBindings: Array<[string, 'const' | 'let']> = [];
         if (pairKey && pairValue) {
+          if (entriesMode && isAwait) {
+            throw new Error('body-statement `each entries=true` cannot be combined with `await=true`.');
+          }
           if (rawItemType !== undefined && rawItemType !== '') {
             throw new Error('body-statement `each type=` cannot be combined with pair-mode `pairKey=`/`pairValue=`.');
           }
           loopBindings.push([String(pairKey), 'const'], [String(pairValue), 'const']);
+          const sourceExpr = emitExpression(listIR);
+          const iterableExpr = entriesMode ? `Object.entries(${sourceExpr})` : sourceExpr;
           lines.push(
-            `${indent}for${awaitPrefix} (const [${String(pairKey)}, ${String(pairValue)}] of ${emitExpression(listIR)}) {`,
+            `${indent}for${awaitPrefix} (const [${String(pairKey)}, ${String(pairValue)}] of ${iterableExpr}) {`,
           );
+        } else if (entryKey || entryValue) {
+          if (entriesMode && isAwait) {
+            throw new Error('body-statement `each entries=true` cannot be combined with `await=true`.');
+          }
+          if (!entriesMode) {
+            throw new Error('body-statement `each entryKey=`/`entryValue=` requires `entries=true`.');
+          }
+          if (isAwait) {
+            throw new Error('body-statement `each await=true` cannot be combined with `entryKey=`/`entryValue=`.');
+          }
+          if (rawItemType !== undefined && rawItemType !== '') {
+            throw new Error('body-statement `each type=` cannot be combined with keyed-entry modes.');
+          }
+          const sourceExpr = emitExpression(listIR);
+          const iterableExpr = `Object.entries(${sourceExpr})`;
+          if (entryKey && entryValue) {
+            throw new Error('body-statement `each` cannot combine `entryKey=` and `entryValue=`.');
+          }
+          if (entryKey) {
+            const keyName = String(entryKey);
+            loopBindings.push([keyName, 'const']);
+            lines.push(`${indent}for (const [${keyName}] of ${iterableExpr}) {`);
+          } else {
+            const valueName = String(entryValue);
+            loopBindings.push([valueName, 'const']);
+            lines.push(`${indent}for (const [, ${valueName}] of ${iterableExpr}) {`);
+          }
         } else if (child.props?.index) {
           const itemType = rawItemType ? emitTypeAnnotation(String(rawItemType), 'unknown', child) : '';
           const idxName = String(child.props.index);

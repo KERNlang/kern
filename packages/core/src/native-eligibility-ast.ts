@@ -122,6 +122,31 @@ export function canonicalKernExpression(exprText: string): string | null {
   return printed.replace(/\r?\n\s*/g, ' ');
 }
 
+export function canonicalObjectEntriesSource(expr: ts.Expression, sf: ts.SourceFile): string | null {
+  const unwrapped = unwrapExpressionForShape(expr);
+  if (!ts.isCallExpression(unwrapped) || unwrapped.arguments.length !== 1) return null;
+  const callee = unwrapped.expression;
+  if (!ts.isPropertyAccessExpression(callee)) return null;
+  if (callee.name.text !== 'entries') return null;
+  if (!ts.isIdentifier(callee.expression) || callee.expression.text !== 'Object') return null;
+  return canonicalKernExpression(unwrapped.arguments[0].getText(sf));
+}
+
+function unwrapExpressionForShape(expr: ts.Expression): ts.Expression {
+  let current = expr;
+  while (true) {
+    if (ts.isParenthesizedExpression(current)) {
+      current = current.expression;
+      continue;
+    }
+    if (ts.isAsExpression(current) || ts.isTypeAssertionExpression(current) || ts.isSatisfiesExpression(current)) {
+      current = current.expression;
+      continue;
+    }
+    return current;
+  }
+}
+
 const canonicalPrinter = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed, removeComments: true });
 
 function hasMultilineTemplate(node: ts.Node, sf: ts.SourceFile): boolean {
@@ -459,9 +484,13 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
     const decl = decls[0];
     if (decl.initializer) return 'for-of-init';
     if (!ts.isIdentifier(decl.name)) {
-      const pairReason = classifyForOfPairBinding(decl.name);
-      if (pairReason !== null) return pairReason;
-      if (!stmt.awaitModifier) return 'for-of-sync-pair';
+      const entryBinding = parseForOfEntryBinding(decl.name);
+      if (entryBinding === null) return 'for-of-destructure';
+      if (stmt.awaitModifier && canonicalObjectEntriesSource(stmt.expression, sf) !== null) {
+        return 'for-of-async-object-entries';
+      }
+      if (stmt.awaitModifier && entryBinding.kind !== 'pair') return 'for-of-async-entry';
+      if (!stmt.awaitModifier && canonicalObjectEntriesSource(stmt.expression, sf) === null) return 'for-of-sync-pair';
       if (decl.type) return 'for-of-destructure-type';
     } else if (decl.type && !isValidKernTypeAnnotation(decl.type.getText(sf))) {
       return 'for-of-bad-type';
@@ -518,19 +547,25 @@ function classifyDestructureDecl(decl: ts.VariableDeclaration, sf: ts.SourceFile
   return 'var-destructure';
 }
 
-function classifyForOfPairBinding(name: ts.BindingName): string | null {
-  if (!ts.isArrayBindingPattern(name)) return 'for-of-destructure';
-  if (name.elements.length !== 2) return 'for-of-destructure';
-  for (const element of name.elements) {
-    if (ts.isOmittedExpression(element)) return 'for-of-destructure';
-    if (element.dotDotDotToken || element.initializer) return 'for-of-destructure';
-    if (!ts.isIdentifier(element.name)) return 'for-of-destructure';
+function parseForOfEntryBinding(name: ts.BindingName): { kind: 'pair' | 'key' | 'value' } | null {
+  if (!ts.isArrayBindingPattern(name)) return null;
+  if (name.elements.length === 1) {
+    const [element] = name.elements;
+    if (ts.isOmittedExpression(element)) return null;
+    if (element.dotDotDotToken || element.initializer) return null;
+    if (!ts.isIdentifier(element.name)) return null;
+    return { kind: 'key' };
   }
-  // This maps only for `for await` loops. Sync pair-mode is ambiguous across
-  // targets: TS can iterate any iterable of pairs, while Python pair-mode emits
-  // mapping `.items()`. Hand-write `each pairKey=/pairValue=` when the source
-  // is intentionally map/dict-shaped.
-  return null;
+  if (name.elements.length !== 2) return null;
+  const [keyElement, valueElement] = name.elements;
+  if (!ts.isOmittedExpression(keyElement)) {
+    if (keyElement.dotDotDotToken || keyElement.initializer) return null;
+    if (!ts.isIdentifier(keyElement.name)) return null;
+  }
+  if (ts.isOmittedExpression(valueElement)) return null;
+  if (valueElement.dotDotDotToken || valueElement.initializer) return null;
+  if (!ts.isIdentifier(valueElement.name)) return null;
+  return ts.isOmittedExpression(keyElement) ? { kind: 'value' } : { kind: 'pair' };
 }
 
 function classifyBranch(node: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContext): string | null {

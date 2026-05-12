@@ -152,6 +152,7 @@ export {
 export type { AstEligibilityResult } from './native-eligibility-ast.js';
 export {
   canonicalKernExpression,
+  canonicalObjectEntriesSource,
   classifyHandlerBodyAst,
   hasComments,
   hasOnlyMigratableComments,
