@@ -123,6 +123,45 @@ export function processData(input: string, output: string): void {
     const results = analyzeTaint(inferred, 'utils.ts');
     expect(results.length).toBe(0);
   });
+
+  // Real-world FP observed on kern-guard middleware.ts: a comment containing
+  // "redirect target" tripped the redirect sink even though no redirect call
+  // touched the tainted variable. `findTaintedSinks` now strips comments
+  // before scanning.
+  it('does NOT flag sink names mentioned only in comments', () => {
+    const source = `
+export function handler(req: Request, res: Response): void {
+  const target = req.query.target;
+  // Build a redirect target — exec() would be unsafe here too
+  /*
+   * We previously called res.redirect(target) but switched to writing
+   * a hardcoded URL. The block comment must not retrigger the sink.
+   */
+  res.send({ url: '/safe-page' });
+}
+`;
+    const inferred = inferFromSource(source, 'handler.ts');
+    const results = analyzeTaint(inferred, 'handler.ts');
+    expect(results).toEqual([]);
+  });
+
+  // Sibling case — real sink alongside a sink name in a comment. Confirms
+  // we still detect the real call and don't accidentally strip live code.
+  it('still detects real sinks when comments also mention the sink name', () => {
+    const source = `
+export function handler(req: Request, res: Response): void {
+  const cmd = req.body.command;
+  // Note: exec() is dangerous with user input — sanitize first!
+  exec(cmd);
+}
+`;
+    const inferred = inferFromSource(source, 'handler.ts');
+    const results = analyzeTaint(inferred, 'handler.ts');
+    expect(results.length).toBe(1);
+    const unsanitized = results[0].paths.filter((p) => !p.sanitized);
+    expect(unsanitized.length).toBe(1);
+    expect(unsanitized[0].sink.category).toBe('command');
+  });
 });
 
 // ── Integration: taint findings in reviewSource ───────────────────────
