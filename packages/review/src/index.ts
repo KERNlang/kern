@@ -75,6 +75,7 @@ import { loadBuiltinNativeRules, loadNativeRules } from './rule-loader.js';
 import { applyOverlapCalibration, applyRoleAwareConfidence, applyRuleQualityCalibration } from './rule-quality.js';
 import { lintConfidenceGraph, lintMultiFileConfidenceGraph } from './rules/confidence.js';
 import { crossFileAsyncRule, deadExportRule } from './rules/dead-code.js';
+import { lintDryDuplicateHandlers } from './rules/dry-duplicate-handlers.js';
 import { runFastapiConceptRules } from './rules/fastapi.js';
 import { GROUND_LAYER_RULES } from './rules/ground-layer.js';
 import { KERN_SOURCE_RULES, lintKernSourceIR, missingConfidence } from './rules/kern-source.js';
@@ -1346,6 +1347,17 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
 
   const crossFileKernFindings = lintKernSourceCrossFile(reports);
   for (const finding of crossFileKernFindings) {
+    const targetReport = reports.find((r) => r.filePath === finding.primarySpan.file);
+    if (targetReport) {
+      targetReport.findings.push(finding);
+    }
+  }
+
+  // dry-duplicate-handlers — handler-body similarity across the whole graph.
+  // Always-on cross-file detector; per-finding noise is low because the
+  // emission rule is "one finding per duplicate group," not per occurrence.
+  const dryDuplicateFindings = lintDryDuplicateHandlers(reports);
+  for (const finding of dryDuplicateFindings) {
     const targetReport = reports.find((r) => r.filePath === finding.primarySpan.file);
     if (targetReport) {
       targetReport.findings.push(finding);
