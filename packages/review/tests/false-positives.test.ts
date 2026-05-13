@@ -105,6 +105,60 @@ export function doWork(): void {
     const fp = report.findings.find((f) => f.ruleId === 'floating-promise');
     expect(fp).toBeDefined();
   });
+
+  // Regression: kern-sight extension.ts ×8 — VS Code's registerCommand awaits
+  // the callback internally; any promise the body starts is handled by the
+  // host, so flagging them is noise. Same applies to other disposable APIs.
+  it('does NOT fire inside vscode.commands.registerCommand callback', () => {
+    const source = `
+declare const vscode: any;
+async function reload(): Promise<void> { /* ... */ }
+vscode.commands.registerCommand('ext.reload', () => {
+  reload();
+});
+`;
+    const report = reviewSource(source, 'extension.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'floating-promise');
+    expect(fp).toBeUndefined();
+  });
+
+  it('does NOT fire inside vscode.window.onDidChangeActiveTextEditor callback', () => {
+    const source = `
+declare const vscode: any;
+async function refresh(): Promise<void> { /* ... */ }
+vscode.window.onDidChangeActiveTextEditor(() => {
+  refresh();
+});
+`;
+    const report = reviewSource(source, 'extension.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'floating-promise');
+    expect(fp).toBeUndefined();
+  });
+
+  it('does NOT fire inside vscode.workspace.onDidChangeTextDocument callback', () => {
+    const source = `
+declare const vscode: any;
+async function rescan(): Promise<void> { /* ... */ }
+vscode.workspace.onDidChangeTextDocument(() => {
+  rescan();
+});
+`;
+    const report = reviewSource(source, 'extension.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'floating-promise');
+    expect(fp).toBeUndefined();
+  });
+
+  it('still fires on floating promises OUTSIDE vscode callbacks', () => {
+    const source = `
+declare const vscode: any;
+async function loadConfig(): Promise<void> { /* ... */ }
+loadConfig();
+vscode.commands.registerCommand('ext.noop', () => {});
+`;
+    const report = reviewSource(source, 'extension.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'floating-promise');
+    expect(fp).toBeDefined();
+  });
 });
 
 describe('False Positive Regression: state-mutation', () => {
