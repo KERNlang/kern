@@ -490,8 +490,10 @@ describe('golden: import', () => {
     );
 
     expect(output).toContain('export const demucsSidecarManifest = {');
-    expect(output).toContain('export const demucsSidecarClient = {');
+    expect(output).toContain('export const demucsSidecarClient = createDemucsSidecarClient(demucsSidecarManifest);');
     expect(output).toContain('packages: ["demucs", "fastapi"],');
+    expect(output).toContain('call(moduleName: string, method: string');
+    expect(output).toContain("spawn(python, ['-u', '-c'");
     expect(output).not.toContain("from 'demucs'");
     expect(output).not.toContain("from 'fastapi'");
   });
