@@ -19,6 +19,19 @@ export type ExternalImportTarget =
   | 'native'
   | 'web'
   | 'fastapi';
+export type CapabilityRuntime = 'node' | 'python' | 'browser' | 'host' | 'worker' | 'edge';
+export type CapabilityEffect =
+  | 'network'
+  | 'fs'
+  | 'exec'
+  | 'secret'
+  | 'stream'
+  | 'state'
+  | 'auth'
+  | 'cpu'
+  | 'validation'
+  | 'io';
+export type CapabilitySerialization = 'json' | 'stream' | 'handle' | 'none';
 
 const VALID_IMPORT_REGISTRIES = new Set(['host', 'npm', 'pypi', 'kern']);
 const VALID_IMPORT_TARGETS = new Set([
@@ -57,6 +70,31 @@ const TS_FAMILY_TARGETS = new Set([
   'web',
 ]);
 const PYTHON_FAMILY_TARGETS = new Set(['python', 'fastapi']);
+const VALID_CAPABILITY_RUNTIMES = new Set(['node', 'python', 'browser', 'host', 'worker', 'edge']);
+const VALID_CAPABILITY_EFFECTS = new Set([
+  'network',
+  'fs',
+  'exec',
+  'secret',
+  'stream',
+  'state',
+  'auth',
+  'cpu',
+  'validation',
+  'io',
+]);
+const VALID_CAPABILITY_SERIALIZATIONS = new Set(['json', 'stream', 'handle', 'none']);
+
+export function splitCapabilityList(value: unknown): string[] {
+  if (typeof value !== 'string') return [];
+  const trimmed = value.trim();
+  const unwrapped = trimmed.startsWith('[') && trimmed.endsWith(']') ? trimmed.slice(1, -1).trim() : trimmed;
+  if (unwrapped === '') return [];
+  return unwrapped
+    .split(',')
+    .map((part) => part.trim().replace(/^["']|["']$/gu, ''))
+    .filter(Boolean);
+}
 
 export function importRegistryOf(raw: unknown): ExternalImportRegistry {
   if (raw === undefined || raw === null || raw === '') return 'host';
@@ -126,6 +164,37 @@ export function validateImportMetadata(node: IRNode): string[] {
   }
   if (normalizedRegistry === 'pypi' && normalizedTarget !== 'python') {
     violations.push(`'${nodeLabel} registry=pypi' must target python/fastapi or omit target= so KERN can infer python`);
+  }
+
+  return violations;
+}
+
+export function validateCapabilityMetadata(node: IRNode): string[] {
+  const props = node.props ?? {};
+  const label = node.type;
+  const violations: string[] = [];
+
+  if (props.runtime !== undefined && props.runtime !== null && props.runtime !== '') {
+    const runtime = String(props.runtime).toLowerCase();
+    if (!VALID_CAPABILITY_RUNTIMES.has(runtime)) {
+      violations.push(`'${label} runtime=' must be one of node, python, browser, host, worker, edge`);
+    }
+  }
+
+  for (const effect of splitCapabilityList(props.effects)) {
+    const normalized = effect.toLowerCase();
+    if (!VALID_CAPABILITY_EFFECTS.has(normalized)) {
+      violations.push(
+        `'${label} effects=' contains unsupported effect '${effect}' (expected network, fs, exec, secret, stream, state, auth, cpu, validation, io)`,
+      );
+    }
+  }
+
+  if (props.serialization !== undefined && props.serialization !== null && props.serialization !== '') {
+    const serialization = String(props.serialization).toLowerCase();
+    if (!VALID_CAPABILITY_SERIALIZATIONS.has(serialization)) {
+      violations.push(`'${label} serialization=' must be one of json, stream, handle, none`);
+    }
   }
 
   return violations;

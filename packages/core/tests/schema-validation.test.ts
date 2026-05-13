@@ -171,6 +171,63 @@ describe('Schema Validation', () => {
       );
     });
 
+    it('passes capability island metadata and child imports', () => {
+      const v = validate(
+        [
+          'island engine Claude runtime=node effects=[network,stream,secret] serialization=stream requiresSidecar=false',
+          '  import npm "@anthropic-ai/sdk" as Anthropic',
+        ].join('\n'),
+      );
+      expect(v).toEqual([]);
+    });
+
+    it('flags invalid capability metadata values', () => {
+      const v = validate('island engine Bad runtime=wasm effects=[network,telepathy] serialization=pickle');
+      expect(v.some((violation) => violation.message.includes("'island runtime=' must be one of"))).toBe(true);
+      expect(v.some((violation) => violation.message.includes("unsupported effect 'telepathy'"))).toBe(true);
+      expect(v.some((violation) => violation.message.includes("'island serialization=' must be one of"))).toBe(true);
+    });
+
+    it('flags missing and empty island names', () => {
+      expect(validate('island runtime=node').some((v) => v.message.includes("'island' requires prop 'name'"))).toBe(
+        true,
+      );
+      expect(
+        validate('island engine runtime=node').some((v) => v.message.includes("'island' requires prop 'name'")),
+      ).toBe(true);
+      expect(
+        validate('island name="" runtime=node').some((v) =>
+          v.message.includes("'island name=' must be a non-empty identifier"),
+        ),
+      ).toBe(true);
+    });
+
+    it('keeps islands as import boundary metadata, not implementation containers', () => {
+      const v = validate(['island engine Claude runtime=node', '  fn name=run'].join('\n'));
+      expect(v.some((violation) => violation.message.includes("'island' does not allow child type 'fn'"))).toBe(true);
+    });
+
+    it('allows island nodes where externs are allowed in MCP and CLI parents', () => {
+      expect(
+        validate(
+          [
+            'mcp name=server',
+            '  island engine Claude runtime=node effects=[network,secret]',
+            '    import npm "@anthropic-ai/sdk" as Anthropic',
+          ].join('\n'),
+        ),
+      ).toEqual([]);
+      expect(
+        validate(
+          [
+            'cli name=tool',
+            '  command name=run',
+            '    island engine OpenCode runtime=node effects=[exec,stream] requiresSidecar=true',
+          ].join('\n'),
+        ),
+      ).toEqual([]);
+    });
+
     it('flags extern missing package', () => {
       const v = validate('extern registry=npm target=react names=useMemo');
       expect(v.some((v) => v.message.includes("'extern' requires prop 'package'"))).toBe(true);

@@ -1,6 +1,7 @@
 import type { IRNode, KernTarget, ResolvedKernConfig } from '@kernlang/core';
 import {
   ALL_TARGETS,
+  collectCapabilityIslands,
   collectExternalBoundaries,
   detectReactHookDeps,
   detectVersionsFromPackageJson,
@@ -144,6 +145,7 @@ async function compileDefaultSingle(
           success: shadowErrors === 0,
           diagnostics: [],
           schemaViolations: [],
+          capabilityIslands: collectCapabilityIslands(ast),
           externalBoundaries: collectExternalBoundaries(ast),
           shadowDiagnostics,
         });
@@ -390,6 +392,7 @@ export async function runCompile(args: string[]): Promise<void> {
                   success: shadowErrors === 0,
                   diagnostics: [],
                   schemaViolations: [],
+                  capabilityIslands: collectCapabilityIslands(shadowRoot),
                   externalBoundaries: collectExternalBoundaries(shadowRoot),
                   shadowDiagnostics,
                 });

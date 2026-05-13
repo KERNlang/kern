@@ -617,6 +617,13 @@ export interface ImportProps extends BaseProps {
   registry?: string;
   target?: string;
   package?: string;
+  version?: string;
+  review?: string;
+  reason?: string;
+  runtime?: string;
+  effects?: string;
+  serialization?: string;
+  requiresSidecar?: string | boolean;
 }
 
 export interface ExternProps extends BaseProps {
@@ -626,6 +633,21 @@ export interface ExternProps extends BaseProps {
   names?: string;
   types?: string | boolean;
   default?: string;
+  version?: string;
+  review?: string;
+  reason?: string;
+  runtime?: string;
+  effects?: string;
+  serialization?: string;
+  requiresSidecar?: string | boolean;
+}
+
+export interface IslandProps extends BaseProps {
+  kind?: string;
+  runtime?: string;
+  effects?: string;
+  serialization?: string;
+  requiresSidecar?: string | boolean;
   version?: string;
   review?: string;
   reason?: string;
@@ -854,6 +876,7 @@ export interface NodePropsMap {
   module: ModuleProps;
   import: ImportProps;
   extern: ExternProps;
+  island: IslandProps;
   field: FieldProps;
   param: ParamProps;
   getter: GetterProps;

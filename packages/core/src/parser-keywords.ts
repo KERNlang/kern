@@ -2,6 +2,7 @@
 import type { TokenStream } from './parser-token-stream.js';
 
 type KeywordHandler = (s: TokenStream, props: Record<string, unknown>, content: string) => void;
+const ISLAND_KIND_WORDS = new Set(['capability', 'engine', 'provider', 'service', 'sidecar']);
 
 /** Consume a bare identifier into props if it's not a key=value pair. */
 function consumeBareIdent(s: TokenStream, props: Record<string, unknown>, propName: string): void {
@@ -484,6 +485,30 @@ export const KEYWORD_HANDLERS = new Map<string, KeywordHandler>([
         s.skipWS();
         const name = s.tryIdent();
         if (name) props.name = name;
+      }
+    },
+  ],
+
+  [
+    'island',
+    (s, props) => {
+      s.skipWS();
+      if (s.isKeyValue()) return;
+      const first = s.tryIdent();
+      s.skipWS();
+      if (s.isKeyValue()) {
+        if (first && ISLAND_KIND_WORDS.has(first)) props.kind = first;
+        else if (first) props.name = first;
+        return;
+      }
+      const second = s.tryIdent();
+      if (first && second) {
+        props.kind = first;
+        props.name = second;
+      } else if (first && ISLAND_KIND_WORDS.has(first)) {
+        props.kind = first;
+      } else if (first) {
+        props.name = first;
       }
     },
   ],

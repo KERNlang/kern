@@ -1,4 +1,4 @@
-import { collectExternalBoundaries } from '../src/external-boundary.js';
+import { collectCapabilityIslands, collectExternalBoundaries } from '../src/external-boundary.js';
 import { parse } from '../src/parser.js';
 
 describe('external boundary collection', () => {
@@ -19,6 +19,7 @@ describe('external boundary collection', () => {
         runtime: 'node',
         effects: ['validation'],
         serialization: 'json',
+        requiresSidecar: false,
         version: '3',
         review: 'known',
         reason: 'schema validation',
@@ -43,6 +44,7 @@ describe('external boundary collection', () => {
         runtime: 'python',
         effects: ['fs', 'cpu'],
         serialization: 'stream',
+        requiresSidecar: false,
         imports: [
           {
             default: 'pd',
@@ -77,6 +79,7 @@ describe('external boundary collection', () => {
         review: 'known',
         reason: 'ui',
         effects: [],
+        requiresSidecar: false,
         imports: [
           {
             names: ['useState', 'useEffect'],
@@ -108,6 +111,7 @@ describe('external boundary collection', () => {
         target: 'fastapi',
         targetFamily: 'python',
         effects: [],
+        requiresSidecar: false,
         imports: [
           {
             default: 'np',
@@ -146,8 +150,148 @@ describe('external boundary collection', () => {
         target: 'all',
         targetFamily: 'none',
         effects: [],
+        requiresSidecar: false,
         imports: [{ names: ['useState'], types: false }],
       },
     ]);
+  });
+
+  it('collects capability islands with bracket-list effects and child imports', () => {
+    const root = parse(
+      [
+        'island engine Claude runtime=node effects=[network,stream,secret] serialization=stream requiresSidecar=false review=known reason="provider boundary"',
+        '  import npm "@anthropic-ai/sdk" as Anthropic',
+      ].join('\n'),
+    );
+
+    expect(collectCapabilityIslands(root)).toEqual([
+      {
+        name: 'Claude',
+        kind: 'engine',
+        runtime: 'node',
+        effects: ['network', 'stream', 'secret'],
+        serialization: 'stream',
+        requiresSidecar: false,
+        review: 'known',
+        reason: 'provider boundary',
+        imports: [
+          {
+            package: '@anthropic-ai/sdk',
+            registry: 'npm',
+            target: 'ts',
+            targetFamily: 'ts',
+            island: {
+              name: 'Claude',
+              kind: 'engine',
+              runtime: 'node',
+              effects: ['network', 'stream', 'secret'],
+              serialization: 'stream',
+              requiresSidecar: false,
+              review: 'known',
+              reason: 'provider boundary',
+              line: 1,
+              col: 1,
+            },
+            runtime: 'node',
+            effects: ['network', 'stream', 'secret'],
+            serialization: 'stream',
+            review: 'known',
+            reason: 'provider boundary',
+            requiresSidecar: false,
+            imports: [
+              {
+                default: 'Anthropic',
+                from: '@anthropic-ai/sdk',
+                names: [],
+                types: false,
+                line: 2,
+                col: 3,
+              },
+            ],
+            line: 2,
+            col: 3,
+          },
+        ],
+        line: 1,
+        col: 1,
+      },
+    ]);
+  });
+
+  it('preserves island context on external boundary collection', () => {
+    const root = parse(
+      [
+        'island engine OpenCode runtime=node effects=[exec,stream,fs] serialization=stream requiresSidecar=true',
+        '  import npm "opencode" as opencode',
+      ].join('\n'),
+    );
+
+    expect(collectExternalBoundaries(root)).toMatchObject([
+      {
+        package: 'opencode',
+        registry: 'npm',
+        targetFamily: 'ts',
+        island: {
+          name: 'OpenCode',
+          kind: 'engine',
+          effects: ['exec', 'stream', 'fs'],
+          requiresSidecar: true,
+        },
+        runtime: 'node',
+        effects: ['exec', 'stream', 'fs'],
+        serialization: 'stream',
+        requiresSidecar: true,
+      },
+    ]);
+  });
+
+  it('merges island and child import effects additively', () => {
+    const root = parse(
+      [
+        'island engine Data runtime=node effects=[network,secret]',
+        '  import npm "cache-lib" as cache effects=[fs]',
+      ].join('\n'),
+    );
+
+    expect(collectExternalBoundaries(root)).toMatchObject([
+      {
+        package: 'cache-lib',
+        effects: ['network', 'secret', 'fs'],
+        island: {
+          name: 'Data',
+          effects: ['network', 'secret'],
+        },
+      },
+    ]);
+  });
+
+  it('dogfoods AGON engines as capability islands', () => {
+    const root = parse(
+      [
+        'module name=agonEngines',
+        '  island engine Claude runtime=node effects=[network,stream,secret] serialization=stream',
+        '    import npm "@anthropic-ai/sdk" as Anthropic',
+        '  island engine Gemini runtime=node effects=[network,stream,secret] serialization=stream',
+        '    import npm "@google/genai" as GoogleGenAI',
+        '  island engine OpenCode runtime=node effects=[exec,stream,fs] serialization=stream requiresSidecar=true',
+        '    import npm "opencode" as opencode',
+        '  island engine MiniMax runtime=node effects=[network,stream,secret] serialization=stream',
+        '    import npm "@minimax-ai/sdk" as MiniMax',
+        '  island engine Zai runtime=node effects=[network,stream,secret] serialization=stream',
+        '    import npm "zai-sdk" as zai',
+        '  island engine Kimi runtime=node effects=[network,stream,secret] serialization=stream',
+        '    import npm "@moonshotai/sdk" as Moonshot',
+      ].join('\n'),
+    );
+
+    const islands = collectCapabilityIslands(root);
+    expect(islands.map((island) => island.name)).toEqual(['Claude', 'Gemini', 'OpenCode', 'MiniMax', 'Zai', 'Kimi']);
+    expect(islands.find((island) => island.name === 'OpenCode')).toMatchObject({
+      kind: 'engine',
+      runtime: 'node',
+      effects: ['exec', 'stream', 'fs'],
+      requiresSidecar: true,
+    });
+    expect(islands.every((island) => island.imports.length === 1)).toBe(true);
   });
 });

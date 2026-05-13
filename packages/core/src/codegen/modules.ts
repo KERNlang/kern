@@ -92,6 +92,12 @@ export function generateExtern(node: IRNode): string[] {
   return [...new Set([...inlineImport, ...childImports])];
 }
 
+export function generateIsland(node: IRNode): string[] {
+  const childImports = kids(node, 'import').flatMap((child) => generateImport(child));
+  const childExterns = kids(node, 'extern').flatMap((child) => generateExtern(child));
+  return [...new Set([...childImports, ...childExterns])];
+}
+
 // ── Use (cross-`.kern` symbol resolution) ───────────────────────────────
 
 /** Translate a `.kern` source path to its compiled `.js` output path. */

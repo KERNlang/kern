@@ -100,6 +100,10 @@ export function decompile(root: IRNode): DecompileResult {
       renderDoc(node, indent);
       return;
     }
+    if (node.type === 'island') {
+      renderIsland(node, indent);
+      return;
+    }
     if (node.type === 'each') {
       renderEach(node, indent);
       return;
@@ -212,6 +216,20 @@ export function decompile(root: IRNode): DecompileResult {
     if (props.generics !== undefined) parts.push(renderScalarProp('generics', props.generics, quoted));
     if (props.extends !== undefined) parts.push(renderScalarProp('extends', props.extends, quoted));
     if (props.export === false || props.export === 'false') parts.push('export=false');
+    lines.push(`${indent}${parts.join(' ')}`);
+    for (const child of node.children || []) render(child, `${indent}  `);
+  }
+
+  function renderIsland(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    const name = (props.name as string) || 'UnknownIsland';
+    const parts: string[] = ['island'];
+    if (props.kind !== undefined) parts.push(String(props.kind));
+    parts.push(name);
+    for (const key of ['runtime', 'effects', 'serialization', 'requiresSidecar', 'version', 'review', 'reason']) {
+      if (props[key] !== undefined) parts.push(renderScalarProp(key, props[key], quoted));
+    }
     lines.push(`${indent}${parts.join(' ')}`);
     for (const child of node.children || []) render(child, `${indent}  `);
   }

@@ -97,6 +97,7 @@ export const NODE_TYPES = [
   'flag',
   'import',
   'extern',
+  'island',
   // Terminal
   'separator',
   'table',

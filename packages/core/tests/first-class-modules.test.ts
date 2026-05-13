@@ -1,4 +1,5 @@
 import { generateCoreNode } from '../src/codegen-core.js';
+import { decompile } from '../src/decompiler.js';
 import { parse, parseDocument, parseDocumentStrict, parseDocumentWithDiagnostics } from '../src/parser.js';
 import { validateSchema } from '../src/schema.js';
 import type { IRNode } from '../src/types.js';
@@ -82,7 +83,7 @@ describe('first-class module syntax', () => {
 
   test('foreign npm import sugar lowers to external import metadata', () => {
     const node = firstChild(
-      'import npm "zod" as z version=3 review=known reason="schema validation" runtime=node effects=validation serialization=json',
+      'import npm "zod" as z version=3 review=known reason="schema validation" runtime=node effects=[validation] serialization=json requiresSidecar=false',
     );
 
     expect(node).toMatchObject({
@@ -97,8 +98,9 @@ describe('first-class module syntax', () => {
         review: 'known',
         reason: 'schema validation',
         runtime: 'node',
-        effects: 'validation',
+        effects: '[validation]',
         serialization: 'json',
+        requiresSidecar: false,
       },
     });
     expect(node.props).not.toHaveProperty('__firstClassImport');
@@ -114,6 +116,86 @@ describe('first-class module syntax', () => {
     });
     expect(node.props).not.toHaveProperty('__firstClassImport');
     expect(generateCoreNode(node).join('\n')).toBe('');
+  });
+
+  test('capability island syntax records kind/name and emits supported child imports', () => {
+    const node = firstChild(
+      [
+        'island engine Claude runtime=node effects=[network,stream,secret] serialization=stream',
+        '  import npm "@anthropic-ai/sdk" as Anthropic',
+      ].join('\n'),
+    );
+
+    expect(node).toMatchObject({
+      type: 'island',
+      props: {
+        kind: 'engine',
+        name: 'Claude',
+        runtime: 'node',
+        effects: '[network,stream,secret]',
+        serialization: 'stream',
+      },
+      children: [
+        {
+          type: 'import',
+          props: {
+            from: '@anthropic-ai/sdk',
+            package: '@anthropic-ai/sdk',
+            registry: 'npm',
+            target: 'ts',
+            default: 'Anthropic',
+          },
+        },
+      ],
+    });
+    expect(generateCoreNode(node).join('\n')).toBe(`import Anthropic from '@anthropic-ai/sdk';`);
+  });
+
+  test('capability effects do not trigger pure-function effects diagnostics', () => {
+    const result = parseDocumentWithDiagnostics(
+      [
+        'import npm "zod" as z effects=[validation]',
+        'extern package=react registry=npm effects=[state]',
+        'island engine OpenCode runtime=node effects=[exec,stream,fs] requiresSidecar=true',
+      ].join('\n'),
+    );
+
+    expect(result.diagnostics.filter((diagnostic) => diagnostic.code === 'INVALID_EFFECTS')).toEqual([]);
+  });
+
+  test('capability island kind is optional in positional syntax', () => {
+    const node = firstChild('island Claude runtime=node effects=[network]');
+
+    expect(node).toMatchObject({
+      type: 'island',
+      props: {
+        name: 'Claude',
+        runtime: 'node',
+        effects: '[network]',
+      },
+    });
+    expect(node.props).not.toHaveProperty('kind');
+  });
+
+  test('capability island known kind without a name stays invalid', () => {
+    const node = firstChild('island engine runtime=node');
+
+    expect(node).toMatchObject({
+      type: 'island',
+      props: { kind: 'engine', runtime: 'node' },
+    });
+    expect(node.props).not.toHaveProperty('name');
+  });
+
+  test('capability island decompiles to parseable syntax', () => {
+    const node = parse('island engine Claude runtime=node effects=[network] serialization=json');
+    const code = decompile(node).code;
+
+    expect(code).toBe('island engine Claude runtime=node effects="[network]" serialization=json');
+    expect(parse(code)).toMatchObject({
+      type: 'island',
+      props: { kind: 'engine', name: 'Claude', runtime: 'node', effects: '[network]', serialization: 'json' },
+    });
   });
 
   test('side-effect imports preserve .kern path translation and external paths', () => {

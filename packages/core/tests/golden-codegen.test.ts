@@ -469,6 +469,17 @@ describe('golden: import', () => {
   it('skips extern PyPI packages for TypeScript targets', () => {
     expect(gen(['extern package=numpy registry=pypi target=fastapi', '  import names=array'].join('\n'))).toBe('');
   });
+  it('emits supported imports from capability islands', () => {
+    expect(
+      gen(
+        [
+          'island engine Claude runtime=node effects=[network,stream,secret] serialization=stream',
+          '  import npm "@anthropic-ai/sdk" as Anthropic',
+          '  import py "pandas" as pd',
+        ].join('\n'),
+      ),
+    ).toBe("import Anthropic from '@anthropic-ai/sdk';");
+  });
 });
 
 describe('golden: const', () => {

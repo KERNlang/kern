@@ -22,6 +22,7 @@ import { emitDiagnostic } from './parser-diagnostics.js';
 import { type IRNode, isExprObject } from './types.js';
 
 const ALLOWED_NODE_TYPES = new Set(['fn', 'derive', 'memo']);
+const CAPABILITY_EFFECT_NODE_TYPES = new Set(['import', 'extern', 'island']);
 
 /** Patterns rejected inside an `effects=pure` body.
  *
@@ -146,6 +147,9 @@ function validateNode(state: ParseState, node: IRNode): void {
     (typeof effectsRaw === 'string' || isExprObject(effectsRaw) || typeof effectsRaw === 'boolean');
 
   if (effectsPresent) {
+    if (CAPABILITY_EFFECT_NODE_TYPES.has(node.type as string)) {
+      return;
+    }
     // 1. Reject on disallowed node types — checked before value validity so
     // that `effects=junk` on a `transition` still surfaces the right diagnostic.
     if (!ALLOWED_NODE_TYPES.has(node.type as string)) {

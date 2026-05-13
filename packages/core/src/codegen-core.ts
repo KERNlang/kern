@@ -114,7 +114,7 @@ export {
   sourceComment,
 } from './codegen/helpers.js';
 export { generateMachine, generateMachineReducer } from './codegen/machines.js';
-export { generateExtern, generateImport, generateUse } from './codegen/modules.js';
+export { generateExtern, generateImport, generateIsland, generateUse } from './codegen/modules.js';
 export { emitRender, generateScreen } from './codegen/screens.js';
 export type { SemanticTypeMapping } from './codegen/semantic-types.js';
 export { mapSemanticType, SEMANTIC_TYPE_MAP } from './codegen/semantic-types.js';
@@ -216,7 +216,7 @@ import {
   getProps,
 } from './codegen/helpers.js';
 import { generateMachine } from './codegen/machines.js';
-import { generateExtern, generateImport, generateUse } from './codegen/modules.js';
+import { generateExtern, generateImport, generateIsland, generateUse } from './codegen/modules.js';
 import { generateScreen } from './codegen/screens.js';
 import { generateTest } from './codegen/test-gen.js';
 import {
@@ -570,6 +570,7 @@ export const CORE_NODE_TYPES = new Set([
   'event',
   'import',
   'extern',
+  'island',
   'use',
   'from',
   'const',
@@ -740,6 +741,8 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return generateImport(node);
     case 'extern':
       return generateExtern(node);
+    case 'island':
+      return generateIsland(node);
     case 'use':
       return generateUse(node);
     case 'from':

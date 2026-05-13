@@ -1,0 +1,18 @@
+module name=agonEngines
+  island engine Claude runtime=node effects=[network,stream,secret] serialization=stream
+    import npm "@anthropic-ai/sdk" as Anthropic
+
+  island engine Gemini runtime=node effects=[network,stream,secret] serialization=stream
+    import npm "@google/genai" as GoogleGenAI
+
+  island engine OpenCode runtime=node effects=[exec,stream,fs] serialization=stream requiresSidecar=true
+    import npm "opencode" as opencode
+
+  island engine MiniMax runtime=node effects=[network,stream,secret] serialization=stream
+    import npm "@minimax-ai/sdk" as MiniMax
+
+  island engine Zai runtime=node effects=[network,stream,secret] serialization=stream
+    import npm "zai-sdk" as zai
+
+  island engine Kimi runtime=node effects=[network,stream,secret] serialization=stream
+    import npm "@moonshotai/sdk" as Moonshot
