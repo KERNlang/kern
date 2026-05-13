@@ -307,8 +307,9 @@ function parseFirstClassImport(raw: string): Record<string, unknown> | null {
 }
 
 function parseForeignRegistryImport(raw: string): Record<string, unknown> | null {
-  const match =
-    /^(npm|py|python|pypi)\s+(["'])([\s\S]*?)\2(?:\s+as\s+([A-Za-z_$][\w$]*))?(?:\s+([\s\S]+))?$/u.exec(raw);
+  const match = /^(npm|py|python|pypi)\s+(["'])([\s\S]*?)\2(?:\s+as\s+([A-Za-z_$][\w$]*))?(?:\s+([\s\S]+))?$/u.exec(
+    raw,
+  );
   if (!match) return null;
 
   const keyword = match[1];
