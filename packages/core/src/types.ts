@@ -162,6 +162,31 @@ export type ParseErrorCode =
 
 export type ParseDiagnosticSeverity = 'error' | 'warning' | 'info';
 
+/** Categorises a diagnostic so consumers (CI, editor, agent) can route it
+ *  to the right person/tool. Without this distinction, an editor surfaces
+ *  every diagnostic as a generic "kern error" and authors can't tell
+ *  whether they should fix their source, file a parser bug, or stop the
+ *  migrator from rewriting a file.
+ *
+ *  - `source`        : the .kern source itself violates the language spec.
+ *                      Author should fix the source.
+ *  - `parser`        : the diagnostic surfaces a parser/document-root /
+ *                      tree-construction issue. Author should report
+ *                      upstream (or work around).
+ *  - `validator`    : the IR is structurally valid but a downstream
+ *                      schema/semantic rule rejected it (cross-prop
+ *                      constraints, allowed children, naming rules).
+ *  - `codegen`      : the IR passed validation but codegen could not
+ *                      emit equivalent TS/Python — typically a feature gap
+ *                      in the target emitter.
+ *  - `migration`    : `kern migrate …` declined to rewrite a handler /
+ *                      decl for a documented safety reason. Author may
+ *                      hand-migrate or leave the source raw.
+ *
+ *  Diagnostic emitters MAY omit `category` for backwards compatibility;
+ *  consumers should default to `source` in that case. */
+export type DiagnosticCategory = 'source' | 'parser' | 'validator' | 'codegen' | 'migration';
+
 export interface ParseDiagnostic {
   code: ParseErrorCode;
   severity: ParseDiagnosticSeverity;
@@ -170,6 +195,9 @@ export interface ParseDiagnostic {
   col: number;
   endCol: number;
   suggestion: string;
+  /** Coarse classification — see {@link DiagnosticCategory}. Optional for
+   *  backwards compatibility; defaults to `source` when omitted. */
+  category?: DiagnosticCategory;
 }
 
 export interface ParseResult {
