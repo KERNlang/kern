@@ -7,6 +7,7 @@
  * Extracted from codegen-core.ts for modular codegen architecture.
  */
 
+import { type SidecarManifest, sidecarManifestFromNode } from '../external-boundary.js';
 import { shouldEmitImportForTarget } from '../import-metadata.js';
 import { propsOf } from '../node-props.js';
 import type { IRNode } from '../types.js';
@@ -90,6 +91,49 @@ export function generateExtern(node: IRNode): string[] {
   const inlineImport = hasInlineBinding ? generateImport(externChildImport(node)) : [];
   const childImports = children.flatMap((child) => generateImport(externChildImport(node, child)));
   return [...new Set([...inlineImport, ...childImports])];
+}
+
+function lowerFirst(value: string): string {
+  return value.length === 0 ? value : `${value[0].toLowerCase()}${value.slice(1)}`;
+}
+
+function emitStringArray(values: string[]): string {
+  return `[${values.map((value) => JSON.stringify(value)).join(', ')}]`;
+}
+
+function generatePythonSidecarClient(manifest: SidecarManifest, node: IRNode): string[] {
+  const baseName = emitIdentifier(lowerFirst(manifest.name), 'pythonSidecar', node);
+  const manifestName = emitIdentifier(`${baseName}SidecarManifest`, 'pythonSidecarManifest', node);
+  const clientName = emitIdentifier(`${baseName}SidecarClient`, 'pythonSidecarClient', node);
+  const packageNames = manifest.packages.map((sidecarPackage) => sidecarPackage.package);
+  const lines = [`export const ${manifestName} = {`, `  name: ${JSON.stringify(manifest.name)},`];
+  if (manifest.kind) lines.push(`  kind: ${JSON.stringify(manifest.kind)},`);
+  lines.push(
+    `  runtime: ${JSON.stringify(manifest.runtime)},`,
+    `  packages: ${emitStringArray(packageNames)},`,
+    `  effects: ${emitStringArray(manifest.effects)},`,
+  );
+  if (manifest.serialization) lines.push(`  serialization: ${JSON.stringify(manifest.serialization)},`);
+  lines.push(
+    '  requiresSidecar: true,',
+    '} as const;',
+    '',
+    `export const ${clientName} = {`,
+    `  manifest: ${manifestName},`,
+    '  call(method: string, _payload?: unknown): never {',
+    `    throw new Error('Python sidecar ' + ${JSON.stringify(manifest.name)} + '.' + method + ' is declared but runtime bridge generation is not implemented yet.');`,
+    '  },',
+    '} as const;',
+  );
+  return lines;
+}
+
+export function generateIsland(node: IRNode): string[] {
+  const childImports = kids(node, 'import').flatMap((child) => generateImport(child));
+  const childExterns = kids(node, 'extern').flatMap((child) => generateExtern(child));
+  const manifest = sidecarManifestFromNode(node);
+  const sidecarClient = manifest ? generatePythonSidecarClient(manifest, node) : [];
+  return [...new Set([...childImports, ...childExterns]), ...sidecarClient];
 }
 
 // ── Use (cross-`.kern` symbol resolution) ───────────────────────────────

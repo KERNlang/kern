@@ -36,6 +36,41 @@ function topLevelIsNullable(type: Type): boolean {
 
 const NULLABLE_METHODS = new Set(['find', 'querySelector', 'getElementById', 'get']);
 
+// Match `if (!varName ...)`, `if (cond1 || !varName ...)`, `varName === null`,
+// `varName == null`, `varName === undefined`, `typeof varName === 'undefined'`.
+// Any of these in an if-condition whose then-branch early-exits is a guard.
+function isNullCheckCondition(conditionText: string, varName: string): boolean {
+  const v = varName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const patterns = [
+    new RegExp(`(?:^|[^!=])!\\s*${v}\\b`), // !varName (excluding != / !==)
+    new RegExp(`\\b${v}\\s*===?\\s*(?:null|undefined)\\b`),
+    new RegExp(`\\btypeof\\s+${v}\\s*===?\\s*['"]undefined['"]`),
+    new RegExp(`\\b${v}\\s*==\\s*null\\b`),
+  ];
+  return patterns.some((re) => re.test(conditionText));
+}
+
+// Does this statement (or block) end the current iteration / function?
+function isEarlyExit(stmt: import('ts-morph').Node): boolean {
+  if (Node.isReturnStatement(stmt) || Node.isThrowStatement(stmt)) return true;
+  if (Node.isContinueStatement(stmt) || Node.isBreakStatement(stmt)) return true;
+  if (Node.isBlock(stmt)) {
+    // A block early-exits iff one of its top-level statements does
+    return stmt.getStatements().some(isEarlyExit);
+  }
+  return false;
+}
+
+// True when `stmt` is an `if (...null-check...) { early-exit }` that proves
+// `varName` is non-nullable for all code after `stmt` in the same block.
+function isGuardingIfStatement(stmt: import('ts-morph').Statement, varName: string): boolean {
+  if (!Node.isIfStatement(stmt)) return false;
+  if (stmt.getElseStatement()) return false; // else branch means flow rejoins
+  const cond = stmt.getExpression().getText();
+  if (!isNullCheckCondition(cond, varName)) return false;
+  return isEarlyExit(stmt.getThenStatement());
+}
+
 function uncheckedFind(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
   const sf = ctx.sourceFile;
@@ -61,6 +96,13 @@ function uncheckedFind(ctx: RuleContext): ReviewFinding[] {
 
       let _guarded = false;
       for (const stmt of statementsAfter) {
+        // Structural guard: `if (...null-check on varName...) { return | throw | continue | break }`
+        // narrows the variable to non-nullable for everything after this statement.
+        if (isGuardingIfStatement(stmt, varName)) {
+          _guarded = true;
+          break;
+        }
+
         const text = stmt.getText();
         // Check for null guards using word boundaries to avoid substring matches
         // (e.g., var 'el' must not match 'elementCount')

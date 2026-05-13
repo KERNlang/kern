@@ -29,6 +29,57 @@ describe('Null Safety Rules', () => {
     expect(findings.length).toBe(0);
   });
 
+  // Regression: kern-sight review-panel.ts:6264 — `if (!a || !b) continue;`
+  // narrows `b` for all later uses, but the old regex required the var to
+  // appear immediately after `if (`. Now we check structurally for any
+  // early-exit if-statement whose condition includes !varName.
+  it('should not flag .find() result used after `if (!a || !b) continue;` early-exit', () => {
+    const source = `
+      const items = [{ id: 1, x: 0, y: 0 }];
+      function run(): number {
+        let total = 0;
+        for (const it of items) {
+          const a = items.find(i => i.id === it.id);
+          const b = items.find(i => i.id === it.id + 1);
+          if (!a || !b) continue;
+          total += b.y;
+        }
+        return total;
+      }
+    `;
+    const report = reviewSource(source, 'test.ts');
+    const findings = report.findings.filter((f) => f.ruleId === 'unchecked-find');
+    expect(findings.length).toBe(0);
+  });
+
+  it('should not flag .find() result used after `if (!user) return;`', () => {
+    const source = `
+      const users = [{ id: 1, name: 'Alice' }];
+      function nameOf(id: number): string {
+        const user = users.find(u => u.id === id);
+        if (!user) return '';
+        return user.name;
+      }
+    `;
+    const report = reviewSource(source, 'test.ts');
+    const findings = report.findings.filter((f) => f.ruleId === 'unchecked-find');
+    expect(findings.length).toBe(0);
+  });
+
+  it('should not flag .find() result used after `if (!user) throw ...;`', () => {
+    const source = `
+      const users = [{ id: 1, name: 'Alice' }];
+      function nameOf(id: number): string {
+        const user = users.find(u => u.id === id);
+        if (!user) throw new Error('not found');
+        return user.name;
+      }
+    `;
+    const report = reviewSource(source, 'test.ts');
+    const findings = report.findings.filter((f) => f.ruleId === 'unchecked-find');
+    expect(findings.length).toBe(0);
+  });
+
   it('should not flag .find() when optional chaining is used', () => {
     const source = `
       const users = [{ id: 1, name: 'Alice' }];

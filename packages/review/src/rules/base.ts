@@ -24,6 +24,65 @@ import {
 // ── Rule 1: floating-promise ─────────────────────────────────────────────
 // fn body with call returning Promise but no await/void/return
 
+// VS Code disposable-callback APIs that "own" the callback: any promise the
+// callback returns or starts is awaited/handled by the host. Flagging floating
+// promises inside these callbacks produces noise, not bugs — VS Code surfaces
+// rejections through its own error reporter.
+const VSCODE_DISPOSABLE_CALLBACK_APIS = new Set([
+  'registerCommand',
+  'registerTextEditorCommand',
+  'registerWebviewViewProvider',
+  'registerTreeDataProvider',
+  'registerCodeActionsProvider',
+  'registerHoverProvider',
+  'registerCompletionItemProvider',
+  'registerDefinitionProvider',
+  'registerReferenceProvider',
+  'registerDocumentSymbolProvider',
+  'registerWorkspaceSymbolProvider',
+  'registerDocumentFormattingEditProvider',
+  'registerDocumentRangeFormattingEditProvider',
+  'registerOnTypeFormattingEditProvider',
+  'onDidChangeActiveTextEditor',
+  'onDidChangeTextEditorSelection',
+  'onDidChangeTextEditorVisibleRanges',
+  'onDidChangeTextEditorOptions',
+  'onDidChangeTextEditorViewColumn',
+  'onDidOpenTextDocument',
+  'onDidCloseTextDocument',
+  'onDidChangeTextDocument',
+  'onDidSaveTextDocument',
+  'onWillSaveTextDocument',
+  'onDidChangeConfiguration',
+  'onDidChangeWorkspaceFolders',
+  'onDidCreateFiles',
+  'onDidDeleteFiles',
+  'onDidRenameFiles',
+]);
+
+// True when `node` lies inside a function expression that is itself passed as
+// the callback argument to one of the VS Code disposable-callback APIs above.
+function isInsideVscodeDisposableCallback(node: import('ts-morph').Node): boolean {
+  let cur: import('ts-morph').Node | undefined = node;
+  while (cur) {
+    if (Node.isArrowFunction(cur) || Node.isFunctionExpression(cur)) {
+      const parent = cur.getParent();
+      if (parent && Node.isCallExpression(parent)) {
+        const callee = parent.getExpression();
+        if (Node.isPropertyAccessExpression(callee)) {
+          const methodName = callee.getName();
+          if (VSCODE_DISPOSABLE_CALLBACK_APIS.has(methodName)) {
+            // Confirm the function is one of the call's arguments (not the callee)
+            if (parent.getArguments().some((a) => a === cur)) return true;
+          }
+        }
+      }
+    }
+    cur = cur.getParent();
+  }
+  return false;
+}
+
 function floatingPromise(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
 
@@ -44,6 +103,10 @@ function floatingPromise(ctx: RuleContext): ReviewFinding[] {
     if (expr.getKind() === SyntaxKind.VoidExpression) continue;
     if (expr.getKind() === SyntaxKind.AwaitExpression) continue;
     if (expr.getKind() !== SyntaxKind.CallExpression) continue;
+
+    // Skip statements inside VS Code disposable-callback bodies — the host
+    // owns the callback's promise chain and rejections are surfaced there.
+    if (isInsideVscodeDisposableCallback(exprStmt)) continue;
 
     const callExpr = expr as import('ts-morph').CallExpression;
     const calleeExpr = callExpr.getExpression();

@@ -18,7 +18,7 @@
 
 import { isSupportedAssignOperator, SUPPORTED_ASSIGN_OPERATORS } from './assignment-operators.js';
 import { type KernTarget, VALID_TARGETS } from './config.js';
-import { validateImportMetadata } from './import-metadata.js';
+import { validateCapabilityMetadata, validateImportMetadata } from './import-metadata.js';
 import { defaultRuntime, type KernRuntime } from './runtime.js';
 import { KERN_VERSION, NODE_TYPES, STYLE_SHORTHANDS, VALUE_SHORTHANDS } from './spec.js';
 import type { IRNode } from './types.js';
@@ -390,6 +390,13 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       registry: { kind: 'identifier' },
       target: { kind: 'identifier' },
       package: { kind: 'string' },
+      version: { kind: 'string' },
+      review: { kind: 'identifier' },
+      reason: { kind: 'string' },
+      runtime: { kind: 'identifier' },
+      effects: { kind: 'string' },
+      serialization: { kind: 'identifier' },
+      requiresSidecar: { kind: 'boolean' },
     },
   },
   extern: {
@@ -407,8 +414,30 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       version: { kind: 'string' },
       review: { kind: 'identifier' },
       reason: { kind: 'string' },
+      runtime: { kind: 'identifier' },
+      effects: { kind: 'string' },
+      serialization: { kind: 'identifier' },
+      requiresSidecar: { kind: 'boolean' },
     },
     allowedChildren: ['import'],
+  },
+  island: {
+    description:
+      'Capability island boundary for stateful, IO-heavy, authenticated, streaming, sidecar, or engine/provider integrations. Emits supported child imports while preserving reviewable capability metadata.',
+    example:
+      'island engine Claude runtime=node effects=[network,stream,secret] serialization=stream requiresSidecar=false\n  import npm "@anthropic-ai/sdk" as Anthropic',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      kind: { kind: 'identifier' },
+      runtime: { kind: 'identifier' },
+      effects: { kind: 'string' },
+      serialization: { kind: 'identifier' },
+      requiresSidecar: { kind: 'boolean' },
+      version: { kind: 'string' },
+      review: { kind: 'identifier' },
+      reason: { kind: 'string' },
+    },
+    allowedChildren: ['import', 'extern'],
   },
   use: {
     description:
@@ -1869,7 +1898,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       allowedPaths: { kind: 'string' },
       baseDir: { kind: 'string' },
     },
-    allowedChildren: ['import', 'extern', 'const', 'fn', 'tool', 'resource', 'prompt'],
+    allowedChildren: ['import', 'extern', 'island', 'const', 'fn', 'tool', 'resource', 'prompt'],
   },
   tool: {
     description: 'MCP tool definition — a callable function exposed to AI agents with typed params and security guards',
@@ -2172,7 +2201,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       version: { kind: 'string' },
       description: { kind: 'string' },
     },
-    allowedChildren: ['command', 'flag', 'import', 'extern'],
+    allowedChildren: ['command', 'flag', 'import', 'extern', 'island'],
   },
   command: {
     description: 'CLI subcommand with arguments, flags, and handler',
@@ -2183,7 +2212,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       description: { kind: 'string' },
       alias: { kind: 'string' },
     },
-    allowedChildren: ['arg', 'flag', 'handler', 'import', 'extern'],
+    allowedChildren: ['arg', 'flag', 'handler', 'import', 'extern', 'island'],
   },
   arg: {
     description: 'CLI positional argument — required args must come before optional ones',
@@ -2913,7 +2942,7 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[], parent?: I
       });
     }
   }
-  if (node.type === 'import' || node.type === 'extern') {
+  if (node.type === 'import' || node.type === 'extern' || node.type === 'island') {
     if (
       node.type === 'extern' &&
       'package' in props &&
@@ -2926,7 +2955,20 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[], parent?: I
         col: node.loc?.col,
       });
     }
-    for (const message of validateImportMetadata(node)) {
+    if (
+      node.type === 'island' &&
+      'name' in props &&
+      (typeof props.name !== 'string' || props.name.trim().length === 0)
+    ) {
+      violations.push({
+        nodeType: 'island',
+        message: "'island name=' must be a non-empty identifier",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    const metadataMessages = node.type === 'island' ? [] : validateImportMetadata(node);
+    for (const message of [...metadataMessages, ...validateCapabilityMetadata(node)]) {
       violations.push({
         nodeType: node.type,
         message,

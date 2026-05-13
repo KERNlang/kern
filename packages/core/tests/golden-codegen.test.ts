@@ -469,6 +469,32 @@ describe('golden: import', () => {
   it('skips extern PyPI packages for TypeScript targets', () => {
     expect(gen(['extern package=numpy registry=pypi target=fastapi', '  import names=array'].join('\n'))).toBe('');
   });
+  it('emits supported imports from capability islands', () => {
+    expect(
+      gen(
+        [
+          'island engine Claude runtime=node effects=[network,stream,secret] serialization=stream',
+          '  import npm "@anthropic-ai/sdk" as Anthropic',
+          '  import py "pandas" as pd',
+        ].join('\n'),
+      ),
+    ).toBe("import Anthropic from '@anthropic-ai/sdk';");
+  });
+  it('emits Python sidecar placeholders for sidecar-backed islands', () => {
+    const output = gen(
+      [
+        'island sidecar Demucs runtime=python effects=[fs,exec,stream] serialization=handle requiresSidecar=true',
+        '  import py "demucs" as demucs',
+        '  import py "fastapi" as FastAPI',
+      ].join('\n'),
+    );
+
+    expect(output).toContain('export const demucsSidecarManifest = {');
+    expect(output).toContain('export const demucsSidecarClient = {');
+    expect(output).toContain('packages: ["demucs", "fastapi"],');
+    expect(output).not.toContain("from 'demucs'");
+    expect(output).not.toContain("from 'fastapi'");
+  });
 });
 
 describe('golden: const', () => {

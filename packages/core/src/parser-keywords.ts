@@ -2,6 +2,7 @@
 import type { TokenStream } from './parser-token-stream.js';
 
 type KeywordHandler = (s: TokenStream, props: Record<string, unknown>, content: string) => void;
+const ISLAND_KIND_WORDS = new Set(['capability', 'engine', 'provider', 'service', 'sidecar']);
 
 /** Consume a bare identifier into props if it's not a key=value pair. */
 function consumeBareIdent(s: TokenStream, props: Record<string, unknown>, propName: string): void {
@@ -283,6 +284,9 @@ function parseFirstClassImport(raw: string): Record<string, unknown> | null {
   const trimmed = raw.trim();
   if (trimmed === '' || /^\w+\s*=/.test(trimmed)) return null;
 
+  const foreign = parseForeignRegistryImport(trimmed);
+  if (foreign) return foreign;
+
   const sideEffect = /^from\s+/.test(trimmed) ? null : stripQuotedModuleSpecifier(trimmed);
   if (sideEffect) {
     return { from: sideEffect, __firstClassImport: true };
@@ -301,6 +305,29 @@ function parseFirstClassImport(raw: string): Record<string, unknown> | null {
     __firstClassImport: true,
     __firstClassBindings: bindings,
   };
+}
+
+function parseForeignRegistryImport(raw: string): Record<string, unknown> | null {
+  const match = /^(npm|py|python|pypi)\s+(["'])([\s\S]*?)\2(?:\s+as\s+([A-Za-z_$][\w$]*))?(?:\s+([\s\S]+))?$/u.exec(
+    raw,
+  );
+  if (!match) return null;
+
+  const keyword = match[1];
+  const packageName = match[3].trim();
+  if (!packageName) return null;
+
+  const registry = keyword === 'npm' ? 'npm' : 'pypi';
+  const props: Record<string, unknown> = {
+    from: packageName,
+    package: packageName,
+    registry,
+    target: registry === 'npm' ? 'ts' : 'python',
+    __firstClassImport: true,
+  };
+  if (match[4]) props.default = match[4];
+  if (match[5]) assignBareProps(match[5], props);
+  return props;
 }
 
 export const KEYWORD_HANDLERS = new Map<string, KeywordHandler>([
@@ -458,6 +485,30 @@ export const KEYWORD_HANDLERS = new Map<string, KeywordHandler>([
         s.skipWS();
         const name = s.tryIdent();
         if (name) props.name = name;
+      }
+    },
+  ],
+
+  [
+    'island',
+    (s, props) => {
+      s.skipWS();
+      if (s.isKeyValue()) return;
+      const first = s.tryIdent();
+      s.skipWS();
+      if (s.isKeyValue()) {
+        if (first && ISLAND_KIND_WORDS.has(first)) props.kind = first;
+        else if (first) props.name = first;
+        return;
+      }
+      const second = s.tryIdent();
+      if (first && second) {
+        props.kind = first;
+        props.name = second;
+      } else if (first && ISLAND_KIND_WORDS.has(first)) {
+        props.kind = first;
+      } else if (first) {
+        props.name = first;
       }
     },
   ],
