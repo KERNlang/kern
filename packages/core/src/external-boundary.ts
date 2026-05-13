@@ -64,6 +64,28 @@ export interface CapabilityIsland {
   col?: number;
 }
 
+export interface SidecarPackage {
+  package: string;
+  registry: ExternalImportRegistry;
+  target: ExternalImportTarget;
+  targetFamily: 'all' | 'ts' | 'python' | 'none';
+  imports: ExternalImportBinding[];
+  line?: number;
+  col?: number;
+}
+
+export interface SidecarManifest {
+  name: string;
+  kind?: string;
+  runtime: string;
+  effects: string[];
+  serialization?: string;
+  requiresSidecar: true;
+  packages: SidecarPackage[];
+  line?: number;
+  col?: number;
+}
+
 function splitNames(value: unknown): string[] {
   return splitCapabilityList(value);
 }
@@ -245,4 +267,53 @@ export function collectCapabilityIslands(root: IRNode): CapabilityIsland[] {
   const out: CapabilityIsland[] = [];
   walkIslands(root, out);
   return out;
+}
+
+function isPythonSidecarBoundary(boundary: ExternalBoundary): boolean {
+  return boundary.requiresSidecar === true && (boundary.targetFamily === 'python' || boundary.registry === 'pypi');
+}
+
+export function sidecarManifestFromIsland(island: CapabilityIsland): SidecarManifest | null {
+  if (island.requiresSidecar !== true || island.runtime !== 'python') return null;
+  const packages: SidecarPackage[] = island.imports.filter(isPythonSidecarBoundary).map((boundary) => {
+    const sidecarPackage: SidecarPackage = {
+      package: boundary.package,
+      registry: boundary.registry,
+      target: boundary.target,
+      targetFamily: boundary.targetFamily,
+      imports: boundary.imports,
+    };
+    if (boundary.line !== undefined) sidecarPackage.line = boundary.line;
+    if (boundary.col !== undefined) sidecarPackage.col = boundary.col;
+    return sidecarPackage;
+  });
+
+  if (packages.length === 0) return null;
+  const manifest: SidecarManifest = {
+    name: island.name,
+    runtime: island.runtime,
+    effects: island.effects,
+    requiresSidecar: true,
+    packages,
+  };
+  if (island.kind !== undefined) manifest.kind = island.kind;
+  if (island.serialization !== undefined) manifest.serialization = island.serialization;
+  if (island.line !== undefined) manifest.line = island.line;
+  if (island.col !== undefined) manifest.col = island.col;
+  return manifest;
+}
+
+export function sidecarManifestFromNode(node: IRNode): SidecarManifest | null {
+  if (node.type !== 'island') return null;
+  const island = islandFromNode(node);
+  return island ? sidecarManifestFromIsland(island) : null;
+}
+
+export function collectSidecarManifests(root: IRNode): SidecarManifest[] {
+  const manifests: SidecarManifest[] = [];
+  for (const island of collectCapabilityIslands(root)) {
+    const manifest = sidecarManifestFromIsland(island);
+    if (manifest) manifests.push(manifest);
+  }
+  return manifests;
 }

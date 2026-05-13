@@ -3,6 +3,7 @@ import {
   ALL_TARGETS,
   collectCapabilityIslands,
   collectExternalBoundaries,
+  collectSidecarManifests,
   detectReactHookDeps,
   detectVersionsFromPackageJson,
   expandTemplateNode,
@@ -146,6 +147,7 @@ async function compileDefaultSingle(
           diagnostics: [],
           schemaViolations: [],
           capabilityIslands: collectCapabilityIslands(ast),
+          sidecarManifests: collectSidecarManifests(ast),
           externalBoundaries: collectExternalBoundaries(ast),
           shadowDiagnostics,
         });
@@ -182,7 +184,7 @@ async function compileDefaultSingle(
   }
 
   processNode(ast);
-  if (ast.children) {
+  if (ast.type !== 'module' && ast.children) {
     for (const child of ast.children) {
       processNode(child);
     }
@@ -393,6 +395,7 @@ export async function runCompile(args: string[]): Promise<void> {
                   diagnostics: [],
                   schemaViolations: [],
                   capabilityIslands: collectCapabilityIslands(shadowRoot),
+                  sidecarManifests: collectSidecarManifests(shadowRoot),
                   externalBoundaries: collectExternalBoundaries(shadowRoot),
                   shadowDiagnostics,
                 });

@@ -480,6 +480,21 @@ describe('golden: import', () => {
       ),
     ).toBe("import Anthropic from '@anthropic-ai/sdk';");
   });
+  it('emits Python sidecar placeholders for sidecar-backed islands', () => {
+    const output = gen(
+      [
+        'island sidecar Demucs runtime=python effects=[fs,exec,stream] serialization=handle requiresSidecar=true',
+        '  import py "demucs" as demucs',
+        '  import py "fastapi" as FastAPI',
+      ].join('\n'),
+    );
+
+    expect(output).toContain('export const demucsSidecarManifest = {');
+    expect(output).toContain('export const demucsSidecarClient = {');
+    expect(output).toContain('packages: ["demucs", "fastapi"],');
+    expect(output).not.toContain("from 'demucs'");
+    expect(output).not.toContain("from 'fastapi'");
+  });
 });
 
 describe('golden: const', () => {

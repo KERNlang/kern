@@ -14,6 +14,7 @@ import {
   collectCapabilityIslands,
   collectCoverageGaps,
   collectExternalBoundaries,
+  collectSidecarManifests,
   detectKernStdlibUsage,
   detectReactHookDeps,
   detectTarget,
@@ -347,6 +348,7 @@ export interface FileDiagnosticsJSON {
   shadowDiagnostics?: ShadowDiagnostic[];
   /** Islands are the owner view; externalBoundaries includes the same child imports with inherited island metadata. */
   capabilityIslands: import('@kernlang/core').CapabilityIsland[];
+  sidecarManifests: import('@kernlang/core').SidecarManifest[];
   externalBoundaries: import('@kernlang/core').ExternalBoundary[];
 }
 
@@ -370,6 +372,7 @@ export function parseWithJSONDiagnostics(
       // Best-effort even when parsing/schema validation reports errors, so
       // review tools can still show declared foreign boundaries near failures.
       capabilityIslands: collectCapabilityIslands(result.root),
+      sidecarManifests: collectSidecarManifests(result.root),
       externalBoundaries: collectExternalBoundaries(result.root),
     },
   };
@@ -658,7 +661,7 @@ function transpileLib(ast: IRNode, _cfg: ResolvedKernConfig): import('@kernlang/
   }
 
   processNode(ast);
-  if (ast.children) {
+  if (ast.type !== 'module' && ast.children) {
     for (const child of ast.children) {
       processNode(child);
     }

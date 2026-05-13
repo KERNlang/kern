@@ -378,6 +378,82 @@ export async function loadUser(id: string): Promise<User> {
     );
   });
 
+  it('includes Python sidecar manifests and emits TS placeholders in target JSON compile output', async () => {
+    process.chdir(tmpDir);
+
+    const sourceFile = join(tmpDir, 'python-sidecar-target-json.kern');
+    writeFileSync(
+      sourceFile,
+      [
+        'module name=audio',
+        '  island sidecar Demucs runtime=python effects=[fs,exec,stream] serialization=handle requiresSidecar=true',
+        '    import py "demucs" as demucs',
+      ].join('\n'),
+    );
+
+    const generatedDir = join(tmpDir, 'generated-python-sidecar-target-json');
+    const getExitCode = trapExit();
+    await expect(
+      runCompile(['compile', sourceFile, '--target=lib', '--json', `--outdir=${generatedDir}`]),
+    ).rejects.toThrow('EXIT:0');
+
+    expect(getExitCode()).toBe(0);
+    const report = JSON.parse(stdout.join(''));
+    expect(report.errors).toBe(0);
+    expect(report.files[0].sidecarManifests).toMatchObject([
+      {
+        name: 'Demucs',
+        kind: 'sidecar',
+        runtime: 'python',
+        effects: ['fs', 'exec', 'stream'],
+        serialization: 'handle',
+        requiresSidecar: true,
+        packages: [{ package: 'demucs', registry: 'pypi', targetFamily: 'python' }],
+      },
+    ]);
+    const compiled = readFileSync(join(generatedDir, 'python-sidecar-target-json.ts'), 'utf-8');
+    expect(compiled).toContain('export const demucsSidecarManifest = {');
+    expect(compiled).toContain('export const demucsSidecarClient = {');
+    expect(compiled).toContain('packages: ["demucs"],');
+    expect(compiled.match(/export const demucsSidecarManifest/g)).toHaveLength(1);
+    expect(compiled.match(/export const demucsSidecarClient/g)).toHaveLength(1);
+    expect(compiled).not.toContain("from 'demucs'");
+  });
+
+  it('includes Python sidecar manifests and emits TS placeholders in default JSON compile output', async () => {
+    process.chdir(tmpDir);
+
+    const sourceFile = join(tmpDir, 'python-sidecar-default-json.kern');
+    writeFileSync(
+      sourceFile,
+      [
+        'module name=audio',
+        '  island sidecar Demucs runtime=python effects=[fs,exec,stream] serialization=handle requiresSidecar=true',
+        '    import py "demucs" as demucs',
+      ].join('\n'),
+    );
+
+    const generatedDir = join(tmpDir, 'generated-python-sidecar-default-json');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceFile, '--json', `--outdir=${generatedDir}`])).rejects.toThrow('EXIT:0');
+
+    expect(getExitCode()).toBe(0);
+    const report = JSON.parse(stdout.join(''));
+    expect(report.errors).toBe(0);
+    expect(report.files[0].sidecarManifests).toMatchObject([
+      {
+        name: 'Demucs',
+        runtime: 'python',
+        requiresSidecar: true,
+        packages: [{ package: 'demucs', registry: 'pypi', targetFamily: 'python' }],
+      },
+    ]);
+    const compiled = readFileSync(join(generatedDir, 'python-sidecar-default-json.ts'), 'utf-8');
+    expect(compiled.match(/export const demucsSidecarManifest/g)).toHaveLength(1);
+    expect(compiled.match(/export const demucsSidecarClient/g)).toHaveLength(1);
+    expect(compiled).not.toContain("from 'demucs'");
+  });
+
   it('keeps extern package boundaries in strict shadow JSON compile output', async () => {
     process.chdir(tmpDir);
 

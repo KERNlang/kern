@@ -1,4 +1,8 @@
-import { collectCapabilityIslands, collectExternalBoundaries } from '../src/external-boundary.js';
+import {
+  collectCapabilityIslands,
+  collectExternalBoundaries,
+  collectSidecarManifests,
+} from '../src/external-boundary.js';
 import { parse } from '../src/parser.js';
 
 describe('external boundary collection', () => {
@@ -293,5 +297,59 @@ describe('external boundary collection', () => {
       requiresSidecar: true,
     });
     expect(islands.every((island) => island.imports.length === 1)).toBe(true);
+  });
+
+  it('collects Python sidecar manifests for sidecar-backed capability islands', () => {
+    const root = parse(
+      [
+        'island sidecar Demucs runtime=python effects=[fs,exec,stream] serialization=handle requiresSidecar=true',
+        '  import py "demucs" as demucs',
+        '  import py "fastapi" as FastAPI',
+        '  import npm "zod" as z',
+      ].join('\n'),
+    );
+
+    expect(collectSidecarManifests(root)).toEqual([
+      {
+        name: 'Demucs',
+        kind: 'sidecar',
+        runtime: 'python',
+        effects: ['fs', 'exec', 'stream'],
+        serialization: 'handle',
+        requiresSidecar: true,
+        packages: [
+          {
+            package: 'demucs',
+            registry: 'pypi',
+            target: 'python',
+            targetFamily: 'python',
+            imports: [{ default: 'demucs', from: 'demucs', names: [], types: false, line: 2, col: 3 }],
+            line: 2,
+            col: 3,
+          },
+          {
+            package: 'fastapi',
+            registry: 'pypi',
+            target: 'python',
+            targetFamily: 'python',
+            imports: [{ default: 'FastAPI', from: 'fastapi', names: [], types: false, line: 3, col: 3 }],
+            line: 3,
+            col: 3,
+          },
+        ],
+        line: 1,
+        col: 1,
+      },
+    ]);
+  });
+
+  it('does not collect sidecar manifests for non-Python islands', () => {
+    const root = parse(
+      ['island sidecar NodeBridge runtime=node effects=[exec] requiresSidecar=true', '  import py "pandas" as pd'].join(
+        '\n',
+      ),
+    );
+
+    expect(collectSidecarManifests(root)).toEqual([]);
   });
 });

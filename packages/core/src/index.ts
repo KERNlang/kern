@@ -124,8 +124,20 @@ export { decompile } from './decompiler.js';
 // Codegen errors
 export type { CodegenErrorCode } from './errors.js';
 export { KernCodegenError, KernConfigError, KernParseError } from './errors.js';
-export type { CapabilityIsland, ExternalBoundary, ExternalImportBinding } from './external-boundary.js';
-export { collectCapabilityIslands, collectExternalBoundaries } from './external-boundary.js';
+export type {
+  CapabilityIsland,
+  ExternalBoundary,
+  ExternalImportBinding,
+  SidecarManifest,
+  SidecarPackage,
+} from './external-boundary.js';
+export {
+  collectCapabilityIslands,
+  collectExternalBoundaries,
+  collectSidecarManifests,
+  sidecarManifestFromIsland,
+  sidecarManifestFromNode,
+} from './external-boundary.js';
 export type {
   CapabilityEffect,
   CapabilityRuntime,
