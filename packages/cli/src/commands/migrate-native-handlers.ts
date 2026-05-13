@@ -30,13 +30,24 @@ import {
 import ts from 'typescript';
 
 export interface NativeHandlerHit {
-  headerLine: number; // 1-based
+  headerLine: number; // 1-based, header line of the `handler` keyword
+  endLine: number; // 1-based, line of the closing `>>>` (source line range of the original block)
   literal: string; // first body line, for reporting parity with other migrations
   valueAttr: string; // short summary: e.g. `2 statements`
 }
 
+/** Eligible handler that the rewriter declined to migrate, with the reason
+ *  the author can act on. Surfaced via `--check-equivalent` so authors see
+ *  why a handler stayed in raw form instead of silently being left behind. */
+export interface NativeHandlerSkip {
+  headerLine: number; // 1-based header line
+  endLine: number; // 1-based closing `>>>` line
+  reason: string; // human-readable cause
+}
+
 export interface NativeHandlerResult {
   hits: NativeHandlerHit[];
+  skipped: NativeHandlerSkip[];
   output: string;
 }
 
@@ -57,6 +68,15 @@ interface HandlerBlock {
 
 interface MapContext {
   loopDepth: number;
+  /** Set by mapStatementCore when it bails on an unsupported TS shape. The
+   *  caller surfaces this in NativeHandlerSkip so authors can see the
+   *  precise statement kind that blocked migration. Reset per-handler. */
+  skipReason?: string;
+}
+
+function recordSkip(ctx: MapContext, reason: string): null {
+  if (!ctx.skipReason) ctx.skipReason = reason;
+  return null;
 }
 
 /**
@@ -115,7 +135,17 @@ function dedent(lines: string[]): string {
  */
 function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string, ctx: MapContext): string[] | null {
   const mapped = mapStatementCore(stmt, source, indent, ctx);
-  if (mapped === null) return null;
+  if (mapped === null) {
+    // Most mapStatementCore bailouts don't yet carry a precise reason —
+    // fall back to the TS SyntaxKind name so the report says "skipped:
+    // unsupported TS shape SwitchStatement" instead of "unsupported".
+    // Specific bail sites (compound-assign, prefix/postfix ++/--, missing
+    // initializers, etc.) record a more useful reason via recordSkip first.
+    if (!ctx.skipReason) {
+      ctx.skipReason = `unsupported TS shape: ${ts.SyntaxKind[stmt.kind]}`;
+    }
+    return null;
+  }
   return [...mapLeadingComments(stmt, source, indent), ...mapped];
 }
 
@@ -157,11 +187,20 @@ function mapStatementCore(stmt: ts.Statement, source: ts.SourceFile, indent: str
     const flags = stmt.declarationList.flags;
     const isConst = (flags & ts.NodeFlags.Const) !== 0;
     const isLet = (flags & ts.NodeFlags.Let) !== 0;
-    if (!isConst && !isLet) return null;
+    if (!isConst && !isLet)
+      return recordSkip(
+        ctx,
+        '`var` declarations are not supported (function-scoped binding has no native body equivalent)',
+      );
     const decls = stmt.declarationList.declarations;
-    if (decls.length !== 1) return null;
+    if (decls.length !== 1)
+      return recordSkip(
+        ctx,
+        'multi-declarator declaration (`const a = …, b = …`) not supported — split into separate statements',
+      );
     const decl = decls[0];
-    if (!decl.initializer) return null;
+    if (!decl.initializer)
+      return recordSkip(ctx, 'declaration without initializer not supported (`let x;`) — assign an initial value');
     const typeText = decl.type?.getText(source);
     if (typeText && !isValidKernTypeAnnotation(typeText)) return null;
     if (!ts.isIdentifier(decl.name)) return mapDestructureDecl(decl, source, indent, typeText, isLet ? 'let' : 'const');
@@ -276,7 +315,9 @@ function mapStatementCore(stmt: ts.Statement, source: ts.SourceFile, indent: str
     }
     if (ts.isPostfixUnaryExpression(stmt.expression) || ts.isPrefixUnaryExpression(stmt.expression)) {
       const op = (stmt.expression as ts.PrefixUnaryExpression | ts.PostfixUnaryExpression).operator;
-      if (op === ts.SyntaxKind.PlusPlusToken || op === ts.SyntaxKind.MinusMinusToken) return null;
+      if (op === ts.SyntaxKind.PlusPlusToken || op === ts.SyntaxKind.MinusMinusToken) {
+        return recordSkip(ctx, '`++`/`--` mutation not supported — use `assign target=x op="+=" value="1"` instead');
+      }
     }
     const exprText = stmt.expression.getText(source);
     const canonical = canonicalKernExpression(exprText);
@@ -507,12 +548,43 @@ function ensureLangKern(headerProps: string): string {
   return headerProps.length === 0 ? 'lang="kern"' : `${headerProps} lang="kern"`;
 }
 
+/** Statement node types that prove a migrated body actually does work
+ *  (not just declarations or comments). Used to refuse "declaration-only"
+ *  migrations that would silently strip behaviour.
+ *
+ *  `let`, `destructure`, and the binding-form `fmt name=X template=…` are
+ *  deliberately NOT on this list: they are all pure value-binding shapes
+ *  (TS `const X = …` / `const {a} = …` / `` const X = `…` ``). A body
+ *  that consists entirely of those plus comments is what gemini flagged
+ *  in code review as the malformed shape that produced suspicious output
+ *  in Agon-AI — refuse the rewrite and force a manual audit instead.
+ *
+ *  `fmt return=true template=…` is the action-bearing variant (lowers to
+ *  TS `return \`…\`;`) and IS counted — see `isActionBearingLine`. */
+const ACTION_BEARING_KIND = /^(?:return|throw|do|assign|if|while|for|each|try|break|continue|branch)$/;
+
+function isActionBearingLine(line: string): boolean {
+  // Mirror the parser's keyword recognition — first non-whitespace token of
+  // the line is the node type. The rewriter never embeds these keywords
+  // inside attribute values.
+  const trimmed = line.trimStart();
+  const head = trimmed.match(/^([a-z]+)/);
+  if (!head) return false;
+  if (ACTION_BEARING_KIND.test(head[1])) return true;
+  // `fmt return=true template=…` is action-bearing (TS `return \`…\`;`);
+  // the binding form `fmt name=X template=…` is not. Distinguish them by
+  // scanning the attributes on this line.
+  if (head[1] === 'fmt' && /\breturn=true\b/.test(trimmed)) return true;
+  return false;
+}
+
 export function rewriteNativeHandlers(source: string): NativeHandlerResult {
   const lines = source.split('\n');
   const hits: NativeHandlerHit[] = [];
+  const skipped: NativeHandlerSkip[] = [];
 
   const blocks = findHandlerBlocks(lines);
-  if (blocks.length === 0) return { hits: [], output: source };
+  if (blocks.length === 0) return { hits: [], skipped: [], output: source };
 
   // Plan replacements first, then build output via cursor scan to keep indent
   // semantics stable.
@@ -520,6 +592,8 @@ export function rewriteNativeHandlers(source: string): NativeHandlerResult {
   const replacements: Replacement[] = [];
 
   for (const block of blocks) {
+    const headerLine1 = block.startLine + 1;
+    const endLine1 = block.endLine + 1;
     // Skip handlers with ANY explicit `lang=…` — `lang="kern"` is already
     // migrated; `lang="ts"`/`lang="python"` are deliberately raw and the user
     // doesn't want them rewritten through KERN's native expression validator.
@@ -527,27 +601,68 @@ export function rewriteNativeHandlers(source: string): NativeHandlerResult {
     if (block.bodyText.trim() === '') continue;
 
     const cls = classifyHandlerBody(block.bodyText);
-    if (!cls.eligible) continue;
+    if (!cls.eligible) {
+      skipped.push({ headerLine: headerLine1, endLine: endLine1, reason: `not eligible: ${cls.reason}` });
+      continue;
+    }
 
-    if (!hasOnlyMigratableComments(block.bodyText)) continue;
+    if (!hasOnlyMigratableComments(block.bodyText)) {
+      skipped.push({
+        headerLine: headerLine1,
+        endLine: endLine1,
+        reason: 'comments in non-migratable position (between statements that would shift meaning if lifted out)',
+      });
+      continue;
+    }
 
     const sourceFile = ts.createSourceFile('__handler.ts', block.bodyText, ts.ScriptTarget.Latest, true);
 
     // Bail on TS syntax errors (rare since classifier already vets).
-    if ((sourceFile as unknown as { parseDiagnostics?: ts.Diagnostic[] }).parseDiagnostics?.length) continue;
+    if ((sourceFile as unknown as { parseDiagnostics?: ts.Diagnostic[] }).parseDiagnostics?.length) {
+      skipped.push({ headerLine: headerLine1, endLine: endLine1, reason: 'TS syntax error in handler body' });
+      continue;
+    }
 
     const bodyIndent = block.headerIndent + INDENT_STEP;
     const stmtLines: string[] = [];
+    const ctx: MapContext = { loopDepth: 0 };
     let bailed = false;
     for (const stmt of sourceFile.statements) {
-      const mapped = mapStatement(stmt, sourceFile, bodyIndent, { loopDepth: 0 });
+      const mapped = mapStatement(stmt, sourceFile, bodyIndent, ctx);
       if (mapped === null) {
         bailed = true;
         break;
       }
       stmtLines.push(...mapped);
     }
-    if (bailed || stmtLines.length === 0) continue;
+    if (bailed) {
+      skipped.push({ headerLine: headerLine1, endLine: endLine1, reason: ctx.skipReason ?? 'unsupported TS shape' });
+      continue;
+    }
+    if (stmtLines.length === 0) {
+      skipped.push({
+        headerLine: headerLine1,
+        endLine: endLine1,
+        reason: 'no statements emitted (empty handler after comment stripping)',
+      });
+      continue;
+    }
+
+    // Refuse declaration-only migrations: a body that emits only comments
+    // and/or `let` lines but never returns/throws/calls anything is
+    // suspicious — the original handler was likely doing something we
+    // failed to capture, or it was a deliberately empty stub the author
+    // doesn't want silently transformed. Leave it raw so the author can
+    // audit it themselves.
+    if (!stmtLines.some(isActionBearingLine)) {
+      skipped.push({
+        headerLine: headerLine1,
+        endLine: endLine1,
+        reason:
+          'declaration-only output (no return/throw/do/assign/control-flow) — refusing to rewrite a handler that would lose all observable behaviour',
+      });
+      continue;
+    }
 
     const newHeader = `${block.headerIndent}handler ${ensureLangKern(block.headerProps)}`.replace(/\s+$/, '');
     const replacementLines = [newHeader, ...stmtLines];
@@ -556,7 +671,8 @@ export function rewriteNativeHandlers(source: string): NativeHandlerResult {
       endLine: block.endLine,
       lines: replacementLines,
       hit: {
-        headerLine: block.startLine + 1,
+        headerLine: headerLine1,
+        endLine: endLine1,
         // Trim the whole body before splitting so a leading blank line
         // doesn't produce an empty `literal` in the migration report.
         literal: block.bodyText.trim().split('\n')[0],
@@ -565,7 +681,7 @@ export function rewriteNativeHandlers(source: string): NativeHandlerResult {
     });
   }
 
-  if (replacements.length === 0) return { hits: [], output: source };
+  if (replacements.length === 0) return { hits: [], skipped, output: source };
 
   // Splice output via cursor — process in source order.
   const out: string[] = [];
@@ -584,5 +700,5 @@ export function rewriteNativeHandlers(source: string): NativeHandlerResult {
     cursor++;
   }
 
-  return { hits, output: out.join('\n') };
+  return { hits, skipped, output: out.join('\n') };
 }

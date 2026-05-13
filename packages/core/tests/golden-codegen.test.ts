@@ -486,12 +486,20 @@ describe('golden: import', () => {
         'island sidecar Demucs runtime=python effects=[fs,exec,stream] serialization=handle requiresSidecar=true',
         '  import py "demucs" as demucs',
         '  import py "fastapi" as FastAPI',
+        '  import from=statistics registry=pypi names="mean as pyMean"',
       ].join('\n'),
     );
 
     expect(output).toContain('export const demucsSidecarManifest = {');
-    expect(output).toContain('export const demucsSidecarClient = {');
-    expect(output).toContain('packages: ["demucs", "fastapi"],');
+    expect(output).toContain('export const demucsSidecarClient = createDemucsSidecarClient(demucsSidecarManifest);');
+    expect(output).toContain('packages: ["demucs", "fastapi", "statistics"],');
+    expect(output).toContain('call(moduleName: string, method: string');
+    expect(output).toContain('module(moduleName: string)');
+    expect(output).toContain('export const demucs = demucsSidecarClient.module("demucs");');
+    expect(output).toContain('export const FastAPI = demucsSidecarClient.module("fastapi");');
+    expect(output).toContain('export const statistics = demucsSidecarClient.module("statistics");');
+    expect(output).toContain('export const pyMean = demucsSidecarClient.bind("statistics", "mean");');
+    expect(output).toContain("spawn(python, ['-u', '-c'");
     expect(output).not.toContain("from 'demucs'");
     expect(output).not.toContain("from 'fastapi'");
   });

@@ -901,7 +901,14 @@ export function parseInternal(
   }
 
   let root: IRNode;
-  if (asDocument) {
+  // Auto-promote to document when caller asked for a single root but the source
+  // has multiple top-level decls at the same indent. Without this, the first
+  // top-level node becomes the root and the rest get attached to it as bogus
+  // children — producing misleading "'<root>' does not allow child type '<X>'"
+  // schema errors for files like `interface … / fn … / const …`.
+  const hasSiblingTopLevel =
+    !asDocument && parsed.length > 1 && parsed.slice(1).some((p) => p.indent <= parsed[0].indent);
+  if (asDocument || hasSiblingTopLevel) {
     root = { type: 'document', children: [], loc: { line: 1, col: 1 } };
     buildTree(state, parsed, root, -1);
   } else {

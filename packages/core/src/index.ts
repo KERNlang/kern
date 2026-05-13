@@ -305,6 +305,7 @@ export {
 // Types
 export type {
   DecompileResult,
+  DiagnosticCategory,
   DiagnosticOutcome,
   ExprObject,
   GeneratedArtifact,

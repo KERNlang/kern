@@ -1,7 +1,7 @@
 /** @internal Parser diagnostics infrastructure — not part of the public API. */
 
 import { defaultRuntime, type KernRuntime } from './runtime.js';
-import type { ParseDiagnostic, ParseErrorCode } from './types.js';
+import type { DiagnosticCategory, ParseDiagnostic, ParseErrorCode } from './types.js';
 
 export interface ParseState {
   diagnostics: ParseDiagnostic[];
@@ -54,6 +54,45 @@ const DIAGNOSTIC_SUGGESTIONS: Record<ParseErrorCode, string> = {
     'Lift the `cell` out of any enclosing `if`/`for`/`while`/`try`/`each` and place it directly under `handler lang="kern"`. Use a conditional `set` inside the branch instead.',
 };
 
+/** Coarse classification per diagnostic code so consumers can split
+ *  "fix the source" errors from parser/validator/migration noise. Codes
+ *  not listed here fall back to `source`. */
+const DIAGNOSTIC_CATEGORIES: Partial<Record<ParseErrorCode, DiagnosticCategory>> = {
+  // Parser-level — tree construction, indentation, dropped lines.
+  INVALID_INDENT: 'parser',
+  INDENT_JUMP: 'parser',
+  DROPPED_LINE: 'parser',
+  DROPPED_DECORATOR: 'parser',
+  UNCLOSED_EXPR: 'parser',
+  UNCLOSED_STYLE: 'parser',
+  UNCLOSED_STRING: 'parser',
+  UNEXPECTED_TOKEN: 'parser',
+  EMPTY_DOCUMENT: 'parser',
+  UNKNOWN_NODE_TYPE: 'parser',
+  DUPLICATE_PROP: 'parser',
+  // Validator — IR is structurally sound but a body-statement / cross-prop /
+  // shape constraint rejected it. These are typically actionable by the
+  // author but distinct from "your source is malformed".
+  BODY_STATEMENT_OUTSIDE_NATIVE_HANDLER: 'validator',
+  BODY_LOOP_CONTROL_OUTSIDE_LOOP: 'validator',
+  LET_INVALID_KIND: 'validator',
+  BODY_FOR_INVALID_NAME: 'validator',
+  BODY_FOR_INVALID_STEP: 'validator',
+  BODY_FOR_INVALID_BOUND: 'validator',
+  CELL_OUTSIDE_HANDLER_TOP_LEVEL: 'validator',
+  INVALID_EFFECTS: 'validator',
+  INVALID_UNION_KIND: 'validator',
+  KIND_SHAPE_VIOLATION: 'validator',
+  INVALID_PROPAGATION: 'validator',
+  NESTED_PROPAGATION: 'validator',
+  UNSAFE_UNWRAP_IN_RESULT_FN: 'validator',
+  NATIVE_KERN_ELIGIBLE: 'validator',
+  INVALID_EXPRESSION: 'validator',
+  INVALID_BIGINT: 'validator',
+  // Remaining codes fall through to `source` (the source itself violates
+  // the language spec — author should rewrite the offending line).
+};
+
 export function createParseState(): ParseState {
   return { diagnostics: [] };
 }
@@ -79,5 +118,6 @@ export function emitDiagnostic(
     col,
     endCol: Math.max(options.endCol ?? col + 1, col),
     suggestion: options.suggestion ?? DIAGNOSTIC_SUGGESTIONS[code],
+    category: DIAGNOSTIC_CATEGORIES[code] ?? 'source',
   });
 }

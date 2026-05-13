@@ -2878,8 +2878,140 @@ export interface SchemaViolation {
  */
 export function validateSchema(root: IRNode): SchemaViolation[] {
   const violations: SchemaViolation[] = [];
+  // Pre-pass: infer `union discriminant=` when a single literal-typed field is
+  // shared across all variant target interfaces, so authors can write the
+  // ergonomic form `union name=Msg / variant type=A / variant type=B` without
+  // restating a `discriminant=` that's already implied by the variant shapes.
+  inferUnionDiscriminants(root);
   validateNode(root, violations);
   return violations;
+}
+
+// ── Union discriminant inference ────────────────────────────────────────
+//
+// Authors hit a frustrating ergonomic when writing:
+//   union name=MessagePart
+//     variant type=TextPart
+//     variant type=ToolCallPart
+// The schema demands `discriminant=`, but in nearly every case both
+// `TextPart` and `ToolCallPart` already declare a single literal-typed field
+// (e.g. `kind: 'text'` / `kind: 'tool_call'`). We can read that field name
+// off the referenced interfaces and infer it for the union node so the
+// codegen path emits the same TS as if the author had typed it explicitly.
+// When inference fails, the standard required-prop check fires with an
+// actionable hint that lists the likely discriminant fields.
+
+function collectInterfaces(root: IRNode, out: Map<string, IRNode>): void {
+  if (root.type === 'interface' && typeof root.props?.name === 'string') {
+    out.set(root.props.name, root);
+  }
+  for (const child of root.children ?? []) collectInterfaces(child, out);
+}
+
+function isLiteralTypeAnnotation(raw: unknown): boolean {
+  if (typeof raw !== 'string') return false;
+  const t = raw.trim();
+  // Quoted string literal (`'text'` or `"text"`) — the most common
+  // discriminant shape.
+  if (/^(['"]).+\1$/.test(t)) return true;
+  // Numeric / boolean / template-literal-style literals (`1`, `true`,
+  // `false`). Rarer but still single-value discriminants.
+  if (/^(?:\d+(?:\.\d+)?|true|false)$/.test(t)) return true;
+  return false;
+}
+
+type VariantResolution =
+  | { kind: 'unresolved' } // `variant type=X` where X isn't in the document — author typo, leave alone
+  | { kind: 'fields'; fields: IRNode[] }; // resolved (possibly empty) field set
+
+function variantInterfaceFields(variant: IRNode, interfaces: Map<string, IRNode>): VariantResolution {
+  const props = variant.props ?? {};
+  const inlineFields = (variant.children ?? []).filter((c) => c.type === 'field');
+  let interfaceFields: IRNode[] = [];
+  let typeRefUnresolved = false;
+  if (typeof props.type === 'string') {
+    const iface = interfaces.get(props.type);
+    if (!iface) typeRefUnresolved = true;
+    else interfaceFields = (iface.children ?? []).filter((c) => c.type === 'field');
+  }
+  // When the type= ref is unresolvable AND we have no inline fields,
+  // this variant contributes no information — flag as unresolved so the
+  // intersection skips it. With inline fields we still have a partial
+  // view; treat that as resolved against the inline subset.
+  if (typeRefUnresolved && inlineFields.length === 0) return { kind: 'unresolved' };
+  // Merge inline + interface fields. The earlier implementation early-
+  // returned inline-only when both existed, hiding interface-level literal
+  // fields that might actually be the discriminant.
+  return { kind: 'fields', fields: [...inlineFields, ...interfaceFields] };
+}
+
+/** Likely-discriminant field names shared (with literal-typed values) by
+ *  every variant's resolved interface. Empty when no shared candidates
+ *  exist, single-element when inference is unambiguous, multi-element when
+ *  ambiguous (caller surfaces all as suggestions in the diagnostic).
+ *
+ *  Variants split into two classes:
+ *    - `unresolved` (typo'd `type=X`) — skipped from the intersection so a
+ *      single typo doesn't strip the diagnostic of useful candidates that
+ *      the other variants could still suggest (gemini review fix).
+ *    - `fields` (resolved, may be empty) — MUST contribute a non-empty
+ *      literal-field set, or inference fails. A resolved variant with no
+ *      literal-typed fields proves the variants do NOT share a single
+ *      discriminant — silently inferring one would mask the missing-prop
+ *      diagnostic (codex review fix). */
+function computeDiscriminantCandidates(variants: IRNode[], interfaces: Map<string, IRNode>): string[] {
+  if (variants.length === 0) return [];
+  let shared: Set<string> | null = null;
+  let sawResolvedWithFields = false;
+  for (const variant of variants) {
+    const resolution = variantInterfaceFields(variant, interfaces);
+    if (resolution.kind === 'unresolved') continue;
+    const literalFieldNames = new Set<string>();
+    for (const field of resolution.fields) {
+      if (typeof field.props?.name !== 'string') continue;
+      if (isLiteralTypeAnnotation(field.props?.type)) literalFieldNames.add(field.props.name);
+    }
+    // Resolved variant with no literal-typed fields → cannot share a
+    // discriminant with anything. Fail inference rather than silently
+    // accepting whatever the other variants alone might agree on.
+    if (literalFieldNames.size === 0) return [];
+    sawResolvedWithFields = true;
+    if (shared === null) {
+      shared = literalFieldNames;
+    } else {
+      const prev: Set<string> = shared;
+      const next = new Set<string>();
+      for (const n of prev) if (literalFieldNames.has(n)) next.add(n);
+      shared = next;
+    }
+    if (shared.size === 0) return [];
+  }
+  // If every variant was unresolved we have no signal — fail inference.
+  if (!sawResolvedWithFields) return [];
+  return shared ? [...shared] : [];
+}
+
+function inferUnionDiscriminants(root: IRNode): void {
+  const interfaces = new Map<string, IRNode>();
+  collectInterfaces(root, interfaces);
+  walkAndInfer(root, interfaces);
+}
+
+function walkAndInfer(node: IRNode, interfaces: Map<string, IRNode>): void {
+  if (node.type === 'union' && typeof node.props?.discriminant !== 'string') {
+    const variants = (node.children ?? []).filter((c) => c.type === 'variant');
+    const candidates = computeDiscriminantCandidates(variants, interfaces);
+    if (candidates.length === 1) {
+      if (!node.props) node.props = {};
+      node.props.discriminant = candidates[0];
+    } else if (candidates.length > 1) {
+      // Stash the suggestions so checkRequiredProps can surface them in
+      // the diagnostic without rewalking the tree. Strip on the way out.
+      if (!node.props) node.props = {};
+      node.props.__discriminantCandidates = candidates.join(',');
+    }
+  }
+  for (const child of node.children ?? []) walkAndInfer(child, interfaces);
 }
 
 const UNIVERSAL_CHILDREN = new Set(['handler', 'cleanup', 'reason', 'evidence', 'needs', 'signal', 'doc']);
@@ -2920,12 +3052,36 @@ function checkRequiredProps(node: IRNode, schema: NodeSchema, violations: Schema
     ) {
       continue;
     }
+    // Make the `union discriminant=` diagnostic actionable. When variants
+    // share multiple literal fields, list them as likely candidates so the
+    // author can disambiguate without grepping the variant interfaces.
+    if (node.type === 'union' && propName === 'discriminant') {
+      const candidatesRaw = props.__discriminantCandidates;
+      const candidates = typeof candidatesRaw === 'string' ? candidatesRaw.split(',').filter(Boolean) : [];
+      const unionName = typeof props.name === 'string' ? `union name=${props.name} ` : 'union ';
+      const hint =
+        candidates.length > 0
+          ? `; likely discriminants: ${candidates.join(', ')}`
+          : '; set explicitly (e.g. discriminant=kind) — variant target interfaces do not share a literal-typed field to infer from';
+      violations.push({
+        nodeType: node.type,
+        message: `${unionName}requires discriminant=<field>${hint}`,
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+      continue;
+    }
     violations.push({
       nodeType: node.type,
       message: `'${node.type}' requires prop '${propName}'`,
       line: node.loc?.line,
       col: node.loc?.col,
     });
+  }
+  // Inference scratch prop — strip after the required-check has read it so it
+  // doesn't leak into downstream codegen / schema export.
+  if (node.type === 'union' && node.props && '__discriminantCandidates' in node.props) {
+    delete node.props.__discriminantCandidates;
   }
 }
 

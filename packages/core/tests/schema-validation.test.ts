@@ -350,8 +350,11 @@ describe('Schema Validation', () => {
     });
 
     it('flags union missing discriminant', () => {
+      // Bare `union name=Shape` has no variants to infer from — the actionable
+      // diagnostic surfaces a "set explicitly" hint instead of a candidates
+      // list. See union-discriminant-inference.test.ts for inference paths.
       const v = validate('union name=Shape');
-      expect(v.some((v) => v.message.includes("requires prop 'discriminant'"))).toBe(true);
+      expect(v.some((v) => v.message.includes('requires discriminant=<field>'))).toBe(true);
     });
   });
 

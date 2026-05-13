@@ -35,6 +35,23 @@ export function validateSemantics(root: IRNode): SemanticViolation[] {
   return violations;
 }
 
+// True when the *innermost* handler ancestor is opted into native body-
+// statement mode (`lang="kern"`). Body statements like `let`/`assign`/`do`/
+// `if`/`try` nest freely inside that scope, so the let-parent rule has to
+// be context-aware rather than a hardcoded sibling list. Walks back to the
+// first `handler` ancestor and stops — a raw (non-`lang=kern`) handler
+// nested inside a native handler must NOT inherit native-body permissions,
+// or `let` would be silently accepted inside the raw boundary. Body-
+// statement containers allowed as a `let` parent inside native body:
+// handler, if, else, try, catch, finally, while, for, each.
+function insideNativeBodyHandler(ancestorNodes: IRNode[]): boolean {
+  for (let i = ancestorNodes.length - 1; i >= 0; i--) {
+    const ancestor = ancestorNodes[i];
+    if (ancestor.type === 'handler') return ancestor.props?.lang === 'kern';
+  }
+  return false;
+}
+
 function validateNode(
   node: IRNode,
   violations: SemanticViolation[],
@@ -173,22 +190,45 @@ function validateNode(
     }
   }
 
-  // ── let must be a direct child of each OR handler (slice 1 native bodies) ──
-  // `let` has two valid parents:
-  //   - `each` — iteration-scoped binding (emits `const` inside the `.map` callback).
-  //   - `handler` — body-statement binding inside a native KERN handler (`lang=kern`).
-  // Outside both contexts there's no codegen target and the binding is silently
-  // dropped — fail loudly instead.
+  // ── let must be a direct child of each OR a native body-stmt container ──
+  // `let` has two valid parent contexts:
+  //   1. `each` — iteration-scoped binding (emits `const` inside the `.map`
+  //      callback). Valid in both render and native-body contexts.
+  //   2. A body-statement container whose innermost handler ancestor is
+  //      `handler lang="kern"`. The schema already accepts `let` as a
+  //      child of handler/if/else/try/catch/finally/while/for, and the
+  //      native body emitter lowers it correctly. The previous hardcoded
+  //      sibling list (each/handler/if/else only) rejected legitimate
+  //      uses of `let` inside try/catch/while/for and forced authors
+  //      back to raw `<<<…>>>` bodies.
+  //
+  // Outside both contexts there's no codegen target and the binding is
+  // silently dropped — fail loudly instead.
+  //
+  // OpenCode review fix: `parent === 'handler'` alone is not safe. The
+  // body-statement parser-validator's `inNativeBody` is sticky once set,
+  // so a raw handler nested inside a native handler would NOT have its
+  // raw boundary detected by that validator. The semantic check below
+  // verifies the immediate handler's lang=kern.
   if (node.type === 'let') {
     const parent = ancestry[ancestry.length - 1];
-    // Slice 2c — also accept `if` / `else` parents for native body control flow.
-    // `let` inside an if-branch is the natural expression for conditional bindings.
-    if (parent !== 'each' && parent !== 'handler' && parent !== 'if' && parent !== 'else') {
+    const nativeBodyContainers = new Set(['if', 'else', 'try', 'catch', 'finally', 'while', 'for']);
+    let approved = false;
+    if (parent === 'each') {
+      approved = true;
+    } else if (parent === 'handler') {
+      // Immediate handler boundary must be opted into kern body-stmt mode.
+      const immediateHandler = ancestorNodes[ancestorNodes.length - 1];
+      approved = immediateHandler?.props?.lang === 'kern';
+    } else if (parent !== undefined && nativeBodyContainers.has(parent)) {
+      approved = insideNativeBodyHandler(ancestorNodes);
+    }
+    if (!approved) {
       violations.push({
         rule: 'let-must-be-inside-each',
         nodeType: 'let',
         message:
-          '`let` must be a direct child of `each`, `handler`, or `if`/`else` (slice 2c). Use `derive` for component-scoped bindings, or `const` at file scope.',
+          '`let` must be a direct child of `each`, or of `handler`/`if`/`else`/`try`/`catch`/`finally`/`while`/`for` inside a `handler lang="kern"` scope. Use `derive` for component-scoped bindings, or `const` at file scope.',
         line: node.loc?.line,
         col: node.loc?.col,
       });

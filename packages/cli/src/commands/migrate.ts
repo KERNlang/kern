@@ -70,6 +70,11 @@ interface LiteralConstHit {
 interface LiteralConstResult {
   hits: LiteralConstHit[];
   output: string;
+  /** Optional — handlers/decls the rewriter declined to touch, with reasons
+   *  the author can act on. Only the native-handlers rewriter populates
+   *  this today; the line-based migrations (literal-const, fn-expr,
+   *  class-body) leave it undefined. */
+  skipped?: Array<{ headerLine: number; endLine: number; reason: string }>;
 }
 
 /**
@@ -357,6 +362,15 @@ interface FileReport {
   rewrites: string[];
   // Legacy JSON field: original single-line handler bodies.
   literals: string[];
+  /** Per-hit source line ranges — `[headerLine, endLine]` 1-based pairs that
+   *  identify the original `handler <<< … >>>` block (or `const`/`fn`
+   *  header + closing line for line-based migrations). */
+  hitRanges?: Array<{ headerLine: number; endLine: number }>;
+  /** Handlers/decls that were eligible for migration but declined for a
+   *  documented safety reason. Surfaced by `--check-equivalent` so authors
+   *  can see why a handler stayed raw instead of silently being left
+   *  behind. */
+  skipped?: Array<{ headerLine: number; endLine: number; reason: string }>;
 }
 
 interface MigrateReport {
@@ -366,8 +380,12 @@ interface MigrateReport {
   scannedFiles: number;
   changedFiles: number;
   totalHits: number;
+  /** Total number of `skipped` entries across files. Always present so JSON
+   *  consumers can `report.totalSkipped === 0` instead of summing nested
+   *  arrays. */
+  totalSkipped: number;
   files: FileReport[];
-  mode: 'dry-run' | 'write';
+  mode: 'dry-run' | 'write' | 'check-equivalent';
 }
 
 function formatHuman(report: MigrateReport, rootDir: string): string {
@@ -377,26 +395,54 @@ function formatHuman(report: MigrateReport, rootDir: string): string {
       relative(process.cwd(), rootDir) || '.'
     }`,
   );
-  if (report.totalHits === 0) {
+  if (report.totalHits === 0 && report.totalSkipped === 0) {
     lines.push('No migration candidates found.');
     return `${lines.join('\n')}\n`;
   }
+  let filesWithFindings = 0;
   for (const file of report.files) {
-    if (file.hits === 0) continue;
+    if (file.hits === 0 && (file.skipped?.length ?? 0) === 0) continue;
+    filesWithFindings++;
     const rel = relative(rootDir, file.file) || file.file;
-    lines.push(`  ${rel}  (${file.hits} hit${file.hits === 1 ? '' : 's'})`);
-    for (const rewrite of file.rewrites.slice(0, 5)) {
-      lines.push(`    -> ${rewrite}`);
+    const skipCount = file.skipped?.length ?? 0;
+    const headerParts = [`${file.hits} hit${file.hits === 1 ? '' : 's'}`];
+    if (skipCount > 0) headerParts.push(`${skipCount} skipped`);
+    lines.push(`  ${rel}  (${headerParts.join(', ')})`);
+    const rewrites = file.rewrites;
+    const ranges = file.hitRanges ?? [];
+    for (let i = 0; i < Math.min(rewrites.length, 5); i++) {
+      const range = ranges[i];
+      const loc = range ? ` [L${range.headerLine}-${range.endLine}]` : '';
+      lines.push(`    ->${loc} ${rewrites[i]}`);
     }
-    if (file.rewrites.length > 5) {
-      lines.push(`    ... ${file.rewrites.length - 5} more`);
+    if (rewrites.length > 5) lines.push(`    ... ${rewrites.length - 5} more`);
+    // --check-equivalent surfaces skips inline so authors see them without
+    // having to grep the JSON payload.
+    if (report.mode === 'check-equivalent' && skipCount > 0) {
+      for (const s of (file.skipped ?? []).slice(0, 10)) {
+        lines.push(`    skip [L${s.headerLine}-${s.endLine}]: ${s.reason}`);
+      }
+      if (skipCount > 10) lines.push(`    ... ${skipCount - 10} more skips`);
     }
   }
   const action = report.mode === 'write' ? 'applied' : 'would apply';
   lines.push('');
-  lines.push(`${action}: ${report.totalHits} hits across ${report.changedFiles} files`);
-  if (report.mode === 'dry-run') {
-    lines.push('(dry-run - re-run with --write to commit)');
+  if (report.mode === 'check-equivalent') {
+    // Codex review fix: "eligible" was misleading because it summed
+    // converted + skipped, but skipped includes classifier-ineligible
+    // handlers. Use "candidates" (handlers the audit examined) so the
+    // total doesn't conflate "could be migrated" with "could not". And
+    // count files with findings (hits OR skips), since files with only
+    // skips never bumped `changedFiles`.
+    lines.push(
+      `candidates: ${report.totalHits + report.totalSkipped}, converted: ${report.totalHits}, skipped: ${report.totalSkipped} across ${filesWithFindings} file(s) with findings`,
+    );
+    lines.push('(check-equivalent — no files modified; re-run with --write to apply the convertible hits)');
+  } else {
+    lines.push(`${action}: ${report.totalHits} hits across ${report.changedFiles} files`);
+    if (report.mode === 'dry-run') {
+      lines.push('(dry-run - re-run with --write to commit)');
+    }
   }
   return `${lines.join('\n')}\n`;
 }
@@ -500,7 +546,12 @@ function cleanupTmp(dir: string | undefined): void {
 }
 
 function printUsage(): void {
-  process.stderr.write('Usage: kern migrate <migration|list> [dir] [--write] [--verify] [--json]\n');
+  process.stderr.write(
+    'Usage: kern migrate <migration|list> [dir] [--write] [--verify] [--check-equivalent] [--json]\n',
+  );
+  process.stderr.write(
+    '  --check-equivalent  dry-run audit listing eligible/converted/skipped with reasons + source line ranges (native-handlers)\n',
+  );
   process.stderr.write('Migrations:\n');
   const padTo = migrationList().reduce((m, d) => Math.max(m, d.name.length), 0);
   for (const def of migrationList()) {
@@ -551,6 +602,17 @@ export function runMigrate(args: string[]): void {
   const rootDir = resolve(parseFlagOrNext(args, '--root') ?? rootArg ?? process.cwd());
   const write = hasFlag(args, '--write');
   const verify = hasFlag(args, '--verify');
+  // `--check-equivalent` is a richer dry-run: it never writes, and surfaces
+  // per-handler skip reasons + source line ranges so authors can audit why
+  // the migrator declined to rewrite specific handlers. Mutually exclusive
+  // with --write/--verify (writing would defeat the audit purpose).
+  const checkEquivalent = hasFlag(args, '--check-equivalent');
+  if (checkEquivalent && (write || verify)) {
+    process.stderr.write(
+      '--check-equivalent cannot be combined with --write or --verify (it is a dry-run audit mode)\n',
+    );
+    process.exit(1);
+  }
 
   // --verify implies --write (no point verifying a dry-run).
   const effectiveWrite = write || verify;
@@ -585,6 +647,7 @@ export function runMigrate(args: string[]): void {
 
   const fileReports: FileReport[] = [];
   let totalHits = 0;
+  let totalSkipped = 0;
   let changedFiles = 0;
   const touchedFiles: string[] = [];
 
@@ -596,20 +659,35 @@ export function runMigrate(args: string[]): void {
       continue;
     }
     const result = def.rewrite(source);
+    const skipped = result.skipped ?? [];
     fileReports.push({
       file,
       hits: result.hits.length,
       rewrites: result.hits.map((h) => h.valueAttr),
       literals: result.hits.map((h) => h.literal),
+      // Native-handlers rewriter is the only one populating endLine today;
+      // line-based migrations report just headerLine. Emit hitRanges
+      // whenever the underlying hit has an endLine so JSON consumers and
+      // the human report can show `[L12-18]` instead of just `L12`.
+      hitRanges: result.hits.some((h) => typeof (h as { endLine?: number }).endLine === 'number')
+        ? result.hits.map((h) => ({
+            headerLine: h.headerLine,
+            endLine: (h as { endLine?: number }).endLine ?? h.headerLine,
+          }))
+        : undefined,
+      ...(skipped.length > 0 ? { skipped } : {}),
     });
     if (result.hits.length > 0) {
       totalHits += result.hits.length;
       changedFiles++;
-      if (effectiveWrite && result.output !== source) {
+      // --check-equivalent never writes — it's audit-only. --write writes,
+      // --verify implies --write.
+      if (effectiveWrite && !checkEquivalent && result.output !== source) {
         writeFileSync(file, result.output);
         touchedFiles.push(file);
       }
     }
+    totalSkipped += skipped.length;
   }
 
   // Verify post-compile: emit AFTER build against migrated sources, diff
@@ -655,8 +733,9 @@ export function runMigrate(args: string[]): void {
     scannedFiles: files.length,
     changedFiles,
     totalHits,
+    totalSkipped,
     files: fileReports,
-    mode: effectiveWrite ? 'write' : 'dry-run',
+    mode: checkEquivalent ? 'check-equivalent' : effectiveWrite ? 'write' : 'dry-run',
   };
 
   if (json) {

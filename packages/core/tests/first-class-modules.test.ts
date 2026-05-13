@@ -41,14 +41,18 @@ describe('first-class module syntax', () => {
   });
 
   test('root first-class .kern import keeps parse() sibling children', () => {
+    // Multi-top-level sources now auto-promote to a document root (see
+    // parser-core.ts:903 — hasSiblingTopLevel). The first-class import is
+    // canonicalized to `use` and the top-level `fn` is a true sibling
+    // instead of being mis-nested as a child of `use`.
     const node = parse(
       ['import { Users } from "./users.kern"', 'fn getUser(): User', '  return Users.get()'].join('\n'),
     );
 
     expect(node).toMatchObject({
-      type: 'use',
+      type: 'document',
       children: [
-        { type: 'from', props: { name: 'Users' } },
+        { type: 'use', children: [{ type: 'from', props: { name: 'Users' } }] },
         { type: 'fn', props: { name: 'getUser' } },
       ],
     });
