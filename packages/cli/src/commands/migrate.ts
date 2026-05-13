@@ -399,8 +399,10 @@ function formatHuman(report: MigrateReport, rootDir: string): string {
     lines.push('No migration candidates found.');
     return `${lines.join('\n')}\n`;
   }
+  let filesWithFindings = 0;
   for (const file of report.files) {
     if (file.hits === 0 && (file.skipped?.length ?? 0) === 0) continue;
+    filesWithFindings++;
     const rel = relative(rootDir, file.file) || file.file;
     const skipCount = file.skipped?.length ?? 0;
     const headerParts = [`${file.hits} hit${file.hits === 1 ? '' : 's'}`];
@@ -426,8 +428,14 @@ function formatHuman(report: MigrateReport, rootDir: string): string {
   const action = report.mode === 'write' ? 'applied' : 'would apply';
   lines.push('');
   if (report.mode === 'check-equivalent') {
+    // Codex review fix: "eligible" was misleading because it summed
+    // converted + skipped, but skipped includes classifier-ineligible
+    // handlers. Use "candidates" (handlers the audit examined) so the
+    // total doesn't conflate "could be migrated" with "could not". And
+    // count files with findings (hits OR skips), since files with only
+    // skips never bumped `changedFiles`.
     lines.push(
-      `eligible: ${report.totalHits + report.totalSkipped}, converted: ${report.totalHits}, skipped: ${report.totalSkipped} across ${report.changedFiles} file(s)`,
+      `candidates: ${report.totalHits + report.totalSkipped}, converted: ${report.totalHits}, skipped: ${report.totalSkipped} across ${filesWithFindings} file(s) with findings`,
     );
     lines.push('(check-equivalent — no files modified; re-run with --write to apply the convertible hits)');
   } else {

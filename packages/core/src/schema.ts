@@ -2920,38 +2920,62 @@ function isLiteralTypeAnnotation(raw: unknown): boolean {
   return false;
 }
 
-function variantInterfaceFields(variant: IRNode, interfaces: Map<string, IRNode>): IRNode[] | null {
+type VariantResolution =
+  | { kind: 'unresolved' } // `variant type=X` where X isn't in the document — author typo, leave alone
+  | { kind: 'fields'; fields: IRNode[] }; // resolved (possibly empty) field set
+
+function variantInterfaceFields(variant: IRNode, interfaces: Map<string, IRNode>): VariantResolution {
   const props = variant.props ?? {};
-  // Inline variants (`variant name=…` with `field` children) carry their
-  // own discriminant field directly; otherwise look up the referenced
-  // interface by `type=`.
-  if (typeof props.name === 'string' && (variant.children ?? []).some((c) => c.type === 'field')) {
-    return (variant.children ?? []).filter((c) => c.type === 'field');
-  }
+  const inlineFields = (variant.children ?? []).filter((c) => c.type === 'field');
+  let interfaceFields: IRNode[] = [];
+  let typeRefUnresolved = false;
   if (typeof props.type === 'string') {
     const iface = interfaces.get(props.type);
-    if (!iface) return null;
-    return (iface.children ?? []).filter((c) => c.type === 'field');
+    if (!iface) typeRefUnresolved = true;
+    else interfaceFields = (iface.children ?? []).filter((c) => c.type === 'field');
   }
-  return null;
+  // When the type= ref is unresolvable AND we have no inline fields,
+  // this variant contributes no information — flag as unresolved so the
+  // intersection skips it. With inline fields we still have a partial
+  // view; treat that as resolved against the inline subset.
+  if (typeRefUnresolved && inlineFields.length === 0) return { kind: 'unresolved' };
+  // Merge inline + interface fields. The earlier implementation early-
+  // returned inline-only when both existed, hiding interface-level literal
+  // fields that might actually be the discriminant.
+  return { kind: 'fields', fields: [...inlineFields, ...interfaceFields] };
 }
 
 /** Likely-discriminant field names shared (with literal-typed values) by
  *  every variant's resolved interface. Empty when no shared candidates
  *  exist, single-element when inference is unambiguous, multi-element when
- *  ambiguous (caller surfaces all as suggestions in the diagnostic). */
+ *  ambiguous (caller surfaces all as suggestions in the diagnostic).
+ *
+ *  Variants split into two classes:
+ *    - `unresolved` (typo'd `type=X`) — skipped from the intersection so a
+ *      single typo doesn't strip the diagnostic of useful candidates that
+ *      the other variants could still suggest (gemini review fix).
+ *    - `fields` (resolved, may be empty) — MUST contribute a non-empty
+ *      literal-field set, or inference fails. A resolved variant with no
+ *      literal-typed fields proves the variants do NOT share a single
+ *      discriminant — silently inferring one would mask the missing-prop
+ *      diagnostic (codex review fix). */
 function computeDiscriminantCandidates(variants: IRNode[], interfaces: Map<string, IRNode>): string[] {
   if (variants.length === 0) return [];
   let shared: Set<string> | null = null;
+  let sawResolvedWithFields = false;
   for (const variant of variants) {
-    const fields = variantInterfaceFields(variant, interfaces);
-    if (!fields) return []; // unresolved interface → can't infer
+    const resolution = variantInterfaceFields(variant, interfaces);
+    if (resolution.kind === 'unresolved') continue;
     const literalFieldNames = new Set<string>();
-    for (const field of fields) {
+    for (const field of resolution.fields) {
       if (typeof field.props?.name !== 'string') continue;
       if (isLiteralTypeAnnotation(field.props?.type)) literalFieldNames.add(field.props.name);
     }
+    // Resolved variant with no literal-typed fields → cannot share a
+    // discriminant with anything. Fail inference rather than silently
+    // accepting whatever the other variants alone might agree on.
     if (literalFieldNames.size === 0) return [];
+    sawResolvedWithFields = true;
     if (shared === null) {
       shared = literalFieldNames;
     } else {
@@ -2962,6 +2986,8 @@ function computeDiscriminantCandidates(variants: IRNode[], interfaces: Map<strin
     }
     if (shared.size === 0) return [];
   }
+  // If every variant was unresolved we have no signal — fail inference.
+  if (!sawResolvedWithFields) return [];
   return shared ? [...shared] : [];
 }
 

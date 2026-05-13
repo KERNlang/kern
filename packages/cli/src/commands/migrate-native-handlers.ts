@@ -550,24 +550,32 @@ function ensureLangKern(headerProps: string): string {
 
 /** Statement node types that prove a migrated body actually does work
  *  (not just declarations or comments). Used to refuse "declaration-only"
- *  migrations that would silently strip behaviour. `let` alone passes for
- *  bodies that exist purely to bind a value — but a body that contains
- *  ONLY comments + `let` lines (no return/throw/do/assign/control-flow)
- *  is exactly the malformed shape that produced suspicious output in
- *  downstream migrations. We require at least one of the action-bearing
- *  statements below before approving the rewrite. */
-const ACTION_BEARING_KIND =
-  /\b(?:return|throw|do|assign|destructure|if|while|for|each|try|fmt|break|continue|branch)\b/;
+ *  migrations that would silently strip behaviour.
+ *
+ *  `let`, `destructure`, and the binding-form `fmt name=X template=…` are
+ *  deliberately NOT on this list: they are all pure value-binding shapes
+ *  (TS `const X = …` / `const {a} = …` / `` const X = `…` ``). A body
+ *  that consists entirely of those plus comments is what gemini flagged
+ *  in code review as the malformed shape that produced suspicious output
+ *  in Agon-AI — refuse the rewrite and force a manual audit instead.
+ *
+ *  `fmt return=true template=…` is the action-bearing variant (lowers to
+ *  TS `return \`…\`;`) and IS counted — see `isActionBearingLine`. */
+const ACTION_BEARING_KIND = /^(?:return|throw|do|assign|if|while|for|each|try|break|continue|branch)$/;
 
 function isActionBearingLine(line: string): boolean {
   // Mirror the parser's keyword recognition — first non-whitespace token of
-  // the line is the node type. A regex word-boundary scan against the
-  // dedented first token is enough; the rewriter never embeds these
-  // keywords inside attribute values.
+  // the line is the node type. The rewriter never embeds these keywords
+  // inside attribute values.
   const trimmed = line.trimStart();
   const head = trimmed.match(/^([a-z]+)/);
   if (!head) return false;
-  return ACTION_BEARING_KIND.test(head[1]);
+  if (ACTION_BEARING_KIND.test(head[1])) return true;
+  // `fmt return=true template=…` is action-bearing (TS `return \`…\`;`);
+  // the binding form `fmt name=X template=…` is not. Distinguish them by
+  // scanning the attributes on this line.
+  if (head[1] === 'fmt' && /\breturn=true\b/.test(trimmed)) return true;
+  return false;
 }
 
 export function rewriteNativeHandlers(source: string): NativeHandlerResult {

@@ -90,6 +90,33 @@ describe('union discriminant inference + actionable diagnostic', () => {
     expect(discrim?.message).toMatch(/set explicitly/);
   });
 
+  test('does NOT infer when one resolved variant has no literal-typed fields', () => {
+    // Codex review fix: a previous `continue` let `shared` keep `kind` even
+    // when variant B had no literal fields at all — silently inferring a
+    // discriminant that the variants don't actually share. The corrected
+    // behaviour fails inference and surfaces the missing-discriminant
+    // diagnostic instead.
+    const source = [
+      'interface name=A',
+      '  field name=kind type=\'"a"\'',
+      'interface name=B',
+      '  field name=value type=string',
+      'interface name=anyValue',
+      '  field name=label type=string',
+      'union name=AB',
+      '  variant type=A',
+      '  variant type=B',
+    ].join('\n');
+
+    const root = parse(source);
+    const violations = validateSchema(root);
+    // Inference must NOT have set a discriminant — the required-prop
+    // diagnostic should fire.
+    expect(findUnion(root).props?.discriminant).toBeUndefined();
+    const discrim = violations.find((v) => /requires discriminant=/.test(v.message));
+    expect(discrim).toBeDefined();
+  });
+
   test('inferred discriminant emits identical TS to explicit discriminant', () => {
     const explicitSource = [
       'interface name=TextPart',
