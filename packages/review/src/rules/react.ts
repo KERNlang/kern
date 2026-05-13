@@ -5,13 +5,14 @@
  */
 
 import { Node, SyntaxKind } from 'ts-morph';
-import type { ReviewFinding, RuleContext } from '../types.js';
+import type { ProvenanceChain, ReviewFinding, RuleContext } from '../types.js';
 import {
   cleanupExpressionMatches,
   escapeRegex,
   findAssignedIdentifier,
   finding,
   getTopLevelCleanupExpressions,
+  nodeSpan,
   shouldSkipHookRules,
 } from './utils.js';
 
@@ -106,6 +107,27 @@ function asyncEffect(ctx: RuleContext): ReviewFinding[] {
     const callback = args[0];
     if (Node.isArrowFunction(callback) || Node.isFunctionExpression(callback)) {
       if (callback.isAsync()) {
+        const provenance: ProvenanceChain = {
+          summary: `${callee} callback is async — React ignores the returned Promise`,
+          steps: [
+            {
+              kind: 'boundary',
+              category: 'effect-schedule',
+              location: nodeSpan(call, ctx.filePath),
+              label: `${callee}(async () => …, …)`,
+              detail: 'React expects the effect callback to either return nothing or a synchronous cleanup function.',
+            },
+            {
+              kind: 'sink',
+              category: 'render-cycle',
+              location: nodeSpan(callback, ctx.filePath),
+              label: 'async callback returns a Promise',
+              detail:
+                'React treats the returned Promise as the cleanup function — it is not callable, so cleanups silently never run.',
+            },
+          ],
+        };
+
         findings.push(
           finding(
             'async-effect',
@@ -115,7 +137,10 @@ function asyncEffect(ctx: RuleContext): ReviewFinding[] {
             ctx.filePath,
             callback.getStartLineNumber(),
             1,
-            { suggestion: 'useEffect(() => { async function run() { ... } run(); }, [])' },
+            {
+              suggestion: 'useEffect(() => { async function run() { ... } run(); }, [])',
+              provenance,
+            },
           ),
         );
       }
@@ -155,6 +180,28 @@ function renderSideEffect(ctx: RuleContext): ReviewFinding[] {
           exprText,
         )
       ) {
+        const provenance: ProvenanceChain = {
+          summary: `setState call in '${name}' render body triggers an infinite re-render`,
+          steps: [
+            {
+              kind: 'boundary',
+              category: 'render-body',
+              location: nodeSpan(block, ctx.filePath),
+              label: `${name}() render body`,
+              detail:
+                'React calls the component body to compute JSX; any state update here runs during reconciliation.',
+            },
+            {
+              kind: 'sink',
+              category: 'render-cycle',
+              location: nodeSpan(stmt, ctx.filePath),
+              label: 'setState during render',
+              detail:
+                'Each setState schedules another render, which runs this same statement again — until React detects the loop and throws.',
+            },
+          ],
+        };
+
         findings.push(
           finding(
             'render-side-effect',
@@ -164,12 +211,34 @@ function renderSideEffect(ctx: RuleContext): ReviewFinding[] {
             ctx.filePath,
             stmt.getStartLineNumber(),
             1,
+            { provenance },
           ),
         );
       }
 
       const expr = exprStmt.getExpression();
       if (Node.isCallExpression(expr) && expr.getExpression().getText() === 'fetch') {
+        const provenance: ProvenanceChain = {
+          summary: `fetch() in '${name}' render body fires on every render`,
+          steps: [
+            {
+              kind: 'boundary',
+              category: 'render-body',
+              location: nodeSpan(block, ctx.filePath),
+              label: `${name}() render body`,
+              detail: 'Render bodies must be pure — side effects belong in useEffect or event handlers.',
+            },
+            {
+              kind: 'sink',
+              category: 'side-effect',
+              location: nodeSpan(stmt, ctx.filePath),
+              label: 'fetch() during render',
+              detail:
+                "Each render kicks off a new network request and never cancels it — the network tab fills with duplicates and the component can't be SSR-safe.",
+            },
+          ],
+        };
+
         findings.push(
           finding(
             'render-side-effect',
@@ -179,6 +248,7 @@ function renderSideEffect(ctx: RuleContext): ReviewFinding[] {
             ctx.filePath,
             stmt.getStartLineNumber(),
             1,
+            { provenance },
           ),
         );
       }
@@ -288,7 +358,29 @@ function unstableKey(ctx: RuleContext): ReviewFinding[] {
             ctx.filePath,
             line,
             1,
-            { suggestion: 'Use a unique ID from the data (e.g., key={item.id})' },
+            {
+              suggestion: 'Use a unique ID from the data (e.g., key={item.id})',
+              provenance: {
+                summary: `key={${indexParam}} ties identity to array position — reordering shuffles state`,
+                steps: [
+                  {
+                    kind: 'boundary',
+                    category: 'list-render',
+                    location: nodeSpan(call, ctx.filePath),
+                    label: `.map((…, ${indexParam}) => createElement(…))`,
+                    detail: 'React uses the key to match items across renders and decide who to remount.',
+                  },
+                  {
+                    kind: 'sink',
+                    category: 'key-collision',
+                    location: nodeSpan(call, ctx.filePath),
+                    label: `key={${indexParam}}`,
+                    detail:
+                      'Using the array index means every position keeps the same key even after reordering, insertion, or deletion — React keeps the wrong DOM nodes and the wrong state with the wrong items.',
+                  },
+                ],
+              },
+            },
           ),
         );
       } else if (!createElementKey.hasKey) {
@@ -301,7 +393,29 @@ function unstableKey(ctx: RuleContext): ReviewFinding[] {
             ctx.filePath,
             line,
             1,
-            { suggestion: 'Add key: item.id to the props object passed to React.createElement' },
+            {
+              suggestion: 'Add key: item.id to the props object passed to React.createElement',
+              provenance: {
+                summary: '.map() returns createElement(…) with no key — every item is a new mount',
+                steps: [
+                  {
+                    kind: 'boundary',
+                    category: 'list-render',
+                    location: nodeSpan(call, ctx.filePath),
+                    label: '.map(item => createElement(…))',
+                    detail: 'React requires a key to track sibling identity across renders.',
+                  },
+                  {
+                    kind: 'sink',
+                    category: 'key-collision',
+                    location: nodeSpan(call, ctx.filePath),
+                    label: 'no key prop',
+                    detail:
+                      'Without keys, React falls back to positional matching and emits a console warning; sibling state and refs cannot be preserved across reorders.',
+                  },
+                ],
+              },
+            },
           ),
         );
       }
@@ -347,13 +461,55 @@ function unstableKey(ctx: RuleContext): ReviewFinding[] {
           ctx.filePath,
           line,
           1,
-          { suggestion: 'Use a unique ID from the data (e.g., key={item.id})' },
+          {
+            suggestion: 'Use a unique ID from the data (e.g., key={item.id})',
+            provenance: {
+              summary: `key={${indexParam}} ties identity to array position — reordering shuffles state`,
+              steps: [
+                {
+                  kind: 'boundary',
+                  category: 'list-render',
+                  location: nodeSpan(call, ctx.filePath),
+                  label: `.map((…, ${indexParam}) => <… key={${indexParam}}/>)`,
+                  detail: 'React uses the key to match items across renders and decide who to remount.',
+                },
+                {
+                  kind: 'sink',
+                  category: 'key-collision',
+                  location: nodeSpan(rootJsx, ctx.filePath),
+                  label: `key={${indexParam}}`,
+                  detail:
+                    'Using the array index means every position keeps the same key even after reordering, insertion, or deletion — React keeps the wrong DOM nodes and the wrong state with the wrong items.',
+                },
+              ],
+            },
+          },
         ),
       );
     } else if (!hasKey) {
       findings.push(
         finding('unstable-key', 'warning', 'bug', 'JSX in .map() is missing a key prop', ctx.filePath, line, 1, {
           suggestion: 'Add key={item.id} to the root JSX element in .map()',
+          provenance: {
+            summary: '.map() emits JSX with no key — every item is a new mount',
+            steps: [
+              {
+                kind: 'boundary',
+                category: 'list-render',
+                location: nodeSpan(call, ctx.filePath),
+                label: '.map(item => <…/>)',
+                detail: 'React requires a key to track sibling identity across renders.',
+              },
+              {
+                kind: 'sink',
+                category: 'key-collision',
+                location: nodeSpan(rootJsx, ctx.filePath),
+                label: 'no key prop',
+                detail:
+                  'Without keys, React falls back to positional matching and emits a console warning; sibling state and refs cannot be preserved across reorders.',
+              },
+            ],
+          },
         }),
       );
     }
@@ -418,6 +574,35 @@ function staleClosure(ctx: RuleContext): ReviewFinding[] {
     });
 
     if (timers.length > 0) {
+      const firstTimer = timers[0];
+      const timerName = firstTimer.getExpression().getText();
+      const provenance: ProvenanceChain = {
+        summary: `${callee} captures values that never refresh while the timer is alive`,
+        steps: [
+          {
+            kind: 'boundary',
+            category: 'hook-dep',
+            location: nodeSpan(depsArg, ctx.filePath),
+            label: 'empty dependency array []',
+            detail: `${callee} runs only on mount and tears down on unmount; the closure formed here is frozen against the initial render.`,
+          },
+          {
+            kind: 'call',
+            category: 'closure-capture',
+            location: nodeSpan(firstTimer, ctx.filePath),
+            label: `${timerName}(…)`,
+            detail: `Timer callback captures variables from the surrounding render scope by closure; those bindings will not update when state changes.`,
+          },
+          {
+            kind: 'sink',
+            category: 'render-cycle',
+            location: nodeSpan(firstTimer, ctx.filePath),
+            label: 'stale read on every tick',
+            detail: `Each tick reads the value captured at mount, not the latest one — the timer effectively operates on frozen state.`,
+          },
+        ],
+      };
+
       findings.push(
         finding(
           'stale-closure',
@@ -427,7 +612,10 @@ function staleClosure(ctx: RuleContext): ReviewFinding[] {
           ctx.filePath,
           call.getStartLineNumber(),
           1,
-          { suggestion: 'Use a ref for the latest value or add dependencies' },
+          {
+            suggestion: 'Use a ref for the latest value or add dependencies',
+            provenance,
+          },
         ),
       );
     }
@@ -455,6 +643,35 @@ function stateExplosion(ctx: RuleContext): ReviewFinding[] {
     });
 
     if (useStates.length > 5) {
+      const provenance: ProvenanceChain = {
+        summary: `'${name}' carries ${useStates.length} useState calls — state has outgrown ad-hoc hooks`,
+        steps: [
+          {
+            kind: 'source',
+            category: 'state-decl',
+            location: nodeSpan(useStates[0], ctx.filePath),
+            label: `first of ${useStates.length} useState calls`,
+            detail: 'Many independent useState calls create implicit, undocumented state transitions between hooks.',
+          },
+          {
+            kind: 'boundary',
+            category: 'render-body',
+            location: nodeSpan(fn, ctx.filePath),
+            label: `${name}() body holds ${useStates.length} useState slots`,
+            detail:
+              'Each render allocates and compares N independent hook slots; updates to one slot trigger a re-render that reads all of them.',
+          },
+          {
+            kind: 'sink',
+            category: 'complexity',
+            location: nodeSpan(fn, ctx.filePath),
+            label: `${useStates.length} > 5 hook-slot threshold`,
+            detail:
+              'Beyond ~5 useState slots, the component effectively encodes a state machine without naming the transitions — useReducer or a KERN machine makes the legal moves explicit.',
+          },
+        ],
+      };
+
       findings.push(
         finding(
           'state-explosion',
@@ -464,7 +681,10 @@ function stateExplosion(ctx: RuleContext): ReviewFinding[] {
           ctx.filePath,
           fn.getStartLineNumber(),
           1,
-          { suggestion: 'Use useReducer for complex state, or a KERN machine node for state transitions' },
+          {
+            suggestion: 'Use useReducer for complex state, or a KERN machine node for state transitions',
+            provenance,
+          },
         ),
       );
     }
@@ -547,6 +767,26 @@ function hookOrder(ctx: RuleContext): ReviewFinding[] {
       if (reported.has(hookName)) continue;
       reported.add(hookName);
 
+      const provenance: ProvenanceChain = {
+        summary: `Hook '${hookName}' inside ${label} — Rules of Hooks violation`,
+        steps: [
+          {
+            kind: 'boundary',
+            category: 'control-flow',
+            location: nodeSpan(cfNode, ctx.filePath),
+            label: `${label} surrounding hook call`,
+            detail: `React tracks hook order by call index — a ${label} that skips or repeats the call shifts every later hook's slot and produces corrupted state.`,
+          },
+          {
+            kind: 'sink',
+            category: 'hook-call',
+            location: nodeSpan(callExpr, ctx.filePath),
+            label: `${hookName}(…)`,
+            detail: `${hookName} must be called unconditionally at the top level of ${fnName || 'this component or custom hook'} on every render.`,
+          },
+        ],
+      };
+
       findings.push(
         finding(
           'hook-order',
@@ -556,7 +796,10 @@ function hookOrder(ctx: RuleContext): ReviewFinding[] {
           ctx.filePath,
           cfNode.getStartLineNumber(),
           1,
-          { suggestion: 'Move hook call to top level of component' },
+          {
+            suggestion: 'Move hook call to top level of component',
+            provenance,
+          },
         ),
       );
     }
@@ -619,6 +862,33 @@ function effectSelfUpdateLoop(ctx: RuleContext): ReviewFinding[] {
       }
       if (isNested) continue;
 
+      const provenance: ProvenanceChain = {
+        summary: `useEffect writes '${stateName}' while depending on '${stateName}' — infinite loop`,
+        steps: [
+          {
+            kind: 'boundary',
+            category: 'hook-dep',
+            location: nodeSpan(depsArg, ctx.filePath),
+            label: `deps: […, ${stateName}, …]`,
+            detail: `Effect re-runs whenever '${stateName}' changes.`,
+          },
+          {
+            kind: 'call',
+            category: 'state-write',
+            location: nodeSpan(innerCall, ctx.filePath),
+            label: `${setterName}(…)`,
+            detail: `Effect body writes '${stateName}', producing a new value for the very dep it watches.`,
+          },
+          {
+            kind: 'sink',
+            category: 'render-cycle',
+            location: nodeSpan(call, ctx.filePath),
+            label: 'infinite re-render loop',
+            detail: `setState → new '${stateName}' → effect re-runs → setState → … React will eventually bail with "Maximum update depth exceeded".`,
+          },
+        ],
+      };
+
       findings.push(
         finding(
           'effect-self-update-loop',
@@ -628,7 +898,10 @@ function effectSelfUpdateLoop(ctx: RuleContext): ReviewFinding[] {
           ctx.filePath,
           innerCall.getStartLineNumber(),
           1,
-          { suggestion: `Move the write behind a guard or use a ref to break the cycle` },
+          {
+            suggestion: `Move the write behind a guard or use a ref to break the cycle`,
+            provenance,
+          },
         ),
       );
     }
@@ -747,6 +1020,39 @@ function missingEffectCleanup(ctx: RuleContext): ReviewFinding[] {
     const leakedSpec = leakSpecs.find((spec) => !cleanupExprs.some((expr) => cleanupExpressionMatches(expr, spec)));
 
     if (leakedSpec) {
+      const provenance: ProvenanceChain = {
+        summary: `useEffect leaks '${leakedSpec.label}' on unmount`,
+        steps: [
+          {
+            kind: 'boundary',
+            category: 'effect-schedule',
+            location: nodeSpan(call, ctx.filePath),
+            label: `${callee}(…)`,
+            detail: 'React invokes the returned cleanup function on unmount and before each effect re-run.',
+          },
+          {
+            kind: 'call',
+            category: 'subscription',
+            location: {
+              file: ctx.filePath,
+              startLine: leakedSpec.line,
+              startCol: 1,
+              endLine: leakedSpec.line,
+              endCol: 1,
+            },
+            label: leakedSpec.label,
+            detail: `Effect creates a '${leakedSpec.label}' subscription / timer / listener that needs an explicit teardown.`,
+          },
+          {
+            kind: 'sink',
+            category: 'leak',
+            location: nodeSpan(callback, ctx.filePath),
+            label: 'no return () => …',
+            detail: 'Without a cleanup, the resource lives past unmount and re-mount accumulates duplicates.',
+          },
+        ],
+      };
+
       findings.push(
         finding(
           'missing-effect-cleanup',
@@ -756,7 +1062,10 @@ function missingEffectCleanup(ctx: RuleContext): ReviewFinding[] {
           ctx.filePath,
           call.getStartLineNumber(),
           1,
-          { suggestion: 'Return a cleanup function: return () => clearInterval(id);' },
+          {
+            suggestion: 'Return a cleanup function: return () => clearInterval(id);',
+            provenance,
+          },
         ),
       );
     }
@@ -783,6 +1092,34 @@ function inlineContextValue(ctx: RuleContext): ReviewFinding[] {
       if (!expr) continue;
 
       if (Node.isObjectLiteralExpression(expr) || Node.isArrayLiteralExpression(expr)) {
+        const kind = Node.isObjectLiteralExpression(expr) ? 'object' : 'array';
+        const provenance: ProvenanceChain = {
+          summary: `<${name} value={${kind === 'object' ? '{…}' : '[…]'}}/> forces every consumer to re-render`,
+          steps: [
+            {
+              kind: 'boundary',
+              category: 'context-provider',
+              location: nodeSpan(jsx, ctx.filePath),
+              label: `<${name}>`,
+              detail: 'Context.Provider broadcasts identity changes to every useContext consumer in the subtree.',
+            },
+            {
+              kind: 'call',
+              category: 'prop-pass',
+              location: nodeSpan(expr, ctx.filePath),
+              label: `inline ${kind} value`,
+              detail: `Each parent render allocates a fresh ${kind} literal, giving the context value a new reference every time.`,
+            },
+            {
+              kind: 'sink',
+              category: 'render-cycle',
+              location: nodeSpan(jsx, ctx.filePath),
+              label: 'all consumers re-render',
+              detail: 'React fires every useContext consumer with the new value, even if no actual data changed.',
+            },
+          ],
+        };
+
         findings.push(
           finding(
             'inline-context-value',
@@ -792,7 +1129,10 @@ function inlineContextValue(ctx: RuleContext): ReviewFinding[] {
             ctx.filePath,
             jsx.getStartLineNumber(),
             1,
-            { suggestion: 'Memoize the value with useMemo' },
+            {
+              suggestion: 'Memoize the value with useMemo',
+              provenance,
+            },
           ),
         );
       }
@@ -810,14 +1150,19 @@ function refInRender(ctx: RuleContext): ReviewFinding[] {
   if (!isReactFile(ctx)) return [];
   const findings: ReviewFinding[] = [];
 
-  // Collect useRef variable names: const myRef = useRef(...)
+  // Collect useRef variable names AND their declaration nodes — the decl is
+  // used as the provenance source step so the reader can jump to the line
+  // where the ref was set up.
   const refVars = new Set<string>();
+  const refDecls = new Map<string, import('ts-morph').VariableDeclaration>();
   for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
     const init = decl.getInitializer();
     if (!init || !Node.isCallExpression(init)) continue;
     const callee = init.getExpression().getText();
     if (callee === 'useRef' || callee === 'React.useRef') {
-      refVars.add(decl.getName());
+      const name = decl.getName();
+      refVars.add(name);
+      if (!refDecls.has(name)) refDecls.set(name, decl);
     }
   }
 
@@ -1031,6 +1376,31 @@ function refInRender(ctx: RuleContext): ReviewFinding[] {
     }
 
     const action = isWrite ? 'written to' : 'read';
+    const refName = obj.getText();
+    const refDecl = refDecls.get(refName);
+    const provenance: ProvenanceChain = {
+      summary: `${refName}.current ${action} during render — refs do not track in React's render cycle`,
+      steps: [
+        {
+          kind: 'source',
+          category: 'ref-decl',
+          location: nodeSpan(refDecl ?? prop, ctx.filePath),
+          label: `const ${refName} = useRef(…)`,
+          detail:
+            'useRef produces a stable, mutable container that React intentionally does not observe — writes never trigger a re-render and reads can be stale.',
+        },
+        {
+          kind: 'sink',
+          category: 'render-cycle',
+          location: nodeSpan(prop, ctx.filePath),
+          label: `${refName}.current ${action} in render body`,
+          detail: isWrite
+            ? 'Writing to ref.current during render mutates the value seen by concurrent renders, breaking React 18 strict-mode and the rules of purity.'
+            : 'Reading ref.current during render couples the JSX to mutable state React does not subscribe to — the UI silently lags behind the value.',
+        },
+      ],
+    };
+
     findings.push(
       finding(
         'ref-in-render',
@@ -1044,6 +1414,7 @@ function refInRender(ctx: RuleContext): ReviewFinding[] {
           suggestion: isWrite
             ? 'Move ref writes to useEffect or event handlers'
             : 'Use useState instead if the value affects rendering',
+          provenance,
         },
       ),
     );
@@ -1071,6 +1442,27 @@ function missingMemoDeps(ctx: RuleContext): ReviewFinding[] {
     // First arg should be the function, second should be deps array
     if (args.length < 2) {
       const hookName = callee.includes('.') ? callee.split('.')[1] : callee;
+      const provenance: ProvenanceChain = {
+        summary: `${hookName} called without a deps array — runs on every render`,
+        steps: [
+          {
+            kind: 'boundary',
+            category: 'memo-boundary',
+            location: nodeSpan(call, ctx.filePath),
+            label: `${hookName}(fn) — no deps array`,
+            detail: `${hookName}'s second argument is required to tell React when to refresh the memoized value.`,
+          },
+          {
+            kind: 'sink',
+            category: 'render-cycle',
+            location: nodeSpan(call, ctx.filePath),
+            label: 'recomputes every render',
+            detail:
+              'Without a deps array, React treats every render as a cache miss — the wrapped function runs each time and any consumer relying on stable identity sees a new reference.',
+          },
+        ],
+      };
+
       findings.push(
         finding(
           'missing-memo-deps',
@@ -1080,7 +1472,10 @@ function missingMemoDeps(ctx: RuleContext): ReviewFinding[] {
           ctx.filePath,
           call.getStartLineNumber(),
           1,
-          { suggestion: `Add a dependency array as the second argument: ${hookName}(fn, [dep1, dep2])` },
+          {
+            suggestion: `Add a dependency array as the second argument: ${hookName}(fn, [dep1, dep2])`,
+            provenance,
+          },
         ),
       );
     }
@@ -1129,6 +1524,34 @@ function reducerMutation(ctx: RuleContext): ReviewFinding[] {
     // Look for direct mutations: state.prop = ..., state.prop++, state.push(...)
     const mutationMethods = new Set(['push', 'pop', 'shift', 'unshift', 'splice', 'sort', 'reverse']);
 
+    // Shared chain shape across all four mutation patterns in this rule:
+    // boundary[reducer] (the reducer body React subscribes to) → sink[mutation]
+    // (the actual write). Re-built per finding so the sink span is accurate.
+    const buildReducerProvenance = (
+      sinkNode: import('ts-morph').Node,
+      sinkLabel: string,
+      sinkDetail: string,
+    ): ProvenanceChain => ({
+      summary: `reducer mutates '${stateParam}' in place — React keeps the previous state`,
+      steps: [
+        {
+          kind: 'boundary',
+          category: 'reducer',
+          location: nodeSpan(reducerBody, ctx.filePath),
+          label: `reducer(${stateParam}, action)`,
+          detail:
+            'useReducer treats the reducer as pure: it compares the returned reference against the previous state to decide whether to re-render.',
+        },
+        {
+          kind: 'sink',
+          category: 'mutation',
+          location: nodeSpan(sinkNode, ctx.filePath),
+          label: sinkLabel,
+          detail: sinkDetail,
+        },
+      ],
+    });
+
     for (const bin of reducerBody.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
       const op = bin.getOperatorToken().getKind();
       if (op !== SyntaxKind.EqualsToken && op !== SyntaxKind.PlusEqualsToken && op !== SyntaxKind.MinusEqualsToken)
@@ -1147,7 +1570,14 @@ function reducerMutation(ctx: RuleContext): ReviewFinding[] {
             ctx.filePath,
             bin.getStartLineNumber(),
             1,
-            { suggestion: `return { ...${stateParam}, ${left.getName()}: newValue }` },
+            {
+              suggestion: `return { ...${stateParam}, ${left.getName()}: newValue }`,
+              provenance: buildReducerProvenance(
+                bin,
+                `${stateParam}.${left.getName()} = …`,
+                'Assigning to a field of the previous state object never produces a new reference — useReducer sees the same identity and skips the re-render.',
+              ),
+            },
           ),
         );
         break; // One finding per reducer
@@ -1171,7 +1601,14 @@ function reducerMutation(ctx: RuleContext): ReviewFinding[] {
             ctx.filePath,
             methodCall.getStartLineNumber(),
             1,
-            { suggestion: `Return new state: return { ...${stateParam}, ... }` },
+            {
+              suggestion: `Return new state: return { ...${stateParam}, ... }`,
+              provenance: buildReducerProvenance(
+                methodCall,
+                `${stateParam}.${expr.getName()}(…)`,
+                `Array methods like .${expr.getName()}() mutate in place — the reducer returns the same reference React already has, so the dispatch is a no-op for re-render.`,
+              ),
+            },
           ),
         );
         break;
@@ -1190,6 +1627,11 @@ function reducerMutation(ctx: RuleContext): ReviewFinding[] {
               1,
               {
                 suggestion: `return { ...${stateParam}, ${obj.getName()}: [...${stateParam}.${obj.getName()}, newItem] }`,
+                provenance: buildReducerProvenance(
+                  methodCall,
+                  `${stateParam}.${obj.getName()}.${expr.getName()}(…)`,
+                  `Mutating a nested collection in place keeps both the inner array and the outer state with their original identities — React sees neither as changed.`,
+                ),
               },
             ),
           );
@@ -1213,7 +1655,14 @@ function reducerMutation(ctx: RuleContext): ReviewFinding[] {
             ctx.filePath,
             postfix.getStartLineNumber(),
             1,
-            { suggestion: `return { ...${stateParam}, ${operand.getName()}: ${stateParam}.${operand.getName()} + 1 }` },
+            {
+              suggestion: `return { ...${stateParam}, ${operand.getName()}: ${stateParam}.${operand.getName()} + 1 }`,
+              provenance: buildReducerProvenance(
+                postfix,
+                `${stateParam}.${operand.getName()}++`,
+                'In-place increment writes to the existing state object — the reducer returns the same reference, so React keeps the stale render.',
+              ),
+            },
           ),
         );
         break;

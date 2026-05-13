@@ -60,6 +60,13 @@ export interface ProvenanceStep {
   label: string;
   /** Optional longer explanation rendered in the "why this fired" tooltip */
   detail?: string;
+  /**
+   * Optional semantic role within the rule's domain (e.g. 'memo-boundary',
+   * 'hook-dep', 'closure-capture', 'render-cycle'). Free-form on purpose so
+   * the taint-style `kind` enum stays small while React rules can tag steps
+   * with domain semantics that Sight can render as icons / Guard as badges.
+   */
+  category?: string;
 }
 
 /** Evidence chain: ordered steps from root cause to the reported sink */
@@ -297,6 +304,15 @@ export interface ReviewReport {
    * not user-source suppressions, they're "out of PR scope" filters.
    */
   noiseGatedFindings?: ReviewFinding[];
+  /**
+   * Findings auto-suppressed by the React stable-construct post-pass
+   * (rule claimed a value was unstable but it's actually a useRef /
+   * useState setter / useReducer dispatch). Kept in a SEPARATE bucket
+   * from `suppressedFindings` because SARIF treats that bucket as
+   * `kern-ignore` directives — these are tool-derived suppressions,
+   * not user-source ones, and they need different audit metadata.
+   */
+  selfSuppressedFindings?: ReviewFinding[];
   /** Summary stats */
   stats: ReviewStats;
   /** Cross-file taint results (present when graph-aware review detects cross-module taint) */

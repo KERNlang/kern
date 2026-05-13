@@ -114,7 +114,14 @@ export {
   sourceComment,
 } from './codegen/helpers.js';
 export { generateMachine, generateMachineReducer } from './codegen/machines.js';
-export { generateExtern, generateImport, generateIsland, generateUse } from './codegen/modules.js';
+export {
+  generateExtern,
+  generateImport,
+  generateIsland,
+  generateLoosePythonSidecarImports,
+  generateUse,
+  isLoosePythonSidecarImportNode,
+} from './codegen/modules.js';
 export { emitRender, generateScreen } from './codegen/screens.js';
 export type { SemanticTypeMapping } from './codegen/semantic-types.js';
 export { mapSemanticType, SEMANTIC_TYPE_MAP } from './codegen/semantic-types.js';
@@ -216,7 +223,14 @@ import {
   getProps,
 } from './codegen/helpers.js';
 import { generateMachine } from './codegen/machines.js';
-import { generateExtern, generateImport, generateIsland, generateUse } from './codegen/modules.js';
+import {
+  generateExtern,
+  generateImport,
+  generateIsland,
+  generateLoosePythonSidecarImports,
+  generateUse,
+  isLoosePythonSidecarImportNode,
+} from './codegen/modules.js';
 import { generateScreen } from './codegen/screens.js';
 import { generateTest } from './codegen/test-gen.js';
 import {
@@ -343,9 +357,16 @@ export function generateModule(node: IRNode): string[] {
     }
   }
 
+  const loosePythonImports = kids(node).filter(isLoosePythonSidecarImportNode);
+  if (loosePythonImports.length > 0) {
+    lines.push(...generateLoosePythonSidecarImports(loosePythonImports));
+    lines.push('');
+  }
+
   // Inline child definitions
   for (const child of kids(node)) {
     if (child.type === 'export') continue;
+    if (isLoosePythonSidecarImportNode(child)) continue;
     lines.push(...generateCoreNode(child));
     lines.push('');
   }

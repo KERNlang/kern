@@ -202,9 +202,9 @@ describe('Schema Validation', () => {
       ).toBe(true);
     });
 
-    it('keeps islands as import boundary metadata, not implementation containers', () => {
+    it('allows islands to carry local implementation functions', () => {
       const v = validate(['island engine Claude runtime=node', '  fn name=run'].join('\n'));
-      expect(v.some((violation) => violation.message.includes("'island' does not allow child type 'fn'"))).toBe(true);
+      expect(v.some((violation) => violation.message.includes("'island' does not allow child type 'fn'"))).toBe(false);
     });
 
     it('allows island nodes where externs are allowed in MCP and CLI parents', () => {

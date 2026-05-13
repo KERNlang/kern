@@ -386,6 +386,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       from: { required: true, kind: 'importPath' },
       names: { kind: 'string' },
       default: { kind: 'identifier' },
+      signature: { kind: 'string' },
       types: { kind: 'boolean' },
       registry: { kind: 'identifier' },
       target: { kind: 'identifier' },
@@ -410,6 +411,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       target: { kind: 'identifier' },
       names: { kind: 'string' },
       default: { kind: 'identifier' },
+      signature: { kind: 'string' },
       types: { kind: 'boolean' },
       version: { kind: 'string' },
       review: { kind: 'identifier' },
@@ -423,7 +425,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   island: {
     description:
-      'Capability island boundary for stateful, IO-heavy, authenticated, streaming, sidecar, or engine/provider integrations. Emits supported child imports while preserving reviewable capability metadata.',
+      'Capability island boundary for stateful, IO-heavy, authenticated, streaming, sidecar, or engine/provider integrations. Emits supported child imports and functions while preserving reviewable capability metadata.',
     example:
       'island engine Claude runtime=node effects=[network,stream,secret] serialization=stream requiresSidecar=false\n  import npm "@anthropic-ai/sdk" as Anthropic',
     props: {
@@ -437,7 +439,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       review: { kind: 'identifier' },
       reason: { kind: 'string' },
     },
-    allowedChildren: ['import', 'extern'],
+    allowedChildren: ['import', 'extern', 'fn'],
   },
   use: {
     description:

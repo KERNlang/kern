@@ -4,6 +4,7 @@
  */
 
 import { Node, SyntaxKind } from 'ts-morph';
+import { deriveProvenanceRootCause } from '../derive-provenance-root-cause.js';
 import type { ReviewFinding, RuleContext, SourceSpan } from '../types.js';
 import { createFingerprint } from '../types.js';
 import { resolveConfidence } from './confidence-baseline.js';
@@ -113,7 +114,7 @@ export function finding(
   col = 1,
   extra?: Partial<ReviewFinding>,
 ): ReviewFinding {
-  return {
+  const result: ReviewFinding = {
     source: 'kern',
     ruleId,
     severity,
@@ -126,6 +127,14 @@ export function finding(
     // values fall back to the per-rule baseline.
     confidence: resolveConfidence(ruleId, extra?.confidence),
   };
+  // Auto-derive rootCause from provenance when the rule didn't set one
+  // explicitly. Lets the ~22 React rules participate in cross-rule dedup
+  // via groupFindingsByRootCause without each rule authoring its own key.
+  if (!result.rootCause && result.provenance) {
+    const derived = deriveProvenanceRootCause(result.provenance);
+    if (derived) result.rootCause = derived;
+  }
+  return result;
 }
 
 export interface CleanupMatcherSpec {

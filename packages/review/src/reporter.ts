@@ -647,6 +647,7 @@ export function formatSARIFWithMetadata(reports: ReviewReport[], options: SARIFM
           kind: s.kind,
           label: s.label,
           ...(s.detail ? { detail: s.detail } : {}),
+          ...(s.category ? { category: s.category } : {}),
           location: { ...s.location },
         })),
       };

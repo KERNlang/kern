@@ -300,6 +300,7 @@ export function printHelp(): void {
   );
   console.log('  schema                                        Print the current KERN schema JSON');
   console.log('  self-coverage [dir] [--json] [--verbose]      Measure native/migratable/foreign handler coverage');
+  console.log('  sidecar-install [--outdir=<dir>]              Install Python sidecar requirements with pip');
   console.log('  evolve <dir|file> [options]                   Detect gaps → propose templates');
   console.log('  evolve:review [options]                       Review staged template proposals');
   console.log('  evolve:review-v4 [options]                    Review & graduate v4 node proposals');

@@ -81,6 +81,11 @@ remain intact.
   - `hasParseErrors` flag skips structural lint on partial ASTs to prevent cascading false positives
 - **`--strict-parse` flag** — opt-in to preserve parse error severity as `'error'` for strict CI enforcement
   - New `strictParse?: boolean` in `ReviewConfig`
+- **ProvenanceChain backfill on ~22 React rules** — every React finding now emits a 3–5-step causal trace (`{kind, location, label, detail, category}`) so consumers can render "why this fired" graphs. Sight uses chains for hover-explanations; Guard embeds them in PR comments. New `category?: string` on `ProvenanceStep` carries React-semantic role (`hook-dep`, `closure-capture`, `value-decl`, `memo-boundary`, `ref-decl`, …) layered on top of the abstract taint-style `kind`.
+- **Cross-rule dedup activated on React findings** — `finding()` helper auto-derives `rootCause.key` from the first 2 chain steps (K=2 prefix, file+line+col+category) so `groupFindingsByRootCause` collapses findings sharing a root cause without each rule authoring its own key. Now active in all 4 pipeline paths (graph + 3 single-file), not just graph mode.
+- **React self-suppress post-pass** — `suppressFindingsOnStableReactConstructs` drops findings whose chain wrongly claims a lifetime-stable construct is unstable. Recognises `useRef`, `useState`-setter, `useReducer`-dispatch (both named-import and `React.useX` namespace forms). `useMemo` / `useCallback` are NOT treated as stable (they re-allocate on dep change) — keeping legitimate `exhaustive-deps` findings intact. A rule denylist (`ref-in-deps`, `usememo-primitive-cheap`, `usecallback-no-benefit`) preserves rules whose premise IS the stable construct.
+- **New finding bucket: `selfSuppressedFindings`** — separate from `suppressedFindings` so SARIF audit metadata stays accurate (the latter is treated as user-source `kern-ignore` directives).
+- **New `SuppressionReason` value: `'stable-react-construct'`** — closed-enum entry for self-suppressed findings.
 
 ### Bug Fixes
 

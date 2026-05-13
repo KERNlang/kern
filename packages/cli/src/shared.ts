@@ -42,7 +42,7 @@ import { transpile } from '@kernlang/native';
 import { generateReactNode, isReactNode, transpileNextjs, transpileTailwind, transpileWeb } from '@kernlang/react';
 import { transpileInk, transpileTerminal } from '@kernlang/terminal';
 import { transpileNuxt, transpileVue } from '@kernlang/vue';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'fs';
 import { createJiti } from 'jiti';
 import { basename, dirname, relative, resolve } from 'path';
 import { transpileCliApp } from './transpiler-cli.js';
@@ -77,6 +77,175 @@ const TRACEABLE_NODE_TYPES = new Set([
   'tool',
   'type',
   'union',
+]);
+
+const PYTHON_STDLIB_PACKAGES = new Set([
+  'abc',
+  '__future__',
+  'argparse',
+  'array',
+  'ast',
+  'asyncio',
+  'atexit',
+  'audioop',
+  'base64',
+  'bdb',
+  'binascii',
+  'bisect',
+  'builtins',
+  'bz2',
+  'calendar',
+  'chunk',
+  'cmath',
+  'cmd',
+  'code',
+  'codecs',
+  'colorsys',
+  'collections',
+  'concurrent',
+  'configparser',
+  'contextlib',
+  'contextvars',
+  'copy',
+  'csv',
+  'ctypes',
+  'dataclasses',
+  'datetime',
+  'dbm',
+  'decimal',
+  'difflib',
+  'dis',
+  'doctest',
+  'email',
+  'encodings',
+  'enum',
+  'errno',
+  'faulthandler',
+  'filecmp',
+  'fileinput',
+  'fnmatch',
+  'fractions',
+  'ftplib',
+  'functools',
+  'gc',
+  'getopt',
+  'getpass',
+  'gettext',
+  'glob',
+  'graphlib',
+  'gzip',
+  'hashlib',
+  'heapq',
+  'hmac',
+  'html',
+  'http',
+  'imaplib',
+  'importlib',
+  'inspect',
+  'io',
+  'ipaddress',
+  'itertools',
+  'json',
+  'keyword',
+  'linecache',
+  'locale',
+  'logging',
+  'lzma',
+  'mailbox',
+  'mailcap',
+  'marshal',
+  'math',
+  'mimetypes',
+  'mmap',
+  'modulefinder',
+  'multiprocessing',
+  'netrc',
+  'numbers',
+  'opcode',
+  'operator',
+  'optparse',
+  'os',
+  'pathlib',
+  'pdb',
+  'pickle',
+  'pickletools',
+  'pkgutil',
+  'platform',
+  'plistlib',
+  'poplib',
+  'posixpath',
+  'pprint',
+  'profile',
+  'pstats',
+  'pty',
+  'py_compile',
+  'pydoc',
+  'queue',
+  'quopri',
+  'random',
+  're',
+  'readline',
+  'reprlib',
+  'resource',
+  'rlcompleter',
+  'runpy',
+  'sched',
+  'secrets',
+  'select',
+  'selectors',
+  'shelve',
+  'shlex',
+  'shutil',
+  'signal',
+  'site',
+  'smtplib',
+  'socket',
+  'socketserver',
+  'sqlite3',
+  'ssl',
+  'stat',
+  'statistics',
+  'string',
+  'stringprep',
+  'struct',
+  'subprocess',
+  'sys',
+  'sysconfig',
+  'tarfile',
+  'tempfile',
+  'termios',
+  'textwrap',
+  '_thread',
+  'threading',
+  'time',
+  'timeit',
+  'tkinter',
+  'token',
+  'tokenize',
+  'tomllib',
+  'trace',
+  'traceback',
+  'tracemalloc',
+  'tty',
+  'types',
+  'typing',
+  'unicodedata',
+  'unittest',
+  'urllib',
+  'uuid',
+  'venv',
+  'warnings',
+  'wave',
+  'weakref',
+  'webbrowser',
+  'wsgiref',
+  'xml',
+  'xmlrpc',
+  'zipapp',
+  'zipfile',
+  'zipimport',
+  'zlib',
+  'zoneinfo',
 ]);
 
 function withGeneratedHeader(content: string, header: string): string {
@@ -256,6 +425,43 @@ function writeGeneratedFileSync(outFilePath: string, content: string, sourceFile
   checkVersionDrift(outFilePath, sourceFile);
   writeFileSync(outFilePath, content);
 }
+
+export function writeSidecarInstallFiles(ast: IRNode, outDir: string): void {
+  writeSidecarInstallFilesForAsts([ast], outDir);
+}
+
+export function writeSidecarInstallFilesForAsts(asts: Iterable<IRNode>, outDir: string): void {
+  const manifests = [...asts].flatMap((ast) => collectSidecarManifests(ast));
+  const sidecarsPath = resolve(outDir, 'kern-sidecars.json');
+  const requirementsPath = resolve(outDir, 'kern-sidecar-requirements.txt');
+  if (manifests.length === 0) {
+    if (existsSync(sidecarsPath)) unlinkSync(sidecarsPath);
+    if (existsSync(requirementsPath)) unlinkSync(requirementsPath);
+    return;
+  }
+  writeFileSync(sidecarsPath, `${JSON.stringify({ version: 1, sidecars: manifests }, null, 2)}\n`);
+
+  const requirements = new Set<string>();
+  for (const manifest of manifests) {
+    for (const sidecarPackage of manifest.packages) {
+      const root = sidecarPackage.package.split('.')[0];
+      if (!root || PYTHON_STDLIB_PACKAGES.has(root)) continue;
+      if (sidecarPackage.registry !== 'pypi') continue;
+      requirements.add(
+        sidecarPackage.version ? `${sidecarPackage.package}==${sidecarPackage.version}` : sidecarPackage.package,
+      );
+    }
+  }
+  if (requirements.size > 0) {
+    writeFileSync(requirementsPath, `${[...requirements].sort().join('\n')}\n`);
+  } else if (existsSync(requirementsPath)) {
+    unlinkSync(requirementsPath);
+  }
+}
+
+type TranspileAndWriteOptions = import('@kernlang/core').ParseOptions & {
+  writeSidecarInstallFiles?: boolean;
+};
 
 // ── Arg parsing helpers ──────────────────────────────────────────────────
 
@@ -818,7 +1024,7 @@ export function transpileAndWrite(
   args: string[],
   outDirOverride?: string,
   inputBase?: string,
-  options?: import('@kernlang/core').ParseOptions,
+  options?: TranspileAndWriteOptions,
 ): void {
   const source = readFileSync(file, 'utf-8');
   const ast = parseAndSurface(source, file, options);
@@ -844,6 +1050,7 @@ export function transpileAndWrite(
   const baseDir = outDirOverride ? resolve(resolve(outDirOverride), relDir) : dirname(file);
   const outDir = resolve(baseDir, cfg.output.outDir);
   mkdirSync(outDir, { recursive: true });
+  if (options?.writeSidecarInstallFiles !== false) writeSidecarInstallFiles(ast, outDir);
 
   if (result.artifacts && result.artifacts.length > 0 && cfg.structure !== 'flat') {
     for (const artifact of result.artifacts) {

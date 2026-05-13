@@ -12,6 +12,7 @@ import { runReview } from './commands/review.js';
 import { runInitTemplates, runScan } from './commands/scan.js';
 import { runSchema } from './commands/schema.js';
 import { runSelfCoverage } from './commands/self-coverage.js';
+import { runSidecarInstall } from './commands/sidecar-install.js';
 import { runTest } from './commands/test.js';
 import { printHelp, runTranspile } from './commands/transpile.js';
 
@@ -35,6 +36,7 @@ const COMMANDS: Record<string, (args: string[]) => void | Promise<void>> = {
   confidence: runConfidence,
   schema: runSchema,
   'self-coverage': runSelfCoverage,
+  'sidecar-install': runSidecarInstall,
 };
 
 async function main(): Promise<void> {

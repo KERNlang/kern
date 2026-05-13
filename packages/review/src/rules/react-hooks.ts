@@ -7,7 +7,7 @@
  */
 
 import { Node, SyntaxKind } from 'ts-morph';
-import type { ReviewFinding, RuleContext } from '../types.js';
+import type { ProvenanceChain, ProvenanceStep, ReviewFinding, RuleContext } from '../types.js';
 import { finding, nodeSpan, shouldSkipHookRules } from './utils.js';
 
 const EFFECT_HOOKS = new Set(['useEffect', 'useLayoutEffect']);
@@ -198,6 +198,10 @@ function exhaustiveDeps(ctx: RuleContext): ReviewFinding[] {
     }
 
     const missing = new Set<string>();
+    // Track the first identifier read + declaration site for each missing name —
+    // used to build provenance chains pointing at the actual source/use, not
+    // just the dependency array.
+    const missingMeta = new Map<string, { firstUse: Node; decl: Node }>();
 
     for (const id of body.getDescendantsOfKind(SyntaxKind.Identifier)) {
       const name = id.getText();
@@ -233,16 +237,21 @@ function exhaustiveDeps(ctx: RuleContext): ReviewFinding[] {
       if (decls.length === 0) continue;
 
       let definedInEnclosing = false;
+      let declInEnclosing: Node | undefined;
       for (const d of decls) {
         const ancestor = d.getFirstAncestor((a) => a === enclosingFn);
         if (ancestor) {
           definedInEnclosing = true;
+          declInEnclosing = d;
           break;
         }
       }
       if (!definedInEnclosing) continue;
 
       missing.add(name);
+      if (declInEnclosing && !missingMeta.has(name)) {
+        missingMeta.set(name, { firstUse: id, decl: declInEnclosing });
+      }
     }
 
     if (missing.size > 0) {
@@ -255,6 +264,52 @@ function exhaustiveDeps(ctx: RuleContext): ReviewFinding[] {
       const existingTexts = depsArg.getElements().map((e) => e.getText());
       const missingSorted = [...missing].sort();
       const newDepsText = `[${[...existingTexts, ...missingSorted].join(', ')}]`;
+
+      // Build the causal chain pointing at the first missing dep's declaration
+      // and first use site, then the deps array itself. Capped at 3 steps to
+      // stay inside Sight's hover budget; the message still lists every missing
+      // name so the rule's existing summary stays exhaustive.
+      const provenanceSteps: ProvenanceStep[] = [];
+      // Walk in source-encounter order (Set insertion order), not alphabetical,
+      // so the chain points at the first dep the developer actually reads in
+      // the hook body rather than `a` purely because of letter ordering.
+      let firstMissing: string | undefined;
+      for (const n of missing) {
+        if (missingMeta.has(n)) {
+          firstMissing = n;
+          break;
+        }
+      }
+      const firstMeta = firstMissing ? missingMeta.get(firstMissing) : undefined;
+      if (firstMeta) {
+        provenanceSteps.push({
+          kind: 'source',
+          category: 'value-decl',
+          location: nodeSpan(firstMeta.decl, ctx.filePath),
+          label: `${firstMissing} declared in enclosing component`,
+          detail: `Value is part of the component closure — when its enclosing render produces a new binding, ${hookName} should re-run, but won't because it isn't listed.`,
+        });
+        provenanceSteps.push({
+          kind: 'call',
+          category: 'hook-body',
+          location: nodeSpan(firstMeta.firstUse, ctx.filePath),
+          label: `reads ${firstMissing}`,
+          detail: `${hookName} callback reads ${firstMissing} from the surrounding closure; without it in the deps array the read freezes at the first invocation.`,
+        });
+      }
+      provenanceSteps.push({
+        kind: 'boundary',
+        category: 'hook-dep',
+        location: nodeSpan(depsArg, ctx.filePath),
+        label: `deps array missing: ${names}`,
+        detail: `${hookName} only re-evaluates when one of the listed dependencies changes; un-listed reads do not retrigger it.`,
+      });
+
+      const provenance: ProvenanceChain = {
+        summary: `${hookName} re-runs on dep changes — but ${names} are not listed.`,
+        steps: provenanceSteps,
+      };
+
       findings.push(
         finding(
           'exhaustive-deps',
@@ -266,6 +321,7 @@ function exhaustiveDeps(ctx: RuleContext): ReviewFinding[] {
           1,
           {
             suggestion: `Add ${names} to the dependency array, or move ${missing.size === 1 ? 'it' : 'them'} out of the enclosing closure`,
+            provenance,
             autofix: {
               type: 'replace',
               span: nodeSpan(depsArg, ctx.filePath),
@@ -321,6 +377,43 @@ function refInDeps(ctx: RuleContext): ReviewFinding[] {
     const newDepsText = `[${filteredElements.map((e) => e.getText()).join(', ')}]`;
 
     for (const el of refElementsInDeps) {
+      const refName = el.getText();
+      const refDecl = enclosingFn.getDescendantsOfKind(SyntaxKind.VariableDeclaration).find((d) => {
+        const nm = d.getNameNode();
+        if (!Node.isIdentifier(nm) || nm.getText() !== refName) return false;
+        const init = d.getInitializer();
+        if (!init || !Node.isCallExpression(init)) return false;
+        const cn = init.getExpression().getText();
+        return (cn.includes('.') ? cn.split('.').pop() : cn) === 'useRef';
+      });
+      const provenance: ProvenanceChain = {
+        summary: `'${refName}' is a stable useRef — listing it in deps has no effect`,
+        steps: [
+          {
+            kind: 'source',
+            category: 'ref-decl',
+            location: nodeSpan(refDecl ?? el, ctx.filePath),
+            label: `const ${refName} = useRef(…)`,
+            detail:
+              'useRef returns the same object identity across every render — its presence in a dep array never triggers a re-run.',
+          },
+          {
+            kind: 'boundary',
+            category: 'hook-dep',
+            location: nodeSpan(el, ctx.filePath),
+            label: `${calleeName}(…, […, ${refName}, …])`,
+            detail: `${refName} sits in ${calleeName}'s deps but is constant by construction — the dep slot is dead weight.`,
+          },
+          {
+            kind: 'sink',
+            category: 'no-op',
+            location: nodeSpan(depsArg, ctx.filePath),
+            label: 'dep array entry has no effect',
+            detail: `Updating ${refName}.current does not produce a new ref identity, so React never re-triggers ${calleeName}.`,
+          },
+        ],
+      };
+
       findings.push(
         finding(
           'ref-in-deps',
@@ -332,6 +425,7 @@ function refInDeps(ctx: RuleContext): ReviewFinding[] {
           1,
           {
             suggestion: `Remove '${el.getText()}' from the dependency array. If you want to react to ref.current changes, you need a different pattern (state or a callback ref).`,
+            provenance,
             autofix: {
               type: 'replace',
               span: nodeSpan(depsArg, ctx.filePath),
@@ -405,6 +499,34 @@ function stateDerivedFromProps(ctx: RuleContext): ReviewFinding[] {
     }
 
     if (flagged) {
+      const provenance: ProvenanceChain = {
+        summary: `useState(${label}) freezes the initial prop value forever`,
+        steps: [
+          {
+            kind: 'source',
+            category: 'prop-decl',
+            location: nodeSpan(initArg, ctx.filePath),
+            label,
+            detail: 'The prop becomes the seed for local state on the first render.',
+          },
+          {
+            kind: 'boundary',
+            category: 'state-init',
+            location: nodeSpan(call, ctx.filePath),
+            label: 'useState reads prop only once',
+            detail: 'useState only consults its initializer on mount; subsequent renders ignore changes to the prop.',
+          },
+          {
+            kind: 'sink',
+            category: 'render-cycle',
+            location: nodeSpan(call, ctx.filePath),
+            label: 'state goes stale when prop changes',
+            detail:
+              'When the prop updates, local state continues to display the original value — a classic source of stale UI.',
+          },
+        ],
+      };
+
       findings.push(
         finding(
           'state-derived-from-props',
@@ -417,6 +539,7 @@ function stateDerivedFromProps(ctx: RuleContext): ReviewFinding[] {
           {
             suggestion:
               'Use the prop directly, derive with useMemo, or use a key prop on the parent to force remount when the source changes',
+            provenance,
           },
         ),
       );
@@ -462,6 +585,27 @@ function useCallbackNoBenefit(ctx: RuleContext): ReviewFinding[] {
     const tagName = jsxTag.getTagNameNode().getText();
     if (!/^[a-z]/.test(tagName)) continue; // only intrinsic DOM tags
 
+    const provenance: ProvenanceChain = {
+      summary: `useCallback wrapping '${callbackName}' adds memoization overhead with no memoized consumer`,
+      steps: [
+        {
+          kind: 'boundary',
+          category: 'memo-boundary',
+          location: nodeSpan(decl, ctx.filePath),
+          label: `const ${callbackName} = useCallback(…)`,
+          detail:
+            'useCallback only pays off when the stable identity is required by a memoized child, a hook dep array, or a subscription API.',
+        },
+        {
+          kind: 'sink',
+          category: 'no-op',
+          location: nodeSpan(jsxAttr, ctx.filePath),
+          label: `<${tagName} ${jsxAttr.getNameNode().getText()}={${callbackName}}/>`,
+          detail: `'${tagName}' is an intrinsic DOM element — React does not bail out on stable handler identity for host elements, so the memoization has no consumer.`,
+        },
+      ],
+    };
+
     findings.push(
       finding(
         'usecallback-no-benefit',
@@ -474,6 +618,7 @@ function useCallbackNoBenefit(ctx: RuleContext): ReviewFinding[] {
         {
           suggestion:
             'Inline the handler in JSX or use a normal local function. Keep useCallback for memoized children, hook dependency stability, or imperative subscription APIs that need stable identity',
+          provenance,
         },
       ),
     );
@@ -515,6 +660,26 @@ function unstableDepsLiteral(ctx: RuleContext): ReviewFinding[] {
       else if (Node.isArrowFunction(el) || Node.isFunctionExpression(el)) kind = 'function';
       if (!kind) continue;
 
+      const provenance: ProvenanceChain = {
+        summary: `inline ${kind} literal in ${calleeName} deps re-allocates every render`,
+        steps: [
+          {
+            kind: 'boundary',
+            category: 'hook-dep',
+            location: nodeSpan(depsArg, ctx.filePath),
+            label: `${calleeName}(…, [ inline ${kind} ])`,
+            detail: `${calleeName} compares deps by reference; an inline ${kind} literal is a fresh object every render.`,
+          },
+          {
+            kind: 'sink',
+            category: 'render-cycle',
+            location: nodeSpan(el, ctx.filePath),
+            label: `inline ${kind} literal`,
+            detail: `Each render allocates a new ${kind}, so ${calleeName} treats the dep as "changed" every time and re-runs its callback unconditionally.`,
+          },
+        ],
+      };
+
       findings.push(
         finding(
           'unstable-deps-literal',
@@ -529,6 +694,7 @@ function unstableDepsLiteral(ctx: RuleContext): ReviewFinding[] {
               kind === 'function'
                 ? 'Hoist the function into useCallback (with its own deps) or out of the component'
                 : `Hoist the ${kind} into a useMemo (with its own deps) or move it outside the component if it never depends on render state`,
+            provenance,
           },
         ),
       );
@@ -654,6 +820,28 @@ function useMemoPrimitiveCheap(ctx: RuleContext): ReviewFinding[] {
     if (!returned) continue;
     if (!isCheapPrimitiveExpression(returned)) continue;
 
+    const provenance: ProvenanceChain = {
+      summary: 'useMemo cost exceeds its benefit for a primitive expression',
+      steps: [
+        {
+          kind: 'boundary',
+          category: 'memo-boundary',
+          location: nodeSpan(call, ctx.filePath),
+          label: 'useMemo(…)',
+          detail:
+            'useMemo records the dep array, builds a closure, and compares deps every render — only worth it when the wrapped work is expensive or identity matters.',
+        },
+        {
+          kind: 'sink',
+          category: 'no-op',
+          location: nodeSpan(returned, ctx.filePath),
+          label: `cheap expression: ${returned.getText().slice(0, 40)}`,
+          detail:
+            'The wrapped expression is a literal, identifier, primitive op, or short property read — recomputing it directly is faster than running useMemo bookkeeping.',
+        },
+      ],
+    };
+
     findings.push(
       finding(
         'usememo-primitive-cheap',
@@ -666,6 +854,7 @@ function useMemoPrimitiveCheap(ctx: RuleContext): ReviewFinding[] {
         {
           suggestion:
             'Drop the useMemo and assign the value directly. Reserve useMemo for expensive work (large array transforms, deep clones, parsers) or stable reference identity required by a memoized child or hook dep.',
+          provenance,
         },
       ),
     );

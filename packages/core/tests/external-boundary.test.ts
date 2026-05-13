@@ -352,4 +352,56 @@ describe('external boundary collection', () => {
 
     expect(collectSidecarManifests(root)).toEqual([]);
   });
+
+  it('collects top-level Python imports as implicit sidecar manifests', () => {
+    const root = parse('import py "pandas" as pd version=2 effects=[fs,cpu]');
+
+    expect(collectSidecarManifests(root)).toMatchObject([
+      {
+        name: 'PdPandas',
+        kind: 'sidecar',
+        runtime: 'python',
+        effects: ['fs', 'cpu'],
+        serialization: 'json',
+        requiresSidecar: true,
+        packages: [
+          {
+            package: 'pandas',
+            registry: 'pypi',
+            target: 'python',
+            targetFamily: 'python',
+            version: '2',
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('does not treat legacy PyPI metadata imports as callable implicit sidecars', () => {
+    const root = parse('import from=numpy registry=pypi names=array');
+
+    expect(collectSidecarManifests(root)).toEqual([]);
+  });
+
+  it('does not collect type-only Python imports as sidecar manifests', () => {
+    const root = parse('import py "numpy.typing" names=NDArray types=true');
+
+    expect(collectSidecarManifests(root)).toEqual([]);
+  });
+
+  it('merges repeated loose Python imports in sidecar manifests', () => {
+    const root = parse(['module name=calc', '  import py "math" as math', '  import py "math" names=sqrt'].join('\n'));
+
+    expect(collectSidecarManifests(root)).toMatchObject([
+      {
+        name: 'Math',
+        packages: [
+          {
+            package: 'math',
+            imports: [{ default: 'math' }, { names: ['sqrt'] }],
+          },
+        ],
+      },
+    ]);
+  });
 });

@@ -63,6 +63,7 @@ import {
 import { buildPublicApiMap, expandPublicApiThroughReExports } from './public-api.js';
 import { extractPythonConceptsFallback } from './python-fallback.js';
 import { runQualityRules } from './quality-rules.js';
+import { suppressFindingsOnStableReactConstructs } from './react-stable-suppress.js';
 import {
   applyDiffNoveltyGate,
   assignDefaultConfidence,
@@ -928,20 +929,31 @@ function reviewSourceInternal(
     applyOverlapCalibration(dedupedFindings, projectCtx.external, config);
   }
   applyRuleQualityCalibration(dedupedFindings, config);
+  const stableSuppress = suppressFindingsOnStableReactConstructs(dedupedFindings, source, filePath);
 
   // Apply suppression (inline comments + config disabledRules)
-  const suppression = applySuppression(dedupedFindings, source, filePath, config, config?.strict ?? false);
-  const findings = sortAndDedup(suppression.findings);
+  const suppression = applySuppression(stableSuppress.kept, source, filePath, config, config?.strict ?? false);
+  // Codex review: dedup must run in non-graph paths too — auto-derived
+  // rootCause keys are wasted without groupFindingsByRootCause activation.
+  const groupedFindings =
+    config?.crossStackMode === 'audit'
+      ? sortAndDedup(suppression.findings)
+      : groupFindingsByRootCause(sortAndDedup(suppression.findings));
 
   // Calculate stats
-  const stats = calculateStats(inferred, templateMatches, findings, totalLines);
+  const stats = calculateStats(inferred, templateMatches, groupedFindings, totalLines);
 
   return {
     filePath,
     inferred,
     templateMatches,
-    findings,
+    findings: groupedFindings,
+    // Codex review: self-suppressed findings live in a separate bucket from
+    // kern-ignore'd ones so SARIF audit metadata stays accurate.
     ...(suppression.suppressed.length > 0 ? { suppressedFindings: sortAndDedup(suppression.suppressed) } : {}),
+    ...(stableSuppress.suppressed.length > 0
+      ? { selfSuppressedFindings: sortAndDedup(stableSuppress.suppressed) }
+      : {}),
     stats,
     ...(confidenceGraph ? { confidenceGraph } : {}),
     ...(confidenceSummary ? { confidenceSummary } : {}),
@@ -1094,8 +1106,12 @@ export function reviewKernSource(source: string, filePath = 'input.kern', _confi
   assignDefaultConfidence(dedupedFindings);
   applyRoleAwareConfidence(dedupedFindings, classifyFileRoleByPath(filePath), _config);
   applyRuleQualityCalibration(dedupedFindings, _config);
-  const suppression = applySuppression(dedupedFindings, source, filePath, _config, _config?.strict ?? false);
-  const findings = sortAndDedup(suppression.findings);
+  const stableSuppress = suppressFindingsOnStableReactConstructs(dedupedFindings, source, filePath);
+  const suppression = applySuppression(stableSuppress.kept, source, filePath, _config, _config?.strict ?? false);
+  const findings =
+    _config?.crossStackMode === 'audit'
+      ? sortAndDedup(suppression.findings)
+      : groupFindingsByRootCause(sortAndDedup(suppression.findings));
   const kernTokens = countTokens(source);
 
   return {
@@ -1104,6 +1120,9 @@ export function reviewKernSource(source: string, filePath = 'input.kern', _confi
     templateMatches: [],
     findings,
     ...(suppression.suppressed.length > 0 ? { suppressedFindings: sortAndDedup(suppression.suppressed) } : {}),
+    ...(stableSuppress.suppressed.length > 0
+      ? { selfSuppressedFindings: sortAndDedup(stableSuppress.suppressed) }
+      : {}),
     stats: {
       totalLines,
       coveredLines: totalLines,
@@ -1173,8 +1192,12 @@ export function reviewPythonSource(source: string, filePath = 'input.py', config
   assignDefaultConfidence(dedupedFindings);
   applyRoleAwareConfidence(dedupedFindings, classifyFileRoleByPath(filePath), config);
   applyRuleQualityCalibration(dedupedFindings, config);
-  const suppression = applySuppression(dedupedFindings, source, filePath, config, config?.strict ?? false);
-  const findings = sortAndDedup(suppression.findings);
+  const stableSuppress = suppressFindingsOnStableReactConstructs(dedupedFindings, source, filePath);
+  const suppression = applySuppression(stableSuppress.kept, source, filePath, config, config?.strict ?? false);
+  const findings =
+    config?.crossStackMode === 'audit'
+      ? sortAndDedup(suppression.findings)
+      : groupFindingsByRootCause(sortAndDedup(suppression.findings));
   const reviewHealth = health.build();
 
   return {
@@ -1183,6 +1206,9 @@ export function reviewPythonSource(source: string, filePath = 'input.py', config
     templateMatches: [],
     findings,
     ...(suppression.suppressed.length > 0 ? { suppressedFindings: sortAndDedup(suppression.suppressed) } : {}),
+    ...(stableSuppress.suppressed.length > 0
+      ? { selfSuppressedFindings: sortAndDedup(stableSuppress.suppressed) }
+      : {}),
     ...(reviewHealth ? { health: reviewHealth } : {}),
     stats: {
       totalLines,
@@ -1627,15 +1653,27 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
       const unsuppressedCandidates = [...report.findings, ...(report.suppressedFindings ?? [])];
       assignDefaultConfidence(unsuppressedCandidates);
       applyRuleQualityCalibration(unsuppressedCandidates, config);
+      // Drop findings whose provenance lands on a stable React construct
+      // (useMemo / useCallback / useRef / useState setter). Codex consensus:
+      // these claims of "unstable" are provably false; suppress with a
+      // dedicated reason rather than overloading severity.
+      const reactStableResult = suppressFindingsOnStableReactConstructs(
+        unsuppressedCandidates,
+        source,
+        report.filePath,
+      );
       const suppression = applySuppression(
-        sortAndDedup(unsuppressedCandidates),
+        sortAndDedup(reactStableResult.kept),
         source,
         report.filePath,
         config,
         config?.strict ?? false,
       );
       report.findings = sortAndDedup(suppression.findings);
+      // Codex review: separate buckets so SARIF audit metadata is accurate.
       report.suppressedFindings = suppression.suppressed.length > 0 ? sortAndDedup(suppression.suppressed) : undefined;
+      report.selfSuppressedFindings =
+        reactStableResult.suppressed.length > 0 ? sortAndDedup(reactStableResult.suppressed) : undefined;
     } catch {
       report.findings = sortAndDedup(report.findings);
     }

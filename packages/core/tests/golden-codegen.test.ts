@@ -503,6 +503,89 @@ describe('golden: import', () => {
     expect(output).not.toContain("from 'demucs'");
     expect(output).not.toContain("from 'fastapi'");
   });
+  it('emits callable Python sidecar bindings for top-level py imports', () => {
+    const output = gen(
+      [
+        'module name=calc',
+        '  import py "math" as math',
+        '  fn name=sqrtSeven async=true returns=Promise<unknown>',
+        '    handler lang=kern',
+        '      return value="await math.sqrt(49)"',
+      ].join('\n'),
+    );
+
+    expect(output).toContain('export const mathSidecarManifest = {');
+    expect(output).toContain('export const mathSidecarClient = createMathSidecarClient(mathSidecarManifest);');
+    expect(output).toContain('export const math = mathSidecarClient.module("math");');
+    expect(output).toContain('export async function sqrtSeven(): Promise<unknown> {');
+    expect(output).toContain('  return await math.sqrt(49);');
+    expect(output).not.toContain("from 'math'");
+  });
+
+  it('uses full package names for unaliased Python sidecar symbols', () => {
+    const output = gen(['module name=metrics', '  import py "foo.metrics"', '  import py "bar.metrics"'].join('\n'));
+
+    expect(output).toContain('export const fooMetricsSidecarManifest = {');
+    expect(output).toContain('export const barMetricsSidecarManifest = {');
+    expect(output).toContain('function createFooMetricsSidecarClient');
+    expect(output).toContain('function createBarMetricsSidecarClient');
+    expect(output).not.toContain('function createMetricsSidecarClient');
+  });
+
+  it('prefixes digit-leading Python sidecar symbols', () => {
+    const output = gen('import py "3to2"');
+
+    expect(output).toContain('export const py3to2SidecarManifest = {');
+    expect(output).toContain('function createPy3to2SidecarClient');
+  });
+
+  it('keeps normalized Python package sidecar names distinct', () => {
+    const output = gen(['module name=packages', '  import py "foo-bar"', '  import py "foo_bar"'].join('\n'));
+
+    expect(output).toContain('export const fooDashBarSidecarManifest = {');
+    expect(output).toContain('export const fooUnderscoreBarSidecarManifest = {');
+  });
+
+  it('emits typed named Python function bindings from signatures', () => {
+    const output = gen('import py "math" names=sqrt signature="(x: number) => Promise<number>"');
+
+    expect(output).toContain(
+      'export const sqrt = mathSidecarClient.bind("math", "sqrt") as ((x: number) => Promise<number>);',
+    );
+  });
+
+  it('merges repeated top-level Python imports into one sidecar client', () => {
+    const output = gen(
+      [
+        'module name=calc',
+        '  import py "math" as math',
+        '  import py "math" names=sqrt signature="(x: number) => Promise<number>"',
+      ].join('\n'),
+    );
+
+    expect(output.match(/export const mathSidecarManifest/g)).toHaveLength(1);
+    expect(output.match(/function createMathSidecarClient/g)).toHaveLength(1);
+    expect(output).toContain('export const math = mathSidecarClient.module("math");');
+    expect(output).toContain(
+      'export const sqrt = mathSidecarClient.bind("math", "sqrt") as ((x: number) => Promise<number>);',
+    );
+  });
+});
+
+describe('golden: island', () => {
+  it('emits child functions inside islands', () => {
+    const output = gen(
+      [
+        'island engine Worker runtime=node effects=[cpu] requiresSidecar=false',
+        '  fn name=answer returns=number',
+        '    handler lang=kern',
+        '      return value=42',
+      ].join('\n'),
+    );
+
+    expect(output).toContain('export function answer(): number {');
+    expect(output).toContain('  return 42;');
+  });
 });
 
 describe('golden: const', () => {

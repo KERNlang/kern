@@ -44,6 +44,7 @@ import {
   surfaceShadowDiagnostics,
   surfaceValidationDiagnostics,
   transpileAndWrite,
+  writeSidecarInstallFilesForAsts,
 } from '../shared.js';
 
 // ── Single-file compilation (no --target) ───────────────────────────────
@@ -53,6 +54,13 @@ interface DefaultCompileResult {
   errors: number;
   warnings: number;
   barrelEntry?: BarrelEntry;
+  sidecarEntry?: SidecarInstallEntry;
+}
+
+interface SidecarInstallEntry {
+  file: string;
+  ast: IRNode;
+  outDir: string;
 }
 
 function parseStrictWithOptions(source: string, parseOptions?: import('@kernlang/core').ParseOptions): IRNode {
@@ -199,7 +207,7 @@ async function compileDefaultSingle(
   const outName = basename(file, '.kern') + ext;
   // Preserve subdirectory structure when compiling a directory recursively
   const relSubdir = inputBase ? relative(inputBase, dirname(file)) : '';
-  const targetDir = relSubdir ? resolve(outDir, relSubdir) : outDir;
+  const targetDir = defaultSidecarOutDirForFile(file, outDir, inputBase);
   mkdirSync(targetDir, { recursive: true });
   const outFile = resolve(targetDir, outName);
   // Slice C-cell-v4 — auto-emit `import { useState } from 'react'` when
@@ -214,7 +222,36 @@ async function compileDefaultSingle(
   const exports = extractExportsFromLines(lines);
   const barrelEntry = exports.length > 0 ? { moduleName: basename(file, '.kern'), exports } : undefined;
 
-  return { compiled: true, errors, warnings, barrelEntry };
+  return { compiled: true, errors, warnings, barrelEntry, sidecarEntry: { file, ast, outDir: targetDir } };
+}
+
+function defaultSidecarOutDirForFile(file: string, outDir: string, inputBase?: string): string {
+  const relSubdir = inputBase ? relative(inputBase, dirname(file)) : '';
+  return relSubdir ? resolve(outDir, relSubdir) : outDir;
+}
+
+function targetSidecarOutDirForFile(file: string, outDir: string, cfg: ResolvedKernConfig, inputBase?: string): string {
+  const relDir = inputBase ? relative(resolve(inputBase), dirname(file)) : '';
+  const baseDir = resolve(outDir, relDir);
+  return resolve(baseDir, cfg.output.outDir);
+}
+
+function writeAggregatedSidecarInstallFiles(entries: SidecarInstallEntry[]): void {
+  const byOutDir = new Map<string, IRNode[]>();
+  for (const entry of entries) {
+    const asts = byOutDir.get(entry.outDir);
+    if (asts) asts.push(entry.ast);
+    else byOutDir.set(entry.outDir, [entry.ast]);
+  }
+  for (const [sidecarOutDir, asts] of byOutDir) {
+    mkdirSync(sidecarOutDir, { recursive: true });
+    writeSidecarInstallFilesForAsts(asts, sidecarOutDir);
+  }
+}
+
+function clearSidecarInstallFiles(outDir: string): void {
+  mkdirSync(outDir, { recursive: true });
+  writeSidecarInstallFilesForAsts([], outDir);
 }
 
 // ── Main compile command ────────────────────────────────────────────────
@@ -312,12 +349,16 @@ export async function runCompile(args: string[]): Promise<void> {
   // ── Initial compilation ────────────────────────────────────────────
   const jsonDiagnostics: FileDiagnosticsJSON[] = [];
 
-  async function compileAll(
-    files: string[],
-  ): Promise<{ compiled: number; totalErrors: number; barrelEntries: BarrelEntry[] }> {
+  async function compileAll(files: string[]): Promise<{
+    compiled: number;
+    totalErrors: number;
+    barrelEntries: BarrelEntry[];
+    sidecarEntries: SidecarInstallEntry[];
+  }> {
     let compiled = 0;
     let totalErrors = 0;
     const barrelEntries: BarrelEntry[] = [];
+    const sidecarEntries: SidecarInstallEntry[] = [];
 
     if (targetArg) {
       for (const file of files) {
@@ -365,7 +406,10 @@ export async function runCompile(args: string[]): Promise<void> {
         try {
           transpileAndWrite(file, cfg as ResolvedKernConfig, args, outDir, isDir ? inputPath : undefined, {
             resolveImport: makeImportResolverForFile(resolve(file), crossModuleRegistry),
+            writeSidecarInstallFiles: false,
           });
+          const { root } = parseWithDiagnostics(source, undefined, parseOptions);
+          sidecarEntries.push(sidecarEntryForFile(file, root));
           if (!jsonOutput) console.log(`  ${basename(file)} → ${targetArg}`);
           compiled++;
         } catch (err) {
@@ -428,13 +472,39 @@ export async function runCompile(args: string[]): Promise<void> {
         if (result.compiled) compiled++;
         totalErrors += result.errors;
         if (result.barrelEntry) barrelEntries.push(result.barrelEntry);
+        if (result.sidecarEntry) sidecarEntries.push(result.sidecarEntry);
       }
     }
 
-    return { compiled, totalErrors, barrelEntries };
+    return { compiled, totalErrors, barrelEntries, sidecarEntries };
   }
 
-  const { compiled, totalErrors, barrelEntries } = await compileAll(kernFiles);
+  const { compiled, totalErrors, barrelEntries, sidecarEntries } = await compileAll(kernFiles);
+  const watchedSidecarEntries = new Map<string, SidecarInstallEntry>(
+    sidecarEntries.map((entry) => [resolve(entry.file), entry]),
+  );
+  writeAggregatedSidecarInstallFiles(sidecarEntries);
+
+  function sidecarEntryForFile(file: string, ast: IRNode): SidecarInstallEntry {
+    return {
+      file,
+      ast,
+      outDir: targetArg
+        ? targetSidecarOutDirForFile(file, outDir, cfg as ResolvedKernConfig, isDir ? inputPath : undefined)
+        : defaultSidecarOutDirForFile(file, outDir, isDir ? inputPath : undefined),
+    };
+  }
+
+  function refreshSidecarEntry(file: string): void {
+    const source = readFileSync(file, 'utf-8');
+    const parseOptions = { resolveImport: makeImportResolverForFile(resolve(file), crossModuleRegistry) };
+    const { root } = parseWithDiagnostics(source, undefined, parseOptions);
+    watchedSidecarEntries.set(resolve(file), sidecarEntryForFile(file, root));
+  }
+
+  function writeWatchedSidecarInstallFiles(): void {
+    writeAggregatedSidecarInstallFiles([...watchedSidecarEntries.values()]);
+  }
 
   // ── Barrel & facades ───────────────────────────────────────────────
   if (barrel && barrelEntries.length > 0) {
@@ -544,12 +614,15 @@ export async function runCompile(args: string[]): Promise<void> {
       if (targetArg) {
         transpileAndWrite(filePath, cfg as ResolvedKernConfig, args, outDir, isDir ? inputPath : undefined, {
           resolveImport: makeImportResolverForFile(resolve(filePath), crossModuleRegistry),
+          writeSidecarInstallFiles: false,
         });
       } else {
         await compileDefaultSingle(filePath, outDir, strictParse, false, [], shadow, isDir ? inputPath : undefined, {
           resolveImport: makeImportResolverForFile(resolve(filePath), crossModuleRegistry),
         });
       }
+      refreshSidecarEntry(filePath);
+      writeWatchedSidecarInstallFiles();
 
       // Regenerate barrel/facades from current output state
       if (barrel || facades) {
@@ -593,6 +666,12 @@ export async function runCompile(args: string[]): Promise<void> {
       if (barrel) generateBarrelFile(outDir, entries);
       if (facades) generateFacadeFiles(outDir, facadesDir, entries);
     }
+    const deletedOutDir = targetArg
+      ? targetSidecarOutDirForFile(filePath, outDir, cfg as ResolvedKernConfig, isDir ? inputPath : undefined)
+      : defaultSidecarOutDirForFile(filePath, outDir, isDir ? inputPath : undefined);
+    watchedSidecarEntries.delete(resolve(filePath));
+    clearSidecarInstallFiles(deletedOutDir);
+    writeWatchedSidecarInstallFiles();
   });
 
   process.on('SIGINT', () => {
