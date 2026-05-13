@@ -487,8 +487,13 @@ export async function loadUser(id: string): Promise<User> {
 
     const previousPython = process.env.KERN_PYTHON;
     process.env.KERN_PYTHON = python;
+    type PythonFunction = ((...args: unknown[]) => Promise<unknown>) & {
+      kwargs(kwargs: Record<string, unknown>, ...args: unknown[]): Promise<unknown>;
+    };
     const mod = (await import(pathToFileURL(compiledJs).href)) as {
       mathSidecarClient: {
+        module(moduleName: string): Record<string, PythonFunction>;
+        bind(moduleName: string, method: string): PythonFunction;
         call(
           moduleName: string,
           method: string,
@@ -497,13 +502,19 @@ export async function loadUser(id: string): Promise<User> {
         close(): void;
         dispose(): void;
       };
+      math: Record<string, PythonFunction>;
+      builtins: Record<string, PythonFunction>;
     };
     try {
       process.env.KERN_PYTHON = join(tmpDir, 'missing-python');
       await expect(mod.mathSidecarClient.call('math', 'sqrt', { args: [49] })).rejects.toThrow();
       process.env.KERN_PYTHON = python;
       await expect(mod.mathSidecarClient.call('math', 'sqrt', { args: [49] })).resolves.toBe(7);
-      await expect(mod.mathSidecarClient.call('builtins', 'print', { args: ['stdout noise'] })).resolves.toBeNull();
+      await expect(mod.math.sqrt(49)).resolves.toBe(7);
+      await expect(mod.mathSidecarClient.module('math').sqrt(36)).resolves.toBe(6);
+      await expect(mod.mathSidecarClient.bind('math', 'sqrt')(25)).resolves.toBe(5);
+      await expect(mod.builtins.print('stdout noise')).resolves.toBeNull();
+      await expect(mod.builtins.sorted.kwargs({ reverse: true }, [3, 1, 2])).resolves.toEqual([3, 2, 1]);
       await expect(mod.mathSidecarClient.call('math', 'missing_function')).rejects.toThrow('missing_function');
       await expect(mod.mathSidecarClient.call('os', 'getcwd')).rejects.toThrow('is not declared');
     } finally {

@@ -101,6 +101,14 @@ function emitStringArray(values: string[]): string {
   return `[${values.map((value) => JSON.stringify(value)).join(', ')}]`;
 }
 
+const SAFE_IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
+
+function parseNamedImportBinding(raw: string): { name: string; alias: string } | null {
+  const match = raw.trim().match(/^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/u);
+  if (!match) return null;
+  return { name: match[1], alias: match[2] ?? match[1] };
+}
+
 const PYTHON_SIDECAR_RUNTIME = [
   'import importlib',
   'import contextlib',
@@ -187,6 +195,8 @@ function generatePythonSidecarClient(manifest: SidecarManifest, node: IRNode): s
     `function ${factoryName}(manifest: typeof ${manifestName}) {`,
     '  type CallPayload = { args?: unknown[]; kwargs?: Record<string, unknown> };',
     '  type Pending = { resolve: (value: unknown) => void; reject: (reason?: unknown) => void };',
+    '  type PythonFunction = ((...args: unknown[]) => Promise<unknown>) & { kwargs: (kwargs: Record<string, unknown>, ...args: unknown[]) => Promise<unknown> };',
+    '  type PythonModule = Record<string, PythonFunction>;',
     "  let proc: import('node:child_process').ChildProcessWithoutNullStreams | null = null;",
     '  let starting: Promise<void> | null = null;',
     '  let nextId = 1;',
@@ -257,6 +267,22 @@ function generatePythonSidecarClient(manifest: SidecarManifest, node: IRNode): s
     '',
     '  return {',
     '    manifest,',
+    '    module(moduleName: string): PythonModule {',
+    '      if (!allowedModules.has(moduleName)) {',
+    "        throw new Error(`Python module '${moduleName}' is not declared in sidecar island '${manifest.name}'`);",
+    '      }',
+    '      return new Proxy({}, {',
+    '        get: (_target, prop) => {',
+    "          if (typeof prop !== 'string' || prop === 'then') return undefined;",
+    '          return this.bind(moduleName, prop);',
+    '        },',
+    '      }) as PythonModule;',
+    '    },',
+    '    bind(moduleName: string, method: string): PythonFunction {',
+    '      const fn = ((...args: unknown[]) => this.call(moduleName, method, { args })) as PythonFunction;',
+    '      fn.kwargs = (kwargs: Record<string, unknown>, ...args: unknown[]) => this.call(moduleName, method, { args, kwargs });',
+    '      return fn;',
+    '    },',
     '    async call(moduleName: string, method: string, payload: CallPayload = {}): Promise<unknown> {',
     '      if (!allowedModules.has(moduleName)) {',
     "        throw new Error(`Python module '${moduleName}' is not declared in sidecar island '${manifest.name}'`);",
@@ -290,6 +316,35 @@ function generatePythonSidecarClient(manifest: SidecarManifest, node: IRNode): s
     '',
     `export const ${clientName} = ${factoryName}(${manifestName});`,
   );
+  const usedExportNames = new Set([manifestName, clientName]);
+  for (const sidecarPackage of manifest.packages) {
+    const moduleAliases = new Set<string>();
+    for (const binding of sidecarPackage.imports) {
+      if (binding.default) moduleAliases.add(binding.default);
+    }
+    if (moduleAliases.size === 0 && SAFE_IDENTIFIER_RE.test(sidecarPackage.package)) {
+      moduleAliases.add(sidecarPackage.package);
+    }
+    for (const rawAlias of moduleAliases) {
+      if (!SAFE_IDENTIFIER_RE.test(rawAlias)) continue;
+      const alias = emitIdentifier(rawAlias, 'pythonModule', node);
+      if (usedExportNames.has(alias)) continue;
+      usedExportNames.add(alias);
+      lines.push(`export const ${alias} = ${clientName}.module(${JSON.stringify(sidecarPackage.package)});`);
+    }
+    for (const binding of sidecarPackage.imports) {
+      for (const rawName of binding.names) {
+        const namedBinding = parseNamedImportBinding(rawName);
+        if (!namedBinding) continue;
+        const alias = emitIdentifier(namedBinding.alias, 'pythonFunction', node);
+        if (usedExportNames.has(alias)) continue;
+        usedExportNames.add(alias);
+        lines.push(
+          `export const ${alias} = ${clientName}.bind(${JSON.stringify(sidecarPackage.package)}, ${JSON.stringify(namedBinding.name)});`,
+        );
+      }
+    }
+  }
   return lines;
 }
 
