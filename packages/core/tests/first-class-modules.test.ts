@@ -80,6 +80,42 @@ describe('first-class module syntax', () => {
     );
   });
 
+  test('foreign npm import sugar lowers to external import metadata', () => {
+    const node = firstChild(
+      'import npm "zod" as z version=3 review=known reason="schema validation" runtime=node effects=validation serialization=json',
+    );
+
+    expect(node).toMatchObject({
+      type: 'import',
+      props: {
+        from: 'zod',
+        package: 'zod',
+        registry: 'npm',
+        target: 'ts',
+        default: 'z',
+        version: '3',
+        review: 'known',
+        reason: 'schema validation',
+        runtime: 'node',
+        effects: 'validation',
+        serialization: 'json',
+      },
+    });
+    expect(node.props).not.toHaveProperty('__firstClassImport');
+    expect(generateCoreNode(node).join('\n')).toBe(`import z from 'zod';`);
+  });
+
+  test('foreign py import sugar lowers to PyPI metadata and skips TS codegen', () => {
+    const node = firstChild('import py "pandas" as pd');
+
+    expect(node).toMatchObject({
+      type: 'import',
+      props: { from: 'pandas', package: 'pandas', registry: 'pypi', target: 'python', default: 'pd' },
+    });
+    expect(node.props).not.toHaveProperty('__firstClassImport');
+    expect(generateCoreNode(node).join('\n')).toBe('');
+  });
+
   test('side-effect imports preserve .kern path translation and external paths', () => {
     const kernImport = firstChild('import "./register.kern"');
     expect(kernImport).toMatchObject({ type: 'use', props: { path: './register.kern' }, children: [] });

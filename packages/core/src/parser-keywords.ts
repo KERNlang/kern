@@ -283,6 +283,9 @@ function parseFirstClassImport(raw: string): Record<string, unknown> | null {
   const trimmed = raw.trim();
   if (trimmed === '' || /^\w+\s*=/.test(trimmed)) return null;
 
+  const foreign = parseForeignRegistryImport(trimmed);
+  if (foreign) return foreign;
+
   const sideEffect = /^from\s+/.test(trimmed) ? null : stripQuotedModuleSpecifier(trimmed);
   if (sideEffect) {
     return { from: sideEffect, __firstClassImport: true };
@@ -301,6 +304,28 @@ function parseFirstClassImport(raw: string): Record<string, unknown> | null {
     __firstClassImport: true,
     __firstClassBindings: bindings,
   };
+}
+
+function parseForeignRegistryImport(raw: string): Record<string, unknown> | null {
+  const match =
+    /^(npm|py|python|pypi)\s+(["'])([\s\S]*?)\2(?:\s+as\s+([A-Za-z_$][\w$]*))?(?:\s+([\s\S]+))?$/u.exec(raw);
+  if (!match) return null;
+
+  const keyword = match[1];
+  const packageName = match[3].trim();
+  if (!packageName) return null;
+
+  const registry = keyword === 'npm' ? 'npm' : 'pypi';
+  const props: Record<string, unknown> = {
+    from: packageName,
+    package: packageName,
+    registry,
+    target: registry === 'npm' ? 'ts' : 'python',
+    __firstClassImport: true,
+  };
+  if (match[4]) props.default = match[4];
+  if (match[5]) assignBareProps(match[5], props);
+  return props;
 }
 
 export const KEYWORD_HANDLERS = new Map<string, KeywordHandler>([
