@@ -35,6 +35,19 @@ export function validateSemantics(root: IRNode): SemanticViolation[] {
   return violations;
 }
 
+// True when any ancestor is a `handler` opted into native body-statement
+// mode (`lang="kern"`). Body statements like `let`/`assign`/`do`/`if`/`try`
+// nest freely inside that scope, so the let-parent rule has to be context-
+// aware rather than a hardcoded sibling list. Body-statement containers
+// allowed as a `let` parent inside native body: handler, if, else, try,
+// catch, finally, while, for, each.
+function insideNativeBodyHandler(ancestorNodes: IRNode[]): boolean {
+  for (const ancestor of ancestorNodes) {
+    if (ancestor.type === 'handler' && ancestor.props?.lang === 'kern') return true;
+  }
+  return false;
+}
+
 function validateNode(
   node: IRNode,
   violations: SemanticViolation[],
@@ -173,22 +186,38 @@ function validateNode(
     }
   }
 
-  // ── let must be a direct child of each OR handler (slice 1 native bodies) ──
-  // `let` has two valid parents:
-  //   - `each` — iteration-scoped binding (emits `const` inside the `.map` callback).
-  //   - `handler` — body-statement binding inside a native KERN handler (`lang=kern`).
-  // Outside both contexts there's no codegen target and the binding is silently
-  // dropped — fail loudly instead.
+  // ── let must be a direct child of each OR a body-stmt container ───────
+  // `let` has two valid parent contexts:
+  //   1. `each` — iteration-scoped binding (emits `const` inside the `.map`
+  //      callback). Valid in both render and native-body contexts.
+  //   2. Body-statement containers inside a `handler lang="kern"` scope —
+  //      handler, if, else, try, catch, finally, while, for. The schema
+  //      already accepts `let` as a child of these nodes, and the native
+  //      body emitter lowers it correctly; the previous hardcoded sibling
+  //      list (each/handler/if/else only) rejected legitimate uses of
+  //      `let` inside try/catch/while/for and forced authors to drop back
+  //      to raw `<<<…>>>` bodies.
+  //
+  // Outside both contexts there's no codegen target and the binding is
+  // silently dropped — fail loudly instead.
   if (node.type === 'let') {
     const parent = ancestry[ancestry.length - 1];
-    // Slice 2c — also accept `if` / `else` parents for native body control flow.
-    // `let` inside an if-branch is the natural expression for conditional bindings.
-    if (parent !== 'each' && parent !== 'handler' && parent !== 'if' && parent !== 'else') {
+    const nativeBodyParents = new Set(['handler', 'if', 'else', 'try', 'catch', 'finally', 'while', 'for']);
+    const isEachParent = parent === 'each';
+    const isNativeBodyParent =
+      parent !== undefined && nativeBodyParents.has(parent) && insideNativeBodyHandler(ancestorNodes);
+    // Tolerate `handler` parent without a confirmed native-body ancestor: the
+    // body-statement parser-validator (parser-validate-body-statements.ts)
+    // already produces a precise `BODY_STATEMENT_OUTSIDE_NATIVE_HANDLER`
+    // diagnostic when a `let` lands in a non-kern handler, so this rule
+    // doesn't need to second-guess it.
+    const isHandlerParent = parent === 'handler';
+    if (!isEachParent && !isNativeBodyParent && !isHandlerParent) {
       violations.push({
         rule: 'let-must-be-inside-each',
         nodeType: 'let',
         message:
-          '`let` must be a direct child of `each`, `handler`, or `if`/`else` (slice 2c). Use `derive` for component-scoped bindings, or `const` at file scope.',
+          '`let` must be a direct child of `each`, or of `handler`/`if`/`else`/`try`/`catch`/`finally`/`while`/`for` inside a `handler lang="kern"` scope. Use `derive` for component-scoped bindings, or `const` at file scope.',
         line: node.loc?.line,
         col: node.loc?.col,
       });
