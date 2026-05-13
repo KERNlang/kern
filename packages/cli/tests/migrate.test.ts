@@ -335,4 +335,66 @@ describe('kern migrate command', () => {
       expect(parsed.totalHits).toBe(1);
     });
   });
+
+  describe('--check-equivalent (native-handlers audit mode)', () => {
+    test('reports eligible/converted/skipped with reasons + source line ranges', () => {
+      // A file with one migratable handler and one that should be refused
+      // (declaration-only — no return/throw/do, only a stray `const`).
+      const kernFile = join(tmpDir, 'handlers.kern');
+      writeFileSync(
+        kernFile,
+        [
+          'fn name=ok returns=string',
+          '  handler <<<',
+          '    const msg = who;',
+          '    return msg;',
+          '  >>>',
+          'fn name=skip returns=void',
+          '  handler <<<',
+          '    const unused = compute();',
+          '  >>>',
+        ].join('\n'),
+      );
+
+      runMigrate(['migrate', 'native-handlers', tmpDir, '--check-equivalent', '--json']);
+      const parsed = JSON.parse(out());
+
+      expect(parsed.mode).toBe('check-equivalent');
+      expect(parsed.totalHits).toBe(1);
+      expect(parsed.totalSkipped).toBe(1);
+      const file = parsed.files.find(
+        (f: { hits: number; skipped?: unknown[] }) => f.hits + (f.skipped?.length ?? 0) > 0,
+      );
+      expect(file).toBeDefined();
+      expect(file.hitRanges).toEqual([{ headerLine: 2, endLine: 5 }]);
+      expect(file.skipped).toHaveLength(1);
+      expect(file.skipped[0].headerLine).toBe(7);
+      expect(file.skipped[0].endLine).toBe(9);
+      expect(file.skipped[0].reason).toMatch(/declaration-only/);
+      // Critically: --check-equivalent NEVER writes — the .kern file on
+      // disk is byte-identical to what we wrote at the start of the test.
+      const onDisk = readFileSync(kernFile, 'utf-8');
+      expect(onDisk).toContain('handler <<<');
+      expect(onDisk).not.toContain('handler lang="kern"');
+    });
+
+    test('rejects --check-equivalent combined with --write', () => {
+      const origExit = process.exit;
+      const exitCalls: Array<number | undefined> = [];
+      process.exit = ((code?: number) => {
+        exitCalls.push(code);
+        throw new Error('__exit__');
+      }) as typeof process.exit;
+      try {
+        const kernFile = join(tmpDir, 'h.kern');
+        writeFileSync(kernFile, 'fn name=x\n  handler <<<\n    return 1;\n  >>>');
+        expect(() => runMigrate(['migrate', 'native-handlers', tmpDir, '--check-equivalent', '--write'])).toThrow(
+          '__exit__',
+        );
+        expect(exitCalls).toEqual([1]);
+      } finally {
+        process.exit = origExit;
+      }
+    });
+  });
 });
