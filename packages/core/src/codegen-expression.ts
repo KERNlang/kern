@@ -31,15 +31,7 @@ export function emitExpression(node: ValueIR): string {
       return node.raw;
     case 'strLit': {
       const q = node.quote;
-      const escaped = node.value
-        .replace(/\\/g, '\\\\')
-        .replace(/\n/g, '\\n')
-        .replace(/\r/g, '\\r')
-        .replace(/\t/g, '\\t')
-        .replace(/\x08/g, '\\b')
-        .replace(/\f/g, '\\f')
-        .replace(/\v/g, '\\v')
-        .replace(new RegExp(q, 'g'), `\\${q}`);
+      const escaped = escapeControlChars(node.value.replace(/\\/g, '\\\\')).replace(new RegExp(q, 'g'), `\\${q}`);
       return `${q}${escaped}${q}`;
     }
     case 'boolLit':
@@ -242,7 +234,26 @@ function needsConditionalChildParens(child: ValueIR): boolean {
 }
 
 function escapeTemplateQuasi(s: string): string {
-  return s.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${');
+  return escapeControlChars(s.replace(/\\/g, '\\\\')).replace(/`/g, '\\`').replace(/\$\{/g, '\\${');
+}
+
+// Control chars that have no readable named escape — re-emitted as \xHH.
+// Excludes \x08 \x09 \x0a \x0b \x0c \x0d (named: \b \t \n \v \f \r).
+const UNNAMED_CONTROL_RE = /[\x00-\x07\x0e-\x1f\x7f]/g;
+
+function escapeControlChars(s: string): string {
+  return s
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t')
+    .replace(/\x08/g, '\\b')
+    .replace(/\f/g, '\\f')
+    .replace(/\v/g, '\\v')
+    .replace(UNNAMED_CONTROL_RE, hexEscape);
+}
+
+function hexEscape(ch: string): string {
+  return `\\x${ch.charCodeAt(0).toString(16).padStart(2, '0')}`;
 }
 
 /** Slice 2d — used by objectLit emit to decide between bare-key (`{a: 1}`)

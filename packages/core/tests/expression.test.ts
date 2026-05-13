@@ -399,4 +399,120 @@ describe('Bug fixes from cross-AI review', () => {
     const ir = { kind: 'strLit' as const, value: str, quote: '"' as const };
     expect(emitExpression(ir)).toBe('"\\b\\f\\v"');
   });
+
+  describe('String escape sequences', () => {
+    test('\\x7f (DEL) decodes to the byte and re-emits as \\x7f', () => {
+      const ir = parseExpression('"\\x7f"');
+      expect(ir).toMatchObject({ kind: 'strLit', value: '\x7f' });
+      expect(emitExpression(ir)).toBe('"\\x7f"');
+    });
+
+    test('\\x1b (ESC) decodes and re-emits cleanly', () => {
+      expect(roundtrip('"\\x1b[31mred\\x1b[0m"')).toBe('"\\x1b[31mred\\x1b[0m"');
+      const ir = parseExpression('"\\x1b"');
+      expect(ir).toMatchObject({ kind: 'strLit', value: '\x1b' });
+    });
+
+    test('all named control escapes round-trip', () => {
+      expect(roundtrip('"\\r"')).toBe('"\\r"');
+      expect(roundtrip('"\\b"')).toBe('"\\b"');
+      expect(roundtrip('"\\f"')).toBe('"\\f"');
+      expect(roundtrip('"\\v"')).toBe('"\\v"');
+      expect(roundtrip('"\\0"')).toBe('"\\x00"');
+    });
+
+    test('\\uHHHH unicode escape decodes', () => {
+      const ir = parseExpression('"\\u00ff"');
+      expect(ir).toMatchObject({ kind: 'strLit', value: 'ÿ' });
+      // Emitter preserves the printable char (0xff is not in the control range)
+      expect(emitExpression(ir)).toBe('"ÿ"');
+    });
+
+    test('\\u{...} codepoint escape decodes (astral plane)', () => {
+      const ir = parseExpression('"\\u{1f600}"');
+      expect(ir).toMatchObject({ kind: 'strLit', value: '\u{1f600}' });
+    });
+
+    test('unknown escapes drop the backslash (JS semantics)', () => {
+      // `\z` in JS strings evaluates to `z`. KERN should match.
+      const ir = parseExpression('"\\z"');
+      expect(ir).toMatchObject({ kind: 'strLit', value: 'z' });
+    });
+
+    test('octal escape is rejected (no silent acceptance)', () => {
+      expect(() => parseExpression('"\\012"')).toThrow();
+    });
+
+    test('legacy single-digit octal escapes \\1-\\9 are rejected', () => {
+      for (const d of ['1', '2', '3', '4', '5', '6', '7', '8', '9']) {
+        expect(() => parseExpression(`"\\${d}"`)).toThrow();
+      }
+    });
+
+    test('line continuation: \\<LF> evaluates to empty string', () => {
+      const ir = parseExpression('"a\\\nb"');
+      expect(ir).toMatchObject({ kind: 'strLit', value: 'ab' });
+    });
+
+    test('line continuation: \\<CRLF> consumes both chars', () => {
+      const ir = parseExpression('"a\\\r\nb"');
+      expect(ir).toMatchObject({ kind: 'strLit', value: 'ab' });
+    });
+
+    test('line continuation inside template literal', () => {
+      const ir = parseExpression('`a\\\nb`');
+      expect(ir).toMatchObject({ kind: 'tmplLit', quasis: ['ab'] });
+    });
+
+    test('template quasi codegen escapes named control chars (\\b \\f \\v)', () => {
+      // Build a tmplLit IR with literal BS/FF/VT in the quasi.
+      const ir = {
+        kind: 'tmplLit' as const,
+        quasis: ['\b\f\v'],
+        expressions: [],
+      };
+      expect(emitExpression(ir)).toBe('`\\b\\f\\v`');
+    });
+
+    test('template quasi codegen escapes \\x7f', () => {
+      const ir = {
+        kind: 'tmplLit' as const,
+        quasis: ['\x7f'],
+        expressions: [],
+      };
+      expect(emitExpression(ir)).toBe('`\\x7f`');
+    });
+
+    test('invalid \\x escape throws', () => {
+      expect(() => parseExpression('"\\xZZ"')).toThrow();
+      expect(() => parseExpression('"\\x9"')).toThrow();
+    });
+
+    test('invalid \\u escape throws', () => {
+      expect(() => parseExpression('"\\uZZZZ"')).toThrow();
+      expect(() => parseExpression('"\\u{ZZ}"')).toThrow();
+      expect(() => parseExpression('"\\u{}"')).toThrow();
+      expect(() => parseExpression('"\\u{110000}"')).toThrow();
+    });
+
+    test('template literal: \\x7f decodes inside backticks', () => {
+      const ir = parseExpression('`pre\\x7fpost`');
+      expect(ir).toMatchObject({ kind: 'tmplLit', quasis: ['pre\x7fpost'] });
+      expect(emitExpression(ir)).toBe('`pre\\x7fpost`');
+    });
+
+    test('template literal: control chars inside ${...} string still decode', () => {
+      // The expression inside ${...} contains a string with an escape.
+      const ir = parseExpression('`x${"\\x1b"}y`');
+      expect(ir).toMatchObject({
+        kind: 'tmplLit',
+        expressions: [{ kind: 'strLit', value: '\x1b' }],
+      });
+    });
+
+    test('codegen passes through high unicode without escaping', () => {
+      const ir = { kind: 'strLit' as const, value: 'café', quote: '"' as const };
+      expect(emitExpression(ir)).toBe('"café"');
+    });
+  });
 });
