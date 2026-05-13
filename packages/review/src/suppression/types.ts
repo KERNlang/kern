@@ -9,13 +9,22 @@ import type { ReviewFinding } from '../types.js';
  * injection sink (red-team finding) and impossible to aggregate. Anything not
  * in this set is rejected at parse time with a warning.
  */
-export type SuppressionReason = 'false-positive' | 'wont-fix' | 'intentional' | 'not-applicable';
+export type SuppressionReason =
+  | 'false-positive'
+  | 'wont-fix'
+  | 'intentional'
+  | 'not-applicable'
+  // Auto-suppressed by the React stable-construct post-pass when a finding's
+  // provenance chain lands on useMemo / useCallback / useRef / useState setter.
+  // The "unstable" claim is provably false in those cases.
+  | 'stable-react-construct';
 
 export const SUPPRESSION_REASONS: readonly SuppressionReason[] = [
   'false-positive',
   'wont-fix',
   'intentional',
   'not-applicable',
+  'stable-react-construct',
 ];
 
 /** A parsed suppression directive from source comments or config */

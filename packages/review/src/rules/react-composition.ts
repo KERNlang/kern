@@ -20,7 +20,7 @@ import type {
   VariableDeclaration,
 } from 'ts-morph';
 import { Node, Project, SyntaxKind } from 'ts-morph';
-import type { ReviewFinding, RuleContext } from '../types.js';
+import type { ProvenanceChain, ReviewFinding, RuleContext } from '../types.js';
 import { finding, nodeSpan } from './utils.js';
 
 type ComponentFn = FunctionDeclaration | ArrowFunction | FunctionExpression;
@@ -159,6 +159,27 @@ function childrenNotUsed(ctx: RuleContext): ReviewFinding[] {
         }
       }
 
+      const firstParamNode = fn.getParameters()[0];
+      const provenance: ProvenanceChain = {
+        summary: `'${name}' declares 'children' but never renders it`,
+        steps: [
+          {
+            kind: 'boundary',
+            category: 'component-contract',
+            location: nodeSpan(firstParamNode ?? fn, ctx.filePath),
+            label: `${name}({ children, … })`,
+            detail: `Destructuring 'children' from props establishes the public API contract that this component will render its children.`,
+          },
+          {
+            kind: 'sink',
+            category: 'unused-binding',
+            location: nodeSpan(body, ctx.filePath),
+            label: `{children} never rendered`,
+            detail: `The component body has no reference to 'children' — callers passing children get silent drops.`,
+          },
+        ],
+      };
+
       findings.push(
         finding(
           'children-not-used',
@@ -170,6 +191,7 @@ function childrenNotUsed(ctx: RuleContext): ReviewFinding[] {
           1,
           {
             suggestion: `Render {children} in the JSX output, or remove 'children' from the props destructuring if the component should not accept children`,
+            provenance,
             ...(autofixAction ? { autofix: autofixAction } : {}),
           },
         ),
@@ -460,6 +482,34 @@ function propDrillPassthrough(ctx: RuleContext): ReviewFinding[] {
     const analysis = analyzePassthroughComponent(fn);
     if (analysis) {
       const passthroughCount = analysis.passthroughProps.length;
+      const childJsx = getSingleReturnedJsx(fn);
+      const provenance: ProvenanceChain = {
+        summary: `'${analysis.componentName}' is a passthrough wrapper around <${analysis.childTag}>`,
+        steps: [
+          {
+            kind: 'source',
+            category: 'prop-decl',
+            location: nodeSpan(fn, ctx.filePath),
+            label: `${analysis.componentName}({ ${analysis.passthroughProps.join(', ')} })`,
+            detail: `Component accepts ${passthroughCount} prop${passthroughCount === 1 ? '' : 's'} but never reads ${passthroughCount === 1 ? 'it' : 'them'} in its body.`,
+          },
+          {
+            kind: 'call',
+            category: 'prop-pass',
+            location: nodeSpan(childJsx ?? fn, ctx.filePath),
+            label: `<${analysis.childTag} ${analysis.passthroughProps.map((p) => `${p}={…}`).join(' ')}/>`,
+            detail: `Each unread prop is forwarded directly to the inner element, making this component a pure pipe.`,
+          },
+          {
+            kind: 'sink',
+            category: 'render-cycle',
+            location: nodeSpan(childJsx ?? fn, ctx.filePath),
+            label: `${analysis.componentName} re-renders on every parent prop change`,
+            detail: `Any change to the forwarded props forces ${analysis.componentName} to re-render even though it has no logic of its own.`,
+          },
+        ],
+      };
+
       findings.push(
         finding(
           'prop-drill-passthrough',
@@ -471,6 +521,7 @@ function propDrillPassthrough(ctx: RuleContext): ReviewFinding[] {
           1,
           {
             suggestion: `Accept <${analysis.childTag} .../> as the 'children' prop, or move the shared data into a React context. Passing props through an intermediate component forces it to re-render whenever any of them change.`,
+            provenance,
           },
         ),
       );
@@ -580,6 +631,45 @@ function propDrillChain(ctx: RuleContext): ReviewFinding[] {
         ? `<${localAnalysis.childTag}>, which then passes them through to <${firstHop.childTag}>`
         : `<${localAnalysis.childTag}> → ${hops.map((h) => `<${h.componentName}>`).join(' → ')} → <${hops[hops.length - 1].childTag}>`;
 
+    // Chain shape: source[prop-decl] → call[prop-pass] (local) → call[prop-pass]
+    // (per hop, cross-file) → sink[render-cycle]. Capped at 5 steps total.
+    const steps: ProvenanceChain['steps'] = [
+      {
+        kind: 'source',
+        category: 'prop-decl',
+        location: nodeSpan(fn, ctx.filePath),
+        label: `${localAnalysis.componentName} declares: ${sharedProps.join(', ')}`,
+        detail: `The drilled props originate as ${localAnalysis.componentName}'s public API.`,
+      },
+      {
+        kind: 'call',
+        category: 'prop-pass',
+        location: nodeSpan(fn, ctx.filePath),
+        label: `→ <${localAnalysis.childTag}>`,
+        detail: `${localAnalysis.componentName} forwards the props one hop without reading them.`,
+      },
+    ];
+    for (const hop of hops.slice(0, 2)) {
+      steps.push({
+        kind: 'call',
+        category: 'prop-pass',
+        location: { file: hop.filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+        label: `<${hop.componentName}> → <${hop.childTag}>`,
+        detail: `${hop.componentName} forwards ${hop.props.join(', ')} to <${hop.childTag}> without reading.`,
+      });
+    }
+    steps.push({
+      kind: 'sink',
+      category: 'render-cycle',
+      location: { file: hops[hops.length - 1].filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+      label: `${hops.length + 1} components re-render on any drilled prop change`,
+      detail: `Each wrapper in the chain re-renders when any forwarded prop changes, even though only the last one reads it.`,
+    });
+    const provenance: ProvenanceChain = {
+      summary: `prop-drill across ${hops.length + 1} components: ${chainDesc}`,
+      steps: steps.slice(0, 5),
+    };
+
     findings.push(
       finding(
         'prop-drill-chain',
@@ -592,6 +682,7 @@ function propDrillChain(ctx: RuleContext): ReviewFinding[] {
         {
           suggestion:
             'Collapse the intermediate wrappers, switch to children-based composition, or lift the shared data into React context so the props stop crossing multiple component boundaries',
+          provenance,
         },
       ),
     );
@@ -643,7 +734,7 @@ function memoizedChildInlineProp(ctx: RuleContext): ReviewFinding[] {
       }
       if (!isMemoizedChild) continue;
 
-      const unstableProps: string[] = [];
+      const unstableProps: Array<{ name: string; attr: import('ts-morph').JsxAttribute; kind: string }> = [];
       for (const attr of jsx.getAttributes()) {
         if (!Node.isJsxAttribute(attr)) continue;
         const attrName = attr.getNameNode().getText();
@@ -652,29 +743,69 @@ function memoizedChildInlineProp(ctx: RuleContext): ReviewFinding[] {
         const expr = init.getExpression();
         if (!expr) continue;
 
-        const isUnstable =
-          Node.isArrowFunction(expr) ||
-          Node.isFunctionExpression(expr) ||
-          Node.isObjectLiteralExpression(expr) ||
-          Node.isArrayLiteralExpression(expr);
+        let kind: string | undefined;
+        if (Node.isArrowFunction(expr) || Node.isFunctionExpression(expr)) kind = 'function';
+        else if (Node.isObjectLiteralExpression(expr)) kind = 'object literal';
+        else if (Node.isArrayLiteralExpression(expr)) kind = 'array literal';
 
-        if (isUnstable) unstableProps.push(attrName);
+        if (kind) unstableProps.push({ name: attrName, attr, kind });
       }
 
       if (unstableProps.length === 0) continue;
+
+      const propNames = unstableProps.map((p) => p.name);
+      const memoLocalDecl = memoizedNames.has(tag) ? findVariableDeclarationByName(ctx.sourceFile, tag) : undefined;
+      const firstUnstable = unstableProps[0];
+      const detailKinds = [...new Set(unstableProps.map((p) => p.kind))].join('/');
+
+      const provenance: ProvenanceChain = {
+        summary: `<${tag}> memoization defeated by inline prop reference`,
+        steps: [
+          memoLocalDecl
+            ? {
+                kind: 'boundary',
+                category: 'memo-boundary',
+                location: nodeSpan(memoLocalDecl.getNameNode(), ctx.filePath),
+                label: `React.memo(${tag})`,
+                detail: 'React.memo bails out only when shallow prop comparison sees identical references.',
+              }
+            : {
+                kind: 'import',
+                category: 'memo-boundary',
+                location: nodeSpan(jsx.getTagNameNode(), ctx.filePath),
+                label: `<${tag}> (imported, memoized)`,
+                detail: 'React.memo bails out only when shallow prop comparison sees identical references.',
+              },
+          {
+            kind: 'call',
+            category: 'prop-pass',
+            location: nodeSpan(firstUnstable.attr, ctx.filePath),
+            label: `${propNames.length === 1 ? `${propNames[0]}=…` : `${propNames.join(', ')} (inline ${detailKinds})`}`,
+            detail: `Inline ${detailKinds} prop${propNames.length === 1 ? '' : 's'} create a new identity on every parent render, so the memoized child receives a different reference each time.`,
+          },
+          {
+            kind: 'sink',
+            category: 'render-cycle',
+            location: nodeSpan(jsx, ctx.filePath),
+            label: 'memo bail-out defeated',
+            detail: `<${tag}> rerenders on every parent render even when its other props are unchanged.`,
+          },
+        ],
+      };
 
       findings.push(
         finding(
           'memoized-child-inline-prop',
           'warning',
           'pattern',
-          `<${tag}> is memoized with React.memo, but inline prop${unstableProps.length === 1 ? '' : 's'} (${unstableProps.join(', ')}) create a new identity every render and defeat memoization`,
+          `<${tag}> is memoized with React.memo, but inline prop${propNames.length === 1 ? '' : 's'} (${propNames.join(', ')}) create a new identity every render and defeat memoization`,
           ctx.filePath,
           jsx.getStartLineNumber(),
           1,
           {
             suggestion:
               'Hoist static literals, memoize object/array props with useMemo, and memoize callback props with useCallback before passing them to a memoized child',
+            provenance,
           },
         ),
       );
@@ -731,6 +862,43 @@ function memoizedChildInlineChildren(ctx: RuleContext): ReviewFinding[] {
 
       if (unstableChildren.length === 0) continue;
 
+      const memoLocalDecl = memoizedNames.has(tag) ? findVariableDeclarationByName(ctx.sourceFile, tag) : undefined;
+      const firstChild = unstableChildren[0];
+      const provenance: ProvenanceChain = {
+        summary: `<${tag}> memoization defeated by inline child elements`,
+        steps: [
+          memoLocalDecl
+            ? {
+                kind: 'boundary',
+                category: 'memo-boundary',
+                location: nodeSpan(memoLocalDecl.getNameNode(), ctx.filePath),
+                label: `React.memo(${tag})`,
+                detail: 'React.memo only bails out when shallow prop comparison sees identical references.',
+              }
+            : {
+                kind: 'import',
+                category: 'memo-boundary',
+                location: nodeSpan(opening.getTagNameNode(), ctx.filePath),
+                label: `<${tag}> (imported, memoized)`,
+                detail: 'React.memo only bails out when shallow prop comparison sees identical references.',
+              },
+          {
+            kind: 'call',
+            category: 'prop-pass',
+            location: nodeSpan(firstChild, ctx.filePath),
+            label: `inline JSX child of <${tag}>`,
+            detail: `Inline JSX creates new React element identities every render — the 'children' prop's reference changes each time, so the memoized child sees a different value and re-renders.`,
+          },
+          {
+            kind: 'sink',
+            category: 'render-cycle',
+            location: nodeSpan(opening, ctx.filePath),
+            label: 'memo bail-out defeated',
+            detail: `<${tag}> re-renders on every parent render despite being wrapped in React.memo.`,
+          },
+        ],
+      };
+
       findings.push(
         finding(
           'memoized-child-inline-children',
@@ -743,6 +911,7 @@ function memoizedChildInlineChildren(ctx: RuleContext): ReviewFinding[] {
           {
             suggestion:
               'Hoist the child subtree outside the parent render, memoize it with useMemo, or restructure the component so the memoized child receives stable primitive props instead of inline children',
+            provenance,
           },
         ),
       );
@@ -811,6 +980,7 @@ function parentRerenderViaState(ctx: RuleContext): ReviewFinding[] {
     // Both the value and the setter count as "state refs" — a child that
     // receives `setCount` is wiring to state and should NOT be flagged.
     const stateVars = new Set<string>();
+    let firstStateDecl: import('ts-morph').VariableDeclaration | undefined;
     for (const decl of body.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
       const init = decl.getInitializer();
       if (!init || !Node.isCallExpression(init)) continue;
@@ -819,6 +989,7 @@ function parentRerenderViaState(ctx: RuleContext): ReviewFinding[] {
       if (calleeName !== 'useState' && calleeName !== 'useReducer') continue;
       const nameNode = decl.getNameNode();
       if (!Node.isArrayBindingPattern(nameNode)) continue;
+      if (!firstStateDecl) firstStateDecl = decl;
       for (const el of nameNode.getElements()) {
         if (Node.isBindingElement(el)) {
           stateVars.add(el.getNameNode().getText());
@@ -865,6 +1036,33 @@ function parentRerenderViaState(ctx: RuleContext): ReviewFinding[] {
 
       // Flag: this direct child never sees state and re-renders unnecessarily.
       const info = isComponentFunction(fn);
+      const provenance: ProvenanceChain = {
+        summary: `<${tag}> re-renders on every ${info.name} state change despite not depending on any state`,
+        steps: [
+          {
+            kind: 'source',
+            category: 'state-decl',
+            location: nodeSpan(firstStateDecl ?? fn, ctx.filePath),
+            label: `useState in ${info.name}`,
+            detail: `State updates here trigger a re-render of '${info.name}' and everything it renders directly.`,
+          },
+          {
+            kind: 'call',
+            category: 'parent-render',
+            location: nodeSpan(el, ctx.filePath),
+            label: `<${tag} … /> (no state-dependent props)`,
+            detail: `'${info.name}' renders <${tag}> positionally, but the JSX attributes do not reference any of '${info.name}'s state variables.`,
+          },
+          {
+            kind: 'sink',
+            category: 'render-cycle',
+            location: nodeSpan(el, ctx.filePath),
+            label: 'unnecessary re-render',
+            detail: `Every state update in '${info.name}' produces a fresh <${tag}> element reference, forcing React to reconcile a subtree that has no reason to change.`,
+          },
+        ],
+      };
+
       findings.push(
         finding(
           'parent-rerender-via-state',
@@ -876,6 +1074,7 @@ function parentRerenderViaState(ctx: RuleContext): ReviewFinding[] {
           1,
           {
             suggestion: `Accept <${tag}> as the 'children' prop of '${info.name}' and render it with {children}. The caller composes: <${info.name}><${tag} /></${info.name}>. React will reuse the child element across re-renders.`,
+            provenance,
           },
         ),
       );
@@ -957,6 +1156,42 @@ function reactMemoDefeatedBySpread(ctx: RuleContext): ReviewFinding[] {
         // shallow-compared field-by-field so primitives still memoize correctly.
         if (!isPropsParamIdentifier(expr, fn)) continue;
 
+        const memoLocalDecl = memoizedNames.has(tag) ? findVariableDeclarationByName(ctx.sourceFile, tag) : undefined;
+        const provenance: ProvenanceChain = {
+          summary: `<${tag}> memoization defeated by '{...${expr.getText()}}' spread`,
+          steps: [
+            memoLocalDecl
+              ? {
+                  kind: 'boundary',
+                  category: 'memo-boundary',
+                  location: nodeSpan(memoLocalDecl.getNameNode(), ctx.filePath),
+                  label: `React.memo(${tag})`,
+                  detail: 'React.memo bails out only when shallow prop comparison sees identical references.',
+                }
+              : {
+                  kind: 'import',
+                  category: 'memo-boundary',
+                  location: nodeSpan(jsx.getTagNameNode(), ctx.filePath),
+                  label: `<${tag}> (imported, memoized)`,
+                  detail: 'React.memo bails out only when shallow prop comparison sees identical references.',
+                },
+            {
+              kind: 'call',
+              category: 'prop-pass',
+              location: nodeSpan(attr, ctx.filePath),
+              label: `{...${expr.getText()}}`,
+              detail: `Spreading the parent's props parameter forwards every ancestor prop to <${tag}>, so any unrelated change to '${expr.getText()}' invalidates the memo comparison.`,
+            },
+            {
+              kind: 'sink',
+              category: 'render-cycle',
+              location: nodeSpan(jsx, ctx.filePath),
+              label: 'memo bail-out defeated',
+              detail: `<${tag}> re-renders on every parent render — it is now coupled to props it doesn't read.`,
+            },
+          ],
+        };
+
         findings.push(
           finding(
             'react-memo-defeated-by-spread',
@@ -969,6 +1204,7 @@ function reactMemoDefeatedBySpread(ctx: RuleContext): ReviewFinding[] {
             {
               suggestion:
                 'Pass props explicitly so memoization can compare a stable surface, or destructure the props the child actually needs',
+              provenance,
             },
           ),
         );
