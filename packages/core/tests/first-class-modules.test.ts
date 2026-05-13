@@ -111,7 +111,7 @@ describe('first-class module syntax', () => {
     expect(generateCoreNode(node).join('\n')).toBe(`import z from 'zod';`);
   });
 
-  test('foreign py import sugar lowers to PyPI metadata and skips TS codegen', () => {
+  test('foreign py import sugar lowers to PyPI metadata and emits callable TS sidecar codegen', () => {
     const node = firstChild('import py "pandas" as pd');
 
     expect(node).toMatchObject({
@@ -119,7 +119,10 @@ describe('first-class module syntax', () => {
       props: { from: 'pandas', package: 'pandas', registry: 'pypi', target: 'python', default: 'pd' },
     });
     expect(node.props).not.toHaveProperty('__firstClassImport');
-    expect(generateCoreNode(node).join('\n')).toBe('');
+    const output = generateCoreNode(node).join('\n');
+    expect(output).toContain('export const pdPandasSidecarManifest = {');
+    expect(output).toContain('export const pd = pdPandasSidecarClient.module("pandas");');
+    expect(output).not.toContain("from 'pandas'");
   });
 
   test('capability island syntax records kind/name and emits supported child imports', () => {

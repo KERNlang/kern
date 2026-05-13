@@ -8,10 +8,17 @@
  */
 
 import { type SidecarManifest, sidecarManifestFromNode } from '../external-boundary.js';
-import { shouldEmitImportForTarget } from '../import-metadata.js';
+import {
+  importRegistryOf,
+  importTargetFamilyOf,
+  importTargetOf,
+  shouldEmitImportForTarget,
+  splitCapabilityList,
+} from '../import-metadata.js';
 import { propsOf } from '../node-props.js';
 import type { IRNode } from '../types.js';
 import { emitIdentifier, emitImportSpecifier } from './emitters.js';
+import { generateFunction } from './functions.js';
 import { getChildren, getProps } from './helpers.js';
 
 const _p = getProps;
@@ -27,7 +34,11 @@ function emitImportBinding(raw: string, node: IRNode): string {
   return alias ? `${source} as ${alias}` : source;
 }
 
-export function generateImport(node: IRNode): string[] {
+interface GenerateImportOptions {
+  pythonSidecar?: boolean;
+}
+
+export function generateImport(node: IRNode, options: GenerateImportOptions = {}): string[] {
   const props = propsOf<'import'>(node);
   const from = props.from;
   const names = props.names;
@@ -35,6 +46,9 @@ export function generateImport(node: IRNode): string[] {
   const isTypeOnly = props.types === 'true' || props.types === true;
 
   if (!from) return [];
+  if (options.pythonSidecar !== false && !isTypeOnly && isPythonPackageImport(props)) {
+    return generateLoosePythonSidecarImport(node);
+  }
   if (!shouldEmitImportForTarget(props, 'ts')) return [];
 
   const safePath = emitImportSpecifier(from, node);
@@ -88,8 +102,10 @@ export function generateExtern(node: IRNode): string[] {
   const children = kids(node, 'import');
   const props = propsOf<'extern'>(node);
   const hasInlineBinding = Boolean(props.names || props.default);
-  const inlineImport = hasInlineBinding ? generateImport(externChildImport(node)) : [];
-  const childImports = children.flatMap((child) => generateImport(externChildImport(node, child)));
+  const inlineImport = hasInlineBinding ? generateImport(externChildImport(node), { pythonSidecar: false }) : [];
+  const childImports = children.flatMap((child) =>
+    generateImport(externChildImport(node, child), { pythonSidecar: false }),
+  );
   return [...new Set([...inlineImport, ...childImports])];
 }
 
@@ -109,7 +125,135 @@ function parseNamedImportBinding(raw: string): { name: string; alias: string } |
   return { name: match[1], alias: match[2] ?? match[1] };
 }
 
+function isPythonPackageImport(props: { package?: unknown; registry?: unknown; target?: unknown }): boolean {
+  const hasExplicitPackage = typeof props.package === 'string' && props.package.length > 0;
+  return (
+    hasExplicitPackage &&
+    (importRegistryOf(props.registry) === 'pypi' || importTargetFamilyOf(props.target, props.registry) === 'python')
+  );
+}
+
+export function isLoosePythonSidecarImportNode(node: IRNode): boolean {
+  if (node.type !== 'import') return false;
+  const props = propsOf<'import'>(node);
+  const isTypeOnly = props.types === 'true' || props.types === true;
+  return !isTypeOnly && isPythonPackageImport(props);
+}
+
+function loosePythonSidecarName(node: IRNode): string {
+  const props = getProps(node);
+  const alias = typeof props.default === 'string' && props.default.length > 0 ? props.default : '';
+  const rawFrom =
+    typeof props.package === 'string' && props.package.length > 0 ? props.package : String(props.from ?? '');
+  return sidecarNameFromAliasAndPackage(alias || undefined, rawFrom);
+}
+
+function sidecarNameFromAliasAndPackage(alias: string | undefined, packageName: string): string {
+  const packageTitle = titleCaseSidecarName(packageName);
+  if (!alias) return packageTitle;
+  const aliasTitle = titleCaseSidecarName(alias);
+  const lastPackageSegment = packageName
+    .split(/[./_-]+/u)
+    .filter(Boolean)
+    .at(-1);
+  const lastPackageTitle = lastPackageSegment ? titleCaseSidecarName(lastPackageSegment) : packageTitle;
+  return aliasTitle === lastPackageTitle || aliasTitle === packageTitle ? aliasTitle : `${aliasTitle}${packageTitle}`;
+}
+
+function titleCaseSidecarName(raw: string): string {
+  const parts = raw
+    .replace(/-/gu, '.dash.')
+    .replace(/_/gu, '.underscore.')
+    .split(/[./]+/u)
+    .map((part) => part.replace(/[^A-Za-z0-9_$]/gu, ''))
+    .filter(Boolean);
+  const words = parts.length > 0 ? parts : ['Python'];
+  const name = words.map((word) => `${word[0].toUpperCase()}${word.slice(1)}`).join('');
+  return /^[A-Za-z_$]/u.test(name) ? name : `Py${name}`;
+}
+
+function sidecarPackageFromImportNode(node: IRNode): SidecarManifest['packages'][number] | null {
+  const props = getProps(node);
+  const packageName =
+    typeof props.package === 'string' && props.package.length > 0
+      ? props.package
+      : typeof props.from === 'string' && props.from.length > 0
+        ? props.from
+        : '';
+  if (!packageName) return null;
+
+  const sidecarPackage = {
+    package: packageName,
+    registry: importRegistryOf(props.registry),
+    target: importTargetOf(props.target, props.registry),
+    targetFamily: importTargetFamilyOf(props.target, props.registry),
+    imports: [
+      {
+        names: splitCapabilityList(props.names),
+        default: typeof props.default === 'string' && props.default.length > 0 ? props.default : undefined,
+        from: typeof props.from === 'string' && props.from.length > 0 ? props.from : undefined,
+        signature: typeof props.signature === 'string' && props.signature.length > 0 ? props.signature : undefined,
+        types: false,
+        line: node.loc?.line,
+        col: node.loc?.col,
+      },
+    ],
+    ...(typeof props.version === 'string' && props.version.length > 0 ? { version: props.version } : {}),
+    ...(node.loc?.line !== undefined ? { line: node.loc.line } : {}),
+    ...(node.loc?.col !== undefined ? { col: node.loc.col } : {}),
+  };
+  return sidecarPackage;
+}
+
+function generateLoosePythonSidecarImport(node: IRNode): string[] {
+  return generateLoosePythonSidecarImports([node]);
+}
+
+export function generateLoosePythonSidecarImports(nodes: IRNode[]): string[] {
+  const groups = new Map<string, { manifest: SidecarManifest; node: IRNode }>();
+  for (const node of nodes) {
+    if (!isLoosePythonSidecarImportNode(node)) continue;
+    const props = getProps(node);
+    const sidecarPackage = sidecarPackageFromImportNode(node);
+    if (!sidecarPackage) continue;
+    const name = loosePythonSidecarName(node);
+    const current = groups.get(name);
+    if (!current) {
+      groups.set(name, {
+        node,
+        manifest: {
+          name,
+          kind: 'sidecar',
+          runtime: 'python',
+          effects: splitCapabilityList(props.effects),
+          serialization:
+            typeof props.serialization === 'string' && props.serialization.length > 0 ? props.serialization : 'json',
+          requiresSidecar: true,
+          packages: [sidecarPackage],
+          ...(node.loc?.line !== undefined ? { line: node.loc.line } : {}),
+          ...(node.loc?.col !== undefined ? { col: node.loc.col } : {}),
+        },
+      });
+      continue;
+    }
+    current.manifest.effects = [...new Set([...current.manifest.effects, ...splitCapabilityList(props.effects)])];
+    const packageKey = `${sidecarPackage.package}\0${sidecarPackage.registry}\0${sidecarPackage.target}`;
+    const existing = current.manifest.packages.find(
+      (pkg) => `${pkg.package}\0${pkg.registry}\0${pkg.target}` === packageKey,
+    );
+    if (existing) {
+      existing.imports.push(...sidecarPackage.imports);
+      if (!existing.version && sidecarPackage.version) existing.version = sidecarPackage.version;
+    } else {
+      current.manifest.packages.push(sidecarPackage);
+    }
+  }
+  return [...groups.values()].flatMap((group) => generatePythonSidecarClient(group.manifest, group.node));
+}
+
 const PYTHON_SIDECAR_RUNTIME = [
+  'import base64',
+  'import collections.abc',
   'import importlib',
   'import contextlib',
   'import json',
@@ -128,20 +272,60 @@ const PYTHON_SIDECAR_RUNTIME = [
   '        target = getattr(target, part)',
   '    return target',
   '',
+  'def _encode(value):',
+  '    if isinstance(value, (bytes, bytearray, memoryview)):',
+  '        return {"__kern_bytes__": base64.b64encode(bytes(value)).decode("ascii")}',
+  '    if isinstance(value, tuple):',
+  '        return [_encode(item) for item in value]',
+  '    if isinstance(value, list):',
+  '        return [_encode(item) for item in value]',
+  '    if isinstance(value, dict):',
+  '        return {str(key): _encode(item) for key, item in value.items()}',
+  '    return value',
+  '',
+  'def _decode(value):',
+  '    if isinstance(value, dict):',
+  '        encoded = value.get("__kern_bytes__")',
+  '        if isinstance(encoded, str):',
+  '            return base64.b64decode(encoded.encode("ascii"))',
+  '        return {key: _decode(item) for key, item in value.items()}',
+  '    if isinstance(value, list):',
+  '        return [_decode(item) for item in value]',
+  '    return value',
+  '',
+  'def _is_streamable(value):',
+  '    if isinstance(value, (str, bytes, bytearray, memoryview, dict)):',
+  '        return False',
+  '    return isinstance(value, collections.abc.Iterable)',
+  '',
+  'def _send(response):',
+  '    print(json.dumps(response), flush=True)',
+  '',
   'for line in sys.stdin:',
   '    request = {}',
   '    try:',
   '        request = json.loads(line)',
   '        target = _resolve(request["module"], request["method"])',
-  '        args = request.get("args") or []',
-  '        kwargs = request.get("kwargs") or {}',
+  '        args = _decode(request.get("args") or [])',
+  '        kwargs = _decode(request.get("kwargs") or {})',
   '        if not isinstance(args, list):',
   '            raise TypeError("args must be a list")',
   '        if not isinstance(kwargs, dict):',
   '            raise TypeError("kwargs must be an object")',
   '        with contextlib.redirect_stdout(sys.stderr):',
   '            result = target(*args, **kwargs)',
-  '        response = {"id": request.get("id"), "ok": True, "result": result}',
+  '        if request.get("stream") is True and _is_streamable(result):',
+  '            iterator = iter(result)',
+  '            while True:',
+  '                try:',
+  '                    with contextlib.redirect_stdout(sys.stderr):',
+  '                        item = next(iterator)',
+  '                except StopIteration:',
+  '                    break',
+  '                _send({"id": request.get("id"), "ok": True, "stream": True, "done": False, "chunk": _encode(item)})',
+  '            response = {"id": request.get("id"), "ok": True, "stream": True, "done": True}',
+  '        else:',
+  '            response = {"id": request.get("id"), "ok": True, "result": _encode(result)}',
   '    except Exception as exc:',
   '        response = {',
   '            "id": request.get("id"),',
@@ -153,7 +337,7 @@ const PYTHON_SIDECAR_RUNTIME = [
   '            },',
   '        }',
   '    try:',
-  '        print(json.dumps(response), flush=True)',
+  '        _send(response)',
   '    except Exception as exc:',
   '        fallback = {',
   '            "id": response.get("id"),',
@@ -194,7 +378,8 @@ function generatePythonSidecarClient(manifest: SidecarManifest, node: IRNode): s
     '',
     `function ${factoryName}(manifest: typeof ${manifestName}) {`,
     '  type CallPayload = { args?: unknown[]; kwargs?: Record<string, unknown> };',
-    '  type Pending = { resolve: (value: unknown) => void; reject: (reason?: unknown) => void };',
+    '  type StreamController = { push: (value: unknown) => void; finish: () => void; fail: (error: unknown) => void };',
+    '  type Pending = { resolve: (value: unknown) => void; reject: (reason?: unknown) => void; stream?: StreamController };',
     '  type PythonFunction = ((...args: unknown[]) => Promise<unknown>) & { kwargs: (kwargs: Record<string, unknown>, ...args: unknown[]) => Promise<unknown> };',
     '  type PythonModule = Record<string, PythonFunction>;',
     "  let proc: import('node:child_process').ChildProcessWithoutNullStreams | null = null;",
@@ -207,6 +392,26 @@ function generatePythonSidecarClient(manifest: SidecarManifest, node: IRNode): s
     '  function rejectPending(error: Error): void {',
     '    for (const waiter of pending.values()) waiter.reject(error);',
     '    pending.clear();',
+    '  }',
+    '',
+    '  function encodePythonValue(value: unknown): unknown {',
+    "    if (value instanceof Uint8Array) return { __kern_bytes__: Buffer.from(value).toString('base64') };",
+    '    if (value instanceof ArrayBuffer) return { __kern_bytes__: Buffer.from(value).toString("base64") };',
+    '    if (Array.isArray(value)) return value.map((item) => encodePythonValue(item));',
+    "    if (value && typeof value === 'object') {",
+    '      return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, encodePythonValue(item)]));',
+    '    }',
+    '    return value;',
+    '  }',
+    '',
+    '  function decodePythonValue(value: unknown): unknown {',
+    '    if (Array.isArray(value)) return value.map((item) => decodePythonValue(item));',
+    "    if (value && typeof value === 'object') {",
+    '      const record = value as Record<string, unknown>;',
+    "      if (typeof record.__kern_bytes__ === 'string') return Uint8Array.from(Buffer.from(record.__kern_bytes__, 'base64'));",
+    '      return Object.fromEntries(Object.entries(record).map(([key, item]) => [key, decodePythonValue(item)]));',
+    '    }',
+    '    return value;',
     '  }',
     '',
     '  async function start(): Promise<void> {',
@@ -231,7 +436,7 @@ function generatePythonSidecarClient(manifest: SidecarManifest, node: IRNode): s
     "      child.stdout.on('error', fail);",
     '      const reader = createInterface({ input: child.stdout });',
     "      reader.on('line', (line) => {",
-    '        let message: { id?: number; ok?: boolean; result?: unknown; error?: { type?: string; message?: string; traceback?: string } };',
+    '        let message: { id?: number; ok?: boolean; result?: unknown; chunk?: unknown; stream?: boolean; done?: boolean; error?: { type?: string; message?: string; traceback?: string } };',
     '        try {',
     '          message = JSON.parse(line) as typeof message;',
     '        } catch {',
@@ -240,10 +445,27 @@ function generatePythonSidecarClient(manifest: SidecarManifest, node: IRNode): s
     "        if (typeof message.id !== 'number') return;",
     '        const waiter = pending.get(message.id);',
     '        if (!waiter) return;',
-    '        pending.delete(message.id);',
-    '        if (message.ok) {',
-    '          waiter.resolve(message.result);',
+    '        if (message.stream && waiter.stream) {',
+    '          if (message.ok && message.done) {',
+    '            waiter.stream.finish();',
+    '            pending.delete(message.id);',
+    '          } else if (message.ok) {',
+    '            waiter.stream.push(decodePythonValue(message.chunk));',
+    '          } else {',
+    "            const error = new Error(message.error?.message || 'Python sidecar stream failed');",
+    '            Object.assign(error, { pythonType: message.error?.type, pythonTraceback: message.error?.traceback });',
+    '            waiter.reject(error);',
+    '            pending.delete(message.id);',
+    '          }',
+    '        } else if (message.ok && waiter.stream) {',
+    '          waiter.stream.push(decodePythonValue(message.result));',
+    '          waiter.stream.finish();',
+    '          pending.delete(message.id);',
+    '        } else if (message.ok) {',
+    '          pending.delete(message.id);',
+    '          waiter.resolve(decodePythonValue(message.result));',
     '        } else {',
+    '          pending.delete(message.id);',
     "          const error = new Error(message.error?.message || 'Python sidecar call failed');",
     '          Object.assign(error, { pythonType: message.error?.type, pythonTraceback: message.error?.traceback });',
     '          waiter.reject(error);',
@@ -265,7 +487,7 @@ function generatePythonSidecarClient(manifest: SidecarManifest, node: IRNode): s
     '    return starting;',
     '  }',
     '',
-    '  return {',
+    '  const client = {',
     '    manifest,',
     '    module(moduleName: string): PythonModule {',
     '      if (!allowedModules.has(moduleName)) {',
@@ -274,13 +496,13 @@ function generatePythonSidecarClient(manifest: SidecarManifest, node: IRNode): s
     '      return new Proxy({}, {',
     '        get: (_target, prop) => {',
     "          if (typeof prop !== 'string' || prop === 'then') return undefined;",
-    '          return this.bind(moduleName, prop);',
+    '          return client.bind(moduleName, prop);',
     '        },',
     '      }) as PythonModule;',
     '    },',
     '    bind(moduleName: string, method: string): PythonFunction {',
-    '      const fn = ((...args: unknown[]) => this.call(moduleName, method, { args })) as PythonFunction;',
-    '      fn.kwargs = (kwargs: Record<string, unknown>, ...args: unknown[]) => this.call(moduleName, method, { args, kwargs });',
+    '      const fn = ((...args: unknown[]) => client.call(moduleName, method, { args })) as PythonFunction;',
+    '      fn.kwargs = (kwargs: Record<string, unknown>, ...args: unknown[]) => client.call(moduleName, method, { args, kwargs });',
     '      return fn;',
     '    },',
     '    async call(moduleName: string, method: string, payload: CallPayload = {}): Promise<unknown> {',
@@ -291,7 +513,7 @@ function generatePythonSidecarClient(manifest: SidecarManifest, node: IRNode): s
     '      const active = proc;',
     "      if (!active || !active.stdin.writable) throw new Error(`Python sidecar '${manifest.name}' is not writable`);",
     '      const id = nextId++;',
-    '      const request = { id, module: moduleName, method, args: payload.args ?? [], kwargs: payload.kwargs ?? {} };',
+    '      const request = { id, module: moduleName, method, args: encodePythonValue(payload.args ?? []), kwargs: encodePythonValue(payload.kwargs ?? {}) };',
     '      return new Promise((resolve, reject) => {',
     '        pending.set(id, { resolve, reject });',
     '        active.stdin.write(`${JSON.stringify(request)}\\n`, (err) => {',
@@ -301,6 +523,59 @@ function generatePythonSidecarClient(manifest: SidecarManifest, node: IRNode): s
     '        });',
     '      });',
     '    },',
+    '    async *stream(moduleName: string, method: string, payload: CallPayload = {}): AsyncGenerator<unknown> {',
+    '      if (!allowedModules.has(moduleName)) {',
+    "        throw new Error(`Python module '${moduleName}' is not declared in sidecar island '${manifest.name}'`);",
+    '      }',
+    '      await start();',
+    '      const active = proc;',
+    "      if (!active || !active.stdin.writable) throw new Error(`Python sidecar '${manifest.name}' is not writable`);",
+    '      const id = nextId++;',
+    '      const queue: unknown[] = [];',
+    '      const waiters: Array<{ resolve: (result: IteratorResult<unknown>) => void; reject: (error: unknown) => void }> = [];',
+    '      let finished = false;',
+    '      let failed: unknown;',
+    '      const nextChunk = () => new Promise<IteratorResult<unknown>>((resolve, reject) => {',
+    '        if (failed) { reject(failed); return; }',
+    '        if (queue.length > 0) { resolve({ value: queue.shift(), done: false }); return; }',
+    '        if (finished) { resolve({ value: undefined, done: true }); return; }',
+    '        waiters.push({ resolve, reject });',
+    '      });',
+    '      const stream: StreamController = {',
+    '        push(value) {',
+    '          const waiter = waiters.shift();',
+    '          if (waiter) waiter.resolve({ value, done: false });',
+    '          else queue.push(value);',
+    '        },',
+    '        finish() {',
+    '          finished = true;',
+    '          for (const waiter of waiters.splice(0)) waiter.resolve({ value: undefined, done: true });',
+    '        },',
+    '        fail(error) {',
+    '          failed = error;',
+    '          for (const waiter of waiters.splice(0)) waiter.reject(error);',
+    '        },',
+    '      };',
+    '      const reject = (error: unknown) => {',
+    '        stream.fail(error);',
+    '      };',
+    '      pending.set(id, { resolve: stream.finish, reject, stream });',
+    '      const request = { id, module: moduleName, method, args: encodePythonValue(payload.args ?? []), kwargs: encodePythonValue(payload.kwargs ?? {}), stream: true };',
+    '      active.stdin.write(`${JSON.stringify(request)}\\n`, (err) => {',
+    '        if (!err) return;',
+    '        pending.delete(id);',
+    '        reject(err);',
+    '      });',
+    '      try {',
+    '        while (true) {',
+    '          const item = await nextChunk();',
+    '          if (item.done) break;',
+    '          yield item.value;',
+    '        }',
+    '      } finally {',
+    '        pending.delete(id);',
+    '      }',
+    '    },',
     '    close(): void {',
     '      const active = proc;',
     '      if (!active) return;',
@@ -309,14 +584,15 @@ function generatePythonSidecarClient(manifest: SidecarManifest, node: IRNode): s
     '      active.kill();',
     '    },',
     '    dispose(): void {',
-    '      this.close();',
+    '      client.close();',
     '    },',
     '  } as const;',
+    '  return client;',
     '}',
     '',
     `export const ${clientName} = ${factoryName}(${manifestName});`,
   );
-  const usedExportNames = new Set([manifestName, clientName]);
+  const usedExportNames = new Set([manifestName, clientName, runtimeName, factoryName]);
   for (const sidecarPackage of manifest.packages) {
     const moduleAliases = new Set<string>();
     for (const binding of sidecarPackage.imports) {
@@ -339,8 +615,9 @@ function generatePythonSidecarClient(manifest: SidecarManifest, node: IRNode): s
         const alias = emitIdentifier(namedBinding.alias, 'pythonFunction', node);
         if (usedExportNames.has(alias)) continue;
         usedExportNames.add(alias);
+        const typedCast = binding.signature ? ` as (${binding.signature})` : '';
         lines.push(
-          `export const ${alias} = ${clientName}.bind(${JSON.stringify(sidecarPackage.package)}, ${JSON.stringify(namedBinding.name)});`,
+          `export const ${alias} = ${clientName}.bind(${JSON.stringify(sidecarPackage.package)}, ${JSON.stringify(namedBinding.name)})${typedCast};`,
         );
       }
     }
@@ -349,11 +626,16 @@ function generatePythonSidecarClient(manifest: SidecarManifest, node: IRNode): s
 }
 
 export function generateIsland(node: IRNode): string[] {
-  const childImports = kids(node, 'import').flatMap((child) => generateImport(child));
+  const childImports = kids(node, 'import').flatMap((child) => generateImport(child, { pythonSidecar: false }));
   const childExterns = kids(node, 'extern').flatMap((child) => generateExtern(child));
   const manifest = sidecarManifestFromNode(node);
   const sidecarClient = manifest ? generatePythonSidecarClient(manifest, node) : [];
-  return [...new Set([...childImports, ...childExterns]), ...sidecarClient];
+  const childDefinitions = kids(node, 'fn').flatMap((child) => generateIslandChildDefinition(child));
+  return [...new Set([...childImports, ...childExterns]), ...sidecarClient, ...childDefinitions];
+}
+
+function generateIslandChildDefinition(node: IRNode): string[] {
+  return node.type === 'fn' ? generateFunction(node) : [];
 }
 
 // ── Use (cross-`.kern` symbol resolution) ───────────────────────────────

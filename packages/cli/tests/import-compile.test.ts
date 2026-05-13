@@ -7,6 +7,7 @@ import { pathToFileURL } from 'url';
 import { parse } from '../../core/src/parser.js';
 import { runCompile } from '../src/commands/compile.js';
 import { runImport } from '../src/commands/import.js';
+import { runSidecarInstall } from '../src/commands/sidecar-install.js';
 import { checkVersionDrift, loadConfig, parseCompilerVersion } from '../src/shared.js';
 
 describe('kern import/compile commands', () => {
@@ -419,6 +420,8 @@ export async function loadUser(id: string): Promise<User> {
     expect(compiled.match(/export const demucsSidecarManifest/g)).toHaveLength(1);
     expect(compiled.match(/export const demucsSidecarClient/g)).toHaveLength(1);
     expect(compiled).not.toContain("from 'demucs'");
+    expect(readFileSync(join(generatedDir, 'kern-sidecar-requirements.txt'), 'utf-8')).toBe('demucs\n');
+    expect(JSON.parse(readFileSync(join(generatedDir, 'kern-sidecars.json'), 'utf-8')).sidecars).toHaveLength(1);
   });
 
   it('includes Python sidecar manifests and emits TS placeholders in default JSON compile output', async () => {
@@ -453,6 +456,97 @@ export async function loadUser(id: string): Promise<User> {
     expect(compiled.match(/export const demucsSidecarManifest/g)).toHaveLength(1);
     expect(compiled.match(/export const demucsSidecarClient/g)).toHaveLength(1);
     expect(compiled).not.toContain("from 'demucs'");
+    expect(readFileSync(join(generatedDir, 'kern-sidecar-requirements.txt'), 'utf-8')).toBe('demucs\n');
+  });
+
+  it('aggregates sidecar install files for multi-file compiles', async () => {
+    process.chdir(tmpDir);
+
+    const sourceDir = join(tmpDir, 'multi-sidecar');
+    mkdirSync(sourceDir, { recursive: true });
+    writeFileSync(
+      join(sourceDir, 'audio.kern'),
+      [
+        'module name=audio',
+        '  import py "demucs" as demucs',
+        '  fn name=separate returns=unknown',
+        '    handler lang=kern',
+        '      return value="demucs"',
+      ].join('\n'),
+    );
+    writeFileSync(
+      join(sourceDir, 'matrix.kern'),
+      [
+        'module name=matrix',
+        '  import py "numpy" as np version=1.26',
+        '  fn name=zeros returns=unknown',
+        '    handler lang=kern',
+        '      return value="np"',
+      ].join('\n'),
+    );
+
+    const generatedDir = join(tmpDir, 'generated-multi-sidecar');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceDir, '--json', `--outdir=${generatedDir}`])).rejects.toThrow('EXIT:0');
+    expect(getExitCode()).toBe(0);
+
+    expect(readFileSync(join(generatedDir, 'kern-sidecar-requirements.txt'), 'utf-8')).toBe('demucs\nnumpy==1.26\n');
+    const manifest = JSON.parse(readFileSync(join(generatedDir, 'kern-sidecars.json'), 'utf-8'));
+    expect(
+      manifest.sidecars.map((sidecar: { packages: Array<{ package: string }> }) => sidecar.packages[0].package).sort(),
+    ).toEqual(['demucs', 'numpy']);
+  });
+
+  it('removes stale sidecar requirement files when dependencies become stdlib-only', async () => {
+    process.chdir(tmpDir);
+
+    const sourceFile = join(tmpDir, 'stale-sidecar.kern');
+    writeFileSync(
+      sourceFile,
+      [
+        'module name=stale',
+        '  import py "demucs" as demucs',
+        '  fn name=current returns=unknown',
+        '    handler lang=kern',
+        '      return value="demucs"',
+      ].join('\n'),
+    );
+
+    const generatedDir = join(tmpDir, 'generated-stale-sidecar');
+    let getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceFile, '--json', `--outdir=${generatedDir}`])).rejects.toThrow('EXIT:0');
+    expect(getExitCode()).toBe(0);
+    expect(readFileSync(join(generatedDir, 'kern-sidecar-requirements.txt'), 'utf-8')).toBe('demucs\n');
+
+    stdout = [];
+    writeFileSync(
+      sourceFile,
+      [
+        'module name=stale',
+        '  import py "datetime" as dt',
+        '  fn name=current returns=unknown',
+        '    handler lang=kern',
+        '      return value="dt"',
+      ].join('\n'),
+    );
+
+    getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceFile, '--json', `--outdir=${generatedDir}`])).rejects.toThrow('EXIT:0');
+    expect(getExitCode()).toBe(0);
+    expect(existsSync(join(generatedDir, 'kern-sidecar-requirements.txt'))).toBe(false);
+    const manifest = JSON.parse(readFileSync(join(generatedDir, 'kern-sidecars.json'), 'utf-8'));
+    expect(manifest.sidecars).toMatchObject([{ packages: [{ package: 'datetime' }] }]);
+  });
+
+  it('prints the explicit sidecar install command in dry-run mode', () => {
+    process.chdir(tmpDir);
+    const generatedDir = join(tmpDir, 'generated-sidecar-install');
+    mkdirSync(generatedDir, { recursive: true });
+    writeFileSync(join(generatedDir, 'kern-sidecar-requirements.txt'), 'demucs\n');
+
+    runSidecarInstall(['sidecar-install', `--outdir=${generatedDir}`, '--python=python-test', '--dry-run']);
+
+    expect(logs).toEqual([`python-test -m pip install -r ${join(generatedDir, 'kern-sidecar-requirements.txt')}`]);
   });
 
   it('executes generated Python sidecar calls over stdio JSON RPC', async () => {
@@ -473,6 +567,18 @@ export async function loadUser(id: string): Promise<User> {
         '  island sidecar Math runtime=python effects=[cpu] serialization=json requiresSidecar=true',
         '    import py "math" as math',
         '    import py "builtins" as builtins',
+        '    import py "badstream" as badstream',
+      ].join('\n'),
+    );
+    writeFileSync(
+      join(tmpDir, 'badstream.py'),
+      [
+        'def boom():',
+        '    yield 1',
+        '    raise RuntimeError("stream exploded")',
+        'def noisy():',
+        '    print("not protocol json")',
+        '    yield b"AB"',
       ].join('\n'),
     );
 
@@ -486,7 +592,9 @@ export async function loadUser(id: string): Promise<User> {
     writeFileSync(join(generatedDir, 'package.json'), JSON.stringify({ type: 'module' }, null, 2));
 
     const previousPython = process.env.KERN_PYTHON;
+    const previousPythonPath = process.env.PYTHONPATH;
     process.env.KERN_PYTHON = python;
+    process.env.PYTHONPATH = previousPythonPath ? `${tmpDir}:${previousPythonPath}` : tmpDir;
     type PythonFunction = ((...args: unknown[]) => Promise<unknown>) & {
       kwargs(kwargs: Record<string, unknown>, ...args: unknown[]): Promise<unknown>;
     };
@@ -499,11 +607,17 @@ export async function loadUser(id: string): Promise<User> {
           method: string,
           payload?: { args?: unknown[]; kwargs?: Record<string, unknown> },
         ): Promise<unknown>;
+        stream(
+          moduleName: string,
+          method: string,
+          payload?: { args?: unknown[]; kwargs?: Record<string, unknown> },
+        ): AsyncGenerator<unknown>;
         close(): void;
         dispose(): void;
       };
       math: Record<string, PythonFunction>;
       builtins: Record<string, PythonFunction>;
+      badstream: Record<string, PythonFunction>;
     };
     try {
       process.env.KERN_PYTHON = join(tmpDir, 'missing-python');
@@ -515,8 +629,89 @@ export async function loadUser(id: string): Promise<User> {
       await expect(mod.mathSidecarClient.bind('math', 'sqrt')(25)).resolves.toBe(5);
       await expect(mod.builtins.print('stdout noise')).resolves.toBeNull();
       await expect(mod.builtins.sorted.kwargs({ reverse: true }, [3, 1, 2])).resolves.toEqual([3, 2, 1]);
+      await expect(mod.builtins.bytes([65, 66, 67])).resolves.toEqual(Uint8Array.from([65, 66, 67]));
+      await expect(mod.builtins.len(Uint8Array.from([1, 2, 3]))).resolves.toBe(3);
+      const streamed: unknown[] = [];
+      for await (const item of mod.mathSidecarClient.stream('builtins', 'range', { args: [3] })) streamed.push(item);
+      expect(streamed).toEqual([0, 1, 2]);
+      const singleStreamed: unknown[] = [];
+      for await (const item of mod.mathSidecarClient.stream('math', 'sqrt', { args: [9] })) singleStreamed.push(item);
+      expect(singleStreamed).toEqual([3]);
+      const failedStream = mod.mathSidecarClient.stream('badstream', 'boom');
+      await expect(async () => {
+        for await (const _item of failedStream) {
+          // consume until the Python generator raises
+        }
+      }).rejects.toThrow('stream exploded');
+      const noisyStreamed: unknown[] = [];
+      for await (const item of mod.mathSidecarClient.stream('badstream', 'noisy')) noisyStreamed.push(item);
+      expect(noisyStreamed).toEqual([Uint8Array.from([65, 66])]);
       await expect(mod.mathSidecarClient.call('math', 'missing_function')).rejects.toThrow('missing_function');
       await expect(mod.mathSidecarClient.call('os', 'getcwd')).rejects.toThrow('is not declared');
+    } finally {
+      mod.mathSidecarClient.dispose();
+      if (previousPython === undefined) delete process.env.KERN_PYTHON;
+      else process.env.KERN_PYTHON = previousPython;
+      if (previousPythonPath === undefined) delete process.env.PYTHONPATH;
+      else process.env.PYTHONPATH = previousPythonPath;
+    }
+  });
+
+  it('executes top-level Python imports through an implicit sidecar', async () => {
+    const python =
+      spawnSync('python3', ['-c', 'import math; print(math.sqrt(49))'], { encoding: 'utf-8' }).status === 0
+        ? 'python3'
+        : spawnSync('python', ['-c', 'import math; print(math.sqrt(49))'], { encoding: 'utf-8' }).status === 0
+          ? 'python'
+          : '';
+    if (!python) return;
+    process.chdir(tmpDir);
+
+    const sourceFile = join(tmpDir, 'python-top-level-runtime.kern');
+    writeFileSync(
+      sourceFile,
+      [
+        'module name=calc',
+        '  import py "math" as math',
+        '  fn name=sqrtSeven async=true returns=Promise<unknown>',
+        '    handler lang=kern',
+        '      return value="await math.sqrt(49)"',
+      ].join('\n'),
+    );
+
+    const generatedDir = join(tmpDir, 'generated-python-top-level-runtime');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceFile, '--json', `--outdir=${generatedDir}`])).rejects.toThrow('EXIT:0');
+    expect(getExitCode()).toBe(0);
+
+    const report = JSON.parse(stdout.join(''));
+    expect(report.errors).toBe(0);
+    expect(report.files[0].sidecarManifests).toMatchObject([
+      {
+        name: 'Math',
+        runtime: 'python',
+        requiresSidecar: true,
+        packages: [{ package: 'math', registry: 'pypi', targetFamily: 'python' }],
+      },
+    ]);
+
+    const compiledFile = join(generatedDir, 'python-top-level-runtime.ts');
+    const compiled = readFileSync(compiledFile, 'utf-8');
+    expect(compiled).toContain('export const math = mathSidecarClient.module("math");');
+    expect(existsSync(join(generatedDir, 'kern-sidecars.json'))).toBe(true);
+    expect(existsSync(join(generatedDir, 'kern-sidecar-requirements.txt'))).toBe(false);
+
+    const compiledJs = transpileTsModule(compiledFile);
+    writeFileSync(join(generatedDir, 'package.json'), JSON.stringify({ type: 'module' }, null, 2));
+
+    const previousPython = process.env.KERN_PYTHON;
+    process.env.KERN_PYTHON = python;
+    const mod = (await import(pathToFileURL(compiledJs).href)) as {
+      sqrtSeven(): Promise<unknown>;
+      mathSidecarClient: { dispose(): void };
+    };
+    try {
+      await expect(mod.sqrtSeven()).resolves.toBe(7);
     } finally {
       mod.mathSidecarClient.dispose();
       if (previousPython === undefined) delete process.env.KERN_PYTHON;

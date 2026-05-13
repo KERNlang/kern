@@ -12,6 +12,7 @@ export interface ExternalImportBinding {
   names: string[];
   default?: string;
   from?: string;
+  signature?: string;
   types: boolean;
   line?: number;
   col?: number;
@@ -19,6 +20,7 @@ export interface ExternalImportBinding {
 
 export interface ExternalBoundary {
   package: string;
+  explicitPackage?: boolean;
   registry: ExternalImportRegistry;
   target: ExternalImportTarget;
   targetFamily: 'all' | 'ts' | 'python' | 'none';
@@ -70,6 +72,7 @@ export interface SidecarPackage {
   target: ExternalImportTarget;
   targetFamily: 'all' | 'ts' | 'python' | 'none';
   imports: ExternalImportBinding[];
+  version?: string;
   line?: number;
   col?: number;
 }
@@ -136,6 +139,7 @@ function importBindingFromProps(props: Record<string, unknown>, loc?: IRNode['lo
     names: splitNames(props.names),
     default: typeof props.default === 'string' && props.default.length > 0 ? props.default : undefined,
     from: typeof props.from === 'string' && props.from.length > 0 ? props.from : undefined,
+    signature: typeof props.signature === 'string' && props.signature.length > 0 ? props.signature : undefined,
     types: props.types === true || props.types === 'true',
     line: loc?.line,
     col: loc?.col,
@@ -185,7 +189,7 @@ function boundaryFromImport(node: IRNode, island?: CapabilityIslandRef): Externa
         : '';
   if (!packageName) return null;
 
-  return {
+  const boundary: ExternalBoundary = {
     package: packageName,
     registry,
     target: importTargetOf(props.target, props.registry),
@@ -202,6 +206,14 @@ function boundaryFromImport(node: IRNode, island?: CapabilityIslandRef): Externa
     line: node.loc?.line,
     col: node.loc?.col,
   };
+  if (typeof props.package === 'string' && props.package.length > 0) {
+    Object.defineProperty(boundary, 'explicitPackage', {
+      value: true,
+      enumerable: false,
+      configurable: true,
+    });
+  }
+  return boundary;
 }
 
 function walk(node: IRNode, out: ExternalBoundary[], insideExtern = false, island?: CapabilityIslandRef): void {
@@ -270,23 +282,43 @@ export function collectCapabilityIslands(root: IRNode): CapabilityIsland[] {
 }
 
 function isPythonSidecarBoundary(boundary: ExternalBoundary): boolean {
-  return boundary.requiresSidecar === true && (boundary.targetFamily === 'python' || boundary.registry === 'pypi');
+  return (
+    boundary.requiresSidecar === true &&
+    hasRuntimeImports(boundary) &&
+    (boundary.targetFamily === 'python' || boundary.registry === 'pypi')
+  );
+}
+
+function isLoosePythonBoundary(boundary: ExternalBoundary): boolean {
+  return (
+    boundary.explicitPackage === true &&
+    !boundary.island &&
+    hasRuntimeImports(boundary) &&
+    (boundary.targetFamily === 'python' || boundary.registry === 'pypi')
+  );
+}
+
+function hasRuntimeImports(boundary: ExternalBoundary): boolean {
+  return boundary.imports.some((binding) => binding.types !== true);
+}
+
+function sidecarPackageFromBoundary(boundary: ExternalBoundary): SidecarPackage {
+  const sidecarPackage: SidecarPackage = {
+    package: boundary.package,
+    registry: boundary.registry,
+    target: boundary.target,
+    targetFamily: boundary.targetFamily,
+    imports: boundary.imports.filter((binding) => binding.types !== true),
+  };
+  if (boundary.version !== undefined) sidecarPackage.version = boundary.version;
+  if (boundary.line !== undefined) sidecarPackage.line = boundary.line;
+  if (boundary.col !== undefined) sidecarPackage.col = boundary.col;
+  return sidecarPackage;
 }
 
 export function sidecarManifestFromIsland(island: CapabilityIsland): SidecarManifest | null {
   if (island.requiresSidecar !== true || island.runtime !== 'python') return null;
-  const packages: SidecarPackage[] = island.imports.filter(isPythonSidecarBoundary).map((boundary) => {
-    const sidecarPackage: SidecarPackage = {
-      package: boundary.package,
-      registry: boundary.registry,
-      target: boundary.target,
-      targetFamily: boundary.targetFamily,
-      imports: boundary.imports,
-    };
-    if (boundary.line !== undefined) sidecarPackage.line = boundary.line;
-    if (boundary.col !== undefined) sidecarPackage.col = boundary.col;
-    return sidecarPackage;
-  });
+  const packages: SidecarPackage[] = island.imports.filter(isPythonSidecarBoundary).map(sidecarPackageFromBoundary);
 
   if (packages.length === 0) return null;
   const manifest: SidecarManifest = {
@@ -315,5 +347,67 @@ export function collectSidecarManifests(root: IRNode): SidecarManifest[] {
     const manifest = sidecarManifestFromIsland(island);
     if (manifest) manifests.push(manifest);
   }
+  const looseManifests = new Map<string, SidecarManifest>();
+  for (const boundary of collectExternalBoundaries(root).filter(isLoosePythonBoundary)) {
+    const name = loosePythonSidecarName(boundary);
+    const sidecarPackage = sidecarPackageFromBoundary(boundary);
+    const existing = looseManifests.get(name);
+    if (!existing) {
+      const manifest: SidecarManifest = {
+        name,
+        kind: 'sidecar',
+        runtime: 'python',
+        effects: boundary.effects,
+        serialization: boundary.serialization ?? 'json',
+        requiresSidecar: true,
+        packages: [sidecarPackage],
+      };
+      if (boundary.line !== undefined) manifest.line = boundary.line;
+      if (boundary.col !== undefined) manifest.col = boundary.col;
+      looseManifests.set(name, manifest);
+      continue;
+    }
+    existing.effects = [...new Set([...existing.effects, ...boundary.effects])];
+    const packageKey = `${sidecarPackage.package}\0${sidecarPackage.registry}\0${sidecarPackage.target}`;
+    const existingPackage = existing.packages.find(
+      (pkg) => `${pkg.package}\0${pkg.registry}\0${pkg.target}` === packageKey,
+    );
+    if (existingPackage) {
+      existingPackage.imports.push(...sidecarPackage.imports);
+      if (!existingPackage.version && sidecarPackage.version) existingPackage.version = sidecarPackage.version;
+    } else {
+      existing.packages.push(sidecarPackage);
+    }
+  }
+  manifests.push(...looseManifests.values());
   return manifests;
+}
+
+function loosePythonSidecarName(boundary: ExternalBoundary): string {
+  const alias = boundary.imports.find((binding) => binding.default)?.default;
+  return sidecarNameFromAliasAndPackage(alias, boundary.package);
+}
+
+function sidecarNameFromAliasAndPackage(alias: string | undefined, packageName: string): string {
+  const packageTitle = titleCaseSidecarName(packageName);
+  if (!alias) return packageTitle;
+  const aliasTitle = titleCaseSidecarName(alias);
+  const lastPackageSegment = packageName
+    .split(/[./_-]+/u)
+    .filter(Boolean)
+    .at(-1);
+  const lastPackageTitle = lastPackageSegment ? titleCaseSidecarName(lastPackageSegment) : packageTitle;
+  return aliasTitle === lastPackageTitle || aliasTitle === packageTitle ? aliasTitle : `${aliasTitle}${packageTitle}`;
+}
+
+function titleCaseSidecarName(raw: string): string {
+  const normalized = raw
+    .replace(/-/gu, '.dash.')
+    .replace(/_/gu, '.underscore.')
+    .split(/[./]+/u)
+    .map((part) => part.replace(/[^A-Za-z0-9_$]/gu, ''))
+    .filter(Boolean);
+  const words = normalized.length > 0 ? normalized : ['Python'];
+  const name = words.map((word) => `${word[0].toUpperCase()}${word.slice(1)}`).join('');
+  return /^[A-Za-z_$]/u.test(name) ? name : `Py${name}`;
 }

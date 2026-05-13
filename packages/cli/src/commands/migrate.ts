@@ -15,11 +15,24 @@
  * Dry-run by default; `--write` commits edits.
  */
 
-import { type GapCategory, isInlineSafeExpression, isInlineSafeLiteral } from '@kernlang/core';
+import {
+  type GapCategory,
+  type IRNode,
+  isInlineSafeExpression,
+  isInlineSafeLiteral,
+  parseWithDiagnostics,
+} from '@kernlang/core';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
-import { extname, join, relative, resolve } from 'path';
-import { hasFlag, loadConfig, loadTemplates, parseFlagOrNext, transpileAndWrite } from '../shared.js';
+import { dirname, extname, join, relative, resolve } from 'path';
+import {
+  hasFlag,
+  loadConfig,
+  loadTemplates,
+  parseFlagOrNext,
+  transpileAndWrite,
+  writeSidecarInstallFilesForAsts,
+} from '../shared.js';
 
 const SKIP_DIRS = new Set([
   'node_modules',
@@ -475,12 +488,23 @@ function compileAllKernInto(rootDir: string, files: string[], outDir: string): {
     // don't hard-stop verify here — per-file transpile will report them.
   }
   const failures: string[] = [];
+  const sidecarAstsByOutDir = new Map<string, IRNode[]>();
   for (const file of files) {
     try {
-      transpileAndWrite(file, cfg, ['--no-gaps'], outDir, rootDir);
+      const source = readFileSync(file, 'utf-8');
+      transpileAndWrite(file, cfg, ['--no-gaps'], outDir, rootDir, { writeSidecarInstallFiles: false });
+      const { root } = parseWithDiagnostics(source);
+      const relDir = relative(resolve(rootDir), dirname(file));
+      const sidecarOutDir = resolve(outDir, relDir, cfg.output.outDir);
+      const asts = sidecarAstsByOutDir.get(sidecarOutDir);
+      if (asts) asts.push(root);
+      else sidecarAstsByOutDir.set(sidecarOutDir, [root]);
     } catch (err) {
       failures.push(`${file}: ${(err as Error).message}`);
     }
+  }
+  for (const [sidecarOutDir, asts] of sidecarAstsByOutDir) {
+    writeSidecarInstallFilesForAsts(asts, sidecarOutDir);
   }
   return { failures };
 }
