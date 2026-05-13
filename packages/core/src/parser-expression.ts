@@ -224,6 +224,87 @@ function consumeNumber(input: string, start: number): number {
   return j;
 }
 
+/**
+ * Decode a JS-style backslash escape starting at `input[i]` (must be `\`).
+ * Caller is responsible for context-specific escapes (`\"`, `\'`, `` \` ``, `\$`);
+ * this handles the universal table (`\n`, `\xHH`, `\uHHHH`, `\u{...}`, etc.).
+ * For escapes not in the table, the backslash is dropped and the next char
+ * is consumed verbatim — matching JS string-literal semantics.
+ */
+function consumeEscape(input: string, i: number): { value: string; advance: number } {
+  const next = input[i + 1];
+  switch (next) {
+    case '\\':
+      return { value: '\\', advance: 2 };
+    case 'n':
+      return { value: '\n', advance: 2 };
+    case 't':
+      return { value: '\t', advance: 2 };
+    case 'r':
+      return { value: '\r', advance: 2 };
+    case 'b':
+      return { value: '\b', advance: 2 };
+    case 'f':
+      return { value: '\f', advance: 2 };
+    case 'v':
+      return { value: '\v', advance: 2 };
+    case '0': {
+      const after = input[i + 2];
+      if (after !== undefined && after >= '0' && after <= '9') {
+        throw new Error(`Octal escapes are not supported at column ${i + 1}`);
+      }
+      return { value: '\0', advance: 2 };
+    }
+    case '1':
+    case '2':
+    case '3':
+    case '4':
+    case '5':
+    case '6':
+    case '7':
+    case '8':
+    case '9':
+      throw new Error(`Legacy octal/decimal escapes (\\${next}) are not supported at column ${i + 1}`);
+    case '\n':
+      return { value: '', advance: 2 };
+    case '\r':
+      // CRLF is a single line continuation; consume both.
+      return input[i + 2] === '\n' ? { value: '', advance: 3 } : { value: '', advance: 2 };
+    case ' ':
+    case ' ':
+      return { value: '', advance: 2 };
+    case 'x': {
+      const hex = input.slice(i + 2, i + 4);
+      if (!/^[0-9a-fA-F]{2}$/.test(hex)) {
+        throw new Error(`Invalid \\x escape at column ${i + 1}`);
+      }
+      return { value: String.fromCharCode(parseInt(hex, 16)), advance: 4 };
+    }
+    case 'u': {
+      if (input[i + 2] === '{') {
+        const close = input.indexOf('}', i + 3);
+        if (close < 0) throw new Error(`Unterminated \\u{ escape at column ${i + 1}`);
+        const hex = input.slice(i + 3, close);
+        if (!/^[0-9a-fA-F]{1,6}$/.test(hex)) {
+          throw new Error(`Invalid \\u{} escape at column ${i + 1}`);
+        }
+        const cp = parseInt(hex, 16);
+        if (cp > 0x10ffff) {
+          throw new Error(`Codepoint out of range in \\u{} escape at column ${i + 1}`);
+        }
+        return { value: String.fromCodePoint(cp), advance: close + 1 - i };
+      }
+      const hex = input.slice(i + 2, i + 6);
+      if (!/^[0-9a-fA-F]{4}$/.test(hex)) {
+        throw new Error(`Invalid \\u escape at column ${i + 1}`);
+      }
+      return { value: String.fromCharCode(parseInt(hex, 16)), advance: 6 };
+    }
+    default:
+      return { value: next ?? '', advance: next === undefined ? 1 : 2 };
+  }
+}
+
 function consumeString(input: string, start: number): { end: number; value: string } {
   const quote = input[start];
   let i = start + 1;
@@ -234,19 +315,11 @@ function consumeString(input: string, start: number): { end: number; value: stri
       if (next === quote) {
         value += quote;
         i += 2;
-      } else if (next === '\\') {
-        value += '\\';
-        i += 2;
-      } else if (next === 'n') {
-        value += '\n';
-        i += 2;
-      } else if (next === 't') {
-        value += '\t';
-        i += 2;
-      } else {
-        value += input[i];
-        i++;
+        continue;
       }
+      const { value: decoded, advance } = consumeEscape(input, i);
+      value += decoded;
+      i += advance;
     } else {
       value += input[i];
       i++;
@@ -1245,28 +1318,14 @@ class Parser {
           pos += 2;
           continue;
         }
-        if (next === '\\') {
-          buf += '\\';
-          pos += 2;
-          continue;
-        }
         if (next === '$') {
           buf += '$';
           pos += 2;
           continue;
         }
-        if (next === 'n') {
-          buf += '\n';
-          pos += 2;
-          continue;
-        }
-        if (next === 't') {
-          buf += '\t';
-          pos += 2;
-          continue;
-        }
-        buf += ch;
-        pos++;
+        const { value: decoded, advance } = consumeEscape(this.input, pos);
+        buf += decoded;
+        pos += advance;
         continue;
       }
       if (ch === '$' && this.input[pos + 1] === '{') {
