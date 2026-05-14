@@ -355,6 +355,31 @@ function findVariableDeclarationByName(
 }
 
 function findImportBinding(ctx: RuleContext, localName: string): ImportBinding | undefined {
+  // Namespace access (`<UI.Button />` with `import * as UI from './lib'`).
+  // The JSX tag text is the full property access; split it so we can look up
+  // the receiver as a namespace import. Gemini Phase 7 review flagged this
+  // gap — UI libraries that re-export memoised components through namespaces
+  // were silently missing the cross-file memo-boundary extension.
+  const dotIdx = localName.indexOf('.');
+  if (dotIdx > 0) {
+    const receiver = localName.slice(0, dotIdx);
+    const property = localName.slice(dotIdx + 1);
+    // Disallow deeper paths (`<A.B.C />`) — JSX namespace access is at most
+    // one level deep in practice, and supporting deeper would require
+    // chasing nested namespace re-exports.
+    if (property.length === 0 || property.includes('.')) return undefined;
+    for (const decl of ctx.sourceFile.getImportDeclarations()) {
+      // `getNamespaceImport()` returns the `Identifier` node directly (not a
+      // NamespaceImport wrapper), so `.getText()` is the right API — and is
+      // safe because an Identifier node has no surrounding trivia.
+      const namespaceImport = decl.getNamespaceImport();
+      if (namespaceImport?.getText() === receiver) {
+        return { importDecl: decl, importedName: property, isDefault: false };
+      }
+    }
+    return undefined;
+  }
+
   for (const decl of ctx.sourceFile.getImportDeclarations()) {
     const defaultImport = decl.getDefaultImport();
     if (defaultImport?.getText() === localName) {
@@ -421,6 +446,23 @@ function isMemoizedExport(sourceFile: import('ts-morph').SourceFile, binding: Im
     return false;
   }
 
+  // Codex Phase 7-v3 review: `findVariableDeclarationByName` only looks in
+  // the file's own variable statements, so a memoised export re-exported
+  // through a barrel (`export { Button } from './button'` or `export * from
+  // './button'`) was reported as not-memoised, silently dropping the
+  // cross-file memo-boundary extension for namespace + barrel patterns.
+  // `getExportedDeclarations()` resolves through the re-export chain and
+  // returns the underlying declaration node, so we hit the memo wrap site
+  // wherever it lives.
+  const exportedDecls = sourceFile.getExportedDeclarations().get(binding.importedName);
+  if (exportedDecls) {
+    for (const decl of exportedDecls) {
+      if (Node.isVariableDeclaration(decl) && isMemoCall(decl.getInitializer())) return true;
+    }
+  }
+
+  // Fall back to the in-file lookup as a safety net for cases the resolver
+  // didn't chase (e.g. dynamic re-exports the type-checker can't follow).
   const decl = findVariableDeclarationByName(sourceFile, binding.importedName);
   return !!decl && isMemoCall(decl.getInitializer());
 }
@@ -1288,6 +1330,147 @@ function reactMemoDefeatedBySpread(ctx: RuleContext): ReviewFinding[] {
 
 // ── Exported composition rules ───────────────────────────────────────────
 
+// ── Rule: memo-component-widely-defeated ────────────────────────────────
+// Counterpart to `memoized-child-inline-prop`: fires once on a memoised
+// component's DECLARATION when ≥2 parents (anywhere in the project) defeat
+// memoisation by passing inline props. The intent is to surface the
+// memo-wrap site as the locus of the systemic issue, with the chain
+// enumerating every defeating parent — Sight/Guard hover then explains
+// "your memo isn't broken in one place, it's broken in N places".
+//
+// Graph-mode only: the rule fires speculatively on every memo declaration
+// in the file, then the `reverse-jsx-usage` walker (with minDefeaters=2)
+// either appends one step per defeater or cancels the finding when the
+// cross-file count drops below 2. Out of graph mode, the rule short-
+// circuits because `pendingCrossFileLinks` is undefined.
+
+function memoComponentWidelyDefeated(ctx: RuleContext): ReviewFinding[] {
+  // Speculative emission requires the cross-file walker to validate; skip
+  // entirely outside graph mode rather than emit findings the walker
+  // can't see to cancel.
+  if (!ctx.pendingCrossFileLinks) return [];
+
+  const findings: ReviewFinding[] = [];
+
+  // Targets to consider:
+  //   - `export const X = memo(...)` — VariableDeclaration, inline export.
+  //   - `const X = memo(...); export { X };` — separate ExportDeclaration.
+  //   - `export default memo(...)` / `export default memo(function Foo(){})` — ExportAssignment.
+  // `getExportedDeclarations()` covers the first two uniformly: it resolves
+  // through export chains and returns the underlying declaration node. The
+  // third case is handled below by walking ExportAssignments directly,
+  // because `export default <expr>` is an assignment, not a declaration.
+  // Gemini + OpenCode Phase 7-v3 review caught both gaps in the original
+  // rule which only scanned VariableDeclarations with `VariableStatement.isExported()`.
+
+  const seenDecls = new Set<Node>();
+
+  function emit(symbol: string, anchor: Node, displayName: string): void {
+    if (seenDecls.has(anchor)) return;
+    seenDecls.add(anchor);
+
+    const provenance: ProvenanceChain = {
+      summary: `<${displayName}> is memoised here but its consumers pass inline props on every render`,
+      steps: [
+        {
+          kind: 'boundary',
+          category: 'memo-boundary',
+          location: nodeSpan(anchor, ctx.filePath),
+          label: `React.memo(${displayName})`,
+          detail: `Multiple parents render <${displayName}> with inline literal/arrow props; React.memo bails out only when shallow prop comparison sees identical references.`,
+        },
+        {
+          kind: 'sink',
+          category: 'memo-boundary',
+          location: nodeSpan(anchor, ctx.filePath),
+          label: 'memoisation widely defeated',
+          detail: `Every parent re-render allocates new identities for the inline props, so React.memo never bails. Defeating parents enumerated below.`,
+        },
+      ],
+    };
+
+    const emitted = finding(
+      'memo-component-widely-defeated',
+      'warning',
+      'pattern',
+      `<${displayName}> is wrapped in React.memo but ≥2 consumers pass inline props on every render — memoisation is defeated across the codebase, not in one place`,
+      ctx.filePath,
+      anchor.getStartLineNumber(),
+      1,
+      {
+        suggestion: `Hoist the inline props at each consumer (useMemo for objects/arrays, useCallback for functions), or accept that <${displayName}> doesn't benefit from memo and remove the wrap. The chain below enumerates the defeating parents.`,
+        provenance,
+      },
+    );
+    findings.push(emitted);
+
+    // Reverse-jsx-usage walker validates the ≥2-defeaters condition and
+    // appends one step per defeating parent. If <2, the walker cancels
+    // this finding so we don't emit a false positive. `pendingCrossFileLinks`
+    // is gated to non-null at the top of memoComponentWidelyDefeated, so
+    // the non-null assertion is safe in this nested helper.
+    ctx.pendingCrossFileLinks!.push({
+      findingFingerprint: emitted.fingerprint,
+      walkerId: 'reverse-jsx-usage',
+      payload: {
+        symbol,
+        declFile: ctx.filePath,
+        minDefeaters: 2,
+      },
+    });
+  }
+
+  // Pattern 1 + 2: named exports (inline `export const X = memo(...)` and
+  // separate `export { X }` after a local declaration). `getExportedDeclarations()`
+  // resolves the export chain and returns the underlying declaration.
+  for (const [exportName, decls] of ctx.sourceFile.getExportedDeclarations()) {
+    if (exportName === 'default') continue;
+    if (!/^[A-Z]/.test(exportName)) continue;
+    for (const decl of decls) {
+      // We need the original declaration in THIS file (cross-file re-exports
+      // are out of scope — the rule fires from the declaration file).
+      if (decl.getSourceFile().getFilePath() !== ctx.sourceFile.getFilePath()) continue;
+      if (!Node.isVariableDeclaration(decl)) continue;
+      if (!isMemoCall(decl.getInitializer())) continue;
+      const nameNode = decl.getNameNode();
+      if (!Node.isIdentifier(nameNode)) continue;
+      emit(exportName, nameNode, exportName);
+      break;
+    }
+  }
+
+  // Pattern 3: `export default memo(...)`. The memo call lives in an
+  // ExportAssignment expression, not a VariableDeclaration. Anchor the
+  // finding on the assignment node since there's no name identifier.
+  // The display name uses the inner function/class name when present
+  // (matches what the JsxUsageIndex normalises to); otherwise falls back to
+  // 'default'. The walker payload uses the index's resolved symbol so
+  // findUsages hits.
+  for (const assign of ctx.sourceFile.getExportAssignments()) {
+    if (assign.isExportEquals()) continue; // CommonJS `export =` — different shape
+    const expr = assign.getExpression();
+    if (!isMemoCall(expr)) continue;
+    // Resolve the index's symbol-for-default-export normalisation: when the
+    // inner argument is a named FunctionDeclaration / ClassDeclaration the
+    // index keys on that name; otherwise 'default'. This mirrors the logic
+    // in jsx-usage-index.ts resolveExportBinding.
+    const memoCall = expr as CallExpression;
+    const innerArg = memoCall.getArguments()[0];
+    let indexSymbol = 'default';
+    let displayName = 'default-exported memo';
+    if (innerArg && (Node.isFunctionDeclaration(innerArg) || Node.isClassDeclaration(innerArg))) {
+      const innerName = innerArg.getName();
+      if (innerName) {
+        indexSymbol = innerName;
+        displayName = innerName;
+      }
+    }
+    emit(indexSymbol, assign, displayName);
+  }
+
+  return findings;
+}
+
 export const reactCompositionRules = [
   childrenNotUsed,
   propDrillPassthrough,
@@ -1296,4 +1479,5 @@ export const reactCompositionRules = [
   memoizedChildInlineChildren,
   parentRerenderViaState,
   reactMemoDefeatedBySpread,
+  memoComponentWidelyDefeated,
 ];

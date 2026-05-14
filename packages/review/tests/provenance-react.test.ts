@@ -59,6 +59,125 @@ export function List() {
       // This test asserts the rule still doesn't crash on the import path.
       expect(() => reviewSource(src, 'list.tsx', cfg)).not.toThrow();
     });
+
+    it('namespace + barrel re-export — <UI.Button /> resolves through `export { Button } from`', () => {
+      // Codex Phase 7-v3 review: `import * as UI from './index'; <UI.Button />`
+      // where `./index.ts` does `export { Button } from './button'` was
+      // pointing the cross-file extension at the barrel and finding no memo
+      // wrap there (since the actual decl lives in `./button`). The fix uses
+      // `getExportedDeclarations()` to chase the re-export chain in both
+      // `isMemoizedExport` (rule side) and `findMemoBoundary` (walker side).
+      const repo = mkdtempSync(join(tmpdir(), 'kern-ns-barrel-'));
+      function write(path: string, content: string): void {
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, content);
+      }
+      try {
+        write(
+          join(repo, 'tsconfig.json'),
+          JSON.stringify({
+            compilerOptions: {
+              target: 'ES2022',
+              module: 'ESNext',
+              moduleResolution: 'Bundler',
+              jsx: 'preserve',
+              strict: true,
+              esModuleInterop: true,
+              skipLibCheck: true,
+            },
+            include: ['src/**/*'],
+          }),
+        );
+        write(join(repo, 'package.json'), JSON.stringify({ name: 'ns-barrel', private: true }));
+        write(
+          join(repo, 'src/button.tsx'),
+          `import { memo } from 'react';
+export const Button = memo(function Btn(_: { onClick: () => void }) { return null as any; });
+`,
+        );
+        write(join(repo, 'src/index.ts'), `export { Button } from './button';\n`);
+        write(
+          join(repo, 'src/app.tsx'),
+          `import * as UI from './index';
+export function App() { return <UI.Button onClick={() => {}} />; }
+`,
+        );
+        const reports = reviewGraph(
+          [join(repo, 'src/app.tsx'), join(repo, 'src/index.ts'), join(repo, 'src/button.tsx')],
+          { noCache: true, target: 'web' },
+        );
+        const app = reports.find((r) => r.filePath === join(repo, 'src/app.tsx'));
+        const f = app!.findings.find((x) => x.ruleId === 'memoized-child-inline-prop');
+        expect(f).toBeDefined();
+        // Cross-file extension must fire and land on the REAL decl file
+        // (`button.tsx`), not on the barrel (`index.ts`).
+        const lastStep = f!.provenance!.steps[f!.provenance!.steps.length - 1];
+        expect(lastStep.location.file).toContain('button.tsx');
+        expect(lastStep.location.file).not.toContain('index.ts');
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+        resetFsProject();
+        clearReviewCache();
+      }
+    });
+
+    it('namespace-imported memoised child is detected via <UI.Button /> (Gemini Phase 7 gap)', () => {
+      // Gemini Phase 7 review: `findImportBinding` previously only checked
+      // default + named imports, missing `<UI.Button />` with `import * as UI
+      // from './lib'`. This test pins the fix — graph mode resolves the
+      // property access against the namespace's export.
+      const repo = mkdtempSync(join(tmpdir(), 'kern-namespace-memo-'));
+      function write(path: string, content: string): void {
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, content);
+      }
+      try {
+        write(
+          join(repo, 'tsconfig.json'),
+          JSON.stringify({
+            compilerOptions: {
+              target: 'ES2022',
+              module: 'ESNext',
+              moduleResolution: 'Bundler',
+              jsx: 'preserve',
+              strict: true,
+              esModuleInterop: true,
+              skipLibCheck: true,
+            },
+            include: ['src/**/*'],
+          }),
+        );
+        write(join(repo, 'package.json'), JSON.stringify({ name: 'ns-memo', private: true }));
+        write(
+          join(repo, 'src/lib.tsx'),
+          `import { memo } from 'react';
+export const Button = memo(function Btn(_: { onClick: () => void }) { return null as any; });
+`,
+        );
+        write(
+          join(repo, 'src/app.tsx'),
+          `import * as UI from './lib';
+export function App() { return <UI.Button onClick={() => {}} />; }
+`,
+        );
+        const reports = reviewGraph([join(repo, 'src/app.tsx'), join(repo, 'src/lib.tsx')], {
+          noCache: true,
+          target: 'web',
+        });
+        const app = reports.find((r) => r.filePath === join(repo, 'src/app.tsx'));
+        const f = app!.findings.find((x) => x.ruleId === 'memoized-child-inline-prop');
+        expect(f).toBeDefined();
+        // Intra-file chain is 3 steps; cross-file extension appends 1 step
+        // landing in lib.tsx — the namespace fix makes that extension fire.
+        expect(f!.provenance!.steps.length).toBeGreaterThanOrEqual(4);
+        const lastStep = f!.provenance!.steps[f!.provenance!.steps.length - 1];
+        expect(lastStep.location.file).toContain('lib.tsx');
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+        resetFsProject();
+        clearReviewCache();
+      }
+    });
   });
 
   describe('stale-closure', () => {
@@ -425,6 +544,225 @@ export function Parent() {
       const lastStep = steps[steps.length - 1];
       expect(lastStep.location.file).toContain('child.tsx');
       expect(lastStep.kind).toBe('import');
+    });
+
+    it('memo-component-widely-defeated fires on the memo declaration when ≥2 parents pass inline props', () => {
+      repo = mkdtempSync(join(tmpdir(), 'kern-prv-react-widedef-'));
+      function write(path: string, content: string): void {
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, content);
+      }
+      write(
+        join(repo, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: {
+            target: 'ES2022',
+            module: 'ESNext',
+            moduleResolution: 'Bundler',
+            jsx: 'preserve',
+            strict: true,
+            esModuleInterop: true,
+            skipLibCheck: true,
+          },
+          include: ['src/**/*'],
+        }),
+      );
+      write(join(repo, 'package.json'), JSON.stringify({ name: 'widedef', private: true }));
+      write(
+        join(repo, 'src/btn.tsx'),
+        `import { memo } from 'react';
+export const MemoBtn = memo(function Btn(_: { onClick: () => void }) { return null as any; });
+`,
+      );
+      write(
+        join(repo, 'src/a.tsx'),
+        `import { MemoBtn } from './btn';
+export function ParentA() { return <MemoBtn onClick={() => {}} />; }
+`,
+      );
+      write(
+        join(repo, 'src/b.tsx'),
+        `import { MemoBtn } from './btn';
+export function ParentB() { return <MemoBtn onClick={() => {}} />; }
+`,
+      );
+
+      const reports = reviewGraph([join(repo, 'src/a.tsx'), join(repo, 'src/b.tsx'), join(repo, 'src/btn.tsx')], {
+        noCache: true,
+        target: 'web',
+      });
+      const btnReport = reports.find((r) => r.filePath === join(repo, 'src/btn.tsx'));
+      expect(btnReport).toBeDefined();
+      const finding = btnReport!.findings.find((f) => f.ruleId === 'memo-component-widely-defeated');
+      expect(finding).toBeDefined();
+      // 2-step intra-file chain + N defeater steps (one per defeating parent).
+      // Two defeaters here → chain length ≥ 4.
+      expect(finding!.provenance!.steps.length).toBeGreaterThanOrEqual(4);
+      const labels = finding!.provenance!.steps.map((s) => s.label ?? '').join(' || ');
+      expect(labels).toContain('ParentA');
+      expect(labels).toContain('ParentB');
+    });
+
+    it('memo-component-widely-defeated detects separate-export pattern (`const X = memo(); export { X }`)', () => {
+      // Gemini + OpenCode Phase 7-v3 review: the rule originally only fired
+      // when the VariableStatement had an inline `export` modifier. When the
+      // export was a separate `export { X }` ExportDeclaration, the rule
+      // silently skipped the component even though consumers could still
+      // import + defeat it.
+      repo = mkdtempSync(join(tmpdir(), 'kern-prv-react-reexport-'));
+      function write(path: string, content: string): void {
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, content);
+      }
+      write(
+        join(repo, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: {
+            target: 'ES2022',
+            module: 'ESNext',
+            moduleResolution: 'Bundler',
+            jsx: 'preserve',
+            strict: true,
+            esModuleInterop: true,
+            skipLibCheck: true,
+          },
+          include: ['src/**/*'],
+        }),
+      );
+      write(join(repo, 'package.json'), JSON.stringify({ name: 'reexport-widedef', private: true }));
+      write(
+        join(repo, 'src/btn.tsx'),
+        `import { memo } from 'react';
+const MemoBtn = memo(function Btn(_: { onClick: () => void }) { return null as any; });
+export { MemoBtn };
+`,
+      );
+      write(
+        join(repo, 'src/a.tsx'),
+        `import { MemoBtn } from './btn';
+export function ParentA() { return <MemoBtn onClick={() => {}} />; }
+`,
+      );
+      write(
+        join(repo, 'src/b.tsx'),
+        `import { MemoBtn } from './btn';
+export function ParentB() { return <MemoBtn onClick={() => {}} />; }
+`,
+      );
+
+      const reports = reviewGraph([join(repo, 'src/a.tsx'), join(repo, 'src/b.tsx'), join(repo, 'src/btn.tsx')], {
+        noCache: true,
+        target: 'web',
+      });
+      const btnReport = reports.find((r) => r.filePath === join(repo, 'src/btn.tsx'));
+      expect(btnReport).toBeDefined();
+      const finding = btnReport!.findings.find((f) => f.ruleId === 'memo-component-widely-defeated');
+      expect(finding).toBeDefined();
+      const labels = finding!.provenance!.steps.map((s) => s.label ?? '').join(' || ');
+      expect(labels).toContain('ParentA');
+      expect(labels).toContain('ParentB');
+    });
+
+    it('memo-component-widely-defeated detects `export default memo(...)` default-export pattern', () => {
+      // Gemini Phase 7-v3 review: the rule originally only scanned
+      // VariableDeclaration nodes, missing `export default memo(...)` where
+      // the memo call lives in an ExportAssignment.
+      repo = mkdtempSync(join(tmpdir(), 'kern-prv-react-default-'));
+      function write(path: string, content: string): void {
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, content);
+      }
+      write(
+        join(repo, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: {
+            target: 'ES2022',
+            module: 'ESNext',
+            moduleResolution: 'Bundler',
+            jsx: 'preserve',
+            strict: true,
+            esModuleInterop: true,
+            skipLibCheck: true,
+          },
+          include: ['src/**/*'],
+        }),
+      );
+      write(join(repo, 'package.json'), JSON.stringify({ name: 'default-widedef', private: true }));
+      write(
+        join(repo, 'src/btn.tsx'),
+        `import { memo } from 'react';
+export default memo(function MemoBtn(_: { onClick: () => void }) { return null as any; });
+`,
+      );
+      write(
+        join(repo, 'src/a.tsx'),
+        `import MemoBtn from './btn';
+export function ParentA() { return <MemoBtn onClick={() => {}} />; }
+`,
+      );
+      write(
+        join(repo, 'src/b.tsx'),
+        `import MemoBtn from './btn';
+export function ParentB() { return <MemoBtn onClick={() => {}} />; }
+`,
+      );
+
+      const reports = reviewGraph([join(repo, 'src/a.tsx'), join(repo, 'src/b.tsx'), join(repo, 'src/btn.tsx')], {
+        noCache: true,
+        target: 'web',
+      });
+      const btnReport = reports.find((r) => r.filePath === join(repo, 'src/btn.tsx'));
+      expect(btnReport).toBeDefined();
+      const finding = btnReport!.findings.find((f) => f.ruleId === 'memo-component-widely-defeated');
+      expect(finding).toBeDefined();
+      const labels = finding!.provenance!.steps.map((s) => s.label ?? '').join(' || ');
+      expect(labels).toContain('ParentA');
+      expect(labels).toContain('ParentB');
+    });
+
+    it('memo-component-widely-defeated does NOT fire when only 1 defeater (walker cancels)', () => {
+      repo = mkdtempSync(join(tmpdir(), 'kern-prv-react-cancel-'));
+      function write(path: string, content: string): void {
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, content);
+      }
+      write(
+        join(repo, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: {
+            target: 'ES2022',
+            module: 'ESNext',
+            moduleResolution: 'Bundler',
+            jsx: 'preserve',
+            strict: true,
+            esModuleInterop: true,
+            skipLibCheck: true,
+          },
+          include: ['src/**/*'],
+        }),
+      );
+      write(join(repo, 'package.json'), JSON.stringify({ name: 'cancel-widedef', private: true }));
+      write(
+        join(repo, 'src/btn.tsx'),
+        `import { memo } from 'react';
+export const MemoBtn = memo(function Btn(_: { onClick: () => void }) { return null as any; });
+`,
+      );
+      write(
+        join(repo, 'src/a.tsx'),
+        `import { MemoBtn } from './btn';
+export function OnlyParent() { return <MemoBtn onClick={() => {}} />; }
+`,
+      );
+
+      const reports = reviewGraph([join(repo, 'src/a.tsx'), join(repo, 'src/btn.tsx')], {
+        noCache: true,
+        target: 'web',
+      });
+      const btnReport = reports.find((r) => r.filePath === join(repo, 'src/btn.tsx'));
+      expect(btnReport).toBeDefined();
+      // Walker cancelled the speculative finding — only 1 defeater, threshold is 2.
+      expect(btnReport!.findings.find((f) => f.ruleId === 'memo-component-widely-defeated')).toBeUndefined();
     });
 
     it('does NOT extend when the child is local (no cross-file boundary to cross)', () => {

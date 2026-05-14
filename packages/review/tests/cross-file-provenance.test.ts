@@ -653,6 +653,81 @@ export function Parent${p}() { return <MemoButton onClick={() => {}} />; }
     ).toEqual([]);
   });
 
+  it('cancelFinding=true is honored — finding is removed from the report', () => {
+    cfWalkers.register('cancel-probe', () => ({ appendSteps: [], cancelFinding: true }));
+    const finding = makeFinding('fp-cancel', [stepAt('/src/app.tsx', 1, 'head')]);
+    const surviving = makeFinding('fp-keep', [stepAt('/src/app.tsx', 2, 'survives')]);
+    const report = makeReport(
+      [finding, surviving],
+      [{ findingFingerprint: 'fp-cancel', walkerId: 'cancel-probe', payload: {} }],
+    );
+    const out = extendCrossFileChains(report, {
+      graph: { files: [], entryFiles: [], totalFiles: 0, skipped: 0 },
+      project: createTestProject(),
+    });
+    expect(out.findings.map((f) => f.fingerprint)).toEqual(['fp-keep']);
+  });
+
+  it('reverseJsxUsageWalker — minDefeaters=2 cancels finding when only 1 defeater exists', () => {
+    const project = new Project({
+      compilerOptions: { strict: true, target: 99, module: 99, moduleResolution: 100, jsx: 4 },
+      useInMemoryFileSystem: true,
+      skipAddingFilesFromTsConfig: true,
+    });
+    project.createSourceFile(
+      '/lib/btn.tsx',
+      `import { memo } from 'react';\nexport const MemoBtn = memo(function B(_: any) { return null as any; });\n`,
+    );
+    project.createSourceFile(
+      '/src/only-one.tsx',
+      `import { MemoBtn } from '/lib/btn';\nexport function OnlyOne() { return <MemoBtn onClick={() => {}} />; }\n`,
+    );
+    const graph = resolveImportGraph(['/src/only-one.tsx', '/lib/btn.tsx'], { project });
+    const out = reverseJsxUsageWalker(
+      {
+        findingFingerprint: 'x',
+        walkerId: 'reverse-jsx-usage',
+        payload: { symbol: 'MemoBtn', declFile: '/lib/btn.tsx', minDefeaters: 2 },
+      },
+      makeFinding('x'),
+      { graph, project },
+    );
+    expect(out.cancelFinding).toBe(true);
+    expect(out.appendSteps).toEqual([]);
+  });
+
+  it('reverseJsxUsageWalker — minDefeaters=2 keeps finding when 2+ defeaters exist', () => {
+    const project = new Project({
+      compilerOptions: { strict: true, target: 99, module: 99, moduleResolution: 100, jsx: 4 },
+      useInMemoryFileSystem: true,
+      skipAddingFilesFromTsConfig: true,
+    });
+    project.createSourceFile(
+      '/lib/btn.tsx',
+      `import { memo } from 'react';\nexport const MemoBtn = memo(function B(_: any) { return null as any; });\n`,
+    );
+    project.createSourceFile(
+      '/src/a.tsx',
+      `import { MemoBtn } from '/lib/btn';\nexport function A() { return <MemoBtn onClick={() => {}} />; }\n`,
+    );
+    project.createSourceFile(
+      '/src/b.tsx',
+      `import { MemoBtn } from '/lib/btn';\nexport function B() { return <MemoBtn onClick={() => {}} />; }\n`,
+    );
+    const graph = resolveImportGraph(['/src/a.tsx', '/src/b.tsx', '/lib/btn.tsx'], { project });
+    const out = reverseJsxUsageWalker(
+      {
+        findingFingerprint: 'x',
+        walkerId: 'reverse-jsx-usage',
+        payload: { symbol: 'MemoBtn', declFile: '/lib/btn.tsx', minDefeaters: 2 },
+      },
+      makeFinding('x'),
+      { graph, project },
+    );
+    expect(out.cancelFinding).toBeFalsy();
+    expect(out.appendSteps.length).toBeGreaterThanOrEqual(2);
+  });
+
   it('returns no steps when no callers render the symbol with inline props', () => {
     const ctx = buildCtxWith(
       {
