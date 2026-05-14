@@ -1115,21 +1115,40 @@ function parentRerenderViaState(ctx: RuleContext): ReviewFinding[] {
         ],
       };
 
-      findings.push(
-        finding(
-          'parent-rerender-via-state',
-          'info',
-          'pattern',
-          `<${tag}> is rendered by '${info.name}' but does not receive any of its state variables (${[...stateVars].slice(0, 3).join(', ')}${stateVars.size > 3 ? '…' : ''}) — it re-renders on every state change. Consider lifting it to the 'children' prop so React can reuse the element.`,
-          ctx.filePath,
-          el.getStartLineNumber(),
-          1,
-          {
-            suggestion: `Accept <${tag}> as the 'children' prop of '${info.name}' and render it with {children}. The caller composes: <${info.name}><${tag} /></${info.name}>. React will reuse the child element across re-renders.`,
-            provenance,
-          },
-        ),
+      const emittedRerenderFinding = finding(
+        'parent-rerender-via-state',
+        'info',
+        'pattern',
+        `<${tag}> is rendered by '${info.name}' but does not receive any of its state variables (${[...stateVars].slice(0, 3).join(', ')}${stateVars.size > 3 ? '…' : ''}) — it re-renders on every state change. Consider lifting it to the 'children' prop so React can reuse the element.`,
+        ctx.filePath,
+        el.getStartLineNumber(),
+        1,
+        {
+          suggestion: `Accept <${tag}> as the 'children' prop of '${info.name}' and render it with {children}. The caller composes: <${info.name}><${tag} /></${info.name}>. React will reuse the child element across re-renders.`,
+          provenance,
+        },
       );
+      findings.push(emittedRerenderFinding);
+
+      // Plan v3 v2 — when the unnecessarily-re-rendered child is imported,
+      // request a forward-import extension so the chain points at the
+      // child's declaration file. The forward walker's semantics (resolve
+      // export → emit step) fit even though the trigger here is state-
+      // induced re-render rather than memo defeat.
+      if (ctx.pendingCrossFileLinks) {
+        const binding = findImportBinding(ctx, tag);
+        if (binding) {
+          const importedSf = resolveImportedSourceFile(ctx, binding.importDecl);
+          if (importedSf) {
+            ctx.pendingCrossFileLinks.push({
+              findingFingerprint: emittedRerenderFinding.fingerprint,
+              walkerId: 'forward-import',
+              payload: { symbol: binding.importedName, targetFile: importedSf.getFilePath() },
+            });
+          }
+        }
+      }
+
       break; // one finding per component is enough — avoid noise
     }
   }

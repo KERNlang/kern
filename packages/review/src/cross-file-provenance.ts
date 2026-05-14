@@ -24,7 +24,7 @@
  */
 
 import { type CallExpression, Node, type Project, type SourceFile } from 'ts-morph';
-import { buildJsxUsageIndex, type JsxUsageIndex } from './jsx-usage-index.js';
+import { buildJsxUsageIndex, type InlinePropKind, type JsxUsageIndex } from './jsx-usage-index.js';
 import { canonicalize } from './path-canonical.js';
 import type { CrossFileExtensionRequest, GraphResult, ProvenanceStep, ReviewFinding, ReviewReport } from './types.js';
 
@@ -238,8 +238,88 @@ function unwrapToMemoCall(node: Node | undefined): CallExpression | undefined {
   return undefined;
 }
 
+/**
+ * `reverse-jsx-usage` walker — the inverse of `forward-import`. For a finding
+ * that fires on a memoised CHILD's declaration (e.g. "this React.memo is
+ * being defeated by N parents"), append one step per defeating parent
+ * pointing at the JSX render site that's passing inline props.
+ *
+ * Payload:
+ *   { symbol: string, declFile: string, inlinePropFilter?: 'any' | InlinePropKind }
+ *
+ * - `symbol` — the exported component name (declaration name, NOT a local
+ *   alias). Same resolution rule as the forward walker: match the index by
+ *   the exported name so aliased imports `import { Foo as Bar }` still hit.
+ * - `declFile` — the file where the component is declared.
+ * - `inlinePropFilter` — optional. `'function'` only surfaces parents that
+ *   pass inline arrow/function props; `'object'` and `'array'` are
+ *   analogous; `'any'` (default) matches any inline prop kind.
+ *
+ * Sites with zero inline props are NEVER surfaced — those callers aren't
+ * defeating memoisation, so they're not part of the causal chain. Test
+ * files are already excluded by the index builder.
+ *
+ * Cap behavior: this walker can append many steps. `extendCrossFileChains`
+ * enforces the hard cap and emits the truncation marker; the walker self-
+ * reports `truncated: true` when the index returns more sites than fit in
+ * the soft hop budget so the marker is emitted even if the hard cap isn't
+ * reached.
+ */
+const DEFAULT_REVERSE_SOFT_CAP = 5;
+
+export const reverseJsxUsageWalker: CrossFileWalker = (req, _finding, ctx) => {
+  const symbol = typeof req.payload.symbol === 'string' ? req.payload.symbol : '';
+  const declFile = typeof req.payload.declFile === 'string' ? req.payload.declFile : '';
+  if (!symbol || !declFile) return { appendSteps: [] };
+
+  const rawFilter = req.payload.inlinePropFilter;
+  const filter: 'any' | InlinePropKind =
+    rawFilter === 'function' || rawFilter === 'object' || rawFilter === 'array' ? rawFilter : 'any';
+  // Soft cap is a per-walker hint — the chain-level hard cap in
+  // extendCrossFileChains has the final say.
+  const softCap =
+    typeof req.payload.softCap === 'number' && req.payload.softCap > 0 ? req.payload.softCap : DEFAULT_REVERSE_SOFT_CAP;
+
+  const index = ensureJsxUsageIndex(ctx);
+  const sites = index.findUsages(declFile, symbol);
+  // Only surface parents that pass at least one inline prop matching the
+  // filter — those are the ones defeating memoisation. Sites with zero
+  // matching props are causally unrelated and would just inflate the chain.
+  const defeating = sites.filter((s) => {
+    if (s.inlineProps.length === 0) return false;
+    if (filter === 'any') return true;
+    return s.inlineProps.some((p) => p.kind === filter);
+  });
+
+  if (defeating.length === 0) return { appendSteps: [] };
+
+  const overflow = defeating.length > softCap;
+  const kept = overflow ? defeating.slice(0, softCap) : defeating;
+  const steps: ProvenanceStep[] = kept.map((site) => {
+    const matchingProps = filter === 'any' ? site.inlineProps : site.inlineProps.filter((p) => p.kind === filter);
+    const propNames = matchingProps.map((p) => p.name).join(', ');
+    const parent = site.parentComponentName ?? '<top-level>';
+    return {
+      kind: 'sink',
+      location: {
+        file: site.file,
+        startLine: site.line,
+        startCol: site.col,
+        endLine: site.line,
+        endCol: site.col,
+      },
+      label: `<${site.localName}> rendered in ${parent} with inline ${matchingProps.length === 1 ? 'prop' : 'props'} (${propNames})`,
+      detail: `Each parent render allocates a new identity for ${propNames}, defeating React.memo on <${site.localName}>.`,
+      category: 'memo-boundary',
+    };
+  });
+
+  return { appendSteps: steps, truncated: overflow };
+};
+
 function registerBuiltins(): void {
   cfWalkers.register('forward-import', forwardImportWalker);
+  cfWalkers.register('reverse-jsx-usage', reverseJsxUsageWalker);
 }
 
 registerBuiltins();
