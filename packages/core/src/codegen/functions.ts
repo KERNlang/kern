@@ -208,7 +208,21 @@ export function generateError(node: IRNode): string[] {
     }
     lines.push(`  ) {`);
     if (code) {
-      // Custom handler body — replaces auto-generated constructor logic
+      // Custom handler body — replaces auto-generated assignments. The
+      // subclass still needs `super(...)` as the first constructor
+      // statement for TS to compile; auto-inject it unless the handler
+      // body already starts with an explicit `super(...)` call so authors
+      // who want full control can opt out.
+      const bodyStartsWithSuper = /^\s*super\s*\(/.test(code);
+      if (!bodyStartsWithSuper) {
+        if (message) {
+          lines.push(`    super(\`${message}\`);`);
+        } else if (hasMessageParam) {
+          lines.push(`    super(message);`);
+        } else {
+          lines.push(`    super();`);
+        }
+      }
       for (const line of code.split('\n')) {
         lines.push(`    ${line}`);
       }

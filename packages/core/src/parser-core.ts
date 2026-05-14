@@ -13,9 +13,18 @@ import { validateExpressions } from './parser-validate-expressions.js';
 import { validateNativeEligible } from './parser-validate-native-eligible.js';
 import { validateAndRewritePropagation } from './parser-validate-propagation.js';
 import { validateUnionKind } from './parser-validate-union-kind.js';
-import { defaultRuntime, type KernRuntime } from './runtime.js';
+import { defaultRuntime, type KernRuntime, type ParserHintsConfig } from './runtime.js';
 import { isKnownNodeType } from './spec.js';
 import type { IRNode, IRSourceLocation, ParseResult } from './types.js';
+
+// Built-in first-token-name shorthand for declaration types whose schema
+// declares `name` as a required identifier. Only added for `class` to keep
+// the surface narrow — other declaration types (`fn`, `error`, `service`,
+// `interface`, etc.) have established `name=` convention in their docs and
+// existing fixtures, and adding bareWord there would silently rebind any
+// trailing identifier as a name. `bareWord` is gated on `!isKeyValue()` so
+// the canonical `class name=Foo` form is unaffected.
+const BUILTIN_PARSER_HINTS: ReadonlyMap<string, ParserHintsConfig> = new Map([['class', { bareWord: 'name' }]]);
 
 // ── ParsedLine ───────────────────────────────────────────────────────────
 
@@ -326,7 +335,11 @@ function parseLine(
   const themeRefs: string[] = [];
 
   // ── Evolved node parser hints (v4) ──────────────────────────────────
-  const evolvedHints = runtime.parserHints.get(type);
+  // Runtime-registered hints win; built-in shorthand is consulted as a
+  // fallback so first-token name shorthand (`class NativeClass`) works for
+  // declaration types whose schema declares `name: required, identifier`
+  // even when no runtime registration exists.
+  const evolvedHints = runtime.parserHints.get(type) ?? BUILTIN_PARSER_HINTS.get(type);
   if (evolvedHints) {
     if (evolvedHints.positionalArgs) {
       for (const argName of evolvedHints.positionalArgs) {
