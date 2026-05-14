@@ -726,6 +726,15 @@ const REGISTRY: RuleInfo[] = [
     precision: 'high',
     rolloutPhase: 5,
   },
+  {
+    id: 'memo-component-widely-defeated',
+    layer: 'react-composition',
+    severity: 'warning',
+    description:
+      'React.memo wrap is defeated across ≥2 consumers (each passes inline props) — fires on the declaration site so the systemic issue is visible at the memo boundary, not just at each parent',
+    precision: 'high',
+    rolloutPhase: 6,
+  },
 
   // React HTML quality (Wave 5) — JSX-element correctness footguns
   {

@@ -43,6 +43,12 @@ export interface WalkerResult {
   appendSteps: ProvenanceStep[];
   /** Walker self-reports it had to drop evidence. Honored alongside the hardCap. */
   truncated?: boolean;
+  /** Walker requests the entire finding be removed from the report. Used when a
+   *  rule fires speculatively in graph mode (without cross-file knowledge) and
+   *  the walker — which CAN see across files — determines the condition isn't
+   *  actually met. Consistent with the APPEND-ONLY invariant for retained
+   *  findings: a cancelled finding has no rootCause key to perturb. */
+  cancelFinding?: boolean;
 }
 
 export type CrossFileWalker = (
@@ -82,6 +88,11 @@ export function extendCrossFileChains(
   const byFp = new Map<string, ReviewFinding>();
   for (const f of report.findings) byFp.set(f.fingerprint, f);
 
+  // Set of fingerprints the walker asked us to remove from the report.
+  // Collected here, applied to `report.findings` after the loop so we don't
+  // mutate the array while iterating fingerprints.
+  const cancelled = new Set<string>();
+
   for (const req of requests) {
     const finding = byFp.get(req.findingFingerprint);
     if (!finding) continue;
@@ -89,6 +100,10 @@ export function extendCrossFileChains(
     if (!walker) continue;
 
     const result = walker(req, finding, ctx);
+    if (result.cancelFinding === true) {
+      cancelled.add(finding.fingerprint);
+      continue;
+    }
     if (!result.appendSteps || result.appendSteps.length === 0) continue;
 
     if (!finding.provenance) finding.provenance = { steps: [] };
@@ -122,8 +137,14 @@ export function extendCrossFileChains(
     }
   }
 
+  // Apply walker-requested cancellations. A cancelled finding's request was
+  // emitted speculatively by a rule that couldn't verify cross-file evidence
+  // itself; the walker had the index and determined the condition isn't met.
+  const nextFindings =
+    cancelled.size > 0 ? report.findings.filter((f) => !cancelled.has(f.fingerprint)) : report.findings;
+
   // Consume the requests so downstream consumers don't re-process them.
-  const next: ReviewReport = { ...report };
+  const next: ReviewReport = { ...report, findings: nextFindings };
   delete (next as { pendingCrossFileLinks?: CrossFileExtensionRequest[] }).pendingCrossFileLinks;
   return next;
 }
@@ -164,12 +185,19 @@ export const forwardImportWalker: CrossFileWalker = (req, _finding, ctx) => {
   const boundary = findMemoBoundary(sf, symbol);
   if (!boundary) return { appendSteps: [] };
 
-  const startPos = sf.getLineAndColumnAtPos(boundary.node.getStart());
-  const endPos = sf.getLineAndColumnAtPos(boundary.node.getEnd());
+  // When `getExportedDeclarations()` chases a re-export barrel
+  // (`export { Button } from './button'`), the resolved declaration node
+  // lives in the upstream file — NOT in `sf`. Read positions from the
+  // node's actual source so the chain step points at the real memo wrap
+  // site, not at byte-offset coordinates interpreted against the barrel.
+  // Codex Phase 7-v3 review surfaced this with the namespace-import case.
+  const declSf = boundary.node.getSourceFile();
+  const startPos = declSf.getLineAndColumnAtPos(boundary.node.getStart());
+  const endPos = declSf.getLineAndColumnAtPos(boundary.node.getEnd());
   const step: ProvenanceStep = {
     kind: 'import',
     location: {
-      file: targetFile,
+      file: declSf.getFilePath(),
       startLine: startPos.line,
       startCol: startPos.column,
       endLine: endPos.line,
@@ -245,7 +273,10 @@ function unwrapToMemoCall(node: Node | undefined): CallExpression | undefined {
  * pointing at the JSX render site that's passing inline props.
  *
  * Payload:
- *   { symbol: string, declFile: string, inlinePropFilter?: 'any' | InlinePropKind }
+ *   { symbol: string, declFile: string,
+ *     inlinePropFilter?: 'any' | InlinePropKind,
+ *     softCap?: number,
+ *     minDefeaters?: number }
  *
  * - `symbol` — the exported component name (declaration name, NOT a local
  *   alias). Same resolution rule as the forward walker: match the index by
@@ -254,16 +285,17 @@ function unwrapToMemoCall(node: Node | undefined): CallExpression | undefined {
  * - `inlinePropFilter` — optional. `'function'` only surfaces parents that
  *   pass inline arrow/function props; `'object'` and `'array'` are
  *   analogous; `'any'` (default) matches any inline prop kind.
+ * - `softCap` — per-walker soft cap on appended steps (default 5).
+ * - `minDefeaters` — minimum number of defeating parents required to keep
+ *   the finding. Below the threshold, the walker returns
+ *   `cancelFinding: true` so a rule that emits speculatively in graph mode
+ *   doesn't surface a false positive when there's only one (or zero)
+ *   defeating parent. Default 1 (any defeater keeps the finding) so
+ *   existing callers are unaffected.
  *
  * Sites with zero inline props are NEVER surfaced — those callers aren't
  * defeating memoisation, so they're not part of the causal chain. Test
  * files are already excluded by the index builder.
- *
- * Cap behavior: this walker can append many steps. `extendCrossFileChains`
- * enforces the hard cap and emits the truncation marker; the walker self-
- * reports `truncated: true` when the index returns more sites than fit in
- * the soft hop budget so the marker is emitted even if the hard cap isn't
- * reached.
  */
 const DEFAULT_REVERSE_SOFT_CAP = 5;
 
@@ -275,23 +307,24 @@ export const reverseJsxUsageWalker: CrossFileWalker = (req, _finding, ctx) => {
   const rawFilter = req.payload.inlinePropFilter;
   const filter: 'any' | InlinePropKind =
     rawFilter === 'function' || rawFilter === 'object' || rawFilter === 'array' ? rawFilter : 'any';
-  // Soft cap is a per-walker hint — the chain-level hard cap in
-  // extendCrossFileChains has the final say.
   const softCap =
     typeof req.payload.softCap === 'number' && req.payload.softCap > 0 ? req.payload.softCap : DEFAULT_REVERSE_SOFT_CAP;
+  const minDefeaters =
+    typeof req.payload.minDefeaters === 'number' && req.payload.minDefeaters > 0 ? req.payload.minDefeaters : 1;
 
   const index = ensureJsxUsageIndex(ctx);
   const sites = index.findUsages(declFile, symbol);
-  // Only surface parents that pass at least one inline prop matching the
-  // filter — those are the ones defeating memoisation. Sites with zero
-  // matching props are causally unrelated and would just inflate the chain.
   const defeating = sites.filter((s) => {
     if (s.inlineProps.length === 0) return false;
     if (filter === 'any') return true;
     return s.inlineProps.some((p) => p.kind === filter);
   });
 
-  if (defeating.length === 0) return { appendSteps: [] };
+  // Speculative-rule path: caller asked us to gate on a defeater threshold.
+  // Below the bar → the rule was wrong to fire; cancel.
+  if (defeating.length < minDefeaters) {
+    return minDefeaters > 1 ? { appendSteps: [], cancelFinding: true } : { appendSteps: [] };
+  }
 
   const overflow = defeating.length > softCap;
   const kept = overflow ? defeating.slice(0, softCap) : defeating;
