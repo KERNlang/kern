@@ -3,6 +3,7 @@ import {
   collectExternalBoundaries,
   collectSidecarManifests,
 } from '../src/external-boundary.js';
+import { collectExternalImportSymbols, externalSignatureDiagnostics } from '../src/external-symbols.js';
 import { parse } from '../src/parser.js';
 
 describe('external boundary collection', () => {
@@ -442,5 +443,112 @@ describe('external boundary collection', () => {
         ],
       },
     ]);
+  });
+
+  it('builds a typed symbol table for npm and Python imports', () => {
+    const root = parse(
+      [
+        'module name=app',
+        '  import npm "zod" as z',
+        '  import from=react registry=npm names="useMemo,useState as useReactState"',
+        '  import py "math" as math signatures="sqrt:(x: bigint) => Promise<bigint>"',
+        '  import py "math" names=sqrt',
+      ].join('\n'),
+    );
+
+    const table = collectExternalImportSymbols(root);
+    expect(table.byLocalName.get('z')).toMatchObject({
+      kind: 'module',
+      package: 'zod',
+      registry: 'npm',
+      targetFamily: 'ts',
+    });
+    expect(table.byLocalName.get('useReactState')).toMatchObject({
+      kind: 'function',
+      package: 'react',
+      registry: 'npm',
+      sourceName: 'useState',
+    });
+    expect(table.byLocalName.get('math')).toMatchObject({
+      kind: 'module',
+      package: 'math',
+      registry: 'pypi',
+      targetFamily: 'python',
+      signatures: { sqrt: '(x: bigint) => Promise<bigint>' },
+      sidecarName: 'Math',
+    });
+    expect(table.byLocalName.get('sqrt')).toMatchObject({
+      kind: 'function',
+      package: 'math',
+      registry: 'pypi',
+      sourceName: 'sqrt',
+      signature: '(x: bigint) => Promise<bigint>',
+      sidecarName: 'Math',
+    });
+    expect(table.byPackage.get('math')).toHaveLength(2);
+  });
+
+  it('diagnoses signature maps that do not match named-only imports', () => {
+    const root = parse(
+      'import py "custom_package" names=first signatures="first:(x: number) => Promise<number>;second:(x: string) => Promise<string>"',
+    );
+
+    expect(externalSignatureDiagnostics(root)).toEqual([
+      {
+        package: 'custom_package',
+        registry: 'pypi',
+        name: 'second',
+        reason: 'not-imported',
+        line: 1,
+        col: 1,
+      },
+    ]);
+  });
+
+  it('keeps non-sidecar PyPI metadata imports in the typed symbol table', () => {
+    const root = parse(
+      [
+        'module name=api',
+        '  extern package=numpy registry=pypi target=fastapi',
+        '    import default=np names=array',
+      ].join('\n'),
+    );
+
+    const table = collectExternalImportSymbols(root);
+    expect(table.byLocalName.get('np')).toMatchObject({
+      kind: 'module',
+      package: 'numpy',
+      registry: 'pypi',
+      target: 'fastapi',
+      targetFamily: 'python',
+    });
+    expect(table.byLocalName.get('array')).toMatchObject({
+      kind: 'function',
+      package: 'numpy',
+      registry: 'pypi',
+      sourceName: 'array',
+    });
+  });
+
+  it('keeps type-only PyPI imports in the typed symbol table', () => {
+    const root = parse('import py "numpy.typing" names=NDArray types=true');
+
+    const table = collectExternalImportSymbols(root);
+    expect(table.byLocalName.get('NDArray')).toMatchObject({
+      kind: 'type',
+      package: 'numpy.typing',
+      registry: 'pypi',
+      target: 'python',
+      targetFamily: 'python',
+      sourceName: 'NDArray',
+    });
+  });
+
+  it('treats module signature maps as API declarations instead of diagnostics', () => {
+    const root = parse(
+      'import py "custom_package" as custom signatures="first:(x: number) => Promise<number>;second:(x: string) => Promise<string>"',
+    );
+
+    expect(externalSignatureDiagnostics(root)).toEqual([]);
   });
 });

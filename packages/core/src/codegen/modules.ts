@@ -7,12 +7,9 @@
  * Extracted from codegen-core.ts for modular codegen architecture.
  */
 
-import {
-  type ExternalSignatureMap,
-  inferExternalSignatureMap,
-  parseExternalSignatureMap,
-} from '../ecosystem-signatures.js';
+import { parseExternalSignatureMap } from '../ecosystem-signatures.js';
 import { type SidecarManifest, sidecarManifestFromNode } from '../external-boundary.js';
+import { parseExternalNamedBinding, signatureMapForSidecarPackage } from '../external-symbols.js';
 import {
   importRegistryOf,
   importTargetFamilyOf,
@@ -128,12 +125,6 @@ function emitStringArray(values: string[]): string {
 }
 
 const SAFE_IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
-
-function parseNamedImportBinding(raw: string): { name: string; alias: string } | null {
-  const match = raw.trim().match(/^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/u);
-  if (!match) return null;
-  return { name: match[1], alias: match[2] ?? match[1] };
-}
 
 function emitObjectTypeKey(name: string): string {
   return SAFE_IDENTIFIER_RE.test(name) ? name : JSON.stringify(name);
@@ -251,28 +242,6 @@ export function generateLoosePythonSidecarImports(nodes: IRNode[]): string[] {
     }
   }
   return [...groups.values()].flatMap((group) => generatePythonSidecarClient(group.manifest, group.node));
-}
-
-function signatureMapForPythonPackage(sidecarPackage: SidecarManifest['packages'][number]): ExternalSignatureMap {
-  const signatures: ExternalSignatureMap = {
-    ...(inferExternalSignatureMap(sidecarPackage.registry, sidecarPackage.package) ?? {}),
-  };
-  for (const binding of sidecarPackage.imports) {
-    if (binding.signatures && (binding.default || binding.names.length === 0)) {
-      Object.assign(signatures, binding.signatures);
-    }
-    for (const rawName of binding.names) {
-      const namedBinding = parseNamedImportBinding(rawName);
-      if (!namedBinding) continue;
-      const signature = binding.signatures?.[namedBinding.name];
-      if (signature) signatures[namedBinding.name] = signature;
-    }
-    if (binding.signature && binding.names.length === 1) {
-      const namedBinding = parseNamedImportBinding(binding.names[0]);
-      if (namedBinding) signatures[namedBinding.name] = binding.signature;
-    }
-  }
-  return signatures;
 }
 
 const PYTHON_SIDECAR_RUNTIME = [
@@ -631,7 +600,7 @@ function generatePythonSidecarClient(manifest: SidecarManifest, node: IRNode): s
     if (moduleAliases.size === 0 && SAFE_IDENTIFIER_RE.test(sidecarPackage.package)) {
       moduleAliases.add(sidecarPackage.package);
     }
-    const moduleSignatures = signatureMapForPythonPackage(sidecarPackage);
+    const moduleSignatures = signatureMapForSidecarPackage(sidecarPackage);
     const moduleSignatureEntries = Object.entries(moduleSignatures).sort(([a], [b]) => a.localeCompare(b));
     for (const rawAlias of moduleAliases) {
       if (!SAFE_IDENTIFIER_RE.test(rawAlias)) continue;
@@ -667,7 +636,7 @@ function generatePythonSidecarClient(manifest: SidecarManifest, node: IRNode): s
     }
     for (const binding of sidecarPackage.imports) {
       for (const rawName of binding.names) {
-        const namedBinding = parseNamedImportBinding(rawName);
+        const namedBinding = parseExternalNamedBinding(rawName);
         if (!namedBinding) continue;
         const alias = emitIdentifier(namedBinding.alias, 'pythonFunction', node);
         if (usedExportNames.has(alias)) continue;
