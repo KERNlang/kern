@@ -248,7 +248,23 @@ function emitChildrenTS(
         ctx.tryDepth--;
         if (catchNode !== null) {
           const errName = String(catchNode.props?.name ?? 'e');
-          lines.push(`${indent}} catch (${errName}) {`);
+          // Optional `catch name=err type=any|unknown` — emit the type
+          // annotation so strict-mode TS doesn't reject `err.foo` accesses.
+          // TypeScript only allows `any` or `unknown` for catch parameter
+          // annotations; anything else would emit invalid TS, so reject it
+          // at codegen rather than letting tsc fail downstream.
+          const rawCatchType = catchNode.props?.type;
+          const errType = (() => {
+            if (rawCatchType === undefined || rawCatchType === '') return '';
+            const t = String(rawCatchType).trim();
+            if (t !== 'any' && t !== 'unknown') {
+              throw new Error(
+                `\`catch\` type annotation must be \`any\` or \`unknown\` — got \`${t}\`. TypeScript does not allow other catch parameter types.`,
+              );
+            }
+            return `: ${t}`;
+          })();
+          lines.push(`${indent}} catch (${errName}${errType}) {`);
           for (const cl of emitChildrenTS(catchNode.children ?? [], ctx, indent + INDENT_STEP)) lines.push(cl);
         }
         if (finallyNode !== null) {

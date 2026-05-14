@@ -94,9 +94,17 @@ try {
 }
 
 import { buildConfidenceGraph, computeConfidenceSummary, serializeGraph } from './confidence.js';
+import { extendCrossFileChains } from './cross-file-provenance.js';
 import { applySuppression } from './suppression/index.js';
 import { analyzeTaint, analyzeTaintCrossFile, crossFileTaintToFindings, taintToFindings } from './taint.js';
-import type { InferResult, ReachabilityBlocker, ReviewConfig, ReviewFinding, ReviewReport } from './types.js';
+import type {
+  CrossFileExtensionRequest,
+  InferResult,
+  ReachabilityBlocker,
+  ReviewConfig,
+  ReviewFinding,
+  ReviewReport,
+} from './types.js';
 import { createFingerprint } from './types.js';
 
 type PythonConceptExtractor = (source: string, filePath: string) => ConceptMap;
@@ -805,10 +813,15 @@ function reviewSourceInternal(
   );
 
   // Phase 5: Quality rules → unified findings (receives fileRole)
+  // Cross-file extension requests collected here in graph mode so the graph
+  // pipeline can dispatch them via `extendCrossFileChains` post-rules. Outside
+  // graph mode the bucket is undefined so rules emitting requests harmlessly
+  // skip the optional-chaining push.
+  const pendingCrossFileLinks: CrossFileExtensionRequest[] | undefined = config?.fileContextMap ? [] : undefined;
   allFindings.push(
     ...safePhase(
       'quality',
-      () => runQualityRules(sourceFile, inferred, templateMatches, config, fileRole, project),
+      () => runQualityRules(sourceFile, inferred, templateMatches, config, fileRole, project, pendingCrossFileLinks),
       [],
     ),
   );
@@ -953,6 +966,11 @@ function reviewSourceInternal(
     ...(suppression.suppressed.length > 0 ? { suppressedFindings: sortAndDedup(suppression.suppressed) } : {}),
     ...(stableSuppress.suppressed.length > 0
       ? { selfSuppressedFindings: sortAndDedup(stableSuppress.suppressed) }
+      : {}),
+    // Hand the cross-file extension requests up to the graph pipeline.
+    // `extendCrossFileChains` consumes and clears this in `reviewGraph`.
+    ...(pendingCrossFileLinks && pendingCrossFileLinks.length > 0
+      ? { pendingCrossFileLinks: [...pendingCrossFileLinks] }
       : {}),
     stats,
     ...(confidenceGraph ? { confidenceGraph } : {}),
@@ -1488,9 +1506,10 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
   }
 
   // ── Call graph analysis: dead exports + cross-file async ──
+  // Hoisted so the cross-file ProvenanceChain pass below the try block can
+  // reuse the same ts-morph Project the call graph already loaded.
+  let cgProject: Project | undefined = graphOptions?.project;
   try {
-    // Use provided project, or build one with all graph files loaded
-    let cgProject = graphOptions?.project;
     if (!cgProject) {
       // Fall back to discovering from the first graph file when the caller didn't supply a tsconfig.
       const cgTsConfig =
@@ -1644,6 +1663,31 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
       debugDetail(err),
     );
     if (process.env.KERN_DEBUG) console.error('call graph build error:', (err as Error).message);
+  }
+
+  // Cross-file ProvenanceChain extension (Plan v3) — dispatch any walker
+  // requests rules collected in `pendingCrossFileLinks` before stable-construct
+  // suppression and root-cause grouping. Mutates each finding's `provenance.steps`
+  // append-only; the rootCause-key prefix (steps[0..2]) is preserved so dedup
+  // by `groupFindingsByRootCause` stays stable. cgProject is the shared ts-morph
+  // Project the call-graph already built; reusing it avoids a second AST parse.
+  if (cgProject) {
+    const cfCtx = { graph, project: cgProject };
+    for (let i = 0; i < reports.length; i++) {
+      const r = reports[i];
+      if (!r.pendingCrossFileLinks || r.pendingCrossFileLinks.length === 0) continue;
+      try {
+        reports[i] = extendCrossFileChains(r, cfCtx);
+      } catch (err) {
+        graphHealth.noteKind(
+          'cross-file-provenance',
+          'fallback',
+          'extendCrossFileChains failed; chains left at single-file extent',
+          debugDetail(err),
+        );
+        if (process.env.KERN_DEBUG) console.error('cross-file-provenance error:', (err as Error).message);
+      }
+    }
   }
 
   // Re-run suppression + dedup on all reports (cross-file findings were injected after initial suppression)

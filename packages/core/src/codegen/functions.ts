@@ -184,7 +184,10 @@ export function generateError(node: IRNode): string[] {
 
   lines.push(`${exp}class ${name} extends ${ext} {`);
 
-  const code = handlerCode(node);
+  // Native KERN body opt-in — same dispatch fn/method already honor.
+  const errorHandler = getFirstChild(node, 'handler');
+  const code =
+    errorHandler && getProps(errorHandler).lang === 'kern' ? emitNativeKernBodyTS(errorHandler) : handlerCode(node);
 
   if (fields.length > 0) {
     lines.push(`  constructor(`);
@@ -227,6 +230,15 @@ export function generateError(node: IRNode): string[] {
     } else {
       lines.push(`    super();`);
       lines.push(`    this.name = '${name}';`);
+    }
+    lines.push(`  }`);
+  } else if (code) {
+    // Fieldless error with a custom handler — emit a no-arg constructor that
+    // runs the handler body verbatim. Authors use this to call `super(...)`
+    // with a computed message and assign `this.name`.
+    lines.push(`  constructor() {`);
+    for (const line of code.split('\n')) {
+      lines.push(`    ${line}`);
     }
     lines.push(`  }`);
   } else {

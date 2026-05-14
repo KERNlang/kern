@@ -6,7 +6,14 @@
 
 import type { Project, SourceFile } from 'ts-morph';
 import { getActiveRules } from './rules/index.js';
-import type { FileRole, InferResult, ReviewConfig, ReviewFinding, TemplateMatch } from './types.js';
+import type {
+  CrossFileExtensionRequest,
+  FileRole,
+  InferResult,
+  ReviewConfig,
+  ReviewFinding,
+  TemplateMatch,
+} from './types.js';
 
 /**
  * Run all active quality rules against a source file.
@@ -19,6 +26,7 @@ export function runQualityRules(
   config?: ReviewConfig,
   fileRole: FileRole = 'runtime',
   project?: Project,
+  pendingCrossFileLinks?: CrossFileExtensionRequest[],
 ): ReviewFinding[] {
   const filePath = sourceFile.getFilePath() || 'input.ts';
   const rules = getActiveRules(config?.target);
@@ -28,7 +36,19 @@ export function runQualityRules(
 
   const findings: ReviewFinding[] = [];
   for (const rule of rules) {
-    findings.push(...rule({ sourceFile, project, inferred, templateMatches, config, filePath, fileRole, fileContext }));
+    findings.push(
+      ...rule({
+        sourceFile,
+        project,
+        inferred,
+        templateMatches,
+        config,
+        filePath,
+        fileRole,
+        fileContext,
+        pendingCrossFileLinks,
+      }),
+    );
   }
 
   return findings;

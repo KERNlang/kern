@@ -385,9 +385,16 @@ export function detectTarget(ast: IRNode): KernTarget {
       case 'page':
       case 'layout':
       case 'loading':
-      case 'error':
       case 'metadata':
         hasNextjs = true;
+        break;
+      case 'error':
+        // `error` is overloaded: class shape (TS target) carries `extends=` and
+        // typed `field` children; Next.js error pages carry UI children. Only
+        // the latter should flag the Next.js target.
+        if (!(node.props && (node.props as Record<string, unknown>).extends)) {
+          hasNextjs = true;
+        }
         break;
     }
     for (const child of node.children || []) {

@@ -664,10 +664,11 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   catch: {
     description:
-      'Catch clause of a `try` block — binds the thrown value to `name` (default `e`) and runs its body. In async-orchestration `try`, the body is a single `handler` child. In body-statement `try` (parent `handler lang="kern"`), the body consists of body-statement children. Must be a direct child of `try`. Without a `catch`, a `try` still surrounds its steps + handler but any rejection propagates unchanged.',
-    example: 'catch name=err\n  handler <<<\n    setError(err);\n  >>>',
+      'Catch clause of a `try` block — binds the thrown value to `name` (default `e`) and runs its body. In async-orchestration `try`, the body is a single `handler` child. In body-statement `try` (parent `handler lang="kern"`), the body consists of body-statement children. Must be a direct child of `try`. Without a `catch`, a `try` still surrounds its steps + handler but any rejection propagates unchanged. Optional `type=any` widens the caught binding for TS strict mode.',
+    example: 'catch name=err type=any\n  handler <<<\n    setError(err.message);\n  >>>',
     props: {
       name: { kind: 'identifier' },
+      type: { kind: 'typeAnnotation' },
     },
     allowedChildren: [
       'handler',
