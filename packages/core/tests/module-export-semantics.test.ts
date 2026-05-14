@@ -134,6 +134,24 @@ describe('semantic-validator — module export cross references', () => {
     expect(conflict?.message).not.toContain('pypi:numpy#NDArray');
   });
 
+  test('reports both external namespaces when value and type imports both conflict', () => {
+    const source = [
+      'module name=typing',
+      '  import py "numpy" names=NDArray',
+      '  import py "scipy" names=NDArray',
+      '  import py "numpy.typing" names=NDArray types=true',
+      '  import py "custom.typing" names=NDArray types=true',
+      '  export types=NDArray',
+    ].join('\n');
+    const violations = validateSemantics(parseDocumentWithDiagnostics(source).root);
+    const conflict = violations.find((violation) => violation.rule === 'external-import-local-conflict');
+
+    expect(conflict?.message).toContain('pypi:numpy#NDArray');
+    expect(conflict?.message).toContain('pypi:scipy#NDArray');
+    expect(conflict?.message).toContain('pypi:numpy.typing#NDArray');
+    expect(conflict?.message).toContain('pypi:custom.typing#NDArray');
+  });
+
   test('reports local exports that reference unknown symbols', () => {
     const source = ['module name=domain', '  export names=missing'].join('\n');
     const violations = validateSemantics(parseDocumentWithDiagnostics(source).root);

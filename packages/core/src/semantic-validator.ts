@@ -516,8 +516,9 @@ function conflictingExternalImportSymbols(
   symbols: ExternalImportSymbolTable['symbols'],
 ): ExternalImportSymbolTable['symbols'] {
   const valueSymbols = symbols.filter((symbol) => symbol.kind !== 'type');
-  if (valueSymbols.length > 1) return valueSymbols;
   const typeSymbols = symbols.filter((symbol) => symbol.kind === 'type');
+  if (valueSymbols.length > 1 && typeSymbols.length > 1) return symbols;
+  if (valueSymbols.length > 1) return valueSymbols;
   if (typeSymbols.length > 1) return typeSymbols;
   return symbols;
 }
