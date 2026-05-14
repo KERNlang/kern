@@ -464,7 +464,9 @@ function generateLogicEffect(logicNode: IRNode, imports: ImportTracker): string[
   const deps = props.deps as string;
   // Support both inline code prop and handler child
   const handlerChild = (logicNode.children || []).find((c) => c.type === 'handler');
-  const code = handlerChild ? (getProps(handlerChild).code as string) || '' : (props.code as string) || '';
+  const code = handlerChild
+    ? readHandlerCodeOrNativeKern(handlerChild)
+    : (props.code as string) || '';
 
   if (code) {
     imports.addReact('useEffect');
@@ -570,6 +572,18 @@ function generateAnimation(animNode: IRNode, imports: ImportTracker): string[] {
 
 // ── Callback block → useCallback (Feature #11) ─────────────────────────
 
+/** Read a handler child's body, honouring the `lang=kern` opt-in.
+ *  When set, walk structured statements through emitNativeKernBodyTS so
+ *  natively-authored bodies don't silently emit empty. Legacy raw
+ *  `<<<...>>>` handlers flow through the `.code` text prop. */
+function readHandlerCodeOrNativeKern(handlerNode: IRNode | undefined): string {
+  if (!handlerNode) return '';
+  if ((getProps(handlerNode).lang as string | undefined) === 'kern') {
+    return emitNativeKernBodyTS(handlerNode);
+  }
+  return (getProps(handlerNode).code as string) || '';
+}
+
 function generateCallbackHook(callbackNode: IRNode, imports: ImportTracker): string[] {
   const lines: string[] = [];
   const props = getProps(callbackNode);
@@ -577,15 +591,7 @@ function generateCallbackHook(callbackNode: IRNode, imports: ImportTracker): str
   const params = (props.params as string) || '';
   const deps = props.deps as string;
   const handlerChild = (callbackNode.children || []).find((c) => c.type === 'handler');
-  // Same `lang=kern` opt-in as fn/method — walk structured statements through
-  // emitNativeKernBodyTS so callbacks written natively don't silently emit
-  // empty bodies. Legacy raw `<<<...>>>` blocks still flow through `.code`.
-  const handlerLang = handlerChild ? (getProps(handlerChild).lang as string | undefined) : undefined;
-  const code = handlerChild
-    ? handlerLang === 'kern'
-      ? emitNativeKernBodyTS(handlerChild)
-      : (getProps(handlerChild).code as string) || ''
-    : '';
+  const code = readHandlerCodeOrNativeKern(handlerChild);
 
   if (name && code) {
     imports.addReact('useCallback');
@@ -726,7 +732,7 @@ function generateOnHook(onNode: IRNode, imports: ImportTracker, stateNodes: IRNo
     imports.addReact('useRef');
     const key = onProps.key as string;
     const handlerChild = (onNode.children || []).find((c) => c.type === 'handler');
-    const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
+    const code = readHandlerCodeOrNativeKern(handlerChild);
 
     // Use ref pattern with unique suffix for fresh closures — supports multiple on-nodes
     const suffix = _onHookCounter === 0 ? '' : `_${_onHookCounter}`;
@@ -1557,7 +1563,7 @@ function compileScreenBody(
     const mDeps = injectExternalVersionDeps(mDepsRaw, externalStateNames);
     const mDepsArr = mDeps ? `[${mDeps}]` : '[]';
     const handlerChild = (memoNode.children || []).find((c: IRNode) => c.type === 'handler');
-    const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
+    const code = readHandlerCodeOrNativeKern(handlerChild);
     if (mName && code) {
       imports.addReact('useMemo');
       const dedented = dedent(code);
