@@ -9,6 +9,8 @@
 - Treat `Release Preflight` as mandatory before release.
 - Release tags must be lowercase `vX.Y.Z`.
 - For Claude code reviews, pin the Claude CLI to `--model claude-opus-4-7`; do not rely on the default `claude` model alias.
+- Final code review should use Agon reviewers when available: `claude`, `gemini`, `kimi-for-coding-k2p6`, and `minimax-coding-plan-minimax-m2.7-highspeed`. Invoke Agon through Node 22 when the shell `agon` launcher is on Node 20: `/Users/nicolascukas/.nvm/versions/node/v22.22.0/bin/node /Users/nicolascukas/.nvm/versions/node/v22.22.0/bin/agon review --engines claude,gemini,kimi-for-coding-k2p6,minimax-coding-plan-minimax-m2.7-highspeed commit:<sha>`.
+- Use Agon `brainstorm`, `forge`, and `tribunal` for large or ambiguous design/implementation work when extra perspectives help. If Agon fails or behaves oddly, preserve the exact command, engine IDs, Node version/path, review target or SHA, and failure output in the final report so the CLI can be improved.
 
 ## If You Need To Update pnpm
 
