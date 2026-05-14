@@ -1,0 +1,403 @@
+/**
+ * Phase 2 unit tests for cross-file ProvenanceChain extension.
+ *
+ * Verifies:
+ *  - Registry register/get/_reset
+ *  - extendCrossFileChains appends to the matching finding's chain
+ *  - APPEND-ONLY invariant: chain.steps[0..2] are byte-identical post-extension
+ *  - Hard cap truncates with a `category: 'truncated'` marker step
+ *  - forwardImportWalker finds the React.memo wrap site in the child's
+ *    declaration file (named export, default export, forwardRef(memo()) nest)
+ *  - Unknown walkerId / missing finding are no-ops (no throw, no mutation)
+ *  - pendingCrossFileLinks is consumed (removed from the returned report)
+ */
+
+import { Project } from 'ts-morph';
+import {
+  type CrossFileContext,
+  type CrossFileWalker,
+  cfWalkers,
+  extendCrossFileChains,
+  forwardImportWalker,
+} from '../src/cross-file-provenance.js';
+import { resolveImportGraph } from '../src/graph.js';
+import type { CrossFileExtensionRequest, ProvenanceStep, ReviewFinding, ReviewReport } from '../src/types.js';
+
+function createTestProject(): Project {
+  return new Project({
+    compilerOptions: { strict: true, target: 99, module: 99, moduleResolution: 100, jsx: 4 },
+    useInMemoryFileSystem: true,
+    skipAddingFilesFromTsConfig: true,
+  });
+}
+
+function makeFinding(fingerprint: string, steps: ProvenanceStep[] = []): ReviewFinding {
+  return {
+    source: 'kern',
+    ruleId: 'memoized-child-inline-prop',
+    severity: 'warning',
+    category: 'pattern',
+    message: 'inline prop',
+    primarySpan: { file: '/src/app.tsx', startLine: 5, startCol: 1, endLine: 5, endCol: 1 },
+    fingerprint,
+    confidence: 80,
+    provenance: { steps: [...steps] },
+  };
+}
+
+function makeReport(findings: ReviewFinding[], requests: CrossFileExtensionRequest[]): ReviewReport {
+  return {
+    filePath: '/src/app.tsx',
+    inferred: [],
+    templateMatches: [],
+    findings,
+    pendingCrossFileLinks: requests,
+    stats: {
+      totalLines: 1,
+      coverage: { total: 0, accepted: 0, summary: '' },
+      tokenReduction: { original: 0, kern: 0, reductionPct: 0 },
+      findingsBySource: { kern: 0, 'kern-native': 0, eslint: 0, tsc: 0, llm: 0 },
+      findingsBySeverity: { error: 0, warning: 0, info: 0 },
+      findingsByCategory: { bug: 0, type: 0, pattern: 0, style: 0, structure: 0 },
+    },
+  };
+}
+
+function stepAt(file: string, line: number, label: string): ProvenanceStep {
+  return {
+    kind: 'source',
+    location: { file, startLine: line, startCol: 1, endLine: line, endCol: 1 },
+    label,
+  };
+}
+
+afterEach(() => {
+  // Restore the default walker registry between tests.
+  cfWalkers._reset();
+});
+
+describe('cfWalkers registry', () => {
+  it('register + get round-trips a walker', () => {
+    const probe: CrossFileWalker = () => ({ appendSteps: [stepAt('/x', 1, 'probe')] });
+    cfWalkers.register('probe', probe);
+    expect(cfWalkers.get('probe')).toBe(probe);
+  });
+
+  it('_reset clears custom registrations but restores built-ins', () => {
+    cfWalkers.register('probe', () => ({ appendSteps: [] }));
+    expect(cfWalkers.get('probe')).toBeDefined();
+    cfWalkers._reset();
+    expect(cfWalkers.get('probe')).toBeUndefined();
+    expect(cfWalkers.get('forward-import')).toBe(forwardImportWalker);
+  });
+});
+
+describe('extendCrossFileChains', () => {
+  const dummyCtx: CrossFileContext = {
+    graph: { files: [], entryFiles: [], totalFiles: 0, skipped: 0 },
+    project: createTestProject(),
+  };
+
+  it('appends walker steps to the matching finding by fingerprint', () => {
+    cfWalkers.register('probe', () => ({
+      appendSteps: [stepAt('/lib/foo.tsx', 7, 'memo boundary')],
+    }));
+    const finding = makeFinding('fp-1', [stepAt('/src/app.tsx', 5, 'inline prop')]);
+    const report = makeReport([finding], [{ findingFingerprint: 'fp-1', walkerId: 'probe', payload: {} }]);
+
+    const out = extendCrossFileChains(report, dummyCtx);
+
+    expect(out.findings[0].provenance!.steps).toHaveLength(2);
+    expect(out.findings[0].provenance!.steps[1].label).toBe('memo boundary');
+  });
+
+  it('APPEND-ONLY invariant: chain.steps[0..2] are byte-identical after extension', () => {
+    cfWalkers.register('probe', () => ({
+      appendSteps: [stepAt('/lib/foo.tsx', 7, 'appended')],
+    }));
+    const headSteps: ProvenanceStep[] = [
+      { ...stepAt('/src/app.tsx', 1, 'head-0'), kind: 'boundary', category: 'memo-boundary' },
+      { ...stepAt('/src/app.tsx', 2, 'head-1'), kind: 'call' },
+      { ...stepAt('/src/app.tsx', 3, 'head-2'), kind: 'sink' },
+    ];
+    const headSnapshot = JSON.parse(JSON.stringify(headSteps));
+    const finding = makeFinding('fp-1', headSteps);
+    const report = makeReport([finding], [{ findingFingerprint: 'fp-1', walkerId: 'probe', payload: {} }]);
+
+    extendCrossFileChains(report, dummyCtx);
+
+    expect(finding.provenance!.steps.slice(0, 3)).toEqual(headSnapshot);
+  });
+
+  it('hard cap truncates and emits a `category: truncated` marker step', () => {
+    cfWalkers.register('flood', () => ({
+      appendSteps: [
+        stepAt('/x', 1, 'a'),
+        stepAt('/x', 2, 'b'),
+        stepAt('/x', 3, 'c'),
+        stepAt('/x', 4, 'd'),
+        stepAt('/x', 5, 'e'),
+      ],
+    }));
+    const head: ProvenanceStep[] = [stepAt('/src/app.tsx', 1, 'h')];
+    const finding = makeFinding('fp-1', head);
+    const report = makeReport([finding], [{ findingFingerprint: 'fp-1', walkerId: 'flood', payload: {} }]);
+
+    extendCrossFileChains(report, dummyCtx, { hardCap: 4 });
+
+    const steps = finding.provenance!.steps;
+    // 1 head + 2 appended + 1 truncation marker = 4 (hardCap)
+    expect(steps).toHaveLength(4);
+    expect(steps[steps.length - 1].category).toBe('truncated');
+  });
+
+  it('unknown walkerId is a no-op (does not throw, does not mutate)', () => {
+    const finding = makeFinding('fp-1', [stepAt('/src/app.tsx', 1, 'h')]);
+    const report = makeReport([finding], [{ findingFingerprint: 'fp-1', walkerId: 'no-such-walker', payload: {} }]);
+
+    const out = extendCrossFileChains(report, dummyCtx);
+    expect(out.findings[0].provenance!.steps).toHaveLength(1);
+  });
+
+  it('missing finding fingerprint is a no-op', () => {
+    cfWalkers.register('probe', () => ({ appendSteps: [stepAt('/x', 1, 'a')] }));
+    const finding = makeFinding('fp-real', [stepAt('/src/app.tsx', 1, 'h')]);
+    const report = makeReport([finding], [{ findingFingerprint: 'fp-MISSING', walkerId: 'probe', payload: {} }]);
+
+    const out = extendCrossFileChains(report, dummyCtx);
+    expect(out.findings[0].provenance!.steps).toHaveLength(1);
+  });
+
+  it('clears pendingCrossFileLinks on the returned report', () => {
+    cfWalkers.register('probe', () => ({ appendSteps: [stepAt('/x', 1, 'a')] }));
+    const finding = makeFinding('fp-1');
+    const report = makeReport([finding], [{ findingFingerprint: 'fp-1', walkerId: 'probe', payload: {} }]);
+
+    const out = extendCrossFileChains(report, dummyCtx);
+    expect(out.pendingCrossFileLinks).toBeUndefined();
+  });
+
+  it('empty/missing pendingCrossFileLinks short-circuits and returns input', () => {
+    const report = makeReport([makeFinding('fp-1')], []);
+    const out = extendCrossFileChains(report, dummyCtx);
+    expect(out).toBe(report);
+  });
+});
+
+describe('forwardImportWalker', () => {
+  it('resolves a named-export memoised component to the React.memo call site', () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/lib/button.tsx',
+      `
+import { memo } from 'react';
+export const MemoButton = memo(function Button(props: { onClick: () => void }) {
+  return null as any;
+});
+`,
+    );
+    project.createSourceFile(
+      '/src/app.tsx',
+      `
+import { MemoButton } from '/lib/button';
+export function App() { return <MemoButton onClick={() => {}} />; }
+`,
+    );
+    const graph = resolveImportGraph(['/src/app.tsx'], { project });
+    const ctx: CrossFileContext = { graph, project };
+
+    const result = forwardImportWalker(
+      {
+        findingFingerprint: 'x',
+        walkerId: 'forward-import',
+        payload: { symbol: 'MemoButton', targetFile: '/lib/button.tsx' },
+      },
+      makeFinding('x'),
+      ctx,
+    );
+
+    expect(result.appendSteps).toHaveLength(1);
+    const step = result.appendSteps[0];
+    expect(step.kind).toBe('import');
+    expect(step.category).toBe('memo-boundary');
+    expect(step.location.file).toBe('/lib/button.tsx');
+    expect(step.location.startLine).toBeGreaterThan(1);
+    expect(step.label).toContain('MemoButton');
+  });
+
+  it('handles React.memo (namespace) wrap', () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/lib/button.tsx',
+      `
+import * as React from 'react';
+export const MemoButton = React.memo(function Button() {
+  return null as any;
+});
+`,
+    );
+    project.createSourceFile(
+      '/src/app.tsx',
+      `
+import { MemoButton } from '/lib/button';
+export function App() { return <MemoButton />; }
+`,
+    );
+    const graph = resolveImportGraph(['/src/app.tsx'], { project });
+    const ctx: CrossFileContext = { graph, project };
+
+    const result = forwardImportWalker(
+      {
+        findingFingerprint: 'x',
+        walkerId: 'forward-import',
+        payload: { symbol: 'MemoButton', targetFile: '/lib/button.tsx' },
+      },
+      makeFinding('x'),
+      ctx,
+    );
+    expect(result.appendSteps).toHaveLength(1);
+    expect(result.appendSteps[0].label).toContain('MemoButton');
+  });
+
+  it('unwraps forwardRef(memo(...)) and lands on the memo call', () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/lib/button.tsx',
+      `
+import { memo, forwardRef } from 'react';
+export const MemoButton = forwardRef(memo(function Button() {
+  return null as any;
+}));
+`,
+    );
+    project.createSourceFile(
+      '/src/app.tsx',
+      `
+import { MemoButton } from '/lib/button';
+export function App() { return <MemoButton />; }
+`,
+    );
+    const graph = resolveImportGraph(['/src/app.tsx'], { project });
+    const ctx: CrossFileContext = { graph, project };
+
+    const result = forwardImportWalker(
+      {
+        findingFingerprint: 'x',
+        walkerId: 'forward-import',
+        payload: { symbol: 'MemoButton', targetFile: '/lib/button.tsx' },
+      },
+      makeFinding('x'),
+      ctx,
+    );
+    expect(result.appendSteps).toHaveLength(1);
+    // Should land on `memo(...)`, not the outer `forwardRef(...)`. Verify
+    // indirectly via line — the memo call sits one line deeper than the
+    // outer forwardRef call.
+    expect(result.appendSteps[0].location.startLine).toBeGreaterThan(2);
+  });
+
+  it('returns no steps when the target file is not in the project', () => {
+    const project = createTestProject();
+    const graph = resolveImportGraph([], { project });
+    const ctx: CrossFileContext = { graph, project };
+
+    const result = forwardImportWalker(
+      {
+        findingFingerprint: 'x',
+        walkerId: 'forward-import',
+        payload: { symbol: 'NotThere', targetFile: '/lib/nothing.tsx' },
+      },
+      makeFinding('x'),
+      ctx,
+    );
+    expect(result.appendSteps).toEqual([]);
+  });
+
+  it('resolves the EXPORTED name (not the local alias) — regression for aliased imports', () => {
+    // Gemini + Codex review 2026-05-14: when the parent did
+    // `import { MemoButton as B } from './x'; <B />` the walker was being
+    // handed `symbol: 'B'`, missing the source's `MemoButton` export and
+    // silently producing no extension step. The rule emission was fixed to
+    // pass `binding.importedName`; this test pins the walker side: it must
+    // resolve a named export by its declared name, not the importer's alias.
+    const project = createTestProject();
+    project.createSourceFile(
+      '/lib/button.tsx',
+      `
+import { memo } from 'react';
+export const MemoButton = memo(function Button() { return null as any; });
+`,
+    );
+    project.createSourceFile(
+      '/src/app.tsx',
+      `
+import { MemoButton as B } from '/lib/button';
+export function App() { return <B />; }
+`,
+    );
+    const graph = resolveImportGraph(['/src/app.tsx'], { project });
+    const ctx: CrossFileContext = { graph, project };
+
+    const result = forwardImportWalker(
+      {
+        findingFingerprint: 'x',
+        walkerId: 'forward-import',
+        payload: { symbol: 'MemoButton', targetFile: '/lib/button.tsx' },
+      },
+      makeFinding('x'),
+      ctx,
+    );
+    expect(result.appendSteps).toHaveLength(1);
+    expect(result.appendSteps[0].label).toContain('MemoButton');
+  });
+
+  it('does NOT fall back to default export when a named lookup misses', () => {
+    // Gemini review: a missed named lookup must not silently surface the
+    // file's default export — that would point a finding's chain at an
+    // unrelated component.
+    const project = createTestProject();
+    project.createSourceFile(
+      '/lib/mixed.tsx',
+      `
+import { memo } from 'react';
+export default function NotTheTarget() { return null as any; }
+`,
+    );
+    project.createSourceFile(
+      '/src/app.tsx',
+      `import * as M from '/lib/mixed';\nexport function App() { return null as any; }\n`,
+    );
+    const graph = resolveImportGraph(['/src/app.tsx'], { project });
+    const ctx: CrossFileContext = { graph, project };
+
+    const result = forwardImportWalker(
+      {
+        findingFingerprint: 'x',
+        walkerId: 'forward-import',
+        payload: { symbol: 'MissingNamedExport', targetFile: '/lib/mixed.tsx' },
+      },
+      makeFinding('x'),
+      ctx,
+    );
+    expect(result.appendSteps).toEqual([]);
+  });
+
+  it('returns no steps when payload is malformed (empty symbol or file)', () => {
+    const project = createTestProject();
+    const graph = resolveImportGraph([], { project });
+    const ctx: CrossFileContext = { graph, project };
+
+    expect(
+      forwardImportWalker({ findingFingerprint: 'x', walkerId: 'forward-import', payload: {} }, makeFinding('x'), ctx)
+        .appendSteps,
+    ).toEqual([]);
+
+    expect(
+      forwardImportWalker(
+        { findingFingerprint: 'x', walkerId: 'forward-import', payload: { symbol: 'Foo' } },
+        makeFinding('x'),
+        ctx,
+      ).appendSteps,
+    ).toEqual([]);
+  });
+});

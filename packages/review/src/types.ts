@@ -77,6 +77,23 @@ export interface ProvenanceChain {
   summary?: string;
 }
 
+/**
+ * Request a registered cross-file walker append additional steps to a finding's
+ * ProvenanceChain. Rules attach these to `ReviewReport.pendingCrossFileLinks`
+ * by fingerprint; `extendCrossFileChains` consumes them after rules run and
+ * before suppression / root-cause grouping. Extension is APPEND-ONLY — walkers
+ * MUST NOT mutate `chain.steps[0..K]` (K=2) because `deriveProvenanceRootCause`
+ * derives its grouping key from that prefix.
+ */
+export interface CrossFileExtensionRequest {
+  /** ReviewFinding.fingerprint identifying which finding to extend. */
+  findingFingerprint: string;
+  /** Registry id of the walker that handles this request (e.g. 'forward-import'). */
+  walkerId: string;
+  /** Walker-specific payload (symbol name, targetFile, etc.). */
+  payload: Record<string, unknown>;
+}
+
 /** Semantic root cause used to group findings that describe the same underlying issue. */
 export interface RootCause {
   /** Stable grouping key. Prefer graph/concept IDs over raw line numbers. */
@@ -246,7 +263,8 @@ export type ReviewHealthSubsystem =
   | 'call-graph'
   | 'fs-project'
   | 'rule-loader'
-  | 'concept-extraction';
+  | 'concept-extraction'
+  | 'cross-file-provenance';
 
 /**
  * What happened to a subsystem during the review.
@@ -313,6 +331,13 @@ export interface ReviewReport {
    * not user-source ones, and they need different audit metadata.
    */
   selfSuppressedFindings?: ReviewFinding[];
+  /**
+   * Cross-file ProvenanceChain extension requests emitted by rules during
+   * single-file analysis. Consumed by `extendCrossFileChains` in graph mode
+   * (before suppression / root-cause grouping). Cleared from the report
+   * after extension; not surfaced to SARIF or downstream consumers.
+   */
+  pendingCrossFileLinks?: CrossFileExtensionRequest[];
   /** Summary stats */
   stats: ReviewStats;
   /** Cross-file taint results (present when graph-aware review detects cross-module taint) */
@@ -525,6 +550,14 @@ export interface RuleContext {
   fileRole: FileRole;
   /** Import chain context — present when reviewing with graph awareness */
   fileContext?: FileContext;
+  /**
+   * Mutable bucket for cross-file ProvenanceChain extension requests. Present
+   * only in graph mode. Rules that detect cross-file evidence (e.g. an imported
+   * React.memo child being defeated by inline props) push requests here AFTER
+   * calling `finding()` so the request can reference the finding's fingerprint.
+   * `extendCrossFileChains` consumes the aggregated bucket from `ReviewReport`.
+   */
+  pendingCrossFileLinks?: CrossFileExtensionRequest[];
 }
 
 /** A review rule function */

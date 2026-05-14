@@ -29,6 +29,9 @@ type PassthroughAnalysis = {
   componentName: string;
   childTag: string;
   passthroughProps: string[];
+  /** The JSX element where this passthrough renders its child — used by
+   *  prop-drill-chain to produce real file:line:col instead of placeholder. */
+  rootJsx: JsxOpeningElement | JsxSelfClosingElement;
 };
 type ImportBinding = {
   importDecl: import('ts-morph').ImportDeclaration;
@@ -311,6 +314,7 @@ function analyzePassthroughComponent(fn: ComponentFn): PassthroughAnalysis | und
     componentName: info.name,
     childTag: tag,
     passthroughProps,
+    rootJsx: root,
   };
 }
 
@@ -550,6 +554,10 @@ interface DrillHop {
   childTag: string;
   filePath: string;
   props: string[];
+  /** Location of `<childTag />` inside this hop's wrapper — populated from
+   *  the resolved imported source file so prop-drill-chain provenance steps
+   *  carry real file:line:col instead of the v1 placeholder. */
+  childJsx: JsxOpeningElement | JsxSelfClosingElement;
 }
 
 function walkPropDrillChain(
@@ -597,6 +605,7 @@ function walkPropDrillChain(
       childTag: analysis.childTag,
       filePath: nextFilePath,
       props: sharedProps,
+      childJsx: analysis.rootJsx,
     });
 
     const nextCtx: RuleContext = { ...ctx, filePath: nextFilePath, sourceFile: currentSf };
@@ -653,15 +662,16 @@ function propDrillChain(ctx: RuleContext): ReviewFinding[] {
       steps.push({
         kind: 'call',
         category: 'prop-pass',
-        location: { file: hop.filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+        location: nodeSpan(hop.childJsx, hop.filePath),
         label: `<${hop.componentName}> → <${hop.childTag}>`,
         detail: `${hop.componentName} forwards ${hop.props.join(', ')} to <${hop.childTag}> without reading.`,
       });
     }
+    const lastHop = hops[hops.length - 1];
     steps.push({
       kind: 'sink',
       category: 'render-cycle',
-      location: { file: hops[hops.length - 1].filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+      location: nodeSpan(lastHop.childJsx, lastHop.filePath),
       label: `${hops.length + 1} components re-render on any drilled prop change`,
       detail: `Each wrapper in the chain re-renders when any forwarded prop changes, even though only the last one reads it.`,
     });
@@ -710,7 +720,12 @@ function collectMemoizedComponentNames(ctx: RuleContext): Set<string> {
 function memoizedChildInlineProp(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
   const memoizedNames = collectMemoizedComponentNames(ctx);
-  const memoizedImportCache = new Map<string, boolean>();
+  // Cache value includes the EXPORTED name (not the local JSX tag) so the
+  // cross-file walker — which looks up exports in the target file — can resolve
+  // aliased imports like `import { MemoButton as B } from './x'; <B />`.
+  // Gemini + Codex review caught the prior code passing the local alias and
+  // silently producing empty cross-file extensions for every aliased case.
+  const memoizedImportCache = new Map<string, { isMemo: boolean; targetFile?: string; exportedName?: string }>();
 
   for (const fn of iterComponentFunctions(ctx)) {
     const body = fn.getBody();
@@ -724,13 +739,23 @@ function memoizedChildInlineProp(ctx: RuleContext): ReviewFinding[] {
     for (const jsx of jsxNodes) {
       const tag = jsx.getTagNameNode().getText();
       let isMemoizedChild = memoizedNames.has(tag);
+      let importedTargetFile: string | undefined;
+      let importedExportedName: string | undefined;
       if (!isMemoizedChild) {
         if (!memoizedImportCache.has(tag)) {
           const binding = findImportBinding(ctx, tag);
           const importedSf = binding ? resolveImportedSourceFile(ctx, binding.importDecl) : undefined;
-          memoizedImportCache.set(tag, !!(binding && importedSf && isMemoizedExport(importedSf, binding)));
+          const isMemo = !!(binding && importedSf && isMemoizedExport(importedSf, binding));
+          memoizedImportCache.set(tag, {
+            isMemo,
+            targetFile: importedSf?.getFilePath(),
+            exportedName: binding?.importedName,
+          });
         }
-        isMemoizedChild = memoizedImportCache.get(tag) ?? false;
+        const cached = memoizedImportCache.get(tag);
+        isMemoizedChild = cached?.isMemo ?? false;
+        importedTargetFile = cached?.targetFile;
+        importedExportedName = cached?.exportedName;
       }
       if (!isMemoizedChild) continue;
 
@@ -793,22 +818,32 @@ function memoizedChildInlineProp(ctx: RuleContext): ReviewFinding[] {
         ],
       };
 
-      findings.push(
-        finding(
-          'memoized-child-inline-prop',
-          'warning',
-          'pattern',
-          `<${tag}> is memoized with React.memo, but inline prop${propNames.length === 1 ? '' : 's'} (${propNames.join(', ')}) create a new identity every render and defeat memoization`,
-          ctx.filePath,
-          jsx.getStartLineNumber(),
-          1,
-          {
-            suggestion:
-              'Hoist static literals, memoize object/array props with useMemo, and memoize callback props with useCallback before passing them to a memoized child',
-            provenance,
-          },
-        ),
+      const emitted = finding(
+        'memoized-child-inline-prop',
+        'warning',
+        'pattern',
+        `<${tag}> is memoized with React.memo, but inline prop${propNames.length === 1 ? '' : 's'} (${propNames.join(', ')}) create a new identity every render and defeat memoization`,
+        ctx.filePath,
+        jsx.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'Hoist static literals, memoize object/array props with useMemo, and memoize callback props with useCallback before passing them to a memoized child',
+          provenance,
+        },
       );
+      findings.push(emitted);
+
+      // When the memoised child is imported, request a cross-file extension
+      // that points the chain at the `React.memo(...)` wrap site in the child's
+      // declaration file (Plan v3 forward-import walker).
+      if (!memoLocalDecl && importedTargetFile && importedExportedName && ctx.pendingCrossFileLinks) {
+        ctx.pendingCrossFileLinks.push({
+          findingFingerprint: emitted.fingerprint,
+          walkerId: 'forward-import',
+          payload: { symbol: importedExportedName, targetFile: importedTargetFile },
+        });
+      }
     }
   }
 
@@ -822,7 +857,7 @@ function memoizedChildInlineProp(ctx: RuleContext): ReviewFinding[] {
 function memoizedChildInlineChildren(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
   const memoizedNames = collectMemoizedComponentNames(ctx);
-  const memoizedImportCache = new Map<string, boolean>();
+  const memoizedImportCache = new Map<string, { isMemo: boolean; targetFile?: string; exportedName?: string }>();
 
   for (const fn of iterComponentFunctions(ctx)) {
     const body = fn.getBody();
@@ -832,13 +867,23 @@ function memoizedChildInlineChildren(ctx: RuleContext): ReviewFinding[] {
       const opening = jsx.getOpeningElement();
       const tag = opening.getTagNameNode().getText();
       let isMemoizedChild = memoizedNames.has(tag);
+      let importedTargetFile: string | undefined;
+      let importedExportedName: string | undefined;
       if (!isMemoizedChild) {
         if (!memoizedImportCache.has(tag)) {
           const binding = findImportBinding(ctx, tag);
           const importedSf = binding ? resolveImportedSourceFile(ctx, binding.importDecl) : undefined;
-          memoizedImportCache.set(tag, !!(binding && importedSf && isMemoizedExport(importedSf, binding)));
+          const isMemo = !!(binding && importedSf && isMemoizedExport(importedSf, binding));
+          memoizedImportCache.set(tag, {
+            isMemo,
+            targetFile: importedSf?.getFilePath(),
+            exportedName: binding?.importedName,
+          });
         }
-        isMemoizedChild = memoizedImportCache.get(tag) ?? false;
+        const cached = memoizedImportCache.get(tag);
+        isMemoizedChild = cached?.isMemo ?? false;
+        importedTargetFile = cached?.targetFile;
+        importedExportedName = cached?.exportedName;
       }
       if (!isMemoizedChild) continue;
 
@@ -899,22 +944,29 @@ function memoizedChildInlineChildren(ctx: RuleContext): ReviewFinding[] {
         ],
       };
 
-      findings.push(
-        finding(
-          'memoized-child-inline-children',
-          'warning',
-          'pattern',
-          `<${tag}> is memoized with React.memo, but its inline children create new React element identities every render and defeat memoization`,
-          ctx.filePath,
-          opening.getStartLineNumber(),
-          1,
-          {
-            suggestion:
-              'Hoist the child subtree outside the parent render, memoize it with useMemo, or restructure the component so the memoized child receives stable primitive props instead of inline children',
-            provenance,
-          },
-        ),
+      const emitted = finding(
+        'memoized-child-inline-children',
+        'warning',
+        'pattern',
+        `<${tag}> is memoized with React.memo, but its inline children create new React element identities every render and defeat memoization`,
+        ctx.filePath,
+        opening.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'Hoist the child subtree outside the parent render, memoize it with useMemo, or restructure the component so the memoized child receives stable primitive props instead of inline children',
+          provenance,
+        },
       );
+      findings.push(emitted);
+
+      if (!memoLocalDecl && importedTargetFile && importedExportedName && ctx.pendingCrossFileLinks) {
+        ctx.pendingCrossFileLinks.push({
+          findingFingerprint: emitted.fingerprint,
+          walkerId: 'forward-import',
+          payload: { symbol: importedExportedName, targetFile: importedTargetFile },
+        });
+      }
     }
   }
 
