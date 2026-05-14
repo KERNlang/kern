@@ -19,6 +19,7 @@ import {
   cfWalkers,
   extendCrossFileChains,
   forwardImportWalker,
+  reverseJsxUsageWalker,
 } from '../src/cross-file-provenance.js';
 import { resolveImportGraph } from '../src/graph.js';
 import type { CrossFileExtensionRequest, ProvenanceStep, ReviewFinding, ReviewReport } from '../src/types.js';
@@ -399,5 +400,285 @@ export default function NotTheTarget() { return null as any; }
         ctx,
       ).appendSteps,
     ).toEqual([]);
+  });
+});
+
+describe('reverseJsxUsageWalker', () => {
+  function buildCtxWith(files: Record<string, string>, entries: string[]): CrossFileContext {
+    const project = new Project({
+      compilerOptions: { strict: true, target: 99, module: 99, moduleResolution: 100, jsx: 4 },
+      useInMemoryFileSystem: true,
+      skipAddingFilesFromTsConfig: true,
+    });
+    for (const [path, content] of Object.entries(files)) project.createSourceFile(path, content);
+    const graph = resolveImportGraph(entries, { project });
+    return { graph, project };
+  }
+
+  it('is registered under id "reverse-jsx-usage" by default', () => {
+    expect(cfWalkers.get('reverse-jsx-usage')).toBe(reverseJsxUsageWalker);
+  });
+
+  it('single defeating parent → one appended step', () => {
+    const ctx = buildCtxWith(
+      {
+        '/lib/button.tsx': `
+import { memo } from 'react';
+export const MemoButton = memo(function Button(_: { onClick: () => void }) { return null as any; });
+`,
+        '/src/app.tsx': `
+import { MemoButton } from '/lib/button';
+export function App() { return <MemoButton onClick={() => {}} />; }
+`,
+      },
+      ['/src/app.tsx', '/lib/button.tsx'],
+    );
+
+    const out = reverseJsxUsageWalker(
+      {
+        findingFingerprint: 'x',
+        walkerId: 'reverse-jsx-usage',
+        payload: { symbol: 'MemoButton', declFile: '/lib/button.tsx' },
+      },
+      makeFinding('x'),
+      ctx,
+    );
+
+    expect(out.appendSteps).toHaveLength(1);
+    expect(out.appendSteps[0].kind).toBe('sink');
+    expect(out.appendSteps[0].location.file).toBe('/src/app.tsx');
+    expect(out.appendSteps[0].label).toContain('App');
+    expect(out.appendSteps[0].label).toContain('onClick');
+    expect(out.truncated).toBeFalsy();
+  });
+
+  it('multiple defeating parents → multiple steps (deterministic order)', () => {
+    const ctx = buildCtxWith(
+      {
+        '/lib/button.tsx': `
+import { memo } from 'react';
+export const MemoButton = memo(function Button(_: { onClick: () => void }) { return null as any; });
+`,
+        '/src/a.tsx': `
+import { MemoButton } from '/lib/button';
+export function ParentA() { return <MemoButton onClick={() => {}} />; }
+`,
+        '/src/b.tsx': `
+import { MemoButton } from '/lib/button';
+export function ParentB() { return <MemoButton onClick={() => {}} />; }
+`,
+      },
+      ['/src/a.tsx', '/src/b.tsx', '/lib/button.tsx'],
+    );
+
+    const out = reverseJsxUsageWalker(
+      {
+        findingFingerprint: 'x',
+        walkerId: 'reverse-jsx-usage',
+        payload: { symbol: 'MemoButton', declFile: '/lib/button.tsx' },
+      },
+      makeFinding('x'),
+      ctx,
+    );
+
+    expect(out.appendSteps).toHaveLength(2);
+    const labels = out.appendSteps.map((s) => s.label).join(' || ');
+    expect(labels).toContain('ParentA');
+    expect(labels).toContain('ParentB');
+  });
+
+  it('ignores callers that pass NO inline props (those are not defeating memo)', () => {
+    const ctx = buildCtxWith(
+      {
+        '/lib/button.tsx': `
+import { memo } from 'react';
+export const MemoButton = memo(function Button(_: { onClick: () => void }) { return null as any; });
+`,
+        '/src/clean.tsx': `
+import { MemoButton } from '/lib/button';
+const stable = () => {};
+export function CleanParent() { return <MemoButton onClick={stable} />; }
+`,
+        '/src/inline.tsx': `
+import { MemoButton } from '/lib/button';
+export function InlineParent() { return <MemoButton onClick={() => {}} />; }
+`,
+      },
+      ['/src/clean.tsx', '/src/inline.tsx', '/lib/button.tsx'],
+    );
+
+    const out = reverseJsxUsageWalker(
+      {
+        findingFingerprint: 'x',
+        walkerId: 'reverse-jsx-usage',
+        payload: { symbol: 'MemoButton', declFile: '/lib/button.tsx' },
+      },
+      makeFinding('x'),
+      ctx,
+    );
+
+    // Only InlineParent should be surfaced — CleanParent passes a stable ref.
+    expect(out.appendSteps).toHaveLength(1);
+    expect(out.appendSteps[0].label).toContain('InlineParent');
+  });
+
+  it('inlinePropFilter="function" surfaces only parents passing inline functions', () => {
+    const ctx = buildCtxWith(
+      {
+        '/lib/cell.tsx': `
+import { memo } from 'react';
+export const MemoCell = memo(function Cell(_: any) { return null as any; });
+`,
+        '/src/fn.tsx': `
+import { MemoCell } from '/lib/cell';
+export function FnParent() { return <MemoCell onClick={() => {}} />; }
+`,
+        '/src/obj.tsx': `
+import { MemoCell } from '/lib/cell';
+export function ObjParent() { return <MemoCell style={{ color: 'red' }} />; }
+`,
+      },
+      ['/src/fn.tsx', '/src/obj.tsx', '/lib/cell.tsx'],
+    );
+
+    const out = reverseJsxUsageWalker(
+      {
+        findingFingerprint: 'x',
+        walkerId: 'reverse-jsx-usage',
+        payload: { symbol: 'MemoCell', declFile: '/lib/cell.tsx', inlinePropFilter: 'function' },
+      },
+      makeFinding('x'),
+      ctx,
+    );
+
+    expect(out.appendSteps).toHaveLength(1);
+    expect(out.appendSteps[0].label).toContain('FnParent');
+    expect(out.appendSteps[0].label).not.toContain('ObjParent');
+  });
+
+  it('test files are NOT surfaced (index excludes them)', () => {
+    const ctx = buildCtxWith(
+      {
+        '/lib/button.tsx': `
+import { memo } from 'react';
+export const MemoButton = memo(function Button(_: any) { return null as any; });
+`,
+        '/src/app.test.tsx': `
+import { MemoButton } from '/lib/button';
+test('renders', () => { const el = <MemoButton onClick={() => {}} />; void el; });
+`,
+        '/src/real.tsx': `
+import { MemoButton } from '/lib/button';
+export function RealParent() { return <MemoButton onClick={() => {}} />; }
+`,
+      },
+      ['/src/app.test.tsx', '/src/real.tsx', '/lib/button.tsx'],
+    );
+
+    const out = reverseJsxUsageWalker(
+      {
+        findingFingerprint: 'x',
+        walkerId: 'reverse-jsx-usage',
+        payload: { symbol: 'MemoButton', declFile: '/lib/button.tsx' },
+      },
+      makeFinding('x'),
+      ctx,
+    );
+
+    expect(out.appendSteps).toHaveLength(1);
+    expect(out.appendSteps[0].label).toContain('RealParent');
+  });
+
+  it('soft cap caps steps and self-reports truncated=true (truncation marker emitted by extender)', () => {
+    // Six parents render <MemoButton> with inline props — default softCap is 5.
+    const parents = ['A', 'B', 'C', 'D', 'E', 'F'];
+    const files: Record<string, string> = {
+      '/lib/button.tsx': `
+import { memo } from 'react';
+export const MemoButton = memo(function Button(_: any) { return null as any; });
+`,
+    };
+    for (const p of parents) {
+      files[`/src/${p.toLowerCase()}.tsx`] = `
+import { MemoButton } from '/lib/button';
+export function Parent${p}() { return <MemoButton onClick={() => {}} />; }
+`;
+    }
+    const ctx = buildCtxWith(files, [...parents.map((p) => `/src/${p.toLowerCase()}.tsx`), '/lib/button.tsx']);
+
+    const walkerResult = reverseJsxUsageWalker(
+      {
+        findingFingerprint: 'fp-many',
+        walkerId: 'reverse-jsx-usage',
+        payload: { symbol: 'MemoButton', declFile: '/lib/button.tsx' },
+      },
+      makeFinding('fp-many'),
+      ctx,
+    );
+    expect(walkerResult.appendSteps).toHaveLength(5);
+    expect(walkerResult.truncated).toBe(true);
+
+    // End-to-end: extender appends the truncation marker.
+    const finding = makeFinding('fp-many', [stepAt('/lib/button.tsx', 1, 'memo decl')]);
+    const report = makeReport(
+      [finding],
+      [
+        {
+          findingFingerprint: 'fp-many',
+          walkerId: 'reverse-jsx-usage',
+          payload: { symbol: 'MemoButton', declFile: '/lib/button.tsx' },
+        },
+      ],
+    );
+    extendCrossFileChains(report, ctx);
+    const last = finding.provenance!.steps[finding.provenance!.steps.length - 1];
+    expect(last.category).toBe('truncated');
+  });
+
+  it('returns no steps when payload is malformed', () => {
+    const ctx = buildCtxWith({}, []);
+    expect(
+      reverseJsxUsageWalker(
+        { findingFingerprint: 'x', walkerId: 'reverse-jsx-usage', payload: {} },
+        makeFinding('x'),
+        ctx,
+      ).appendSteps,
+    ).toEqual([]);
+    expect(
+      reverseJsxUsageWalker(
+        { findingFingerprint: 'x', walkerId: 'reverse-jsx-usage', payload: { symbol: 'Foo' } },
+        makeFinding('x'),
+        ctx,
+      ).appendSteps,
+    ).toEqual([]);
+  });
+
+  it('returns no steps when no callers render the symbol with inline props', () => {
+    const ctx = buildCtxWith(
+      {
+        '/lib/button.tsx': `
+import { memo } from 'react';
+export const MemoButton = memo(function Button(_: any) { return null as any; });
+`,
+        '/src/app.tsx': `
+import { MemoButton } from '/lib/button';
+const handler = () => {};
+export function App() { return <MemoButton onClick={handler} />; }
+`,
+      },
+      ['/src/app.tsx', '/lib/button.tsx'],
+    );
+
+    const out = reverseJsxUsageWalker(
+      {
+        findingFingerprint: 'x',
+        walkerId: 'reverse-jsx-usage',
+        payload: { symbol: 'MemoButton', declFile: '/lib/button.tsx' },
+      },
+      makeFinding('x'),
+      ctx,
+    );
+
+    expect(out.appendSteps).toEqual([]);
   });
 });

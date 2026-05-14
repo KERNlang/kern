@@ -70,7 +70,7 @@ function needsLazyInit(initial: string, type?: string): boolean {
   return false;
 }
 
-function handlerContent(node: IRNode): string {
+function handlerContent(node: IRNode, stateBindings?: ReadonlyArray<string>): string {
   const handler = getChildren(node, 'handler')[0];
   if (handler) {
     const hp = propsOf(handler);
@@ -79,7 +79,7 @@ function handlerContent(node: IRNode): string {
     // structured directives (assign/let/if/do) emit empty bodies because
     // they have no `code`/`body` text prop to read.
     if (hp.lang === 'kern') {
-      return emitNativeKernBodyTS(handler);
+      return emitNativeKernBodyTS(handler, stateBindings && stateBindings.length > 0 ? { stateBindings } : undefined);
     }
     return (hp.code as string) || (hp.body as string) || '';
   }
@@ -139,10 +139,17 @@ export function generateScreen(node: IRNode): string[] {
   emitStateDecls(stateNodes, lines);
   emitRefDecls(refNodes, lines);
   if (stateNodes.length > 0 || refNodes.length > 0) lines.push('');
-  emitMemos(memoNodes, lines);
-  emitCallbacks(callbackNodes, lines);
-  emitEffects(effectNodes, lines);
-  emitInputHandlers(onInputNodes, lines);
+  // State binding names plumbed through to handler bodies so
+  // `assign target=count value=...` inside a callback/memo/effect lowers to
+  // `setCount(...)` instead of an illegal reassignment of the `const`
+  // returned by `useState`.
+  const stateBindings = stateNodes
+    .map((sn) => emitIdentifier(propsOf(sn).name as string, 'state', sn))
+    .filter((n): n is string => typeof n === 'string' && n.length > 0);
+  emitMemos(memoNodes, lines, stateBindings);
+  emitCallbacks(callbackNodes, lines, stateBindings);
+  emitEffects(effectNodes, lines, stateBindings);
+  emitInputHandlers(onInputNodes, lines, stateBindings);
   emitRender(renderNode, lines);
 
   lines.push('}');
@@ -176,13 +183,13 @@ function emitRefDecls(nodes: IRNode[], lines: string[]): void {
   }
 }
 
-function emitMemos(nodes: IRNode[], lines: string[]): void {
+function emitMemos(nodes: IRNode[], lines: string[], stateBindings?: ReadonlyArray<string>): void {
   for (const mn of nodes) {
     const mp = propsOf(mn);
     const mName = emitIdentifier(mp.name as string, 'memo', mn);
     const mDeps = (mp.deps as string) || '';
     const mDepsArr = mDeps && mDeps !== '[]' ? `[${mDeps}]` : '[]';
-    const body = handlerContent(mn);
+    const body = handlerContent(mn, stateBindings);
     lines.push(`  const ${mName} = useMemo(() => {`);
     for (const line of body.split('\n')) lines.push(`    ${line}`);
     lines.push(`  }, ${mDepsArr});`);
@@ -190,7 +197,7 @@ function emitMemos(nodes: IRNode[], lines: string[]): void {
   }
 }
 
-function emitCallbacks(nodes: IRNode[], lines: string[]): void {
+function emitCallbacks(nodes: IRNode[], lines: string[], stateBindings?: ReadonlyArray<string>): void {
   for (const cn of nodes) {
     const cp = propsOf(cn);
     const cName = emitIdentifier(cp.name as string, 'handler', cn);
@@ -198,7 +205,7 @@ function emitCallbacks(nodes: IRNode[], lines: string[]): void {
     const cDeps = (cp.deps as string) || '';
     const cDepsArr = cDeps && cDeps !== '[]' ? `[${cDeps}]` : '[]';
     const isAsync = cp.async === true || cp.async === 'true';
-    const body = handlerContent(cn);
+    const body = handlerContent(cn, stateBindings);
     lines.push(`  const ${cName} = useCallback(${isAsync ? 'async ' : ''}${cParams ? `(${cParams})` : '()'} => {`);
     for (const line of body.split('\n')) lines.push(`    ${line}`);
     lines.push(`  }, ${cDepsArr});`);
@@ -206,12 +213,12 @@ function emitCallbacks(nodes: IRNode[], lines: string[]): void {
   }
 }
 
-function emitEffects(nodes: IRNode[], lines: string[]): void {
+function emitEffects(nodes: IRNode[], lines: string[], stateBindings?: ReadonlyArray<string>): void {
   for (const en of nodes) {
     const ep = propsOf(en);
     const eDeps = (ep.deps as string) || '';
     const eDepsArr = eDeps && eDeps !== '[]' ? `[${eDeps}]` : '[]';
-    const body = handlerContent(en);
+    const body = handlerContent(en, stateBindings);
     lines.push(`  useEffect(() => {`);
     for (const line of body.split('\n')) lines.push(`    ${line}`);
     lines.push(`  }, ${eDepsArr});`);
@@ -219,9 +226,9 @@ function emitEffects(nodes: IRNode[], lines: string[]): void {
   }
 }
 
-function emitInputHandlers(nodes: IRNode[], lines: string[]): void {
+function emitInputHandlers(nodes: IRNode[], lines: string[], stateBindings?: ReadonlyArray<string>): void {
   for (const onNode of nodes) {
-    const body = handlerContent(onNode);
+    const body = handlerContent(onNode, stateBindings);
     lines.push(`  const _inputHandlerRef = useRef<(input: string, key: any) => void>(() => {});`);
     lines.push(`  _inputHandlerRef.current = (input: string, key: any) => {`);
     for (const line of body.split('\n')) lines.push(`    ${line}`);

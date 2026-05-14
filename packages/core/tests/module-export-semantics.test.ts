@@ -58,6 +58,100 @@ describe('semantic-validator — module export cross references', () => {
     expect(rulesFor(source)).not.toContain('export-local-unknown-symbol');
   });
 
+  test('first-class Python import symbols count as local export names', () => {
+    const source = ['module name=mathApi', '  import py "math" names=sqrt', '  export names=sqrt'].join('\n');
+
+    expect(rulesFor(source)).not.toContain('export-local-unknown-symbol');
+  });
+
+  test('sidecar island Python symbols count as local export names', () => {
+    const source = [
+      'module name=metrics',
+      '  island sidecar PyMetrics runtime=python requiresSidecar=true',
+      '    import py "statistics" names="mean as pyMean"',
+      '  export names=pyMean',
+    ].join('\n');
+
+    expect(rulesFor(source)).not.toContain('export-local-unknown-symbol');
+  });
+
+  test('reports duplicate first-class external import local names', () => {
+    const source = [
+      'module name=dupes',
+      '  import npm "lodash" as helper',
+      '  import py "helpers" as helper',
+      '  export names=helper',
+    ].join('\n');
+    const violations = validateSemantics(parseDocumentWithDiagnostics(source).root);
+
+    expect(violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rule: 'external-import-local-conflict',
+          message: expect.stringContaining("External import local name 'helper'"),
+        }),
+      ]),
+    );
+    expect(violations.map((violation) => violation.rule)).not.toContain('export-local-unknown-symbol');
+  });
+
+  test('accepts same-name external value and type imports as separate namespaces', () => {
+    const source = [
+      'module name=typing',
+      '  import py "numpy" names=NDArray',
+      '  import py "numpy.typing" names=NDArray types=true',
+      '  export names=NDArray',
+      '  export types=NDArray',
+    ].join('\n');
+
+    expect(rulesFor(source)).not.toContain('external-import-local-conflict');
+  });
+
+  test('reports duplicate type-only external import local names', () => {
+    const source = [
+      'module name=typing',
+      '  import py "numpy.typing" names=NDArray types=true',
+      '  import py "custom.typing" names=NDArray types=true',
+      '  export types=NDArray',
+    ].join('\n');
+
+    expect(rulesFor(source)).toContain('external-import-local-conflict');
+  });
+
+  test('reports only the conflicting external namespace in mixed value and type diagnostics', () => {
+    const source = [
+      'module name=typing',
+      '  import py "numpy" names=NDArray',
+      '  import py "numpy.typing" names=NDArray types=true',
+      '  import py "custom.typing" names=NDArray types=true',
+      '  export types=NDArray',
+    ].join('\n');
+    const violations = validateSemantics(parseDocumentWithDiagnostics(source).root);
+    const conflict = violations.find((violation) => violation.rule === 'external-import-local-conflict');
+
+    expect(conflict?.message).toContain('pypi:numpy.typing#NDArray');
+    expect(conflict?.message).toContain('pypi:custom.typing#NDArray');
+    expect(conflict?.message).not.toContain('pypi:numpy#NDArray');
+  });
+
+  test('reports both external namespaces when value and type imports both conflict', () => {
+    const source = [
+      'module name=typing',
+      '  import py "numpy" names=NDArray',
+      '  import py "scipy" names=NDArray',
+      '  import py "numpy.typing" names=NDArray types=true',
+      '  import py "custom.typing" names=NDArray types=true',
+      '  export types=NDArray',
+    ].join('\n');
+    const violations = validateSemantics(parseDocumentWithDiagnostics(source).root);
+    const conflict = violations.find((violation) => violation.rule === 'external-import-local-conflict');
+
+    expect(conflict?.message).toContain('pypi:numpy#NDArray');
+    expect(conflict?.message).toContain('pypi:scipy#NDArray');
+    expect(conflict?.message).toContain('pypi:numpy.typing#NDArray');
+    expect(conflict?.message).toContain('pypi:custom.typing#NDArray');
+  });
+
   test('reports local exports that reference unknown symbols', () => {
     const source = ['module name=domain', '  export names=missing'].join('\n');
     const violations = validateSemantics(parseDocumentWithDiagnostics(source).root);

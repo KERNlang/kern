@@ -15,6 +15,7 @@
  *      symbols that the resolver proved exist.
  */
 
+import { collectExternalImportSymbols, type ExternalImportSymbolTable } from './external-symbols.js';
 import type { IRNode } from './types.js';
 
 export interface SemanticViolation {
@@ -104,7 +105,9 @@ function validateNode(
 
   // ── Module export cross-refs ────────────────────────────────────────
   if (node.type === 'module' && node.children) {
-    validateModuleExports(node, violations);
+    const externalImports = collectExternalImportSymbols(node);
+    validateModuleExternalImportConflicts(externalImports, violations);
+    validateModuleExports(node, violations, externalImports);
   }
 
   // ── Duplicate sibling names ────────────────────────────────────────
@@ -397,8 +400,12 @@ interface ExportBinding {
   alias?: string;
 }
 
-function validateModuleExports(node: IRNode, violations: SemanticViolation[]): void {
-  const visibleNames = collectModuleVisibleNames(node);
+function validateModuleExports(
+  node: IRNode,
+  violations: SemanticViolation[],
+  externalImports: ExternalImportSymbolTable,
+): void {
+  const visibleNames = collectModuleVisibleNames(node, externalImports);
 
   for (const child of node.children ?? []) {
     if (child.type !== 'export') continue;
@@ -448,8 +455,11 @@ function validateModuleExports(node: IRNode, violations: SemanticViolation[]): v
   }
 }
 
-function collectModuleVisibleNames(moduleNode: IRNode): Set<string> {
+function collectModuleVisibleNames(moduleNode: IRNode, externalImports: ExternalImportSymbolTable): Set<string> {
   const names = new Set<string>();
+  for (const localName of collectModuleExternalImportNames(externalImports)) {
+    names.add(localName);
+  }
   for (const child of moduleNode.children ?? []) {
     const name = child.props?.name;
     if (typeof name === 'string' && name.length > 0 && child.type !== 'export') {
@@ -473,6 +483,44 @@ function collectModuleVisibleNames(moduleNode: IRNode): Set<string> {
     }
   }
   return names;
+}
+
+function collectModuleExternalImportNames(externalImports: ExternalImportSymbolTable): string[] {
+  return externalImports.symbols.map((symbol) => symbol.localName);
+}
+
+function validateModuleExternalImportConflicts(
+  externalImports: ExternalImportSymbolTable,
+  violations: SemanticViolation[],
+): void {
+  for (const conflict of externalImports.conflicts) {
+    const conflictingSymbols = conflictingExternalImportSymbols(conflict.symbols);
+    const locationSymbol = conflictingSymbols[conflictingSymbols.length - 1];
+    if (!locationSymbol) continue;
+    const sources = conflictingSymbols
+      .map((symbol) => `${symbol.registry}:${symbol.package}${symbol.sourceName ? `#${symbol.sourceName}` : ''}`)
+      .join(', ');
+    violations.push({
+      rule: 'external-import-local-conflict',
+      nodeType: 'import',
+      message: `External import local name '${conflict.localName}' is declared by multiple imports (${sources}). Use an alias so native KERN has one binding for that name.`,
+      // Point at the latest declaration so the diagnostic lands on the import
+      // that made the name ambiguous.
+      line: locationSymbol.line,
+      col: locationSymbol.col,
+    });
+  }
+}
+
+function conflictingExternalImportSymbols(
+  symbols: ExternalImportSymbolTable['symbols'],
+): ExternalImportSymbolTable['symbols'] {
+  const valueSymbols = symbols.filter((symbol) => symbol.kind !== 'type');
+  const typeSymbols = symbols.filter((symbol) => symbol.kind === 'type');
+  if (valueSymbols.length > 1 && typeSymbols.length > 1) return symbols;
+  if (valueSymbols.length > 1) return valueSymbols;
+  if (typeSymbols.length > 1) return typeSymbols;
+  return symbols;
 }
 
 function importLocalNames(node: IRNode): string[] {

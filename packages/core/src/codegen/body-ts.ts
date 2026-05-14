@@ -52,9 +52,17 @@ import { emitFmtTemplate, emitIdentifier, emitTypeAnnotation } from './emitters.
 
 /** Slice 3e — caller-provided options, parity with the Python body emitter.
  *  `symbolMap` is currently unused on the TS target; reserved for future
- *  use (e.g., reserved-word renames). */
+ *  use (e.g., reserved-word renames).
+ *
+ *  `stateBindings` — names of surrounding-scope React `useState` bindings
+ *  (the screen's `state name=…` declarations). The body emitter treats
+ *  these as `cell`-kind bindings in an outer scope so that
+ *  `assign target=count value=...` inside a callback/memo/effect lowers to
+ *  the matching `setCount(...)` setter rather than emitting an illegal
+ *  reassignment of the `const` returned by `useState`. */
 export interface BodyEmitOptions {
   symbolMap?: Record<string, string>;
+  stateBindings?: ReadonlyArray<string>;
 }
 
 /** Slice 3e — public return shape, parity with the Python body emitter.
@@ -100,8 +108,16 @@ export function emitNativeKernBodyTS(handlerNode: IRNode, options?: BodyEmitOpti
  *  TS-stdlib entries with `requires.ts` (e.g., a `node:crypto` import).
  *  Provided for symmetry with the Python target so generators that drive
  *  both languages have a uniform call shape. */
-export function emitNativeKernBodyTSWithImports(handlerNode: IRNode, _options?: BodyEmitOptions): BodyEmitResult {
+export function emitNativeKernBodyTSWithImports(handlerNode: IRNode, options?: BodyEmitOptions): BodyEmitResult {
   const ctx: BodyEmitContext = { gensymCounter: 0, localScopes: [], tryDepth: 0, finallyDepth: 0 };
+  // Outer scope carrying caller-supplied state bindings as `cell` so the
+  // setter-rewrite path in emitAssignTS fires for surrounding-scope
+  // useState bindings (parent screen's `state name=…`).
+  if (options?.stateBindings && options.stateBindings.length > 0) {
+    const outer = new Map<string, 'const' | 'let' | 'cell'>();
+    for (const name of options.stateBindings) outer.set(name, 'cell');
+    ctx.localScopes.push(outer);
+  }
   const code = emitChildrenTS(handlerNode.children ?? [], ctx, '').join('\n');
   return { code, imports: new Set<string>() };
 }
@@ -576,6 +592,13 @@ function emitAssignTS(node: IRNode, ctx: BodyEmitContext): string[] {
   if (targetIR.kind === 'ident' && lookupLocalBinding(ctx, targetIR.name) === 'cell') {
     const setter = cellSetterName(targetIR.name);
     if (rawOp === '=') {
+      // Self-referential plain `=` (`count = count + step`) lowers to the
+      // functional updater so concurrent setStates in the same render don't
+      // capture a stale closure-bound `count`. The arrow param shadows the
+      // outer binding, so the original RHS expression compiles unchanged.
+      if (valueReferencesIdent(valueIR, targetIR.name)) {
+        return [`${setter}((${targetIR.name}) => ${emitExpression(valueIR)});`];
+      }
       return [`${setter}(${emitExpression(valueIR)});`];
     }
     const baseOp = rawOp.slice(0, -1);
@@ -673,6 +696,61 @@ function containsOptionalAccess(node: ValueIR): boolean {
   if (node.kind === 'call') return node.optional || containsOptionalAccess(node.callee);
   if (node.kind === 'nonNull' || node.kind === 'typeAssert') return containsOptionalAccess(node.expression);
   return false;
+}
+
+/** True when any identifier with the given name appears anywhere in the
+ *  ValueIR tree. Used to detect self-referential setter assignments like
+ *  `count = count + 1` so the body emitter can emit a functional updater
+ *  `setCount((count) => count + 1)` instead of `setCount(count + 1)`.
+ *
+ *  A lambda whose parameter list shadows the name is treated as opaque —
+ *  inside `count => count + step`, the inner `count` is the lambda param,
+ *  not the surrounding cell, so the cell name is not referenced. */
+function valueReferencesIdent(node: ValueIR, name: string): boolean {
+  switch (node.kind) {
+    case 'ident':
+      return node.name === name;
+    case 'member':
+      return valueReferencesIdent(node.object, name);
+    case 'index':
+      return valueReferencesIdent(node.object, name) || valueReferencesIdent(node.index, name);
+    case 'call':
+      return valueReferencesIdent(node.callee, name) || node.args.some((a) => valueReferencesIdent(a, name));
+    case 'binary':
+      return valueReferencesIdent(node.left, name) || valueReferencesIdent(node.right, name);
+    case 'unary':
+    case 'spread':
+    case 'await':
+    case 'new':
+      return valueReferencesIdent(node.argument, name);
+    case 'typeAssert':
+    case 'nonNull':
+      return valueReferencesIdent(node.expression, name);
+    case 'propagate':
+      return valueReferencesIdent(node.argument, name);
+    case 'conditional':
+      return (
+        valueReferencesIdent(node.test, name) ||
+        valueReferencesIdent(node.consequent, name) ||
+        valueReferencesIdent(node.alternate, name)
+      );
+    case 'tmplLit':
+      return node.expressions.some((e) => valueReferencesIdent(e, name));
+    case 'objectLit':
+      return node.entries.some((entry) => {
+        if ('kind' in entry && entry.kind === 'spread') return valueReferencesIdent(entry.argument, name);
+        return valueReferencesIdent((entry as { value: ValueIR }).value, name);
+      });
+    case 'arrayLit':
+      return node.items.some((i) => valueReferencesIdent(i, name));
+    case 'lambda':
+      // A lambda param with the same name shadows the cell binding inside
+      // the body — treat the lambda as opaque in that case.
+      if (node.params.some((p) => p.name === name)) return false;
+      return valueReferencesIdent(node.body, name);
+    default:
+      return false;
+  }
 }
 
 function emitDestructureTS(node: IRNode, ctx: BodyEmitContext): string[] {

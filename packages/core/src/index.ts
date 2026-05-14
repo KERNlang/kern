@@ -145,6 +145,21 @@ export {
   sidecarManifestFromNode,
 } from './external-boundary.js';
 export type {
+  ExternalImportSymbol,
+  ExternalImportSymbolConflict,
+  ExternalImportSymbolKind,
+  ExternalImportSymbolTable,
+  ExternalNamedBinding,
+  ExternalSignatureDiagnostic,
+} from './external-symbols.js';
+export {
+  buildExternalImportSymbolTable,
+  collectExternalImportSymbols,
+  externalSignatureDiagnostics,
+  parseExternalNamedBinding,
+  signatureMapForSidecarPackage,
+} from './external-symbols.js';
+export type {
   CapabilityEffect,
   CapabilityRuntime,
   CapabilitySerialization,

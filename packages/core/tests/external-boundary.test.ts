@@ -3,6 +3,7 @@ import {
   collectExternalBoundaries,
   collectSidecarManifests,
 } from '../src/external-boundary.js';
+import { collectExternalImportSymbols, externalSignatureDiagnostics } from '../src/external-symbols.js';
 import { parse } from '../src/parser.js';
 
 describe('external boundary collection', () => {
@@ -442,5 +443,236 @@ describe('external boundary collection', () => {
         ],
       },
     ]);
+  });
+
+  it('builds a typed symbol table for npm and Python imports', () => {
+    const root = parse(
+      [
+        'module name=app',
+        '  import npm "zod" as z',
+        '  import from=react registry=npm names="useMemo,useState as useReactState"',
+        '  import py "math" as math signatures="sqrt:(x: bigint) => Promise<bigint>"',
+        '  import py "math" names=sqrt',
+      ].join('\n'),
+    );
+
+    const table = collectExternalImportSymbols(root);
+    expect(table.byLocalName.get('z')).toMatchObject({
+      kind: 'module',
+      package: 'zod',
+      registry: 'npm',
+      targetFamily: 'ts',
+    });
+    expect(table.byLocalName.get('useReactState')).toMatchObject({
+      kind: 'function',
+      package: 'react',
+      registry: 'npm',
+      sourceName: 'useState',
+    });
+    expect(table.byLocalName.get('math')).toMatchObject({
+      kind: 'module',
+      package: 'math',
+      registry: 'pypi',
+      targetFamily: 'python',
+      signatures: { sqrt: '(x: bigint) => Promise<bigint>' },
+      sidecarName: 'Math',
+    });
+    expect(table.byLocalName.get('sqrt')).toMatchObject({
+      kind: 'function',
+      package: 'math',
+      registry: 'pypi',
+      sourceName: 'sqrt',
+      signature: '(x: bigint) => Promise<bigint>',
+      sidecarName: 'Math',
+    });
+    expect(table.byPackage.get('math')).toHaveLength(2);
+  });
+
+  it('diagnoses signature maps that do not match named-only imports', () => {
+    const root = parse(
+      'import py "custom_package" names=first signatures="first:(x: number) => Promise<number>;second:(x: string) => Promise<string>"',
+    );
+
+    expect(externalSignatureDiagnostics(root)).toEqual([
+      {
+        package: 'custom_package',
+        registry: 'pypi',
+        name: 'second',
+        reason: 'not-imported',
+        line: 1,
+        col: 1,
+      },
+    ]);
+  });
+
+  it('keeps non-sidecar PyPI metadata imports in the typed symbol table', () => {
+    const root = parse(
+      [
+        'module name=api',
+        '  extern package=numpy registry=pypi target=fastapi',
+        '    import default=np names=array',
+      ].join('\n'),
+    );
+
+    const table = collectExternalImportSymbols(root);
+    expect(table.byLocalName.get('np')).toMatchObject({
+      kind: 'module',
+      package: 'numpy',
+      registry: 'pypi',
+      target: 'fastapi',
+      targetFamily: 'python',
+    });
+    expect(table.byLocalName.get('array')).toMatchObject({
+      kind: 'function',
+      package: 'numpy',
+      registry: 'pypi',
+      sourceName: 'array',
+    });
+  });
+
+  it('keeps type-only PyPI imports in the typed symbol table', () => {
+    const root = parse('import py "numpy.typing" names=NDArray types=true');
+
+    const table = collectExternalImportSymbols(root);
+    expect(table.byLocalName.get('NDArray')).toMatchObject({
+      kind: 'type',
+      package: 'numpy.typing',
+      registry: 'pypi',
+      target: 'python',
+      targetFamily: 'python',
+      sourceName: 'NDArray',
+    });
+  });
+
+  it('keeps mixed type-only PyPI imports under sidecar-backed boundaries', () => {
+    const root = parse(
+      [
+        'island sidecar DataIsland requiresSidecar=true runtime=python',
+        '  extern package=numpy registry=pypi',
+        '    import names=array',
+        '    import names=NDArray types=true',
+      ].join('\n'),
+    );
+
+    const table = collectExternalImportSymbols(root);
+    expect(table.byLocalName.get('array')).toMatchObject({
+      kind: 'function',
+      package: 'numpy',
+      registry: 'pypi',
+      sourceName: 'array',
+      sidecarName: 'DataIsland',
+    });
+    const ndArray = table.byLocalName.get('NDArray');
+    expect(ndArray).toMatchObject({
+      kind: 'type',
+      package: 'numpy',
+      registry: 'pypi',
+      sourceName: 'NDArray',
+    });
+    expect(ndArray?.boundary.imports).toHaveLength(2);
+  });
+
+  it('does not duplicate target-python sidecar runtime imports in the typed symbol table', () => {
+    const root = parse(
+      [
+        'island sidecar LocalPy requiresSidecar=true runtime=python',
+        '  extern package=local_math target=python',
+        '    import names=add',
+        '    import names=Vector types=true',
+      ].join('\n'),
+    );
+
+    const table = collectExternalImportSymbols(root);
+    expect(table.symbols.filter((symbol) => symbol.localName === 'add')).toHaveLength(1);
+    expect(table.byLocalName.get('add')).toMatchObject({
+      kind: 'function',
+      package: 'local_math',
+      sidecarName: 'LocalPy',
+    });
+    expect(table.byLocalName.get('Vector')).toMatchObject({
+      kind: 'type',
+      package: 'local_math',
+    });
+    expect(table.conflicts).toEqual([]);
+  });
+
+  it('reports duplicate external local names without hiding the indexed symbols', () => {
+    const root = parse(
+      ['module name=dupes', '  import npm "lodash" as helper', '  import py "helpers" as helper'].join('\n'),
+    );
+
+    const table = collectExternalImportSymbols(root);
+    expect(table.byLocalName.get('helper')).toMatchObject({ package: 'lodash', registry: 'npm' });
+    expect(table.conflicts).toHaveLength(1);
+    expect(table.conflicts[0]).toMatchObject({
+      localName: 'helper',
+      symbols: [
+        { package: 'lodash', registry: 'npm', kind: 'module' },
+        { package: 'helpers', registry: 'pypi', kind: 'module' },
+      ],
+    });
+  });
+
+  it('does not treat same-name value and type imports as local-name conflicts', () => {
+    const root = parse(
+      [
+        'island sidecar DataIsland requiresSidecar=true runtime=python',
+        '  extern package=numpy registry=pypi',
+        '    import names=NDArray',
+        '    import names=NDArray types=true',
+      ].join('\n'),
+    );
+
+    const table = collectExternalImportSymbols(root);
+    expect(table.symbols.filter((symbol) => symbol.localName === 'NDArray')).toHaveLength(2);
+    expect(table.conflicts).toEqual([]);
+  });
+
+  it('reports same-name type-only external imports as type namespace conflicts', () => {
+    const root = parse(
+      [
+        'module name=typing',
+        '  import py "numpy.typing" names=NDArray types=true',
+        '  import py "custom.typing" names=NDArray types=true',
+      ].join('\n'),
+    );
+
+    const table = collectExternalImportSymbols(root);
+    expect(table.conflicts).toHaveLength(1);
+    expect(table.conflicts[0]).toMatchObject({
+      localName: 'NDArray',
+      symbols: [
+        { kind: 'type', package: 'numpy.typing' },
+        { kind: 'type', package: 'custom.typing' },
+      ],
+    });
+  });
+
+  it('documents module-plus-named signature maps as module API declarations', () => {
+    const root = parse(
+      'extern package=foo registry=pypi\n  import default=foo names=bar signatures="bar:(x: number) => Promise<number>;baz:(x: string) => Promise<string>"',
+    );
+
+    expect(externalSignatureDiagnostics(root)).toEqual([]);
+    const table = collectExternalImportSymbols(root);
+    expect(table.byLocalName.get('foo')).toMatchObject({
+      kind: 'module',
+      signatures: {
+        bar: '(x: number) => Promise<number>',
+        baz: '(x: string) => Promise<string>',
+      },
+    });
+    expect(table.byLocalName.get('bar')).toMatchObject({
+      kind: 'function',
+      signature: '(x: number) => Promise<number>',
+    });
+  });
+
+  it('treats module signature maps as API declarations instead of diagnostics', () => {
+    const root = parse(
+      'import py "custom_package" as custom signatures="first:(x: number) => Promise<number>;second:(x: string) => Promise<string>"',
+    );
+
+    expect(externalSignatureDiagnostics(root)).toEqual([]);
   });
 });

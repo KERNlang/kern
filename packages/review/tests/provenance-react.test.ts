@@ -8,7 +8,10 @@
  * read this same field — these tests pin the shape they rely on.
  */
 
-import { reviewSource } from '../src/index.js';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { dirname, join } from 'path';
+import { clearReviewCache, resetFsProject, reviewGraph, reviewSource } from '../src/index.js';
 import type { ReviewConfig } from '../src/types.js';
 
 const cfg: ReviewConfig = { target: 'web' };
@@ -347,6 +350,122 @@ export function Counter() {
       expect(f!.provenance).toBeDefined();
       const cats = f!.provenance!.steps.map((s) => s.category);
       expect(cats).toEqual(['reducer', 'mutation']);
+    });
+  });
+
+  // Plan v3 v2 — parent-rerender-via-state cross-file extension. The rule
+  // emits its 3-step intra-file chain, and when the unnecessarily-re-rendered
+  // child is imported, a forward-import walker appends one more step pointing
+  // at the child's declaration file.
+  describe('parent-rerender-via-state cross-file extension', () => {
+    let repo: string;
+    afterEach(() => {
+      if (repo) rmSync(repo, { recursive: true, force: true });
+      resetFsProject();
+      clearReviewCache();
+    });
+
+    function write(path: string, content: string): void {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, content);
+    }
+
+    it('appends an import-boundary step pointing at the child declaration file', () => {
+      repo = mkdtempSync(join(tmpdir(), 'kern-prv-react-'));
+      write(
+        join(repo, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: {
+            target: 'ES2022',
+            module: 'ESNext',
+            moduleResolution: 'Bundler',
+            jsx: 'preserve',
+            strict: true,
+            esModuleInterop: true,
+            skipLibCheck: true,
+          },
+          include: ['src/**/*'],
+        }),
+      );
+      write(join(repo, 'package.json'), JSON.stringify({ name: 'prv-react-cross', private: true }));
+
+      // Child declared in its own file — no React.memo wrap, the rule fires
+      // because the parent has state but doesn't pass it to <Child />.
+      write(
+        join(repo, 'src/child.tsx'),
+        `export function Child(props: { label: string }) { return <span>{props.label}</span>; }\n`,
+      );
+      write(
+        join(repo, 'src/parent.tsx'),
+        `import { useState } from 'react';
+import { Child } from './child';
+export function Parent() {
+  const [count, setCount] = useState(0);
+  return (
+    <div onClick={() => setCount(count + 1)}>
+      <Child label="static" />
+    </div>
+  );
+}
+`,
+      );
+
+      const reports = reviewGraph([join(repo, 'src/parent.tsx')], { noCache: true, target: 'web' });
+      const parentReport = reports.find((r) => r.filePath === join(repo, 'src/parent.tsx'));
+      expect(parentReport).toBeDefined();
+      const finding = parentReport!.findings.find((f) => f.ruleId === 'parent-rerender-via-state');
+      expect(finding).toBeDefined();
+      expect(finding!.provenance).toBeDefined();
+
+      // Intra-file chain was 3 steps (state-decl, parent-render, render-cycle).
+      // The forward-import walker must have appended one step landing in
+      // child.tsx — the chain length grows by 1.
+      const steps = finding!.provenance!.steps;
+      expect(steps.length).toBeGreaterThanOrEqual(4);
+      const lastStep = steps[steps.length - 1];
+      expect(lastStep.location.file).toContain('child.tsx');
+      expect(lastStep.kind).toBe('import');
+    });
+
+    it('does NOT extend when the child is local (no cross-file boundary to cross)', () => {
+      repo = mkdtempSync(join(tmpdir(), 'kern-prv-react-local-'));
+      write(
+        join(repo, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: {
+            target: 'ES2022',
+            module: 'ESNext',
+            moduleResolution: 'Bundler',
+            jsx: 'preserve',
+            strict: true,
+            esModuleInterop: true,
+            skipLibCheck: true,
+          },
+          include: ['src/**/*'],
+        }),
+      );
+      write(join(repo, 'package.json'), JSON.stringify({ name: 'prv-react-local', private: true }));
+      write(
+        join(repo, 'src/parent.tsx'),
+        `import { useState } from 'react';
+function Child(props: { label: string }) { return <span>{props.label}</span>; }
+export function Parent() {
+  const [count, setCount] = useState(0);
+  return (
+    <div onClick={() => setCount(count + 1)}>
+      <Child label="static" />
+    </div>
+  );
+}
+`,
+      );
+
+      const reports = reviewGraph([join(repo, 'src/parent.tsx')], { noCache: true, target: 'web' });
+      const parentReport = reports.find((r) => r.filePath === join(repo, 'src/parent.tsx'));
+      const finding = parentReport!.findings.find((f) => f.ruleId === 'parent-rerender-via-state');
+      expect(finding).toBeDefined();
+      // Intra-file chain only — exactly 3 steps, no import-boundary appended.
+      expect(finding!.provenance!.steps).toHaveLength(3);
     });
   });
 });

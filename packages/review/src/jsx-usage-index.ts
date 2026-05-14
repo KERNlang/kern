@@ -2,13 +2,20 @@ import { Node, type Project, type SourceFile, SyntaxKind } from 'ts-morph';
 import { canonicalize } from './path-canonical.js';
 import type { GraphFile, GraphResult } from './types.js';
 
+export type InlinePropKind = 'function' | 'object' | 'array';
+
 export interface JsxUsageSite {
   file: string;
   line: number;
   col: number;
   localName: string;
   parentComponentName?: string;
+  /** Names of attributes whose value is an inline literal/expression. Alpha-sorted. */
   inlinePropNames: string[];
+  /** Per-attribute kind — populated for the same set of names. Lets cross-file
+   *  walkers filter "only show parents passing inline FUNCTIONS" without
+   *  re-walking the AST. Parallel to `inlinePropNames`; same alpha ordering. */
+  inlineProps: Array<{ name: string; kind: InlinePropKind }>;
 }
 
 export interface JsxUsageIndex {
@@ -50,12 +57,14 @@ export function buildJsxUsageIndex(project: Project, graph: GraphResult): JsxUsa
       if (!resolved) continue;
 
       const pos = sf.getLineAndColumnAtPos(el.getStart());
+      const inlineProps = getInlineProps(el);
       const site: JsxUsageSite = {
         file,
         line: pos.line,
         col: pos.column,
         localName: el.getTagNameNode().getText(),
-        inlinePropNames: getInlinePropNames(el),
+        inlinePropNames: inlineProps.map((p) => p.name),
+        inlineProps,
       };
       const parentComponentName = getParentComponentName(el);
       if (parentComponentName) site.parentComponentName = parentComponentName;
@@ -72,6 +81,7 @@ export function buildJsxUsageIndex(project: Project, graph: GraphResult): JsxUsa
       return (buckets.get(`${canonicalize(file)}#${exportName}`) ?? []).map((site) => ({
         ...site,
         inlinePropNames: [...site.inlinePropNames],
+        inlineProps: site.inlineProps.map((p) => ({ ...p })),
       }));
     },
   };
@@ -243,24 +253,25 @@ function resolveJsxTag(
   return undefined;
 }
 
-function getInlinePropNames(el: JsxElementLike): string[] {
-  const names: string[] = [];
+function getInlineProps(el: JsxElementLike): Array<{ name: string; kind: InlinePropKind }> {
+  const found: Array<{ name: string; kind: InlinePropKind }> = [];
   for (const attr of el.getAttributes()) {
     if (!Node.isJsxAttribute(attr)) continue;
     const init = attr.getInitializer();
     if (!init || !Node.isJsxExpression(init)) continue;
     const expr = init.getExpression();
-    if (
-      expr &&
-      (Node.isObjectLiteralExpression(expr) ||
-        Node.isArrayLiteralExpression(expr) ||
-        Node.isArrowFunction(expr) ||
-        Node.isFunctionExpression(expr))
-    ) {
-      names.push(attr.getNameNode().getText());
-    }
+    if (!expr) continue;
+    let kind: InlinePropKind | undefined;
+    if (Node.isObjectLiteralExpression(expr)) kind = 'object';
+    else if (Node.isArrayLiteralExpression(expr)) kind = 'array';
+    else if (Node.isArrowFunction(expr) || Node.isFunctionExpression(expr)) kind = 'function';
+    if (!kind) continue;
+    found.push({ name: attr.getNameNode().getText(), kind });
   }
-  return [...names].sort();
+  // Alpha-sort by name so result is deterministic for snapshot/regression
+  // comparisons (matches the v1 inlinePropNames ordering contract).
+  found.sort((a, b) => a.name.localeCompare(b.name));
+  return found;
 }
 
 function getParentComponentName(node: Node): string | undefined {
