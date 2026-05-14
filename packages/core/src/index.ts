@@ -121,6 +121,12 @@ export type { CoverageGap } from './coverage-gap.js';
 // Coverage gap emitter (v3)
 export { collectCoverageGaps, readCoverageGaps, writeCoverageGaps } from './coverage-gap.js';
 export { decompile } from './decompiler.js';
+export type { ExternalSignatureMap } from './ecosystem-signatures.js';
+export {
+  inferExternalSignature,
+  inferExternalSignatureMap,
+  parseExternalSignatureMap,
+} from './ecosystem-signatures.js';
 // Codegen errors
 export type { CodegenErrorCode } from './errors.js';
 export { KernCodegenError, KernConfigError, KernParseError } from './errors.js';

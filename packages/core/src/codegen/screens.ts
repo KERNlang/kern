@@ -28,6 +28,7 @@
 
 import { KernCodegenError } from '../errors.js';
 import type { ExprObject, IRNode } from '../types.js';
+import { emitNativeKernBodyTS } from './body-ts.js';
 import { emitFmtTemplate, emitIdentifier, emitTypeAnnotation } from './emitters.js';
 import { exportPrefix, getChildren, getFirstChild, getProps } from './helpers.js';
 import { emitConstValue } from './type-system.js';
@@ -73,6 +74,13 @@ function handlerContent(node: IRNode): string {
   const handler = getChildren(node, 'handler')[0];
   if (handler) {
     const hp = propsOf(handler);
+    // Native KERN body dispatch — same opt-in fn/method already honor.
+    // Without this, `memo`/`callback`/`effect`/`on` nodes written with
+    // structured directives (assign/let/if/do) emit empty bodies because
+    // they have no `code`/`body` text prop to read.
+    if (hp.lang === 'kern') {
+      return emitNativeKernBodyTS(handler);
+    }
     return (hp.code as string) || (hp.body as string) || '';
   }
   // Check for inline body/code prop

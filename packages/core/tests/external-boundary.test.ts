@@ -404,4 +404,43 @@ describe('external boundary collection', () => {
       },
     ]);
   });
+
+  it('records explicit Python signature maps in sidecar manifests', () => {
+    const root = parse('import py "math" names=sqrt signatures="sqrt:(x: number) => Promise<number>"');
+
+    expect(collectSidecarManifests(root)).toMatchObject([
+      {
+        packages: [
+          {
+            package: 'math',
+            imports: [{ names: ['sqrt'], signatures: { sqrt: '(x: number) => Promise<number>' } }],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('parses compact signature maps with semicolons inside TypeScript object types', () => {
+    const root = parse(
+      'import py "json" names=dumps signatures="dumps:(value: unknown, opts: { indent?: number; sort_keys?: boolean }) => Promise<string>"',
+    );
+
+    expect(collectSidecarManifests(root)).toMatchObject([
+      {
+        packages: [
+          {
+            package: 'json',
+            imports: [
+              {
+                names: ['dumps'],
+                signatures: {
+                  dumps: '(value: unknown, opts: { indent?: number; sort_keys?: boolean }) => Promise<string>',
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+  });
 });
