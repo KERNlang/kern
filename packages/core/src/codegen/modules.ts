@@ -22,6 +22,7 @@ import {
   splitCapabilityList,
 } from '../import-metadata.js';
 import { propsOf } from '../node-props.js';
+import { pythonSidecarNameFromAliasAndPackage } from '../python-sidecar.js';
 import type { IRNode } from '../types.js';
 import { emitIdentifier, emitImportSpecifier } from './emitters.js';
 import { generateFunction } from './functions.js';
@@ -170,31 +171,7 @@ function loosePythonSidecarName(node: IRNode): string {
   const alias = typeof props.default === 'string' && props.default.length > 0 ? props.default : '';
   const rawFrom =
     typeof props.package === 'string' && props.package.length > 0 ? props.package : String(props.from ?? '');
-  return sidecarNameFromAliasAndPackage(alias || undefined, rawFrom);
-}
-
-function sidecarNameFromAliasAndPackage(alias: string | undefined, packageName: string): string {
-  const packageTitle = titleCaseSidecarName(packageName);
-  if (!alias) return packageTitle;
-  const aliasTitle = titleCaseSidecarName(alias);
-  const lastPackageSegment = packageName
-    .split(/[./_-]+/u)
-    .filter(Boolean)
-    .at(-1);
-  const lastPackageTitle = lastPackageSegment ? titleCaseSidecarName(lastPackageSegment) : packageTitle;
-  return aliasTitle === lastPackageTitle || aliasTitle === packageTitle ? aliasTitle : `${aliasTitle}${packageTitle}`;
-}
-
-function titleCaseSidecarName(raw: string): string {
-  const parts = raw
-    .replace(/-/gu, '.dash.')
-    .replace(/_/gu, '.underscore.')
-    .split(/[./]+/u)
-    .map((part) => part.replace(/[^A-Za-z0-9_$]/gu, ''))
-    .filter(Boolean);
-  const words = parts.length > 0 ? parts : ['Python'];
-  const name = words.map((word) => `${word[0].toUpperCase()}${word.slice(1)}`).join('');
-  return /^[A-Za-z_$]/u.test(name) ? name : `Py${name}`;
+  return pythonSidecarNameFromAliasAndPackage(alias || undefined, rawFrom);
 }
 
 function sidecarPackageFromImportNode(node: IRNode): SidecarManifest['packages'][number] | null {

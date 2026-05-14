@@ -7,6 +7,7 @@ import {
   importTargetOf,
   splitCapabilityList,
 } from './import-metadata.js';
+import { pythonSidecarNameFromAliasAndPackage } from './python-sidecar.js';
 import type { IRNode } from './types.js';
 
 export interface ExternalImportBinding {
@@ -392,29 +393,5 @@ export function collectSidecarManifests(root: IRNode): SidecarManifest[] {
 
 function loosePythonSidecarName(boundary: ExternalBoundary): string {
   const alias = boundary.imports.find((binding) => binding.default)?.default;
-  return sidecarNameFromAliasAndPackage(alias, boundary.package);
-}
-
-function sidecarNameFromAliasAndPackage(alias: string | undefined, packageName: string): string {
-  const packageTitle = titleCaseSidecarName(packageName);
-  if (!alias) return packageTitle;
-  const aliasTitle = titleCaseSidecarName(alias);
-  const lastPackageSegment = packageName
-    .split(/[./_-]+/u)
-    .filter(Boolean)
-    .at(-1);
-  const lastPackageTitle = lastPackageSegment ? titleCaseSidecarName(lastPackageSegment) : packageTitle;
-  return aliasTitle === lastPackageTitle || aliasTitle === packageTitle ? aliasTitle : `${aliasTitle}${packageTitle}`;
-}
-
-function titleCaseSidecarName(raw: string): string {
-  const normalized = raw
-    .replace(/-/gu, '.dash.')
-    .replace(/_/gu, '.underscore.')
-    .split(/[./]+/u)
-    .map((part) => part.replace(/[^A-Za-z0-9_$]/gu, ''))
-    .filter(Boolean);
-  const words = normalized.length > 0 ? normalized : ['Python'];
-  const name = words.map((word) => `${word[0].toUpperCase()}${word.slice(1)}`).join('');
-  return /^[A-Za-z_$]/u.test(name) ? name : `Py${name}`;
+  return pythonSidecarNameFromAliasAndPackage(alias, boundary.package);
 }
