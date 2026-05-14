@@ -40,6 +40,12 @@ export interface ExternalImportSymbolTable {
   symbols: ExternalImportSymbol[];
   byLocalName: Map<string, ExternalImportSymbol>;
   byPackage: Map<string, ExternalImportSymbol[]>;
+  conflicts: ExternalImportSymbolConflict[];
+}
+
+export interface ExternalImportSymbolConflict {
+  localName: string;
+  symbols: ExternalImportSymbol[];
 }
 
 export interface ExternalSignatureDiagnostic {
@@ -91,7 +97,10 @@ export function buildExternalImportSymbolTable(
 ): ExternalImportSymbolTable {
   const symbols: ExternalImportSymbol[] = [];
   for (const boundary of boundaries) {
-    if (isSidecarBackedPythonBoundary(boundary)) continue;
+    if (isSidecarBackedPythonBoundary(boundary)) {
+      for (const symbol of typeOnlySymbolsFromBoundary(boundary)) symbols.push(symbol);
+      continue;
+    }
     for (const symbol of symbolsFromBoundary(boundary)) symbols.push(symbol);
   }
   for (const manifest of sidecarManifests) {
@@ -110,6 +119,14 @@ function isSidecarBackedPythonBoundary(boundary: ExternalBoundary): boolean {
 
 function hasRuntimeImports(boundary: ExternalBoundary): boolean {
   return boundary.imports.some((binding) => binding.types !== true);
+}
+
+function typeOnlySymbolsFromBoundary(boundary: ExternalBoundary): ExternalImportSymbol[] {
+  const filteredBoundary = {
+    ...boundary,
+    imports: boundary.imports.filter((binding) => binding.types === true),
+  };
+  return symbolsFromBoundary(filteredBoundary).map((symbol) => ({ ...symbol, boundary }));
 }
 
 export function externalSignatureDiagnostics(root: IRNode): ExternalSignatureDiagnostic[] {
@@ -172,7 +189,7 @@ function symbolsFromBoundary(boundary: ExternalBoundary): ExternalImportSymbol[]
         targetFamily: boundary.targetFamily,
         from: binding.from,
         sourceName: namedBinding.name,
-        signature: binding.names.length === 1 ? binding.signature : binding.signatures?.[namedBinding.name],
+        signature: namedBindingSignature(binding, namedBinding.name),
         runtime: boundary.runtime,
         boundary,
         binding,
@@ -198,6 +215,11 @@ function symbolsFromBoundary(boundary: ExternalBoundary): ExternalImportSymbol[]
     }
   }
   return symbols;
+}
+
+function namedBindingSignature(binding: ExternalImportBinding, name: string): string | undefined {
+  if (binding.names.length === 1) return binding.signature ?? binding.signatures?.[name];
+  return binding.signatures?.[name];
 }
 
 function symbolsFromSidecarManifest(manifest: SidecarManifest): ExternalImportSymbol[] {
@@ -255,11 +277,18 @@ function symbolsFromSidecarManifest(manifest: SidecarManifest): ExternalImportSy
 function indexSymbols(symbols: ExternalImportSymbol[]): ExternalImportSymbolTable {
   const byLocalName = new Map<string, ExternalImportSymbol>();
   const byPackage = new Map<string, ExternalImportSymbol[]>();
+  const symbolsByLocalName = new Map<string, ExternalImportSymbol[]>();
   for (const symbol of symbols) {
     if (!byLocalName.has(symbol.localName)) byLocalName.set(symbol.localName, symbol);
+    const localSymbols = symbolsByLocalName.get(symbol.localName) ?? [];
+    localSymbols.push(symbol);
+    symbolsByLocalName.set(symbol.localName, localSymbols);
     const packageSymbols = byPackage.get(symbol.package) ?? [];
     packageSymbols.push(symbol);
     byPackage.set(symbol.package, packageSymbols);
   }
-  return { symbols, byLocalName, byPackage };
+  const conflicts = [...symbolsByLocalName.entries()]
+    .filter(([, localSymbols]) => localSymbols.length > 1)
+    .map(([localName, localSymbols]) => ({ localName, symbols: localSymbols }));
+  return { symbols, byLocalName, byPackage, conflicts };
 }

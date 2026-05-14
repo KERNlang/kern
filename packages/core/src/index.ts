@@ -146,6 +146,7 @@ export {
 } from './external-boundary.js';
 export type {
   ExternalImportSymbol,
+  ExternalImportSymbolConflict,
   ExternalImportSymbolKind,
   ExternalImportSymbolTable,
   ExternalNamedBinding,

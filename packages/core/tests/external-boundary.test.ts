@@ -544,6 +544,71 @@ describe('external boundary collection', () => {
     });
   });
 
+  it('keeps mixed type-only PyPI imports under sidecar-backed boundaries', () => {
+    const root = parse(
+      [
+        'island sidecar DataIsland requiresSidecar=true runtime=python',
+        '  extern package=numpy registry=pypi',
+        '    import names=array',
+        '    import names=NDArray types=true',
+      ].join('\n'),
+    );
+
+    const table = collectExternalImportSymbols(root);
+    expect(table.byLocalName.get('array')).toMatchObject({
+      kind: 'function',
+      package: 'numpy',
+      registry: 'pypi',
+      sourceName: 'array',
+      sidecarName: 'DataIsland',
+    });
+    const ndArray = table.byLocalName.get('NDArray');
+    expect(ndArray).toMatchObject({
+      kind: 'type',
+      package: 'numpy',
+      registry: 'pypi',
+      sourceName: 'NDArray',
+    });
+    expect(ndArray?.boundary.imports).toHaveLength(2);
+  });
+
+  it('reports duplicate external local names without hiding the indexed symbols', () => {
+    const root = parse(
+      ['module name=dupes', '  import npm "lodash" as helper', '  import py "helpers" as helper'].join('\n'),
+    );
+
+    const table = collectExternalImportSymbols(root);
+    expect(table.byLocalName.get('helper')).toMatchObject({ package: 'lodash', registry: 'npm' });
+    expect(table.conflicts).toHaveLength(1);
+    expect(table.conflicts[0]).toMatchObject({
+      localName: 'helper',
+      symbols: [
+        { package: 'lodash', registry: 'npm', kind: 'module' },
+        { package: 'helpers', registry: 'pypi', kind: 'module' },
+      ],
+    });
+  });
+
+  it('documents module-plus-named signature maps as module API declarations', () => {
+    const root = parse(
+      'extern package=foo registry=pypi\n  import default=foo names=bar signatures="bar:(x: number) => Promise<number>;baz:(x: string) => Promise<string>"',
+    );
+
+    expect(externalSignatureDiagnostics(root)).toEqual([]);
+    const table = collectExternalImportSymbols(root);
+    expect(table.byLocalName.get('foo')).toMatchObject({
+      kind: 'module',
+      signatures: {
+        bar: '(x: number) => Promise<number>',
+        baz: '(x: string) => Promise<string>',
+      },
+    });
+    expect(table.byLocalName.get('bar')).toMatchObject({
+      kind: 'function',
+      signature: '(x: number) => Promise<number>',
+    });
+  });
+
   it('treats module signature maps as API declarations instead of diagnostics', () => {
     const root = parse(
       'import py "custom_package" as custom signatures="first:(x: number) => Promise<number>;second:(x: string) => Promise<string>"',

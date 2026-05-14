@@ -8,6 +8,7 @@
 - Never use `cache: 'pnpm'` in `actions/setup-node`.
 - Treat `Release Preflight` as mandatory before release.
 - Release tags must be lowercase `vX.Y.Z`.
+- For Claude code reviews, pin the Claude CLI to `--model claude-opus-4-7`; do not rely on the default `claude` model alias.
 
 ## If You Need To Update pnpm
 
