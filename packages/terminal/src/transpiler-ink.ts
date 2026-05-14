@@ -464,9 +464,7 @@ function generateLogicEffect(logicNode: IRNode, imports: ImportTracker): string[
   const deps = props.deps as string;
   // Support both inline code prop and handler child
   const handlerChild = (logicNode.children || []).find((c) => c.type === 'handler');
-  const code = handlerChild
-    ? readHandlerCodeOrNativeKern(handlerChild)
-    : (props.code as string) || '';
+  const code = handlerChild ? readHandlerCodeOrNativeKern(handlerChild) : (props.code as string) || '';
 
   if (code) {
     imports.addReact('useEffect');

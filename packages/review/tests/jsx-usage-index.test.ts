@@ -173,8 +173,7 @@ describe('buildJsxUsageIndex', () => {
         { path: '/src/foo.tsx', code: 'export function Foo() { return null; }\n' },
         {
           path: '/src/app.tsx',
-          code:
-            "import { Foo } from './foo';\nexport function App({ show }: { show: boolean }) {\n  return <div>{show && <Foo />}</div>;\n}\n",
+          code: "import { Foo } from './foo';\nexport function App({ show }: { show: boolean }) {\n  return <div>{show && <Foo />}</div>;\n}\n",
         },
       ],
       ['/src/app.tsx'],
@@ -190,8 +189,7 @@ describe('buildJsxUsageIndex', () => {
         { path: '/src/row.tsx', code: 'export function Row(_: { id: string }) { return null; }\n' },
         {
           path: '/src/app.tsx',
-          code:
-            "import { Row } from './row';\nexport function App({ items }: { items: string[] }) {\n  return <div>{items.map((i) => <Row key={i} id={i} />)}</div>;\n}\n",
+          code: "import { Row } from './row';\nexport function App({ items }: { items: string[] }) {\n  return <div>{items.map((i) => <Row key={i} id={i} />)}</div>;\n}\n",
         },
       ],
       ['/src/app.tsx'],
@@ -211,8 +209,7 @@ describe('buildJsxUsageIndex', () => {
         },
         {
           path: '/src/app.tsx',
-          code:
-            "import { Foo } from './foo';\nexport function App() { return <Foo data={{ a: 1 }} />; }\n",
+          code: "import { Foo } from './foo';\nexport function App() { return <Foo data={{ a: 1 }} />; }\n",
         },
       ],
       ['/src/app.tsx'],
@@ -232,8 +229,7 @@ describe('buildJsxUsageIndex', () => {
         },
         {
           path: '/src/app.tsx',
-          code:
-            "import { Foo } from './foo';\nexport function App() { return <Foo items={[1, 2]} />; }\n",
+          code: "import { Foo } from './foo';\nexport function App() { return <Foo items={[1, 2]} />; }\n",
         },
       ],
       ['/src/app.tsx'],
@@ -253,8 +249,7 @@ describe('buildJsxUsageIndex', () => {
         },
         {
           path: '/src/app.tsx',
-          code:
-            "import { Foo } from './foo';\nexport function App() { return <Foo onClick={() => undefined} />; }\n",
+          code: "import { Foo } from './foo';\nexport function App() { return <Foo onClick={() => undefined} />; }\n",
         },
       ],
       ['/src/app.tsx'],
@@ -274,8 +269,7 @@ describe('buildJsxUsageIndex', () => {
         },
         {
           path: '/src/app.tsx',
-          code:
-            "import { useMemo } from 'react';\nimport { Foo } from './foo';\nexport function App() {\n  const memo = useMemo(() => ({ a: 1 }), []);\n  return <Foo data={memo} />;\n}\n",
+          code: "import { useMemo } from 'react';\nimport { Foo } from './foo';\nexport function App() {\n  const memo = useMemo(() => ({ a: 1 }), []);\n  return <Foo data={memo} />;\n}\n",
         },
       ],
       ['/src/app.tsx'],
@@ -292,8 +286,7 @@ describe('buildJsxUsageIndex', () => {
         { path: '/src/foo.tsx', code: 'export function Foo() { return null; }\n' },
         {
           path: '/src/app.tsx',
-          code:
-            "import { Foo } from './foo';\nexport function App() { return <Foo />; }\nexport const Sidebar = () => <Foo />;\n",
+          code: "import { Foo } from './foo';\nexport function App() { return <Foo />; }\nexport const Sidebar = () => <Foo />;\n",
         },
       ],
       ['/src/app.tsx'],
@@ -315,8 +308,7 @@ describe('buildJsxUsageIndex', () => {
         },
         {
           path: '/src/app.tsx',
-          code:
-            "import { Foo } from './components';\nexport function App() { return <Foo />; }\n",
+          code: "import { Foo } from './components';\nexport function App() { return <Foo />; }\n",
         },
       ],
       ['/src/app.tsx'],
@@ -335,8 +327,7 @@ describe('buildJsxUsageIndex', () => {
         { path: '/src/card.tsx', code: 'export function Card() { return null; }\n' },
         {
           path: '/src/card.test.tsx',
-          code:
-            "import { Card } from './card';\nexport function renderCard() { return <Card />; }\n",
+          code: "import { Card } from './card';\nexport function renderCard() { return <Card />; }\n",
         },
       ],
       ['/src/card.test.tsx'],

@@ -186,9 +186,8 @@ export function generateError(node: IRNode): string[] {
 
   // Native KERN body opt-in — same dispatch fn/method already honor.
   const errorHandler = getFirstChild(node, 'handler');
-  const code = errorHandler && getProps(errorHandler).lang === 'kern'
-    ? emitNativeKernBodyTS(errorHandler)
-    : handlerCode(node);
+  const code =
+    errorHandler && getProps(errorHandler).lang === 'kern' ? emitNativeKernBodyTS(errorHandler) : handlerCode(node);
 
   if (fields.length > 0) {
     lines.push(`  constructor(`);

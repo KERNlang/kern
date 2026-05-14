@@ -138,7 +138,10 @@ function resolveImportSourceFile(
   return edge ? sourceFile.getProject().getSourceFile(edge.to) : undefined;
 }
 
-function buildNamespaceMembers(sourceFile: SourceFile, graphFiles: Map<string, GraphFile>): Map<string, ResolvedBinding> {
+function buildNamespaceMembers(
+  sourceFile: SourceFile,
+  graphFiles: Map<string, GraphFile>,
+): Map<string, ResolvedBinding> {
   const members = new Map<string, ResolvedBinding>();
   for (const exportName of sourceFile.getExportedDeclarations().keys()) {
     const resolved = resolveExportBinding(sourceFile, exportName, graphFiles);
@@ -172,10 +175,7 @@ function resolveExportBinding(
     // keeps `default` as its key.
     let targetName = exportName;
     if (exportName === 'default') {
-      const declName =
-        Node.isFunctionDeclaration(decl) || Node.isClassDeclaration(decl)
-          ? decl.getName()
-          : undefined;
+      const declName = Node.isFunctionDeclaration(decl) || Node.isClassDeclaration(decl) ? decl.getName() : undefined;
       if (declName) targetName = declName;
     }
     return { targetFile, targetName };
@@ -218,7 +218,10 @@ function chaseExportThroughBarrels(
   return undefined;
 }
 
-function resolveJsxTag(tag: import('ts-morph').JsxTagNameExpression, bindings: Map<string, ImportBinding>): ResolvedBinding | undefined {
+function resolveJsxTag(
+  tag: import('ts-morph').JsxTagNameExpression,
+  bindings: Map<string, ImportBinding>,
+): ResolvedBinding | undefined {
   if (Node.isIdentifier(tag)) {
     const binding = bindings.get(tag.getText());
     return binding?.kind === 'namespace' ? undefined : binding;
