@@ -34,6 +34,18 @@ function methodBodyCode(method: IRNode): string {
   return handlerCode(method);
 }
 
+/** Same `lang=kern` dispatch for constructors, getters, setters, and
+ *  const value-handlers. The infrastructure (`emitNativeKernBodyTS`)
+ *  already supports all body statements; these call sites just need to
+ *  honor the opt-in like `methodBodyCode` does. */
+function classMemberBodyCode(node: IRNode): string {
+  const handler = getFirstChild(node, 'handler');
+  if (handler && getProps(handler).lang === 'kern') {
+    return emitNativeKernBodyTS(handler);
+  }
+  return handlerCode(node);
+}
+
 const p = getProps;
 const kids = getChildren;
 const firstChild = getFirstChild;
@@ -248,7 +260,7 @@ function emitClassBody(node: IRNode, lines: string[]): void {
     const ctorProps = propsOf<'constructor'>(ctorNode);
     const ctorParams = emitParamList(ctorNode);
     const generics = ctorProps.generics ? emitTypeAnnotation(ctorProps.generics, '', ctorNode) : '';
-    const ctorCode = handlerCode(ctorNode);
+    const ctorCode = classMemberBodyCode(ctorNode);
     lines.push('');
     lines.push(`  constructor${generics}(${ctorParams}) {`);
     if (ctorCode) {
@@ -308,7 +320,7 @@ function emitClassBody(node: IRNode, lines: string[]): void {
     const gvis = gp.private === 'true' || gp.private === true ? 'private ' : '';
     const gstatic = gp.static === 'true' || gp.static === true ? 'static ' : '';
     const greturns = gp.returns ? `: ${emitTypeAnnotation(gp.returns, 'unknown', getter)}` : '';
-    const gcode = handlerCode(getter);
+    const gcode = classMemberBodyCode(getter);
     lines.push('');
     lines.push(`  ${gvis}${gstatic}get ${gname}()${greturns} {`);
     if (gcode) {
@@ -326,7 +338,7 @@ function emitClassBody(node: IRNode, lines: string[]): void {
     const svis = sp.private === 'true' || sp.private === true ? 'private ' : '';
     const sstatic = sp.static === 'true' || sp.static === true ? 'static ' : '';
     const sparams = emitParamList(setter, { fallback: 'value: unknown' });
-    const scode = handlerCode(setter);
+    const scode = classMemberBodyCode(setter);
     lines.push('');
     lines.push(`  ${svis}${sstatic}set ${sname}(${sparams}) {`);
     if (scode) {

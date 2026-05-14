@@ -4,6 +4,7 @@ import {
   buildDiagnostics,
   countTokens,
   dedent,
+  emitNativeKernBodyTS,
   emitRender,
   generateCoreNode,
   generateMachineReducer,
@@ -576,7 +577,15 @@ function generateCallbackHook(callbackNode: IRNode, imports: ImportTracker): str
   const params = (props.params as string) || '';
   const deps = props.deps as string;
   const handlerChild = (callbackNode.children || []).find((c) => c.type === 'handler');
-  const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
+  // Same `lang=kern` opt-in as fn/method — walk structured statements through
+  // emitNativeKernBodyTS so callbacks written natively don't silently emit
+  // empty bodies. Legacy raw `<<<...>>>` blocks still flow through `.code`.
+  const handlerLang = handlerChild ? (getProps(handlerChild).lang as string | undefined) : undefined;
+  const code = handlerChild
+    ? handlerLang === 'kern'
+      ? emitNativeKernBodyTS(handlerChild)
+      : (getProps(handlerChild).code as string) || ''
+    : '';
 
   if (name && code) {
     imports.addReact('useCallback');

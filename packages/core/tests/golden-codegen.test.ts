@@ -516,7 +516,10 @@ describe('golden: import', () => {
 
     expect(output).toContain('export const mathSidecarManifest = {');
     expect(output).toContain('export const mathSidecarClient = createMathSidecarClient(mathSidecarManifest);');
-    expect(output).toContain('export const math = mathSidecarClient.module("math");');
+    expect(output).toContain('type MathPythonCallable<T extends (...args: any[]) => Promise<unknown>>');
+    expect(output).toContain('type MathPythonModule = Record<string,');
+    expect(output).toContain('  sqrt: MathPythonCallable<(x: number) => Promise<number>>;');
+    expect(output).toContain('export const math = mathSidecarClient.module("math") as unknown as MathPythonModule;');
     expect(output).toContain('export async function sqrtSeven(): Promise<unknown> {');
     expect(output).toContain('  return await math.sqrt(49);');
     expect(output).not.toContain("from 'math'");
@@ -550,7 +553,36 @@ describe('golden: import', () => {
     const output = gen('import py "math" names=sqrt signature="(x: number) => Promise<number>"');
 
     expect(output).toContain(
-      'export const sqrt = mathSidecarClient.bind("math", "sqrt") as ((x: number) => Promise<number>);',
+      'export const sqrt = mathSidecarClient.bind("math", "sqrt") as unknown as MathPythonCallable<(x: number) => Promise<number>>;',
+    );
+  });
+
+  it('does not apply one signature prop to multiple Python named bindings', () => {
+    const output = gen('import py "custom_package" names="first,second" signature="(x: number) => Promise<number>"');
+
+    expect(output).toContain(
+      'export const first = customUnderscorePackageSidecarClient.bind("custom_package", "first");',
+    );
+    expect(output).toContain(
+      'export const second = customUnderscorePackageSidecarClient.bind("custom_package", "second");',
+    );
+    expect(output).not.toContain('PythonCallable<(x: number) => Promise<number>>');
+  });
+
+  it('filters explicit Python signature maps to imported names', () => {
+    const output = gen(
+      'import py "custom_package" names=first signatures="first:(x: number) => Promise<number>;second:(x: string) => Promise<string>"',
+    );
+
+    expect(output).toContain('  first: CustomUnderscorePackagePythonCallable<(x: number) => Promise<number>>;');
+    expect(output).not.toContain('  second: CustomUnderscorePackagePythonCallable<(x: string) => Promise<string>>;');
+  });
+
+  it('infers typed named Python function bindings for known packages', () => {
+    const output = gen('import py "math" names=sqrt');
+
+    expect(output).toContain(
+      'export const sqrt = mathSidecarClient.bind("math", "sqrt") as unknown as MathPythonCallable<(x: number) => Promise<number>>;',
     );
   });
 
@@ -565,9 +597,9 @@ describe('golden: import', () => {
 
     expect(output.match(/export const mathSidecarManifest/g)).toHaveLength(1);
     expect(output.match(/function createMathSidecarClient/g)).toHaveLength(1);
-    expect(output).toContain('export const math = mathSidecarClient.module("math");');
+    expect(output).toContain('export const math = mathSidecarClient.module("math") as unknown as MathPythonModule;');
     expect(output).toContain(
-      'export const sqrt = mathSidecarClient.bind("math", "sqrt") as ((x: number) => Promise<number>);',
+      'export const sqrt = mathSidecarClient.bind("math", "sqrt") as unknown as MathPythonCallable<(x: number) => Promise<number>>;',
     );
   });
 });

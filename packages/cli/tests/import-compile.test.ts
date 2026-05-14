@@ -1,7 +1,7 @@
 import { spawnSync } from 'child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { basename, dirname, join } from 'path';
 import * as ts from 'typescript';
 import { pathToFileURL } from 'url';
 import { parse } from '../../core/src/parser.js';
@@ -83,6 +83,54 @@ describe('kern import/compile commands', () => {
     });
     writeFileSync(outputPath, result.outputText);
     return outputPath;
+  }
+
+  function expectTsModuleTypechecks(filePath: string, usageSource: string): void {
+    const usageFile = join(dirname(filePath), `${basename(filePath, '.ts')}.typecheck.ts`);
+    const nodeTypesFile = join(dirname(filePath), 'node-sidecar-runtime.d.ts');
+    writeFileSync(usageFile, usageSource);
+    writeFileSync(
+      nodeTypesFile,
+      [
+        'declare const process: { env: Record<string, string | undefined> };',
+        'declare const Buffer: {',
+        '  from(value: ArrayBuffer | Uint8Array | string, encoding?: string): Uint8Array & { toString(encoding?: string): string };',
+        '};',
+        'declare module "node:child_process" {',
+        '  export interface ChildProcessWithoutNullStreams {',
+        '    stdin: { writable: boolean; write(data: string, cb: (err?: Error | null) => void): void; on(event: "error", listener: (error: Error) => void): void };',
+        '    stdout: { on(event: "error", listener: (error: Error) => void): void };',
+        '    stderr: { on(event: "data", listener: (chunk: unknown) => void): void };',
+        '    on(event: "error", listener: (error: Error) => void): void;',
+        '    on(event: "exit", listener: (code: number | null, signal: string | null) => void): void;',
+        '    kill(): void;',
+        '  }',
+        '  export function spawn(command: string, args: string[], options: unknown): ChildProcessWithoutNullStreams;',
+        '}',
+        'declare module "node:readline" {',
+        '  export function createInterface(options: unknown): {',
+        '    on(event: "line", listener: (line: string) => void): void;',
+        '    on(event: "close", listener: () => void): void;',
+        '  };',
+        '}',
+      ].join('\n'),
+    );
+    const program = ts.createProgram([filePath, usageFile, nodeTypesFile], {
+      module: ts.ModuleKind.NodeNext,
+      moduleResolution: ts.ModuleResolutionKind.NodeNext,
+      target: ts.ScriptTarget.ES2022,
+      strict: true,
+      noEmit: true,
+      skipLibCheck: true,
+    });
+    const diagnostics = ts.getPreEmitDiagnostics(program);
+    expect(
+      diagnostics.map((diagnostic) => {
+        const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
+        const file = diagnostic.file?.fileName ?? '<unknown>';
+        return `${file}:${diagnostic.start ?? 0} TS${diagnostic.code}: ${message}`;
+      }),
+    ).toEqual([]);
   }
 
   function writeRuntimeStub(rootDir: string, modulePath: string, packageJson: string, indexSource: string): void {
@@ -673,6 +721,7 @@ export async function loadUser(id: string): Promise<User> {
       [
         'module name=calc',
         '  import py "math" as math',
+        '  import py "math" names=sqrt',
         '  fn name=sqrtSeven async=true returns=Promise<unknown>',
         '    handler lang=kern',
         '      return value="await math.sqrt(49)"',
@@ -697,7 +746,28 @@ export async function loadUser(id: string): Promise<User> {
 
     const compiledFile = join(generatedDir, 'python-top-level-runtime.ts');
     const compiled = readFileSync(compiledFile, 'utf-8');
-    expect(compiled).toContain('export const math = mathSidecarClient.module("math");');
+    expect(compiled).toContain('export const math = mathSidecarClient.module("math") as unknown as MathPythonModule;');
+    expectTsModuleTypechecks(
+      compiledFile,
+      [
+        'import { math, sqrt } from "./python-top-level-runtime.js";',
+        'async function check(): Promise<void> {',
+        '  const viaModule: number = await math.sqrt(49);',
+        '  const viaModuleKwargs: number = await math.sqrt.kwargs({}, 49);',
+        '  const viaModuleKwargsOnly: number = await math.sqrt.kwargs({ x: 49 });',
+        '  const viaNamed: number = await sqrt(49);',
+        '  const viaNamedKwargs: number = await sqrt.kwargs({}, 49);',
+        '  const viaNamedKwargsOnly: number = await sqrt.kwargs({ x: 49 });',
+        '  void viaModule;',
+        '  void viaModuleKwargs;',
+        '  void viaModuleKwargsOnly;',
+        '  void viaNamed;',
+        '  void viaNamedKwargs;',
+        '  void viaNamedKwargsOnly;',
+        '}',
+        'void check;',
+      ].join('\n'),
+    );
     expect(existsSync(join(generatedDir, 'kern-sidecars.json'))).toBe(true);
     expect(existsSync(join(generatedDir, 'kern-sidecar-requirements.txt'))).toBe(false);
 

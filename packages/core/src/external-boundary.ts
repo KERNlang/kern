@@ -1,3 +1,4 @@
+import { type ExternalSignatureMap, parseExternalSignatureMap } from './ecosystem-signatures.js';
 import {
   type ExternalImportRegistry,
   type ExternalImportTarget,
@@ -13,6 +14,7 @@ export interface ExternalImportBinding {
   default?: string;
   from?: string;
   signature?: string;
+  signatures?: ExternalSignatureMap;
   types: boolean;
   line?: number;
   col?: number;
@@ -135,15 +137,19 @@ function islandRefFromNode(node: IRNode): CapabilityIslandRef | null {
 }
 
 function importBindingFromProps(props: Record<string, unknown>, loc?: IRNode['loc']): ExternalImportBinding {
-  return {
+  const explicitSignatures = parseExternalSignatureMap(props.signatures);
+  const binding: ExternalImportBinding = {
     names: splitNames(props.names),
     default: typeof props.default === 'string' && props.default.length > 0 ? props.default : undefined,
     from: typeof props.from === 'string' && props.from.length > 0 ? props.from : undefined,
     signature: typeof props.signature === 'string' && props.signature.length > 0 ? props.signature : undefined,
+    signatures: explicitSignatures,
     types: props.types === true || props.types === 'true',
     line: loc?.line,
     col: loc?.col,
   };
+  if (!binding.signatures) delete binding.signatures;
+  return binding;
 }
 
 function boundaryFromExtern(node: IRNode, island?: CapabilityIslandRef): ExternalBoundary | null {
@@ -152,6 +158,7 @@ function boundaryFromExtern(node: IRNode, island?: CapabilityIslandRef): Externa
   if (typeof packageName !== 'string' || packageName.length === 0) return null;
 
   const childImports = (node.children ?? []).filter((child) => child.type === 'import');
+  const registry = importRegistryOf(props.registry);
   const imports =
     childImports.length > 0
       ? childImports.map((child) => importBindingFromProps(child.props ?? {}, child.loc))
@@ -159,7 +166,7 @@ function boundaryFromExtern(node: IRNode, island?: CapabilityIslandRef): Externa
 
   return {
     package: packageName,
-    registry: importRegistryOf(props.registry),
+    registry,
     target: importTargetOf(props.target, props.registry),
     targetFamily: importTargetFamilyOf(props.target, props.registry),
     island,

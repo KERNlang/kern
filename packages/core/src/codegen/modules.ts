@@ -7,6 +7,12 @@
  * Extracted from codegen-core.ts for modular codegen architecture.
  */
 
+import {
+  type ExternalSignatureMap,
+  inferExternalSignature,
+  inferExternalSignatureMap,
+  parseExternalSignatureMap,
+} from '../ecosystem-signatures.js';
 import { type SidecarManifest, sidecarManifestFromNode } from '../external-boundary.js';
 import {
   importRegistryOf,
@@ -113,6 +119,10 @@ function lowerFirst(value: string): string {
   return value.length === 0 ? value : `${value[0].toLowerCase()}${value.slice(1)}`;
 }
 
+function upperFirst(value: string): string {
+  return value.length === 0 ? value : `${value[0].toUpperCase()}${value.slice(1)}`;
+}
+
 function emitStringArray(values: string[]): string {
   return `[${values.map((value) => JSON.stringify(value)).join(', ')}]`;
 }
@@ -123,6 +133,21 @@ function parseNamedImportBinding(raw: string): { name: string; alias: string } |
   const match = raw.trim().match(/^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/u);
   if (!match) return null;
   return { name: match[1], alias: match[2] ?? match[1] };
+}
+
+function emitObjectTypeKey(name: string): string {
+  return SAFE_IDENTIFIER_RE.test(name) ? name : JSON.stringify(name);
+}
+
+function uniqueGeneratedName(base: string, used: Set<string>): string {
+  let name = base;
+  let suffix = 2;
+  while (used.has(name)) {
+    name = `${base}${suffix}`;
+    suffix++;
+  }
+  used.add(name);
+  return name;
 }
 
 function isPythonPackageImport(props: { package?: unknown; registry?: unknown; target?: unknown }): boolean {
@@ -193,6 +218,7 @@ function sidecarPackageFromImportNode(node: IRNode): SidecarManifest['packages']
         default: typeof props.default === 'string' && props.default.length > 0 ? props.default : undefined,
         from: typeof props.from === 'string' && props.from.length > 0 ? props.from : undefined,
         signature: typeof props.signature === 'string' && props.signature.length > 0 ? props.signature : undefined,
+        signatures: parseExternalSignatureMap(props.signatures),
         types: false,
         line: node.loc?.line,
         col: node.loc?.col,
@@ -249,6 +275,39 @@ export function generateLoosePythonSidecarImports(nodes: IRNode[]): string[] {
     }
   }
   return [...groups.values()].flatMap((group) => generatePythonSidecarClient(group.manifest, group.node));
+}
+
+function signatureForPythonBinding(
+  sidecarPackage: SidecarManifest['packages'][number],
+  binding: SidecarManifest['packages'][number]['imports'][number],
+  importedName: string,
+): string | undefined {
+  if (binding.signature && binding.names.length === 1) {
+    const namedBinding = parseNamedImportBinding(binding.names[0]);
+    if (namedBinding?.name === importedName) return binding.signature;
+  }
+  return (
+    binding.signatures?.[importedName] ??
+    inferExternalSignature(sidecarPackage.registry, sidecarPackage.package, importedName)
+  );
+}
+
+function signatureMapForPythonPackage(sidecarPackage: SidecarManifest['packages'][number]): ExternalSignatureMap {
+  const signatures: ExternalSignatureMap =
+    inferExternalSignatureMap(sidecarPackage.registry, sidecarPackage.package) ?? {};
+  for (const binding of sidecarPackage.imports) {
+    for (const rawName of binding.names) {
+      const namedBinding = parseNamedImportBinding(rawName);
+      if (!namedBinding) continue;
+      const signature = binding.signatures?.[namedBinding.name];
+      if (signature) signatures[namedBinding.name] = signature;
+    }
+    if (binding.signature && binding.names.length === 1) {
+      const namedBinding = parseNamedImportBinding(binding.names[0]);
+      if (namedBinding) signatures[namedBinding.name] = binding.signature;
+    }
+  }
+  return signatures;
 }
 
 const PYTHON_SIDECAR_RUNTIME = [
@@ -593,6 +652,12 @@ function generatePythonSidecarClient(manifest: SidecarManifest, node: IRNode): s
     `export const ${clientName} = ${factoryName}(${manifestName});`,
   );
   const usedExportNames = new Set([manifestName, clientName, runtimeName, factoryName]);
+  const usedTypeNames = new Set<string>();
+  const callableTypeName = uniqueGeneratedName(
+    emitIdentifier(`${upperFirst(baseName)}PythonCallable`, 'pythonCallableType', node),
+    usedTypeNames,
+  );
+  let emittedCallableType = false;
   for (const sidecarPackage of manifest.packages) {
     const moduleAliases = new Set<string>();
     for (const binding of sidecarPackage.imports) {
@@ -601,12 +666,39 @@ function generatePythonSidecarClient(manifest: SidecarManifest, node: IRNode): s
     if (moduleAliases.size === 0 && SAFE_IDENTIFIER_RE.test(sidecarPackage.package)) {
       moduleAliases.add(sidecarPackage.package);
     }
+    const moduleSignatures = signatureMapForPythonPackage(sidecarPackage);
+    const moduleSignatureEntries = Object.entries(moduleSignatures).sort(([a], [b]) => a.localeCompare(b));
     for (const rawAlias of moduleAliases) {
       if (!SAFE_IDENTIFIER_RE.test(rawAlias)) continue;
       const alias = emitIdentifier(rawAlias, 'pythonModule', node);
       if (usedExportNames.has(alias)) continue;
       usedExportNames.add(alias);
-      lines.push(`export const ${alias} = ${clientName}.module(${JSON.stringify(sidecarPackage.package)});`);
+      let moduleTypeCast = '';
+      if (moduleSignatureEntries.length > 0) {
+        if (!emittedCallableType) {
+          lines.push(
+            '',
+            `type ${callableTypeName}<T extends (...args: any[]) => Promise<unknown>> = T & { kwargs: { (kwargs: Record<string, unknown>): ReturnType<T>; (kwargs: Record<string, unknown>, ...args: Parameters<T>): ReturnType<T> } };`,
+          );
+          emittedCallableType = true;
+        }
+        const typeName = uniqueGeneratedName(
+          emitIdentifier(`${upperFirst(alias)}PythonModule`, 'pythonModuleType', node),
+          usedTypeNames,
+        );
+        lines.push(
+          '',
+          `type ${typeName} = Record<string, ${callableTypeName}<(...args: unknown[]) => Promise<unknown>>> & {`,
+        );
+        for (const [name, signature] of moduleSignatureEntries) {
+          lines.push(`  ${emitObjectTypeKey(name)}: ${callableTypeName}<${signature}>;`);
+        }
+        lines.push('};');
+        moduleTypeCast = ` as unknown as ${typeName}`;
+      }
+      lines.push(
+        `export const ${alias} = ${clientName}.module(${JSON.stringify(sidecarPackage.package)})${moduleTypeCast};`,
+      );
     }
     for (const binding of sidecarPackage.imports) {
       for (const rawName of binding.names) {
@@ -615,7 +707,15 @@ function generatePythonSidecarClient(manifest: SidecarManifest, node: IRNode): s
         const alias = emitIdentifier(namedBinding.alias, 'pythonFunction', node);
         if (usedExportNames.has(alias)) continue;
         usedExportNames.add(alias);
-        const typedCast = binding.signature ? ` as (${binding.signature})` : '';
+        const signature = signatureForPythonBinding(sidecarPackage, binding, namedBinding.name);
+        if (signature && !emittedCallableType) {
+          lines.push(
+            '',
+            `type ${callableTypeName}<T extends (...args: any[]) => Promise<unknown>> = T & { kwargs: { (kwargs: Record<string, unknown>): ReturnType<T>; (kwargs: Record<string, unknown>, ...args: Parameters<T>): ReturnType<T> } };`,
+          );
+          emittedCallableType = true;
+        }
+        const typedCast = signature ? ` as unknown as ${callableTypeName}<${signature}>` : '';
         lines.push(
           `export const ${alias} = ${clientName}.bind(${JSON.stringify(sidecarPackage.package)}, ${JSON.stringify(namedBinding.name)})${typedCast};`,
         );
