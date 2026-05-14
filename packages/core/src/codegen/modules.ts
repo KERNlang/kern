@@ -9,7 +9,6 @@
 
 import {
   type ExternalSignatureMap,
-  inferExternalSignature,
   inferExternalSignatureMap,
   parseExternalSignatureMap,
 } from '../ecosystem-signatures.js';
@@ -254,25 +253,14 @@ export function generateLoosePythonSidecarImports(nodes: IRNode[]): string[] {
   return [...groups.values()].flatMap((group) => generatePythonSidecarClient(group.manifest, group.node));
 }
 
-function signatureForPythonBinding(
-  sidecarPackage: SidecarManifest['packages'][number],
-  binding: SidecarManifest['packages'][number]['imports'][number],
-  importedName: string,
-): string | undefined {
-  if (binding.signature && binding.names.length === 1) {
-    const namedBinding = parseNamedImportBinding(binding.names[0]);
-    if (namedBinding?.name === importedName) return binding.signature;
-  }
-  return (
-    binding.signatures?.[importedName] ??
-    inferExternalSignature(sidecarPackage.registry, sidecarPackage.package, importedName)
-  );
-}
-
 function signatureMapForPythonPackage(sidecarPackage: SidecarManifest['packages'][number]): ExternalSignatureMap {
-  const signatures: ExternalSignatureMap =
-    inferExternalSignatureMap(sidecarPackage.registry, sidecarPackage.package) ?? {};
+  const signatures: ExternalSignatureMap = {
+    ...(inferExternalSignatureMap(sidecarPackage.registry, sidecarPackage.package) ?? {}),
+  };
   for (const binding of sidecarPackage.imports) {
+    if (binding.signatures && (binding.default || binding.names.length === 0)) {
+      Object.assign(signatures, binding.signatures);
+    }
     for (const rawName of binding.names) {
       const namedBinding = parseNamedImportBinding(rawName);
       if (!namedBinding) continue;
@@ -684,7 +672,7 @@ function generatePythonSidecarClient(manifest: SidecarManifest, node: IRNode): s
         const alias = emitIdentifier(namedBinding.alias, 'pythonFunction', node);
         if (usedExportNames.has(alias)) continue;
         usedExportNames.add(alias);
-        const signature = signatureForPythonBinding(sidecarPackage, binding, namedBinding.name);
+        const signature = moduleSignatures[namedBinding.name];
         if (signature && !emittedCallableType) {
           lines.push(
             '',
