@@ -572,6 +572,30 @@ describe('external boundary collection', () => {
     expect(ndArray?.boundary.imports).toHaveLength(2);
   });
 
+  it('does not duplicate target-python sidecar runtime imports in the typed symbol table', () => {
+    const root = parse(
+      [
+        'island sidecar LocalPy requiresSidecar=true runtime=python',
+        '  extern package=local_math target=python',
+        '    import names=add',
+        '    import names=Vector types=true',
+      ].join('\n'),
+    );
+
+    const table = collectExternalImportSymbols(root);
+    expect(table.symbols.filter((symbol) => symbol.localName === 'add')).toHaveLength(1);
+    expect(table.byLocalName.get('add')).toMatchObject({
+      kind: 'function',
+      package: 'local_math',
+      sidecarName: 'LocalPy',
+    });
+    expect(table.byLocalName.get('Vector')).toMatchObject({
+      kind: 'type',
+      package: 'local_math',
+    });
+    expect(table.conflicts).toEqual([]);
+  });
+
   it('reports duplicate external local names without hiding the indexed symbols', () => {
     const root = parse(
       ['module name=dupes', '  import npm "lodash" as helper', '  import py "helpers" as helper'].join('\n'),
@@ -585,6 +609,41 @@ describe('external boundary collection', () => {
       symbols: [
         { package: 'lodash', registry: 'npm', kind: 'module' },
         { package: 'helpers', registry: 'pypi', kind: 'module' },
+      ],
+    });
+  });
+
+  it('does not treat same-name value and type imports as local-name conflicts', () => {
+    const root = parse(
+      [
+        'island sidecar DataIsland requiresSidecar=true runtime=python',
+        '  extern package=numpy registry=pypi',
+        '    import names=NDArray',
+        '    import names=NDArray types=true',
+      ].join('\n'),
+    );
+
+    const table = collectExternalImportSymbols(root);
+    expect(table.symbols.filter((symbol) => symbol.localName === 'NDArray')).toHaveLength(2);
+    expect(table.conflicts).toEqual([]);
+  });
+
+  it('reports same-name type-only external imports as type namespace conflicts', () => {
+    const root = parse(
+      [
+        'module name=typing',
+        '  import py "numpy.typing" names=NDArray types=true',
+        '  import py "custom.typing" names=NDArray types=true',
+      ].join('\n'),
+    );
+
+    const table = collectExternalImportSymbols(root);
+    expect(table.conflicts).toHaveLength(1);
+    expect(table.conflicts[0]).toMatchObject({
+      localName: 'NDArray',
+      symbols: [
+        { kind: 'type', package: 'numpy.typing' },
+        { kind: 'type', package: 'custom.typing' },
       ],
     });
   });

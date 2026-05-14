@@ -111,7 +111,7 @@ export function buildExternalImportSymbolTable(
 
 function isSidecarBackedPythonBoundary(boundary: ExternalBoundary): boolean {
   return (
-    boundary.registry === 'pypi' &&
+    (boundary.registry === 'pypi' || boundary.targetFamily === 'python') &&
     hasRuntimeImports(boundary) &&
     (boundary.explicitPackage === true || boundary.island?.requiresSidecar === true)
   );
@@ -288,7 +288,18 @@ function indexSymbols(symbols: ExternalImportSymbol[]): ExternalImportSymbolTabl
     byPackage.set(symbol.package, packageSymbols);
   }
   const conflicts = [...symbolsByLocalName.entries()]
-    .filter(([, localSymbols]) => localSymbols.length > 1)
+    .filter(([, localSymbols]) => hasExternalImportSymbolConflict(localSymbols))
     .map(([localName, localSymbols]) => ({ localName, symbols: localSymbols }));
   return { symbols, byLocalName, byPackage, conflicts };
+}
+
+function hasExternalImportSymbolConflict(symbols: ExternalImportSymbol[]): boolean {
+  let valueCount = 0;
+  let typeCount = 0;
+  for (const symbol of symbols) {
+    if (symbol.kind === 'type') typeCount++;
+    else valueCount++;
+    if (valueCount > 1 || typeCount > 1) return true;
+  }
+  return false;
 }
