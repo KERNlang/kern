@@ -479,6 +479,11 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
   }
   if (ts.isIfStatement(stmt)) {
     if (!isValidKernExpression(stmt.expression.getText(sf))) return 'if-bad-cond';
+    // Body emitters (`emitNativeKernBodyTS` / `emitNativeKernBodyPython`) always
+    // wrap `if` bodies in braces / indented blocks. A raw `if (cond) stmt;`
+    // would migrate to `if cond=… → { stmt; }` and lose byte-equivalence under
+    // `--verify`. Mirror the `for-of-non-block` / `while-non-block` guards.
+    if (!ts.isBlock(stmt.thenStatement)) return 'if-non-block-then';
     const thenReason = classifyBranch(stmt.thenStatement, sf, ctx);
     if (thenReason !== null) return thenReason;
     if (stmt.elseStatement) {
@@ -487,6 +492,9 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
       // resulting `else > if` shape back to `else if` / `elif` (commit
       // 88c06dcc on dev). classifyBranch handles the nested IfStatement
       // by re-entering classifyStmt, so the recursion is automatic.
+      if (!ts.isIfStatement(stmt.elseStatement) && !ts.isBlock(stmt.elseStatement)) {
+        return 'if-non-block-else';
+      }
       const elseReason = classifyBranch(stmt.elseStatement, sf, ctx);
       if (elseReason !== null) return elseReason;
     }
@@ -503,7 +511,10 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
   }
   if (ts.isExpressionStatement(stmt)) {
     // Slice α-1: ExpressionStatement → `do value="…"`. Plain `=` maps to
-    // `assign`; compound assignment and ++/-- remain unsupported.
+    // `assign`; compound assignment maps to `assign op=...`; postfix `X++;`
+    // / `X--;` maps to the value-less form `assign target=X op="++"`. Prefix
+    // `++X;` stays unsupported because there's no IR shape that round-trips
+    // back to the prefix form rather than postfix under `--verify`.
     if (ts.isBinaryExpression(stmt.expression)) {
       const op = stmt.expression.operatorToken.kind;
       if (op >= ts.SyntaxKind.FirstAssignment && op <= ts.SyntaxKind.LastAssignment) {
@@ -515,8 +526,25 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
         return null;
       }
     }
-    if (ts.isPostfixUnaryExpression(stmt.expression) || ts.isPrefixUnaryExpression(stmt.expression)) {
-      const op = (stmt.expression as ts.PrefixUnaryExpression | ts.PostfixUnaryExpression).operator;
+    if (ts.isPostfixUnaryExpression(stmt.expression)) {
+      const op = stmt.expression.operator;
+      if (op === ts.SyntaxKind.PlusPlusToken || op === ts.SyntaxKind.MinusMinusToken) {
+        // Postfix `X++;` / `X--;` lifts to `assign target=X op="++"` / `op="--"`
+        // (value-less form). The result of the expression is discarded as an
+        // expression statement, so postfix-vs-prefix is observationally
+        // irrelevant — but the SOURCE TEXT differs, and `--verify` compares
+        // byte-equivalent re-emission. We therefore only migrate postfix; the
+        // prefix branch below stays in the `expr-stmt-mutation` skip bucket so
+        // raw-handler authors get a clear reason and the migrator never rewrites
+        // bytes it cannot reproduce.
+        if (!isValidKernAssignmentTarget(stmt.expression.operand.getText(sf))) {
+          return 'expr-stmt-bad-assign-target';
+        }
+        return null;
+      }
+    }
+    if (ts.isPrefixUnaryExpression(stmt.expression)) {
+      const op = stmt.expression.operator;
       if (op === ts.SyntaxKind.PlusPlusToken || op === ts.SyntaxKind.MinusMinusToken) return 'expr-stmt-mutation';
     }
     if (!isValidKernExpression(stmt.expression.getText(sf))) return 'expr-stmt-bad-expr';

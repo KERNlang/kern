@@ -42,16 +42,33 @@ describe('rewriteNativeHandlers — declaration-only refusal', () => {
 });
 
 describe('rewriteNativeHandlers — skip reasons', () => {
-  test('reports a specific reason for ++/-- mutation', () => {
-    const source = ['fn name=tick returns=void', '  handler <<<', '    counter++;', '  >>>'].join('\n');
+  test('reports a specific reason for prefix ++/-- mutation', () => {
+    // Postfix `counter++;` is now migratable (lifts to `assign op="++"`); only
+    // prefix `++counter;` / `--counter;` stays in the skip bucket because
+    // there's no IR shape that round-trips back to `++counter` rather than
+    // `counter++` under --verify.
+    const source = ['fn name=tick returns=void', '  handler <<<', '    ++counter;', '  >>>'].join('\n');
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(0);
     expect(result.skipped).toHaveLength(1);
-    // ++/-- bails out of native eligibility before we ever invoke the
-    // statement-mapper, so the reason comes from classifyHandlerBody.
-    // Either path is acceptable as long as the skip is recorded with a
-    // mutation-related reason.
-    expect(result.skipped[0].reason).toMatch(/not eligible|\+\+|--|mutation/);
+    expect(result.skipped[0].reason).toMatch(/not eligible|prefix|mutation/);
+  });
+
+  test('postfix ++/-- migrates to value-less assign', () => {
+    const source = [
+      'fn name=tick returns=void',
+      '  handler <<<',
+      '    counter++;',
+      '    counter--;',
+      '    obj.foo++;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.skipped).toHaveLength(0);
+    expect(result.output).toContain('assign target="counter" op="++"');
+    expect(result.output).toContain('assign target="counter" op="--"');
+    expect(result.output).toContain('assign target="obj.foo" op="++"');
   });
 
   test('reports a specific reason for an unsupported switch statement', () => {

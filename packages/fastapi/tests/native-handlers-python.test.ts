@@ -146,6 +146,38 @@ describe('emitNativeKernBodyPython — slice 1 statements', () => {
     expect(emitNativeKernBodyPython(h)).toBe(['total = 0', 'total += 1'].join('\n'));
   });
 
+  // KERN-GAPS gap `expr-stmt-mutation` — Python has no postfix `++`/`--`,
+  // so `assign op="++"` lowers to the canonical compound assignment
+  // (`total += 1`). The TS target keeps emitting `total++;` from the same IR
+  // (see native-handlers-source-roundtrip.test.ts); only emit shape differs.
+  test('assign op="++" lowers to `target += 1` on Python', () => {
+    const h = makeHandler([
+      { type: 'let', props: { name: 'count', kind: 'let', value: '0' } },
+      { type: 'assign', props: { target: 'count', op: '++' } },
+      { type: 'assign', props: { target: 'count', op: '--' } },
+    ]);
+    expect(emitNativeKernBodyPython(h)).toBe(['count = 0', 'count += 1', 'count -= 1'].join('\n'));
+  });
+
+  test('assign op="++" with value= is rejected on Python', () => {
+    const h = makeHandler([
+      { type: 'let', props: { name: 'count', kind: 'let', value: '0' } },
+      { type: 'assign', props: { target: 'count', op: '++', value: '1' } },
+    ]);
+    expect(() => emitNativeKernBodyPython(h)).toThrow(/value-less|remove `value=`/);
+  });
+
+  // Codex review fix (impl-review): the emitter rejects ANY present `value`
+  // — including empty string — for postfix op. Schema mirrors this. Without
+  // it, programmatic IR with `value: ''` would slip past codegen silently.
+  test('assign op="++" with empty-string value= is rejected on Python', () => {
+    const h = makeHandler([
+      { type: 'let', props: { name: 'count', kind: 'let', value: '0' } },
+      { type: 'assign', props: { target: 'count', op: '++', value: '' } },
+    ]);
+    expect(() => emitNativeKernBodyPython(h)).toThrow(/value-less|remove `value=`/);
+  });
+
   test('assign rejects reassignment of default immutable let binding', () => {
     const h = makeHandler([
       { type: 'let', props: { name: 'total', value: '0' } },

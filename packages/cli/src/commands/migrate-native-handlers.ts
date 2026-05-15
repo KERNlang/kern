@@ -340,8 +340,10 @@ function mapStatementCore(stmt: ts.Statement, source: ts.SourceFile, indent: str
     //
     // Plain `=` assignment maps to the structured `assign` body-statement.
     // Cross-target-safe compound assignment maps to `assign op=...`.
-    // Prefix/postfix mutations remain unsupported because `x++` would not be
-    // byte-equivalent to the `x += 1` body-statement shape under --verify.
+    // Postfix `X++;` / `X--;` maps to the value-less form `assign target=X
+    // op="++"` / `op="--"` so codegen re-emits `X++;` and `--verify` sees
+    // byte-equivalent output. Prefix `++X` remains unsupported (no IR shape
+    // that round-trips back to `++X` rather than `X++`).
     //
     // TS's FirstAssignment/LastAssignment range covers the full assignment
     // family. We then admit only the cross-target-safe subset; JS-only
@@ -364,10 +366,30 @@ function mapStatementCore(stmt: ts.Statement, source: ts.SourceFile, indent: str
         ];
       }
     }
-    if (ts.isPostfixUnaryExpression(stmt.expression) || ts.isPrefixUnaryExpression(stmt.expression)) {
-      const op = (stmt.expression as ts.PrefixUnaryExpression | ts.PostfixUnaryExpression).operator;
+    if (ts.isPostfixUnaryExpression(stmt.expression)) {
+      const op = stmt.expression.operator;
       if (op === ts.SyntaxKind.PlusPlusToken || op === ts.SyntaxKind.MinusMinusToken) {
-        return recordSkip(ctx, '`++`/`--` mutation not supported — use `assign target=x op="+=" value="1"` instead');
+        // Postfix `X++;` → `assign target=X op="++"` (value-less). Classifier
+        // gates this on `isValidKernAssignmentTarget`, so we mirror the same
+        // check here; on mismatch we fall through to recordSkip via the bad-
+        // target path. Keeps the slice α-3 "eligible ≡ migrates" invariant.
+        const targetText = stmt.expression.operand.getText(source);
+        if (!isValidKernAssignmentTarget(targetText)) return null;
+        const canonicalTarget = canonicalKernExpression(targetText);
+        if (canonicalTarget === null) return null;
+        const opText = op === ts.SyntaxKind.PlusPlusToken ? '++' : '--';
+        return [`${indent}assign target="${escapeKernString(canonicalTarget)}" op="${opText}"`];
+      }
+    }
+    if (ts.isPrefixUnaryExpression(stmt.expression)) {
+      const op = stmt.expression.operator;
+      if (op === ts.SyntaxKind.PlusPlusToken || op === ts.SyntaxKind.MinusMinusToken) {
+        // Prefix `++X;` is rejected: byte-equivalent re-emission would require
+        // a distinct IR shape we deliberately don't model (see classifier).
+        return recordSkip(
+          ctx,
+          'prefix `++`/`--` not supported — rewrite as postfix `X++;` or `assign target=x op="+=" value="1"`',
+        );
       }
     }
     const exprText = stmt.expression.getText(source);
@@ -384,6 +406,12 @@ function mapIf(stmt: ts.IfStatement, source: ts.SourceFile, indent: string, ctx:
   const condText = stmt.expression.getText(source);
   const canonical = canonicalKernExpression(condText);
   if (canonical === null) return null;
+  // Classifier rejects non-block then/else (`if-non-block-then` / `-else`)
+  // to preserve byte-equivalence: body emitters always wrap in braces, so a
+  // raw `if (cond) stmt;` would re-emit as `if (cond) { stmt; }`. Mirror the
+  // check here as defense-in-depth so direct migrator entry points stay
+  // safe even if the classifier is bypassed.
+  if (!ts.isBlock(stmt.thenStatement)) return null;
   const innerIndent = indent + INDENT_STEP;
   const out: string[] = [`${indent}if cond="${escapeKernString(canonical)}"`];
 
@@ -402,6 +430,7 @@ function mapIf(stmt: ts.IfStatement, source: ts.SourceFile, indent: string, ctx:
       if (nested === null) return null;
       out.push(...nested);
     } else {
+      if (!ts.isBlock(stmt.elseStatement)) return null;
       const elseLines = mapBranch(stmt.elseStatement, source, innerIndent, ctx);
       if (elseLines === null) return null;
       out.push(...elseLines);

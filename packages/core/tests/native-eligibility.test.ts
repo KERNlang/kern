@@ -221,7 +221,11 @@ describe('classifyHandlerBody — slice 4d additions are now eligible', () => {
   });
 
   test('for-await-of with unsupported body is rejected by inner reason', () => {
-    const body = `for await (const x of xs) {\n  x++;\n}`;
+    // Pick a body shape that stays in the skip bucket. `x++;` was the original
+    // expr-stmt-mutation example, but postfix is now an eligible mutation form
+    // (lifts to `assign target=x op="++"`). Use prefix `--x;` which is still
+    // explicitly unsupported.
+    const body = `for await (const x of xs) {\n  --x;\n}`;
     const result = classifyHandlerBody(body);
     expect(result).toEqual({ eligible: false, reason: 'expr-stmt-mutation' });
   });
@@ -508,11 +512,42 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
     rejected(`obj.x?.y = 1;\nreturn obj;`, 'expr-stmt-bad-assign-target');
   });
 
-  test('post-increment rejected (mutation ExpressionStatement)', () =>
-    rejected(`const x = 0;\nx++;\nreturn x;`, 'expr-stmt-mutation'));
+  test('post-increment of identifier is eligible (lifts to assign op="++")', () => {
+    expect(classifyHandlerBody(`let x = 0;\nx++;\nreturn x;`).eligible).toBe(true);
+  });
 
-  test('pre-decrement rejected (mutation ExpressionStatement)', () =>
-    rejected(`const x = 5;\n--x;\nreturn x;`, 'expr-stmt-mutation'));
+  test('post-decrement of identifier is eligible (lifts to assign op="--")', () => {
+    expect(classifyHandlerBody(`let x = 5;\nx--;\nreturn x;`).eligible).toBe(true);
+  });
+
+  test('post-increment of member access is eligible (e.g. obj.foo++)', () => {
+    expect(classifyHandlerBody(`let obj = { foo: 0 };\nobj.foo++;\nreturn obj.foo;`).eligible).toBe(true);
+  });
+
+  test('post-increment with non-assignable target rejected', () =>
+    rejected(`(a => a)++;\nreturn 1;`, 'expr-stmt-bad-assign-target'));
+
+  test('pre-increment rejected (asymmetric IR — keeps expr-stmt-mutation)', () =>
+    rejected(`let x = 0;\n++x;\nreturn x;`, 'expr-stmt-mutation'));
+
+  test('pre-decrement rejected (asymmetric IR — keeps expr-stmt-mutation)', () =>
+    rejected(`let x = 5;\n--x;\nreturn x;`, 'expr-stmt-mutation'));
+
+  test('non-block if-then rejected — body emitter would brace-wrap and drift', () =>
+    rejected(`if (x > 0) return x;`, 'if-non-block-then'));
+
+  test('non-block else rejected — body emitter would brace-wrap and drift', () =>
+    rejected(`if (x > 0) { return 1; } else return 2;`, 'if-non-block-else'));
+
+  test('block if-then with single statement remains eligible (braced source)', () => {
+    expect(classifyHandlerBody(`if (x > 0) { return x; }\nreturn 0;`).eligible).toBe(true);
+  });
+
+  test('else-if chain remains eligible (nested IfStatement is not a non-block else)', () => {
+    expect(
+      classifyHandlerBody(`if (x > 0) { return 1; } else if (x < 0) { return -1; } else { return 0; }`).eligible,
+    ).toBe(true);
+  });
 
   test('JS-only logical assignment rejected (assignment ExpressionStatement)', () =>
     rejected(`x &&= next;\nreturn x;`, 'expr-stmt-assignment'));

@@ -378,10 +378,11 @@ export function decompile(root: IRNode): DecompileResult {
   function renderAssign(node: IRNode, indent: string): void {
     const props = node.props || {};
     const quoted = node.__quotedProps ?? [];
+    const op = typeof props.op === 'string' ? props.op : '';
+    const isPostfix = op === '++' || op === '--';
     const parts = ['assign', renderScalarProp('target', props.target ?? '', quoted)];
-    if (props.op !== undefined && props.op !== '' && props.op !== '=')
-      parts.push(renderScalarProp('op', props.op, quoted));
-    parts.push(renderScalarProp('value', props.value ?? '', quoted));
+    if (op !== '' && op !== '=') parts.push(renderScalarProp('op', op, quoted));
+    if (!isPostfix) parts.push(renderScalarProp('value', props.value ?? '', quoted));
     lines.push(`${indent}${parts.join(' ')}`);
   }
 

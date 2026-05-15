@@ -176,6 +176,58 @@ describe('emitNativeKernBodyTS — slice 1 statements', () => {
     expect(emitNativeKernBodyTS(handler)).toBe(['let total = 0;', 'total += 1;'].join('\n'));
   });
 
+  // KERN-GAPS gap `expr-stmt-mutation` — postfix `X++;` / `X--;` lifts to a
+  // value-less `assign target=X op="++"` form. TS emits the operator verbatim
+  // to keep `--verify` byte-equivalence on round-trip from raw handlers.
+  test('assign op="++" emits postfix increment on TS', () => {
+    const handler = makeHandler([
+      { type: 'let', props: { name: 'count', kind: 'let', value: '0' } },
+      { type: 'assign', props: { target: 'count', op: '++' } },
+      { type: 'assign', props: { target: 'count', op: '--' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(['let count = 0;', 'count++;', 'count--;'].join('\n'));
+  });
+
+  test('assign op="++" with member-access target emits `obj.foo++`', () => {
+    const handler = makeHandler([
+      { type: 'let', props: { name: 'obj', kind: 'let', value: '{ foo: 0 }' } },
+      { type: 'assign', props: { target: 'obj.foo', op: '++' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(['let obj = { foo: 0 };', 'obj.foo++;'].join('\n'));
+  });
+
+  test('assign op="++" on a cell target lowers to functional setter', () => {
+    const handler = makeHandler([
+      { type: 'cell', props: { name: 'count', initial: '0' } },
+      { type: 'assign', props: { target: 'count', op: '++' } },
+      { type: 'assign', props: { target: 'count', op: '--' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(
+      ['const [count, setCount] = useState(0);', 'setCount((prev) => prev + 1);', 'setCount((prev) => prev - 1);'].join(
+        '\n',
+      ),
+    );
+  });
+
+  test('assign op="++" with value= is rejected on TS', () => {
+    const handler = makeHandler([
+      { type: 'let', props: { name: 'count', kind: 'let', value: '0' } },
+      { type: 'assign', props: { target: 'count', op: '++', value: '1' } },
+    ]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/value-less|remove `value=`/);
+  });
+
+  // Codex impl-review fix: empty-string `value` must also be rejected for
+  // postfix ops. Schema rejects it; the emitter mirrors the rejection so
+  // direct IR construction (e.g. programmatic builders) cannot bypass.
+  test('assign op="++" with empty-string value= is rejected on TS', () => {
+    const handler = makeHandler([
+      { type: 'let', props: { name: 'count', kind: 'let', value: '0' } },
+      { type: 'assign', props: { target: 'count', op: '++', value: '' } },
+    ]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/value-less|remove `value=`/);
+  });
+
   test('assign rejects reassignment of default immutable let binding', () => {
     const handler = makeHandler([
       { type: 'let', props: { name: 'total', value: '0' } },

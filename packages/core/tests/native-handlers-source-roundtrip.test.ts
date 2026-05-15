@@ -237,6 +237,56 @@ describe('slice 5b-pre — body-statement source round-trip (positive)', () => {
     ).not.toThrow();
   });
 
+  // KERN-GAPS gap `expr-stmt-mutation` — postfix `X++;` / `X--;` lifts to a
+  // value-less `assign target=X op="++"` form that round-trips to byte-identical
+  // TS, decompiles to KERN without a `value=` attr, and lowers to `X += 1` on
+  // Python.
+  test('body-statement assign op="++" round-trips and decompiles without value=', () => {
+    const src = [
+      'fn name=tick returns=void',
+      '  handler lang="kern"',
+      '    let name=count kind=let value=0',
+      '    assign target=count op="++"',
+      '    assign target=count op="--"',
+      '    assign target="obj.foo" op="++"',
+    ].join('\n');
+
+    const root = parseDocumentStrict(src);
+    const handler = findFirstHandler(root);
+    const children = handler.children ?? [];
+    expect(children[1]?.props).toMatchObject({ target: 'count', op: '++' });
+    expect(children[1]?.props?.value).toBeUndefined();
+    expect(children[2]?.props).toMatchObject({ target: 'count', op: '--' });
+    expect(children[3]?.props).toMatchObject({ target: 'obj.foo', op: '++' });
+
+    const emitted = emitNativeKernBodyTS(handler);
+    expect(emitted).toContain('count++;');
+    expect(emitted).toContain('count--;');
+    expect(emitted).toContain('obj.foo++;');
+
+    const incText = decompile(children[1] as IRNode).code;
+    expect(incText).toBe('assign target=count op="++"');
+    expect(incText).not.toContain('value=');
+    const memText = decompile(children[3] as IRNode).code;
+    expect(memText).toBe('assign target="obj.foo" op="++"');
+    expect(() =>
+      parseDocumentStrict(
+        ['fn name=tick returns=void', '  handler lang="kern"', `    ${incText}`, `    ${memText}`].join('\n'),
+      ),
+    ).not.toThrow();
+  });
+
+  test('body-statement assign op="++" with value= is rejected by schema', () => {
+    const src = [
+      'fn name=bad returns=void',
+      '  handler lang="kern"',
+      '    let name=count kind=let value=0',
+      '    assign target=count op="++" value="1"',
+    ].join('\n');
+
+    expect(() => parseDocumentStrict(src)).toThrow(/value-less|remove the `value=`/);
+  });
+
   test.each([
     '+=',
     '-=',

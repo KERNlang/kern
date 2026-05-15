@@ -43,7 +43,7 @@
  *  `if`/`else` branches indent correctly. The caller adds the leading indent
  *  for the surrounding function body. */
 
-import { isSupportedAssignOperator } from '../assignment-operators.js';
+import { isPostfixMutationOperator, isSupportedAssignOperator } from '../assignment-operators.js';
 import { emitExpression } from '../codegen-expression.js';
 import { parseExpression } from '../parser-expression.js';
 import type { IRNode } from '../types.js';
@@ -576,31 +576,41 @@ function emitAssignTS(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawTarget === undefined || rawTarget === '') {
     throw new Error('body-statement `assign` requires `target=`.');
   }
-  if (rawValue === undefined || rawValue === '') {
-    throw new Error('body-statement `assign` requires `value=`.');
-  }
   if (!isSupportedAssignOperator(rawOp)) {
     throw new Error(`body-statement \`assign op=\` does not support \`${rawOp}\`.`);
+  }
+  const isPostfix = isPostfixMutationOperator(rawOp);
+  if (!isPostfix && (rawValue === undefined || rawValue === '')) {
+    throw new Error('body-statement `assign` requires `value=`.');
+  }
+  if (isPostfix && rawValue !== undefined) {
+    // Reject ANY present `value` — including empty-string. Schema validator
+    // mirrors this; the emitter check is defense-in-depth for direct IR.
+    throw new Error(`body-statement \`assign op="${rawOp}"\` is value-less; remove \`value=\`.`);
   }
   const targetIR = parseExpression(String(rawTarget));
   if (!isAssignableTarget(targetIR)) {
     throw new Error('body-statement `assign target=` must be an identifier, member access, or index access.');
   }
   assertAssignableLocalTarget(targetIR, ctx);
-  const valueIR = parseExpression(String(rawValue));
-  if (valueIR.kind === 'propagate') {
-    throw new Error(
-      `Propagation \`${valueIR.op}\` is not supported in \`assign value=\` — bind to \`let\` first, then assign.`,
-    );
-  }
   // Cell assignment auto-lowers to its React setter so authors can use the
   // same `assign target=X value=Y` shape regardless of whether X is a `let`
-  // or a `cell`. For compound assigns (`+=`, `-=`, …), use the functional
-  // updater form `setX((prev) => prev + value)` so multiple updates in the
-  // same render turn compose correctly under React's batching (the naive
-  // `setX(X + value)` form captures stale state).
+  // or a `cell`. For compound assigns (`+=`, `-=`, …) and postfix (`++`,
+  // `--`), use the functional updater form `setX((prev) => prev + delta)` so
+  // multiple updates in the same render turn compose correctly under React's
+  // batching (the naive `setX(X + 1)` form captures stale state).
   if (targetIR.kind === 'ident' && lookupLocalBinding(ctx, targetIR.name) === 'cell') {
     const setter = cellSetterName(targetIR.name);
+    if (isPostfix) {
+      const baseOp = rawOp === '++' ? '+' : '-';
+      return [`${setter}((prev) => prev ${baseOp} 1);`];
+    }
+    const valueIR = parseExpression(String(rawValue));
+    if (valueIR.kind === 'propagate') {
+      throw new Error(
+        `Propagation \`${valueIR.op}\` is not supported in \`assign value=\` — bind to \`let\` first, then assign.`,
+      );
+    }
     if (rawOp === '=') {
       // Self-referential plain `=` (`count = count + step`) lowers to the
       // functional updater so concurrent setStates in the same render don't
@@ -613,6 +623,15 @@ function emitAssignTS(node: IRNode, ctx: BodyEmitContext): string[] {
     }
     const baseOp = rawOp.slice(0, -1);
     return [`${setter}((prev) => prev ${baseOp} ${emitExpression(valueIR)});`];
+  }
+  if (isPostfix) {
+    return [`${emitExpression(targetIR)}${rawOp};`];
+  }
+  const valueIR = parseExpression(String(rawValue));
+  if (valueIR.kind === 'propagate') {
+    throw new Error(
+      `Propagation \`${valueIR.op}\` is not supported in \`assign value=\` — bind to \`let\` first, then assign.`,
+    );
   }
   return [`${emitExpression(targetIR)} ${rawOp} ${emitExpression(valueIR)};`];
 }
