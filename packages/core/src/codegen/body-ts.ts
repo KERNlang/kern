@@ -542,7 +542,9 @@ function emitLetTS(node: IRNode, ctx: BodyEmitContext): string[] {
     // emit the declaration-only shape. `const` without an initializer is
     // illegal in TS; reject it loudly rather than emit invalid code.
     if (bindingKind === 'const') {
-      throw new Error(`body-statement \`let name=${name}\` without \`value=\` requires \`kind=let\` (\`const\` needs an initializer).`);
+      throw new Error(
+        `body-statement \`let name=${name}\` without \`value=\` requires \`kind=let\` (\`const\` needs an initializer).`,
+      );
     }
     return [`${bindingKind} ${name}${typeAnn};`];
   }
