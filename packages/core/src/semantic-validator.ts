@@ -16,6 +16,7 @@
  */
 
 import { collectExternalImportSymbols, type ExternalImportSymbolTable } from './external-symbols.js';
+import { importRegistryOf } from './import-metadata.js';
 import type { IRNode } from './types.js';
 
 export interface SemanticViolation {
@@ -400,6 +401,19 @@ interface ExportBinding {
   alias?: string;
 }
 
+type ExportBindingKind = 'value' | 'type';
+
+interface ExportSourceBinding extends ExportBinding {
+  kind: ExportBindingKind;
+}
+
+interface ModuleVisibleNames {
+  all: Set<string>;
+  local: Set<string>;
+  externalValues: Set<string>;
+  externalTypes: Set<string>;
+}
+
 function validateModuleExports(
   node: IRNode,
   violations: SemanticViolation[],
@@ -410,17 +424,17 @@ function validateModuleExports(
   for (const child of node.children ?? []) {
     if (child.type !== 'export') continue;
     const from = child.props?.from;
-    const sourceNames = exportedSourceNames(child);
+    const sourceNames = exportedSourceBindings(child);
     const resolvedSymbols =
       typeof child.props?.resolvedExportNames === 'string' ? parseNameSet(child.props.resolvedExportNames) : null;
 
-    for (const raw of sourceNames) {
-      const binding = parseExportBinding(raw);
+    for (const sourceName of sourceNames) {
+      const binding = parseExportBinding(sourceName.raw, sourceName.kind);
       if (!binding) {
         violations.push({
           rule: 'export-binding-invalid',
           nodeType: 'export',
-          message: `Export binding '${raw}' is invalid. Use 'Name' or 'Name as Alias' with valid identifiers.`,
+          message: `Export binding '${sourceName.raw}' is invalid. Use 'Name' or 'Name as Alias' with valid identifiers.`,
           line: child.loc?.line,
           col: child.loc?.col,
         });
@@ -440,8 +454,8 @@ function validateModuleExports(
         continue;
       }
 
-      if (!visibleNames.has(binding.source)) {
-        const available = [...visibleNames].sort();
+      if (!visibleNames.all.has(binding.source)) {
+        const available = [...visibleNames.all].sort();
         const hint = available.length > 0 ? ` Available names: ${available.join(', ')}.` : ' No visible names found.';
         violations.push({
           rule: 'export-local-unknown-symbol',
@@ -450,20 +464,40 @@ function validateModuleExports(
           line: child.loc?.line,
           col: child.loc?.col,
         });
+        continue;
+      }
+
+      if (!hasVisibleExportKind(visibleNames, binding.source, binding.kind)) {
+        const expected = binding.kind === 'type' ? 'type-only' : 'runtime value';
+        const actual = binding.kind === 'type' ? 'runtime value' : 'type-only';
+        violations.push({
+          rule: 'export-local-kind-mismatch',
+          nodeType: 'export',
+          message: `Local ${binding.kind} export references '${binding.source}', but that external import is only visible as a ${actual} symbol. Use \`export ${binding.kind === 'type' ? 'names' : 'types'}=${binding.source}\` or add a ${expected} binding.`,
+          line: child.loc?.line,
+          col: child.loc?.col,
+        });
       }
     }
   }
 }
 
-function collectModuleVisibleNames(moduleNode: IRNode, externalImports: ExternalImportSymbolTable): Set<string> {
-  const names = new Set<string>();
-  for (const localName of collectModuleExternalImportNames(externalImports)) {
-    names.add(localName);
+function collectModuleVisibleNames(moduleNode: IRNode, externalImports: ExternalImportSymbolTable): ModuleVisibleNames {
+  const names: ModuleVisibleNames = {
+    all: new Set(),
+    local: new Set(),
+    externalValues: new Set(),
+    externalTypes: new Set(),
+  };
+  for (const symbol of externalImports.symbols) {
+    names.all.add(symbol.localName);
+    if (symbol.kind === 'type') names.externalTypes.add(symbol.localName);
+    else names.externalValues.add(symbol.localName);
   }
   for (const child of moduleNode.children ?? []) {
     const name = child.props?.name;
     if (typeof name === 'string' && name.length > 0 && child.type !== 'export') {
-      names.add(name);
+      addLocalVisibleName(names, name);
     }
 
     if (child.type === 'use') {
@@ -471,22 +505,33 @@ function collectModuleVisibleNames(moduleNode: IRNode, externalImports: External
         if (fromChild.type !== 'from') continue;
         const importedName = fromChild.props?.name;
         const alias = fromChild.props?.as;
-        if (typeof alias === 'string' && alias.length > 0) names.add(alias);
-        else if (typeof importedName === 'string' && importedName.length > 0) names.add(importedName);
+        if (typeof alias === 'string' && alias.length > 0) addLocalVisibleName(names, alias);
+        else if (typeof importedName === 'string' && importedName.length > 0) addLocalVisibleName(names, importedName);
       }
     }
 
-    if (child.type === 'import') {
+    if (child.type === 'import' && !isExternalImportNode(child)) {
       for (const imported of importLocalNames(child)) {
-        names.add(imported);
+        addLocalVisibleName(names, imported);
       }
     }
   }
   return names;
 }
 
-function collectModuleExternalImportNames(externalImports: ExternalImportSymbolTable): string[] {
-  return externalImports.symbols.map((symbol) => symbol.localName);
+function addLocalVisibleName(names: ModuleVisibleNames, name: string): void {
+  names.all.add(name);
+  names.local.add(name);
+}
+
+function hasVisibleExportKind(names: ModuleVisibleNames, name: string, kind: ExportBindingKind): boolean {
+  if (names.local.has(name)) return true;
+  return kind === 'type' ? names.externalTypes.has(name) : names.externalValues.has(name);
+}
+
+function isExternalImportNode(node: IRNode): boolean {
+  if (node.type !== 'import') return false;
+  return importRegistryOf(node.props?.registry) !== 'host';
 }
 
 function validateModuleExternalImportConflicts(
@@ -540,15 +585,18 @@ function importLocalNames(node: IRNode): string[] {
   return names;
 }
 
-function exportedSourceNames(node: IRNode): string[] {
+function exportedSourceBindings(node: IRNode): Array<{ raw: string; kind: ExportBindingKind }> {
   const props = node.props ?? {};
-  const names = [...splitCsv(props.names), ...splitCsv(props.types)];
+  const names = [
+    ...splitCsv(props.names).map((raw) => ({ raw, kind: 'value' as const })),
+    ...splitCsv(props.types).map((raw) => ({ raw, kind: 'type' as const })),
+  ];
   if (
     typeof props.default === 'string' &&
     props.default.length > 0 &&
     !(typeof props.from === 'string' && props.from.length > 0)
   ) {
-    names.push(`${props.default} as default`);
+    names.push({ raw: `${props.default} as default`, kind: 'value' });
   }
   return names;
 }
@@ -561,10 +609,10 @@ function splitCsv(value: unknown): string[] {
     .filter(Boolean);
 }
 
-function parseExportBinding(raw: string): ExportBinding | null {
+function parseExportBinding(raw: string, kind: ExportBindingKind): ExportSourceBinding | null {
   const match = raw.match(/^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/u);
   if (!match) return null;
-  return { source: match[1], alias: match[2] };
+  return { source: match[1], alias: match[2], kind };
 }
 
 function parseNameSet(raw: string): Set<string> {

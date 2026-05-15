@@ -4074,6 +4074,18 @@ function collectRuntimeBindings(root: IRNode): RuntimeBinding[] {
       return;
     }
 
+    // Body-statement IR (`let`, `each`, `assign`, `if`, `for`, ...) lives
+    // inside `handler` nodes once a handler is `lang="kern"`. Those nodes
+    // are part of the handler's owning binding (fn/class/method/derive) and
+    // are emitted inside its arrow/class body — they must NOT be lifted
+    // into top-level module bindings, where `each` would expand to an
+    // eager IIFE that references handler-local params like `value` or
+    // `engineIds`, which are undefined at module scope and crash the
+    // entire runtime script before any sibling fn binding evaluates.
+    if (node.type === 'handler') {
+      return;
+    }
+
     if (node.type === 'branch') {
       const name = str(getProps(node).name);
       const expr = runtimeBranchBindingExpr(node);

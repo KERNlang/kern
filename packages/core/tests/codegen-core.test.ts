@@ -282,6 +282,39 @@ describe('Core Language Codegen', () => {
       expect(code).toContain('public readonly expected: string | string[]');
       expect(code).toContain('public readonly actual: string');
     });
+
+    // Regression — 3.5.0 emitted a spurious `super()` (no args) when an
+    // `error` declaration had a `handler lang="kern"` whose first
+    // statement was a `let` (or any non-super statement) before the
+    // explicit `do value="super(...)"`. The parent class `AgonError`
+    // requires a message arg, so the bogus `super()` failed TS2554
+    // "Expected 1 arguments, but got 0". The fix detects an explicit
+    // super anywhere in the body, not just at the leading position.
+    it('does not emit spurious super() when explicit super follows a let in native kern handler', () => {
+      const code = gen(
+        [
+          'error name=EngineNotFoundError extends=AgonError',
+          '  field name=engineId type=string',
+          '  field name=installHint type=string optional=true',
+          '  handler lang="kern"',
+          '    let name=hint value="installHint ? `. Install: ${installHint}` : \'\'"',
+          '    do value="super(`Engine \\"${engineId}\\" not found${hint}`)"',
+          '    assign target="this.name" value="\'EngineNotFoundError\'"',
+        ].join('\n'),
+      );
+
+      expect(code).toContain('export class EngineNotFoundError extends AgonError {');
+      // Body should contain exactly one `super(...)` call — the author's
+      // explicit one. The pre-fix codegen emitted both `super();` and
+      // `super(\`Engine ...\`)`, which is the bug. Count occurrences of
+      // a constructor super call to lock that down.
+      const superCallCount = (code.match(/^\s*super\s*\(/gm) || []).length;
+      expect(superCallCount).toBe(1);
+      // The single super() retained must be the author's, with the
+      // message expression — not the empty default.
+      expect(code).toContain('super(`Engine');
+      expect(code).not.toMatch(/^\s*super\(\);$/m);
+    });
   });
 
   // ── config ──
