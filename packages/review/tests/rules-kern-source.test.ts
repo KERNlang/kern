@@ -26,6 +26,69 @@ screen name=Lookup
     expect(finding?.primarySpan.file).toBe('lookup.kern');
   });
 
+  // Regression — Agon reported `use path="..." from name=X` bindings were
+  // invisible to the undefined-reference rule: the codegen emitted the
+  // matching `import { X } from '...';` line but `collectVisibleBindings`
+  // never registered the binding, so any handler using X tripped a false
+  // positive. The collector now special-cases `use` like `import`, walking
+  // its `from` children and adding `as` (or `name` if no alias) to the
+  // visible-binding set.
+  it('treats `use path=... from name=X` bindings as visible to handlers', () => {
+    const source = `
+use path="./helper.kern"
+  from name=parseUser
+  from name=Validator kind=type
+  from name=rawFn as=fn
+
+fn name=callIt returns=string
+  handler <<<
+    parseUser("x");
+    fn();
+    return "ok";
+  >>>
+`;
+    const report = reviewKernSource(source, 'use-bindings.kern');
+    const undef = report.findings.filter((f) => f.ruleId === 'undefined-reference');
+    expect(undef.some((f) => f.message.includes('parseUser'))).toBe(false);
+    expect(undef.some((f) => f.message.includes('fn'))).toBe(false);
+  });
+
+  it('still flags references that are NOT declared via `use`', () => {
+    const source = `
+use path="./helper.kern"
+  from name=parseUser
+
+fn name=callIt returns=string
+  handler <<<
+    return missingFn(parseUser("x"));
+  >>>
+`;
+    const report = reviewKernSource(source, 'use-partial.kern');
+    const undef = report.findings.filter((f) => f.ruleId === 'undefined-reference');
+    expect(undef.some((f) => f.message.includes('missingFn'))).toBe(true);
+    expect(undef.some((f) => f.message.includes('parseUser'))).toBe(false);
+  });
+
+  // Codex review fix — type-only `from` bindings must NOT join the visible
+  // binding map. They're erased at runtime by `import type`, so any
+  // value-position usage in a handler is a real undefined reference.
+  // Type-position usage is already filtered out of the reference set by
+  // the snippet analyzer, so the rule never sees it either way.
+  it('flags value-position usage of a `from kind=type` binding', () => {
+    const source = `
+use path="./helper.kern"
+  from name=Validator kind=type
+
+fn name=callIt returns=string
+  handler <<<
+    return Validator.parse("x");
+  >>>
+`;
+    const report = reviewKernSource(source, 'use-type-only.kern');
+    const undef = report.findings.filter((f) => f.ruleId === 'undefined-reference');
+    expect(undef.some((f) => f.message.includes('Validator'))).toBe(true);
+  });
+
   it('treats prop declarations inside a screen as bindings visible to handlers', () => {
     const source = `
 screen name=Card

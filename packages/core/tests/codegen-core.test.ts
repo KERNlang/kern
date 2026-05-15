@@ -711,6 +711,47 @@ describe('Core Language Codegen', () => {
 
   // ── isCoreNode ──
 
+  // Regression — Agon reported `export from="..."` at top level was schema-
+  // valid but silently dropped: `generateCoreNode` had no `case 'export':`
+  // so the node fell through to the default branch's `return []`. The
+  // codegen now routes top-level `export` through `generateExport`, the
+  // same helper `generateModule` uses for `export` children.
+  describe('top-level export', () => {
+    it("emits `export { a, b } from '...';` for a top-level `export from= names=` node", () => {
+      const code = gen('export from="./helper.js" names="foo, bar"');
+      expect(code).toContain("export { foo, bar } from './helper.js';");
+    });
+
+    it("emits `export * from '...';` for `export from= star=true`", () => {
+      const code = gen('export from="./helper.js" star=true');
+      expect(code).toContain("export * from './helper.js';");
+    });
+
+    it("emits `export type { A } from '...';` for `export from= types=`", () => {
+      const code = gen('export from="./types.js" types="User"');
+      expect(code).toContain("export type { User } from './types.js';");
+    });
+
+    it("emits `export { default as X } from '...';` for `export from= default=X`", () => {
+      const code = gen('export from="./mod.js" default=Mod');
+      expect(code).toContain("export { default as Mod } from './mod.js';");
+    });
+
+    it('still emits the same shape when wrapped inside a `module`', () => {
+      const code = gen(['module name=Bundle', '  export from="./helper.js" names="foo"'].join('\n'));
+      expect(code).toContain("export { foo } from './helper.js';");
+    });
+
+    it('emits separate value + type lines when one node carries both `names` and `types`', () => {
+      // The four export shapes (value re-export, type re-export, star, default)
+      // are independent — a single `export` node carrying both `names` and
+      // `types` emits one line per category. OpenCode review suggestion.
+      const code = gen('export from="./mod.js" names="foo" types="Bar"');
+      expect(code).toContain("export { foo } from './mod.js';");
+      expect(code).toContain("export type { Bar } from './mod.js';");
+    });
+  });
+
   describe('isCoreNode', () => {
     it('identifies core nodes', () => {
       expect(isCoreNode('type')).toBe(true);
