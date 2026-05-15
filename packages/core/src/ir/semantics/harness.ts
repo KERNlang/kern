@@ -21,6 +21,7 @@
 import { CONTRACT_REGISTRY, makeEnv, type NodeFixture, type SemanticEnv } from './index.js';
 import { referenceRun } from './reference-runner.js';
 import { type Trace, tracesEqual } from './trace.js';
+import { runTsEmitterLeg } from './ts-leg.js';
 
 export type Verdict =
   | 'pass'
@@ -61,7 +62,10 @@ export interface DifferentialOptions {
  *   3. If only TS diverges → `ts-divergence`. Only Python → `python-divergence`.
  *   4. Any leg throws → `leg-error` with the offending leg recorded.
  */
-export function runDifferential(fixture: NodeFixture, opts: DifferentialOptions = {}): DifferentialResult {
+export async function runDifferential(
+  fixture: NodeFixture,
+  opts: DifferentialOptions = {},
+): Promise<DifferentialResult> {
   // Each leg gets a FRESH env. Sharing a single env across legs would let
   // reference-side mutations bleed into the TS/Python legs and produce false
   // divergences (or, worse, false passes when all three legs read the same
@@ -84,7 +88,7 @@ export function runDifferential(fixture: NodeFixture, opts: DifferentialOptions 
   let ts: Trace | undefined;
   if (!opts.skipTs) {
     try {
-      ts = runTsEmitter(fixture, makeEnv(fixture.env));
+      ts = await runTsEmitter(fixture, makeEnv(fixture.env));
     } catch (err) {
       return {
         fixture,
@@ -98,7 +102,7 @@ export function runDifferential(fixture: NodeFixture, opts: DifferentialOptions 
   let python: Trace | undefined;
   if (!opts.skipPython) {
     try {
-      python = runPythonEmitter(fixture, makeEnv(fixture.env));
+      python = await runPythonEmitter(fixture, makeEnv(fixture.env));
     } catch (err) {
       return {
         fixture,
@@ -127,11 +131,11 @@ export function runDifferential(fixture: NodeFixture, opts: DifferentialOptions 
 }
 
 /** Run every fixture from every registered contract. */
-export function runAllContracts(opts: DifferentialOptions = {}): DifferentialResult[] {
+export async function runAllContracts(opts: DifferentialOptions = {}): Promise<DifferentialResult[]> {
   const results: DifferentialResult[] = [];
   for (const contract of CONTRACT_REGISTRY.values()) {
     for (const fixture of contract.fixtures) {
-      results.push(runDifferential(fixture, opts));
+      results.push(await runDifferential(fixture, opts));
     }
   }
   return results;
@@ -139,20 +143,18 @@ export function runAllContracts(opts: DifferentialOptions = {}): DifferentialRes
 
 /**
  * Run the TS emitter against `fixture.ir`, then execute the emitted code in a
- * sandbox and observe its trace. PR-3 wires this against the existing TS
- * codegen pipeline; PR-1 throws so callers see "unwired" rather than silent
- * success.
+ * sandbox and observe its trace. PR-3a delegates to the dedicated leg module.
  */
-function runTsEmitter(_fixture: NodeFixture, _env: SemanticEnv): Trace {
-  throw new Error('TS emitter leg not wired yet (PR-3). Use { skipTs: true } during PR-1/PR-2.');
+function runTsEmitter(fixture: NodeFixture, env: SemanticEnv): Promise<Trace> {
+  return runTsEmitterLeg(fixture, env);
 }
 
 /**
  * Run the Python emitter against `fixture.ir`, exec the emitted module via
- * the python sidecar, and observe its trace. PR-3 wires this.
+ * the python sidecar, and observe its trace. PR-3b wires this.
  */
-function runPythonEmitter(_fixture: NodeFixture, _env: SemanticEnv): Trace {
-  throw new Error('Python emitter leg not wired yet (PR-3). Use { skipPython: true } during PR-1/PR-2.');
+function runPythonEmitter(_fixture: NodeFixture, _env: SemanticEnv): Promise<Trace> {
+  throw new Error('Python emitter leg not wired yet (PR-3b). Use { skipPython: true } during PR-3a.');
 }
 
 function errorMessage(err: unknown): string {

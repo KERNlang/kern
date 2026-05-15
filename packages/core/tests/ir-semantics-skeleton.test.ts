@@ -64,7 +64,7 @@ describe('IR semantics skeleton (PR-1)', () => {
     expect(() => registerContract(contract)).toThrow(/already registered/);
   });
 
-  it('runDifferential passes when reference matches expected and emitter legs are skipped', () => {
+  it('runDifferential passes when reference matches expected and emitter legs are skipped', async () => {
     const noopContract: NodeContract = {
       nodeType: 'noop',
       preconditions: () => true,
@@ -80,11 +80,11 @@ describe('IR semantics skeleton (PR-1)', () => {
       ir: { type: 'noop', props: {} },
       expected: emptyTrace(),
     };
-    const result = runDifferential(fixture, { skipTs: true, skipPython: true });
+    const result = await runDifferential(fixture, { skipTs: true, skipPython: true });
     expect(result.verdict).toBe('pass');
   });
 
-  it('runDifferential surfaces reference-mismatch when expected diverges', () => {
+  it('runDifferential surfaces reference-mismatch when expected diverges', async () => {
     const noopContract: NodeContract = {
       nodeType: 'noop',
       preconditions: () => true,
@@ -103,7 +103,7 @@ describe('IR semantics skeleton (PR-1)', () => {
         completion: { kind: 'normal' },
       },
     };
-    const result = runDifferential(fixture, { skipTs: true, skipPython: true });
+    const result = await runDifferential(fixture, { skipTs: true, skipPython: true });
     expect(result.verdict).toBe('reference-mismatch');
   });
 
@@ -114,11 +114,11 @@ describe('IR semantics skeleton (PR-1)', () => {
     expect(original.has('y')).toBe(false);
   });
 
-  it('runAllContracts returns empty list when registry is empty', () => {
-    expect(runAllContracts({ skipTs: true, skipPython: true })).toEqual([]);
+  it('runAllContracts returns empty list when registry is empty', async () => {
+    expect(await runAllContracts({ skipTs: true, skipPython: true })).toEqual([]);
   });
 
-  it('runDifferential reports leg-error when the TS leg is exercised', () => {
+  it('runDifferential exercises the TS leg with skipPython:true', async () => {
     const noopContract: NodeContract = {
       nodeType: 'noop',
       preconditions: () => true,
@@ -134,10 +134,12 @@ describe('IR semantics skeleton (PR-1)', () => {
       ir: { type: 'noop', props: {} },
       expected: emptyTrace(),
     };
-    const result = runDifferential(fixture, { skipPython: true });
-    expect(result.verdict).toBe('leg-error');
-    expect(result.legError?.leg).toBe('ts');
-    expect(result.legError?.message).toMatch(/not wired yet/);
+    const result = await runDifferential(fixture, { skipPython: true });
+    // PR-3a wired the TS leg. With only the noop contract registered, the
+    // TS leg has nothing to emit — handler wrapper with no `each` body, so
+    // emitNativeKernBodyTS returns an empty body. Result is a normal trace
+    // matching reference → `pass`.
+    expect(result.verdict).toBe('pass');
   });
 });
 

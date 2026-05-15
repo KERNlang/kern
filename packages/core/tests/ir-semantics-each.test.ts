@@ -55,10 +55,9 @@ describe('each contract — positive fixtures (differential reference-only)', ()
     );
   });
 
-  it.each(eachContract.fixtures.map((f) => [f.description, f] as const))('fixture: %s', (_desc, fixture) => {
-    const result = runDifferential(fixture, { skipTs: true, skipPython: true });
+  it.each(eachContract.fixtures.map((f) => [f.description, f] as const))('fixture: %s', async (_desc, fixture) => {
+    const result = await runDifferential(fixture, { skipTs: true, skipPython: true });
     if (result.verdict !== 'pass') {
-      // Surface useful debugging info on failure.
       throw new Error(
         `verdict=${result.verdict}\nfixture=${fixture.description}\nexpected=${JSON.stringify(
           fixture.expected,
@@ -114,30 +113,29 @@ describe('each contract — shape detection', () => {
 });
 
 describe('each contract — preconditions reject malformed IR', () => {
-  function mustReject(ir: IRNode, label: string): void {
+  async function mustReject(ir: IRNode, label: string): Promise<void> {
     expect(() => referenceRun(ir, makeEnv())).toThrow(ReferenceRunnerError);
-    // Also reject via the harness path with leg-error.
-    const result = runDifferential(
+    const result = await runDifferential(
       { description: label, ir, expected: { events: [], completion: { kind: 'normal' } } },
       { skipTs: true, skipPython: true },
     );
     expect(result.verdict).toBe<Verdict>('leg-error');
   }
 
-  it('rejects `each` with no iteration shape', () => {
-    mustReject({ type: 'each', props: { in: 'xs' }, children: [{ type: 'break' }] }, 'no shape');
+  it('rejects `each` with no iteration shape', async () => {
+    await mustReject({ type: 'each', props: { in: 'xs' }, children: [{ type: 'break' }] }, 'no shape');
   });
 
-  it('rejects `each` with no `in=` binding', () => {
-    mustReject({ type: 'each', props: { name: 'x' }, children: [{ type: 'break' }] }, 'no in');
+  it('rejects `each` with no `in=` binding', async () => {
+    await mustReject({ type: 'each', props: { name: 'x' }, children: [{ type: 'break' }] }, 'no in');
   });
 
-  it('rejects `each` with empty body', () => {
-    mustReject({ type: 'each', props: { name: 'x', in: 'xs' }, children: [] }, 'empty body');
+  it('rejects `each` with empty body', async () => {
+    await mustReject({ type: 'each', props: { name: 'x', in: 'xs' }, children: [] }, 'empty body');
   });
 
-  it('rejects `each` mixing array mode and pair mode', () => {
-    mustReject(
+  it('rejects `each` mixing array mode and pair mode', async () => {
+    await mustReject(
       {
         type: 'each',
         props: { name: 'x', pairKey: 'k', pairValue: 'v', in: 'xs' },
@@ -147,8 +145,8 @@ describe('each contract — preconditions reject malformed IR', () => {
     );
   });
 
-  it('rejects `each` with index= and await=true', () => {
-    mustReject(
+  it('rejects `each` with index= and await=true', async () => {
+    await mustReject(
       {
         type: 'each',
         props: { name: 'x', index: 'i', await: true, in: 'xs' },
