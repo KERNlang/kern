@@ -470,8 +470,14 @@ function emitChildrenPy(
           );
         }
         const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, initialBindings);
-        if (inner.length === 0 && asName === primaryBindingPy && idxName === null && !ctx.traceHooks?.eachIterNext) {
-          // Original `pass` guard preserved for the legacy gensym-only path.
+        // `pass` is needed only when the for-loop body would otherwise be empty:
+        //   - index-mode path emits NO assignment (direct destructuring), so an
+        //     empty children list leaves the loop bodyless → IndentationError.
+        //     Caught by PR-3b agon review (4/6 reviewers).
+        //   - non-index path emits `${asName} = ${iterVar}` which IS a valid
+        //     body statement, so `pass` is unnecessary even with empty children.
+        //   - trace-hook path emits `_kern_trace(...)` as the body, so no pass.
+        if (inner.length === 0 && idxName !== null && !ctx.traceHooks?.eachIterNext) {
           lines.push(`${indent}${INDENT_STEP}pass`);
         }
         for (const sl of inner) lines.push(sl);

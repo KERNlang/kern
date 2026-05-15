@@ -72,13 +72,15 @@ const PYTHON_SKIP_FIXTURE_DESCRIPTIONS = new Set<string>([
 ]);
 
 describeIfPython('Python emitter leg — each fixtures (differential vs reference)', () => {
-  it.each(eachContract.fixtures.map((f) => [f.description, f] as const))(
+  // Partition fixtures so audit-skipped ones show as `skipped` in test
+  // output, making the documented divergences visible rather than hidden
+  // behind silent early returns.
+  const runnable = eachContract.fixtures.filter((f) => !PYTHON_SKIP_FIXTURE_DESCRIPTIONS.has(f.description));
+  const skipped = eachContract.fixtures.filter((f) => PYTHON_SKIP_FIXTURE_DESCRIPTIONS.has(f.description));
+
+  it.each(runnable.map((f) => [f.description, f] as const))(
     'fixture: %s',
-    async (desc, fixture) => {
-      if (PYTHON_SKIP_FIXTURE_DESCRIPTIONS.has(desc)) {
-        // Documented audit divergence — see PYTHON_SKIP_FIXTURE_DESCRIPTIONS.
-        return;
-      }
+    async (_desc, fixture) => {
       const result = await runDifferential(fixture, { skipTs: true, pythonLeg: runPythonEmitterLeg });
       if (result.verdict !== 'pass') {
         throw new Error(
@@ -93,6 +95,14 @@ describeIfPython('Python emitter leg — each fixtures (differential vs referenc
     },
     15_000,
   );
+
+  it.skip.each(
+    skipped.map((f) => [f.description] as const),
+  )('fixture (audit divergence, pending PR-4 spec revision): %s', () => {
+    // Bodies intentionally empty — `it.skip` surfaces the documented
+    // divergences as skipped in test output. See
+    // PYTHON_SKIP_FIXTURE_DESCRIPTIONS above for the audit rationale.
+  });
 });
 
 describeIfPython('runPythonEmitterLeg — direct unit test', () => {
