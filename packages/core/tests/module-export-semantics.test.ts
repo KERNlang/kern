@@ -107,6 +107,48 @@ describe('semantic-validator — module export cross references', () => {
     expect(rulesFor(source)).not.toContain('external-import-local-conflict');
   });
 
+  test('reports value exports that reference type-only external imports', () => {
+    const source = [
+      'module name=typing',
+      '  import py "numpy.typing" names=NDArray types=true',
+      '  export names=NDArray',
+    ].join('\n');
+    const violations = validateSemantics(parseDocumentWithDiagnostics(source).root);
+
+    expect(violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rule: 'export-local-kind-mismatch',
+          message: expect.stringContaining('external import is only visible as a type-only symbol'),
+        }),
+      ]),
+    );
+  });
+
+  test('reports type exports that reference runtime external imports', () => {
+    const source = ['module name=mathApi', '  import py "math" names=sqrt', '  export types=sqrt'].join('\n');
+    const violations = validateSemantics(parseDocumentWithDiagnostics(source).root);
+
+    expect(violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rule: 'export-local-kind-mismatch',
+          message: expect.stringContaining('external import is only visible as a runtime value symbol'),
+        }),
+      ]),
+    );
+  });
+
+  test('keeps host type imports under the legacy flat export visibility contract', () => {
+    const source = [
+      'module name=reactTypes',
+      '  import type { ReactNode } from "react"',
+      '  export names=ReactNode',
+    ].join('\n');
+
+    expect(rulesFor(source)).not.toContain('export-local-kind-mismatch');
+  });
+
   test('reports duplicate type-only external import local names', () => {
     const source = [
       'module name=typing',
