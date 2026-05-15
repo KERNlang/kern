@@ -28,14 +28,23 @@ function fnBodyCodePython(node: IRNode): string {
   const handler = node.children?.find((c) => c.type === 'handler');
   if (handler && handler.props?.lang === 'kern') {
     const symbolMap = buildPythonSymbolMap(node);
-    const { code, imports } = emitNativeKernBodyPythonWithImports(handler, { symbolMap });
-    if (imports.size === 0) return code;
+    const { code, imports, helpers } = emitNativeKernBodyPythonWithImports(handler, { symbolMap });
+    if (imports.size === 0 && helpers.size === 0) return code;
     // Stable ordering for deterministic output / test snapshots.
     // Slice 3 review fix (Gemini): import-as-alias to avoid shadowing user
     // bindings. KERN-stdlib templates reference the alias (`__k_math.floor`),
     // so any user-defined `math` ident in the body remains accessible.
     const importLines = [...imports].sort().map((mod) => `import ${mod} as __k_${mod}`);
-    return code ? `${importLines.join('\n')}\n${code}` : importLines.join('\n');
+    // PR-4 — runtime helpers (e.g. `_kern_pairs`) follow the imports as
+    // function-local defs. They're idempotent and Python re-binds each call;
+    // module-level emission would require a cross-cutting refactor for the
+    // `fn` generator path, so we keep them inline alongside imports.
+    const helperBlocks = [...helpers];
+    const headerParts: string[] = [];
+    if (importLines.length > 0) headerParts.push(importLines.join('\n'));
+    if (helperBlocks.length > 0) headerParts.push(helperBlocks.join('\n\n'));
+    const header = headerParts.join('\n\n');
+    return code ? `${header}\n${code}` : header;
   }
   return handlerCode(node);
 }

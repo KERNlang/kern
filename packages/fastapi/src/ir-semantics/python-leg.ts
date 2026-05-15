@@ -36,7 +36,7 @@ import type internal from 'node:stream';
 import type { Readable } from 'node:stream';
 import type { CanonicalError, CompletionRecord, NodeFixture, SemanticEnv, Trace, TraceEvent } from '@kernlang/core';
 import { lowerFixtureForTarget } from '@kernlang/core';
-import { emitNativeKernBodyPython } from '../codegen-body-python.js';
+import { emitNativeKernBodyPythonWithImports } from '../codegen-body-python.js';
 
 const PYTHON_LEG_TIMEOUT_MS = 10_000;
 
@@ -108,15 +108,26 @@ function buildPrelude(): string {
 /**
  * Wrap the emitted body in an async function that returns a JSON
  * CompletionRecord on stdout, catching the sentinel exceptions.
+ *
+ * `helpers` are emitted at module scope ABOVE the env bindings so they're
+ * visible from inside `__kern_run`. This matches production codegen: helpers
+ * (`_kern_pairs`, `_kern_async_pairs`) are module-level defs, not nested
+ * inside the running function.
  */
-function buildProgram(bodyCode: string, envBindings: ReadonlyArray<[string, unknown]>): string {
+function buildProgram(
+  bodyCode: string,
+  envBindings: ReadonlyArray<[string, unknown]>,
+  helpers: ReadonlyArray<string>,
+): string {
   const bindingLines = envBindings.map(([name, value]) => `${name} = ${pyLiteral(value)}`);
   const indented = bodyCode
     .split('\n')
     .map((line) => (line.length === 0 ? '' : `        ${line}`))
     .join('\n');
+  const helperBlock = helpers.length > 0 ? `${helpers.join('\n\n')}\n` : '';
   return [
     buildPrelude(),
+    helperBlock,
     ...bindingLines,
     '',
     'async def __kern_run():',
@@ -257,15 +268,26 @@ export async function runPythonEmitterLeg(fixture: NodeFixture, env: SemanticEnv
   };
 
   let bodyCode: string;
+  let bodyHelpers: ReadonlyArray<string>;
   try {
-    bodyCode = emitNativeKernBodyPython(handlerWrapper, {
+    const result = emitNativeKernBodyPythonWithImports(handlerWrapper, {
       traceHooks: { eachIterNext: true },
     });
+    if (result.imports.size > 0) {
+      // Differential fixtures don't exercise stdlib-import codegen (math, etc.);
+      // if a future fixture does, this leg will need an import-emission
+      // strategy. Fail loud rather than silently producing broken Python.
+      const list = [...result.imports].sort().join(', ');
+      throw new PythonLegError(`fixture body requires Python imports [${list}] — unsupported by harness`);
+    }
+    bodyCode = result.code;
+    bodyHelpers = [...result.helpers];
   } catch (err) {
-    throw new PythonLegError(`emitNativeKernBodyPython failed: ${(err as Error).message}`);
+    if (err instanceof PythonLegError) throw err;
+    throw new PythonLegError(`emitNativeKernBodyPythonWithImports failed: ${(err as Error).message}`);
   }
 
-  const program = buildProgram(bodyCode, Array.from(env.bindings.entries()));
+  const program = buildProgram(bodyCode, Array.from(env.bindings.entries()), bodyHelpers);
 
   const result = await runPython(program);
 

@@ -22,10 +22,10 @@ import { mapTsTypeToPython, toSnakeCase } from '../type-map.js';
  *
  *  When the handler is legacy raw, returns `{ code: handlerCode(method),
  *  imports: empty }`. */
-function methodBodyCodePython(method: IRNode): { code: string; imports: Set<string> } {
+function methodBodyCodePython(method: IRNode): { code: string; imports: Set<string>; helpers: Set<string> } {
   const handler = getFirstChild(method, 'handler');
   if (!handler || getProps(handler).lang !== 'kern') {
-    return { code: handlerCode(method), imports: new Set() };
+    return { code: handlerCode(method), imports: new Set(), helpers: new Set() };
   }
   const symbolMap: Record<string, string> = {};
   const claimedSnake = new Set<string>(['self']);
@@ -54,8 +54,8 @@ function methodBodyCodePython(method: IRNode): { code: string; imports: Set<stri
       for (const part of parseLegacyParamParts(rawParams)) recordParam(part.name);
     }
   }
-  const { code, imports } = emitNativeKernBodyPythonWithImports(handler, { symbolMap });
-  return { code, imports };
+  const { code, imports, helpers } = emitNativeKernBodyPythonWithImports(handler, { symbolMap });
+  return { code, imports, helpers };
 }
 
 /** Slice 4b — flatten a method's body code + per-method imports into the
@@ -65,10 +65,21 @@ function methodBodyCodePython(method: IRNode): { code: string; imports: Set<stri
  *  Returns the indented lines (4-space prefix) ready to push into the
  *  enclosing class definition. Empty body yields a single `pass`. */
 function methodBodyLinesPython(method: IRNode): string[] {
-  const { code, imports } = methodBodyCodePython(method);
+  const { code, imports, helpers } = methodBodyCodePython(method);
   const lines: string[] = [];
   for (const mod of [...imports].sort()) {
     lines.push(`        import ${mod} as __k_${mod}`);
+  }
+  // PR-4 — runtime helpers (e.g. `_kern_pairs`) emitted as method-local defs
+  // with the method's 8-space indent. Each entry is multi-line; we split
+  // and indent every line so the embedded function body stays at the right
+  // depth inside the enclosing class. Function-local emission keeps the
+  // refactor contained — module-level emission would require touching the
+  // class-file scaffolding.
+  for (const helper of [...helpers]) {
+    for (const helperLine of helper.split('\n')) {
+      lines.push(`        ${helperLine}`);
+    }
   }
   if (code) {
     for (const line of code.split('\n')) {

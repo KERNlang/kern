@@ -619,9 +619,17 @@ export function buildRouteArtifact(
         code: kernBody,
         imports: bodyImports,
         usedPropagation,
+        helpers: bodyHelpers,
       } = emitNativeKernBodyPythonWithImports(handlerNode, { symbolMap, propagateStyle: 'http-exception' });
       for (const mod of bodyImports) {
         imports.add(`import ${mod} as __k_${mod}`);
+      }
+      // PR-4 — runtime helpers (e.g. `_kern_pairs`) are emitted into the
+      // imports block as raw multi-line defs; set semantics dedup across
+      // multiple handlers in the same file, and Python is happy to declare
+      // module-level helpers in any order before the route function defs.
+      for (const helper of bodyHelpers) {
+        imports.add(helper);
       }
       if (usedPropagation) {
         // Slice 4a review fix (Gemini #5) — `?` err is now translated

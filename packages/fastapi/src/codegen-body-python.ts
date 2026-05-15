@@ -92,16 +92,28 @@ export interface BodyEmitOptions {
  *  Slice 4a review fix — `usedPropagation` is true iff the body emitted at
  *  least one `?` propagation hoist. Callers using `propagateStyle:
  *  'http-exception'` use this signal to decide whether to add `from
- *  fastapi import HTTPException` to the route file's imports. */
+ *  fastapi import HTTPException` to the route file's imports.
+ *
+ *  PR-4 — `helpers` carries runtime helper function definitions the body
+ *  references (e.g. `_kern_pairs` / `_kern_async_pairs` for `each` pair-mode
+ *  normalization). Consumers must emit each entry at module scope BEFORE the
+ *  body's function definition so the helpers are in scope when the body
+ *  runs. Set semantics give de-dup for free across multiple handlers in the
+ *  same module. */
 export interface BodyEmitResult {
   code: string;
   imports: Set<string>;
   usedPropagation: boolean;
+  helpers: Set<string>;
 }
 
 interface BodyEmitContext {
   gensymCounter: number;
   imports: Set<string>;
+  /** PR-4 — runtime helper function definitions the body references.
+   *  Populated lazily when codegen needs a helper (e.g. `_kern_pairs` for
+   *  `each` pair-mode). Consumer emits each entry at module scope. */
+  helpers: Set<string>;
   symbolMap: Record<string, string>;
   shadowedSymbols: Set<string>;
   localScopes: Array<Map<string, 'const' | 'let' | 'cell'>>;
@@ -127,6 +139,7 @@ function freshCtx(options?: BodyEmitOptions): BodyEmitContext {
   return {
     gensymCounter: 0,
     imports: new Set<string>(),
+    helpers: new Set<string>(),
     symbolMap: options?.symbolMap ?? {},
     shadowedSymbols: new Set<string>(),
     localScopes: [],
@@ -138,6 +151,37 @@ function freshCtx(options?: BodyEmitOptions): BodyEmitContext {
     traceHooks: options?.traceHooks,
   };
 }
+
+/** PR-4 — Python helpers that normalize `each` pair-mode iteration sources.
+ *  Co-located with the codegen so the production emitter and the differential
+ *  harness use byte-identical definitions; consumers emit the string at module
+ *  scope when `BodyEmitResult.helpers` is non-empty.
+ *
+ *  Semantics:
+ *    - `_kern_pairs(v)`: yields `(k, v)` tuples. Uses `v.items()` when present
+ *      (Mapping shapes — dict, OrderedDict, custom Mapping subclasses); falls
+ *      back to `iter(v)` so an iterable of `[k, v]` pairs (list/tuple) also
+ *      destructures cleanly. Matches JS `for (const [k, v] of arrayOfPairs)`
+ *      expressiveness — this is the divergence-1 fix from PR-3b audit.
+ *    - `_kern_async_pairs(v)`: async generator. If `v` has `__aiter__` it
+ *      forwards each item. Otherwise it falls back to `_kern_pairs(v)` so
+ *      `async for` over a sync Mapping or array-of-pairs is well-defined —
+ *      this is the divergence-2/3 fix (`async for` no longer requires an
+ *      async iterable; sync data is wrapped at iteration entry).
+ *
+ *  Both helpers are pure functions on the input; no captures, no globals. */
+export const KERN_PAIR_HELPERS_PY = [
+  'def _kern_pairs(__k_v):',
+  '    return __k_v.items() if hasattr(__k_v, "items") else iter(__k_v)',
+  '',
+  'async def _kern_async_pairs(__k_v):',
+  '    if hasattr(__k_v, "__aiter__"):',
+  '        async for __k_item in __k_v:',
+  '            yield __k_item',
+  '    else:',
+  '        for __k_item in _kern_pairs(__k_v):',
+  '            yield __k_item',
+].join('\n');
 
 /** Emit the body of a native KERN handler as Python source. Returns the
  *  joined body text. Each top-level line is unindented; nested `if`-bodies
@@ -164,6 +208,14 @@ export function emitNativeKernBodyPython(handlerNode: IRNode, options?: BodyEmit
         'Use emitNativeKernBodyPythonWithImports and emit the imports yourself (FastAPI generator does this automatically).',
     );
   }
+  // PR-4 — when the body needs runtime helpers (e.g. `_kern_pairs`), prepend
+  // them to the returned string. The legacy entry point has no separate
+  // helpers channel; folding them inline keeps single-string consumers (PR-3b
+  // differential harness) working without an API break.
+  if (result.helpers.size > 0) {
+    const helpers = [...result.helpers].join('\n\n');
+    return result.code ? `${helpers}\n\n${result.code}` : helpers;
+  }
   return result.code;
 }
 
@@ -178,7 +230,7 @@ export function emitNativeKernBodyPython(handlerNode: IRNode, options?: BodyEmit
 export function emitNativeKernBodyPythonWithImports(handlerNode: IRNode, options?: BodyEmitOptions): BodyEmitResult {
   const ctx = freshCtx(options);
   const code = emitChildrenPy(handlerNode.children ?? [], ctx, '').join('\n');
-  return { code, imports: ctx.imports, usedPropagation: ctx.usedPropagation };
+  return { code, imports: ctx.imports, usedPropagation: ctx.usedPropagation, helpers: ctx.helpers };
 }
 
 function emitChildrenPy(
@@ -359,12 +411,15 @@ function emitChildrenPy(
         if (isAwait && child.props?.index) {
           throw new Error('body-statement `each await=true` cannot be combined with `index=`.');
         }
-        // 2026-05-06 — pair-mode (`pairKey=k pairValue=v`) emits Python dict
-        // iteration `for k, v in m.items():` (the canonical shape — covers
-        // dicts, the dominant use case; users iterating a Mapping subclass or
-        // an iterable of 2-tuples should call `.items()` explicitly upstream
-        // OR pass the iterable directly via `in=`). Schema/cross-prop rules
-        // already enforce mutual exclusion with `index=`.
+        // PR-4 — pair-mode (`pairKey=k pairValue=v`) iterates via the runtime
+        // helpers `_kern_pairs` (sync) and `_kern_async_pairs` (async). The
+        // helpers normalize Mapping inputs (via `.items()`), array-of-pairs
+        // (via `iter()`), and async iterables (forwarded as-is). Goals from
+        // PR-3b audit:
+        //   - sync pair-mode over list-of-[k,v] no longer raises AttributeError
+        //   - async pair-mode over sync data no longer raises TypeError
+        // The helpers are co-located in `KERN_PAIR_HELPERS_PY` so the
+        // production emitter and the differential harness share one definition.
         if (pairKey && pairValue) {
           if (entriesMode && isAwait) {
             throw new Error('body-statement `each entries=true` cannot be combined with `await=true`.');
@@ -372,7 +427,8 @@ function emitChildrenPy(
           const k = String(pairKey);
           const v = String(pairValue);
           const sourceExpr = emitPyExprCtx(listIR, ctx);
-          const iterableExpr = isAwait ? sourceExpr : `${sourceExpr}.items()`;
+          ctx.helpers.add(KERN_PAIR_HELPERS_PY);
+          const iterableExpr = isAwait ? `_kern_async_pairs(${sourceExpr})` : `_kern_pairs(${sourceExpr})`;
           lines.push(`${indent}${isAwait ? 'async ' : ''}for ${k}, ${v} in ${iterableExpr}:`);
           if (ctx.traceHooks?.eachIterNext) {
             lines.push(

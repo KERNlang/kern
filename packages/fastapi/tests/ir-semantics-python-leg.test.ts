@@ -44,41 +44,22 @@ afterEach(() => {
 });
 
 /**
- * Audit findings (PR-3b) — fixtures that DIVERGE between TS and Python and
- * are skipped here, pending spec revision in PR-4:
+ * PR-4 — Python emitter normalises pair-mode iteration via runtime helpers
+ * `_kern_pairs` (sync) and `_kern_async_pairs` (async). This closes the
+ * three divergences PR-3b documented:
  *
- *   1. `pair-sync: array of [k, v] tuples` — Python emitter unconditionally
- *      appends `.items()` to the pair source. Lists/tuples have no `.items`
- *      attribute; the call raises AttributeError at runtime. JS Map iteration
- *      via destructuring works on both Map AND array-of-pairs; Python pair-
- *      mode is dict-only as currently spec'd. **Audit decision**: restrict
- *      KERN pair-mode (sync, Python target) to mapping inputs.
+ *   1. `pair-sync: array of [k, v] tuples` — `_kern_pairs` falls back to
+ *      `iter(v)` when `v` lacks `.items()`, so array-of-pairs destructures
+ *      cleanly. No more AttributeError.
+ *   2-3. `pair-async: await=true …` — `_kern_async_pairs` is an async
+ *      generator that wraps either an async iterable (forward) or a sync
+ *      source (via `_kern_pairs`). No more "async for requires __aiter__".
  *
- *   2-3. `pair-async: await=true …` (sync + empty) — Python codegen emits
- *      `async for k, v in m` (without `.items()`). When `m` is a sync dict,
- *      Python rejects it: "'async for' requires an object with __aiter__".
- *      This invalidates the contract claim that "async=sync observable" —
- *      Python's `async for` is structurally incompatible with sync data.
- *      **Audit decision**: revise the spec — async pair-mode REQUIRES an
- *      async iterable in Python; sync data is a parse-time error.
- *
- * The findings are filed inline so audit context lives next to the test.
- * PR-4 lands the corresponding spec/contract revision.
+ * All 19 fixtures run against Python; the PR-3b skip set is removed.
  */
-const PYTHON_SKIP_FIXTURE_DESCRIPTIONS = new Set<string>([
-  'pair-sync: array of [k, v] tuples iterates in array order',
-  'pair-async: await=true produces identical observable trace to pair-sync',
-  'pair-async: empty async pair yields no iterations',
-]);
 
 describeIfPython('Python emitter leg — each fixtures (differential vs reference)', () => {
-  // Partition fixtures so audit-skipped ones show as `skipped` in test
-  // output, making the documented divergences visible rather than hidden
-  // behind silent early returns.
-  const runnable = eachContract.fixtures.filter((f) => !PYTHON_SKIP_FIXTURE_DESCRIPTIONS.has(f.description));
-  const skipped = eachContract.fixtures.filter((f) => PYTHON_SKIP_FIXTURE_DESCRIPTIONS.has(f.description));
-
-  it.each(runnable.map((f) => [f.description, f] as const))(
+  it.each(eachContract.fixtures.map((f) => [f.description, f] as const))(
     'fixture: %s',
     async (_desc, fixture) => {
       const result = await runDifferential(fixture, { skipTs: true, pythonLeg: runPythonEmitterLeg });
@@ -95,14 +76,6 @@ describeIfPython('Python emitter leg — each fixtures (differential vs referenc
     },
     15_000,
   );
-
-  it.skip.each(
-    skipped.map((f) => [f.description] as const),
-  )('fixture (audit divergence, pending PR-4 spec revision): %s', () => {
-    // Bodies intentionally empty — `it.skip` surfaces the documented
-    // divergences as skipped in test output. See
-    // PYTHON_SKIP_FIXTURE_DESCRIPTIONS above for the audit rationale.
-  });
 });
 
 describeIfPython('runPythonEmitterLeg — direct unit test', () => {
