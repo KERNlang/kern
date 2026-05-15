@@ -45,6 +45,7 @@ import {
   surfaceShadowDiagnostics,
   surfaceValidationDiagnostics,
   transpileAndWrite,
+  writeFastApiPythonInstallFilesForAsts,
   writeSidecarInstallFilesForAsts,
 } from '../shared.js';
 
@@ -408,17 +409,32 @@ function buildFastApiModulePlan(
   };
 }
 
-function writeAggregatedSidecarInstallFiles(entries: SidecarInstallEntry[]): void {
+function groupInstallEntriesByOutDir(entries: SidecarInstallEntry[]): Map<string, IRNode[]> {
   const byOutDir = new Map<string, IRNode[]>();
   for (const entry of entries) {
     const asts = byOutDir.get(entry.outDir);
     if (asts) asts.push(entry.ast);
     else byOutDir.set(entry.outDir, [entry.ast]);
   }
+  return byOutDir;
+}
+
+function writeAggregatedSidecarInstallFiles(
+  entries: SidecarInstallEntry[],
+  options?: { sidecarIslandsOnly?: boolean },
+): void {
+  const byOutDir = groupInstallEntriesByOutDir(entries);
   for (const [sidecarOutDir, asts] of byOutDir) {
     mkdirSync(sidecarOutDir, { recursive: true });
-    writeSidecarInstallFilesForAsts(asts, sidecarOutDir);
+    writeSidecarInstallFilesForAsts(asts, sidecarOutDir, options);
   }
+}
+
+function writeAggregatedFastApiPythonInstallFiles(entries: SidecarInstallEntry[], rootOutDir: string): void {
+  writeFastApiPythonInstallFilesForAsts(
+    entries.map((entry) => entry.ast),
+    rootOutDir,
+  );
 }
 
 function clearSidecarInstallFiles(outDir: string): void {
@@ -724,7 +740,12 @@ export async function runCompile(args: string[]): Promise<void> {
     sidecarEntries.map((entry) => [resolve(entry.file), entry]),
   );
   writeFastApiModuleManifest(fastApiModulePlan, outDir, cfg as ResolvedKernConfig);
-  writeAggregatedSidecarInstallFiles(sidecarEntries);
+  if (targetArg === 'fastapi') {
+    writeAggregatedFastApiPythonInstallFiles(sidecarEntries, fastApiOutputRoot(outDir, cfg as ResolvedKernConfig));
+    writeAggregatedSidecarInstallFiles(sidecarEntries, { sidecarIslandsOnly: true });
+  } else {
+    writeAggregatedSidecarInstallFiles(sidecarEntries);
+  }
 
   function sidecarEntryForFile(file: string, ast: IRNode, plan = fastApiModulePlan): SidecarInstallEntry {
     return {
@@ -748,7 +769,13 @@ export async function runCompile(args: string[]): Promise<void> {
   }
 
   function writeWatchedSidecarInstallFiles(): void {
-    writeAggregatedSidecarInstallFiles([...watchedSidecarEntries.values()]);
+    const entries = [...watchedSidecarEntries.values()];
+    if (targetArg === 'fastapi') {
+      writeAggregatedFastApiPythonInstallFiles(entries, fastApiOutputRoot(outDir, cfg as ResolvedKernConfig));
+      writeAggregatedSidecarInstallFiles(entries, { sidecarIslandsOnly: true });
+      return;
+    }
+    writeAggregatedSidecarInstallFiles(entries);
   }
 
   // ── Barrel & facades ───────────────────────────────────────────────
