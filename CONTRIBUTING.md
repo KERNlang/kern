@@ -93,6 +93,21 @@ Rule messages are what users read in their terminal / IDE / PR comments. Keep vo
 
 Transpilers live in their own package under `packages/`. Each exports a `transpile*` function that takes an IR tree and returns generated code. Register the target in `packages/core/src/targets.ts`.
 
+## IR-semantics contracts
+
+KERN's "semantic-spec moat" lives at `packages/core/src/ir/semantics/`. Each node type (`each`, `__trace`, `return`, `throw`, `break`, `continue`) has a `NodeContract` describing preconditions, observable trace effects, completion shapes, and fixtures the differential harness uses to prove TS↔Python parity by construction.
+
+- `pnpm docs:contracts` — print contract summaries as Markdown to stdout (CI publishes the same to the job summary).
+- `pnpm docs:contracts:json` — regenerate `generated/contracts/registry.json` (the only committed artifact; never hand-edit — Sight and external tooling consume it).
+- `pnpm docs:contracts:check` — fail if `registry.json` drifts from the in-process generator. Wired into `pnpm lint`. Add `--fix` to write the regenerated content.
+- `pnpm test:ir-semantics` — run only the harness tests (faster signal than the full suite for local iteration).
+
+When you add or modify a contract:
+1. Edit the contract source, add or update fixtures
+2. Run `pnpm docs:contracts:check --fix` to regenerate `registry.json`
+3. Commit the source change AND the regenerated JSON in the same commit
+4. CI's drift check and the jest gate (`ir-semantics-contract-doc-drift.test.ts`) both fail loudly if you forget step 2
+
 ## Reporting bugs
 
 Use the [bug report template](https://github.com/KERNlang/kern/issues/new?template=bug_report.yml).

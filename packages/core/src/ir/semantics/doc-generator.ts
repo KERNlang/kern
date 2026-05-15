@@ -1,0 +1,149 @@
+/**
+ * IR-semantics doc generator — Phase 1 PR-5a.
+ *
+ * Walks `CONTRACT_REGISTRY` and serialises each entry to either machine-
+ * readable JSON (for Sight / external tooling) or human-readable Markdown
+ * (for `pnpm docs:contracts` and CI job summaries).
+ *
+ * Council guidance applied:
+ *   - Compact JSON: never inline all fixtures. Per-contract entry carries
+ *     fixture count + 2 representative samples. Full fixture inlining
+ *     would make the committed registry.json a multi-KB churn magnet.
+ *   - Deterministic ordering: contracts sorted by `nodeType`, samples
+ *     picked by stable selection (first + middle) not random.
+ *   - Pure functions: takes a `Map` argument (the registry snapshot) so
+ *     tests can hand-craft a registry without mutating the global.
+ *
+ * Adding fields:
+ *   1. Update `ContractDoc`/`FixtureSample` types
+ *   2. Update `serializeContract()` to populate the new field
+ *   3. Update `renderMarkdownContract()` to surface it
+ *   4. Regenerate `generated/contracts/registry.json` (the drift test will
+ *      fail loudly on stale output)
+ */
+
+import type { NodeContract } from './index.js';
+
+export interface FixtureSample {
+  description: string;
+  expectedCompletionKind: 'normal' | 'return' | 'throw' | 'break' | 'continue';
+  expectedEventCount: number;
+}
+
+export interface ContractDoc {
+  nodeType: string;
+  forbiddenRewrites: ReadonlyArray<string>;
+  fixtureCount: number;
+  fixtureSamples: ReadonlyArray<FixtureSample>;
+}
+
+/** Top-level shape so consumers can verify they got the right artifact. */
+export interface RegistryDoc {
+  schemaVersion: 1;
+  generatedBy: 'kern-ir-semantics-doc-generator';
+  contracts: ReadonlyArray<ContractDoc>;
+}
+
+const SCHEMA_VERSION = 1;
+const SAMPLE_LIMIT = 2;
+
+/**
+ * Reduce a contract's `fixtures` array to a stable set of {@link SAMPLE_LIMIT}
+ * representative entries. Picks the FIRST and the MIDDLE fixture — this is
+ * insertion-order stable, doesn't drift when fixtures are appended to the
+ * end of the array, and gives the reader at least one easy + one harder
+ * case. (Random sampling would defeat the drift-detection goal.)
+ */
+function pickFixtureSamples(contract: NodeContract): FixtureSample[] {
+  const all = contract.fixtures;
+  if (all.length === 0) return [];
+  if (all.length <= SAMPLE_LIMIT) {
+    return all.map(toSample);
+  }
+  const indices = [0, Math.floor(all.length / 2)];
+  return indices.map((i) => toSample(all[i]));
+}
+
+function toSample(fixture: NodeContract['fixtures'][number]): FixtureSample {
+  return {
+    description: fixture.description,
+    expectedCompletionKind: fixture.expected.completion.kind,
+    expectedEventCount: fixture.expected.events.length,
+  };
+}
+
+function serializeContract(contract: NodeContract): ContractDoc {
+  return {
+    nodeType: contract.nodeType,
+    forbiddenRewrites: contract.forbiddenRewrites,
+    fixtureCount: contract.fixtures.length,
+    fixtureSamples: pickFixtureSamples(contract),
+  };
+}
+
+/**
+ * Snapshot the registry into a stable, deterministic shape. Sorts contracts
+ * by `nodeType` so iteration order of `Map` (insertion order) cannot affect
+ * the serialised output.
+ */
+export function snapshotRegistry(registry: ReadonlyMap<string, NodeContract>): RegistryDoc {
+  const contracts: ContractDoc[] = [];
+  for (const [, contract] of [...registry.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+    contracts.push(serializeContract(contract));
+  }
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    generatedBy: 'kern-ir-semantics-doc-generator',
+    contracts,
+  };
+}
+
+/** JSON output — pretty-printed (2-space indent) with a trailing newline so
+ *  the file is well-formed and `git diff` stays readable. */
+export function serializeJson(registry: ReadonlyMap<string, NodeContract>): string {
+  return `${JSON.stringify(snapshotRegistry(registry), null, 2)}\n`;
+}
+
+function renderMarkdownContract(doc: ContractDoc): string {
+  const lines: string[] = [];
+  lines.push(`## \`${doc.nodeType}\``);
+  lines.push('');
+  lines.push(`- **Fixtures**: ${doc.fixtureCount}`);
+  if (doc.forbiddenRewrites.length > 0) {
+    lines.push(`- **Forbidden rewrites**: ${doc.forbiddenRewrites.map((r) => `\`${r}\``).join(', ')}`);
+  } else {
+    lines.push('- **Forbidden rewrites**: none recorded');
+  }
+  if (doc.fixtureSamples.length > 0) {
+    lines.push('');
+    lines.push('Sample fixtures:');
+    for (const s of doc.fixtureSamples) {
+      lines.push(
+        `- _${s.description}_ — completes \`${s.expectedCompletionKind}\` after ${s.expectedEventCount} event(s)`,
+      );
+    }
+  }
+  return lines.join('\n');
+}
+
+/** Human-readable Markdown — emitted to stdout / `$GITHUB_STEP_SUMMARY`,
+ *  never written to disk in the repo. */
+export function serializeMarkdown(registry: ReadonlyMap<string, NodeContract>): string {
+  const snap = snapshotRegistry(registry);
+  const out: string[] = [];
+  out.push('# IR-semantics contracts');
+  out.push('');
+  out.push(`_Generated by ${snap.generatedBy} (schema v${snap.schemaVersion})._`);
+  out.push('');
+  out.push(`Total contracts: **${snap.contracts.length}**.`);
+  out.push('');
+  if (snap.contracts.length === 0) {
+    out.push('_No contracts registered._');
+    return `${out.join('\n')}\n`;
+  }
+  for (const doc of snap.contracts) {
+    out.push(renderMarkdownContract(doc));
+    out.push('');
+  }
+  return `${out.join('\n').replace(/\n+$/, '')}\n`;
+}

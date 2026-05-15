@@ -103,8 +103,17 @@ export function registerContract(contract: NodeContract): void {
   CONTRACT_REGISTRY.set(contract.nodeType, contract);
 }
 
+export {
+  type ContractDoc,
+  type FixtureSample,
+  type RegistryDoc,
+  serializeJson,
+  serializeMarkdown,
+  snapshotRegistry,
+} from './doc-generator.js';
 export { type DifferentialResult, runAllContracts, runDifferential, type Verdict } from './harness.js';
 export { ReferenceRunnerError, referenceRun, referenceRunSequence } from './reference-runner.js';
+export { registerAllContracts } from './register-all.js';
 export type {
   CanonicalError,
   CompletionKind,

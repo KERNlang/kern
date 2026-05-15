@@ -1,0 +1,8 @@
+# PR-5a — `generated/contracts/registry.json` is emitted by
+# `scripts/generate-ir-semantics-docs.mjs` and refreshed via
+# `pnpm docs:contracts:check --fix`. Marking it `linguist-generated` makes
+# GitHub collapse the diff in PRs, so reviewers focus on the spec/source
+# change that triggered the regeneration rather than the boilerplate
+# byte-shifts in the snapshot. Hand-edits will be reverted by the drift
+# check on next CI run.
+generated/** linguist-generated=true

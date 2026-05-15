@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "kern-ir-semantics-doc-generator",
+  "contracts": [
+    {
+      "nodeType": "__trace",
+      "forbiddenRewrites": [],
+      "fixtureCount": 0,
+      "fixtureSamples": []
+    },
+    {
+      "nodeType": "break",
+      "forbiddenRewrites": [],
+      "fixtureCount": 0,
+      "fixtureSamples": []
+    },
+    {
+      "nodeType": "continue",
+      "forbiddenRewrites": [],
+      "fixtureCount": 0,
+      "fixtureSamples": []
+    },
+    {
+      "nodeType": "each",
+      "forbiddenRewrites": [
+        "hoist iteration binding out of body",
+        "reorder iteration body across iterations",
+        "reuse iteration binding across iterations (Python late-binding closure bug)",
+        "short-circuit empty-collection optimization that skips child evaluation effects"
+      ],
+      "fixtureCount": 19,
+      "fixtureSamples": [
+        {
+          "description": "array: empty iterable yields no iterations",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 0
+        },
+        {
+          "description": "array-indexed: break on first iteration leaves no further iter-next",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 1
+        }
+      ]
+    },
+    {
+      "nodeType": "return",
+      "forbiddenRewrites": [],
+      "fixtureCount": 0,
+      "fixtureSamples": []
+    },
+    {
+      "nodeType": "throw",
+      "forbiddenRewrites": [],
+      "fixtureCount": 0,
+      "fixtureSamples": []
+    }
+  ]
+}
