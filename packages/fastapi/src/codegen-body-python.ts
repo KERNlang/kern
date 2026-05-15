@@ -74,6 +74,14 @@ export interface BodyEmitOptions {
    *  The route emitter walks `usedPropagation` in the result to know
    *  whether the import is actually required. */
   propagateStyle?: 'value' | 'http-exception';
+  /**
+   * IR-semantics differential harness opt-in (PR-3b). When `eachIterNext`
+   * is true, the `each` loop emits a `_kern_trace({"op":"iter-next", ...})`
+   * call as the FIRST statement inside each iteration — symmetric with
+   * TS body-ts.ts. Production codegen never sets this. See
+   * packages/core/src/ir/semantics/python-leg.ts for the runtime contract.
+   */
+  traceHooks?: { eachIterNext?: boolean };
 }
 
 /** Slice 3e — public return shape. `code` is the joined body text;
@@ -100,6 +108,8 @@ interface BodyEmitContext {
   regexScopes: Array<Map<string, Extract<ValueIR, { kind: 'regexLit' }> | null>>;
   propagateStyle: 'value' | 'http-exception';
   usedPropagation: boolean;
+  /** PR-3b differential-harness opt-in (see BodyEmitOptions.traceHooks). */
+  traceHooks?: { eachIterNext?: boolean };
   /** Slice 4c review fix (OpenCode + Gemini critical) — depth of nested
    *  `try` blocks. Propagation `?` lowers to `return tmp` (or `raise
    *  HTTPException` in route mode), and BOTH bypass the enclosing
@@ -125,6 +135,7 @@ function freshCtx(options?: BodyEmitOptions): BodyEmitContext {
     usedPropagation: false,
     tryDepth: 0,
     finallyDepth: 0,
+    traceHooks: options?.traceHooks,
   };
 }
 
@@ -363,11 +374,16 @@ function emitChildrenPy(
           const sourceExpr = emitPyExprCtx(listIR, ctx);
           const iterableExpr = isAwait ? sourceExpr : `${sourceExpr}.items()`;
           lines.push(`${indent}${isAwait ? 'async ' : ''}for ${k}, ${v} in ${iterableExpr}:`);
+          if (ctx.traceHooks?.eachIterNext) {
+            lines.push(
+              `${indent}${INDENT_STEP}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(v)}, "value": ${v}})`,
+            );
+          }
           const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, [
             [k, 'const'],
             [v, 'const'],
           ]);
-          if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
+          if (inner.length === 0 && !ctx.traceHooks?.eachIterNext) lines.push(`${indent}${INDENT_STEP}pass`);
           for (const sl of inner) lines.push(sl);
           continue;
         }
@@ -389,15 +405,25 @@ function emitChildrenPy(
             const k = String(entryKey);
             const iterableExpr = `${sourceExpr}.keys()`;
             lines.push(`${indent}for ${k} in ${iterableExpr}:`);
+            if (ctx.traceHooks?.eachIterNext) {
+              lines.push(
+                `${indent}${INDENT_STEP}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(k)}, "value": ${k}})`,
+              );
+            }
             const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, [[k, 'const']]);
-            if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
+            if (inner.length === 0 && !ctx.traceHooks?.eachIterNext) lines.push(`${indent}${INDENT_STEP}pass`);
             for (const sl of inner) lines.push(sl);
           } else {
             const v = String(entryValue);
             const iterableExpr = `${sourceExpr}.values()`;
             lines.push(`${indent}for ${v} in ${iterableExpr}:`);
+            if (ctx.traceHooks?.eachIterNext) {
+              lines.push(
+                `${indent}${INDENT_STEP}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(v)}, "value": ${v}})`,
+              );
+            }
             const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, [[v, 'const']]);
-            if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
+            if (inner.length === 0 && !ctx.traceHooks?.eachIterNext) lines.push(`${indent}${INDENT_STEP}pass`);
             for (const sl of inner) lines.push(sl);
           }
           continue;
@@ -412,12 +438,42 @@ function emitChildrenPy(
         // and the inter-loop collision (two `each` with the same `as=`)
         // works because each loop has a fresh gensym + fresh body-local
         // alias. Document the residual leak in the spec.
+        //
+        // PR-3b — index-mode (`each name=x index=i in=xs`) now lowers to
+        // `for i, x in enumerate(xs):`, aligning with the route-handler /
+        // ground generators that already supported this shape. Caught by
+        // the IR-semantics differential audit (PR-3b).
         const asName = String(child.props?.name ?? child.props?.as ?? 'item');
-        const iterVar = `__k_each_${++ctx.gensymCounter}`;
-        lines.push(`${indent}${isAwait ? 'async ' : ''}for ${iterVar} in ${emitPyExprCtx(listIR, ctx)}:`);
-        lines.push(`${indent}${INDENT_STEP}${asName} = ${iterVar}`);
-        const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, [[asName, 'const']]);
-        if (inner.length === 0 && asName === iterVar) lines.push(`${indent}${INDENT_STEP}pass`);
+        const idxName = child.props?.index !== undefined ? String(child.props.index) : null;
+        const iterableExpr = emitPyExprCtx(listIR, ctx);
+        let primaryBindingPy: string;
+        let initialBindings: Array<[string, 'const' | 'let']>;
+        if (idxName !== null) {
+          // `for i, x in enumerate(xs):` — direct destructuring, no gensym
+          // unpacking needed because both names are already user-facing.
+          lines.push(`${indent}for ${idxName}, ${asName} in enumerate(${iterableExpr}):`);
+          primaryBindingPy = asName;
+          initialBindings = [
+            [idxName, 'const'],
+            [asName, 'const'],
+          ];
+        } else {
+          const iterVar = `__k_each_${++ctx.gensymCounter}`;
+          lines.push(`${indent}${isAwait ? 'async ' : ''}for ${iterVar} in ${iterableExpr}:`);
+          lines.push(`${indent}${INDENT_STEP}${asName} = ${iterVar}`);
+          primaryBindingPy = asName;
+          initialBindings = [[asName, 'const']];
+        }
+        if (ctx.traceHooks?.eachIterNext) {
+          lines.push(
+            `${indent}${INDENT_STEP}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(primaryBindingPy)}, "value": ${primaryBindingPy}})`,
+          );
+        }
+        const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, initialBindings);
+        if (inner.length === 0 && asName === primaryBindingPy && idxName === null && !ctx.traceHooks?.eachIterNext) {
+          // Original `pass` guard preserved for the legacy gensym-only path.
+          lines.push(`${indent}${INDENT_STEP}pass`);
+        }
         for (const sl of inner) lines.push(sl);
       } else if (child.type === 'branch') {
         // 2026-05-06 — body-statement `branch` lowers to a Python

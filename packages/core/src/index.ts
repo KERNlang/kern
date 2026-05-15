@@ -179,6 +179,8 @@ export {
 // TS → .kern importer
 export type { ImportResult } from './importer.js';
 export { escapeKernString, importTypeScript } from './importer.js';
+export type { LowerTarget } from './ir/semantics/fixture-lowering.js';
+export { lowerFixtureForTarget, serializeValue } from './ir/semantics/fixture-lowering.js';
 // IR runtime semantics (Phase 1, PR-1) — executable contracts + differential harness.
 // PR-2 lands the first contract (`each`); PR-3 wires the TS/Python emitter legs.
 export type {

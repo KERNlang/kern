@@ -28,6 +28,7 @@
 import vm from 'node:vm';
 import { emitNativeKernBodyTS } from '../../codegen/body-ts.js';
 import type { IRNode } from '../../types.js';
+import { lowerFixtureForTarget } from './fixture-lowering.js';
 import type { SemanticEnv } from './index.js';
 import type { CompletionRecord, Trace, TraceEvent } from './trace.js';
 
@@ -36,58 +37,12 @@ interface FixtureForLeg {
 }
 
 /**
- * Translate fixture-only primitives into KERN-native IR the production
- * codegen can lower. Pure: returns a new tree, never mutates `node` —
- * both `props` and `children` are cloned (shallow) so callers stay safe
- * from post-lowering mutations of the original fixture.
- *
- *   - `__trace {event:E}` → `do value="__kernTrace(<JSON(E)>)"`
- *   - `return {value:V}`  → `throw value="new __KernReturn(<JSON(V)>)"`
- *   - `throw  {errorKind:K}` → `throw value="new __KernThrow(<JSON(K)>)"`
- *
- * `break` and `continue` pass through (real KERN body-stmts).
- *
- * @throws when a fixture-only node carries malformed props (missing
- *         `event`, non-string `errorKind`). Fail loud, not silently.
+ * TS-target lowering — wraps the shared target-aware lowering.
+ * Kept exported under the original name so existing tests + the harness
+ * stay backward-compatible.
  */
 export function lowerFixtureToKernIR(node: IRNode): IRNode {
-  if (node.type === '__trace') {
-    const event = node.props?.event;
-    if (event === undefined) {
-      throw new Error('lowerFixtureToKernIR: __trace node requires a non-undefined `event` prop');
-    }
-    return {
-      type: 'do',
-      props: { value: `__kernTrace(${JSON.stringify(event)})` },
-    };
-  }
-  if (node.type === 'return') {
-    const value = node.props?.value;
-    return {
-      type: 'throw',
-      props: { value: `new __KernReturn(${JSON.stringify(value)})` },
-    };
-  }
-  if (node.type === 'throw') {
-    const errorKind = node.props?.errorKind;
-    if (typeof errorKind !== 'string') {
-      throw new Error('lowerFixtureToKernIR: throw node requires a string `errorKind` prop');
-    }
-    return {
-      type: 'throw',
-      props: { value: `new __KernThrow(${JSON.stringify(errorKind)})` },
-    };
-  }
-  // Preserve `children: []` (instead of stripping it) so emit paths that
-  // distinguish "no body" from "body present but empty" stay accurate.
-  if (Array.isArray(node.children)) {
-    return {
-      ...node,
-      props: node.props ? { ...node.props } : node.props,
-      children: node.children.map(lowerFixtureToKernIR),
-    };
-  }
-  return node;
+  return lowerFixtureForTarget(node, 'ts');
 }
 
 class KernReturnSentinel {

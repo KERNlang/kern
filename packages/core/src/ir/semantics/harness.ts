@@ -43,14 +43,22 @@ export interface DifferentialResult {
 
 export interface DifferentialOptions {
   /**
-   * Skip the Python leg. Useful during PR-3 emitter audit when the Python
-   * sidecar is not yet wired. Default false in CI, true for local TS-only runs.
+   * Skip the Python leg. Useful during PR-3a when the Python leg isn't
+   * provided. PR-3b ships the leg via the `pythonLeg` callback below.
    */
   skipPython?: boolean;
   /**
    * Skip the TS leg. Symmetric with skipPython; rarely used.
    */
   skipTs?: boolean;
+  /**
+   * PR-3b — Python leg runner injected from `@kernlang/fastapi` (the core
+   * package can't depend on fastapi without a circular import, so the
+   * Python leg lives in fastapi and is passed in here). When omitted AND
+   * `skipPython !== true`, the harness falls back to throwing "not wired",
+   * which the harness records as `leg-error`.
+   */
+  pythonLeg?: (fixture: NodeFixture, env: SemanticEnv) => Promise<Trace>;
 }
 
 /**
@@ -102,7 +110,8 @@ export async function runDifferential(
   let python: Trace | undefined;
   if (!opts.skipPython) {
     try {
-      python = await runPythonEmitter(fixture, makeEnv(fixture.env));
+      const pythonRunner = opts.pythonLeg ?? runPythonEmitter;
+      python = await pythonRunner(fixture, makeEnv(fixture.env));
     } catch (err) {
       return {
         fixture,
