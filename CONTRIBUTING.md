@@ -77,6 +77,18 @@ Boundary rules:
 
 Review rules live in `packages/review/src/rules/`. Each rule exports a function that receives an AST node and returns findings. See existing rules for the pattern. Add tests in `packages/review/tests/`.
 
+CI runs `pnpm check:rule-coverage`, which fails if a rule ID in the REGISTRY at `packages/review/src/rules/index.ts` has no quoted reference in `packages/review/tests/` or `packages/review-mcp/tests/`. Add a test that asserts your rule fires (any shape — unit test, corpus file, concept test) in the same PR. The legacy backlog in `scripts/rule-coverage-allowlist.json` may only shrink.
+
+### Finding-message voice
+
+Rule messages are what users read in their terminal / IDE / PR comments. Keep voice consistent:
+
+- **Code is the subject, not the developer.** `Mutates props during render`, not `You are mutating props`. The "did you mean 'X'?" suggestion pattern from TypeScript/rustc is fine — it's an established convention.
+- **Present tense.** `Catch block swallows exception`, not `…swallowed…` or `…was detected`.
+- **Verb-first headline, ≤ 90 chars.** Suggestion field ≤ 200 chars.
+- **No trailing period in headlines.**
+- **No emoji.** Plain Unicode glyphs (`✓ ✗ → ▲`) are acceptable in CLI scaffolding but not inside the message body — severity is communicated by the `severity:` field.
+
 ## Adding a compile target
 
 Transpilers live in their own package under `packages/`. Each exports a `transpile*` function that takes an IR tree and returns generated code. Register the target in `packages/core/src/targets.ts`.

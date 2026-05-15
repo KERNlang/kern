@@ -47,6 +47,9 @@ jobs:
       - name: Verify kern facades in sync
         run: pnpm --filter @kernlang/test kern:check
 
+      - name: Rule coverage gate
+        run: pnpm check:rule-coverage
+
       - name: Test
         run: pnpm test
 

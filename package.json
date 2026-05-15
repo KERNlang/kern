@@ -14,7 +14,8 @@
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "build": "tsc -b && pnpm --filter @kernlang/playground build",
-    "test": "pnpm -r --filter '!@kernlang/review-python' test && pnpm test:prepush",
+    "test": "pnpm -r --filter '!@kernlang/review-python' test && pnpm test:prepush && pnpm check:rule-coverage",
+    "check:rule-coverage": "node ./scripts/check-rule-coverage.mjs",
     "test:kern": "pnpm --filter @kernlang/test build && node packages/test/dist/cli.js examples/native-test --coverage --min-coverage 100 && node packages/test/dist/cli.js packages/core/native-test --coverage --min-coverage 100",
     "test:root": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config jest.config.js",
     "test:prepush": "node --test scripts/pre-push.test.mjs",
