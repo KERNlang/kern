@@ -9,15 +9,22 @@
  *      malformed `each` IR fails preconditions and surfaces as `leg-error`.
  */
 
-import { CONTRACT_REGISTRY, makeEnv, referenceRun, runDifferential, type Verdict } from '../src/index.js';
+import {
+  CONTRACT_REGISTRY,
+  makeEnv,
+  ReferenceRunnerError,
+  referenceRun,
+  runDifferential,
+  type Verdict,
+} from '../src/index.js';
 import {
   _resetEachContractForTest,
   detectEachShape,
+  type EachProps,
   eachContract,
   registerEachContract,
 } from '../src/ir/semantics/each.js';
 import { _resetPrimitivesForTest, registerPrimitives } from '../src/ir/semantics/primitives.js';
-import { ReferenceRunnerError } from '../src/ir/semantics/reference-runner.js';
 import type { IRNode } from '../src/types.js';
 
 beforeEach(() => {
@@ -35,11 +42,11 @@ afterEach(() => {
 });
 
 describe('each contract — positive fixtures (differential reference-only)', () => {
-  it('exposes a non-empty fixture set covering every iteration shape', () => {
-    expect(eachContract.fixtures.length).toBeGreaterThanOrEqual(15);
+  it('exposes a fixture set covering every iteration shape', () => {
+    expect(eachContract.fixtures.length).toBe(19);
     const shapesSeen = new Set<string>();
     for (const f of eachContract.fixtures) {
-      const props = (f.ir.props ?? {}) as Record<string, unknown>;
+      const props = (f.ir.props ?? {}) as EachProps;
       const shape = detectEachShape(props);
       if (shape) shapesSeen.add(shape);
     }
@@ -79,6 +86,22 @@ describe('each contract — shape detection', () => {
 
   it('returns null when index= combines with await=true', () => {
     expect(detectEachShape({ name: 'x', index: 'i', await: true, in: 'xs' })).toBeNull();
+  });
+
+  it('returns null when array mode combines with await=true (no defined shape in PR-2)', () => {
+    expect(detectEachShape({ name: 'x', await: true, in: 'xs' })).toBeNull();
+  });
+
+  it('returns null when entries=true combines with array mode', () => {
+    expect(detectEachShape({ name: 'x', entries: true, in: 'xs' })).toBeNull();
+  });
+
+  it('returns null when entries=true combines with pair mode', () => {
+    expect(detectEachShape({ pairKey: 'k', pairValue: 'v', entries: true, in: 'm' })).toBeNull();
+  });
+
+  it('returns null when await=true combines with entry-key mode', () => {
+    expect(detectEachShape({ entryKey: 'k', entries: true, await: true, in: 'o' })).toBeNull();
   });
 
   it('returns array-indexed for name + index', () => {
@@ -154,6 +177,26 @@ describe('each contract — runtime errors at effects time', () => {
       children: [{ type: 'break' }],
     };
     expect(() => referenceRun(ir, env)).toThrow(/pair-mode/);
+  });
+
+  it('throws when entry-key collection is a number (silent zero-iter trap)', () => {
+    const env = makeEnv({ bindings: new Map([['o', 42]] as [string, unknown][]) });
+    const ir: IRNode = {
+      type: 'each',
+      props: { entryKey: 'k', entries: true, in: 'o' },
+      children: [{ type: 'break' }],
+    };
+    expect(() => referenceRun(ir, env)).toThrow(/entry-key mode/);
+  });
+
+  it('throws when entry-value collection is an array (Map/Set/Array rejected)', () => {
+    const env = makeEnv({ bindings: new Map([['o', [1, 2]]] as [string, unknown][]) });
+    const ir: IRNode = {
+      type: 'each',
+      props: { entryValue: 'v', entries: true, in: 'o' },
+      children: [{ type: 'break' }],
+    };
+    expect(() => referenceRun(ir, env)).toThrow(/entry-value mode/);
   });
 });
 

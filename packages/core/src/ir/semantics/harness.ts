@@ -62,11 +62,13 @@ export interface DifferentialOptions {
  *   4. Any leg throws → `leg-error` with the offending leg recorded.
  */
 export function runDifferential(fixture: NodeFixture, opts: DifferentialOptions = {}): DifferentialResult {
-  const env: SemanticEnv = makeEnv(fixture.env);
-
+  // Each leg gets a FRESH env. Sharing a single env across legs would let
+  // reference-side mutations bleed into the TS/Python legs and produce false
+  // divergences (or, worse, false passes when all three legs read the same
+  // polluted state). makeEnv() already clones fixture.env.bindings.
   let reference: Trace;
   try {
-    reference = referenceRun(fixture.ir, env);
+    reference = referenceRun(fixture.ir, makeEnv(fixture.env));
   } catch (err) {
     return {
       fixture,
@@ -82,7 +84,7 @@ export function runDifferential(fixture: NodeFixture, opts: DifferentialOptions 
   let ts: Trace | undefined;
   if (!opts.skipTs) {
     try {
-      ts = runTsEmitter(fixture, env);
+      ts = runTsEmitter(fixture, makeEnv(fixture.env));
     } catch (err) {
       return {
         fixture,
@@ -96,7 +98,7 @@ export function runDifferential(fixture: NodeFixture, opts: DifferentialOptions 
   let python: Trace | undefined;
   if (!opts.skipPython) {
     try {
-      python = runPythonEmitter(fixture, env);
+      python = runPythonEmitter(fixture, makeEnv(fixture.env));
     } catch (err) {
       return {
         fixture,

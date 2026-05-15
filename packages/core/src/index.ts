@@ -195,10 +195,16 @@ export type {
 } from './ir/semantics/index.js';
 export {
   CONTRACT_REGISTRY,
+  completionsEqual,
+  deepEqual,
   emptyTrace,
+  eventsEqual,
   makeEnv,
+  ReferenceRunnerError,
   referenceRun,
+  referenceRunSequence,
   registerContract,
+  runAllContracts,
   runDifferential,
   tracesEqual,
 } from './ir/semantics/index.js';

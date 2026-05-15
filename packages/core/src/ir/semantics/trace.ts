@@ -65,15 +65,83 @@ export function tracesEqual(a: Trace, b: Trace): boolean {
   return completionsEqual(a.completion, b.completion);
 }
 
-function eventsEqual(a: TraceEvent, b: TraceEvent): boolean {
-  if (a.op !== b.op) return false;
-  return JSON.stringify(a) === JSON.stringify(b);
+/**
+ * Recursive structural equality for trace payloads. Handles the cross-target
+ * surface honestly:
+ *
+ *   - `Object.is` for primitive identity so `NaN === NaN` and `+0 !== -0`.
+ *   - `undefined` is a real value, not silently dropped (vs `JSON.stringify`).
+ *   - `RegExp` compares by source + flags.
+ *   - `Map` and `Set` get true structural comparison (not `{}`).
+ *   - Arrays and plain objects recurse.
+ *   - Circular references throw — traces should never contain cycles.
+ *
+ * Exported so contracts that need bespoke comparison can reuse it.
+ */
+export function deepEqual(a: unknown, b: unknown, seen: WeakSet<object> = new WeakSet()): boolean {
+  // Object.is for primitives so `NaN === NaN` is true and `+0 !== -0`. We do NOT
+  // short-circuit on `Object.is(a, b)` for objects — that would skip the circular
+  // detection below when callers pass the same reference twice.
+  if (a === null || b === null) return a === b;
+  if (typeof a !== typeof b) return false;
+  if (typeof a !== 'object') return Object.is(a, b);
+  if (seen.has(a as object)) {
+    throw new Error('deepEqual: circular reference in trace value');
+  }
+  seen.add(a as object);
+  if (a === b) {
+    // Same object reference, no cycles below this point — equal. But we already
+    // marked `a` in `seen`, so a later visit through a cycle still throws.
+    return true;
+  }
+
+  if (a instanceof RegExp || b instanceof RegExp) {
+    return a instanceof RegExp && b instanceof RegExp && a.source === b.source && a.flags === b.flags;
+  }
+  if (a instanceof Map || b instanceof Map) {
+    if (!(a instanceof Map) || !(b instanceof Map)) return false;
+    if (a.size !== b.size) return false;
+    for (const [k, v] of a) {
+      if (!b.has(k)) return false;
+      if (!deepEqual(v, b.get(k), seen)) return false;
+    }
+    return true;
+  }
+  if (a instanceof Set || b instanceof Set) {
+    if (!(a instanceof Set) || !(b instanceof Set)) return false;
+    if (a.size !== b.size) return false;
+    for (const v of a) if (!b.has(v)) return false;
+    return true;
+  }
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b)) return false;
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i += 1) {
+      if (!deepEqual(a[i], b[i], seen)) return false;
+    }
+    return true;
+  }
+  const ka = Object.keys(a as object);
+  const kb = Object.keys(b as object);
+  if (ka.length !== kb.length) return false;
+  for (const k of ka) {
+    if (!Object.hasOwn(b as object, k)) return false;
+    const va = (a as Record<string, unknown>)[k];
+    const vb = (b as Record<string, unknown>)[k];
+    if (!deepEqual(va, vb, seen)) return false;
+  }
+  return true;
 }
 
-function completionsEqual(a: CompletionRecord, b: CompletionRecord): boolean {
+export function eventsEqual(a: TraceEvent, b: TraceEvent): boolean {
+  if (a.op !== b.op) return false;
+  return deepEqual(a, b);
+}
+
+export function completionsEqual(a: CompletionRecord, b: CompletionRecord): boolean {
   if (a.kind !== b.kind) return false;
   if (a.label !== b.label) return false;
-  if (JSON.stringify(a.value) !== JSON.stringify(b.value)) return false;
+  if (!deepEqual(a.value, b.value)) return false;
   if (!a.error && !b.error) return true;
   if (!a.error || !b.error) return false;
   if (a.error.kind !== b.error.kind) return false;

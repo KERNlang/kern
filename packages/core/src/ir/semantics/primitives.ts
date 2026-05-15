@@ -16,8 +16,7 @@
  */
 
 import { type NodeContract, type NodeFixture, registerContract } from './index.js';
-import type { CanonicalError, Trace, TraceEvent } from './trace.js';
-import { emptyTrace } from './trace.js';
+import type { CanonicalError, TraceEvent } from './trace.js';
 
 const NO_FIXTURES: readonly NodeFixture[] = [];
 
@@ -109,6 +108,3 @@ export function registerPrimitives(): void {
 export function _resetPrimitivesForTest(): void {
   registered = false;
 }
-
-/** Helper used by `each` reference runner unused export silencer. */
-export const _emptyTrace: () => Trace = emptyTrace;

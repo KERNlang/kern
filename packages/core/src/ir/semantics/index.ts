@@ -31,10 +31,17 @@ export interface SemanticEnv {
   now: number;
 }
 
-/** Build a fresh environment with deterministic defaults. */
+/**
+ * Build a fresh environment with deterministic defaults.
+ *
+ * **Always clones `overrides.bindings`** — passing the same fixture env to
+ * multiple legs (or multiple runs of the same fixture) must not allow
+ * mutation in one to bleed into another. Callers that want shared bindings
+ * must opt in by writing through a shared reference explicitly.
+ */
 export function makeEnv(overrides: Partial<SemanticEnv> = {}): SemanticEnv {
   return {
-    bindings: overrides.bindings ?? new Map(),
+    bindings: overrides.bindings ? new Map(overrides.bindings) : new Map(),
     seed: overrides.seed ?? 0,
     now: overrides.now ?? 0,
   };
@@ -96,8 +103,8 @@ export function registerContract(contract: NodeContract): void {
   CONTRACT_REGISTRY.set(contract.nodeType, contract);
 }
 
-export { type DifferentialResult, runDifferential, type Verdict } from './harness.js';
-export { referenceRun } from './reference-runner.js';
+export { type DifferentialResult, runAllContracts, runDifferential, type Verdict } from './harness.js';
+export { ReferenceRunnerError, referenceRun, referenceRunSequence } from './reference-runner.js';
 export type {
   CanonicalError,
   CompletionKind,
@@ -105,4 +112,4 @@ export type {
   Trace,
   TraceEvent,
 } from './trace.js';
-export { emptyTrace, tracesEqual } from './trace.js';
+export { completionsEqual, deepEqual, emptyTrace, eventsEqual, tracesEqual } from './trace.js';

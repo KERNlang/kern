@@ -32,7 +32,7 @@ import { emptyTrace, type Trace } from './trace.js';
 
 export type EachShape = 'array' | 'array-indexed' | 'pair-sync' | 'pair-async' | 'entry-key' | 'entry-value';
 
-interface EachProps {
+export interface EachProps {
   name?: string;
   index?: string;
   pairKey?: string;
@@ -65,18 +65,28 @@ export function detectEachShape(p: EachProps): EachShape | null {
   const isAwait = p.await === true;
   const isEntries = p.entries === true;
 
-  const arrayMode = hasName && !hasPairKey && !hasPairValue && !hasEntryKey && !hasEntryValue;
-  const pairMode = hasPairKey && hasPairValue && !hasName && !hasEntryKey && !hasEntryValue && !hasIndex;
+  // Array and pair modes must be mutually exclusive with the entry surface —
+  // `entries=true` is an entry-mode marker only.
+  const arrayMode = hasName && !hasPairKey && !hasPairValue && !hasEntryKey && !hasEntryValue && !isEntries;
+  const pairMode = hasPairKey && hasPairValue && !hasName && !hasEntryKey && !hasEntryValue && !hasIndex && !isEntries;
   const entryKeyMode = hasEntryKey && !hasName && !hasPairKey && !hasPairValue && !hasEntryValue && !hasIndex;
   const entryValueMode = hasEntryValue && !hasName && !hasPairKey && !hasPairValue && !hasEntryKey && !hasIndex;
 
   if (arrayMode) {
-    if (isAwait && hasIndex) return null;
+    // `await=true` over an array has no defined shape in PR-2. The emitter
+    // could plausibly select `for await (const x of arr)` — but the
+    // observable trace for an array of resolved values is identical to the
+    // sync form, so allowing it would silently strip the await flag from
+    // codegen. Reject explicitly; PR-3's audit decides whether async-array
+    // is its own shape.
+    if (isAwait) return null;
     return hasIndex ? 'array-indexed' : 'array';
   }
   if (pairMode) return isAwait ? 'pair-async' : 'pair-sync';
-  if (entryKeyMode && isEntries) return 'entry-key';
-  if (entryValueMode && isEntries) return 'entry-value';
+  // Entry modes are sync-only — `await=true` over object keys/values is not
+  // a supported KERN shape.
+  if (entryKeyMode && isEntries && !isAwait) return 'entry-key';
+  if (entryValueMode && isEntries && !isAwait) return 'entry-value';
   return null;
 }
 
@@ -93,6 +103,24 @@ interface IterationStep {
   bindings: Array<[string, unknown]>;
   /** The "primary" binding surfaced in the `iter-next` trace event. */
   primary: [string, unknown];
+}
+
+/**
+ * Guard entry-mode collections against silent zero-iteration bugs. `Object.keys(42)`
+ * returns `[]` without throwing — indistinguishable from a real empty object — so
+ * a buggy IR feeding a non-object into entry mode would pass the reference runner
+ * with no diagnostic. Reject anything that isn't a plain object.
+ */
+function assertPlainObject(collection: unknown, shape: string): void {
+  if (
+    typeof collection !== 'object' ||
+    collection === null ||
+    Array.isArray(collection) ||
+    collection instanceof Map ||
+    collection instanceof Set
+  ) {
+    throw new Error(`each ${shape} mode: \`in=\` must resolve to a plain object`);
+  }
 }
 
 /** Yields one IterationStep per loop iteration, in observable order. */
@@ -158,6 +186,7 @@ function* iterateCollection(shape: EachShape, collection: unknown, p: EachProps)
     }
     case 'entry-key': {
       const name = p.entryKey as string;
+      assertPlainObject(collection, 'entry-key');
       const obj = collection as Record<string, unknown>;
       for (const k of Object.keys(obj)) {
         yield { bindings: [[name, k]], primary: [name, k] };
@@ -166,6 +195,7 @@ function* iterateCollection(shape: EachShape, collection: unknown, p: EachProps)
     }
     case 'entry-value': {
       const name = p.entryValue as string;
+      assertPlainObject(collection, 'entry-value');
       const obj = collection as Record<string, unknown>;
       for (const v of Object.values(obj)) {
         yield { bindings: [[name, v]], primary: [name, v] };
