@@ -1374,6 +1374,140 @@ describe('native kern test runner', () => {
     expect(summary.passed).toBe(1);
   });
 
+  test('runtime dependency ordering ignores identifiers inside string literals', () => {
+    writeFileSync(
+      join(tmpDir, 'runtime.kern'),
+      [
+        'const name=failed value={{makeFailedResult()}}',
+        'fn name=makeFailedResult',
+        '  handler <<<',
+        "    return { status: 'failed' };",
+        '  >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'runtime.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Runtime assertions" target="./runtime.kern"',
+        '  it name="does not bind string literal text"',
+        '    expect fn=makeFailedResult equals={{ { status: "failed" } }}',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(1);
+  });
+
+  test('runtime dependency ordering ignores identifiers inside comments and regex literals', () => {
+    writeFileSync(
+      join(tmpDir, 'runtime.kern'),
+      [
+        'const name=failed value={{makeMatcher()}}',
+        'fn name=makeMatcher',
+        '  handler <<<',
+        '    // failed is comment text, not a binding dependency',
+        '    const matcher = /* failed is also only comment text */ /failed/;',
+        '    return matcher.test("failed");',
+        '  >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'runtime.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Runtime assertions" target="./runtime.kern"',
+        '  it name="does not bind comment or regex literal text"',
+        '    expect fn=makeMatcher equals=true',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(1);
+  });
+
+  test('runtime dependency ordering does not treat comment markers inside strings as comments', () => {
+    writeFileSync(
+      join(tmpDir, 'runtime.kern'),
+      [
+        'const name=failed value={{makeMatcher()}}',
+        'fn name=makeMatcher',
+        '  handler <<<',
+        '    const url = "http://failed.example"; /failed/.test(url);',
+        '    return true;',
+        '  >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'runtime.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Runtime assertions" target="./runtime.kern"',
+        '  it name="keeps regex detection after URL strings"',
+        '    expect fn=makeMatcher equals=true',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(1);
+  });
+
+  test('runtime dependency ordering keeps division dependencies after postfix operators', () => {
+    writeFileSync(
+      join(tmpDir, 'runtime.kern'),
+      [
+        'const name=total value=12',
+        'const name=count value=3',
+        'fn name=ratio',
+        '  handler <<<',
+        '    let i = 0;',
+        '    return i++ / total / count;',
+        '  >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'runtime.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Runtime assertions" target="./runtime.kern"',
+        '  it name="does not treat postfix division as regex"',
+        '    expect fn=ratio equals=0',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(1);
+  });
+
+  test('runtime dependency ordering preserves template expression identifiers', () => {
+    writeFileSync(
+      join(tmpDir, 'runtime.kern'),
+      ['const name=answer value=42', 'const name=message value={{`answer ${answer}`}}'].join('\n'),
+    );
+    const testFile = join(tmpDir, 'runtime.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Runtime assertions" target="./runtime.kern"',
+        '  it name="materializes template expression dependency"',
+        '    expect expr={{message}} equals="answer 42"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(1);
+  });
+
   test('rejects unsafe runtime expr assertions before execution', () => {
     const testFile = join(tmpDir, 'runtime.test.kern');
     writeFileSync(
