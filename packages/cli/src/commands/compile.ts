@@ -1,4 +1,4 @@
-import type { IRNode, KernTarget, ResolvedKernConfig } from '@kernlang/core';
+import type { IRNode, KernTarget, ModuleExports, ResolvedKernConfig } from '@kernlang/core';
 import {
   ALL_TARGETS,
   collectCapabilityIslands,
@@ -21,8 +21,8 @@ import {
 import { loadEvolvedNodes } from '@kernlang/evolve';
 import { generateReactNode, isReactNode } from '@kernlang/react';
 import type { ChildProcess } from 'child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'fs';
-import { basename, dirname, relative, resolve } from 'path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'fs';
+import { basename, dirname, isAbsolute, relative, resolve, sep } from 'path';
 import { buildCrossModuleRegistry, makeImportResolverForFile } from '../lib/cross-module-registry.js';
 import {
   type BarrelEntry,
@@ -36,6 +36,7 @@ import {
   hasFlag,
   loadConfig,
   loadTemplates,
+  outputBaseNameForTarget,
   parseFlag,
   parseWithJSONDiagnostics,
   runShadowAnalysis,
@@ -62,6 +63,26 @@ interface SidecarInstallEntry {
   ast: IRNode;
   outDir: string;
 }
+
+interface FastApiModulePlan {
+  entryModulesByOutDir: Map<string, string[]>;
+  entryByFile: Map<string, FastApiModulePlanEntry>;
+  moduleByFile: Map<string, string>;
+  moduleNameByFile: Record<string, string>;
+  modulePathByFile: Record<string, string>;
+  packageInitFiles: string[];
+}
+
+interface FastApiModulePlanEntry {
+  sourceFile: string;
+  outDir: string;
+  outputRelDir: string;
+  moduleName: string;
+  modulePath: string;
+  outputFile: string;
+}
+
+const GENERATED_FASTAPI_PACKAGE_INIT = '# Generated Python package marker.\n';
 
 function parseStrictWithOptions(source: string, parseOptions?: import('@kernlang/core').ParseOptions): IRNode {
   if (!parseOptions) return parseStrict(source);
@@ -236,6 +257,157 @@ function targetSidecarOutDirForFile(file: string, outDir: string, cfg: ResolvedK
   return resolve(baseDir, cfg.output.outDir);
 }
 
+function fastApiOutputRoot(outDir: string, cfg: ResolvedKernConfig): string {
+  return resolve(outDir, cfg.output.outDir);
+}
+
+function fastApiOutputRelDir(file: string, inputBase?: string): string {
+  if (!inputBase) return '';
+  const relDir = relative(resolve(inputBase), dirname(file));
+  if (!relDir || relDir === '.') return '';
+  const segments = relDir.split(sep).filter((segment) => segment.length > 0 && segment !== '.');
+  if (segments.some((segment) => segment === '..')) return '';
+  return segments.map((segment) => outputBaseNameForTarget(segment, 'fastapi')).join('/');
+}
+
+function fastApiTargetOutDirForFile(file: string, outDir: string, cfg: ResolvedKernConfig, inputBase?: string): string {
+  const relDir = fastApiOutputRelDir(file, inputBase);
+  const root = fastApiOutputRoot(outDir, cfg);
+  return relDir ? resolve(root, relDir) : root;
+}
+
+function fastApiModulePath(outputRelDir: string, moduleName: string): string {
+  const packagePath = outputRelDir ? outputRelDir.split('/').filter(Boolean) : [];
+  return [...packagePath, moduleName].join('.');
+}
+
+function reserveFastApiPackageSegments(
+  entries: readonly { outputRelDir: string }[],
+  outDir: string,
+  cfg: ResolvedKernConfig,
+): Map<string, Set<string>> {
+  const reservedByOutDir = new Map<string, Set<string>>();
+  const root = fastApiOutputRoot(outDir, cfg);
+  for (const entry of entries) {
+    const parts = entry.outputRelDir.split('/').filter(Boolean);
+    for (let i = 0; i < parts.length; i++) {
+      const parentRelDir = parts.slice(0, i);
+      const packageName = parts[i];
+      const parentOutDir = parentRelDir.length > 0 ? resolve(root, ...parentRelDir) : root;
+      const reserved = reservedByOutDir.get(parentOutDir);
+      if (reserved) reserved.add(packageName);
+      else reservedByOutDir.set(parentOutDir, new Set([packageName]));
+    }
+  }
+  return reservedByOutDir;
+}
+
+function fastApiPackageInitFiles(
+  outDir: string,
+  cfg: ResolvedKernConfig,
+  entries: readonly FastApiModulePlanEntry[],
+): string[] {
+  const root = fastApiOutputRoot(outDir, cfg);
+  const initFiles = new Set<string>([resolve(root, '__init__.py')]);
+  for (const entry of entries) {
+    const parts = entry.outputRelDir.split('/').filter(Boolean);
+    for (let i = 1; i <= parts.length; i++) {
+      initFiles.add(resolve(root, ...parts.slice(0, i), '__init__.py'));
+    }
+  }
+  return [...initFiles].sort();
+}
+
+function buildFastApiModulePlan(
+  files: readonly string[],
+  outDir: string,
+  cfg: ResolvedKernConfig,
+  inputBase?: string,
+): FastApiModulePlan | null {
+  if (cfg.target !== 'fastapi') return null;
+
+  const entries = files
+    .map((file) => {
+      const ext = file.endsWith('.kern') ? '.kern' : '.ir';
+      const outputRelDir = fastApiOutputRelDir(file, inputBase);
+      const outDirKey = fastApiTargetOutDirForFile(file, outDir, cfg, inputBase);
+      return {
+        file: resolve(file),
+        outDirKey,
+        outputRelDir,
+        baseName: outputBaseNameForTarget(basename(file, ext), 'fastapi'),
+        sortKey: `${outDirKey}\0${relative(inputBase ? resolve(inputBase) : process.cwd(), resolve(file))}`,
+      };
+    })
+    .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0));
+
+  const usedByOutDir = new Map<string, Set<string>>();
+  const packageReservedByOutDir = reserveFastApiPackageSegments(entries, outDir, cfg);
+  const reservedByOutDir = new Map<string, Set<string>>();
+  const entryModulesByOutDir = new Map<string, string[]>();
+  const entryByFile = new Map<string, FastApiModulePlanEntry>();
+  const moduleByFile = new Map<string, string>();
+  const moduleNameByFile: Record<string, string> = {};
+  const modulePathByFile: Record<string, string> = {};
+  const planEntries: FastApiModulePlanEntry[] = [];
+
+  for (const entry of entries) {
+    const reserved = reservedByOutDir.get(entry.outDirKey);
+    if (reserved) reserved.add(entry.baseName);
+    else reservedByOutDir.set(entry.outDirKey, new Set([entry.baseName]));
+  }
+
+  for (const entry of entries) {
+    let used = usedByOutDir.get(entry.outDirKey);
+    if (!used) {
+      used = new Set<string>();
+      usedByOutDir.set(entry.outDirKey, used);
+    }
+    const reserved = reservedByOutDir.get(entry.outDirKey) ?? new Set<string>();
+    const packageReserved = packageReservedByOutDir.get(entry.outDirKey) ?? new Set<string>();
+
+    let moduleName = entry.baseName;
+    for (
+      let suffix = 2;
+      used.has(moduleName) ||
+      packageReserved.has(moduleName) ||
+      (moduleName !== entry.baseName && reserved.has(moduleName));
+      suffix++
+    ) {
+      moduleName = `${entry.baseName}_${suffix}`;
+    }
+
+    used.add(moduleName);
+    const modulePath = fastApiModulePath(entry.outputRelDir, moduleName);
+    const planEntry: FastApiModulePlanEntry = {
+      sourceFile: entry.file,
+      outDir: entry.outDirKey,
+      outputRelDir: entry.outputRelDir,
+      moduleName,
+      modulePath,
+      outputFile: resolve(entry.outDirKey, `${moduleName}.py`),
+    };
+    entryByFile.set(entry.file, planEntry);
+    moduleByFile.set(entry.file, moduleName);
+    moduleNameByFile[entry.file] = moduleName;
+    modulePathByFile[entry.file] = modulePath;
+    planEntries.push(planEntry);
+
+    const entryModules = entryModulesByOutDir.get(entry.outDirKey);
+    if (entryModules) entryModules.push(moduleName);
+    else entryModulesByOutDir.set(entry.outDirKey, [moduleName]);
+  }
+
+  return {
+    entryModulesByOutDir,
+    entryByFile,
+    moduleByFile,
+    moduleNameByFile,
+    modulePathByFile,
+    packageInitFiles: fastApiPackageInitFiles(outDir, cfg, planEntries),
+  };
+}
+
 function writeAggregatedSidecarInstallFiles(entries: SidecarInstallEntry[]): void {
   const byOutDir = new Map<string, IRNode[]>();
   for (const entry of entries) {
@@ -252,6 +424,63 @@ function writeAggregatedSidecarInstallFiles(entries: SidecarInstallEntry[]): voi
 function clearSidecarInstallFiles(outDir: string): void {
   mkdirSync(outDir, { recursive: true });
   writeSidecarInstallFilesForAsts([], outDir);
+}
+
+function writeGeneratedFastApiInitFile(initFile: string): void {
+  mkdirSync(dirname(initFile), { recursive: true });
+  if (existsSync(initFile) && readFileSync(initFile, 'utf-8') !== GENERATED_FASTAPI_PACKAGE_INIT) return;
+  writeFileSync(initFile, GENERATED_FASTAPI_PACKAGE_INIT);
+}
+
+function removeGeneratedFastApiInitFile(initFile: string): boolean {
+  if (!existsSync(initFile)) return false;
+  if (readFileSync(initFile, 'utf-8') !== GENERATED_FASTAPI_PACKAGE_INIT) return false;
+  unlinkSync(initFile);
+  return true;
+}
+
+function removeEmptyDirsUpTo(startDir: string, stopDir: string): void {
+  let current = resolve(startDir);
+  const stop = resolve(stopDir);
+  for (let steps = 0; steps < 100; steps++) {
+    if (current === stop) return;
+    const rel = relative(stop, current);
+    if (!rel || rel.startsWith('..') || isAbsolute(rel)) return;
+    try {
+      rmdirSync(current);
+    } catch {
+      return;
+    }
+    const parent = dirname(current);
+    if (parent === current) return;
+    current = parent;
+  }
+}
+
+function toManifestPath(path: string): string {
+  return path.split(sep).join('/');
+}
+
+function writeFastApiModuleManifest(plan: FastApiModulePlan | null, outDir: string, cfg: ResolvedKernConfig): void {
+  if (!plan) return;
+  const root = fastApiOutputRoot(outDir, cfg);
+  mkdirSync(root, { recursive: true });
+  for (const initFile of plan.packageInitFiles) {
+    writeGeneratedFastApiInitFile(initFile);
+  }
+  const entries = [...plan.entryByFile.values()]
+    .sort((a, b) => (a.sourceFile < b.sourceFile ? -1 : a.sourceFile > b.sourceFile ? 1 : 0))
+    .map((entry) => ({
+      sourceFile: toManifestPath(relative(process.cwd(), entry.sourceFile)),
+      outputFile: toManifestPath(relative(root, entry.outputFile)),
+      package: entry.outputRelDir,
+      moduleName: entry.moduleName,
+      modulePath: entry.modulePath,
+    }));
+  writeFileSync(
+    resolve(root, 'kern-python-modules.json'),
+    `${JSON.stringify({ target: 'fastapi', entries }, null, 2)}\n`,
+  );
 }
 
 // ── Main compile command ────────────────────────────────────────────────
@@ -344,7 +573,10 @@ export async function runCompile(args: string[]): Promise<void> {
   // `ImportResolver` that translates `use path="…"` strings into the
   // imported module's ModuleExports, enabling `?`/`!` propagation across
   // KERN-to-KERN imports.
-  const crossModuleRegistry = buildCrossModuleRegistry(kernFiles);
+  let crossModuleRegistry = buildCrossModuleRegistry(kernFiles);
+  let fastApiModulePlan = targetArg
+    ? buildFastApiModulePlan(kernFiles, outDir, cfg as ResolvedKernConfig, isDir ? inputPath : undefined)
+    : null;
 
   // ── Initial compilation ────────────────────────────────────────────
   const jsonDiagnostics: FileDiagnosticsJSON[] = [];
@@ -404,7 +636,15 @@ export async function runCompile(args: string[]): Promise<void> {
         if (skipTranspile) continue;
 
         try {
+          const plannedEntry = fastApiModulePlan?.entryByFile.get(resolve(file));
           transpileAndWrite(file, cfg as ResolvedKernConfig, args, outDir, isDir ? inputPath : undefined, {
+            fastApiEntryModules: plannedEntry
+              ? fastApiModulePlan?.entryModulesByOutDir.get(plannedEntry.outDir)
+              : undefined,
+            fastApiModuleNameByFile: fastApiModulePlan?.moduleNameByFile,
+            fastApiModulePathByFile: fastApiModulePlan?.modulePathByFile,
+            outputBaseName: plannedEntry?.moduleName,
+            outputRelDir: plannedEntry?.outputRelDir,
             resolveImport: makeImportResolverForFile(resolve(file), crossModuleRegistry),
             writeSidecarInstallFiles: false,
           });
@@ -483,15 +723,20 @@ export async function runCompile(args: string[]): Promise<void> {
   const watchedSidecarEntries = new Map<string, SidecarInstallEntry>(
     sidecarEntries.map((entry) => [resolve(entry.file), entry]),
   );
+  writeFastApiModuleManifest(fastApiModulePlan, outDir, cfg as ResolvedKernConfig);
   writeAggregatedSidecarInstallFiles(sidecarEntries);
 
-  function sidecarEntryForFile(file: string, ast: IRNode): SidecarInstallEntry {
+  function sidecarEntryForFile(file: string, ast: IRNode, plan = fastApiModulePlan): SidecarInstallEntry {
     return {
       file,
       ast,
-      outDir: targetArg
-        ? targetSidecarOutDirForFile(file, outDir, cfg as ResolvedKernConfig, isDir ? inputPath : undefined)
-        : defaultSidecarOutDirForFile(file, outDir, isDir ? inputPath : undefined),
+      outDir:
+        targetArg === 'fastapi'
+          ? (plan?.entryByFile.get(resolve(file))?.outDir ??
+            fastApiTargetOutDirForFile(file, outDir, cfg as ResolvedKernConfig, isDir ? inputPath : undefined))
+          : targetArg
+            ? targetSidecarOutDirForFile(file, outDir, cfg as ResolvedKernConfig, isDir ? inputPath : undefined)
+            : defaultSidecarOutDirForFile(file, outDir, isDir ? inputPath : undefined),
     };
   }
 
@@ -607,22 +852,100 @@ export async function runCompile(args: string[]): Promise<void> {
     awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 50 },
   });
 
+  function removePlannedFastApiOutput(entry: FastApiModulePlanEntry): void {
+    if (existsSync(entry.outputFile)) unlinkSync(entry.outputFile);
+  }
+
+  function removeStaleFastApiInitFiles(previous: FastApiModulePlan, next: FastApiModulePlan | null): void {
+    const nextInitFiles = new Set(next?.packageInitFiles ?? []);
+    const root = fastApiOutputRoot(outDir, cfg as ResolvedKernConfig);
+    for (const initFile of previous.packageInitFiles) {
+      if (nextInitFiles.has(initFile)) continue;
+      if (removeGeneratedFastApiInitFile(initFile)) {
+        removeEmptyDirsUpTo(dirname(initFile), root);
+      }
+    }
+  }
+
+  function removeStaleFastApiOutputs(previous: FastApiModulePlan | null, next: FastApiModulePlan | null): void {
+    if (!previous) return;
+    const nextEntries = next ? [...next.entryByFile.values()] : [];
+    const nextOutputFiles = new Set(nextEntries.map((entry) => entry.outputFile));
+    for (const previousEntry of previous.entryByFile.values()) {
+      if (nextOutputFiles.has(previousEntry.outputFile)) continue;
+      removePlannedFastApiOutput(previousEntry);
+    }
+    removeStaleFastApiInitFiles(previous, next);
+  }
+
+  function transpileTargetWithPlan(
+    filePath: string,
+    plan: FastApiModulePlan | null,
+    registry = crossModuleRegistry,
+  ): void {
+    const plannedEntry = plan?.entryByFile.get(resolve(filePath));
+    transpileAndWrite(filePath, cfg as ResolvedKernConfig, args, outDir, isDir ? inputPath : undefined, {
+      fastApiEntryModules: plannedEntry ? plan?.entryModulesByOutDir.get(plannedEntry.outDir) : undefined,
+      fastApiModuleNameByFile: plan?.moduleNameByFile,
+      fastApiModulePathByFile: plan?.modulePathByFile,
+      outputBaseName: plannedEntry?.moduleName,
+      outputRelDir: plannedEntry?.outputRelDir,
+      resolveImport: makeImportResolverForFile(resolve(filePath), registry),
+      writeSidecarInstallFiles: false,
+    });
+  }
+
+  function sidecarEntryWithRegistry(
+    filePath: string,
+    registry: Map<string, ModuleExports>,
+    plan = fastApiModulePlan,
+  ): SidecarInstallEntry {
+    const source = readFileSync(filePath, 'utf-8');
+    const parseOptions = { resolveImport: makeImportResolverForFile(resolve(filePath), registry) };
+    const { root } = parseWithDiagnostics(source, undefined, parseOptions);
+    return sidecarEntryForFile(filePath, root, plan);
+  }
+
+  function rebuildFastApiDirectoryOutputs(currentFiles: string[]): void {
+    const nextRegistry = buildCrossModuleRegistry(currentFiles);
+    const nextPlan = buildFastApiModulePlan(currentFiles, outDir, cfg as ResolvedKernConfig, inputPath);
+    const nextSidecarEntries = new Map<string, SidecarInstallEntry>();
+    for (const currentFile of currentFiles) {
+      transpileTargetWithPlan(currentFile, nextPlan, nextRegistry);
+      nextSidecarEntries.set(resolve(currentFile), sidecarEntryWithRegistry(currentFile, nextRegistry, nextPlan));
+    }
+    removeStaleFastApiOutputs(fastApiModulePlan, nextPlan);
+    writeFastApiModuleManifest(nextPlan, outDir, cfg as ResolvedKernConfig);
+    crossModuleRegistry = nextRegistry;
+    fastApiModulePlan = nextPlan;
+    watchedSidecarEntries.clear();
+    for (const [fileKey, entry] of nextSidecarEntries) {
+      watchedSidecarEntries.set(fileKey, entry);
+    }
+    writeWatchedSidecarInstallFiles();
+  }
+
   const handleChange = async (filePath: string) => {
     const rel = relative(process.cwd(), filePath);
     const start = performance.now();
     try {
+      let sidecarsRefreshed = false;
       if (targetArg) {
-        transpileAndWrite(filePath, cfg as ResolvedKernConfig, args, outDir, isDir ? inputPath : undefined, {
-          resolveImport: makeImportResolverForFile(resolve(filePath), crossModuleRegistry),
-          writeSidecarInstallFiles: false,
-        });
+        if (targetArg === 'fastapi' && isDir) {
+          rebuildFastApiDirectoryOutputs(findKernFiles(inputPath));
+          sidecarsRefreshed = true;
+        } else {
+          transpileTargetWithPlan(filePath, fastApiModulePlan);
+        }
       } else {
         await compileDefaultSingle(filePath, outDir, strictParse, false, [], shadow, isDir ? inputPath : undefined, {
           resolveImport: makeImportResolverForFile(resolve(filePath), crossModuleRegistry),
         });
       }
-      refreshSidecarEntry(filePath);
-      writeWatchedSidecarInstallFiles();
+      if (!sidecarsRefreshed) {
+        refreshSidecarEntry(filePath);
+        writeWatchedSidecarInstallFiles();
+      }
 
       // Regenerate barrel/facades from current output state
       if (barrel || facades) {
@@ -646,32 +969,47 @@ export async function runCompile(args: string[]): Promise<void> {
   watcher.on('change', handleChange);
   watcher.on('add', handleChange);
 
-  watcher.on('unlink', (filePath: string) => {
+  watcher.on('unlink', async (filePath: string) => {
     const rel = relative(process.cwd(), filePath);
     const name = basename(filePath, '.kern');
-
-    // Remove generated output file(s)
-    const outExt = targetArg ? getOutputExtension(targetArg) : '.ts';
-    for (const ext of [outExt, outExt === '.ts' ? '.tsx' : '.ts']) {
-      const outFile = resolve(outDir, `${name}${ext}`);
-      if (existsSync(outFile)) {
-        unlinkSync(outFile);
-        console.log(`  ${rel} → deleted ${basename(outFile)}`);
+    try {
+      if (targetArg === 'fastapi' && isDir) {
+        rebuildFastApiDirectoryOutputs(findKernFiles(inputPath));
+      } else {
+        // Remove generated output file(s)
+        const outExt = targetArg ? getOutputExtension(targetArg) : '.ts';
+        const deletedName =
+          targetArg === 'fastapi'
+            ? (fastApiModulePlan?.moduleByFile.get(resolve(filePath)) ?? outputBaseNameForTarget(name, 'fastapi'))
+            : name;
+        const deletedOutDir =
+          targetArg === 'fastapi'
+            ? (fastApiModulePlan?.entryByFile.get(resolve(filePath))?.outDir ??
+              fastApiTargetOutDirForFile(filePath, outDir, cfg as ResolvedKernConfig, isDir ? inputPath : undefined))
+            : targetArg
+              ? targetSidecarOutDirForFile(filePath, outDir, cfg as ResolvedKernConfig, isDir ? inputPath : undefined)
+              : defaultSidecarOutDirForFile(filePath, outDir, isDir ? inputPath : undefined);
+        for (const ext of [outExt, outExt === '.ts' ? '.tsx' : '.ts']) {
+          const outFile = resolve(deletedOutDir, `${deletedName}${ext}`);
+          if (existsSync(outFile)) {
+            unlinkSync(outFile);
+            console.log(`  ${rel} → deleted ${basename(outFile)}`);
+          }
+        }
+        watchedSidecarEntries.delete(resolve(filePath));
+        clearSidecarInstallFiles(deletedOutDir);
+        writeWatchedSidecarInstallFiles();
       }
-    }
 
-    // Regenerate barrel/facades
-    if (barrel || facades) {
-      const entries = scanOutputForBarrelEntries(outDir);
-      if (barrel) generateBarrelFile(outDir, entries);
-      if (facades) generateFacadeFiles(outDir, facadesDir, entries);
+      // Regenerate barrel/facades
+      if (barrel || facades) {
+        const entries = scanOutputForBarrelEntries(outDir);
+        if (barrel) generateBarrelFile(outDir, entries);
+        if (facades) generateFacadeFiles(outDir, facadesDir, entries);
+      }
+    } catch (err) {
+      console.error(`  ${rel} → ERROR: ${(err as Error).message}`);
     }
-    const deletedOutDir = targetArg
-      ? targetSidecarOutDirForFile(filePath, outDir, cfg as ResolvedKernConfig, isDir ? inputPath : undefined)
-      : defaultSidecarOutDirForFile(filePath, outDir, isDir ? inputPath : undefined);
-    watchedSidecarEntries.delete(resolve(filePath));
-    clearSidecarInstallFiles(deletedOutDir);
-    writeWatchedSidecarInstallFiles();
   });
 
   process.on('SIGINT', () => {
