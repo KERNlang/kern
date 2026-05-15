@@ -659,14 +659,34 @@ const PYTHON_KEYWORDS = new Set([
   'yield',
 ]);
 
+// Keep in sync with top-level FastAPI generated artifact names.
+const PYTHON_GENERATED_MODULE_NAMES = new Set(['alembic', 'auth', 'middleware', 'routes', 'ws']);
+
 export function pythonModuleName(name: string): string {
   const sanitized = name.replace(/[^A-Za-z0-9_]/g, '_').replace(/^([0-9])/, '_$1');
   const moduleName = sanitized.length > 0 ? sanitized : 'main';
-  return PYTHON_KEYWORDS.has(moduleName) ? `${moduleName}_` : moduleName;
+  return PYTHON_KEYWORDS.has(moduleName) ||
+    PYTHON_STDLIB_PACKAGES.has(moduleName) ||
+    PYTHON_GENERATED_MODULE_NAMES.has(moduleName) ||
+    /^__.*__$/.test(moduleName)
+    ? `${moduleName}_`
+    : moduleName;
 }
 
 export function outputBaseNameForTarget(name: string, target: KernTarget): string {
   return target === 'fastapi' ? pythonModuleName(name) : name;
+}
+
+export function withFastApiEntryModules(cfg: ResolvedKernConfig, entryModules: string[]): ResolvedKernConfig {
+  if (cfg.target !== 'fastapi') return cfg;
+  const modules = [...new Set(entryModules.filter((moduleName) => moduleName.length > 0))];
+  return {
+    ...cfg,
+    fastapi: {
+      ...cfg.fastapi,
+      entryModules: modules,
+    },
+  } as ResolvedKernConfig;
 }
 
 // ── Export extraction ───────────────────────────────────────────────────
@@ -1107,9 +1127,11 @@ export function transpileAndWrite(
   // Resolve auto target per-file from AST content
   const effectiveCfg = cfg.target === 'auto' ? { ...cfg, target: detectTarget(ast) } : cfg;
   const target = effectiveCfg.target;
+  const outBaseName = outputBaseNameForTarget(name, target);
+  const transpileCfg = withFastApiEntryModules(effectiveCfg, [outBaseName]);
   const commentPrefix = target === 'fastapi' ? '#' : '//';
   const header = generatedHeaderForTarget(target, relSource);
-  const result = transpileForTarget(ast, effectiveCfg);
+  const result = transpileForTarget(ast, transpileCfg);
 
   const relDir = inputBase ? relative(resolve(inputBase), dirname(file)) : '';
   const baseDir = outDirOverride ? resolve(resolve(outDirOverride), relDir) : dirname(file);
@@ -1140,7 +1162,7 @@ export function transpileAndWrite(
     const outFileName =
       target === 'nextjs' && resultWithFiles.files && resultWithFiles.files.length > 0
         ? resultWithFiles.files[0].path
-        : `${outputBaseNameForTarget(name, target)}${outExt}`;
+        : `${outBaseName}${outExt}`;
     const outFilePath = resolve(outDir, outFileName);
     mkdirSync(dirname(outFilePath), { recursive: true });
     writeGeneratedFileSync(
