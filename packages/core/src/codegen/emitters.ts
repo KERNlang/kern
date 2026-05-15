@@ -56,14 +56,25 @@ export function emitTemplateSafe(value: string): string {
 }
 
 /**
- * Escape a `fmt` template body for a generated JS template literal. Unlike
- * `emitTemplateSafe`, this preserves `${…}` — that's the whole point of the
- * `fmt` node: author-supplied placeholders interpolate as they would in a
- * hand-written template literal. Only backslashes and raw backticks are
- * escaped so the literal can't be terminated prematurely.
+ * Emit a `fmt` template body into a generated JS template literal. The
+ * `template=` attribute body is **raw TS template-literal source** — exactly
+ * the characters that would appear between the backticks in hand-written TS.
+ * The migrator (and importer) preserve source verbatim via
+ * `SourceFile.getText()`, so backslash escape sequences (`\n`, `\t`, `\xNN`,
+ * `\uNNNN`, `\\`, `` \` ``, `\${`) are already encoded as the TS tokenizer
+ * expects. Re-escaping backslashes would turn `\n` (escape) into `\\n`
+ * (literal) and break byte-equivalence under `--verify`.
+ *
+ * The only defensive transform here is escaping **bare** backticks (those
+ * preceded by an even number of backslashes — so 0, 2, 4 …). A backtick
+ * preceded by an odd number of backslashes is already TS-escaped and must be
+ * left alone, otherwise `` \` `` would be double-escaped into `` \\\` ``,
+ * terminating the generated literal early. (Codex/Gemini plan review fix.)
  */
 export function emitFmtTemplate(value: string): string {
-  return String(value).replace(/\\/g, '\\\\').replace(/`/g, '\\`');
+  return String(value).replace(/(\\*)`/g, (_match, backslashes) =>
+    backslashes.length % 2 === 0 ? `${backslashes}\\\`` : `${backslashes}\``,
+  );
 }
 
 /**

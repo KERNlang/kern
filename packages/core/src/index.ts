@@ -198,6 +198,7 @@ export {
   classifyHandlerBodyAst,
   hasComments,
   hasOnlyMigratableComments,
+  hasTsOnlyTemplateEscape,
   isValidKernAssignmentTarget,
   isValidKernAssignmentValue,
   isValidKernExpression,

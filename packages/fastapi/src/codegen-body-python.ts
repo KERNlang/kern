@@ -845,16 +845,78 @@ function emitFmtPy(node: IRNode, ctx: BodyEmitContext): string[] {
 }
 
 function templateToPyFString(template: string, ctx: BodyEmitContext): string {
+  // The `template=` body is raw TS template-literal source — i.e. the chars
+  // between the backticks in the original TS. Backslash escapes (`\n`, `\t`,
+  // `\xNN`, `\uNNNN`, `\\`) share semantics between TS and Python f-strings,
+  // so they pass through verbatim. Two TS-only escapes need translation:
+  //
+  //   • `` \` `` → `` ` `` (Python doesn't escape backticks; emit literal)
+  //   • `\${`    → `${{`  (TS-source escape for literal `${`; in a Python
+  //                       f-string we keep the `$` literal and double-brace
+  //                       the `{` so it renders as `${` at runtime)
+  //
+  // `${expr}` interpolation is lowered by translating the inner expression
+  // and emitting `{pyExpr}`. The brace-depth scanner is string-literal-aware
+  // (skips `}` inside `"…"` / `'…'`) to handle interpolations like
+  // `${fn("}")}` correctly. (Codex/Gemini/opencode plan-review fixes.)
   let out = 'f"';
   let i = 0;
   while (i < template.length) {
     const c = template[i];
+    if (c === '\\' && template[i + 1] !== undefined) {
+      const next = template[i + 1];
+      if (next === '`') {
+        // TS `` \` `` is a TS-source escape for a literal backtick. Python
+        // strings don't require this escape — emit the literal backtick.
+        out += '`';
+        i += 2;
+        continue;
+      }
+      if (next === '$' && template[i + 2] === '{') {
+        // TS `\${` escapes the interpolation marker; the runtime value is
+        // literal `${`. In a Python f-string, `${` renders by keeping the
+        // dollar and doubling the brace.
+        out += '${{';
+        i += 3;
+        continue;
+      }
+      if (next === '"') {
+        // TS `\"` is a literal `"`. Inside a Python `f"…"`, the `"` must be
+        // escaped — emit `\"`.
+        out += '\\"';
+        i += 2;
+        continue;
+      }
+      // All other escapes — `\n`, `\t`, `\r`, `\\`, `\xNN`, `\uNNNN`,
+      // `\0`, `\b`, `\f`, `\v` — share semantics. Pass through verbatim.
+      out += c + next;
+      i += 2;
+      continue;
+    }
     if (c === '$' && template[i + 1] === '{') {
       let depth = 1;
       let j = i + 2;
+      let inString: '"' | "'" | '`' | null = null;
       while (j < template.length && depth > 0) {
-        if (template[j] === '{') depth++;
-        else if (template[j] === '}') {
+        const ch = template[j];
+        if (inString !== null) {
+          if (ch === '\\' && j + 1 < template.length) {
+            j += 2;
+            continue;
+          }
+          if (ch === inString) inString = null;
+          j++;
+          continue;
+        }
+        if (ch === '"' || ch === "'" || ch === '`') {
+          // Track ` so nested template literals like `${a.b(`x${c}`)}` don't
+          // miscount braces inside the inner template. (Gemini impl-review fix.)
+          inString = ch;
+          j++;
+          continue;
+        }
+        if (ch === '{') depth++;
+        else if (ch === '}') {
           depth--;
           if (depth === 0) break;
         }
@@ -875,12 +937,6 @@ function templateToPyFString(template: string, ctx: BodyEmitContext): string {
       i++;
     } else if (c === '"') {
       out += '\\"';
-      i++;
-    } else if (c === '\\') {
-      out += '\\\\';
-      i++;
-    } else if (c === '\n') {
-      out += '\\n';
       i++;
     } else {
       out += c;

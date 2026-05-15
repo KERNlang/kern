@@ -22,6 +22,7 @@ import {
   classifyHandlerBody,
   escapeKernString,
   hasOnlyMigratableComments,
+  hasTsOnlyTemplateEscape,
   isValidKernAssignmentTarget,
   isValidKernAssignmentValue,
   isValidKernTypeAnnotation,
@@ -256,18 +257,19 @@ function mapStatementCore(stmt: ts.Statement, source: ts.SourceFile, indent: str
     }
     if (!ts.isIdentifier(decl.name)) return mapDestructureDecl(decl, source, indent, typeText, isLet ? 'let' : 'const');
     const name = decl.name.text;
-    // Template-literal initializer → emit `fmt name=X template="..."` body-stmt
-    // (slice for "lift more template literals to KERN AST"). Multi-line
-    // templates fall through to the value-form because KERN's quoted-string
-    // attribute doesn't carry embedded newlines. Templates carrying any
-    // backslash escape (`\n`, `\t`, `\${`, etc.) also fall through: KERN's
-    // string-attribute escaping plus codegen-side backtick escaping
-    // round-trip-drifts on raw backslashes, so the value-form preserves the
-    // cooked TS template literal verbatim instead.
+    // Template-literal initializer → emit `fmt name=X template="..."` body-stmt.
+    // The `template=` attribute body is the raw TS template-literal source
+    // verbatim — backslash escape sequences (`\n`, `\t`, `\xNN`, `\\`,
+    // `` \` ``, `\${`) round-trip byte-cleanly through KERN-attr escaping and
+    // the `fmt` codegen (commit "close template-escapes gap"; emitFmtTemplate
+    // no longer re-escapes backslashes). Multi-line templates still fall
+    // through to the value-form because KERN attributes can't carry raw
+    // newlines, and the ES6 code-point escape `\u{NNNN}` falls through
+    // because Python f-strings only accept `\uNNNN`/`\UNNNNNNNN`.
     if (ts.isNoSubstitutionTemplateLiteral(decl.initializer) || ts.isTemplateExpression(decl.initializer)) {
       const raw = decl.initializer.getText(source);
       const body = raw.slice(1, -1);
-      if (!body.includes('\n') && !body.includes('\\')) {
+      if (!body.includes('\n') && !hasTsOnlyTemplateEscape(body)) {
         const typeAttr = typeText ? ` type="${escapeKernString(typeText)}"` : '';
         const kindAttr = isLet ? ' kind=let' : '';
         return [`${indent}fmt name=${name}${typeAttr}${kindAttr} template="${escapeKernString(body)}"`];
@@ -284,12 +286,11 @@ function mapStatementCore(stmt: ts.Statement, source: ts.SourceFile, indent: str
   if (ts.isReturnStatement(stmt)) {
     if (!stmt.expression) return [`${indent}return`];
     // Template-literal return → `fmt return=true template="..."` body-stmt.
-    // Same single-line + no-backslash restriction as the binding-form path
-    // (see comment above) — guards against escape-sequence round-trip drift.
+    // Backslash-escape policy: same as the binding-form path above.
     if (ts.isNoSubstitutionTemplateLiteral(stmt.expression) || ts.isTemplateExpression(stmt.expression)) {
       const raw = stmt.expression.getText(source);
       const body = raw.slice(1, -1);
-      if (!body.includes('\n') && !body.includes('\\')) {
+      if (!body.includes('\n') && !hasTsOnlyTemplateEscape(body)) {
         return [`${indent}fmt return=true template="${escapeKernString(body)}"`];
       }
     }

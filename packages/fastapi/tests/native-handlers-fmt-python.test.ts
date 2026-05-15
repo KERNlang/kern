@@ -89,3 +89,51 @@ describe('fmt body-statement — Python codegen', () => {
     expect(emitNativeKernBodyPython(handler)).toBe('msg = f"hi {user.name}"');
   });
 });
+
+describe('fmt body-statement — Python codegen, backslash escape sequences', () => {
+  test('passes `\\n` newline-escape through verbatim (Python interprets at runtime)', () => {
+    // Template body is the raw TS source `line1\nline2` (12 chars: `line1`,
+    // `\`, `n`, `line2`). Both TS template literals and Python f-strings
+    // interpret `\n` as newline, so passing verbatim is semantically correct.
+    const handler = makeHandler([{ type: 'fmt', props: { name: 'msg', template: 'line1\\nline2' } }]);
+    expect(emitNativeKernBodyPython(handler)).toBe('msg = f"line1\\nline2"');
+  });
+
+  test('passes `\\t` and `\\x1b` ANSI escapes through verbatim', () => {
+    const handler = makeHandler([{ type: 'fmt', props: { template: '\\x1b[31m${text}\\x1b[0m', return: 'true' } }]);
+    expect(emitNativeKernBodyPython(handler)).toBe('return f"\\x1b[31m{text}\\x1b[0m"');
+  });
+
+  test('TS `\\${` (literal dollar-brace) lowers to Python `${{` (renders as `${`)', () => {
+    // TS source `\${expr}` is a literal `${expr}` at runtime (the `\` escapes
+    // the interpolation marker). To render literal `${` in a Python f-string,
+    // emit the `$` directly and double the `{`. The interpolation scanner
+    // must NOT treat `\${` as an interpolation site.
+    const handler = makeHandler([{ type: 'fmt', props: { name: 'msg', template: 'price: \\${cost}' } }]);
+    expect(emitNativeKernBodyPython(handler)).toBe('msg = f"price: ${{cost}}"');
+  });
+
+  test('TS `` \\` `` (escaped backtick) lowers to literal backtick (no Python escape needed)', () => {
+    const handler = makeHandler([{ type: 'fmt', props: { name: 'msg', template: 'wrap \\`code\\` here' } }]);
+    expect(emitNativeKernBodyPython(handler)).toBe('msg = f"wrap `code` here"');
+  });
+
+  test('TS `\\\\` (escaped backslash) lowers to Python `\\\\` (one literal backslash at runtime)', () => {
+    const handler = makeHandler([{ type: 'fmt', props: { name: 'msg', template: 'one\\\\two' } }]);
+    expect(emitNativeKernBodyPython(handler)).toBe('msg = f"one\\\\two"');
+  });
+
+  test('string-aware `${...}` scanner: `{` and `}` inside an object literal expression are not miscounted', () => {
+    // `${ ({foo: bar}.foo) }` — without string-awareness the scanner still
+    // works because braces balance, but this exercises the recursive depth
+    // tracking for nested `{}` inside interpolation. Codex P2 plan-review
+    // hardening: ensure the scanner correctly handles nested braces.
+    const handler = makeHandler([{ type: 'fmt', props: { name: 'msg', template: 'val: ${({foo: bar}).foo}' } }]);
+    // The exact Python lowering of object-literal expressions depends on
+    // emitPyExpr; the important assertion is that the f-string is well-formed
+    // (closes at the right brace, no premature termination).
+    const result = emitNativeKernBodyPython(handler);
+    expect(result.startsWith('msg = f"val: {')).toBe(true);
+    expect(result.endsWith('}"')).toBe(true);
+  });
+});
