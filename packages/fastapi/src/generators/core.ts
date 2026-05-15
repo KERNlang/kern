@@ -9,6 +9,10 @@ import { emitNativeKernBodyPythonWithImports } from '../codegen-body-python.js';
 import { buildPythonParamList, kids, p, parseLegacyParamParts } from '../codegen-helpers.js';
 import { mapTsTypeToPython, toScreamingSnake, toSnakeCase } from '../type-map.js';
 
+interface PythonCodegenOptions {
+  resolveKernModuleSpec?: (rawPath: string, node: IRNode) => string | undefined;
+}
+
 /** Slice 1 — native KERN handler bodies for Python target.
  *  Returns the emitted Python body when the fn's handler child opts in via
  *  `lang=kern`, otherwise returns the legacy raw body via `handlerCode`.
@@ -611,7 +615,7 @@ function emitPythonImportIdent(value: string | undefined, fallback: string, node
   return emitIdentifier(value, fallback, node);
 }
 
-function pythonModuleSpecifier(raw: string, node: IRNode): string {
+function pythonModuleSpecifier(raw: string, node: IRNode, options?: PythonCodegenOptions): string {
   if (!raw) throw new Error('Python import specifier cannot be empty');
   if (raw.includes("'") || raw.includes('"') || raw.includes('`') || raw.includes('\\')) {
     throw new Error(`Invalid Python import specifier '${raw.slice(0, 80)}' — contains quote or escape characters`);
@@ -621,6 +625,15 @@ function pythonModuleSpecifier(raw: string, node: IRNode): string {
   }
   if (raw.startsWith('/')) {
     throw new Error(`Invalid Python import specifier '${raw.slice(0, 80)}' — absolute paths are not importable`);
+  }
+
+  const resolved = options?.resolveKernModuleSpec?.(raw, node);
+  if (resolved) {
+    const moduleParts = resolved.replace(/^\.+/u, '').split('.').filter(Boolean);
+    for (const part of moduleParts) {
+      emitPythonImportIdent(part, 'module', node);
+    }
+    return resolved;
   }
 
   const withoutExt = raw.replace(/\.(kern|py|js|ts)$/u, '');
@@ -838,12 +851,12 @@ export function generateExtern(node: IRNode): string[] {
   return [...new Set([...inlineImport, ...childImports])];
 }
 
-export function generateUse(node: IRNode): string[] {
+export function generateUse(node: IRNode, options?: PythonCodegenOptions): string[] {
   const props = p(node);
   const rawPath = props.path as string;
   if (!rawPath) return [];
 
-  const moduleSpec = pythonModuleSpecifier(rawPath, node);
+  const moduleSpec = pythonModuleSpecifier(rawPath, node, options);
   const fromChildren = kids(node, 'from');
   if (fromChildren.length > 0) {
     const bindings = fromChildren.map(emitPythonImportBinding);
@@ -853,7 +866,11 @@ export function generateUse(node: IRNode): string[] {
   return emitPythonModuleImport(moduleSpec);
 }
 
-export function generateModule(node: IRNode, dispatch: (node: IRNode) => string[]): string[] {
+export function generateModule(
+  node: IRNode,
+  dispatch: (node: IRNode) => string[],
+  options?: PythonCodegenOptions,
+): string[] {
   const props = p(node);
   const lines: string[] = [`# -- Module: ${props.name || 'unknown'} --`, ''];
   const localSymbolKinds = new Map<string, string>();
@@ -889,7 +906,7 @@ export function generateModule(node: IRNode, dispatch: (node: IRNode) => string[
   for (const child of node.children ?? []) {
     if (child.type === 'export') {
       const ep = p(child);
-      const from = ep.from ? pythonModuleSpecifier(ep.from as string, child) : '';
+      const from = ep.from ? pythonModuleSpecifier(ep.from as string, child, options) : '';
       const symbolKinds = new Map([...localSymbolKinds, ...exportSymbolKinds(ep.symbolKinds)]);
       const symbolTargets = targetNamePairs(ep.targetNames);
       const rawNames = (ep.names as string | undefined)

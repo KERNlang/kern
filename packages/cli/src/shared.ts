@@ -476,6 +476,9 @@ export function writeSidecarInstallFilesForAsts(asts: Iterable<IRNode>, outDir: 
 }
 
 type TranspileAndWriteOptions = import('@kernlang/core').ParseOptions & {
+  fastApiEntryModules?: string[];
+  fastApiModuleNameByFile?: Record<string, string>;
+  outputBaseName?: string;
   writeSidecarInstallFiles?: boolean;
 };
 
@@ -685,6 +688,22 @@ export function withFastApiEntryModules(cfg: ResolvedKernConfig, entryModules: s
     fastapi: {
       ...cfg.fastapi,
       entryModules: modules,
+    },
+  } as ResolvedKernConfig;
+}
+
+export function withFastApiModuleMap(
+  cfg: ResolvedKernConfig,
+  sourceFile: string,
+  moduleNameByFile?: Record<string, string>,
+): ResolvedKernConfig {
+  if (cfg.target !== 'fastapi' || !moduleNameByFile) return cfg;
+  return {
+    ...cfg,
+    fastapi: {
+      ...cfg.fastapi,
+      sourceFile,
+      moduleNameByFile,
     },
   } as ResolvedKernConfig;
 }
@@ -1127,8 +1146,20 @@ export function transpileAndWrite(
   // Resolve auto target per-file from AST content
   const effectiveCfg = cfg.target === 'auto' ? { ...cfg, target: detectTarget(ast) } : cfg;
   const target = effectiveCfg.target;
-  const outBaseName = outputBaseNameForTarget(name, target);
-  const transpileCfg = withFastApiEntryModules(effectiveCfg, [outBaseName]);
+  const plannedOutBaseName =
+    target === 'fastapi' ? (options?.outputBaseName ?? options?.fastApiModuleNameByFile?.[resolve(file)]) : undefined;
+  const outBaseName =
+    target === 'fastapi' && plannedOutBaseName ? plannedOutBaseName : outputBaseNameForTarget(name, target);
+  const configuredFastApiEntryModules = options?.fastApiEntryModules?.filter((moduleName) => moduleName.length > 0);
+  const fastApiEntryModules =
+    target === 'fastapi' && configuredFastApiEntryModules && configuredFastApiEntryModules.length > 0
+      ? configuredFastApiEntryModules
+      : [outBaseName];
+  const transpileCfg = withFastApiModuleMap(
+    withFastApiEntryModules(effectiveCfg, fastApiEntryModules),
+    resolve(file),
+    options?.fastApiModuleNameByFile,
+  );
   const commentPrefix = target === 'fastapi' ? '#' : '//';
   const header = generatedHeaderForTarget(target, relSource);
   const result = transpileForTarget(ast, transpileCfg);

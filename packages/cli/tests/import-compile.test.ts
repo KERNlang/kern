@@ -1188,6 +1188,115 @@ export async function loadUser(id: string): Promise<User> {
     expect(errors).toEqual([]);
   });
 
+  it('assigns unique FastAPI module names across sanitized filename collisions', async () => {
+    process.chdir(tmpDir);
+
+    const sourceDir = join(tmpDir, 'src');
+    mkdirSync(sourceDir, { recursive: true });
+    writeFileSync(
+      join(sourceDir, 'json.kern'),
+      [
+        'model name=JsonUser table=json_users',
+        '  column name=id type=uuid primary=true',
+        'fn name=parseUser returns=string',
+        '  handler <<<',
+        '    return "ok"',
+        '  >>>',
+      ].join('\n'),
+    );
+    writeFileSync(
+      join(sourceDir, 'json_.kern'),
+      [
+        'use path="./json"',
+        '  from name=parseUser kind=fn',
+        'model name=JsonUnderscoreUser table=json_underscore_users',
+        '  column name=id type=uuid primary=true',
+        'server name=CollisionAPI port=3005',
+      ].join('\n'),
+    );
+
+    const generatedDir = join(tmpDir, 'fastapi-collision-out');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceDir, '--target=fastapi', `--outdir=${generatedDir}`])).rejects.toThrow(
+      'EXIT:0',
+    );
+    expect(getExitCode()).toBe(0);
+
+    const firstModule = join(generatedDir, 'json_.py');
+    const secondModule = join(generatedDir, 'json__2.py');
+    const envFile = join(generatedDir, 'alembic/env.py');
+    expect(existsSync(firstModule)).toBe(true);
+    expect(existsSync(secondModule)).toBe(true);
+    expect(existsSync(join(generatedDir, 'json.py'))).toBe(false);
+
+    const second = readFileSync(secondModule, 'utf-8');
+    expect(second).toContain('from .json_ import parse_user as parseUser');
+
+    const env = readFileSync(envFile, 'utf-8');
+    expect(env).toContain('model_modules = ["json_","json__2"]');
+
+    const pyCompile = spawnSync('python3', ['-m', 'py_compile', firstModule, secondModule, envFile], {
+      encoding: 'utf-8',
+    });
+    expect(pyCompile.status).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
+  it('uses planned FastAPI module names for dotted source filenames', async () => {
+    process.chdir(tmpDir);
+
+    const sourceDir = join(tmpDir, 'src');
+    mkdirSync(sourceDir, { recursive: true });
+    writeFileSync(
+      join(sourceDir, 'foo.test.kern'),
+      ['fn name=parseUser returns=string', '  handler <<<', '    return "ok"', '  >>>'].join('\n'),
+    );
+    writeFileSync(
+      join(sourceDir, 'consumer.kern'),
+      ['use path="./foo.test"', '  from name=parseUser kind=fn', 'server name=ConsumerAPI port=3006'].join('\n'),
+    );
+
+    const generatedDir = join(tmpDir, 'fastapi-dotted-out');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceDir, '--target=fastapi', `--outdir=${generatedDir}`])).rejects.toThrow(
+      'EXIT:0',
+    );
+    expect(getExitCode()).toBe(0);
+
+    const producerModule = join(generatedDir, 'foo_test.py');
+    const consumerModule = join(generatedDir, 'consumer.py');
+    expect(existsSync(producerModule)).toBe(true);
+    expect(readFileSync(consumerModule, 'utf-8')).toContain('from .foo_test import parse_user as parseUser');
+
+    const pyCompile = spawnSync('python3', ['-m', 'py_compile', producerModule, consumerModule], {
+      encoding: 'utf-8',
+    });
+    expect(pyCompile.status).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
+  it('does not let collision suffixes steal literal FastAPI module filenames', async () => {
+    process.chdir(tmpDir);
+
+    const sourceDir = join(tmpDir, 'src');
+    mkdirSync(sourceDir, { recursive: true });
+    writeFileSync(join(sourceDir, 'json.kern'), 'server name=JsonAPI port=3007');
+    writeFileSync(join(sourceDir, 'json_.kern'), 'server name=JsonUnderscoreAPI port=3008');
+    writeFileSync(join(sourceDir, 'json__2.kern'), 'server name=JsonLiteralSuffixAPI port=3009');
+
+    const generatedDir = join(tmpDir, 'fastapi-literal-suffix-out');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceDir, '--target=fastapi', `--outdir=${generatedDir}`])).rejects.toThrow(
+      'EXIT:0',
+    );
+    expect(getExitCode()).toBe(0);
+
+    expect(readFileSync(join(generatedDir, 'json_.py'), 'utf-8')).toContain('JsonAPI');
+    expect(readFileSync(join(generatedDir, 'json__2.py'), 'utf-8')).toContain('JsonLiteralSuffixAPI');
+    expect(readFileSync(join(generatedDir, 'json__3.py'), 'utf-8')).toContain('JsonUnderscoreAPI');
+    expect(errors).toEqual([]);
+  });
+
   it('avoids Python keyword FastAPI entry filenames', async () => {
     process.chdir(tmpDir);
 

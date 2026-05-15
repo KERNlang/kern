@@ -105,8 +105,12 @@ export {
 
 // ── Dispatcher ───────────────────────────────────────────────────────────
 
+export interface PythonCodegenOptions {
+  resolveKernModuleSpec?: (rawPath: string, node: IRNode) => string | undefined;
+}
+
 /** Generate Python for any core language node. Returns string lines. */
-export function generatePythonCoreNode(node: IRNode): string[] {
+export function generatePythonCoreNode(node: IRNode, options: PythonCodegenOptions = {}): string[] {
   switch (node.type) {
     case 'type':
       return generateType(node);
@@ -117,7 +121,7 @@ export function generatePythonCoreNode(node: IRNode): string[] {
     case 'machine':
       return generateMachine(node);
     case 'module':
-      return generateModule(node, generatePythonCoreNode);
+      return generateModule(node, (child) => generatePythonCoreNode(child, options), options);
     case 'error':
       return generateError(node);
     case 'config':
@@ -133,7 +137,7 @@ export function generatePythonCoreNode(node: IRNode): string[] {
     case 'extern':
       return generateExtern(node);
     case 'use':
-      return generateUse(node);
+      return generateUse(node, options);
     case 'from':
       return [];
     case 'const':
