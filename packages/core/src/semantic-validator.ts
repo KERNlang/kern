@@ -409,9 +409,9 @@ interface ExportSourceBinding extends ExportBinding {
 
 interface ModuleVisibleNames {
   all: Set<string>;
-  local: Set<string>;
-  externalValues: Set<string>;
-  externalTypes: Set<string>;
+  untypedLocal: Set<string>;
+  values: Set<string>;
+  types: Set<string>;
 }
 
 function validateModuleExports(
@@ -473,7 +473,7 @@ function validateModuleExports(
         violations.push({
           rule: 'export-local-kind-mismatch',
           nodeType: 'export',
-          message: `Local ${binding.kind} export references '${binding.source}', but that external import is only visible as a ${actual} symbol. Use \`export ${binding.kind === 'type' ? 'names' : 'types'}=${binding.source}\` or add a ${expected} binding.`,
+          message: `Local ${binding.kind} export references '${binding.source}', but that binding is only visible as a ${actual} symbol. Use \`export ${binding.kind === 'type' ? 'names' : 'types'}=${binding.source}\` or ensure '${binding.source}' is available as a ${expected} binding.`,
           line: child.loc?.line,
           col: child.loc?.col,
         });
@@ -485,19 +485,17 @@ function validateModuleExports(
 function collectModuleVisibleNames(moduleNode: IRNode, externalImports: ExternalImportSymbolTable): ModuleVisibleNames {
   const names: ModuleVisibleNames = {
     all: new Set(),
-    local: new Set(),
-    externalValues: new Set(),
-    externalTypes: new Set(),
+    untypedLocal: new Set(),
+    values: new Set(),
+    types: new Set(),
   };
   for (const symbol of externalImports.symbols) {
-    names.all.add(symbol.localName);
-    if (symbol.kind === 'type') names.externalTypes.add(symbol.localName);
-    else names.externalValues.add(symbol.localName);
+    addKindedVisibleName(names, symbol.localName, symbol.kind === 'type' ? 'type' : 'value');
   }
   for (const child of moduleNode.children ?? []) {
     const name = child.props?.name;
-    if (typeof name === 'string' && name.length > 0 && child.type !== 'export') {
-      addLocalVisibleName(names, name);
+    if (typeof name === 'string' && name.length > 0 && child.type !== 'export' && child.type !== 'import') {
+      addDeclaredVisibleName(names, child.type, name);
     }
 
     if (child.type === 'use') {
@@ -505,33 +503,136 @@ function collectModuleVisibleNames(moduleNode: IRNode, externalImports: External
         if (fromChild.type !== 'from') continue;
         const importedName = fromChild.props?.name;
         const alias = fromChild.props?.as;
-        if (typeof alias === 'string' && alias.length > 0) addLocalVisibleName(names, alias);
-        else if (typeof importedName === 'string' && importedName.length > 0) addLocalVisibleName(names, importedName);
+        const localName =
+          typeof alias === 'string' && alias.length > 0
+            ? alias
+            : typeof importedName === 'string' && importedName.length > 0
+              ? importedName
+              : null;
+        if (localName) addUseVisibleName(names, fromChild, localName);
       }
     }
 
     if (child.type === 'import' && !isExternalImportNode(child)) {
-      for (const imported of importLocalNames(child)) {
-        addLocalVisibleName(names, imported);
-      }
+      addHostImportBindings(names, child);
+    }
+
+    if (child.type === 'extern' && isHostExternNode(child)) {
+      addHostExternBindings(names, child);
+    }
+
+    if (child.type === 'island') {
+      addIslandVisibleNames(names, child);
     }
   }
   return names;
 }
 
-function addLocalVisibleName(names: ModuleVisibleNames, name: string): void {
+function addUntypedLocalVisibleName(names: ModuleVisibleNames, name: string): void {
   names.all.add(name);
-  names.local.add(name);
+  names.untypedLocal.add(name);
+}
+
+function addKindedVisibleName(names: ModuleVisibleNames, name: string, kind: ExportBindingKind | 'both'): void {
+  names.all.add(name);
+  if (kind === 'value' || kind === 'both') names.values.add(name);
+  if (kind === 'type' || kind === 'both') names.types.add(name);
+}
+
+function addDeclaredVisibleName(names: ModuleVisibleNames, nodeType: string, name: string): void {
+  switch (nodeType) {
+    case 'type':
+    case 'interface':
+    case 'event':
+    case 'union':
+      addKindedVisibleName(names, name, 'type');
+      return;
+    case 'class':
+    case 'enum':
+    case 'service':
+      addKindedVisibleName(names, name, 'both');
+      return;
+    case 'const':
+    case 'let':
+    case 'fn':
+    case 'function':
+    case 'screen':
+      addKindedVisibleName(names, name, 'value');
+      return;
+    default:
+      addUntypedLocalVisibleName(names, name);
+  }
+}
+
+function addUseVisibleName(names: ModuleVisibleNames, fromNode: IRNode, name: string): void {
+  const kind = typeof fromNode.props?.kind === 'string' ? fromNode.props.kind : '';
+  switch (kind) {
+    case 'type':
+    case 'interface':
+    case 'event':
+    case 'union':
+      addKindedVisibleName(names, name, 'type');
+      return;
+    case 'class':
+    case 'enum':
+    case 'service':
+      addKindedVisibleName(names, name, 'both');
+      return;
+    case 'const':
+    case 'let':
+    case 'fn':
+    case 'function':
+    case 'screen':
+      addKindedVisibleName(names, name, 'value');
+      return;
+    default:
+      addUntypedLocalVisibleName(names, name);
+  }
 }
 
 function hasVisibleExportKind(names: ModuleVisibleNames, name: string, kind: ExportBindingKind): boolean {
-  if (names.local.has(name)) return true;
-  return kind === 'type' ? names.externalTypes.has(name) : names.externalValues.has(name);
+  if (names.untypedLocal.has(name)) return true;
+  return kind === 'type' ? names.types.has(name) : names.values.has(name);
 }
 
 function isExternalImportNode(node: IRNode): boolean {
   if (node.type !== 'import') return false;
   return importRegistryOf(node.props?.registry) !== 'host';
+}
+
+function isHostExternNode(node: IRNode): boolean {
+  if (node.type !== 'extern') return false;
+  return importRegistryOf(node.props?.registry) === 'host';
+}
+
+function addHostImportBindings(names: ModuleVisibleNames, node: IRNode): void {
+  for (const imported of importLocalBindings(node)) {
+    addKindedVisibleName(names, imported.name, imported.kind);
+  }
+}
+
+function addHostExternBindings(names: ModuleVisibleNames, node: IRNode): void {
+  addHostImportBindings(names, node);
+  for (const child of node.children ?? []) {
+    if (child.type === 'import' && !isExternalImportNode(child)) {
+      addHostImportBindings(names, child);
+    }
+  }
+}
+
+function addIslandVisibleNames(names: ModuleVisibleNames, node: IRNode): void {
+  for (const child of node.children ?? []) {
+    const childName = child.props?.name;
+    if (child.type === 'fn' && typeof childName === 'string' && childName.length > 0) {
+      addDeclaredVisibleName(names, child.type, childName);
+    }
+    if (child.type === 'import' && !isExternalImportNode(child)) {
+      addHostImportBindings(names, child);
+    }
+    if (child.type === 'extern' && isHostExternNode(child)) {
+      addHostExternBindings(names, child);
+    }
+  }
 }
 
 function validateModuleExternalImportConflicts(
@@ -568,21 +669,26 @@ function conflictingExternalImportSymbols(
   return symbols;
 }
 
-function importLocalNames(node: IRNode): string[] {
-  const names: string[] = [];
+function importLocalBindings(node: IRNode): Array<{ name: string; kind: ExportBindingKind }> {
+  const names: Array<{ name: string; kind: ExportBindingKind }> = [];
   const props = node.props ?? {};
+  const kind = isTrueFlag(props.types) ? 'type' : 'value';
   if (typeof props.default === 'string' && props.default.length > 0 && props.default !== 'true') {
-    names.push(props.default);
+    names.push({ name: props.default, kind });
   }
   if (typeof props.names === 'string') {
     for (const raw of props.names.split(',')) {
       const name = raw.trim();
       const aliasMatch = /^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/u.exec(name);
-      if (aliasMatch) names.push(aliasMatch[2] ?? aliasMatch[1]);
-      else if (isIdentifier(name)) names.push(name);
+      if (aliasMatch) names.push({ name: aliasMatch[2] ?? aliasMatch[1], kind });
+      else if (isIdentifier(name)) names.push({ name, kind });
     }
   }
   return names;
+}
+
+function isTrueFlag(value: unknown): boolean {
+  return value === true || (typeof value === 'string' && value.trim().toLowerCase() === 'true');
 }
 
 function exportedSourceBindings(node: IRNode): Array<{ raw: string; kind: ExportBindingKind }> {
