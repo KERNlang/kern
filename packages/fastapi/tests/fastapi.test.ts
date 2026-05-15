@@ -746,11 +746,14 @@ describe('FastAPI Transpiler', () => {
       const result = transpileFastAPI(parse(source));
 
       expect(result.code).toContain('from fastapi import FastAPI');
+      expect(result.code).toContain('from fastapi.responses import JSONResponse');
       expect(result.code).toContain('import uvicorn');
       expect(result.code).toContain('app = FastAPI(title="TestAPI")');
       expect(result.code).toContain('CORSMiddleware');
       expect(result.code).toContain('app.include_router(');
       expect(result.code).toContain('port=8080');
+      expect(result.code).toContain('host=os.environ.get("HOST", "127.0.0.1")');
+      expect(result.code).not.toContain('host="0.0.0.0"');
       expect(result.artifacts).toBeDefined();
       expect(result.artifacts!.length).toBe(2);
       expect(result.artifacts!.some((a) => a.path.endsWith('.py'))).toBe(true);
@@ -780,6 +783,67 @@ describe('FastAPI Transpiler', () => {
       expect(routeArtifact!.content).toContain('id: str');
     });
 
+    test('route artifacts lower simple Express-style JSON handlers to Python', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+
+      const source = [
+        'server name=Test',
+        '  route method=get path=/health',
+        '    handler <<<',
+        "      res.json({ ok: true, version: '0.1.0', service: 'agon-saas-api', message: 'true false null' });",
+        '    >>>',
+        '  route method=post path=/users',
+        '    handler <<<',
+        '      res.status(201).json({ id: "u1", active: false });',
+        '    >>>',
+      ].join('\n');
+
+      const result = transpileFastAPI(parse(source));
+      const healthRoute = result.artifacts?.find((a) => a.path === 'routes/get_health.py');
+      const postRoute = result.artifacts?.find((a) => a.path === 'routes/post_users.py');
+
+      expect(healthRoute?.content).toContain(
+        'return { "ok": True, "version": \'0.1.0\', "service": \'agon-saas-api\', "message": \'true false null\' }',
+      );
+      expect(healthRoute?.content).not.toContain('res.json');
+      expect(postRoute?.content).toContain('from fastapi.responses import JSONResponse');
+      expect(postRoute?.content).toContain(
+        'return JSONResponse(content={ "id": "u1", "active": False }, status_code=201)',
+      );
+    });
+
+    test('unsupported raw JavaScript handlers emit valid Python stubs', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+
+      const source = [
+        'server name=Test',
+        '  route method=get path=/send',
+        '    handler <<<',
+        "      res.send('ok');",
+        '    >>>',
+        '  route method=get path=/shorthand',
+        '    handler <<<',
+        '      res.json({ user });',
+        '    >>>',
+        '  route method=get path=/template',
+        '    handler <<<',
+        '      res.json({ msg: `hi ${name}` });',
+        '    >>>',
+      ].join('\n');
+
+      const result = transpileFastAPI(parse(source));
+      for (const path of ['routes/get_send.py', 'routes/get_shorthand.py', 'routes/get_template.py']) {
+        const route = result.artifacts?.find((a) => a.path === path);
+        expect(route?.content).toContain(
+          'raise NotImplementedError("Unsupported raw JavaScript handler syntax for FastAPI target")',
+        );
+        expect(route?.content).not.toContain('res.');
+        expect(route?.content).not.toContain('`');
+      }
+    });
+
     test('strict mode generates sanitized error handler', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
@@ -791,6 +855,7 @@ describe('FastAPI Transpiler', () => {
 
       expect(result.code).toContain('Internal Server Error');
       expect(result.code).not.toContain('str(exc)');
+      expect(result.code).not.toContain('    from fastapi.responses import JSONResponse');
     });
 
     test('relaxed mode generates verbose error handler', async () => {
@@ -831,8 +896,12 @@ describe('FastAPI Transpiler', () => {
       expect(result.code).toContain('import logging');
       expect(result.code).toContain('import os');
       expect(result.code).toContain(
-        'allow_origins=[origin.strip() for origin in os.environ.get("CORS_ORIGINS", "").split(",") if origin.strip()]',
+        'allow_origins=[origin.strip() for origin in os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",") if origin.strip()]',
       );
+      expect(result.code).toContain('allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]');
+      expect(result.code).toContain('allow_headers=["Authorization", "Content-Type", "X-Request-ID"]');
+      expect(result.code).not.toContain('allow_methods=["*"]');
+      expect(result.code).not.toContain('allow_headers=["*"]');
       expect(result.code).toContain('@app.get("/health")');
       expect(result.code).toContain('logging.exception("Unhandled exception")');
       expect(authArtifact?.content).toContain('JWT_SECRET = os.environ.get("JWT_SECRET")');
@@ -844,6 +913,23 @@ describe('FastAPI Transpiler', () => {
       expect(wsArtifact?.content).toContain('import json');
       expect(wsArtifact?.content).toContain('data = json.loads(await websocket.receive_text())');
       expect(wsArtifact?.content).toContain('except json.JSONDecodeError:');
+    });
+
+    test('relaxed CORS remains permissive without wildcard credentials', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { resolveConfig } = await import('../../core/src/config.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const config = resolveConfig({
+        target: 'fastapi' as any,
+        fastapi: { security: 'relaxed', cors: true },
+      } as any);
+      const result = transpileFastAPI(parse('server name=Test'), config);
+
+      expect(result.code).toContain('os.environ.get("CORS_ORIGINS", "*")');
+      expect(result.code).toContain('allow_credentials=False');
+      expect(result.code).toContain('allow_methods=["*"]');
+      expect(result.code).toContain('allow_headers=["*"]');
+      expect(result.code).not.toContain('allow_credentials=True, allow_methods=["*"]');
     });
 
     test('reload uses uvicorn string app path', async () => {

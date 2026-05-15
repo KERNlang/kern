@@ -199,7 +199,8 @@ export function runTranspile(args: string[]): void {
   const result = transpileForTarget(ast, config);
 
   const outDir = resolve(dirname(inputFile), config.output.outDir);
-  const isStructured = config.structure !== 'flat' && result.artifacts && result.artifacts.length > 0;
+  const isStructured =
+    target !== 'fastapi' && config.structure !== 'flat' && result.artifacts && result.artifacts.length > 0;
 
   if (isStructured) {
     for (const artifact of result.artifacts!) {

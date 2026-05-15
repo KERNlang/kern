@@ -226,7 +226,7 @@ export const DEFAULT_CONFIG: ResolvedKernConfig = {
     security: 'strict',
     cors: false,
     gzip: false,
-    uvicorn: { host: '0.0.0.0', reload: false },
+    uvicorn: { host: '127.0.0.1', reload: false },
   },
   review: {
     showConfidence: false,

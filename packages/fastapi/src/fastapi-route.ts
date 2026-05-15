@@ -170,6 +170,202 @@ export function generateTimerRoute(
 
 // ── Route artifact builder ───────────────────────────────────────────────
 
+function replaceJsLiteralsOutsideStrings(expr: string): string {
+  let output = '';
+  let index = 0;
+  let quote: '"' | "'" | '`' | null = null;
+  let escaped = false;
+
+  while (index < expr.length) {
+    const char = expr[index];
+
+    if (quote) {
+      output += char;
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === quote) {
+        quote = null;
+      }
+      index += 1;
+      continue;
+    }
+
+    if (char === '"' || char === "'" || char === '`') {
+      quote = char;
+      output += char;
+      index += 1;
+      continue;
+    }
+
+    if (/[A-Za-z_$]/.test(char)) {
+      let end = index + 1;
+      while (end < expr.length && /[\w$]/.test(expr[end])) end += 1;
+      const word = expr.slice(index, end);
+      output += word === 'true' ? 'True' : word === 'false' ? 'False' : word === 'null' ? 'None' : word;
+      index = end;
+      continue;
+    }
+
+    output += char;
+    index += 1;
+  }
+
+  return output;
+}
+
+function quoteObjectKeysOutsideStrings(expr: string): string {
+  let output = '';
+  let index = 0;
+  let quote: '"' | "'" | '`' | null = null;
+  let escaped = false;
+
+  while (index < expr.length) {
+    const char = expr[index];
+
+    if (quote) {
+      output += char;
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === quote) {
+        quote = null;
+      }
+      index += 1;
+      continue;
+    }
+
+    if (char === '"' || char === "'" || char === '`') {
+      quote = char;
+      output += char;
+      index += 1;
+      continue;
+    }
+
+    if (char !== '{' && char !== ',') {
+      output += char;
+      index += 1;
+      continue;
+    }
+
+    output += char;
+    index += 1;
+    const whitespaceStart = index;
+    while (index < expr.length && /\s/.test(expr[index])) index += 1;
+    const whitespace = expr.slice(whitespaceStart, index);
+    const keyStart = index;
+    if (index < expr.length && /[A-Za-z_$]/.test(expr[index])) {
+      index += 1;
+      while (index < expr.length && /[\w$]/.test(expr[index])) index += 1;
+      const key = expr.slice(keyStart, index);
+      const afterKeyStart = index;
+      while (index < expr.length && /\s/.test(expr[index])) index += 1;
+      if (expr[index] === ':') {
+        output += `${whitespace}"${key}"${expr.slice(afterKeyStart, index)}:`;
+        index += 1;
+        continue;
+      }
+    }
+
+    output += whitespace;
+    output += expr.slice(keyStart, index);
+  }
+
+  return output;
+}
+
+function lowerJsValueExpressionForPython(expr: string): string {
+  return quoteObjectKeysOutsideStrings(replaceJsLiteralsOutsideStrings(expr.trim().replace(/;$/, '')));
+}
+
+function hasObjectShorthandOutsideStrings(expr: string): boolean {
+  let index = 0;
+  let quote: '"' | "'" | '`' | null = null;
+  let escaped = false;
+
+  while (index < expr.length) {
+    const char = expr[index];
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === quote) {
+        quote = null;
+      }
+      index += 1;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === '`') {
+      quote = char;
+      index += 1;
+      continue;
+    }
+    if (char !== '{' && char !== ',') {
+      index += 1;
+      continue;
+    }
+    index += 1;
+    while (index < expr.length && /\s/.test(expr[index])) index += 1;
+    if (index >= expr.length || !/[A-Za-z_$]/.test(expr[index])) continue;
+    index += 1;
+    while (index < expr.length && /[\w$]/.test(expr[index])) index += 1;
+    while (index < expr.length && /\s/.test(expr[index])) index += 1;
+    if (expr[index] === ',' || expr[index] === '}') return true;
+  }
+
+  return false;
+}
+
+function isUnsupportedJsHandlerBody(code: string): boolean {
+  return (
+    /\bres\./.test(code) ||
+    /`/.test(code) ||
+    /\?\./.test(code) ||
+    /\?\?/.test(code) ||
+    /=>/.test(code) ||
+    hasObjectShorthandOutsideStrings(code)
+  );
+}
+
+function unsupportedRawHandlerBody(indent: string): string[] {
+  return [`${indent}raise NotImplementedError("Unsupported raw JavaScript handler syntax for FastAPI target")`];
+}
+
+function lowerRawHandlerBodyForPython(code: string, indent: string, imports: Set<string>): string[] | null {
+  const statement = code.trim();
+  if (!statement || statement.includes('\n')) return null;
+
+  const statusJson =
+    statement.match(/^(?:return\s+)?res\.status\((\d+)\)\.json\(([\s\S]*)\);?$/) ??
+    statement.match(/^(?:return\s+)?response\.status\((\d+)\)\.json\(([\s\S]*)\);?$/);
+  if (statusJson) {
+    if (!statusJson[2].trim() || statusJson[2].includes('`') || hasObjectShorthandOutsideStrings(statusJson[2])) {
+      return null;
+    }
+    imports.add('from fastapi.responses import JSONResponse');
+    return [
+      `${indent}return JSONResponse(content=${lowerJsValueExpressionForPython(statusJson[2])}, status_code=${statusJson[1]})`,
+    ];
+  }
+
+  const json = statement.match(/^(?:return\s+)?res\.json\(([\s\S]*)\);?$/);
+  if (json) {
+    if (!json[1].trim() || json[1].includes('`') || hasObjectShorthandOutsideStrings(json[1])) return null;
+    return [`${indent}return ${lowerJsValueExpressionForPython(json[1])}`];
+  }
+
+  const directReturn = statement.match(/^return\s+([\s\S]*?);?$/);
+  if (directReturn) {
+    if (directReturn[1].includes('`') || hasObjectShorthandOutsideStrings(directReturn[1])) return null;
+    return [`${indent}return ${lowerJsValueExpressionForPython(directReturn[1])}`];
+  }
+
+  return null;
+}
+
 export function buildRouteArtifact(
   routeNode: IRNode,
   routeIndex: number,
@@ -440,9 +636,19 @@ export function buildRouteArtifact(
         bodyLines.push(`    return {"error": "Route handler not implemented"}`);
       }
     } else if (handlerCode) {
-      bodyLines.push(...indentHandler(handlerCode, '    '));
+      bodyLines.push(
+        ...(lowerRawHandlerBodyForPython(handlerCode, '    ', imports) ??
+          (isUnsupportedJsHandlerBody(handlerCode)
+            ? unsupportedRawHandlerBody('    ')
+            : indentHandler(handlerCode, '    '))),
+      );
     } else if (routeHandlerCode) {
-      bodyLines.push(...indentHandler(routeHandlerCode, '    '));
+      bodyLines.push(
+        ...(lowerRawHandlerBodyForPython(routeHandlerCode, '    ', imports) ??
+          (isUnsupportedJsHandlerBody(routeHandlerCode)
+            ? unsupportedRawHandlerBody('    ')
+            : indentHandler(routeHandlerCode, '    '))),
+      );
     } else {
       bodyLines.push(`    return {"error": "Route handler not implemented"}`);
     }
