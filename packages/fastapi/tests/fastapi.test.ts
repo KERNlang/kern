@@ -722,6 +722,12 @@ describe('FastAPI Transpiler', () => {
       expect(result.code).toContain('async def get_db()');
       expect(result.code).toContain('async def init_db()');
       expect(result.code).toContain('@app.on_event("startup")');
+      const envArtifact = result.artifacts?.find((artifact) => artifact.path === 'alembic/env.py');
+      expect(envArtifact?.content).toContain('importlib.import_module(module_path.stem)');
+      expect(envArtifact?.content).toContain('app_dir = Path(__file__).resolve().parents[1]');
+      expect(envArtifact?.content).not.toContain('from main import');
+      const alembicConfig = result.artifacts?.find((artifact) => artifact.path === 'alembic.ini');
+      expect(alembicConfig?.content).toContain('sqlalchemy.url = sqlite:///./app.db');
     });
   });
 
@@ -755,7 +761,8 @@ describe('FastAPI Transpiler', () => {
       expect(result.code).toContain('host=os.environ.get("HOST", "127.0.0.1")');
       expect(result.code).not.toContain('host="0.0.0.0"');
       expect(result.artifacts).toBeDefined();
-      expect(result.artifacts!.length).toBe(2);
+      expect(result.artifacts!.length).toBeGreaterThanOrEqual(3);
+      expect(result.artifacts!.some((a) => a.path === 'routes/__init__.py')).toBe(true);
       expect(result.artifacts!.some((a) => a.path.endsWith('.py'))).toBe(true);
     });
 
@@ -945,8 +952,36 @@ describe('FastAPI Transpiler', () => {
       );
       const result = transpileFastAPI(ast, config);
 
-      expect(result.code).toContain('uvicorn.run("main:app"');
+      expect(result.code).toContain('from pathlib import Path');
+      expect(result.code).toContain('import sys');
+      expect(result.code).toContain('sys.path.insert(0, script_dir)');
+      expect(result.code).toContain('uvicorn_app = f"{Path(__file__).stem}:app"');
+      expect(result.code).toContain('uvicorn.run(uvicorn_app');
+      expect(result.code).toContain('app_dir=script_dir');
+      expect(result.code).not.toContain('"main:app"');
       expect(result.code).toContain('reload=True');
+    });
+
+    test('workers use dynamic uvicorn string app path', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { resolveConfig } = await import('../../core/src/config.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const config = resolveConfig({
+        target: 'fastapi' as any,
+        fastapi: { security: 'relaxed', uvicorn: { workers: 2 } },
+      } as any);
+      const defaultResult = transpileFastAPI(parse('server name=Test'));
+      const configured = transpileFastAPI(parse('server name=Test'), config);
+
+      expect(defaultResult.code).not.toContain('from pathlib import Path');
+      expect(defaultResult.code).not.toContain('import sys');
+      expect(configured.code).toContain('from pathlib import Path');
+      expect(configured.code).toContain('import sys');
+      expect(configured.code).toContain('sys.path.insert(0, script_dir)');
+      expect(configured.code).toContain('uvicorn_app = f"{Path(__file__).stem}:app"');
+      expect(configured.code).toContain('uvicorn.run(uvicorn_app');
+      expect(configured.code).toContain('app_dir=script_dir');
+      expect(configured.code).toContain('workers=2');
     });
 
     test('custom middleware generates BaseHTTPMiddleware artifact', async () => {
@@ -970,6 +1005,7 @@ describe('FastAPI Transpiler', () => {
       const mwArtifact = result.artifacts?.find((a) => a.type === 'middleware');
 
       expect(mwArtifact).toBeDefined();
+      expect(result.artifacts?.some((a) => a.path === 'middleware/__init__.py')).toBe(true);
       expect(mwArtifact!.path).toBe('middleware/auth.py');
       expect(mwArtifact!.content).toContain('BaseHTTPMiddleware');
       expect(mwArtifact!.content).toContain('class AuthMiddleware');
@@ -1141,6 +1177,8 @@ describe('FastAPI Transpiler', () => {
 
       expect(routeArtifacts.length).toBe(1);
       expect(wsArtifacts.length).toBe(1);
+      expect(result.artifacts?.some((a) => a.path === 'routes/__init__.py')).toBe(true);
+      expect(result.artifacts?.some((a) => a.path === 'ws/__init__.py')).toBe(true);
       expect(result.code).toContain('app.include_router(');
       expect(result.code).toContain('app.websocket("/ws/live")');
     });

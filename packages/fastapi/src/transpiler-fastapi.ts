@@ -60,6 +60,7 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   const uvicornHost = _config?.fastapi?.uvicorn?.host ?? '127.0.0.1';
   const uvicornReload = isStrict ? false : (_config?.fastapi?.uvicorn?.reload ?? false);
   const uvicornWorkers = _config?.fastapi?.uvicorn?.workers;
+  const uvicornNeedsImportString = uvicornReload || (uvicornWorkers !== undefined && uvicornWorkers > 1);
 
   // Collect top-level core language nodes (type, interface, fn, machine, etc.)
   // Exclude child-only types (field, transition, handler, describe, it, etc.)
@@ -120,6 +121,10 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   serverImports.add('from fastapi import FastAPI');
   serverImports.add('from fastapi.responses import JSONResponse');
   serverImports.add('import os');
+  if (uvicornNeedsImportString) {
+    serverImports.add('import sys');
+    serverImports.add('from pathlib import Path');
+  }
   if (
     !isStrict ||
     routeNodes.some((r) => {
@@ -395,10 +400,17 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   lines.push('');
   lines.push('');
   lines.push('if __name__ == "__main__":');
-  const uvicornTarget = uvicornReload || (uvicornWorkers !== undefined && uvicornWorkers > 1) ? '"main:app"' : 'app';
+  if (uvicornNeedsImportString) {
+    lines.push('    script_dir = str(Path(__file__).resolve().parent)');
+    lines.push('    if script_dir not in sys.path:');
+    lines.push('        sys.path.insert(0, script_dir)');
+    lines.push('    uvicorn_app = f"{Path(__file__).stem}:app"');
+  }
+  const uvicornTarget = uvicornNeedsImportString ? 'uvicorn_app' : 'app';
   const uvicornOpts: string[] = [uvicornTarget, `host=os.environ.get("HOST", "${uvicornHost}")`, `port=${port}`];
   if (uvicornReload) uvicornOpts.push('reload=True');
   if (uvicornWorkers && uvicornWorkers > 1) uvicornOpts.push(`workers=${uvicornWorkers}`);
+  if (uvicornNeedsImportString) uvicornOpts.push('app_dir=script_dir');
   lines.push(`    uvicorn.run(${uvicornOpts.join(', ')})`);
 
   // ── Assemble result ────────────────────────────────────────────────────
@@ -422,20 +434,28 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
         '',
         '[alembic]',
         'script_location = alembic',
-        'sqlalchemy.url = sqlite+aiosqlite:///./app.db',
+        'sqlalchemy.url = sqlite:///./app.db',
       ].join('\n'),
       type: 'config',
     });
     alembicArtifacts.push({
       path: 'alembic/env.py',
       content: [
+        `import importlib`,
+        `import sys`,
         `from logging.config import fileConfig`,
+        `from pathlib import Path`,
         `from sqlalchemy import engine_from_config, pool`,
         `from alembic import context`,
         `from sqlmodel import SQLModel`,
         ``,
         `# Import models so metadata is populated`,
-        `from main import *  # noqa: F403`,
+        `app_dir = Path(__file__).resolve().parents[1]`,
+        `if str(app_dir) not in sys.path:`,
+        `    sys.path.insert(0, str(app_dir))`,
+        `for module_path in app_dir.glob("*.py"):`,
+        `    if module_path.name != "__init__.py":`,
+        `        importlib.import_module(module_path.stem)`,
         ``,
         `config = context.config`,
         `if config.config_file_name is not None:`,
@@ -472,12 +492,25 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
     });
   }
 
+  const packageArtifacts: GeneratedArtifact[] = [
+    ...(routeArtifacts.length > 0
+      ? [{ path: 'routes/__init__.py', content: '# Generated route package marker.', type: 'lib' as const }]
+      : []),
+    ...(wsArtifacts.length > 0
+      ? [{ path: 'ws/__init__.py', content: '# Generated websocket package marker.', type: 'lib' as const }]
+      : []),
+    ...(middlewareArtifacts.size > 0
+      ? [{ path: 'middleware/__init__.py', content: '# Generated middleware package marker.', type: 'lib' as const }]
+      : []),
+  ];
+
   const artifacts: GeneratedArtifact[] = [
     ...routeArtifacts.map((r) => r.artifact),
     ...wsArtifacts.map((w) => w.artifact),
     ...[...middlewareArtifacts.values()].map((m) => m.artifact),
     ...(authArtifact ? [authArtifact] : []),
     ...alembicArtifacts,
+    ...packageArtifacts,
   ];
 
   const output = lines.join('\n');

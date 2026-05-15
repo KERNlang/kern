@@ -1,5 +1,6 @@
-import { spawnSync } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { createServer } from 'net';
 import { tmpdir } from 'os';
 import { basename, dirname, join } from 'path';
 import * as ts from 'typescript';
@@ -8,7 +9,13 @@ import { parse } from '../../core/src/parser.js';
 import { runCompile } from '../src/commands/compile.js';
 import { runImport } from '../src/commands/import.js';
 import { runSidecarInstall } from '../src/commands/sidecar-install.js';
-import { checkVersionDrift, loadConfig, parseCompilerVersion } from '../src/shared.js';
+import {
+  checkVersionDrift,
+  loadConfig,
+  outputBaseNameForTarget,
+  parseCompilerVersion,
+  pythonModuleName,
+} from '../src/shared.js';
 
 describe('kern import/compile commands', () => {
   let cwd: string;
@@ -67,6 +74,29 @@ describe('kern import/compile commands', () => {
       throw new Error(`EXIT:${code ?? 0}`);
     }) as never;
     return () => exitCode;
+  }
+
+  async function getFreePort(): Promise<number> {
+    return new Promise((resolvePort, reject) => {
+      const server = createServer();
+      server.unref();
+      server.on('error', reject);
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address();
+        server.close(() => {
+          if (address && typeof address === 'object') resolvePort(address.port);
+          else reject(new Error('failed to allocate a TCP port'));
+        });
+      });
+    });
+  }
+
+  function pythonWithFastApi(): string {
+    for (const candidate of ['python3', 'python']) {
+      const result = spawnSync(candidate, ['-c', 'import fastapi, uvicorn'], { encoding: 'utf-8' });
+      if (result.status === 0) return candidate;
+    }
+    return '';
   }
 
   function transpileTsModule(filePath: string): string {
@@ -1044,8 +1074,10 @@ export async function loadUser(id: string): Promise<User> {
     expect(getExitCode()).toBe(0);
 
     const mainFile = join(generatedDir, 'health.py');
+    const routePackageFile = join(generatedDir, 'routes/__init__.py');
     const routeFile = join(generatedDir, 'routes/get_health.py');
     expect(existsSync(mainFile)).toBe(true);
+    expect(existsSync(routePackageFile)).toBe(true);
     expect(existsSync(routeFile)).toBe(true);
 
     const main = readFileSync(mainFile, 'utf-8');
@@ -1060,10 +1092,172 @@ export async function loadUser(id: string): Promise<User> {
     expect(main).not.toContain('allow_methods=["*"]');
     expect(main).not.toContain('    from fastapi.responses import JSONResponse');
     expect(route).toContain('router = APIRouter()');
-    const pyCompile = spawnSync('python3', ['-m', 'py_compile', mainFile, routeFile], { encoding: 'utf-8' });
+    const pyCompile = spawnSync('python3', ['-m', 'py_compile', mainFile, routePackageFile, routeFile], {
+      encoding: 'utf-8',
+    });
     expect(pyCompile.status).toBe(0);
     expect(errors).toEqual([]);
   });
+
+  it('sanitizes FastAPI entry filenames into valid Python module names', async () => {
+    process.chdir(tmpDir);
+
+    expect(pythonModuleName('class')).toBe('class_');
+    expect(pythonModuleName('2-service')).toBe('_2_service');
+    expect(pythonModuleName('')).toBe('main');
+    expect(outputBaseNameForTarget('my-api', 'fastapi')).toBe('my_api');
+    expect(outputBaseNameForTarget('my-api', 'cli')).toBe('my-api');
+
+    const sourceFile = join(tmpDir, 'my-api.kern');
+    writeFileSync(sourceFile, 'server name=HealthAPI port=3002');
+
+    const generatedDir = join(tmpDir, 'fastapi-sanitized-out');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceFile, '--target=fastapi', `--outdir=${generatedDir}`])).rejects.toThrow(
+      'EXIT:0',
+    );
+    expect(getExitCode()).toBe(0);
+
+    const sanitizedFile = join(generatedDir, 'my_api.py');
+    expect(existsSync(sanitizedFile)).toBe(true);
+    expect(existsSync(join(generatedDir, 'my-api.py'))).toBe(false);
+
+    const pyCompile = spawnSync('python3', ['-m', 'py_compile', sanitizedFile], { encoding: 'utf-8' });
+    expect(pyCompile.status).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
+  it('avoids Python keyword FastAPI entry filenames', async () => {
+    process.chdir(tmpDir);
+
+    const sourceFile = join(tmpDir, 'class.kern');
+    writeFileSync(sourceFile, 'server name=KeywordAPI port=3003');
+
+    const generatedDir = join(tmpDir, 'fastapi-keyword-out');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceFile, '--target=fastapi', `--outdir=${generatedDir}`])).rejects.toThrow(
+      'EXIT:0',
+    );
+    expect(getExitCode()).toBe(0);
+
+    const sanitizedFile = join(generatedDir, 'class_.py');
+    expect(existsSync(sanitizedFile)).toBe(true);
+    expect(existsSync(join(generatedDir, 'class.py'))).toBe(false);
+
+    const pyCompile = spawnSync('python3', ['-m', 'py_compile', sanitizedFile], { encoding: 'utf-8' });
+    expect(pyCompile.status).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
+  it('boots generated FastAPI worker app from a sanitized module filename', async () => {
+    const python = pythonWithFastApi();
+    if (!python) {
+      if (process.env.CI) throw new Error('FastAPI worker smoke test requires python with fastapi and uvicorn');
+      return;
+    }
+    process.chdir(tmpDir);
+
+    writeFileSync(
+      join(tmpDir, 'kern.config.ts'),
+      [
+        'export default {',
+        "  target: 'fastapi',",
+        "  fastapi: { security: 'relaxed', uvicorn: { workers: 2 } },",
+        '};',
+      ].join('\n'),
+    );
+    const sourceFile = join(tmpDir, 'my-api.kern');
+
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const port = await getFreePort();
+      writeFileSync(
+        sourceFile,
+        [
+          `server name=HealthAPI port=${port}`,
+          '  route method=get path=/health',
+          '    handler <<<',
+          '      return {"ok": True}',
+          '    >>>',
+        ].join('\n'),
+      );
+
+      const generatedDir = join(tmpDir, `fastapi-worker-smoke-out-${attempt}`);
+      const getExitCode = trapExit();
+      await expect(runCompile(['compile', sourceFile, '--target=fastapi', `--outdir=${generatedDir}`])).rejects.toThrow(
+        'EXIT:0',
+      );
+      expect(getExitCode()).toBe(0);
+
+      const mainFile = join(generatedDir, 'my_api.py');
+      const child = spawn(python, [mainFile], {
+        cwd: dirname(tmpDir),
+        env: { ...process.env, PYTHONUNBUFFERED: '1' },
+      });
+      const output: string[] = [];
+      child.stdout.on('data', (chunk) => output.push(String(chunk)));
+      child.stderr.on('data', (chunk) => output.push(String(chunk)));
+
+      try {
+        const deadline = Date.now() + 15_000;
+        let responseJson: unknown;
+        while (Date.now() < deadline) {
+          if (child.exitCode !== null) throw new Error(`server exited early\n${output.join('')}`);
+          try {
+            const controller = new AbortController();
+            const fetchTimeout = setTimeout(() => controller.abort(), 2_000);
+            try {
+              const response = await fetch(`http://127.0.0.1:${port}/health`, { signal: controller.signal });
+              if (response.ok) {
+                responseJson = await response.json();
+                break;
+              }
+            } finally {
+              clearTimeout(fetchTimeout);
+            }
+          } catch {
+            // Server process is still starting.
+          }
+          await new Promise((resolveTimer) => setTimeout(resolveTimer, 150));
+        }
+        if (responseJson === undefined)
+          throw new Error(`timed out waiting for generated FastAPI worker\n${output.join('')}`);
+        expect(responseJson).toEqual({ ok: true });
+        return;
+      } catch (err) {
+        lastError = err;
+        const message = err instanceof Error ? err.message : String(err);
+        if (!message.includes('address already in use') && !message.includes('timed out waiting')) throw err;
+      } finally {
+        if (child.exitCode === null) {
+          try {
+            child.kill('SIGTERM');
+          } catch {
+            // Process already exited between the status check and signal.
+          }
+          await new Promise<void>((resolveClose) => {
+            if (child.exitCode !== null) {
+              resolveClose();
+              return;
+            }
+            const timeout = setTimeout(() => {
+              try {
+                child.kill('SIGKILL');
+              } catch {
+                // Process already exited before the hard kill.
+              }
+              resolveClose();
+            }, 3_000);
+            child.once('close', () => {
+              clearTimeout(timeout);
+              resolveClose();
+            });
+          });
+        }
+      }
+    }
+    throw lastError;
+  }, 50_000);
 
   it('auto-detects Ink from package.json when no kern.config.ts exists', () => {
     process.chdir(tmpDir);

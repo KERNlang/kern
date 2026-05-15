@@ -9,6 +9,7 @@ import {
   getOutputExtension,
   hasFlag,
   loadTemplates,
+  outputBaseNameForTarget,
   parseAndSurface,
   parseFlag,
   transpileForTarget,
@@ -213,7 +214,7 @@ export function runTranspile(args: string[]): void {
     console.log(`Transpiled: ${inputFile} → ${displayPath}`);
   } else {
     const outExt = getOutputExtension(target);
-    const outFile = resolve(outDir, `${name}${outExt}`);
+    const outFile = resolve(outDir, `${outputBaseNameForTarget(name, target)}${outExt}`);
     mkdirSync(dirname(outFile), { recursive: true });
     writeFileSync(outFile, result.code);
     if (result.artifacts) {

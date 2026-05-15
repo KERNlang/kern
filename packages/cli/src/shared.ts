@@ -621,6 +621,54 @@ export function getOutputExtension(target: KernTarget): string {
   }
 }
 
+const PYTHON_KEYWORDS = new Set([
+  'False',
+  'None',
+  'True',
+  'and',
+  'as',
+  'assert',
+  'async',
+  'await',
+  'break',
+  'class',
+  'continue',
+  'def',
+  'del',
+  'elif',
+  'else',
+  'except',
+  'finally',
+  'for',
+  'from',
+  'global',
+  'if',
+  'import',
+  'in',
+  'is',
+  'lambda',
+  'nonlocal',
+  'not',
+  'or',
+  'pass',
+  'raise',
+  'return',
+  'try',
+  'while',
+  'with',
+  'yield',
+]);
+
+export function pythonModuleName(name: string): string {
+  const sanitized = name.replace(/[^A-Za-z0-9_]/g, '_').replace(/^([0-9])/, '_$1');
+  const moduleName = sanitized.length > 0 ? sanitized : 'main';
+  return PYTHON_KEYWORDS.has(moduleName) ? `${moduleName}_` : moduleName;
+}
+
+export function outputBaseNameForTarget(name: string, target: KernTarget): string {
+  return target === 'fastapi' ? pythonModuleName(name) : name;
+}
+
 // ── Export extraction ───────────────────────────────────────────────────
 
 /** Extract exported symbol names from generated TypeScript lines, distinguishing type-only exports. */
@@ -1092,7 +1140,7 @@ export function transpileAndWrite(
     const outFileName =
       target === 'nextjs' && resultWithFiles.files && resultWithFiles.files.length > 0
         ? resultWithFiles.files[0].path
-        : `${name}${outExt}`;
+        : `${outputBaseNameForTarget(name, target)}${outExt}`;
     const outFilePath = resolve(outDir, outFileName);
     mkdirSync(dirname(outFilePath), { recursive: true });
     writeGeneratedFileSync(
