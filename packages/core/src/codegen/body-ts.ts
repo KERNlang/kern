@@ -416,11 +416,19 @@ function emitChildrenTS(
           lines.push(`${indent}for${awaitPrefix} (const ${asName}${typeAnn} of ${emitExpression(listIR)}) {`);
           primaryBinding = asName;
         }
-        if (ctx.traceHooks?.eachIterNext && primaryBinding !== null) {
+        if (ctx.traceHooks?.eachIterNext) {
           // Fires AFTER the target accepted the next iteration value and the
           // KERN binding was established (destructuring complete), BEFORE the
           // first child statement runs. This is the canonical event-location
           // rule per the IR-semantics spec — see packages/core/src/ir/semantics/each.ts.
+          //
+          // Throwing on null forces every `each` shape branch to set
+          // primaryBinding. If a new shape is added without extending the
+          // hook, the differential harness fails loud rather than silently
+          // skipping iter-next events.
+          if (primaryBinding === null) {
+            throw new Error('emitEach: traceHooks.eachIterNext set but no primaryBinding for this each shape');
+          }
           lines.push(
             `${indent}${INDENT_STEP}__kernTrace({op:'iter-next',binding:${JSON.stringify(primaryBinding)},value:${primaryBinding}});`,
           );

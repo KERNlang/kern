@@ -87,6 +87,80 @@ describe('lowerFixtureToKernIR', () => {
     expect(lowered.children?.[0]).toEqual({ type: 'break' });
     expect(lowered.children?.[1].type).toBe('do');
   });
+
+  it('preserves empty children array', () => {
+    const node: IRNode = { type: 'each', props: { name: 'x', in: 'xs' }, children: [] };
+    const lowered = lowerFixtureToKernIR(node);
+    expect(lowered.children).toEqual([]);
+  });
+
+  it('clones props so caller mutations cannot leak into the lowered tree', () => {
+    const props = { name: 'x', in: 'xs' };
+    const node: IRNode = { type: 'each', props, children: [{ type: 'break' }] };
+    const lowered = lowerFixtureToKernIR(node);
+    (props as Record<string, unknown>).name = 'mutated';
+    expect((lowered.props as Record<string, unknown>).name).toBe('x');
+  });
+
+  it('throws on __trace with missing event prop', () => {
+    expect(() => lowerFixtureToKernIR({ type: '__trace', props: {} })).toThrow(/event/);
+  });
+
+  it('throws on throw with missing errorKind prop', () => {
+    expect(() => lowerFixtureToKernIR({ type: 'throw', props: {} })).toThrow(/errorKind/);
+  });
+
+  it('throws on throw with non-string errorKind', () => {
+    expect(() => lowerFixtureToKernIR({ type: 'throw', props: { errorKind: 42 } })).toThrow(/errorKind/);
+  });
+});
+
+describe('runTsEmitterLeg — error model', () => {
+  it('re-throws when env.bindings shadows a reserved harness name', async () => {
+    const fixture = {
+      ir: {
+        type: 'each',
+        props: { name: 'x', in: 'xs' },
+        children: [{ type: 'break' }],
+      },
+    };
+    const env = makeEnv({
+      bindings: new Map<string, unknown>([
+        ['xs', [1]],
+        ['__kernTrace', 'oops'],
+      ]),
+    });
+    await expect(runTsEmitterLeg(fixture, env)).rejects.toThrow(/reserved/);
+  });
+
+  it('surfaces leg-error verdict for shadow attempts via the differential harness', async () => {
+    const fixture = {
+      description: 'shadow attempt',
+      ir: {
+        type: 'each',
+        props: { name: 'x', in: 'xs' },
+        children: [{ type: '__trace', props: { event: { op: 'stdout', text: 'x' } } }],
+      },
+      env: {
+        bindings: new Map<string, unknown>([
+          ['xs', [1]],
+          ['__kernReturn', 'oops'], // not actually reserved (lowercase), so this passes
+          ['__KernReturn', 'shadow'], // THIS is reserved
+        ]),
+      },
+      expected: {
+        events: [
+          { op: 'iter-next' as const, binding: 'x', value: 1 },
+          { op: 'stdout' as const, text: 'x' },
+        ],
+        completion: { kind: 'normal' as const },
+      },
+    };
+    const result = await runDifferential(fixture, { skipPython: true });
+    expect(result.verdict).toBe<Verdict>('leg-error');
+    expect(result.legError?.leg).toBe('ts');
+    expect(result.legError?.message).toMatch(/reserved/);
+  });
 });
 
 describe('runTsEmitterLeg — direct unit tests', () => {
