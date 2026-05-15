@@ -1379,13 +1379,68 @@ describe('rewriteNativeHandlers — review-found regressions', () => {
     expect(emitNativeKernBodyTS(handler as IRNode)).toContain('  // explain');
   });
 
-  // Gemini MED: trailing comment after the last statement was missed.
-  test('detects trailing comments after the last statement', () => {
+  // KERN-GAPS gap `comments-present` lift — tail comments after the last
+  // statement now migrate as trailing `comment` body-stmts (was: skipped).
+  test('migrates tail comment after the last statement', () => {
     const source = ['fn name=ok returns=number', '  handler <<<', '    return 1;', '    // tail comment', '  >>>'].join(
       '\n',
     );
     const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('return value="1"');
+    expect(result.output).toContain('comment raw="// tail comment"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  // KERN-GAPS gap `comments-present` — inline same-line trailing comments
+  // (`foo(); // x`) stay rejected because migrating them would byte-drift
+  // the codegen output (the comment moves to its own line) and trip
+  // `--verify` rollback. Authors who want this handler migrated should
+  // move the trailing comment to its own line first.
+  test('does NOT migrate inline same-line trailing comments (byte-drift)', () => {
+    const source = ['fn name=ok returns=number', '  handler <<<', '    return total; // done', '  >>>'].join('\n');
+    const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(0);
+    expect(result.skipped.some((s) => /comments-present/.test(s.reason))).toBe(true);
+  });
+
+  // KERN-GAPS gap `comments-present` — tail comments inside a nested block
+  // (`if (x) { foo(); // tail }`) now migrate. The migrator emits the
+  // comment as a `comment` body-stmt at the end of the nested block.
+  test('migrates tail comment inside a nested if-block', () => {
+    const source = [
+      'fn name=ok returns=number',
+      '  handler <<<',
+      '    if (cond) {',
+      '      return 1;',
+      '      // inside-block tail',
+      '    }',
+      '    return 0;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('comment raw="// inside-block tail"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  // KERN-GAPS gap `comments-present` lift — multi-line block comment at
+  // body tail. Migrator preserves it as a multi-line comment text node
+  // (same shape mid-body multiline block comments already used).
+  test('migrates multi-line block comment at body tail', () => {
+    const source = [
+      'fn name=ok returns=number',
+      '  handler <<<',
+      '    return 1;',
+      '    /* first',
+      '     * second */',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('comment text="first"');
+    expect(result.output).toContain('comment text="second"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 });
 

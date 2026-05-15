@@ -621,9 +621,43 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
     });
   });
 
-  test('inline and trailing comments remain rejected', () => {
+  // KERN-GAPS gap `comments-present` lift: standalone comments that sit on
+  // their own line at a statement boundary are now migratable. The
+  // migrator emits them as `comment` body-stmts attached as the leading
+  // comment of the following statement, or as a trailing `comment` node
+  // at the body / nested-block tail. Same-line inline trailing comments
+  // (`foo(); // x`) stay rejected — the migrated KERN would emit them on
+  // a new line, byte-drifting the codegen output and tripping `--verify`.
+  test('inline same-line trailing comment remains rejected (byte-drift)', () => {
     rejected(`return 1; // note`, 'comments-present');
-    rejected(`return 1;\n// tail`, 'comments-present');
+  });
+
+  test('tail comment after last statement is now eligible', () => {
+    expect(classifyHandlerBody(`return 1;\n// tail`)).toEqual({ eligible: true, reason: 'ok' });
+    expect(classifyHandlerBody(`return 1;\n/* multi\nline tail */`)).toEqual({ eligible: true, reason: 'ok' });
+  });
+
+  test('tail comment inside a nested if-block is now eligible', () => {
+    expect(classifyHandlerBody(`if (x) {\n  return 1;\n  // inside-tail\n}\nreturn 0;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
+  test('comments-only body (no statements) stays rejected', () => {
+    // Parity: classifier must not say eligible if the migrator's
+    // "no statements emitted" guard will reject the same body. Authors
+    // who want a behaviorless stub should leave it raw.
+    rejected(`// only a comment`, 'comments-present');
+    rejected(`/* block-only */`, 'comments-present');
+  });
+
+  test('comments embedded inside expressions remain rejected', () => {
+    // `/* mid */` lives inside the call expression — neither leading,
+    // tail-of-body, nor tail-of-block of any statement. Preserving it
+    // would require changes to argument structure, so the classifier
+    // still rejects.
+    rejected(`foo(/* mid */ bar);`, 'comments-present');
   });
 });
 

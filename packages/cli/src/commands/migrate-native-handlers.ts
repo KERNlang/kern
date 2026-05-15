@@ -158,6 +158,47 @@ function mapLeadingComments(stmt: ts.Statement, source: ts.SourceFile, indent: s
     });
 }
 
+/** Tail comments — comments positioned in `[startPos, endPos)` that are
+ *  past the same-line "trailing" window of the previous statement. Used in
+ *  two places: tail-of-body (`startPos = lastStmt.getEnd()`, `endPos = ∞`)
+ *  and tail-of-nested-block (`startPos = lastBlockStmt.getEnd()`,
+ *  `endPos = block.getEnd()`). The same-line trailing window is already
+ *  emitted by `mapTrailingComments`, so we skip everything until the
+ *  first newline. The body emitter accepts `comment` body-stmts at any
+ *  position. */
+function mapTailComments(startPos: number, endPos: number, source: ts.SourceFile, indent: string): string[] {
+  if (startPos >= endPos) return [];
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, /*skipTrivia*/ false);
+  scanner.setText(source.text);
+  scanner.setTextPos(startPos);
+  let sawNewline = false;
+  const tailRanges: ts.CommentRange[] = [];
+  while (true) {
+    const kind = scanner.scan();
+    if (kind === ts.SyntaxKind.EndOfFileToken) break;
+    if (scanner.getTokenPos() >= endPos) break;
+    if (kind === ts.SyntaxKind.NewLineTrivia) {
+      sawNewline = true;
+      continue;
+    }
+    if (kind === ts.SyntaxKind.SingleLineCommentTrivia || kind === ts.SyntaxKind.MultiLineCommentTrivia) {
+      if (sawNewline) {
+        tailRanges.push({ pos: scanner.getTokenPos(), end: scanner.getTextPos(), kind, hasTrailingNewLine: false });
+      }
+      continue;
+    }
+    if (kind === ts.SyntaxKind.WhitespaceTrivia) continue;
+    // Non-trivia inside the tail window means we've crossed into the next
+    // construct — stop. Same-line trailing comments are not our concern
+    // here (mapTrailingComments handles them).
+    break;
+  }
+  return tailRanges.flatMap((range) => {
+    const raw = source.text.slice(range.pos, range.end).trim();
+    return mapComment(raw, indent);
+  });
+}
+
 function mapComment(raw: string, indent: string): string[] {
   if (raw.startsWith('/*') && raw.endsWith('*/') && raw.includes('\n')) {
     return raw
@@ -543,6 +584,12 @@ function mapBranch(node: ts.Statement, source: ts.SourceFile, indent: string, ct
     if (lines === null) return null;
     out.push(...lines);
   }
+  // KERN-GAPS `comments-present` lift — preserve tail-of-block comments
+  // (`if (x) { foo(); /* tail */ }`). For non-block single-stmt bodies
+  // there's no block container, so no tail window exists.
+  if (ts.isBlock(node) && stmts.length > 0) {
+    out.push(...mapTailComments(stmts[stmts.length - 1].getEnd(), node.getEnd(), source, indent));
+  }
   return out;
 }
 
@@ -644,6 +691,13 @@ export function rewriteNativeHandlers(source: string): NativeHandlerResult {
         break;
       }
       stmtLines.push(...mapped);
+    }
+    if (!bailed && sourceFile.statements.length > 0) {
+      // Comments that come AFTER every top-level statement and don't
+      // attach as trailing-on-same-line (i.e. tail-of-body comments) get
+      // emitted here so the migrated output preserves them.
+      const lastTop = sourceFile.statements[sourceFile.statements.length - 1];
+      stmtLines.push(...mapTailComments(lastTop.getEnd(), sourceFile.text.length, sourceFile, bodyIndent));
     }
     if (bailed) {
       skipped.push({ headerLine: headerLine1, endLine: endLine1, reason: ctx.skipReason ?? 'unsupported TS shape' });

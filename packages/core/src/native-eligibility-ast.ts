@@ -328,24 +328,62 @@ export function hasComments(bodyText: string): boolean {
 export function hasOnlyMigratableComments(bodyText: string): boolean {
   const all = collectCommentRanges(bodyText);
   if (all.length === 0) return true;
-  if (all.some((range) => !isStandaloneCommentRange(bodyText, range))) return false;
 
   const sf = ts.createSourceFile('__handler.ts', bodyText, ts.ScriptTarget.Latest, true);
   const diags = (sf as unknown as { parseDiagnostics?: ts.Diagnostic[] }).parseDiagnostics;
   if (diags && diags.length > 0) return false;
 
-  const leading = new Set<string>();
+  // KERN-GAPS `comments-present` lift: a comment is migratable when it
+  // sits on its own line at a statement boundary the migrator can latch a
+  // `comment` body-stmt onto:
+  //   - leading (standalone, own line, immediately before a statement)
+  //   - tail-of-body (after the last top-level statement, own line)
+  //   - tail-of-block (after the last statement inside an `if`/`for`/`while`
+  //     body block, before the closing brace, own line)
+  // Inline same-line trailing comments (`foo(); // x`) are NOT lifted —
+  // the migrator emits them on a new line, which would byte-drift the
+  // codegen output and trip `--verify` rollback. Comments INSIDE an
+  // expression (e.g. `foo(/* mid */)`) likewise attach to no statement
+  // boundary and stay rejected.
+  const migratable = new Set<string>();
+  const addBlockTail = (block: ts.Block): void => {
+    const blockStmts = block.statements;
+    if (blockStmts.length === 0) return;
+    const lastEnd = blockStmts[blockStmts.length - 1].getEnd();
+    const blockEnd = block.getEnd();
+    for (const range of all) {
+      if (range.pos >= lastEnd && range.end <= blockEnd && isStandaloneCommentRange(sf.text, range)) {
+        migratable.add(commentRangeKey(range));
+      }
+    }
+  };
   const visit = (node: ts.Node): void => {
     if (ts.isStatement(node)) {
       for (const range of ts.getLeadingCommentRanges(sf.text, node.getFullStart()) ?? []) {
-        if (isStandaloneCommentRange(sf.text, range)) leading.add(commentRangeKey(range));
+        if (isStandaloneCommentRange(sf.text, range)) migratable.add(commentRangeKey(range));
       }
     }
+    if (ts.isBlock(node)) addBlockTail(node);
     ts.forEachChild(node, visit);
   };
   visit(sf);
 
-  return all.every((range) => leading.has(commentRangeKey(range)));
+  // Tail-of-body — standalone comments positioned strictly after the last
+  // top-level statement's end. A comments-only body (no top-level
+  // statements) has no tail position; such handlers stay in
+  // `comments-present` so the migrator's "no statements emitted" rule
+  // and the classifier verdict remain in lockstep.
+  const topStmts = sf.statements;
+  if (topStmts.length > 0) {
+    const lastTopEnd = topStmts[topStmts.length - 1].getEnd();
+    for (const range of all) {
+      if (range.pos >= lastTopEnd && isStandaloneCommentRange(sf.text, range)) {
+        migratable.add(commentRangeKey(range));
+      }
+    }
+  }
+
+  return all.every((range) => migratable.has(commentRangeKey(range)));
 }
 
 function collectCommentRanges(bodyText: string): ts.CommentRange[] {
