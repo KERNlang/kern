@@ -627,6 +627,29 @@ export async function loadUser(id: string): Promise<User> {
     expect(logs).toEqual([`python-test -m pip install -r ${join(generatedDir, 'kern-sidecar-requirements.txt')}`]);
   });
 
+  it('prints native Python and sidecar requirement files in sidecar install dry-run mode', () => {
+    process.chdir(tmpDir);
+    const generatedDir = join(tmpDir, 'generated-python-install');
+    mkdirSync(generatedDir, { recursive: true });
+    writeFileSync(join(generatedDir, 'kern-python-requirements.txt'), 'httpx==0.28\n');
+    writeFileSync(join(generatedDir, 'kern-sidecar-requirements.txt'), 'demucs\n');
+
+    runSidecarInstall(['sidecar-install', `--outdir=${generatedDir}`, '--python=python-test', '--dry-run']);
+
+    expect(logs).toEqual([
+      [
+        'python-test',
+        '-m',
+        'pip',
+        'install',
+        '-r',
+        join(generatedDir, 'kern-python-requirements.txt'),
+        '-r',
+        join(generatedDir, 'kern-sidecar-requirements.txt'),
+      ].join(' '),
+    ]);
+  });
+
   it('executes generated Python sidecar calls over stdio JSON RPC', async () => {
     const python =
       spawnSync('python3', ['-c', 'import math; print(math.sqrt(49))'], { encoding: 'utf-8' }).status === 0
@@ -1507,6 +1530,117 @@ export async function loadUser(id: string): Promise<User> {
 
     const pyCompile = spawnSync('python3', ['-m', 'py_compile', sanitizedFile], { encoding: 'utf-8' });
     expect(pyCompile.status).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
+  it('emits native FastAPI Python imports and requirements for PyPI imports', async () => {
+    process.chdir(tmpDir);
+
+    const sourceFile = join(tmpDir, 'deps.kern');
+    writeFileSync(
+      sourceFile,
+      [
+        'import py "numpy" as np version=1.26 target=fastapi',
+        'import py "python-dateutil" from=dateutil names=parser version=2.9 target=fastapi',
+        'import py "pillow" from=PIL names=Image version=10 target=fastapi requiresSidecar=true',
+        'import py "typing-extensions" from=typing_extensions names=TypedDict version=4.12 target=fastapi types=true',
+        'import py "math" names=sqrt target=fastapi',
+        'extern package=httpx registry=pypi target=fastapi version=0.28',
+        '  import default=httpx',
+        'server name=DepsAPI port=3004',
+        '  route method=get path=/health',
+        '    handler <<<',
+        '      return {"ok": True}',
+        '    >>>',
+      ].join('\n'),
+    );
+
+    const generatedDir = join(tmpDir, 'fastapi-python-deps-out');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceFile, '--target=fastapi', `--outdir=${generatedDir}`])).rejects.toThrow(
+      'EXIT:0',
+    );
+    expect(getExitCode()).toBe(0);
+
+    const generated = readFileSync(join(generatedDir, 'deps.py'), 'utf-8');
+    expect(generated).toContain('import numpy as np');
+    expect(generated).toContain('from dateutil import parser');
+    expect(generated).toContain('from PIL import Image');
+    expect(generated).toContain('from typing_extensions import TypedDict');
+    expect(generated).toContain('from math import sqrt');
+    expect(generated).toContain('import httpx');
+    expect(readFileSync(join(generatedDir, 'kern-python-requirements.txt'), 'utf-8')).toBe(
+      'httpx==0.28\nnumpy==1.26\npillow==10\npython-dateutil==2.9\ntyping-extensions==4.12\n',
+    );
+    expect(existsSync(join(generatedDir, 'kern-sidecars.json'))).toBe(false);
+    expect(existsSync(join(generatedDir, 'kern-sidecar-requirements.txt'))).toBe(false);
+    expect(errors).toEqual([]);
+  });
+
+  it('aggregates nested FastAPI native Python requirements at the app root', async () => {
+    process.chdir(tmpDir);
+
+    const sourceDir = join(tmpDir, 'fastapi-deps');
+    mkdirSync(join(sourceDir, 'feature'), { recursive: true });
+    writeFileSync(
+      join(sourceDir, 'api.kern'),
+      [
+        'import py "numpy" as np version=1.26 target=fastapi',
+        'server name=RootDepsAPI port=3006',
+        '  route method=get path=/health',
+        '    handler <<<',
+        '      return {"ok": True}',
+        '    >>>',
+      ].join('\n'),
+    );
+    writeFileSync(
+      join(sourceDir, 'feature', 'worker.kern'),
+      [
+        'import py "python-dateutil" from=dateutil names=parser version=2.9 target=fastapi',
+        'server name=NestedDepsAPI port=3007',
+      ].join('\n'),
+    );
+
+    const generatedDir = join(tmpDir, 'fastapi-nested-python-deps-out');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceDir, '--target=fastapi', `--outdir=${generatedDir}`])).rejects.toThrow(
+      'EXIT:0',
+    );
+    expect(getExitCode()).toBe(0);
+
+    expect(readFileSync(join(generatedDir, 'kern-python-requirements.txt'), 'utf-8')).toBe(
+      'numpy==1.26\npython-dateutil==2.9\n',
+    );
+    expect(existsSync(join(generatedDir, 'feature', 'kern-python-requirements.txt'))).toBe(false);
+    expect(errors).toEqual([]);
+  });
+
+  it('keeps explicit FastAPI sidecar requirements separate from native Python requirements', async () => {
+    process.chdir(tmpDir);
+
+    const sourceFile = join(tmpDir, 'sidecar-deps.kern');
+    writeFileSync(
+      sourceFile,
+      [
+        'island sidecar Demucs runtime=python effects=[fs,exec] serialization=json requiresSidecar=true',
+        '  import py "demucs" as demucs',
+        'server name=SidecarDepsAPI port=3005',
+        '  route method=get path=/health',
+        '    handler <<<',
+        '      return {"ok": True}',
+        '    >>>',
+      ].join('\n'),
+    );
+
+    const generatedDir = join(tmpDir, 'fastapi-sidecar-deps-out');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceFile, '--target=fastapi', `--outdir=${generatedDir}`])).rejects.toThrow(
+      'EXIT:0',
+    );
+    expect(getExitCode()).toBe(0);
+
+    expect(readFileSync(join(generatedDir, 'kern-sidecar-requirements.txt'), 'utf-8')).toBe('demucs\n');
+    expect(existsSync(join(generatedDir, 'kern-python-requirements.txt'))).toBe(false);
     expect(errors).toEqual([]);
   });
 

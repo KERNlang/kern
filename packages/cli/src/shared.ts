@@ -30,6 +30,7 @@ import {
   parseWithDiagnostics,
   registerTemplate,
   resolveConfig,
+  sidecarManifestFromIsland,
   sourceComment,
   validateSchema,
   validateSemantics,
@@ -446,8 +447,31 @@ export function writeSidecarInstallFiles(ast: IRNode, outDir: string): void {
   writeSidecarInstallFilesForAsts([ast], outDir);
 }
 
-export function writeSidecarInstallFilesForAsts(asts: Iterable<IRNode>, outDir: string): void {
-  const manifests = [...asts].flatMap((ast) => collectSidecarManifests(ast));
+interface SidecarInstallFileOptions {
+  sidecarIslandsOnly?: boolean;
+}
+
+function sidecarManifestsForInstall(ast: IRNode, options?: SidecarInstallFileOptions) {
+  if (options?.sidecarIslandsOnly === true) {
+    return collectCapabilityIslands(ast)
+      .map((island) => sidecarManifestFromIsland(island))
+      .filter((manifest) => manifest !== null);
+  }
+  return collectSidecarManifests(ast);
+}
+
+function pythonRequirementLine(packageName: string, version?: string): string | undefined {
+  const root = packageName.split('.')[0];
+  if (!root || PYTHON_STDLIB_PACKAGES.has(root)) return undefined;
+  return version ? `${packageName}==${version}` : packageName;
+}
+
+export function writeSidecarInstallFilesForAsts(
+  asts: Iterable<IRNode>,
+  outDir: string,
+  options?: SidecarInstallFileOptions,
+): void {
+  const manifests = [...asts].flatMap((ast) => sidecarManifestsForInstall(ast, options));
   const sidecarsPath = resolve(outDir, 'kern-sidecars.json');
   const requirementsPath = resolve(outDir, 'kern-sidecar-requirements.txt');
   if (manifests.length === 0) {
@@ -460,15 +484,32 @@ export function writeSidecarInstallFilesForAsts(asts: Iterable<IRNode>, outDir: 
   const requirements = new Set<string>();
   for (const manifest of manifests) {
     for (const sidecarPackage of manifest.packages) {
-      const root = sidecarPackage.package.split('.')[0];
-      if (!root || PYTHON_STDLIB_PACKAGES.has(root)) continue;
       if (sidecarPackage.registry !== 'pypi') continue;
-      requirements.add(
-        sidecarPackage.version ? `${sidecarPackage.package}==${sidecarPackage.version}` : sidecarPackage.package,
-      );
+      const requirement = pythonRequirementLine(sidecarPackage.package, sidecarPackage.version);
+      if (requirement) requirements.add(requirement);
     }
   }
   if (requirements.size > 0) {
+    writeFileSync(requirementsPath, `${[...requirements].sort().join('\n')}\n`);
+  } else if (existsSync(requirementsPath)) {
+    unlinkSync(requirementsPath);
+  }
+}
+
+export function writeFastApiPythonInstallFilesForAsts(asts: Iterable<IRNode>, outDir: string): void {
+  const requirementsPath = resolve(outDir, 'kern-python-requirements.txt');
+  const requirements = new Set<string>();
+  for (const ast of asts) {
+    for (const boundary of collectExternalBoundaries(ast)) {
+      if (boundary.registry !== 'pypi') continue;
+      if (boundary.targetFamily !== 'python' && boundary.targetFamily !== 'all') continue;
+      if (boundary.island) continue;
+      const requirement = pythonRequirementLine(boundary.package, boundary.version);
+      if (requirement) requirements.add(requirement);
+    }
+  }
+  if (requirements.size > 0) {
+    mkdirSync(outDir, { recursive: true });
     writeFileSync(requirementsPath, `${[...requirements].sort().join('\n')}\n`);
   } else if (existsSync(requirementsPath)) {
     unlinkSync(requirementsPath);

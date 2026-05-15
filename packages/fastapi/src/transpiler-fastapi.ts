@@ -176,6 +176,7 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
     'test',
     'event',
     'import',
+    'extern',
     'use',
     'const',
     // Data layer

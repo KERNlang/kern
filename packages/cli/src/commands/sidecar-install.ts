@@ -50,7 +50,7 @@ function findRequirementFiles(root: string): string[] {
       if (stat.isDirectory()) {
         if (entry === 'node_modules' || entry === '.git') continue;
         stack.push(full);
-      } else if (entry === 'kern-sidecar-requirements.txt') {
+      } else if (entry === 'kern-sidecar-requirements.txt' || entry === 'kern-python-requirements.txt') {
         files.push(full);
       }
     }
