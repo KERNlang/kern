@@ -334,6 +334,7 @@ export function decompile(root: IRNode): DecompileResult {
 
   function renderLet(node: IRNode, indent: string): void {
     const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
     const name = (props.name as string) || 'binding';
     // Codex hold #3: prefer `value=` if the let node carries one (slice 3a).
     // Without this, a let authored with `value=42` would round-trip to
@@ -349,13 +350,21 @@ export function decompile(root: IRNode): DecompileResult {
           : JSON.stringify(rawValue as string);
       parts.push(`value=${valueText}`);
     } else {
-      const expr =
+      const exprBody =
         rawExpr && typeof rawExpr === 'object' && (rawExpr as ExprObject).__expr
           ? (rawExpr as ExprObject).code
           : (rawExpr as string) || '';
-      parts.push(`expr=${JSON.stringify(expr)}`);
+      // Uninitialised `let` (migrated from TS `let x;`) carries neither
+      // `value` nor `expr` — emit a bare `let name=x` rather than a
+      // spurious `expr=""` that the round-trip would have to special-case
+      // back to no-initialiser semantics.
+      if (exprBody !== '') parts.push(`expr=${JSON.stringify(exprBody)}`);
     }
-    if (t) parts.push(`type=${t}`);
+    // Gemini review fix: types with spaces (`User | null`) or operators
+    // need quoting — bare-word emission breaks the parser. `renderScalarProp`
+    // applies the same quote-when-unsafe rule the other type-bearing
+    // decompilers already use.
+    if (t !== undefined) parts.push(renderScalarProp('type', t, quoted));
     if (props.kind === 'let') parts.push('kind=let');
     lines.push(`${indent}${parts.join(' ')}`);
     // `let` has no children in normal use, but preserve generic recursion.

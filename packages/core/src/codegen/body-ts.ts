@@ -536,7 +536,15 @@ function emitLetTS(node: IRNode, ctx: BodyEmitContext): string[] {
   const typeAnn = props.type ? `: ${emitTypeAnnotation(String(props.type), 'unknown', node)}` : '';
   const rawValue = props.value;
   if (rawValue === undefined || rawValue === '') {
-    return [`${bindingKind} ${name}${typeAnn} = undefined;`];
+    // No initializer — emit a bare `let x;` (TS's own form for uninitialised
+    // bindings). The previous form `let x: T = undefined;` fails strict TS
+    // when `T` doesn't include `undefined` (Codex review fix), so always
+    // emit the declaration-only shape. `const` without an initializer is
+    // illegal in TS; reject it loudly rather than emit invalid code.
+    if (bindingKind === 'const') {
+      throw new Error(`body-statement \`let name=${name}\` without \`value=\` requires \`kind=let\` (\`const\` needs an initializer).`);
+    }
+    return [`${bindingKind} ${name}${typeAnn};`];
   }
   const valueIR = parseExpression(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {

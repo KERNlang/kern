@@ -79,6 +79,65 @@ describe('slice 5b-pre — body-statement source round-trip (positive)', () => {
     ).not.toThrow();
   });
 
+  // KERN-GAPS gap `var-no-init` — `let name=x type="User | null" kind=let`
+  // round-trips through the decompiler. Pre-fix, `renderLet` emitted bare
+  // `type=User | null` which the parser tokenised as three separate props.
+  // The decompiler now routes through `renderScalarProp` for consistent
+  // quoting (Gemini review fix).
+  test('let kind=let with complex (space-bearing) type round-trips', () => {
+    const src = [
+      'fn name=acc returns=void',
+      '  handler lang="kern"',
+      '    let name=user type="User | null" kind=let',
+      '    assign target=user value="loadUser()"',
+    ].join('\n');
+
+    const root = parseDocumentStrict(src);
+    const handler = findFirstHandler(root);
+    const letNode = (handler.children ?? [])[0] as IRNode;
+    expect(letNode.props?.name).toBe('user');
+    expect(letNode.props?.type).toBe('User | null');
+    expect(letNode.props?.kind).toBe('let');
+
+    const emitted = emitNativeKernBodyTS(handler);
+    expect(emitted).toContain('let user: User | null;');
+
+    const text = decompile(letNode).code;
+    // Quoted because the type carries spaces.
+    expect(text).toBe('let name=user type="User | null" kind=let');
+    expect(() =>
+      parseDocumentStrict(['fn name=acc returns=void', '  handler lang="kern"', `    ${text}`].join('\n')),
+    ).not.toThrow();
+  });
+
+  // KERN-GAPS gap `var-no-init` — `let name=x kind=let` (no value) round-trips
+  // without acquiring a spurious `expr=""` attribute, and emits the same
+  // `let x = undefined;` TS body that the migrator promised for `let x;`.
+  test('let kind=let without value round-trips bare (no spurious expr=)', () => {
+    const src = [
+      'fn name=acc returns=void',
+      '  handler lang="kern"',
+      '    let name=pending kind=let',
+      '    assign target=pending value="compute()"',
+    ].join('\n');
+
+    const root = parseDocumentStrict(src);
+    const handler = findFirstHandler(root);
+    const letNode = (handler.children ?? [])[0] as IRNode;
+    expect(letNode.props?.name).toBe('pending');
+    expect(letNode.props?.kind).toBe('let');
+    expect(letNode.props?.value).toBeUndefined();
+
+    const emitted = emitNativeKernBodyTS(handler);
+    expect(emitted).toContain('let pending;');
+
+    const text = decompile(letNode).code;
+    expect(text).toBe('let name=pending kind=let');
+    expect(() =>
+      parseDocumentStrict(['fn name=acc returns=void', '  handler lang="kern"', `    ${text}`].join('\n')),
+    ).not.toThrow();
+  });
+
   test('body-statement if + sibling else round-trips', () => {
     const src = [
       'fn name=classify returns=string',

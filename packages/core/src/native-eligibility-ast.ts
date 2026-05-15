@@ -385,8 +385,16 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
     const decls = stmt.declarationList.declarations;
     if (decls.length !== 1) return 'var-multi-decl';
     const decl = decls[0];
-    if (!decl.initializer) return 'var-no-init';
     if (decl.type && !isValidKernTypeAnnotation(decl.type.getText(sf))) return 'var-bad-type';
+    if (!decl.initializer) {
+      // `let x;` migrates to `let name=x kind=let` (the body emitter handles
+      // missing `value=` by emitting `let x = undefined;`, matching TS
+      // semantics). Destructured uninitialised bindings (`let { x };`) are a
+      // TS parse error in practice, but defensively reject them anyway since
+      // the migrator can only emit identifier-named lets in this branch.
+      if (!ts.isIdentifier(decl.name)) return 'var-destructure';
+      return null;
+    }
     if (!ts.isIdentifier(decl.name)) return classifyDestructureDecl(decl, sf);
     // Template-literal initializer is migratable via the `fmt` body-stmt.
     // Restriction parity with the migrator: single-line, no backslash escape

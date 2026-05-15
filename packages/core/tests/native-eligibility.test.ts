@@ -592,6 +592,27 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
     expect(classifyHandlerBody(`let x = 1;\nreturn x;`)).toEqual({ eligible: true, reason: 'ok' });
   });
 
+  // KERN-GAPS gap `var-no-init` — TS `let x;` is now migratable; the body
+  // emitter accepts a `let` node without `value=` and emits
+  // `let x = undefined;`, matching TS semantics.
+  test('let declaration without initializer is eligible (var-no-init lifted)', () => {
+    expect(classifyHandlerBody(`let x;\nx = 1;\nreturn x;`)).toEqual({ eligible: true, reason: 'ok' });
+    expect(classifyHandlerBody(`let total: number;\ntotal = sumItems(xs);\nreturn total;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
+  // Type-annotation safety must still gate `let x: T;` — a malicious type
+  // would otherwise round-trip into a KERN attribute that the codegen
+  // re-emits verbatim. Reuse the same rejection slug the initialised path
+  // already returns so the kern review noise dashboard doesn't grow a
+  // new spurious category.
+  test('uninitialised let with unsafe type annotation is rejected (var-bad-type)', () => {
+    expect(classifyHandlerBody(`let x: typeof import("fs");\nreturn x;`).reason).toBe('var-bad-type');
+    expect(classifyHandlerBody(`let x: \`\${evil}\`;\nreturn x;`).reason).toBe('var-bad-type');
+  });
+
   test('standalone comments inside body are eligible and preserved by migration', () => {
     expect(classifyHandlerBody(`// note\nreturn 1;`)).toEqual({ eligible: true, reason: 'ok' });
     expect(classifyHandlerBody(`if (ok) {\n  // nested note\n  return 1;\n}\nreturn 0;`)).toEqual({

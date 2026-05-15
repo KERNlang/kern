@@ -199,10 +199,20 @@ function mapStatementCore(stmt: ts.Statement, source: ts.SourceFile, indent: str
         'multi-declarator declaration (`const a = …, b = …`) not supported — split into separate statements',
       );
     const decl = decls[0];
-    if (!decl.initializer)
-      return recordSkip(ctx, 'declaration without initializer not supported (`let x;`) — assign an initial value');
     const typeText = decl.type?.getText(source);
     if (typeText && !isValidKernTypeAnnotation(typeText)) return null;
+    if (!decl.initializer) {
+      // `let x;` (always `let` — `const x;` is a TS parse error so it never
+      // reaches this branch). The native KERN body emitter handles a `let`
+      // node with no `value=` by emitting `let x = undefined;`, matching TS
+      // semantics. Always tag `kind=let` since uninitialised TS bindings are
+      // mutable by definition.
+      if (!ts.isIdentifier(decl.name))
+        return recordSkip(ctx, 'destructuring without initializer not supported (`let { x };` is malformed)');
+      const undeclared = decl.name.text;
+      const typeAttr = typeText ? ` type="${escapeKernString(typeText)}"` : '';
+      return [`${indent}let name=${undeclared}${typeAttr} kind=let`];
+    }
     if (!ts.isIdentifier(decl.name)) return mapDestructureDecl(decl, source, indent, typeText, isLet ? 'let' : 'const');
     const name = decl.name.text;
     // Template-literal initializer → emit `fmt name=X template="..."` body-stmt

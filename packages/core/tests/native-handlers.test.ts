@@ -148,6 +148,26 @@ describe('emitNativeKernBodyTS — slice 1 statements', () => {
     expect(emitNativeKernBodyTS(handler)).toBe('let total: number = 0;');
   });
 
+  // KERN-GAPS gap `var-no-init` — `let name=x kind=let` (no value=) emits
+  // a bare `let x;`, matching TS's own form for uninitialised bindings.
+  // Codex review fix: the prior `= undefined` shape fails strict TS when
+  // the type doesn't include `undefined` (e.g. `let count: number = undefined`
+  // is `TS2322: Type 'undefined' is not assignable to type 'number'`).
+  test('let kind=let without value emits bare `let x;`', () => {
+    const handler = makeHandler([{ type: 'let', props: { name: 'pending', kind: 'let' } }]);
+    expect(emitNativeKernBodyTS(handler)).toBe('let pending;');
+  });
+
+  test('let kind=let without value preserves type annotation as bare declaration', () => {
+    const handler = makeHandler([{ type: 'let', props: { name: 'count', kind: 'let', type: 'number' } }]);
+    expect(emitNativeKernBodyTS(handler)).toBe('let count: number;');
+  });
+
+  test('const without value is rejected (TS forbids `const x;`)', () => {
+    const handler = makeHandler([{ type: 'let', props: { name: 'pending' } }]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/requires `kind=let`/);
+  });
+
   test('let kind=let can be reassigned by assign', () => {
     const handler = makeHandler([
       { type: 'let', props: { name: 'total', kind: 'let', value: '0' } },

@@ -381,6 +381,43 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
+  test('migrates `let x;` (no initializer) to `let kind=let`', () => {
+    // KERN-GAPS gap `var-no-init` (36 handlers in Agon). TS `let x;` is
+    // uninitialised + mutable; the body emitter handles missing `value=`
+    // by emitting `let x = undefined;`, so the migrator just emits
+    // `let name=x kind=let` (no `value=` attr).
+    const source = [
+      'fn name=acc returns=number',
+      '  handler <<<',
+      '    let pending;',
+      '    pending = compute();',
+      '    return pending;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('let name=pending kind=let');
+    expect(result.output).not.toMatch(/let name=pending kind=let value=/);
+    expect(result.output).toContain('assign target="pending" value="compute()"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates typed `let x: T;` (no initializer) preserving the type', () => {
+    const source = [
+      'fn name=acc returns=void',
+      '  handler <<<',
+      '    let count: number;',
+      '    count = items.length;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('let name=count type="number" kind=let');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
   test('migrates mutable let binding with compound assignment', () => {
     const source = [
       'fn name=sum returns=number',
