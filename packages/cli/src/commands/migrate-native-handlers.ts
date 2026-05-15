@@ -158,6 +158,47 @@ function mapLeadingComments(stmt: ts.Statement, source: ts.SourceFile, indent: s
     });
 }
 
+/** Tail comments — comments positioned in `[startPos, endPos)` that are
+ *  past the same-line "trailing" window of the previous statement. Used in
+ *  two places: tail-of-body (`startPos = lastStmt.getEnd()`, `endPos = ∞`)
+ *  and tail-of-nested-block (`startPos = lastBlockStmt.getEnd()`,
+ *  `endPos = block.getEnd()`). The same-line trailing window is already
+ *  emitted by `mapTrailingComments`, so we skip everything until the
+ *  first newline. The body emitter accepts `comment` body-stmts at any
+ *  position. */
+function mapTailComments(startPos: number, endPos: number, source: ts.SourceFile, indent: string): string[] {
+  if (startPos >= endPos) return [];
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, /*skipTrivia*/ false);
+  scanner.setText(source.text);
+  scanner.setTextPos(startPos);
+  let sawNewline = false;
+  const tailRanges: ts.CommentRange[] = [];
+  while (true) {
+    const kind = scanner.scan();
+    if (kind === ts.SyntaxKind.EndOfFileToken) break;
+    if (scanner.getTokenPos() >= endPos) break;
+    if (kind === ts.SyntaxKind.NewLineTrivia) {
+      sawNewline = true;
+      continue;
+    }
+    if (kind === ts.SyntaxKind.SingleLineCommentTrivia || kind === ts.SyntaxKind.MultiLineCommentTrivia) {
+      if (sawNewline) {
+        tailRanges.push({ pos: scanner.getTokenPos(), end: scanner.getTextPos(), kind, hasTrailingNewLine: false });
+      }
+      continue;
+    }
+    if (kind === ts.SyntaxKind.WhitespaceTrivia) continue;
+    // Non-trivia inside the tail window means we've crossed into the next
+    // construct — stop. Same-line trailing comments are not our concern
+    // here (mapTrailingComments handles them).
+    break;
+  }
+  return tailRanges.flatMap((range) => {
+    const raw = source.text.slice(range.pos, range.end).trim();
+    return mapComment(raw, indent);
+  });
+}
+
 function mapComment(raw: string, indent: string): string[] {
   if (raw.startsWith('/*') && raw.endsWith('*/') && raw.includes('\n')) {
     return raw
@@ -199,10 +240,20 @@ function mapStatementCore(stmt: ts.Statement, source: ts.SourceFile, indent: str
         'multi-declarator declaration (`const a = …, b = …`) not supported — split into separate statements',
       );
     const decl = decls[0];
-    if (!decl.initializer)
-      return recordSkip(ctx, 'declaration without initializer not supported (`let x;`) — assign an initial value');
     const typeText = decl.type?.getText(source);
     if (typeText && !isValidKernTypeAnnotation(typeText)) return null;
+    if (!decl.initializer) {
+      // `let x;` (always `let` — `const x;` is a TS parse error so it never
+      // reaches this branch). The native KERN body emitter handles a `let`
+      // node with no `value=` by emitting `let x = undefined;`, matching TS
+      // semantics. Always tag `kind=let` since uninitialised TS bindings are
+      // mutable by definition.
+      if (!ts.isIdentifier(decl.name))
+        return recordSkip(ctx, 'destructuring without initializer not supported (`let { x };` is malformed)');
+      const undeclared = decl.name.text;
+      const typeAttr = typeText ? ` type="${escapeKernString(typeText)}"` : '';
+      return [`${indent}let name=${undeclared}${typeAttr} kind=let`];
+    }
     if (!ts.isIdentifier(decl.name)) return mapDestructureDecl(decl, source, indent, typeText, isLet ? 'let' : 'const');
     const name = decl.name.text;
     // Template-literal initializer → emit `fmt name=X template="..."` body-stmt
@@ -289,8 +340,10 @@ function mapStatementCore(stmt: ts.Statement, source: ts.SourceFile, indent: str
     //
     // Plain `=` assignment maps to the structured `assign` body-statement.
     // Cross-target-safe compound assignment maps to `assign op=...`.
-    // Prefix/postfix mutations remain unsupported because `x++` would not be
-    // byte-equivalent to the `x += 1` body-statement shape under --verify.
+    // Postfix `X++;` / `X--;` maps to the value-less form `assign target=X
+    // op="++"` / `op="--"` so codegen re-emits `X++;` and `--verify` sees
+    // byte-equivalent output. Prefix `++X` remains unsupported (no IR shape
+    // that round-trips back to `++X` rather than `X++`).
     //
     // TS's FirstAssignment/LastAssignment range covers the full assignment
     // family. We then admit only the cross-target-safe subset; JS-only
@@ -313,10 +366,30 @@ function mapStatementCore(stmt: ts.Statement, source: ts.SourceFile, indent: str
         ];
       }
     }
-    if (ts.isPostfixUnaryExpression(stmt.expression) || ts.isPrefixUnaryExpression(stmt.expression)) {
-      const op = (stmt.expression as ts.PrefixUnaryExpression | ts.PostfixUnaryExpression).operator;
+    if (ts.isPostfixUnaryExpression(stmt.expression)) {
+      const op = stmt.expression.operator;
       if (op === ts.SyntaxKind.PlusPlusToken || op === ts.SyntaxKind.MinusMinusToken) {
-        return recordSkip(ctx, '`++`/`--` mutation not supported — use `assign target=x op="+=" value="1"` instead');
+        // Postfix `X++;` → `assign target=X op="++"` (value-less). Classifier
+        // gates this on `isValidKernAssignmentTarget`, so we mirror the same
+        // check here; on mismatch we fall through to recordSkip via the bad-
+        // target path. Keeps the slice α-3 "eligible ≡ migrates" invariant.
+        const targetText = stmt.expression.operand.getText(source);
+        if (!isValidKernAssignmentTarget(targetText)) return null;
+        const canonicalTarget = canonicalKernExpression(targetText);
+        if (canonicalTarget === null) return null;
+        const opText = op === ts.SyntaxKind.PlusPlusToken ? '++' : '--';
+        return [`${indent}assign target="${escapeKernString(canonicalTarget)}" op="${opText}"`];
+      }
+    }
+    if (ts.isPrefixUnaryExpression(stmt.expression)) {
+      const op = stmt.expression.operator;
+      if (op === ts.SyntaxKind.PlusPlusToken || op === ts.SyntaxKind.MinusMinusToken) {
+        // Prefix `++X;` is rejected: byte-equivalent re-emission would require
+        // a distinct IR shape we deliberately don't model (see classifier).
+        return recordSkip(
+          ctx,
+          'prefix `++`/`--` not supported — rewrite as postfix `X++;` or `assign target=x op="+=" value="1"`',
+        );
       }
     }
     const exprText = stmt.expression.getText(source);
@@ -333,6 +406,12 @@ function mapIf(stmt: ts.IfStatement, source: ts.SourceFile, indent: string, ctx:
   const condText = stmt.expression.getText(source);
   const canonical = canonicalKernExpression(condText);
   if (canonical === null) return null;
+  // Classifier rejects non-block then/else (`if-non-block-then` / `-else`)
+  // to preserve byte-equivalence: body emitters always wrap in braces, so a
+  // raw `if (cond) stmt;` would re-emit as `if (cond) { stmt; }`. Mirror the
+  // check here as defense-in-depth so direct migrator entry points stay
+  // safe even if the classifier is bypassed.
+  if (!ts.isBlock(stmt.thenStatement)) return null;
   const innerIndent = indent + INDENT_STEP;
   const out: string[] = [`${indent}if cond="${escapeKernString(canonical)}"`];
 
@@ -351,6 +430,7 @@ function mapIf(stmt: ts.IfStatement, source: ts.SourceFile, indent: string, ctx:
       if (nested === null) return null;
       out.push(...nested);
     } else {
+      if (!ts.isBlock(stmt.elseStatement)) return null;
       const elseLines = mapBranch(stmt.elseStatement, source, innerIndent, ctx);
       if (elseLines === null) return null;
       out.push(...elseLines);
@@ -457,10 +537,27 @@ function mapForOf(stmt: ts.ForOfStatement, source: ts.SourceFile, indent: string
       out = [
         `${indent}each pairKey=${entryBinding.key} pairValue=${entryBinding.value} in="${escapeKernString(canonicalCollection)}"${awaitAttr}`,
       ];
-    } else {
-      if (entriesSource === null) return null;
+    } else if (entriesSource !== null) {
+      // `for (const [k, v] of Object.entries(obj))` → `entries=true` form.
+      // Python lowers to `for k, v in obj.items():`; TS to
+      // `for (const [k, v] of Object.entries(obj))`. Byte-clean both ways.
       out = [
         `${indent}each pairKey=${entryBinding.key} pairValue=${entryBinding.value} in="${escapeKernString(entriesSource)}" entries=true`,
+      ];
+    } else {
+      // KERN-GAPS `for-of-sync-pair`: arbitrary sync iterables of pairs
+      // (Map.entries(), arrays-of-pairs, generators yielding `[k,v]`) lift
+      // to `each pairKey=k pairValue=v in=expr` (no `entries=true`). TS
+      // codegen emits `for (const [k, v] of expr) { … }` — byte-equivalent
+      // to the original raw source. Python cross-target note: `each
+      // pairKey/pairValue` without `entries=true` lowers to
+      // `for k, v in expr.items():`, which is appropriate for dict-like
+      // values but not for JS `Map` instances — that's an authoring concern
+      // for cross-target portability, not a migration parity violation.
+      const canonicalCollection = canonicalKernExpression(stmt.expression.getText(source));
+      if (canonicalCollection === null) return null;
+      out = [
+        `${indent}each pairKey=${entryBinding.key} pairValue=${entryBinding.value} in="${escapeKernString(canonicalCollection)}"`,
       ];
     }
   } else if (entryBinding?.kind === 'key' || entryBinding?.kind === 'value') {
@@ -532,6 +629,12 @@ function mapBranch(node: ts.Statement, source: ts.SourceFile, indent: string, ct
     const lines = mapStatement(s, source, indent, ctx);
     if (lines === null) return null;
     out.push(...lines);
+  }
+  // KERN-GAPS `comments-present` lift — preserve tail-of-block comments
+  // (`if (x) { foo(); /* tail */ }`). For non-block single-stmt bodies
+  // there's no block container, so no tail window exists.
+  if (ts.isBlock(node) && stmts.length > 0) {
+    out.push(...mapTailComments(stmts[stmts.length - 1].getEnd(), node.getEnd(), source, indent));
   }
   return out;
 }
@@ -634,6 +737,13 @@ export function rewriteNativeHandlers(source: string): NativeHandlerResult {
         break;
       }
       stmtLines.push(...mapped);
+    }
+    if (!bailed && sourceFile.statements.length > 0) {
+      // Comments that come AFTER every top-level statement and don't
+      // attach as trailing-on-same-line (i.e. tail-of-body comments) get
+      // emitted here so the migrated output preserves them.
+      const lastTop = sourceFile.statements[sourceFile.statements.length - 1];
+      stmtLines.push(...mapTailComments(lastTop.getEnd(), sourceFile.text.length, sourceFile, bodyIndent));
     }
     if (bailed) {
       skipped.push({ headerLine: headerLine1, endLine: endLine1, reason: ctx.skipReason ?? 'unsupported TS shape' });

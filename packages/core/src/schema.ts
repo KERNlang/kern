@@ -16,7 +16,11 @@
  *   - 'number'         → numeric value
  */
 
-import { isSupportedAssignOperator, SUPPORTED_ASSIGN_OPERATORS } from './assignment-operators.js';
+import {
+  isPostfixMutationOperator,
+  isSupportedAssignOperator,
+  SUPPORTED_ASSIGN_OPERATORS,
+} from './assignment-operators.js';
 import { type KernTarget, VALID_TARGETS } from './config.js';
 import { validateCapabilityMetadata, validateImportMetadata } from './import-metadata.js';
 import { defaultRuntime, type KernRuntime } from './runtime.js';
@@ -1666,8 +1670,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   assign: {
     description:
-      'Body-statement assignment — emits `target = value` inside a `lang="kern"` handler body. Supports assignable targets only: identifier, member access, and index access. Add `op=` for target-native compound operators (`+=`, `-=`, `*=`, `/=`, `%=`, `**=`, `&=`, `|=`, `^=`, `<<=`, `>>=`). Compound assignment follows the target runtime model: `/=` may mutate Python int-like bindings to floats, `**=` has JS/Python edge-case differences, bitwise ops use JS int32 coercion on TS but arbitrary-precision integers on Python, and closure/global rebinding may require target-specific scoping (`nonlocal`/`global` in Python). JS-only logical/nullish/unsigned-right-shift assignment stays foreign/raw.',
-    example: 'assign target="user.name" value="nextName"\nassign target="count" op="+=" value="1"',
+      'Body-statement assignment — emits `target = value` inside a `lang="kern"` handler body. Supports assignable targets only: identifier, member access, and index access. Add `op=` for target-native compound operators (`+=`, `-=`, `*=`, `/=`, `%=`, `**=`, `&=`, `|=`, `^=`, `<<=`, `>>=`), or postfix mutation (`++`, `--`) — the postfix forms take NO `value=` attribute and emit `X++;`/`X--;` on TS (Python lowers to `X += 1`/`X -= 1` since Python lacks postfix operators). Compound assignment follows the target runtime model: `/=` may mutate Python int-like bindings to floats, `**=` has JS/Python edge-case differences, bitwise ops use JS int32 coercion on TS but arbitrary-precision integers on Python, and closure/global rebinding may require target-specific scoping (`nonlocal`/`global` in Python). JS-only logical/nullish/unsigned-right-shift assignment stays foreign/raw.',
+    example:
+      'assign target="user.name" value="nextName"\nassign target="count" op="+=" value="1"\nassign target="count" op="++"',
     props: {
       target: { required: true, kind: 'expression' },
       value: { required: true, kind: 'expression' },
@@ -3057,6 +3062,19 @@ function checkRequiredProps(node: IRNode, schema: NodeSchema, violations: Schema
     ) {
       continue;
     }
+    // `assign op="++"` / `op="--"` is a value-less postfix mutation form — emits
+    // `X++;` / `X--;` (TS) or `X += 1` / `X -= 1` (Python). The general `value`
+    // requirement is suppressed here; checkCrossProps below enforces the
+    // inverse — `value=` must be ABSENT (not even empty-string) when op is
+    // postfix, so hand-authored `assign target=X op="++" value="1"` errors out.
+    if (
+      node.type === 'assign' &&
+      propName === 'value' &&
+      typeof props.op === 'string' &&
+      isPostfixMutationOperator(props.op)
+    ) {
+      continue;
+    }
     // Make the `union discriminant=` diagnostic actionable. When variants
     // share multiple literal fields, list them as likely candidates so the
     // author can disambiguate without grepping the variant interfaces.
@@ -3098,6 +3116,16 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[], parent?: I
       violations.push({
         nodeType: 'assign',
         message: `'assign op=' supports only ${SUPPORTED_ASSIGN_OPERATORS.map((v) => `\`${v}\``).join(', ')} (got \`${op}\`)`,
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    } else if (isPostfixMutationOperator(op) && 'value' in props) {
+      // Reject both `value="…"` and `value=""` for postfix ops — there is no
+      // legitimate combined form (`X++` already implies a `1` delta) and
+      // allowing it would create ambiguous decompiler/round-trip behaviour.
+      violations.push({
+        nodeType: 'assign',
+        message: `'assign op="${op}"' is a value-less form; remove the \`value=\` attribute.`,
         line: node.loc?.line,
         col: node.loc?.col,
       });

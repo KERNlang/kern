@@ -3,6 +3,7 @@
  */
 
 export {
+  isPostfixMutationOperator,
   isSupportedAssignOperator,
   SUPPORTED_ASSIGN_OPERATORS,
   supportedCompoundAssignmentOperator,

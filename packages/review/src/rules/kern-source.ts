@@ -592,6 +592,34 @@ function addTopLevelBindingsFrom(rootNode: IRNode, target: Map<string, BindingIn
     return;
   }
 
+  // Root-level `use path="..."`: each `from` child creates a local binding
+  // via `generateUse` (codegen/modules.ts) — `as` aliases the local name,
+  // otherwise `name` is used verbatim. Without this branch, the undefined-
+  // reference rule emitted false positives for any handler using a `from`
+  // binding even though the codegen produced the matching import line.
+  //
+  // `kind=type` `from` children intentionally do NOT enter the visible
+  // binding map: `generateUse` emits them as `import type { ... }`, which
+  // TypeScript erases at runtime. The undefined-reference rule already
+  // excludes type-position identifiers from its reference set
+  // (`isTypeOnlyIdentifier`), so type-position usage of the same name is
+  // a no-op anyway. Adding the binding here would only suppress findings
+  // for VALUE-position usage of a type-only import, which is a real
+  // runtime undefined and must keep firing (Codex review fix).
+  if (rootNode.type === 'use') {
+    for (const child of rootNode.children ?? []) {
+      if (child.type !== 'from') continue;
+      const cp = props(child);
+      if (cp.kind === 'type') continue;
+      const alias = typeof cp.as === 'string' ? cp.as : '';
+      const name = typeof cp.name === 'string' ? cp.name : '';
+      const binding = alias || name;
+      if (!binding) continue;
+      addBinding(target, binding, { kind: 'use', node: child });
+    }
+    return;
+  }
+
   // Only the root node's own name — NOT its nested children. Recursing here would
   // leak e.g. a top-level `fn a`'s inner `const x` into sibling `fn b`'s scope.
   if (DIRECT_BINDING_NODE_TYPES.has(rootNode.type) && typeof p.name === 'string') {

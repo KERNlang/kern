@@ -115,7 +115,7 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
-  test('does not auto-migrate arbitrary sync destructured pair for-of block', () => {
+  test('migrates arbitrary sync destructured pair for-of block (KERN-GAPS `for-of-sync-pair`)', () => {
     const source = [
       'fn name=notify returns=void',
       '  handler <<<',
@@ -126,8 +126,33 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     ].join('\n');
 
     const result = rewriteNativeHandlers(source);
-    expect(result.hits).toHaveLength(0);
-    expect(result.output).toBe(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.skipped).toHaveLength(0);
+    expect(result.output).toContain('handler lang="kern"');
+    // Value-less `entries=true` attribute MUST be absent: the source did not
+    // wrap in `Object.entries(...)`, so the migration emits the bare pair form
+    // which re-emits as `for (const [key, value] of pairs)` byte-cleanly.
+    expect(result.output).toContain('each pairKey=key pairValue=value in="pairs"');
+    expect(result.output).not.toContain('entries=true');
+    expect(result.output).toContain('do value="notify(key, value)"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates Map.entries() sync pair for-of block to bare pair-mode each', () => {
+    const source = [
+      'fn name=notify returns=void',
+      '  handler <<<',
+      '    for (const [k, v] of map.entries()) {',
+      '      notify(k, v);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('each pairKey=k pairValue=v in="map.entries()"');
+    expect(result.output).not.toContain('entries=true');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
   test('does not auto-migrate arbitrary sync key-only destructured for-of block', () => {
@@ -378,6 +403,43 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(result.hits).toHaveLength(1);
     expect(result.output).toContain('let name=user type="User | null" value="loadUser()"');
     expect(result.output).toContain('return value="user"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates `let x;` (no initializer) to `let kind=let`', () => {
+    // KERN-GAPS gap `var-no-init` (36 handlers in Agon). TS `let x;` is
+    // uninitialised + mutable; the body emitter handles missing `value=`
+    // by emitting `let x = undefined;`, so the migrator just emits
+    // `let name=x kind=let` (no `value=` attr).
+    const source = [
+      'fn name=acc returns=number',
+      '  handler <<<',
+      '    let pending;',
+      '    pending = compute();',
+      '    return pending;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('let name=pending kind=let');
+    expect(result.output).not.toMatch(/let name=pending kind=let value=/);
+    expect(result.output).toContain('assign target="pending" value="compute()"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates typed `let x: T;` (no initializer) preserving the type', () => {
+    const source = [
+      'fn name=acc returns=void',
+      '  handler <<<',
+      '    let count: number;',
+      '    count = items.length;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('let name=count type="number" kind=let');
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
@@ -1342,13 +1404,68 @@ describe('rewriteNativeHandlers — review-found regressions', () => {
     expect(emitNativeKernBodyTS(handler as IRNode)).toContain('  // explain');
   });
 
-  // Gemini MED: trailing comment after the last statement was missed.
-  test('detects trailing comments after the last statement', () => {
+  // KERN-GAPS gap `comments-present` lift — tail comments after the last
+  // statement now migrate as trailing `comment` body-stmts (was: skipped).
+  test('migrates tail comment after the last statement', () => {
     const source = ['fn name=ok returns=number', '  handler <<<', '    return 1;', '    // tail comment', '  >>>'].join(
       '\n',
     );
     const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('return value="1"');
+    expect(result.output).toContain('comment raw="// tail comment"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  // KERN-GAPS gap `comments-present` — inline same-line trailing comments
+  // (`foo(); // x`) stay rejected because migrating them would byte-drift
+  // the codegen output (the comment moves to its own line) and trip
+  // `--verify` rollback. Authors who want this handler migrated should
+  // move the trailing comment to its own line first.
+  test('does NOT migrate inline same-line trailing comments (byte-drift)', () => {
+    const source = ['fn name=ok returns=number', '  handler <<<', '    return total; // done', '  >>>'].join('\n');
+    const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(0);
+    expect(result.skipped.some((s) => /comments-present/.test(s.reason))).toBe(true);
+  });
+
+  // KERN-GAPS gap `comments-present` — tail comments inside a nested block
+  // (`if (x) { foo(); // tail }`) now migrate. The migrator emits the
+  // comment as a `comment` body-stmt at the end of the nested block.
+  test('migrates tail comment inside a nested if-block', () => {
+    const source = [
+      'fn name=ok returns=number',
+      '  handler <<<',
+      '    if (cond) {',
+      '      return 1;',
+      '      // inside-block tail',
+      '    }',
+      '    return 0;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('comment raw="// inside-block tail"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  // KERN-GAPS gap `comments-present` lift — multi-line block comment at
+  // body tail. Migrator preserves it as a multi-line comment text node
+  // (same shape mid-body multiline block comments already used).
+  test('migrates multi-line block comment at body tail', () => {
+    const source = [
+      'fn name=ok returns=number',
+      '  handler <<<',
+      '    return 1;',
+      '    /* first',
+      '     * second */',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('comment text="first"');
+    expect(result.output).toContain('comment text="second"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 });
 
@@ -1703,7 +1820,10 @@ describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalenc
     );
   });
 
-  test('arbitrary sync destructured pair for-of remains raw to avoid Python target drift', () => {
+  test('arbitrary sync destructured pair for-of compiles byte-equivalent through bare pair-mode each', () => {
+    // KERN-GAPS `for-of-sync-pair` — sync pair iteration over arbitrary
+    // iterables lifts to `each pairKey=k pairValue=v in=expr` (no
+    // `entries=true`). Codegen emits `for (const [k, v] of expr) { … }`.
     const source = [
       'fn name=notify returns=void',
       '  handler <<<',
@@ -1716,8 +1836,20 @@ describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalenc
       '  >>>',
     ].join('\n');
     const result = rewriteNativeHandlers(source);
-    expect(result.hits).toHaveLength(0);
-    expect(result.output).toBe(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(
+      [
+        'for (const [key, value] of pairs) {',
+        '  if (skip(key)) {',
+        '    continue;',
+        '  }',
+        '  notify(key, value);',
+        '}',
+      ].join('\n'),
+    );
   });
 
   test('Object.entries pair for-of compiles byte-equivalent through entries-mode each', () => {

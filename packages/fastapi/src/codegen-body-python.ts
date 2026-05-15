@@ -42,6 +42,7 @@
 import type { IRNode, ValueIR } from '@kernlang/core';
 import {
   applyTemplate,
+  isPostfixMutationOperator,
   isSupportedAssignOperator,
   KERN_STDLIB_MODULES,
   lookupStdlib,
@@ -677,17 +678,31 @@ function emitAssignPy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawTarget === undefined || rawTarget === '') {
     throw new Error('body-statement `assign` requires `target=`.');
   }
-  if (rawValue === undefined || rawValue === '') {
-    throw new Error('body-statement `assign` requires `value=`.');
-  }
   if (!isSupportedAssignOperator(rawOp)) {
     throw new Error(`body-statement \`assign op=\` does not support \`${rawOp}\` on Python.`);
+  }
+  const isPostfix = isPostfixMutationOperator(rawOp);
+  if (!isPostfix && (rawValue === undefined || rawValue === '')) {
+    throw new Error('body-statement `assign` requires `value=`.');
+  }
+  if (isPostfix && rawValue !== undefined) {
+    // Reject ANY present `value` — including empty-string. Schema validator
+    // mirrors this; the emitter check is defense-in-depth for direct IR.
+    throw new Error(`body-statement \`assign op="${rawOp}"\` is value-less; remove \`value=\`.`);
   }
   const targetIR = parseExpression(String(rawTarget));
   if (!isAssignableTarget(targetIR)) {
     throw new Error('body-statement `assign target=` must be an identifier, member access, or index access.');
   }
   assertAssignableLocalTarget(targetIR, ctx);
+  // Python lacks `++` / `--`; lower postfix mutation to the canonical compound
+  // assignment (`X += 1` / `X -= 1`). The TS round-trip stays byte-equivalent
+  // because TS emits `X++;` from the same IR — only the Python target diverges
+  // textually, but no round-trip from Python source exists.
+  if (isPostfix) {
+    const baseOp = rawOp === '++' ? '+=' : '-=';
+    return [`${emitPyExprCtx(targetIR, ctx)} ${baseOp} 1`];
+  }
   const valueIR = parseExpression(String(rawValue));
   if (valueIR.kind === 'propagate') {
     throw new Error(

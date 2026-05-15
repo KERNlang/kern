@@ -297,6 +297,68 @@ function emitExportBinding(raw: string, context: string, node: IRNode): string {
   return alias ? `${source} as ${alias}` : source;
 }
 
+/** Emit a single `export` IR node as its JS export statement.
+ *
+ *  Used both inside `generateModule` (for `export` children of `module`) and
+ *  by the top-level `case 'export':` in `generateCoreNode` so a bare
+ *  `export from="..." names="..."` at file root produces the same JS as an
+ *  identical node wrapped inside a `module`. Before this helper existed, the
+ *  top-level path fell through to the default case in `generateCoreNode` and
+ *  returned `[]` — the export was schema-valid but silently dropped.
+ */
+export function generateExport(node: IRNode): string[] {
+  const ep = p(node);
+  const rawFrom = ep.from as string;
+  const safeFrom = rawFrom ? emitImportSpecifier(rawFrom, node) : '';
+  const rawNames = ep.names as string;
+  const safeNames = rawNames
+    ? rawNames
+        .split(',')
+        .map((s) => emitExportBinding(s, 'export', node))
+        .join(', ')
+    : '';
+  const rawTypeNames = ep.types as string;
+  const safeTypeNames = rawTypeNames
+    ? rawTypeNames
+        .split(',')
+        .map((s) => emitExportBinding(s, 'type export', node))
+        .join(', ')
+    : '';
+  const star = ep.star === 'true' || ep.star === true;
+  const safeDefault = ep.default ? emitIdentifier(ep.default as string, 'default', node) : '';
+  const lines: string[] = [];
+
+  // export * from './foo.js'
+  if (safeFrom && !safeNames && !safeTypeNames && star) {
+    lines.push(`export * from '${safeFrom}';`);
+  }
+  // export { a, b } from './foo.js'
+  if (safeFrom && safeNames) {
+    lines.push(`export { ${safeNames} } from '${safeFrom}';`);
+  }
+  // export type { A, B } from './types.js'
+  if (safeFrom && safeTypeNames) {
+    lines.push(`export type { ${safeTypeNames} } from '${safeFrom}';`);
+  }
+  // export default foo
+  if (safeDefault && !safeFrom) {
+    lines.push(`export default ${safeDefault};`);
+  }
+  // export default from './foo.js' (re-export default)
+  if (safeDefault && safeFrom) {
+    lines.push(`export { default as ${safeDefault} } from '${safeFrom}';`);
+  }
+  // export { a, b } (no from — local re-export)
+  if (!safeFrom && safeNames && !safeDefault) {
+    lines.push(`export { ${safeNames} };`);
+  }
+  // export type { A, B } (no from — local type re-export)
+  if (!safeFrom && safeTypeNames && !safeDefault) {
+    lines.push(`export type { ${safeTypeNames} };`);
+  }
+  return lines;
+}
+
 export function generateModule(node: IRNode): string[] {
   const props = propsOf<'module'>(node);
   const name = emitTemplateSafe(props.name || 'unknown');
@@ -307,54 +369,7 @@ export function generateModule(node: IRNode): string[] {
 
   // 'export' children don't have a typed interface in NodePropsMap
   for (const exp of kids(node, 'export')) {
-    const ep = p(exp);
-    const rawFrom = ep.from as string;
-    const safeFrom = rawFrom ? emitImportSpecifier(rawFrom, exp) : '';
-    const rawNames = ep.names as string;
-    const safeNames = rawNames
-      ? rawNames
-          .split(',')
-          .map((s) => emitExportBinding(s, 'export', exp))
-          .join(', ')
-      : '';
-    const rawTypeNames = ep.types as string;
-    const safeTypeNames = rawTypeNames
-      ? rawTypeNames
-          .split(',')
-          .map((s) => emitExportBinding(s, 'type export', exp))
-          .join(', ')
-      : '';
-    const star = ep.star === 'true' || ep.star === true;
-    const safeDefault = ep.default ? emitIdentifier(ep.default as string, 'default', exp) : '';
-
-    // export * from './foo.js'
-    if (safeFrom && !safeNames && !safeTypeNames && star) {
-      lines.push(`export * from '${safeFrom}';`);
-    }
-    // export { a, b } from './foo.js'
-    if (safeFrom && safeNames) {
-      lines.push(`export { ${safeNames} } from '${safeFrom}';`);
-    }
-    // export type { A, B } from './types.js'
-    if (safeFrom && safeTypeNames) {
-      lines.push(`export type { ${safeTypeNames} } from '${safeFrom}';`);
-    }
-    // export default foo
-    if (safeDefault && !safeFrom) {
-      lines.push(`export default ${safeDefault};`);
-    }
-    // export default from './foo.js' (re-export default)
-    if (safeDefault && safeFrom) {
-      lines.push(`export { default as ${safeDefault} } from '${safeFrom}';`);
-    }
-    // export { a, b } (no from — local re-export)
-    if (!safeFrom && safeNames && !safeDefault) {
-      lines.push(`export { ${safeNames} };`);
-    }
-    // export type { A, B } (no from — local type re-export)
-    if (!safeFrom && safeTypeNames && !safeDefault) {
-      lines.push(`export type { ${safeTypeNames} };`);
-    }
+    lines.push(...generateExport(exp));
   }
 
   const loosePythonImports = kids(node).filter(isLoosePythonSidecarImportNode);
@@ -750,6 +765,13 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return generateError(node);
     case 'module':
       return generateModule(node);
+    case 'export':
+      // Top-level `export from="..." names="..."` — schema allows it (the same
+      // node shape that `module` consumes via its `allowedChildren`), and the
+      // dispatcher must emit the JS export statement here too. Previously the
+      // case was absent and the node fell through to the default branch's
+      // `return []`, silently dropping author-intended re-exports.
+      return generateExport(node);
     case 'config':
       return generateConfig(node);
     case 'store':

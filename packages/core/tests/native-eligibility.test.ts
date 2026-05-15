@@ -221,7 +221,11 @@ describe('classifyHandlerBody — slice 4d additions are now eligible', () => {
   });
 
   test('for-await-of with unsupported body is rejected by inner reason', () => {
-    const body = `for await (const x of xs) {\n  x++;\n}`;
+    // Pick a body shape that stays in the skip bucket. `x++;` was the original
+    // expr-stmt-mutation example, but postfix is now an eligible mutation form
+    // (lifts to `assign target=x op="++"`). Use prefix `--x;` which is still
+    // explicitly unsupported.
+    const body = `for await (const x of xs) {\n  --x;\n}`;
     const result = classifyHandlerBody(body);
     expect(result).toEqual({ eligible: false, reason: 'expr-stmt-mutation' });
   });
@@ -433,8 +437,12 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
     rejected(`for (const x of xs) {}\nreturn xs;`, 'for-of-empty-body'));
 
   test('unsupported for-of destructured bindings are still rejected', () => {
-    rejected(`for (const [key, value] of pairs) {\n  notify(key, value);\n}`, 'for-of-sync-pair');
+    // KERN-GAPS `for-of-sync-pair` lifted: sync pair iteration over arbitrary
+    // iterables (Map.entries(), arrays-of-pairs) is now eligible.
+    expect(classifyHandlerBody(`for (const [key, value] of pairs) {\n  notify(key, value);\n}`).eligible).toBe(true);
     rejected(`for (const { id } of users) {\n  use(id);\n}`, 'for-of-destructure');
+    // Key-only / value-only destructure still requires Object.entries() —
+    // the migrator only emits those via `entries=true`.
     rejected(`for (const [only] of pairs) {\n  use(only);\n}`, 'for-of-sync-pair');
     rejected(`for (const [, value] of pairs) {\n  use(value);\n}`, 'for-of-sync-pair');
     rejected(`for (const [k, v, extra] of pairs) {\n  use(k, v, extra);\n}`, 'for-of-destructure');
@@ -446,6 +454,24 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
       'for-of-destructure-type',
     );
     rejected(`for await (const [k, v]: [string, number] of pairs) {\n  use(k, v);\n}`, 'for-of-destructure-type');
+  });
+
+  // KERN-GAPS gap `for-of-sync-pair` — sync pair iteration over non-
+  // Object.entries iterables lifts to `each pairKey=k pairValue=v in=expr`
+  // (no `entries=true`). All five Agon handlers blocked by this gap use Map
+  // or array-of-pairs iteration. Key-only / value-only single bindings still
+  // require Object.entries because the migrator only emits those with
+  // `entries=true`.
+  test('sync pair iteration over Map.entries() is eligible', () => {
+    expect(classifyHandlerBody(`for (const [k, v] of map.entries()) {\n  notify(k, v);\n}`).eligible).toBe(true);
+  });
+
+  test('sync pair iteration over arbitrary identifier is eligible', () => {
+    expect(classifyHandlerBody(`for (const [k, v] of pairs) {\n  notify(k, v);\n}`).eligible).toBe(true);
+  });
+
+  test('sync pair iteration over Object.entries() remains eligible (entries=true path)', () => {
+    expect(classifyHandlerBody(`for (const [k, v] of Object.entries(obj)) {\n  notify(k, v);\n}`).eligible).toBe(true);
   });
 
   test('for-of with unsafe type annotation rejected', () =>
@@ -508,11 +534,42 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
     rejected(`obj.x?.y = 1;\nreturn obj;`, 'expr-stmt-bad-assign-target');
   });
 
-  test('post-increment rejected (mutation ExpressionStatement)', () =>
-    rejected(`const x = 0;\nx++;\nreturn x;`, 'expr-stmt-mutation'));
+  test('post-increment of identifier is eligible (lifts to assign op="++")', () => {
+    expect(classifyHandlerBody(`let x = 0;\nx++;\nreturn x;`).eligible).toBe(true);
+  });
 
-  test('pre-decrement rejected (mutation ExpressionStatement)', () =>
-    rejected(`const x = 5;\n--x;\nreturn x;`, 'expr-stmt-mutation'));
+  test('post-decrement of identifier is eligible (lifts to assign op="--")', () => {
+    expect(classifyHandlerBody(`let x = 5;\nx--;\nreturn x;`).eligible).toBe(true);
+  });
+
+  test('post-increment of member access is eligible (e.g. obj.foo++)', () => {
+    expect(classifyHandlerBody(`let obj = { foo: 0 };\nobj.foo++;\nreturn obj.foo;`).eligible).toBe(true);
+  });
+
+  test('post-increment with non-assignable target rejected', () =>
+    rejected(`(a => a)++;\nreturn 1;`, 'expr-stmt-bad-assign-target'));
+
+  test('pre-increment rejected (asymmetric IR — keeps expr-stmt-mutation)', () =>
+    rejected(`let x = 0;\n++x;\nreturn x;`, 'expr-stmt-mutation'));
+
+  test('pre-decrement rejected (asymmetric IR — keeps expr-stmt-mutation)', () =>
+    rejected(`let x = 5;\n--x;\nreturn x;`, 'expr-stmt-mutation'));
+
+  test('non-block if-then rejected — body emitter would brace-wrap and drift', () =>
+    rejected(`if (x > 0) return x;`, 'if-non-block-then'));
+
+  test('non-block else rejected — body emitter would brace-wrap and drift', () =>
+    rejected(`if (x > 0) { return 1; } else return 2;`, 'if-non-block-else'));
+
+  test('block if-then with single statement remains eligible (braced source)', () => {
+    expect(classifyHandlerBody(`if (x > 0) { return x; }\nreturn 0;`).eligible).toBe(true);
+  });
+
+  test('else-if chain remains eligible (nested IfStatement is not a non-block else)', () => {
+    expect(
+      classifyHandlerBody(`if (x > 0) { return 1; } else if (x < 0) { return -1; } else { return 0; }`).eligible,
+    ).toBe(true);
+  });
 
   test('JS-only logical assignment rejected (assignment ExpressionStatement)', () =>
     rejected(`x &&= next;\nreturn x;`, 'expr-stmt-assignment'));
@@ -592,6 +649,27 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
     expect(classifyHandlerBody(`let x = 1;\nreturn x;`)).toEqual({ eligible: true, reason: 'ok' });
   });
 
+  // KERN-GAPS gap `var-no-init` — TS `let x;` is now migratable; the body
+  // emitter accepts a `let` node without `value=` and emits
+  // `let x = undefined;`, matching TS semantics.
+  test('let declaration without initializer is eligible (var-no-init lifted)', () => {
+    expect(classifyHandlerBody(`let x;\nx = 1;\nreturn x;`)).toEqual({ eligible: true, reason: 'ok' });
+    expect(classifyHandlerBody(`let total: number;\ntotal = sumItems(xs);\nreturn total;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
+  // Type-annotation safety must still gate `let x: T;` — a malicious type
+  // would otherwise round-trip into a KERN attribute that the codegen
+  // re-emits verbatim. Reuse the same rejection slug the initialised path
+  // already returns so the kern review noise dashboard doesn't grow a
+  // new spurious category.
+  test('uninitialised let with unsafe type annotation is rejected (var-bad-type)', () => {
+    expect(classifyHandlerBody(`let x: typeof import("fs");\nreturn x;`).reason).toBe('var-bad-type');
+    expect(classifyHandlerBody(`let x: \`\${evil}\`;\nreturn x;`).reason).toBe('var-bad-type');
+  });
+
   test('standalone comments inside body are eligible and preserved by migration', () => {
     expect(classifyHandlerBody(`// note\nreturn 1;`)).toEqual({ eligible: true, reason: 'ok' });
     expect(classifyHandlerBody(`if (ok) {\n  // nested note\n  return 1;\n}\nreturn 0;`)).toEqual({
@@ -600,9 +678,43 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
     });
   });
 
-  test('inline and trailing comments remain rejected', () => {
+  // KERN-GAPS gap `comments-present` lift: standalone comments that sit on
+  // their own line at a statement boundary are now migratable. The
+  // migrator emits them as `comment` body-stmts attached as the leading
+  // comment of the following statement, or as a trailing `comment` node
+  // at the body / nested-block tail. Same-line inline trailing comments
+  // (`foo(); // x`) stay rejected — the migrated KERN would emit them on
+  // a new line, byte-drifting the codegen output and tripping `--verify`.
+  test('inline same-line trailing comment remains rejected (byte-drift)', () => {
     rejected(`return 1; // note`, 'comments-present');
-    rejected(`return 1;\n// tail`, 'comments-present');
+  });
+
+  test('tail comment after last statement is now eligible', () => {
+    expect(classifyHandlerBody(`return 1;\n// tail`)).toEqual({ eligible: true, reason: 'ok' });
+    expect(classifyHandlerBody(`return 1;\n/* multi\nline tail */`)).toEqual({ eligible: true, reason: 'ok' });
+  });
+
+  test('tail comment inside a nested if-block is now eligible', () => {
+    expect(classifyHandlerBody(`if (x) {\n  return 1;\n  // inside-tail\n}\nreturn 0;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
+  test('comments-only body (no statements) stays rejected', () => {
+    // Parity: classifier must not say eligible if the migrator's
+    // "no statements emitted" guard will reject the same body. Authors
+    // who want a behaviorless stub should leave it raw.
+    rejected(`// only a comment`, 'comments-present');
+    rejected(`/* block-only */`, 'comments-present');
+  });
+
+  test('comments embedded inside expressions remain rejected', () => {
+    // `/* mid */` lives inside the call expression — neither leading,
+    // tail-of-body, nor tail-of-block of any statement. Preserving it
+    // would require changes to argument structure, so the classifier
+    // still rejects.
+    rejected(`foo(/* mid */ bar);`, 'comments-present');
   });
 });
 

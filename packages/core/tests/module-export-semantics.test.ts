@@ -75,6 +75,39 @@ describe('semantic-validator — module export cross references', () => {
     expect(rulesFor(source)).not.toContain('export-local-unknown-symbol');
   });
 
+  test('island child functions count as local export names', () => {
+    const source = [
+      'module name=worker',
+      '  island engine Worker runtime=node effects=[cpu] requiresSidecar=false',
+      '    fn name=answer returns=number',
+      '      handler lang=kern',
+      '        return value=42',
+      '  export names=answer',
+    ].join('\n');
+
+    expect(rulesFor(source)).not.toContain('export-local-unknown-symbol');
+    expect(rulesFor(source)).not.toContain('export-local-kind-mismatch');
+  });
+
+  test('reports value exports that reference island host type-only imports', () => {
+    const source = [
+      'module name=worker',
+      '  island engine Worker runtime=node',
+      '    import type { ReactNode } from "react"',
+      '  export names=ReactNode',
+    ].join('\n');
+    const violations = validateSemantics(parseDocumentWithDiagnostics(source).root);
+
+    expect(violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rule: 'export-local-kind-mismatch',
+          message: expect.stringContaining('binding is only visible as a type-only symbol'),
+        }),
+      ]),
+    );
+  });
+
   test('reports duplicate first-class external import local names', () => {
     const source = [
       'module name=dupes',
@@ -119,7 +152,7 @@ describe('semantic-validator — module export cross references', () => {
       expect.arrayContaining([
         expect.objectContaining({
           rule: 'export-local-kind-mismatch',
-          message: expect.stringContaining('external import is only visible as a type-only symbol'),
+          message: expect.stringContaining('binding is only visible as a type-only symbol'),
         }),
       ]),
     );
@@ -133,20 +166,233 @@ describe('semantic-validator — module export cross references', () => {
       expect.arrayContaining([
         expect.objectContaining({
           rule: 'export-local-kind-mismatch',
-          message: expect.stringContaining('external import is only visible as a runtime value symbol'),
+          message: expect.stringContaining('binding is only visible as a runtime value symbol'),
         }),
       ]),
     );
   });
 
-  test('keeps host type imports under the legacy flat export visibility contract', () => {
+  test('reports value exports that reference host type-only imports', () => {
     const source = [
       'module name=reactTypes',
       '  import type { ReactNode } from "react"',
       '  export names=ReactNode',
     ].join('\n');
+    const violations = validateSemantics(parseDocumentWithDiagnostics(source).root);
+
+    expect(violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rule: 'export-local-kind-mismatch',
+          message: expect.stringContaining('binding is only visible as a type-only symbol'),
+        }),
+      ]),
+    );
+  });
+
+  test('accepts type exports that reference host type-only imports', () => {
+    const source = [
+      'module name=reactTypes',
+      '  import type { ReactNode } from "react"',
+      '  export types=ReactNode',
+    ].join('\n');
 
     expect(rulesFor(source)).not.toContain('export-local-kind-mismatch');
+  });
+
+  test('reports type exports that reference host runtime imports', () => {
+    const source = ['module name=reactApi', '  import { useState } from "react"', '  export types=useState'].join('\n');
+    const violations = validateSemantics(parseDocumentWithDiagnostics(source).root);
+
+    expect(violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rule: 'export-local-kind-mismatch',
+          message: expect.stringContaining('binding is only visible as a runtime value symbol'),
+        }),
+      ]),
+    );
+  });
+
+  test('reports value exports that reference typed use imports', () => {
+    const source = [
+      'module name=domain',
+      '  use path="./types.kern"',
+      '    from name=UserProfile kind=type',
+      '  export names=UserProfile',
+    ].join('\n');
+    const violations = validateSemantics(parseDocumentWithDiagnostics(source).root);
+
+    expect(violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rule: 'export-local-kind-mismatch',
+          message: expect.stringContaining('binding is only visible as a type-only symbol'),
+        }),
+      ]),
+    );
+  });
+
+  test('reports value exports that reference local type declarations', () => {
+    const source = [
+      'module name=domain',
+      '  type name=UserProfile values="{ id: string }"',
+      '  export names=UserProfile',
+    ].join('\n');
+    const violations = validateSemantics(parseDocumentWithDiagnostics(source).root);
+
+    expect(violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rule: 'export-local-kind-mismatch',
+          message: expect.stringContaining('binding is only visible as a type-only symbol'),
+        }),
+      ]),
+    );
+  });
+
+  test('reports value exports that reference local interface declarations', () => {
+    const source = ['module name=domain', '  interface name=UserProfile', '  export names=UserProfile'].join('\n');
+    const violations = validateSemantics(parseDocumentWithDiagnostics(source).root);
+
+    expect(violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rule: 'export-local-kind-mismatch',
+          message: expect.stringContaining('binding is only visible as a type-only symbol'),
+        }),
+      ]),
+    );
+  });
+
+  test('reports value exports that reference local event declarations', () => {
+    const source = ['module name=domain', '  event name=DomainEvent', '  export names=DomainEvent'].join('\n');
+    const violations = validateSemantics(parseDocumentWithDiagnostics(source).root);
+
+    expect(violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rule: 'export-local-kind-mismatch',
+          message: expect.stringContaining('binding is only visible as a type-only symbol'),
+        }),
+      ]),
+    );
+  });
+
+  test('reports type exports that reference local functions', () => {
+    const source = [
+      'module name=domain',
+      '  fn name=makeUser returns=string',
+      '    handler <<<',
+      '      return "ok"',
+      '    >>>',
+      '  export types=makeUser',
+    ].join('\n');
+    const violations = validateSemantics(parseDocumentWithDiagnostics(source).root);
+
+    expect(violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rule: 'export-local-kind-mismatch',
+          message: expect.stringContaining('binding is only visible as a runtime value symbol'),
+        }),
+      ]),
+    );
+  });
+
+  test('reports type exports that reference local screens', () => {
+    const source = ['module name=domain', '  screen name=Dashboard', '  export types=Dashboard'].join('\n');
+    const violations = validateSemantics(parseDocumentWithDiagnostics(source).root);
+
+    expect(violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rule: 'export-local-kind-mismatch',
+          message: expect.stringContaining('binding is only visible as a runtime value symbol'),
+        }),
+      ]),
+    );
+  });
+
+  test('accepts value and type exports that reference dual local declarations', () => {
+    const source = [
+      'module name=domain',
+      '  class name=UserService',
+      '  enum name=Status values="Ready|Done"',
+      '  export names="UserService,Status"',
+      '  export types="UserService,Status"',
+    ].join('\n');
+
+    expect(rulesFor(source)).not.toContain('export-local-kind-mismatch');
+  });
+
+  test('applies use kind metadata for service screen and union imports', () => {
+    const source = [
+      'module name=domain',
+      '  use path="./domain.kern"',
+      '    from name=UserService kind=service',
+      '    from name=Dashboard kind=screen',
+      '    from name=ProfileEvent kind=union',
+      '  export names="UserService,Dashboard"',
+      '  export types="UserService,ProfileEvent"',
+    ].join('\n');
+
+    expect(rulesFor(source)).not.toContain('export-local-kind-mismatch');
+  });
+
+  test('reports value exports that reference local union declarations', () => {
+    const source = [
+      'module name=domain',
+      '  union name=ProfileEvent discriminant=kind',
+      '  export names=ProfileEvent',
+    ].join('\n');
+    const violations = validateSemantics(parseDocumentWithDiagnostics(source).root);
+
+    expect(violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rule: 'export-local-kind-mismatch',
+          message: expect.stringContaining('binding is only visible as a type-only symbol'),
+        }),
+      ]),
+    );
+  });
+
+  test('reports value exports that reference union use imports', () => {
+    const source = [
+      'module name=domain',
+      '  use path="./domain.kern"',
+      '    from name=ProfileEvent kind=union',
+      '  export names=ProfileEvent',
+    ].join('\n');
+    const violations = validateSemantics(parseDocumentWithDiagnostics(source).root);
+
+    expect(violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rule: 'export-local-kind-mismatch',
+          message: expect.stringContaining('binding is only visible as a type-only symbol'),
+        }),
+      ]),
+    );
+  });
+
+  test('reports value exports that reference direct host extern type bindings', () => {
+    const source = [
+      'module name=domain',
+      '  extern package="@types/react" names=ReactNode types=true',
+      '  export names=ReactNode',
+    ].join('\n');
+    const violations = validateSemantics(parseDocumentWithDiagnostics(source).root);
+
+    expect(violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rule: 'export-local-kind-mismatch',
+          message: expect.stringContaining('binding is only visible as a type-only symbol'),
+        }),
+      ]),
+    );
   });
 
   test('reports duplicate type-only external import local names', () => {

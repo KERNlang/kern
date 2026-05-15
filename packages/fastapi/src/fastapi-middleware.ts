@@ -49,8 +49,8 @@ export function buildMiddlewareArtifact(node: IRNode): MiddlewareArtifactRef {
 
 export function buildCorsMiddlewareLine(isStrict: boolean): string {
   return isStrict
-    ? 'app.add_middleware(CORSMiddleware, allow_origins=[origin.strip() for origin in os.environ.get("CORS_ORIGINS", "").split(",") if origin.strip()], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])'
-    : 'app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])';
+    ? 'app.add_middleware(CORSMiddleware, allow_origins=[origin.strip() for origin in os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",") if origin.strip()], allow_credentials=True, allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], allow_headers=["Authorization", "Content-Type", "X-Request-ID"])'
+    : 'app.add_middleware(CORSMiddleware, allow_origins=[origin.strip() for origin in os.environ.get("CORS_ORIGINS", "*").split(",") if origin.strip()], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])';
 }
 
 export function resolveMiddlewareUsage(

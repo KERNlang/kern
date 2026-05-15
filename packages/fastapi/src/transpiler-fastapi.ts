@@ -57,7 +57,7 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   const isStrict = !_config || (_config.fastapi?.security ?? 'strict') === 'strict';
   const corsEnabled = _config?.fastapi?.cors ?? false;
   const gzipEnabled = _config?.fastapi?.gzip ?? false;
-  const uvicornHost = _config?.fastapi?.uvicorn?.host ?? '0.0.0.0';
+  const uvicornHost = _config?.fastapi?.uvicorn?.host ?? '127.0.0.1';
   const uvicornReload = isStrict ? false : (_config?.fastapi?.uvicorn?.reload ?? false);
   const uvicornWorkers = _config?.fastapi?.uvicorn?.workers;
 
@@ -118,6 +118,8 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   const middlewareLines: string[] = [];
 
   serverImports.add('from fastapi import FastAPI');
+  serverImports.add('from fastapi.responses import JSONResponse');
+  serverImports.add('import os');
   if (
     !isStrict ||
     routeNodes.some((r) => {
@@ -135,7 +137,6 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
 
   // Config-level cors/gzip
   if (corsEnabled) {
-    if (isStrict) serverImports.add('import os');
     serverImports.add('from fastapi.middleware.cors import CORSMiddleware');
     middlewareLines.push(buildCorsMiddlewareLine(isStrict));
   }
@@ -146,9 +147,6 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
 
   // IR-level middleware
   for (const middlewareNode of serverMiddlewares) {
-    if (isStrict && String(getProps(middlewareNode).name || '') === 'cors') {
-      serverImports.add('import os');
-    }
     const usage = resolveMiddlewareUsage(middlewareNode, middlewareArtifacts, isStrict);
     if (usage.importLine) serverImports.add(usage.importLine);
     middlewareLines.push(usage.addLine);
@@ -385,14 +383,12 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
     lines.push('');
     lines.push('@app.exception_handler(Exception)');
     lines.push('async def global_exception_handler(request, exc):');
-    lines.push('    from fastapi.responses import JSONResponse');
     lines.push('    logging.exception("Unhandled exception")');
     lines.push('    return JSONResponse(status_code=500, content={"error": "Internal Server Error"})');
   } else {
     lines.push('');
     lines.push('@app.exception_handler(Exception)');
     lines.push('async def global_exception_handler(request, exc):');
-    lines.push('    from fastapi.responses import JSONResponse');
     lines.push('    return JSONResponse(status_code=500, content={"error": str(exc)})');
   }
 
@@ -400,7 +396,7 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   lines.push('');
   lines.push('if __name__ == "__main__":');
   const uvicornTarget = uvicornReload || (uvicornWorkers !== undefined && uvicornWorkers > 1) ? '"main:app"' : 'app';
-  const uvicornOpts: string[] = [uvicornTarget, `host="${uvicornHost}"`, `port=${port}`];
+  const uvicornOpts: string[] = [uvicornTarget, `host=os.environ.get("HOST", "${uvicornHost}")`, `port=${port}`];
   if (uvicornReload) uvicornOpts.push('reload=True');
   if (uvicornWorkers && uvicornWorkers > 1) uvicornOpts.push(`workers=${uvicornWorkers}`);
   lines.push(`    uvicorn.run(${uvicornOpts.join(', ')})`);

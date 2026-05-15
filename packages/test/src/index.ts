@@ -2588,6 +2588,261 @@ function isRuntimeBindingName(value: string): boolean {
   return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value);
 }
 
+function runtimeDependencySource(source: string): string {
+  let output = '';
+  let index = 0;
+
+  const spaces = (count: number) => ' '.repeat(Math.max(0, count));
+
+  function readQuoted(start: number, quote: '"' | "'"): number {
+    let end = start + 1;
+    while (end < source.length) {
+      if (source[end] === '\\') {
+        end += 2;
+        continue;
+      }
+      if (source[end] === quote) return end + 1;
+      end += 1;
+    }
+    return end;
+  }
+
+  function previousSignificantToken(before: number): string {
+    function lastLineCommentStartOutsideStrings(line: string): number {
+      let pos = 0;
+      let last = -1;
+      while (pos < line.length) {
+        const char = line[pos];
+        const next = line[pos + 1];
+        if (char === '"' || char === "'") {
+          const quote = char;
+          pos += 1;
+          while (pos < line.length) {
+            if (line[pos] === '\\') {
+              pos += 2;
+              continue;
+            }
+            if (line[pos] === quote) {
+              pos += 1;
+              break;
+            }
+            pos += 1;
+          }
+          continue;
+        }
+        if (char === '`') {
+          pos += 1;
+          while (pos < line.length) {
+            if (line[pos] === '\\') {
+              pos += 2;
+              continue;
+            }
+            if (line[pos] === '`') {
+              pos += 1;
+              break;
+            }
+            pos += 1;
+          }
+          continue;
+        }
+        if (char === '/' && next === '/') {
+          last = pos;
+          pos += 2;
+          continue;
+        }
+        pos += 1;
+      }
+      return last;
+    }
+
+    let cursor = before - 1;
+    while (cursor >= 0) {
+      while (cursor >= 0 && /\s/.test(source[cursor])) cursor -= 1;
+
+      if (cursor >= 1 && source[cursor] === '/' && source[cursor - 1] === '*') {
+        const start = source.lastIndexOf('/*', cursor - 2);
+        if (start !== -1) {
+          cursor = start - 1;
+          continue;
+        }
+      }
+
+      const lineStart = source.lastIndexOf('\n', cursor) + 1;
+      const linePrefix = source.slice(lineStart, cursor + 1);
+      const lineComment = lastLineCommentStartOutsideStrings(linePrefix);
+      if (lineComment !== -1) {
+        cursor = lineStart + lineComment - 1;
+        continue;
+      }
+
+      break;
+    }
+    if (cursor < 0) return '';
+    const char = source[cursor];
+    if (/[A-Za-z0-9_$]/.test(char)) {
+      let start = cursor;
+      while (start > 0 && /[A-Za-z0-9_$]/.test(source[start - 1])) start -= 1;
+      return source.slice(start, cursor + 1);
+    }
+    if (char === '>' && source[cursor - 1] === '=') return '=>';
+    if ((char === '+' || char === '-') && source[cursor - 1] === char) return `${char}${char}`;
+    return char;
+  }
+
+  function isRegexLiteralStart(start: number): boolean {
+    if (source[start] !== '/' || source[start + 1] === '/' || source[start + 1] === '*') return false;
+    const prev = previousSignificantToken(start);
+    if (!prev) return true;
+    if (/^(?:return|throw|case|delete|typeof|void|yield|await|instanceof|in|of)$/.test(prev)) return true;
+    return /^(?:[({[=,:;!?&|+\-*~^%<>]|=>)$/.test(prev);
+  }
+
+  function readRegexLiteral(start: number): number | undefined {
+    if (!isRegexLiteralStart(start)) return undefined;
+    let end = start + 1;
+    let inClass = false;
+    while (end < source.length) {
+      const char = source[end];
+      if (char === '\\') {
+        end += 2;
+        continue;
+      }
+      if (char === '[') {
+        inClass = true;
+        end += 1;
+        continue;
+      }
+      if (char === ']' && inClass) {
+        inClass = false;
+        end += 1;
+        continue;
+      }
+      if (char === '/' && !inClass) {
+        end += 1;
+        while (/[A-Za-z]/.test(source[end] || '')) end += 1;
+        return end;
+      }
+      if (char === '\n' || char === '\r') return undefined;
+      end += 1;
+    }
+    return undefined;
+  }
+
+  function readBalancedExpression(start: number): { text: string; end: number } {
+    let depth = 1;
+    let end = start;
+    while (end < source.length) {
+      const char = source[end];
+      const next = source[end + 1];
+
+      if (char === '/' && next === '/') {
+        const newline = source.indexOf('\n', end + 2);
+        end = newline === -1 ? source.length : newline;
+        continue;
+      }
+      if (char === '/' && next === '*') {
+        const close = source.indexOf('*/', end + 2);
+        end = close === -1 ? source.length : close + 2;
+        continue;
+      }
+      if (char === '"' || char === "'") {
+        end = readQuoted(end, char);
+        continue;
+      }
+      if (char === '/') {
+        const regexEnd = readRegexLiteral(end);
+        if (regexEnd !== undefined) {
+          end = regexEnd;
+          continue;
+        }
+      }
+      if (char === '`') {
+        const template = readTemplate(end);
+        end = template.end;
+        continue;
+      }
+      if (char === '{') depth += 1;
+      else if (char === '}') {
+        depth -= 1;
+        if (depth === 0) return { text: source.slice(start, end), end: end + 1 };
+      }
+      end += 1;
+    }
+    return { text: source.slice(start, end), end };
+  }
+
+  function readTemplate(start: number): { text: string; end: number } {
+    let text = '';
+    let end = start + 1;
+    while (end < source.length) {
+      const char = source[end];
+      const next = source[end + 1];
+      if (char === '\\') {
+        end += 2;
+        continue;
+      }
+      if (char === '`') return { text, end: end + 1 };
+      if (char === '$' && next === '{') {
+        const expr = readBalancedExpression(end + 2);
+        text += ` ${runtimeDependencySource(expr.text)} `;
+        end = expr.end;
+        continue;
+      }
+      end += 1;
+    }
+    return { text, end };
+  }
+
+  while (index < source.length) {
+    const char = source[index];
+    const next = source[index + 1];
+
+    if (char === '/' && next === '/') {
+      const end = source.indexOf('\n', index + 2);
+      const commentEnd = end === -1 ? source.length : end;
+      output += spaces(commentEnd - index);
+      index = commentEnd;
+      continue;
+    }
+
+    if (char === '/' && next === '*') {
+      const end = source.indexOf('*/', index + 2);
+      const commentEnd = end === -1 ? source.length : end + 2;
+      output += spaces(commentEnd - index);
+      index = commentEnd;
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      const end = readQuoted(index, char);
+      output += spaces(end - index);
+      index = end;
+      continue;
+    }
+
+    if (char === '/') {
+      const regexEnd = readRegexLiteral(index);
+      if (regexEnd !== undefined) {
+        output += spaces(regexEnd - index);
+        index = regexEnd;
+        continue;
+      }
+    }
+
+    if (char === '`') {
+      const template = readTemplate(index);
+      output += ` ${template.text} `;
+      index = template.end;
+      continue;
+    }
+
+    output += char;
+    index += 1;
+  }
+
+  return output;
+}
+
 function transformRuntimeCodeSegments(source: string, transform: (segment: string) => string): string {
   let output = '';
   let segmentStart = 0;
@@ -4144,7 +4399,8 @@ function orderRuntimeBindings(bindings: RuntimeBinding[], entryExpr: string): Ru
   const stack: string[] = [];
 
   function depsIn(source: string): string[] {
-    return [...byName.keys()].filter((name) => new RegExp(`\\b${escapeRegExp(name)}\\b`).test(source));
+    const dependencySource = runtimeDependencySource(source);
+    return [...byName.keys()].filter((name) => new RegExp(`\\b${escapeRegExp(name)}\\b`).test(dependencySource));
   }
 
   function bindingFor(name: string): RuntimeBinding | undefined {
