@@ -166,6 +166,9 @@ export function runTSCDiagnostics(
 
   try {
     const diagnostics = project.getPreEmitDiagnostics();
+    const suppressedModuleMisses = options.downgradeProjectLoadingErrors
+      ? collectReviewModeSuppressedModuleMisses(diagnostics)
+      : new Set<string>();
 
     for (const diag of diagnostics) {
       const sourceFile = diag.getSourceFile();
@@ -241,7 +244,8 @@ export function runTSCDiagnostics(
         (isLoadingNoise ||
           isEnvironmentalNoise ||
           isNodeGlobalUnresolved ||
-          isReviewModeModuleResolutionNoise(code, messageStr, filePath))
+          isReviewModeModuleResolutionNoise(code, messageStr, filePath) ||
+          isReviewModeGeneratedFacadeExportCascade(sourceFile, code, messageStr, suppressedModuleMisses))
       ) {
         continue;
       }
@@ -270,6 +274,69 @@ export function runTSCDiagnostics(
   }
 
   return findings;
+}
+
+function collectReviewModeSuppressedModuleMisses(
+  diagnostics: ReturnType<Project['getPreEmitDiagnostics']>,
+): Set<string> {
+  const misses = new Set<string>();
+  for (const diag of diagnostics) {
+    if (diag.getCode() !== 2307) continue;
+    const sourceFile = diag.getSourceFile();
+    if (!sourceFile) continue;
+    const message = diag.getMessageText();
+    const messageStr = typeof message === 'string' ? message : message.getMessageText();
+    const specifier = extractMissingModuleSpecifier(messageStr);
+    if (!specifier) continue;
+    if (isReviewModeModuleResolutionNoise(2307, messageStr, sourceFile.getFilePath())) {
+      misses.add(moduleMissKey(sourceFile.getFilePath(), specifier));
+    }
+  }
+  return misses;
+}
+
+function isReviewModeGeneratedFacadeExportCascade(
+  sourceFile: import('ts-morph').SourceFile,
+  code: number,
+  message: string,
+  suppressedModuleMisses: Set<string>,
+): boolean {
+  if (code !== 2305 || suppressedModuleMisses.size === 0) return false;
+  const importedModule = extractNoExportModuleSpecifier(message);
+  if (!importedModule) return false;
+
+  const candidates = [...sourceFile.getImportDeclarations(), ...sourceFile.getExportDeclarations()].filter(
+    (decl) => decl.getModuleSpecifierValue() === importedModule,
+  );
+
+  for (const decl of candidates) {
+    const facade = decl.getModuleSpecifierSourceFile();
+    if (!facade) continue;
+    if (hasSuppressedGeneratedStarExport(facade, suppressedModuleMisses)) return true;
+  }
+  return false;
+}
+
+function hasSuppressedGeneratedStarExport(
+  facade: import('ts-morph').SourceFile,
+  suppressedModuleMisses: Set<string>,
+): boolean {
+  for (const decl of facade.getExportDeclarations()) {
+    const specifier = decl.getModuleSpecifierValue();
+    if (!specifier || decl.getNamedExports().length > 0) continue;
+    if (!/^export\s+\*/.test(decl.getText())) continue;
+    if (suppressedModuleMisses.has(moduleMissKey(facade.getFilePath(), specifier))) return true;
+  }
+  return false;
+}
+
+function moduleMissKey(filePath: string, specifier: string): string {
+  return `${filePath}\0${specifier}`;
+}
+
+function extractNoExportModuleSpecifier(message: string): string | undefined {
+  const match = message.match(/Module ['"]"?([^'"]+?)"?['"] has no exported member/);
+  return match?.[1];
 }
 
 // Names provided as globals by @types/node. When a TS2304/TS2552 references

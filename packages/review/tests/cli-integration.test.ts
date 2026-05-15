@@ -216,6 +216,36 @@ export function add(a: number, b: number): number { return a + b; }
     );
   });
 
+  it('runTSCDiagnostics suppresses guard-mode TS2305 cascades through generated star facades', () => {
+    const project = createInMemoryProject();
+    project.createSourceFile(
+      '/repo/packages/core/src/index.ts',
+      [
+        "export { searchHistorySemantic } from './history-search.js';",
+        "export type { HistorySearchHit } from './history-search.js';",
+      ].join('\n'),
+    );
+    project.createSourceFile(
+      '/repo/packages/core/src/history-search.ts',
+      "export * from './generated/sessions/history-search-bridge.js';\n",
+    );
+
+    expect(runTSCDiagnostics(project).some((f) => f.ruleId === 'ts2305')).toBe(true);
+    expect(runTSCDiagnostics(project, { downgradeProjectLoadingErrors: true }).some((f) => f.ruleId === 'ts2305')).toBe(
+      false,
+    );
+  });
+
+  it('runTSCDiagnostics still reports real TS2305 named export misses in guard mode', () => {
+    const project = createInMemoryProject();
+    project.createSourceFile('/repo/src/index.ts', "export { missing } from './worker.js';\n");
+    project.createSourceFile('/repo/src/worker.ts', 'export const present = 1;\n');
+
+    expect(runTSCDiagnostics(project, { downgradeProjectLoadingErrors: true }).some((f) => f.ruleId === 'ts2305')).toBe(
+      true,
+    );
+  });
+
   it('runTSCDiagnostics suppresses guard-mode bare dependency module misses', () => {
     const project = createInMemoryProject();
     project.createSourceFile('tests/unit/doctor-command.test.ts', "import { describe, it } from 'vitest';\n");
