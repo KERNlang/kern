@@ -451,6 +451,30 @@ describe('FastAPI Transpiler', () => {
       expect(lines.join('\n')).toBe('from .helpers.parse_user import parseUser as parse_user');
     });
 
+    test('uses planned Python module names for relative KERN imports', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse(['use path="./json.kern"', '  from name=parseUser kind=fn'].join('\n'));
+      const lines = generatePythonCoreNode(ast, {
+        resolveKernModuleSpec: (rawPath) => (rawPath === './json.kern' ? '.json_' : undefined),
+      });
+
+      expect(lines.join('\n')).toBe('from .json_ import parse_user as parseUser');
+    });
+
+    test('uses planned Python module names for extensionless relative KERN imports', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse(['use path="./json"', '  from name=parseUser kind=fn'].join('\n'));
+      const lines = generatePythonCoreNode(ast, {
+        resolveKernModuleSpec: (rawPath) => (rawPath === './json' ? '.json_' : undefined),
+      });
+
+      expect(lines.join('\n')).toBe('from .json_ import parse_user as parseUser');
+    });
+
     test('generates Python use/from import with function symbol-kind bridge alias', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { generatePythonCoreNode } = await import('../src/codegen-python.js');
