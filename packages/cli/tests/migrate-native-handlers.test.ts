@@ -115,7 +115,7 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
-  test('does not auto-migrate arbitrary sync destructured pair for-of block', () => {
+  test('migrates arbitrary sync destructured pair for-of block (KERN-GAPS `for-of-sync-pair`)', () => {
     const source = [
       'fn name=notify returns=void',
       '  handler <<<',
@@ -126,8 +126,33 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     ].join('\n');
 
     const result = rewriteNativeHandlers(source);
-    expect(result.hits).toHaveLength(0);
-    expect(result.output).toBe(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.skipped).toHaveLength(0);
+    expect(result.output).toContain('handler lang="kern"');
+    // Value-less `entries=true` attribute MUST be absent: the source did not
+    // wrap in `Object.entries(...)`, so the migration emits the bare pair form
+    // which re-emits as `for (const [key, value] of pairs)` byte-cleanly.
+    expect(result.output).toContain('each pairKey=key pairValue=value in="pairs"');
+    expect(result.output).not.toContain('entries=true');
+    expect(result.output).toContain('do value="notify(key, value)"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates Map.entries() sync pair for-of block to bare pair-mode each', () => {
+    const source = [
+      'fn name=notify returns=void',
+      '  handler <<<',
+      '    for (const [k, v] of map.entries()) {',
+      '      notify(k, v);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('each pairKey=k pairValue=v in="map.entries()"');
+    expect(result.output).not.toContain('entries=true');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
   test('does not auto-migrate arbitrary sync key-only destructured for-of block', () => {
@@ -1795,7 +1820,10 @@ describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalenc
     );
   });
 
-  test('arbitrary sync destructured pair for-of remains raw to avoid Python target drift', () => {
+  test('arbitrary sync destructured pair for-of compiles byte-equivalent through bare pair-mode each', () => {
+    // KERN-GAPS `for-of-sync-pair` — sync pair iteration over arbitrary
+    // iterables lifts to `each pairKey=k pairValue=v in=expr` (no
+    // `entries=true`). Codegen emits `for (const [k, v] of expr) { … }`.
     const source = [
       'fn name=notify returns=void',
       '  handler <<<',
@@ -1808,8 +1836,20 @@ describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalenc
       '  >>>',
     ].join('\n');
     const result = rewriteNativeHandlers(source);
-    expect(result.hits).toHaveLength(0);
-    expect(result.output).toBe(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(
+      [
+        'for (const [key, value] of pairs) {',
+        '  if (skip(key)) {',
+        '    continue;',
+        '  }',
+        '  notify(key, value);',
+        '}',
+      ].join('\n'),
+    );
   });
 
   test('Object.entries pair for-of compiles byte-equivalent through entries-mode each', () => {

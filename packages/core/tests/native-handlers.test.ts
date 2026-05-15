@@ -196,6 +196,17 @@ describe('emitNativeKernBodyTS — slice 1 statements', () => {
     expect(emitNativeKernBodyTS(handler)).toBe(['let obj = { foo: 0 };', 'obj.foo++;'].join('\n'));
   });
 
+  // Opencode impl-review P3 polish: index-access target was untested.
+  test('assign op="++" with index-access target emits `arr[i]++`', () => {
+    const handler = makeHandler([
+      { type: 'let', props: { name: 'arr', kind: 'let', value: '[0]' } },
+      { type: 'let', props: { name: 'i', value: '0' } },
+      { type: 'assign', props: { target: 'arr[i]', op: '++' } },
+      { type: 'assign', props: { target: 'arr[0]', op: '--' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(['let arr = [0];', 'const i = 0;', 'arr[i]++;', 'arr[0]--;'].join('\n'));
+  });
+
   test('assign op="++" on a cell target lowers to functional setter', () => {
     const handler = makeHandler([
       { type: 'cell', props: { name: 'count', initial: '0' } },

@@ -564,7 +564,19 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
         return 'for-of-async-object-entries';
       }
       if (stmt.awaitModifier && entryBinding.kind !== 'pair') return 'for-of-async-entry';
-      if (!stmt.awaitModifier && canonicalObjectEntriesSource(stmt.expression, sf) === null) return 'for-of-sync-pair';
+      // KERN-GAPS: sync pair iteration (`for (const [k, v] of expr)`) lifts to
+      // `each pairKey=k pairValue=v in=expr` regardless of whether `expr` is
+      // `Object.entries(...)` — Map.entries(), arrays-of-pairs, and generators
+      // yielding `[k,v]` all round-trip byte-cleanly through TS codegen.
+      // Key-only / value-only modes still require `Object.entries(...)` because
+      // the migrator only emits those with `entries=true`. (Codex review fix.)
+      if (
+        !stmt.awaitModifier &&
+        entryBinding.kind !== 'pair' &&
+        canonicalObjectEntriesSource(stmt.expression, sf) === null
+      ) {
+        return 'for-of-sync-pair';
+      }
       if (decl.type) return 'for-of-destructure-type';
     } else if (decl.type && !isValidKernTypeAnnotation(decl.type.getText(sf))) {
       return 'for-of-bad-type';

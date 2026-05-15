@@ -437,8 +437,12 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
     rejected(`for (const x of xs) {}\nreturn xs;`, 'for-of-empty-body'));
 
   test('unsupported for-of destructured bindings are still rejected', () => {
-    rejected(`for (const [key, value] of pairs) {\n  notify(key, value);\n}`, 'for-of-sync-pair');
+    // KERN-GAPS `for-of-sync-pair` lifted: sync pair iteration over arbitrary
+    // iterables (Map.entries(), arrays-of-pairs) is now eligible.
+    expect(classifyHandlerBody(`for (const [key, value] of pairs) {\n  notify(key, value);\n}`).eligible).toBe(true);
     rejected(`for (const { id } of users) {\n  use(id);\n}`, 'for-of-destructure');
+    // Key-only / value-only destructure still requires Object.entries() —
+    // the migrator only emits those via `entries=true`.
     rejected(`for (const [only] of pairs) {\n  use(only);\n}`, 'for-of-sync-pair');
     rejected(`for (const [, value] of pairs) {\n  use(value);\n}`, 'for-of-sync-pair');
     rejected(`for (const [k, v, extra] of pairs) {\n  use(k, v, extra);\n}`, 'for-of-destructure');
@@ -450,6 +454,24 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
       'for-of-destructure-type',
     );
     rejected(`for await (const [k, v]: [string, number] of pairs) {\n  use(k, v);\n}`, 'for-of-destructure-type');
+  });
+
+  // KERN-GAPS gap `for-of-sync-pair` — sync pair iteration over non-
+  // Object.entries iterables lifts to `each pairKey=k pairValue=v in=expr`
+  // (no `entries=true`). All five Agon handlers blocked by this gap use Map
+  // or array-of-pairs iteration. Key-only / value-only single bindings still
+  // require Object.entries because the migrator only emits those with
+  // `entries=true`.
+  test('sync pair iteration over Map.entries() is eligible', () => {
+    expect(classifyHandlerBody(`for (const [k, v] of map.entries()) {\n  notify(k, v);\n}`).eligible).toBe(true);
+  });
+
+  test('sync pair iteration over arbitrary identifier is eligible', () => {
+    expect(classifyHandlerBody(`for (const [k, v] of pairs) {\n  notify(k, v);\n}`).eligible).toBe(true);
+  });
+
+  test('sync pair iteration over Object.entries() remains eligible (entries=true path)', () => {
+    expect(classifyHandlerBody(`for (const [k, v] of Object.entries(obj)) {\n  notify(k, v);\n}`).eligible).toBe(true);
   });
 
   test('for-of with unsafe type annotation rejected', () =>

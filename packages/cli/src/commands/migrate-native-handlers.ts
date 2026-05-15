@@ -537,10 +537,27 @@ function mapForOf(stmt: ts.ForOfStatement, source: ts.SourceFile, indent: string
       out = [
         `${indent}each pairKey=${entryBinding.key} pairValue=${entryBinding.value} in="${escapeKernString(canonicalCollection)}"${awaitAttr}`,
       ];
-    } else {
-      if (entriesSource === null) return null;
+    } else if (entriesSource !== null) {
+      // `for (const [k, v] of Object.entries(obj))` → `entries=true` form.
+      // Python lowers to `for k, v in obj.items():`; TS to
+      // `for (const [k, v] of Object.entries(obj))`. Byte-clean both ways.
       out = [
         `${indent}each pairKey=${entryBinding.key} pairValue=${entryBinding.value} in="${escapeKernString(entriesSource)}" entries=true`,
+      ];
+    } else {
+      // KERN-GAPS `for-of-sync-pair`: arbitrary sync iterables of pairs
+      // (Map.entries(), arrays-of-pairs, generators yielding `[k,v]`) lift
+      // to `each pairKey=k pairValue=v in=expr` (no `entries=true`). TS
+      // codegen emits `for (const [k, v] of expr) { … }` — byte-equivalent
+      // to the original raw source. Python cross-target note: `each
+      // pairKey/pairValue` without `entries=true` lowers to
+      // `for k, v in expr.items():`, which is appropriate for dict-like
+      // values but not for JS `Map` instances — that's an authoring concern
+      // for cross-target portability, not a migration parity violation.
+      const canonicalCollection = canonicalKernExpression(stmt.expression.getText(source));
+      if (canonicalCollection === null) return null;
+      out = [
+        `${indent}each pairKey=${entryBinding.key} pairValue=${entryBinding.value} in="${escapeKernString(canonicalCollection)}"`,
       ];
     }
   } else if (entryBinding?.kind === 'key' || entryBinding?.kind === 'value') {

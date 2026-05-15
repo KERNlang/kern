@@ -159,6 +159,24 @@ describe('emitNativeKernBodyPython — slice 1 statements', () => {
     expect(emitNativeKernBodyPython(h)).toBe(['count = 0', 'count += 1', 'count -= 1'].join('\n'));
   });
 
+  // Opencode impl-review P3 polish: Python member/index access were untested.
+  test('assign op="++" with member-access target lowers to `obj.foo += 1` on Python', () => {
+    const h = makeHandler([
+      { type: 'let', props: { name: 'obj', kind: 'let', value: '{ "foo": 0 }' } },
+      { type: 'assign', props: { target: 'obj.foo', op: '++' } },
+    ]);
+    expect(emitNativeKernBodyPython(h)).toBe(['obj = {"foo": 0}', 'obj.foo += 1'].join('\n'));
+  });
+
+  test('assign op="++" with index-access target lowers to `arr[i] += 1` on Python', () => {
+    const h = makeHandler([
+      { type: 'let', props: { name: 'arr', kind: 'let', value: '[0]' } },
+      { type: 'let', props: { name: 'i', value: '0' } },
+      { type: 'assign', props: { target: 'arr[i]', op: '++' } },
+    ]);
+    expect(emitNativeKernBodyPython(h)).toBe(['arr = [0]', 'i = 0', 'arr[i] += 1'].join('\n'));
+  });
+
   test('assign op="++" with value= is rejected on Python', () => {
     const h = makeHandler([
       { type: 'let', props: { name: 'count', kind: 'let', value: '0' } },
