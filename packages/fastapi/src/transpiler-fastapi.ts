@@ -37,20 +37,62 @@ type FastApiWriterConfig = ResolvedKernConfig & {
   fastapi: ResolvedKernConfig['fastapi'] & {
     entryModules?: string[];
     moduleNameByFile?: Record<string, string>;
+    modulePathByFile?: Record<string, string>;
     sourceFile?: string;
   };
 };
+
+function relativePythonModuleSpec(sourceModulePath: string, targetModulePath: string): string {
+  const sourceParts = sourceModulePath.split('.').filter(Boolean);
+  const sourcePackage = sourceParts.slice(0, -1);
+  const targetParts = targetModulePath.split('.').filter(Boolean);
+  let common = 0;
+  while (
+    common < sourcePackage.length &&
+    common < targetParts.length &&
+    sourcePackage[common] === targetParts[common]
+  ) {
+    common++;
+  }
+  if (common === 0) return targetModulePath;
+  const upLevels = sourcePackage.length - common;
+  const relativePrefix = '.'.repeat(upLevels + 1);
+  return `${relativePrefix}${targetParts.slice(common).join('.')}`;
+}
+
+function generatedArtifactModuleSpecifier(sourceModulePath: string | undefined, artifactParts: string[]): string {
+  if (!sourceModulePath) return artifactParts.join('.');
+  const sourceParts = sourceModulePath.split('.').filter(Boolean);
+  const sourcePackage = sourceParts.slice(0, -1);
+  const targetModulePath = [...sourcePackage, ...artifactParts].join('.');
+  return relativePythonModuleSpec(sourceModulePath, targetModulePath);
+}
+
+function plannedSourceFile(rawTargetFile: string, moduleMap: Record<string, string> | undefined): string | undefined {
+  if (!moduleMap) return undefined;
+  for (const candidate of [rawTargetFile, `${rawTargetFile}.kern`, `${rawTargetFile}.ir`]) {
+    if (moduleMap[candidate]) return candidate;
+  }
+  return undefined;
+}
 
 function plannedPythonModuleSpecifier(
   rawPath: string,
   sourceFile: string | undefined,
   moduleNameByFile: Record<string, string> | undefined,
+  modulePathByFile: Record<string, string> | undefined,
 ): string | undefined {
-  if (!sourceFile || !moduleNameByFile) return undefined;
+  if (!sourceFile || (!moduleNameByFile && !modulePathByFile)) return undefined;
   if (!rawPath.startsWith('./') && !rawPath.startsWith('../')) return undefined;
 
   const targetFile = resolve(dirname(sourceFile), rawPath);
-  const plannedModuleName = moduleNameByFile[targetFile] ?? moduleNameByFile[`${targetFile}.kern`];
+  const targetSourceFile = plannedSourceFile(targetFile, modulePathByFile);
+  const sourceModulePath = modulePathByFile?.[sourceFile];
+  const targetModulePath = targetSourceFile ? modulePathByFile?.[targetSourceFile] : undefined;
+  if (sourceModulePath && targetModulePath) return relativePythonModuleSpec(sourceModulePath, targetModulePath);
+
+  const targetModuleNameFile = plannedSourceFile(targetFile, moduleNameByFile);
+  const plannedModuleName = targetModuleNameFile ? moduleNameByFile?.[targetModuleNameFile] : undefined;
   if (!plannedModuleName) return undefined;
 
   const withoutExt = rawPath.replace(/\.(kern|py|js|ts)$/u, '');
@@ -103,12 +145,20 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   const uvicornNeedsImportString = uvicornReload || (uvicornWorkers !== undefined && uvicornWorkers > 1);
   const fastApiConfig = _config as FastApiWriterConfig | undefined;
   const alembicEntryModules = fastApiConfig?.fastapi?.entryModules ?? [];
+  const sourceModulePath =
+    fastApiConfig?.fastapi?.sourceFile && fastApiConfig.fastapi.modulePathByFile
+      ? fastApiConfig.fastapi.modulePathByFile[fastApiConfig.fastapi.sourceFile]
+      : undefined;
+  const sourcePackageDepth = sourceModulePath ? Math.max(0, sourceModulePath.split('.').filter(Boolean).length - 1) : 0;
+  const artifactModuleSpec = (...artifactParts: string[]) =>
+    generatedArtifactModuleSpecifier(sourceModulePath, artifactParts);
   const pythonCodegenOptions = {
     resolveKernModuleSpec: (rawPath: string, _node: IRNode) =>
       plannedPythonModuleSpecifier(
         rawPath,
         fastApiConfig?.fastapi?.sourceFile,
         fastApiConfig?.fastapi?.moduleNameByFile,
+        fastApiConfig?.fastapi?.modulePathByFile,
       ),
   };
 
@@ -203,7 +253,9 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
 
   // IR-level middleware
   for (const middlewareNode of serverMiddlewares) {
-    const usage = resolveMiddlewareUsage(middlewareNode, middlewareArtifacts, isStrict);
+    const usage = resolveMiddlewareUsage(middlewareNode, middlewareArtifacts, isStrict, (fileBase) =>
+      artifactModuleSpec('middleware', fileBase),
+    );
     if (usage.importLine) serverImports.add(usage.importLine);
     middlewareLines.push(usage.addLine);
   }
@@ -259,7 +311,7 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
       ].join('\n'),
       type: 'lib' as GeneratedArtifact['type'],
     };
-    serverImports.add('from auth import auth_required, auth_optional');
+    serverImports.add(`from ${artifactModuleSpec('auth')} import auth_required, auth_optional`);
   }
 
   // Build websocket artifacts
@@ -273,12 +325,12 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
 
   // Route imports
   for (const route of routeArtifacts) {
-    serverImports.add(`from routes.${route.fileBase} import router as ${route.routerName}`);
+    serverImports.add(`from ${artifactModuleSpec('routes', route.fileBase)} import router as ${route.routerName}`);
   }
 
   // WebSocket imports
   for (const ws of wsArtifacts) {
-    serverImports.add(`from ws.${ws.fileBase} import ${ws.funcName}`);
+    serverImports.add(`from ${artifactModuleSpec('ws', ws.fileBase)} import ${ws.funcName}`);
   }
 
   // Collect imports needed by core language nodes
@@ -452,16 +504,26 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   lines.push('');
   lines.push('if __name__ == "__main__":');
   if (uvicornNeedsImportString) {
-    lines.push('    script_dir = str(Path(__file__).resolve().parent)');
-    lines.push('    if script_dir not in sys.path:');
-    lines.push('        sys.path.insert(0, script_dir)');
-    lines.push('    uvicorn_app = f"{Path(__file__).stem}:app"');
+    if (sourceModulePath && sourcePackageDepth > 0) {
+      lines.push(`    app_dir = str(Path(__file__).resolve().parents[${sourcePackageDepth}])`);
+      lines.push('    if app_dir not in sys.path:');
+      lines.push('        sys.path.insert(0, app_dir)');
+      lines.push(`    uvicorn_app = "${sourceModulePath}:app"`);
+    } else {
+      lines.push('    script_dir = str(Path(__file__).resolve().parent)');
+      lines.push('    if script_dir not in sys.path:');
+      lines.push('        sys.path.insert(0, script_dir)');
+      lines.push('    uvicorn_app = f"{Path(__file__).stem}:app"');
+      lines.push('    app_dir = script_dir');
+    }
   }
   const uvicornTarget = uvicornNeedsImportString ? 'uvicorn_app' : 'app';
   const uvicornOpts: string[] = [uvicornTarget, `host=os.environ.get("HOST", "${uvicornHost}")`, `port=${port}`];
   if (uvicornReload) uvicornOpts.push('reload=True');
   if (uvicornWorkers && uvicornWorkers > 1) uvicornOpts.push(`workers=${uvicornWorkers}`);
-  if (uvicornNeedsImportString) uvicornOpts.push('app_dir=script_dir');
+  if (uvicornNeedsImportString) {
+    uvicornOpts.push(sourceModulePath && sourcePackageDepth > 0 ? 'app_dir=app_dir' : 'app_dir=script_dir');
+  }
   lines.push(`    uvicorn.run(${uvicornOpts.join(', ')})`);
 
   // ── Assemble result ────────────────────────────────────────────────────

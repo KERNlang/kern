@@ -478,7 +478,9 @@ export function writeSidecarInstallFilesForAsts(asts: Iterable<IRNode>, outDir: 
 type TranspileAndWriteOptions = import('@kernlang/core').ParseOptions & {
   fastApiEntryModules?: string[];
   fastApiModuleNameByFile?: Record<string, string>;
+  fastApiModulePathByFile?: Record<string, string>;
   outputBaseName?: string;
+  outputRelDir?: string;
   writeSidecarInstallFiles?: boolean;
 };
 
@@ -696,14 +698,16 @@ export function withFastApiModuleMap(
   cfg: ResolvedKernConfig,
   sourceFile: string,
   moduleNameByFile?: Record<string, string>,
+  modulePathByFile?: Record<string, string>,
 ): ResolvedKernConfig {
-  if (cfg.target !== 'fastapi' || !moduleNameByFile) return cfg;
+  if (cfg.target !== 'fastapi' || (!moduleNameByFile && !modulePathByFile)) return cfg;
   return {
     ...cfg,
     fastapi: {
       ...cfg.fastapi,
       sourceFile,
-      moduleNameByFile,
+      ...(moduleNameByFile ? { moduleNameByFile } : {}),
+      ...(modulePathByFile ? { modulePathByFile } : {}),
     },
   } as ResolvedKernConfig;
 }
@@ -1159,14 +1163,24 @@ export function transpileAndWrite(
     withFastApiEntryModules(effectiveCfg, fastApiEntryModules),
     resolve(file),
     options?.fastApiModuleNameByFile,
+    options?.fastApiModulePathByFile,
   );
   const commentPrefix = target === 'fastapi' ? '#' : '//';
   const header = generatedHeaderForTarget(target, relSource);
   const result = transpileForTarget(ast, transpileCfg);
 
-  const relDir = inputBase ? relative(resolve(inputBase), dirname(file)) : '';
+  const fastApiOutputRelDir = target === 'fastapi' ? options?.outputRelDir : undefined;
+  const usesFastApiOutputRelDir = fastApiOutputRelDir !== undefined;
+  const relDir = usesFastApiOutputRelDir
+    ? fastApiOutputRelDir
+    : inputBase
+      ? relative(resolve(inputBase), dirname(file))
+      : '';
   const baseDir = outDirOverride ? resolve(resolve(outDirOverride), relDir) : dirname(file);
-  const outDir = resolve(baseDir, cfg.output.outDir);
+  const outDir =
+    usesFastApiOutputRelDir && outDirOverride
+      ? resolve(resolve(outDirOverride), cfg.output.outDir, relDir)
+      : resolve(baseDir, cfg.output.outDir);
   mkdirSync(outDir, { recursive: true });
   if (options?.writeSidecarInstallFiles !== false) writeSidecarInstallFiles(ast, outDir);
 
