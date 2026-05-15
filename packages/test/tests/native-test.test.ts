@@ -3457,6 +3457,58 @@ describe('native kern test runner', () => {
     expect(summary.results[0].message ?? '').not.toMatch(/timed out/i);
   });
 
+  // Regression: 3.5.0 sibling-fn scope leak — when one fn in a file used
+  // `handler lang="kern"` with `each` + `let` + `assign`, the runtime
+  // binding collector recursed into the handler's IR children and lifted
+  // the `each`/`let` nodes out as TOP-LEVEL module bindings. The `each`
+  // synthetic binding expanded to an eager IIFE referencing the owning
+  // fn's params (e.g. `value`, `engineIds`), which are undefined at
+  // module scope — the IIFE threw `ReferenceError` at script eval time,
+  // crashing the entire runtime script and breaking unrelated sibling
+  // fn tests. The fix stops the recursion at `handler` nodes so body
+  // statement IR stays inside its owning binding.
+  test('does not leak handler-local params across sibling fns at module scope', () => {
+    writeFileSync(
+      join(tmpDir, 'scope-leak.kern'),
+      [
+        'fn name=collectKeys params="value:object" returns="string[]"',
+        '  handler lang=kern',
+        '    let kind=let name=out value="[]"',
+        '    each name=item in="Object.keys(value)"',
+        '      assign target="out" value="[...out, item]"',
+        '    return value="out"',
+        'fn name=doubleNumber params="n:number" returns=number',
+        '  handler <<<',
+        '    return n * 2;',
+        '  >>>',
+        'fn name=greet params="name:string" returns=string',
+        '  handler <<<',
+        '    return `hi ${name}`;',
+        '  >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'scope-leak.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="sibling fns" target="./scope-leak.kern"',
+        '  it name="sibling without leak"',
+        '    expect fn=doubleNumber args={{[7]}} equals=14',
+        '    expect fn=greet args={{["ada"]}} equals="hi ada"',
+        '    expect fn=collectKeys args={{[{ a: 1, b: 2 }]}} equals={{["a", "b"]}}',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(3);
+    for (const result of summary.results) {
+      expect(result.message ?? '').not.toMatch(/ReferenceError/);
+      expect(result.message ?? '').not.toMatch(/is not defined/);
+    }
+  });
+
   // Regression: tribunal verdict — when `emitNativeKernBodyTS` rejects a
   // construct, the runner used to silently emit an empty body, surfacing
   // as a misleading downstream ReferenceError. It now injects a

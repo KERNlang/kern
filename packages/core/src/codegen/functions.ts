@@ -211,10 +211,13 @@ export function generateError(node: IRNode): string[] {
       // Custom handler body — replaces auto-generated assignments. The
       // subclass still needs `super(...)` as the first constructor
       // statement for TS to compile; auto-inject it unless the handler
-      // body already starts with an explicit `super(...)` call so authors
-      // who want full control can opt out.
-      const bodyStartsWithSuper = /^\s*super\s*\(/.test(code);
-      if (!bodyStartsWithSuper) {
+      // body already contains an explicit `super(...)` call so authors
+      // who want full control can opt out. Match on any line (multiline
+      // flag) — `lang="kern"` handlers often emit leading `let`/`const`
+      // setup before the explicit super, and the previous start-only
+      // anchor incorrectly injected a zero-arg `super()` in that shape.
+      const bodyHasExplicitSuper = /^\s*super\s*\(/m.test(code);
+      if (!bodyHasExplicitSuper) {
         if (message) {
           lines.push(`    super(\`${message}\`);`);
         } else if (hasMessageParam) {
