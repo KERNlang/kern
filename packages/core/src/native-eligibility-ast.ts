@@ -588,13 +588,25 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
     return null;
   }
   if (ts.isTryStatement(stmt)) {
-    if (!stmt.catchClause) return 'try-no-catch';
-    if (stmt.finallyBlock) return 'try-finally';
-    const cc = stmt.catchClause;
-    if (cc.variableDeclaration && !ts.isIdentifier(cc.variableDeclaration.name)) return 'try-destruct-catch';
+    // KERN-GAPS `try-no-catch` (5) + `try-finally` (1): the body-stmt `try`
+    // codegen has supported finally-only and catch+finally since slice 4c
+    // (body-ts.ts:286-292 / codegen-body-python.ts:316-323), and the schema
+    // permits `finally` as a `try` child. The only remaining requirement is
+    // the TS-level shape — at least one of `catch`/`finally` must be present.
+    if (!stmt.catchClause && !stmt.finallyBlock) return 'try-no-catch';
+    if (stmt.catchClause) {
+      const cc = stmt.catchClause;
+      if (cc.variableDeclaration && !ts.isIdentifier(cc.variableDeclaration.name)) return 'try-destruct-catch';
+      const catchReason = classifyBranch(cc.block, sf, ctx);
+      if (catchReason !== null) return catchReason;
+    }
     const tryReason = classifyBranch(stmt.tryBlock, sf, ctx);
     if (tryReason !== null) return tryReason;
-    return classifyBranch(cc.block, sf, ctx);
+    if (stmt.finallyBlock) {
+      const finallyReason = classifyBranch(stmt.finallyBlock, sf, ctx);
+      if (finallyReason !== null) return finallyReason;
+    }
+    return null;
   }
   if (ts.isExpressionStatement(stmt)) {
     // Slice α-1: ExpressionStatement → `do value="…"`. Plain `=` maps to

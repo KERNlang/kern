@@ -1147,7 +1147,7 @@ describe('rewriteNativeHandlers — bail conditions', () => {
     expect(emitNativeKernBodyTS(handler as IRNode)).toContain('// first\n// second');
   });
 
-  test('bails on try without catch (finally-only or bare)', () => {
+  test('migrates try { } finally { } (no catch) to `try` with `finally` child (KERN-GAPS try-no-catch)', () => {
     const source = [
       'fn name=ok returns=void',
       '  handler <<<',
@@ -1158,6 +1158,86 @@ describe('rewriteNativeHandlers — bail conditions', () => {
       '    }',
       '  >>>',
     ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('try');
+    expect(result.output).toContain('finally');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('preserves catch type annotation (`any`/`unknown`) when migrating try (Codex impl-review fix)', () => {
+    const source = [
+      'fn name=ok returns=string',
+      '  handler <<<',
+      '    try {',
+      '      return load();',
+      '    } catch (err: any) {',
+      '      return err.message;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('catch name=err type=any');
+  });
+
+  test('preserves catch type annotation (`unknown`) when migrating try (kimi review nit)', () => {
+    const source = [
+      'fn name=ok returns=string',
+      '  handler <<<',
+      '    try {',
+      '      return load();',
+      '    } catch (err: unknown) {',
+      '      return String(err);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('catch name=err type=unknown');
+  });
+
+  test('rejects catch with non-any/unknown type annotation', () => {
+    const source = [
+      'fn name=ok returns=string',
+      '  handler <<<',
+      '    try {',
+      '      return load();',
+      '    } catch (err: Error) {',
+      '      return err.message;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+  });
+
+  test('migrates try { } catch { } finally { } to try with both children (KERN-GAPS try-finally)', () => {
+    const source = [
+      'fn name=ok returns=string',
+      '  handler <<<',
+      '    try {',
+      '      return load();',
+      '    } catch (err) {',
+      '      return "fallback";',
+      '    } finally {',
+      '      cleanup();',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('catch name=err');
+    expect(result.output).toContain('finally');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('bails on try with neither catch nor finally (bare try)', () => {
+    // A `try` with no catch and no finally is a TS parse error in practice,
+    // but defensively reject it in the migrator too.
+    const source = ['fn name=ok returns=void', '  handler <<<', '    try {', '      return;', '    }', '  >>>'].join(
+      '\n',
+    );
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(0);
   });

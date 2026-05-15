@@ -137,6 +137,26 @@ describe('classifyHandlerBody — slice 4d additions are now eligible', () => {
     expect(classifyHandlerBody(body).eligible).toBe(true);
   });
 
+  test('try/finally block (no catch) is eligible (KERN-GAPS try-no-catch closed)', () => {
+    const body = `try {\n  return doThing();\n} finally {\n  cleanup();\n}`;
+    expect(classifyHandlerBody(body).eligible).toBe(true);
+  });
+
+  test('try/catch/finally block is eligible (KERN-GAPS try-finally closed)', () => {
+    const body = `try {\n  return doThing();\n} catch (e) {\n  return null;\n} finally {\n  cleanup();\n}`;
+    expect(classifyHandlerBody(body).eligible).toBe(true);
+  });
+
+  test('try with empty finally is eligible (TS allows empty finally; Python lowers to `pass`)', () => {
+    const body = `try {\n  return doThing();\n} catch (e) {\n  return null;\n} finally {\n}`;
+    expect(classifyHandlerBody(body).eligible).toBe(true);
+  });
+
+  test('throw inside finally is eligible (composes with try-finally; Gemini impl-review P3)', () => {
+    const body = `try {\n  return load();\n} finally {\n  throw new Error("cleanup-failed");\n}`;
+    expect(classifyHandlerBody(body).eligible).toBe(true);
+  });
+
   test('throw statement is eligible (slice 4c+4d)', () => {
     expect(classifyHandlerBody(`throw new Error("oops");`).eligible).toBe(true);
   });

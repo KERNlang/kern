@@ -441,8 +441,12 @@ function mapIf(stmt: ts.IfStatement, source: ts.SourceFile, indent: string, ctx:
 }
 
 function mapTry(stmt: ts.TryStatement, source: ts.SourceFile, indent: string, ctx: MapContext): string[] | null {
-  if (!stmt.catchClause) return null; // body-statement try requires catch
-  if (stmt.finallyBlock) return null; // body emitter has no `finally`
+  // KERN-GAPS `try-no-catch` + `try-finally`: emit `catch`/`finally` as
+  // schema-compliant `try` children. Both codegens (TS body-ts.ts:286 /
+  // Python codegen-body-python.ts:316) support finally-only and
+  // catch+finally; the schema's `try.allowedChildren` includes both. At
+  // least one of catch/finally must be present.
+  if (!stmt.catchClause && !stmt.finallyBlock) return null;
 
   const innerIndent = indent + INDENT_STEP;
   const out: string[] = [`${indent}try`];
@@ -451,19 +455,41 @@ function mapTry(stmt: ts.TryStatement, source: ts.SourceFile, indent: string, ct
   if (tryLines === null) return null;
   out.push(...tryLines);
 
-  const catchClause = stmt.catchClause;
-  // Catch binding name (default `e`). Body emitter expects `name=E` prop.
-  let errName = 'e';
-  if (catchClause.variableDeclaration) {
-    const v = catchClause.variableDeclaration;
-    if (!ts.isIdentifier(v.name)) return null; // bail on destructured catch
-    errName = v.name.text;
-  }
-  out.push(`${innerIndent}catch name=${errName}`);
+  if (stmt.catchClause) {
+    const catchClause = stmt.catchClause;
+    // Catch binding name (default `e`). Body emitter expects `name=E` prop.
+    let errName = 'e';
+    let errType: 'any' | 'unknown' | null = null;
+    if (catchClause.variableDeclaration) {
+      const v = catchClause.variableDeclaration;
+      if (!ts.isIdentifier(v.name)) return null; // bail on destructured catch
+      errName = v.name.text;
+      // Preserve `catch (err: any|unknown)` annotation — TS strict mode
+      // narrows untyped `err` to `unknown`, which can break member access
+      // that worked before migration. Body emitter at body-ts.ts:272-282
+      // already supports `type=` on `catch` (only `any`/`unknown` are valid
+      // TS catch-parameter types; reject anything else so we don't emit
+      // invalid TS). (Codex impl-review P2 fix.)
+      if (v.type) {
+        const tText = v.type.getText(source).trim();
+        if (tText !== 'any' && tText !== 'unknown') return null;
+        errType = tText;
+      }
+    }
+    out.push(errType ? `${innerIndent}catch name=${errName} type=${errType}` : `${innerIndent}catch name=${errName}`);
 
-  const catchLines = mapBranch(catchClause.block, source, innerIndent + INDENT_STEP, ctx);
-  if (catchLines === null) return null;
-  out.push(...catchLines);
+    const catchLines = mapBranch(catchClause.block, source, innerIndent + INDENT_STEP, ctx);
+    if (catchLines === null) return null;
+    out.push(...catchLines);
+  }
+
+  if (stmt.finallyBlock) {
+    out.push(`${innerIndent}finally`);
+    const finallyLines = mapBranch(stmt.finallyBlock, source, innerIndent + INDENT_STEP, ctx);
+    if (finallyLines === null) return null;
+    out.push(...finallyLines);
+  }
+
   return out;
 }
 
