@@ -63,6 +63,18 @@ import { emitFmtTemplate, emitIdentifier, emitTypeAnnotation } from './emitters.
 export interface BodyEmitOptions {
   symbolMap?: Record<string, string>;
   stateBindings?: ReadonlyArray<string>;
+  /**
+   * Opt-in trace-hook injection for the IR-semantics differential harness.
+   * Not used by production codegen. When `eachIterNext` is true, the `each`
+   * loop emits a `__kernTrace({op:'iter-next', binding, value})` call as the
+   * first statement inside each loop iteration — after the target runtime has
+   * accepted the next iteration value and KERN bindings have been
+   * established, before the loop body's first child executes.
+   *
+   * Scoped to `each` in PR-3a. Adding hooks for other nodes is an explicit
+   * spec revision and a new flag.
+   */
+  traceHooks?: { eachIterNext?: boolean };
 }
 
 /** Slice 3e — public return shape, parity with the Python body emitter.
@@ -87,6 +99,8 @@ interface BodyEmitContext {
   /** Depth of nested `finally` blocks. Propagation from finally would
    *  override pending control flow, so it gets a finally-specific error. */
   finallyDepth: number;
+  /** Differential harness opt-in (see BodyEmitOptions.traceHooks). */
+  traceHooks?: { eachIterNext?: boolean };
 }
 
 const INDENT_STEP = '  ';
@@ -109,7 +123,13 @@ export function emitNativeKernBodyTS(handlerNode: IRNode, options?: BodyEmitOpti
  *  Provided for symmetry with the Python target so generators that drive
  *  both languages have a uniform call shape. */
 export function emitNativeKernBodyTSWithImports(handlerNode: IRNode, options?: BodyEmitOptions): BodyEmitResult {
-  const ctx: BodyEmitContext = { gensymCounter: 0, localScopes: [], tryDepth: 0, finallyDepth: 0 };
+  const ctx: BodyEmitContext = {
+    gensymCounter: 0,
+    localScopes: [],
+    tryDepth: 0,
+    finallyDepth: 0,
+    traceHooks: options?.traceHooks,
+  };
   // Outer scope carrying caller-supplied state bindings as `cell` so the
   // setter-rewrite path in emitAssignTS fires for surrounding-scope
   // useState bindings (parent screen's `state name=…`).
@@ -329,6 +349,9 @@ function emitChildrenTS(
         const awaitPrefix = isAwait ? ' await' : '';
         const rawItemType = child.props?.type;
         const loopBindings: Array<[string, 'const' | 'let']> = [];
+        // Differential-harness `iter-next` hook. Computed per branch so the
+        // primary binding (the value, not the key/index) is reported.
+        let primaryBinding: string | null = null;
         if (pairKey && pairValue) {
           if (entriesMode && isAwait) {
             throw new Error('body-statement `each entries=true` cannot be combined with `await=true`.');
@@ -342,6 +365,7 @@ function emitChildrenTS(
           lines.push(
             `${indent}for${awaitPrefix} (const [${String(pairKey)}, ${String(pairValue)}] of ${iterableExpr}) {`,
           );
+          primaryBinding = String(pairValue);
         } else if (entryKey || entryValue) {
           if (entriesMode && isAwait) {
             throw new Error('body-statement `each entries=true` cannot be combined with `await=true`.');
@@ -364,10 +388,12 @@ function emitChildrenTS(
             const keyName = String(entryKey);
             loopBindings.push([keyName, 'const']);
             lines.push(`${indent}for (const [${keyName}] of ${iterableExpr}) {`);
+            primaryBinding = keyName;
           } else {
             const valueName = String(entryValue);
             loopBindings.push([valueName, 'const']);
             lines.push(`${indent}for (const [, ${valueName}] of ${iterableExpr}) {`);
+            primaryBinding = valueName;
           }
         } else if (child.props?.index) {
           const itemType = rawItemType ? emitTypeAnnotation(String(rawItemType), 'unknown', child) : '';
@@ -381,12 +407,31 @@ function emitChildrenTS(
           lines.push(
             `${indent}for (const [${idxName}, ${asName}]${typeAnn} of (${emitExpression(listIR)}).entries()) {`,
           );
+          primaryBinding = asName;
         } else {
           const itemType = rawItemType ? emitTypeAnnotation(String(rawItemType), 'unknown', child) : '';
           const asName = String(child.props?.name ?? child.props?.as ?? 'item');
           const typeAnn = itemType ? `: ${itemType}` : '';
           loopBindings.push([asName, 'const']);
           lines.push(`${indent}for${awaitPrefix} (const ${asName}${typeAnn} of ${emitExpression(listIR)}) {`);
+          primaryBinding = asName;
+        }
+        if (ctx.traceHooks?.eachIterNext) {
+          // Fires AFTER the target accepted the next iteration value and the
+          // KERN binding was established (destructuring complete), BEFORE the
+          // first child statement runs. This is the canonical event-location
+          // rule per the IR-semantics spec — see packages/core/src/ir/semantics/each.ts.
+          //
+          // Throwing on null forces every `each` shape branch to set
+          // primaryBinding. If a new shape is added without extending the
+          // hook, the differential harness fails loud rather than silently
+          // skipping iter-next events.
+          if (primaryBinding === null) {
+            throw new Error('emitEach: traceHooks.eachIterNext set but no primaryBinding for this each shape');
+          }
+          lines.push(
+            `${indent}${INDENT_STEP}__kernTrace({op:'iter-next',binding:${JSON.stringify(primaryBinding)},value:${primaryBinding}});`,
+          );
         }
         for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP, loopBindings)) lines.push(sl);
         lines.push(`${indent}}`);

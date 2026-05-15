@@ -22,6 +22,7 @@ import {
   classifyHandlerBody,
   escapeKernString,
   hasOnlyMigratableComments,
+  hasTsOnlyTemplateEscape,
   isValidKernAssignmentTarget,
   isValidKernAssignmentValue,
   isValidKernTypeAnnotation,
@@ -256,18 +257,19 @@ function mapStatementCore(stmt: ts.Statement, source: ts.SourceFile, indent: str
     }
     if (!ts.isIdentifier(decl.name)) return mapDestructureDecl(decl, source, indent, typeText, isLet ? 'let' : 'const');
     const name = decl.name.text;
-    // Template-literal initializer → emit `fmt name=X template="..."` body-stmt
-    // (slice for "lift more template literals to KERN AST"). Multi-line
-    // templates fall through to the value-form because KERN's quoted-string
-    // attribute doesn't carry embedded newlines. Templates carrying any
-    // backslash escape (`\n`, `\t`, `\${`, etc.) also fall through: KERN's
-    // string-attribute escaping plus codegen-side backtick escaping
-    // round-trip-drifts on raw backslashes, so the value-form preserves the
-    // cooked TS template literal verbatim instead.
+    // Template-literal initializer → emit `fmt name=X template="..."` body-stmt.
+    // The `template=` attribute body is the raw TS template-literal source
+    // verbatim — backslash escape sequences (`\n`, `\t`, `\xNN`, `\\`,
+    // `` \` ``, `\${`) round-trip byte-cleanly through KERN-attr escaping and
+    // the `fmt` codegen (commit "close template-escapes gap"; emitFmtTemplate
+    // no longer re-escapes backslashes). Multi-line templates still fall
+    // through to the value-form because KERN attributes can't carry raw
+    // newlines, and the ES6 code-point escape `\u{NNNN}` falls through
+    // because Python f-strings only accept `\uNNNN`/`\UNNNNNNNN`.
     if (ts.isNoSubstitutionTemplateLiteral(decl.initializer) || ts.isTemplateExpression(decl.initializer)) {
       const raw = decl.initializer.getText(source);
       const body = raw.slice(1, -1);
-      if (!body.includes('\n') && !body.includes('\\')) {
+      if (!body.includes('\n') && !hasTsOnlyTemplateEscape(body)) {
         const typeAttr = typeText ? ` type="${escapeKernString(typeText)}"` : '';
         const kindAttr = isLet ? ' kind=let' : '';
         return [`${indent}fmt name=${name}${typeAttr}${kindAttr} template="${escapeKernString(body)}"`];
@@ -284,12 +286,11 @@ function mapStatementCore(stmt: ts.Statement, source: ts.SourceFile, indent: str
   if (ts.isReturnStatement(stmt)) {
     if (!stmt.expression) return [`${indent}return`];
     // Template-literal return → `fmt return=true template="..."` body-stmt.
-    // Same single-line + no-backslash restriction as the binding-form path
-    // (see comment above) — guards against escape-sequence round-trip drift.
+    // Backslash-escape policy: same as the binding-form path above.
     if (ts.isNoSubstitutionTemplateLiteral(stmt.expression) || ts.isTemplateExpression(stmt.expression)) {
       const raw = stmt.expression.getText(source);
       const body = raw.slice(1, -1);
-      if (!body.includes('\n') && !body.includes('\\')) {
+      if (!body.includes('\n') && !hasTsOnlyTemplateEscape(body)) {
         return [`${indent}fmt return=true template="${escapeKernString(body)}"`];
       }
     }
@@ -440,8 +441,12 @@ function mapIf(stmt: ts.IfStatement, source: ts.SourceFile, indent: string, ctx:
 }
 
 function mapTry(stmt: ts.TryStatement, source: ts.SourceFile, indent: string, ctx: MapContext): string[] | null {
-  if (!stmt.catchClause) return null; // body-statement try requires catch
-  if (stmt.finallyBlock) return null; // body emitter has no `finally`
+  // KERN-GAPS `try-no-catch` + `try-finally`: emit `catch`/`finally` as
+  // schema-compliant `try` children. Both codegens (TS body-ts.ts:286 /
+  // Python codegen-body-python.ts:316) support finally-only and
+  // catch+finally; the schema's `try.allowedChildren` includes both. At
+  // least one of catch/finally must be present.
+  if (!stmt.catchClause && !stmt.finallyBlock) return null;
 
   const innerIndent = indent + INDENT_STEP;
   const out: string[] = [`${indent}try`];
@@ -450,19 +455,41 @@ function mapTry(stmt: ts.TryStatement, source: ts.SourceFile, indent: string, ct
   if (tryLines === null) return null;
   out.push(...tryLines);
 
-  const catchClause = stmt.catchClause;
-  // Catch binding name (default `e`). Body emitter expects `name=E` prop.
-  let errName = 'e';
-  if (catchClause.variableDeclaration) {
-    const v = catchClause.variableDeclaration;
-    if (!ts.isIdentifier(v.name)) return null; // bail on destructured catch
-    errName = v.name.text;
-  }
-  out.push(`${innerIndent}catch name=${errName}`);
+  if (stmt.catchClause) {
+    const catchClause = stmt.catchClause;
+    // Catch binding name (default `e`). Body emitter expects `name=E` prop.
+    let errName = 'e';
+    let errType: 'any' | 'unknown' | null = null;
+    if (catchClause.variableDeclaration) {
+      const v = catchClause.variableDeclaration;
+      if (!ts.isIdentifier(v.name)) return null; // bail on destructured catch
+      errName = v.name.text;
+      // Preserve `catch (err: any|unknown)` annotation — TS strict mode
+      // narrows untyped `err` to `unknown`, which can break member access
+      // that worked before migration. Body emitter at body-ts.ts:272-282
+      // already supports `type=` on `catch` (only `any`/`unknown` are valid
+      // TS catch-parameter types; reject anything else so we don't emit
+      // invalid TS). (Codex impl-review P2 fix.)
+      if (v.type) {
+        const tText = v.type.getText(source).trim();
+        if (tText !== 'any' && tText !== 'unknown') return null;
+        errType = tText;
+      }
+    }
+    out.push(errType ? `${innerIndent}catch name=${errName} type=${errType}` : `${innerIndent}catch name=${errName}`);
 
-  const catchLines = mapBranch(catchClause.block, source, innerIndent + INDENT_STEP, ctx);
-  if (catchLines === null) return null;
-  out.push(...catchLines);
+    const catchLines = mapBranch(catchClause.block, source, innerIndent + INDENT_STEP, ctx);
+    if (catchLines === null) return null;
+    out.push(...catchLines);
+  }
+
+  if (stmt.finallyBlock) {
+    out.push(`${innerIndent}finally`);
+    const finallyLines = mapBranch(stmt.finallyBlock, source, innerIndent + INDENT_STEP, ctx);
+    if (finallyLines === null) return null;
+    out.push(...finallyLines);
+  }
+
   return out;
 }
 

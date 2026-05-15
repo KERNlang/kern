@@ -309,6 +309,90 @@ function containsOptionalAccess(node: ValueIR): boolean {
   return false;
 }
 
+/** True when a TS template-literal body contains an escape sequence the
+ *  cross-target `fmt` codegen can't safely lower. We only admit escapes that
+ *  have the **same runtime semantics** in both TS template literals and
+ *  Python f-strings:
+ *
+ *    `\n` `\t` `\r` `\b` `\f` `\v` `\0` `\\` `\'` `\"`
+ *    `\xNN` (exactly 2 hex digits)
+ *    `\uNNNN` (exactly 4 hex digits — NOT the ES2015 `\u{…}` brace form,
+ *              which Python f-strings reject)
+ *    `` \` `` (TS-only escape — Python emitter drops the `\`)
+ *    `\${` (TS-only escape — Python emitter emits `${{` to render literal `${`)
+ *
+ *  Anything else — including TS identity escapes like `\{`, `\}`, `\a`, `\?`
+ *  — drifts in Python (TS silently drops the backslash; Python either errors
+ *  on `\{` or interprets `\a` as BEL 0x07). Reject those bodies so they stay
+ *  in raw `<<<>>>` handlers instead of producing invalid or divergent Python.
+ *
+ *  Exported so the migrator applies the same predicate (eligibility ≡
+ *  migrator invariant). (Codex impl-review P2 fix: widened from just
+ *  rejecting `\u{` to a full cross-target safe-set check.) */
+export function hasTsOnlyTemplateEscape(body: string): boolean {
+  let i = 0;
+  while (i < body.length) {
+    if (body[i] !== '\\') {
+      i++;
+      continue;
+    }
+    const next = body[i + 1];
+    if (next === undefined) {
+      // Trailing lone backslash — not a valid TS template, defensively bail.
+      return true;
+    }
+    if (
+      next === '\\' ||
+      next === "'" ||
+      next === '"' ||
+      next === '`' ||
+      next === 'n' ||
+      next === 't' ||
+      next === 'r' ||
+      next === 'b' ||
+      next === 'f' ||
+      next === 'v' ||
+      next === '0'
+    ) {
+      i += 2;
+      continue;
+    }
+    if (next === '$') {
+      // Only `\${` (escape the interpolation marker) is cross-target safe.
+      // Bare `\$x` is a TS identity escape that diverges in Python.
+      if (body[i + 2] !== '{') return true;
+      i += 3;
+      continue;
+    }
+    if (next === 'x') {
+      if (i + 3 < body.length && /[0-9a-fA-F]/.test(body[i + 2]) && /[0-9a-fA-F]/.test(body[i + 3])) {
+        i += 4;
+        continue;
+      }
+      return true;
+    }
+    if (next === 'u') {
+      // `\u{NNNN}` is ES2015-only — Python f-strings reject the brace form.
+      if (body[i + 2] === '{') return true;
+      if (
+        i + 5 < body.length &&
+        /[0-9a-fA-F]/.test(body[i + 2]) &&
+        /[0-9a-fA-F]/.test(body[i + 3]) &&
+        /[0-9a-fA-F]/.test(body[i + 4]) &&
+        /[0-9a-fA-F]/.test(body[i + 5])
+      ) {
+        i += 6;
+        continue;
+      }
+      return true;
+    }
+    // Any other char after `\` is a TS identity escape — TS drops the `\`,
+    // Python either errors (`\{`, `\}`) or interprets differently (`\a` BEL).
+    return true;
+  }
+  return false;
+}
+
 /** True when `bodyText` contains any line or block comment. The migrator
  *  drops comments silently on rewrite, so a body containing them is
  *  ineligible — preserving the comment is the user's responsibility.
@@ -435,16 +519,19 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
     }
     if (!ts.isIdentifier(decl.name)) return classifyDestructureDecl(decl, sf);
     // Template-literal initializer is migratable via the `fmt` body-stmt.
-    // Restriction parity with the migrator: single-line, no backslash escape
-    // sequences (avoids round-trip drift between KERN attribute escaping and
-    // codegen-side backtick escaping). Multi-line falls through; templates
-    // with escapes are reported separately so the classifier reason matches
-    // the actual migrator bail.
+    // Single-line restriction stays (KERN attribute syntax can't carry raw
+    // newlines). Backslash escape sequences (`\n`, `\t`, `\xNN`, `\uNNNN`,
+    // `\\`, `` \` ``, `\${`) round-trip byte-cleanly now that the `fmt`
+    // codegen no longer re-escapes backslashes (commit "close template-escapes
+    // gap"; see emitters.ts emitFmtTemplate / codegen-body-python.ts
+    // templateToPyFString). The ES6 code-point escape `\u{NNNN}` is rejected
+    // because Python f-strings only accept `\uNNNN`/`\UNNNNNNNN` — keeping
+    // the TS-only form blocked preserves cross-target parity.
     if (ts.isNoSubstitutionTemplateLiteral(decl.initializer) || ts.isTemplateExpression(decl.initializer)) {
       const raw = decl.initializer.getText(sf);
       const body = raw.slice(1, -1);
       if (body.includes('\n')) return 'var-template-multiline';
-      if (body.includes('\\')) return 'var-template-escapes';
+      if (hasTsOnlyTemplateEscape(body)) return 'var-template-escapes';
       return null;
     }
     if (!isValidKernExpression(decl.initializer.getText(sf))) return 'var-bad-expr';
@@ -452,13 +539,13 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
   }
   if (ts.isReturnStatement(stmt)) {
     if (!stmt.expression) return null;
-    // Template-literal return is migratable via `fmt return=true`. Same
-    // single-line + no-backslash restriction as the binding-form path.
+    // Template-literal return is migratable via `fmt return=true`. See the
+    // matching binding-form comment above for the backslash-escape policy.
     if (ts.isNoSubstitutionTemplateLiteral(stmt.expression) || ts.isTemplateExpression(stmt.expression)) {
       const raw = stmt.expression.getText(sf);
       const body = raw.slice(1, -1);
       if (body.includes('\n')) return 'return-template-multiline';
-      if (body.includes('\\')) return 'return-template-escapes';
+      if (hasTsOnlyTemplateEscape(body)) return 'return-template-escapes';
       return null;
     }
     if (!isValidKernExpression(stmt.expression.getText(sf))) return 'return-bad-expr';
@@ -501,13 +588,25 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
     return null;
   }
   if (ts.isTryStatement(stmt)) {
-    if (!stmt.catchClause) return 'try-no-catch';
-    if (stmt.finallyBlock) return 'try-finally';
-    const cc = stmt.catchClause;
-    if (cc.variableDeclaration && !ts.isIdentifier(cc.variableDeclaration.name)) return 'try-destruct-catch';
+    // KERN-GAPS `try-no-catch` (5) + `try-finally` (1): the body-stmt `try`
+    // codegen has supported finally-only and catch+finally since slice 4c
+    // (body-ts.ts:286-292 / codegen-body-python.ts:316-323), and the schema
+    // permits `finally` as a `try` child. The only remaining requirement is
+    // the TS-level shape — at least one of `catch`/`finally` must be present.
+    if (!stmt.catchClause && !stmt.finallyBlock) return 'try-no-catch';
+    if (stmt.catchClause) {
+      const cc = stmt.catchClause;
+      if (cc.variableDeclaration && !ts.isIdentifier(cc.variableDeclaration.name)) return 'try-destruct-catch';
+      const catchReason = classifyBranch(cc.block, sf, ctx);
+      if (catchReason !== null) return catchReason;
+    }
     const tryReason = classifyBranch(stmt.tryBlock, sf, ctx);
     if (tryReason !== null) return tryReason;
-    return classifyBranch(cc.block, sf, ctx);
+    if (stmt.finallyBlock) {
+      const finallyReason = classifyBranch(stmt.finallyBlock, sf, ctx);
+      if (finallyReason !== null) return finallyReason;
+    }
+    return null;
   }
   if (ts.isExpressionStatement(stmt)) {
     // Slice α-1: ExpressionStatement → `do value="…"`. Plain `=` maps to

@@ -179,6 +179,37 @@ export {
 // TS → .kern importer
 export type { ImportResult } from './importer.js';
 export { escapeKernString, importTypeScript } from './importer.js';
+export type { LowerTarget } from './ir/semantics/fixture-lowering.js';
+export { lowerFixtureForTarget, serializeValue } from './ir/semantics/fixture-lowering.js';
+// IR runtime semantics (Phase 1, PR-1) — executable contracts + differential harness.
+// PR-2 lands the first contract (`each`); PR-3 wires the TS/Python emitter legs.
+export type {
+  CanonicalError,
+  CompletionKind,
+  CompletionRecord,
+  DifferentialResult,
+  NodeContract,
+  NodeFixture,
+  SemanticEnv,
+  Trace,
+  TraceEvent,
+  Verdict,
+} from './ir/semantics/index.js';
+export {
+  CONTRACT_REGISTRY,
+  completionsEqual,
+  deepEqual,
+  emptyTrace,
+  eventsEqual,
+  makeEnv,
+  ReferenceRunnerError,
+  referenceRun,
+  referenceRunSequence,
+  registerContract,
+  runAllContracts,
+  runDifferential,
+  tracesEqual,
+} from './ir/semantics/index.js';
 export type { GapCategory, GapClassification } from './migrate-literals.js';
 export { classifyHandlerGap, isInlineSafeExpression, isInlineSafeLiteral } from './migrate-literals.js';
 // Native KERN handler eligibility (slice 5a) — heuristic classifier used by
@@ -198,6 +229,7 @@ export {
   classifyHandlerBodyAst,
   hasComments,
   hasOnlyMigratableComments,
+  hasTsOnlyTemplateEscape,
   isValidKernAssignmentTarget,
   isValidKernAssignmentValue,
   isValidKernExpression,

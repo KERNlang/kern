@@ -52,6 +52,48 @@ describe('Ground Layer: fmt', () => {
     expect(code).toBe('export const msg = `he said \\`boo\\``;');
   });
 
+  it('preserves already-escaped backticks without double-escaping', () => {
+    // Template body `a\`b` is the raw TS source for a literal backtick (already
+    // escaped). emitFmtTemplate must NOT add another `\` (which would produce
+    // `a\\\`b` and break the round-trip). Lookbehind logic: only bare backticks
+    // (preceded by an even number of `\`) get escaped.
+    const node = makeNode('fmt', { name: 'msg', template: 'a\\`b' });
+    const code = generateFmt(node).join('\n');
+    expect(code).toBe('export const msg = `a\\`b`;');
+  });
+
+  it('preserves backslash escape sequences verbatim (no double-escape)', () => {
+    // The `template=` body is raw TS template-literal source. Escapes like
+    // `\n`, `\t`, `\xNN`, `\${` must pass through unchanged — re-escaping the
+    // `\` would turn `\n` (newline escape) into `\\n` (literal `\n`).
+    const node = makeNode('fmt', { name: 'msg', template: 'line1\\nline2\\tcol' });
+    const code = generateFmt(node).join('\n');
+    expect(code).toBe('export const msg = `line1\\nline2\\tcol`;');
+  });
+
+  it('preserves literal `\\${` escape (TS-source escape for literal $)', () => {
+    const node = makeNode('fmt', { name: 'msg', template: 'price: \\${cost}' });
+    const code = generateFmt(node).join('\n');
+    expect(code).toBe('export const msg = `price: \\${cost}`;');
+  });
+
+  it('escapes a backtick preceded by an even backslash run (literal `\\\\` then bare `)', () => {
+    // Body `a\\\`b` = literal backslash + literal backtick. Run of `\` ending
+    // at the backtick is length 2 (even) → backtick is "bare" → escape it.
+    const node = makeNode('fmt', { name: 'msg', template: 'a\\\\`b' });
+    const code = generateFmt(node).join('\n');
+    expect(code).toBe('export const msg = `a\\\\\\`b`;');
+  });
+
+  it('preserves backtick preceded by an odd backslash run > 1 (literal `\\\\` then `\\`)', () => {
+    // Body `a\\\\\`b` = 2 literal backslashes + an already-escaped backtick.
+    // Run length is 3 (odd) → backtick is already TS-escaped → leave alone.
+    // (Gemini impl-review explicit coverage.)
+    const node = makeNode('fmt', { name: 'msg', template: 'a\\\\\\`b' });
+    const code = generateFmt(node).join('\n');
+    expect(code).toBe('export const msg = `a\\\\\\`b`;');
+  });
+
   it('throws when the template prop is missing', () => {
     const node = makeNode('fmt', { name: 'label' });
     expect(() => generateFmt(node)).toThrow(KernCodegenError);

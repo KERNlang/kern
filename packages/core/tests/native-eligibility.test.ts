@@ -137,6 +137,26 @@ describe('classifyHandlerBody — slice 4d additions are now eligible', () => {
     expect(classifyHandlerBody(body).eligible).toBe(true);
   });
 
+  test('try/finally block (no catch) is eligible (KERN-GAPS try-no-catch closed)', () => {
+    const body = `try {\n  return doThing();\n} finally {\n  cleanup();\n}`;
+    expect(classifyHandlerBody(body).eligible).toBe(true);
+  });
+
+  test('try/catch/finally block is eligible (KERN-GAPS try-finally closed)', () => {
+    const body = `try {\n  return doThing();\n} catch (e) {\n  return null;\n} finally {\n  cleanup();\n}`;
+    expect(classifyHandlerBody(body).eligible).toBe(true);
+  });
+
+  test('try with empty finally is eligible (TS allows empty finally; Python lowers to `pass`)', () => {
+    const body = `try {\n  return doThing();\n} catch (e) {\n  return null;\n} finally {\n}`;
+    expect(classifyHandlerBody(body).eligible).toBe(true);
+  });
+
+  test('throw inside finally is eligible (composes with try-finally; Gemini impl-review P3)', () => {
+    const body = `try {\n  return load();\n} finally {\n  throw new Error("cleanup-failed");\n}`;
+    expect(classifyHandlerBody(body).eligible).toBe(true);
+  });
+
   test('throw statement is eligible (slice 4c+4d)', () => {
     expect(classifyHandlerBody(`throw new Error("oops");`).eligible).toBe(true);
   });
@@ -625,6 +645,66 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
       eligible: true,
       reason: 'ok',
     });
+  });
+
+  test('template-literal with `\\n` escape is eligible (template-escapes gap closed)', () => {
+    expect(classifyHandlerBody('const msg = `line1\\nline2`;\nreturn msg;')).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
+  test('template-literal with `\\x1b` ANSI escape is eligible', () => {
+    expect(classifyHandlerBody('return `\\x1b[31m${text}\\x1b[0m`;')).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
+  test('template-literal with `\\t` and literal `\\${` is eligible', () => {
+    expect(classifyHandlerBody('const s = `col1\\tcol2 \\${literal}`;\nreturn s;')).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
+  test('template-literal with `\\uNNNN` (4-hex unicode escape) is eligible', () => {
+    // `é` is `é` — 4-hex form works in both TS and Python f-strings.
+    expect(classifyHandlerBody('const s = `caf\\u00e9`;\nreturn s;')).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
+  test('template-literal with ES6 code-point escape `\\u{NNNN}` is REJECTED (TS-only)', () => {
+    // Python f-strings only accept `\uNNNN` / `\UNNNNNNNN`; brace form is
+    // TS/ES2015-only. Classifier rejects to preserve cross-target parity.
+    rejected('const s = `face: \\u{1F600}`;\nreturn s;', 'var-template-escapes');
+  });
+
+  test('return template-literal with ES6 code-point escape is REJECTED', () =>
+    rejected('return `\\u{1F600}`;', 'return-template-escapes'));
+
+  test('template body containing literal `\\\\u{` (even backslash run) is eligible', () => {
+    // `\\u{...` has TWO backslashes before `u{`. Even count → not a code-point
+    // escape; the `\\` is a literal backslash and `u{...}` is literal text.
+    expect(classifyHandlerBody('const s = `path\\\\u{abc}`;\nreturn s;')).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
+
+  test('template body with `\\{` TS identity escape is REJECTED (Python `\\{` is f-string error)', () => {
+    // TS `` `\{x}` `` evaluates to `{x}` (backslash dropped). Python f-string
+    // `f"\{x}"` is a SyntaxError. Reject to keep cross-target safety.
+    // (Codex impl-review P2 fix.)
+    rejected('const s = `prefix\\{x}suffix`;\nreturn s;', 'var-template-escapes');
+  });
+
+  test('template body with `\\a` TS identity escape is REJECTED (Python `\\a` is BEL 0x07)', () => {
+    // TS `` `\a` `` evaluates to `a` (backslash dropped). Python `\a` is the
+    // BEL control character (0x07). Divergent — reject.
+    rejected('return `wake\\aup`;', 'return-template-escapes');
   });
 
   test('object destructuring let is eligible', () => {

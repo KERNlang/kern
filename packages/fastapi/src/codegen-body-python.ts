@@ -74,6 +74,14 @@ export interface BodyEmitOptions {
    *  The route emitter walks `usedPropagation` in the result to know
    *  whether the import is actually required. */
   propagateStyle?: 'value' | 'http-exception';
+  /**
+   * IR-semantics differential harness opt-in (PR-3b). When `eachIterNext`
+   * is true, the `each` loop emits a `_kern_trace({"op":"iter-next", ...})`
+   * call as the FIRST statement inside each iteration — symmetric with
+   * TS body-ts.ts. Production codegen never sets this. See
+   * packages/core/src/ir/semantics/python-leg.ts for the runtime contract.
+   */
+  traceHooks?: { eachIterNext?: boolean };
 }
 
 /** Slice 3e — public return shape. `code` is the joined body text;
@@ -100,6 +108,8 @@ interface BodyEmitContext {
   regexScopes: Array<Map<string, Extract<ValueIR, { kind: 'regexLit' }> | null>>;
   propagateStyle: 'value' | 'http-exception';
   usedPropagation: boolean;
+  /** PR-3b differential-harness opt-in (see BodyEmitOptions.traceHooks). */
+  traceHooks?: { eachIterNext?: boolean };
   /** Slice 4c review fix (OpenCode + Gemini critical) — depth of nested
    *  `try` blocks. Propagation `?` lowers to `return tmp` (or `raise
    *  HTTPException` in route mode), and BOTH bypass the enclosing
@@ -125,6 +135,7 @@ function freshCtx(options?: BodyEmitOptions): BodyEmitContext {
     usedPropagation: false,
     tryDepth: 0,
     finallyDepth: 0,
+    traceHooks: options?.traceHooks,
   };
 }
 
@@ -363,11 +374,16 @@ function emitChildrenPy(
           const sourceExpr = emitPyExprCtx(listIR, ctx);
           const iterableExpr = isAwait ? sourceExpr : `${sourceExpr}.items()`;
           lines.push(`${indent}${isAwait ? 'async ' : ''}for ${k}, ${v} in ${iterableExpr}:`);
+          if (ctx.traceHooks?.eachIterNext) {
+            lines.push(
+              `${indent}${INDENT_STEP}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(v)}, "value": ${v}})`,
+            );
+          }
           const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, [
             [k, 'const'],
             [v, 'const'],
           ]);
-          if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
+          if (inner.length === 0 && !ctx.traceHooks?.eachIterNext) lines.push(`${indent}${INDENT_STEP}pass`);
           for (const sl of inner) lines.push(sl);
           continue;
         }
@@ -389,15 +405,25 @@ function emitChildrenPy(
             const k = String(entryKey);
             const iterableExpr = `${sourceExpr}.keys()`;
             lines.push(`${indent}for ${k} in ${iterableExpr}:`);
+            if (ctx.traceHooks?.eachIterNext) {
+              lines.push(
+                `${indent}${INDENT_STEP}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(k)}, "value": ${k}})`,
+              );
+            }
             const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, [[k, 'const']]);
-            if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
+            if (inner.length === 0 && !ctx.traceHooks?.eachIterNext) lines.push(`${indent}${INDENT_STEP}pass`);
             for (const sl of inner) lines.push(sl);
           } else {
             const v = String(entryValue);
             const iterableExpr = `${sourceExpr}.values()`;
             lines.push(`${indent}for ${v} in ${iterableExpr}:`);
+            if (ctx.traceHooks?.eachIterNext) {
+              lines.push(
+                `${indent}${INDENT_STEP}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(v)}, "value": ${v}})`,
+              );
+            }
             const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, [[v, 'const']]);
-            if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
+            if (inner.length === 0 && !ctx.traceHooks?.eachIterNext) lines.push(`${indent}${INDENT_STEP}pass`);
             for (const sl of inner) lines.push(sl);
           }
           continue;
@@ -412,12 +438,42 @@ function emitChildrenPy(
         // and the inter-loop collision (two `each` with the same `as=`)
         // works because each loop has a fresh gensym + fresh body-local
         // alias. Document the residual leak in the spec.
+        //
+        // PR-3b — index-mode (`each name=x index=i in=xs`) now lowers to
+        // `for i, x in enumerate(xs):`, aligning with the route-handler /
+        // ground generators that already supported this shape. Caught by
+        // the IR-semantics differential audit (PR-3b).
         const asName = String(child.props?.name ?? child.props?.as ?? 'item');
-        const iterVar = `__k_each_${++ctx.gensymCounter}`;
-        lines.push(`${indent}${isAwait ? 'async ' : ''}for ${iterVar} in ${emitPyExprCtx(listIR, ctx)}:`);
-        lines.push(`${indent}${INDENT_STEP}${asName} = ${iterVar}`);
-        const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, [[asName, 'const']]);
-        if (inner.length === 0 && asName === iterVar) lines.push(`${indent}${INDENT_STEP}pass`);
+        const idxName = child.props?.index !== undefined ? String(child.props.index) : null;
+        const iterableExpr = emitPyExprCtx(listIR, ctx);
+        let primaryBindingPy: string;
+        let initialBindings: Array<[string, 'const' | 'let']>;
+        if (idxName !== null) {
+          // `for i, x in enumerate(xs):` — direct destructuring, no gensym
+          // unpacking needed because both names are already user-facing.
+          lines.push(`${indent}for ${idxName}, ${asName} in enumerate(${iterableExpr}):`);
+          primaryBindingPy = asName;
+          initialBindings = [
+            [idxName, 'const'],
+            [asName, 'const'],
+          ];
+        } else {
+          const iterVar = `__k_each_${++ctx.gensymCounter}`;
+          lines.push(`${indent}${isAwait ? 'async ' : ''}for ${iterVar} in ${iterableExpr}:`);
+          lines.push(`${indent}${INDENT_STEP}${asName} = ${iterVar}`);
+          primaryBindingPy = asName;
+          initialBindings = [[asName, 'const']];
+        }
+        if (ctx.traceHooks?.eachIterNext) {
+          lines.push(
+            `${indent}${INDENT_STEP}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(primaryBindingPy)}, "value": ${primaryBindingPy}})`,
+          );
+        }
+        const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, initialBindings);
+        if (inner.length === 0 && asName === primaryBindingPy && idxName === null && !ctx.traceHooks?.eachIterNext) {
+          // Original `pass` guard preserved for the legacy gensym-only path.
+          lines.push(`${indent}${INDENT_STEP}pass`);
+        }
         for (const sl of inner) lines.push(sl);
       } else if (child.type === 'branch') {
         // 2026-05-06 — body-statement `branch` lowers to a Python
@@ -845,16 +901,78 @@ function emitFmtPy(node: IRNode, ctx: BodyEmitContext): string[] {
 }
 
 function templateToPyFString(template: string, ctx: BodyEmitContext): string {
+  // The `template=` body is raw TS template-literal source — i.e. the chars
+  // between the backticks in the original TS. Backslash escapes (`\n`, `\t`,
+  // `\xNN`, `\uNNNN`, `\\`) share semantics between TS and Python f-strings,
+  // so they pass through verbatim. Two TS-only escapes need translation:
+  //
+  //   • `` \` `` → `` ` `` (Python doesn't escape backticks; emit literal)
+  //   • `\${`    → `${{`  (TS-source escape for literal `${`; in a Python
+  //                       f-string we keep the `$` literal and double-brace
+  //                       the `{` so it renders as `${` at runtime)
+  //
+  // `${expr}` interpolation is lowered by translating the inner expression
+  // and emitting `{pyExpr}`. The brace-depth scanner is string-literal-aware
+  // (skips `}` inside `"…"` / `'…'`) to handle interpolations like
+  // `${fn("}")}` correctly. (Codex/Gemini/opencode plan-review fixes.)
   let out = 'f"';
   let i = 0;
   while (i < template.length) {
     const c = template[i];
+    if (c === '\\' && template[i + 1] !== undefined) {
+      const next = template[i + 1];
+      if (next === '`') {
+        // TS `` \` `` is a TS-source escape for a literal backtick. Python
+        // strings don't require this escape — emit the literal backtick.
+        out += '`';
+        i += 2;
+        continue;
+      }
+      if (next === '$' && template[i + 2] === '{') {
+        // TS `\${` escapes the interpolation marker; the runtime value is
+        // literal `${`. In a Python f-string, `${` renders by keeping the
+        // dollar and doubling the brace.
+        out += '${{';
+        i += 3;
+        continue;
+      }
+      if (next === '"') {
+        // TS `\"` is a literal `"`. Inside a Python `f"…"`, the `"` must be
+        // escaped — emit `\"`.
+        out += '\\"';
+        i += 2;
+        continue;
+      }
+      // All other escapes — `\n`, `\t`, `\r`, `\\`, `\xNN`, `\uNNNN`,
+      // `\0`, `\b`, `\f`, `\v` — share semantics. Pass through verbatim.
+      out += c + next;
+      i += 2;
+      continue;
+    }
     if (c === '$' && template[i + 1] === '{') {
       let depth = 1;
       let j = i + 2;
+      let inString: '"' | "'" | '`' | null = null;
       while (j < template.length && depth > 0) {
-        if (template[j] === '{') depth++;
-        else if (template[j] === '}') {
+        const ch = template[j];
+        if (inString !== null) {
+          if (ch === '\\' && j + 1 < template.length) {
+            j += 2;
+            continue;
+          }
+          if (ch === inString) inString = null;
+          j++;
+          continue;
+        }
+        if (ch === '"' || ch === "'" || ch === '`') {
+          // Track ` so nested template literals like `${a.b(`x${c}`)}` don't
+          // miscount braces inside the inner template. (Gemini impl-review fix.)
+          inString = ch;
+          j++;
+          continue;
+        }
+        if (ch === '{') depth++;
+        else if (ch === '}') {
           depth--;
           if (depth === 0) break;
         }
@@ -875,12 +993,6 @@ function templateToPyFString(template: string, ctx: BodyEmitContext): string {
       i++;
     } else if (c === '"') {
       out += '\\"';
-      i++;
-    } else if (c === '\\') {
-      out += '\\\\';
-      i++;
-    } else if (c === '\n') {
-      out += '\\n';
       i++;
     } else {
       out += c;
