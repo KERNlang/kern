@@ -62,8 +62,22 @@ export function serializeValue(value: unknown, target: LowerTarget): string {
     return `[${value.map((v) => serializeValue(v, target)).join(', ')}]`;
   }
   if (typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-    const pairs = entries.map(([k, v]) => `${JSON.stringify(k)}: ${serializeValue(v, target)}`);
+    // Map / Set / Date / RegExp / class instances all have typeof === 'object'.
+    // Reject anything other than a plain object — the contract restricts
+    // values to JSON-shaped primitives.
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== null && proto !== Object.prototype) {
+      throw new Error(
+        `serializeValue: unsupported object type "${(value as { constructor?: { name?: string } })?.constructor?.name ?? 'unknown'}"`,
+      );
+    }
+    // PR-3b review fix: preserve insertion order so entry-key/entry-value
+    // iteration semantics match the reference runner on both targets.
+    // (Trace-payload determinism is handled separately on the Python side by
+    // `json.dumps(..., sort_keys=True)` in the prelude.)
+    const pairs = Object.entries(value as Record<string, unknown>).map(
+      ([k, v]) => `${JSON.stringify(k)}: ${serializeValue(v, target)}`,
+    );
     return `{${pairs.join(', ')}}`;
   }
   throw new Error(`serializeValue: unsupported type "${typeof value}"`);
@@ -138,5 +152,7 @@ export function lowerFixtureForTarget(node: IRNode, target: LowerTarget): IRNode
       children: node.children.map((c) => lowerFixtureForTarget(c, target)),
     };
   }
-  return node;
+  // Leaf nodes (break/continue/etc.) — clone too so the docstring's "Pure:
+  // returns a fresh tree" contract holds for all branches.
+  return { ...node, props: node.props ? { ...node.props } : node.props };
 }

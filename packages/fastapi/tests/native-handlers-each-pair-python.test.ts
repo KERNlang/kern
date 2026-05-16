@@ -1,10 +1,12 @@
 /** Native KERN handler bodies — `each` pair-mode (Python target).
  *
- *  TS-side `for (const [k, v] of m)` lowers to Python `for k, v in m.items():`
- *  for the canonical dict iteration shape. PEP-249 / collections.abc.Mapping
- *  subclasses typically expose `.items()`; iterables of 2-tuples should be
- *  passed through `.items()` upstream OR call sites should use the regular
- *  `each name=x in=pairs` form. */
+ *  TS-side `for (const [k, v] of m)` lowers to Python
+ *  `for k, v in _kern_pairs(m):` — `_kern_pairs` is a runtime helper that
+ *  yields `m.items()` for Mapping inputs (the canonical dict shape) and
+ *  `iter(m)` otherwise (so iterables of 2-tuples destructure cleanly,
+ *  matching JS array-of-pairs semantics). The helper definition is
+ *  co-emitted at module scope by the FastAPI generator (and inlined by
+ *  the legacy `emitNativeKernBodyPython` string-only API). PR-4. */
 
 import { type IRNode, parseDocumentStrict } from '@kernlang/core';
 import { emitNativeKernBodyPython } from '../src/codegen-body-python.js';
@@ -14,7 +16,7 @@ function makeHandler(children: IRNode[]): IRNode {
 }
 
 describe('each pair-mode — Python target', () => {
-  test('pairKey + pairValue emits dict.items() iteration', () => {
+  test('pairKey + pairValue emits _kern_pairs iteration (normalises Mapping + array-of-pairs)', () => {
     const handler = makeHandler([
       {
         type: 'each',
@@ -23,11 +25,12 @@ describe('each pair-mode — Python target', () => {
       },
     ]);
     const out = emitNativeKernBodyPython(handler);
-    expect(out).toContain('for k, v in cache.items():');
+    expect(out).toContain('for k, v in _kern_pairs(cache):');
     expect(out).toContain('log(k, v)');
+    expect(out).toContain('def _kern_pairs(__k_v):');
   });
 
-  test('pairKey + pairValue + entries=true keeps dict.items() iteration', () => {
+  test('pairKey + pairValue + entries=true keeps _kern_pairs iteration', () => {
     const handler = makeHandler([
       {
         type: 'each',
@@ -36,7 +39,7 @@ describe('each pair-mode — Python target', () => {
       },
     ]);
     const out = emitNativeKernBodyPython(handler);
-    expect(out).toContain('for k, v in record.items():');
+    expect(out).toContain('for k, v in _kern_pairs(record):');
     expect(out).toContain('log(k, v)');
   });
 
@@ -66,7 +69,7 @@ describe('each pair-mode — Python target', () => {
     expect(out).toContain('log(v)');
   });
 
-  test('parsed entries=true KERN handler emits Python dict.items() iteration', () => {
+  test('parsed entries=true KERN handler emits Python _kern_pairs iteration', () => {
     const root = parseDocumentStrict(
       [
         'fn name=scan returns=void',
@@ -78,7 +81,7 @@ describe('each pair-mode — Python target', () => {
     const fn = root.children?.[0] as IRNode;
     const handler = fn.children?.find((child) => child.type === 'handler') as IRNode;
     const out = emitNativeKernBodyPython(handler);
-    expect(out).toContain('for k, v in record.items():');
+    expect(out).toContain('for k, v in _kern_pairs(record):');
     expect(out).toContain('log(k, v)');
   });
 
@@ -138,7 +141,7 @@ describe('each pair-mode — Python target', () => {
       },
     ]);
     const out = emitNativeKernBodyPython(handler);
-    expect(out).toContain('for k, v in cache.items():');
+    expect(out).toContain('for k, v in _kern_pairs(cache):');
     expect(out).toContain('  if v.expired:');
     expect(out).toContain('    continue');
     expect(out).toContain('  use(k, v)');

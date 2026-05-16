@@ -16,8 +16,24 @@
  *
  * `await=true` is recorded as emitter information (it selects `for await` /
  * `async for` at codegen time) but the observable trace is identical to the
- * sync pair-mode. The PR-3 audit will reveal if Python's `async for` actually
- * diverges; that becomes a spec revision, not a runner bug.
+ * sync pair-mode.
+ *
+ * Pair-mode portability — PR-4 outcome:
+ *   The PR-3 differential harness surfaced three TS↔Python divergences in
+ *   pair-mode iteration: sync over array-of-pairs (Python `.items()`
+ *   AttributeError), async over sync Mapping, and async over empty sync
+ *   Mapping (Python `async for` requires `__aiter__`). PR-4 closes all
+ *   three by routing both targets through small runtime helpers — KERN
+ *   pair-mode is defined to iterate via the abstract operations
+ *   [[PairIterator]] (sync) and [[AsyncPairIterator]] (async). Both accept:
+ *     - any Mapping (via `.items()` on Python; native destructuring on TS)
+ *     - any iterable of `[k, v]` 2-tuples (positional destructure)
+ *     - any async iterable yielding `[k, v]` (async case only; sync data
+ *       is wrapped at iteration entry)
+ *   Production codegen emits `_kern_pairs(src)` / `_kern_async_pairs(src)`
+ *   on the Python target; TS uses native iteration since JS handles all
+ *   three shapes intrinsically. The observable trace is identical across
+ *   targets by construction.
  *
  * Out of scope for PR-2 (deferred):
  *   - mutation during iteration (implementation-defined for now)

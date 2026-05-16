@@ -51,7 +51,7 @@ describe('slice 4d — Python each/spread', () => {
     expect(() => emitNativeKernBodyPython(handler)).toThrow(/cannot be combined with `index=`/);
   });
 
-  test('async each pair-mode iterates async pair streams directly', () => {
+  test('async each pair-mode iterates async pair streams via _kern_async_pairs', () => {
     const handler = makeHandler([
       {
         type: 'each',
@@ -60,9 +60,12 @@ describe('slice 4d — Python each/spread', () => {
       },
     ]);
     const out = emitNativeKernBodyPython(handler);
-    expect(out).toContain('async for k, v in stream:');
+    // PR-4 — `_kern_async_pairs` accepts an async iterable directly (forwards
+    // each item) and also wraps sync Mappings / array-of-pairs (via
+    // `_kern_pairs`) so `async for` is well-defined for both shapes.
+    expect(out).toContain('async for k, v in _kern_async_pairs(stream):');
     expect(out).toContain('    sink(k, v)');
-    expect(out).not.toContain('.items()');
+    expect(out).toContain('async def _kern_async_pairs(__k_v):');
   });
 
   test('array spread', () => {

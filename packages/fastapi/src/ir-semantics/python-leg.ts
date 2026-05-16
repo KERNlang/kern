@@ -22,8 +22,13 @@
  *   - Deterministic JSON: `sort_keys=True` on Python side; we already do
  *     key-sorted serialization on TS side via `serializeValue`.
  *   - Unbuffered stdio: `python3 -u`.
- *   - Async-aware timeout: subprocess SIGKILLed after 5s if it hasn't
- *     exited; surfaces as TsLegError-style throw.
+ *   - Async-aware timeout: subprocess SIGKILLed after 10s if it hasn't
+ *     exited; surfaces as PythonLegError.
+ *
+ * Fixture authors: do NOT use Python `print()` inside fixture bodies — the
+ * harness writes the completion record to stdout. Use `__trace` events with
+ * `op: 'stdout'` if you need to observe stdout-style output through the
+ * trace channel (FD 3).
  */
 
 import { type ChildProcessByStdio, spawn } from 'node:child_process';
@@ -31,7 +36,7 @@ import type internal from 'node:stream';
 import type { Readable } from 'node:stream';
 import type { CanonicalError, CompletionRecord, NodeFixture, SemanticEnv, Trace, TraceEvent } from '@kernlang/core';
 import { lowerFixtureForTarget } from '@kernlang/core';
-import { emitNativeKernBodyPython } from '../codegen-body-python.js';
+import { emitNativeKernBodyPythonWithImports } from '../codegen-body-python.js';
 
 const PYTHON_LEG_TIMEOUT_MS = 10_000;
 
@@ -103,15 +108,26 @@ function buildPrelude(): string {
 /**
  * Wrap the emitted body in an async function that returns a JSON
  * CompletionRecord on stdout, catching the sentinel exceptions.
+ *
+ * `helpers` are emitted at module scope ABOVE the env bindings so they're
+ * visible from inside `__kern_run`. This matches production codegen: helpers
+ * (`_kern_pairs`, `_kern_async_pairs`) are module-level defs, not nested
+ * inside the running function.
  */
-function buildProgram(bodyCode: string, envBindings: ReadonlyArray<[string, unknown]>): string {
+function buildProgram(
+  bodyCode: string,
+  envBindings: ReadonlyArray<[string, unknown]>,
+  helpers: ReadonlyArray<string>,
+): string {
   const bindingLines = envBindings.map(([name, value]) => `${name} = ${pyLiteral(value)}`);
   const indented = bodyCode
     .split('\n')
     .map((line) => (line.length === 0 ? '' : `        ${line}`))
     .join('\n');
+  const helperBlock = helpers.length > 0 ? `${helpers.join('\n\n')}\n` : '';
   return [
     buildPrelude(),
+    helperBlock,
     ...bindingLines,
     '',
     'async def __kern_run():',
@@ -148,12 +164,21 @@ function runPython(program: string): Promise<ProcessResult> {
     let child: ChildProcessByStdio<internal.Writable, internal.Readable, internal.Readable>;
     try {
       child = spawn('python3', ['-u', '-c', program], {
-        stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
+        stdio: ['ignore', 'pipe', 'pipe', 'pipe'],
       }) as unknown as ChildProcessByStdio<internal.Writable, internal.Readable, internal.Readable>;
     } catch (err) {
       reject(new PythonLegError(`python3 spawn failed: ${(err as Error).message}`));
       return;
     }
+
+    // Single-settle guard — `error` and `close` can both fire; we want
+    // exactly one terminal resolution.
+    let settled = false;
+    const settle = (action: () => void): void => {
+      if (settled) return;
+      settled = true;
+      action();
+    };
 
     let stdout = '';
     let stderr = '';
@@ -166,28 +191,42 @@ function runPython(program: string): Promise<ProcessResult> {
       stderr += chunk.toString();
     });
 
-    // FD 3 is the trace channel.
+    // FD 3 is the trace channel. Parent's view is Readable because the child
+    // writes to FD 3 via `os.write(3, ...)`.
     const fd3Stream = (child.stdio as unknown as Array<Readable | null>)[3];
     if (fd3Stream && typeof fd3Stream.on === 'function') {
       fd3Stream.on('data', (chunk: Buffer | string) => {
         fd3 += chunk.toString();
       });
+      fd3Stream.on('error', (err: Error) => {
+        settle(() => {
+          clearTimeout(killTimer);
+          reject(new PythonLegError(`fd3 stream error: ${err.message}`));
+        });
+      });
     }
 
     const killTimer = setTimeout(() => {
       child.kill('SIGKILL');
-      reject(new PythonLegError(`python3 timed out after ${PYTHON_LEG_TIMEOUT_MS}ms`));
+      settle(() => reject(new PythonLegError(`python3 timed out after ${PYTHON_LEG_TIMEOUT_MS}ms`)));
     }, PYTHON_LEG_TIMEOUT_MS);
     killTimer.unref?.();
 
     child.on('error', (err) => {
-      clearTimeout(killTimer);
-      reject(new PythonLegError(`python3 process error: ${err.message}`));
+      settle(() => {
+        clearTimeout(killTimer);
+        reject(new PythonLegError(`python3 process error: ${err.message}`));
+      });
     });
 
-    child.on('exit', (code) => {
-      clearTimeout(killTimer);
-      resolve({ stdout, fd3, stderr, exitCode: code });
+    // Resolve on `close` — fires only after ALL stdio streams have closed,
+    // so stdout/stderr/FD3 buffers are fully drained. `exit` races stdio
+    // drain (claude + codex agreed in PR-3b review).
+    child.on('close', (code) => {
+      settle(() => {
+        clearTimeout(killTimer);
+        resolve({ stdout, fd3, stderr, exitCode: code });
+      });
     });
   });
 }
@@ -229,15 +268,26 @@ export async function runPythonEmitterLeg(fixture: NodeFixture, env: SemanticEnv
   };
 
   let bodyCode: string;
+  let bodyHelpers: ReadonlyArray<string>;
   try {
-    bodyCode = emitNativeKernBodyPython(handlerWrapper, {
+    const result = emitNativeKernBodyPythonWithImports(handlerWrapper, {
       traceHooks: { eachIterNext: true },
     });
+    if (result.imports.size > 0) {
+      // Differential fixtures don't exercise stdlib-import codegen (math, etc.);
+      // if a future fixture does, this leg will need an import-emission
+      // strategy. Fail loud rather than silently producing broken Python.
+      const list = [...result.imports].sort().join(', ');
+      throw new PythonLegError(`fixture body requires Python imports [${list}] — unsupported by harness`);
+    }
+    bodyCode = result.code;
+    bodyHelpers = [...result.helpers];
   } catch (err) {
-    throw new PythonLegError(`emitNativeKernBodyPython failed: ${(err as Error).message}`);
+    if (err instanceof PythonLegError) throw err;
+    throw new PythonLegError(`emitNativeKernBodyPythonWithImports failed: ${(err as Error).message}`);
   }
 
-  const program = buildProgram(bodyCode, Array.from(env.bindings.entries()));
+  const program = buildProgram(bodyCode, Array.from(env.bindings.entries()), bodyHelpers);
 
   const result = await runPython(program);
 
