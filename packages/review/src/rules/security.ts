@@ -43,13 +43,20 @@ function finding(
 //
 // For .innerHTML/.outerHTML assignment we run a shallow syntactic taint check
 // on the RHS: pure literals are skipped, expressions where every dynamic
-// interpolation flows through a recognized escape helper are demoted to
+// interpolation flows through a recognized HTML-escape helper are demoted to
 // advisory ('info'), and only RHS with at least one unescaped interpolation
 // fires at 'error'. This collapses the noise that came from flagging
 // `el.innerHTML = '<x>' + escapeHtml(y) + '</x>'` identically to the unsafe
 // version.
+//
+// Known limitation: the check is HTML-context-blind. A value sanitized for
+// element text but interpolated inside a JS event-handler attribute
+// (e.g. `'<img onerror="' + escapeHtml(x) + '">'`) is still exploitable, but
+// classifies as 'escaped' here. Detecting that requires parsing the
+// surrounding literal HTML context, which is out of scope for this rule.
 
-const HTML_ESCAPE_NAMES: ReadonlySet<string> = new Set([
+// Bare-function escape names — matched when called as `name(x)`.
+const HTML_ESCAPE_FUNCTIONS: ReadonlySet<string> = new Set([
   'escapeHtml',
   'escapeHTML',
   'htmlEscape',
@@ -57,12 +64,11 @@ const HTML_ESCAPE_NAMES: ReadonlySet<string> = new Set([
   'sanitize',
   'sanitizeHtml',
   'sanitizeHTML',
-  'escape',
-  'DOMPurify',
-  'purify',
-  'xss',
-  'stringify',
 ]);
+
+// Object roots — matched when called as `root.anything(x)`. We trust any
+// method on these because they're HTML-sanitization libraries by identity.
+const HTML_ESCAPE_ROOTS: ReadonlySet<string> = new Set(['DOMPurify', 'purify', 'xss']);
 
 type RhsClass = 'literal' | 'escaped' | 'unsafe';
 
@@ -76,13 +82,14 @@ function isEscapeCall(node: import('ts-morph').Node): boolean {
   if (node.getKind() !== SyntaxKind.CallExpression) return false;
   const callee = (node as import('ts-morph').CallExpression).getExpression();
   if (callee.getKind() === SyntaxKind.Identifier) {
-    return HTML_ESCAPE_NAMES.has(callee.getText());
+    return HTML_ESCAPE_FUNCTIONS.has(callee.getText());
   }
   if (callee.getKind() === SyntaxKind.PropertyAccessExpression) {
     const pa = callee as import('ts-morph').PropertyAccessExpression;
-    if (HTML_ESCAPE_NAMES.has(pa.getName())) return true;
     const root = pa.getExpression();
-    if (root.getKind() === SyntaxKind.Identifier && HTML_ESCAPE_NAMES.has(root.getText())) return true;
+    if (root.getKind() === SyntaxKind.Identifier && HTML_ESCAPE_ROOTS.has(root.getText())) {
+      return true;
+    }
   }
   return false;
 }
@@ -104,10 +111,16 @@ function classifyHtmlRhs(node: import('ts-morph').Node): RhsClass {
   }
   if (kind === SyntaxKind.BinaryExpression) {
     const be = node as import('ts-morph').BinaryExpression;
-    if (be.getOperatorToken().getKind() === SyntaxKind.PlusToken) {
+    const op = be.getOperatorToken().getKind();
+    // String concat, logical OR/nullish — both branches flow to the sink.
+    if (op === SyntaxKind.PlusToken || op === SyntaxKind.BarBarToken || op === SyntaxKind.QuestionQuestionToken) {
       return mergeRhs(classifyHtmlRhs(be.getLeft()), classifyHtmlRhs(be.getRight()));
     }
     return 'unsafe';
+  }
+  if (kind === SyntaxKind.ConditionalExpression) {
+    const ce = node as import('ts-morph').ConditionalExpression;
+    return mergeRhs(classifyHtmlRhs(ce.getWhenTrue()), classifyHtmlRhs(ce.getWhenFalse()));
   }
   if (kind === SyntaxKind.TemplateExpression) {
     const te = node as import('ts-morph').TemplateExpression;

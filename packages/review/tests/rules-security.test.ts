@@ -106,6 +106,94 @@ export function render(el: HTMLElement, html: string): void {
     expect(f).toBeDefined();
     expect(f!.severity).toBe('info');
   });
+
+  it('fires at error on .innerHTML = JSON.stringify(x) (not an HTML escaper)', () => {
+    const source = `
+export function render(el: HTMLElement, data: unknown): void {
+  el.innerHTML = JSON.stringify(data);
+}
+`;
+    const report = reviewSource(source, 'dom.ts');
+    const f = report.findings.find((f) => f.ruleId === 'xss-unsafe-html');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+  });
+
+  it('fires at error on .innerHTML = escape(x) (URI-encoding, not HTML escape)', () => {
+    const source = `
+export function render(el: HTMLElement, raw: string): void {
+  el.innerHTML = escape(raw);
+}
+`;
+    const report = reviewSource(source, 'dom.ts');
+    const f = report.findings.find((f) => f.ruleId === 'xss-unsafe-html');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+  });
+
+  it('fires at error on .innerHTML = myObj.sanitize(x) (unknown root, method name alone is not enough)', () => {
+    const source = `
+declare const myDataStore: { sanitize(s: string): string };
+export function render(el: HTMLElement, raw: string): void {
+  el.innerHTML = myDataStore.sanitize(raw);
+}
+`;
+    const report = reviewSource(source, 'dom.ts');
+    const f = report.findings.find((f) => f.ruleId === 'xss-unsafe-html');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+  });
+
+  it('demotes ternary with both branches escaped to advisory (info)', () => {
+    const source = `
+declare function escapeHtml(s: string): string;
+export function render(el: HTMLElement, cond: boolean, x: string): void {
+  el.innerHTML = cond ? escapeHtml(x) : '<span></span>';
+}
+`;
+    const report = reviewSource(source, 'dom.ts');
+    const f = report.findings.find((f) => f.ruleId === 'xss-unsafe-html');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('info');
+  });
+
+  it('fires at error on ternary with one unescaped branch', () => {
+    const source = `
+declare function escapeHtml(s: string): string;
+export function render(el: HTMLElement, cond: boolean, safe: string, raw: string): void {
+  el.innerHTML = cond ? escapeHtml(safe) : raw;
+}
+`;
+    const report = reviewSource(source, 'dom.ts');
+    const f = report.findings.find((f) => f.ruleId === 'xss-unsafe-html');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+  });
+
+  it('handles logical-or fallback: escapeHtml(x) || "" → info', () => {
+    const source = `
+declare function escapeHtml(s: string): string;
+export function render(el: HTMLElement, x: string): void {
+  el.innerHTML = escapeHtml(x) || '';
+}
+`;
+    const report = reviewSource(source, 'dom.ts');
+    const f = report.findings.find((f) => f.ruleId === 'xss-unsafe-html');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('info');
+  });
+
+  it('fires at error on logical-or with unsafe left side: x || "default"', () => {
+    const source = `
+export function render(el: HTMLElement, x: string): void {
+  el.innerHTML = x || '<div></div>';
+}
+`;
+    const report = reviewSource(source, 'dom.ts');
+    const f = report.findings.find((f) => f.ruleId === 'xss-unsafe-html');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+  });
 });
 
 // ── hardcoded-secret ─────────────────────────────────────────────────

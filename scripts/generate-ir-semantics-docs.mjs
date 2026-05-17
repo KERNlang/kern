@@ -19,7 +19,7 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -38,7 +38,11 @@ function parseArgs(argv) {
 }
 
 async function loadCore() {
-  const url = new URL(`file://${path.join(REPO_ROOT, 'packages/core/dist/index.js')}`);
+  // PR-5 buddy-review fix (codex + gemini): use `pathToFileURL` so absolute
+  // paths with backslashes / drive letters (Windows) or URL-significant
+  // characters (`#`, `?`, spaces) are encoded correctly. Hand-rolled
+  // `file://${path}` concatenation passes the path as the URL host on Windows.
+  const url = pathToFileURL(path.join(REPO_ROOT, 'packages/core/dist/index.js'));
   try {
     return await import(url.href);
   } catch (err) {

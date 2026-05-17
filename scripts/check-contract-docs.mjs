@@ -15,15 +15,17 @@
  * BEFORE jest in CI (cheaper signal earlier in the pipeline).
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REGISTRY_PATH = path.join(REPO_ROOT, 'generated/contracts/registry.json');
 
 async function loadCore() {
-  const url = new URL(`file://${path.join(REPO_ROOT, 'packages/core/dist/index.js')}`);
+  // PR-5 buddy-review fix (codex + gemini): pathToFileURL for cross-platform
+  // safety; raw concatenation breaks on Windows.
+  const url = pathToFileURL(path.join(REPO_ROOT, 'packages/core/dist/index.js'));
   try {
     return await import(url.href);
   } catch (err) {
@@ -47,6 +49,9 @@ async function main() {
   const fresh = await regenerate();
 
   if (fix) {
+    // PR-5 buddy-review fix (codex + gemini): ensure parent dir exists so
+    // `--fix` on a fresh clone (or after `rm -rf generated/`) doesn't ENOENT.
+    mkdirSync(path.dirname(REGISTRY_PATH), { recursive: true });
     writeFileSync(REGISTRY_PATH, fresh);
     console.log(`[check-contract-docs] wrote ${path.relative(REPO_ROOT, REGISTRY_PATH)}`);
     return;
