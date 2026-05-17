@@ -43,6 +43,69 @@ export function render(el: HTMLElement, text: string): void {
     const f = report.findings.find((f) => f.ruleId === 'xss-unsafe-html');
     expect(f).toBeUndefined();
   });
+
+  it('does NOT fire on .innerHTML with a pure string literal', () => {
+    const source = `
+export function reset(el: HTMLElement): void {
+  el.innerHTML = '<div class="empty"></div>';
+}
+`;
+    const report = reviewSource(source, 'dom.ts');
+    const f = report.findings.find((f) => f.ruleId === 'xss-unsafe-html');
+    expect(f).toBeUndefined();
+  });
+
+  it('demotes .innerHTML with escaped concat to advisory (info)', () => {
+    const source = `
+declare function kswEscapeHtml(s: string): string;
+export function render(el: HTMLElement, x: string): void {
+  el.innerHTML = '<span>' + kswEscapeHtml(x) + '</span>';
+}
+`;
+    const report = reviewSource(source, 'dom.ts');
+    const f = report.findings.find((f) => f.ruleId === 'xss-unsafe-html');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('info');
+  });
+
+  it('demotes .innerHTML with escaped template literal to advisory (info)', () => {
+    const source = `
+declare function escapeHtml(s: string): string;
+export function render(el: HTMLElement, x: string): void {
+  el.innerHTML = \`<span>\${escapeHtml(x)}</span>\`;
+}
+`;
+    const report = reviewSource(source, 'dom.ts');
+    const f = report.findings.find((f) => f.ruleId === 'xss-unsafe-html');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('info');
+  });
+
+  it('fires at error on .innerHTML with mixed escaped + unescaped interpolation', () => {
+    const source = `
+declare function escapeHtml(s: string): string;
+export function render(el: HTMLElement, safe: string, raw: string): void {
+  el.innerHTML = '<span>' + escapeHtml(safe) + raw + '</span>';
+}
+`;
+    const report = reviewSource(source, 'dom.ts');
+    const f = report.findings.find((f) => f.ruleId === 'xss-unsafe-html');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+  });
+
+  it('recognizes DOMPurify.sanitize as an escape helper', () => {
+    const source = `
+declare const DOMPurify: { sanitize(s: string): string };
+export function render(el: HTMLElement, html: string): void {
+  el.innerHTML = DOMPurify.sanitize(html);
+}
+`;
+    const report = reviewSource(source, 'dom.ts');
+    const f = report.findings.find((f) => f.ruleId === 'xss-unsafe-html');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('info');
+  });
 });
 
 // ── hardcoded-secret ─────────────────────────────────────────────────
