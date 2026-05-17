@@ -93,6 +93,35 @@ Rule messages are what users read in their terminal / IDE / PR comments. Keep vo
 
 Transpilers live in their own package under `packages/`. Each exports a `transpile*` function that takes an IR tree and returns generated code. Register the target in `packages/core/src/targets.ts`.
 
+## IR-semantics contracts
+
+KERN's "semantic-spec moat" lives at `packages/core/src/ir/semantics/`. Each node type (`each`, `__trace`, `return`, `throw`, `break`, `continue`) has a `NodeContract` describing preconditions, observable trace effects, completion shapes, and fixtures the differential harness uses to prove TS↔Python parity by construction.
+
+- `pnpm docs:contracts` — print contract summaries as Markdown to stdout (CI publishes the same to the job summary).
+- `pnpm docs:contracts:json` — regenerate `generated/contracts/registry.json` (the only committed artifact; never hand-edit — Sight and external tooling consume it).
+- `pnpm docs:contracts:check` — fail if `registry.json` drifts from the in-process generator. Add `--fix` to write the regenerated content. Each `docs:contracts:*` script runs `pnpm --filter @kernlang/core build` first so the generator never reads stale `dist/`.
+- `pnpm test:ir-semantics` — run only the harness tests (faster signal than the full suite for local iteration).
+
+The drift gate runs in CI as its own step (`Contract docs drift`, see `.github/workflows/ci.yml`), not bundled into `pnpm lint`. There's also a belt-and-suspenders jest test (`packages/core/tests/ir-semantics-contract-doc-drift.test.ts`) so a contributor who skipped the pre-push hook still sees the failure in `pnpm test`.
+
+When you add or modify a contract:
+1. Edit the contract source, add or update fixtures
+2. Run `pnpm docs:contracts:check --fix` to regenerate `registry.json`
+3. Commit the source change AND the regenerated JSON in the same commit
+4. CI's drift check and the jest gate (`ir-semantics-contract-doc-drift.test.ts`) both fail loudly if you forget step 2
+
+### Differential-harness burn-in
+
+The `Differential harness (IR semantics)` CI step is non-blocking until **2026-06-01 (UTC)** — the first day the gate flips to blocking (the 14-day soak from 2026-05-17 to 2026-05-31 inclusive, plus the flip on 2026-06-01). The deadline lives as a literal in `.github/workflows/ci.yml` (search for `BURNIN_FLIPS_ON`) and auto-flips with zero human action on that date. After the flip, harness failures fail the build.
+
+Escape hatch: the `KERN_SEMANTICS_GATE` repo variable, three-way:
+
+- `blocking` → force blocking (early flip, e.g. 7 days of clean green)
+- any other non-empty value (e.g. `delay`, `soak-extended-2026-06-15`) → force non-blocking (delay past the deadline)
+- unset / empty → follow the date gate
+
+The workflow's `Enforce burn-in expiry` step prevents silent over-runs — once the date passes AND no override is set, the build fails. You can extend the soak by setting the variable to any non-`blocking` value.
+
 ## Reporting bugs
 
 Use the [bug report template](https://github.com/KERNlang/kern/issues/new?template=bug_report.yml).

@@ -39,7 +39,100 @@ function finding(
 }
 
 // ── Rule S1: xss-unsafe-html ─────────────────────────────────────────────
-// dangerouslySetInnerHTML (React), v-html (Vue), innerHTML assignment
+// dangerouslySetInnerHTML (React), v-html (Vue), innerHTML assignment.
+//
+// For .innerHTML/.outerHTML assignment we run a shallow syntactic taint check
+// on the RHS: pure literals are skipped, expressions where every dynamic
+// interpolation flows through a recognized HTML-escape helper are demoted to
+// advisory ('info'), and only RHS with at least one unescaped interpolation
+// fires at 'error'. This collapses the noise that came from flagging
+// `el.innerHTML = '<x>' + escapeHtml(y) + '</x>'` identically to the unsafe
+// version.
+//
+// Known limitation: the check is HTML-context-blind. A value sanitized for
+// element text but interpolated inside a JS event-handler attribute
+// (e.g. `'<img onerror="' + escapeHtml(x) + '">'`) is still exploitable, but
+// classifies as 'escaped' here. Detecting that requires parsing the
+// surrounding literal HTML context, which is out of scope for this rule.
+
+// Bare-function escape names — matched when called as `name(x)`.
+const HTML_ESCAPE_FUNCTIONS: ReadonlySet<string> = new Set([
+  'escapeHtml',
+  'escapeHTML',
+  'htmlEscape',
+  'kswEscapeHtml',
+  'sanitize',
+  'sanitizeHtml',
+  'sanitizeHTML',
+]);
+
+// Object roots — matched when called as `root.anything(x)`. We trust any
+// method on these because they're HTML-sanitization libraries by identity.
+const HTML_ESCAPE_ROOTS: ReadonlySet<string> = new Set(['DOMPurify', 'purify', 'xss']);
+
+type RhsClass = 'literal' | 'escaped' | 'unsafe';
+
+function mergeRhs(a: RhsClass, b: RhsClass): RhsClass {
+  if (a === 'unsafe' || b === 'unsafe') return 'unsafe';
+  if (a === 'escaped' || b === 'escaped') return 'escaped';
+  return 'literal';
+}
+
+function isEscapeCall(node: import('ts-morph').Node): boolean {
+  if (node.getKind() !== SyntaxKind.CallExpression) return false;
+  const callee = (node as import('ts-morph').CallExpression).getExpression();
+  if (callee.getKind() === SyntaxKind.Identifier) {
+    return HTML_ESCAPE_FUNCTIONS.has(callee.getText());
+  }
+  if (callee.getKind() === SyntaxKind.PropertyAccessExpression) {
+    const pa = callee as import('ts-morph').PropertyAccessExpression;
+    const root = pa.getExpression();
+    if (root.getKind() === SyntaxKind.Identifier && HTML_ESCAPE_ROOTS.has(root.getText())) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function classifyHtmlRhs(node: import('ts-morph').Node): RhsClass {
+  const kind = node.getKind();
+  if (
+    kind === SyntaxKind.StringLiteral ||
+    kind === SyntaxKind.NoSubstitutionTemplateLiteral ||
+    kind === SyntaxKind.NumericLiteral ||
+    kind === SyntaxKind.TrueKeyword ||
+    kind === SyntaxKind.FalseKeyword ||
+    kind === SyntaxKind.NullKeyword
+  ) {
+    return 'literal';
+  }
+  if (kind === SyntaxKind.ParenthesizedExpression) {
+    return classifyHtmlRhs((node as import('ts-morph').ParenthesizedExpression).getExpression());
+  }
+  if (kind === SyntaxKind.BinaryExpression) {
+    const be = node as import('ts-morph').BinaryExpression;
+    const op = be.getOperatorToken().getKind();
+    // String concat, logical OR/nullish — both branches flow to the sink.
+    if (op === SyntaxKind.PlusToken || op === SyntaxKind.BarBarToken || op === SyntaxKind.QuestionQuestionToken) {
+      return mergeRhs(classifyHtmlRhs(be.getLeft()), classifyHtmlRhs(be.getRight()));
+    }
+    return 'unsafe';
+  }
+  if (kind === SyntaxKind.ConditionalExpression) {
+    const ce = node as import('ts-morph').ConditionalExpression;
+    return mergeRhs(classifyHtmlRhs(ce.getWhenTrue()), classifyHtmlRhs(ce.getWhenFalse()));
+  }
+  if (kind === SyntaxKind.TemplateExpression) {
+    const te = node as import('ts-morph').TemplateExpression;
+    let acc: RhsClass = 'literal';
+    for (const span of te.getTemplateSpans()) {
+      acc = mergeRhs(acc, classifyHtmlRhs(span.getExpression()));
+    }
+    return acc;
+  }
+  if (isEscapeCall(node)) return 'escaped';
+  return 'unsafe';
+}
 
 function xssUnsafeHtml(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
@@ -61,25 +154,44 @@ function xssUnsafeHtml(ctx: RuleContext): ReviewFinding[] {
     }
   }
 
-  // Direct .innerHTML assignment
+  // Direct .innerHTML / .outerHTML assignment, with shallow escape-awareness
   for (const bin of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
     if (bin.getOperatorToken().getKind() !== SyntaxKind.EqualsToken) continue;
     const left = bin.getLeft();
     if (left.getKind() !== SyntaxKind.PropertyAccessExpression) continue;
     const pa = left as import('ts-morph').PropertyAccessExpression;
-    if (pa.getName() === 'innerHTML' || pa.getName() === 'outerHTML') {
+    const propName = pa.getName();
+    if (propName !== 'innerHTML' && propName !== 'outerHTML') continue;
+
+    const rhsClass = classifyHtmlRhs(bin.getRight());
+    if (rhsClass === 'literal') continue;
+
+    if (rhsClass === 'escaped') {
       findings.push(
         finding(
           'xss-unsafe-html',
-          'error',
+          'info',
           'bug',
-          `Direct .${pa.getName()} assignment creates XSS risk — use textContent or sanitize`,
+          `.${propName} assignment uses an HTML escape helper — verify every interpolation is covered`,
           ctx.filePath,
           bin.getStartLineNumber(),
-          { suggestion: 'Use element.textContent for plain text, or DOMPurify.sanitize() for HTML' },
+          { suggestion: 'Prefer textContent or a sanitizer when the full string is untrusted' },
         ),
       );
+      continue;
     }
+
+    findings.push(
+      finding(
+        'xss-unsafe-html',
+        'error',
+        'bug',
+        `Direct .${propName} assignment creates XSS risk — use textContent or sanitize`,
+        ctx.filePath,
+        bin.getStartLineNumber(),
+        { suggestion: 'Use element.textContent for plain text, or DOMPurify.sanitize() for HTML' },
+      ),
+    );
   }
 
   return findings;

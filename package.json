@@ -15,7 +15,12 @@
   "scripts": {
     "build": "tsc -b && pnpm --filter @kernlang/playground build",
     "test": "pnpm -r --filter '!@kernlang/review-python' test && pnpm test:prepush && pnpm check:rule-coverage",
+    "test:non-semantics": "pnpm -r --filter '!@kernlang/review-python' test --testPathIgnorePatterns=ir-semantics && pnpm test:prepush && pnpm check:rule-coverage",
     "check:rule-coverage": "node ./scripts/check-rule-coverage.mjs",
+    "docs:contracts": "pnpm --filter @kernlang/core build && node ./scripts/generate-ir-semantics-docs.mjs --format=markdown --out=-",
+    "docs:contracts:json": "pnpm --filter @kernlang/core build && node ./scripts/generate-ir-semantics-docs.mjs --format=json --out=generated/contracts/registry.json",
+    "docs:contracts:check": "pnpm --filter @kernlang/core build && node ./scripts/check-contract-docs.mjs",
+    "test:ir-semantics": "pnpm --filter @kernlang/core test --testPathPatterns=ir-semantics && pnpm --filter @kernlang/fastapi test --testPathPatterns=ir-semantics-python-leg",
     "test:kern": "pnpm --filter @kernlang/test build && node packages/test/dist/cli.js examples/native-test --coverage --min-coverage 100 && node packages/test/dist/cli.js packages/core/native-test --coverage --min-coverage 100",
     "test:root": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config jest.config.js",
     "test:prepush": "node --test scripts/pre-push.test.mjs",
@@ -45,7 +50,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
     "@types/jest": "^30.0.0",
-    "@types/node": "^25.6.2",
+    "@types/node": "^25.8.0",
     "jest": "^30.4.2",
     "ts-jest": "^29.4.9",
     "typescript": "^6.0.3"
