@@ -50,8 +50,69 @@ jobs:
       - name: Rule coverage gate
         run: pnpm check:rule-coverage
 
-      - name: Test
-        run: pnpm test
+      - name: Test (excluding IR-semantics harness)
+        run: pnpm test:non-semantics
+
+      - name: Contract docs drift
+        run: pnpm docs:contracts:check
+
+      # PR-5b — IR-semantics differential harness lives in its own step so the
+      # burn-in date-gate can decouple it from blocking CI without removing
+      # the harness from local `pnpm test` (which keeps running everything).
+      # On 2026-05-31 (UTC) this step auto-flips to blocking; the
+      # `KERN_SEMANTICS_GATE` repo variable is the escape hatch (set to
+      # `blocking` to flip early, or anything else to delay if the auto-flip
+      # arrives mid-incident).
+      - name: Compute differential-harness gate
+        id: gate
+        shell: bash
+        run: |
+          BURNIN_UNTIL="2026-05-31"
+          TODAY=$(date -u +%Y-%m-%d)
+          if [[ "$TODAY" > "$BURNIN_UNTIL" || "${{ vars.KERN_SEMANTICS_GATE }}" == "blocking" ]]; then
+            echo "blocking=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "blocking=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "burnin_until=$BURNIN_UNTIL" >> "$GITHUB_OUTPUT"
+          echo "today=$TODAY" >> "$GITHUB_OUTPUT"
+
+      - name: Differential harness (IR semantics)
+        continue-on-error: ${{ steps.gate.outputs.blocking != 'true' }}
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm test:ir-semantics 2>&1 | tee semantics.log
+          {
+            echo "## IR-semantics contracts"
+            echo ""
+            echo "_Burn-in until ${{ steps.gate.outputs.burnin_until }} (today ${{ steps.gate.outputs.today }}); blocking=${{ steps.gate.outputs.blocking }}_"
+            echo ""
+            pnpm docs:contracts
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Hard expiry — if burn-in has elapsed and the override isn't set to
+      # blocking, the workflow fails so the deadline can't silently slip.
+      - name: Enforce burn-in expiry
+        shell: bash
+        run: |
+          BURNIN_UNTIL="${{ steps.gate.outputs.burnin_until }}"
+          TODAY="${{ steps.gate.outputs.today }}"
+          if [[ "$TODAY" > "$BURNIN_UNTIL" && "${{ vars.KERN_SEMANTICS_GATE }}" != "blocking" ]]; then
+            echo "Burn-in expired ($BURNIN_UNTIL) but KERN_SEMANTICS_GATE != 'blocking'." >&2
+            echo "Either set the repo variable to 'blocking', or land a PR removing continue-on-error from the harness step." >&2
+            exit 1
+          fi
+
+      - name: Upload contract artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-docs
+          path: |
+            generated/contracts/registry.json
+            semantics.log
+          if-no-files-found: warn
 
       - name: Native KERN Tests
         run: pnpm test:kern

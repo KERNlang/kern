@@ -108,6 +108,12 @@ When you add or modify a contract:
 3. Commit the source change AND the regenerated JSON in the same commit
 4. CI's drift check and the jest gate (`ir-semantics-contract-doc-drift.test.ts`) both fail loudly if you forget step 2
 
+### Differential-harness burn-in
+
+The `Differential harness (IR semantics)` CI step is non-blocking until **2026-05-31 (UTC)** — the 14-day soak during which we watch for flake and unexpected divergences before the harness becomes a hard gate. The deadline lives as a literal in `.github/workflows/ci.yml` (search for `BURNIN_UNTIL`) and auto-flips with zero human action on that date. After the flip, harness failures fail the build.
+
+Escape hatch: the `KERN_SEMANTICS_GATE` repo variable. Set to `blocking` to flip early (e.g. 7 days of clean green); set to anything else to delay if the auto-flip arrives during a known-bad stretch. The workflow's `Enforce burn-in expiry` step prevents silent over-runs — once the date passes, you must explicitly opt out via the variable or the build fails.
+
 ## Reporting bugs
 
 Use the [bug report template](https://github.com/KERNlang/kern/issues/new?template=bug_report.yml).

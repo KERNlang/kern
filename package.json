@@ -15,6 +15,7 @@
   "scripts": {
     "build": "tsc -b && pnpm --filter @kernlang/playground build",
     "test": "pnpm -r --filter '!@kernlang/review-python' test && pnpm test:prepush && pnpm check:rule-coverage",
+    "test:non-semantics": "pnpm -r --filter '!@kernlang/review-python' test --testPathIgnorePatterns=ir-semantics && pnpm test:prepush && pnpm check:rule-coverage",
     "check:rule-coverage": "node ./scripts/check-rule-coverage.mjs",
     "docs:contracts": "node ./scripts/generate-ir-semantics-docs.mjs --format=markdown --out=-",
     "docs:contracts:json": "node ./scripts/generate-ir-semantics-docs.mjs --format=json --out=generated/contracts/registry.json",
