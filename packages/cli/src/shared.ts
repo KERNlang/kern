@@ -30,6 +30,7 @@ import {
   parseWithDiagnostics,
   registerTemplate,
   resolveConfig,
+  sidecarManifestFromIsland,
   sourceComment,
   validateSchema,
   validateSemantics,
@@ -446,8 +447,31 @@ export function writeSidecarInstallFiles(ast: IRNode, outDir: string): void {
   writeSidecarInstallFilesForAsts([ast], outDir);
 }
 
-export function writeSidecarInstallFilesForAsts(asts: Iterable<IRNode>, outDir: string): void {
-  const manifests = [...asts].flatMap((ast) => collectSidecarManifests(ast));
+interface SidecarInstallFileOptions {
+  sidecarIslandsOnly?: boolean;
+}
+
+function sidecarManifestsForInstall(ast: IRNode, options?: SidecarInstallFileOptions) {
+  if (options?.sidecarIslandsOnly === true) {
+    return collectCapabilityIslands(ast)
+      .map((island) => sidecarManifestFromIsland(island))
+      .filter((manifest) => manifest !== null);
+  }
+  return collectSidecarManifests(ast);
+}
+
+function pythonRequirementLine(packageName: string, version?: string): string | undefined {
+  const root = packageName.split('.')[0];
+  if (!root || PYTHON_STDLIB_PACKAGES.has(root)) return undefined;
+  return version ? `${packageName}==${version}` : packageName;
+}
+
+export function writeSidecarInstallFilesForAsts(
+  asts: Iterable<IRNode>,
+  outDir: string,
+  options?: SidecarInstallFileOptions,
+): void {
+  const manifests = [...asts].flatMap((ast) => sidecarManifestsForInstall(ast, options));
   const sidecarsPath = resolve(outDir, 'kern-sidecars.json');
   const requirementsPath = resolve(outDir, 'kern-sidecar-requirements.txt');
   if (manifests.length === 0) {
@@ -460,12 +484,9 @@ export function writeSidecarInstallFilesForAsts(asts: Iterable<IRNode>, outDir: 
   const requirements = new Set<string>();
   for (const manifest of manifests) {
     for (const sidecarPackage of manifest.packages) {
-      const root = sidecarPackage.package.split('.')[0];
-      if (!root || PYTHON_STDLIB_PACKAGES.has(root)) continue;
       if (sidecarPackage.registry !== 'pypi') continue;
-      requirements.add(
-        sidecarPackage.version ? `${sidecarPackage.package}==${sidecarPackage.version}` : sidecarPackage.package,
-      );
+      const requirement = pythonRequirementLine(sidecarPackage.package, sidecarPackage.version);
+      if (requirement) requirements.add(requirement);
     }
   }
   if (requirements.size > 0) {
@@ -475,7 +496,32 @@ export function writeSidecarInstallFilesForAsts(asts: Iterable<IRNode>, outDir: 
   }
 }
 
+export function writeFastApiPythonInstallFilesForAsts(asts: Iterable<IRNode>, outDir: string): void {
+  const requirementsPath = resolve(outDir, 'kern-python-requirements.txt');
+  const requirements = new Set<string>();
+  for (const ast of asts) {
+    for (const boundary of collectExternalBoundaries(ast)) {
+      if (boundary.registry !== 'pypi') continue;
+      if (boundary.targetFamily !== 'python' && boundary.targetFamily !== 'all') continue;
+      if (boundary.island) continue;
+      const requirement = pythonRequirementLine(boundary.package, boundary.version);
+      if (requirement) requirements.add(requirement);
+    }
+  }
+  if (requirements.size > 0) {
+    mkdirSync(outDir, { recursive: true });
+    writeFileSync(requirementsPath, `${[...requirements].sort().join('\n')}\n`);
+  } else if (existsSync(requirementsPath)) {
+    unlinkSync(requirementsPath);
+  }
+}
+
 type TranspileAndWriteOptions = import('@kernlang/core').ParseOptions & {
+  fastApiEntryModules?: string[];
+  fastApiModuleNameByFile?: Record<string, string>;
+  fastApiModulePathByFile?: Record<string, string>;
+  outputBaseName?: string;
+  outputRelDir?: string;
   writeSidecarInstallFiles?: boolean;
 };
 
@@ -619,6 +665,92 @@ export function getOutputExtension(target: KernTarget): string {
     default:
       return '.tsx';
   }
+}
+
+const PYTHON_KEYWORDS = new Set([
+  'False',
+  'None',
+  'True',
+  'and',
+  'as',
+  'assert',
+  'async',
+  'await',
+  'break',
+  'class',
+  'continue',
+  'def',
+  'del',
+  'elif',
+  'else',
+  'except',
+  'finally',
+  'for',
+  'from',
+  'global',
+  'if',
+  'import',
+  'in',
+  'is',
+  'lambda',
+  'nonlocal',
+  'not',
+  'or',
+  'pass',
+  'raise',
+  'return',
+  'try',
+  'while',
+  'with',
+  'yield',
+]);
+
+// Keep in sync with top-level FastAPI generated artifact names.
+const PYTHON_GENERATED_MODULE_NAMES = new Set(['alembic', 'auth', 'middleware', 'routes', 'ws']);
+
+export function pythonModuleName(name: string): string {
+  const sanitized = name.replace(/[^A-Za-z0-9_]/g, '_').replace(/^([0-9])/, '_$1');
+  const moduleName = sanitized.length > 0 ? sanitized : 'main';
+  return PYTHON_KEYWORDS.has(moduleName) ||
+    PYTHON_STDLIB_PACKAGES.has(moduleName) ||
+    PYTHON_GENERATED_MODULE_NAMES.has(moduleName) ||
+    /^__.*__$/.test(moduleName)
+    ? `${moduleName}_`
+    : moduleName;
+}
+
+export function outputBaseNameForTarget(name: string, target: KernTarget): string {
+  return target === 'fastapi' ? pythonModuleName(name) : name;
+}
+
+export function withFastApiEntryModules(cfg: ResolvedKernConfig, entryModules: string[]): ResolvedKernConfig {
+  if (cfg.target !== 'fastapi') return cfg;
+  const modules = [...new Set(entryModules.filter((moduleName) => moduleName.length > 0))];
+  return {
+    ...cfg,
+    fastapi: {
+      ...cfg.fastapi,
+      entryModules: modules,
+    },
+  } as ResolvedKernConfig;
+}
+
+export function withFastApiModuleMap(
+  cfg: ResolvedKernConfig,
+  sourceFile: string,
+  moduleNameByFile?: Record<string, string>,
+  modulePathByFile?: Record<string, string>,
+): ResolvedKernConfig {
+  if (cfg.target !== 'fastapi' || (!moduleNameByFile && !modulePathByFile)) return cfg;
+  return {
+    ...cfg,
+    fastapi: {
+      ...cfg.fastapi,
+      sourceFile,
+      ...(moduleNameByFile ? { moduleNameByFile } : {}),
+      ...(modulePathByFile ? { modulePathByFile } : {}),
+    },
+  } as ResolvedKernConfig;
 }
 
 // ── Export extraction ───────────────────────────────────────────────────
@@ -1059,13 +1191,37 @@ export function transpileAndWrite(
   // Resolve auto target per-file from AST content
   const effectiveCfg = cfg.target === 'auto' ? { ...cfg, target: detectTarget(ast) } : cfg;
   const target = effectiveCfg.target;
+  const plannedOutBaseName =
+    target === 'fastapi' ? (options?.outputBaseName ?? options?.fastApiModuleNameByFile?.[resolve(file)]) : undefined;
+  const outBaseName =
+    target === 'fastapi' && plannedOutBaseName ? plannedOutBaseName : outputBaseNameForTarget(name, target);
+  const configuredFastApiEntryModules = options?.fastApiEntryModules?.filter((moduleName) => moduleName.length > 0);
+  const fastApiEntryModules =
+    target === 'fastapi' && configuredFastApiEntryModules && configuredFastApiEntryModules.length > 0
+      ? configuredFastApiEntryModules
+      : [outBaseName];
+  const transpileCfg = withFastApiModuleMap(
+    withFastApiEntryModules(effectiveCfg, fastApiEntryModules),
+    resolve(file),
+    options?.fastApiModuleNameByFile,
+    options?.fastApiModulePathByFile,
+  );
   const commentPrefix = target === 'fastapi' ? '#' : '//';
   const header = generatedHeaderForTarget(target, relSource);
-  const result = transpileForTarget(ast, effectiveCfg);
+  const result = transpileForTarget(ast, transpileCfg);
 
-  const relDir = inputBase ? relative(resolve(inputBase), dirname(file)) : '';
+  const fastApiOutputRelDir = target === 'fastapi' ? options?.outputRelDir : undefined;
+  const usesFastApiOutputRelDir = fastApiOutputRelDir !== undefined;
+  const relDir = usesFastApiOutputRelDir
+    ? fastApiOutputRelDir
+    : inputBase
+      ? relative(resolve(inputBase), dirname(file))
+      : '';
   const baseDir = outDirOverride ? resolve(resolve(outDirOverride), relDir) : dirname(file);
-  const outDir = resolve(baseDir, cfg.output.outDir);
+  const outDir =
+    usesFastApiOutputRelDir && outDirOverride
+      ? resolve(resolve(outDirOverride), cfg.output.outDir, relDir)
+      : resolve(baseDir, cfg.output.outDir);
   mkdirSync(outDir, { recursive: true });
   if (options?.writeSidecarInstallFiles !== false) writeSidecarInstallFiles(ast, outDir);
 
@@ -1092,7 +1248,7 @@ export function transpileAndWrite(
     const outFileName =
       target === 'nextjs' && resultWithFiles.files && resultWithFiles.files.length > 0
         ? resultWithFiles.files[0].path
-        : `${name}${outExt}`;
+        : `${outBaseName}${outExt}`;
     const outFilePath = resolve(outDir, outFileName);
     mkdirSync(dirname(outFilePath), { recursive: true });
     writeGeneratedFileSync(

@@ -1,5 +1,5 @@
 import type { IRNode, KernConfig, KernStructure, KernTarget, ResolvedKernConfig } from '@kernlang/core';
-import { ALL_TARGETS, decompile, resolveConfig, VALID_STRUCTURES } from '@kernlang/core';
+import { ALL_TARGETS, decompile, detectTarget, resolveConfig, VALID_STRUCTURES } from '@kernlang/core';
 import { loadEvolvedNodes } from '@kernlang/evolve';
 import { collectLanguageMetrics } from '@kernlang/metrics';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
@@ -9,9 +9,11 @@ import {
   getOutputExtension,
   hasFlag,
   loadTemplates,
+  outputBaseNameForTarget,
   parseAndSurface,
   parseFlag,
   transpileForTarget,
+  withFastApiEntryModules,
 } from '../shared.js';
 
 // ── Minify/Pretty implementations ───────────────────────────────────────
@@ -123,8 +125,6 @@ export function runTranspile(args: string[]): void {
     }
     config = { ...config, target: cliTarget as KernTarget };
   }
-  const target = config.target;
-
   const cliStructure = parseFlag(args, '--structure');
   if (cliStructure) {
     if (!VALID_STRUCTURES.includes(cliStructure as KernStructure)) {
@@ -138,6 +138,8 @@ export function runTranspile(args: string[]): void {
   const ast = parseAndSurface(irSource, inputFile);
   const ext = inputFile.endsWith('.kern') ? '.kern' : '.ir';
   const name = basename(inputFile, ext);
+  const target = config.target === 'auto' ? detectTarget(ast) : config.target;
+  const effectiveConfig = config.target === 'auto' ? { ...config, target } : config;
 
   // Minify
   if (hasFlag(args, '--minify')) {
@@ -196,11 +198,12 @@ export function runTranspile(args: string[]): void {
   }
 
   // Transpile
-  const result = transpileForTarget(ast, config);
+  const outBaseName = outputBaseNameForTarget(name, target);
+  const result = transpileForTarget(ast, withFastApiEntryModules(effectiveConfig, [outBaseName]));
 
   const outDir = resolve(dirname(inputFile), config.output.outDir);
   const isStructured =
-    target !== 'fastapi' && config.structure !== 'flat' && result.artifacts && result.artifacts.length > 0;
+    target !== 'fastapi' && effectiveConfig.structure !== 'flat' && result.artifacts && result.artifacts.length > 0;
 
   if (isStructured) {
     for (const artifact of result.artifacts!) {
@@ -213,7 +216,7 @@ export function runTranspile(args: string[]): void {
     console.log(`Transpiled: ${inputFile} → ${displayPath}`);
   } else {
     const outExt = getOutputExtension(target);
-    const outFile = resolve(outDir, `${name}${outExt}`);
+    const outFile = resolve(outDir, `${outBaseName}${outExt}`);
     mkdirSync(dirname(outFile), { recursive: true });
     writeFileSync(outFile, result.code);
     if (result.artifacts) {

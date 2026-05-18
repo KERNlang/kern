@@ -1,5 +1,6 @@
-import { spawnSync } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { createServer } from 'net';
 import { tmpdir } from 'os';
 import { basename, dirname, join } from 'path';
 import * as ts from 'typescript';
@@ -8,7 +9,13 @@ import { parse } from '../../core/src/parser.js';
 import { runCompile } from '../src/commands/compile.js';
 import { runImport } from '../src/commands/import.js';
 import { runSidecarInstall } from '../src/commands/sidecar-install.js';
-import { checkVersionDrift, loadConfig, parseCompilerVersion } from '../src/shared.js';
+import {
+  checkVersionDrift,
+  loadConfig,
+  outputBaseNameForTarget,
+  parseCompilerVersion,
+  pythonModuleName,
+} from '../src/shared.js';
 
 describe('kern import/compile commands', () => {
   let cwd: string;
@@ -67,6 +74,29 @@ describe('kern import/compile commands', () => {
       throw new Error(`EXIT:${code ?? 0}`);
     }) as never;
     return () => exitCode;
+  }
+
+  async function getFreePort(): Promise<number> {
+    return new Promise((resolvePort, reject) => {
+      const server = createServer();
+      server.unref();
+      server.on('error', reject);
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address();
+        server.close(() => {
+          if (address && typeof address === 'object') resolvePort(address.port);
+          else reject(new Error('failed to allocate a TCP port'));
+        });
+      });
+    });
+  }
+
+  function pythonWithFastApi(): string {
+    for (const candidate of ['python3', 'python']) {
+      const result = spawnSync(candidate, ['-c', 'import fastapi, uvicorn'], { encoding: 'utf-8' });
+      if (result.status === 0) return candidate;
+    }
+    return '';
   }
 
   function transpileTsModule(filePath: string): string {
@@ -597,6 +627,29 @@ export async function loadUser(id: string): Promise<User> {
     expect(logs).toEqual([`python-test -m pip install -r ${join(generatedDir, 'kern-sidecar-requirements.txt')}`]);
   });
 
+  it('prints native Python and sidecar requirement files in sidecar install dry-run mode', () => {
+    process.chdir(tmpDir);
+    const generatedDir = join(tmpDir, 'generated-python-install');
+    mkdirSync(generatedDir, { recursive: true });
+    writeFileSync(join(generatedDir, 'kern-python-requirements.txt'), 'httpx==0.28\n');
+    writeFileSync(join(generatedDir, 'kern-sidecar-requirements.txt'), 'demucs\n');
+
+    runSidecarInstall(['sidecar-install', `--outdir=${generatedDir}`, '--python=python-test', '--dry-run']);
+
+    expect(logs).toEqual([
+      [
+        'python-test',
+        '-m',
+        'pip',
+        'install',
+        '-r',
+        join(generatedDir, 'kern-python-requirements.txt'),
+        '-r',
+        join(generatedDir, 'kern-sidecar-requirements.txt'),
+      ].join(' '),
+    ]);
+  });
+
   it('executes generated Python sidecar calls over stdio JSON RPC', async () => {
     const python =
       spawnSync('python3', ['-c', 'import math; print(math.sqrt(49))'], { encoding: 'utf-8' }).status === 0
@@ -1044,8 +1097,10 @@ export async function loadUser(id: string): Promise<User> {
     expect(getExitCode()).toBe(0);
 
     const mainFile = join(generatedDir, 'health.py');
+    const routePackageFile = join(generatedDir, 'routes/__init__.py');
     const routeFile = join(generatedDir, 'routes/get_health.py');
     expect(existsSync(mainFile)).toBe(true);
+    expect(existsSync(routePackageFile)).toBe(true);
     expect(existsSync(routeFile)).toBe(true);
 
     const main = readFileSync(mainFile, 'utf-8');
@@ -1060,10 +1115,643 @@ export async function loadUser(id: string): Promise<User> {
     expect(main).not.toContain('allow_methods=["*"]');
     expect(main).not.toContain('    from fastapi.responses import JSONResponse');
     expect(route).toContain('router = APIRouter()');
-    const pyCompile = spawnSync('python3', ['-m', 'py_compile', mainFile, routeFile], { encoding: 'utf-8' });
+    const pyCompile = spawnSync('python3', ['-m', 'py_compile', mainFile, routePackageFile, routeFile], {
+      encoding: 'utf-8',
+    });
     expect(pyCompile.status).toBe(0);
     expect(errors).toEqual([]);
   });
+
+  it('sanitizes FastAPI entry filenames into valid Python module names', async () => {
+    process.chdir(tmpDir);
+
+    expect(pythonModuleName('class')).toBe('class_');
+    expect(pythonModuleName('2-service')).toBe('_2_service');
+    expect(pythonModuleName('')).toBe('main');
+    expect(pythonModuleName('json')).toBe('json_');
+    expect(pythonModuleName('auth')).toBe('auth_');
+    expect(pythonModuleName('routes')).toBe('routes_');
+    expect(pythonModuleName('__init__')).toBe('__init___');
+    expect(outputBaseNameForTarget('my-api', 'fastapi')).toBe('my_api');
+    expect(outputBaseNameForTarget('my-api', 'cli')).toBe('my-api');
+
+    const sourceFile = join(tmpDir, 'my-api.kern');
+    writeFileSync(sourceFile, 'server name=HealthAPI port=3002');
+
+    const generatedDir = join(tmpDir, 'fastapi-sanitized-out');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceFile, '--target=fastapi', `--outdir=${generatedDir}`])).rejects.toThrow(
+      'EXIT:0',
+    );
+    expect(getExitCode()).toBe(0);
+
+    const sanitizedFile = join(generatedDir, 'my_api.py');
+    expect(existsSync(sanitizedFile)).toBe(true);
+    expect(existsSync(join(generatedDir, 'my-api.py'))).toBe(false);
+
+    const pyCompile = spawnSync('python3', ['-m', 'py_compile', sanitizedFile], { encoding: 'utf-8' });
+    expect(pyCompile.status).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
+  it('avoids stdlib FastAPI filenames and writes explicit Alembic model modules', async () => {
+    process.chdir(tmpDir);
+
+    const sourceFile = join(tmpDir, 'json.kern');
+    writeFileSync(
+      sourceFile,
+      [
+        'model name=User table=users',
+        '  column name=id type=uuid primary=true',
+        'server name=StdlibAPI port=3004',
+      ].join('\n'),
+    );
+
+    const generatedDir = join(tmpDir, 'fastapi-stdlib-out');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceFile, '--target=fastapi', `--outdir=${generatedDir}`])).rejects.toThrow(
+      'EXIT:0',
+    );
+    expect(getExitCode()).toBe(0);
+
+    const sanitizedFile = join(generatedDir, 'json_.py');
+    const envFile = join(generatedDir, 'alembic/env.py');
+    expect(existsSync(sanitizedFile)).toBe(true);
+    expect(existsSync(join(generatedDir, 'json.py'))).toBe(false);
+
+    const env = readFileSync(envFile, 'utf-8');
+    expect(env).toContain('model_modules = ["json_"]');
+    expect(env).toContain('importlib.import_module(module_name)');
+    expect(env).not.toContain('importlib.import_module(module_path.stem)');
+    expect(readFileSync(join(generatedDir, 'alembic.ini'), 'utf-8')).toContain('sqlalchemy.url = sqlite:///./app.db');
+    expect(readFileSync(sanitizedFile, 'utf-8')).toContain('# @generated by kern');
+
+    writeFileSync(join(generatedDir, 'notes.py'), 'raise RuntimeError("should not be imported")\n');
+    writeFileSync(join(generatedDir, 'users_extra.py'), '# @generated by kern\nMODEL = True\n');
+    writeFileSync(join(generatedDir, 'broken.py'), Buffer.from([0xff, 0xfe, 0xfd]));
+    const scanStart = env.indexOf('model_modules = ');
+    const scanEnd = env.indexOf('for module_name in model_modules:');
+    expect(scanStart).toBeGreaterThanOrEqual(0);
+    expect(scanEnd).toBeGreaterThan(scanStart);
+    const scanSnippet = env.slice(scanStart, scanEnd);
+    const pythonScan = [
+      'from pathlib import Path',
+      `app_dir = Path(${JSON.stringify(generatedDir)})`,
+      scanSnippet,
+      'print("\\n".join(model_modules))',
+    ].join('\n');
+    const scanResult = spawnSync('python3', ['-c', pythonScan], { encoding: 'utf-8' });
+    expect(scanResult.status).toBe(0);
+    const headerDiscoveredModules = scanResult.stdout.trim().split(/\r?\n/).filter(Boolean);
+    expect(headerDiscoveredModules).toEqual(expect.arrayContaining(['json_', 'users_extra']));
+    expect(headerDiscoveredModules).not.toEqual(expect.arrayContaining(['notes', 'broken']));
+
+    const pyCompile = spawnSync('python3', ['-m', 'py_compile', sanitizedFile, envFile], { encoding: 'utf-8' });
+    expect(pyCompile.status).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
+  it('assigns unique FastAPI module names across sanitized filename collisions', async () => {
+    process.chdir(tmpDir);
+
+    const sourceDir = join(tmpDir, 'src');
+    mkdirSync(sourceDir, { recursive: true });
+    writeFileSync(
+      join(sourceDir, 'json.kern'),
+      [
+        'model name=JsonUser table=json_users',
+        '  column name=id type=uuid primary=true',
+        'fn name=parseUser returns=string',
+        '  handler <<<',
+        '    return "ok"',
+        '  >>>',
+      ].join('\n'),
+    );
+    writeFileSync(
+      join(sourceDir, 'json_.kern'),
+      [
+        'use path="./json"',
+        '  from name=parseUser kind=fn',
+        'model name=JsonUnderscoreUser table=json_underscore_users',
+        '  column name=id type=uuid primary=true',
+        'server name=CollisionAPI port=3005',
+      ].join('\n'),
+    );
+
+    const generatedDir = join(tmpDir, 'fastapi-collision-out');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceDir, '--target=fastapi', `--outdir=${generatedDir}`])).rejects.toThrow(
+      'EXIT:0',
+    );
+    expect(getExitCode()).toBe(0);
+
+    const firstModule = join(generatedDir, 'json_.py');
+    const secondModule = join(generatedDir, 'json__2.py');
+    const envFile = join(generatedDir, 'alembic/env.py');
+    expect(existsSync(firstModule)).toBe(true);
+    expect(existsSync(secondModule)).toBe(true);
+    expect(existsSync(join(generatedDir, 'json.py'))).toBe(false);
+
+    const second = readFileSync(secondModule, 'utf-8');
+    expect(second).toContain('from json_ import parse_user as parseUser');
+
+    const env = readFileSync(envFile, 'utf-8');
+    expect(env).toContain('model_modules = ["json_","json__2"]');
+
+    const pyCompile = spawnSync('python3', ['-m', 'py_compile', firstModule, secondModule, envFile], {
+      encoding: 'utf-8',
+    });
+    expect(pyCompile.status).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
+  it('uses planned FastAPI module names for dotted source filenames', async () => {
+    process.chdir(tmpDir);
+
+    const sourceDir = join(tmpDir, 'src');
+    mkdirSync(sourceDir, { recursive: true });
+    writeFileSync(
+      join(sourceDir, 'foo.test.kern'),
+      ['fn name=parseUser returns=string', '  handler <<<', '    return "ok"', '  >>>'].join('\n'),
+    );
+    writeFileSync(
+      join(sourceDir, 'consumer.kern'),
+      ['use path="./foo.test"', '  from name=parseUser kind=fn', 'server name=ConsumerAPI port=3006'].join('\n'),
+    );
+
+    const generatedDir = join(tmpDir, 'fastapi-dotted-out');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceDir, '--target=fastapi', `--outdir=${generatedDir}`])).rejects.toThrow(
+      'EXIT:0',
+    );
+    expect(getExitCode()).toBe(0);
+
+    const producerModule = join(generatedDir, 'foo_test.py');
+    const consumerModule = join(generatedDir, 'consumer.py');
+    expect(existsSync(producerModule)).toBe(true);
+    expect(readFileSync(consumerModule, 'utf-8')).toContain('from foo_test import parse_user as parseUser');
+
+    const pyCompile = spawnSync('python3', ['-m', 'py_compile', producerModule, consumerModule], {
+      encoding: 'utf-8',
+    });
+    expect(pyCompile.status).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
+  it('does not let collision suffixes steal literal FastAPI module filenames', async () => {
+    process.chdir(tmpDir);
+
+    const sourceDir = join(tmpDir, 'src');
+    mkdirSync(sourceDir, { recursive: true });
+    writeFileSync(join(sourceDir, 'json.kern'), 'server name=JsonAPI port=3007');
+    writeFileSync(join(sourceDir, 'json_.kern'), 'server name=JsonUnderscoreAPI port=3008');
+    writeFileSync(join(sourceDir, 'json__2.kern'), 'server name=JsonLiteralSuffixAPI port=3009');
+
+    const generatedDir = join(tmpDir, 'fastapi-literal-suffix-out');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceDir, '--target=fastapi', `--outdir=${generatedDir}`])).rejects.toThrow(
+      'EXIT:0',
+    );
+    expect(getExitCode()).toBe(0);
+
+    expect(readFileSync(join(generatedDir, 'json_.py'), 'utf-8')).toContain('JsonAPI');
+    expect(readFileSync(join(generatedDir, 'json__2.py'), 'utf-8')).toContain('JsonLiteralSuffixAPI');
+    expect(readFileSync(join(generatedDir, 'json__3.py'), 'utf-8')).toContain('JsonUnderscoreAPI');
+    expect(errors).toEqual([]);
+  });
+
+  it('writes a FastAPI Python module manifest for nested package imports', async () => {
+    process.chdir(tmpDir);
+    writeFileSync(
+      join(tmpDir, 'kern.config.ts'),
+      [
+        'export default {',
+        "  target: 'fastapi',",
+        "  fastapi: { security: 'relaxed', uvicorn: { workers: 2 } },",
+        '};',
+      ].join('\n'),
+    );
+
+    const sourceDir = join(tmpDir, 'src');
+    mkdirSync(join(sourceDir, 'models'), { recursive: true });
+    mkdirSync(join(sourceDir, 'api-v1'), { recursive: true });
+    writeFileSync(
+      join(sourceDir, 'models', 'user-profile.kern'),
+      ['fn name=parseUser returns=string', '  handler <<<', '    return "ok"', '  >>>'].join('\n'),
+    );
+    writeFileSync(
+      join(sourceDir, 'api-v1', 'consumer.kern'),
+      [
+        'use path="../models/user-profile"',
+        '  from name=parseUser kind=fn',
+        'fn name=callParse returns=string',
+        '  handler <<<',
+        '    return parseUser()',
+        '  >>>',
+        'server name=NestedAPI port=3010',
+        '  route method=get path=/call',
+        '    handler <<<',
+        '      return {"value": parseUser()}',
+        '    >>>',
+      ].join('\n'),
+    );
+
+    const generatedDir = join(tmpDir, 'fastapi-nested-manifest-out');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceDir, '--target=fastapi', `--outdir=${generatedDir}`])).rejects.toThrow(
+      'EXIT:0',
+    );
+    expect(getExitCode()).toBe(0);
+
+    const producerModule = join(generatedDir, 'models', 'user_profile.py');
+    const consumerModule = join(generatedDir, 'api_v1', 'consumer.py');
+    const manifestFile = join(generatedDir, 'kern-python-modules.json');
+    expect(existsSync(join(generatedDir, '__init__.py'))).toBe(true);
+    expect(existsSync(join(generatedDir, 'models', '__init__.py'))).toBe(true);
+    expect(existsSync(join(generatedDir, 'api_v1', '__init__.py'))).toBe(true);
+    expect(existsSync(producerModule)).toBe(true);
+    expect(readFileSync(consumerModule, 'utf-8')).toContain('from models.user_profile import parse_user as parseUser');
+    expect(readFileSync(consumerModule, 'utf-8')).toContain('from .routes.');
+    expect(readFileSync(consumerModule, 'utf-8')).toContain('uvicorn_app = "api_v1.consumer:app"');
+
+    const manifest = JSON.parse(readFileSync(manifestFile, 'utf-8'));
+    expect(manifest.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          outputFile: 'models/user_profile.py',
+          package: 'models',
+          moduleName: 'user_profile',
+          modulePath: 'models.user_profile',
+        }),
+        expect.objectContaining({
+          outputFile: 'api_v1/consumer.py',
+          package: 'api_v1',
+          moduleName: 'consumer',
+          modulePath: 'api_v1.consumer',
+        }),
+      ]),
+    );
+
+    const pyCompile = spawnSync('python3', ['-m', 'py_compile', producerModule, consumerModule], {
+      encoding: 'utf-8',
+    });
+    expect(pyCompile.status).toBe(0);
+    writeFileSync(producerModule, 'def parse_user():\n    return "ok"\n');
+    const pyImport = spawnSync(
+      'python3',
+      [
+        '-c',
+        [
+          'import importlib, sys, types',
+          'class App:',
+          '    def __init__(self, *args, **kwargs): pass',
+          '    def middleware(self, *args, **kwargs): return lambda fn: fn',
+          '    def get(self, *args, **kwargs): return lambda fn: fn',
+          '    def exception_handler(self, *args, **kwargs): return lambda fn: fn',
+          '    def include_router(self, *args, **kwargs): pass',
+          'fastapi = types.ModuleType("fastapi")',
+          'fastapi.FastAPI = App',
+          'fastapi.APIRouter = App',
+          'fastapi.HTTPException = Exception',
+          'responses = types.ModuleType("fastapi.responses")',
+          'responses.JSONResponse = object',
+          'uvicorn = types.ModuleType("uvicorn")',
+          'sys.modules["fastapi"] = fastapi',
+          'sys.modules["fastapi.responses"] = responses',
+          'sys.modules["uvicorn"] = uvicorn',
+          'sys.path.insert(0, ".")',
+          'importlib.import_module("api_v1.consumer")',
+        ].join('\n'),
+      ],
+      {
+        cwd: generatedDir,
+        encoding: 'utf-8',
+      },
+    );
+    expect(pyImport.status).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
+  it('keeps FastAPI package paths under configured output.outDir', async () => {
+    process.chdir(tmpDir);
+    writeFileSync(
+      join(tmpDir, 'kern.config.ts'),
+      ['export default {', "  target: 'fastapi',", "  output: { outDir: 'app' },", '};'].join('\n'),
+    );
+
+    const sourceDir = join(tmpDir, 'src');
+    mkdirSync(join(sourceDir, 'models'), { recursive: true });
+    writeFileSync(
+      join(sourceDir, 'models', 'user-profile.kern'),
+      ['fn name=parseUser returns=string', '  handler <<<', '    return "ok"', '  >>>'].join('\n'),
+    );
+
+    const generatedDir = join(tmpDir, 'fastapi-output-dir-out');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceDir, '--target=fastapi', `--outdir=${generatedDir}`])).rejects.toThrow(
+      'EXIT:0',
+    );
+    expect(getExitCode()).toBe(0);
+
+    const outputRoot = join(generatedDir, 'app');
+    expect(existsSync(join(outputRoot, '__init__.py'))).toBe(true);
+    expect(existsSync(join(outputRoot, 'models', '__init__.py'))).toBe(true);
+    expect(existsSync(join(outputRoot, 'models', 'user_profile.py'))).toBe(true);
+    expect(existsSync(join(generatedDir, 'models', 'app', 'user_profile.py'))).toBe(false);
+
+    const manifest = JSON.parse(readFileSync(join(outputRoot, 'kern-python-modules.json'), 'utf-8'));
+    expect(manifest.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          outputFile: 'models/user_profile.py',
+          package: 'models',
+          modulePath: 'models.user_profile',
+        }),
+      ]),
+    );
+    expect(errors).toEqual([]);
+  });
+
+  it('does not let FastAPI package directories shadow sibling modules', async () => {
+    process.chdir(tmpDir);
+
+    const sourceDir = join(tmpDir, 'src');
+    mkdirSync(join(sourceDir, 'foo'), { recursive: true });
+    writeFileSync(join(sourceDir, 'foo.kern'), 'server name=FooRoot port=3011');
+    writeFileSync(join(sourceDir, 'foo', 'bar.kern'), 'server name=FooBar port=3012');
+
+    const generatedDir = join(tmpDir, 'fastapi-package-shadow-out');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceDir, '--target=fastapi', `--outdir=${generatedDir}`])).rejects.toThrow(
+      'EXIT:0',
+    );
+    expect(getExitCode()).toBe(0);
+
+    expect(existsSync(join(generatedDir, 'foo_2.py'))).toBe(true);
+    expect(existsSync(join(generatedDir, 'foo.py'))).toBe(false);
+    expect(existsSync(join(generatedDir, 'foo', '__init__.py'))).toBe(true);
+    expect(existsSync(join(generatedDir, 'foo', 'bar.py'))).toBe(true);
+
+    const manifest = JSON.parse(readFileSync(join(generatedDir, 'kern-python-modules.json'), 'utf-8'));
+    expect(manifest.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          outputFile: 'foo_2.py',
+          moduleName: 'foo_2',
+          modulePath: 'foo_2',
+        }),
+        expect.objectContaining({
+          outputFile: 'foo/bar.py',
+          package: 'foo',
+          moduleName: 'bar',
+          modulePath: 'foo.bar',
+        }),
+      ]),
+    );
+    expect(errors).toEqual([]);
+  });
+
+  it('avoids Python keyword FastAPI entry filenames', async () => {
+    process.chdir(tmpDir);
+
+    const sourceFile = join(tmpDir, 'class.kern');
+    writeFileSync(sourceFile, 'server name=KeywordAPI port=3003');
+
+    const generatedDir = join(tmpDir, 'fastapi-keyword-out');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceFile, '--target=fastapi', `--outdir=${generatedDir}`])).rejects.toThrow(
+      'EXIT:0',
+    );
+    expect(getExitCode()).toBe(0);
+
+    const sanitizedFile = join(generatedDir, 'class_.py');
+    expect(existsSync(sanitizedFile)).toBe(true);
+    expect(existsSync(join(generatedDir, 'class.py'))).toBe(false);
+
+    const pyCompile = spawnSync('python3', ['-m', 'py_compile', sanitizedFile], { encoding: 'utf-8' });
+    expect(pyCompile.status).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
+  it('emits native FastAPI Python imports and requirements for PyPI imports', async () => {
+    process.chdir(tmpDir);
+
+    const sourceFile = join(tmpDir, 'deps.kern');
+    writeFileSync(
+      sourceFile,
+      [
+        'import py "numpy" as np version=1.26 target=fastapi',
+        'import py "python-dateutil" from=dateutil names=parser version=2.9 target=fastapi',
+        'import py "pillow" from=PIL names=Image version=10 target=fastapi requiresSidecar=true',
+        'import py "typing-extensions" from=typing_extensions names=TypedDict version=4.12 target=fastapi types=true',
+        'import py "math" names=sqrt target=fastapi',
+        'extern package=httpx registry=pypi target=fastapi version=0.28',
+        '  import default=httpx',
+        'server name=DepsAPI port=3004',
+        '  route method=get path=/health',
+        '    handler <<<',
+        '      return {"ok": True}',
+        '    >>>',
+      ].join('\n'),
+    );
+
+    const generatedDir = join(tmpDir, 'fastapi-python-deps-out');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceFile, '--target=fastapi', `--outdir=${generatedDir}`])).rejects.toThrow(
+      'EXIT:0',
+    );
+    expect(getExitCode()).toBe(0);
+
+    const generated = readFileSync(join(generatedDir, 'deps.py'), 'utf-8');
+    expect(generated).toContain('import numpy as np');
+    expect(generated).toContain('from dateutil import parser');
+    expect(generated).toContain('from PIL import Image');
+    expect(generated).toContain('from typing_extensions import TypedDict');
+    expect(generated).toContain('from math import sqrt');
+    expect(generated).toContain('import httpx');
+    expect(readFileSync(join(generatedDir, 'kern-python-requirements.txt'), 'utf-8')).toBe(
+      'httpx==0.28\nnumpy==1.26\npillow==10\npython-dateutil==2.9\ntyping-extensions==4.12\n',
+    );
+    expect(existsSync(join(generatedDir, 'kern-sidecars.json'))).toBe(false);
+    expect(existsSync(join(generatedDir, 'kern-sidecar-requirements.txt'))).toBe(false);
+    expect(errors).toEqual([]);
+  });
+
+  it('aggregates nested FastAPI native Python requirements at the app root', async () => {
+    process.chdir(tmpDir);
+
+    const sourceDir = join(tmpDir, 'fastapi-deps');
+    mkdirSync(join(sourceDir, 'feature'), { recursive: true });
+    writeFileSync(
+      join(sourceDir, 'api.kern'),
+      [
+        'import py "numpy" as np version=1.26 target=fastapi',
+        'server name=RootDepsAPI port=3006',
+        '  route method=get path=/health',
+        '    handler <<<',
+        '      return {"ok": True}',
+        '    >>>',
+      ].join('\n'),
+    );
+    writeFileSync(
+      join(sourceDir, 'feature', 'worker.kern'),
+      [
+        'import py "python-dateutil" from=dateutil names=parser version=2.9 target=fastapi',
+        'server name=NestedDepsAPI port=3007',
+      ].join('\n'),
+    );
+
+    const generatedDir = join(tmpDir, 'fastapi-nested-python-deps-out');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceDir, '--target=fastapi', `--outdir=${generatedDir}`])).rejects.toThrow(
+      'EXIT:0',
+    );
+    expect(getExitCode()).toBe(0);
+
+    expect(readFileSync(join(generatedDir, 'kern-python-requirements.txt'), 'utf-8')).toBe(
+      'numpy==1.26\npython-dateutil==2.9\n',
+    );
+    expect(existsSync(join(generatedDir, 'feature', 'kern-python-requirements.txt'))).toBe(false);
+    expect(errors).toEqual([]);
+  });
+
+  it('keeps explicit FastAPI sidecar requirements separate from native Python requirements', async () => {
+    process.chdir(tmpDir);
+
+    const sourceFile = join(tmpDir, 'sidecar-deps.kern');
+    writeFileSync(
+      sourceFile,
+      [
+        'island sidecar Demucs runtime=python effects=[fs,exec] serialization=json requiresSidecar=true',
+        '  import py "demucs" as demucs',
+        'server name=SidecarDepsAPI port=3005',
+        '  route method=get path=/health',
+        '    handler <<<',
+        '      return {"ok": True}',
+        '    >>>',
+      ].join('\n'),
+    );
+
+    const generatedDir = join(tmpDir, 'fastapi-sidecar-deps-out');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceFile, '--target=fastapi', `--outdir=${generatedDir}`])).rejects.toThrow(
+      'EXIT:0',
+    );
+    expect(getExitCode()).toBe(0);
+
+    expect(readFileSync(join(generatedDir, 'kern-sidecar-requirements.txt'), 'utf-8')).toBe('demucs\n');
+    expect(existsSync(join(generatedDir, 'kern-python-requirements.txt'))).toBe(false);
+    expect(errors).toEqual([]);
+  });
+
+  it('boots generated FastAPI worker app from a sanitized module filename', async () => {
+    const python = pythonWithFastApi();
+    if (!python) {
+      return;
+    }
+    process.chdir(tmpDir);
+
+    writeFileSync(
+      join(tmpDir, 'kern.config.ts'),
+      [
+        'export default {',
+        "  target: 'fastapi',",
+        "  fastapi: { security: 'relaxed', uvicorn: { workers: 2 } },",
+        '};',
+      ].join('\n'),
+    );
+    const sourceFile = join(tmpDir, 'my-api.kern');
+
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const port = await getFreePort();
+      writeFileSync(
+        sourceFile,
+        [
+          `server name=HealthAPI port=${port}`,
+          '  route method=get path=/health',
+          '    handler <<<',
+          '      return {"ok": True}',
+          '    >>>',
+        ].join('\n'),
+      );
+
+      const generatedDir = join(tmpDir, `fastapi-worker-smoke-out-${attempt}`);
+      const getExitCode = trapExit();
+      await expect(runCompile(['compile', sourceFile, '--target=fastapi', `--outdir=${generatedDir}`])).rejects.toThrow(
+        'EXIT:0',
+      );
+      expect(getExitCode()).toBe(0);
+
+      const mainFile = join(generatedDir, 'my_api.py');
+      const child = spawn(python, [mainFile], {
+        cwd: dirname(tmpDir),
+        env: { ...process.env, PYTHONUNBUFFERED: '1' },
+      });
+      const output: string[] = [];
+      child.stdout.on('data', (chunk) => output.push(String(chunk)));
+      child.stderr.on('data', (chunk) => output.push(String(chunk)));
+
+      try {
+        const deadline = Date.now() + 15_000;
+        let responseJson: unknown;
+        while (Date.now() < deadline) {
+          if (child.exitCode !== null) throw new Error(`server exited early\n${output.join('')}`);
+          try {
+            const controller = new AbortController();
+            const fetchTimeout = setTimeout(() => controller.abort(), 2_000);
+            try {
+              const response = await fetch(`http://127.0.0.1:${port}/health`, { signal: controller.signal });
+              if (response.ok) {
+                responseJson = await response.json();
+                break;
+              }
+            } finally {
+              clearTimeout(fetchTimeout);
+            }
+          } catch {
+            // Server process is still starting.
+          }
+          await new Promise((resolveTimer) => setTimeout(resolveTimer, 150));
+        }
+        if (responseJson === undefined)
+          throw new Error(`timed out waiting for generated FastAPI worker\n${output.join('')}`);
+        expect(responseJson).toEqual({ ok: true });
+        return;
+      } catch (err) {
+        lastError = err;
+        const message = err instanceof Error ? err.message : String(err);
+        if (!message.includes('address already in use') && !message.includes('timed out waiting')) throw err;
+      } finally {
+        if (child.exitCode === null) {
+          try {
+            child.kill('SIGTERM');
+          } catch {
+            // Process already exited between the status check and signal.
+          }
+          await new Promise<void>((resolveClose) => {
+            if (child.exitCode !== null) {
+              resolveClose();
+              return;
+            }
+            const timeout = setTimeout(() => {
+              try {
+                child.kill('SIGKILL');
+              } catch {
+                // Process already exited before the hard kill.
+              }
+              resolveClose();
+            }, 3_000);
+            child.once('close', () => {
+              clearTimeout(timeout);
+              resolveClose();
+            });
+          });
+        }
+      }
+    }
+    throw lastError;
+  }, 50_000);
 
   it('auto-detects Ink from package.json when no kern.config.ts exists', () => {
     process.chdir(tmpDir);

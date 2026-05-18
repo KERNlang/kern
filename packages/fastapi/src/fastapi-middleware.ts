@@ -57,6 +57,7 @@ export function resolveMiddlewareUsage(
   node: IRNode,
   middlewareArtifacts: Map<string, MiddlewareArtifactRef>,
   isStrict = false,
+  moduleSpecForArtifact: (fileBase: string) => string = (fileBase) => `middleware.${fileBase}`,
 ): MiddlewareUsage {
   const props = getProps(node);
   const name = String(props.name || 'middleware');
@@ -93,7 +94,7 @@ export function resolveMiddlewareUsage(
   const existing = middlewareArtifacts.get(slugify(name));
   if (existing) {
     return {
-      importLine: `from middleware.${existing.fileBase} import ${existing.className}`,
+      importLine: `from ${moduleSpecForArtifact(existing.fileBase)} import ${existing.className}`,
       addLine: `app.add_middleware(${existing.className})`,
     };
   }
@@ -101,7 +102,7 @@ export function resolveMiddlewareUsage(
   const created = buildMiddlewareArtifact(node);
   middlewareArtifacts.set(created.fileBase, created);
   return {
-    importLine: `from middleware.${created.fileBase} import ${created.className}`,
+    importLine: `from ${moduleSpecForArtifact(created.fileBase)} import ${created.className}`,
     addLine: `app.add_middleware(${created.className})`,
   };
 }
