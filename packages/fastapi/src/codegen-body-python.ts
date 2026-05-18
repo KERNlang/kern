@@ -626,7 +626,7 @@ function emitWithPy(node: IRNode, ctx: BodyEmitContext, indent: string): string[
   const hasCleanup = rawCleanup !== undefined && rawCleanup !== null && String(rawCleanup) !== '';
   if (protocol === 'with' && hasCleanup) {
     throw new Error(
-      'body-statement `with protocol=with` delegates cleanup to the context manager\'s __exit__ — drop cleanup= or drop protocol=with.',
+      "body-statement `with protocol=with` delegates cleanup to the context manager's __exit__ — drop cleanup= or drop protocol=with.",
     );
   }
   if (protocol !== 'with' && !hasCleanup) {

@@ -3189,8 +3189,7 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[], parent?: I
         col: node.loc?.col,
       });
     }
-    const hasCleanup =
-      props.cleanup !== undefined && props.cleanup !== null && String(props.cleanup).trim() !== '';
+    const hasCleanup = props.cleanup !== undefined && props.cleanup !== null && String(props.cleanup).trim() !== '';
     if (props.protocol === 'with' && hasCleanup) {
       violations.push({
         nodeType: 'with',

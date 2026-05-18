@@ -138,7 +138,7 @@ function classifyBindingElement(
   if (!arrayPattern || !variableDeclaration) return { stable: false };
 
   const elements = arrayPattern.getElements();
-  const index = elements.findIndex((element) => element === declaration);
+  const index = elements.indexOf(declaration);
   // Only index 1 of a tuple destructure (the setter/dispatch) is stable.
   if (index !== 1) return { stable: false };
 
