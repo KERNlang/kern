@@ -494,8 +494,11 @@ function buildUnionAliasMap(nodes: IRNode[]): Map<string, UnionAliasInfo> {
  *  `use`/`from` path's `alias || name` semantics — without this, references to
  *  `bar` inside a raw `<<<>>>` block triggered undefined-reference false
  *  positives because the binding was registered as the literal string
- *  `"foo as bar"`. */
-function parseImportNames(rawNames: string): string[] {
+ *  `"foo as bar"`. Exported because the same comma-joined-with-alias shape is
+ *  consumed by `taint-crossfile`'s import map builder (TS-and-KERN crossfile
+ *  taint resolution) — without the alias-aware splitter there, aliased
+ *  imports silently break cross-file taint. */
+export function parseImportNames(rawNames: string): string[] {
   const out: string[] = [];
   const aliasPattern = /^(\S+)\s+as\s+(\S+)$/;
   for (const entry of rawNames.split(',')) {

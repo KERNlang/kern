@@ -7,6 +7,7 @@
 
 import { extname } from 'path';
 import type { Project, SourceFile } from 'ts-morph';
+import { parseImportNames } from './rules/kern-source.js';
 import { classifyParams, detectSanitizers, findClosingParen, findTaintedSinks, propagateTaint } from './taint-regex.js';
 import type { CrossFileTaintResult, ExportedFunction, TaintSink, TaintSource } from './taint-types.js';
 import type { GraphResult, InferResult } from './types.js';
@@ -103,9 +104,13 @@ export function buildImportMap(
       );
       if (!resolvedPath) continue;
 
-      // Map each imported name to its resolved file
+      // Map each imported name to its resolved file. Use parseImportNames so
+      // aliased entries (`foo as bar`) register the LOCAL binding (`bar`) —
+      // matching what handler/expression callsites actually reference. Before
+      // this, aliased imports keyed the map by the literal `"foo as bar"`
+      // string, silently breaking cross-file taint for any aliased import.
       if (names) {
-        for (const name of names.split(',').map((n) => n.trim())) {
+        for (const name of parseImportNames(names)) {
           if (name) importMap.set(`${filePath}::${name}`, resolvedPath);
         }
       }

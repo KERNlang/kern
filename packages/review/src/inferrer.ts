@@ -492,7 +492,16 @@ function inferImports(sourceFile: SourceFile): InferResult[] {
     const endOffset = decl.getEnd();
 
     const defaultImport = decl.getDefaultImport()?.getText();
-    const namedImports = decl.getNamedImports().map((n) => n.getName());
+    // Preserve aliases — emit `"foo as bar"` form when the developer wrote one
+    // so downstream consumers (kern-source rule's parseImportNames, taint-
+    // crossfile's import map) can resolve the LOCAL binding (`bar`). Using
+    // `n.getName()` alone dropped the alias, mirroring the same false
+    // undefined-reference / broken-crossfile-taint bug class the kern-parser
+    // path had until parseImportNames landed.
+    const namedImports = decl.getNamedImports().map((n) => {
+      const alias = n.getAliasNode()?.getText();
+      return alias ? `${n.getName()} as ${alias}` : n.getName();
+    });
     const isTypeOnly = decl.isTypeOnly();
 
     const props: Record<string, unknown> = { from };
