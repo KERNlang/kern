@@ -63,3 +63,28 @@ describe('type-text scanners — same fix applies to return-type / lambda-param-
     expect(roundTrip(src)).toBe(src);
   });
 });
+
+describe('non-string tokens with value-length ≠ source-length — regex + template literals', () => {
+  // Reviewers (gemini, kimi) flagged that the fix also extends `end` to
+  // `regex` and `tmplStart` tokens, but the original suite only exercised
+  // `str`. These regressions guard the other two affected token classes.
+
+  test('regex token in a lambda parameter-type spot round-trips (was truncated by 1 — closing slash lost)', () => {
+    // Pre-fix: the `regex` token's `value` is `pattern flags`, so its
+    // length is wildly different from the source span. The
+    // consumeLambdaParamTypeText cursor landed mid-pattern. The new `end`
+    // on regex tokens (= the actual `consumeRegex` end) restores correct
+    // slicing.
+    const src = '(x: /foo/) => x';
+    expect(roundTrip(src)).toBe(src);
+  });
+
+  test('template literal in a lambda parameter-type spot round-trips (was truncated — whole template body lost)', () => {
+    // Pre-fix: tmplStart's `value` is the lone backtick (1 char) but the
+    // tokenizer consumes through to the closing backtick. The end cursor
+    // therefore advanced only 1 char into a possibly-many-char span,
+    // truncating everything inside.
+    const src = '(x: `foo`) => x';
+    expect(roundTrip(src)).toBe(src);
+  });
+});
