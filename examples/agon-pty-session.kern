@@ -1,0 +1,8 @@
+// Agon-style Python pty daemon bridge.
+//
+// Compiling this to a TS-family target emits a thin TypeScript session shell:
+// it spawns `python3 -u -m kern_engines.cli.daemon claude`, waits for the
+// daemon's `ready` message, then proxies `ask`, `ask_stream`, and `close`
+// over NDJSON stdin/stdout.
+
+island sidecar ClaudeCli runtime=python protocol=pty-session module="kern_engines.cli.daemon" args=[claude] session=ClaudeCliSession options=ClaudeSpawnOptions error=ClaudeSessionError timeout=ClaudeSessionTimeout effects=[exec,stream] serialization=ndjson requiresSidecar=true

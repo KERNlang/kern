@@ -645,6 +645,13 @@ export interface ExternProps extends BaseProps {
 export interface IslandProps extends BaseProps {
   kind?: string;
   runtime?: string;
+  protocol?: string;
+  module?: string;
+  args?: string;
+  session?: string;
+  options?: string;
+  error?: string;
+  timeout?: string;
   effects?: string;
   serialization?: string;
   requiresSidecar?: string | boolean;
