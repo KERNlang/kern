@@ -61,6 +61,27 @@ fn name=callIt returns=string
   // `<<<>>>` blocks because that's where references hit the snippet
   // analyser. The `use`/`from` path already handled aliases via `alias ||
   // name`; the `import` path now mirrors that via `parseImportNames`.
+  // Codex review fix on the alias-import follow-up: aliased TYPE-ONLY imports
+  // (`import names="Foo as Bar" types=true`) MUST NOT register `Bar` as a
+  // visible runtime binding. They lower to `import type { Foo as Bar }` in
+  // TS codegen, which is erased at runtime — so a handler that calls
+  // `Bar(...)` is a real `undefined-reference` and must keep firing.
+  // Before this guard, the alias fix silently suppressed those findings.
+  // Mirrors the `use/from` path's `kind === 'type'` skip.
+  it('still flags VALUE-position usage of an ALIASED `import names=... types=true` binding', () => {
+    const source = `
+import names="OriginalType as LocalType" from="./types" types=true
+
+fn name=callIt returns=string
+  handler <<<
+    return LocalType.parse("x");
+  >>>
+`;
+    const report = reviewKernSource(source, 'aliased-type-only.kern');
+    const undef = report.findings.filter((f) => f.ruleId === 'undefined-reference');
+    expect(undef.some((f) => f.message.includes('LocalType'))).toBe(true);
+  });
+
   it('treats `import { foo as bar }` aliased names as the LOCAL binding (no false undefined-reference)', () => {
     const source = `
 import names="readFileSync as readFile,writeFileSync as writeFile" from="node:fs"

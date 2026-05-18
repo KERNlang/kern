@@ -562,8 +562,18 @@ function addBindingsFromScopeNode(scopeNode: IRNode, target: Map<string, Binding
     if (!DIRECT_BINDING_NODE_TYPES.has(child.type)) continue;
 
     // Import nodes: handle 'names' (comma-separated named imports), 'default' (default import),
-    // and 'namespace' (namespace import)
+    // and 'namespace' (namespace import).
+    //
+    // `types=true` imports lower to `import type { ... }` in TS codegen, which
+    // is erased at runtime. Registering those names as visible value bindings
+    // would silently suppress `undefined-reference` for handler code that uses
+    // the import as a runtime value (a real bug — `Bar(...)` calls against an
+    // `import type { Foo as Bar }` crash at runtime). Mirrors the `use/from`
+    // path's `kind === 'type'` skip below. Type-position usage stays unaffected
+    // because `isTypeOnlyIdentifier` already filters those out on the reference
+    // side. Codex review fix on the alias-import follow-up.
     if (child.type === 'import') {
+      if (cp.types === 'true' || cp.types === true) continue;
       if (typeof cp.names === 'string') {
         for (const binding of parseImportNames(cp.names)) {
           addBinding(target, binding, { kind: 'import', node: child });
@@ -593,8 +603,11 @@ function addBindingsFromScopeNode(scopeNode: IRNode, target: Map<string, Binding
 function addTopLevelBindingsFrom(rootNode: IRNode, target: Map<string, BindingInfo>): void {
   const p = props(rootNode);
 
-  // Root-level import: register its imported names without descending further
+  // Root-level import: register its imported names without descending further.
+  // `types=true` imports are runtime-erased (see scope-descent branch above for
+  // the full rationale + Codex review fix history).
   if (rootNode.type === 'import') {
+    if (p.types === 'true' || p.types === true) return;
     if (typeof p.names === 'string') {
       for (const binding of parseImportNames(p.names)) {
         addBinding(target, binding, { kind: 'import', node: rootNode });
