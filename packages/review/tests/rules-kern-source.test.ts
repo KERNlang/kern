@@ -68,6 +68,53 @@ fn name=callIt returns=string
   // `Bar(...)` is a real `undefined-reference` and must keep firing.
   // Before this guard, the alias fix silently suppressed those findings.
   // Mirrors the `use/from` path's `kind === 'type'` skip.
+  // Kimi review (defence in depth) — the type-only guard skips the entire
+  // import node, so non-aliased / default / namespace forms must all
+  // continue to fire `undefined-reference` on value-position usage. These
+  // tests pin each path explicitly so a future refactor (e.g. moving the
+  // guard inline per-binding) can't silently regress one of them.
+  it('still flags VALUE-position usage of a NON-ALIASED `import names=... types=true` binding', () => {
+    const source = `
+import names="OriginalType" from="./types" types=true
+
+fn name=callIt returns=string
+  handler <<<
+    return OriginalType.parse("x");
+  >>>
+`;
+    const report = reviewKernSource(source, 'simple-type-only.kern');
+    const undef = report.findings.filter((f) => f.ruleId === 'undefined-reference');
+    expect(undef.some((f) => f.message.includes('OriginalType'))).toBe(true);
+  });
+
+  it('still flags VALUE-position usage of a DEFAULT `import default=... types=true` binding', () => {
+    const source = `
+import default="MyType" from="./types" types=true
+
+fn name=callIt returns=string
+  handler <<<
+    return MyType.parse("x");
+  >>>
+`;
+    const report = reviewKernSource(source, 'default-type-only.kern');
+    const undef = report.findings.filter((f) => f.ruleId === 'undefined-reference');
+    expect(undef.some((f) => f.message.includes('MyType'))).toBe(true);
+  });
+
+  it('still flags VALUE-position usage of a NAMESPACE `import namespace=... types=true` binding', () => {
+    const source = `
+import namespace="Types" from="./types" types=true
+
+fn name=callIt returns=string
+  handler <<<
+    return Types.MyType.parse("x");
+  >>>
+`;
+    const report = reviewKernSource(source, 'namespace-type-only.kern');
+    const undef = report.findings.filter((f) => f.ruleId === 'undefined-reference');
+    expect(undef.some((f) => f.message.includes('Types'))).toBe(true);
+  });
+
   it('still flags VALUE-position usage of an ALIASED `import names=... types=true` binding', () => {
     const source = `
 import names="OriginalType as LocalType" from="./types" types=true

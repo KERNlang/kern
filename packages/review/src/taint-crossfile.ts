@@ -7,7 +7,7 @@
 
 import { extname } from 'path';
 import type { Project, SourceFile } from 'ts-morph';
-import { parseImportNames } from './rules/kern-source.js';
+import { isTypeOnlyImport, parseImportNames } from './rules/kern-source.js';
 import { classifyParams, detectSanitizers, findClosingParen, findTaintedSinks, propagateTaint } from './taint-regex.js';
 import type { CrossFileTaintResult, ExportedFunction, TaintSink, TaintSource } from './taint-types.js';
 import type { GraphResult, InferResult } from './types.js';
@@ -92,6 +92,12 @@ export function buildImportMap(
 
     for (const r of inferred) {
       if (r.node.type !== 'import') continue;
+      // Type-only imports lower to `import type { ... }` and are erased at
+      // runtime — they can be neither taint sources nor sinks. Keying the
+      // import map by their names would let the cross-file engine report
+      // phantom flows through symbols that don't exist at runtime (Gemini
+      // review fix on the alias-import follow-up arc).
+      if (isTypeOnlyImport(r.node.props)) continue;
       const from = (r.node.props?.from as string) || '';
       const names = (r.node.props?.names as string) || '';
       const defaultImport = (r.node.props?.default as string) || '';
@@ -200,6 +206,9 @@ export function buildImportMapFromGraph(project: Project, graph: GraphResult): M
     if (!sf) continue;
 
     for (const imp of sf.getImportDeclarations()) {
+      // ts-morph equivalent of the IR-path's type-only skip: `import type
+      // { ... }` is runtime-erased so it cannot resolve taint targets.
+      if (imp.isTypeOnly()) continue;
       let target: SourceFile | undefined;
       try {
         target = imp.getModuleSpecifierSourceFile() ?? undefined;
@@ -245,6 +254,10 @@ export function buildImportAliasMap(project: Project, graph: GraphResult): Map<s
     if (!sf) continue;
 
     for (const imp of sf.getImportDeclarations()) {
+      // Same reasoning as buildImportMapFromGraph above — type-only imports
+      // can never carry runtime taint, so their alias mappings are noise
+      // that could let the taint engine claim a flow that doesn't exist.
+      if (imp.isTypeOnly()) continue;
       for (const named of imp.getNamedImports()) {
         const alias = named.getAliasNode();
         if (!alias) continue; // not aliased — localName IS the exported name

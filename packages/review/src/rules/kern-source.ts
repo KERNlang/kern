@@ -487,6 +487,24 @@ function buildUnionAliasMap(nodes: IRNode[]): Map<string, UnionAliasInfo> {
   return unions;
 }
 
+/** True when an `import` IRNode's props mark the whole import as type-only.
+ *
+ *  Type-only imports lower to `import type { ... }` in TS codegen and are
+ *  erased at runtime, so they must never:
+ *    - register runtime value bindings (else `undefined-reference` is
+ *      suppressed on real runtime crashes — Codex review fix on the
+ *      alias-import follow-up);
+ *    - act as cross-file taint resolution targets (else the taint engine
+ *      reports phantom flows through symbols that don't exist at runtime
+ *      — Gemini review fix on the same arc).
+ *
+ *  The parser may emit `types` as the string `'true'` (declarative-attribute
+ *  shape) OR the boolean `true` (TS-source inferrer path), so check both. */
+export function isTypeOnlyImport(props: Record<string, unknown> | undefined): boolean {
+  const t = props?.types;
+  return t === 'true' || t === true;
+}
+
 /** Parse an `import` node's `names` prop (a comma-joined string emitted by the
  *  parser as either `"foo"` or `"foo as bar"`) into the LOCAL binding names a
  *  handler body can reference. For aliased entries, the alias is the local
@@ -568,12 +586,13 @@ function addBindingsFromScopeNode(scopeNode: IRNode, target: Map<string, Binding
     // is erased at runtime. Registering those names as visible value bindings
     // would silently suppress `undefined-reference` for handler code that uses
     // the import as a runtime value (a real bug — `Bar(...)` calls against an
-    // `import type { Foo as Bar }` crash at runtime). Mirrors the `use/from`
-    // path's `kind === 'type'` skip below. Type-position usage stays unaffected
-    // because `isTypeOnlyIdentifier` already filters those out on the reference
-    // side. Codex review fix on the alias-import follow-up.
+    // `import type { Foo as Bar }` crash at runtime). The node-level skip
+    // here mirrors the binding-level `kind === 'type'` filter in the
+    // `use/from` path below; the net effect is identical because the entire
+    // import is type-erased. Type-position usage stays unaffected because
+    // `isTypeOnlyIdentifier` already filters those references out.
     if (child.type === 'import') {
-      if (cp.types === 'true' || cp.types === true) continue;
+      if (isTypeOnlyImport(cp)) continue;
       if (typeof cp.names === 'string') {
         for (const binding of parseImportNames(cp.names)) {
           addBinding(target, binding, { kind: 'import', node: child });
@@ -607,7 +626,7 @@ function addTopLevelBindingsFrom(rootNode: IRNode, target: Map<string, BindingIn
   // `types=true` imports are runtime-erased (see scope-descent branch above for
   // the full rationale + Codex review fix history).
   if (rootNode.type === 'import') {
-    if (p.types === 'true' || p.types === true) return;
+    if (isTypeOnlyImport(p)) return;
     if (typeof p.names === 'string') {
       for (const binding of parseImportNames(p.names)) {
         addBinding(target, binding, { kind: 'import', node: rootNode });
