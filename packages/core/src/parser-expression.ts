@@ -68,6 +68,22 @@ export interface ExprToken {
   kind: ExprTokenKind;
   value: string;
   pos: number;
+  /** Source-end offset (exclusive). Only set on tokens where `value.length`
+   *  doesn't match the source span — `str` (quotes + escapes), `regex`
+   *  (slashes + flags), and `tmplStart` (the whole template body is consumed
+   *  but the token's `value` is just the opening backtick). For all other
+   *  tokens `end` is undefined and callers should fall back to
+   *  `pos + value.length`. Use the `tokenEnd(t)` helper to avoid the
+   *  truncate-trailing-string bug that used to mangle e.g.
+   *  `'x' as 'a' | 'b' | 'c'` into `'x' as 'a' | 'b' | 'c` because
+   *  `pos + value.length` of the final str token landed ON the closing
+   *  quote, not past it. */
+  end?: number;
+}
+
+/** Authoritative source-end (exclusive) for a token. See `ExprToken.end`. */
+function tokenEnd(t: ExprToken): number {
+  return t.end ?? t.pos + t.value.length;
 }
 
 /** Slice α-2: token kinds that can start an expression. Used by parsePostfix
@@ -423,7 +439,10 @@ export function tokenizeExpression(input: string): ExprToken[] {
     if (ch === '`') {
       const start = i;
       i = scanTemplateEnd(input, i + 1);
-      tokens.push({ kind: 'tmplStart', value: '`', pos: start });
+      // `i` now points past the closing backtick — record it so position-math
+      // (e.g. the type-assertion text scanner) sees the full template span,
+      // not just the opening backtick.
+      tokens.push({ kind: 'tmplStart', value: '`', pos: start, end: i });
       continue;
     }
 
@@ -514,7 +533,7 @@ export function tokenizeExpression(input: string): ExprToken[] {
     }
     if (ch === '/' && canStartRegex(tokens)) {
       const { end, pattern, flags } = consumeRegex(input, i);
-      tokens.push({ kind: 'regex', value: `${pattern}\u0000${flags}`, pos: i });
+      tokens.push({ kind: 'regex', value: `${pattern}\u0000${flags}`, pos: i, end });
       i = end;
       continue;
     }
@@ -610,7 +629,7 @@ export function tokenizeExpression(input: string): ExprToken[] {
 
     if (ch === '"' || ch === "'") {
       const { end, value } = consumeString(input, i);
-      tokens.push({ kind: 'str', value, pos: i });
+      tokens.push({ kind: 'str', value, pos: i, end });
       // Preserve raw form for codegen quote-style preservation
       (tokens[tokens.length - 1] as ExprToken & { quote?: string }).quote = ch;
       i = end;
@@ -771,7 +790,7 @@ class Parser {
         angleDepth--;
       }
       const advanced = this.advance();
-      end = advanced.pos + advanced.value.length;
+      end = tokenEnd(advanced);
     }
     const text = this.input.slice(start, end).trim();
     if (text === '') throw new Error(`Expected return type after ':' at column ${colon.pos + 1}`);
@@ -816,7 +835,7 @@ class Parser {
         angleDepth--;
       }
       const advanced = this.advance();
-      end = advanced.pos + advanced.value.length;
+      end = tokenEnd(advanced);
     }
     const text = this.input.slice(start, end).trim();
     if (text === '') throw new Error(`Expected type after ':' at column ${first.pos + 1}`);
@@ -1044,7 +1063,7 @@ class Parser {
         angleDepth--;
       }
       const advanced = this.advance();
-      end = advanced.pos + advanced.value.length;
+      end = tokenEnd(advanced);
     }
     const text = this.input.slice(start, end).trim();
     if (text === '') throw new Error(`Expected type after 'as' at column ${first.pos + 1}`);
@@ -1139,7 +1158,7 @@ class Parser {
       }
       if (angleDepth > 0) {
         const advanced = this.advance();
-        end = advanced.pos + advanced.value.length;
+        end = tokenEnd(advanced);
       }
     }
     const text = this.input.slice(start, end).trim();
