@@ -311,6 +311,38 @@ fn name=startSession returns=unknown
     expect(undef).toHaveLength(0);
   });
 
+  it('sees aliased JS imports from raw handler blocks', () => {
+    const source = `
+import from="../guard-llm-client.js" names="complete as guardComplete,GuardLlmError,describeError"
+fn name=runApiBackend async=true returns=unknown
+  handler <<<
+    const resp = await guardComplete({ model: "x" });
+    return resp;
+  >>>
+`;
+    const report = reviewKernSource(source, 'ai-review-dispatch.kern');
+    const undef = report.findings.filter(
+      (f) => f.ruleId === 'undefined-reference' && f.message.includes('guardComplete'),
+    );
+    expect(undef).toHaveLength(0);
+  });
+
+  it('sees same-file forward class declarations from raw handler blocks', () => {
+    const source = `
+fn name=isGuardLlmError params="e:unknown" returns="e is GuardLlmError"
+  handler <<<
+    return e instanceof GuardLlmError;
+  >>>
+
+class name=GuardLlmError extends=Error export=true
+`;
+    const report = reviewKernSource(source, 'guard-llm-client.kern');
+    const undef = report.findings.filter(
+      (f) => f.ruleId === 'undefined-reference' && f.message.includes('GuardLlmError'),
+    );
+    expect(undef).toHaveLength(0);
+  });
+
   it('registers optional params (cause?:unknown) as visible bindings', () => {
     const source = `
 fn name=explain params="cause?:unknown, engineId?:string, count?:number" returns=string
