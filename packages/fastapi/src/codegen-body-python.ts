@@ -325,6 +325,8 @@ function emitChildrenPy(
         for (const sl of inner) lines.push(sl);
       } else if (child.type === 'for') {
         for (const line of emitRangeForPy(child, ctx, indent)) lines.push(line);
+      } else if (child.type === 'with') {
+        for (const line of emitWithPy(child, ctx, indent)) lines.push(line);
       } else if (child.type === 'try') {
         // Slice 4c — try/except control flow.
         //
@@ -600,6 +602,64 @@ function emitRangeForPy(node: IRNode, ctx: BodyEmitContext, indent: string): str
   out.push(`${bodyIndent}${INDENT_STEP}pass`);
   out.push(`${tryIndent}else:`);
   out.push(`${bodyIndent}${name} = ${prevVar}`);
+  return out;
+}
+
+function emitWithPy(node: IRNode, ctx: BodyEmitContext, indent: string): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const rawName = props.name;
+  const rawValue = props.value;
+  const rawCleanup = props.cleanup;
+  if (rawName === undefined || rawName === '') throw new Error('body-statement `with` requires `name=`.');
+  if (rawValue === undefined || rawValue === '') throw new Error('body-statement `with` requires `value=`.');
+
+  const protocol = props.protocol === undefined || props.protocol === '' ? '' : String(props.protocol);
+  if (protocol !== '' && protocol !== 'with') {
+    throw new Error('body-statement `with protocol=` supports only `with`.');
+  }
+  const isAsync = props.async === true || props.async === 'true';
+  if (protocol === 'with' && isAsync) {
+    throw new Error(
+      'body-statement `with async=true protocol=with` is not supported yet — use default protocol (try/finally) for async cleanup.',
+    );
+  }
+  const hasCleanup = rawCleanup !== undefined && rawCleanup !== null && String(rawCleanup) !== '';
+  if (protocol === 'with' && hasCleanup) {
+    throw new Error(
+      "body-statement `with protocol=with` delegates cleanup to the context manager's __exit__ — drop cleanup= or drop protocol=with.",
+    );
+  }
+  if (protocol !== 'with' && !hasCleanup) {
+    throw new Error('body-statement `with` requires `cleanup=` (or set `protocol=with` to use __exit__).');
+  }
+
+  const name = String(rawName);
+  const valueIR = parseExpression(String(rawValue));
+  if (valueIR.kind === 'propagate') {
+    throw new Error("Propagation '?' is not allowed in `with value=` — bind to `let` first.");
+  }
+
+  declareLocalBinding(ctx, name, 'const');
+
+  if (protocol === 'with') {
+    const lines = [`${indent}with ${emitPyExprCtx(valueIR, ctx)} as ${name}:`];
+    const inner = emitChildrenPy(node.children ?? [], ctx, indent + INDENT_STEP, [[name, 'const']]);
+    if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
+    for (const line of inner) lines.push(line);
+    return lines;
+  }
+
+  const cleanupIR = parseExpression(String(rawCleanup));
+  if (cleanupIR.kind === 'propagate') {
+    throw new Error("Propagation '?' is not allowed in `with cleanup=` — bind to `let` first.");
+  }
+  const awaitPrefix = isAsync ? 'await ' : '';
+  const out = [`${indent}${name} = ${awaitPrefix}${emitPyExprCtx(valueIR, ctx)}`, `${indent}try:`];
+  const inner = emitChildrenPy(node.children ?? [], ctx, indent + INDENT_STEP, [[name, 'const']]);
+  if (inner.length === 0) out.push(`${indent}${INDENT_STEP}pass`);
+  for (const line of inner) out.push(line);
+  out.push(`${indent}finally:`);
+  out.push(`${indent}${INDENT_STEP}${awaitPrefix}${emitPyExprCtx(cleanupIR, ctx)}`);
   return out;
 }
 

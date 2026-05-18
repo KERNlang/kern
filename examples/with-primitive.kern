@@ -1,0 +1,7 @@
+doc text="Resource-scoped acquisition + cleanup with `with`."
+
+fn name=readConfigLine params="path:string" returns=string async=true
+  handler lang="kern"
+    with name=handle value="FileHandle.open(path)" cleanup="handle.close()" async=true
+      let name=line value="await handle.readLine()"
+      return value="line"
