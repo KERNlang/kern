@@ -1624,7 +1624,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
 
   handler: {
     description:
-      'Code block — the body of a function, method, route, tool, or event handler. Use <<<...>>> for raw multiline code, or `lang="kern"` with body-statement children (`let`/`assign`/`do`/`return`/`if`/`else`/`while`/`for`/`each`/`try`/`catch`/`throw`/`continue`/`break`/`branch`) for cross-target structured bodies. Use `continue` inside `for`/`each`/`while` to skip the current iteration; use `break` inside `for`/`each`/`while` to exit the innermost loop. Use `branch` for switch-style structural matching (TS `switch`, Python `if/elif/else`). Prefer these over raw handlers for loop-control and dispatch bodies.',
+      'Code block — the body of a function, method, route, tool, or event handler. Use <<<...>>> for raw multiline code, or KERN body-statement children (`let`/`assign`/`do`/`return`/`if`/`else`/`while`/`for`/`each`/`try`/`catch`/`throw`/`continue`/`break`/`branch`) for cross-target structured bodies — `lang="kern"` is inferred automatically when any such child is present, so the opt-in boilerplate is no longer required (the explicit `lang="kern"` form remains valid and produces identical IR; specify `lang="ts"`/`lang="python"`/etc. with `<<<...>>>` for foreign bodies). Use `continue` inside `for`/`each`/`while` to skip the current iteration; use `break` inside `for`/`each`/`while` to exit the innermost loop. Use `branch` for switch-style structural matching (TS `switch`, Python `if/elif/else`). Prefer these over raw handlers for loop-control and dispatch bodies.',
     example: 'handler <<<\n  const result = await doWork();\n  return result;\n>>>',
     props: {
       code: { kind: 'rawBlock' },
@@ -1632,10 +1632,12 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       reason: { kind: 'string' },
       review: { kind: 'identifier' },
     },
-    // Body-statement children apply when `lang="kern"`. Outside that opt-in,
-    // body statements are rejected by validateBodyStatements (the schema list
-    // is intentionally permissive so the validator can produce a clearer
-    // context-aware error).
+    // Body-statement children apply when `lang="kern"`. The parser's
+    // canonicalizeImplicitKernHandlerLang step infers `lang="kern"` on
+    // handlers with body-stmt children but no explicit lang; outside that
+    // opt-in, body statements are rejected by validateBodyStatements (the
+    // schema list is intentionally permissive so the validator can produce
+    // a clearer context-aware error).
     allowedChildren: [
       'cell',
       'set',
