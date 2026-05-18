@@ -1788,7 +1788,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       name: { required: true, kind: 'identifier' },
       value: { required: true, kind: 'expression' },
-      cleanup: { required: true, kind: 'expression' },
+      cleanup: { required: false, kind: 'expression' },
       async: { kind: 'boolean' },
       protocol: { kind: 'string' },
     },
@@ -3185,6 +3185,26 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[], parent?: I
         nodeType: 'with',
         message:
           "'with async=true protocol=with' is not supported yet. Use default protocol (try/finally) for async cleanup, or drop async=true.",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    const hasCleanup =
+      props.cleanup !== undefined && props.cleanup !== null && String(props.cleanup).trim() !== '';
+    if (props.protocol === 'with' && hasCleanup) {
+      violations.push({
+        nodeType: 'with',
+        message:
+          "'with protocol=with' delegates cleanup to the context manager's __exit__; do not also specify cleanup=. Pick one model: protocol=with (use __exit__) OR cleanup= (explicit try/finally).",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (props.protocol !== 'with' && !hasCleanup) {
+      violations.push({
+        nodeType: 'with',
+        message:
+          "'with' requires cleanup= (expression run on exit). Or use protocol=with to delegate to the context manager's __exit__ (Python target only).",
         line: node.loc?.line,
         col: node.loc?.col,
       });

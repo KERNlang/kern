@@ -612,7 +612,6 @@ function emitWithPy(node: IRNode, ctx: BodyEmitContext, indent: string): string[
   const rawCleanup = props.cleanup;
   if (rawName === undefined || rawName === '') throw new Error('body-statement `with` requires `name=`.');
   if (rawValue === undefined || rawValue === '') throw new Error('body-statement `with` requires `value=`.');
-  if (rawCleanup === undefined || rawCleanup === '') throw new Error('body-statement `with` requires `cleanup=`.');
 
   const protocol = props.protocol === undefined || props.protocol === '' ? '' : String(props.protocol);
   if (protocol !== '' && protocol !== 'with') {
@@ -623,6 +622,15 @@ function emitWithPy(node: IRNode, ctx: BodyEmitContext, indent: string): string[
     throw new Error(
       'body-statement `with async=true protocol=with` is not supported yet — use default protocol (try/finally) for async cleanup.',
     );
+  }
+  const hasCleanup = rawCleanup !== undefined && rawCleanup !== null && String(rawCleanup) !== '';
+  if (protocol === 'with' && hasCleanup) {
+    throw new Error(
+      'body-statement `with protocol=with` delegates cleanup to the context manager\'s __exit__ — drop cleanup= or drop protocol=with.',
+    );
+  }
+  if (protocol !== 'with' && !hasCleanup) {
+    throw new Error('body-statement `with` requires `cleanup=` (or set `protocol=with` to use __exit__).');
   }
 
   const name = String(rawName);

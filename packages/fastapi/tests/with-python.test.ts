@@ -29,7 +29,7 @@ describe('with — Python native body emit', () => {
     const handler = makeHandler([
       {
         type: 'with',
-        props: { name: 'session', value: 'ClaudeCliSession.spawn()', cleanup: 'session.close()', protocol: 'with' },
+        props: { name: 'session', value: 'ClaudeCliSession.spawn()', protocol: 'with' },
         children: [{ type: 'do', props: { value: 'session.ask("hello")' } }],
       },
     ]);
@@ -119,5 +119,40 @@ describe('with — Python native body emit', () => {
     expect(out).toContain('return __k_t1');
     expect(out).toContain('user = __k_t1.value');
     expect(out).toContain('session.close()');
+  });
+
+  test('async=true awaits both acquire and cleanup (Python)', () => {
+    const handler = makeHandler([
+      {
+        type: 'with',
+        props: { name: 'session', value: 'spawn_session()', cleanup: 'session.close()', async: true },
+        children: [{ type: 'do', props: { value: 'session.work()' } }],
+      },
+    ]);
+    const out = emitNativeKernBodyPython(handler);
+    expect(out).toContain('session = await spawn_session()');
+    expect(out).toContain('await session.close()');
+  });
+
+  test('protocol=with + cleanup is rejected at codegen', () => {
+    const handler = makeHandler([
+      {
+        type: 'with',
+        props: { name: 's', value: 'open_resource()', cleanup: 's.close()', protocol: 'with' },
+        children: [{ type: 'do', props: { value: 's.work()' } }],
+      },
+    ]);
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/delegates cleanup/);
+  });
+
+  test('no protocol + no cleanup is rejected at codegen', () => {
+    const handler = makeHandler([
+      {
+        type: 'with',
+        props: { name: 's', value: 'open_resource()' },
+        children: [{ type: 'do', props: { value: 's.work()' } }],
+      },
+    ]);
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/requires `cleanup=`/);
   });
 });

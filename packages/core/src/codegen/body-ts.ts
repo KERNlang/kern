@@ -499,12 +499,17 @@ function emitWithTS(node: IRNode, ctx: BodyEmitContext, indent: string): string[
   const rawCleanup = props.cleanup;
   if (rawName === undefined || rawName === '') throw new Error('body-statement `with` requires `name=`.');
   if (rawValue === undefined || rawValue === '') throw new Error('body-statement `with` requires `value=`.');
-  if (rawCleanup === undefined || rawCleanup === '') throw new Error('body-statement `with` requires `cleanup=`.');
 
   const protocol = props.protocol === undefined || props.protocol === '' ? '' : String(props.protocol);
   if (protocol !== '' && protocol !== 'with') {
     throw new Error('body-statement `with protocol=` supports only `with`.');
   }
+  if (protocol === 'with') {
+    throw new Error(
+      'body-statement `with protocol=with` is Python-only — TypeScript has no native context-manager statement. Drop protocol= for try/finally lowering, or restrict the .kern file to Python target.',
+    );
+  }
+  if (rawCleanup === undefined || rawCleanup === '') throw new Error('body-statement `with` requires `cleanup=`.');
   const isAsync = props.async === true || props.async === 'true';
 
   const name = emitIdentifier(String(rawName), 'with', node);

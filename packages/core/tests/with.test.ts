@@ -149,3 +149,34 @@ describe('with — decompile round-trip', () => {
     expect(emitNativeKernBodyTS(handler)).toBe(emitNativeKernBodyTS(roundHandler));
   });
 });
+
+describe('with — async + cross-prop validation', () => {
+  test('async=true awaits both acquire and cleanup (TS)', () => {
+    const handler = makeHandler([
+      {
+        type: 'with',
+        props: {
+          name: 'session',
+          value: 'spawnSession()',
+          cleanup: 'session.close()',
+          async: true,
+        },
+        children: [{ type: 'do', props: { value: 'session.work()' } }],
+      },
+    ]);
+    const out = emitNativeKernBodyTS(handler);
+    expect(out).toContain('const session = await spawnSession();');
+    expect(out).toContain('await session.close();');
+  });
+
+  test('protocol=with is rejected on TS target', () => {
+    const handler = makeHandler([
+      {
+        type: 'with',
+        props: { name: 'session', value: 'spawn()', protocol: 'with' },
+        children: [{ type: 'do', props: { value: 'session.work()' } }],
+      },
+    ]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/Python-only/);
+  });
+});
