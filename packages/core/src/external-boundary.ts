@@ -29,6 +29,13 @@ export interface ExternalBoundary {
   targetFamily: 'all' | 'ts' | 'python' | 'none';
   island?: CapabilityIslandRef;
   runtime?: string;
+  protocol?: string;
+  module?: string;
+  args?: string[];
+  session?: string;
+  options?: string;
+  error?: string;
+  timeout?: string;
   effects: string[];
   serialization?: string;
   requiresSidecar?: boolean;
@@ -44,6 +51,13 @@ export interface CapabilityIslandRef {
   name: string;
   kind?: string;
   runtime?: string;
+  protocol?: string;
+  module?: string;
+  args?: string[];
+  session?: string;
+  options?: string;
+  error?: string;
+  timeout?: string;
   effects: string[];
   serialization?: string;
   requiresSidecar: boolean;
@@ -58,6 +72,13 @@ export interface CapabilityIsland {
   name: string;
   kind?: string;
   runtime?: string;
+  protocol?: string;
+  module?: string;
+  args?: string[];
+  session?: string;
+  options?: string;
+  error?: string;
+  timeout?: string;
   effects: string[];
   serialization?: string;
   requiresSidecar: boolean;
@@ -84,6 +105,13 @@ export interface SidecarManifest {
   name: string;
   kind?: string;
   runtime: string;
+  protocol?: string;
+  module?: string;
+  args?: string[];
+  session?: string;
+  options?: string;
+  error?: string;
+  timeout?: string;
   effects: string[];
   serialization?: string;
   requiresSidecar: true;
@@ -111,21 +139,45 @@ function mergeEffects(props: Record<string, unknown>, island?: CapabilityIslandR
 
 function inheritString(
   props: Record<string, unknown>,
-  key: 'runtime' | 'serialization' | 'version' | 'review' | 'reason',
+  key:
+    | 'runtime'
+    | 'serialization'
+    | 'version'
+    | 'review'
+    | 'reason'
+    | 'protocol'
+    | 'module'
+    | 'session'
+    | 'options'
+    | 'error'
+    | 'timeout',
   island?: CapabilityIslandRef,
 ): string | undefined {
   return stringProp(props, key) ?? island?.[key];
+}
+
+function inheritArgs(props: Record<string, unknown>, island?: CapabilityIslandRef): string[] | undefined {
+  const args = splitNames(props.args);
+  return args.length > 0 ? args : island?.args;
 }
 
 function islandRefFromNode(node: IRNode): CapabilityIslandRef | null {
   const props = node.props ?? {};
   const name = stringProp(props, 'name');
   if (!name) return null;
+  const args = splitNames(props.args);
 
   return {
     name,
     kind: stringProp(props, 'kind'),
     runtime: stringProp(props, 'runtime'),
+    protocol: stringProp(props, 'protocol'),
+    module: stringProp(props, 'module'),
+    ...(args.length > 0 ? { args } : {}),
+    session: stringProp(props, 'session'),
+    options: stringProp(props, 'options'),
+    error: stringProp(props, 'error'),
+    timeout: stringProp(props, 'timeout'),
     effects: splitNames(props.effects),
     serialization: stringProp(props, 'serialization'),
     requiresSidecar: boolProp(props, 'requiresSidecar'),
@@ -172,6 +224,13 @@ function boundaryFromExtern(node: IRNode, island?: CapabilityIslandRef): Externa
     targetFamily: importTargetFamilyOf(props.target, props.registry),
     island,
     runtime: inheritString(props, 'runtime', island),
+    protocol: inheritString(props, 'protocol', island),
+    module: inheritString(props, 'module', island),
+    args: inheritArgs(props, island),
+    session: inheritString(props, 'session', island),
+    options: inheritString(props, 'options', island),
+    error: inheritString(props, 'error', island),
+    timeout: inheritString(props, 'timeout', island),
     effects: mergeEffects(props, island),
     serialization: inheritString(props, 'serialization', island),
     requiresSidecar: boolProp(props, 'requiresSidecar') || island?.requiresSidecar === true,
@@ -204,6 +263,13 @@ function boundaryFromImport(node: IRNode, island?: CapabilityIslandRef): Externa
     targetFamily: importTargetFamilyOf(props.target, props.registry),
     island,
     runtime: inheritString(props, 'runtime', island),
+    protocol: inheritString(props, 'protocol', island),
+    module: inheritString(props, 'module', island),
+    args: inheritArgs(props, island),
+    session: inheritString(props, 'session', island),
+    options: inheritString(props, 'options', island),
+    error: inheritString(props, 'error', island),
+    timeout: inheritString(props, 'timeout', island),
     effects: mergeEffects(props, island),
     serialization: inheritString(props, 'serialization', island),
     requiresSidecar: boolProp(props, 'requiresSidecar') || island?.requiresSidecar === true,
@@ -328,7 +394,8 @@ export function sidecarManifestFromIsland(island: CapabilityIsland): SidecarMani
   if (island.requiresSidecar !== true || island.runtime !== 'python') return null;
   const packages: SidecarPackage[] = island.imports.filter(isPythonSidecarBoundary).map(sidecarPackageFromBoundary);
 
-  if (packages.length === 0) return null;
+  const protocol = island.protocol;
+  if (packages.length === 0 && !protocol) return null;
   const manifest: SidecarManifest = {
     name: island.name,
     runtime: island.runtime,
@@ -337,6 +404,13 @@ export function sidecarManifestFromIsland(island: CapabilityIsland): SidecarMani
     packages,
   };
   if (island.kind !== undefined) manifest.kind = island.kind;
+  if (protocol !== undefined) manifest.protocol = protocol;
+  if (island.module !== undefined) manifest.module = island.module;
+  if (island.args !== undefined && island.args.length > 0) manifest.args = island.args;
+  if (island.session !== undefined) manifest.session = island.session;
+  if (island.options !== undefined) manifest.options = island.options;
+  if (island.error !== undefined) manifest.error = island.error;
+  if (island.timeout !== undefined) manifest.timeout = island.timeout;
   if (island.serialization !== undefined) manifest.serialization = island.serialization;
   if (island.line !== undefined) manifest.line = island.line;
   if (island.col !== undefined) manifest.col = island.col;

@@ -487,6 +487,47 @@ function buildUnionAliasMap(nodes: IRNode[]): Map<string, UnionAliasInfo> {
   return unions;
 }
 
+/** True when an `import` IRNode's props mark the whole import as type-only.
+ *
+ *  Type-only imports lower to `import type { ... }` in TS codegen and are
+ *  erased at runtime, so they must never:
+ *    - register runtime value bindings (else `undefined-reference` is
+ *      suppressed on real runtime crashes — Codex review fix on the
+ *      alias-import follow-up);
+ *    - act as cross-file taint resolution targets (else the taint engine
+ *      reports phantom flows through symbols that don't exist at runtime
+ *      — Gemini review fix on the same arc).
+ *
+ *  The parser may emit `types` as the string `'true'` (declarative-attribute
+ *  shape) OR the boolean `true` (TS-source inferrer path), so check both. */
+export function isTypeOnlyImport(props: Record<string, unknown> | undefined): boolean {
+  const t = props?.types;
+  return t === 'true' || t === true;
+}
+
+/** Parse an `import` node's `names` prop (a comma-joined string emitted by the
+ *  parser as either `"foo"` or `"foo as bar"`) into the LOCAL binding names a
+ *  handler body can reference. For aliased entries, the alias is the local
+ *  binding; the imported name is invisible at use-site. Mirrors the
+ *  `use`/`from` path's `alias || name` semantics — without this, references to
+ *  `bar` inside a raw `<<<>>>` block triggered undefined-reference false
+ *  positives because the binding was registered as the literal string
+ *  `"foo as bar"`. Exported because the same comma-joined-with-alias shape is
+ *  consumed by `taint-crossfile`'s import map builder (TS-and-KERN crossfile
+ *  taint resolution) — without the alias-aware splitter there, aliased
+ *  imports silently break cross-file taint. */
+export function parseImportNames(rawNames: string): string[] {
+  const out: string[] = [];
+  const aliasPattern = /^(\S+)\s+as\s+(\S+)$/;
+  for (const entry of rawNames.split(',')) {
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    const asMatch = aliasPattern.exec(trimmed);
+    out.push(asMatch ? asMatch[2] : trimmed);
+  }
+  return out;
+}
+
 function addBinding(target: Map<string, BindingInfo>, name: string, info: BindingInfo): void {
   if (!name || target.has(name)) return;
   target.set(name, info);
@@ -539,14 +580,22 @@ function addBindingsFromScopeNode(scopeNode: IRNode, target: Map<string, Binding
     if (!DIRECT_BINDING_NODE_TYPES.has(child.type)) continue;
 
     // Import nodes: handle 'names' (comma-separated named imports), 'default' (default import),
-    // and 'namespace' (namespace import)
+    // and 'namespace' (namespace import).
+    //
+    // `types=true` imports lower to `import type { ... }` in TS codegen, which
+    // is erased at runtime. Registering those names as visible value bindings
+    // would silently suppress `undefined-reference` for handler code that uses
+    // the import as a runtime value (a real bug — `Bar(...)` calls against an
+    // `import type { Foo as Bar }` crash at runtime). The node-level skip
+    // here mirrors the binding-level `kind === 'type'` filter in the
+    // `use/from` path below; the net effect is identical because the entire
+    // import is type-erased. Type-position usage stays unaffected because
+    // `isTypeOnlyIdentifier` already filters those references out.
     if (child.type === 'import') {
+      if (isTypeOnlyImport(cp)) continue;
       if (typeof cp.names === 'string') {
-        for (const importedName of cp.names
-          .split(',')
-          .map((s: string) => s.trim())
-          .filter(Boolean)) {
-          addBinding(target, importedName, { kind: 'import', node: child });
+        for (const binding of parseImportNames(cp.names)) {
+          addBinding(target, binding, { kind: 'import', node: child });
         }
       }
       if (typeof cp.default === 'string' && cp.default) {
@@ -573,14 +622,14 @@ function addBindingsFromScopeNode(scopeNode: IRNode, target: Map<string, Binding
 function addTopLevelBindingsFrom(rootNode: IRNode, target: Map<string, BindingInfo>): void {
   const p = props(rootNode);
 
-  // Root-level import: register its imported names without descending further
+  // Root-level import: register its imported names without descending further.
+  // `types=true` imports are runtime-erased (see scope-descent branch above for
+  // the full rationale + Codex review fix history).
   if (rootNode.type === 'import') {
+    if (isTypeOnlyImport(p)) return;
     if (typeof p.names === 'string') {
-      for (const importedName of p.names
-        .split(',')
-        .map((s: string) => s.trim())
-        .filter(Boolean)) {
-        addBinding(target, importedName, { kind: 'import', node: rootNode });
+      for (const binding of parseImportNames(p.names)) {
+        addBinding(target, binding, { kind: 'import', node: rootNode });
       }
     }
     if (typeof p.default === 'string' && p.default) {

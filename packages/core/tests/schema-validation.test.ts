@@ -188,6 +188,13 @@ describe('Schema Validation', () => {
       expect(v.some((violation) => violation.message.includes("'island serialization=' must be one of"))).toBe(true);
     });
 
+    it('flags unsupported capability protocols', () => {
+      const v = validate('island sidecar Bad runtime=python protocol=pty-sesion requiresSidecar=true');
+      expect(v.some((violation) => violation.message.includes("'island protocol=' must be one of pty-session"))).toBe(
+        true,
+      );
+    });
+
     it('flags missing and empty island names', () => {
       expect(validate('island runtime=node').some((v) => v.message.includes("'island' requires prop 'name'"))).toBe(
         true,

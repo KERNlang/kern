@@ -503,6 +503,40 @@ describe('golden: import', () => {
     expect(output).not.toContain("from 'demucs'");
     expect(output).not.toContain("from 'fastapi'");
   });
+
+  it('emits a pty-session TS shell for Python daemon islands', () => {
+    const output = gen(
+      'island sidecar ClaudeCli runtime=python protocol=pty-session module="kern_engines.cli.daemon" args=[claude] session=ClaudeCliSession options=ClaudeSpawnOptions error=ClaudeSessionError timeout=ClaudeSessionTimeout effects=[exec,stream] serialization=ndjson requiresSidecar=true',
+    );
+
+    expect(output).toContain('export class ClaudeSessionError extends Error {');
+    expect(output).toContain('export class ClaudeSessionTimeout extends ClaudeSessionError {');
+    expect(output).toContain('export interface ClaudeSpawnOptions {');
+    expect(output).toContain('export class ClaudeCliSession {');
+    expect(output).toContain("child.on('error', fail);");
+    expect(output).toContain("child.stdin.on('error', fail);");
+    expect(output).toContain('const cleanup = () => { if (ceiling) clearTimeout(ceiling); };');
+    expect(output).toContain(
+      'const args = [\'-u\', \'-m\', "kern_engines.cli.daemon", ...(["claude"]), ...(opts.args ?? [])];',
+    );
+    expect(output).toContain(
+      "const msg = `${JSON.stringify({ id, type: 'ask', prompt, timeout: timeoutMs / 1000 })}\\n`;",
+    );
+    expect(output).toContain(
+      "this.child.stdin.write(`${JSON.stringify({ id, type: 'ask_stream', prompt, timeout: timeoutMs / 1000 })}\\n`, (err) => {",
+    );
+    expect(output).not.toContain('SidecarManifest');
+    expect(output).not.toContain("'-c'");
+  });
+
+  it('rejects unsupported sidecar protocols during codegen', () => {
+    expect(() =>
+      gen(
+        'island sidecar Bad runtime=python protocol=pty-sesion module="kern_engines.cli.daemon" requiresSidecar=true',
+      ),
+    ).toThrow("Unsupported sidecar protocol 'pty-sesion'");
+  });
+
   it('emits callable Python sidecar bindings for top-level py imports', () => {
     const output = gen(
       [

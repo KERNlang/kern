@@ -166,6 +166,29 @@ export class ApiError extends BaseError {
       expect(imp).toBeDefined();
       expect(imp!.node.props?.default).toBe('path');
     });
+
+    // Gemini review (alias-import follow-up): the inferrer previously called
+    // `n.getName()` which only returned the IMPORTED name and dropped the
+    // alias. Downstream the kern-source rule's parseImportNames + taint-
+    // crossfile's import map then had no way to recover the local binding,
+    // so aliased imports silently broke undefined-reference + crossfile
+    // taint on TS-source review paths. The inferrer now emits the
+    // `"name as alias"` form so the alias-aware splitter resolves the
+    // local binding correctly.
+    it('preserves aliases on named imports (`{ foo as bar }` → `"foo as bar"`)', () => {
+      const source = `import { readFileSync as readFile, writeFileSync as writeFile } from 'node:fs';`;
+      const results = inferFromSource(source);
+      const imp = results.find((r) => r.node.type === 'import');
+      expect(imp).toBeDefined();
+      expect(imp!.node.props?.names).toBe('readFileSync as readFile,writeFileSync as writeFile');
+    });
+
+    it('mixes aliased and non-aliased entries in the same names string', () => {
+      const source = `import { readFileSync, writeFileSync as writeFile } from 'node:fs';`;
+      const results = inferFromSource(source);
+      const imp = results.find((r) => r.node.type === 'import');
+      expect(imp!.node.props?.names).toBe('readFileSync,writeFileSync as writeFile');
+    });
   });
 
   // ── Phase 1: Constants ──

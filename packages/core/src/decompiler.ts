@@ -231,7 +231,22 @@ export function decompile(root: IRNode): DecompileResult {
     const parts: string[] = ['island'];
     if (props.kind !== undefined) parts.push(String(props.kind));
     parts.push(name);
-    for (const key of ['runtime', 'effects', 'serialization', 'requiresSidecar', 'version', 'review', 'reason']) {
+    for (const key of [
+      'runtime',
+      'protocol',
+      'module',
+      'args',
+      'session',
+      'options',
+      'error',
+      'timeout',
+      'effects',
+      'serialization',
+      'requiresSidecar',
+      'version',
+      'review',
+      'reason',
+    ]) {
       if (props[key] !== undefined) parts.push(renderScalarProp(key, props[key], quoted));
     }
     lines.push(`${indent}${parts.join(' ')}`);

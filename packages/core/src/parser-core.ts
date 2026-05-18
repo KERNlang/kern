@@ -473,9 +473,12 @@ function expandMinified(source: string): string {
 
 // ── Multi-line block + line orchestration ────────────────────────────────
 
-function scanLineState(s: string, prev?: { inQuote: boolean }): { inQuote: boolean } {
+function scanLineState(
+  s: string,
+  prev?: { inQuote: boolean; exprDepth?: number },
+): { inQuote: boolean; exprDepth: number } {
   let inQuote = prev?.inQuote ?? false;
-  let exprDepth = 0;
+  let exprDepth = prev?.exprDepth ?? 0;
   let styleDepth = 0;
   let styleInQuote = false;
 
@@ -543,7 +546,7 @@ function scanLineState(s: string, prev?: { inQuote: boolean }): { inQuote: boole
     if (ch === '"') inQuote = true;
   }
 
-  return { inQuote };
+  return { inQuote, exprDepth };
 }
 
 /** Process source lines into ParsedLine entries (multiline blocks + regular lines). */
@@ -673,12 +676,13 @@ function parseLines(state: ParseState, source: string, runtime: KernRuntime = de
     const startLine = i + 1;
     const joinedParts: string[] = [lines[i]];
     let lineState = scanLineState(lines[i]);
-    // An unterminated quote must not silently absorb structural lines that the
-    // outer loop would otherwise handle specially — comment lines and
-    // multiline-block openers (`handler <<<`, etc.). Stop stitching at those
-    // boundaries; the tokeniser will emit UNCLOSED_STRING for what we already
-    // consumed, preserving the block/comment line for the next iteration.
-    while (lineState.inQuote && i + 1 < lines.length) {
+    // An unterminated quote OR an unclosed `{{ ... }}` expression block must
+    // not silently absorb structural lines that the outer loop would otherwise
+    // handle specially — comment lines and multiline-block openers
+    // (`handler <<<`, etc.). Stop stitching at those boundaries; the tokeniser
+    // will emit UNCLOSED_STRING / UNCLOSED_EXPR for what we already consumed,
+    // preserving the block/comment line for the next iteration.
+    while ((lineState.inQuote || lineState.exprDepth > 0) && i + 1 < lines.length) {
       const nextTrimmed = lines[i + 1].trimStart();
       if (nextTrimmed.startsWith('//') || nextTrimmed.startsWith('#')) break;
       if (findMultilineBlockOpen(nextTrimmed, runtime)) {
@@ -840,6 +844,11 @@ function canonicalizeFirstClassModuleImportNode(node: IRNode): IRNode {
   };
 }
 
+// Note: this list and `isKernHandlerBodySignal` (below) overlap intentionally
+// — this one is the schema-permissive "any node that might appear inside a
+// native body"; the signal predicate is the stricter "definitely indicates
+// a native body" used by `canonicalizeImplicitKernHandlerLang`. When adding
+// a new body-stmt node type, update both functions.
 function isNativeBodyStatementChild(node: IRNode): boolean {
   switch (node.type) {
     case 'cell':
@@ -867,6 +876,89 @@ function isNativeBodyStatementChild(node: IRNode): boolean {
       return true;
     default:
       return false;
+  }
+}
+
+// Body-stmt children that unambiguously signal a KERN-native handler body.
+// Excludes `comment` (universal — present in foreign handlers too) and the
+// dual-purpose forms (`if`/`else`/`try`/`set`) which need a discriminator to
+// rule out their non-body shapes.
+function isKernHandlerBodySignal(node: IRNode): boolean {
+  switch (node.type) {
+    case 'cell':
+    case 'let':
+    case 'assign':
+    case 'destructure':
+    case 'do':
+    case 'fmt':
+    case 'return':
+    case 'while':
+    case 'for':
+    case 'with':
+    case 'each':
+    case 'throw':
+    case 'continue':
+    case 'break':
+    case 'branch':
+    case 'catch':
+    case 'finally':
+      return true;
+    case 'set':
+      // Body-stmt write to a cell. Note: the `on event=… → set …` shortcut
+      // attaches `set` directly under `on`, not under `handler`, so this
+      // function (called only for handler children) never sees that form.
+      return true;
+    case 'if':
+      // Body-stmt `if` carries a `cond` prop. Render-side `conditional`
+      // uses an unrelated `if=` *prop* on a `conditional` node.
+      return node.props?.cond !== undefined;
+    case 'else':
+      // Inside a handler, `else` is always the body-stmt sibling of body-`if`
+      // (render-fallback `else` only appears as a child of `conditional`).
+      return true;
+    case 'try':
+      // Async-orchestration `try name=…` has step/handler/catch children
+      // and is foreign-body. Body-stmt `try` has no `name`.
+      return node.props?.name === undefined;
+    default:
+      return false;
+  }
+}
+
+/** Infer `lang="kern"` on handlers whose body is unambiguously KERN-native.
+ *
+ *  Pre-existing rule: body-statement nodes (`return`, `assign`, `do`, etc.)
+ *  are valid only inside `handler lang="kern"`. Authors were required to
+ *  write that opt-in by hand on every native handler. This canonicalizer
+ *  flips it: when a handler has no explicit lang, no raw `<<<...>>>` code
+ *  block, and at least one strong KERN body-stmt child, set `lang="kern"`.
+ *
+ *  Backward compatible:
+ *    - Explicit `lang="kern"` — untouched (still produces identical IR).
+ *    - Explicit `lang="ts"`/`lang="python"`/etc. — untouched (foreign boundary preserved;
+ *      body-stmt children under a foreign lang are still rejected by validateBodyStatements).
+ *    - Raw `<<<...>>>` handlers — untouched (`props.code` set, no inference).
+ *    - `lang=""` (empty) — treated as "no explicit lang" and may flip to `kern` when
+ *      body-stmt signal is present. This matches the existing schema check at
+ *      `schema.ts:~3170` which already coerces empty and `kern` together.
+ *
+ *  Runs immediately before `validateBodyStatements` so downstream validators,
+ *  codegen, fastapi route logic, and semantic checks all see a consistent
+ *  `props.lang === 'kern'` and need no changes.
+ */
+function canonicalizeImplicitKernHandlerLang(node: IRNode): void {
+  if (node.type === 'handler') {
+    const props = node.props ?? {};
+    const langRaw = props.lang;
+    const hasExplicitLang = typeof langRaw === 'string' && langRaw.trim() !== '';
+    const hasRawCode = typeof props.code === 'string' && props.code !== '';
+    const hasBodySignal = node.children?.some(isKernHandlerBodySignal) ?? false;
+    if (!hasExplicitLang && !hasRawCode && hasBodySignal) {
+      node.props = { ...props, lang: 'kern' };
+    }
+  }
+  if (node.children) {
+    for (const child of node.children) canonicalizeImplicitKernHandlerLang(child);
   }
 }
 
@@ -937,6 +1029,7 @@ export function parseInternal(
   validateEffects(state, root);
   validateUnionKind(state, root);
   validateAndRewritePropagation(state, root, options?.resolveImport);
+  canonicalizeImplicitKernHandlerLang(root);
   validateBodyStatements(state, root);
   validateNativeEligible(state, root);
   commitParseState(state, rt);
