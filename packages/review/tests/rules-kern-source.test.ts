@@ -53,6 +53,36 @@ fn name=callIt returns=string
     expect(undef.some((f) => f.message.includes('fn'))).toBe(false);
   });
 
+  // Regression — Agon-session diagnosis: aliased imports (`import { foo as
+  // bar } from '...'`) lowered to a `names="foo as bar"` parser prop. The
+  // import-binding collector then split on `,` and registered the literal
+  // string `"foo as bar"` as the binding name. Any handler reference to the
+  // alias (`bar`) tripped undefined-reference falsely — most visible in raw
+  // `<<<>>>` blocks because that's where references hit the snippet
+  // analyser. The `use`/`from` path already handled aliases via `alias ||
+  // name`; the `import` path now mirrors that via `parseImportNames`.
+  it('treats `import { foo as bar }` aliased names as the LOCAL binding (no false undefined-reference)', () => {
+    const source = `
+import names="readFileSync as readFile,writeFileSync as writeFile" from="node:fs"
+import names="join" from="node:path"
+
+fn name=callIt returns=string
+  handler <<<
+    const path = join("a", "b");
+    const contents = readFile(path, "utf8");
+    writeFile(path, contents);
+    return contents;
+  >>>
+`;
+    const report = reviewKernSource(source, 'aliased-import.kern');
+    const undef = report.findings.filter((f) => f.ruleId === 'undefined-reference');
+    // The local bindings are `readFile`, `writeFile`, `join`. The imported
+    // names (`readFileSync`, `writeFileSync`) are NOT visible at use-site.
+    expect(undef.some((f) => f.message.includes('readFile'))).toBe(false);
+    expect(undef.some((f) => f.message.includes('writeFile'))).toBe(false);
+    expect(undef.some((f) => f.message.includes('join'))).toBe(false);
+  });
+
   it('still flags references that are NOT declared via `use`', () => {
     const source = `
 use path="./helper.kern"

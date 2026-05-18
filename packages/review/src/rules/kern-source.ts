@@ -487,6 +487,26 @@ function buildUnionAliasMap(nodes: IRNode[]): Map<string, UnionAliasInfo> {
   return unions;
 }
 
+/** Parse an `import` node's `names` prop (a comma-joined string emitted by the
+ *  parser as either `"foo"` or `"foo as bar"`) into the LOCAL binding names a
+ *  handler body can reference. For aliased entries, the alias is the local
+ *  binding; the imported name is invisible at use-site. Mirrors the
+ *  `use`/`from` path's `alias || name` semantics — without this, references to
+ *  `bar` inside a raw `<<<>>>` block triggered undefined-reference false
+ *  positives because the binding was registered as the literal string
+ *  `"foo as bar"`. */
+function parseImportNames(rawNames: string): string[] {
+  const out: string[] = [];
+  const aliasPattern = /^(\S+)\s+as\s+(\S+)$/;
+  for (const entry of rawNames.split(',')) {
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    const asMatch = aliasPattern.exec(trimmed);
+    out.push(asMatch ? asMatch[2] : trimmed);
+  }
+  return out;
+}
+
 function addBinding(target: Map<string, BindingInfo>, name: string, info: BindingInfo): void {
   if (!name || target.has(name)) return;
   target.set(name, info);
@@ -542,11 +562,8 @@ function addBindingsFromScopeNode(scopeNode: IRNode, target: Map<string, Binding
     // and 'namespace' (namespace import)
     if (child.type === 'import') {
       if (typeof cp.names === 'string') {
-        for (const importedName of cp.names
-          .split(',')
-          .map((s: string) => s.trim())
-          .filter(Boolean)) {
-          addBinding(target, importedName, { kind: 'import', node: child });
+        for (const binding of parseImportNames(cp.names)) {
+          addBinding(target, binding, { kind: 'import', node: child });
         }
       }
       if (typeof cp.default === 'string' && cp.default) {
@@ -576,11 +593,8 @@ function addTopLevelBindingsFrom(rootNode: IRNode, target: Map<string, BindingIn
   // Root-level import: register its imported names without descending further
   if (rootNode.type === 'import') {
     if (typeof p.names === 'string') {
-      for (const importedName of p.names
-        .split(',')
-        .map((s: string) => s.trim())
-        .filter(Boolean)) {
-        addBinding(target, importedName, { kind: 'import', node: rootNode });
+      for (const binding of parseImportNames(p.names)) {
+        addBinding(target, binding, { kind: 'import', node: rootNode });
       }
     }
     if (typeof p.default === 'string' && p.default) {
