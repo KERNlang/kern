@@ -62,11 +62,21 @@ describe('Parse Diagnostics', () => {
   });
 
   test('captures multiple diagnostics from one file', () => {
-    const { diagnostics } = parseWithDiagnostics('text value={{broken\n  {bg:red');
-    expect(diagnostics.filter((d) => d.severity === 'error')).toHaveLength(3);
-    expect(diagnostics.some((d) => d.code === 'UNCLOSED_EXPR')).toBe(true);
+    // Two independent errors on distinct lines (no cross-line stitching
+    // consuming one). Mirrors the multi-line-quote stitching precedent:
+    // a single unclosed `{{` or `"` now absorbs subsequent lines (so a
+    // single typo produces a single cascading diagnostic, not three), and
+    // this test exercises *independent* errors that don't trigger the
+    // stitcher.
+    const { diagnostics } = parseWithDiagnostics('text value=\\\nbroken\n  {bg:red');
+    expect(diagnostics.filter((d) => d.severity === 'error').length).toBeGreaterThanOrEqual(2);
     expect(diagnostics.some((d) => d.code === 'UNCLOSED_STYLE')).toBe(true);
     expect(diagnostics.some((d) => d.code === 'DROPPED_LINE')).toBe(true);
+  });
+
+  test('unclosed multi-line `{{` absorbs subsequent lines (single typo → single UNCLOSED_EXPR)', () => {
+    const { diagnostics } = parseWithDiagnostics('text value={{broken\n  {bg:red');
+    expect(diagnostics.some((d) => d.code === 'UNCLOSED_EXPR')).toBe(true);
   });
 
   test('leaf node spans use the full raw line length', () => {

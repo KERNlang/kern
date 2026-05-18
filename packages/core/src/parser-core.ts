@@ -473,9 +473,12 @@ function expandMinified(source: string): string {
 
 // ── Multi-line block + line orchestration ────────────────────────────────
 
-function scanLineState(s: string, prev?: { inQuote: boolean }): { inQuote: boolean } {
+function scanLineState(
+  s: string,
+  prev?: { inQuote: boolean; exprDepth?: number },
+): { inQuote: boolean; exprDepth: number } {
   let inQuote = prev?.inQuote ?? false;
-  let exprDepth = 0;
+  let exprDepth = prev?.exprDepth ?? 0;
   let styleDepth = 0;
   let styleInQuote = false;
 
@@ -543,7 +546,7 @@ function scanLineState(s: string, prev?: { inQuote: boolean }): { inQuote: boole
     if (ch === '"') inQuote = true;
   }
 
-  return { inQuote };
+  return { inQuote, exprDepth };
 }
 
 /** Process source lines into ParsedLine entries (multiline blocks + regular lines). */
@@ -673,12 +676,13 @@ function parseLines(state: ParseState, source: string, runtime: KernRuntime = de
     const startLine = i + 1;
     const joinedParts: string[] = [lines[i]];
     let lineState = scanLineState(lines[i]);
-    // An unterminated quote must not silently absorb structural lines that the
-    // outer loop would otherwise handle specially — comment lines and
-    // multiline-block openers (`handler <<<`, etc.). Stop stitching at those
-    // boundaries; the tokeniser will emit UNCLOSED_STRING for what we already
-    // consumed, preserving the block/comment line for the next iteration.
-    while (lineState.inQuote && i + 1 < lines.length) {
+    // An unterminated quote OR an unclosed `{{ ... }}` expression block must
+    // not silently absorb structural lines that the outer loop would otherwise
+    // handle specially — comment lines and multiline-block openers
+    // (`handler <<<`, etc.). Stop stitching at those boundaries; the tokeniser
+    // will emit UNCLOSED_STRING / UNCLOSED_EXPR for what we already consumed,
+    // preserving the block/comment line for the next iteration.
+    while ((lineState.inQuote || lineState.exprDepth > 0) && i + 1 < lines.length) {
       const nextTrimmed = lines[i + 1].trimStart();
       if (nextTrimmed.startsWith('//') || nextTrimmed.startsWith('#')) break;
       if (findMultilineBlockOpen(nextTrimmed, runtime)) {
