@@ -860,6 +860,7 @@ function isNativeBodyStatementChild(node: IRNode): boolean {
     case 'else':
     case 'while':
     case 'for':
+    case 'with':
     case 'each':
     case 'try':
     case 'catch':
@@ -889,6 +890,7 @@ function isKernHandlerBodySignal(node: IRNode): boolean {
     case 'return':
     case 'while':
     case 'for':
+    case 'with':
     case 'each':
     case 'throw':
     case 'continue':

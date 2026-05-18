@@ -133,6 +133,7 @@ export const NODE_TYPES = [
   'if',
   'while',
   'for',
+  'with',
   // Next.js App Router
   'layout',
   'loading',

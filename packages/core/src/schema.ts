@@ -628,7 +628,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     // Two shapes share this `try` node type:
     // 1. Async-orchestration: `try name=loadUser` with `step`/`handler`/`catch` children.
     // 2. Body-statement (slice 4c+4d, opt-in via parent `handler lang="kern"`):
-    //    `try` with `let`/`assign`/`destructure`/`return`/`if`/`throw`/`for`/`each`/`try` body-statement children
+    //    `try` with `let`/`assign`/`destructure`/`return`/`if`/`throw`/`for`/`each`/`try`/`with` body-statement children
     //    plus a required `catch` child. Schema permits both child sets;
     //    body-ts.ts disambiguates by inspecting the children, and validateBodyStatements
     //    enforces the body-statement-only constraints when the enclosing handler is `lang="kern"`.
@@ -650,6 +650,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'for',
       'each',
       'try',
+      'with',
       'throw',
       'continue',
       'break',
@@ -689,6 +690,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'for',
       'each',
       'try',
+      'with',
       'throw',
       'continue',
       'break',
@@ -712,6 +714,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'while',
       'each',
       'try',
+      'with',
       'throw',
       'continue',
       'break',
@@ -1624,7 +1627,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
 
   handler: {
     description:
-      'Code block — the body of a function, method, route, tool, or event handler. Use <<<...>>> for raw multiline code, or KERN body-statement children (`let`/`assign`/`do`/`return`/`if`/`else`/`while`/`for`/`each`/`try`/`catch`/`throw`/`continue`/`break`/`branch`) for cross-target structured bodies — `lang="kern"` is inferred automatically when any such child is present, so the opt-in boilerplate is no longer required (the explicit `lang="kern"` form remains valid and produces identical IR; specify `lang="ts"`/`lang="python"`/etc. with `<<<...>>>` for foreign bodies). Use `continue` inside `for`/`each`/`while` to skip the current iteration; use `break` inside `for`/`each`/`while` to exit the innermost loop. Use `branch` for switch-style structural matching (TS `switch`, Python `if/elif/else`). Prefer these over raw handlers for loop-control and dispatch bodies.',
+      'Code block — the body of a function, method, route, tool, or event handler. Use <<<...>>> for raw multiline code, or KERN body-statement children (`let`/`assign`/`do`/`return`/`if`/`else`/`while`/`for`/`each`/`try`/`with`/`catch`/`throw`/`continue`/`break`/`branch`) for cross-target structured bodies — `lang="kern"` is inferred automatically when any such child is present, so the opt-in boilerplate is no longer required (the explicit `lang="kern"` form remains valid and produces identical IR; specify `lang="ts"`/`lang="python"`/etc. with `<<<...>>>` for foreign bodies). Use `continue` inside `for`/`each`/`while` to skip the current iteration; use `break` inside `for`/`each`/`while` to exit the innermost loop. Use `branch` for switch-style structural matching (TS `switch`, Python `if/elif/else`). Use `with` for resource-scoped blocks (TS using-declarations, Python context managers). Prefer these over raw handlers for loop-control and dispatch bodies.',
     example: 'handler <<<\n  const result = await doWork();\n  return result;\n>>>',
     props: {
       code: { kind: 'rawBlock' },
@@ -1654,6 +1657,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'for',
       'each',
       'try',
+      'with',
       'catch',
       'finally',
       'throw',
@@ -1738,6 +1742,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'for',
       'each',
       'try',
+      'with',
       'catch',
       'throw',
       'continue',
@@ -1769,7 +1774,41 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'for',
       'each',
       'try',
+      'with',
       'catch',
+      'throw',
+      'continue',
+      'break',
+      'branch',
+    ],
+  },
+  with: {
+    description:
+      'Body-statement resource scope — acquires a named resource, runs a body, then always runs cleanup. Default lowering is `const name = value; try { ... } finally { cleanup; }` (TS) / `name = value; try: ... finally: cleanup` (Python). `async=true` awaits both acquire and cleanup (`await value`, `await cleanup`). Python-only `protocol=with` opts into native context-manager syntax: `with value as name:`.',
+    example:
+      'with name=session value="ClaudeCliSession.spawn()" cleanup="session.close()"\n  do value="session.ask(\\"hello\\")"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      value: { required: true, kind: 'expression' },
+      cleanup: { required: false, kind: 'expression' },
+      async: { kind: 'boolean' },
+      protocol: { kind: 'string' },
+    },
+    allowedChildren: [
+      'comment',
+      'let',
+      'assign',
+      'destructure',
+      'do',
+      'fmt',
+      'return',
+      'if',
+      'else',
+      'while',
+      'for',
+      'each',
+      'try',
+      'with',
       'throw',
       'continue',
       'break',
@@ -3128,6 +3167,45 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[], parent?: I
       violations.push({
         nodeType: 'assign',
         message: `'assign op="${op}"' is a value-less form; remove the \`value=\` attribute.`,
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+  }
+  if (node.type === 'with') {
+    if (props.protocol !== undefined && props.protocol !== '' && props.protocol !== 'with') {
+      violations.push({
+        nodeType: 'with',
+        message: "'with protocol=' supports only `with`.",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    const isAsync = props.async === true || props.async === 'true';
+    if (isAsync && props.protocol === 'with') {
+      violations.push({
+        nodeType: 'with',
+        message:
+          "'with async=true protocol=with' is not supported yet. Use default protocol (try/finally) for async cleanup, or drop async=true.",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    const hasCleanup = props.cleanup !== undefined && props.cleanup !== null && String(props.cleanup).trim() !== '';
+    if (props.protocol === 'with' && hasCleanup) {
+      violations.push({
+        nodeType: 'with',
+        message:
+          "'with protocol=with' delegates cleanup to the context manager's __exit__; do not also specify cleanup=. Pick one model: protocol=with (use __exit__) OR cleanup= (explicit try/finally).",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (props.protocol !== 'with' && !hasCleanup) {
+      violations.push({
+        nodeType: 'with',
+        message:
+          "'with' requires cleanup= (expression run on exit). Or use protocol=with to delegate to the context manager's __exit__ (Python target only).",
         line: node.loc?.line,
         col: node.loc?.col,
       });
