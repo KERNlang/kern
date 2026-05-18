@@ -855,6 +855,7 @@ function isNativeBodyStatementChild(node: IRNode): boolean {
     case 'else':
     case 'while':
     case 'for':
+    case 'with':
     case 'each':
     case 'try':
     case 'catch':

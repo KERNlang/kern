@@ -233,6 +233,8 @@ function emitChildrenTS(
         lines.push(`${indent}}`);
       } else if (child.type === 'for') {
         for (const line of emitRangeForTS(child, ctx, indent)) lines.push(line);
+      } else if (child.type === 'with') {
+        for (const line of emitWithTS(child, ctx, indent)) lines.push(line);
       } else if (child.type === 'try') {
         // Slice 4c — try/catch control flow.
         //
@@ -486,6 +488,40 @@ function emitRangeForTS(node: IRNode, ctx: BodyEmitContext, indent: string): str
   const lines = [`${indent}const ${startVar} = ${fromExpr};`, `${indent}const ${endVar} = ${toExpr};`];
   lines.push(`${indent}for (let ${name} = ${startVar}; ${name} < ${endVar}; ${update}) {`);
   for (const sl of emitChildrenTS(node.children ?? [], ctx, indent + INDENT_STEP, [[name, 'const']])) lines.push(sl);
+  lines.push(`${indent}}`);
+  return lines;
+}
+
+function emitWithTS(node: IRNode, ctx: BodyEmitContext, indent: string): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const rawName = props.name;
+  const rawValue = props.value;
+  const rawCleanup = props.cleanup;
+  if (rawName === undefined || rawName === '') throw new Error('body-statement `with` requires `name=`.');
+  if (rawValue === undefined || rawValue === '') throw new Error('body-statement `with` requires `value=`.');
+  if (rawCleanup === undefined || rawCleanup === '') throw new Error('body-statement `with` requires `cleanup=`.');
+
+  const protocol = props.protocol === undefined || props.protocol === '' ? '' : String(props.protocol);
+  if (protocol !== '' && protocol !== 'with') {
+    throw new Error('body-statement `with protocol=` supports only `with`.');
+  }
+  const isAsync = props.async === true || props.async === 'true';
+
+  const name = emitIdentifier(String(rawName), 'with', node);
+  declareLocalBinding(ctx, name, 'const');
+
+  const valueIR = parseExpression(String(rawValue));
+  const cleanupIR = parseExpression(String(rawCleanup));
+  if (valueIR.kind === 'propagate' || cleanupIR.kind === 'propagate') {
+    throw new Error("Propagation '?' is not allowed in `with value=` or `with cleanup=` — bind to `let` first.");
+  }
+
+  const acquirePrefix = isAsync ? 'await ' : '';
+  const cleanupPrefix = isAsync ? 'await ' : '';
+  const lines = [`${indent}const ${name} = ${acquirePrefix}${emitExpression(valueIR)};`, `${indent}try {`];
+  for (const sl of emitChildrenTS(node.children ?? [], ctx, indent + INDENT_STEP, [[name, 'const']])) lines.push(sl);
+  lines.push(`${indent}} finally {`);
+  lines.push(`${indent}${INDENT_STEP}${cleanupPrefix}${emitExpression(cleanupIR)};`);
   lines.push(`${indent}}`);
   return lines;
 }
