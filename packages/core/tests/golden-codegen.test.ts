@@ -531,7 +531,9 @@ describe('golden: import', () => {
 
   it('rejects unsupported sidecar protocols during codegen', () => {
     expect(() =>
-      gen('island sidecar Bad runtime=python protocol=pty-sesion module="kern_engines.cli.daemon" requiresSidecar=true'),
+      gen(
+        'island sidecar Bad runtime=python protocol=pty-sesion module="kern_engines.cli.daemon" requiresSidecar=true',
+      ),
     ).toThrow("Unsupported sidecar protocol 'pty-sesion'");
   });
 
