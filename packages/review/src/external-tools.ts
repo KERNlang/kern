@@ -169,6 +169,20 @@ export function runTSCDiagnostics(
     const suppressedModuleMisses = options.downgradeProjectLoadingErrors
       ? collectReviewModeSuppressedModuleMisses(diagnostics)
       : new Set<string>();
+    // File-level pre-pass: which files have a broken JSX global namespace?
+    // When @types/react is unreachable (kern-guard's sparse clone, no
+    // node_modules), `JSX.IntrinsicElements` and `JSX.ElementChildrenAttribute`
+    // are undefined. TS then emits TS7026 on every host JSX element AND a
+    // TS2741 "Property 'children' is missing" on every JSX user-component
+    // call site whose props declare `children: ReactNode` — because
+    // children-routing through `<Tag>...</Tag>` form is no longer wired up.
+    // The TS2741 is purely environmental noise here; the dev's local
+    // `tsc --noEmit` (which DOES resolve @types/react) passes cleanly.
+    // Mirror the @types/node-globals pattern: detect once per file, then
+    // suppress co-firing TS2741-children in the per-diagnostic loop below.
+    const brokenJsxNamespaceFiles = options.downgradeProjectLoadingErrors
+      ? collectBrokenJsxNamespaceFiles(diagnostics)
+      : new Set<string>();
 
     for (const diag of diagnostics) {
       const sourceFile = diag.getSourceFile();
@@ -230,7 +244,12 @@ export function runTSCDiagnostics(
       //     on plain `let url: URL`). Suppress when the missing name matches a known
       //     @types/node-provided global; non-matching 2304/2552 still surface as type errors.
       const isLoadingNoise = code === 6059 || code === 6307;
-      const isEnvironmentalNoise = code === 2792 || code === 17004 || code === 2580 || code === 2591;
+      // TS7026 ("JSX element implicitly has type 'any' because no interface
+      // 'JSX.IntrinsicElements' exists") is the JSX counterpart to TS17004 —
+      // the JSX global namespace from @types/react isn't reachable in the
+      // sparse clone. Suppress unconditionally in review mode; the dev's IDE
+      // sees the real shape via their installed node_modules.
+      const isEnvironmentalNoise = code === 2792 || code === 17004 || code === 2580 || code === 2591 || code === 7026;
       // TS2503 ("Cannot find namespace 'X'") is the same class for type-position
       // uses like `let x: NodeJS.Timeout` — the @types/node `NodeJS` namespace
       // isn't reachable. TS2584 ("Cannot find name 'console'. Do you need to
@@ -239,11 +258,23 @@ export function runTSCDiagnostics(
       // the same review-mode flag. Gemini + Codex caught these.
       const isNodeGlobalUnresolved =
         (code === 2304 || code === 2552 || code === 2503 || code === 2584) && isNodeGlobalCannotFindName(messageStr);
+      // TS2741 "Property 'children' is missing" on a JSX user-component call
+      // site is environmental whenever the JSX global namespace is broken in
+      // the same file. Without `JSX.ElementChildrenAttribute`, TS does not
+      // route `<Tag>...children...</Tag>` content into the `children` prop,
+      // so every component that declares `children: ReactNode` as required
+      // looks like it's missing the prop. Gate strictly: file must be in
+      // brokenJsxNamespaceFiles AND the diagnostic must specifically be
+      // about a missing `children` property. This preserves real TS2741s
+      // for other missing props.
+      const isJsxChildrenInferenceNoise =
+        code === 2741 && brokenJsxNamespaceFiles.has(filePath) && isMissingChildrenDiagnostic(messageStr);
       if (
         options.downgradeProjectLoadingErrors &&
         (isLoadingNoise ||
           isEnvironmentalNoise ||
           isNodeGlobalUnresolved ||
+          isJsxChildrenInferenceNoise ||
           isReviewModeModuleResolutionNoise(code, messageStr, filePath) ||
           isReviewModeGeneratedFacadeExportCascade(sourceFile, code, messageStr, suppressedModuleMisses))
       ) {
@@ -293,6 +324,45 @@ function collectReviewModeSuppressedModuleMisses(
     }
   }
   return misses;
+}
+
+// Files where TS reports the JSX global namespace is broken — `@types/react`
+// is unreachable, so `JSX.IntrinsicElements` (the host-element shim) and
+// `JSX.ElementChildrenAttribute` (the children-routing pointer) are both
+// undefined. Two diagnostics signal this cleanly:
+//   - TS7026 — emitted on every host JSX element (e.g. `<div>`) in such a
+//     file. The presence of any TS7026 in a .tsx/.jsx file is a strong
+//     signal the whole JSX-typechecking surface is degraded for that file.
+//   - TS2503 with `'JSX'` namespace — direct "Cannot find namespace 'JSX'."
+//     when source code references the JSX namespace at type position.
+// We deliberately do NOT use TS2604 ("JSX element type X has no construct
+// or call signatures") as a signal: it can fire for legitimate misuses of
+// non-React-component values in JSX position and would over-suppress.
+function collectBrokenJsxNamespaceFiles(diagnostics: ReturnType<Project['getPreEmitDiagnostics']>): Set<string> {
+  const files = new Set<string>();
+  for (const diag of diagnostics) {
+    const code = diag.getCode();
+    if (code !== 7026 && code !== 2503) continue;
+    const sourceFile = diag.getSourceFile();
+    if (!sourceFile) continue;
+    if (code === 2503) {
+      const message = diag.getMessageText();
+      const messageStr = typeof message === 'string' ? message : message.getMessageText();
+      if (!/Cannot find namespace ['"]JSX['"]/.test(messageStr)) continue;
+    }
+    files.add(sourceFile.getFilePath());
+  }
+  return files;
+}
+
+// True when a TS2741 message names `children` as the missing required
+// property. TS2741 format: "Property 'X' is missing in type '...' but
+// required in type '...'." — capture group 1 is the missing prop name.
+// Gated to `children` so other missing-prop diagnostics on the same JSX
+// element (e.g. `onClick` legitimately omitted) continue to surface.
+function isMissingChildrenDiagnostic(message: string): boolean {
+  const match = message.match(/^Property ['"]([^'"]+)['"] is missing/);
+  return match?.[1] === 'children';
 }
 
 function isReviewModeGeneratedFacadeExportCascade(
