@@ -7,7 +7,7 @@
  * All AST-based. Always active regardless of target.
  */
 
-import { SyntaxKind } from 'ts-morph';
+import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext, SourceSpan } from '../types.js';
 import { createFingerprint } from '../types.js';
 import { resolveConfidence } from './confidence-baseline.js';
@@ -501,7 +501,8 @@ function promptInjection(ctx: RuleContext): ReviewFinding[] {
       }
     }
 
-    if (!inPromptContext) continue;
+    if (!flowsToLlmCall(template)) continue;
+    if (!inPromptContext) inPromptContext = true;
 
     // Find which user input variable is unsanitized
     const spans = template.getTemplateSpans();
@@ -550,6 +551,7 @@ function promptInjection(ctx: RuleContext): ReviewFinding[] {
 
     // Is the left side a prompt-like string? Require LLM-specific context, not generic English
     const isPromptConcat = /\bprompt\b|instruction|you are\b|as an ai|as a language model/i.test(leftText);
+    if (!flowsToLlmCall(bin)) continue;
     if (!isPromptConcat) continue;
 
     // Is it sanitized?
@@ -569,6 +571,160 @@ function promptInjection(ctx: RuleContext): ReviewFinding[] {
   }
 
   return findings;
+}
+
+function flowsToLlmCall(node: import('ts-morph').Node): boolean {
+  for (let cur: import('ts-morph').Node | undefined = node; cur; cur = cur.getParent()) {
+    if (Node.isCallExpression(cur) && isKnownLlmCall(cur)) return true;
+  }
+
+  const binding = assignedBinding(node);
+  if (!binding) return false;
+
+  const fn = findAncestor(
+    node,
+    (
+      candidate,
+    ): candidate is
+      | import('ts-morph').FunctionDeclaration
+      | import('ts-morph').ArrowFunction
+      | import('ts-morph').FunctionExpression
+      | import('ts-morph').MethodDeclaration
+      | import('ts-morph').SourceFile =>
+      Node.isFunctionDeclaration(candidate) ||
+      Node.isArrowFunction(candidate) ||
+      Node.isFunctionExpression(candidate) ||
+      Node.isMethodDeclaration(candidate) ||
+      Node.isSourceFile(candidate),
+  );
+  if (!fn) return false;
+
+  for (const call of fn.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    if (!isKnownLlmCall(call)) continue;
+    if (call.getArguments().some((arg) => referencesBinding(arg, binding))) return true;
+  }
+
+  return false;
+}
+
+function isKnownLlmCall(call: import('ts-morph').CallExpression): boolean {
+  const callee = call.getExpression().getText();
+  return (
+    /\b(openai|client)\.chat\.completions\.(create|stream)\b/.test(callee) ||
+    /\b(openai|client)\.responses\.(create|stream)\b/.test(callee) ||
+    /\b(anthropic|client)\.messages\.(create|stream)\b/.test(callee) ||
+    /\b(gemini|genai|model|llm|ai)\.generateContent\b/.test(callee) ||
+    /\b(gemini|genai|model|llm|ai|chat|conversation)\.sendMessage\b/.test(callee) ||
+    /\b(anthropic|llm|ai)\.complete\b/.test(callee)
+  );
+}
+
+interface LocalBindingRef {
+  name: string;
+  symbol?: import('ts-morph').Symbol;
+  decls?: import('ts-morph').Node[];
+}
+
+function assignedBinding(node: import('ts-morph').Node): LocalBindingRef | undefined {
+  let cur: import('ts-morph').Node = node;
+  while (true) {
+    const parent = cur.getParent();
+    if (
+      parent &&
+      (Node.isParenthesizedExpression(parent) ||
+        Node.isAsExpression(parent) ||
+        Node.isTypeAssertion(parent) ||
+        Node.isNonNullExpression(parent) ||
+        parent.getKind() === SyntaxKind.SatisfiesExpression)
+    ) {
+      cur = parent;
+      continue;
+    }
+    break;
+  }
+
+  const parent = cur.getParent();
+  if (parent && Node.isVariableDeclaration(parent)) {
+    const nameNode = parent.getNameNode();
+    return { name: parent.getName(), symbol: nameNode.getSymbol(), decls: [parent, nameNode] };
+  }
+  if (parent && Node.isPropertyAssignment(parent)) {
+    const objectLiteral = parent.getParentIfKind(SyntaxKind.ObjectLiteralExpression);
+    const objectParent = objectLiteral?.getParent();
+    if (objectParent && Node.isVariableDeclaration(objectParent)) {
+      const nameNode = objectParent.getNameNode();
+      return { name: objectParent.getName(), symbol: nameNode.getSymbol(), decls: [objectParent, nameNode] };
+    }
+  }
+  if (parent && Node.isBinaryExpression(parent) && parent.getOperatorToken().getKind() === SyntaxKind.EqualsToken) {
+    const left = parent.getLeft();
+    if (Node.isIdentifier(left)) return { name: left.getText() };
+  }
+  return undefined;
+}
+
+function referencesBinding(node: import('ts-morph').Node, binding: LocalBindingRef): boolean {
+  const ids = Node.isIdentifier(node) ? [node] : node.getDescendantsOfKind(SyntaxKind.Identifier);
+  return ids.some((id) => isValueReferenceToBinding(id, binding));
+}
+
+function isValueReferenceToBinding(id: import('ts-morph').Identifier, binding: LocalBindingRef): boolean {
+  if (id.getText() !== binding.name) return false;
+  if (isPropertyNameOnly(id)) return false;
+
+  const symbol = id.getSymbol();
+  if (binding.symbol && symbol && symbol === binding.symbol) return true;
+
+  if (binding.decls && symbol) {
+    const declarations = symbol.getDeclarations() ?? [];
+    if (declarations.length > 0 && declarations.some((decl) => binding.decls?.includes(decl))) return true;
+  }
+
+  return !isShadowedByNearerBinding(id, binding);
+}
+
+function isPropertyNameOnly(id: import('ts-morph').Identifier): boolean {
+  const parent = id.getParent();
+  if (!parent) return false;
+  if (Node.isPropertyAssignment(parent) && parent.getNameNode() === id) return true;
+  if (Node.isPropertyAccessExpression(parent) && parent.getNameNode() === id) return true;
+  if (Node.isMethodDeclaration(parent) && parent.getNameNode() === id) return true;
+  return false;
+}
+
+function isShadowedByNearerBinding(id: import('ts-morph').Identifier, binding: LocalBindingRef): boolean {
+  const bindingStart = binding.decls?.[0]?.getStart() ?? -1;
+  let cur: import('ts-morph').Node | undefined = id.getParent();
+  while (cur) {
+    if (
+      Node.isFunctionDeclaration(cur) ||
+      Node.isFunctionExpression(cur) ||
+      Node.isArrowFunction(cur) ||
+      Node.isMethodDeclaration(cur)
+    ) {
+      for (const param of cur.getParameters()) {
+        if (param.getName() === binding.name && param.getStart() > bindingStart) return true;
+      }
+    }
+    for (const decl of cur.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+      if (decl.getName() === binding.name && decl.getStart() > bindingStart && decl.getStart() < id.getStart())
+        return true;
+    }
+    cur = cur.getParent();
+  }
+  return false;
+}
+
+function findAncestor<T extends import('ts-morph').Node>(
+  node: import('ts-morph').Node,
+  predicate: (candidate: import('ts-morph').Node) => candidate is T,
+): T | undefined {
+  let cur: import('ts-morph').Node | undefined = node;
+  while (cur) {
+    if (predicate(cur)) return cur;
+    cur = cur.getParent();
+  }
+  return undefined;
 }
 
 // ── Exported Security v3 Rules ────────────────────────────────────────

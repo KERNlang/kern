@@ -320,9 +320,10 @@ app.get('/data', (req: any, res: any) => {
 describe('prompt-injection', () => {
   it('detects user input in template literal prompt without sanitization', () => {
     const source = `
-export function buildPrompt(question: string): string {
+declare const gemini: { generateContent(input: string): Promise<unknown> };
+export function buildPrompt(question: string): Promise<unknown> {
   const systemPrompt = \`You are an assistant. Answer: \${question}\`;
-  return systemPrompt;
+  return gemini.generateContent(systemPrompt);
 }
 `;
     const report = reviewSource(source, 'prompts.ts');
@@ -346,13 +347,96 @@ export function buildPrompt(question: string): string {
 
   it('detects string concatenation of user input into prompt', () => {
     const source = `
-export function makePrompt(userInput: string): string {
-  return "You are an expert. Analyze this: " + userInput;
+declare const gemini: { generateContent(input: string): Promise<unknown> };
+export function makePrompt(userInput: string): Promise<unknown> {
+  const prompt = "You are an expert. Analyze this: " + userInput;
+  return gemini.generateContent(prompt);
 }
 `;
     const report = reviewSource(source, 'prompts.ts');
     const f = report.findings.find((f) => f.ruleId === 'prompt-injection');
     expect(f).toBeDefined();
+  });
+
+  it('detects top-level prompt variables used in LLM calls', () => {
+    const source = `
+declare const question: string;
+declare const gemini: { generateContent(input: string): Promise<unknown> };
+const prompt = \`You are an assistant. Answer: \${question}\`;
+gemini.generateContent(prompt);
+`;
+    const report = reviewSource(source, 'prompts.ts');
+    const f = report.findings.find((f) => f.ruleId === 'prompt-injection');
+    expect(f).toBeDefined();
+  });
+
+  it('detects inline prompt transforms passed to LLM calls', () => {
+    const source = `
+declare const question: string;
+declare const gemini: { generateContent(input: string): Promise<unknown> };
+export function ask(): Promise<unknown> {
+  return gemini.generateContent(\`You are an assistant. Answer: \${question}\`.trim());
+}
+`;
+    const report = reviewSource(source, 'prompts.ts');
+    const f = report.findings.find((f) => f.ruleId === 'prompt-injection');
+    expect(f).toBeDefined();
+  });
+
+  it('detects prompt payload objects passed to LLM calls', () => {
+    const source = `
+declare const question: string;
+declare const openai: { responses: { create(input: unknown): Promise<unknown> } };
+export function ask(): Promise<unknown> {
+  const payload = { input: \`You are an assistant. Answer: \${question}\` };
+  return openai.responses.create(payload);
+}
+`;
+    const report = reviewSource(source, 'prompts.ts');
+    const f = report.findings.find((f) => f.ruleId === 'prompt-injection');
+    expect(f).toBeDefined();
+  });
+
+  it('does NOT treat matching property keys as prompt variable flow', () => {
+    const source = `
+declare const input: string;
+declare const openai: { responses: { create(input: unknown): Promise<unknown> } };
+export function ask(): Promise<unknown> {
+  const prompt = \`You are an assistant. Answer: \${input}\`;
+  const payload = { prompt: "fixed" };
+  return openai.responses.create(payload);
+}
+`;
+    const report = reviewSource(source, 'prompts.ts');
+    const f = report.findings.find((f) => f.ruleId === 'prompt-injection');
+    expect(f).toBeUndefined();
+  });
+
+  it('does NOT treat shadowed variables as prompt flow', () => {
+    const source = `
+declare const input: string;
+declare const gemini: { generateContent(input: string): Promise<unknown> };
+const prompt = \`You are an assistant. Answer: \${input}\`;
+function ask(prompt: string): Promise<unknown> {
+  return gemini.generateContent(prompt);
+}
+ask("fixed");
+`;
+    const report = reviewSource(source, 'prompts.ts');
+    const f = report.findings.find((f) => f.ruleId === 'prompt-injection');
+    expect(f).toBeUndefined();
+  });
+
+  it('does NOT fire on prompt template assembly without a local LLM call', () => {
+    const source = `
+type TriageCompletionInput = { system: string; user: string };
+function combinePrompt(input: TriageCompletionInput): string {
+  return \`[SYSTEM]\\n\${input.system}\\n\\n[USER]\\n\${input.user}\\n\`;
+}
+`;
+    const report = reviewSource(source, 'triage-provider.ts');
+    const f = report.findings.find((f) => f.ruleId === 'prompt-injection');
+    expect(f).toBeUndefined();
   });
 
   it('does NOT fire on non-prompt template literals', () => {

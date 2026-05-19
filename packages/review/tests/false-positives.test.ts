@@ -8,7 +8,7 @@
 import { mkdirSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { reviewGraph, reviewSource } from '../src/index.js';
+import { reviewGraph, reviewPythonSource, reviewSource } from '../src/index.js';
 import type { ReviewConfig } from '../src/types.js';
 
 const reactConfig: ReviewConfig = { target: 'web' };
@@ -106,6 +106,87 @@ export function doWork(): void {
     expect(fp).toBeDefined();
   });
 
+  it('does NOT fire on a two-arm synchronous .then observer', () => {
+    const source = `
+class PtySessionError extends Error {}
+declare function wake(): void;
+
+export async function* stream(replyPromise: Promise<string>) {
+  let replyState: { ok: true; text: string } | { ok: false; err: unknown } | null = null;
+  replyPromise.then(
+    (text) => { replyState = { ok: true, text }; wake(); },
+    (err) => {
+      replyState = { ok: false, err };
+      wake();
+    },
+  );
+  if (replyState) yield "done";
+}
+`;
+    const report = reviewSource(source, 'session.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'floating-promise');
+    expect(fp).toBeUndefined();
+  });
+
+  it('still fires on .then with no rejection arm', () => {
+    const source = `
+export function doWork(p: Promise<string>): void {
+  p.then((text) => console.log(text));
+}
+`;
+    const report = reviewSource(source, 'actual.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'floating-promise');
+    expect(fp).toBeDefined();
+  });
+
+  it('still fires on two-arm .then with concise handlers', () => {
+    const source = `
+declare function observe(text: string): void;
+declare function observeError(err: unknown): void;
+
+export function doWork(p: Promise<string>): void {
+  p.then((text) => observe(text), (err) => observeError(err));
+}
+`;
+    const report = reviewSource(source, 'actual.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'floating-promise');
+    expect(fp).toBeDefined();
+  });
+
+  it('still fires on two-arm .then whose block handlers call arbitrary helpers', () => {
+    const source = `
+declare function handle(text: string): void;
+declare function handleError(err: unknown): void;
+
+export function doWork(p: Promise<string>): void {
+  p.then(
+    (text) => { handle(text); },
+    (err) => { handleError(err); },
+  );
+}
+`;
+    const report = reviewSource(source, 'actual.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'floating-promise');
+    expect(fp).toBeDefined();
+  });
+
+  it('still fires on two-arm .then whose handlers construct errors inline', () => {
+    const source = `
+class WrappedError extends Error {}
+declare function wake(): void;
+
+export function doWork(p: Promise<string>): void {
+  p.then(
+    (text) => { wake(); },
+    (err) => { const wrapped = new WrappedError(String(err)); wake(); },
+  );
+}
+`;
+    const report = reviewSource(source, 'actual.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'floating-promise');
+    expect(fp).toBeDefined();
+  });
+
   // Regression: kern-sight extension.ts ×8 — VS Code's registerCommand awaits
   // the callback internally; any promise the body starts is handled by the
   // host, so flagging them is noise. Same applies to other disposable APIs.
@@ -157,6 +238,98 @@ vscode.commands.registerCommand('ext.noop', () => {});
 `;
     const report = reviewSource(source, 'extension.ts');
     const fp = report.findings.find((f) => f.ruleId === 'floating-promise');
+    expect(fp).toBeDefined();
+  });
+});
+
+describe('False Positive Regression: ignored-error (Python)', () => {
+  it('does NOT fire on idempotent process cleanup', () => {
+    const source = `
+import os
+import signal
+
+def stop(pid):
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+`;
+    const report = reviewPythonSource(source, 'pty_session.py', { noCache: true });
+    const fp = report.findings.find((f) => f.ruleId === 'ignored-error');
+    expect(fp).toBeUndefined();
+  });
+
+  it('does NOT fire on best-effort fd cleanup', () => {
+    const source = `
+import os
+
+def close_fd(fd):
+    try:
+        os.close(fd)
+    except OSError:
+        pass
+`;
+    const report = reviewPythonSource(source, 'pty_session.py', { noCache: true });
+    const fp = report.findings.find((f) => f.ruleId === 'ignored-error');
+    expect(fp).toBeUndefined();
+  });
+
+  it('does NOT fire on platform feature detection', () => {
+    const source = `
+import faulthandler
+import signal
+
+try:
+    faulthandler.register(signal.SIGUSR1, all_threads=True, chain=False)
+except (AttributeError, ValueError):
+    pass
+`;
+    const report = reviewPythonSource(source, 'pty_session.py', { noCache: true });
+    const fp = report.findings.find((f) => f.ruleId === 'ignored-error');
+    expect(fp).toBeUndefined();
+  });
+
+  it('still fires on broad ignored exceptions', () => {
+    const source = `
+def parse(raw):
+    try:
+        return int(raw)
+    except Exception:
+        pass
+`;
+    const report = reviewPythonSource(source, 'sloppy.py', { noCache: true });
+    const fp = report.findings.find((f) => f.ruleId === 'ignored-error');
+    expect(fp).toBeDefined();
+  });
+
+  it('still fires when a safe cleanup exception is mixed with a broad catch', () => {
+    const source = `
+import os
+
+def close_fd(fd):
+    try:
+        os.close(fd)
+    except (OSError, Exception):
+        pass
+`;
+    const report = reviewPythonSource(source, 'sloppy.py', { noCache: true });
+    const fp = report.findings.find((f) => f.ruleId === 'ignored-error');
+    expect(fp).toBeDefined();
+  });
+
+  it('still fires when a whitelisted cleanup shares a try block with other work', () => {
+    const source = `
+import os
+
+def close_fd(fd, path):
+    try:
+        os.close(fd)
+        open(path).read()
+    except OSError:
+        pass
+`;
+    const report = reviewPythonSource(source, 'sloppy.py', { noCache: true });
+    const fp = report.findings.find((f) => f.ruleId === 'ignored-error');
     expect(fp).toBeDefined();
   });
 });

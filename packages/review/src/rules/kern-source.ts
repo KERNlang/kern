@@ -89,6 +89,7 @@ const DIRECT_BINDING_NODE_TYPES = new Set([
   'screen',
   'type',
   'interface',
+  'class',
   'union',
   'service',
   'machine',

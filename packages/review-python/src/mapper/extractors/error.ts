@@ -39,7 +39,7 @@ export function extractErrorHandle(
   // except clauses
   walkNodes(root, 'except_clause', (node) => {
     const block = node.children.find((c) => c.type === 'block');
-    const disposition = classifyPythonDisposition(block, source);
+    const disposition = classifyPythonDisposition(node, block, source);
     const errorVar = extractExceptVar(node);
 
     nodes.push({
@@ -60,6 +60,7 @@ export function extractErrorHandle(
 }
 
 function classifyPythonDisposition(
+  exceptNode: Parser.SyntaxNode,
   block: Parser.SyntaxNode | undefined,
   source: string,
 ): { type: ErrorHandlePayload['disposition']; confidence: number } {
@@ -69,17 +70,22 @@ function classifyPythonDisposition(
 
   // except: pass → ignored
   if (children.length === 1 && children[0].type === 'pass_statement') {
+    if (isIntentionalNoopExcept(exceptNode, source)) return { type: 'wrapped', confidence: 0.55 };
     return { type: 'ignored', confidence: 1.0 };
   }
 
   // except: ... (ellipsis) → ignored
   if (children.length === 1 && children[0].type === 'expression_statement') {
     const text = source.substring(children[0].startIndex, children[0].endIndex).trim();
-    if (text === '...') return { type: 'ignored', confidence: 1.0 };
+    if (text === '...') {
+      if (isIntentionalNoopExcept(exceptNode, source)) return { type: 'wrapped', confidence: 0.55 };
+      return { type: 'ignored', confidence: 1.0 };
+    }
   }
 
   // Empty block
   if (children.length === 0) {
+    if (isIntentionalNoopExcept(exceptNode, source)) return { type: 'wrapped', confidence: 0.55 };
     return { type: 'ignored', confidence: 1.0 };
   }
 
@@ -106,6 +112,66 @@ function classifyPythonDisposition(
   }
 
   return { type: 'wrapped', confidence: 0.5 };
+}
+
+function isIntentionalNoopExcept(exceptNode: Parser.SyntaxNode, source: string): boolean {
+  const block = exceptNode.children.find((child) => child.type === 'block');
+  const headerEnd = block?.startIndex ?? exceptNode.endIndex;
+  const exceptTypes = parseExceptTypes(source.substring(exceptNode.startIndex, headerEnd));
+  if (exceptTypes.length === 0) return false;
+
+  const trySource = exceptNode.parent ? source.substring(exceptNode.parent.startIndex, exceptNode.startIndex) : '';
+  const tryBody = trySource
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#') && !/^try\s*:/.test(line));
+  const hasOnly = (allowed: readonly string[]) => exceptTypes.every((t) => allowed.includes(t));
+
+  if (hasOnly(['ProcessLookupError']) && tryBody.length === 1 && /\bos\.kill\s*\(/.test(tryBody[0])) return true;
+  if (hasOnly(['ChildProcessError']) && tryBody.length === 1 && /\bos\.waitpid\s*\(/.test(tryBody[0])) return true;
+  if (
+    hasOnly(['FileNotFoundError']) &&
+    tryBody.length === 1 &&
+    /\b(os\.)?(unlink|remove|rmdir)\s*\(/.test(tryBody[0])
+  ) {
+    return true;
+  }
+  if (hasOnly(['OSError']) && tryBody.length === 1 && /\bos\.close\s*\(/.test(tryBody[0])) return true;
+  if (
+    hasOnly(['OSError']) &&
+    tryBody.length > 0 &&
+    tryBody.every((line) => /^(\w+\s*=\s*)?fcntl\.fcntl\s*\(/.test(line))
+  ) {
+    return true;
+  }
+  if (hasOnly(['BrokenPipeError']) && tryBody.length === 1 && /\.(write|flush|close)\s*\(/.test(tryBody[0]))
+    return true;
+  if (
+    hasOnly(['AttributeError', 'ImportError', 'ValueError']) &&
+    tryBody.length === 1 &&
+    /\b(importlib|faulthandler\.register|signal\.SIG[A-Z0-9_]+|getattr|hasattr|ctypes|fcntl)\b/.test(tryBody[0])
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function parseExceptTypes(line: string): string[] {
+  const match = line.trim().match(/^except\s*(?:\(([\s\S]*?)\)|([A-Za-z_][\w.]*))?/);
+  if (!match) return [];
+  const raw = match[1] ?? match[2] ?? '';
+  return raw
+    .split(',')
+    .map(
+      (part) =>
+        part
+          .trim()
+          .replace(/\s+as\s+\w+$/, '')
+          .split('.')
+          .pop() ?? '',
+    )
+    .filter(Boolean);
 }
 
 function extractRaiseType(node: Parser.SyntaxNode): string | undefined {
