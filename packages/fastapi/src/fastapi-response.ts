@@ -62,6 +62,34 @@ export function rewriteFastAPIExpr(expr: string, pathParams: string[]): string {
   result = result.replace(/\bheaders\.([A-Za-z_][\w-]*)/g, (_m, key) => `request.headers.get("${key}")`);
   // effectName.result → effect_name (effect variables hold the result directly, snake_cased)
   result = result.replace(/\b([A-Za-z_]\w*)\.result\b/g, (_m, name) => toSnakeCase(name));
+
+  // ── JS-to-Python expression lowerings ─────────────────────────────────
+  // Apply array-method rewrites BEFORE strict-equality so predicates that
+  // contain `===` get rewritten cleanly even when nested in an arrow body
+  // (the arrow regex captures the body with `[^()]+` then we re-process
+  // it with the strict-equality pass).
+  // .filter((x) => pred) → [x for x in arr if pred]
+  result = result.replace(
+    /([\w.]+)\.filter\(\((\w+)\)\s*=>\s*([^()]+)\)/g,
+    (_m, arr, varName, pred) => `[${varName} for ${varName} in ${arr} if ${pred}]`,
+  );
+  // .map((x) => expr) → [expr for x in arr]
+  result = result.replace(
+    /([\w.]+)\.map\(\((\w+)\)\s*=>\s*([^()]+)\)/g,
+    (_m, arr, varName, body) => `[${body} for ${varName} in ${arr}]`,
+  );
+  // .find((x) => pred) → next((x for x in arr if pred), None)
+  result = result.replace(
+    /([\w.]+)\.find\(\((\w+)\)\s*=>\s*([^()]+)\)/g,
+    (_m, arr, varName, pred) => `next((${varName} for ${varName} in ${arr} if ${pred}), None)`,
+  );
+  // JS strict equality has no Python analog; Python `==` is value-equality
+  // which is the same semantic for the common cases KERN authors hit
+  // (typed numbers/strings, IR-shaped objects). Mapping `===`/`!==` to
+  // `==`/`!=` is safer than leaving the JS form which is a Python
+  // SyntaxError ("expression cannot contain assignment").
+  result = result.replace(/===/g, '==').replace(/!==/g, '!=');
+
   return result;
 }
 

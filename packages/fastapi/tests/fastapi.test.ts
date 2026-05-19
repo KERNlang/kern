@@ -2000,4 +2000,50 @@ describe('FastAPI Transpiler', () => {
       expect(content).toContain('return fetch_user');
     });
   });
+
+  // ── rewriteFastAPIExpr — JS-to-Python expression lowerings ─────────
+
+  describe('rewriteFastAPIExpr JS-to-Python lowerings', () => {
+    test('=== / !== lower to == / !=', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('item.role === "admin"', [])).toBe('item.role == "admin"');
+      expect(rewriteFastAPIExpr('user.id !== other.id', [])).toBe('user.id != other.id');
+      // Doesn't touch already-correct ==/!=
+      expect(rewriteFastAPIExpr('a == b', [])).toBe('a == b');
+    });
+
+    test('.filter((x) => pred) lowers to list comprehension', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('users.filter((u) => u.active)', [])).toBe('[u for u in users if u.active]');
+    });
+
+    test('.map((x) => expr) lowers to list comprehension', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('users.map((u) => u.name)', [])).toBe('[u.name for u in users]');
+    });
+
+    test('.find((x) => pred) lowers to next() with None default', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('users.find((u) => u.id == id)', [])).toBe(
+        'next((u for u in users if u.id == id), None)',
+      );
+    });
+
+    test('combined: .find with === lowers correctly (ordering invariant)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      // Arrow rewrite runs first; the inner `===` is then caught by the
+      // strict-equality pass on the rewritten predicate.
+      expect(rewriteFastAPIExpr('users.find((item) => item.id === id)', [])).toBe(
+        'next((item for item in users if item.id == id), None)',
+      );
+    });
+
+    test('arrows with multi-arg or nested calls fall through untouched', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      // Two-arg arrow — not lowered (the simple regex requires single arg)
+      expect(rewriteFastAPIExpr('arr.map((u, i) => u.name)', [])).toBe('arr.map((u, i) => u.name)');
+      // Nested call in predicate — not lowered (the regex predicate is paren-free)
+      expect(rewriteFastAPIExpr('arr.filter((x) => check(x))', [])).toBe('arr.filter((x) => check(x))');
+    });
+  });
 });
