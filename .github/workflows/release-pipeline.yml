@@ -141,8 +141,14 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout dev
-          git pull origin dev
+          # The publish/preflight checkout has local version edits from the
+          # earlier "Set package versions" step. Discard those CI-only edits
+          # before switching to dev; the same version bump is applied below
+          # and committed on dev intentionally.
+          git reset --hard HEAD
+          git clean -fd
+          git fetch origin dev
+          git checkout -B dev origin/dev
 
           tmp=$(mktemp)
           jq --arg v "$RELEASE_VERSION" '.version = $v' package.json > "$tmp"
