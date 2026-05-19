@@ -1719,6 +1719,479 @@ function reducerMutation(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule: effect-cleanup-called-immediately ─────────────────────────────
+// `useEffect(() => clearTimeout(id))` calls the cleanup during effect setup.
+// React expects a cleanup function: `useEffect(() => () => clearTimeout(id))`.
+
+const EFFECT_CLEANUP_CALLS = new Set(['clearTimeout', 'clearInterval', 'cancelAnimationFrame', 'cancelIdleCallback']);
+const EFFECT_CLEANUP_METHODS = new Set([
+  'removeEventListener',
+  'off',
+  'removeListener',
+  'unsubscribe',
+  'dispose',
+  'destroy',
+  'disconnect',
+  'close',
+]);
+
+function isCleanupCallExpression(node: Node | undefined): node is import('ts-morph').CallExpression {
+  if (!node || !Node.isCallExpression(node)) return false;
+  const callee = node.getExpression();
+  if (Node.isIdentifier(callee)) return EFFECT_CLEANUP_CALLS.has(callee.getText());
+  if (Node.isPropertyAccessExpression(callee)) return EFFECT_CLEANUP_METHODS.has(callee.getName());
+  return false;
+}
+
+function getImmediatelyReturnedCleanupCall(
+  callback: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
+): import('ts-morph').CallExpression | undefined {
+  const body = callback.getBody();
+  if (isCleanupCallExpression(body)) return body;
+  if (!Node.isBlock(body)) return undefined;
+
+  const statements = body.getStatements();
+  if (statements.length !== 1 || !Node.isReturnStatement(statements[0])) return undefined;
+  const returned = statements[0].getExpression();
+  return isCleanupCallExpression(returned) ? returned : undefined;
+}
+
+function effectCleanupCalledImmediately(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const calleeName = call.getExpression().getText().split('.').pop();
+    if (calleeName !== 'useEffect' && calleeName !== 'useLayoutEffect' && calleeName !== 'useInsertionEffect') continue;
+
+    const callback = call.getArguments()[0];
+    if (!Node.isArrowFunction(callback) && !Node.isFunctionExpression(callback)) continue;
+
+    const cleanupCall = getImmediatelyReturnedCleanupCall(callback);
+    if (!cleanupCall) continue;
+
+    findings.push(
+      finding(
+        'effect-cleanup-called-immediately',
+        'error',
+        'bug',
+        `${calleeName} returns the result of '${cleanupCall.getExpression().getText()}(...)' instead of a cleanup function — cleanup runs during setup`,
+        ctx.filePath,
+        cleanupCall.getStartLineNumber(),
+        1,
+        { suggestion: `Return a function: ${calleeName}(() => () => ${cleanupCall.getText()}, deps)` },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+function isReactClass(cls: import('ts-morph').ClassDeclaration): boolean {
+  const extendsText = cls.getExtends()?.getText() ?? '';
+  return /(?:^|\.)(?:Pure)?Component(?:<|$)/.test(extendsText);
+}
+
+function isLifecycleOrRenderMethod(name: string): boolean {
+  return /^(?:constructor|componentDidMount|componentDidUpdate|UNSAFE_componentWillMount|componentWillMount|render)$/.test(
+    name,
+  );
+}
+
+function getThisPropertyAssignmentToCall(
+  call: import('ts-morph').CallExpression,
+): { propText: string; assignment: import('ts-morph').BinaryExpression } | undefined {
+  const parent = call.getParent();
+  if (!parent || !Node.isBinaryExpression(parent)) return undefined;
+  if (parent.getOperatorToken().getKind() !== SyntaxKind.EqualsToken) return undefined;
+  if (parent.getRight() !== call) return undefined;
+  const left = parent.getLeft();
+  if (!Node.isPropertyAccessExpression(left)) return undefined;
+  if (left.getExpression().getKind() !== SyntaxKind.ThisKeyword) return undefined;
+  return { propText: left.getText(), assignment: parent };
+}
+
+function unmountCleansTimer(
+  cls: import('ts-morph').ClassDeclaration,
+  unmount: import('ts-morph').MethodDeclaration | undefined,
+  clearName: string,
+  propText: string,
+): boolean {
+  if (!unmount) return false;
+  const cleanupPattern = new RegExp(`\\b${escapeRegex(clearName)}\\s*\\(\\s*${escapeRegex(propText)}\\s*\\)`);
+  const windowCleanupPattern = new RegExp(
+    `\\bwindow\\s*\\.\\s*${escapeRegex(clearName)}\\s*\\(\\s*${escapeRegex(propText)}\\s*\\)`,
+  );
+  const unmountText = unmount.getBodyText() ?? '';
+  if (cleanupPattern.test(unmountText) || windowCleanupPattern.test(unmountText)) return true;
+
+  for (const method of cls.getMethods()) {
+    if (method === unmount) continue;
+    const methodText = method.getBodyText() ?? '';
+    if (!cleanupPattern.test(methodText) && !windowCleanupPattern.test(methodText)) continue;
+    const methodName = method.getName();
+    if (new RegExp(`\\bthis\\s*\\.\\s*${escapeRegex(methodName)}\\s*\\(`).test(unmountText)) return true;
+  }
+
+  return false;
+}
+
+function classTimerMissingUnmountCleanup(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const cls of ctx.sourceFile.getClasses()) {
+    if (!isReactClass(cls)) continue;
+    const unmount = cls.getInstanceMethod('componentWillUnmount');
+    const reported = new Set<string>();
+
+    const methodsAndConstructors = [...cls.getMethods(), ...cls.getConstructors()];
+    for (const method of methodsAndConstructors) {
+      const methodName = Node.isConstructorDeclaration(method) ? 'constructor' : method.getName();
+      if (!isLifecycleOrRenderMethod(methodName)) continue;
+      const body = method.getBody();
+      if (!body) continue;
+
+      for (const timerCall of body.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+        const timerName = timerCall.getExpression().getText();
+        if (
+          timerName !== 'setTimeout' &&
+          timerName !== 'setInterval' &&
+          timerName !== 'requestAnimationFrame' &&
+          timerName !== 'requestIdleCallback'
+        ) {
+          continue;
+        }
+        const assignment = getThisPropertyAssignmentToCall(timerCall);
+        if (!assignment) continue;
+        if (reported.has(assignment.propText)) continue;
+
+        const clearName =
+          timerName === 'setTimeout'
+            ? 'clearTimeout'
+            : timerName === 'setInterval'
+              ? 'clearInterval'
+              : timerName === 'requestAnimationFrame'
+                ? 'cancelAnimationFrame'
+                : 'cancelIdleCallback';
+        if (unmountCleansTimer(cls, unmount, clearName, assignment.propText)) continue;
+
+        reported.add(assignment.propText);
+        findings.push(
+          finding(
+            'class-timer-missing-unmount-cleanup',
+            'warning',
+            'bug',
+            `React class stores ${timerName} in '${assignment.propText}' but componentWillUnmount does not clear it`,
+            ctx.filePath,
+            timerCall.getStartLineNumber(),
+            1,
+            { suggestion: `Clear it in componentWillUnmount with ${clearName}(${assignment.propText}).` },
+          ),
+        );
+      }
+    }
+  }
+
+  return findings;
+}
+
+function collectModuleScopedTimerNames(ctx: RuleContext): Set<string> {
+  const names = new Set<string>();
+  for (const stmt of ctx.sourceFile.getVariableStatements()) {
+    const declKind = stmt.getDeclarationKind();
+    if (declKind !== 'let' && declKind !== 'var') continue;
+    for (const decl of stmt.getDeclarations()) {
+      const nameNode = decl.getNameNode();
+      if (!Node.isIdentifier(nameNode)) continue;
+      const name = nameNode.getText();
+      if (/(?:timer|timeout|interval)$/i.test(name) || /^(?:timer|timeout|interval)/i.test(name)) {
+        names.add(name);
+      }
+    }
+  }
+  return names;
+}
+
+function isInsideReactComponentOrClass(node: Node): boolean {
+  const cls = node.getFirstAncestorByKind(SyntaxKind.ClassDeclaration);
+  if (cls && isReactClass(cls)) return true;
+
+  let cur: Node | undefined = node.getParent();
+  while (cur) {
+    if (Node.isFunctionDeclaration(cur) && cur.getName() && /^[A-Z]/.test(cur.getName()!)) return true;
+    if (Node.isArrowFunction(cur) || Node.isFunctionExpression(cur)) {
+      const varDecl = cur.getFirstAncestorByKind(SyntaxKind.VariableDeclaration);
+      const nameNode = varDecl?.getNameNode();
+      if (nameNode && Node.isIdentifier(nameNode) && /^[A-Z]/.test(nameNode.getText())) return true;
+    }
+    cur = cur.getParent();
+  }
+  return false;
+}
+
+function moduleScopedTimerInComponent(ctx: RuleContext): ReviewFinding[] {
+  const timerNames = collectModuleScopedTimerNames(ctx);
+  if (timerNames.size === 0) return [];
+
+  const findings: ReviewFinding[] = [];
+  const reported = new Set<string>();
+
+  for (const bin of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
+    if (bin.getOperatorToken().getKind() !== SyntaxKind.EqualsToken) continue;
+    const left = bin.getLeft();
+    if (!Node.isIdentifier(left) || !timerNames.has(left.getText())) continue;
+    const right = bin.getRight();
+    if (!Node.isCallExpression(right)) continue;
+    const callee = right.getExpression().getText();
+    if (
+      callee !== 'setTimeout' &&
+      callee !== 'setInterval' &&
+      callee !== 'requestAnimationFrame' &&
+      callee !== 'requestIdleCallback'
+    ) {
+      continue;
+    }
+    if (!isInsideReactComponentOrClass(bin)) continue;
+
+    const name = left.getText();
+    if (reported.has(name)) continue;
+    reported.add(name);
+    findings.push(
+      finding(
+        'module-scoped-timer-in-component',
+        'warning',
+        'bug',
+        `Component writes ${callee} handle to module-scoped '${name}' — multiple component instances can overwrite each other's timer`,
+        ctx.filePath,
+        bin.getStartLineNumber(),
+        1,
+        {
+          suggestion: 'Store timer handles in useRef or an instance field so each component instance owns its cleanup.',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+function getPropertyAccessRootIdentifier(expr: Node): string | undefined {
+  let cur = expr;
+  while (Node.isPropertyAccessExpression(cur)) {
+    cur = cur.getExpression();
+  }
+  return Node.isIdentifier(cur) ? cur.getText() : undefined;
+}
+
+function hookLengthDependency(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const hookName = call.getExpression().getText().split('.').pop();
+    if (hookName !== 'useMemo' && hookName !== 'useCallback') continue;
+
+    const callback = call.getArguments()[0];
+    const deps = call.getArguments()[1];
+    if (
+      (!Node.isArrowFunction(callback) && !Node.isFunctionExpression(callback)) ||
+      !Node.isArrayLiteralExpression(deps)
+    ) {
+      continue;
+    }
+
+    const narrowDeps = new Map<string, string>();
+    const fullDeps = new Set<string>();
+    for (const dep of deps.getElements()) {
+      if (Node.isIdentifier(dep)) {
+        fullDeps.add(dep.getText());
+        continue;
+      }
+      if (!Node.isPropertyAccessExpression(dep) || (dep.getName() !== 'length' && dep.getName() !== 'size')) continue;
+      const root = getPropertyAccessRootIdentifier(dep);
+      if (root) narrowDeps.set(root, dep.getName());
+    }
+    for (const fullDep of fullDeps) narrowDeps.delete(fullDep);
+    if (narrowDeps.size === 0) continue;
+
+    const body = callback.getBody();
+    const shadowedDeps = new Set<string>();
+    for (const param of body.getDescendantsOfKind(SyntaxKind.Parameter)) {
+      const nameNode = param.getNameNode();
+      if (Node.isIdentifier(nameNode) && narrowDeps.has(nameNode.getText())) shadowedDeps.add(nameNode.getText());
+      for (const binding of nameNode.getDescendantsOfKind(SyntaxKind.BindingElement)) {
+        const bindingName = binding.getNameNode();
+        if (Node.isIdentifier(bindingName) && narrowDeps.has(bindingName.getText())) {
+          shadowedDeps.add(bindingName.getText());
+        }
+      }
+    }
+    for (const decl of body.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+      const nameNode = decl.getNameNode();
+      if (Node.isIdentifier(nameNode) && narrowDeps.has(nameNode.getText())) shadowedDeps.add(nameNode.getText());
+      for (const binding of nameNode.getDescendantsOfKind(SyntaxKind.BindingElement)) {
+        const bindingName = binding.getNameNode();
+        if (Node.isIdentifier(bindingName) && narrowDeps.has(bindingName.getText())) {
+          shadowedDeps.add(bindingName.getText());
+        }
+      }
+    }
+    for (const catchClause of body.getDescendantsOfKind(SyntaxKind.CatchClause)) {
+      const name = catchClause.getVariableDeclaration()?.getName();
+      if (name && narrowDeps.has(name)) shadowedDeps.add(name);
+    }
+    for (const shadowed of shadowedDeps) narrowDeps.delete(shadowed);
+    if (narrowDeps.size === 0) continue;
+
+    for (const id of body.getDescendantsOfKind(SyntaxKind.Identifier)) {
+      const name = id.getText();
+      const narrowProp = narrowDeps.get(name);
+      if (!narrowProp) continue;
+      const parent = id.getParent();
+      if (
+        parent &&
+        Node.isPropertyAccessExpression(parent) &&
+        parent.getExpression() === id &&
+        parent.getName() === narrowProp
+      ) {
+        continue;
+      }
+      if (parent && Node.isParameterDeclaration(parent)) continue;
+      if (parent && Node.isVariableDeclaration(parent) && parent.getNameNode() === id) continue;
+
+      findings.push(
+        finding(
+          'hook-length-dependency',
+          'warning',
+          'bug',
+          `${hookName} reads '${name}' but its dependency array only watches '${name}.${narrowProp}' — content changes with the same ${narrowProp} can leave stale memoized data`,
+          ctx.filePath,
+          deps.getStartLineNumber(),
+          1,
+          {
+            suggestion: `Depend on '${name}' itself, or derive a stable version/key that changes when the consumed content changes.`,
+          },
+        ),
+      );
+      break;
+    }
+  }
+
+  return findings;
+}
+
+const ARRAY_MUTATION_METHODS = new Set([
+  'sort',
+  'reverse',
+  'splice',
+  'copyWithin',
+  'fill',
+  'push',
+  'pop',
+  'shift',
+  'unshift',
+]);
+
+function collectFunctionComponentPropNames(
+  fn: import('ts-morph').FunctionDeclaration | import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
+): Set<string> {
+  const props = new Set<string>();
+  const firstParam = fn.getParameters()[0];
+  if (!firstParam) return props;
+  const nameNode = firstParam.getNameNode();
+  if (Node.isIdentifier(nameNode)) props.add(nameNode.getText());
+  if (Node.isObjectBindingPattern(nameNode)) {
+    for (const element of nameNode.getElements()) {
+      const elementName = element.getNameNode();
+      if (Node.isIdentifier(elementName)) props.add(elementName.getText());
+    }
+  }
+  return props;
+}
+
+function isPropDerivedArrayReceiver(receiver: Node, propNames: Set<string>): boolean {
+  if (Node.isIdentifier(receiver)) return propNames.has(receiver.getText());
+  if (!Node.isPropertyAccessExpression(receiver)) return false;
+  const text = receiver.getText();
+  if (/^(?:this\.)?props\./.test(text)) return true;
+  const root = getPropertyAccessRootIdentifier(receiver);
+  return Boolean(root && propNames.has(root));
+}
+
+function propsArrayMutatedInRender(ctx: RuleContext): ReviewFinding[] {
+  if (!isReactFile(ctx)) return [];
+  const findings: ReviewFinding[] = [];
+
+  function checkCall(
+    call: import('ts-morph').CallExpression,
+    propNames: Set<string>,
+    shadowedNames = new Set<string>(),
+  ) {
+    const callee = call.getExpression();
+    if (!Node.isPropertyAccessExpression(callee)) return;
+    const method = callee.getName();
+    if (!ARRAY_MUTATION_METHODS.has(method)) return;
+    const root = getPropertyAccessRootIdentifier(callee.getExpression());
+    if (root && shadowedNames.has(root)) return;
+    if (!isPropDerivedArrayReceiver(callee.getExpression(), propNames)) return;
+
+    findings.push(
+      finding(
+        'props-array-mutated-in-render',
+        'warning',
+        'bug',
+        `Render path calls mutating array method .${method}() on props-derived data — this mutates parent-owned data in place`,
+        ctx.filePath,
+        call.getStartLineNumber(),
+        1,
+        {
+          suggestion: `Clone before mutating, for example [...items].${method}(...), or use a non-mutating array helper.`,
+        },
+      ),
+    );
+  }
+
+  function collectShadowedNames(body: Node, propNames: Set<string>): Set<string> {
+    const shadowed = new Set<string>();
+    for (const decl of body.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+      const nameNode = decl.getNameNode();
+      if (Node.isIdentifier(nameNode) && propNames.has(nameNode.getText())) shadowed.add(nameNode.getText());
+    }
+    return shadowed;
+  }
+
+  for (const fn of ctx.sourceFile.getFunctions()) {
+    const name = fn.getName();
+    if (!name || !/^[A-Z]/.test(name)) continue;
+    const body = fn.getBody();
+    if (!body) continue;
+    const propNames = collectFunctionComponentPropNames(fn);
+    const shadowed = collectShadowedNames(body, propNames);
+    for (const call of body.getDescendantsOfKind(SyntaxKind.CallExpression)) checkCall(call, propNames, shadowed);
+  }
+
+  for (const stmt of ctx.sourceFile.getVariableStatements()) {
+    for (const decl of stmt.getDeclarations()) {
+      const nameNode = decl.getNameNode();
+      const init = decl.getInitializer();
+      if (!Node.isIdentifier(nameNode) || !/^[A-Z]/.test(nameNode.getText())) continue;
+      if (!init || (!Node.isArrowFunction(init) && !Node.isFunctionExpression(init))) continue;
+      const propNames = collectFunctionComponentPropNames(init);
+      const body = init.getBody();
+      const shadowed = collectShadowedNames(body, propNames);
+      for (const call of body.getDescendantsOfKind(SyntaxKind.CallExpression)) checkCall(call, propNames, shadowed);
+    }
+  }
+
+  for (const cls of ctx.sourceFile.getClasses()) {
+    if (!isReactClass(cls)) continue;
+    const render = cls.getInstanceMethod('render');
+    const body = render?.getBody();
+    if (!body) continue;
+    for (const call of body.getDescendantsOfKind(SyntaxKind.CallExpression)) checkCall(call, new Set(['props']));
+  }
+
+  return findings;
+}
+
 // ── Exported React Rules ─────────────────────────────────────────────────
 
 export const reactRules = [
@@ -1736,4 +2209,9 @@ export const reactRules = [
   clientOnly(refInRender),
   clientOnly(missingMemoDeps),
   clientOnly(reducerMutation),
+  clientOnly(effectCleanupCalledImmediately),
+  clientOnly(classTimerMissingUnmountCleanup),
+  clientOnly(moduleScopedTimerInComponent),
+  clientOnly(hookLengthDependency),
+  clientOnly(propsArrayMutatedInRender),
 ];

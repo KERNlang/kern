@@ -1361,6 +1361,291 @@ export function Component() {
       expect(finding).toBeUndefined();
     });
   });
+
+  // ── React/browser lifecycle footguns ──
+
+  describe('effect-cleanup-called-immediately', () => {
+    it('detects cleanup call returned directly from useEffect', () => {
+      const source = `
+import { useEffect } from 'react';
+export function Component({ id }: any) {
+  useEffect(() => clearTimeout(id), [id]);
+  return null;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'effect-cleanup-called-immediately');
+      expect(finding).toBeDefined();
+    });
+
+    it('does not flag cleanup function returned from useEffect', () => {
+      const source = `
+import { useEffect } from 'react';
+export function Component({ id }: any) {
+  useEffect(() => () => clearTimeout(id), [id]);
+  return null;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'effect-cleanup-called-immediately')).toBeUndefined();
+    });
+
+    it('detects cleanup call returned from block-body useEffect', () => {
+      const source = `
+import { useEffect } from 'react';
+export function Component({ id }: any) {
+  useEffect(() => {
+    return clearInterval(id);
+  }, [id]);
+  return null;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'effect-cleanup-called-immediately')).toBeDefined();
+    });
+
+    it('detects cleanup call returned directly from useInsertionEffect', () => {
+      const source = `
+import { useInsertionEffect } from 'react';
+export function Component({ id }: any) {
+  useInsertionEffect(() => cancelAnimationFrame(id), [id]);
+  return null;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'effect-cleanup-called-immediately')).toBeDefined();
+    });
+  });
+
+  describe('class-timer-missing-unmount-cleanup', () => {
+    it('detects class timer stored on this without unmount cleanup', () => {
+      const source = `
+import React from 'react';
+export class Component extends React.Component {
+  componentDidMount() {
+    this.timer = setTimeout(() => this.refresh(), 1000);
+  }
+  render() { return null; }
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'class-timer-missing-unmount-cleanup');
+      expect(finding).toBeDefined();
+    });
+
+    it('does not flag class timer cleared in componentWillUnmount', () => {
+      const source = `
+import React from 'react';
+export class Component extends React.Component {
+  componentDidMount() {
+    this.timer = setInterval(() => this.refresh(), 1000);
+  }
+  componentWillUnmount() {
+    clearInterval(this.timer);
+  }
+  render() { return null; }
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'class-timer-missing-unmount-cleanup')).toBeUndefined();
+    });
+
+    it('does not flag class timer cleared through helper called in componentWillUnmount', () => {
+      const source = `
+import React from 'react';
+export class Component extends React.Component {
+  componentDidMount() {
+    this.timer = setTimeout(() => this.refresh(), 1000);
+  }
+  cleanupTimer() {
+    window.clearTimeout(this.timer);
+  }
+  componentWillUnmount() {
+    this.cleanupTimer();
+  }
+  render() { return null; }
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'class-timer-missing-unmount-cleanup')).toBeUndefined();
+    });
+  });
+
+  describe('module-scoped-timer-in-component', () => {
+    it('detects component writing timer handle to module scope', () => {
+      const source = `
+import React from 'react';
+let hoverTimeout;
+export function Component() {
+  const onHover = () => {
+    hoverTimeout = setTimeout(() => {}, 100);
+  };
+  return <button onMouseEnter={onHover}>Hover</button>;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'module-scoped-timer-in-component');
+      expect(finding).toBeDefined();
+    });
+
+    it('does not flag useRef-owned timer handles', () => {
+      const source = `
+import { useRef } from 'react';
+export function Component() {
+  const hoverTimeout = useRef();
+  hoverTimeout.current = setTimeout(() => {}, 100);
+  return null;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'module-scoped-timer-in-component')).toBeUndefined();
+    });
+
+    it('detects module timer writes from nested handlers in arrow components', () => {
+      const source = `
+import React from 'react';
+let hoverTimeout;
+export const Component = () => {
+  const onHover = () => {
+    hoverTimeout = setTimeout(() => {}, 100);
+  };
+  return <button onMouseEnter={onHover}>Hover</button>;
+};
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'module-scoped-timer-in-component')).toBeDefined();
+    });
+  });
+
+  describe('hook-length-dependency', () => {
+    it('detects useMemo reading a collection while depending only on length', () => {
+      const source = `
+import { useMemo } from 'react';
+export function Component({ providers }: any) {
+  const value = useMemo(() => ({ providers }), [providers.length]);
+  return null;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'hook-length-dependency');
+      expect(finding).toBeDefined();
+    });
+
+    it('does not flag useMemo that only reads length', () => {
+      const source = `
+import { useMemo } from 'react';
+export function Component({ providers }: any) {
+  const count = useMemo(() => providers.length, [providers.length]);
+  return <span>{count}</span>;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'hook-length-dependency')).toBeUndefined();
+    });
+
+    it('does not flag when the full collection is also in deps', () => {
+      const source = `
+import { useMemo } from 'react';
+export function Component({ providers }: any) {
+  const rows = useMemo(() => providers.map(toRow), [providers, providers.length]);
+  return null;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'hook-length-dependency')).toBeUndefined();
+    });
+
+    it('does not flag shadowed callback variables with the same name', () => {
+      const source = `
+import { useMemo } from 'react';
+export function Component({ providers, rows }: any) {
+  const ids = useMemo(() => rows.map((providers) => providers.id), [providers.length, rows]);
+  return null;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'hook-length-dependency')).toBeUndefined();
+    });
+
+    it('detects useMemo reading a Set while depending only on size', () => {
+      const source = `
+import { useMemo } from 'react';
+export function Component({ selected }: any) {
+  const value = useMemo(() => Array.from(selected), [selected.size]);
+  return null;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'hook-length-dependency')).toBeDefined();
+    });
+  });
+
+  describe('props-array-mutated-in-render', () => {
+    it('detects mutating array methods on destructured props', () => {
+      const source = `
+import React from 'react';
+export function Component({ items }: any) {
+  const sorted = items.sort();
+  return <ul>{sorted.map((item) => <li key={item.id}>{item.name}</li>)}</ul>;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'props-array-mutated-in-render');
+      expect(finding).toBeDefined();
+    });
+
+    it('detects mutating array methods on this.props in class render', () => {
+      const source = `
+import React from 'react';
+export class Component extends React.Component {
+  render() {
+    return <div>{this.props.items.reverse().join(',')}</div>;
+  }
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'props-array-mutated-in-render')).toBeDefined();
+    });
+
+    it('does not flag cloned arrays sorted in render', () => {
+      const source = `
+import React from 'react';
+export function Component({ items }: any) {
+  const sorted = [...items].sort();
+  return <ul>{sorted.map((item) => <li key={item.id}>{item.name}</li>)}</ul>;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'props-array-mutated-in-render')).toBeUndefined();
+    });
+
+    it('detects push on props-derived arrays in render', () => {
+      const source = `
+import React from 'react';
+export function Component({ items }: any) {
+  items.push({ id: 'extra' });
+  return null;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'props-array-mutated-in-render')).toBeDefined();
+    });
+
+    it('does not flag shadowed prop names mutated in render', () => {
+      const source = `
+import React from 'react';
+export function Component({ items }: any) {
+  {
+    const items = [];
+    items.push('local');
+  }
+  return null;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'props-array-mutated-in-render')).toBeUndefined();
+    });
+  });
 });
 
 describe('Next.js Rules', () => {
