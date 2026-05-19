@@ -181,17 +181,24 @@ export function isUnsupportedJsHandlerBody(code: string): boolean {
     /\?\./.test(stripped) ||
     /\?\?/.test(stripped) ||
     /=>/.test(stripped) ||
-    /\b(?:const|let|var)\s+[\w$]+\s*=/.test(stripped) || // assignment form ($-identifiers included)
+    /\b(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=/.test(stripped) || // assignment form ($-identifiers; JS identifiers don't start with digits)
     /\b(?:const|let|var)\s+[{[]/.test(stripped) || // destructuring form
     /\bfor(?:\s+await)?\s*\(\s*(?:var|let|const)\s+/.test(stripped) || // for / for-await loop variant
     /\bnew\s+[\w$]+(?:\.[\w$]+)*\s*\(/.test(stripped) || // ctor with parens
     // `new Foo` without parens is also valid JS (e.g., `return new Date`)
-    // and produces SyntaxError in Python. Negative lookbehind `(?<!\bfor\s)`
-    // skips the Python idiom `for new in items:` where `new` is a loop
-    // variable name preceded by `for `. The `[A-Za-z_$]` first-char and
-    // mandatory `\s+` after `new` exclude things like `newvar = ...` and
-    // `lambda new: ...` (no whitespace after `new`).
-    /(?<!\bfor\s)\bnew\s+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\b/.test(stripped) ||
+    // and produces SyntaxError in Python. Two false-positive guards
+    // address review on fix-up 8 (Codex+Gemini, gemini-blocking):
+    //   1. Variable-width lookbehind `(?<!\bfor\s+)` — handles
+    //      `for  new in items:` with any whitespace between `for` and
+    //      `new` (was single-space only).
+    //   2. Negative lookahead for Python keywords after `new` — excludes
+    //      `new is None`, `new in items`, `new for x in seq`,
+    //      `new if cond else other`, `new and other`, `new or other`,
+    //      `new not other`. These are all valid Python where `new` is
+    //      a local variable name, not a JS construction.
+    /(?<!\bfor\s+)\bnew\s+(?!(?:is|in|for|if|else|and|or|not)\b)[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\b/.test(
+      stripped,
+    ) ||
     hasObjectShorthandOutsideStrings(code)
   );
 }

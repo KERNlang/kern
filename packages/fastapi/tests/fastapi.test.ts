@@ -2532,6 +2532,28 @@ describe('FastAPI Transpiler', () => {
       expect(isUnsupportedJsHandlerBody('return new foo.bar.Baz();')).toBe(true);
     });
 
+    test('Python idioms where `new` is a variable name do NOT false-positive (Codex+Gemini fix-up 8)', async () => {
+      const { isUnsupportedJsHandlerBody } = await import('../src/fastapi-raw-handler.js');
+      // All of these are valid Python where `new` is a local variable
+      // name followed by a Python keyword. Pre-fix-up-10: my no-parens
+      // `new IDENT` regex matched these as JS construction.
+      expect(isUnsupportedJsHandlerBody('if new is None:\n    return None')).toBe(false);
+      expect(isUnsupportedJsHandlerBody('if new in items:\n    return new')).toBe(false);
+      expect(isUnsupportedJsHandlerBody('return [new for new in items]')).toBe(false);
+      expect(isUnsupportedJsHandlerBody('return new if condition else old')).toBe(false);
+      expect(isUnsupportedJsHandlerBody('return new and other')).toBe(false);
+      expect(isUnsupportedJsHandlerBody('return new or other')).toBe(false);
+      expect(isUnsupportedJsHandlerBody('return new not other')).toBe(false);
+      // Multi-space lookbehind: `for  new in items:` (two spaces)
+      expect(isUnsupportedJsHandlerBody('for  new in items:\n    print(new)')).toBe(false);
+      expect(isUnsupportedJsHandlerBody('for\tnew\tin\titems:\n    print(new)')).toBe(false);
+      // `for old, new in items:` — multi-decl form; `new` followed by `in`
+      expect(isUnsupportedJsHandlerBody('for old, new in items:\n    print(new)')).toBe(false);
+      // …but actual JS `new Foo` (followed by IDENT not in Python kw set) still fires
+      expect(isUnsupportedJsHandlerBody('return new Foo')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('const d = new Date')).toBe(true);
+    });
+
     test('isUnsupportedJsHandlerBody catches for-await + $-identifiers + new-no-parens (Codex+Gemini fix-up 5)', async () => {
       const { isUnsupportedJsHandlerBody } = await import('../src/fastapi-raw-handler.js');
       // for await (streaming form — common in handler bodies)

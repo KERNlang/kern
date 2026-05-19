@@ -324,7 +324,18 @@ function isLowerableJsValueExpression(expr: string): boolean {
   // Python `for new in items:` false-positive (Codex+Gemini fix-up 5
   // review).
   if (/\bnew\s+[\w$]+(?:\.[\w$]+)*\s*\(/.test(stripped)) return false;
-  if (/(?<!\bfor\s)\bnew\s+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\b/.test(stripped)) return false;
+  // No-parens `new IDENT` form. Variable-width lookbehind handles
+  // `for  new in items:` with any whitespace between for/new. Negative
+  // lookahead excludes Python idioms `new is`, `new in`, `new for`,
+  // `new if`, `new else`, `new and`, `new or`, `new not` — all valid
+  // Python where `new` is a local variable name (Codex+Gemini fix-up
+  // 8 review).
+  if (
+    /(?<!\bfor\s+)\bnew\s+(?!(?:is|in|for|if|else|and|or|not)\b)[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\b/.test(
+      stripped,
+    )
+  )
+    return false;
   return true;
 }
 
