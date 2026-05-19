@@ -37,9 +37,9 @@ import {
   writeCoverageGaps,
 } from '@kernlang/core';
 import { transpileExpress } from '@kernlang/express';
-import { transpileFastAPI } from '@kernlang/fastapi';
 import { transpileMCP } from '@kernlang/mcp';
 import { transpile } from '@kernlang/native';
+import { transpileFastAPI } from '@kernlang/python';
 import { generateReactNode, isReactNode, transpileNextjs, transpileTailwind, transpileWeb } from '@kernlang/react';
 import { transpileInk, transpileTerminal } from '@kernlang/terminal';
 import { transpileNuxt, transpileVue } from '@kernlang/vue';

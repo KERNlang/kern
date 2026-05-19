@@ -6,7 +6,7 @@
     { "path": "packages/react" },
     { "path": "packages/native" },
     { "path": "packages/express" },
-    { "path": "packages/fastapi" },
+    { "path": "packages/python" },
     { "path": "packages/terminal" },
     { "path": "packages/metrics" },
     { "path": "packages/test" },

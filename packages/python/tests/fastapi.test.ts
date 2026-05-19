@@ -1809,6 +1809,61 @@ describe('FastAPI Transpiler', () => {
       // 'sorted' is a Python built-in → renamed to sorted_result
       expect(route!.content).toContain('sorted(sorted_result, key=lambda item: item.score)');
     });
+
+    test('branch.on={{...}} curly-expr form is unwrapped (regression)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/users',
+        '    derive role expr={{request.headers.get("x-role")}}',
+        '    branch name=byRole on={{role}}',
+        '      path value="admin"',
+        '        respond 200 json={"role": "admin"}',
+        '      path value="user"',
+        '        respond 200 json={"role": "user"}',
+        '    respond 404',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      const content = route!.content;
+      expect(content).not.toContain('[object Object]');
+      expect(content).toContain('if role == "admin"');
+    });
+
+    test('collect.from={{...}} curly-expr form is unwrapped (regression)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/items',
+        '    derive everything expr={{await db.all()}}',
+        '    collect name=top from={{everything}} where={{item.score > 10}} limit=5',
+        '    respond 200 json=top',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      const content = route!.content;
+      expect(content).not.toContain('[object Object]');
+      expect(content).toMatch(/top = everything/);
+    });
+
+    test('collect.order={{...}} curly-expr form is unwrapped (regression)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/items',
+        '    derive items expr={{await db.all()}}',
+        '    collect name=ranked from=items order={{item.score}}',
+        '    respond 200 json=ranked',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      const content = route!.content;
+      expect(content).not.toContain('[object Object]');
+      expect(content).toContain('sorted(ranked, key=lambda item: item.score)');
+    });
   });
 
   // ── Portable Effect — effect + trigger + recover ───────────────────
@@ -1864,6 +1919,327 @@ describe('FastAPI Transpiler', () => {
       expect(content).toContain('return load_data');
     });
 
+    test('effect.recover.fallback={{...}} curly-expr form is unwrapped (regression)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/users',
+        '    effect fetchUsers',
+        '      trigger expr={{await loadUsers()}}',
+        '      recover retry=2 fallback={{[]}}',
+        '    respond 200 json=fetchUsers.result',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      const content = route!.content;
+      expect(content).not.toContain('[object Object]');
+      expect(content).toMatch(/fetch_users = \[\]/);
+    });
+
+    test('effect.recover.fallback={{null}} curly-expr lowers to Python None', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/data',
+        '    effect loadData',
+        '      trigger expr={{await fetchData()}}',
+        '      recover fallback={{null}}',
+        '    respond 200 json=loadData.result',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      const content = route!.content;
+      expect(content).toContain('load_data = None');
+      expect(content).not.toContain('[object Object]');
+    });
+
+    test('effect.recover.fallback={{ true }} (with whitespace) maps to Python True (B4)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      // Pre-fix: lowerPropToPython compared `code === 'true'` without
+      // trimming, so the curly form `{{ true }}` (which yields code
+      // ' true ' with surrounding whitespace) bypassed the literal map
+      // and emitted bare `true` — a Python `NameError` at runtime.
+      const source = [
+        'server name=Test',
+        '  route GET /api/x',
+        '    effect e',
+        '      trigger expr={{await f()}}',
+        '      recover fallback={{ true }}',
+        '    respond 200 json=e.result',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('e = True');
+      expect(route!.content).not.toMatch(/\be = true\b/);
+    });
+
+    test('effect.recover.fallback=0 preserves the numeric primitive (Gemini B5)', async () => {
+      // Pre-fix: `fallback=0` (or `fallback=false` as a raw boolean
+      // prop, before stringification) flowed through extractCodeOrString
+      // → '' → lowerPropToPython → 'None'. Silent data-loss regression
+      // vs the original naked `String(...)` which preserved "0"/"false".
+      // Now extractCodeOrString preserves bare number/boolean primitives
+      // via String(...) fallback.
+      // (The KERN parser typically yields strings for bare unquoted
+      // values, but if numeric props arrive directly through programmatic
+      // IR construction we shouldn't silently swallow them.)
+      const { transpileFastAPI: tx } = await import('../src/transpiler-fastapi.js');
+      const ir = {
+        type: 'server',
+        props: { name: 'T' },
+        children: [
+          {
+            type: 'route',
+            props: { method: 'get', path: '/api/n' },
+            children: [
+              {
+                type: 'effect',
+                props: { name: 'e' },
+                children: [
+                  { type: 'trigger', props: { expr: { __expr: true, code: 'await f()' } } },
+                  { type: 'recover', props: { fallback: 0 } as any },
+                ],
+              },
+              { type: 'respond', props: { status: 200, json: 'e.result' } },
+            ],
+          },
+        ],
+      } as any;
+      const result = tx(ir);
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('e = 0');
+      expect(route!.content).not.toContain('e = None');
+    });
+
+    test('effect.recover.fallback=false (raw boolean IR prop) preserves False (Codex companion to B5)', async () => {
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const ir = {
+        type: 'server',
+        props: { name: 'T' },
+        children: [
+          {
+            type: 'route',
+            props: { method: 'get', path: '/api/b' },
+            children: [
+              {
+                type: 'effect',
+                props: { name: 'e' },
+                children: [
+                  { type: 'trigger', props: { expr: { __expr: true, code: 'await f()' } } },
+                  { type: 'recover', props: { fallback: false } as any },
+                ],
+              },
+              { type: 'respond', props: { status: 200, json: 'e.result' } },
+            ],
+          },
+        ],
+      } as any;
+      const result = transpileFastAPI(ir);
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      // Pre-B5-fix: `false` typeof boolean → extractCodeOrString returned ''
+      // → lowerPropToPython returned 'None'. Now preserved as 'False'.
+      expect(route!.content).toContain('e = False');
+      expect(route!.content).not.toContain('e = None');
+    });
+
+    test('collect.order=null suppresses sorted() emission (Codex BLOCKING on fix-up 6)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      // Pre-fix: order=null lowered to 'None' then emitted
+      // `sorted(items, key=lambda item: None)` — Python runtime TypeError.
+      // Now `null`/`undefined`/empty resolve to "absent" so `sorted()`
+      // isn't emitted at all.
+      const source = [
+        'server name=Test',
+        '  route GET /api/items',
+        '    derive items expr={{await db.all()}}',
+        '    collect name=ranked from=items order=null',
+        '    respond 200 json=ranked',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).not.toContain('sorted(');
+      expect(route!.content).not.toContain('key=lambda item: None');
+    });
+
+    test('collect.order={{null}} curly form also suppresses sorted()', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/items',
+        '    derive items expr={{await db.all()}}',
+        '    collect name=ranked from=items order={{null}}',
+        '    respond 200 json=ranked',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).not.toContain('sorted(');
+    });
+
+    test('JS literals preserved after `.` with whitespace (Codex fix-up 1 followup)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      // Pre-fix: `(?<!\.)` only checked the immediate previous char, so
+      // `obj . true` (whitespace between dot and keyword) still lowered
+      // to `obj . True` — Python SyntaxError. Now `(?<!\.\s*)` handles
+      // any whitespace between.
+      expect(rewriteFastAPIExpr('obj . true', [])).toBe('obj . true');
+      expect(rewriteFastAPIExpr('obj  .  null', [])).toBe('obj  .  null');
+      expect(rewriteFastAPIExpr('a.b . false', [])).toBe('a.b . false');
+    });
+
+    test('Python comment containing JS keywords does NOT false-positive (Codex fix-up 1 followup)', async () => {
+      const { isUnsupportedJsHandlerBody } = await import('../src/fastapi-raw-handler.js');
+      // Pre-fix: stripStringsForJsCheck only stripped strings, not
+      // comments. A Python comment mentioning JS keywords would still
+      // trip the `\bconst\s+\w+\s*=` regex.
+      expect(isUnsupportedJsHandlerBody('# const x = 1 is JS syntax\nreturn 42')).toBe(false);
+      expect(isUnsupportedJsHandlerBody('# uses res.json pattern in JS\nreturn {"ok": True}')).toBe(false);
+      expect(isUnsupportedJsHandlerBody('# arrow syntax: (x) => x\nreturn 1')).toBe(false);
+      expect(isUnsupportedJsHandlerBody('// JS-style comment about const x = 1\nreturn 1')).toBe(false);
+      expect(isUnsupportedJsHandlerBody('/* block: new Date() */\nreturn 1')).toBe(false);
+      // …but actual code outside comments still trips
+      expect(isUnsupportedJsHandlerBody('# a comment\nconst x = 1;\nreturn x')).toBe(true);
+    });
+
+    test('stripStringsForJsCheck preserves JS private fields (Codex fix-up 9 followup)', async () => {
+      const { stripStringsForJsCheck } = await import('../src/fastapi-raw-handler.js');
+      // Modern JS uses `#x` for private class fields. Treating `#` as
+      // a Python line comment unconditionally would hide `#x = 1` from
+      // the leak detector. The fix: `#` only starts a comment when
+      // not immediately followed by an identifier-start char.
+      expect(stripStringsForJsCheck('class Foo { #x = 1; }')).toBe('class Foo { #x = 1; }');
+      expect(stripStringsForJsCheck('this.#privateField = 42')).toBe('this.#privateField = 42');
+      // …Python comments still get stripped (space or other non-ident
+      // char after `#`).
+      expect(stripStringsForJsCheck('# this is a comment\nx = 1')).toMatch(/^_+\nx = 1$/);
+      // Standalone `#` at end of line — treated as comment-start since
+      // nothing follows (next is undefined).
+      expect(stripStringsForJsCheck('x = 1 #\ny = 2')).toMatch(/^x = 1 _\ny = 2$/);
+    });
+
+    test('stripStringsForJsCheck preserves Unicode / escape JS private fields (Codex+Gemini fix-up 11 followup)', async () => {
+      const { stripStringsForJsCheck } = await import('../src/fastapi-raw-handler.js');
+      // Unicode identifier start — `π` is a valid JS identifier char
+      // per `\p{ID_Start}`. Pre-fix-up-13: only ASCII letters / `_` /
+      // `$` were recognized, so `#π` was stripped as Python comment.
+      expect(stripStringsForJsCheck('class Greek { #π = 3.14; }')).toBe('class Greek { #π = 3.14; }');
+      // `\u`-escape identifier sequence: JS allows `#a` as a
+      // valid private field name (resolves to `#a`). Treat the leading
+      // `\` as private-field-start so the entire sequence stays visible
+      // to subsequent leak checks.
+      expect(stripStringsForJsCheck('class C { #\\u0061 = 1; }')).toBe('class C { #\\u0061 = 1; }');
+      // NOTE: emoji code points (e.g. U+1F600 😀) are NOT `ID_Start`,
+      // so `#\u{1F600}` is NOT a syntactically valid JS private field
+      // name. Codex fix-up 17 review correctly required the decoded
+      // codepoint be validated against `ID_Start`; this test now
+      // asserts the comment-strip behavior for invalid-start escapes.
+      expect(stripStringsForJsCheck('this.#\\u{1F600} = "emoji"')).not.toContain('#\\u{1F600}');
+    });
+
+    test('`#\\` only preserved when followed by a full \\u escape — fix-up 13 + 15 reviews', async () => {
+      const { stripStringsForJsCheck } = await import('../src/fastapi-raw-handler.js');
+      // Full Unicode-escape forms IS preserved as code:
+      expect(stripStringsForJsCheck('this.#\\u0061 = 1')).toContain('#\\u0061'); // 4-hex form (a = U+0061 is ID_Start)
+      // Codex fix-up 17 review: must validate the DECODED codepoint
+      // against ID_Start, not just the escape syntax. Examples below
+      // are syntactically-valid escapes that decode to non-ID_Start
+      // codepoints — they should strip as comments.
+      // U+0030 = '0' (digit, NOT ID_Start)
+      expect(stripStringsForJsCheck('x = 1 #\\u0030 zero')).toMatch(/^x = 1 _+$/);
+      // U+002D = '-' (hyphen, NOT ID_Start)
+      expect(stripStringsForJsCheck('x = 1 #\\u{2D} hyphen')).toMatch(/^x = 1 _+$/);
+      // U+1F600 = 😀 (emoji, Symbol_Other, NOT ID_Start)
+      expect(stripStringsForJsCheck('x = 1 #\\u{1F600} emoji')).toMatch(/^x = 1 _+$/);
+      // NOT escape sequences — strip as Python comment:
+      expect(stripStringsForJsCheck('x = 1 #\\d+ regex note')).toMatch(/^x = 1 _+$/);
+      expect(stripStringsForJsCheck('x = 1 #\\ note "quote"')).toMatch(/^x = 1 _+$/);
+      // The fix-up 15 regression: `#\update note` is a Python comment
+      // whose first non-`#` chars happen to be `\u` BUT don't form a
+      // valid Unicode escape (no hex follows). Codex fix-up 15 review.
+      expect(stripStringsForJsCheck('x = 1 #\\update note')).toMatch(/^x = 1 _+$/);
+      // Malformed braced form — `\u{XYZ}` has non-hex chars; fix-up 15
+      // suggested explicitly testing this.
+      expect(stripStringsForJsCheck('x = 1 #\\u{XYZ} not hex')).toMatch(/^x = 1 _+$/);
+      // Partial 4-hex (only 3 digits) is also not a valid escape.
+      expect(stripStringsForJsCheck('x = 1 #\\u123 partial')).toMatch(/^x = 1 _+$/);
+    });
+
+    test('stripStringsForJsCheck handles non-BMP Unicode identifier (Gemini fix-up 13)', async () => {
+      const { stripStringsForJsCheck } = await import('../src/fastapi-raw-handler.js');
+      // `𐐀` (U+10400 DESERET CAPITAL LETTER LONG I) is a non-BMP
+      // ID_Start codepoint. Pre-fix-up-15: single-code-unit `next`
+      // contained only the high surrogate (`\uD801`) which fails the
+      // `\p{ID_Start}` test, so this `#𐐀` would have been stripped
+      // as Python comment. Now uses slice + anchored regex.
+      expect(stripStringsForJsCheck('class C { #𐐀 = 1; }')).toBe('class C { #𐐀 = 1; }');
+    });
+
+    test('collect.order={{...}} curly form routes through lowerPropToPython too (Gemini fix-up 6)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      // Pre-fix-up-6: order used extractCodeOrString → bypassed the JS-
+      // literal map → `order={{null}}` would emit `sorted(items, key=lambda
+      // item: null)` (Python NameError). Now routes through
+      // lowerPropToPython for consistency with from/limit.
+      const source = [
+        'server name=Test',
+        '  route GET /api/items',
+        '    derive items expr={{await db.all()}}',
+        '    collect name=ranked from=items order={{params.sortKey}}',
+        '    respond 200 json=ranked',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      const content = route!.content;
+      // params.sortKey → sortKey (query param rewrite)
+      expect(content).toContain('sorted(ranked, key=lambda item: sortKey)');
+      // No [object Object] or double-rewrite artifacts
+      expect(content).not.toContain('[object Object]');
+    });
+
+    test('collect.limit={{...}} curly form routes through lowerPropToPython (Gemini M3)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/items',
+        '    derive everything expr={{await db.all()}}',
+        '    collect name=top from=everything where={{item.score > 10}} limit={{params.max}}',
+        '    respond 200 json=top',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      const content = route!.content;
+      expect(content).not.toContain('[object Object]');
+      // params.max → max (query/path param rewrite via rewriteFastAPIExpr)
+      expect(content).toMatch(/\[:max\]/);
+    });
+
+    test('effect.recover.fallback={{true}} / {{false}} lowers to Python True / False', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      for (const [literal, expected] of [
+        ['{{true}}', 'True'],
+        ['{{false}}', 'False'],
+      ] as const) {
+        const source = [
+          'server name=Test',
+          '  route GET /api/data',
+          '    effect loadData',
+          '      trigger expr={{await fetchData()}}',
+          `      recover fallback=${literal}`,
+          '    respond 200 json=loadData.result',
+        ].join('\n');
+        const result = transpileFastAPI(parse(source));
+        const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+        expect(route!.content).toContain(`load_data = ${expected}`);
+      }
+    });
+
     test('effect with expr trigger rewrites portable refs', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
@@ -1886,6 +2262,525 @@ describe('FastAPI Transpiler', () => {
       // .result stripped
       expect(content).toContain('if not (fetch_user)');
       expect(content).toContain('return fetch_user');
+    });
+  });
+
+  // ── rewriteFastAPIExpr — JS-to-Python expression lowerings ─────────
+
+  describe('rewriteFastAPIExpr JS-to-Python lowerings', () => {
+    test('=== / !== lower to == / !=', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('item.role === "admin"', [])).toBe('item.role == "admin"');
+      expect(rewriteFastAPIExpr('user.id !== other.id', [])).toBe('user.id != other.id');
+      // Doesn't touch already-correct ==/!=
+      expect(rewriteFastAPIExpr('a == b', [])).toBe('a == b');
+    });
+
+    test('.filter((x) => pred) lowers to list comprehension', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('users.filter((u) => u.active)', [])).toBe('[u for u in users if u.active]');
+    });
+
+    test('.map((x) => expr) lowers to list comprehension', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('users.map((u) => u.name)', [])).toBe('[u.name for u in users]');
+    });
+
+    test('.find((x) => pred) lowers to next() with None default', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('users.find((u) => u.id == id)', [])).toBe(
+        'next((u for u in users if u.id == id), None)',
+      );
+    });
+
+    test('combined: .find with === lowers correctly (ordering invariant)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      // Arrow rewrite runs first; the inner `===` is then caught by the
+      // strict-equality pass on the rewritten predicate.
+      expect(rewriteFastAPIExpr('users.find((item) => item.id === id)', [])).toBe(
+        'next((item for item in users if item.id == id), None)',
+      );
+    });
+
+    test('arrows with multi-arg fall through untouched', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      // Two-arg arrow — not lowered (the simple regex requires single arg)
+      expect(rewriteFastAPIExpr('arr.map((u, i) => u.name)', [])).toBe('arr.map((u, i) => u.name)');
+    });
+
+    test('=== / !== are skipped when inside string literals (Codex P2)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('label = "use === for strict equality"', [])).toBe(
+        'label = "use === for strict equality"',
+      );
+      expect(rewriteFastAPIExpr("msg = 'a !== b'", [])).toBe("msg = 'a !== b'");
+      // Mixed — the in-string text is preserved, the out-of-string operator IS rewritten
+      expect(rewriteFastAPIExpr('cond = a === b && label === "x !== y"', [])).toBe(
+        'cond = a == b && label == "x !== y"',
+      );
+    });
+
+    test('chained .filter().map() rewrites fully (Gemini #2)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('users.filter((u) => u.active).map((u) => u.name)', [])).toBe(
+        '[u.name for u in [u for u in users if u.active]]',
+      );
+    });
+
+    test('arrow predicate with one level of nested parens (Gemini #3)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('users.filter((u) => (u.age > 18))', [])).toBe('[u for u in users if (u.age > 18)]');
+    });
+
+    test('undefined / null lower to None outside strings (Gemini #4)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('x === undefined', [])).toBe('x == None');
+      expect(rewriteFastAPIExpr('x !== null', [])).toBe('x != None');
+      // …and `undefined`/`null` inside strings are preserved
+      expect(rewriteFastAPIExpr('reason = "undefined behavior"', [])).toBe('reason = "undefined behavior"');
+      expect(rewriteFastAPIExpr('msg = "null pointer"', [])).toBe('msg = "null pointer"');
+    });
+
+    test('true / false lower to True / False outside strings', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('enabled = true', [])).toBe('enabled = True');
+      expect(rewriteFastAPIExpr('flag = false', [])).toBe('flag = False');
+      expect(rewriteFastAPIExpr('msg = "set to true"', [])).toBe('msg = "set to true"');
+    });
+
+    test('backtick template literals are skipped by ===/!== rewrite (Codex+Gemini B3)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      // Pre-fix: STRICT_EQ_RE only consumed " and ' strings; backticks
+      // were not part of the alternation so `===` inside backticks got
+      // mangled to `==`.
+      expect(rewriteFastAPIExpr('msg = `use === for strict equality`', [])).toBe('msg = `use === for strict equality`');
+      expect(rewriteFastAPIExpr('msg = `a !== b`', [])).toBe('msg = `a !== b`');
+    });
+
+    test('JS literals preserved inside backtick template literals (B3 cont.)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('s = `undefined behavior`', [])).toBe('s = `undefined behavior`');
+      expect(rewriteFastAPIExpr('s = `set to true`', [])).toBe('s = `set to true`');
+    });
+
+    test('JS literals skipped when used as property access (Codex+Gemini B2)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      // `obj.true` etc. would lower to `obj.True`, which is a Python
+      // `SyntaxError` (True/False/None are reserved words and cannot
+      // appear after a `.`). Skip the rewrite when preceded by `.`.
+      expect(rewriteFastAPIExpr('obj.true', [])).toBe('obj.true');
+      expect(rewriteFastAPIExpr('obj.null', [])).toBe('obj.null');
+      expect(rewriteFastAPIExpr('obj.undefined', [])).toBe('obj.undefined');
+      expect(rewriteFastAPIExpr('obj.false', [])).toBe('obj.false');
+      // …but a bare token after a non-dot still lowers
+      expect(rewriteFastAPIExpr('x = true', [])).toBe('x = True');
+      // …and a token after a dotted access (`obj.x.true` ?) actually
+      // this would still be a property access — preserve.
+      expect(rewriteFastAPIExpr('a.b.true', [])).toBe('a.b.true');
+    });
+  });
+
+  // ── Raw-JS handler guard — portable + stream paths ─────────────────
+
+  describe('Raw-JS handler guard (Python target)', () => {
+    test('portable child handler with raw JS body emits NotImplementedError, not raw JS', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route POST /api/providers/test',
+        '    guard expr={{registry.get(body.id)}}',
+        '      error status=404 message="Provider not found"',
+        '    handler <<<',
+        '      const provider = registry.get(req.body.id);',
+        '      const result = await provider.test();',
+        '      res.json({ ok: true, message: result });',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('providers_test'));
+      const content = route!.content;
+      // Must NOT contain the raw JS that previously leaked
+      expect(content).not.toMatch(/const\s+provider\s*=/);
+      expect(content).not.toContain('res.json');
+      // Must contain the foreign-bailout stub
+      expect(content).toContain('raise NotImplementedError("Unsupported raw JavaScript handler syntax');
+    });
+
+    test('stream handler with raw JS body emits NotImplementedError inside event_generator', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route POST /api/review',
+        '    stream',
+        '      handler <<<',
+        '        const abortController = new AbortController();',
+        '        res.on("close", () => abortController.abort());',
+        '      >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post_api_review'));
+      const content = route!.content;
+      expect(content).toContain('async def event_generator():');
+      expect(content).not.toMatch(/const\s+abortController/);
+      expect(content).toContain('raise NotImplementedError("Unsupported raw JavaScript handler syntax');
+    });
+
+    test('res.json({ ... new Date() ... }) rejected by lowerer; falls back to NotImplementedError (Bug E)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/health',
+        '    handler <<<',
+        "      res.json({ status: 'ok', timestamp: new Date().toISOString() });",
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('get_api_health'));
+      const content = route!.content;
+      // The pre-fix output was `return { "status": 'ok', "timestamp": new Date().toISOString() }`
+      // which is a Python SyntaxError ('new' is not a keyword, juxtaposed names invalid).
+      // Now the lowerer recognizes `new X(...)` as un-lowerable and falls through
+      // to the JS-detection guard, which emits NotImplementedError.
+      expect(content).not.toMatch(/new\s+Date/);
+      expect(content).toContain('raise NotImplementedError("Unsupported raw JavaScript handler syntax');
+    });
+
+    test('res.json({ status: "ok", count: 42 }) without new-keyword still lowers cleanly', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/info',
+        '    handler <<<',
+        "      res.json({ status: 'ok', count: 42 });",
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('get_api_info'));
+      const content = route!.content;
+      // Clean lowering still works — keys quoted, no NotImplementedError fallback.
+      expect(content).toContain('"status"');
+      expect(content).toContain('"count": 42');
+      expect(content).not.toContain('NotImplementedError');
+    });
+
+    test('stream handler with JS body emits NotImplementedError OUTSIDE async-for (B7)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      // Spawn-stream variant: pre-fix, the raise sat INSIDE
+      // `async for chunk in process.stdout:` so if the subprocess
+      // produced no stdout the error never fired. Now the check
+      // hoists the raise to the `if process.stdout:` branch so the
+      // error path is deterministic.
+      const source = [
+        'server name=Test',
+        '  route POST /api/spawn',
+        '    stream',
+        '      spawn binary="echo" args="hello"',
+        '        on name=stdout',
+        '          handler <<<',
+        '            const x = JSON.parse(chunk);',
+        '            res.write(x);',
+        '          >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post_api_spawn'));
+      const content = route!.content;
+      // The raise must appear, AND must not be nested inside the async-for body
+      // (12-space indent inside `if process.stdout:`, not 16-space inside the for-body).
+      expect(content).toContain('raise NotImplementedError("Unsupported raw JavaScript handler syntax');
+      // Verify the raise is at the `if process.stdout:` indent level, not deeper:
+      const lines = content.split('\n');
+      const raiseLine = lines.find((l: string) => l.includes('raise NotImplementedError'));
+      expect(raiseLine).toBeDefined();
+      // Indent should be exactly 12 spaces (one level inside `if process.stdout:`),
+      // not 16 (which would be inside the async-for body).
+      expect(raiseLine!.startsWith('            raise')).toBe(true);
+      expect(raiseLine!.startsWith('                raise')).toBe(false);
+    });
+
+    test('effect.trigger precedence restored: query wins over url when both present (B8)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      // Pre-Step-5 precedence was expr > query > url > call. My Step 5
+      // commit silently flipped it to expr > url > query > call. Now restored.
+      const source = [
+        'server name=Test',
+        '  route GET /api/users',
+        '    effect fetchUsers',
+        '      trigger query="SELECT * FROM users" url="/legacy"',
+        '    respond 200 json=fetchUsers.result',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('get_api_users'));
+      const content = route!.content;
+      // Query selected → emitted unquoted (legacy SQL-expression behavior).
+      expect(content).toContain('fetch_users = SELECT * FROM users');
+      // url ignored when query also present.
+      expect(content).not.toContain('"/legacy"');
+    });
+
+    test('effect.trigger.url="" empty string emits "" not falls through to call (B9)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/empty',
+        '    effect e',
+        '      trigger url="" call="fallback()"',
+        '    respond 200 json=e.result',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      const content = route!.content;
+      // Pre-fix: url="" was falsy, so triggerExpr fell through to call → fallback().
+      // Now: url is present (even empty) → emit "" string literal.
+      expect(content).toContain('e = ""');
+      expect(content).not.toContain('fallback()');
+    });
+
+    test('effect.trigger.url string-prop emits as Python string literal (Bug C)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/users',
+        '    effect fetchUsers',
+        '      trigger url="/api/users"',
+        '    respond 200 json=fetchUsers.result',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('get_api_users'));
+      const content = route!.content;
+      // Previously emitted bare `/api/users` (Python parses `=` then `/` as
+      // binary division → SyntaxError). Now wrapped as Python string literal.
+      expect(content).toContain('fetch_users = "/api/users"');
+      expect(content).not.toMatch(/=\s+\/api/);
+    });
+
+    test('clean Python handler body passes through unchanged (no false-positive guard)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/health',
+        '    handler lang="python" <<<',
+        '      return {"ok": True}',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('health'));
+      // Clean Python body — should NOT trip the guard
+      expect(route!.content).not.toContain('NotImplementedError');
+      expect(route!.content).toContain('return {"ok": True}');
+    });
+
+    test('isUnsupportedJsHandlerBody catches destructuring + for-loop variants (Codex+Gemini M1)', async () => {
+      const { isUnsupportedJsHandlerBody } = await import('../src/fastapi-raw-handler.js');
+      // Destructuring assignments — not valid Python.
+      expect(isUnsupportedJsHandlerBody('const { id } = req.body;')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('let [a, b] = arr;')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('var { x, y } = obj;')).toBe(true);
+      // for-loop variants — not valid Python.
+      expect(isUnsupportedJsHandlerBody('for (var x of list) { console.log(x); }')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('for (let key in obj) { ... }')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('for (const item of items) { ... }')).toBe(true);
+      // Python `for var in items:` is NOT flagged — `var`/`let`/`const`
+      // are Python identifiers there, not declaration keywords. The
+      // pattern requires `for (` (JS-style parens) so this is unambiguous.
+      expect(isUnsupportedJsHandlerBody('for var in items:\n    print(var)')).toBe(false);
+      expect(isUnsupportedJsHandlerBody('for let in things:\n    pass')).toBe(false);
+    });
+
+    test('isUnsupportedJsHandlerBody catches non-PascalCase `new` ctors (Gemini+Codex M2)', async () => {
+      const { isUnsupportedJsHandlerBody } = await import('../src/fastapi-raw-handler.js');
+      expect(isUnsupportedJsHandlerBody('const x = new error("oops");')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('return new lowerctor();')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('const d = new globalThis.Date();')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('return new foo.bar.Baz();')).toBe(true);
+    });
+
+    test('Python idioms where `new` is a variable name do NOT false-positive (Codex+Gemini fix-up 8)', async () => {
+      const { isUnsupportedJsHandlerBody } = await import('../src/fastapi-raw-handler.js');
+      // All of these are valid Python where `new` is a local variable
+      // name followed by a Python keyword. Pre-fix-up-10: my no-parens
+      // `new IDENT` regex matched these as JS construction.
+      expect(isUnsupportedJsHandlerBody('if new is None:\n    return None')).toBe(false);
+      expect(isUnsupportedJsHandlerBody('if new in items:\n    return new')).toBe(false);
+      expect(isUnsupportedJsHandlerBody('return [new for new in items]')).toBe(false);
+      expect(isUnsupportedJsHandlerBody('return new if condition else old')).toBe(false);
+      expect(isUnsupportedJsHandlerBody('return new and other')).toBe(false);
+      expect(isUnsupportedJsHandlerBody('return new or other')).toBe(false);
+      // `new not in items` — Python's negated-membership operator `not in`
+      // (NOT `X not Y` which is invalid Python syntax). Codex caught the
+      // earlier `return new not other` assertion as testing invalid Python.
+      expect(isUnsupportedJsHandlerBody('if new not in items:\n    return new')).toBe(false);
+      // `return new\nfoo = 1` — `new` is a Python variable on its own line,
+      // next statement is independent. The newline-cross newline case
+      // codex flagged on fix-up 10.
+      expect(isUnsupportedJsHandlerBody('return new\nfoo = 1')).toBe(false);
+      // `return new\nDate()` IS valid Python (two statements: `return
+      // new` then independent `Date()`), so we keep horizontal-only
+      // whitespace on the parens-form regex too — Python correctness
+      // wins over the JS edge case where someone formats `new\nDate()`
+      // across lines. Codex fix-up 14 review marked the cross-newline
+      // match BLOCKING for Python safety.
+      expect(isUnsupportedJsHandlerBody('return new\nDate()')).toBe(false);
+      // `const d = new\nFoo.Bar()` IS still flagged — but via the `const X =`
+      // JS assignment detection, not the `new` regex. The `new` cross-newline
+      // suppression only affects the standalone `new IDENT(...)` form.
+      expect(isUnsupportedJsHandlerBody('const d = new\nFoo.Bar()')).toBe(true);
+      // Multi-space lookbehind: `for  new in items:` (two spaces)
+      expect(isUnsupportedJsHandlerBody('for  new in items:\n    print(new)')).toBe(false);
+      expect(isUnsupportedJsHandlerBody('for\tnew\tin\titems:\n    print(new)')).toBe(false);
+      // `for old, new in items:` — multi-decl form; `new` followed by `in`
+      expect(isUnsupportedJsHandlerBody('for old, new in items:\n    print(new)')).toBe(false);
+      // …but actual JS `new Foo` (followed by IDENT not in Python kw set) still fires
+      expect(isUnsupportedJsHandlerBody('return new Foo')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('const d = new Date')).toBe(true);
+    });
+
+    test('isUnsupportedJsHandlerBody catches for-await + $-identifiers + new-no-parens (Codex+Gemini fix-up 5)', async () => {
+      const { isUnsupportedJsHandlerBody } = await import('../src/fastapi-raw-handler.js');
+      // for await (streaming form — common in handler bodies)
+      expect(isUnsupportedJsHandlerBody('for await (const chunk of stream) { process(chunk); }')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('for await (let x of s) ...')).toBe(true);
+      // $ in identifiers
+      expect(isUnsupportedJsHandlerBody('const $el = document.querySelector("x");')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('let _$state = init();')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('var $$ = 1;')).toBe(true);
+      // `new` without parens — also valid JS, also SyntaxError in Python
+      expect(isUnsupportedJsHandlerBody('return new Date;')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('const d = new globalThis.Date\nconst e = 1')).toBe(true);
+      // Python idiom `for new in items:` is NOT flagged (the `new` is a
+      // loop variable name preceded by `for `, so negative lookbehind
+      // suppresses the no-parens `new`-keyword match).
+      expect(isUnsupportedJsHandlerBody('for new in items:\n    print(new)')).toBe(false);
+    });
+
+    test('Python body containing JS keywords inside strings does NOT false-positive (Codex B6)', async () => {
+      const { isUnsupportedJsHandlerBody } = await import('../src/fastapi-raw-handler.js');
+      // Pre-fix: `\bconst\s+\w+\s*=` regex matched the inner text of the
+      // Python string literal and emitted NotImplementedError for an
+      // otherwise-valid Python body.
+      expect(isUnsupportedJsHandlerBody('msg = "const x = 1 is JS syntax"; return msg')).toBe(false);
+      expect(isUnsupportedJsHandlerBody('label = "uses res.json pattern in JS"; return label')).toBe(false);
+      expect(isUnsupportedJsHandlerBody("tip = 'use => for arrows in JS'; return tip")).toBe(false);
+      // …but real JS keywords outside strings still trip the guard
+      expect(isUnsupportedJsHandlerBody('const x = 1; return x')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('return res.json({ok: true})')).toBe(true);
+    });
+
+    test('isLowerableJsValueExpression: `new\\nFoo()` in expression context IS rejected (Codex fix-up 16)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      // Codex fix-up 16: in expression context (the X in `res.json(X)`),
+      // there are no statement boundaries — `new\nDate()` is
+      // unambiguously JS construction, NOT two Python statements.
+      // The handler-body guard's horizontal-only restriction would
+      // weaken expression-level JS detection.
+      const source = [
+        'server name=Test',
+        '  route GET /api/info',
+        '    handler <<<',
+        '      res.json({ x: new',
+        '        Date() });',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('get_api_info'));
+      expect(route!.content).toContain('NotImplementedError');
+    });
+
+    test('isLowerableJsValueExpression: no-parens `new\\nDate` in payload also rejected (Gemini fix-up 18)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      // Gemini fix-up 18 caught that I'd relaxed only the parens-form
+      // regex in expression context; the no-parens form `new\nDate`
+      // (no trailing parens) was still horizontal-only, so this
+      // multiline form slipped the guard. Now both forms use `\s+`
+      // in expression scope.
+      const source = [
+        'server name=Test',
+        '  route GET /api/noparens',
+        '    handler <<<',
+        '      res.json({ x: new',
+        '        Date });',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('get_api_noparens'));
+      expect(route!.content).toContain('NotImplementedError');
+    });
+
+    test('isLowerableJsValueExpression: single-line `new Date()` payload still rejected', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/single',
+        '    handler <<<',
+        '      res.json({ x: new Date() });',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('get_api_single'));
+      expect(route!.content).toContain('NotImplementedError');
+    });
+
+    test('isLowerableJsValueExpression: `new` inside string literals does not reject (Codex B10)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/info',
+        '    handler <<<',
+        "      res.json({ status: 'example: new Date() pattern', count: 42 });",
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('get_api_info'));
+      const content = route!.content;
+      // Pre-fix: `\bnew\s+[A-Z]` regex matched inside the quoted string
+      // and emitted NotImplementedError. Now the check strips string
+      // contents first, so this lowers cleanly.
+      expect(content).not.toContain('NotImplementedError');
+      expect(content).toContain('"status"');
+      expect(content).toContain('"count": 42');
+    });
+
+    test('isLowerableJsValueExpression: non-PascalCase `new foo()` also rejected (Gemini+Codex M2)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/lowercase',
+        '    handler <<<',
+        '      res.json({ x: new lowerctor() });',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('get_api_lowercase'));
+      // Pre-fix: PascalCase-only constraint missed lowercase ctors → invalid Python.
+      expect(route!.content).toContain('raise NotImplementedError');
+    });
+
+    test('isLowerableJsValueExpression: namespaced `new foo.Bar()` also rejected (M2 cont.)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/namespaced',
+        '    handler <<<',
+        '      res.json({ x: new globalThis.Date() });',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('get_api_namespaced'));
+      expect(route!.content).toContain('raise NotImplementedError');
     });
   });
 });

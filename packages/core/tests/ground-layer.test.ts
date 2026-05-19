@@ -628,10 +628,10 @@ describe('Disambiguation', () => {
 describe('Python Ground Layer', () => {
   // These test the Python generators directly
   // We import from the fastapi package
-  let pyGen: typeof import('../../fastapi/src/codegen-python.js');
+  let pyGen: typeof import('../../python/src/codegen-python.js');
 
   beforeAll(async () => {
-    pyGen = await import('../../fastapi/src/codegen-python.js');
+    pyGen = await import('../../python/src/codegen-python.js');
   });
 
   it('derive generates Python assignment', () => {
@@ -743,10 +743,10 @@ describe('Python Ground Layer', () => {
 });
 
 describe('Python Confidence Layer', () => {
-  let pyGen: typeof import('../../fastapi/src/codegen-python.js');
+  let pyGen: typeof import('../../python/src/codegen-python.js');
 
   beforeAll(async () => {
-    pyGen = await import('../../fastapi/src/codegen-python.js');
+    pyGen = await import('../../python/src/codegen-python.js');
   });
 
   it('emitPyReasonAnnotations emits # @confidence from prop', () => {

@@ -10,6 +10,12 @@ import type { IRNode, SourceMapEntry } from '@kernlang/core';
 import { getChildren, getFirstChild, getProps } from '@kernlang/core';
 import { emitNativeKernBodyPythonWithImports } from './codegen-body-python.js';
 import { generatePortableHandlerFastAPI } from './fastapi-portable.js';
+import {
+  hasObjectShorthandOutsideStrings,
+  isUnsupportedJsHandlerBody,
+  stripStringsForJsCheck,
+  unsupportedRawHandlerBody,
+} from './fastapi-raw-handler.js';
 import type { RouteArtifactRef, RouteCapabilities } from './fastapi-types.js';
 import { HTTP_METHODS } from './fastapi-types.js';
 import {
@@ -81,11 +87,21 @@ export function generateStreamRoute(
       if (stdoutHandler) {
         const stdoutHandlerNode = getFirstChild(stdoutHandler, 'handler');
         const stdoutCode = stdoutHandlerNode ? String(getProps(stdoutHandlerNode).code || '') : '';
-        lines.push(`            async for chunk in process.stdout:`);
-        if (stdoutCode) {
-          lines.push(...indentHandler(stdoutCode, '                '));
+        // B7 (Codex review on 4115c0bb): if the stdout handler body is
+        // un-lowerable JS, hoist the NotImplementedError OUTSIDE the
+        // `async for chunk in process.stdout` loop. Inside the loop the
+        // raise would never fire if the subprocess emits zero stdout
+        // — silent failure. Failing fast at the generator's `if
+        // process.stdout:` branch makes the error path deterministic.
+        if (stdoutCode && isUnsupportedJsHandlerBody(stdoutCode)) {
+          lines.push(...unsupportedRawHandlerBody('            '));
         } else {
-          lines.push(`                yield f"data: {chunk.decode()}\\n\\n"`);
+          lines.push(`            async for chunk in process.stdout:`);
+          if (stdoutCode) {
+            lines.push(...indentHandler(stdoutCode, '                '));
+          } else {
+            lines.push(`                yield f"data: {chunk.decode()}\\n\\n"`);
+          }
         }
       } else {
         lines.push(`            async for chunk in process.stdout:`);
@@ -99,7 +115,11 @@ export function generateStreamRoute(
       lines.push(`        # timeout: ${timeoutSec}s`);
     }
   } else if (handlerCode) {
-    lines.push(...indentHandler(handlerCode, '        '));
+    if (isUnsupportedJsHandlerBody(handlerCode)) {
+      lines.push(...unsupportedRawHandlerBody('        '));
+    } else {
+      lines.push(...indentHandler(handlerCode, '        '));
+    }
   } else {
     lines.push(`        yield "data: [DONE]\\n\\n"`);
   }
@@ -280,58 +300,66 @@ function lowerJsValueExpressionForPython(expr: string): string {
   return quoteObjectKeysOutsideStrings(replaceJsLiteralsOutsideStrings(expr.trim().replace(/;$/, '')));
 }
 
-function hasObjectShorthandOutsideStrings(expr: string): boolean {
-  let index = 0;
-  let quote: '"' | "'" | '`' | null = null;
-  let escaped = false;
-
-  while (index < expr.length) {
-    const char = expr[index];
-    if (quote) {
-      if (escaped) {
-        escaped = false;
-      } else if (char === '\\') {
-        escaped = true;
-      } else if (char === quote) {
-        quote = null;
-      }
-      index += 1;
-      continue;
-    }
-    if (char === '"' || char === "'" || char === '`') {
-      quote = char;
-      index += 1;
-      continue;
-    }
-    if (char !== '{' && char !== ',') {
-      index += 1;
-      continue;
-    }
-    index += 1;
-    while (index < expr.length && /\s/.test(expr[index])) index += 1;
-    if (index >= expr.length || !/[A-Za-z_$]/.test(expr[index])) continue;
-    index += 1;
-    while (index < expr.length && /[\w$]/.test(expr[index])) index += 1;
-    while (index < expr.length && /\s/.test(expr[index])) index += 1;
-    if (expr[index] === ',' || expr[index] === '}') return true;
-  }
-
-  return false;
-}
-
-function isUnsupportedJsHandlerBody(code: string): boolean {
-  return (
-    /\bres\./.test(code) ||
-    /`/.test(code) ||
-    /\?\./.test(code) ||
-    /\?\?/.test(code) ||
-    /=>/.test(code) ||
-    hasObjectShorthandOutsideStrings(code)
-  );
-}
-
-function unsupportedRawHandlerBody(indent: string): string[] {
-  return [`${indent}raise NotImplementedError("Unsupported raw JavaScript handler syntax for FastAPI target")`];
+// Whether a JS value expression is safe to lower into Python via the
+// literal/key-quote passes alone. Rejects constructs the lowerers don't
+// understand — backtick template literals, object-property shorthand,
+// and JS `new X(...)` construction (Python has no `new` keyword, so it
+// becomes `SyntaxError` on `ast.parse`).
+function isLowerableJsValueExpression(expr: string): boolean {
+  // Run keyword checks on a string-stripped view so a payload like
+  // `{ msg: "example: new Date()" }` (where `new Date()` appears only
+  // inside a string literal) doesn't false-positive. Codex flagged the
+  // raw-text scan on commit 85593a3f.
+  const stripped = stripStringsForJsCheck(expr);
+  // Backticks inside strings are stripped to `_`; an unmatched backtick
+  // outside strings (i.e., a JS template literal) survives.
+  if (/`/.test(stripped)) return false;
+  if (hasObjectShorthandOutsideStrings(expr)) return false;
+  // JS construction `new Date()`, `new AbortController()`, etc.
+  // Drop the PascalCase constraint per Gemini+Codex review on ae9663cf
+  // / 85593a3f — `new foo()`, `new globalThis.Date()`, etc. are all
+  // un-lowerable. Match any identifier (possibly dotted) following
+  // `new`. Two variants: with parens (`new X(...)`) and without
+  // (`new X` — valid JS, invalid Python). Negative lookbehind avoids
+  // Python `for new in items:` false-positive (Codex+Gemini fix-up 5
+  // review).
+  // Parens form: allow newlines (`\s+` instead of horizontal-only).
+  //
+  // CRITICAL distinction from `isUnsupportedJsHandlerBody`:
+  // `isLowerableJsValueExpression` is called on EXPRESSION content
+  // (e.g., the JSON payload of `res.json({...})`), not on full handler
+  // bodies. In expression context, there are no statement boundaries —
+  // a Python-valid construct like `return new\nDate()` (two statements)
+  // simply does not occur here. The expression IS one syntactic unit.
+  //
+  // So `new\nDate()` inside an expression payload is unambiguously JS
+  // construction; the Python statement-cross argument used in the
+  // handler-body guard doesn't apply. Codex fix-up 16 review flagged
+  // that my fix-up 16 over-corrected by applying statement-level
+  // reasoning to this expression-level gate.
+  if (/\bnew\s+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*\(/.test(stripped)) return false;
+  // No-parens `new IDENT` form. Same asymmetric reasoning as the
+  // parens form above: this is an EXPRESSION-level gate (`res.json(X)`
+  // payload), so `new\nDate` is unambiguously JS construction — no
+  // statement boundaries within X. Use `\s+` (newlines OK).
+  // Gemini fix-up 18 review pointed out that I'd only relaxed the
+  // parens form, leaving this no-parens form horizontal-only by
+  // accident — a false-negative for `res.json({ x: new\nDate })`.
+  //
+  // The negative lookahead still excludes Python idioms `new is`,
+  // `new in`, `new for`, etc. — those checks are language-content,
+  // not whitespace-shape, so they remain.
+  //
+  // Lookbehind kept on `\bfor\s+` (with `\s+`, not `[^\S\r\n]+`) so
+  // newline-separated `for new` patterns also get the Python-idiom
+  // suppression in expression context.
+  if (
+    /(?<!\bfor\s+)\bnew\s+(?!(?:is|in|for|if|else|and|or|not)\b)[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\b/.test(
+      stripped,
+    )
+  )
+    return false;
+  return true;
 }
 
 function lowerRawHandlerBodyForPython(code: string, indent: string, imports: Set<string>): string[] | null {
@@ -342,7 +370,7 @@ function lowerRawHandlerBodyForPython(code: string, indent: string, imports: Set
     statement.match(/^(?:return\s+)?res\.status\((\d+)\)\.json\(([\s\S]*)\);?$/) ??
     statement.match(/^(?:return\s+)?response\.status\((\d+)\)\.json\(([\s\S]*)\);?$/);
   if (statusJson) {
-    if (!statusJson[2].trim() || statusJson[2].includes('`') || hasObjectShorthandOutsideStrings(statusJson[2])) {
+    if (!statusJson[2].trim() || !isLowerableJsValueExpression(statusJson[2])) {
       return null;
     }
     imports.add('from fastapi.responses import JSONResponse');
@@ -353,13 +381,13 @@ function lowerRawHandlerBodyForPython(code: string, indent: string, imports: Set
 
   const json = statement.match(/^(?:return\s+)?res\.json\(([\s\S]*)\);?$/);
   if (json) {
-    if (!json[1].trim() || json[1].includes('`') || hasObjectShorthandOutsideStrings(json[1])) return null;
+    if (!json[1].trim() || !isLowerableJsValueExpression(json[1])) return null;
     return [`${indent}return ${lowerJsValueExpressionForPython(json[1])}`];
   }
 
   const directReturn = statement.match(/^return\s+([\s\S]*?);?$/);
   if (directReturn) {
-    if (directReturn[1].includes('`') || hasObjectShorthandOutsideStrings(directReturn[1])) return null;
+    if (!isLowerableJsValueExpression(directReturn[1])) return null;
     return [`${indent}return ${lowerJsValueExpressionForPython(directReturn[1])}`];
   }
 

@@ -1,4 +1,4 @@
-# @kernlang/fastapi
+# @kernlang/python
 
 ## Unreleased
 

@@ -6,6 +6,7 @@ import { reviewSource } from '../src/index.js';
 import type { ReviewConfig } from '../src/types.js';
 
 const expressConfig: ReviewConfig = { target: 'express' };
+const nextConfig: ReviewConfig = { target: 'nextjs' };
 
 // ── xss-unsafe-html ──────────────────────────────────────────────────
 
@@ -869,6 +870,42 @@ try {
     const f = report.findings.find((f) => f.ruleId === 'error-leak');
     expect(f).toBeUndefined();
   });
+
+  it('detects raw error object in Web Response.json(error)', () => {
+    const source = `
+export async function POST() {
+  try {
+    await doWork();
+    return Response.json({ ok: true });
+  } catch (error) {
+    return Response.json(error, { status: 500 });
+  }
+}
+`;
+    const report = reviewSource(source, 'app/api/work/route.ts', nextConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+  });
+
+  it('detects exception messages in NextResponse.json(...) as warning', () => {
+    const source = `
+import { NextResponse } from 'next/server';
+
+export async function GET() {
+  try {
+    await doWork();
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    return NextResponse.json({ message: err.message }, { status: 500 });
+  }
+}
+`;
+    const report = reviewSource(source, 'app/api/work/route.ts', nextConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('warning');
+  });
 });
 
 // ── bearer-token-literal ──────────────────────────────────────────────
@@ -1096,5 +1133,84 @@ async function call(req: Request): Promise<void> {
     const report = reviewSource(source, 'api.ts');
     const f = report.findings.find((f) => f.ruleId === 'bearer-token-literal');
     expect(f).toBeDefined();
+  });
+});
+
+// ── redirect-non-3xx-status ────────────────────────────────────────────
+
+describe('redirect-non-3xx-status', () => {
+  it('fires on Express and Next pages API redirect calls with a non-3xx status', () => {
+    const source = `
+export default function handler(req: any, res: any): void {
+  res.redirect(401, '/login');
+}
+`;
+    const report = reviewSource(source, 'pages/api/login.ts');
+    const f = report.findings.find((f) => f.ruleId === 'redirect-non-3xx-status');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('warning');
+    expect(f!.message).toContain('401');
+  });
+
+  it('fires when a redirect helper receives a non-3xx second status argument', () => {
+    const source = `
+import { NextResponse } from 'next/server';
+export function GET(): Response {
+  return NextResponse.redirect('/login', 401);
+}
+`;
+    const report = reviewSource(source, 'route.ts');
+    const f = report.findings.find((f) => f.ruleId === 'redirect-non-3xx-status');
+    expect(f).toBeDefined();
+  });
+
+  it('fires on standard Response.redirect with a non-3xx status', () => {
+    const source = `
+export function loader(): Response {
+  return Response.redirect('/login', 401);
+}
+`;
+    const report = reviewSource(source, 'loader.ts');
+    const f = report.findings.find((f) => f.ruleId === 'redirect-non-3xx-status');
+    expect(f).toBeDefined();
+  });
+
+  it('fires when a redirect helper receives a non-3xx status init object', () => {
+    const source = `
+import { redirect } from '@remix-run/node';
+export function loader(): Response {
+  return redirect('/login', { status: 401 });
+}
+`;
+    const report = reviewSource(source, 'loader.ts');
+    const f = report.findings.find((f) => f.ruleId === 'redirect-non-3xx-status');
+    expect(f).toBeDefined();
+  });
+
+  it('does not fire on redirect calls with 3xx statuses or implicit defaults', () => {
+    const source = `
+export function handler(req: any, res: any): void {
+  res.redirect(302, '/login');
+  res.redirect('/dashboard');
+  NextResponse.redirect('/new-url', 308);
+  redirect('/login', { status: 303 });
+}
+`;
+    const report = reviewSource(source, 'redirects.ts');
+    const f = report.findings.find((f) => f.ruleId === 'redirect-non-3xx-status');
+    expect(f).toBeUndefined();
+  });
+
+  it('does not fire on unrelated redirect-named APIs', () => {
+    const source = `
+import { redirect } from './state-machine';
+export function update(machine: any): void {
+  machine.redirect('archived', 409);
+  redirect('archived', { status: 409 });
+}
+`;
+    const report = reviewSource(source, 'workflow.ts');
+    const f = report.findings.find((f) => f.ruleId === 'redirect-non-3xx-status');
+    expect(f).toBeUndefined();
   });
 });

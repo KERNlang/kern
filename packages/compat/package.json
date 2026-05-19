@@ -44,7 +44,7 @@
     "@kernlang/cli": "workspace:*",
     "@kernlang/terminal": "workspace:*",
     "@kernlang/vue": "workspace:*",
-    "@kernlang/fastapi": "workspace:*",
+    "@kernlang/python": "workspace:*",
     "@kernlang/metrics": "workspace:*"
   }
 }

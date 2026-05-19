@@ -106,6 +106,65 @@ describe('Security v2 Rules', () => {
       expect(f.length).toBeGreaterThanOrEqual(1);
       expect(f.some((x) => x.message.includes('httpOnly: false'))).toBe(true);
     });
+
+    it('flags NextResponse auth cookies without security options', () => {
+      const source = `
+        import { NextResponse } from 'next/server';
+
+        export async function POST() {
+          const response = NextResponse.json({ ok: true });
+          response.cookies.set('session_token', token);
+          return response;
+        }
+      `;
+      const report = reviewSource(source, 'app/api/login/route.ts');
+      const f = report.findings.filter((f) => f.ruleId === 'cookie-hardening');
+      expect(f.length).toBeGreaterThanOrEqual(1);
+      expect(f[0].severity).toBe('error');
+    });
+
+    it('flags cookies().set object form missing secure flags', () => {
+      const source = `
+        import { cookies } from 'next/headers';
+
+        export async function login() {
+          cookies().set({ name: 'refresh_token', value: token, httpOnly: true });
+        }
+      `;
+      const report = reviewSource(source, 'app/actions.ts');
+      const f = report.findings.filter((f) => f.ruleId === 'cookie-hardening');
+      expect(f.length).toBeGreaterThanOrEqual(1);
+      expect(f[0].message).toContain('secure');
+    });
+
+    it('flags assigned Next cookies store missing security options', () => {
+      const source = `
+        import { cookies } from 'next/headers';
+
+        export async function login() {
+          const cookieStore = cookies();
+          cookieStore.set('session_token', token);
+        }
+      `;
+      const report = reviewSource(source, 'app/actions.ts');
+      const f = report.findings.filter((f) => f.ruleId === 'cookie-hardening');
+      expect(f.length).toBeGreaterThanOrEqual(1);
+      expect(f[0].severity).toBe('error');
+    });
+
+    it('flags awaited Next cookies store missing security options', () => {
+      const source = `
+        import { cookies } from 'next/headers';
+
+        export async function login() {
+          (await cookies()).set('refresh_token', token, { httpOnly: true });
+        }
+      `;
+      const report = reviewSource(source, 'app/actions.ts');
+      const f = report.findings.filter((f) => f.ruleId === 'cookie-hardening');
+      expect(f.length).toBeGreaterThanOrEqual(1);
+      expect(f[0].message).toContain('secure');
+    });
   });
 
   // ── csrf-detection ─────────────────────────────────────────────────────
@@ -133,6 +192,436 @@ describe('Security v2 Rules', () => {
       const report = reviewSource(source, 'api.ts');
       const f = report.findings.filter((f) => f.ruleId === 'csrf-detection');
       expect(f.length).toBe(0);
+    });
+  });
+
+  // ── browser-storage-json-parse-unguarded ───────────────────────────────
+
+  describe('browser-storage-json-parse-unguarded', () => {
+    it('flags JSON.parse(localStorage.getItem()) outside try/catch', () => {
+      const source = `
+        export function readPrefs() {
+          return JSON.parse(localStorage.getItem('prefs') || '{}');
+        }
+      `;
+      const report = reviewSource(source, 'prefs.ts');
+      const f = report.findings.find((f) => f.ruleId === 'browser-storage-json-parse-unguarded');
+      expect(f).toBeDefined();
+    });
+
+    it('flags JSON.parse(sessionStorage.getItem()) outside try/catch', () => {
+      const source = `
+        export function readDraft() {
+          return JSON.parse(window.sessionStorage.getItem('draft'));
+        }
+      `;
+      const report = reviewSource(source, 'draft.ts');
+      const f = report.findings.find((f) => f.ruleId === 'browser-storage-json-parse-unguarded');
+      expect(f).toBeDefined();
+    });
+
+    it('does not flag browser storage parsing inside try/catch', () => {
+      const source = `
+        export function readPrefs() {
+          try {
+            return JSON.parse(localStorage.getItem('prefs') || '{}');
+          } catch {
+            return {};
+          }
+        }
+      `;
+      const report = reviewSource(source, 'prefs.ts');
+      expect(report.findings.find((f) => f.ruleId === 'browser-storage-json-parse-unguarded')).toBeUndefined();
+    });
+
+    it('flags asserted browser storage parsing outside try/catch', () => {
+      const source = `
+        export function readPrefs() {
+          return JSON.parse((localStorage.getItem('prefs') || '{}') as string);
+        }
+      `;
+      const report = reviewSource(source, 'prefs.ts');
+      expect(report.findings.find((f) => f.ruleId === 'browser-storage-json-parse-unguarded')).toBeDefined();
+    });
+
+    it('flags browser storage parsing in deferred callbacks despite outer try/catch', () => {
+      const source = `
+        export function readLater() {
+          try {
+            setTimeout(() => JSON.parse(localStorage.getItem('prefs') || '{}'), 0);
+          } catch {}
+        }
+      `;
+      const report = reviewSource(source, 'prefs.ts');
+      expect(report.findings.find((f) => f.ruleId === 'browser-storage-json-parse-unguarded')).toBeDefined();
+    });
+
+    it('flags browser storage parsing inside conditional expressions', () => {
+      const source = `
+        export function readPrefs(enabled: boolean) {
+          return JSON.parse(enabled ? localStorage.getItem('prefs') : '{}');
+        }
+      `;
+      const report = reviewSource(source, 'prefs.ts');
+      expect(report.findings.find((f) => f.ruleId === 'browser-storage-json-parse-unguarded')).toBeDefined();
+    });
+  });
+
+  // ── postmessage-wildcard-target ───────────────────────────────────────
+
+  describe('postmessage-wildcard-target', () => {
+    it('flags wildcard postMessage targetOrigin', () => {
+      const source = `
+        export function send(frame: HTMLIFrameElement) {
+          frame.contentWindow?.postMessage({ type: 'ready' }, '*');
+        }
+      `;
+      const report = reviewSource(source, 'frame.ts');
+      const f = report.findings.find((f) => f.ruleId === 'postmessage-wildcard-target');
+      expect(f).toBeDefined();
+    });
+
+    it('does not flag exact postMessage targetOrigin', () => {
+      const source = `
+        export function send(frame: HTMLIFrameElement) {
+          frame.contentWindow?.postMessage({ type: 'ready' }, 'https://example.com');
+        }
+      `;
+      const report = reviewSource(source, 'frame.ts');
+      expect(report.findings.find((f) => f.ruleId === 'postmessage-wildcard-target')).toBeUndefined();
+    });
+
+    it('flags global and top postMessage wildcard targets', () => {
+      const source = `
+        export function send() {
+          postMessage({ type: 'ready' }, '*');
+          window.top?.postMessage({ type: 'ready' }, '*');
+          window.parent.postMessage({ type: 'ready' }, '*');
+          popup.opener.postMessage({ type: 'ready' }, '*');
+        }
+      `;
+      const report = reviewSource(source, 'frame.ts');
+      const findings = report.findings.filter((f) => f.ruleId === 'postmessage-wildcard-target');
+      expect(findings.length).toBeGreaterThanOrEqual(4);
+    });
+
+    it('does not flag a locally defined postMessage helper', () => {
+      const source = `
+        function postMessage(channel: string, target: string) {}
+        export function send() {
+          postMessage('internal', '*');
+        }
+      `;
+      const report = reviewSource(source, 'queue.ts');
+      expect(report.findings.find((f) => f.ruleId === 'postmessage-wildcard-target')).toBeUndefined();
+    });
+  });
+
+  // ── postmessage-missing-target-origin ─────────────────────────────────
+
+  describe('postmessage-missing-target-origin', () => {
+    it('flags postMessage without targetOrigin', () => {
+      const source = `
+        export function send() {
+          window.parent.postMessage({ type: 'ready' });
+        }
+      `;
+      const report = reviewSource(source, 'frame.ts');
+      expect(report.findings.find((f) => f.ruleId === 'postmessage-missing-target-origin')).toBeDefined();
+    });
+
+    it('does not flag postMessage with exact targetOrigin', () => {
+      const source = `
+        export function send() {
+          window.parent.postMessage({ type: 'ready' }, 'https://example.com');
+        }
+      `;
+      const report = reviewSource(source, 'frame.ts');
+      expect(report.findings.find((f) => f.ruleId === 'postmessage-missing-target-origin')).toBeUndefined();
+    });
+
+    it('does not flag a local postMessage helper without targetOrigin', () => {
+      const source = `
+        function postMessage(message: unknown) {}
+        export function send() {
+          postMessage({ type: 'ready' });
+        }
+      `;
+      const report = reviewSource(source, 'queue.ts');
+      expect(report.findings.find((f) => f.ruleId === 'postmessage-missing-target-origin')).toBeUndefined();
+    });
+
+    it('does not flag bare worker postMessage without targetOrigin', () => {
+      const source = `
+        export function sendToMain() {
+          postMessage({ type: 'ready' });
+        }
+      `;
+      const report = reviewSource(source, 'app.worker.ts');
+      expect(report.findings.find((f) => f.ruleId === 'postmessage-missing-target-origin')).toBeUndefined();
+    });
+
+    it('flags nullish postMessage targetOrigin', () => {
+      const source = `
+        export function send() {
+          window.parent.postMessage({ type: 'ready' }, undefined);
+        }
+      `;
+      const report = reviewSource(source, 'frame.ts');
+      expect(report.findings.find((f) => f.ruleId === 'postmessage-missing-target-origin')).toBeDefined();
+    });
+  });
+
+  // ── html-string-target-blank-noopener ─────────────────────────────────
+
+  describe('html-string-target-blank-noopener', () => {
+    it('flags HTML string target blank without rel noopener', () => {
+      const source = `
+        export const link = '<a href="https://example.com" target="_blank">open</a>';
+      `;
+      const report = reviewSource(source, 'messages.ts');
+      expect(report.findings.find((f) => f.ruleId === 'html-string-target-blank-noopener')).toBeDefined();
+    });
+
+    it('does not flag HTML string target blank with noopener', () => {
+      const source = `
+        export const link = '<a href="https://example.com" target="_blank" rel="noopener noreferrer">open</a>';
+      `;
+      const report = reviewSource(source, 'messages.ts');
+      expect(report.findings.find((f) => f.ruleId === 'html-string-target-blank-noopener')).toBeUndefined();
+    });
+
+    it('flags template HTML string target blank without rel noopener', () => {
+      const source = `
+        export function link(url: string) {
+          return \`<a href="\${url}" target="_blank">open</a>\`;
+        }
+      `;
+      const report = reviewSource(source, 'messages.ts');
+      expect(report.findings.find((f) => f.ruleId === 'html-string-target-blank-noopener')).toBeDefined();
+    });
+
+    it('does not flag target blank strings in test files', () => {
+      const source = `
+        export const fixture = '<a href="https://example.com" target="_blank">open</a>';
+      `;
+      const report = reviewSource(source, 'component.test.ts');
+      expect(report.findings.find((f) => f.ruleId === 'html-string-target-blank-noopener')).toBeUndefined();
+    });
+  });
+
+  // ── client-open-redirect-from-query ────────────────────────────────────
+
+  describe('client-open-redirect-from-query', () => {
+    it('flags query parameter assigned to location.href', () => {
+      const source = `
+        export function finish() {
+          const params = new URLSearchParams(window.location.search);
+          const next = params.get('redirect');
+          if (next) window.location.href = next;
+        }
+      `;
+      const report = reviewSource(source, 'redirect.ts');
+      const f = report.findings.find((f) => f.ruleId === 'client-open-redirect-from-query');
+      expect(f).toBeDefined();
+    });
+
+    it('flags direct query parameter passed to location.replace', () => {
+      const source = `
+        export function finish() {
+          window.location.replace(new URLSearchParams(location.search).get('next'));
+        }
+      `;
+      const report = reviewSource(source, 'redirect.ts');
+      const f = report.findings.find((f) => f.ruleId === 'client-open-redirect-from-query');
+      expect(f).toBeDefined();
+    });
+
+    it('flags asserted and fallback query parameter redirects', () => {
+      const source = `
+        export function finish() {
+          const params = new URLSearchParams(window.location.search);
+          const next = params.get('redirect') || '/';
+          window.location.href = next as string;
+        }
+      `;
+      const report = reviewSource(source, 'redirect.ts');
+      const f = report.findings.find((f) => f.ruleId === 'client-open-redirect-from-query');
+      expect(f).toBeDefined();
+    });
+
+    it('flags direct assignment to window.location from query params', () => {
+      const source = `
+        export function finish() {
+          window.location = new URLSearchParams(location.search).get('next') as any;
+        }
+      `;
+      const report = reviewSource(source, 'redirect.ts');
+      const f = report.findings.find((f) => f.ruleId === 'client-open-redirect-from-query');
+      expect(f).toBeDefined();
+    });
+
+    it('flags chained query param transforms before redirect', () => {
+      const source = `
+        export function finish() {
+          const params = new URLSearchParams(window.location.search);
+          const next = params.get('redirect')?.trim();
+          if (next) location.assign(next);
+        }
+      `;
+      const report = reviewSource(source, 'redirect.ts');
+      const f = report.findings.find((f) => f.ruleId === 'client-open-redirect-from-query');
+      expect(f).toBeDefined();
+    });
+
+    it('flags URL.searchParams values passed to client redirect sinks', () => {
+      const source = `
+        export function finish() {
+          const next = new URL(window.location.href).searchParams.get('redirect');
+          if (next) window.location.href = next;
+        }
+      `;
+      const report = reviewSource(source, 'redirect.ts');
+      const f = report.findings.find((f) => f.ruleId === 'client-open-redirect-from-query');
+      expect(f).toBeDefined();
+    });
+
+    it('does not flag static same-origin redirect', () => {
+      const source = `
+        export function finish() {
+          window.location.href = '/account';
+        }
+      `;
+      const report = reviewSource(source, 'redirect.ts');
+      expect(report.findings.find((f) => f.ruleId === 'client-open-redirect-from-query')).toBeUndefined();
+    });
+  });
+
+  // ── window-open-blank-missing-noopener ────────────────────────────────
+
+  describe('window-open-blank-missing-noopener', () => {
+    it("flags window.open(..., '_blank') without feature string", () => {
+      const source = `
+        export function openDocs(url: string) {
+          window.open(url, '_blank');
+        }
+      `;
+      const report = reviewSource(source, 'open.ts');
+      expect(report.findings.find((f) => f.ruleId === 'window-open-blank-missing-noopener')).toBeDefined();
+    });
+
+    it('flags window.open blank target when features omit noopener', () => {
+      const source = `
+        export function openDocs(url: string) {
+          window.open(url, '_blank', 'width=600,height=400');
+        }
+      `;
+      const report = reviewSource(source, 'open.ts');
+      expect(report.findings.find((f) => f.ruleId === 'window-open-blank-missing-noopener')).toBeDefined();
+    });
+
+    it('does not flag window.open blank target with noopener', () => {
+      const source = `
+        export function openDocs(url: string) {
+          window.open(url, '_blank', 'noopener,noreferrer,width=600');
+        }
+      `;
+      const report = reviewSource(source, 'open.ts');
+      expect(report.findings.find((f) => f.ruleId === 'window-open-blank-missing-noopener')).toBeUndefined();
+    });
+
+    it('does not flag window.open blank target with noopener=yes', () => {
+      const source = `
+        export function openDocs(url: string) {
+          window.open(url, '_blank', 'noopener=yes,width=600');
+        }
+      `;
+      const report = reviewSource(source, 'open.ts');
+      expect(report.findings.find((f) => f.ruleId === 'window-open-blank-missing-noopener')).toBeUndefined();
+    });
+
+    it('flags globalThis.open blank target without noopener', () => {
+      const source = `
+        export function openDocs(url: string) {
+          globalThis.open(url, '_blank');
+        }
+      `;
+      const report = reviewSource(source, 'open.ts');
+      expect(report.findings.find((f) => f.ruleId === 'window-open-blank-missing-noopener')).toBeDefined();
+    });
+
+    it('flags self.open blank target without noopener', () => {
+      const source = `
+        export function openDocs(url: string) {
+          self.open(url, '_blank');
+        }
+      `;
+      const report = reviewSource(source, 'open.ts');
+      expect(report.findings.find((f) => f.ruleId === 'window-open-blank-missing-noopener')).toBeDefined();
+    });
+  });
+
+  // ── iframe-dynamic-src-missing-sandbox ────────────────────────────────
+
+  describe('iframe-dynamic-src-missing-sandbox', () => {
+    it('flags iframe with dynamic src and no sandbox', () => {
+      const source = `
+        export function Embed({ url }: { url: string }) {
+          return <iframe src={url} />;
+        }
+      `;
+      const report = reviewSource(source, 'embed.tsx');
+      expect(report.findings.find((f) => f.ruleId === 'iframe-dynamic-src-missing-sandbox')).toBeDefined();
+    });
+
+    it('flags iframe with external static src and no sandbox', () => {
+      const source = `
+        export function Embed() {
+          return <iframe src="https://example.com/widget" />;
+        }
+      `;
+      const report = reviewSource(source, 'embed.tsx');
+      expect(report.findings.find((f) => f.ruleId === 'iframe-dynamic-src-missing-sandbox')).toBeDefined();
+    });
+
+    it('does not flag sandboxed dynamic iframe src', () => {
+      const source = `
+        export function Embed({ url }: { url: string }) {
+          return <iframe src={url} sandbox="allow-scripts" />;
+        }
+      `;
+      const report = reviewSource(source, 'embed.tsx');
+      expect(report.findings.find((f) => f.ruleId === 'iframe-dynamic-src-missing-sandbox')).toBeUndefined();
+    });
+
+    it('does not flag static same-origin iframe src', () => {
+      const source = `
+        export function Preview() {
+          return <iframe src="/preview" />;
+        }
+      `;
+      const report = reviewSource(source, 'preview.tsx');
+      expect(report.findings.find((f) => f.ruleId === 'iframe-dynamic-src-missing-sandbox')).toBeUndefined();
+    });
+
+    it('flags dynamic iframe srcDoc and no sandbox', () => {
+      const source = `
+        export function Preview({ html }: { html: string }) {
+          return <iframe srcDoc={html} />;
+        }
+      `;
+      const report = reviewSource(source, 'preview.tsx');
+      expect(report.findings.find((f) => f.ruleId === 'iframe-dynamic-src-missing-sandbox')).toBeDefined();
+    });
+
+    it('does not flag static iframe srcDoc', () => {
+      const source = `
+        export function Preview() {
+          return <iframe srcDoc={'<p>Preview</p>'} />;
+        }
+      `;
+      const report = reviewSource(source, 'preview.tsx');
+      expect(report.findings.find((f) => f.ruleId === 'iframe-dynamic-src-missing-sandbox')).toBeUndefined();
     });
   });
 

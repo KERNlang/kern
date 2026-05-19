@@ -14,7 +14,7 @@
     "@kernlang/review": "workspace:*",
     "@kernlang/react": "workspace:*",
     "@kernlang/express": "workspace:*",
-    "@kernlang/fastapi": "workspace:*",
+    "@kernlang/python": "workspace:*",
     "@kernlang/native": "workspace:*",
     "@kernlang/terminal": "workspace:*",
     "@kernlang/vue": "workspace:*",

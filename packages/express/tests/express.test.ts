@@ -684,7 +684,7 @@ describe('Express Transpiler', () => {
     test('nested branch + collect compiles bilingual', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');
-      const { transpileFastAPI } = await import('../../fastapi/src/transpiler-fastapi.js');
+      const { transpileFastAPI } = await import('../../python/src/transpiler-fastapi.js');
       const source = [
         'server name=Test port=3000',
         '  route GET /api/users',
@@ -800,7 +800,7 @@ describe('Express Transpiler', () => {
     test('effect compiles bilingual (Express + FastAPI)', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');
-      const { transpileFastAPI } = await import('../../fastapi/src/transpiler-fastapi.js');
+      const { transpileFastAPI } = await import('../../python/src/transpiler-fastapi.js');
       const source = [
         'server name=Test port=3000',
         '  route GET /api/users',

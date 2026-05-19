@@ -7,7 +7,7 @@
  * All AST-based. Always active regardless of target.
  */
 
-import { SyntaxKind } from 'ts-morph';
+import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext, SourceSpan } from '../types.js';
 import { createFingerprint } from '../types.js';
 import { resolveConfidence } from './confidence-baseline.js';
@@ -183,47 +183,33 @@ function jwtWeakVerification(ctx: RuleContext): ReviewFinding[] {
 function cookieHardening(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
 
-  // Pattern 1: res.cookie('name', value, options) — Express
-  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
-    const callee = call.getExpression();
-    if (callee.getKind() !== SyntaxKind.PropertyAccessExpression) continue;
-    const pa = callee as import('ts-morph').PropertyAccessExpression;
-    if (pa.getName() !== 'cookie') continue;
-
-    const args = call.getArguments();
-    if (args.length < 2) continue;
-
-    // Get cookie name to check if it's session/auth related
-    const cookieName = args[0].getText().replace(/['"]/g, '').toLowerCase();
-    // CSRF cookies must be JS-readable — exclude from auth cookie checks
+  function reportCookieOptions(
+    cookieNameRaw: string,
+    optionsArg: Node | undefined,
+    line: number,
+    missingOptionsMessage: string,
+  ) {
+    const cookieName = cookieNameRaw.replace(/['"]/g, '').toLowerCase();
     const isCsrfCookie = /csrf|xsrf/i.test(cookieName);
     const isAuthCookie = !isCsrfCookie && /session|token|auth|jwt|sid|refresh/i.test(cookieName);
 
-    if (args.length < 3) {
-      // No options at all
+    if (!optionsArg) {
       if (isAuthCookie) {
         findings.push(
-          finding(
-            'cookie-hardening',
-            'error',
-            'bug',
-            `Auth cookie '${cookieName}' set without security flags — missing httpOnly, secure, sameSite`,
-            ctx.filePath,
-            call.getStartLineNumber(),
-            { suggestion: "Add { httpOnly: true, secure: true, sameSite: 'strict' } options" },
-          ),
+          finding('cookie-hardening', 'error', 'bug', missingOptionsMessage, ctx.filePath, line, {
+            suggestion: "Add { httpOnly: true, secure: true, sameSite: 'strict' } options",
+          }),
         );
       }
-      continue;
+      return;
     }
 
-    const optionsArg = args[2];
-    if (optionsArg.getKind() !== SyntaxKind.ObjectLiteralExpression) continue;
-    const obj = optionsArg as import('ts-morph').ObjectLiteralExpression;
+    if (!Node.isObjectLiteralExpression(optionsArg)) return;
+    const obj = optionsArg;
     const propNames = new Set(
       obj
         .getProperties()
-        .filter((p) => p.getKind() === SyntaxKind.PropertyAssignment)
+        .filter((p) => Node.isPropertyAssignment(p))
         .map((p) => (p as import('ts-morph').PropertyAssignment).getName()),
     );
 
@@ -240,7 +226,7 @@ function cookieHardening(ctx: RuleContext): ReviewFinding[] {
           'bug',
           `Auth cookie '${cookieName}' missing: ${missing.join(', ')}`,
           ctx.filePath,
-          call.getStartLineNumber(),
+          line,
           { suggestion: `Add ${missing.map((m) => `${m}: true`).join(', ')} to cookie options` },
         ),
       );
@@ -252,16 +238,18 @@ function cookieHardening(ctx: RuleContext): ReviewFinding[] {
           'bug',
           `Cookie '${cookieName}' missing: ${missing.join(', ')}`,
           ctx.filePath,
-          call.getStartLineNumber(),
+          line,
         ),
       );
     }
 
-    // Check for httpOnly: false on auth cookies
     for (const prop of obj.getProperties()) {
-      if (prop.getKind() !== SyntaxKind.PropertyAssignment) continue;
-      const pa2 = prop as import('ts-morph').PropertyAssignment;
-      if (pa2.getName() === 'httpOnly' && pa2.getInitializer()?.getKind() === SyntaxKind.FalseKeyword && isAuthCookie) {
+      if (!Node.isPropertyAssignment(prop)) continue;
+      if (
+        prop.getName() === 'httpOnly' &&
+        prop.getInitializer()?.getKind() === SyntaxKind.FalseKeyword &&
+        isAuthCookie
+      ) {
         findings.push(
           finding(
             'cookie-hardening',
@@ -269,11 +257,87 @@ function cookieHardening(ctx: RuleContext): ReviewFinding[] {
             'bug',
             `Auth cookie '${cookieName}' has httpOnly: false — XSS can steal it`,
             ctx.filePath,
-            call.getStartLineNumber(),
+            line,
           ),
         );
       }
     }
+  }
+
+  function unwrapCookieReceiver(node: Node): Node {
+    let current = node;
+    while (Node.isParenthesizedExpression(current) || Node.isAwaitExpression(current)) {
+      current = current.getExpression();
+    }
+    return current;
+  }
+
+  function isCookiesCall(node: Node): boolean {
+    const unwrapped = unwrapCookieReceiver(node);
+    return (
+      Node.isCallExpression(unwrapped) &&
+      Node.isIdentifier(unwrapped.getExpression()) &&
+      unwrapped.getExpression().getText() === 'cookies'
+    );
+  }
+
+  const nextCookieStoreAliases = new Set<string>();
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const nameNode = decl.getNameNode();
+    if (!Node.isIdentifier(nameNode)) continue;
+    const init = decl.getInitializer();
+    if (init && isCookiesCall(init)) nextCookieStoreAliases.add(nameNode.getText());
+  }
+
+  // Pattern 1: res.cookie('name', value, options) — Express
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (callee.getKind() !== SyntaxKind.PropertyAccessExpression) continue;
+    const pa = callee as import('ts-morph').PropertyAccessExpression;
+    if (pa.getName() === 'set') {
+      const receiver = unwrapCookieReceiver(pa.getExpression());
+      const isNextCookieSet =
+        (Node.isPropertyAccessExpression(receiver) && receiver.getName() === 'cookies') ||
+        isCookiesCall(receiver) ||
+        (Node.isIdentifier(receiver) && nextCookieStoreAliases.has(receiver.getText()));
+      if (!isNextCookieSet) continue;
+
+      const args = call.getArguments();
+      const firstArg = args[0];
+      if (!firstArg) continue;
+
+      if (Node.isObjectLiteralExpression(firstArg)) {
+        const nameProp = firstArg.getProperty('name');
+        if (!nameProp || !Node.isPropertyAssignment(nameProp)) continue;
+        const nameInit = nameProp.getInitializer();
+        if (!nameInit) continue;
+        reportCookieOptions(
+          nameInit.getText(),
+          firstArg,
+          call.getStartLineNumber(),
+          `Auth cookie '${nameInit.getText().replace(/['"]/g, '').toLowerCase()}' set without security flags — missing httpOnly, secure, sameSite`,
+        );
+      } else {
+        reportCookieOptions(
+          firstArg.getText(),
+          args[2],
+          call.getStartLineNumber(),
+          `Auth cookie '${firstArg.getText().replace(/['"]/g, '').toLowerCase()}' set without security flags — missing httpOnly, secure, sameSite`,
+        );
+      }
+      continue;
+    }
+    if (pa.getName() !== 'cookie') continue;
+
+    const args = call.getArguments();
+    if (args.length < 2) continue;
+
+    reportCookieOptions(
+      args[0].getText(),
+      args[2],
+      call.getStartLineNumber(),
+      `Auth cookie '${args[0].getText().replace(/['"]/g, '').toLowerCase()}' set without security flags — missing httpOnly, secure, sameSite`,
+    );
   }
 
   return findings;
@@ -677,6 +741,540 @@ function weakPasswordHashing(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Browser security rules ──────────────────────────────────────────────
+
+function isInsideTryBlock(node: Node): boolean {
+  let cur: Node | undefined = node;
+  while (cur) {
+    const parent = cur.getParent();
+    if (parent && Node.isTryStatement(parent) && parent.getTryBlock() === cur) return true;
+    if (
+      cur !== node &&
+      (Node.isArrowFunction(cur) ||
+        Node.isFunctionExpression(cur) ||
+        Node.isFunctionDeclaration(cur) ||
+        Node.isMethodDeclaration(cur))
+    ) {
+      return false;
+    }
+    cur = parent;
+  }
+  return false;
+}
+
+function unwrapExpression(node: Node): Node {
+  let cur = node;
+  while (
+    Node.isParenthesizedExpression(cur) ||
+    Node.isAsExpression(cur) ||
+    Node.isTypeAssertion(cur) ||
+    Node.isNonNullExpression(cur) ||
+    Node.isSatisfiesExpression(cur)
+  ) {
+    cur = cur.getExpression();
+  }
+  return cur;
+}
+
+function isStorageGetItemCall(node: Node | undefined): boolean {
+  if (!node) return false;
+  const unwrapped = unwrapExpression(node);
+  if (!Node.isCallExpression(unwrapped)) return false;
+  const callee = unwrapped.getExpression();
+  if (!Node.isPropertyAccessExpression(callee) || callee.getName() !== 'getItem') return false;
+  const target = callee.getExpression().getText();
+  return /^(?:window\.)?(?:localStorage|sessionStorage)$/.test(target);
+}
+
+function containsStorageGetItemCall(node: Node | undefined): boolean {
+  if (!node) return false;
+  const unwrapped = unwrapExpression(node);
+  if (isStorageGetItemCall(unwrapped)) return true;
+  if (Node.isBinaryExpression(unwrapped)) {
+    return containsStorageGetItemCall(unwrapped.getLeft()) || containsStorageGetItemCall(unwrapped.getRight());
+  }
+  if (Node.isConditionalExpression(unwrapped)) {
+    return (
+      containsStorageGetItemCall(unwrapped.getCondition()) ||
+      containsStorageGetItemCall(unwrapped.getWhenTrue()) ||
+      containsStorageGetItemCall(unwrapped.getWhenFalse())
+    );
+  }
+  if (Node.isAwaitExpression(unwrapped)) return containsStorageGetItemCall(unwrapped.getExpression());
+  if (unwrapped.getDescendantsOfKind(SyntaxKind.CallExpression).some(isStorageGetItemCall)) return true;
+  return false;
+}
+
+function browserStorageJsonParseUnguarded(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    if (call.getExpression().getText() !== 'JSON.parse') continue;
+    if (isInsideTryBlock(call)) continue;
+
+    const firstArg = call.getArguments()[0];
+    if (!firstArg) continue;
+
+    if (!containsStorageGetItemCall(firstArg)) continue;
+
+    findings.push(
+      finding(
+        'browser-storage-json-parse-unguarded',
+        'warning',
+        'bug',
+        'JSON.parse() reads browser storage outside try/catch — corrupted or user-edited storage can crash the app',
+        ctx.filePath,
+        call.getStartLineNumber(),
+        {
+          suggestion: 'Wrap storage parsing in try/catch or route it through a shared safeParseStorage helper.',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+function isWildcardString(node: Node | undefined): boolean {
+  return Boolean(
+    node &&
+      ((Node.isStringLiteral(node) && node.getLiteralValue() === '*') ||
+        (Node.isNoSubstitutionTemplateLiteral(node) && node.getLiteralText() === '*')),
+  );
+}
+
+function isGeneratedBrowserAssetPath(filePath: string): boolean {
+  return (
+    /(?:^|[/\\])(?:public|vendor|vendors|dist|build|coverage)(?:[/\\]|$)/i.test(filePath) ||
+    /\.min\.js$/i.test(filePath)
+  );
+}
+
+function isTestOrFixturePath(filePath: string): boolean {
+  return /(?:^|[/\\])(?:__fixtures__|fixtures?|__snapshots__)(?:[/\\]|$)|(?:\.test|\.spec|\.snap)\.[cm]?[jt]sx?$/i.test(
+    filePath,
+  );
+}
+
+function isLikelyWorkerPath(filePath: string): boolean {
+  return /(?:^|[/\\])workers?(?:[/\\]|$)|\.worker\.[cm]?[jt]sx?$/i.test(filePath);
+}
+
+const BROWSER_POST_MESSAGE_TARGET_PATTERN =
+  /(?:^window$|^globalThis$|^parent$|\.parent$|^opener$|\.opener$|^top$|\.top$|contentWindow$|^frames\b|\.frames\b)/;
+
+function postmessageWildcardTarget(ctx: RuleContext): ReviewFinding[] {
+  if (isGeneratedBrowserAssetPath(ctx.filePath)) return [];
+
+  const findings: ReviewFinding[] = [];
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (Node.isIdentifier(callee) && callee.getText() === 'postMessage') {
+      if (!isWildcardString(call.getArguments()[1])) continue;
+      const localBindings = callee
+        .getSymbol()
+        ?.getDeclarations()
+        .filter((decl) => decl.getSourceFile() === ctx.sourceFile);
+      if (localBindings && localBindings.length > 0) continue;
+      findings.push(
+        finding(
+          'postmessage-wildcard-target',
+          'warning',
+          'bug',
+          'postMessage() uses "*" as targetOrigin — messages can be delivered to an unexpected origin',
+          ctx.filePath,
+          call.getStartLineNumber(),
+          { suggestion: 'Pass the exact expected origin as targetOrigin instead of "*".' },
+        ),
+      );
+      continue;
+    }
+
+    if (!Node.isPropertyAccessExpression(callee) || callee.getName() !== 'postMessage') continue;
+    if (!isWildcardString(call.getArguments()[1])) continue;
+
+    const target = callee.getExpression().getText();
+    if (!BROWSER_POST_MESSAGE_TARGET_PATTERN.test(target)) {
+      continue;
+    }
+
+    findings.push(
+      finding(
+        'postmessage-wildcard-target',
+        'warning',
+        'bug',
+        'postMessage() uses "*" as targetOrigin — messages can be delivered to an unexpected origin',
+        ctx.filePath,
+        call.getStartLineNumber(),
+        { suggestion: 'Pass the exact expected origin as targetOrigin instead of "*".' },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+function hasLocalPostMessageBinding(callee: import('ts-morph').Identifier, ctx: RuleContext): boolean {
+  const localBindings = callee
+    .getSymbol()
+    ?.getDeclarations()
+    .filter((decl) => decl.getSourceFile() === ctx.sourceFile);
+  return Boolean(localBindings && localBindings.length > 0);
+}
+
+function isBrowserPostMessagePropertyTarget(callee: import('ts-morph').PropertyAccessExpression): boolean {
+  if (callee.getName() !== 'postMessage') return false;
+  const target = callee.getExpression().getText();
+  return BROWSER_POST_MESSAGE_TARGET_PATTERN.test(target);
+}
+
+// ── Rule: postmessage-missing-target-origin ─────────────────────────────
+// Window.postMessage requires an explicit targetOrigin. Omitting it relies on
+// browser defaults and makes review miss the trust boundary entirely.
+
+function postmessageMissingTargetOrigin(ctx: RuleContext): ReviewFinding[] {
+  if (isGeneratedBrowserAssetPath(ctx.filePath)) return [];
+
+  const findings: ReviewFinding[] = [];
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const targetOriginArg = call.getArguments()[1];
+    if (
+      targetOriginArg &&
+      targetOriginArg.getKind() !== SyntaxKind.NullKeyword &&
+      !(Node.isIdentifier(targetOriginArg) && targetOriginArg.getText() === 'undefined')
+    ) {
+      continue;
+    }
+    const callee = call.getExpression();
+
+    if (Node.isIdentifier(callee) && callee.getText() === 'postMessage') {
+      if (isLikelyWorkerPath(ctx.filePath)) continue;
+      if (hasLocalPostMessageBinding(callee, ctx)) continue;
+    } else if (!Node.isPropertyAccessExpression(callee) || !isBrowserPostMessagePropertyTarget(callee)) {
+      continue;
+    }
+
+    findings.push(
+      finding(
+        'postmessage-missing-target-origin',
+        'warning',
+        'bug',
+        'postMessage() is called without an explicit targetOrigin — cross-window messages need an exact origin',
+        ctx.filePath,
+        call.getStartLineNumber(),
+        { suggestion: 'Pass the exact expected origin as the second argument.' },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+function htmlStringHasBlankAnchorWithoutNoopener(value: string): boolean {
+  const anchorPattern = /<a\b[^>]*\btarget\s*=\s*(?:"_blank"|'_blank'|_blank)[^>]*>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = anchorPattern.exec(value)) !== null) {
+    const tag = match[0];
+    const relMatch = /\brel\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(tag);
+    const rel = (relMatch?.[1] ?? relMatch?.[2] ?? relMatch?.[3] ?? '').toLowerCase();
+    if (!/\b(?:noopener|noreferrer)\b/.test(rel)) return true;
+  }
+  return false;
+}
+
+// ── Rule: html-string-target-blank-noopener ─────────────────────────────
+// JSX anchors are covered in react-html.ts; this catches HTML assembled in
+// translation/rich-text strings that later gets rendered as HTML.
+
+function htmlStringTargetBlankNoopener(ctx: RuleContext): ReviewFinding[] {
+  if (isGeneratedBrowserAssetPath(ctx.filePath)) return [];
+  if (isTestOrFixturePath(ctx.filePath)) return [];
+
+  const findings: ReviewFinding[] = [];
+  const stringNodes: Node[] = [
+    ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.StringLiteral),
+    ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.NoSubstitutionTemplateLiteral),
+    ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.TemplateExpression),
+  ];
+
+  for (const node of stringNodes) {
+    const value =
+      Node.isStringLiteral(node) || Node.isNoSubstitutionTemplateLiteral(node)
+        ? node.getLiteralValue()
+        : node.getText();
+    if (!htmlStringHasBlankAnchorWithoutNoopener(value)) continue;
+
+    findings.push(
+      finding(
+        'html-string-target-blank-noopener',
+        'warning',
+        'bug',
+        'HTML string contains <a target="_blank"> without rel="noopener noreferrer"',
+        ctx.filePath,
+        node.getStartLineNumber(),
+        { suggestion: 'Add rel="noopener noreferrer" to HTML-string links that open a new tab.' },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+function isUrlSearchParamsExpression(node: Node | undefined): boolean {
+  if (!node) return false;
+  const unwrapped = unwrapExpression(node);
+  if (Node.isNewExpression(unwrapped) && unwrapped.getExpression().getText() === 'URLSearchParams') return true;
+  if (Node.isCallExpression(unwrapped) && unwrapped.getExpression().getText() === 'useSearchParams') return true;
+  return false;
+}
+
+function isSearchParamsSource(node: Node): boolean {
+  if (isUrlSearchParamsExpression(node)) return true;
+  if (!Node.isPropertyAccessExpression(node) || node.getName() !== 'searchParams') return false;
+  const source = unwrapExpression(node.getExpression());
+  return Node.isNewExpression(source) && source.getExpression().getText() === 'URL';
+}
+
+function isQueryParamGetExpression(node: Node | undefined, paramVars: Set<string>): boolean {
+  if (!node) return false;
+  const unwrapped = unwrapExpression(node);
+  if (Node.isBinaryExpression(unwrapped)) {
+    return (
+      isQueryParamGetExpression(unwrapped.getLeft(), paramVars) ||
+      isQueryParamGetExpression(unwrapped.getRight(), paramVars)
+    );
+  }
+  if (!Node.isCallExpression(unwrapped)) return false;
+  const callee = unwrapped.getExpression();
+  if (!Node.isPropertyAccessExpression(callee)) return false;
+  if (callee.getName() !== 'get') {
+    return (
+      isQueryParamGetExpression(callee.getExpression(), paramVars) ||
+      unwrapped.getArguments().some((arg) => isQueryParamGetExpression(arg, paramVars))
+    );
+  }
+  const source = callee.getExpression();
+  if (Node.isIdentifier(source) && paramVars.has(source.getText())) return true;
+  return isSearchParamsSource(source);
+}
+
+function isClientRedirectSinkTarget(node: Node): boolean {
+  if (!Node.isPropertyAccessExpression(node)) return false;
+  const name = node.getName();
+  const target = node.getExpression().getText();
+  if (name === 'href' && /^(?:window\.|document\.)?location$/.test(target)) return true;
+  return name === 'location' && /^(?:window|document)$/.test(target);
+}
+
+function isLocationNavigationCall(callee: Node): boolean {
+  if (!Node.isPropertyAccessExpression(callee)) return false;
+  const method = callee.getName();
+  const target = callee.getExpression().getText();
+  return (method === 'assign' || method === 'replace') && /^(?:window\.|document\.)?location$/.test(target);
+}
+
+function clientOpenRedirectFromQuery(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+  const paramVars = new Set<string>();
+  const taintedVars = new Set<string>();
+
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const nameNode = decl.getNameNode();
+    if (!Node.isIdentifier(nameNode)) continue;
+    const init = decl.getInitializer();
+    if (!init) continue;
+    if (isUrlSearchParamsExpression(init)) paramVars.add(nameNode.getText());
+  }
+
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const nameNode = decl.getNameNode();
+    if (!Node.isIdentifier(nameNode)) continue;
+    const init = decl.getInitializer();
+    if (!init) continue;
+    if (isQueryParamGetExpression(init, paramVars)) taintedVars.add(nameNode.getText());
+  }
+
+  const isTaintedRedirectValue = (node: Node | undefined): boolean => {
+    if (!node) return false;
+    const unwrapped = unwrapExpression(node);
+    if (Node.isIdentifier(unwrapped)) return taintedVars.has(unwrapped.getText());
+    if (Node.isBinaryExpression(unwrapped)) {
+      return isTaintedRedirectValue(unwrapped.getLeft()) || isTaintedRedirectValue(unwrapped.getRight());
+    }
+    if (Node.isTemplateExpression(unwrapped)) {
+      return unwrapped.getTemplateSpans().some((span) => isTaintedRedirectValue(span.getExpression()));
+    }
+    return isQueryParamGetExpression(unwrapped, paramVars);
+  };
+
+  for (const bin of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
+    if (bin.getOperatorToken().getKind() !== SyntaxKind.EqualsToken) continue;
+    if (!isClientRedirectSinkTarget(bin.getLeft())) continue;
+    if (!isTaintedRedirectValue(bin.getRight())) continue;
+
+    findings.push(
+      finding(
+        'client-open-redirect-from-query',
+        'error',
+        'bug',
+        'Client-side navigation assigns a query parameter directly to location.href — open redirect risk',
+        ctx.filePath,
+        bin.getStartLineNumber(),
+        { suggestion: 'Validate the target against same-origin/path-only rules before navigating.' },
+      ),
+    );
+  }
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    if (!isLocationNavigationCall(call.getExpression())) continue;
+    if (!isTaintedRedirectValue(call.getArguments()[0])) continue;
+
+    findings.push(
+      finding(
+        'client-open-redirect-from-query',
+        'error',
+        'bug',
+        'Client-side navigation passes a query parameter directly to location.assign/replace — open redirect risk',
+        ctx.filePath,
+        call.getStartLineNumber(),
+        { suggestion: 'Validate the target against same-origin/path-only rules before navigating.' },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+// ── Rule: window-open-blank-missing-noopener ────────────────────────────
+// window.open(url, '_blank') must include noopener/noreferrer in the feature
+// string. The JSX anchor rule cannot see imperative tab opens.
+
+function getStaticStringValue(node: Node | undefined): string | undefined {
+  if (!node) return undefined;
+  const unwrapped = unwrapExpression(node);
+  if (Node.isStringLiteral(unwrapped) || Node.isNoSubstitutionTemplateLiteral(unwrapped)) {
+    return unwrapped.getLiteralValue();
+  }
+  return undefined;
+}
+
+function featureStringHasNoopener(value: string): boolean {
+  return /(?:^|[,;\s])(?:noopener|noreferrer)(?:[=,;\s]|$)/i.test(value);
+}
+
+function windowOpenBlankMissingNoopener(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (!Node.isPropertyAccessExpression(callee)) continue;
+    if (callee.getName() !== 'open') continue;
+    const ownerText = callee.getExpression().getText();
+    if (ownerText !== 'window' && ownerText !== 'globalThis' && ownerText !== 'self') continue;
+
+    const args = call.getArguments();
+    if (getStaticStringValue(args[1]) !== '_blank') continue;
+
+    const features = getStaticStringValue(args[2]);
+    if (features && featureStringHasNoopener(features)) continue;
+
+    findings.push(
+      finding(
+        'window-open-blank-missing-noopener',
+        'warning',
+        'bug',
+        "window.open(..., '_blank') without noopener/noreferrer lets the opened page control window.opener",
+        ctx.filePath,
+        call.getStartLineNumber(),
+        {
+          suggestion:
+            "Pass a third argument containing 'noopener,noreferrer', then null out the opener if older browser support matters.",
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+type JsxOpeningLike = import('ts-morph').JsxOpeningElement | import('ts-morph').JsxSelfClosingElement;
+
+function getJsxAttr(jsx: JsxOpeningLike, name: string): import('ts-morph').JsxAttribute | undefined {
+  return jsx
+    .getAttributes()
+    .find(
+      (attr): attr is import('ts-morph').JsxAttribute =>
+        Node.isJsxAttribute(attr) && attr.getNameNode().getText() === name,
+    );
+}
+
+function hasJsxSpreadAttribute(jsx: JsxOpeningLike): boolean {
+  return jsx.getAttributes().some((attr) => Node.isJsxSpreadAttribute(attr));
+}
+
+function iframeSrcNeedsSandbox(attr: import('ts-morph').JsxAttribute | undefined): boolean {
+  if (!attr) return false;
+  const init = attr.getInitializer();
+  if (!init) return false;
+
+  if (Node.isStringLiteral(init)) {
+    return /^(?:https?:)?\/\//i.test(init.getLiteralValue());
+  }
+  if (!Node.isJsxExpression(init)) return false;
+
+  const expr = init.getExpression();
+  if (!expr) return false;
+  const value = getStaticStringValue(expr);
+  if (value !== undefined) return /^(?:https?:)?\/\//i.test(value);
+  return true;
+}
+
+function iframeSrcDocNeedsSandbox(attr: import('ts-morph').JsxAttribute | undefined): boolean {
+  if (!attr) return false;
+  const init = attr.getInitializer();
+  if (!init) return false;
+  if (Node.isStringLiteral(init)) return false;
+  if (!Node.isJsxExpression(init)) return false;
+  const expr = init.getExpression();
+  return !!expr && getStaticStringValue(expr) === undefined;
+}
+
+// ── Rule: iframe-dynamic-src-missing-sandbox ────────────────────────────
+// Dynamic or external iframe sources should be sandboxed. Same-origin static
+// paths are skipped to avoid noisy findings for internal app frames.
+
+function iframeDynamicSrcMissingSandbox(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+  const iframes: JsxOpeningLike[] = [
+    ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxOpeningElement),
+    ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement),
+  ];
+
+  for (const jsx of iframes) {
+    if (jsx.getTagNameNode().getText() !== 'iframe') continue;
+    if (getJsxAttr(jsx, 'sandbox')) continue;
+    if (hasJsxSpreadAttribute(jsx)) continue;
+
+    const srcAttr = getJsxAttr(jsx, 'src');
+    const srcDocAttr = getJsxAttr(jsx, 'srcDoc');
+    if (!iframeSrcNeedsSandbox(srcAttr) && !iframeSrcDocNeedsSandbox(srcDocAttr)) continue;
+
+    findings.push(
+      finding(
+        'iframe-dynamic-src-missing-sandbox',
+        'warning',
+        'bug',
+        'iframe uses a dynamic/external src or srcDoc without sandbox — embedded content can script, navigate, or submit forms with full frame privileges',
+        ctx.filePath,
+        jsx.getStartLineNumber(),
+        { suggestion: 'Add a sandbox attribute with the minimum allow-* tokens required by the embedded content.' },
+      ),
+    );
+  }
+
+  return findings;
+}
+
 // ── Exported Security v2 Rules ───────────────────────────────────────────
 
 export const securityV2Rules = [
@@ -686,4 +1284,11 @@ export const securityV2Rules = [
   cspStrength,
   pathTraversal,
   weakPasswordHashing,
+  browserStorageJsonParseUnguarded,
+  postmessageWildcardTarget,
+  postmessageMissingTargetOrigin,
+  htmlStringTargetBlankNoopener,
+  clientOpenRedirectFromQuery,
+  windowOpenBlankMissingNoopener,
+  iframeDynamicSrcMissingSandbox,
 ];

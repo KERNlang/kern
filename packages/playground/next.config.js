@@ -4,7 +4,7 @@ const nextConfig = {
     '@kernlang/core',
     '@kernlang/react',
     '@kernlang/express',
-    '@kernlang/fastapi',
+    '@kernlang/python',
     '@kernlang/native',
     '@kernlang/terminal',
     '@kernlang/vue',

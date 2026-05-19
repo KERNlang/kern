@@ -9,7 +9,6 @@ export { transpileCliApp } from '@kernlang/cli';
 // Core (parser, types, config, spec, styles, codegen, utils)
 export * from '@kernlang/core';
 export { transpileExpress } from '@kernlang/express';
-export { transpileFastAPI } from '@kernlang/fastapi';
 export type { LanguageMetrics, NodeTypeMetrics, ProjectSummary, StyleMetrics } from '@kernlang/metrics';
 // Metrics + context export
 export {
@@ -22,6 +21,7 @@ export {
 export { transpile } from '@kernlang/native';
 // Protocol (draft protocol for AI engines)
 export * from '@kernlang/protocol';
+export { transpileFastAPI } from '@kernlang/python';
 // Transpilers
 export { transpileNextjs, transpileTailwind, transpileWeb } from '@kernlang/react';
 export { transpileInk, transpileTerminal } from '@kernlang/terminal';

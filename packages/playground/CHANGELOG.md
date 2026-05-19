@@ -29,6 +29,6 @@
   - @kernlang/vue@3.0.0
   - @kernlang/native@3.0.0
   - @kernlang/express@3.0.0
-  - @kernlang/fastapi@3.0.0
+  - @kernlang/python@3.0.0
   - @kernlang/terminal@3.0.0
   - @kernlang/review@3.0.0

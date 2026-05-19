@@ -25,7 +25,7 @@ body:
         - "@kernlang/react"
         - "@kernlang/vue"
         - "@kernlang/express"
-        - "@kernlang/fastapi"
+        - "@kernlang/python"
         - "@kernlang/native"
         - "@kernlang/terminal"
         - "@kernlang/mcp"

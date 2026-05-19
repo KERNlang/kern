@@ -1423,6 +1423,1059 @@ function serverActionUnvalidatedInput(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule: route-handler-json-type-assertion ─────────────────────────────
+// Next.js App Router route handlers receive untrusted request bodies. A TS
+// assertion on `await request.json()` only tells the compiler what to believe;
+// it does not validate malformed JSON or unexpected body shape at runtime.
+
+const ROUTE_HANDLER_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
+
+function getFunctionBodyNode(fn: FunctionLikeNode): Node | undefined {
+  if (Node.isFunctionDeclaration(fn) || Node.isFunctionExpression(fn) || Node.isArrowFunction(fn)) {
+    return fn.getBody();
+  }
+  return undefined;
+}
+
+function isRequestJsonCallForParam(call: import('ts-morph').CallExpression, requestParamNames: Set<string>): boolean {
+  const callee = call.getExpression();
+  if (!Node.isPropertyAccessExpression(callee)) return false;
+  if (callee.getName() !== 'json') return false;
+  const receiver = callee.getExpression();
+  return Node.isIdentifier(receiver) && requestParamNames.has(receiver.getText());
+}
+
+function hasTypeOnlyTrustAroundJsonCall(call: import('ts-morph').CallExpression): boolean {
+  let current: Node = call;
+  while (true) {
+    const parent = current.getParent();
+    if (!parent) break;
+
+    if (Node.isAsExpression(parent) || Node.isTypeAssertion(parent) || Node.isSatisfiesExpression(parent)) return true;
+    if (Node.isAwaitExpression(parent) || Node.isParenthesizedExpression(parent) || Node.isNonNullExpression(parent)) {
+      current = parent;
+      continue;
+    }
+    break;
+  }
+
+  let ancestor: Node | undefined = call.getParent();
+  while (ancestor) {
+    if (Node.isVariableDeclaration(ancestor)) {
+      const init = ancestor.getInitializer();
+      return Boolean(
+        ancestor.getTypeNode() && init && init.getStart() <= call.getStart() && call.getEnd() <= init.getEnd(),
+      );
+    }
+    if (Node.isBlock(ancestor) || Node.isSourceFile(ancestor) || Node.isFunctionLikeDeclaration(ancestor)) break;
+    ancestor = ancestor.getParent();
+  }
+
+  return false;
+}
+
+function checkRouteHandlerJsonTypeAssertions(
+  ctx: RuleContext,
+  methodName: string,
+  fn: FunctionLikeNode,
+  importsText: string,
+): ReviewFinding[] {
+  const body = getFunctionBodyNode(fn);
+  if (!body) return [];
+
+  const bodyText = body.getText();
+  if (hasValidatorUsage(bodyText, importsText)) return [];
+
+  const requestParamNames = new Set(
+    fn
+      .getParameters()
+      .slice(0, 1)
+      .map((param) => param.getName())
+      .filter(Boolean),
+  );
+  if (requestParamNames.size === 0) return [];
+
+  const findings: ReviewFinding[] = [];
+  const seen = new Set<number>();
+  for (const call of body.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    if (!isRequestJsonCallForParam(call, requestParamNames)) continue;
+    if (!hasTypeOnlyTrustAroundJsonCall(call)) continue;
+    if (seen.has(call.getStart())) continue;
+    seen.add(call.getStart());
+
+    findings.push(
+      finding(
+        'route-handler-json-type-assertion',
+        'warning',
+        'bug',
+        `Route handler ${methodName} trusts request.json() via a TypeScript-only type assertion — request bodies need runtime validation`,
+        ctx.filePath,
+        call.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'Parse the body inside error handling and validate it with a schema (for example zod.safeParse) before reading typed fields.',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+function routeHandlerJsonTypeAssertion(ctx: RuleContext): ReviewFinding[] {
+  if (ctx.fileRole !== 'runtime') return [];
+
+  const importsText = getImportsText(ctx);
+  const findings: ReviewFinding[] = [];
+
+  for (const fn of ctx.sourceFile.getFunctions()) {
+    const name = fn.getName();
+    if (!name || !ROUTE_HANDLER_METHODS.has(name) || !fn.isExported()) continue;
+    findings.push(...checkRouteHandlerJsonTypeAssertions(ctx, name, fn, importsText));
+  }
+
+  for (const stmt of ctx.sourceFile.getVariableStatements()) {
+    if (!stmt.isExported()) continue;
+    for (const decl of stmt.getDeclarations()) {
+      const name = decl.getName();
+      if (!ROUTE_HANDLER_METHODS.has(name)) continue;
+      const init = decl.getInitializer();
+      if (!init || (!Node.isArrowFunction(init) && !Node.isFunctionExpression(init))) continue;
+      findings.push(...checkRouteHandlerJsonTypeAssertions(ctx, name, init, importsText));
+    }
+  }
+
+  return findings;
+}
+
+function isInsideTryBlock(node: Node, boundary: Node): boolean {
+  let current: Node | undefined = node;
+  while (current && current !== boundary) {
+    const parent = current.getParent();
+    if (!parent) break;
+    if (Node.isTryStatement(parent) && isNodeWithin(node, parent.getTryBlock())) return true;
+    current = parent;
+  }
+  return false;
+}
+
+function isRouteHandlerJsonCall(call: import('ts-morph').CallExpression, fn: FunctionLikeNode): boolean {
+  const requestParamNames = new Set(
+    fn
+      .getParameters()
+      .slice(0, 1)
+      .map((param) => param.getName())
+      .filter(Boolean),
+  );
+  return requestParamNames.size > 0 && isRequestJsonCallForParam(call, requestParamNames);
+}
+
+// ── Rule: route-handler-json-unguarded ──────────────────────────────────
+// request.json() can throw on malformed JSON. Route handlers that parse
+// outside try/catch turn client body mistakes into uncaught handler failures.
+
+function checkRouteHandlerJsonUnguarded(ctx: RuleContext, methodName: string, fn: FunctionLikeNode): ReviewFinding[] {
+  const body = getFunctionBodyNode(fn);
+  if (!body) return [];
+
+  const findings: ReviewFinding[] = [];
+  const seen = new Set<number>();
+  for (const call of body.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    if (!isRouteHandlerJsonCall(call, fn)) continue;
+    if (isInsideTryBlock(call, body)) continue;
+    if (seen.has(call.getStart())) continue;
+    seen.add(call.getStart());
+
+    findings.push(
+      finding(
+        'route-handler-json-unguarded',
+        'warning',
+        'bug',
+        `Route handler ${methodName} calls request.json() outside try/catch — malformed JSON becomes an uncaught handler error`,
+        ctx.filePath,
+        call.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'Wrap body parsing in try/catch and return a 400 response for malformed JSON before validating the parsed shape.',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+function forEachRouteHandler(
+  ctx: RuleContext,
+  cb: (methodName: string, fn: FunctionLikeNode) => ReviewFinding[],
+): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const fn of ctx.sourceFile.getFunctions()) {
+    const name = fn.getName();
+    if (!name || !ROUTE_HANDLER_METHODS.has(name) || !fn.isExported()) continue;
+    findings.push(...cb(name, fn));
+  }
+
+  for (const stmt of ctx.sourceFile.getVariableStatements()) {
+    if (!stmt.isExported()) continue;
+    for (const decl of stmt.getDeclarations()) {
+      const name = decl.getName();
+      if (!ROUTE_HANDLER_METHODS.has(name)) continue;
+      const init = decl.getInitializer();
+      if (!init || (!Node.isArrowFunction(init) && !Node.isFunctionExpression(init))) continue;
+      findings.push(...cb(name, init));
+    }
+  }
+
+  return findings;
+}
+
+function routeHandlerJsonUnguarded(ctx: RuleContext): ReviewFinding[] {
+  if (ctx.fileRole !== 'runtime') return [];
+  return forEachRouteHandler(ctx, (methodName, fn) => checkRouteHandlerJsonUnguarded(ctx, methodName, fn));
+}
+
+// ── Rule: route-handler-json-content-type-missing ───────────────────────
+// POST/PUT/PATCH handlers that parse JSON should usually reject non-JSON
+// content before parsing. That gives clients a deterministic 415/400 path and
+// avoids treating arbitrary body formats as malformed JSON.
+
+const JSON_BODY_METHODS = new Set(['POST', 'PUT', 'PATCH']);
+
+function functionChecksContentType(fn: FunctionLikeNode): boolean {
+  const body = getFunctionBodyNode(fn);
+  if (!body) return false;
+  const requestParamName = fn.getParameters()[0]?.getName();
+  if (!requestParamName) return false;
+
+  for (const call of body.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (!Node.isPropertyAccessExpression(callee) || callee.getName() !== 'get') continue;
+    const receiver = callee.getExpression();
+    if (!Node.isPropertyAccessExpression(receiver) || receiver.getName() !== 'headers') continue;
+    const requestObject = receiver.getExpression();
+    if (!Node.isIdentifier(requestObject) || requestObject.getText() !== requestParamName) continue;
+    const header = normalizeHeaderNameNode(call.getArguments()[0]);
+    if (header === 'content-type') return true;
+  }
+
+  return false;
+}
+
+function checkRouteHandlerJsonContentType(ctx: RuleContext, methodName: string, fn: FunctionLikeNode): ReviewFinding[] {
+  if (!JSON_BODY_METHODS.has(methodName)) return [];
+  const body = getFunctionBodyNode(fn);
+  if (!body || functionChecksContentType(fn)) return [];
+
+  const findings: ReviewFinding[] = [];
+  const seen = new Set<number>();
+  for (const call of body.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    if (!isRouteHandlerJsonCall(call, fn)) continue;
+    if (seen.has(call.getStart())) continue;
+    seen.add(call.getStart());
+
+    findings.push(
+      finding(
+        'route-handler-json-content-type-missing',
+        'warning',
+        'pattern',
+        `Route handler ${methodName} parses request.json() without checking Content-Type — non-JSON requests fall into the malformed-body path`,
+        ctx.filePath,
+        call.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            "Check request.headers.get('content-type') for application/json before parsing, and return 415/400 for unsupported body types.",
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+function routeHandlerJsonContentTypeMissing(ctx: RuleContext): ReviewFinding[] {
+  if (ctx.fileRole !== 'runtime') return [];
+  return forEachRouteHandler(ctx, (methodName, fn) => checkRouteHandlerJsonContentType(ctx, methodName, fn));
+}
+
+// ── Rule: route-handler-catch-status-undefined ──────────────────────────
+// Catch blocks often convert upstream errors to responses. Passing a bare
+// `status` identifier into Response.json can become undefined/invalid when the
+// thrown value is not the expected error shape.
+
+function checkRouteHandlerCatchStatusUndefined(ctx: RuleContext, fn: FunctionLikeNode): ReviewFinding[] {
+  const body = getFunctionBodyNode(fn);
+  if (!body) return [];
+  const findings: ReviewFinding[] = [];
+
+  function unwrapStatusInitializer(node: Node): Node {
+    let current = node;
+    while (
+      Node.isParenthesizedExpression(current) ||
+      Node.isAsExpression(current) ||
+      Node.isTypeAssertion(current) ||
+      Node.isSatisfiesExpression(current) ||
+      Node.isAwaitExpression(current)
+    ) {
+      current = current.getExpression();
+    }
+    return current;
+  }
+
+  function isDirectCatchValue(node: Node | undefined, catchName: string | undefined): boolean {
+    if (!node || !catchName) return false;
+    const unwrapped = unwrapStatusInitializer(node);
+    if (Node.isIdentifier(unwrapped)) return unwrapped.getText() === catchName;
+    if (Node.isPropertyAccessExpression(unwrapped)) return unwrapped.getExpression().getText() === catchName;
+    return false;
+  }
+
+  for (const catchClause of body.getDescendantsOfKind(SyntaxKind.CatchClause)) {
+    const block = catchClause.getBlock();
+    const catchName = catchClause.getVariableDeclaration()?.getName();
+    const statusNames = new Set<string>();
+
+    for (const decl of block.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+      const nameNode = decl.getNameNode();
+      const initText = decl.getInitializer()?.getText() ?? '';
+      if (Node.isObjectBindingPattern(nameNode)) {
+        if (!isDirectCatchValue(decl.getInitializer(), catchName)) continue;
+        for (const element of nameNode.getElements()) {
+          const key = element.getPropertyNameNode()?.getText() ?? element.getNameNode().getText();
+          if (key === 'status') statusNames.add(element.getNameNode().getText());
+        }
+      } else if (Node.isIdentifier(nameNode) && /status/i.test(nameNode.getText())) {
+        if (catchName && new RegExp(`\\b${catchName}\\b`).test(initText) && /\.status\b/.test(initText)) {
+          statusNames.add(nameNode.getText());
+        }
+      }
+    }
+
+    for (const call of block.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+      const callee = call.getExpression();
+      if (!Node.isPropertyAccessExpression(callee) || callee.getName() !== 'json') continue;
+      const receiver = callee.getExpression().getText();
+      if (receiver !== 'Response' && receiver !== 'NextResponse') continue;
+      const options = call.getArguments()[1];
+      if (!options || !Node.isObjectLiteralExpression(options)) continue;
+
+      for (const prop of options.getProperties()) {
+        if (!Node.isPropertyAssignment(prop) && !Node.isShorthandPropertyAssignment(prop)) continue;
+        const name = Node.isPropertyAssignment(prop)
+          ? prop.getNameNode().getText().replace(/['"`]/g, '')
+          : prop.getName();
+        if (name !== 'status') continue;
+        const value = Node.isPropertyAssignment(prop) ? prop.getInitializer() : prop.getNameNode();
+        if (!value) continue;
+        const isStatusAlias = Node.isIdentifier(value) && statusNames.has(value.getText());
+        const isDirectErrorStatus =
+          Boolean(catchName) &&
+          /\.status\b/.test(value.getText()) &&
+          new RegExp(`\\b${catchName}\\b`).test(value.getText());
+        if (!isStatusAlias && !isDirectErrorStatus) continue;
+
+        findings.push(
+          finding(
+            'route-handler-catch-status-undefined',
+            'warning',
+            'bug',
+            'Catch block passes an error-derived status directly to Response.json() — unexpected thrown values can produce undefined or invalid HTTP status',
+            ctx.filePath,
+            prop.getStartLineNumber(),
+            1,
+            {
+              suggestion:
+                'Validate the status range or use a fallback such as status: isHttpStatus(status) ? status : 500.',
+            },
+          ),
+        );
+      }
+    }
+  }
+
+  return findings;
+}
+
+function routeHandlerCatchStatusUndefined(ctx: RuleContext): ReviewFinding[] {
+  if (ctx.fileRole !== 'runtime') return [];
+  return forEachRouteHandler(ctx, (_methodName, fn) => checkRouteHandlerCatchStatusUndefined(ctx, fn));
+}
+
+// ── Rule: forwarded-client-header ───────────────────────────────────────
+// Forwarding caller-supplied x-forwarded-for or user-agent to sensitive
+// upstreams gives clients influence over audit/fraud/auth context.
+
+const FORWARDED_CLIENT_HEADERS = new Set(['x-forwarded-for', 'user-agent']);
+
+function normalizeHeaderNameNode(node: Node | undefined): string | undefined {
+  if (!node) return undefined;
+  if (Node.isStringLiteral(node) || Node.isNoSubstitutionTemplateLiteral(node))
+    return node.getLiteralText().toLowerCase();
+  return undefined;
+}
+
+function isClientHeaderRead(node: Node, requestParamNames: Set<string>, headerName: string): boolean {
+  for (const call of node.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (!Node.isPropertyAccessExpression(callee) || callee.getName() !== 'get') continue;
+    const receiver = callee.getExpression();
+    if (!Node.isPropertyAccessExpression(receiver) || receiver.getName() !== 'headers') continue;
+    const requestObject = receiver.getExpression();
+    if (!Node.isIdentifier(requestObject) || !requestParamNames.has(requestObject.getText())) continue;
+    const readHeader = normalizeHeaderNameNode(call.getArguments()[0]);
+    if (readHeader === headerName) return true;
+  }
+
+  return false;
+}
+
+function collectClientHeaderAliases(body: Node, requestParamNames: Set<string>, headerName: string): Set<string> {
+  const aliases = new Set<string>();
+  for (const decl of body.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const nameNode = decl.getNameNode();
+    if (!Node.isIdentifier(nameNode)) continue;
+    const init = decl.getInitializer();
+    if (!init || !isClientHeaderRead(init, requestParamNames, headerName)) continue;
+    aliases.add(nameNode.getText());
+  }
+  return aliases;
+}
+
+function isClientHeaderReadOrAlias(
+  node: Node,
+  requestParamNames: Set<string>,
+  headerName: string,
+  aliases: Set<string>,
+): boolean {
+  if (isClientHeaderRead(node, requestParamNames, headerName)) return true;
+  if (Node.isIdentifier(node) && aliases.has(node.getText())) return true;
+  return node.getDescendantsOfKind(SyntaxKind.Identifier).some((identifier) => {
+    if (!aliases.has(identifier.getText())) return false;
+    const parent = identifier.getParent();
+    if (parent && Node.isPropertyAccessExpression(parent) && parent.getNameNode() === identifier) return false;
+    return true;
+  });
+}
+
+function checkForwardedClientHeaders(ctx: RuleContext, methodName: string, fn: FunctionLikeNode): ReviewFinding[] {
+  const body = getFunctionBodyNode(fn);
+  if (!body) return [];
+
+  const requestParamNames = new Set(
+    fn
+      .getParameters()
+      .slice(0, 1)
+      .map((param) => param.getName())
+      .filter(Boolean),
+  );
+  if (requestParamNames.size === 0) return [];
+
+  const findings: ReviewFinding[] = [];
+  const aliasesByHeader = new Map(
+    [...FORWARDED_CLIENT_HEADERS].map((headerName) => [
+      headerName,
+      collectClientHeaderAliases(body, requestParamNames, headerName),
+    ]),
+  );
+
+  for (const assignment of body.getDescendantsOfKind(SyntaxKind.PropertyAssignment)) {
+    const headerName = assignment.getNameNode().getText().replace(/['"`]/g, '').toLowerCase();
+    if (!FORWARDED_CLIENT_HEADERS.has(headerName)) continue;
+    const init = assignment.getInitializer();
+    if (
+      !init ||
+      !isClientHeaderReadOrAlias(init, requestParamNames, headerName, aliasesByHeader.get(headerName) ?? new Set())
+    )
+      continue;
+
+    findings.push(
+      finding(
+        'forwarded-client-header',
+        'warning',
+        'bug',
+        `Route handler ${methodName} forwards caller-controlled '${headerName}' upstream — clients can spoof audit, fraud, or auth context`,
+        ctx.filePath,
+        assignment.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'Prefer framework/trusted proxy metadata, or explicitly mark forwarded values as untrusted and avoid using them for authorization or fraud decisions.',
+        },
+      ),
+    );
+  }
+
+  for (const call of body.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (!Node.isPropertyAccessExpression(callee) || callee.getName() !== 'set') continue;
+    const headerName = normalizeHeaderNameNode(call.getArguments()[0]);
+    if (!headerName || !FORWARDED_CLIENT_HEADERS.has(headerName)) continue;
+    const value = call.getArguments()[1];
+    if (
+      !value ||
+      !isClientHeaderReadOrAlias(value, requestParamNames, headerName, aliasesByHeader.get(headerName) ?? new Set())
+    )
+      continue;
+
+    findings.push(
+      finding(
+        'forwarded-client-header',
+        'warning',
+        'bug',
+        `Route handler ${methodName} forwards caller-controlled '${headerName}' upstream — clients can spoof audit, fraud, or auth context`,
+        ctx.filePath,
+        call.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'Prefer framework/trusted proxy metadata, or explicitly mark forwarded values as untrusted and avoid using them for authorization or fraud decisions.',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+function forwardedClientHeader(ctx: RuleContext): ReviewFinding[] {
+  if (ctx.fileRole !== 'runtime') return [];
+  return forEachRouteHandler(ctx, (methodName, fn) => checkForwardedClientHeaders(ctx, methodName, fn));
+}
+
+// ── Rule: middleware-cloned-request-headers ─────────────────────────────
+// Cloning the entire incoming header bag in middleware can forward cookies,
+// authorization, spoofable forwarding headers, and browser-only headers into
+// internal rewrites/fetches. Middleware should usually construct an allowlist.
+
+function middlewareClonedRequestHeaders(ctx: RuleContext): ReviewFinding[] {
+  if (ctx.fileRole !== 'runtime') return [];
+  if (!/(^|\/)middleware\.[cm]?[jt]sx?$/.test(ctx.filePath)) return [];
+
+  function isRequestHeaderClone(node: Node): boolean {
+    if (!Node.isNewExpression(node)) return false;
+    const expr = node.getExpression();
+    if (!Node.isIdentifier(expr) || expr.getText() !== 'Headers') return false;
+    const argText = node.getArguments()[0]?.getText() ?? '';
+    return /\b(?:request|req)\.headers\b/.test(argText);
+  }
+
+  const clonedHeaderAliases = new Set<string>();
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const nameNode = decl.getNameNode();
+    if (!Node.isIdentifier(nameNode)) continue;
+    const init = decl.getInitializer();
+    if (init && isRequestHeaderClone(init)) clonedHeaderAliases.add(nameNode.getText());
+  }
+
+  const findings: ReviewFinding[] = [];
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (!Node.isIdentifier(callee) || callee.getText() !== 'fetch') continue;
+    const init = call
+      .getDescendantsOfKind(SyntaxKind.PropertyAssignment)
+      .find((prop) => prop.getNameNode().getText().replace(/['"`]/g, '') === 'headers')
+      ?.getInitializer();
+    if (!init) continue;
+    const forwardsClone =
+      (Node.isIdentifier(init) && clonedHeaderAliases.has(init.getText())) ||
+      init
+        .getDescendantsOfKind(SyntaxKind.Identifier)
+        .some((identifier) => clonedHeaderAliases.has(identifier.getText())) ||
+      isRequestHeaderClone(init);
+    if (!forwardsClone) continue;
+
+    findings.push(
+      finding(
+        'middleware-cloned-request-headers',
+        'warning',
+        'bug',
+        'Middleware forwards a clone of all incoming request headers to fetch() — upstream calls may receive cookies, authorization, or spoofable client headers',
+        ctx.filePath,
+        call.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'Build a new Headers object from an explicit allowlist and drop cookie, authorization, x-forwarded-*, and browser-only headers unless intentionally needed.',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+// ── Rule: mock-route-missing-env-guard ──────────────────────────────────
+// Mock/dev API routes should be unreachable in production builds unless an
+// explicit environment guard blocks them.
+
+function mockRouteMissingEnvGuard(ctx: RuleContext): ReviewFinding[] {
+  if (ctx.fileRole !== 'runtime') return [];
+  if (!/(^|\/)app\/api\/(?:mock|dev-|dev\/|__mock__)/i.test(ctx.filePath)) return [];
+  if (!/route\.[cm]?[jt]sx?$/i.test(ctx.filePath)) return [];
+
+  const fullText = ctx.sourceFile.getFullText();
+  const hasGuard =
+    /process\.env\.(?:MOCKS?_ENABLED|NODE_ENV|DEV_[A-Z0-9_]*|ENABLE_[A-Z0-9_]*|[A-Z0-9_]*_ENABLED)/.test(fullText) ||
+    /\b(notFound|NextResponse\.json|Response\.json)\s*\([^)]*status\s*:\s*40[034]/s.test(fullText) ||
+    /\b(assert|ensure|guard|require)[A-Za-z0-9_]*(?:Mock|Dev|Enabled)/.test(fullText);
+
+  if (hasGuard) return [];
+
+  return [
+    finding(
+      'mock-route-missing-env-guard',
+      'warning',
+      'bug',
+      'Mock/dev API route has no obvious environment guard — test fixtures or proxy behavior may be reachable outside local/mock mode',
+      ctx.filePath,
+      1,
+      1,
+      {
+        suggestion:
+          'Gate mock/dev route handlers with an explicit env check and return 404/403 when mock mode is disabled.',
+      },
+    ),
+  ];
+}
+
+// ── Rule: proxy-rewrite-env-path ────────────────────────────────────────
+// Middleware rewrites assembled from env-controlled origins and request paths
+// are easy to turn into open/internal proxies if the env target is broad.
+
+function proxyRewriteEnvPath(ctx: RuleContext): ReviewFinding[] {
+  if (ctx.fileRole !== 'runtime') return [];
+
+  const findings: ReviewFinding[] = [];
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (!Node.isPropertyAccessExpression(callee)) continue;
+    const method = callee.getName();
+    if (method !== 'rewrite' && method !== 'redirect') continue;
+    if (callee.getExpression().getText() !== 'NextResponse') continue;
+    const argText = call.getArguments()[0]?.getText() ?? '';
+    if (!/process\.env\.[A-Z0-9_]+/.test(argText)) continue;
+    if (!/\brequest\.(?:nextUrl\.)?(?:pathname|url|search)\b|\bnextUrl\.(?:pathname|search)\b/.test(argText)) continue;
+
+    findings.push(
+      finding(
+        'proxy-rewrite-env-path',
+        'warning',
+        'bug',
+        `NextResponse.${method}() combines an environment-controlled target with request path/search data — review for open proxy, open redirect, or internal routing exposure`,
+        ctx.filePath,
+        call.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'Parse the env URL with URL, allowlist expected hosts, normalize the request pathname, and reject paths outside the intended proxy prefix.',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+// ── Rule: non-public-env-jsx-prop ───────────────────────────────────────
+// Passing process.env values through JSX props is a common way to accidentally
+// expose server-only config to Client Components.
+
+function collectNonPublicEnvAccesses(node: Node): string[] {
+  const names = new Set<string>();
+
+  const propertyAccesses = node.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression);
+  if (Node.isPropertyAccessExpression(node)) propertyAccesses.push(node);
+  for (const access of propertyAccesses) {
+    const left = access.getExpression();
+    if (!Node.isPropertyAccessExpression(left) || left.getName() !== 'env') continue;
+    const proc = left.getExpression();
+    if (!Node.isIdentifier(proc) || proc.getText() !== 'process') continue;
+    const name = access.getName();
+    if (!isExemptEnvVarName(name)) names.add(name);
+  }
+
+  const elementAccesses = node.getDescendantsOfKind(SyntaxKind.ElementAccessExpression);
+  if (Node.isElementAccessExpression(node)) elementAccesses.push(node);
+  for (const access of elementAccesses) {
+    const left = access.getExpression();
+    if (!Node.isPropertyAccessExpression(left) || left.getName() !== 'env') continue;
+    const proc = left.getExpression();
+    if (!Node.isIdentifier(proc) || proc.getText() !== 'process') continue;
+    const arg = access.getArgumentExpression();
+    if (!arg || !Node.isStringLiteral(arg)) continue;
+    const name = arg.getLiteralValue();
+    if (!isExemptEnvVarName(name)) names.add(name);
+  }
+
+  return [...names];
+}
+
+function jsxAttributeTagName(attr: import('ts-morph').JsxAttribute): string | undefined {
+  const parent = attr.getParent();
+  if (!parent || (!Node.isJsxOpeningElement(parent) && !Node.isJsxSelfClosingElement(parent))) return undefined;
+  const tagText = parent.getTagNameNode().getText();
+  return tagText.split('.')[0];
+}
+
+function jsxTagResolvesToClientBoundary(ctx: RuleContext, tagName: string | undefined, fullText: string): boolean {
+  if (isClientBoundary(ctx, fullText)) return true;
+  if (!tagName || /^[a-z]/.test(tagName)) return false;
+
+  const graphFile = ctx.config?.graphFileMap?.get(ctx.filePath);
+  const fileContextMap = ctx.config?.fileContextMap;
+  if (!graphFile || !fileContextMap) return false;
+
+  for (const edge of graphFile.importEdges) {
+    if (edge.localName !== tagName && edge.importedName !== tagName) continue;
+    const importedContext =
+      fileContextMap.get(edge.to) ?? [...fileContextMap.values()].find((ctx) => ctx.importChain.includes(edge.to));
+    if (importedContext?.isClientBoundary || importedContext?.hasUseClientDirective) return true;
+  }
+
+  return false;
+}
+
+function nonPublicEnvJsxProp(ctx: RuleContext): ReviewFinding[] {
+  if (ctx.fileRole !== 'runtime') return [];
+
+  const fullText = ctx.sourceFile.getFullText();
+  if (hasServerDirective(fullText)) return [];
+
+  const findings: ReviewFinding[] = [];
+  for (const attr of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxAttribute)) {
+    const init = attr.getInitializer();
+    if (!init || !Node.isJsxExpression(init)) continue;
+    const expr = init.getExpression();
+    if (!expr) continue;
+    const envNames = collectNonPublicEnvAccesses(expr);
+    if (envNames.length === 0) continue;
+    if (!jsxTagResolvesToClientBoundary(ctx, jsxAttributeTagName(attr), fullText)) continue;
+
+    findings.push(
+      finding(
+        'non-public-env-jsx-prop',
+        'warning',
+        'bug',
+        `Non-public env var${envNames.length === 1 ? '' : 's'} ${envNames.join(', ')} passed through JSX prop '${attr.getNameNode().getText()}' — this can expose server-only config to Client Components`,
+        ctx.filePath,
+        attr.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'If the value is intentionally public, expose it with a NEXT_PUBLIC_* name or a reviewed public env contract. Otherwise keep it server-side.',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+// ── Rule: next-image-remote-wildcard ────────────────────────────────────
+// next/image with hostname "*" accepts images from anywhere, weakening image
+// optimization boundaries and making allowlist review ineffective.
+
+function nextImageRemoteWildcard(ctx: RuleContext): ReviewFinding[] {
+  if (!/(^|\/)next\.config\.[cm]?[jt]s$/.test(ctx.filePath)) return [];
+  const fullText = ctx.sourceFile.getFullText();
+  if (!/remotePatterns/.test(fullText)) return [];
+
+  const findings: ReviewFinding[] = [];
+  for (const prop of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.PropertyAssignment)) {
+    const name = prop.getNameNode().getText().replace(/['"`]/g, '');
+    if (name !== 'hostname') continue;
+    const init = prop.getInitializer();
+    if (!init || !Node.isStringLiteral(init)) continue;
+    if (init.getLiteralValue() !== '*') continue;
+
+    findings.push(
+      finding(
+        'next-image-remote-wildcard',
+        'warning',
+        'bug',
+        'next/image remotePatterns allows hostname "*" — any remote image host is accepted',
+        ctx.filePath,
+        prop.getStartLineNumber(),
+        1,
+        {
+          suggestion: 'Replace wildcard hostnames with the smallest set of trusted image/CDN host patterns.',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+// ── Rule: sensitive-route-public-cache ──────────────────────────────────
+// Account/auth/cart/checkout/B2B endpoints should not receive public CDN cache
+// headers unless there is a very explicit reviewed exception.
+
+const SENSITIVE_CACHE_ROUTE_RE = /\/(?:api\/[^'"]*)?(?:auth|account|cart|checkout|b2b|orders?|payment|user|profile)\b/i;
+
+function getObjectLiteralStringProperty(
+  obj: import('ts-morph').ObjectLiteralExpression,
+  propertyName: string,
+): string | undefined {
+  const prop = obj.getProperty(propertyName);
+  if (!prop || !Node.isPropertyAssignment(prop)) return undefined;
+  const init = prop.getInitializer();
+  if (!init || (!Node.isStringLiteral(init) && !Node.isNoSubstitutionTemplateLiteral(init))) return undefined;
+  return init.getLiteralText();
+}
+
+function objectHasPublicCacheControlHeader(obj: import('ts-morph').ObjectLiteralExpression): boolean {
+  const headersProp = obj.getProperty('headers');
+  if (!headersProp || !Node.isPropertyAssignment(headersProp)) return false;
+  const headersInit = headersProp.getInitializer();
+  if (!headersInit || !Node.isArrayLiteralExpression(headersInit)) return false;
+
+  for (const element of headersInit.getElements()) {
+    if (!Node.isObjectLiteralExpression(element)) continue;
+    const key = getObjectLiteralStringProperty(element, 'key');
+    if (!key || key.toLowerCase() !== 'cache-control') continue;
+    const value = getObjectLiteralStringProperty(element, 'value') ?? '';
+    if (/\b(?:public|s-maxage|stale-while-revalidate)\b/i.test(value)) return true;
+  }
+
+  return false;
+}
+
+function sensitiveRoutePublicCache(ctx: RuleContext): ReviewFinding[] {
+  if (!/(^|\/)next\.config\.[cm]?[jt]s$/.test(ctx.filePath)) return [];
+
+  const findings: ReviewFinding[] = [];
+  for (const obj of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.ObjectLiteralExpression)) {
+    const source = getObjectLiteralStringProperty(obj, 'source');
+    if (!source) continue;
+    if (!SENSITIVE_CACHE_ROUTE_RE.test(source)) continue;
+    if (!objectHasPublicCacheControlHeader(obj)) continue;
+
+    findings.push(
+      finding(
+        'sensitive-route-public-cache',
+        'warning',
+        'bug',
+        `Sensitive route pattern '${source}' receives public/shared cache headers — auth, account, cart, checkout, B2B, and order data should not be CDN-public`,
+        ctx.filePath,
+        obj.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'Use private/no-store for user-specific or privileged routes, or document and narrowly scope any intentional public cache exception.',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+// ── Rule: swr-mutation-missing-invalidation ─────────────────────────────
+// useSWRMutation performs a mutation, but related query caches often need an
+// explicit mutate()/populateCache/revalidate plan. This rule is intentionally
+// heuristic and only checks same-file evidence.
+
+function isSWRMutationCall(call: import('ts-morph').CallExpression): boolean {
+  const callee = call.getExpression().getText();
+  return callee === 'useSWRMutation' || callee.endsWith('.useSWRMutation');
+}
+
+function objectTextHasAnyProperty(node: Node | undefined, names: Set<string>): boolean {
+  if (!node || !Node.isObjectLiteralExpression(node)) return false;
+  return node.getProperties().some((prop) => {
+    if (!Node.isPropertyAssignment(prop) && !Node.isShorthandPropertyAssignment(prop)) return false;
+    const name = Node.isPropertyAssignment(prop) ? prop.getNameNode().getText().replace(/['"`]/g, '') : prop.getName();
+    return names.has(name);
+  });
+}
+
+function nearestFunctionScope(node: Node): Node {
+  let current: Node | undefined = node;
+  while (current) {
+    if (
+      Node.isFunctionDeclaration(current) ||
+      Node.isFunctionExpression(current) ||
+      Node.isArrowFunction(current) ||
+      Node.isMethodDeclaration(current)
+    )
+      return current;
+    current = current.getParent();
+  }
+  return node.getSourceFile();
+}
+
+function hasSWRMutationInvalidationEvidence(scope: Node): boolean {
+  const swrMutationCalls = scope.getDescendantsOfKind(SyntaxKind.CallExpression).filter(isSWRMutationCall);
+  if (swrMutationCalls.length !== 1) return false;
+
+  return scope.getDescendantsOfKind(SyntaxKind.CallExpression).some((call) => {
+    const callee = call.getExpression();
+    return (
+      (Node.isIdentifier(callee) && (callee.getText() === 'mutate' || callee.getText() === 'useSWRConfig')) ||
+      (Node.isPropertyAccessExpression(callee) && callee.getName() === 'mutate')
+    );
+  });
+}
+
+function swrMutationMissingInvalidation(ctx: RuleContext): ReviewFinding[] {
+  if (ctx.fileRole !== 'runtime') return [];
+  const fullText = ctx.sourceFile.getFullText();
+  if (!/useSWRMutation/.test(fullText)) return [];
+
+  const optionsKeys = new Set(['populateCache', 'revalidate', 'optimisticData', 'rollbackOnError', 'onSuccess']);
+  const findings: ReviewFinding[] = [];
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    if (!isSWRMutationCall(call)) continue;
+    if (objectTextHasAnyProperty(call.getArguments()[2], optionsKeys)) continue;
+    if (hasSWRMutationInvalidationEvidence(nearestFunctionScope(call))) continue;
+    findings.push(
+      finding(
+        'swr-mutation-missing-invalidation',
+        'warning',
+        'pattern',
+        'useSWRMutation has no same-file cache invalidation/population plan — related SWR queries can stay stale after mutation',
+        ctx.filePath,
+        call.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'Add mutate()/useSWRConfig(), or pass populateCache/revalidate/onSuccess options documenting how affected cache keys refresh.',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+// ── Rule: swr-cache-key-shape-drift ─────────────────────────────────────
+// Same first SWR cache key used with incompatible tuple shapes in one file.
+// This often makes mutate(predicate) imprecise and cache invalidation brittle.
+
+const SWR_HOOK_NAMES = new Set(['useSWR', 'useSWRImmutable', 'useSWRMutation']);
+
+function getSWRCallName(call: import('ts-morph').CallExpression): string | undefined {
+  const callee = call.getExpression();
+  if (Node.isIdentifier(callee) && SWR_HOOK_NAMES.has(callee.getText())) return callee.getText();
+  if (Node.isPropertyAccessExpression(callee) && SWR_HOOK_NAMES.has(callee.getName())) return callee.getName();
+  return undefined;
+}
+
+function describeArrayElementShape(node: Node): string {
+  if (Node.isStringLiteral(node) || Node.isNoSubstitutionTemplateLiteral(node)) return 'string';
+  if (Node.isNumericLiteral(node)) return 'number';
+  if (Node.isObjectLiteralExpression(node)) return 'object';
+  if (Node.isArrayLiteralExpression(node)) return 'array';
+  if (Node.isIdentifier(node)) return `id:${node.getText()}`;
+  if (Node.isPropertyAccessExpression(node)) return `prop:${node.getText()}`;
+  return node.getKindName();
+}
+
+function swrCacheKeyShapeDrift(ctx: RuleContext): ReviewFinding[] {
+  if (ctx.fileRole !== 'runtime') return [];
+
+  const byFirstKey = new Map<string, Array<{ line: number; shape: string; text: string }>>();
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    if (!getSWRCallName(call)) continue;
+    const keyArg = call.getArguments()[0];
+    if (!keyArg || !Node.isArrayLiteralExpression(keyArg)) continue;
+    const elements = keyArg.getElements();
+    if (elements.length === 0) continue;
+    const firstKey = elements[0].getText();
+    const shape = elements.map(describeArrayElementShape).join('|');
+    const entries = byFirstKey.get(firstKey) ?? [];
+    entries.push({ line: keyArg.getStartLineNumber(), shape, text: keyArg.getText() });
+    byFirstKey.set(firstKey, entries);
+  }
+
+  const findings: ReviewFinding[] = [];
+  for (const [firstKey, entries] of byFirstKey) {
+    const uniqueShapes = new Set(entries.map((entry) => entry.shape));
+    if (uniqueShapes.size <= 1) continue;
+    const first = entries[0];
+    findings.push(
+      finding(
+        'swr-cache-key-shape-drift',
+        'warning',
+        'bug',
+        `SWR cache key ${firstKey} is used with ${uniqueShapes.size} tuple shapes in one file — invalidation predicates can miss or over-match entries`,
+        ctx.filePath,
+        first.line,
+        1,
+        {
+          suggestion:
+            'Normalize this cache key to one tuple contract, or split distinct cache domains into separate first-key constants.',
+          relatedSpans: entries.slice(1, 4).map((entry) => span(ctx.filePath, entry.line)),
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+// ── Rule: session-local-storage-outside-helper ──────────────────────────
+// Auth/session values in localStorage should go through centralized helpers
+// so expiry, migration, and cleanup behavior stays consistent.
+
+const SENSITIVE_STORAGE_KEY_RE =
+  /(^|[_:.-])(?:access[_:.-]?token|refresh[_:.-]?token|id[_:.-]?token|auth(?:[_:.-]?state)?|session(?:[_:.-]?(?:id|token))?|jwt|bearer|login[_:.-]?token|customer[_:.-]?(?:id|token)|cart[_:.-]?id)($|[_:.-])/i;
+
+function isSessionStorageHelperPath(filePath: string): boolean {
+  return /\/(?:auth|session|storage|local-storage|localstorage|cookies?)\//i.test(filePath);
+}
+
+function getLiteralLikeText(node: Node | undefined): string | undefined {
+  if (!node) return undefined;
+  if (Node.isStringLiteral(node) || Node.isNoSubstitutionTemplateLiteral(node)) return node.getLiteralText();
+  return node.getText();
+}
+
+function sessionLocalStorageOutsideHelper(ctx: RuleContext): ReviewFinding[] {
+  if (ctx.fileRole !== 'runtime') return [];
+  if (isSessionStorageHelperPath(ctx.filePath)) return [];
+
+  const findings: ReviewFinding[] = [];
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (!Node.isPropertyAccessExpression(callee)) continue;
+    if (callee.getName() !== 'setItem' && callee.getName() !== 'removeItem') continue;
+    const receiver = callee.getExpression().getText();
+    if (
+      receiver !== 'localStorage' &&
+      receiver !== 'window.localStorage' &&
+      receiver !== 'sessionStorage' &&
+      receiver !== 'window.sessionStorage'
+    )
+      continue;
+    const keyText = getLiteralLikeText(call.getArguments()[0]);
+    if (!keyText || !SENSITIVE_STORAGE_KEY_RE.test(keyText)) continue;
+
+    findings.push(
+      finding(
+        'session-local-storage-outside-helper',
+        'warning',
+        'bug',
+        `Sensitive localStorage key '${keyText}' is written outside a session/storage helper — auth state cleanup and expiry can drift`,
+        ctx.filePath,
+        call.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'Route auth/session localStorage writes through the shared session/storage helper so login, logout, expiry, and migrations stay coherent.',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
 // ── Rule: env-var-leak-to-client ─────────────────────────────────────────
 //
 // In Next.js, env vars referenced in Client Components must be prefixed with
@@ -1637,5 +2690,19 @@ export const nextjsAppRouterRules = [
   serverActionFormReturnValueIgnored,
   serverActionFormMutationMissingInvalidation,
   serverActionUnvalidatedInput,
+  routeHandlerJsonTypeAssertion,
+  routeHandlerJsonUnguarded,
+  routeHandlerJsonContentTypeMissing,
+  routeHandlerCatchStatusUndefined,
+  forwardedClientHeader,
+  middlewareClonedRequestHeaders,
+  mockRouteMissingEnvGuard,
+  proxyRewriteEnvPath,
+  nonPublicEnvJsxProp,
+  nextImageRemoteWildcard,
+  sensitiveRoutePublicCache,
+  swrMutationMissingInvalidation,
+  swrCacheKeyShapeDrift,
+  sessionLocalStorageOutsideHelper,
   envVarLeakToClient,
 ];

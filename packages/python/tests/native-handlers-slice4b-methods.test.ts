@@ -2,7 +2,7 @@
  *
  *  Slice 4b wires `lang=kern` dispatch into Python method codegen for
  *  `service` and `repository` (both share the methodBodyLinesPython
- *  helper in packages/fastapi/src/generators/data.ts).
+ *  helper in packages/python/src/generators/data.ts).
  *
  *  Methods get:
  *    - snake_case symbol map built from the method's `param` children

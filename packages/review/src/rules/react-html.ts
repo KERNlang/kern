@@ -104,6 +104,71 @@ function controlledInputNoOnChange(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+function jsxAttributeExpression(attr: JsxAttribute | undefined): Node | undefined {
+  const init = attr?.getInitializer();
+  if (!init || !Node.isJsxExpression(init)) return undefined;
+  return init.getExpression();
+}
+
+function isNullishControlledValue(expr: Node | undefined): boolean {
+  if (!expr) return false;
+  if (expr.getText().includes('?.')) return true;
+  if (expr.getKind() === SyntaxKind.NullKeyword || expr.getKind() === SyntaxKind.UndefinedKeyword) return true;
+  if (Node.isIdentifier(expr) && expr.getText() === 'undefined') return true;
+  if (Node.isConditionalExpression(expr)) {
+    return isNullishControlledValue(expr.getWhenTrue()) || isNullishControlledValue(expr.getWhenFalse());
+  }
+  if (Node.isBinaryExpression(expr) && expr.getOperatorToken().getKind() === SyntaxKind.BarBarToken) {
+    return isNullishControlledValue(expr.getLeft()) || isNullishControlledValue(expr.getRight());
+  }
+  if (Node.isBinaryExpression(expr) && expr.getOperatorToken().getKind() === SyntaxKind.QuestionQuestionToken) {
+    return isNullishControlledValue(expr.getRight());
+  }
+  return false;
+}
+
+// ── Rule: controlled-input-nullish-value ────────────────────────────────
+// value={null}/value={undefined} can flip an input between controlled and
+// uncontrolled. Use a stable fallback (`?? ''`) or defaultValue.
+
+function controlledInputNullishValue(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const jsx of getAllJsxElements(ctx)) {
+    const tag = jsx.getTagNameNode().getText();
+    if (!CONTROLLABLE_TAGS.has(tag)) continue;
+    if (tag === 'input') {
+      const typeAttr = getAttribute(jsx, 'type');
+      const init = typeAttr?.getInitializer();
+      if (init && Node.isStringLiteral(init) && NON_CONTROLLED_INPUT_TYPES.has(init.getLiteralValue())) continue;
+    }
+
+    const valueAttr = getAttribute(jsx, 'value');
+    if (!valueAttr) continue;
+    if (jsx.getAttributes().some((a) => Node.isJsxSpreadAttribute(a))) continue;
+    const expr = jsxAttributeExpression(valueAttr);
+    if (!isNullishControlledValue(expr)) continue;
+
+    findings.push(
+      finding(
+        'controlled-input-nullish-value',
+        'warning',
+        'bug',
+        `<${tag} value={...}> can be null/undefined — React may switch the field between controlled and uncontrolled`,
+        ctx.filePath,
+        jsx.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            "Use a stable fallback such as value={value ?? ''}, or use defaultValue for an uncontrolled input.",
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
 // ── Rule: form-onsubmit-no-preventdefault ───────────────────────────────
 // `<form onSubmit={handler}>` where handler doesn't call e.preventDefault()
 // triggers a page reload, defeating SPA behavior. Conservative: only flags
@@ -318,6 +383,7 @@ function clientOnly<T extends (ctx: RuleContext) => ReviewFinding[]>(fn: T): T {
 
 export const reactHtmlRules = [
   clientOnly(controlledInputNoOnChange),
+  clientOnly(controlledInputNullishValue),
   clientOnly(flagsFormOnSubmitNoPreventDefault),
   clientOnly(submitButtonImplicitType),
   clientOnly(targetBlankNoRelNoopener),
