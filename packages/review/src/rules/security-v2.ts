@@ -1026,6 +1026,136 @@ function clientOpenRedirectFromQuery(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule: window-open-blank-missing-noopener ────────────────────────────
+// window.open(url, '_blank') must include noopener/noreferrer in the feature
+// string. The JSX anchor rule cannot see imperative tab opens.
+
+function getStaticStringValue(node: Node | undefined): string | undefined {
+  if (!node) return undefined;
+  const unwrapped = unwrapExpression(node);
+  if (Node.isStringLiteral(unwrapped) || Node.isNoSubstitutionTemplateLiteral(unwrapped)) {
+    return unwrapped.getLiteralValue();
+  }
+  return undefined;
+}
+
+function featureStringHasNoopener(value: string): boolean {
+  return /(?:^|[,;\s])(?:noopener|noreferrer)(?:[=,;\s]|$)/i.test(value);
+}
+
+function windowOpenBlankMissingNoopener(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (!Node.isPropertyAccessExpression(callee)) continue;
+    if (callee.getName() !== 'open') continue;
+    const ownerText = callee.getExpression().getText();
+    if (ownerText !== 'window' && ownerText !== 'globalThis' && ownerText !== 'self') continue;
+
+    const args = call.getArguments();
+    if (getStaticStringValue(args[1]) !== '_blank') continue;
+
+    const features = getStaticStringValue(args[2]);
+    if (features && featureStringHasNoopener(features)) continue;
+
+    findings.push(
+      finding(
+        'window-open-blank-missing-noopener',
+        'warning',
+        'bug',
+        "window.open(..., '_blank') without noopener/noreferrer lets the opened page control window.opener",
+        ctx.filePath,
+        call.getStartLineNumber(),
+        {
+          suggestion:
+            "Pass a third argument containing 'noopener,noreferrer', then null out the opener if older browser support matters.",
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+type JsxOpeningLike = import('ts-morph').JsxOpeningElement | import('ts-morph').JsxSelfClosingElement;
+
+function getJsxAttr(jsx: JsxOpeningLike, name: string): import('ts-morph').JsxAttribute | undefined {
+  return jsx
+    .getAttributes()
+    .find(
+      (attr): attr is import('ts-morph').JsxAttribute =>
+        Node.isJsxAttribute(attr) && attr.getNameNode().getText() === name,
+    );
+}
+
+function hasJsxSpreadAttribute(jsx: JsxOpeningLike): boolean {
+  return jsx.getAttributes().some((attr) => Node.isJsxSpreadAttribute(attr));
+}
+
+function iframeSrcNeedsSandbox(attr: import('ts-morph').JsxAttribute | undefined): boolean {
+  if (!attr) return false;
+  const init = attr.getInitializer();
+  if (!init) return false;
+
+  if (Node.isStringLiteral(init)) {
+    return /^(?:https?:)?\/\//i.test(init.getLiteralValue());
+  }
+  if (!Node.isJsxExpression(init)) return false;
+
+  const expr = init.getExpression();
+  if (!expr) return false;
+  const value = getStaticStringValue(expr);
+  if (value !== undefined) return /^(?:https?:)?\/\//i.test(value);
+  return true;
+}
+
+function iframeSrcDocNeedsSandbox(attr: import('ts-morph').JsxAttribute | undefined): boolean {
+  if (!attr) return false;
+  const init = attr.getInitializer();
+  if (!init) return false;
+  if (Node.isStringLiteral(init)) return false;
+  if (!Node.isJsxExpression(init)) return false;
+  const expr = init.getExpression();
+  return !!expr && getStaticStringValue(expr) === undefined;
+}
+
+// ── Rule: iframe-dynamic-src-missing-sandbox ────────────────────────────
+// Dynamic or external iframe sources should be sandboxed. Same-origin static
+// paths are skipped to avoid noisy findings for internal app frames.
+
+function iframeDynamicSrcMissingSandbox(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+  const iframes: JsxOpeningLike[] = [
+    ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxOpeningElement),
+    ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement),
+  ];
+
+  for (const jsx of iframes) {
+    if (jsx.getTagNameNode().getText() !== 'iframe') continue;
+    if (getJsxAttr(jsx, 'sandbox')) continue;
+    if (hasJsxSpreadAttribute(jsx)) continue;
+
+    const srcAttr = getJsxAttr(jsx, 'src');
+    const srcDocAttr = getJsxAttr(jsx, 'srcDoc');
+    if (!iframeSrcNeedsSandbox(srcAttr) && !iframeSrcDocNeedsSandbox(srcDocAttr)) continue;
+
+    findings.push(
+      finding(
+        'iframe-dynamic-src-missing-sandbox',
+        'warning',
+        'bug',
+        'iframe uses a dynamic/external src or srcDoc without sandbox — embedded content can script, navigate, or submit forms with full frame privileges',
+        ctx.filePath,
+        jsx.getStartLineNumber(),
+        { suggestion: 'Add a sandbox attribute with the minimum allow-* tokens required by the embedded content.' },
+      ),
+    );
+  }
+
+  return findings;
+}
+
 // ── Exported Security v2 Rules ───────────────────────────────────────────
 
 export const securityV2Rules = [
@@ -1038,4 +1168,6 @@ export const securityV2Rules = [
   browserStorageJsonParseUnguarded,
   postmessageWildcardTarget,
   clientOpenRedirectFromQuery,
+  windowOpenBlankMissingNoopener,
+  iframeDynamicSrcMissingSandbox,
 ];

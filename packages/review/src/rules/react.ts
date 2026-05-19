@@ -2192,6 +2192,258 @@ function propsArrayMutatedInRender(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule: component-did-update-setstate-unguarded ───────────────────────
+// componentDidUpdate can call setState, but only behind a prop/state comparison
+// or an early-return guard. Unguarded writes loop after every update.
+
+function isThisSetStateCall(call: import('ts-morph').CallExpression): boolean {
+  const callee = call.getExpression();
+  return (
+    Node.isPropertyAccessExpression(callee) &&
+    callee.getExpression().getKind() === SyntaxKind.ThisKeyword &&
+    callee.getName() === 'setState'
+  );
+}
+
+function guardTextComparesPreviousValues(text: string): boolean {
+  return /\bprev(?:Props|State|[A-Z]\w*)?\b/.test(text);
+}
+
+function hasPrevValueAncestorGuard(
+  call: import('ts-morph').CallExpression,
+  method: import('ts-morph').MethodDeclaration,
+): boolean {
+  let cur: Node | undefined = call.getParent();
+  while (cur && cur !== method) {
+    if (Node.isIfStatement(cur) && guardTextComparesPreviousValues(cur.getExpression().getText())) return true;
+    if (Node.isConditionalExpression(cur) && guardTextComparesPreviousValues(cur.getCondition().getText())) return true;
+    cur = cur.getParent();
+  }
+  return false;
+}
+
+function hasPrevValueEarlyReturnGuard(method: import('ts-morph').MethodDeclaration): boolean {
+  const body = method.getBody();
+  if (!body || !Node.isBlock(body)) return false;
+  for (const stmt of body.getStatements()) {
+    if (!Node.isIfStatement(stmt)) continue;
+    if (!guardTextComparesPreviousValues(stmt.getExpression().getText())) continue;
+    const thenStmt = stmt.getThenStatement();
+    if (Node.isReturnStatement(thenStmt)) return true;
+    if (Node.isBlock(thenStmt) && thenStmt.getStatements().some((inner) => Node.isReturnStatement(inner))) return true;
+  }
+  return false;
+}
+
+function componentDidUpdateSetStateUnguarded(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const cls of ctx.sourceFile.getClasses()) {
+    if (!isReactClass(cls)) continue;
+    const method = cls.getInstanceMethod('componentDidUpdate');
+    const body = method?.getBody();
+    if (!method || !body) continue;
+
+    const methodHasEarlyGuard = hasPrevValueEarlyReturnGuard(method);
+    for (const call of body.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+      if (!isThisSetStateCall(call)) continue;
+      if (hasPrevValueAncestorGuard(call, method) || methodHasEarlyGuard) continue;
+
+      findings.push(
+        finding(
+          'component-did-update-setstate-unguarded',
+          'error',
+          'bug',
+          'componentDidUpdate calls this.setState without a prevProps/prevState guard — this can update-loop after every render',
+          ctx.filePath,
+          call.getStartLineNumber(),
+          1,
+          {
+            suggestion:
+              'Wrap the setState call in a comparison against prevProps/prevState, or return early when nothing relevant changed.',
+          },
+        ),
+      );
+    }
+  }
+
+  return findings;
+}
+
+function nearestFunctionOrMethod(node: Node): Node | undefined {
+  let cur: Node | undefined = node.getParent();
+  while (cur) {
+    if (
+      Node.isFunctionDeclaration(cur) ||
+      Node.isFunctionExpression(cur) ||
+      Node.isArrowFunction(cur) ||
+      Node.isMethodDeclaration(cur)
+    ) {
+      return cur;
+    }
+    cur = cur.getParent();
+  }
+  return undefined;
+}
+
+function currentGuardScopeText(node: Node): string {
+  const scope = nearestFunctionOrMethod(node) ?? node.getSourceFile();
+  return scope.getText();
+}
+
+function isDirectChildrenExpression(text: string): boolean {
+  return /^(?:children|props\.children|this\.props\.children)$/.test(text.replace(/\s+/g, ''));
+}
+
+function hasValidElementGuard(scopeText: string, argText: string): boolean {
+  const escaped = escapeRegex(argText.replace(/\s+/g, ''));
+  const compact = scopeText.replace(/\s+/g, '');
+  // Intentionally scope-local: a file-wide scan would let unrelated helpers
+  // suppress direct cloneElement(children, ...) findings.
+  return (
+    new RegExp(`(?:React\\.)?isValidElement\\(${escaped}\\)`).test(compact) ||
+    new RegExp(`(?:React\\.)?Children\\.only\\(${escaped}\\)`).test(compact)
+  );
+}
+
+// ── Rule: clone-element-children-without-valid-guard ────────────────────
+// cloneElement(children, ...) throws for arrays/strings/null. Requiring
+// isValidElement/Children.only catches wrapper components with loose children.
+
+function cloneElementChildrenWithoutValidGuard(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const calleeText = call.getExpression().getText();
+    if (calleeText !== 'cloneElement' && calleeText !== 'React.cloneElement') continue;
+    const firstArg = call.getArguments()[0];
+    if (!firstArg) continue;
+    const argText = firstArg.getText();
+    const compactArg = argText.replace(/\s+/g, '');
+    if (!isDirectChildrenExpression(compactArg)) continue;
+    if (hasValidElementGuard(currentGuardScopeText(call), compactArg)) continue;
+
+    findings.push(
+      finding(
+        'clone-element-children-without-valid-guard',
+        'warning',
+        'bug',
+        'cloneElement is called directly on children without React.isValidElement or React.Children.only — arrays, strings, and null will throw',
+        ctx.filePath,
+        call.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'Validate children with React.isValidElement, or normalize with React.Children.only before cloning.',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+function classHasUnmountCancellationGuard(cls: import('ts-morph').ClassDeclaration): boolean {
+  const unmount = cls.getInstanceMethod('componentWillUnmount');
+  if (!unmount) return false;
+  const unmountText = unmount.getBodyText() ?? '';
+  return (
+    /\b(?:abort|cancel|unsubscribe|dispose|destroy)\w*\s*\(/i.test(unmountText) ||
+    /\b(?:isMounted|mounted|didCancel|cancelled|canceled|unmounted|ignore)\b/i.test(unmountText)
+  );
+}
+
+function callbackHasStateUnmountGuard(callback: Node): boolean {
+  return /\b(?:isMounted|mounted|didCancel|cancelled|canceled|unmounted|ignore|abort|signal)\b/i.test(
+    callback.getText(),
+  );
+}
+
+function isAsyncLifecycleMethod(name: string): boolean {
+  return /^(?:componentDidMount|componentDidUpdate|componentWillReceiveProps|UNSAFE_componentWillReceiveProps)$/.test(
+    name,
+  );
+}
+
+// ── Rule: async-setstate-after-unmount ──────────────────────────────────
+// Promise callbacks started from class lifecycles can resolve after unmount.
+// Keep this conservative: only lifecycle-started .then() callbacks with setState.
+
+function asyncSetStateAfterUnmount(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const cls of ctx.sourceFile.getClasses()) {
+    if (!isReactClass(cls)) continue;
+    if (classHasUnmountCancellationGuard(cls)) continue;
+
+    for (const method of cls.getMethods()) {
+      if (!isAsyncLifecycleMethod(method.getName())) continue;
+      const body = method.getBody();
+      if (!body) continue;
+
+      for (const promiseCall of body.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+        const callee = promiseCall.getExpression();
+        if (!Node.isPropertyAccessExpression(callee) || !['then', 'catch', 'finally'].includes(callee.getName())) {
+          continue;
+        }
+
+        const callbacks = promiseCall
+          .getArguments()
+          .filter(
+            (arg): arg is import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression =>
+              Node.isArrowFunction(arg) || Node.isFunctionExpression(arg),
+          );
+        const unsafeCallback = callbacks.find((callback) => {
+          if (callbackHasStateUnmountGuard(callback)) return false;
+          return callback.getDescendantsOfKind(SyntaxKind.CallExpression).some(isThisSetStateCall);
+        });
+        if (!unsafeCallback) continue;
+
+        findings.push(
+          finding(
+            'async-setstate-after-unmount',
+            'warning',
+            'bug',
+            'Promise callback scheduled from a React class lifecycle calls this.setState without an unmount/cancel guard',
+            ctx.filePath,
+            promiseCall.getStartLineNumber(),
+            1,
+            {
+              suggestion:
+                'Track cancellation in componentWillUnmount, use AbortController where possible, or guard setState before resolving.',
+            },
+          ),
+        );
+      }
+
+      if (!method.isAsync()) continue;
+      if (callbackHasStateUnmountGuard(method)) continue;
+      if (body.getDescendantsOfKind(SyntaxKind.AwaitExpression).length === 0) continue;
+
+      const setStateAfterAwait = body.getDescendantsOfKind(SyntaxKind.CallExpression).find(isThisSetStateCall);
+      if (!setStateAfterAwait) continue;
+
+      findings.push(
+        finding(
+          'async-setstate-after-unmount',
+          'warning',
+          'bug',
+          'Async React class lifecycle awaits work and then calls this.setState without an unmount/cancel guard',
+          ctx.filePath,
+          setStateAfterAwait.getStartLineNumber(),
+          1,
+          {
+            suggestion:
+              'Track cancellation in componentWillUnmount, use AbortController where possible, or guard setState before resolving.',
+          },
+        ),
+      );
+    }
+  }
+
+  return findings;
+}
+
 // ── Exported React Rules ─────────────────────────────────────────────────
 
 export const reactRules = [
@@ -2214,4 +2466,7 @@ export const reactRules = [
   clientOnly(moduleScopedTimerInComponent),
   clientOnly(hookLengthDependency),
   clientOnly(propsArrayMutatedInRender),
+  clientOnly(componentDidUpdateSetStateUnguarded),
+  clientOnly(cloneElementChildrenWithoutValidGuard),
+  clientOnly(asyncSetStateAfterUnmount),
 ];

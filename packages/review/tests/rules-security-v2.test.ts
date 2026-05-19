@@ -402,6 +402,134 @@ describe('Security v2 Rules', () => {
     });
   });
 
+  // ── window-open-blank-missing-noopener ────────────────────────────────
+
+  describe('window-open-blank-missing-noopener', () => {
+    it("flags window.open(..., '_blank') without feature string", () => {
+      const source = `
+        export function openDocs(url: string) {
+          window.open(url, '_blank');
+        }
+      `;
+      const report = reviewSource(source, 'open.ts');
+      expect(report.findings.find((f) => f.ruleId === 'window-open-blank-missing-noopener')).toBeDefined();
+    });
+
+    it('flags window.open blank target when features omit noopener', () => {
+      const source = `
+        export function openDocs(url: string) {
+          window.open(url, '_blank', 'width=600,height=400');
+        }
+      `;
+      const report = reviewSource(source, 'open.ts');
+      expect(report.findings.find((f) => f.ruleId === 'window-open-blank-missing-noopener')).toBeDefined();
+    });
+
+    it('does not flag window.open blank target with noopener', () => {
+      const source = `
+        export function openDocs(url: string) {
+          window.open(url, '_blank', 'noopener,noreferrer,width=600');
+        }
+      `;
+      const report = reviewSource(source, 'open.ts');
+      expect(report.findings.find((f) => f.ruleId === 'window-open-blank-missing-noopener')).toBeUndefined();
+    });
+
+    it('does not flag window.open blank target with noopener=yes', () => {
+      const source = `
+        export function openDocs(url: string) {
+          window.open(url, '_blank', 'noopener=yes,width=600');
+        }
+      `;
+      const report = reviewSource(source, 'open.ts');
+      expect(report.findings.find((f) => f.ruleId === 'window-open-blank-missing-noopener')).toBeUndefined();
+    });
+
+    it('flags globalThis.open blank target without noopener', () => {
+      const source = `
+        export function openDocs(url: string) {
+          globalThis.open(url, '_blank');
+        }
+      `;
+      const report = reviewSource(source, 'open.ts');
+      expect(report.findings.find((f) => f.ruleId === 'window-open-blank-missing-noopener')).toBeDefined();
+    });
+
+    it('flags self.open blank target without noopener', () => {
+      const source = `
+        export function openDocs(url: string) {
+          self.open(url, '_blank');
+        }
+      `;
+      const report = reviewSource(source, 'open.ts');
+      expect(report.findings.find((f) => f.ruleId === 'window-open-blank-missing-noopener')).toBeDefined();
+    });
+  });
+
+  // ── iframe-dynamic-src-missing-sandbox ────────────────────────────────
+
+  describe('iframe-dynamic-src-missing-sandbox', () => {
+    it('flags iframe with dynamic src and no sandbox', () => {
+      const source = `
+        export function Embed({ url }: { url: string }) {
+          return <iframe src={url} />;
+        }
+      `;
+      const report = reviewSource(source, 'embed.tsx');
+      expect(report.findings.find((f) => f.ruleId === 'iframe-dynamic-src-missing-sandbox')).toBeDefined();
+    });
+
+    it('flags iframe with external static src and no sandbox', () => {
+      const source = `
+        export function Embed() {
+          return <iframe src="https://example.com/widget" />;
+        }
+      `;
+      const report = reviewSource(source, 'embed.tsx');
+      expect(report.findings.find((f) => f.ruleId === 'iframe-dynamic-src-missing-sandbox')).toBeDefined();
+    });
+
+    it('does not flag sandboxed dynamic iframe src', () => {
+      const source = `
+        export function Embed({ url }: { url: string }) {
+          return <iframe src={url} sandbox="allow-scripts" />;
+        }
+      `;
+      const report = reviewSource(source, 'embed.tsx');
+      expect(report.findings.find((f) => f.ruleId === 'iframe-dynamic-src-missing-sandbox')).toBeUndefined();
+    });
+
+    it('does not flag static same-origin iframe src', () => {
+      const source = `
+        export function Preview() {
+          return <iframe src="/preview" />;
+        }
+      `;
+      const report = reviewSource(source, 'preview.tsx');
+      expect(report.findings.find((f) => f.ruleId === 'iframe-dynamic-src-missing-sandbox')).toBeUndefined();
+    });
+
+    it('flags dynamic iframe srcDoc and no sandbox', () => {
+      const source = `
+        export function Preview({ html }: { html: string }) {
+          return <iframe srcDoc={html} />;
+        }
+      `;
+      const report = reviewSource(source, 'preview.tsx');
+      expect(report.findings.find((f) => f.ruleId === 'iframe-dynamic-src-missing-sandbox')).toBeDefined();
+    });
+
+    it('does not flag static iframe srcDoc', () => {
+      const source = `
+        export function Preview() {
+          return <iframe srcDoc={'<p>Preview</p>'} />;
+        }
+      `;
+      const report = reviewSource(source, 'preview.tsx');
+      expect(report.findings.find((f) => f.ruleId === 'iframe-dynamic-src-missing-sandbox')).toBeUndefined();
+    });
+  });
+
   // ── csp-strength ───────────────────────────────────────────────────────
 
   describe('csp-strength', () => {

@@ -326,6 +326,20 @@ const REGISTRY: RuleInfo[] = [
     precision: 'high',
   },
   {
+    id: 'window-open-blank-missing-noopener',
+    layer: 'security-v2',
+    severity: 'warning',
+    description: "window.open(..., '_blank') without noopener/noreferrer feature isolation",
+    precision: 'high',
+  },
+  {
+    id: 'iframe-dynamic-src-missing-sandbox',
+    layer: 'security-v2',
+    severity: 'warning',
+    description: 'iframe with dynamic/external src or srcDoc is missing sandbox restrictions',
+    precision: 'high',
+  },
+  {
     id: 'csp-strength',
     layer: 'security-v2',
     severity: 'warning',
@@ -614,6 +628,27 @@ const REGISTRY: RuleInfo[] = [
     severity: 'warning',
     description: 'Component render mutates props-derived array in place',
     precision: 'high',
+  },
+  {
+    id: 'component-did-update-setstate-unguarded',
+    layer: 'react',
+    severity: 'error',
+    description: 'componentDidUpdate calls setState without a prevProps/prevState guard',
+    precision: 'high',
+  },
+  {
+    id: 'clone-element-children-without-valid-guard',
+    layer: 'react',
+    severity: 'warning',
+    description: 'cloneElement is called directly on children without isValidElement or Children.only',
+    precision: 'high',
+  },
+  {
+    id: 'async-setstate-after-unmount',
+    layer: 'react',
+    severity: 'warning',
+    description: 'Promise callback scheduled from React class lifecycle calls setState without an unmount guard',
+    precision: 'medium',
   },
   {
     id: 'inline-context-value',

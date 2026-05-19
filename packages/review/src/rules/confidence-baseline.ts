@@ -28,7 +28,9 @@ const RULE_CONFIDENCE_BASELINE: Record<string, number> = {
   'browser-storage-json-parse-unguarded': 90,
   'class-timer-missing-unmount-cleanup': 90,
   'client-open-redirect-from-query': 90,
+  'clone-element-children-without-valid-guard': 90,
   'command-injection': 95,
+  'component-did-update-setstate-unguarded': 90,
   'cookie-hardening': 90,
   'crypto-iv-reuse': 92,
   'crypto-weak-kdf': 90,
@@ -41,6 +43,7 @@ const RULE_CONFIDENCE_BASELINE: Record<string, number> = {
   'hardcoded-secret': 95,
   'helmet-missing': 90,
   'hook-length-dependency': 90,
+  'iframe-dynamic-src-missing-sandbox': 90,
   'jwt-weak-verification': 92,
   'next-image-remote-wildcard': 90,
   'no-eval': 95,
@@ -54,6 +57,7 @@ const RULE_CONFIDENCE_BASELINE: Record<string, number> = {
   'set-setter-collision': 95,
   'sync-handler-does-io': 90,
   'weak-password-hashing': 92,
+  'window-open-blank-missing-noopener': 90,
   'xss-href-javascript': 92,
   'xss-unsafe-html': 90,
   // taint-* rules are all high — data-flow proof:
@@ -64,6 +68,7 @@ const RULE_CONFIDENCE_BASELINE: Record<string, number> = {
   'taint-xss': 92,
 
   // ── medium (70–89): pattern-based, some FP risk ───────────────────────
+  'async-setstate-after-unmount': 82,
   'cors-wildcard': 85,
   'cors-wildcard-credentials': 88,
   'csp-strength': 80,

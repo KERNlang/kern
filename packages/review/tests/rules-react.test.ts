@@ -1955,4 +1955,215 @@ export default function Page({ startTime }: { startTime: number }) {
       expect(findings.length).toBe(1);
     });
   });
+
+  // ── component-did-update-setstate-unguarded ───────────────────────────
+
+  describe('component-did-update-setstate-unguarded', () => {
+    it('flags componentDidUpdate setState without a prevProps/prevState guard', () => {
+      const source = `
+import React from 'react';
+export class Profile extends React.Component<{ id: string }, { loaded: boolean }> {
+  componentDidUpdate() {
+    this.setState({ loaded: true });
+  }
+  render() { return null; }
+}
+`;
+      const report = reviewSource(source, 'profile.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'component-did-update-setstate-unguarded')).toBeDefined();
+    });
+
+    it('does not flag componentDidUpdate setState behind a prevProps comparison', () => {
+      const source = `
+import React from 'react';
+export class Profile extends React.Component<{ id: string }, { loaded: boolean }> {
+  componentDidUpdate(prevProps: { id: string }) {
+    if (prevProps.id !== this.props.id) {
+      this.setState({ loaded: false });
+    }
+  }
+  render() { return null; }
+}
+`;
+      const report = reviewSource(source, 'profile.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'component-did-update-setstate-unguarded')).toBeUndefined();
+    });
+
+    it('does not flag componentDidUpdate setState after an early-return guard', () => {
+      const source = `
+import React from 'react';
+export class Profile extends React.Component<{ id: string }, { loaded: boolean }> {
+  componentDidUpdate(prevProps: { id: string }) {
+    if (prevProps.id === this.props.id) return;
+    this.setState({ loaded: false });
+  }
+  render() { return null; }
+}
+`;
+      const report = reviewSource(source, 'profile.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'component-did-update-setstate-unguarded')).toBeUndefined();
+    });
+
+    it('does not flag componentDidUpdate setState behind a destructured prev comparison', () => {
+      const source = `
+import React from 'react';
+export class Profile extends React.Component<{ id: string }, { loaded: boolean }> {
+  componentDidUpdate(prevProps: { id: string }) {
+    const { id } = this.props;
+    const { id: prevId } = prevProps;
+    if (id !== prevId) {
+      this.setState({ loaded: false });
+    }
+  }
+  render() { return null; }
+}
+`;
+      const report = reviewSource(source, 'profile.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'component-did-update-setstate-unguarded')).toBeUndefined();
+    });
+
+    it('does not flag non-React classes with a componentDidUpdate method', () => {
+      const source = `
+export class Store {
+  componentDidUpdate() {
+    this.setState({ loaded: true });
+  }
+  setState(_next: unknown) {}
+}
+`;
+      const report = reviewSource(source, 'store.ts', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'component-did-update-setstate-unguarded')).toBeUndefined();
+    });
+  });
+
+  // ── clone-element-children-without-valid-guard ────────────────────────
+
+  describe('clone-element-children-without-valid-guard', () => {
+    it('flags cloneElement(children, ...) without validating children', () => {
+      const source = `
+import React, { cloneElement } from 'react';
+export function Wrapper({ children }: { children: React.ReactNode }) {
+  return cloneElement(children, { className: 'wrapped' });
+}
+`;
+      const report = reviewSource(source, 'wrapper.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'clone-element-children-without-valid-guard')).toBeDefined();
+    });
+
+    it('does not flag cloneElement(children, ...) after isValidElement guard', () => {
+      const source = `
+import React, { cloneElement, isValidElement } from 'react';
+export function Wrapper({ children }: { children: React.ReactNode }) {
+  if (!isValidElement(children)) return null;
+  return cloneElement(children, { className: 'wrapped' });
+}
+`;
+      const report = reviewSource(source, 'wrapper.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'clone-element-children-without-valid-guard')).toBeUndefined();
+    });
+
+    it('does not flag cloning a normalized Children.only result', () => {
+      const source = `
+import React, { cloneElement, Children } from 'react';
+export function Wrapper({ children }: { children: React.ReactNode }) {
+  const child = Children.only(children);
+  return cloneElement(child, { className: 'wrapped' });
+}
+`;
+      const report = reviewSource(source, 'wrapper.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'clone-element-children-without-valid-guard')).toBeUndefined();
+    });
+  });
+
+  // ── async-setstate-after-unmount ──────────────────────────────────────
+
+  describe('async-setstate-after-unmount', () => {
+    it('flags promise setState from componentDidMount without unmount guard', () => {
+      const source = `
+import React from 'react';
+export class Loader extends React.Component<{}, { item?: string }> {
+  componentDidMount() {
+    fetch('/api/item').then((response) => response.text()).then((item) => {
+      this.setState({ item });
+    });
+  }
+  render() { return null; }
+}
+`;
+      const report = reviewSource(source, 'loader.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'async-setstate-after-unmount')).toBeDefined();
+    });
+
+    it('does not flag promise setState when componentWillUnmount cancels work', () => {
+      const source = `
+import React from 'react';
+export class Loader extends React.Component<{}, { item?: string }> {
+  private abortController = new AbortController();
+  componentDidMount() {
+    fetch('/api/item', { signal: this.abortController.signal }).then((response) => response.text()).then((item) => {
+      this.setState({ item });
+    });
+  }
+  componentWillUnmount() {
+    this.abortController.abort();
+  }
+  render() { return null; }
+}
+`;
+      const report = reviewSource(source, 'loader.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'async-setstate-after-unmount')).toBeUndefined();
+    });
+
+    it('flags promise catch setState from componentDidMount without unmount guard', () => {
+      const source = `
+import React from 'react';
+export class Loader extends React.Component<{}, { error?: string }> {
+  componentDidMount() {
+    fetch('/api/item').catch((error) => {
+      this.setState({ error: String(error) });
+    });
+  }
+  render() { return null; }
+}
+`;
+      const report = reviewSource(source, 'loader.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'async-setstate-after-unmount')).toBeDefined();
+    });
+
+    it('does not suppress async setState just because an unrelated class member mentions cancel', () => {
+      const source = `
+import React from 'react';
+export class Loader extends React.Component<{}, { item?: string }> {
+  cancelLabel = 'Cancel';
+  componentDidMount() {
+    fetch('/api/item').then((response) => response.text()).then((item) => {
+      this.setState({ item });
+    });
+  }
+  componentWillUnmount() {
+    console.log(this.cancelLabel);
+  }
+  render() { return null; }
+}
+`;
+      const report = reviewSource(source, 'loader.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'async-setstate-after-unmount')).toBeDefined();
+    });
+
+    it('flags async lifecycle setState after await without unmount guard', () => {
+      const source = `
+import React from 'react';
+export class Loader extends React.Component<{}, { item?: string }> {
+  async componentDidMount() {
+    const response = await fetch('/api/item');
+    const item = await response.text();
+    this.setState({ item });
+  }
+  render() { return null; }
+}
+`;
+      const report = reviewSource(source, 'loader.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'async-setstate-after-unmount')).toBeDefined();
+    });
+  });
 });
