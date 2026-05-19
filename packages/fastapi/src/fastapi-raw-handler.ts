@@ -106,11 +106,18 @@ export function stripStringsForJsCheck(code: string): string {
     }
     if (ch === '#') {
       // `#` is a Python line comment ONLY when not directly followed by
-      // an identifier character. Modern JS uses `#x` for private class
-      // fields; treating those as comments would hide real JS that
-      // should be flagged (Codex review on commit ec6b5d45).
-      const after = next;
-      const isPrivateFieldStart = after !== undefined && /[A-Za-z_$]/.test(after);
+      // a JS identifier-start character. Modern JS uses `#x` for private
+      // class fields; treating those as comments would hide real JS
+      // that should be flagged.
+      //
+      // Identifier-start covers:
+      //   - ASCII letters / `_` / `$` (the original check)
+      //   - Unicode ID_Start (e.g., `#π = 1`) via `\p{ID_Start}` with
+      //     the `u` flag (V8 ≥ 6.4, Node ≥ 10) — Codex+Gemini fix-up 11
+      //     review.
+      //   - Leading backslash for `\uXXXX` / `\u{...}` identifier escape
+      //     sequences (`#a = 1`) — also from Codex review.
+      const isPrivateFieldStart = next !== undefined && (/[$_\p{ID_Start}]/u.test(next) || next === '\\');
       if (isPrivateFieldStart) {
         result += ch;
         i += 1;

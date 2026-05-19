@@ -2112,7 +2112,7 @@ describe('FastAPI Transpiler', () => {
       // Modern JS uses `#x` for private class fields. Treating `#` as
       // a Python line comment unconditionally would hide `#x = 1` from
       // the leak detector. The fix: `#` only starts a comment when
-      // not immediately followed by an identifier char.
+      // not immediately followed by an identifier-start char.
       expect(stripStringsForJsCheck('class Foo { #x = 1; }')).toBe('class Foo { #x = 1; }');
       expect(stripStringsForJsCheck('this.#privateField = 42')).toBe('this.#privateField = 42');
       // …Python comments still get stripped (space or other non-ident
@@ -2121,6 +2121,20 @@ describe('FastAPI Transpiler', () => {
       // Standalone `#` at end of line — treated as comment-start since
       // nothing follows (next is undefined).
       expect(stripStringsForJsCheck('x = 1 #\ny = 2')).toMatch(/^x = 1 _\ny = 2$/);
+    });
+
+    test('stripStringsForJsCheck preserves Unicode / escape JS private fields (Codex+Gemini fix-up 11 followup)', async () => {
+      const { stripStringsForJsCheck } = await import('../src/fastapi-raw-handler.js');
+      // Unicode identifier start — `π` is a valid JS identifier char
+      // per `\p{ID_Start}`. Pre-fix-up-13: only ASCII letters / `_` /
+      // `$` were recognized, so `#π` was stripped as Python comment.
+      expect(stripStringsForJsCheck('class Greek { #π = 3.14; }')).toBe('class Greek { #π = 3.14; }');
+      // `\u`-escape identifier sequence: JS allows `#a` as a
+      // valid private field name (resolves to `#a`). Treat the leading
+      // `\` as private-field-start so the entire sequence stays visible
+      // to subsequent leak checks.
+      expect(stripStringsForJsCheck('class C { #\\u0061 = 1; }')).toBe('class C { #\\u0061 = 1; }');
+      expect(stripStringsForJsCheck('this.#\\u{1F600} = "emoji"')).toContain('#\\u{1F600}');
     });
 
     test('collect.order={{...}} curly form routes through lowerPropToPython too (Gemini fix-up 6)', async () => {
