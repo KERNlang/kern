@@ -254,6 +254,7 @@ export const NODE_TYPES = [
   'try',
   'step',
   'catch',
+  'finally',
   'filter',
   'find',
   'some',
