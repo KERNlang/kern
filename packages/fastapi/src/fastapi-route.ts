@@ -13,6 +13,7 @@ import { generatePortableHandlerFastAPI } from './fastapi-portable.js';
 import {
   hasObjectShorthandOutsideStrings,
   isUnsupportedJsHandlerBody,
+  stripStringsForJsCheck,
   unsupportedRawHandlerBody,
 } from './fastapi-raw-handler.js';
 import type { RouteArtifactRef, RouteCapabilities } from './fastapi-types.js';
@@ -299,13 +300,21 @@ function lowerJsValueExpressionForPython(expr: string): string {
 // and JS `new X(...)` construction (Python has no `new` keyword, so it
 // becomes `SyntaxError` on `ast.parse`).
 function isLowerableJsValueExpression(expr: string): boolean {
-  if (expr.includes('`')) return false;
+  // Run keyword checks on a string-stripped view so a payload like
+  // `{ msg: "example: new Date()" }` (where `new Date()` appears only
+  // inside a string literal) doesn't false-positive. Codex flagged the
+  // raw-text scan on commit 85593a3f.
+  const stripped = stripStringsForJsCheck(expr);
+  // Backticks inside strings are stripped to `_`; an unmatched backtick
+  // outside strings (i.e., a JS template literal) survives.
+  if (/`/.test(stripped)) return false;
   if (hasObjectShorthandOutsideStrings(expr)) return false;
-  // JS construction `new Date()`, `new AbortController()`, etc. The
-  // lowerers don't translate `new`, and Python parses `new` as a NAME
-  // followed by a name — `new Date()` becomes `new Date()` which raises
-  // `SyntaxError` because juxtaposed names aren't a valid Python phrase.
-  if (/\bnew\s+[A-Z]\w*\s*\(/.test(expr)) return false;
+  // JS construction `new Date()`, `new AbortController()`, etc.
+  // Drop the PascalCase constraint per Gemini+Codex review on ae9663cf
+  // / 85593a3f — `new foo()`, `new globalThis.Date()`, etc. are all
+  // un-lowerable. Match any identifier (possibly dotted) following
+  // `new`.
+  if (/\bnew\s+[\w$]+(?:\.[\w$]+)*\s*\(/.test(stripped)) return false;
   return true;
 }
 

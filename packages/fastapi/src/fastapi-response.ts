@@ -60,12 +60,19 @@ const FILTER_RE = new RegExp(`${ARROW_RECEIVER}\\.filter\\(\\((\\w+)\\)\\s*=>\\s
 const MAP_RE = new RegExp(`${ARROW_RECEIVER}\\.map\\(\\((\\w+)\\)\\s*=>\\s*${ARROW_BODY}\\)`, 'g');
 const FIND_RE = new RegExp(`${ARROW_RECEIVER}\\.find\\(\\((\\w+)\\)\\s*=>\\s*${ARROW_BODY}\\)`, 'g');
 // Quoted strings absorbed by the alternation; only literal `===`/`!==`
-// outside strings get rewritten. Both single and double quotes covered;
-// escape sequences honored so `"\""` etc. don't terminate early.
-const STRICT_EQ_RE = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|===|!==/g;
+// outside strings get rewritten. Both single and double quotes AND
+// backtick template literals are covered so a message like
+// `` `use ===` `` is preserved (review fix — Codex+Gemini on 0ddfcc3d
+// flagged backticks as missing). Escape sequences are honored so
+// `"\""` / `` `\`` `` etc. don't terminate the string early.
+const STRING_LITERAL_ALT = '"(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'|`(?:[^`\\\\]|\\\\.)*`';
+const STRICT_EQ_RE = new RegExp(`${STRING_LITERAL_ALT}|===|!==`, 'g');
 // Same trick for JS-literal lowering: any literal text inside a quoted
-// string is preserved untouched.
-const JS_LITERAL_RE = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\b(?:undefined|null|true|false)\b/g;
+// string OR after a `.` (property accessor — `obj.true` must NOT become
+// `obj.True`, which is a Python SyntaxError) is preserved untouched.
+// The lookbehind `(?<!\.)` skips literal-name tokens that are property
+// accesses on the preceding expression.
+const JS_LITERAL_RE = new RegExp(`${STRING_LITERAL_ALT}|(?<!\\.)\\b(?:undefined|null|true|false)\\b`, 'g');
 
 function lowerJsArrayMethods(expr: string): string {
   // Iterate so chained calls (`.filter(...).map(...)`) collapse fully.

@@ -23,6 +23,53 @@
  * introducing an import cycle between portable and route.
  */
 
+// Replace contents of every string literal (single-quote, double-quote,
+// backtick) with `_` so JS-keyword detection regexes don't false-positive
+// on text inside Python string literals. Preserves quote delimiters,
+// newlines, and code outside strings. Honors backslash escapes so
+// `"\""` doesn't terminate the string early.
+//
+// Review fix: Codex flagged that `isUnsupportedJsHandlerBody` and
+// `isLowerableJsValueExpression` ran their JS-keyword regexes on raw
+// text — a `lang="python"` body containing `"const x ="` as a string
+// literal, or `res.json({ msg: "example: new Date()" })`, would
+// false-positive and emit a NotImplementedError stub even though the
+// underlying Python is valid.
+export function stripStringsForJsCheck(code: string): string {
+  let result = '';
+  let i = 0;
+  let quote: '"' | "'" | '`' | null = null;
+  let escaped = false;
+  while (i < code.length) {
+    const ch = code[i];
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+        result += '_';
+      } else if (ch === '\\') {
+        escaped = true;
+        result += '_';
+      } else if (ch === quote) {
+        quote = null;
+        result += ch;
+      } else {
+        result += ch === '\n' ? '\n' : '_';
+      }
+      i += 1;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      result += ch;
+      i += 1;
+      continue;
+    }
+    result += ch;
+    i += 1;
+  }
+  return result;
+}
+
 export function hasObjectShorthandOutsideStrings(expr: string): boolean {
   let index = 0;
   let quote: '"' | "'" | '`' | null = null;
@@ -63,16 +110,22 @@ export function hasObjectShorthandOutsideStrings(expr: string): boolean {
 }
 
 export function isUnsupportedJsHandlerBody(code: string): boolean {
+  // Run JS-keyword detection on a string-stripped view so a Python body
+  // like `text = "uses res.send pattern"` or `msg = "const x = ..."`
+  // doesn't false-positive. Backticks INSIDE strings are stripped to `_`,
+  // but unmatched backticks outside strings (i.e., JS template literals)
+  // still trip the check.
+  const stripped = stripStringsForJsCheck(code);
   return (
-    /\bres\./.test(code) ||
-    /`/.test(code) ||
-    /\?\./.test(code) ||
-    /\?\?/.test(code) ||
-    /=>/.test(code) ||
-    /\bconst\s+\w+\s*=/.test(code) ||
-    /\blet\s+\w+\s*=/.test(code) ||
-    /\bvar\s+\w+\s*=/.test(code) ||
-    /\bnew\s+[A-Z]\w*\s*\(/.test(code) ||
+    /\bres\./.test(stripped) ||
+    /`/.test(stripped) ||
+    /\?\./.test(stripped) ||
+    /\?\?/.test(stripped) ||
+    /=>/.test(stripped) ||
+    /\bconst\s+\w+\s*=/.test(stripped) ||
+    /\blet\s+\w+\s*=/.test(stripped) ||
+    /\bvar\s+\w+\s*=/.test(stripped) ||
+    /\bnew\s+[A-Z]\w*\s*\(/.test(stripped) ||
     hasObjectShorthandOutsideStrings(code)
   );
 }
