@@ -10,7 +10,7 @@
 
   <br>
 
-  **Built for humans and AI.** 192-line spec. 13 compile targets. 231 review rules.<br>
+  **Built for humans and AI.** 192-line spec. 13 compile targets. 233 review rules.<br>
   <sub>LLMs write .kern in up to 85% fewer tokens. 7 LLMs verified.</sub>
 
   <br>
@@ -30,7 +30,7 @@ npm install -g @kernlang/cli
 
 ```bash
 kern compile src/ --target=nextjs --watch --facades --index   # One command — compile, watch, facades, barrel
-kern review src/ --recursive                                  # Static analysis (231 rules, taint tracking)
+kern review src/ --recursive                                  # Static analysis (233 rules, taint tracking)
 kern init --template=fullstack my-app                          # Scaffold fullstack app (Next.js + Express + MCP)
 kern init --mcp                                               # Scaffold an MCP server with security guards
 kern import src/ --outdir=kern/                               # TypeScript → .kern
@@ -43,7 +43,7 @@ kern schema --json                                            # Full schema for 
 
 **KERN is a structural language with five capabilities: Compile, Review, Evolve, Infer, and MCP Security.**
 
-Write `.kern` once, compile to 13 targets. Or skip `.kern` entirely and use `kern review` to scan your existing TypeScript and Python for security bugs, unguarded effects, flaky tests, and prompt injection — 231 AST-based rules that catch what ESLint misses.
+Write `.kern` once, compile to 13 targets. Or skip `.kern` entirely and use `kern review` to scan your existing TypeScript and Python for security bugs, unguarded effects, flaky tests, and prompt injection — 233 AST-based rules that catch what ESLint misses.
 
 ### Compilation Targets
 
@@ -114,7 +114,7 @@ kern review src/ --lint                 # KERN + ESLint + tsc unified
 kern review src/ --llm                  # AI review (see below)
 ```
 
-**231 rules** across base, security, framework, performance, test-quality, null-safety, dead-logic, concept, and taint-aware analysis layers.
+**233 rules** across base, security, framework, performance, test-quality, null-safety, dead-logic, concept, and taint-aware analysis layers.
 
 Recent coverage includes broadly reusable Next.js, React, Storybook, and Playwright checks: App Router body parsing, cache and header hazards, client-boundary env exposure, cookie hardening, SWR invalidation drift, browser storage parsing, client-side redirect sinks, wildcard `postMessage`, legacy React lifecycles, effect cleanup mistakes, timer cleanup drift, stale `.length`/`.size` hook deps, props-array mutation in render, focused tests, fixed Playwright sleeps, brittle `networkidle` waits, non-deterministic stories, and unmocked Storybook network calls.
 
@@ -422,7 +422,7 @@ Contributor architecture guide: [docs/architecture.md](docs/architecture.md)
 | @kernlang/vue | Vue 3 SFC, Nuxt 3 transpilers |
 | @kernlang/native | React Native transpiler |
 | @kernlang/express | Express backend + WebSocket transpiler |
-| @kernlang/fastapi | FastAPI Python + WebSocket transpiler |
+| @kernlang/python | Python backend codegen (FastAPI router target + WebSocket) |
 | @kernlang/mcp | MCP server transpiler — .kern to secure MCP servers |
 | @kernlang/mcp-server | KERN's own MCP server — compile, review, parse via MCP |
 | @kernlang/terminal | ANSI terminal + Ink transpilers |
