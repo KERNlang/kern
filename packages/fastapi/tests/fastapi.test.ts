@@ -2398,6 +2398,31 @@ describe('FastAPI Transpiler', () => {
       expect(route!.content).toContain('return {"ok": True}');
     });
 
+    test('isUnsupportedJsHandlerBody catches destructuring + for-loop variants (Codex+Gemini M1)', async () => {
+      const { isUnsupportedJsHandlerBody } = await import('../src/fastapi-raw-handler.js');
+      // Destructuring assignments — not valid Python.
+      expect(isUnsupportedJsHandlerBody('const { id } = req.body;')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('let [a, b] = arr;')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('var { x, y } = obj;')).toBe(true);
+      // for-loop variants — not valid Python.
+      expect(isUnsupportedJsHandlerBody('for (var x of list) { console.log(x); }')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('for (let key in obj) { ... }')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('for (const item of items) { ... }')).toBe(true);
+      // Python `for var in items:` is NOT flagged — `var`/`let`/`const`
+      // are Python identifiers there, not declaration keywords. The
+      // pattern requires `for (` (JS-style parens) so this is unambiguous.
+      expect(isUnsupportedJsHandlerBody('for var in items:\n    print(var)')).toBe(false);
+      expect(isUnsupportedJsHandlerBody('for let in things:\n    pass')).toBe(false);
+    });
+
+    test('isUnsupportedJsHandlerBody catches non-PascalCase `new` ctors (Gemini+Codex M2)', async () => {
+      const { isUnsupportedJsHandlerBody } = await import('../src/fastapi-raw-handler.js');
+      expect(isUnsupportedJsHandlerBody('const x = new error("oops");')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('return new lowerctor();')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('const d = new globalThis.Date();')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('return new foo.bar.Baz();')).toBe(true);
+    });
+
     test('Python body containing JS keywords inside strings does NOT false-positive (Codex B6)', async () => {
       const { isUnsupportedJsHandlerBody } = await import('../src/fastapi-raw-handler.js');
       // Pre-fix: `\bconst\s+\w+\s*=` regex matched the inner text of the

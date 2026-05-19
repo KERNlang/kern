@@ -115,6 +115,19 @@ export function isUnsupportedJsHandlerBody(code: string): boolean {
   // doesn't false-positive. Backticks INSIDE strings are stripped to `_`,
   // but unmatched backticks outside strings (i.e., JS template literals)
   // still trip the check.
+  //
+  // M1 (Codex+Gemini on ae9663cf): the const/let/var detection used to
+  // only match `\bKEYWORD\s+\w+\s*=` — missed destructuring forms
+  // (`const {x} = obj`, `const [a] = arr`) and for-loop variants
+  // (`for (var x of list)`, `for (let x in obj)`). Both are common JS
+  // and produce invalid Python. Adding two more alternatives below.
+  // The `var x;` no-init form is intentionally NOT detected: broadening
+  // there would false-positive on Python `for var in items:` where `var`
+  // is a Python loop variable name (not a keyword).
+  //
+  // M2 (Gemini+Codex on 85593a3f): drop the `[A-Z]` PascalCase constraint
+  // on the `new` check and broaden to dotted callables — `new foo()`,
+  // `new globalThis.Date()`, etc. all produce SyntaxError in Python.
   const stripped = stripStringsForJsCheck(code);
   return (
     /\bres\./.test(stripped) ||
@@ -122,10 +135,10 @@ export function isUnsupportedJsHandlerBody(code: string): boolean {
     /\?\./.test(stripped) ||
     /\?\?/.test(stripped) ||
     /=>/.test(stripped) ||
-    /\bconst\s+\w+\s*=/.test(stripped) ||
-    /\blet\s+\w+\s*=/.test(stripped) ||
-    /\bvar\s+\w+\s*=/.test(stripped) ||
-    /\bnew\s+[A-Z]\w*\s*\(/.test(stripped) ||
+    /\b(?:const|let|var)\s+\w+\s*=/.test(stripped) || // assignment form
+    /\b(?:const|let|var)\s+[{[]/.test(stripped) || // destructuring form
+    /\bfor\s*\(\s*(?:var|let|const)\s+/.test(stripped) || // for-loop variant
+    /\bnew\s+[\w$]+(?:\.[\w$]+)*\s*\(/.test(stripped) ||
     hasObjectShorthandOutsideStrings(code)
   );
 }
