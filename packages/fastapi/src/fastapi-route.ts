@@ -323,12 +323,21 @@ function isLowerableJsValueExpression(expr: string): boolean {
   // (`new X` — valid JS, invalid Python). Negative lookbehind avoids
   // Python `for new in items:` false-positive (Codex+Gemini fix-up 5
   // review).
-  // Parens form: horizontal-whitespace-only to keep `return new\nDate()`
-  // (valid Python: two statements) from false-flagging. JS `new\n
-  // Date()` (unconventional formatting) slips here — acceptable
-  // trade-off documented in fastapi-raw-handler.ts. Codex fix-up 14
-  // review.
-  if (/\bnew[^\S\r\n]+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*\(/.test(stripped)) return false;
+  // Parens form: allow newlines (`\s+` instead of horizontal-only).
+  //
+  // CRITICAL distinction from `isUnsupportedJsHandlerBody`:
+  // `isLowerableJsValueExpression` is called on EXPRESSION content
+  // (e.g., the JSON payload of `res.json({...})`), not on full handler
+  // bodies. In expression context, there are no statement boundaries —
+  // a Python-valid construct like `return new\nDate()` (two statements)
+  // simply does not occur here. The expression IS one syntactic unit.
+  //
+  // So `new\nDate()` inside an expression payload is unambiguously JS
+  // construction; the Python statement-cross argument used in the
+  // handler-body guard doesn't apply. Codex fix-up 16 review flagged
+  // that my fix-up 16 over-corrected by applying statement-level
+  // reasoning to this expression-level gate.
+  if (/\bnew\s+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*\(/.test(stripped)) return false;
   // No-parens `new IDENT` form. Horizontal-whitespace-only `[^\S\r\n]+`
   // between `new` and the identifier prevents Python's
   // `return new\nfoo = 1` (where `new` is a variable on its own line)

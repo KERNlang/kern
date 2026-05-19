@@ -2662,6 +2662,42 @@ describe('FastAPI Transpiler', () => {
       expect(isUnsupportedJsHandlerBody('return res.json({ok: true})')).toBe(true);
     });
 
+    test('isLowerableJsValueExpression: `new\\nFoo()` in expression context IS rejected (Codex fix-up 16)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      // Codex fix-up 16: in expression context (the X in `res.json(X)`),
+      // there are no statement boundaries — `new\nDate()` is
+      // unambiguously JS construction, NOT two Python statements.
+      // The handler-body guard's horizontal-only restriction would
+      // weaken expression-level JS detection.
+      const source = [
+        'server name=Test',
+        '  route GET /api/info',
+        '    handler <<<',
+        '      res.json({ x: new',
+        '        Date() });',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('get_api_info'));
+      expect(route!.content).toContain('NotImplementedError');
+    });
+
+    test('isLowerableJsValueExpression: single-line `new Date()` payload still rejected', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/single',
+        '    handler <<<',
+        '      res.json({ x: new Date() });',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('get_api_single'));
+      expect(route!.content).toContain('NotImplementedError');
+    });
+
     test('isLowerableJsValueExpression: `new` inside string literals does not reject (Codex B10)', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
