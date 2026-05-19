@@ -173,11 +173,23 @@ export function generatePortableChildFastAPI(
       const triggerNode = getFirstChild(child, 'trigger');
       const recoverNode = getFirstChild(child, 'recover');
       const triggerProps = triggerNode ? getProps(triggerNode) : {};
-      const triggerExpr =
-        extractExprCode(triggerProps.expr) ||
-        extractCodeOrString(triggerProps.query) ||
-        extractCodeOrString(triggerProps.url) ||
-        extractCodeOrString(triggerProps.call);
+      // Source-of-truth ordering for the trigger expression. `expr={{...}}`
+      // is the canonical expression form. The legacy `url=...` form is
+      // ALWAYS a URL/path string (e.g. `url="/api/users"`); emitting it
+      // unquoted as a Python expression yields `SyntaxError` the moment the
+      // URL starts with `/` (Python parses leading-`/` as division operator
+      // without a left operand). Wrap it as a Python string literal so the
+      // generated route at least imports cleanly; the runtime value is the
+      // URL string. `query=...` and `call=...` continue to flow as
+      // expressions (existing test behavior — they happen to ast.parse as
+      // identifier chains).
+      const exprCode = extractExprCode(triggerProps.expr);
+      const urlRaw = extractCodeOrString(triggerProps.url);
+      const triggerExpr = exprCode
+        ? exprCode
+        : urlRaw
+          ? `"${escapePyStr(urlRaw)}"`
+          : extractCodeOrString(triggerProps.query) || extractCodeOrString(triggerProps.call);
       const retryCount = recoverNode ? parseInt(String(getProps(recoverNode).retry || '0'), 10) : 0;
       const pyFallback = lowerPropToPython(recoverNode ? getProps(recoverNode).fallback : undefined, pathParams);
 

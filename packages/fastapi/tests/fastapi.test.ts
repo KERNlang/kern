@@ -2132,6 +2132,25 @@ describe('FastAPI Transpiler', () => {
       expect(content).toContain('raise NotImplementedError("Unsupported raw JavaScript handler syntax');
     });
 
+    test('effect.trigger.url string-prop emits as Python string literal (Bug C)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/users',
+        '    effect fetchUsers',
+        '      trigger url="/api/users"',
+        '    respond 200 json=fetchUsers.result',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('get_api_users'));
+      const content = route!.content;
+      // Previously emitted bare `/api/users` (Python parses `=` then `/` as
+      // binary division → SyntaxError). Now wrapped as Python string literal.
+      expect(content).toContain('fetch_users = "/api/users"');
+      expect(content).not.toMatch(/=\s+\/api/);
+    });
+
     test('clean Python handler body passes through unchanged (no false-positive guard)', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
