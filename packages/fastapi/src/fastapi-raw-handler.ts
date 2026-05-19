@@ -23,19 +23,39 @@
  * introducing an import cycle between portable and route.
  */
 
-// Sticky-flag (`y`) regex that matches a JS private-field-start at the
-// `lastIndex` position. The alternation covers:
-//   - A JS identifier-start codepoint: ASCII letters/`_`/`$` plus the
-//     full Unicode `ID_Start` category (matches whole codepoints via
-//     `u` flag, so non-BMP surrogate pairs work).
-//   - A full `\uXXXX` (4 hex digits) or `\u{...}` Unicode-escape
-//     sequence — the form JS uses for escaped identifier characters.
-//     Validating the FULL escape (not just `\u` prefix) means Python
-//     comments like `#\update note` (where `\update` is not a valid
-//     escape) correctly strip as comments (Codex fix-up 15 review).
-// Sticky `y` instead of anchored `^` on a slice avoids O(N²) string
-// allocation per `#` encounter (Gemini fix-up 15 perf review).
+// Sticky-flag (`y`) regex that finds a candidate JS private-field-start
+// at the `lastIndex` position. Either:
+//   - A JS identifier-start codepoint directly: ASCII letters/`_`/`$`
+//     plus the full Unicode `ID_Start` category (matches whole
+//     codepoints via `u` flag, so non-BMP surrogate pairs work).
+//   - A `\uXXXX` (4 hex digits) or `\u{...}` Unicode-escape sequence —
+//     the FORM JS uses for escaped identifier characters. Note: the
+//     escape's decoded codepoint must still be `ID_Start`-valid; that
+//     check happens in `isPrivateFieldStartAt` below per Codex fix-up
+//     17 review (`#0` decodes to `0` which is NOT ID_Start).
+// Sticky `y` (not anchored `^` on a slice) avoids O(N²) string allocation
+// per `#` encounter (Gemini fix-up 15 perf review).
 const PRIVATE_FIELD_START_AT_RE = /[$_\p{ID_Start}]|\\u(?:[0-9A-Fa-f]{4}|\{[0-9A-Fa-f]+\})/uy;
+const ID_START_RE = /[$_\p{ID_Start}]/u;
+
+// Tests whether `code[pos]` begins a JS private-field-name (i.e., the
+// character/sequence after a `#`). Returns true only when the matched
+// thing is a real JS identifier-start: either a literal ID_Start
+// codepoint, OR a `\u`-escape whose decoded codepoint IS ID_Start.
+function isPrivateFieldStartAt(code: string, pos: number): boolean {
+  PRIVATE_FIELD_START_AT_RE.lastIndex = pos;
+  const matched = code.match(PRIVATE_FIELD_START_AT_RE);
+  if (!matched || matched.index !== pos) return false;
+  const matchedText = matched[0];
+  if (!matchedText.startsWith('\\u')) return true; // direct ID_Start codepoint
+  // `\uXXXX` or `\u{...}` — decode the hex and re-validate the resulting
+  // codepoint against `ID_Start`. Without this, `#0` (decodes to
+  // `0`, not an identifier-start) would be preserved as code.
+  const hex = matchedText.startsWith('\\u{') ? matchedText.slice(3, -1) : matchedText.slice(2);
+  const codepoint = Number.parseInt(hex, 16);
+  if (!Number.isFinite(codepoint) || codepoint > 0x10ffff) return false;
+  return ID_START_RE.test(String.fromCodePoint(codepoint));
+}
 
 // Replace contents of every string literal AND comment with `_` so
 // JS-keyword detection regexes don't false-positive on tokens that
@@ -126,11 +146,7 @@ export function stripStringsForJsCheck(code: string): string {
       //
       // The sticky regex tests at exactly position `i + 1` without
       // creating a slice — O(1) per `#` (Gemini fix-up 15 perf review).
-      let isPrivateFieldStart = false;
-      if (next !== undefined) {
-        PRIVATE_FIELD_START_AT_RE.lastIndex = i + 1;
-        isPrivateFieldStart = PRIVATE_FIELD_START_AT_RE.test(code);
-      }
+      const isPrivateFieldStart = next !== undefined && isPrivateFieldStartAt(code, i + 1);
       if (isPrivateFieldStart) {
         result += ch;
         i += 1;

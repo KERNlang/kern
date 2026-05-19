@@ -2134,14 +2134,28 @@ describe('FastAPI Transpiler', () => {
       // `\` as private-field-start so the entire sequence stays visible
       // to subsequent leak checks.
       expect(stripStringsForJsCheck('class C { #\\u0061 = 1; }')).toBe('class C { #\\u0061 = 1; }');
-      expect(stripStringsForJsCheck('this.#\\u{1F600} = "emoji"')).toContain('#\\u{1F600}');
+      // NOTE: emoji code points (e.g. U+1F600 😀) are NOT `ID_Start`,
+      // so `#\u{1F600}` is NOT a syntactically valid JS private field
+      // name. Codex fix-up 17 review correctly required the decoded
+      // codepoint be validated against `ID_Start`; this test now
+      // asserts the comment-strip behavior for invalid-start escapes.
+      expect(stripStringsForJsCheck('this.#\\u{1F600} = "emoji"')).not.toContain('#\\u{1F600}');
     });
 
     test('`#\\` only preserved when followed by a full \\u escape — fix-up 13 + 15 reviews', async () => {
       const { stripStringsForJsCheck } = await import('../src/fastapi-raw-handler.js');
       // Full Unicode-escape forms IS preserved as code:
-      expect(stripStringsForJsCheck('this.#\\u0061 = 1')).toContain('#\\u0061'); // 4-hex form
-      expect(stripStringsForJsCheck('this.#\\u{1F600} = 1')).toContain('#\\u{1F600}'); // braced form
+      expect(stripStringsForJsCheck('this.#\\u0061 = 1')).toContain('#\\u0061'); // 4-hex form (a = U+0061 is ID_Start)
+      // Codex fix-up 17 review: must validate the DECODED codepoint
+      // against ID_Start, not just the escape syntax. Examples below
+      // are syntactically-valid escapes that decode to non-ID_Start
+      // codepoints — they should strip as comments.
+      // U+0030 = '0' (digit, NOT ID_Start)
+      expect(stripStringsForJsCheck('x = 1 #\\u0030 zero')).toMatch(/^x = 1 _+$/);
+      // U+002D = '-' (hyphen, NOT ID_Start)
+      expect(stripStringsForJsCheck('x = 1 #\\u{2D} hyphen')).toMatch(/^x = 1 _+$/);
+      // U+1F600 = 😀 (emoji, Symbol_Other, NOT ID_Start)
+      expect(stripStringsForJsCheck('x = 1 #\\u{1F600} emoji')).toMatch(/^x = 1 _+$/);
       // NOT escape sequences — strip as Python comment:
       expect(stripStringsForJsCheck('x = 1 #\\d+ regex note')).toMatch(/^x = 1 _+$/);
       expect(stripStringsForJsCheck('x = 1 #\\ note "quote"')).toMatch(/^x = 1 _+$/);
