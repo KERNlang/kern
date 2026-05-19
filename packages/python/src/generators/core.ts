@@ -55,7 +55,7 @@ function fnBodyCodePython(node: IRNode): string {
 
 /** Slice 3a — collect KERN-form parameter names paired with their Python
  *  snake_case form. Mirrors the rename rules in `buildPythonParamList` (see
- *  packages/fastapi/src/codegen-helpers.ts) so the body symbol-map and the
+ *  packages/python/src/codegen-helpers.ts) so the body symbol-map and the
  *  Python signature stay in lockstep. Destructured params (children
  *  `binding`/`element`) are skipped — they have no single name to rename;
  *  their decomposed bindings are emitted in the body itself, not the
