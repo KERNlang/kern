@@ -48,7 +48,11 @@ function lowerPropToPython(val: unknown, pathParams: string[]): string {
   if (trimmed === '' || trimmed === 'null' || trimmed === 'undefined') return 'None';
   if (trimmed === 'true') return 'True';
   if (trimmed === 'false') return 'False';
-  return rewriteFastAPIExpr(raw, pathParams);
+  // Pass the TRIMMED form to the rewriter — leading/trailing whitespace in
+  // a curly-expression carries no semantic information and only risks
+  // confusing any future anchor-based regex (Gemini defensive note on
+  // commit 7a25348b).
+  return rewriteFastAPIExpr(trimmed, pathParams);
 }
 
 export function generatePortableChildFastAPI(
@@ -174,7 +178,16 @@ export function generatePortableChildFastAPI(
         p.limit !== undefined && p.limit !== null && p.limit !== ''
           ? lowerPropToPython(p.limit, pathParams)
           : undefined;
-      const order = p.order ? extractCodeOrString(p.order) : undefined;
+      // Match the `from`/`limit` routing — `lowerPropToPython` applies
+      // both the JS-literal mapping AND `rewriteFastAPIExpr`. Pre-fix,
+      // `order` skipped the literal mapping, so `order=null` would emit
+      // `sorted(items, key=lambda item: null)` (a Python `NameError`).
+      // Presence-check (not truthy) so an empty/absent `order` correctly
+      // disables the `sorted()` emission (Gemini review on commit 7a25348b).
+      const order =
+        p.order !== undefined && p.order !== null && p.order !== ''
+          ? lowerPropToPython(p.order, pathParams)
+          : undefined;
       if (where && !order && !limit) {
         lines.push(`${indent}${collectName} = [item for item in ${from} if ${rewriteFastAPIExpr(where, pathParams)}]`);
       } else {
@@ -184,9 +197,9 @@ export function generatePortableChildFastAPI(
             `${indent}${collectName} = [item for item in ${collectName} if ${rewriteFastAPIExpr(where, pathParams)}]`,
           );
         if (order)
-          lines.push(
-            `${indent}${collectName} = sorted(${collectName}, key=lambda item: ${rewriteFastAPIExpr(order, pathParams)})`,
-          );
+          // `order` already routed through `lowerPropToPython` above (which
+          // includes the rewriter), so no second `rewriteFastAPIExpr` call.
+          lines.push(`${indent}${collectName} = sorted(${collectName}, key=lambda item: ${order})`);
         if (limit) lines.push(`${indent}${collectName} = ${collectName}[:${limit}]`);
       }
       break;
