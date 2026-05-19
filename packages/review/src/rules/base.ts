@@ -248,7 +248,11 @@ function hasOnlySafeObserverCalls(body: import('ts-morph').Block): boolean {
   }
   for (const call of body.getDescendantsOfKind(SyntaxKind.CallExpression)) {
     const callee = call.getExpression();
-    if (Node.isIdentifier(callee) && call.getArguments().length === 0 && /^(wake|notify|signal)$/.test(callee.getText())) {
+    if (
+      Node.isIdentifier(callee) &&
+      call.getArguments().length === 0 &&
+      /^(wake|notify|signal)$/.test(callee.getText())
+    ) {
       continue;
     }
     return false;

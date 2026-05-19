@@ -696,13 +696,19 @@ function isShadowedByNearerBinding(id: import('ts-morph').Identifier, binding: L
   const bindingStart = binding.decls?.[0]?.getStart() ?? -1;
   let cur: import('ts-morph').Node | undefined = id.getParent();
   while (cur) {
-    if (Node.isFunctionDeclaration(cur) || Node.isFunctionExpression(cur) || Node.isArrowFunction(cur) || Node.isMethodDeclaration(cur)) {
+    if (
+      Node.isFunctionDeclaration(cur) ||
+      Node.isFunctionExpression(cur) ||
+      Node.isArrowFunction(cur) ||
+      Node.isMethodDeclaration(cur)
+    ) {
       for (const param of cur.getParameters()) {
         if (param.getName() === binding.name && param.getStart() > bindingStart) return true;
       }
     }
     for (const decl of cur.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
-      if (decl.getName() === binding.name && decl.getStart() > bindingStart && decl.getStart() < id.getStart()) return true;
+      if (decl.getName() === binding.name && decl.getStart() > bindingStart && decl.getStart() < id.getStart())
+        return true;
     }
     cur = cur.getParent();
   }
