@@ -2137,6 +2137,27 @@ describe('FastAPI Transpiler', () => {
       expect(stripStringsForJsCheck('this.#\\u{1F600} = "emoji"')).toContain('#\\u{1F600}');
     });
 
+    test('`#\\` only preserved when followed by `u` Unicode-escape — fix-up 13 review', async () => {
+      const { stripStringsForJsCheck } = await import('../src/fastapi-raw-handler.js');
+      // `#\u...` IS valid JS Unicode escape — preserve as code.
+      expect(stripStringsForJsCheck('this.#\\u0061 = 1')).toContain('#\\u0061');
+      // `#\d` / `#\ note` / etc. are NOT Unicode escapes — strip as
+      // Python comment (Codex fix-up 13 review: my prior blanket-`\`
+      // preserved these too).
+      expect(stripStringsForJsCheck('x = 1 #\\d+ regex note')).toMatch(/^x = 1 _+$/);
+      expect(stripStringsForJsCheck('x = 1 #\\ note "quote"')).toMatch(/^x = 1 _+$/);
+    });
+
+    test('stripStringsForJsCheck handles non-BMP Unicode identifier (Gemini fix-up 13)', async () => {
+      const { stripStringsForJsCheck } = await import('../src/fastapi-raw-handler.js');
+      // `𐐀` (U+10400 DESERET CAPITAL LETTER LONG I) is a non-BMP
+      // ID_Start codepoint. Pre-fix-up-15: single-code-unit `next`
+      // contained only the high surrogate (`\uD801`) which fails the
+      // `\p{ID_Start}` test, so this `#𐐀` would have been stripped
+      // as Python comment. Now uses slice + anchored regex.
+      expect(stripStringsForJsCheck('class C { #𐐀 = 1; }')).toBe('class C { #𐐀 = 1; }');
+    });
+
     test('collect.order={{...}} curly form routes through lowerPropToPython too (Gemini fix-up 6)', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');

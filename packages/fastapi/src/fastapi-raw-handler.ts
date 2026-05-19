@@ -23,6 +23,13 @@
  * introducing an import cycle between portable and route.
  */
 
+// Anchored at start of slice — matches a JS identifier-start codepoint.
+// Includes ASCII letters/`_`/`$` plus the full Unicode `ID_Start`
+// category. The slice form (rather than testing a single code unit) is
+// necessary so non-BMP characters represented as surrogate pairs match
+// against their full codepoint, not just the high surrogate.
+const PRIVATE_FIELD_START_RE = /^[$_\p{ID_Start}]/u;
+
 // Replace contents of every string literal AND comment with `_` so
 // JS-keyword detection regexes don't false-positive on tokens that
 // appear only inside strings or comments. Preserves quote delimiters,
@@ -110,14 +117,20 @@ export function stripStringsForJsCheck(code: string): string {
       // class fields; treating those as comments would hide real JS
       // that should be flagged.
       //
-      // Identifier-start covers:
+      // Identifier-start cases preserved:
       //   - ASCII letters / `_` / `$` (the original check)
-      //   - Unicode ID_Start (e.g., `#π = 1`) via `\p{ID_Start}` with
-      //     the `u` flag (V8 ≥ 6.4, Node ≥ 10) — Codex+Gemini fix-up 11
-      //     review.
-      //   - Leading backslash for `\uXXXX` / `\u{...}` identifier escape
-      //     sequences (`#a = 1`) — also from Codex review.
-      const isPrivateFieldStart = next !== undefined && (/[$_\p{ID_Start}]/u.test(next) || next === '\\');
+      //   - Unicode ID_Start (e.g., `#π = 1`, `#𐐀 = 1`) via
+      //     `\p{ID_Start}` with the `u` flag. Uses a slice + anchored
+      //     test so non-BMP characters (surrogate pairs) match against
+      //     the whole codepoint rather than just the high surrogate
+      //     code unit (Gemini fix-up 13 review).
+      //   - Specifically `\uXXXX` / `\u{...}` identifier escape
+      //     sequences. Tightened from "any backslash" to "backslash+u"
+      //     so Python comments like `#\d regex note` still strip as
+      //     comments (Codex fix-up 13 review).
+      const restAfterHash = next !== undefined ? code.slice(i + 1) : '';
+      const isUnicodeEscape = next === '\\' && code[i + 2] === 'u';
+      const isPrivateFieldStart = next !== undefined && (PRIVATE_FIELD_START_RE.test(restAfterHash) || isUnicodeEscape);
       if (isPrivateFieldStart) {
         result += ch;
         i += 1;
