@@ -50,8 +50,27 @@ const { transpileFastAPI } = await import(join(REPO_ROOT, 'packages/fastapi/dist
 
 const args = process.argv.slice(2);
 const jsonOut = args.includes('--json');
+const checkMode = args.includes('--check');
 const dirArg = args.find((a) => !a.startsWith('--'));
 const scanDir = resolve(REPO_ROOT, dirArg ?? 'examples');
+
+// Parse `--flag=N` or `--flag N` style numeric thresholds.
+function parseNumberFlag(name, fallback) {
+  const eqForm = args.find((a) => a.startsWith(`${name}=`));
+  if (eqForm) {
+    const n = Number(eqForm.slice(name.length + 1));
+    if (Number.isFinite(n)) return n;
+  }
+  const idx = args.indexOf(name);
+  if (idx >= 0 && idx + 1 < args.length) {
+    const n = Number(args[idx + 1]);
+    if (Number.isFinite(n)) return n;
+  }
+  return fallback;
+}
+
+const MAX_AST_PARSE_FAILS = parseNumberFlag('--max-ast-parse-fails', 0);
+const MIN_CLEAN_RATE = parseNumberFlag('--min-clean-rate', 50);
 
 function listKernFiles(dir) {
   const out = [];
@@ -222,6 +241,35 @@ const summary = {
 
 if (jsonOut) {
   console.log(JSON.stringify({ summary, perFileFindings }, null, 2));
+  process.exit(0);
+}
+
+if (checkMode) {
+  // CI gate: enforce no regression below the established baseline.
+  // ast-parse-fail count MUST be zero — invalid Python is never acceptable;
+  // generated route modules wouldn't import. Clean-rate enforces a soft
+  // floor against silent codegen rot (more raw-foreign-leaks creeping in).
+  const astParseFails = (rejectionCounts.get('ast-parse-fail') ?? 0);
+  const failures = [];
+  if (astParseFails > MAX_AST_PARSE_FAILS) {
+    failures.push(
+      `ast-parse-fail count ${astParseFails} exceeds threshold ${MAX_AST_PARSE_FAILS} — generated Python has syntax errors that break FastAPI route import.`,
+    );
+  }
+  if (cleanRate < MIN_CLEAN_RATE) {
+    failures.push(
+      `clean rate ${cleanRate.toFixed(2)}% below threshold ${MIN_CLEAN_RATE}% — Python codegen quality regressed.`,
+    );
+  }
+  if (failures.length > 0) {
+    console.error('Python codegen quality gate FAILED:');
+    for (const f of failures) console.error(`  - ${f}`);
+    console.error('Run `node scripts/lift-rate-python.mjs` (without --check) for the full report.');
+    process.exit(1);
+  }
+  console.log(
+    `Python codegen quality gate PASSED — clean rate ${cleanRate.toFixed(2)}% (≥ ${MIN_CLEAN_RATE}%), ast-parse-fail count ${astParseFails} (≤ ${MAX_AST_PARSE_FAILS}).`,
+  );
   process.exit(0);
 }
 

@@ -50,6 +50,9 @@ jobs:
       - name: Rule coverage gate
         run: pnpm check:rule-coverage
 
+      - name: Python codegen quality gate
+        run: pnpm check:python-codegen
+
       - name: Test (excluding IR-semantics harness)
         run: pnpm test:non-semantics
 
