@@ -2472,6 +2472,24 @@ describe('FastAPI Transpiler', () => {
       expect(isUnsupportedJsHandlerBody('return new foo.bar.Baz();')).toBe(true);
     });
 
+    test('isUnsupportedJsHandlerBody catches for-await + $-identifiers + new-no-parens (Codex+Gemini fix-up 5)', async () => {
+      const { isUnsupportedJsHandlerBody } = await import('../src/fastapi-raw-handler.js');
+      // for await (streaming form — common in handler bodies)
+      expect(isUnsupportedJsHandlerBody('for await (const chunk of stream) { process(chunk); }')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('for await (let x of s) ...')).toBe(true);
+      // $ in identifiers
+      expect(isUnsupportedJsHandlerBody('const $el = document.querySelector("x");')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('let _$state = init();')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('var $$ = 1;')).toBe(true);
+      // `new` without parens — also valid JS, also SyntaxError in Python
+      expect(isUnsupportedJsHandlerBody('return new Date;')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('const d = new globalThis.Date\nconst e = 1')).toBe(true);
+      // Python idiom `for new in items:` is NOT flagged (the `new` is a
+      // loop variable name preceded by `for `, so negative lookbehind
+      // suppresses the no-parens `new`-keyword match).
+      expect(isUnsupportedJsHandlerBody('for new in items:\n    print(new)')).toBe(false);
+    });
+
     test('Python body containing JS keywords inside strings does NOT false-positive (Codex B6)', async () => {
       const { isUnsupportedJsHandlerBody } = await import('../src/fastapi-raw-handler.js');
       // Pre-fix: `\bconst\s+\w+\s*=` regex matched the inner text of the

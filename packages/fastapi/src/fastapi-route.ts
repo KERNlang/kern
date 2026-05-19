@@ -319,8 +319,12 @@ function isLowerableJsValueExpression(expr: string): boolean {
   // Drop the PascalCase constraint per Gemini+Codex review on ae9663cf
   // / 85593a3f — `new foo()`, `new globalThis.Date()`, etc. are all
   // un-lowerable. Match any identifier (possibly dotted) following
-  // `new`.
+  // `new`. Two variants: with parens (`new X(...)`) and without
+  // (`new X` — valid JS, invalid Python). Negative lookbehind avoids
+  // Python `for new in items:` false-positive (Codex+Gemini fix-up 5
+  // review).
   if (/\bnew\s+[\w$]+(?:\.[\w$]+)*\s*\(/.test(stripped)) return false;
+  if (/(?<!\bfor\s)\bnew\s+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\b/.test(stripped)) return false;
   return true;
 }
 
