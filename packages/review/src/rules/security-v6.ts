@@ -5,8 +5,9 @@
  * size where its other 9 rules become hard to scan. Both rules consume the
  * shared AST primitives in `./ast-helpers.ts`.
  *
- *   S10 error-leak              — caught exception leaked back to client
- *   S11 bearer-token-literal    — hardcoded `Authorization: Bearer …` value
+ *   S10 error-leak                 — caught exception leaked back to client
+ *   S11 bearer-token-literal       — hardcoded `Authorization: Bearer …` value
+ *   S12 redirect-non-3xx-status    — redirect helper called with non-redirect HTTP status
  */
 
 import { Node, SyntaxKind } from 'ts-morph';
@@ -341,6 +342,100 @@ function bearerTokenLiteral(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule S12: redirect-non-3xx-status ─────────────────────────────────
+// Redirect helpers must use 3xx statuses. Passing 401/403/404/500 to
+// res.redirect(), NextResponse.redirect(), or generic redirect() helpers often
+// means browsers/clients will not follow the Location value.
+
+function readNumericLiteral(node: Node | undefined): number | undefined {
+  if (!node || !Node.isNumericLiteral(node)) return undefined;
+  const raw = node.getText().replace(/_/g, '');
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function readStatusFromObjectLiteral(node: Node | undefined): number | undefined {
+  if (!node || !Node.isObjectLiteralExpression(node)) return undefined;
+
+  for (const prop of node.getProperties()) {
+    if (!Node.isPropertyAssignment(prop)) continue;
+    const name = prop.getNameNode().getText().replace(/['"`]/g, '');
+    if (name !== 'status') continue;
+    return readNumericLiteral(prop.getInitializer());
+  }
+
+  return undefined;
+}
+
+function getRootIdentifierName(node: Node): string | undefined {
+  if (Node.isIdentifier(node)) return node.getText();
+  if (Node.isCallExpression(node)) {
+    const callee = node.getExpression();
+    if (Node.isPropertyAccessExpression(callee)) return getRootIdentifierName(callee.getExpression());
+  }
+  if (Node.isPropertyAccessExpression(node)) return getRootIdentifierName(node.getExpression());
+  return undefined;
+}
+
+function isHttpRedirectReceiver(node: Node): boolean {
+  const root = getRootIdentifierName(node);
+  return root !== undefined && /^(res|response|reply|ctx|context|Response|NextResponse)$/i.test(root);
+}
+
+function importedHttpRedirectNames(ctx: RuleContext): Set<string> {
+  const names = new Set<string>();
+  const redirectModules = /^(?:next\/navigation|next\/server|@remix-run\/.+|react-router|react-router-dom)$/;
+
+  for (const decl of ctx.sourceFile.getImportDeclarations()) {
+    if (!redirectModules.test(decl.getModuleSpecifierValue())) continue;
+    for (const named of decl.getNamedImports()) {
+      if (named.getName() !== 'redirect') continue;
+      names.add(named.getAliasNode()?.getText() ?? named.getName());
+    }
+  }
+
+  return names;
+}
+
+function redirectNon3xxStatus(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+  const redirectImports = importedHttpRedirectNames(ctx);
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    let isRedirectCall = false;
+
+    if (Node.isPropertyAccessExpression(callee)) {
+      isRedirectCall = callee.getName() === 'redirect' && isHttpRedirectReceiver(callee.getExpression());
+    } else if (Node.isIdentifier(callee)) {
+      isRedirectCall = redirectImports.has(callee.getText());
+    }
+
+    if (!isRedirectCall) continue;
+
+    const args = call.getArguments();
+    // args[0] covers Express/Next pages API `res.redirect(status, url)`;
+    // args[1] covers Web/Next/Remix `redirect(url, status | { status })`.
+    const status = readNumericLiteral(args[0]) ?? readNumericLiteral(args[1]) ?? readStatusFromObjectLiteral(args[1]);
+    if (status === undefined || (status >= 300 && status <= 399)) continue;
+
+    findings.push(
+      finding(
+        'redirect-non-3xx-status',
+        'warning',
+        'bug',
+        `redirect() called with HTTP ${status} — only 3xx statuses trigger redirects reliably`,
+        ctx.filePath,
+        call.getStartLineNumber(),
+        1,
+        { suggestion: 'Use a 3xx redirect status, or send the non-redirect error response without redirect().' },
+      ),
+    );
+  }
+
+  return findings;
+}
+
 // ── Exported Security v6 Rules ───────────────────────────────────────────
 
-export const securityV6Rules = [errorLeak, bearerTokenLiteral];
+export const securityV6Rules = [errorLeak, bearerTokenLiteral, redirectNon3xxStatus];

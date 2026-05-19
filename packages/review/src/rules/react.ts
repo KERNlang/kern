@@ -2811,6 +2811,52 @@ function reduxDispatchInRender(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+function reactHookFormContextFallback(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+  if (!isReactFile(ctx)) return findings;
+
+  const useFormContextNames = new Set<string>();
+  for (const decl of ctx.sourceFile.getImportDeclarations()) {
+    if (decl.getModuleSpecifierValue() !== 'react-hook-form') continue;
+    for (const named of decl.getNamedImports()) {
+      if (named.getName() !== 'useFormContext') continue;
+      useFormContextNames.add(named.getAliasNode()?.getText() ?? named.getName());
+    }
+  }
+  if (useFormContextNames.size === 0) return findings;
+
+  for (const expr of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
+    const operator = expr.getOperatorToken().getText();
+    if (operator !== '??' && operator !== '||') continue;
+
+    const left = expr.getLeft();
+    if (!Node.isCallExpression(left)) continue;
+    const right = unwrapJsxExpression(expr.getRight());
+    if (!Node.isObjectLiteralExpression(right) || right.getProperties().length > 0) continue;
+
+    const callee = left.getExpression();
+    if (!Node.isIdentifier(callee) || !useFormContextNames.has(callee.getText())) continue;
+
+    findings.push(
+      finding(
+        'react-hook-form-context-fallback',
+        'warning',
+        'bug',
+        'useFormContext() fallback hides a missing FormProvider — form controls may silently stop registering values',
+        ctx.filePath,
+        expr.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'Require a FormProvider, split controlled and react-hook-form variants, or throw an explicit error when form context is absent.',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
 // ── Exported React Rules ─────────────────────────────────────────────────
 
 export const reactRules = [
@@ -2843,4 +2889,5 @@ export const reactRules = [
   clientOnly(contextDefaultAssertion),
   clientOnly(reduxSelectorUnstableReturn),
   clientOnly(reduxDispatchInRender),
+  clientOnly(reactHookFormContextFallback),
 ];

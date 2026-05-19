@@ -721,6 +721,14 @@ const REGISTRY: RuleInfo[] = [
     rolloutPhase: 6,
   },
   {
+    id: 'react-hook-form-context-fallback',
+    layer: 'react',
+    severity: 'warning',
+    description: 'useFormContext() is guarded with an empty fallback, hiding missing FormProvider bugs',
+    precision: 'medium',
+    rolloutPhase: 6,
+  },
+  {
     id: 'inline-context-value',
     layer: 'react',
     severity: 'warning',
@@ -1612,6 +1620,14 @@ const REGISTRY: RuleInfo[] = [
     severity: 'warning',
     description:
       'Hardcoded Bearer token in HTTP Authorization header — credential should come from env / secret manager',
+    precision: 'high',
+    rolloutPhase: 1,
+  },
+  {
+    id: 'redirect-non-3xx-status',
+    layer: 'security-v6',
+    severity: 'warning',
+    description: 'redirect() called with a non-3xx HTTP status',
     precision: 'high',
     rolloutPhase: 1,
   },

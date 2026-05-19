@@ -2426,4 +2426,66 @@ export function Page({ ready }: { ready: boolean }) {
       expect(report.findings.find((f) => f.ruleId === 'redux-dispatch-in-render')).toBeDefined();
     });
   });
+
+  describe('react-hook-form-context-fallback', () => {
+    it('flags useFormContext with a nullish empty-object fallback', () => {
+      const source = `
+import { useFormContext } from 'react-hook-form';
+export function Input() {
+  const { register } = useFormContext() ?? {};
+  return <input {...register?.('email')} />;
+}
+`;
+      const report = reviewSource(source, 'input.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'react-hook-form-context-fallback')).toBeDefined();
+    });
+
+    it('flags useFormContext with an || empty-object fallback', () => {
+      const source = `
+import { useFormContext } from 'react-hook-form';
+export function Checkbox() {
+  const form = useFormContext() || {};
+  return <input type="checkbox" {...form.register?.('terms')} />;
+}
+`;
+      const report = reviewSource(source, 'checkbox.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'react-hook-form-context-fallback')).toBeDefined();
+    });
+
+    it('does not flag required form context usage', () => {
+      const source = `
+import { useFormContext } from 'react-hook-form';
+export function Input() {
+  const { register } = useFormContext();
+  return <input {...register('email')} />;
+}
+`;
+      const report = reviewSource(source, 'input.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'react-hook-form-context-fallback')).toBeUndefined();
+    });
+
+    it('does not flag same-named hooks from another module', () => {
+      const source = `
+import { useFormContext } from './form-context';
+export function Input() {
+  const form = useFormContext() ?? {};
+  return <input {...form.register?.('email')} />;
+}
+`;
+      const report = reviewSource(source, 'input.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'react-hook-form-context-fallback')).toBeUndefined();
+    });
+
+    it('does not flag explicit non-empty fallback objects', () => {
+      const source = `
+import { useFormContext } from 'react-hook-form';
+export function Input() {
+  const form = useFormContext() ?? { register: () => ({}) };
+  return <input {...form.register('email')} />;
+}
+`;
+      const report = reviewSource(source, 'input.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'react-hook-form-context-fallback')).toBeUndefined();
+    });
+  });
 });
