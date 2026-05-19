@@ -188,6 +188,53 @@ describe('slice 5b-pre — body-statement source round-trip (positive)', () => {
     expect(emitted).toContain('return 0;');
   });
 
+  test('body-statement try + finally parses from source without unknown-node diagnostics', () => {
+    const src = [
+      'fn name=safeRun returns=number',
+      '  handler lang="kern"',
+      '    try',
+      '      do value="work()"',
+      '      finally',
+      '        do value="cleanup()"',
+    ].join('\n');
+
+    const { root, diagnostics } = parseDocumentWithDiagnostics(src);
+    expect(diagnostics.filter((d) => d.code === 'UNKNOWN_NODE_TYPE')).toEqual([]);
+    expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+
+    const handler = findFirstHandler(root);
+    const tryNode = (handler.children ?? []).find((c) => c.type === 'try');
+    expect(tryNode).toBeDefined();
+    const tryChildren = (tryNode?.children ?? []).map((c) => c.type);
+    expect(tryChildren).toEqual(['do', 'finally']);
+
+    const emitted = emitNativeKernBodyTS(handler);
+    expect(emitted).toBe(['try {', '  work();', '} finally {', '  cleanup();', '}'].join('\n'));
+  });
+
+  test('body-statement multi-line with parses from source without unknown-node diagnostics', () => {
+    const src = [
+      'fn name=ask returns=string',
+      '  handler lang="kern"',
+      '    with name=session value="spawn()" cleanup="session.close()"',
+      '      return value="session.ask(\\"hello\\")"',
+    ].join('\n');
+
+    const { root, diagnostics } = parseDocumentWithDiagnostics(src);
+    expect(diagnostics.filter((d) => d.code === 'UNKNOWN_NODE_TYPE')).toEqual([]);
+    expect(diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+
+    const handler = findFirstHandler(root);
+    const withNode = (handler.children ?? [])[0] as IRNode;
+    expect(withNode.type).toBe('with');
+    expect((withNode.children ?? []).map((c) => c.type)).toEqual(['return']);
+
+    const emitted = emitNativeKernBodyTS(handler);
+    expect(emitted).toContain('const session = spawn();');
+    expect(emitted).toContain('return session.ask("hello");');
+    expect(emitted).toContain('session.close();');
+  });
+
   test('body-statement throw round-trips', () => {
     const src = ['fn name=fail returns=void', '  handler lang="kern"', '    throw value="new Error(\\"boom\\")"'].join(
       '\n',
