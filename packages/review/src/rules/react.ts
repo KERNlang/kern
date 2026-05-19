@@ -2444,6 +2444,318 @@ function asyncSetStateAfterUnmount(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+function collectUseStateSetterMap(ctx: RuleContext): Map<string, string> {
+  const setterToState = new Map<string, string>();
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const nameNode = decl.getNameNode();
+    const init = decl.getInitializer();
+    if (!Node.isArrayBindingPattern(nameNode) || !init || !Node.isCallExpression(init)) continue;
+    const calleeText = init.getExpression().getText();
+    if (calleeText !== 'useState' && calleeText !== 'React.useState') continue;
+    const elements = nameNode.getElements();
+    if (elements.length < 2 || !Node.isBindingElement(elements[0]) || !Node.isBindingElement(elements[1])) continue;
+    setterToState.set(elements[1].getName(), elements[0].getName());
+  }
+  return setterToState;
+}
+
+function isEffectCall(call: import('ts-morph').CallExpression): boolean {
+  const callee = call.getExpression().getText();
+  return (
+    callee === 'useEffect' ||
+    callee === 'React.useEffect' ||
+    callee === 'useLayoutEffect' ||
+    callee === 'React.useLayoutEffect'
+  );
+}
+
+function getEffectCallback(
+  call: import('ts-morph').CallExpression,
+): import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression | undefined {
+  const callback = call.getArguments()[0];
+  return Node.isArrowFunction(callback) || Node.isFunctionExpression(callback) ? callback : undefined;
+}
+
+function effectCleanupText(callback: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression): string {
+  return getTopLevelCleanupExpressions(callback.getBody())
+    .map((expr) => expr.getText())
+    .join('\n');
+}
+
+function callExpressionsIncludingSelf(node: Node): import('ts-morph').CallExpression[] {
+  return [...(Node.isCallExpression(node) ? [node] : []), ...node.getDescendantsOfKind(SyntaxKind.CallExpression)];
+}
+
+// ── Rule: effect-fetch-missing-cancel-guard ─────────────────────────────
+// Effects that fetch and then set state need an unmount/race guard. This rule
+// stays conservative: it only fires when the effect body both fetches and
+// calls a local useState setter.
+
+function effectFetchMissingCancelGuard(ctx: RuleContext): ReviewFinding[] {
+  const setterToState = collectUseStateSetterMap(ctx);
+  if (setterToState.size === 0) return [];
+  const findings: ReviewFinding[] = [];
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    if (!isEffectCall(call)) continue;
+    const callback = getEffectCallback(call);
+    if (!callback) continue;
+    const body = callback.getBody();
+    const hasFetch = body.getDescendantsOfKind(SyntaxKind.CallExpression).some((inner) => {
+      const exprText = inner.getExpression().getText();
+      return exprText === 'fetch' || exprText === 'window.fetch' || exprText === 'globalThis.fetch';
+    });
+    if (!hasFetch) continue;
+
+    let setterLine: number | undefined;
+    for (const inner of body.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+      const expr = inner.getExpression();
+      if (Node.isIdentifier(expr) && setterToState.has(expr.getText())) {
+        setterLine = inner.getStartLineNumber();
+        break;
+      }
+      if (Node.isPropertyAccessExpression(expr) && ['then', 'catch', 'finally'].includes(expr.getName())) {
+        const setterArg = inner
+          .getArguments()
+          .find((arg) => Node.isIdentifier(arg) && setterToState.has(arg.getText()));
+        if (setterArg) {
+          setterLine = setterArg.getStartLineNumber();
+          break;
+        }
+      }
+    }
+    if (!setterLine) continue;
+
+    const cleanupText = effectCleanupText(callback);
+    if (/\b(?:abort|cancel|didCancel|cancelled|canceled|ignore|ignored|mounted)\b/i.test(cleanupText)) continue;
+    if (/\bAbortController\b/i.test(body.getText()) && /\b\.abort\s*\(/.test(cleanupText)) continue;
+
+    findings.push(
+      finding(
+        'effect-fetch-missing-cancel-guard',
+        'warning',
+        'bug',
+        'useEffect fetch updates state without an unmount/race guard — late responses can overwrite newer state',
+        ctx.filePath,
+        setterLine,
+        1,
+        {
+          suggestion: 'Use AbortController or an ignore/didCancel flag in the cleanup before calling the state setter.',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+// ── Rule: interval-state-setter-needs-functional-update ─────────────────
+// setInterval callbacks created with [] deps often need functional state
+// updates (`setCount(c => c + 1)`) instead of closing over `count`.
+
+function intervalStateSetterNeedsFunctionalUpdate(ctx: RuleContext): ReviewFinding[] {
+  const setterToState = collectUseStateSetterMap(ctx);
+  if (setterToState.size === 0) return [];
+  const findings: ReviewFinding[] = [];
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    if (!isEffectCall(call)) continue;
+    const deps = call.getArguments()[1];
+    if (!Node.isArrayLiteralExpression(deps) || deps.getElements().length !== 0) continue;
+    const callback = getEffectCallback(call);
+    if (!callback) continue;
+
+    for (const intervalCall of callback.getBody().getDescendantsOfKind(SyntaxKind.CallExpression)) {
+      if (intervalCall.getExpression().getText() !== 'setInterval') continue;
+      const intervalCallback = intervalCall.getArguments()[0];
+      if (!Node.isArrowFunction(intervalCallback) && !Node.isFunctionExpression(intervalCallback)) continue;
+
+      for (const setterCall of callExpressionsIncludingSelf(intervalCallback.getBody())) {
+        const setter = setterCall.getExpression();
+        if (!Node.isIdentifier(setter)) continue;
+        const stateName = setterToState.get(setter.getText());
+        if (!stateName) continue;
+        const firstArg = setterCall.getArguments()[0];
+        if (!firstArg || Node.isArrowFunction(firstArg) || Node.isFunctionExpression(firstArg)) continue;
+        if (!new RegExp(`\\b${escapeRegex(stateName)}\\b`).test(firstArg.getText())) continue;
+
+        findings.push(
+          finding(
+            'interval-state-setter-needs-functional-update',
+            'warning',
+            'bug',
+            `setInterval callback updates '${stateName}' from a stale closure — use a functional state update`,
+            ctx.filePath,
+            setterCall.getStartLineNumber(),
+            1,
+            { suggestion: `Use ${setter.getText()}((current) => ...) so each tick receives the latest state.` },
+          ),
+        );
+      }
+    }
+  }
+
+  return findings;
+}
+
+function imperativeHandleMissingDeps(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression().getText();
+    if (callee !== 'useImperativeHandle' && callee !== 'React.useImperativeHandle') continue;
+    const deps = call.getArguments()[2];
+    if (deps && Node.isArrayLiteralExpression(deps)) continue;
+
+    findings.push(
+      finding(
+        'imperative-handle-missing-deps',
+        'warning',
+        'pattern',
+        'useImperativeHandle is missing a dependency array — the imperative handle is recreated on every render',
+        ctx.filePath,
+        call.getStartLineNumber(),
+        1,
+        { suggestion: 'Pass a dependency array as the third argument, listing values captured by the handle factory.' },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+function isInsideReactComponentClassOrHook(node: Node): boolean {
+  if (isInsideReactComponentOrClass(node)) return true;
+  let cur: Node | undefined = node.getParent();
+  while (cur) {
+    if (Node.isFunctionDeclaration(cur) && /^use[A-Z]/.test(cur.getName() ?? '')) return true;
+    if (Node.isArrowFunction(cur) || Node.isFunctionExpression(cur)) {
+      const varDecl = cur.getFirstAncestorByKind(SyntaxKind.VariableDeclaration);
+      const nameNode = varDecl?.getNameNode();
+      if (nameNode && Node.isIdentifier(nameNode) && /^use[A-Z]/.test(nameNode.getText())) return true;
+    }
+    cur = cur.getParent();
+  }
+  return false;
+}
+
+function contextCreatedInComponent(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression().getText();
+    if (callee !== 'createContext' && callee !== 'React.createContext') continue;
+    if (!isInsideReactComponentClassOrHook(call)) continue;
+
+    findings.push(
+      finding(
+        'context-created-in-component',
+        'error',
+        'bug',
+        'createContext is called inside a component — a new context object is created on every render',
+        ctx.filePath,
+        call.getStartLineNumber(),
+        1,
+        { suggestion: 'Move createContext to module scope and render providers inside the component.' },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+function reduxSelectorUnstableReturn(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression().getText();
+    if (callee !== 'useSelector' && callee !== 'ReactRedux.useSelector') continue;
+    if (call.getArguments().length >= 2) continue;
+    const selector = call.getArguments()[0];
+    if (!Node.isArrowFunction(selector) && !Node.isFunctionExpression(selector)) continue;
+
+    const selectorBody = selector.getBody();
+    const returned = Node.isBlock(selectorBody)
+      ? selectorBody.getStatements().find((stmt) => Node.isReturnStatement(stmt))
+      : selectorBody;
+    const expr = Node.isReturnStatement(returned) ? returned.getExpression() : returned;
+    if (!expr) continue;
+    const unwrapped = unwrapJsxExpression(expr);
+    if (!Node.isObjectLiteralExpression(unwrapped) && !Node.isArrayLiteralExpression(unwrapped)) continue;
+
+    findings.push(
+      finding(
+        'redux-selector-unstable-return',
+        'warning',
+        'pattern',
+        'useSelector returns a new object/array without an equality function — component re-renders on every store update',
+        ctx.filePath,
+        call.getStartLineNumber(),
+        1,
+        { suggestion: 'Select primitives separately, memoize with Reselect, or pass shallowEqual/equalityFn.' },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+function reduxDispatchInRender(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  function isInsideNestedFunction(call: import('ts-morph').CallExpression, root: Node): boolean {
+    let cur: Node | undefined = call.getParent();
+    while (cur && cur !== root) {
+      if (Node.isArrowFunction(cur) || Node.isFunctionExpression(cur) || Node.isFunctionDeclaration(cur)) return true;
+      cur = cur.getParent();
+    }
+    return false;
+  }
+
+  function checkBlock(block: import('ts-morph').Block, componentName: string): void {
+    for (const expr of block.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+      if (isInsideNestedFunction(expr, block)) continue;
+      const callee = expr.getExpression();
+      if (!Node.isIdentifier(callee) || callee.getText() !== 'dispatch') continue;
+
+      findings.push(
+        finding(
+          'redux-dispatch-in-render',
+          'error',
+          'bug',
+          `Redux dispatch() is called during render of '${componentName}' — this can trigger render loops and duplicate actions`,
+          ctx.filePath,
+          expr.getStartLineNumber(),
+          1,
+          {
+            suggestion: 'Move dispatch() into useEffect for lifecycle work or into an event handler for user actions.',
+          },
+        ),
+      );
+    }
+  }
+
+  for (const fn of ctx.sourceFile.getFunctions()) {
+    const name = fn.getName() ?? '';
+    if (!/^[A-Z]/.test(name)) continue;
+    const body = fn.getBody();
+    if (body && Node.isBlock(body)) checkBlock(body, name);
+  }
+
+  for (const stmt of ctx.sourceFile.getVariableStatements()) {
+    for (const decl of stmt.getDeclarations()) {
+      const nameNode = decl.getNameNode();
+      const init = decl.getInitializer();
+      if (!Node.isIdentifier(nameNode) || !/^[A-Z]/.test(nameNode.getText())) continue;
+      if (!init || (!Node.isArrowFunction(init) && !Node.isFunctionExpression(init))) continue;
+      const body = init.getBody();
+      if (Node.isBlock(body)) checkBlock(body, nameNode.getText());
+    }
+  }
+
+  return findings;
+}
+
 // ── Exported React Rules ─────────────────────────────────────────────────
 
 export const reactRules = [
@@ -2469,4 +2781,10 @@ export const reactRules = [
   clientOnly(componentDidUpdateSetStateUnguarded),
   clientOnly(cloneElementChildrenWithoutValidGuard),
   clientOnly(asyncSetStateAfterUnmount),
+  clientOnly(effectFetchMissingCancelGuard),
+  clientOnly(intervalStateSetterNeedsFunctionalUpdate),
+  clientOnly(imperativeHandleMissingDeps),
+  clientOnly(contextCreatedInComponent),
+  clientOnly(reduxSelectorUnstableReturn),
+  clientOnly(reduxDispatchInRender),
 ];

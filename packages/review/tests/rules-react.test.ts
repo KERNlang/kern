@@ -2166,4 +2166,232 @@ export class Loader extends React.Component<{}, { item?: string }> {
       expect(report.findings.find((f) => f.ruleId === 'async-setstate-after-unmount')).toBeDefined();
     });
   });
+
+  describe('effect-fetch-missing-cancel-guard', () => {
+    it('flags effect fetch that sets state without cleanup guard', () => {
+      const source = `
+import { useEffect, useState } from 'react';
+export function Loader() {
+  const [item, setItem] = useState('');
+  useEffect(() => {
+    fetch('/api/item').then((r) => r.text()).then(setItem);
+  }, []);
+  return <div>{item}</div>;
+}
+`;
+      const report = reviewSource(source, 'loader.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'effect-fetch-missing-cancel-guard')).toBeDefined();
+    });
+
+    it('does not flag effect fetch with ignore cleanup guard', () => {
+      const source = `
+import { useEffect, useState } from 'react';
+export function Loader() {
+  const [item, setItem] = useState('');
+  useEffect(() => {
+    let ignore = false;
+    fetch('/api/item').then((r) => r.text()).then((text) => {
+      if (!ignore) setItem(text);
+    });
+    return () => { ignore = true; };
+  }, []);
+  return <div>{item}</div>;
+}
+`;
+      const report = reviewSource(source, 'loader.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'effect-fetch-missing-cancel-guard')).toBeUndefined();
+    });
+
+    it('flags React.useLayoutEffect window.fetch that sets state through an arrow callback', () => {
+      const source = `
+import React from 'react';
+export function Loader() {
+  const [item, setItem] = React.useState('');
+  React.useLayoutEffect(() => {
+    window.fetch('/api/item').then((r) => r.text()).then((text) => setItem(text));
+  }, []);
+  return <div>{item}</div>;
+}
+`;
+      const report = reviewSource(source, 'loader.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'effect-fetch-missing-cancel-guard')).toBeDefined();
+    });
+  });
+
+  describe('interval-state-setter-needs-functional-update', () => {
+    it('flags interval setter that closes over state', () => {
+      const source = `
+import { useEffect, useState } from 'react';
+export function Counter() {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setCount(count + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return <div>{count}</div>;
+}
+`;
+      const report = reviewSource(source, 'counter.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'interval-state-setter-needs-functional-update')).toBeDefined();
+    });
+
+    it('does not flag functional interval updater', () => {
+      const source = `
+import { useEffect, useState } from 'react';
+export function Counter() {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setCount((current) => current + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return <div>{count}</div>;
+}
+`;
+      const report = reviewSource(source, 'counter.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'interval-state-setter-needs-functional-update')).toBeUndefined();
+    });
+  });
+
+  describe('imperative-handle-missing-deps', () => {
+    it('flags useImperativeHandle without deps', () => {
+      const source = `
+import { forwardRef, useImperativeHandle } from 'react';
+export const Input = forwardRef(function Input(props, ref) {
+  useImperativeHandle(ref, () => ({ focus() {} }));
+  return null;
+});
+`;
+      const report = reviewSource(source, 'input.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'imperative-handle-missing-deps')).toBeDefined();
+    });
+
+    it('does not flag useImperativeHandle with deps', () => {
+      const source = `
+import { forwardRef, useImperativeHandle } from 'react';
+export const Input = forwardRef(function Input(props, ref) {
+  useImperativeHandle(ref, () => ({ focus() {} }), []);
+  return null;
+});
+`;
+      const report = reviewSource(source, 'input.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'imperative-handle-missing-deps')).toBeUndefined();
+    });
+
+    it('flags useImperativeHandle with non-array deps argument', () => {
+      const source = `
+import { forwardRef, useImperativeHandle } from 'react';
+export const Input = forwardRef(function Input(props, ref) {
+  useImperativeHandle(ref, () => ({ focus() {} }), null as any);
+  return null;
+});
+`;
+      const report = reviewSource(source, 'input.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'imperative-handle-missing-deps')).toBeDefined();
+    });
+  });
+
+  describe('context-created-in-component', () => {
+    it('flags createContext inside component', () => {
+      const source = `
+import { createContext } from 'react';
+export function App() {
+  const ThemeContext = createContext('light');
+  return <ThemeContext.Provider value="dark" />;
+}
+`;
+      const report = reviewSource(source, 'app.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'context-created-in-component')).toBeDefined();
+    });
+
+    it('does not flag module-scope createContext', () => {
+      const source = `
+import { createContext } from 'react';
+const ThemeContext = createContext('light');
+export function App() {
+  return <ThemeContext.Provider value="dark" />;
+}
+`;
+      const report = reviewSource(source, 'app.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'context-created-in-component')).toBeUndefined();
+    });
+
+    it('flags createContext inside a custom hook', () => {
+      const source = `
+import { createContext } from 'react';
+export function useThemeContext() {
+  return createContext('light');
+}
+`;
+      const report = reviewSource(source, 'hooks.ts', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'context-created-in-component')).toBeDefined();
+    });
+  });
+
+  describe('redux-selector-unstable-return', () => {
+    it('flags useSelector returning object without equality function', () => {
+      const source = `
+import { useSelector } from 'react-redux';
+export function User() {
+  const user = useSelector((state: any) => ({ id: state.user.id, name: state.user.name }));
+  return <div>{user.name}</div>;
+}
+`;
+      const report = reviewSource(source, 'user.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'redux-selector-unstable-return')).toBeDefined();
+    });
+
+    it('does not flag useSelector object return with shallowEqual', () => {
+      const source = `
+import { shallowEqual, useSelector } from 'react-redux';
+export function User() {
+  const user = useSelector((state: any) => ({ id: state.user.id, name: state.user.name }), shallowEqual);
+  return <div>{user.name}</div>;
+}
+`;
+      const report = reviewSource(source, 'user.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'redux-selector-unstable-return')).toBeUndefined();
+    });
+  });
+
+  describe('redux-dispatch-in-render', () => {
+    it('flags dispatch called during render', () => {
+      const source = `
+import { useDispatch } from 'react-redux';
+export function Page() {
+  const dispatch = useDispatch();
+  dispatch({ type: 'loaded' });
+  return null;
+}
+`;
+      const report = reviewSource(source, 'page.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'redux-dispatch-in-render')).toBeDefined();
+    });
+
+    it('does not flag dispatch inside event handler', () => {
+      const source = `
+import { useDispatch } from 'react-redux';
+export function Page() {
+  const dispatch = useDispatch();
+  return <button onClick={() => dispatch({ type: 'clicked' })}>Save</button>;
+}
+`;
+      const report = reviewSource(source, 'page.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'redux-dispatch-in-render')).toBeUndefined();
+    });
+
+    it('flags dispatch inside render-time conditional', () => {
+      const source = `
+import { useDispatch } from 'react-redux';
+export function Page({ ready }: { ready: boolean }) {
+  const dispatch = useDispatch();
+  if (ready) {
+    dispatch({ type: 'loaded' });
+  }
+  return null;
+}
+`;
+      const report = reviewSource(source, 'page.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'redux-dispatch-in-render')).toBeDefined();
+    });
+  });
 });

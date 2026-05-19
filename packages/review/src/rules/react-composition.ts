@@ -1471,6 +1471,116 @@ function memoComponentWidelyDefeated(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+function addFunctionPropNamesFromTypeLiteral(names: Set<string>, typeNode: Node): void {
+  if (!Node.isTypeLiteral(typeNode)) return;
+  for (const member of typeNode.getMembers()) {
+    if (Node.isMethodSignature(member)) {
+      const name = member.getName();
+      if (/^on[A-Z]/.test(name)) names.add(name);
+      continue;
+    }
+    if (Node.isPropertySignature(member)) {
+      const name = member.getName();
+      const typeText = member.getTypeNode()?.getText() ?? '';
+      if (/^on[A-Z]/.test(name) || /=>|function|\bFunction\b/.test(typeText)) names.add(name);
+    }
+  }
+}
+
+function addFunctionPropNamesFromInterface(names: Set<string>, iface: import('ts-morph').InterfaceDeclaration): void {
+  for (const method of iface.getMethods()) {
+    const name = method.getName();
+    if (/^on[A-Z]/.test(name)) names.add(name);
+  }
+  for (const member of iface.getProperties()) {
+    const name = member.getName();
+    const typeText = member.getTypeNode()?.getText() ?? '';
+    if (/^on[A-Z]/.test(name) || /=>|function|\bFunction\b/.test(typeText)) names.add(name);
+  }
+}
+
+function propNamesFromComponentParam(fn: ComponentFn): Set<string> {
+  const names = new Set<string>();
+  const firstParam = fn.getParameters()[0];
+  if (!firstParam) return names;
+
+  const typeNode = firstParam.getTypeNode();
+  if (typeNode) {
+    addFunctionPropNamesFromTypeLiteral(names, typeNode);
+    if (Node.isTypeReference(typeNode)) {
+      const typeName = typeNode.getTypeName().getText();
+      const alias = fn.getSourceFile().getTypeAlias(typeName);
+      const aliasType = alias?.getTypeNode();
+      if (aliasType) addFunctionPropNamesFromTypeLiteral(names, aliasType);
+      const iface = fn.getSourceFile().getInterface(typeName);
+      if (iface) addFunctionPropNamesFromInterface(names, iface);
+    }
+  }
+
+  const paramName = firstParam.getNameNode();
+  if (Node.isObjectBindingPattern(paramName)) {
+    for (const binding of paramName.getElements()) {
+      const propName = binding.getPropertyNameNode()?.getText() ?? binding.getNameNode().getText();
+      if (/^on[A-Z]/.test(propName)) names.add(propName);
+    }
+  }
+
+  return names;
+}
+
+function propMentionedInComparator(comparator: Node, propName: string): boolean {
+  const text = comparator.getText();
+  const escaped = propName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:\\.${escaped}\\b|\\[['"\`]${escaped}['"\`]\\])`).test(text);
+}
+
+function getMemoComponentFunction(call: CallExpression): ComponentFn | undefined {
+  const firstArg = call.getArguments()[0];
+  if (firstArg && (Node.isArrowFunction(firstArg) || Node.isFunctionExpression(firstArg))) return firstArg;
+  if (!firstArg || !Node.isIdentifier(firstArg)) return undefined;
+  return findComponentFunctionByName(call.getSourceFile(), firstArg.getText());
+}
+
+// ── Rule: memo-comparator-ignores-function-prop ─────────────────────────
+// Custom React.memo comparators must include callback props; otherwise stale
+// handlers can be kept even when parents pass a new closure.
+
+function memoComparatorIgnoresFunctionProp(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    if (!isMemoCall(call)) continue;
+    const comparator = call.getArguments()[1];
+    if (!comparator || (!Node.isArrowFunction(comparator) && !Node.isFunctionExpression(comparator))) continue;
+
+    const componentFn = getMemoComponentFunction(call);
+    if (!componentFn) continue;
+    const functionProps = propNamesFromComponentParam(componentFn);
+    if (functionProps.size === 0) continue;
+
+    const ignored = [...functionProps].filter((propName) => !propMentionedInComparator(comparator, propName));
+    if (ignored.length === 0) continue;
+
+    findings.push(
+      finding(
+        'memo-comparator-ignores-function-prop',
+        'warning',
+        'bug',
+        `React.memo custom comparator ignores function prop${ignored.length === 1 ? '' : 's'} ${ignored.join(', ')} — stale callbacks can be retained`,
+        ctx.filePath,
+        comparator.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'Compare callback props too, or remove the custom comparator and let React.memo shallow-compare every prop.',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
 export const reactCompositionRules = [
   childrenNotUsed,
   propDrillPassthrough,
@@ -1480,4 +1590,5 @@ export const reactCompositionRules = [
   parentRerenderViaState,
   reactMemoDefeatedBySpread,
   memoComponentWidelyDefeated,
+  memoComparatorIgnoresFunctionProp,
 ];

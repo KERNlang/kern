@@ -497,4 +497,50 @@ export function Parent(props: { a: number; b: number }) {
       expect(r.findings.find((f) => f.ruleId === 'react-memo-defeated-by-spread')).toBeUndefined();
     });
   });
+
+  describe('memo-comparator-ignores-function-prop', () => {
+    it('flags custom memo comparator that ignores callback props', () => {
+      const src = `
+import { memo } from 'react';
+type RowProps = { id: string; onSelect: () => void };
+const RowBase = (props: RowProps) => <button onClick={props.onSelect}>{props.id}</button>;
+export const Row = memo(RowBase, (prev, next) => prev.id === next.id);
+`;
+      const r = reviewSource(src, 'row.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'memo-comparator-ignores-function-prop')).toBeDefined();
+    });
+
+    it('does not flag custom memo comparator that compares callback props', () => {
+      const src = `
+import { memo } from 'react';
+type RowProps = { id: string; onSelect: () => void };
+const RowBase = (props: RowProps) => <button onClick={props.onSelect}>{props.id}</button>;
+export const Row = memo(RowBase, (prev, next) => prev.id === next.id && prev.onSelect === next.onSelect);
+`;
+      const r = reviewSource(src, 'row.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'memo-comparator-ignores-function-prop')).toBeUndefined();
+    });
+
+    it('detects callback props declared through an interface', () => {
+      const src = `
+import { memo } from 'react';
+interface RowProps { id: string; onSelect: () => void }
+const RowBase = (props: RowProps) => <button onClick={props.onSelect}>{props.id}</button>;
+export const Row = memo(RowBase, (prev, next) => prev.id === next.id);
+`;
+      const r = reviewSource(src, 'row.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'memo-comparator-ignores-function-prop')).toBeDefined();
+    });
+
+    it('detects callback method signatures declared through an interface', () => {
+      const src = `
+import { memo } from 'react';
+interface RowProps { id: string; onSelect(): void }
+const RowBase = (props: RowProps) => <button onClick={props.onSelect}>{props.id}</button>;
+export const Row = memo(RowBase, (prev, next) => prev.id === next.id);
+`;
+      const r = reviewSource(src, 'row.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'memo-comparator-ignores-function-prop')).toBeDefined();
+    });
+  });
 });

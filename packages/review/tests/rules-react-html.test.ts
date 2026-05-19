@@ -104,6 +104,58 @@ export function C(props: any) {
     });
   });
 
+  describe('controlled-input-nullish-value', () => {
+    it('flags controlled input with null fallback', () => {
+      const src = `
+export function C({ value }: { value?: string | null }) {
+  return <input value={value || null} onChange={() => {}} />;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'controlled-input-nullish-value')).toBeDefined();
+    });
+
+    it('flags controlled textarea with undefined value', () => {
+      const src = `
+export function C() {
+  return <textarea value={undefined} onChange={() => {}} />;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'controlled-input-nullish-value')).toBeDefined();
+    });
+
+    it('does not flag stable empty-string fallback', () => {
+      const src = `
+export function C({ value }: { value?: string | null }) {
+  return <input value={value ?? ''} onChange={() => {}} />;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'controlled-input-nullish-value')).toBeUndefined();
+    });
+
+    it('flags optional-chained controlled input value', () => {
+      const src = `
+export function C({ user }: { user?: { name: string } }) {
+  return <input value={user?.name} onChange={() => {}} />;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'controlled-input-nullish-value')).toBeDefined();
+    });
+
+    it('flags nullish-coalesced controlled input value with null fallback', () => {
+      const src = `
+export function C({ value }: { value?: string | null }) {
+  return <input value={value ?? null} onChange={() => {}} />;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'controlled-input-nullish-value')).toBeDefined();
+    });
+  });
+
   describe('form-onsubmit-no-preventdefault', () => {
     it('flags onSubmit handler without preventDefault', () => {
       const src = `
