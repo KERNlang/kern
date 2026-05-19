@@ -7,7 +7,7 @@
  * All AST-based. Always active regardless of target.
  */
 
-import { SyntaxKind } from 'ts-morph';
+import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext, SourceSpan } from '../types.js';
 import { createFingerprint } from '../types.js';
 import { resolveConfidence } from './confidence-baseline.js';
@@ -183,47 +183,33 @@ function jwtWeakVerification(ctx: RuleContext): ReviewFinding[] {
 function cookieHardening(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
 
-  // Pattern 1: res.cookie('name', value, options) — Express
-  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
-    const callee = call.getExpression();
-    if (callee.getKind() !== SyntaxKind.PropertyAccessExpression) continue;
-    const pa = callee as import('ts-morph').PropertyAccessExpression;
-    if (pa.getName() !== 'cookie') continue;
-
-    const args = call.getArguments();
-    if (args.length < 2) continue;
-
-    // Get cookie name to check if it's session/auth related
-    const cookieName = args[0].getText().replace(/['"]/g, '').toLowerCase();
-    // CSRF cookies must be JS-readable — exclude from auth cookie checks
+  function reportCookieOptions(
+    cookieNameRaw: string,
+    optionsArg: Node | undefined,
+    line: number,
+    missingOptionsMessage: string,
+  ) {
+    const cookieName = cookieNameRaw.replace(/['"]/g, '').toLowerCase();
     const isCsrfCookie = /csrf|xsrf/i.test(cookieName);
     const isAuthCookie = !isCsrfCookie && /session|token|auth|jwt|sid|refresh/i.test(cookieName);
 
-    if (args.length < 3) {
-      // No options at all
+    if (!optionsArg) {
       if (isAuthCookie) {
         findings.push(
-          finding(
-            'cookie-hardening',
-            'error',
-            'bug',
-            `Auth cookie '${cookieName}' set without security flags — missing httpOnly, secure, sameSite`,
-            ctx.filePath,
-            call.getStartLineNumber(),
-            { suggestion: "Add { httpOnly: true, secure: true, sameSite: 'strict' } options" },
-          ),
+          finding('cookie-hardening', 'error', 'bug', missingOptionsMessage, ctx.filePath, line, {
+            suggestion: "Add { httpOnly: true, secure: true, sameSite: 'strict' } options",
+          }),
         );
       }
-      continue;
+      return;
     }
 
-    const optionsArg = args[2];
-    if (optionsArg.getKind() !== SyntaxKind.ObjectLiteralExpression) continue;
-    const obj = optionsArg as import('ts-morph').ObjectLiteralExpression;
+    if (!Node.isObjectLiteralExpression(optionsArg)) return;
+    const obj = optionsArg;
     const propNames = new Set(
       obj
         .getProperties()
-        .filter((p) => p.getKind() === SyntaxKind.PropertyAssignment)
+        .filter((p) => Node.isPropertyAssignment(p))
         .map((p) => (p as import('ts-morph').PropertyAssignment).getName()),
     );
 
@@ -240,7 +226,7 @@ function cookieHardening(ctx: RuleContext): ReviewFinding[] {
           'bug',
           `Auth cookie '${cookieName}' missing: ${missing.join(', ')}`,
           ctx.filePath,
-          call.getStartLineNumber(),
+          line,
           { suggestion: `Add ${missing.map((m) => `${m}: true`).join(', ')} to cookie options` },
         ),
       );
@@ -252,16 +238,18 @@ function cookieHardening(ctx: RuleContext): ReviewFinding[] {
           'bug',
           `Cookie '${cookieName}' missing: ${missing.join(', ')}`,
           ctx.filePath,
-          call.getStartLineNumber(),
+          line,
         ),
       );
     }
 
-    // Check for httpOnly: false on auth cookies
     for (const prop of obj.getProperties()) {
-      if (prop.getKind() !== SyntaxKind.PropertyAssignment) continue;
-      const pa2 = prop as import('ts-morph').PropertyAssignment;
-      if (pa2.getName() === 'httpOnly' && pa2.getInitializer()?.getKind() === SyntaxKind.FalseKeyword && isAuthCookie) {
+      if (!Node.isPropertyAssignment(prop)) continue;
+      if (
+        prop.getName() === 'httpOnly' &&
+        prop.getInitializer()?.getKind() === SyntaxKind.FalseKeyword &&
+        isAuthCookie
+      ) {
         findings.push(
           finding(
             'cookie-hardening',
@@ -269,11 +257,87 @@ function cookieHardening(ctx: RuleContext): ReviewFinding[] {
             'bug',
             `Auth cookie '${cookieName}' has httpOnly: false — XSS can steal it`,
             ctx.filePath,
-            call.getStartLineNumber(),
+            line,
           ),
         );
       }
     }
+  }
+
+  function unwrapCookieReceiver(node: Node): Node {
+    let current = node;
+    while (Node.isParenthesizedExpression(current) || Node.isAwaitExpression(current)) {
+      current = current.getExpression();
+    }
+    return current;
+  }
+
+  function isCookiesCall(node: Node): boolean {
+    const unwrapped = unwrapCookieReceiver(node);
+    return (
+      Node.isCallExpression(unwrapped) &&
+      Node.isIdentifier(unwrapped.getExpression()) &&
+      unwrapped.getExpression().getText() === 'cookies'
+    );
+  }
+
+  const nextCookieStoreAliases = new Set<string>();
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const nameNode = decl.getNameNode();
+    if (!Node.isIdentifier(nameNode)) continue;
+    const init = decl.getInitializer();
+    if (init && isCookiesCall(init)) nextCookieStoreAliases.add(nameNode.getText());
+  }
+
+  // Pattern 1: res.cookie('name', value, options) — Express
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (callee.getKind() !== SyntaxKind.PropertyAccessExpression) continue;
+    const pa = callee as import('ts-morph').PropertyAccessExpression;
+    if (pa.getName() === 'set') {
+      const receiver = unwrapCookieReceiver(pa.getExpression());
+      const isNextCookieSet =
+        (Node.isPropertyAccessExpression(receiver) && receiver.getName() === 'cookies') ||
+        isCookiesCall(receiver) ||
+        (Node.isIdentifier(receiver) && nextCookieStoreAliases.has(receiver.getText()));
+      if (!isNextCookieSet) continue;
+
+      const args = call.getArguments();
+      const firstArg = args[0];
+      if (!firstArg) continue;
+
+      if (Node.isObjectLiteralExpression(firstArg)) {
+        const nameProp = firstArg.getProperty('name');
+        if (!nameProp || !Node.isPropertyAssignment(nameProp)) continue;
+        const nameInit = nameProp.getInitializer();
+        if (!nameInit) continue;
+        reportCookieOptions(
+          nameInit.getText(),
+          firstArg,
+          call.getStartLineNumber(),
+          `Auth cookie '${nameInit.getText().replace(/['"]/g, '').toLowerCase()}' set without security flags — missing httpOnly, secure, sameSite`,
+        );
+      } else {
+        reportCookieOptions(
+          firstArg.getText(),
+          args[2],
+          call.getStartLineNumber(),
+          `Auth cookie '${firstArg.getText().replace(/['"]/g, '').toLowerCase()}' set without security flags — missing httpOnly, secure, sameSite`,
+        );
+      }
+      continue;
+    }
+    if (pa.getName() !== 'cookie') continue;
+
+    const args = call.getArguments();
+    if (args.length < 2) continue;
+
+    reportCookieOptions(
+      args[0].getText(),
+      args[2],
+      call.getStartLineNumber(),
+      `Auth cookie '${args[0].getText().replace(/['"]/g, '').toLowerCase()}' set without security flags — missing httpOnly, secure, sameSite`,
+    );
   }
 
   return findings;

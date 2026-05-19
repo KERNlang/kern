@@ -25,7 +25,7 @@ import { finding } from './utils.js';
 // OWASP A04:2021 / CWE-209
 
 const RESPONSE_SINKS = new Set(['send', 'json', 'end', 'write']);
-const RESPONSE_OBJECTS = /^(res(ponse)?|reply|ctx|context|h|fastify)$/;
+const RESPONSE_OBJECTS = /^(res(ponse)?|reply|ctx|context|h|fastify|Response|NextResponse)$/;
 
 /**
  * Returns true if the catch param 'name' is shadowed between 'node' and 'boundary'.

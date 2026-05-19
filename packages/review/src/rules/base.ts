@@ -1187,6 +1187,103 @@ function memoryLeak(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule: event-listener-cleanup-mismatch ───────────────────────────────
+// addEventListener/removeEventListener must receive the same function
+// identity. Inline arrows in both calls look symmetrical but do not remove
+// the original listener.
+
+function isInlineFunction(node: Node | undefined): boolean {
+  return Boolean(node && (Node.isArrowFunction(node) || Node.isFunctionExpression(node)));
+}
+
+function getEventListenerCallParts(call: import('ts-morph').CallExpression):
+  | {
+      method: 'addEventListener' | 'removeEventListener';
+      target: string;
+      eventName?: string;
+      handler: Node | undefined;
+    }
+  | undefined {
+  const callee = call.getExpression();
+  if (!Node.isPropertyAccessExpression(callee)) return undefined;
+  const method = callee.getName();
+  if (method !== 'addEventListener' && method !== 'removeEventListener') return undefined;
+  const eventArg = call.getArguments()[0];
+  const handler = call.getArguments()[1];
+  const eventName =
+    eventArg && (Node.isStringLiteral(eventArg) || Node.isNoSubstitutionTemplateLiteral(eventArg))
+      ? eventArg.getLiteralText()
+      : undefined;
+
+  return {
+    method,
+    target: callee.getExpression().getText(),
+    eventName,
+    handler,
+  };
+}
+
+function eventListenerCleanupMismatch(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (!Node.isIdentifier(callee) || !EFFECT_CALLEE_NAMES.has(callee.getText())) continue;
+
+    const callback = call.getArguments()[0];
+    if (!Node.isArrowFunction(callback) && !Node.isFunctionExpression(callback)) continue;
+
+    const adds = callback
+      .getDescendantsOfKind(SyntaxKind.CallExpression)
+      .map(getEventListenerCallParts)
+      .filter(
+        (parts): parts is NonNullable<ReturnType<typeof getEventListenerCallParts>> =>
+          parts?.method === 'addEventListener',
+      );
+    if (adds.length === 0) continue;
+
+    const cleanupExprs = getTopLevelCleanupExpressions(callback.getBody());
+    const cleanupText = cleanupExprs.map((expr) => expr.getText()).join('\n');
+    if (!/removeEventListener/.test(cleanupText)) continue;
+
+    for (const add of adds) {
+      if (!isInlineFunction(add.handler)) continue;
+      const hasMatchingInlineRemove = cleanupExprs.some((expr) =>
+        expr
+          .getDescendantsOfKind(SyntaxKind.CallExpression)
+          .map(getEventListenerCallParts)
+          .some(
+            (remove) =>
+              remove?.method === 'removeEventListener' &&
+              remove.target === add.target &&
+              (!add.eventName || !remove.eventName || remove.eventName === add.eventName) &&
+              isInlineFunction(remove.handler),
+          ),
+      );
+      if (!hasMatchingInlineRemove) continue;
+
+      findings.push(
+        finding(
+          'event-listener-cleanup-mismatch',
+          'error',
+          'bug',
+          'Effect adds an event listener with an inline function and removes a different inline function — cleanup does not detach the original listener',
+          ctx.filePath,
+          add.handler?.getStartLineNumber() ?? call.getStartLineNumber(),
+          1,
+          {
+            suggestion:
+              'Store the listener in a stable named function/const and pass the same reference to addEventListener and removeEventListener.',
+          },
+        ),
+      );
+      break;
+    }
+  }
+
+  return findings;
+}
+
 // ── Rule: unhandled-async (from v1) ──────────────────────────────────────
 // Async functions with await but no try/catch
 
@@ -1406,6 +1503,7 @@ export const baseRules = [
   handlerExtraction,
   handlerSize,
   memoryLeak,
+  eventListenerCleanupMismatch,
   unhandledAsync,
   syncInAsync,
   bareRethrow,

@@ -6,6 +6,7 @@ import { reviewSource } from '../src/index.js';
 import type { ReviewConfig } from '../src/types.js';
 
 const expressConfig: ReviewConfig = { target: 'express' };
+const nextConfig: ReviewConfig = { target: 'nextjs' };
 
 // ── xss-unsafe-html ──────────────────────────────────────────────────
 
@@ -868,6 +869,42 @@ try {
     const report = reviewSource(source, 'noise.ts', expressConfig);
     const f = report.findings.find((f) => f.ruleId === 'error-leak');
     expect(f).toBeUndefined();
+  });
+
+  it('detects raw error object in Web Response.json(error)', () => {
+    const source = `
+export async function POST() {
+  try {
+    await doWork();
+    return Response.json({ ok: true });
+  } catch (error) {
+    return Response.json(error, { status: 500 });
+  }
+}
+`;
+    const report = reviewSource(source, 'app/api/work/route.ts', nextConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+  });
+
+  it('detects exception messages in NextResponse.json(...) as warning', () => {
+    const source = `
+import { NextResponse } from 'next/server';
+
+export async function GET() {
+  try {
+    await doWork();
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    return NextResponse.json({ message: err.message }, { status: 500 });
+  }
+}
+`;
+    const report = reviewSource(source, 'app/api/work/route.ts', nextConfig);
+    const f = report.findings.find((f) => f.ruleId === 'error-leak');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('warning');
   });
 });
 

@@ -107,6 +107,45 @@ export function Component({ el }: { el: Element }) {
     });
   });
 
+  describe('event-listener-cleanup-mismatch', () => {
+    it('flags inline add/remove listener functions that do not share identity', () => {
+      const source = `
+import { useEffect } from 'react';
+export function Component() {
+  useEffect(() => {
+    window.addEventListener('resize', () => console.log('resize'));
+    return () => {
+      window.removeEventListener('resize', () => console.log('resize'));
+    };
+  }, []);
+  return null;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx');
+      const finding = report.findings.find((f) => f.ruleId === 'event-listener-cleanup-mismatch');
+      expect(finding).toBeDefined();
+      expect(finding!.severity).toBe('error');
+    });
+
+    it('does not flag named listener cleanup', () => {
+      const source = `
+import { useEffect } from 'react';
+export function Component() {
+  useEffect(() => {
+    const handleResize = () => console.log('resize');
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+  return null;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx');
+      expect(report.findings.find((f) => f.ruleId === 'event-listener-cleanup-mismatch')).toBeUndefined();
+    });
+  });
+
   // ── unhandled-async ──
 
   describe('unhandled-async', () => {

@@ -106,6 +106,65 @@ describe('Security v2 Rules', () => {
       expect(f.length).toBeGreaterThanOrEqual(1);
       expect(f.some((x) => x.message.includes('httpOnly: false'))).toBe(true);
     });
+
+    it('flags NextResponse auth cookies without security options', () => {
+      const source = `
+        import { NextResponse } from 'next/server';
+
+        export async function POST() {
+          const response = NextResponse.json({ ok: true });
+          response.cookies.set('session_token', token);
+          return response;
+        }
+      `;
+      const report = reviewSource(source, 'app/api/login/route.ts');
+      const f = report.findings.filter((f) => f.ruleId === 'cookie-hardening');
+      expect(f.length).toBeGreaterThanOrEqual(1);
+      expect(f[0].severity).toBe('error');
+    });
+
+    it('flags cookies().set object form missing secure flags', () => {
+      const source = `
+        import { cookies } from 'next/headers';
+
+        export async function login() {
+          cookies().set({ name: 'refresh_token', value: token, httpOnly: true });
+        }
+      `;
+      const report = reviewSource(source, 'app/actions.ts');
+      const f = report.findings.filter((f) => f.ruleId === 'cookie-hardening');
+      expect(f.length).toBeGreaterThanOrEqual(1);
+      expect(f[0].message).toContain('secure');
+    });
+
+    it('flags assigned Next cookies store missing security options', () => {
+      const source = `
+        import { cookies } from 'next/headers';
+
+        export async function login() {
+          const cookieStore = cookies();
+          cookieStore.set('session_token', token);
+        }
+      `;
+      const report = reviewSource(source, 'app/actions.ts');
+      const f = report.findings.filter((f) => f.ruleId === 'cookie-hardening');
+      expect(f.length).toBeGreaterThanOrEqual(1);
+      expect(f[0].severity).toBe('error');
+    });
+
+    it('flags awaited Next cookies store missing security options', () => {
+      const source = `
+        import { cookies } from 'next/headers';
+
+        export async function login() {
+          (await cookies()).set('refresh_token', token, { httpOnly: true });
+        }
+      `;
+      const report = reviewSource(source, 'app/actions.ts');
+      const f = report.findings.filter((f) => f.ruleId === 'cookie-hardening');
+      expect(f.length).toBeGreaterThanOrEqual(1);
+      expect(f[0].message).toContain('secure');
+    });
   });
 
   // ── csrf-detection ─────────────────────────────────────────────────────
