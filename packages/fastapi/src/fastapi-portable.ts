@@ -11,6 +11,29 @@ import { addRespondImports, extractExprCode, generateRespondFastAPI, rewriteFast
 import { escapePyStr, indentHandler } from './fastapi-utils.js';
 import { toSnakeCase } from './type-map.js';
 
+// Extract the code from a prop that may arrive as a `{{ ... }}` curly-
+// expression IR wrapper (`{ __expr: true, code: '...' }`) OR as a plain
+// string (legacy `name=value` form). Returns '' for anything else.
+// Naked `String(...)` on the wrapper yields the literal text
+// `[object Object]`, which silently corrupts generated Python.
+function extractCodeOrString(val: unknown): string {
+  return extractExprCode(val) || (typeof val === 'string' ? val : '');
+}
+
+// Lower a prop value to a Python expression. Handles the JS-literal
+// translations that KERN authors expect to flow across the language
+// boundary: `null`/`undefined` → `None`, `true` → `True`, `false`
+// → `False`. Anything else routes through `rewriteFastAPIExpr` so
+// that KERN idioms (`params.X`, `effectName.result`, etc.) lower
+// consistently regardless of which IR prop they live in.
+function lowerPropToPython(val: unknown, pathParams: string[]): string {
+  const code = extractCodeOrString(val);
+  if (code === '' || code === 'null' || code === 'undefined') return 'None';
+  if (code === 'true') return 'True';
+  if (code === 'false') return 'False';
+  return rewriteFastAPIExpr(code, pathParams);
+}
+
 export function generatePortableChildFastAPI(
   child: IRNode,
   indent: string,
@@ -58,7 +81,7 @@ export function generatePortableChildFastAPI(
       break;
     }
     case 'branch': {
-      const on = rewriteFastAPIExpr(String(p.on || ''), pathParams);
+      const on = lowerPropToPython(p.on, pathParams);
       const paths = getChildren(child, 'path');
       for (let i = 0; i < paths.length; i++) {
         const pathNode = paths[i];
@@ -113,10 +136,10 @@ export function generatePortableChildFastAPI(
         'all',
       ]);
       const collectName = PY_BUILTINS.has(rawName) ? `${rawName}_result` : rawName;
-      const from = rewriteFastAPIExpr(String(p.from || ''), pathParams);
+      const from = lowerPropToPython(p.from, pathParams);
       const where = p.where ? extractExprCode(p.where) : undefined;
       const limit = p.limit ? String(p.limit) : undefined;
-      const order = p.order ? String(p.order) : undefined;
+      const order = p.order ? extractCodeOrString(p.order) : undefined;
       if (where && !order && !limit) {
         lines.push(`${indent}${collectName} = [item for item in ${from} if ${rewriteFastAPIExpr(where, pathParams)}]`);
       } else {
@@ -139,20 +162,12 @@ export function generatePortableChildFastAPI(
       const recoverNode = getFirstChild(child, 'recover');
       const triggerProps = triggerNode ? getProps(triggerNode) : {};
       const triggerExpr =
-        extractExprCode(triggerProps.expr) || String(triggerProps.query || triggerProps.url || triggerProps.call || '');
+        extractExprCode(triggerProps.expr) ||
+        extractCodeOrString(triggerProps.query) ||
+        extractCodeOrString(triggerProps.url) ||
+        extractCodeOrString(triggerProps.call);
       const retryCount = recoverNode ? parseInt(String(getProps(recoverNode).retry || '0'), 10) : 0;
-      // The `fallback` prop may arrive as a plain string (`fallback=null`,
-      // `fallback="empty"`) OR as a curly-expression IR wrapper `{ __expr:
-      // true, code: '...' }` (`fallback={{[]}}`, `fallback={{getDefault()}}`).
-      // Naked `String(...)` on the wrapper yields `[object Object]` which
-      // is not valid Python and breaks `ast.parse` on the generated route.
-      // Route the curly form through `extractExprCode` like `triggerExpr`
-      // does, then push the result through `rewriteFastAPIExpr` so KERN
-      // idioms (`params.X`, `effectName.result`, etc.) lower consistently.
-      const fallbackRaw = recoverNode ? getProps(recoverNode).fallback : undefined;
-      const fallbackExpr = extractExprCode(fallbackRaw) || (typeof fallbackRaw === 'string' ? fallbackRaw : '');
-      const pyFallback =
-        fallbackExpr === '' || fallbackExpr === 'null' ? 'None' : rewriteFastAPIExpr(fallbackExpr, pathParams);
+      const pyFallback = lowerPropToPython(recoverNode ? getProps(recoverNode).fallback : undefined, pathParams);
 
       if (retryCount > 0) {
         lines.push(`${indent}${effectName} = ${pyFallback}`);

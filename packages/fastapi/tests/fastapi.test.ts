@@ -1809,6 +1809,61 @@ describe('FastAPI Transpiler', () => {
       // 'sorted' is a Python built-in → renamed to sorted_result
       expect(route!.content).toContain('sorted(sorted_result, key=lambda item: item.score)');
     });
+
+    test('branch.on={{...}} curly-expr form is unwrapped (regression)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/users',
+        '    derive role expr={{request.headers.get("x-role")}}',
+        '    branch name=byRole on={{role}}',
+        '      path value="admin"',
+        '        respond 200 json={"role": "admin"}',
+        '      path value="user"',
+        '        respond 200 json={"role": "user"}',
+        '    respond 404',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      const content = route!.content;
+      expect(content).not.toContain('[object Object]');
+      expect(content).toContain('if role == "admin"');
+    });
+
+    test('collect.from={{...}} curly-expr form is unwrapped (regression)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/items',
+        '    derive everything expr={{await db.all()}}',
+        '    collect name=top from={{everything}} where={{item.score > 10}} limit=5',
+        '    respond 200 json=top',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      const content = route!.content;
+      expect(content).not.toContain('[object Object]');
+      expect(content).toMatch(/top = everything/);
+    });
+
+    test('collect.order={{...}} curly-expr form is unwrapped (regression)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/items',
+        '    derive items expr={{await db.all()}}',
+        '    collect name=ranked from=items order={{item.score}}',
+        '    respond 200 json=ranked',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      const content = route!.content;
+      expect(content).not.toContain('[object Object]');
+      expect(content).toContain('sorted(ranked, key=lambda item: item.score)');
+    });
   });
 
   // ── Portable Effect — effect + trigger + recover ───────────────────
@@ -1898,6 +1953,27 @@ describe('FastAPI Transpiler', () => {
       const content = route!.content;
       expect(content).toContain('load_data = None');
       expect(content).not.toContain('[object Object]');
+    });
+
+    test('effect.recover.fallback={{true}} / {{false}} lowers to Python True / False', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      for (const [literal, expected] of [
+        ['{{true}}', 'True'],
+        ['{{false}}', 'False'],
+      ] as const) {
+        const source = [
+          'server name=Test',
+          '  route GET /api/data',
+          '    effect loadData',
+          '      trigger expr={{await fetchData()}}',
+          `      recover fallback=${literal}`,
+          '    respond 200 json=loadData.result',
+        ].join('\n');
+        const result = transpileFastAPI(parse(source));
+        const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+        expect(route!.content).toContain(`load_data = ${expected}`);
+      }
     });
 
     test('effect with expr trigger rewrites portable refs', async () => {
