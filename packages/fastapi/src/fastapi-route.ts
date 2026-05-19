@@ -323,7 +323,11 @@ function isLowerableJsValueExpression(expr: string): boolean {
   // (`new X` — valid JS, invalid Python). Negative lookbehind avoids
   // Python `for new in items:` false-positive (Codex+Gemini fix-up 5
   // review).
-  if (/\bnew[^\S\r\n]+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*\(/.test(stripped)) return false;
+  // Parens form: allow `\s+` (newlines OK) — `new\nDate()` is
+  // unambiguously JS construction. Asymmetric with no-parens form
+  // below which uses horizontal-only `[^\S\r\n]+` to avoid the
+  // Python `return new\nfoo` false positive (Codex fix-up 12 review).
+  if (/\bnew\s+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*\(/.test(stripped)) return false;
   // No-parens `new IDENT` form. Horizontal-whitespace-only `[^\S\r\n]+`
   // between `new` and the identifier prevents Python's
   // `return new\nfoo = 1` (where `new` is a variable on its own line)

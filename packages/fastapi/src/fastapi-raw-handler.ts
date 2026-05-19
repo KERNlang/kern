@@ -202,7 +202,11 @@ export function isUnsupportedJsHandlerBody(code: string): boolean {
     /\b(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=/.test(stripped) || // assignment form ($-identifiers; JS identifiers don't start with digits)
     /\b(?:const|let|var)\s+[{[]/.test(stripped) || // destructuring form
     /\bfor(?:\s+await)?\s*\(\s*(?:var|let|const)\s+/.test(stripped) || // for / for-await loop variant
-    /\bnew[^\S\r\n]+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*\(/.test(stripped) || // ctor with parens
+    // Parens form `new X(...)` — unambiguously JS construction (Python
+    // has no `new X(...)` valid syntax). Allow `\s+` here (newlines OK)
+    // since `new\nDate()` is valid JS that should be flagged. Asymmetric
+    // with the no-parens form below per Codex fix-up 12 review.
+    /\bnew\s+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*\(/.test(stripped) || // ctor with parens
     // `new Foo` without parens is also valid JS (e.g., `return new Date`)
     // and produces SyntaxError in Python. Two false-positive guards
     // address review on fix-up 8 (Codex+Gemini, gemini-blocking):

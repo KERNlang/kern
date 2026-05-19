@@ -2581,6 +2581,10 @@ describe('FastAPI Transpiler', () => {
       // next statement is independent. The newline-cross newline case
       // codex flagged on fix-up 10.
       expect(isUnsupportedJsHandlerBody('return new\nfoo = 1')).toBe(false);
+      // …but JS parens-form `new\nDate()` IS flagged — unambiguously JS
+      // construction (Codex fix-up 12 review: asymmetric handling).
+      expect(isUnsupportedJsHandlerBody('return new\nDate()')).toBe(true);
+      expect(isUnsupportedJsHandlerBody('const d = new\nFoo.Bar()')).toBe(true);
       // Multi-space lookbehind: `for  new in items:` (two spaces)
       expect(isUnsupportedJsHandlerBody('for  new in items:\n    print(new)')).toBe(false);
       expect(isUnsupportedJsHandlerBody('for\tnew\tin\titems:\n    print(new)')).toBe(false);
