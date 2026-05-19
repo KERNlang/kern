@@ -88,18 +88,38 @@ for (let i = 0; i < rawArgs.length; i += 1) {
     } else {
       name = tok;
     }
+    // Boolean flags with `=value` form — reject explicitly. `--json=false`
+    // was previously misparsed as an unknown long flag, and `parsedFlags
+    // .has('--json')` then returned true regardless of the value (Codex
+    // important on fix-up 4).
+    if (BOOLEAN_FLAGS.has(name)) {
+      if (valueStr !== undefined) {
+        fail(`flag ${name} takes no value; pass --${name.slice(2)} alone or omit it.`);
+      }
+      parsedFlags.set(name, true);
+      continue;
+    }
     if (NUMERIC_FLAGS.has(name)) {
       if (valueStr === undefined) {
         if (i + 1 >= rawArgs.length) fail(`flag ${name} requires a numeric value.`);
         i += 1;
         valueStr = rawArgs[i];
       }
+      // Reject empty / whitespace-only values explicitly. `Number('') === 0`
+      // satisfies `isFinite`, so the previous check silently accepted
+      // `--min-clean-rate=` as a 0-threshold (Codex+Gemini important on
+      // fix-up 4).
+      if (valueStr.trim() === '') fail(`flag ${name} requires a non-empty numeric value.`);
       const n = Number(valueStr);
       if (!Number.isFinite(n)) fail(`flag ${name} requires a finite numeric value (got "${valueStr}").`);
       parsedFlags.set(name, n);
       continue;
     }
-    // Unknown long flag — accept but warn so future flags don't typo silently.
+    // Unknown long flag — surface a warning so typos in flag names
+    // (especially threshold flags) don't silently leave the default in
+    // place. Codex nit on fix-up 4: my comment claimed warning behavior
+    // but the code didn't actually warn.
+    console.warn(`lift-rate-python.mjs: unknown flag ${name} (ignored).`);
     parsedFlags.set(name, valueStr ?? true);
     continue;
   }
@@ -190,7 +210,14 @@ function astParsePython(source) {
     });
     return { ok: true, stderr: '' };
   } catch (err) {
-    const rawStderr = err && err.stderr ? err.stderr.toString() : String(err.message ?? err);
+    // Compose stderr from BOTH `err.stderr` (CPython traceback) and
+    // `err.message` (process-level reason — e.g., ETIMEDOUT when the
+    // 10s ast.parse cap fires). Previously the ternary returned only
+    // one of these and the timeout case landed with empty stderr →
+    // "unknown ast parse error" (Gemini nit on fix-up 4).
+    const stderrStr = err && err.stderr ? err.stderr.toString() : '';
+    const msgStr = err && err.message ? String(err.message) : '';
+    const rawStderr = stderrStr || msgStr || String(err);
     // The CPython traceback puts the actionable error (SyntaxError /
     // IndentationError / TabError + message) on the LAST line of the
     // traceback. The previous code used `find` which returned the
