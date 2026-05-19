@@ -105,6 +105,17 @@ export function stripStringsForJsCheck(code: string): string {
       continue;
     }
     if (ch === '#') {
+      // `#` is a Python line comment ONLY when not directly followed by
+      // an identifier character. Modern JS uses `#x` for private class
+      // fields; treating those as comments would hide real JS that
+      // should be flagged (Codex review on commit ec6b5d45).
+      const after = next;
+      const isPrivateFieldStart = after !== undefined && /[A-Za-z_$]/.test(after);
+      if (isPrivateFieldStart) {
+        result += ch;
+        i += 1;
+        continue;
+      }
       mode = '#';
       result += '_';
       i += 1;

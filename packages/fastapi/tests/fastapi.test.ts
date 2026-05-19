@@ -2107,6 +2107,22 @@ describe('FastAPI Transpiler', () => {
       expect(isUnsupportedJsHandlerBody('# a comment\nconst x = 1;\nreturn x')).toBe(true);
     });
 
+    test('stripStringsForJsCheck preserves JS private fields (Codex fix-up 9 followup)', async () => {
+      const { stripStringsForJsCheck } = await import('../src/fastapi-raw-handler.js');
+      // Modern JS uses `#x` for private class fields. Treating `#` as
+      // a Python line comment unconditionally would hide `#x = 1` from
+      // the leak detector. The fix: `#` only starts a comment when
+      // not immediately followed by an identifier char.
+      expect(stripStringsForJsCheck('class Foo { #x = 1; }')).toBe('class Foo { #x = 1; }');
+      expect(stripStringsForJsCheck('this.#privateField = 42')).toBe('this.#privateField = 42');
+      // …Python comments still get stripped (space or other non-ident
+      // char after `#`).
+      expect(stripStringsForJsCheck('# this is a comment\nx = 1')).toMatch(/^_+\nx = 1$/);
+      // Standalone `#` at end of line — treated as comment-start since
+      // nothing follows (next is undefined).
+      expect(stripStringsForJsCheck('x = 1 #\ny = 2')).toMatch(/^x = 1 _\ny = 2$/);
+    });
+
     test('collect.order={{...}} curly form routes through lowerPropToPython too (Gemini fix-up 6)', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
