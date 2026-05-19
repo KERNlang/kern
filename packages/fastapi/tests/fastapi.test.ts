@@ -2132,6 +2132,46 @@ describe('FastAPI Transpiler', () => {
       expect(content).toContain('raise NotImplementedError("Unsupported raw JavaScript handler syntax');
     });
 
+    test('res.json({ ... new Date() ... }) rejected by lowerer; falls back to NotImplementedError (Bug E)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/health',
+        '    handler <<<',
+        "      res.json({ status: 'ok', timestamp: new Date().toISOString() });",
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('get_api_health'));
+      const content = route!.content;
+      // The pre-fix output was `return { "status": 'ok', "timestamp": new Date().toISOString() }`
+      // which is a Python SyntaxError ('new' is not a keyword, juxtaposed names invalid).
+      // Now the lowerer recognizes `new X(...)` as un-lowerable and falls through
+      // to the JS-detection guard, which emits NotImplementedError.
+      expect(content).not.toMatch(/new\s+Date/);
+      expect(content).toContain('raise NotImplementedError("Unsupported raw JavaScript handler syntax');
+    });
+
+    test('res.json({ status: "ok", count: 42 }) without new-keyword still lowers cleanly', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/info',
+        '    handler <<<',
+        "      res.json({ status: 'ok', count: 42 });",
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('get_api_info'));
+      const content = route!.content;
+      // Clean lowering still works — keys quoted, no NotImplementedError fallback.
+      expect(content).toContain('"status"');
+      expect(content).toContain('"count": 42');
+      expect(content).not.toContain('NotImplementedError');
+    });
+
     test('effect.trigger.url string-prop emits as Python string literal (Bug C)', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');

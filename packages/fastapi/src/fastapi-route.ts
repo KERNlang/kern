@@ -293,6 +293,22 @@ function lowerJsValueExpressionForPython(expr: string): string {
   return quoteObjectKeysOutsideStrings(replaceJsLiteralsOutsideStrings(expr.trim().replace(/;$/, '')));
 }
 
+// Whether a JS value expression is safe to lower into Python via the
+// literal/key-quote passes alone. Rejects constructs the lowerers don't
+// understand — backtick template literals, object-property shorthand,
+// and JS `new X(...)` construction (Python has no `new` keyword, so it
+// becomes `SyntaxError` on `ast.parse`).
+function isLowerableJsValueExpression(expr: string): boolean {
+  if (expr.includes('`')) return false;
+  if (hasObjectShorthandOutsideStrings(expr)) return false;
+  // JS construction `new Date()`, `new AbortController()`, etc. The
+  // lowerers don't translate `new`, and Python parses `new` as a NAME
+  // followed by a name — `new Date()` becomes `new Date()` which raises
+  // `SyntaxError` because juxtaposed names aren't a valid Python phrase.
+  if (/\bnew\s+[A-Z]\w*\s*\(/.test(expr)) return false;
+  return true;
+}
+
 function lowerRawHandlerBodyForPython(code: string, indent: string, imports: Set<string>): string[] | null {
   const statement = code.trim();
   if (!statement || statement.includes('\n')) return null;
@@ -301,7 +317,7 @@ function lowerRawHandlerBodyForPython(code: string, indent: string, imports: Set
     statement.match(/^(?:return\s+)?res\.status\((\d+)\)\.json\(([\s\S]*)\);?$/) ??
     statement.match(/^(?:return\s+)?response\.status\((\d+)\)\.json\(([\s\S]*)\);?$/);
   if (statusJson) {
-    if (!statusJson[2].trim() || statusJson[2].includes('`') || hasObjectShorthandOutsideStrings(statusJson[2])) {
+    if (!statusJson[2].trim() || !isLowerableJsValueExpression(statusJson[2])) {
       return null;
     }
     imports.add('from fastapi.responses import JSONResponse');
@@ -312,13 +328,13 @@ function lowerRawHandlerBodyForPython(code: string, indent: string, imports: Set
 
   const json = statement.match(/^(?:return\s+)?res\.json\(([\s\S]*)\);?$/);
   if (json) {
-    if (!json[1].trim() || json[1].includes('`') || hasObjectShorthandOutsideStrings(json[1])) return null;
+    if (!json[1].trim() || !isLowerableJsValueExpression(json[1])) return null;
     return [`${indent}return ${lowerJsValueExpressionForPython(json[1])}`];
   }
 
   const directReturn = statement.match(/^return\s+([\s\S]*?);?$/);
   if (directReturn) {
-    if (directReturn[1].includes('`') || hasObjectShorthandOutsideStrings(directReturn[1])) return null;
+    if (!isLowerableJsValueExpression(directReturn[1])) return null;
     return [`${indent}return ${lowerJsValueExpressionForPython(directReturn[1])}`];
   }
 
