@@ -34,8 +34,8 @@ import {
   VALUE_SHORTHANDS,
 } from '@kernlang/core';
 import { transpileExpress } from '@kernlang/express';
-import { transpileFastAPI } from '@kernlang/python';
 import { transpileMCP, transpileMCPPython } from '@kernlang/mcp';
+import { transpileFastAPI } from '@kernlang/python';
 import { generateReactNode, isReactNode, transpileNextjs, transpileTailwind, transpileWeb } from '@kernlang/react';
 import { reviewKernSource, reviewSource } from '@kernlang/review';
 import type { LiveLockFile } from '@kernlang/review-mcp';

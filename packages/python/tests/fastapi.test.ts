@@ -1977,8 +1977,6 @@ describe('FastAPI Transpiler', () => {
     });
 
     test('effect.recover.fallback=0 preserves the numeric primitive (Gemini B5)', async () => {
-      const { parse } = await import('../../core/src/parser.js');
-      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
       // Pre-fix: `fallback=0` (or `fallback=false` as a raw boolean
       // prop, before stringification) flowed through extractCodeOrString
       // → '' → lowerPropToPython → 'None'. Silent data-loss regression
