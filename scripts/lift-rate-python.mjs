@@ -48,32 +48,74 @@ const REPO_ROOT = resolve(__dirname, '..');
 const { parse } = await import(join(REPO_ROOT, 'packages/core/dist/index.js'));
 const { transpileFastAPI } = await import(join(REPO_ROOT, 'packages/fastapi/dist/index.js'));
 
-const args = process.argv.slice(2);
-const jsonOut = args.includes('--json');
-const checkMode = args.includes('--check');
-const dirArg = args.find((a) => !a.startsWith('--'));
-const scanDir = resolve(REPO_ROOT, dirArg ?? 'examples');
+const rawArgs = process.argv.slice(2);
 
-// Parse `--flag=N` or `--flag N` style numeric thresholds.
-function parseNumberFlag(name, fallback) {
-  const eqForm = args.find((a) => a.startsWith(`${name}=`));
-  if (eqForm) {
-    const n = Number(eqForm.slice(name.length + 1));
-    if (Number.isFinite(n)) return n;
-  }
-  const idx = args.indexOf(name);
-  if (idx >= 0 && idx + 1 < args.length) {
-    const n = Number(args[idx + 1]);
-    if (Number.isFinite(n)) return n;
-  }
-  return fallback;
+// ── Argument parsing ────────────────────────────────────────────────
+// Walks `rawArgs` left-to-right, consuming value tokens for known
+// numeric flags. Tokens NOT consumed by a flag-and-value pair become
+// candidates for the positional `dirArg`. This fixes B11 (Codex review
+// on ac53a5fd): the old `find((a) => !a.startsWith('--'))` would
+// capture `--min-clean-rate 60`'s `60` as the scan directory and fail
+// on path resolution.
+//
+// M5 (Codex review on ac53a5fd): invalid numeric arguments now hard-error
+// instead of silently falling back to the default. A `--min-clean-rate abc`
+// shouldn't pass the gate at 55% — it should fail with a usage error.
+
+const NUMERIC_FLAGS = new Set(['--max-ast-parse-fails', '--min-clean-rate']);
+const BOOLEAN_FLAGS = new Set(['--json', '--check']);
+
+function fail(msg) {
+  console.error(`lift-rate-python.mjs: ${msg}`);
+  process.exit(2);
 }
 
-const MAX_AST_PARSE_FAILS = parseNumberFlag('--max-ast-parse-fails', 0);
+const parsedFlags = new Map();
+const positional = [];
+for (let i = 0; i < rawArgs.length; i += 1) {
+  const tok = rawArgs[i];
+  if (BOOLEAN_FLAGS.has(tok)) {
+    parsedFlags.set(tok, true);
+    continue;
+  }
+  let name;
+  let valueStr;
+  if (tok.startsWith('--')) {
+    const eqIdx = tok.indexOf('=');
+    if (eqIdx >= 0) {
+      name = tok.slice(0, eqIdx);
+      valueStr = tok.slice(eqIdx + 1);
+    } else {
+      name = tok;
+    }
+    if (NUMERIC_FLAGS.has(name)) {
+      if (valueStr === undefined) {
+        if (i + 1 >= rawArgs.length) fail(`flag ${name} requires a numeric value.`);
+        i += 1;
+        valueStr = rawArgs[i];
+      }
+      const n = Number(valueStr);
+      if (!Number.isFinite(n)) fail(`flag ${name} requires a finite numeric value (got "${valueStr}").`);
+      parsedFlags.set(name, n);
+      continue;
+    }
+    // Unknown long flag — accept but warn so future flags don't typo silently.
+    parsedFlags.set(name, valueStr ?? true);
+    continue;
+  }
+  positional.push(tok);
+}
+
+const jsonOut = parsedFlags.has('--json');
+const checkMode = parsedFlags.has('--check');
+const dirArg = positional[0];
+const scanDir = resolve(REPO_ROOT, dirArg ?? 'examples');
+
+const MAX_AST_PARSE_FAILS = parsedFlags.has('--max-ast-parse-fails') ? parsedFlags.get('--max-ast-parse-fails') : 0;
 // Established baseline on examples/ at the arc landing is 58.62% (Step 7).
 // Threshold sits at 55 — 3.6pp of headroom for unrelated codegen flux while
 // still flagging regressions where raw-foreign-leak count starts creeping up.
-const MIN_CLEAN_RATE = parseNumberFlag('--min-clean-rate', 55);
+const MIN_CLEAN_RATE = parsedFlags.has('--min-clean-rate') ? parsedFlags.get('--min-clean-rate') : 55;
 
 function listKernFiles(dir) {
   const out = [];
@@ -112,33 +154,53 @@ function bumpRejection(reason) {
   rejectionCounts.set(reason, (rejectionCounts.get(reason) ?? 0) + 1);
 }
 
+// M4 (Codex+Gemini on 2f7f5643): distinguish "python3 not in PATH"
+// from other invocation failures (permissions, broken runtime, etc.)
+// so the script's error message points to the real cause.
 try {
-  execFileSync('python3', ['--version'], { stdio: ['ignore', 'ignore', 'pipe'] });
-} catch {
-  console.error(
-    'lift-rate-python.mjs: python3 not found in PATH. Install Python 3 or adjust PATH; this script needs `python3 -c "import ast; ast.parse(...)"` for syntax validation.',
-  );
+  execFileSync('python3', ['--version'], { stdio: ['ignore', 'ignore', 'pipe'], timeout: 5000 });
+} catch (err) {
+  if (err && err.code === 'ENOENT') {
+    console.error(
+      'lift-rate-python.mjs: python3 not found in PATH. Install Python 3 or adjust PATH; this script needs `python3 -c "import ast; ast.parse(...)"` for syntax validation.',
+    );
+  } else {
+    console.error(`lift-rate-python.mjs: failed to invoke python3 --version: ${err && err.message ? err.message : err}`);
+  }
   process.exit(2);
 }
 
+const AST_PARSE_TIMEOUT_MS = 10_000;
+
 function astParsePython(source) {
+  // Defensive type-check (kimi on 2f7f5643): the source MUST be a
+  // string. If a non-string slips through it would crash inside
+  // Buffer.from, surfaced as an opaque ast-parse-fail.
+  if (typeof source !== 'string') {
+    return { ok: false, stderr: `astParsePython: expected string source, got ${typeof source}` };
+  }
   try {
     execFileSync('python3', ['-c', 'import sys, ast; ast.parse(sys.stdin.read())'], {
       input: source,
       stdio: ['pipe', 'pipe', 'pipe'],
+      // B13 (Gemini+Kimi on 2f7f5643): cap parse time so a pathological
+      // input doesn't hang the script. Real-world ast.parse on a single
+      // route artifact completes in <100ms.
+      timeout: AST_PARSE_TIMEOUT_MS,
     });
     return { ok: true, stderr: '' };
   } catch (err) {
     const rawStderr = err && err.stderr ? err.stderr.toString() : String(err.message ?? err);
     // The CPython traceback puts the actionable error (SyntaxError /
-    // IndentationError / TabError + message) on the last non-empty line.
-    // The first line is always `Traceback (most recent call last):`,
-    // and intermediate lines are file/line frames. Prefer the dedicated
-    // error line if we can find it; fall back to the last non-empty line;
-    // last resort, the raw blob.
+    // IndentationError / TabError + message) on the LAST line of the
+    // traceback. The previous code used `find` which returned the
+    // FIRST match — if the offending source line itself contained
+    // text like `# SyntaxError: ...` or a chained traceback included
+    // earlier matching text, the wrong line got captured.
+    // B12 (Codex+Gemini on 2f7f5643): use findLast instead.
     const trimmedLines = rawStderr.split('\n').map((l) => l.trim()).filter(Boolean);
-    const errLine = trimmedLines.find((l) => /^(SyntaxError|IndentationError|TabError):/.test(l));
-    const stderr = errLine || trimmedLines[trimmedLines.length - 1] || rawStderr;
+    const errLine = trimmedLines.findLast((l) => /^(SyntaxError|IndentationError|TabError):/.test(l));
+    const stderr = errLine || trimmedLines[trimmedLines.length - 1] || rawStderr || 'unknown ast parse error';
     return { ok: false, stderr };
   }
 }
