@@ -2559,7 +2559,14 @@ describe('FastAPI Transpiler', () => {
       expect(isUnsupportedJsHandlerBody('return new if condition else old')).toBe(false);
       expect(isUnsupportedJsHandlerBody('return new and other')).toBe(false);
       expect(isUnsupportedJsHandlerBody('return new or other')).toBe(false);
-      expect(isUnsupportedJsHandlerBody('return new not other')).toBe(false);
+      // `new not in items` — Python's negated-membership operator `not in`
+      // (NOT `X not Y` which is invalid Python syntax). Codex caught the
+      // earlier `return new not other` assertion as testing invalid Python.
+      expect(isUnsupportedJsHandlerBody('if new not in items:\n    return new')).toBe(false);
+      // `return new\nfoo = 1` — `new` is a Python variable on its own line,
+      // next statement is independent. The newline-cross newline case
+      // codex flagged on fix-up 10.
+      expect(isUnsupportedJsHandlerBody('return new\nfoo = 1')).toBe(false);
       // Multi-space lookbehind: `for  new in items:` (two spaces)
       expect(isUnsupportedJsHandlerBody('for  new in items:\n    print(new)')).toBe(false);
       expect(isUnsupportedJsHandlerBody('for\tnew\tin\titems:\n    print(new)')).toBe(false);

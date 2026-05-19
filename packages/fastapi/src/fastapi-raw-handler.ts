@@ -195,7 +195,7 @@ export function isUnsupportedJsHandlerBody(code: string): boolean {
     /\b(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=/.test(stripped) || // assignment form ($-identifiers; JS identifiers don't start with digits)
     /\b(?:const|let|var)\s+[{[]/.test(stripped) || // destructuring form
     /\bfor(?:\s+await)?\s*\(\s*(?:var|let|const)\s+/.test(stripped) || // for / for-await loop variant
-    /\bnew\s+[\w$]+(?:\.[\w$]+)*\s*\(/.test(stripped) || // ctor with parens
+    /\bnew[^\S\r\n]+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*\(/.test(stripped) || // ctor with parens
     // `new Foo` without parens is also valid JS (e.g., `return new Date`)
     // and produces SyntaxError in Python. Two false-positive guards
     // address review on fix-up 8 (Codex+Gemini, gemini-blocking):
@@ -207,7 +207,7 @@ export function isUnsupportedJsHandlerBody(code: string): boolean {
     //      `new if cond else other`, `new and other`, `new or other`,
     //      `new not other`. These are all valid Python where `new` is
     //      a local variable name, not a JS construction.
-    /(?<!\bfor\s+)\bnew\s+(?!(?:is|in|for|if|else|and|or|not)\b)[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\b/.test(
+    /(?<!\bfor[^\S\r\n]+)\bnew[^\S\r\n]+(?!(?:is|in|for|if|else|and|or|not)\b)[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\b/.test(
       stripped,
     ) ||
     hasObjectShorthandOutsideStrings(code)

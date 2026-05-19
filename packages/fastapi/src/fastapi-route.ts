@@ -323,15 +323,18 @@ function isLowerableJsValueExpression(expr: string): boolean {
   // (`new X` — valid JS, invalid Python). Negative lookbehind avoids
   // Python `for new in items:` false-positive (Codex+Gemini fix-up 5
   // review).
-  if (/\bnew\s+[\w$]+(?:\.[\w$]+)*\s*\(/.test(stripped)) return false;
-  // No-parens `new IDENT` form. Variable-width lookbehind handles
-  // `for  new in items:` with any whitespace between for/new. Negative
-  // lookahead excludes Python idioms `new is`, `new in`, `new for`,
-  // `new if`, `new else`, `new and`, `new or`, `new not` — all valid
-  // Python where `new` is a local variable name (Codex+Gemini fix-up
-  // 8 review).
+  if (/\bnew[^\S\r\n]+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*\(/.test(stripped)) return false;
+  // No-parens `new IDENT` form. Horizontal-whitespace-only `[^\S\r\n]+`
+  // between `new` and the identifier prevents Python's
+  // `return new\nfoo = 1` (where `new` is a variable on its own line)
+  // from false-positiving across the newline. Variable-width lookbehind
+  // handles `for  new in items:` with any horizontal whitespace between
+  // for/new. Negative lookahead excludes Python idioms `new is`,
+  // `new in`, `new for`, `new if`, `new else`, `new and`, `new or`,
+  // `new not` — all valid Python where `new` is a local variable name
+  // (Codex+Gemini fix-up 8 + 10 reviews).
   if (
-    /(?<!\bfor\s+)\bnew\s+(?!(?:is|in|for|if|else|and|or|not)\b)[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\b/.test(
+    /(?<!\bfor[^\S\r\n]+)\bnew[^\S\r\n]+(?!(?:is|in|for|if|else|and|or|not)\b)[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\b/.test(
       stripped,
     )
   )
