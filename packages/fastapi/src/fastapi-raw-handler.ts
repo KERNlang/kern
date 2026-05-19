@@ -215,11 +215,20 @@ export function isUnsupportedJsHandlerBody(code: string): boolean {
     /\b(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=/.test(stripped) || // assignment form ($-identifiers; JS identifiers don't start with digits)
     /\b(?:const|let|var)\s+[{[]/.test(stripped) || // destructuring form
     /\bfor(?:\s+await)?\s*\(\s*(?:var|let|const)\s+/.test(stripped) || // for / for-await loop variant
-    // Parens form `new X(...)` — unambiguously JS construction (Python
-    // has no `new X(...)` valid syntax). Allow `\s+` here (newlines OK)
-    // since `new\nDate()` is valid JS that should be flagged. Asymmetric
-    // with the no-parens form below per Codex fix-up 12 review.
-    /\bnew\s+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*\(/.test(stripped) || // ctor with parens
+    // Parens form `new X(...)`. Horizontal-whitespace-only `[^\S\r\n]+`
+    // between `new` and the identifier — even though JS allows `new\n
+    // Date()`, Python `return new\nDate()` IS valid (two statements:
+    // `return new`, then `Date()`). Codex's fix-up 14 review correctly
+    // pointed out that the cross-newline match false-flags the Python
+    // case. The trade-off: a prettier-formatted JS source with
+    // `new\nLongConstructor()` slips the leak guard. Acceptable because:
+    //   1. Most JS authoring keeps `new Foo()` on one line.
+    //   2. The slipped JS still produces invalid Python downstream
+    //      (Python's `new` keyword doesn't exist), so the failure mode
+    //      is "generated module fails to import" — visible, not silent.
+    //   3. Python correctness > JS-edge-detection per the cross-target
+    //      safety doctrine of this arc.
+    /\bnew[^\S\r\n]+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*\(/.test(stripped) || // ctor with parens
     // `new Foo` without parens is also valid JS (e.g., `return new Date`)
     // and produces SyntaxError in Python. Two false-positive guards
     // address review on fix-up 8 (Codex+Gemini, gemini-blocking):

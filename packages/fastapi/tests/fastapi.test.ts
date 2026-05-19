@@ -2602,9 +2602,16 @@ describe('FastAPI Transpiler', () => {
       // next statement is independent. The newline-cross newline case
       // codex flagged on fix-up 10.
       expect(isUnsupportedJsHandlerBody('return new\nfoo = 1')).toBe(false);
-      // …but JS parens-form `new\nDate()` IS flagged — unambiguously JS
-      // construction (Codex fix-up 12 review: asymmetric handling).
-      expect(isUnsupportedJsHandlerBody('return new\nDate()')).toBe(true);
+      // `return new\nDate()` IS valid Python (two statements: `return
+      // new` then independent `Date()`), so we keep horizontal-only
+      // whitespace on the parens-form regex too — Python correctness
+      // wins over the JS edge case where someone formats `new\nDate()`
+      // across lines. Codex fix-up 14 review marked the cross-newline
+      // match BLOCKING for Python safety.
+      expect(isUnsupportedJsHandlerBody('return new\nDate()')).toBe(false);
+      // `const d = new\nFoo.Bar()` IS still flagged — but via the `const X =`
+      // JS assignment detection, not the `new` regex. The `new` cross-newline
+      // suppression only affects the standalone `new IDENT(...)` form.
       expect(isUnsupportedJsHandlerBody('const d = new\nFoo.Bar()')).toBe(true);
       // Multi-space lookbehind: `for  new in items:` (two spaces)
       expect(isUnsupportedJsHandlerBody('for  new in items:\n    print(new)')).toBe(false);
