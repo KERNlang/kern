@@ -869,6 +869,66 @@ export function Component() {
     });
   });
 
+  // ── react-legacy-unsafe-lifecycle ──
+
+  describe('react-legacy-unsafe-lifecycle', () => {
+    it('detects UNSAFE component lifecycle methods', () => {
+      const source = `
+import React from 'react';
+export class Component extends React.Component {
+  UNSAFE_componentWillReceiveProps(nextProps) {
+    this.setState({ id: nextProps.id });
+  }
+  render() { return null; }
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'react-legacy-unsafe-lifecycle');
+      expect(finding).toBeDefined();
+      expect(finding!.message).toContain('UNSAFE_componentWillReceiveProps');
+    });
+
+    it('detects legacy componentWillMount lifecycle methods', () => {
+      const source = `
+import React from 'react';
+export class Component extends React.Component {
+  componentWillMount() {
+    this.load();
+  }
+  render() { return null; }
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'react-legacy-unsafe-lifecycle')).toBeDefined();
+    });
+
+    it('does not flag componentDidMount', () => {
+      const source = `
+import React from 'react';
+export class Component extends React.Component {
+  componentDidMount() {
+    this.load();
+  }
+  render() { return null; }
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'react-legacy-unsafe-lifecycle')).toBeUndefined();
+    });
+
+    it('does not flag non-React classes with render-like methods', () => {
+      const source = `
+import React from 'react';
+export class TemplateRenderer {
+  componentWillMount() {}
+  render() { return ''; }
+}
+`;
+      const report = reviewSource(source, 'renderer.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'react-legacy-unsafe-lifecycle')).toBeUndefined();
+    });
+  });
+
   // ── inline-context-value ──
 
   describe('inline-context-value', () => {

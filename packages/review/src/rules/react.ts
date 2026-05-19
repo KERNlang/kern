@@ -1074,6 +1074,52 @@ function missingEffectCleanup(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule: react-legacy-unsafe-lifecycle ─────────────────────────────────
+// Legacy pre-commit lifecycles are unsafe under async/concurrent rendering.
+
+const LEGACY_UNSAFE_LIFECYCLES = new Set([
+  'componentWillMount',
+  'componentWillReceiveProps',
+  'componentWillUpdate',
+  'UNSAFE_componentWillMount',
+  'UNSAFE_componentWillReceiveProps',
+  'UNSAFE_componentWillUpdate',
+]);
+
+function reactLegacyUnsafeLifecycle(ctx: RuleContext): ReviewFinding[] {
+  if (!isReactFile(ctx)) return [];
+
+  const findings: ReviewFinding[] = [];
+  for (const cls of ctx.sourceFile.getClasses()) {
+    const extendsText = cls.getExtends()?.getText() ?? '';
+    const looksLikeReactClass = /(?:^|\.)(?:Pure)?Component(?:<|$)/.test(extendsText);
+    if (!looksLikeReactClass) continue;
+
+    for (const method of cls.getMethods()) {
+      const name = method.getName();
+      if (!LEGACY_UNSAFE_LIFECYCLES.has(name)) continue;
+
+      findings.push(
+        finding(
+          'react-legacy-unsafe-lifecycle',
+          'warning',
+          'bug',
+          `React class uses legacy lifecycle '${name}' — it is unsafe under async rendering and can run with stale props/state`,
+          ctx.filePath,
+          method.getNameNode().getStartLineNumber(),
+          1,
+          {
+            suggestion:
+              'Move side effects to componentDidMount/componentDidUpdate, or migrate derived state to getDerivedStateFromProps/useEffect.',
+          },
+        ),
+      );
+    }
+  }
+
+  return findings;
+}
+
 // ── Rule: inline-context-value ───────────────────────────────────────────
 // <Context.Provider value={{...}}> causes re-renders on every parent render
 
@@ -1685,6 +1731,7 @@ export const reactRules = [
   clientOnly(hookOrder),
   clientOnly(effectSelfUpdateLoop),
   clientOnly(missingEffectCleanup),
+  clientOnly(reactLegacyUnsafeLifecycle),
   inlineContextValue,
   clientOnly(refInRender),
   clientOnly(missingMemoDeps),

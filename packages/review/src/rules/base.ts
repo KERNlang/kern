@@ -1196,12 +1196,49 @@ function isInlineFunction(node: Node | undefined): boolean {
   return Boolean(node && (Node.isArrowFunction(node) || Node.isFunctionExpression(node)));
 }
 
+function normalizeEventListenerHandler(node: Node | undefined): string | undefined {
+  return node?.getText().replace(/\s+/g, ' ').trim();
+}
+
+function eventListenerHandlersDiffer(addHandler: Node | undefined, removeHandler: Node | undefined): boolean {
+  const addText = normalizeEventListenerHandler(addHandler);
+  const removeText = normalizeEventListenerHandler(removeHandler);
+  if (!addText || !removeText) return false;
+  return addText !== removeText;
+}
+
+function getOwningMethodName(node: Node): string | undefined {
+  let cur: Node | undefined = node.getParent();
+  while (cur) {
+    if (Node.isMethodDeclaration(cur)) return cur.getName();
+    cur = cur.getParent();
+  }
+  return undefined;
+}
+
+function isMountLikeMethod(name: string | undefined): boolean {
+  return Boolean(
+    name &&
+      /^(?:componentDidMount|connectedCallback|mount|mounted|start|init|setup|subscribe|addListeners?)$/i.test(name),
+  );
+}
+
+function isUnmountLikeMethod(name: string | undefined): boolean {
+  return Boolean(
+    name &&
+      /^(?:componentWillUnmount|disconnectedCallback|unmount|unmounted|destroy|dispose|cleanup|stop|teardown|unsubscribe|removeListeners?)$/i.test(
+        name,
+      ),
+  );
+}
+
 function getEventListenerCallParts(call: import('ts-morph').CallExpression):
   | {
       method: 'addEventListener' | 'removeEventListener';
       target: string;
       eventName?: string;
       handler: Node | undefined;
+      ownerMethod?: string;
     }
   | undefined {
   const callee = call.getExpression();
@@ -1220,11 +1257,25 @@ function getEventListenerCallParts(call: import('ts-morph').CallExpression):
     target: callee.getExpression().getText(),
     eventName,
     handler,
+    ownerMethod: getOwningMethodName(call),
   };
 }
 
 function eventListenerCleanupMismatch(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
+  const reported = new Set<string>();
+
+  function report(add: NonNullable<ReturnType<typeof getEventListenerCallParts>>, line: number, message: string) {
+    const key = `${add.target}:${add.eventName ?? '*'}:${normalizeEventListenerHandler(add.handler) ?? ''}:${line}`;
+    if (reported.has(key)) return;
+    reported.add(key);
+    findings.push(
+      finding('event-listener-cleanup-mismatch', 'error', 'bug', message, ctx.filePath, line, 1, {
+        suggestion:
+          'Store the listener in a stable named function/const and pass the same reference to addEventListener and removeEventListener.',
+      }),
+    );
+  }
 
   for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
     const callee = call.getExpression();
@@ -1247,35 +1298,81 @@ function eventListenerCleanupMismatch(ctx: RuleContext): ReviewFinding[] {
     if (!/removeEventListener/.test(cleanupText)) continue;
 
     for (const add of adds) {
-      if (!isInlineFunction(add.handler)) continue;
-      const hasMatchingInlineRemove = cleanupExprs.some((expr) =>
+      const removes = cleanupExprs.flatMap((expr) =>
         expr
           .getDescendantsOfKind(SyntaxKind.CallExpression)
           .map(getEventListenerCallParts)
-          .some(
-            (remove) =>
-              remove?.method === 'removeEventListener' &&
+          .filter((remove): remove is NonNullable<ReturnType<typeof getEventListenerCallParts>> => {
+            if (!remove) return false;
+            return (
+              remove.method === 'removeEventListener' &&
               remove.target === add.target &&
-              (!add.eventName || !remove.eventName || remove.eventName === add.eventName) &&
-              isInlineFunction(remove.handler),
-          ),
+              (!add.eventName || !remove.eventName || remove.eventName === add.eventName)
+            );
+          }),
       );
-      if (!hasMatchingInlineRemove) continue;
-
-      findings.push(
-        finding(
-          'event-listener-cleanup-mismatch',
-          'error',
-          'bug',
-          'Effect adds an event listener with an inline function and removes a different inline function — cleanup does not detach the original listener',
-          ctx.filePath,
+      if (removes.length === 0) continue;
+      const inlineRemove = removes.find((remove) => isInlineFunction(remove.handler));
+      if (isInlineFunction(add.handler) && inlineRemove) {
+        report(
+          add,
           add.handler?.getStartLineNumber() ?? call.getStartLineNumber(),
-          1,
-          {
-            suggestion:
-              'Store the listener in a stable named function/const and pass the same reference to addEventListener and removeEventListener.',
-          },
-        ),
+          'Effect adds an event listener with an inline function and removes a different inline function — cleanup does not detach the original listener',
+        );
+        break;
+      }
+      if (
+        removes.some(
+          (remove) => normalizeEventListenerHandler(remove.handler) === normalizeEventListenerHandler(add.handler),
+        )
+      ) {
+        continue;
+      }
+
+      const firstRemove = removes[0];
+      if (!isInlineFunction(add.handler) && !eventListenerHandlersDiffer(add.handler, firstRemove.handler)) continue;
+
+      report(
+        add,
+        add.handler?.getStartLineNumber() ?? call.getStartLineNumber(),
+        'Effect adds and removes an event listener with different handler references — cleanup does not detach the original listener',
+      );
+      break;
+    }
+  }
+
+  for (const cls of ctx.sourceFile.getClasses()) {
+    const classCalls = cls
+      .getDescendantsOfKind(SyntaxKind.CallExpression)
+      .map(getEventListenerCallParts)
+      .filter((parts): parts is NonNullable<ReturnType<typeof getEventListenerCallParts>> => Boolean(parts));
+    const adds = classCalls.filter((parts) => parts.method === 'addEventListener');
+    const removes = classCalls.filter((parts) => parts.method === 'removeEventListener');
+    if (adds.length === 0 || removes.length === 0) continue;
+
+    for (const add of adds) {
+      if (!isMountLikeMethod(add.ownerMethod)) continue;
+      const matchingRemoves = removes.filter(
+        (remove) =>
+          isUnmountLikeMethod(remove.ownerMethod) &&
+          remove.target === add.target &&
+          (!add.eventName || !remove.eventName || remove.eventName === add.eventName),
+      );
+      if (matchingRemoves.length === 0) continue;
+      if (
+        matchingRemoves.some(
+          (remove) => normalizeEventListenerHandler(remove.handler) === normalizeEventListenerHandler(add.handler),
+        )
+      ) {
+        continue;
+      }
+
+      const firstRemove = matchingRemoves[0];
+      if (!isInlineFunction(add.handler) && !eventListenerHandlersDiffer(add.handler, firstRemove.handler)) continue;
+      report(
+        add,
+        add.handler?.getStartLineNumber() ?? cls.getStartLineNumber(),
+        `Class '${cls.getName() || 'anonymous'}' adds and removes an event listener with different handler references — cleanup does not detach the original listener`,
       );
       break;
     }

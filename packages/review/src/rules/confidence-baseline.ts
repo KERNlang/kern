@@ -25,6 +25,8 @@ const DEFAULT_BASELINE = 80;
 const RULE_CONFIDENCE_BASELINE: Record<string, number> = {
   // ── high (≥ 90): unambiguous patterns / data-flow proven ──────────────
   'bearer-token-literal': 92,
+  'browser-storage-json-parse-unguarded': 90,
+  'client-open-redirect-from-query': 90,
   'command-injection': 95,
   'cookie-hardening': 90,
   'crypto-iv-reuse': 92,
@@ -42,6 +44,8 @@ const RULE_CONFIDENCE_BASELINE: Record<string, number> = {
   'open-redirect': 90,
   'path-traversal': 90,
   'playwright-wait-for-timeout': 90,
+  'postmessage-wildcard-target': 90,
+  'react-legacy-unsafe-lifecycle': 90,
   'route-handler-json-type-assertion': 90,
   'set-setter-collision': 95,
   'sync-handler-does-io': 90,

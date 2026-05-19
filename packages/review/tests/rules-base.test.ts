@@ -144,6 +144,78 @@ export function Component() {
       const report = reviewSource(source, 'comp.tsx');
       expect(report.findings.find((f) => f.ruleId === 'event-listener-cleanup-mismatch')).toBeUndefined();
     });
+
+    it('flags effect cleanup that removes a different wrapped listener reference', () => {
+      const source = `
+import { useEffect } from 'react';
+import debounce from 'lodash/debounce';
+export function Component() {
+  useEffect(() => {
+    function handleResize() {}
+    window.addEventListener('resize', debounce(handleResize, 100));
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+  return null;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx');
+      expect(report.findings.find((f) => f.ruleId === 'event-listener-cleanup-mismatch')).toBeDefined();
+    });
+
+    it('flags class lifecycle cleanup that removes a different listener reference', () => {
+      const source = `
+import React from 'react';
+import debounce from 'lodash/debounce';
+export class Component extends React.Component {
+  componentDidMount() {
+    window.addEventListener('resize', debounce(this.setHeight, 100));
+  }
+  componentWillUnmount() {
+    window.removeEventListener('resize', this.setHeight);
+  }
+  setHeight = () => {};
+  render() { return null; }
+}
+`;
+      const report = reviewSource(source, 'comp.tsx');
+      expect(report.findings.find((f) => f.ruleId === 'event-listener-cleanup-mismatch')).toBeDefined();
+    });
+
+    it('does not flag class lifecycle cleanup with the same listener reference', () => {
+      const source = `
+import React from 'react';
+export class Component extends React.Component {
+  componentDidMount() {
+    window.addEventListener('scroll', this.onScroll);
+  }
+  componentWillUnmount() {
+    window.removeEventListener('scroll', this.onScroll);
+  }
+  onScroll = () => {};
+  render() { return null; }
+}
+`;
+      const report = reviewSource(source, 'comp.tsx');
+      expect(report.findings.find((f) => f.ruleId === 'event-listener-cleanup-mismatch')).toBeUndefined();
+    });
+
+    it('does not flag arbitrary class methods that are not lifecycle cleanup pairs', () => {
+      const source = `
+export class ListenerRegistry {
+  handleClick() {
+    window.addEventListener('resize', debounce(this.resize, 100));
+  }
+  cleanup() {
+    window.removeEventListener('resize', this.resize);
+  }
+  resize = () => {};
+}
+`;
+      const report = reviewSource(source, 'registry.ts');
+      expect(report.findings.find((f) => f.ruleId === 'event-listener-cleanup-mismatch')).toBeUndefined();
+    });
   });
 
   // ── unhandled-async ──

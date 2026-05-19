@@ -741,6 +741,291 @@ function weakPasswordHashing(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Browser security rules ──────────────────────────────────────────────
+
+function isInsideTryBlock(node: Node): boolean {
+  let cur: Node | undefined = node;
+  while (cur) {
+    const parent = cur.getParent();
+    if (parent && Node.isTryStatement(parent) && parent.getTryBlock() === cur) return true;
+    if (
+      cur !== node &&
+      (Node.isArrowFunction(cur) ||
+        Node.isFunctionExpression(cur) ||
+        Node.isFunctionDeclaration(cur) ||
+        Node.isMethodDeclaration(cur))
+    ) {
+      return false;
+    }
+    cur = parent;
+  }
+  return false;
+}
+
+function unwrapExpression(node: Node): Node {
+  let cur = node;
+  while (
+    Node.isParenthesizedExpression(cur) ||
+    Node.isAsExpression(cur) ||
+    Node.isTypeAssertion(cur) ||
+    Node.isNonNullExpression(cur) ||
+    Node.isSatisfiesExpression(cur)
+  ) {
+    cur = cur.getExpression();
+  }
+  return cur;
+}
+
+function isStorageGetItemCall(node: Node | undefined): boolean {
+  if (!node) return false;
+  const unwrapped = unwrapExpression(node);
+  if (!Node.isCallExpression(unwrapped)) return false;
+  const callee = unwrapped.getExpression();
+  if (!Node.isPropertyAccessExpression(callee) || callee.getName() !== 'getItem') return false;
+  const target = callee.getExpression().getText();
+  return /^(?:window\.)?(?:localStorage|sessionStorage)$/.test(target);
+}
+
+function containsStorageGetItemCall(node: Node | undefined): boolean {
+  if (!node) return false;
+  const unwrapped = unwrapExpression(node);
+  if (isStorageGetItemCall(unwrapped)) return true;
+  if (Node.isBinaryExpression(unwrapped)) {
+    return containsStorageGetItemCall(unwrapped.getLeft()) || containsStorageGetItemCall(unwrapped.getRight());
+  }
+  if (Node.isConditionalExpression(unwrapped)) {
+    return (
+      containsStorageGetItemCall(unwrapped.getCondition()) ||
+      containsStorageGetItemCall(unwrapped.getWhenTrue()) ||
+      containsStorageGetItemCall(unwrapped.getWhenFalse())
+    );
+  }
+  if (Node.isAwaitExpression(unwrapped)) return containsStorageGetItemCall(unwrapped.getExpression());
+  if (unwrapped.getDescendantsOfKind(SyntaxKind.CallExpression).some(isStorageGetItemCall)) return true;
+  return false;
+}
+
+function browserStorageJsonParseUnguarded(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    if (call.getExpression().getText() !== 'JSON.parse') continue;
+    if (isInsideTryBlock(call)) continue;
+
+    const firstArg = call.getArguments()[0];
+    if (!firstArg) continue;
+
+    if (!containsStorageGetItemCall(firstArg)) continue;
+
+    findings.push(
+      finding(
+        'browser-storage-json-parse-unguarded',
+        'warning',
+        'bug',
+        'JSON.parse() reads browser storage outside try/catch — corrupted or user-edited storage can crash the app',
+        ctx.filePath,
+        call.getStartLineNumber(),
+        {
+          suggestion: 'Wrap storage parsing in try/catch or route it through a shared safeParseStorage helper.',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+function isWildcardString(node: Node | undefined): boolean {
+  return Boolean(
+    node &&
+      ((Node.isStringLiteral(node) && node.getLiteralValue() === '*') ||
+        (Node.isNoSubstitutionTemplateLiteral(node) && node.getLiteralText() === '*')),
+  );
+}
+
+function isGeneratedBrowserAssetPath(filePath: string): boolean {
+  return (
+    /(?:^|[/\\])(?:public|vendor|vendors|dist|build|coverage)(?:[/\\]|$)/i.test(filePath) ||
+    /\.min\.js$/i.test(filePath)
+  );
+}
+
+function postmessageWildcardTarget(ctx: RuleContext): ReviewFinding[] {
+  if (isGeneratedBrowserAssetPath(ctx.filePath)) return [];
+
+  const findings: ReviewFinding[] = [];
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (Node.isIdentifier(callee) && callee.getText() === 'postMessage') {
+      if (!isWildcardString(call.getArguments()[1])) continue;
+      const localBindings = callee
+        .getSymbol()
+        ?.getDeclarations()
+        .filter((decl) => decl.getSourceFile() === ctx.sourceFile);
+      if (localBindings && localBindings.length > 0) continue;
+      findings.push(
+        finding(
+          'postmessage-wildcard-target',
+          'warning',
+          'bug',
+          'postMessage() uses "*" as targetOrigin — messages can be delivered to an unexpected origin',
+          ctx.filePath,
+          call.getStartLineNumber(),
+          { suggestion: 'Pass the exact expected origin as targetOrigin instead of "*".' },
+        ),
+      );
+      continue;
+    }
+
+    if (!Node.isPropertyAccessExpression(callee) || callee.getName() !== 'postMessage') continue;
+    if (!isWildcardString(call.getArguments()[1])) continue;
+
+    const target = callee.getExpression().getText();
+    if (!/(?:^window$|^globalThis$|^parent$|^opener$|^top$|\.top$|contentWindow$|^frames\b|\.frames\b)/.test(target)) {
+      continue;
+    }
+
+    findings.push(
+      finding(
+        'postmessage-wildcard-target',
+        'warning',
+        'bug',
+        'postMessage() uses "*" as targetOrigin — messages can be delivered to an unexpected origin',
+        ctx.filePath,
+        call.getStartLineNumber(),
+        { suggestion: 'Pass the exact expected origin as targetOrigin instead of "*".' },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+function isUrlSearchParamsExpression(node: Node | undefined): boolean {
+  if (!node) return false;
+  const unwrapped = unwrapExpression(node);
+  if (Node.isNewExpression(unwrapped) && unwrapped.getExpression().getText() === 'URLSearchParams') return true;
+  if (Node.isCallExpression(unwrapped) && unwrapped.getExpression().getText() === 'useSearchParams') return true;
+  return false;
+}
+
+function isSearchParamsSource(node: Node): boolean {
+  if (isUrlSearchParamsExpression(node)) return true;
+  if (!Node.isPropertyAccessExpression(node) || node.getName() !== 'searchParams') return false;
+  const source = unwrapExpression(node.getExpression());
+  return Node.isNewExpression(source) && source.getExpression().getText() === 'URL';
+}
+
+function isQueryParamGetExpression(node: Node | undefined, paramVars: Set<string>): boolean {
+  if (!node) return false;
+  const unwrapped = unwrapExpression(node);
+  if (Node.isBinaryExpression(unwrapped)) {
+    return (
+      isQueryParamGetExpression(unwrapped.getLeft(), paramVars) ||
+      isQueryParamGetExpression(unwrapped.getRight(), paramVars)
+    );
+  }
+  if (!Node.isCallExpression(unwrapped)) return false;
+  const callee = unwrapped.getExpression();
+  if (!Node.isPropertyAccessExpression(callee)) return false;
+  if (callee.getName() !== 'get') {
+    return (
+      isQueryParamGetExpression(callee.getExpression(), paramVars) ||
+      unwrapped.getArguments().some((arg) => isQueryParamGetExpression(arg, paramVars))
+    );
+  }
+  const source = callee.getExpression();
+  if (Node.isIdentifier(source) && paramVars.has(source.getText())) return true;
+  return isSearchParamsSource(source);
+}
+
+function isClientRedirectSinkTarget(node: Node): boolean {
+  if (!Node.isPropertyAccessExpression(node)) return false;
+  const name = node.getName();
+  const target = node.getExpression().getText();
+  if (name === 'href' && /^(?:window\.|document\.)?location$/.test(target)) return true;
+  return name === 'location' && /^(?:window|document)$/.test(target);
+}
+
+function isLocationNavigationCall(callee: Node): boolean {
+  if (!Node.isPropertyAccessExpression(callee)) return false;
+  const method = callee.getName();
+  const target = callee.getExpression().getText();
+  return (method === 'assign' || method === 'replace') && /^(?:window\.|document\.)?location$/.test(target);
+}
+
+function clientOpenRedirectFromQuery(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+  const paramVars = new Set<string>();
+  const taintedVars = new Set<string>();
+
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const nameNode = decl.getNameNode();
+    if (!Node.isIdentifier(nameNode)) continue;
+    const init = decl.getInitializer();
+    if (!init) continue;
+    if (isUrlSearchParamsExpression(init)) paramVars.add(nameNode.getText());
+  }
+
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const nameNode = decl.getNameNode();
+    if (!Node.isIdentifier(nameNode)) continue;
+    const init = decl.getInitializer();
+    if (!init) continue;
+    if (isQueryParamGetExpression(init, paramVars)) taintedVars.add(nameNode.getText());
+  }
+
+  const isTaintedRedirectValue = (node: Node | undefined): boolean => {
+    if (!node) return false;
+    const unwrapped = unwrapExpression(node);
+    if (Node.isIdentifier(unwrapped)) return taintedVars.has(unwrapped.getText());
+    if (Node.isBinaryExpression(unwrapped)) {
+      return isTaintedRedirectValue(unwrapped.getLeft()) || isTaintedRedirectValue(unwrapped.getRight());
+    }
+    if (Node.isTemplateExpression(unwrapped)) {
+      return unwrapped.getTemplateSpans().some((span) => isTaintedRedirectValue(span.getExpression()));
+    }
+    return isQueryParamGetExpression(unwrapped, paramVars);
+  };
+
+  for (const bin of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
+    if (bin.getOperatorToken().getKind() !== SyntaxKind.EqualsToken) continue;
+    if (!isClientRedirectSinkTarget(bin.getLeft())) continue;
+    if (!isTaintedRedirectValue(bin.getRight())) continue;
+
+    findings.push(
+      finding(
+        'client-open-redirect-from-query',
+        'error',
+        'bug',
+        'Client-side navigation assigns a query parameter directly to location.href — open redirect risk',
+        ctx.filePath,
+        bin.getStartLineNumber(),
+        { suggestion: 'Validate the target against same-origin/path-only rules before navigating.' },
+      ),
+    );
+  }
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    if (!isLocationNavigationCall(call.getExpression())) continue;
+    if (!isTaintedRedirectValue(call.getArguments()[0])) continue;
+
+    findings.push(
+      finding(
+        'client-open-redirect-from-query',
+        'error',
+        'bug',
+        'Client-side navigation passes a query parameter directly to location.assign/replace — open redirect risk',
+        ctx.filePath,
+        call.getStartLineNumber(),
+        { suggestion: 'Validate the target against same-origin/path-only rules before navigating.' },
+      ),
+    );
+  }
+
+  return findings;
+}
+
 // ── Exported Security v2 Rules ───────────────────────────────────────────
 
 export const securityV2Rules = [
@@ -750,4 +1035,7 @@ export const securityV2Rules = [
   cspStrength,
   pathTraversal,
   weakPasswordHashing,
+  browserStorageJsonParseUnguarded,
+  postmessageWildcardTarget,
+  clientOpenRedirectFromQuery,
 ];

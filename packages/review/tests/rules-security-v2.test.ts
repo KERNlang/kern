@@ -195,6 +195,213 @@ describe('Security v2 Rules', () => {
     });
   });
 
+  // ── browser-storage-json-parse-unguarded ───────────────────────────────
+
+  describe('browser-storage-json-parse-unguarded', () => {
+    it('flags JSON.parse(localStorage.getItem()) outside try/catch', () => {
+      const source = `
+        export function readPrefs() {
+          return JSON.parse(localStorage.getItem('prefs') || '{}');
+        }
+      `;
+      const report = reviewSource(source, 'prefs.ts');
+      const f = report.findings.find((f) => f.ruleId === 'browser-storage-json-parse-unguarded');
+      expect(f).toBeDefined();
+    });
+
+    it('flags JSON.parse(sessionStorage.getItem()) outside try/catch', () => {
+      const source = `
+        export function readDraft() {
+          return JSON.parse(window.sessionStorage.getItem('draft'));
+        }
+      `;
+      const report = reviewSource(source, 'draft.ts');
+      const f = report.findings.find((f) => f.ruleId === 'browser-storage-json-parse-unguarded');
+      expect(f).toBeDefined();
+    });
+
+    it('does not flag browser storage parsing inside try/catch', () => {
+      const source = `
+        export function readPrefs() {
+          try {
+            return JSON.parse(localStorage.getItem('prefs') || '{}');
+          } catch {
+            return {};
+          }
+        }
+      `;
+      const report = reviewSource(source, 'prefs.ts');
+      expect(report.findings.find((f) => f.ruleId === 'browser-storage-json-parse-unguarded')).toBeUndefined();
+    });
+
+    it('flags asserted browser storage parsing outside try/catch', () => {
+      const source = `
+        export function readPrefs() {
+          return JSON.parse((localStorage.getItem('prefs') || '{}') as string);
+        }
+      `;
+      const report = reviewSource(source, 'prefs.ts');
+      expect(report.findings.find((f) => f.ruleId === 'browser-storage-json-parse-unguarded')).toBeDefined();
+    });
+
+    it('flags browser storage parsing in deferred callbacks despite outer try/catch', () => {
+      const source = `
+        export function readLater() {
+          try {
+            setTimeout(() => JSON.parse(localStorage.getItem('prefs') || '{}'), 0);
+          } catch {}
+        }
+      `;
+      const report = reviewSource(source, 'prefs.ts');
+      expect(report.findings.find((f) => f.ruleId === 'browser-storage-json-parse-unguarded')).toBeDefined();
+    });
+
+    it('flags browser storage parsing inside conditional expressions', () => {
+      const source = `
+        export function readPrefs(enabled: boolean) {
+          return JSON.parse(enabled ? localStorage.getItem('prefs') : '{}');
+        }
+      `;
+      const report = reviewSource(source, 'prefs.ts');
+      expect(report.findings.find((f) => f.ruleId === 'browser-storage-json-parse-unguarded')).toBeDefined();
+    });
+  });
+
+  // ── postmessage-wildcard-target ───────────────────────────────────────
+
+  describe('postmessage-wildcard-target', () => {
+    it('flags wildcard postMessage targetOrigin', () => {
+      const source = `
+        export function send(frame: HTMLIFrameElement) {
+          frame.contentWindow?.postMessage({ type: 'ready' }, '*');
+        }
+      `;
+      const report = reviewSource(source, 'frame.ts');
+      const f = report.findings.find((f) => f.ruleId === 'postmessage-wildcard-target');
+      expect(f).toBeDefined();
+    });
+
+    it('does not flag exact postMessage targetOrigin', () => {
+      const source = `
+        export function send(frame: HTMLIFrameElement) {
+          frame.contentWindow?.postMessage({ type: 'ready' }, 'https://example.com');
+        }
+      `;
+      const report = reviewSource(source, 'frame.ts');
+      expect(report.findings.find((f) => f.ruleId === 'postmessage-wildcard-target')).toBeUndefined();
+    });
+
+    it('flags global and top postMessage wildcard targets', () => {
+      const source = `
+        export function send() {
+          postMessage({ type: 'ready' }, '*');
+          window.top?.postMessage({ type: 'ready' }, '*');
+        }
+      `;
+      const report = reviewSource(source, 'frame.ts');
+      const findings = report.findings.filter((f) => f.ruleId === 'postmessage-wildcard-target');
+      expect(findings.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('does not flag a locally defined postMessage helper', () => {
+      const source = `
+        function postMessage(channel: string, target: string) {}
+        export function send() {
+          postMessage('internal', '*');
+        }
+      `;
+      const report = reviewSource(source, 'queue.ts');
+      expect(report.findings.find((f) => f.ruleId === 'postmessage-wildcard-target')).toBeUndefined();
+    });
+  });
+
+  // ── client-open-redirect-from-query ────────────────────────────────────
+
+  describe('client-open-redirect-from-query', () => {
+    it('flags query parameter assigned to location.href', () => {
+      const source = `
+        export function finish() {
+          const params = new URLSearchParams(window.location.search);
+          const next = params.get('redirect');
+          if (next) window.location.href = next;
+        }
+      `;
+      const report = reviewSource(source, 'redirect.ts');
+      const f = report.findings.find((f) => f.ruleId === 'client-open-redirect-from-query');
+      expect(f).toBeDefined();
+    });
+
+    it('flags direct query parameter passed to location.replace', () => {
+      const source = `
+        export function finish() {
+          window.location.replace(new URLSearchParams(location.search).get('next'));
+        }
+      `;
+      const report = reviewSource(source, 'redirect.ts');
+      const f = report.findings.find((f) => f.ruleId === 'client-open-redirect-from-query');
+      expect(f).toBeDefined();
+    });
+
+    it('flags asserted and fallback query parameter redirects', () => {
+      const source = `
+        export function finish() {
+          const params = new URLSearchParams(window.location.search);
+          const next = params.get('redirect') || '/';
+          window.location.href = next as string;
+        }
+      `;
+      const report = reviewSource(source, 'redirect.ts');
+      const f = report.findings.find((f) => f.ruleId === 'client-open-redirect-from-query');
+      expect(f).toBeDefined();
+    });
+
+    it('flags direct assignment to window.location from query params', () => {
+      const source = `
+        export function finish() {
+          window.location = new URLSearchParams(location.search).get('next') as any;
+        }
+      `;
+      const report = reviewSource(source, 'redirect.ts');
+      const f = report.findings.find((f) => f.ruleId === 'client-open-redirect-from-query');
+      expect(f).toBeDefined();
+    });
+
+    it('flags chained query param transforms before redirect', () => {
+      const source = `
+        export function finish() {
+          const params = new URLSearchParams(window.location.search);
+          const next = params.get('redirect')?.trim();
+          if (next) location.assign(next);
+        }
+      `;
+      const report = reviewSource(source, 'redirect.ts');
+      const f = report.findings.find((f) => f.ruleId === 'client-open-redirect-from-query');
+      expect(f).toBeDefined();
+    });
+
+    it('flags URL.searchParams values passed to client redirect sinks', () => {
+      const source = `
+        export function finish() {
+          const next = new URL(window.location.href).searchParams.get('redirect');
+          if (next) window.location.href = next;
+        }
+      `;
+      const report = reviewSource(source, 'redirect.ts');
+      const f = report.findings.find((f) => f.ruleId === 'client-open-redirect-from-query');
+      expect(f).toBeDefined();
+    });
+
+    it('does not flag static same-origin redirect', () => {
+      const source = `
+        export function finish() {
+          window.location.href = '/account';
+        }
+      `;
+      const report = reviewSource(source, 'redirect.ts');
+      expect(report.findings.find((f) => f.ruleId === 'client-open-redirect-from-query')).toBeUndefined();
+    });
+  });
+
   // ── csp-strength ───────────────────────────────────────────────────────
 
   describe('csp-strength', () => {
