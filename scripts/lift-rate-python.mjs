@@ -70,7 +70,10 @@ function parseNumberFlag(name, fallback) {
 }
 
 const MAX_AST_PARSE_FAILS = parseNumberFlag('--max-ast-parse-fails', 0);
-const MIN_CLEAN_RATE = parseNumberFlag('--min-clean-rate', 50);
+// Established baseline on examples/ at the arc landing is 58.62% (Step 7).
+// Threshold sits at 55 — 3.6pp of headroom for unrelated codegen flux while
+// still flagging regressions where raw-foreign-leak count starts creeping up.
+const MIN_CLEAN_RATE = parseNumberFlag('--min-clean-rate', 55);
 
 function listKernFiles(dir) {
   const out = [];

@@ -71,6 +71,7 @@ export function isUnsupportedJsHandlerBody(code: string): boolean {
     /=>/.test(code) ||
     /\bconst\s+\w+\s*=/.test(code) ||
     /\blet\s+\w+\s*=/.test(code) ||
+    /\bvar\s+\w+\s*=/.test(code) ||
     /\bnew\s+[A-Z]\w*\s*\(/.test(code) ||
     hasObjectShorthandOutsideStrings(code)
   );
