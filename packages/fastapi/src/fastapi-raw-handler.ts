@@ -23,12 +23,19 @@
  * introducing an import cycle between portable and route.
  */
 
-// Anchored at start of slice — matches a JS identifier-start codepoint.
-// Includes ASCII letters/`_`/`$` plus the full Unicode `ID_Start`
-// category. The slice form (rather than testing a single code unit) is
-// necessary so non-BMP characters represented as surrogate pairs match
-// against their full codepoint, not just the high surrogate.
-const PRIVATE_FIELD_START_RE = /^[$_\p{ID_Start}]/u;
+// Sticky-flag (`y`) regex that matches a JS private-field-start at the
+// `lastIndex` position. The alternation covers:
+//   - A JS identifier-start codepoint: ASCII letters/`_`/`$` plus the
+//     full Unicode `ID_Start` category (matches whole codepoints via
+//     `u` flag, so non-BMP surrogate pairs work).
+//   - A full `\uXXXX` (4 hex digits) or `\u{...}` Unicode-escape
+//     sequence — the form JS uses for escaped identifier characters.
+//     Validating the FULL escape (not just `\u` prefix) means Python
+//     comments like `#\update note` (where `\update` is not a valid
+//     escape) correctly strip as comments (Codex fix-up 15 review).
+// Sticky `y` instead of anchored `^` on a slice avoids O(N²) string
+// allocation per `#` encounter (Gemini fix-up 15 perf review).
+const PRIVATE_FIELD_START_AT_RE = /[$_\p{ID_Start}]|\\u(?:[0-9A-Fa-f]{4}|\{[0-9A-Fa-f]+\})/uy;
 
 // Replace contents of every string literal AND comment with `_` so
 // JS-keyword detection regexes don't false-positive on tokens that
@@ -113,24 +120,17 @@ export function stripStringsForJsCheck(code: string): string {
     }
     if (ch === '#') {
       // `#` is a Python line comment ONLY when not directly followed by
-      // a JS identifier-start character. Modern JS uses `#x` for private
-      // class fields; treating those as comments would hide real JS
-      // that should be flagged.
+      // a JS identifier-start character (or a valid Unicode-escape
+      // identifier-escape sequence). Modern JS uses `#x` for private
+      // class fields; treating those as comments would hide real JS.
       //
-      // Identifier-start cases preserved:
-      //   - ASCII letters / `_` / `$` (the original check)
-      //   - Unicode ID_Start (e.g., `#π = 1`, `#𐐀 = 1`) via
-      //     `\p{ID_Start}` with the `u` flag. Uses a slice + anchored
-      //     test so non-BMP characters (surrogate pairs) match against
-      //     the whole codepoint rather than just the high surrogate
-      //     code unit (Gemini fix-up 13 review).
-      //   - Specifically `\uXXXX` / `\u{...}` identifier escape
-      //     sequences. Tightened from "any backslash" to "backslash+u"
-      //     so Python comments like `#\d regex note` still strip as
-      //     comments (Codex fix-up 13 review).
-      const restAfterHash = next !== undefined ? code.slice(i + 1) : '';
-      const isUnicodeEscape = next === '\\' && code[i + 2] === 'u';
-      const isPrivateFieldStart = next !== undefined && (PRIVATE_FIELD_START_RE.test(restAfterHash) || isUnicodeEscape);
+      // The sticky regex tests at exactly position `i + 1` without
+      // creating a slice — O(1) per `#` (Gemini fix-up 15 perf review).
+      let isPrivateFieldStart = false;
+      if (next !== undefined) {
+        PRIVATE_FIELD_START_AT_RE.lastIndex = i + 1;
+        isPrivateFieldStart = PRIVATE_FIELD_START_AT_RE.test(code);
+      }
       if (isPrivateFieldStart) {
         result += ch;
         i += 1;

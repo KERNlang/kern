@@ -2137,15 +2137,23 @@ describe('FastAPI Transpiler', () => {
       expect(stripStringsForJsCheck('this.#\\u{1F600} = "emoji"')).toContain('#\\u{1F600}');
     });
 
-    test('`#\\` only preserved when followed by `u` Unicode-escape — fix-up 13 review', async () => {
+    test('`#\\` only preserved when followed by a full \\u escape — fix-up 13 + 15 reviews', async () => {
       const { stripStringsForJsCheck } = await import('../src/fastapi-raw-handler.js');
-      // `#\u...` IS valid JS Unicode escape — preserve as code.
-      expect(stripStringsForJsCheck('this.#\\u0061 = 1')).toContain('#\\u0061');
-      // `#\d` / `#\ note` / etc. are NOT Unicode escapes — strip as
-      // Python comment (Codex fix-up 13 review: my prior blanket-`\`
-      // preserved these too).
+      // Full Unicode-escape forms IS preserved as code:
+      expect(stripStringsForJsCheck('this.#\\u0061 = 1')).toContain('#\\u0061'); // 4-hex form
+      expect(stripStringsForJsCheck('this.#\\u{1F600} = 1')).toContain('#\\u{1F600}'); // braced form
+      // NOT escape sequences — strip as Python comment:
       expect(stripStringsForJsCheck('x = 1 #\\d+ regex note')).toMatch(/^x = 1 _+$/);
       expect(stripStringsForJsCheck('x = 1 #\\ note "quote"')).toMatch(/^x = 1 _+$/);
+      // The fix-up 15 regression: `#\update note` is a Python comment
+      // whose first non-`#` chars happen to be `\u` BUT don't form a
+      // valid Unicode escape (no hex follows). Codex fix-up 15 review.
+      expect(stripStringsForJsCheck('x = 1 #\\update note')).toMatch(/^x = 1 _+$/);
+      // Malformed braced form — `\u{XYZ}` has non-hex chars; fix-up 15
+      // suggested explicitly testing this.
+      expect(stripStringsForJsCheck('x = 1 #\\u{XYZ} not hex')).toMatch(/^x = 1 _+$/);
+      // Partial 4-hex (only 3 digits) is also not a valid escape.
+      expect(stripStringsForJsCheck('x = 1 #\\u123 partial')).toMatch(/^x = 1 _+$/);
     });
 
     test('stripStringsForJsCheck handles non-BMP Unicode identifier (Gemini fix-up 13)', async () => {
