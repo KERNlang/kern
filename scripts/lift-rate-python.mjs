@@ -90,6 +90,15 @@ function bumpRejection(reason) {
   rejectionCounts.set(reason, (rejectionCounts.get(reason) ?? 0) + 1);
 }
 
+try {
+  execFileSync('python3', ['--version'], { stdio: ['ignore', 'ignore', 'pipe'] });
+} catch {
+  console.error(
+    'lift-rate-python.mjs: python3 not found in PATH. Install Python 3 or adjust PATH; this script needs `python3 -c "import ast; ast.parse(...)"` for syntax validation.',
+  );
+  process.exit(2);
+}
+
 function astParsePython(source) {
   try {
     execFileSync('python3', ['-c', 'import sys, ast; ast.parse(sys.stdin.read())'], {
@@ -98,7 +107,16 @@ function astParsePython(source) {
     });
     return { ok: true, stderr: '' };
   } catch (err) {
-    const stderr = err && err.stderr ? err.stderr.toString() : String(err.message ?? err);
+    const rawStderr = err && err.stderr ? err.stderr.toString() : String(err.message ?? err);
+    // The CPython traceback puts the actionable error (SyntaxError /
+    // IndentationError / TabError + message) on the last non-empty line.
+    // The first line is always `Traceback (most recent call last):`,
+    // and intermediate lines are file/line frames. Prefer the dedicated
+    // error line if we can find it; fall back to the last non-empty line;
+    // last resort, the raw blob.
+    const trimmedLines = rawStderr.split('\n').map((l) => l.trim()).filter(Boolean);
+    const errLine = trimmedLines.find((l) => /^(SyntaxError|IndentationError|TabError):/.test(l));
+    const stderr = errLine || trimmedLines[trimmedLines.length - 1] || rawStderr;
     return { ok: false, stderr };
   }
 }
