@@ -115,6 +115,7 @@ function floatingPromise(ctx: RuleContext): ReviewFinding[] {
     if (calleeExpr.getKind() === SyntaxKind.PropertyAccessExpression) {
       const propAccess = calleeExpr as import('ts-morph').PropertyAccessExpression;
       if (propAccess.getName() === 'then') {
+        if (hasHandledSynchronousThenObserver(callExpr)) continue;
         const objText = propAccess.getExpression().getText();
         const thenLine = exprStmt.getStartLineNumber();
         const lastNlThen = ctx.sourceFile.getFullText().lastIndexOf('\n', exprStmt.getStart());
@@ -215,6 +216,48 @@ function floatingPromise(ctx: RuleContext): ReviewFinding[] {
   }
 
   return findings;
+}
+
+function hasHandledSynchronousThenObserver(callExpr: import('ts-morph').CallExpression): boolean {
+  const args = callExpr.getArguments();
+  if (args.length < 2) return false;
+  return isInlineSynchronousHandler(args[0]) && isInlineSynchronousHandler(args[1]);
+}
+
+function isInlineSynchronousHandler(node: import('ts-morph').Node): boolean {
+  if (!Node.isArrowFunction(node) && !Node.isFunctionExpression(node)) return false;
+  if (node.isAsync()) return false;
+  if (node.getDescendantsOfKind(SyntaxKind.AwaitExpression).length > 0) return false;
+
+  const body = node.getBody();
+  if (Node.isBlock(body)) {
+    if (body.getDescendantsOfKind(SyntaxKind.ThrowStatement).length > 0) return false;
+    if (body.getDescendantsOfKind(SyntaxKind.ReturnStatement).some((ret) => ret.getExpression() != null)) return false;
+    if (!hasOnlySafeObserverCalls(body)) return false;
+    return true;
+  }
+  return false;
+}
+
+function hasOnlySafeObserverCalls(body: import('ts-morph').Block): boolean {
+  if (body.getDescendantsOfKind(SyntaxKind.NewExpression).length > 0) return false;
+  for (const access of body.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)) {
+    const parent = access.getParent();
+    if (parent && Node.isCallExpression(parent) && parent.getExpression() === access) continue;
+    return false;
+  }
+  for (const call of body.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (
+      Node.isIdentifier(callee) &&
+      call.getArguments().length === 0 &&
+      /^(wake|notify|signal)$/.test(callee.getText())
+    ) {
+      continue;
+    }
+    return false;
+  }
+  return true;
 }
 
 function topLevelCliRunnerCatchAutofix(

@@ -31,7 +31,7 @@ export type CapabilityEffect =
   | 'cpu'
   | 'validation'
   | 'io';
-export type CapabilitySerialization = 'json' | 'stream' | 'handle' | 'none';
+export type CapabilitySerialization = 'json' | 'ndjson' | 'stream' | 'handle' | 'none';
 
 const VALID_IMPORT_REGISTRIES = new Set(['host', 'npm', 'pypi', 'kern']);
 const VALID_IMPORT_TARGETS = new Set([
@@ -83,7 +83,8 @@ const VALID_CAPABILITY_EFFECTS = new Set([
   'validation',
   'io',
 ]);
-const VALID_CAPABILITY_SERIALIZATIONS = new Set(['json', 'stream', 'handle', 'none']);
+const VALID_CAPABILITY_SERIALIZATIONS = new Set(['json', 'ndjson', 'stream', 'handle', 'none']);
+const VALID_CAPABILITY_PROTOCOLS = new Set(['pty-session', 'ptysession', 'session']);
 
 export function splitCapabilityList(value: unknown): string[] {
   if (typeof value !== 'string') return [];
@@ -193,7 +194,14 @@ export function validateCapabilityMetadata(node: IRNode): string[] {
   if (props.serialization !== undefined && props.serialization !== null && props.serialization !== '') {
     const serialization = String(props.serialization).toLowerCase();
     if (!VALID_CAPABILITY_SERIALIZATIONS.has(serialization)) {
-      violations.push(`'${label} serialization=' must be one of json, stream, handle, none`);
+      violations.push(`'${label} serialization=' must be one of json, ndjson, stream, handle, none`);
+    }
+  }
+
+  if (props.protocol !== undefined && props.protocol !== null && props.protocol !== '') {
+    const protocol = String(props.protocol).toLowerCase();
+    if (!VALID_CAPABILITY_PROTOCOLS.has(protocol)) {
+      violations.push(`'${label} protocol=' must be one of pty-session`);
     }
   }
 

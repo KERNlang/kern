@@ -378,6 +378,51 @@ describe('external boundary collection', () => {
     ]);
   });
 
+  it('collects pty-session Python sidecar islands without package imports', () => {
+    const root = parse(
+      'island sidecar ClaudeCli runtime=python protocol=pty-session module="kern_engines.cli.daemon" args=[claude] session=ClaudeCliSession options=ClaudeSpawnOptions error=ClaudeSessionError timeout=ClaudeSessionTimeout effects=[exec,stream] serialization=ndjson requiresSidecar=true',
+    );
+
+    expect(collectSidecarManifests(root)).toEqual([
+      {
+        name: 'ClaudeCli',
+        kind: 'sidecar',
+        runtime: 'python',
+        protocol: 'pty-session',
+        module: 'kern_engines.cli.daemon',
+        args: ['claude'],
+        session: 'ClaudeCliSession',
+        options: 'ClaudeSpawnOptions',
+        error: 'ClaudeSessionError',
+        timeout: 'ClaudeSessionTimeout',
+        effects: ['exec', 'stream'],
+        serialization: 'ndjson',
+        requiresSidecar: true,
+        packages: [],
+        line: 1,
+        col: 1,
+      },
+    ]);
+  });
+
+  it('lets child Python boundaries override inherited pty args metadata', () => {
+    const root = parse(
+      [
+        'island sidecar Multi runtime=python protocol=pty-session module="kern_engines.cli.daemon" args=[claude] requiresSidecar=true',
+        '  import py "local_engine" args=[codex]',
+      ].join('\n'),
+    );
+
+    expect(collectExternalBoundaries(root)).toMatchObject([
+      {
+        package: 'local_engine',
+        protocol: 'pty-session',
+        module: 'kern_engines.cli.daemon',
+        args: ['codex'],
+      },
+    ]);
+  });
+
   it('does not treat legacy PyPI metadata imports as callable implicit sidecars', () => {
     const root = parse('import from=numpy registry=pypi names=array');
 

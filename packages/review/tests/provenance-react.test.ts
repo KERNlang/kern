@@ -261,7 +261,7 @@ export function C() {
       const f = report.findings.find((x) => x.ruleId === 'exhaustive-deps');
       // Either no finding (external is module-level, ignored) or, if fired,
       // the chain has at least the deps step.
-      if (f && f.provenance) {
+      if (f?.provenance) {
         expect(f.provenance.steps.some((s) => s.category === 'hook-dep')).toBe(true);
       }
     });

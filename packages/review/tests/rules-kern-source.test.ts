@@ -53,6 +53,104 @@ fn name=callIt returns=string
     expect(undef.some((f) => f.message.includes('fn'))).toBe(false);
   });
 
+  // Regression — Agon-session diagnosis: aliased imports (`import { foo as
+  // bar } from '...'`) lowered to a `names="foo as bar"` parser prop. The
+  // import-binding collector then split on `,` and registered the literal
+  // string `"foo as bar"` as the binding name. Any handler reference to the
+  // alias (`bar`) tripped undefined-reference falsely — most visible in raw
+  // `<<<>>>` blocks because that's where references hit the snippet
+  // analyser. The `use`/`from` path already handled aliases via `alias ||
+  // name`; the `import` path now mirrors that via `parseImportNames`.
+  // Codex review fix on the alias-import follow-up: aliased TYPE-ONLY imports
+  // (`import names="Foo as Bar" types=true`) MUST NOT register `Bar` as a
+  // visible runtime binding. They lower to `import type { Foo as Bar }` in
+  // TS codegen, which is erased at runtime — so a handler that calls
+  // `Bar(...)` is a real `undefined-reference` and must keep firing.
+  // Before this guard, the alias fix silently suppressed those findings.
+  // Mirrors the `use/from` path's `kind === 'type'` skip.
+  // Kimi review (defence in depth) — the type-only guard skips the entire
+  // import node, so non-aliased / default / namespace forms must all
+  // continue to fire `undefined-reference` on value-position usage. These
+  // tests pin each path explicitly so a future refactor (e.g. moving the
+  // guard inline per-binding) can't silently regress one of them.
+  it('still flags VALUE-position usage of a NON-ALIASED `import names=... types=true` binding', () => {
+    const source = `
+import names="OriginalType" from="./types" types=true
+
+fn name=callIt returns=string
+  handler <<<
+    return OriginalType.parse("x");
+  >>>
+`;
+    const report = reviewKernSource(source, 'simple-type-only.kern');
+    const undef = report.findings.filter((f) => f.ruleId === 'undefined-reference');
+    expect(undef.some((f) => f.message.includes('OriginalType'))).toBe(true);
+  });
+
+  it('still flags VALUE-position usage of a DEFAULT `import default=... types=true` binding', () => {
+    const source = `
+import default="MyType" from="./types" types=true
+
+fn name=callIt returns=string
+  handler <<<
+    return MyType.parse("x");
+  >>>
+`;
+    const report = reviewKernSource(source, 'default-type-only.kern');
+    const undef = report.findings.filter((f) => f.ruleId === 'undefined-reference');
+    expect(undef.some((f) => f.message.includes('MyType'))).toBe(true);
+  });
+
+  it('still flags VALUE-position usage of a NAMESPACE `import namespace=... types=true` binding', () => {
+    const source = `
+import namespace="Types" from="./types" types=true
+
+fn name=callIt returns=string
+  handler <<<
+    return Types.MyType.parse("x");
+  >>>
+`;
+    const report = reviewKernSource(source, 'namespace-type-only.kern');
+    const undef = report.findings.filter((f) => f.ruleId === 'undefined-reference');
+    expect(undef.some((f) => f.message.includes('Types'))).toBe(true);
+  });
+
+  it('still flags VALUE-position usage of an ALIASED `import names=... types=true` binding', () => {
+    const source = `
+import names="OriginalType as LocalType" from="./types" types=true
+
+fn name=callIt returns=string
+  handler <<<
+    return LocalType.parse("x");
+  >>>
+`;
+    const report = reviewKernSource(source, 'aliased-type-only.kern');
+    const undef = report.findings.filter((f) => f.ruleId === 'undefined-reference');
+    expect(undef.some((f) => f.message.includes('LocalType'))).toBe(true);
+  });
+
+  it('treats `import { foo as bar }` aliased names as the LOCAL binding (no false undefined-reference)', () => {
+    const source = `
+import names="readFileSync as readFile,writeFileSync as writeFile" from="node:fs"
+import names="join" from="node:path"
+
+fn name=callIt returns=string
+  handler <<<
+    const path = join("a", "b");
+    const contents = readFile(path, "utf8");
+    writeFile(path, contents);
+    return contents;
+  >>>
+`;
+    const report = reviewKernSource(source, 'aliased-import.kern');
+    const undef = report.findings.filter((f) => f.ruleId === 'undefined-reference');
+    // The local bindings are `readFile`, `writeFile`, `join`. The imported
+    // names (`readFileSync`, `writeFileSync`) are NOT visible at use-site.
+    expect(undef.some((f) => f.message.includes('readFile'))).toBe(false);
+    expect(undef.some((f) => f.message.includes('writeFile'))).toBe(false);
+    expect(undef.some((f) => f.message.includes('join'))).toBe(false);
+  });
+
   it('still flags references that are NOT declared via `use`', () => {
     const source = `
 use path="./helper.kern"
@@ -209,6 +307,38 @@ fn name=startSession returns=unknown
     const report = reviewKernSource(source, 'team.kern');
     const undef = report.findings.filter(
       (f) => f.ruleId === 'undefined-reference' && f.message.includes('AgentSession'),
+    );
+    expect(undef).toHaveLength(0);
+  });
+
+  it('sees aliased JS imports from raw handler blocks', () => {
+    const source = `
+import from="../guard-llm-client.js" names="complete as guardComplete,GuardLlmError,describeError"
+fn name=runApiBackend async=true returns=unknown
+  handler <<<
+    const resp = await guardComplete({ model: "x" });
+    return resp;
+  >>>
+`;
+    const report = reviewKernSource(source, 'ai-review-dispatch.kern');
+    const undef = report.findings.filter(
+      (f) => f.ruleId === 'undefined-reference' && f.message.includes('guardComplete'),
+    );
+    expect(undef).toHaveLength(0);
+  });
+
+  it('sees same-file forward class declarations from raw handler blocks', () => {
+    const source = `
+fn name=isGuardLlmError params="e:unknown" returns="e is GuardLlmError"
+  handler <<<
+    return e instanceof GuardLlmError;
+  >>>
+
+class name=GuardLlmError extends=Error export=true
+`;
+    const report = reviewKernSource(source, 'guard-llm-client.kern');
+    const undef = report.findings.filter(
+      (f) => f.ruleId === 'undefined-reference' && f.message.includes('GuardLlmError'),
     );
     expect(undef).toHaveLength(0);
   });

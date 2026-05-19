@@ -124,6 +124,10 @@ export function decompile(root: IRNode): DecompileResult {
       renderFor(node, indent);
       return;
     }
+    if (node.type === 'with') {
+      renderWith(node, indent);
+      return;
+    }
     if (node.type === 'field') {
       renderField(node, indent);
       return;
@@ -227,7 +231,22 @@ export function decompile(root: IRNode): DecompileResult {
     const parts: string[] = ['island'];
     if (props.kind !== undefined) parts.push(String(props.kind));
     parts.push(name);
-    for (const key of ['runtime', 'effects', 'serialization', 'requiresSidecar', 'version', 'review', 'reason']) {
+    for (const key of [
+      'runtime',
+      'protocol',
+      'module',
+      'args',
+      'session',
+      'options',
+      'error',
+      'timeout',
+      'effects',
+      'serialization',
+      'requiresSidecar',
+      'version',
+      'review',
+      'reason',
+    ]) {
       if (props[key] !== undefined) parts.push(renderScalarProp(key, props[key], quoted));
     }
     lines.push(`${indent}${parts.join(' ')}`);
@@ -405,6 +424,26 @@ export function decompile(root: IRNode): DecompileResult {
       renderScalarProp('to', props.to, quoted),
     ];
     if (props.step !== undefined && props.step !== '') parts.push(renderScalarProp('step', props.step, quoted));
+    lines.push(`${indent}${parts.join(' ')}`);
+    for (const child of node.children ?? []) render(child, `${indent}  `);
+  }
+
+  function renderWith(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    if (props.name === undefined || props.value === undefined || props.cleanup === undefined) {
+      throw new Error('Cannot decompile `with` without required `name=`, `value=`, and `cleanup=` props.');
+    }
+    const parts = [
+      'with',
+      renderScalarProp('name', props.name, quoted),
+      renderScalarProp('value', props.value, quoted),
+      renderScalarProp('cleanup', props.cleanup, quoted),
+    ];
+    if (props.async === true || props.async === 'true') parts.push('async=true');
+    if (props.protocol !== undefined && props.protocol !== '') {
+      parts.push(renderScalarProp('protocol', props.protocol, quoted));
+    }
     lines.push(`${indent}${parts.join(' ')}`);
     for (const child of node.children ?? []) render(child, `${indent}  `);
   }
