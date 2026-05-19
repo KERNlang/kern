@@ -2038,12 +2038,50 @@ describe('FastAPI Transpiler', () => {
       );
     });
 
-    test('arrows with multi-arg or nested calls fall through untouched', async () => {
+    test('arrows with multi-arg fall through untouched', async () => {
       const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
       // Two-arg arrow — not lowered (the simple regex requires single arg)
       expect(rewriteFastAPIExpr('arr.map((u, i) => u.name)', [])).toBe('arr.map((u, i) => u.name)');
-      // Nested call in predicate — not lowered (the regex predicate is paren-free)
-      expect(rewriteFastAPIExpr('arr.filter((x) => check(x))', [])).toBe('arr.filter((x) => check(x))');
+    });
+
+    test('=== / !== are skipped when inside string literals (Codex P2)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('label = "use === for strict equality"', [])).toBe(
+        'label = "use === for strict equality"',
+      );
+      expect(rewriteFastAPIExpr("msg = 'a !== b'", [])).toBe("msg = 'a !== b'");
+      // Mixed — the in-string text is preserved, the out-of-string operator IS rewritten
+      expect(rewriteFastAPIExpr('cond = a === b && label === "x !== y"', [])).toBe(
+        'cond = a == b && label == "x !== y"',
+      );
+    });
+
+    test('chained .filter().map() rewrites fully (Gemini #2)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('users.filter((u) => u.active).map((u) => u.name)', [])).toBe(
+        '[u.name for u in [u for u in users if u.active]]',
+      );
+    });
+
+    test('arrow predicate with one level of nested parens (Gemini #3)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('users.filter((u) => (u.age > 18))', [])).toBe('[u for u in users if (u.age > 18)]');
+    });
+
+    test('undefined / null lower to None outside strings (Gemini #4)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('x === undefined', [])).toBe('x == None');
+      expect(rewriteFastAPIExpr('x !== null', [])).toBe('x != None');
+      // …and `undefined`/`null` inside strings are preserved
+      expect(rewriteFastAPIExpr('reason = "undefined behavior"', [])).toBe('reason = "undefined behavior"');
+      expect(rewriteFastAPIExpr('msg = "null pointer"', [])).toBe('msg = "null pointer"');
+    });
+
+    test('true / false lower to True / False outside strings', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('enabled = true', [])).toBe('enabled = True');
+      expect(rewriteFastAPIExpr('flag = false', [])).toBe('flag = False');
+      expect(rewriteFastAPIExpr('msg = "set to true"', [])).toBe('msg = "set to true"');
     });
   });
 });
