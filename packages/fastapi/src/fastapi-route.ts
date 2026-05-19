@@ -87,15 +87,21 @@ export function generateStreamRoute(
       if (stdoutHandler) {
         const stdoutHandlerNode = getFirstChild(stdoutHandler, 'handler');
         const stdoutCode = stdoutHandlerNode ? String(getProps(stdoutHandlerNode).code || '') : '';
-        lines.push(`            async for chunk in process.stdout:`);
-        if (stdoutCode) {
-          if (isUnsupportedJsHandlerBody(stdoutCode)) {
-            lines.push(...unsupportedRawHandlerBody('                '));
-          } else {
-            lines.push(...indentHandler(stdoutCode, '                '));
-          }
+        // B7 (Codex review on 4115c0bb): if the stdout handler body is
+        // un-lowerable JS, hoist the NotImplementedError OUTSIDE the
+        // `async for chunk in process.stdout` loop. Inside the loop the
+        // raise would never fire if the subprocess emits zero stdout
+        // — silent failure. Failing fast at the generator's `if
+        // process.stdout:` branch makes the error path deterministic.
+        if (stdoutCode && isUnsupportedJsHandlerBody(stdoutCode)) {
+          lines.push(...unsupportedRawHandlerBody('            '));
         } else {
-          lines.push(`                yield f"data: {chunk.decode()}\\n\\n"`);
+          lines.push(`            async for chunk in process.stdout:`);
+          if (stdoutCode) {
+            lines.push(...indentHandler(stdoutCode, '                '));
+          } else {
+            lines.push(`                yield f"data: {chunk.decode()}\\n\\n"`);
+          }
         }
       } else {
         lines.push(`            async for chunk in process.stdout:`);

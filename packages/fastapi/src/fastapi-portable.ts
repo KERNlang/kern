@@ -196,23 +196,43 @@ export function generatePortableChildFastAPI(
       const triggerNode = getFirstChild(child, 'trigger');
       const recoverNode = getFirstChild(child, 'recover');
       const triggerProps = triggerNode ? getProps(triggerNode) : {};
-      // Source-of-truth ordering for the trigger expression. `expr={{...}}`
-      // is the canonical expression form. The legacy `url=...` form is
-      // ALWAYS a URL/path string (e.g. `url="/api/users"`); emitting it
-      // unquoted as a Python expression yields `SyntaxError` the moment the
-      // URL starts with `/` (Python parses leading-`/` as division operator
-      // without a left operand). Wrap it as a Python string literal so the
-      // generated route at least imports cleanly; the runtime value is the
-      // URL string. `query=...` and `call=...` continue to flow as
-      // expressions (existing test behavior — they happen to ast.parse as
-      // identifier chains).
+      // Source-of-truth ordering for the trigger expression:
+      //   1. `expr={{...}}` — canonical expression form.
+      //   2. `query=...` — typically SQL string; flows as expression
+      //      (existing test behavior — emits as identifier chain that
+      //      happens to ast.parse; runtime is up to the user's `db` var).
+      //   3. `url=...` — ALWAYS a URL/path string; wrap as Python string
+      //      literal so leading-`/` doesn't become Python division.
+      //   4. `call=...` — function-call form, flows as expression.
+      //
+      // B8 (Codex review on 048ff1c1): I had silently reordered url
+      // ahead of query in commit 048ff1c1. Restore the original
+      // precedence (expr > query > url > call) so any existing
+      // specs that set both `query` and `url` keep their prior
+      // semantics, while still quoting `url` when it's selected.
+      //
+      // B9 (Codex review on 048ff1c1): use presence checks (`!== undefined`)
+      // rather than truthiness, so `url=""` falls through correctly
+      // instead of being treated as "missing" (truthy fallback).
       const exprCode = extractExprCode(triggerProps.expr);
-      const urlRaw = extractCodeOrString(triggerProps.url);
-      const triggerExpr = exprCode
-        ? exprCode
-        : urlRaw
-          ? `"${escapePyStr(urlRaw)}"`
-          : extractCodeOrString(triggerProps.query) || extractCodeOrString(triggerProps.call);
+      const queryCode = extractCodeOrString(triggerProps.query);
+      const urlCode = extractCodeOrString(triggerProps.url);
+      const callCode = extractCodeOrString(triggerProps.call);
+      let triggerExpr: string;
+      if (exprCode) {
+        triggerExpr = exprCode;
+      } else if (queryCode) {
+        triggerExpr = queryCode;
+      } else if (triggerProps.url !== undefined && triggerProps.url !== null) {
+        // `url` is always a URL string — quote it. Empty string still
+        // emits `""` (rather than falling through to `call`) because
+        // the author explicitly set it.
+        triggerExpr = `"${escapePyStr(urlCode)}"`;
+      } else if (callCode) {
+        triggerExpr = callCode;
+      } else {
+        triggerExpr = '';
+      }
       const retryCount = recoverNode ? parseInt(String(getProps(recoverNode).retry || '0'), 10) : 0;
       const pyFallback = lowerPropToPython(recoverNode ? getProps(recoverNode).fallback : undefined, pathParams);
 

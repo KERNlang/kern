@@ -2287,6 +2287,81 @@ describe('FastAPI Transpiler', () => {
       expect(content).not.toContain('NotImplementedError');
     });
 
+    test('stream handler with JS body emits NotImplementedError OUTSIDE async-for (B7)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      // Spawn-stream variant: pre-fix, the raise sat INSIDE
+      // `async for chunk in process.stdout:` so if the subprocess
+      // produced no stdout the error never fired. Now the check
+      // hoists the raise to the `if process.stdout:` branch so the
+      // error path is deterministic.
+      const source = [
+        'server name=Test',
+        '  route POST /api/spawn',
+        '    stream',
+        '      spawn binary="echo" args="hello"',
+        '        on name=stdout',
+        '          handler <<<',
+        '            const x = JSON.parse(chunk);',
+        '            res.write(x);',
+        '          >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post_api_spawn'));
+      const content = route!.content;
+      // The raise must appear, AND must not be nested inside the async-for body
+      // (12-space indent inside `if process.stdout:`, not 16-space inside the for-body).
+      expect(content).toContain('raise NotImplementedError("Unsupported raw JavaScript handler syntax');
+      // Verify the raise is at the `if process.stdout:` indent level, not deeper:
+      const lines = content.split('\n');
+      const raiseLine = lines.find((l: string) => l.includes('raise NotImplementedError'));
+      expect(raiseLine).toBeDefined();
+      // Indent should be exactly 12 spaces (one level inside `if process.stdout:`),
+      // not 16 (which would be inside the async-for body).
+      expect(raiseLine!.startsWith('            raise')).toBe(true);
+      expect(raiseLine!.startsWith('                raise')).toBe(false);
+    });
+
+    test('effect.trigger precedence restored: query wins over url when both present (B8)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      // Pre-Step-5 precedence was expr > query > url > call. My Step 5
+      // commit silently flipped it to expr > url > query > call. Now restored.
+      const source = [
+        'server name=Test',
+        '  route GET /api/users',
+        '    effect fetchUsers',
+        '      trigger query="SELECT * FROM users" url="/legacy"',
+        '    respond 200 json=fetchUsers.result',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('get_api_users'));
+      const content = route!.content;
+      // Query selected → emitted unquoted (legacy SQL-expression behavior).
+      expect(content).toContain('fetch_users = SELECT * FROM users');
+      // url ignored when query also present.
+      expect(content).not.toContain('"/legacy"');
+    });
+
+    test('effect.trigger.url="" empty string emits "" not falls through to call (B9)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/empty',
+        '    effect e',
+        '      trigger url="" call="fallback()"',
+        '    respond 200 json=e.result',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      const content = route!.content;
+      // Pre-fix: url="" was falsy, so triggerExpr fell through to call → fallback().
+      // Now: url is present (even empty) → emit "" string literal.
+      expect(content).toContain('e = ""');
+      expect(content).not.toContain('fallback()');
+    });
+
     test('effect.trigger.url string-prop emits as Python string literal (Bug C)', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
