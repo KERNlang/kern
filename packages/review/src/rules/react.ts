@@ -2664,6 +2664,61 @@ function contextCreatedInComponent(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+function unwrapTypeAssertionExpression(node: Node | undefined): Node | undefined {
+  let current = node;
+  while (
+    current &&
+    (Node.isAsExpression(current) || Node.isTypeAssertion(current) || Node.isSatisfiesExpression(current))
+  ) {
+    current = current.getExpression();
+  }
+  return current;
+}
+
+function isUnsafeAssertedContextDefault(node: Node | undefined): boolean {
+  if (!node || (!Node.isAsExpression(node) && !Node.isTypeAssertion(node) && !Node.isSatisfiesExpression(node))) {
+    return false;
+  }
+  const inner = unwrapTypeAssertionExpression(node);
+  if (!inner) return false;
+  if (Node.isObjectLiteralExpression(inner) && inner.getProperties().length === 0) return true;
+  if (inner.getKind() === SyntaxKind.NullKeyword || inner.getKind() === SyntaxKind.UndefinedKeyword) return true;
+  if (Node.isIdentifier(inner) && inner.getText() === 'undefined') return true;
+  return false;
+}
+
+// ── Rule: context-default-assertion ─────────────────────────────────────
+// createContext({} as T) hides missing providers and turns provider mistakes
+// into late undefined property/method failures.
+
+function contextDefaultAssertion(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression().getText();
+    if (callee !== 'createContext' && callee !== 'React.createContext') continue;
+    if (!isUnsafeAssertedContextDefault(call.getArguments()[0])) continue;
+
+    findings.push(
+      finding(
+        'context-default-assertion',
+        'warning',
+        'bug',
+        'createContext uses an asserted empty/null default — missing providers fail later instead of at the useContext boundary',
+        ctx.filePath,
+        call.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'Use createContext<T | null>(null) and a custom hook that throws when the provider is missing, or provide a real safe default.',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
 function reduxSelectorUnstableReturn(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
 
@@ -2785,6 +2840,7 @@ export const reactRules = [
   clientOnly(intervalStateSetterNeedsFunctionalUpdate),
   clientOnly(imperativeHandleMissingDeps),
   clientOnly(contextCreatedInComponent),
+  clientOnly(contextDefaultAssertion),
   clientOnly(reduxSelectorUnstableReturn),
   clientOnly(reduxDispatchInRender),
 ];

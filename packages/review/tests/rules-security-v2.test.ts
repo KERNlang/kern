@@ -296,11 +296,13 @@ describe('Security v2 Rules', () => {
         export function send() {
           postMessage({ type: 'ready' }, '*');
           window.top?.postMessage({ type: 'ready' }, '*');
+          window.parent.postMessage({ type: 'ready' }, '*');
+          popup.opener.postMessage({ type: 'ready' }, '*');
         }
       `;
       const report = reviewSource(source, 'frame.ts');
       const findings = report.findings.filter((f) => f.ruleId === 'postmessage-wildcard-target');
-      expect(findings.length).toBeGreaterThanOrEqual(2);
+      expect(findings.length).toBeGreaterThanOrEqual(4);
     });
 
     it('does not flag a locally defined postMessage helper', () => {
@@ -312,6 +314,99 @@ describe('Security v2 Rules', () => {
       `;
       const report = reviewSource(source, 'queue.ts');
       expect(report.findings.find((f) => f.ruleId === 'postmessage-wildcard-target')).toBeUndefined();
+    });
+  });
+
+  // ── postmessage-missing-target-origin ─────────────────────────────────
+
+  describe('postmessage-missing-target-origin', () => {
+    it('flags postMessage without targetOrigin', () => {
+      const source = `
+        export function send() {
+          window.parent.postMessage({ type: 'ready' });
+        }
+      `;
+      const report = reviewSource(source, 'frame.ts');
+      expect(report.findings.find((f) => f.ruleId === 'postmessage-missing-target-origin')).toBeDefined();
+    });
+
+    it('does not flag postMessage with exact targetOrigin', () => {
+      const source = `
+        export function send() {
+          window.parent.postMessage({ type: 'ready' }, 'https://example.com');
+        }
+      `;
+      const report = reviewSource(source, 'frame.ts');
+      expect(report.findings.find((f) => f.ruleId === 'postmessage-missing-target-origin')).toBeUndefined();
+    });
+
+    it('does not flag a local postMessage helper without targetOrigin', () => {
+      const source = `
+        function postMessage(message: unknown) {}
+        export function send() {
+          postMessage({ type: 'ready' });
+        }
+      `;
+      const report = reviewSource(source, 'queue.ts');
+      expect(report.findings.find((f) => f.ruleId === 'postmessage-missing-target-origin')).toBeUndefined();
+    });
+
+    it('does not flag bare worker postMessage without targetOrigin', () => {
+      const source = `
+        export function sendToMain() {
+          postMessage({ type: 'ready' });
+        }
+      `;
+      const report = reviewSource(source, 'app.worker.ts');
+      expect(report.findings.find((f) => f.ruleId === 'postmessage-missing-target-origin')).toBeUndefined();
+    });
+
+    it('flags nullish postMessage targetOrigin', () => {
+      const source = `
+        export function send() {
+          window.parent.postMessage({ type: 'ready' }, undefined);
+        }
+      `;
+      const report = reviewSource(source, 'frame.ts');
+      expect(report.findings.find((f) => f.ruleId === 'postmessage-missing-target-origin')).toBeDefined();
+    });
+  });
+
+  // ── html-string-target-blank-noopener ─────────────────────────────────
+
+  describe('html-string-target-blank-noopener', () => {
+    it('flags HTML string target blank without rel noopener', () => {
+      const source = `
+        export const link = '<a href="https://example.com" target="_blank">open</a>';
+      `;
+      const report = reviewSource(source, 'messages.ts');
+      expect(report.findings.find((f) => f.ruleId === 'html-string-target-blank-noopener')).toBeDefined();
+    });
+
+    it('does not flag HTML string target blank with noopener', () => {
+      const source = `
+        export const link = '<a href="https://example.com" target="_blank" rel="noopener noreferrer">open</a>';
+      `;
+      const report = reviewSource(source, 'messages.ts');
+      expect(report.findings.find((f) => f.ruleId === 'html-string-target-blank-noopener')).toBeUndefined();
+    });
+
+    it('flags template HTML string target blank without rel noopener', () => {
+      const source = `
+        export function link(url: string) {
+          return \`<a href="\${url}" target="_blank">open</a>\`;
+        }
+      `;
+      const report = reviewSource(source, 'messages.ts');
+      expect(report.findings.find((f) => f.ruleId === 'html-string-target-blank-noopener')).toBeDefined();
+    });
+
+    it('does not flag target blank strings in test files', () => {
+      const source = `
+        export const fixture = '<a href="https://example.com" target="_blank">open</a>';
+      `;
+      const report = reviewSource(source, 'component.test.ts');
+      expect(report.findings.find((f) => f.ruleId === 'html-string-target-blank-noopener')).toBeUndefined();
     });
   });
 

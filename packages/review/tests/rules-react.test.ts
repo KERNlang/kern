@@ -2327,6 +2327,38 @@ export function useThemeContext() {
     });
   });
 
+  describe('context-default-assertion', () => {
+    it('flags createContext with asserted empty object default', () => {
+      const source = `
+import { createContext } from 'react';
+type ThemeContextValue = { theme: string; setTheme(theme: string): void };
+export const ThemeContext = createContext({} as ThemeContextValue);
+`;
+      const report = reviewSource(source, 'theme.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'context-default-assertion')).toBeDefined();
+    });
+
+    it('does not flag nullable context default without assertion', () => {
+      const source = `
+import { createContext } from 'react';
+type ThemeContextValue = { theme: string; setTheme(theme: string): void };
+export const ThemeContext = createContext<ThemeContextValue | null>(null);
+`;
+      const report = reviewSource(source, 'theme.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'context-default-assertion')).toBeUndefined();
+    });
+
+    it('flags createContext with satisfies empty object default', () => {
+      const source = `
+import { createContext } from 'react';
+type ThemeContextValue = Partial<{ theme: string; setTheme(theme: string): void }>;
+export const ThemeContext = createContext({} satisfies ThemeContextValue);
+`;
+      const report = reviewSource(source, 'theme.tsx', reactConfig);
+      expect(report.findings.find((f) => f.ruleId === 'context-default-assertion')).toBeDefined();
+    });
+  });
+
   describe('redux-selector-unstable-return', () => {
     it('flags useSelector returning object without equality function', () => {
       const source = `

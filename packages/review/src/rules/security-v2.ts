@@ -850,6 +850,19 @@ function isGeneratedBrowserAssetPath(filePath: string): boolean {
   );
 }
 
+function isTestOrFixturePath(filePath: string): boolean {
+  return /(?:^|[/\\])(?:__fixtures__|fixtures?|__snapshots__)(?:[/\\]|$)|(?:\.test|\.spec|\.snap)\.[cm]?[jt]sx?$/i.test(
+    filePath,
+  );
+}
+
+function isLikelyWorkerPath(filePath: string): boolean {
+  return /(?:^|[/\\])workers?(?:[/\\]|$)|\.worker\.[cm]?[jt]sx?$/i.test(filePath);
+}
+
+const BROWSER_POST_MESSAGE_TARGET_PATTERN =
+  /(?:^window$|^globalThis$|^parent$|\.parent$|^opener$|\.opener$|^top$|\.top$|contentWindow$|^frames\b|\.frames\b)/;
+
 function postmessageWildcardTarget(ctx: RuleContext): ReviewFinding[] {
   if (isGeneratedBrowserAssetPath(ctx.filePath)) return [];
 
@@ -881,7 +894,7 @@ function postmessageWildcardTarget(ctx: RuleContext): ReviewFinding[] {
     if (!isWildcardString(call.getArguments()[1])) continue;
 
     const target = callee.getExpression().getText();
-    if (!/(?:^window$|^globalThis$|^parent$|^opener$|^top$|\.top$|contentWindow$|^frames\b|\.frames\b)/.test(target)) {
+    if (!BROWSER_POST_MESSAGE_TARGET_PATTERN.test(target)) {
       continue;
     }
 
@@ -894,6 +907,112 @@ function postmessageWildcardTarget(ctx: RuleContext): ReviewFinding[] {
         ctx.filePath,
         call.getStartLineNumber(),
         { suggestion: 'Pass the exact expected origin as targetOrigin instead of "*".' },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+function hasLocalPostMessageBinding(callee: import('ts-morph').Identifier, ctx: RuleContext): boolean {
+  const localBindings = callee
+    .getSymbol()
+    ?.getDeclarations()
+    .filter((decl) => decl.getSourceFile() === ctx.sourceFile);
+  return Boolean(localBindings && localBindings.length > 0);
+}
+
+function isBrowserPostMessagePropertyTarget(callee: import('ts-morph').PropertyAccessExpression): boolean {
+  if (callee.getName() !== 'postMessage') return false;
+  const target = callee.getExpression().getText();
+  return BROWSER_POST_MESSAGE_TARGET_PATTERN.test(target);
+}
+
+// ── Rule: postmessage-missing-target-origin ─────────────────────────────
+// Window.postMessage requires an explicit targetOrigin. Omitting it relies on
+// browser defaults and makes review miss the trust boundary entirely.
+
+function postmessageMissingTargetOrigin(ctx: RuleContext): ReviewFinding[] {
+  if (isGeneratedBrowserAssetPath(ctx.filePath)) return [];
+
+  const findings: ReviewFinding[] = [];
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const targetOriginArg = call.getArguments()[1];
+    if (
+      targetOriginArg &&
+      targetOriginArg.getKind() !== SyntaxKind.NullKeyword &&
+      !(Node.isIdentifier(targetOriginArg) && targetOriginArg.getText() === 'undefined')
+    ) {
+      continue;
+    }
+    const callee = call.getExpression();
+
+    if (Node.isIdentifier(callee) && callee.getText() === 'postMessage') {
+      if (isLikelyWorkerPath(ctx.filePath)) continue;
+      if (hasLocalPostMessageBinding(callee, ctx)) continue;
+    } else if (!Node.isPropertyAccessExpression(callee) || !isBrowserPostMessagePropertyTarget(callee)) {
+      continue;
+    }
+
+    findings.push(
+      finding(
+        'postmessage-missing-target-origin',
+        'warning',
+        'bug',
+        'postMessage() is called without an explicit targetOrigin — cross-window messages need an exact origin',
+        ctx.filePath,
+        call.getStartLineNumber(),
+        { suggestion: 'Pass the exact expected origin as the second argument.' },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+function htmlStringHasBlankAnchorWithoutNoopener(value: string): boolean {
+  const anchorPattern = /<a\b[^>]*\btarget\s*=\s*(?:"_blank"|'_blank'|_blank)[^>]*>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = anchorPattern.exec(value)) !== null) {
+    const tag = match[0];
+    const relMatch = /\brel\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(tag);
+    const rel = (relMatch?.[1] ?? relMatch?.[2] ?? relMatch?.[3] ?? '').toLowerCase();
+    if (!/\b(?:noopener|noreferrer)\b/.test(rel)) return true;
+  }
+  return false;
+}
+
+// ── Rule: html-string-target-blank-noopener ─────────────────────────────
+// JSX anchors are covered in react-html.ts; this catches HTML assembled in
+// translation/rich-text strings that later gets rendered as HTML.
+
+function htmlStringTargetBlankNoopener(ctx: RuleContext): ReviewFinding[] {
+  if (isGeneratedBrowserAssetPath(ctx.filePath)) return [];
+  if (isTestOrFixturePath(ctx.filePath)) return [];
+
+  const findings: ReviewFinding[] = [];
+  const stringNodes: Node[] = [
+    ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.StringLiteral),
+    ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.NoSubstitutionTemplateLiteral),
+    ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.TemplateExpression),
+  ];
+
+  for (const node of stringNodes) {
+    const value =
+      Node.isStringLiteral(node) || Node.isNoSubstitutionTemplateLiteral(node)
+        ? node.getLiteralValue()
+        : node.getText();
+    if (!htmlStringHasBlankAnchorWithoutNoopener(value)) continue;
+
+    findings.push(
+      finding(
+        'html-string-target-blank-noopener',
+        'warning',
+        'bug',
+        'HTML string contains <a target="_blank"> without rel="noopener noreferrer"',
+        ctx.filePath,
+        node.getStartLineNumber(),
+        { suggestion: 'Add rel="noopener noreferrer" to HTML-string links that open a new tab.' },
       ),
     );
   }
@@ -1167,6 +1286,8 @@ export const securityV2Rules = [
   weakPasswordHashing,
   browserStorageJsonParseUnguarded,
   postmessageWildcardTarget,
+  postmessageMissingTargetOrigin,
+  htmlStringTargetBlankNoopener,
   clientOpenRedirectFromQuery,
   windowOpenBlankMissingNoopener,
   iframeDynamicSrcMissingSandbox,
