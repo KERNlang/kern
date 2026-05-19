@@ -7,6 +7,7 @@
 
 import type { IRNode } from '@kernlang/core';
 import { getChildren, getFirstChild, getProps } from '@kernlang/core';
+import { isUnsupportedJsHandlerBody, unsupportedRawHandlerBody } from './fastapi-raw-handler.js';
 import { addRespondImports, extractExprCode, generateRespondFastAPI, rewriteFastAPIExpr } from './fastapi-response.js';
 import { escapePyStr, indentHandler } from './fastapi-utils.js';
 import { toSnakeCase } from './type-map.js';
@@ -66,7 +67,18 @@ export function generatePortableChildFastAPI(
     }
     case 'handler': {
       const code = String(p.code || '');
-      if (code) lines.push(...indentHandler(code, indent));
+      if (code) {
+        // When a route uses portable nodes and ALSO has a raw `<<<...>>>`
+        // handler child, the body is typically JS/TS (the legacy authoring
+        // form). Emitting it verbatim into a Python `def` produces
+        // `SyntaxError` on import. Apply the same JS-detection guard the
+        // top-level handler path in fastapi-route.ts uses.
+        if (isUnsupportedJsHandlerBody(code)) {
+          lines.push(...unsupportedRawHandlerBody(indent));
+        } else {
+          lines.push(...indentHandler(code, indent));
+        }
+      }
       break;
     }
     case 'respond': {

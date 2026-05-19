@@ -10,6 +10,11 @@ import type { IRNode, SourceMapEntry } from '@kernlang/core';
 import { getChildren, getFirstChild, getProps } from '@kernlang/core';
 import { emitNativeKernBodyPythonWithImports } from './codegen-body-python.js';
 import { generatePortableHandlerFastAPI } from './fastapi-portable.js';
+import {
+  hasObjectShorthandOutsideStrings,
+  isUnsupportedJsHandlerBody,
+  unsupportedRawHandlerBody,
+} from './fastapi-raw-handler.js';
 import type { RouteArtifactRef, RouteCapabilities } from './fastapi-types.js';
 import { HTTP_METHODS } from './fastapi-types.js';
 import {
@@ -83,7 +88,11 @@ export function generateStreamRoute(
         const stdoutCode = stdoutHandlerNode ? String(getProps(stdoutHandlerNode).code || '') : '';
         lines.push(`            async for chunk in process.stdout:`);
         if (stdoutCode) {
-          lines.push(...indentHandler(stdoutCode, '                '));
+          if (isUnsupportedJsHandlerBody(stdoutCode)) {
+            lines.push(...unsupportedRawHandlerBody('                '));
+          } else {
+            lines.push(...indentHandler(stdoutCode, '                '));
+          }
         } else {
           lines.push(`                yield f"data: {chunk.decode()}\\n\\n"`);
         }
@@ -99,7 +108,11 @@ export function generateStreamRoute(
       lines.push(`        # timeout: ${timeoutSec}s`);
     }
   } else if (handlerCode) {
-    lines.push(...indentHandler(handlerCode, '        '));
+    if (isUnsupportedJsHandlerBody(handlerCode)) {
+      lines.push(...unsupportedRawHandlerBody('        '));
+    } else {
+      lines.push(...indentHandler(handlerCode, '        '));
+    }
   } else {
     lines.push(`        yield "data: [DONE]\\n\\n"`);
   }
@@ -278,60 +291,6 @@ function quoteObjectKeysOutsideStrings(expr: string): string {
 
 function lowerJsValueExpressionForPython(expr: string): string {
   return quoteObjectKeysOutsideStrings(replaceJsLiteralsOutsideStrings(expr.trim().replace(/;$/, '')));
-}
-
-function hasObjectShorthandOutsideStrings(expr: string): boolean {
-  let index = 0;
-  let quote: '"' | "'" | '`' | null = null;
-  let escaped = false;
-
-  while (index < expr.length) {
-    const char = expr[index];
-    if (quote) {
-      if (escaped) {
-        escaped = false;
-      } else if (char === '\\') {
-        escaped = true;
-      } else if (char === quote) {
-        quote = null;
-      }
-      index += 1;
-      continue;
-    }
-    if (char === '"' || char === "'" || char === '`') {
-      quote = char;
-      index += 1;
-      continue;
-    }
-    if (char !== '{' && char !== ',') {
-      index += 1;
-      continue;
-    }
-    index += 1;
-    while (index < expr.length && /\s/.test(expr[index])) index += 1;
-    if (index >= expr.length || !/[A-Za-z_$]/.test(expr[index])) continue;
-    index += 1;
-    while (index < expr.length && /[\w$]/.test(expr[index])) index += 1;
-    while (index < expr.length && /\s/.test(expr[index])) index += 1;
-    if (expr[index] === ',' || expr[index] === '}') return true;
-  }
-
-  return false;
-}
-
-function isUnsupportedJsHandlerBody(code: string): boolean {
-  return (
-    /\bres\./.test(code) ||
-    /`/.test(code) ||
-    /\?\./.test(code) ||
-    /\?\?/.test(code) ||
-    /=>/.test(code) ||
-    hasObjectShorthandOutsideStrings(code)
-  );
-}
-
-function unsupportedRawHandlerBody(indent: string): string[] {
-  return [`${indent}raise NotImplementedError("Unsupported raw JavaScript handler syntax for FastAPI target")`];
 }
 
 function lowerRawHandlerBodyForPython(code: string, indent: string, imports: Set<string>): string[] | null {

@@ -2084,4 +2084,69 @@ describe('FastAPI Transpiler', () => {
       expect(rewriteFastAPIExpr('msg = "set to true"', [])).toBe('msg = "set to true"');
     });
   });
+
+  // ── Raw-JS handler guard — portable + stream paths ─────────────────
+
+  describe('Raw-JS handler guard (Python target)', () => {
+    test('portable child handler with raw JS body emits NotImplementedError, not raw JS', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route POST /api/providers/test',
+        '    guard expr={{registry.get(body.id)}}',
+        '      error status=404 message="Provider not found"',
+        '    handler <<<',
+        '      const provider = registry.get(req.body.id);',
+        '      const result = await provider.test();',
+        '      res.json({ ok: true, message: result });',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('providers_test'));
+      const content = route!.content;
+      // Must NOT contain the raw JS that previously leaked
+      expect(content).not.toMatch(/const\s+provider\s*=/);
+      expect(content).not.toContain('res.json');
+      // Must contain the foreign-bailout stub
+      expect(content).toContain('raise NotImplementedError("Unsupported raw JavaScript handler syntax');
+    });
+
+    test('stream handler with raw JS body emits NotImplementedError inside event_generator', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route POST /api/review',
+        '    stream',
+        '      handler <<<',
+        '        const abortController = new AbortController();',
+        '        res.on("close", () => abortController.abort());',
+        '      >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post_api_review'));
+      const content = route!.content;
+      expect(content).toContain('async def event_generator():');
+      expect(content).not.toMatch(/const\s+abortController/);
+      expect(content).toContain('raise NotImplementedError("Unsupported raw JavaScript handler syntax');
+    });
+
+    test('clean Python handler body passes through unchanged (no false-positive guard)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/health',
+        '    handler lang="python" <<<',
+        '      return {"ok": True}',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('health'));
+      // Clean Python body — should NOT trip the guard
+      expect(route!.content).not.toContain('NotImplementedError');
+      expect(route!.content).toContain('return {"ok": True}');
+    });
+  });
 });
