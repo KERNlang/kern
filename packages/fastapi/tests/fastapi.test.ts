@@ -1864,6 +1864,42 @@ describe('FastAPI Transpiler', () => {
       expect(content).toContain('return load_data');
     });
 
+    test('effect.recover.fallback={{...}} curly-expr form is unwrapped (regression)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/users',
+        '    effect fetchUsers',
+        '      trigger expr={{await loadUsers()}}',
+        '      recover retry=2 fallback={{[]}}',
+        '    respond 200 json=fetchUsers.result',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      const content = route!.content;
+      expect(content).not.toContain('[object Object]');
+      expect(content).toMatch(/fetch_users = \[\]/);
+    });
+
+    test('effect.recover.fallback={{null}} curly-expr lowers to Python None', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/data',
+        '    effect loadData',
+        '      trigger expr={{await fetchData()}}',
+        '      recover fallback={{null}}',
+        '    respond 200 json=loadData.result',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      const content = route!.content;
+      expect(content).toContain('load_data = None');
+      expect(content).not.toContain('[object Object]');
+    });
+
     test('effect with expr trigger rewrites portable refs', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');

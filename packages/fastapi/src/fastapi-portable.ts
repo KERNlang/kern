@@ -141,8 +141,18 @@ export function generatePortableChildFastAPI(
       const triggerExpr =
         extractExprCode(triggerProps.expr) || String(triggerProps.query || triggerProps.url || triggerProps.call || '');
       const retryCount = recoverNode ? parseInt(String(getProps(recoverNode).retry || '0'), 10) : 0;
-      const fallback = recoverNode ? String(getProps(recoverNode).fallback || 'None') : 'None';
-      const pyFallback = fallback === 'null' ? 'None' : fallback;
+      // The `fallback` prop may arrive as a plain string (`fallback=null`,
+      // `fallback="empty"`) OR as a curly-expression IR wrapper `{ __expr:
+      // true, code: '...' }` (`fallback={{[]}}`, `fallback={{getDefault()}}`).
+      // Naked `String(...)` on the wrapper yields `[object Object]` which
+      // is not valid Python and breaks `ast.parse` on the generated route.
+      // Route the curly form through `extractExprCode` like `triggerExpr`
+      // does, then push the result through `rewriteFastAPIExpr` so KERN
+      // idioms (`params.X`, `effectName.result`, etc.) lower consistently.
+      const fallbackRaw = recoverNode ? getProps(recoverNode).fallback : undefined;
+      const fallbackExpr = extractExprCode(fallbackRaw) || (typeof fallbackRaw === 'string' ? fallbackRaw : '');
+      const pyFallback =
+        fallbackExpr === '' || fallbackExpr === 'null' ? 'None' : rewriteFastAPIExpr(fallbackExpr, pathParams);
 
       if (retryCount > 0) {
         lines.push(`${indent}${effectName} = ${pyFallback}`);
