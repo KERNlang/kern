@@ -13,12 +13,22 @@ import { escapePyStr, indentHandler } from './fastapi-utils.js';
 import { toSnakeCase } from './type-map.js';
 
 // Extract the code from a prop that may arrive as a `{{ ... }}` curly-
-// expression IR wrapper (`{ __expr: true, code: '...' }`) OR as a plain
-// string (legacy `name=value` form). Returns '' for anything else.
-// Naked `String(...)` on the wrapper yields the literal text
-// `[object Object]`, which silently corrupts generated Python.
+// expression IR wrapper (`{ __expr: true, code: '...' }`), a plain string
+// (legacy `name=value` form), OR a bare number/boolean primitive that the
+// IR may carry through (e.g. `fallback=0`). Returns '' for anything else
+// (objects without `__expr`, null/undefined).
+//
+// Review fix (Gemini B5 on 86e6b893): the previous `typeof val ===
+// 'string' ? val : ''` branch silently dropped numeric/boolean primitives
+// to '' and lowerPropToPython then emitted `None` — a data-loss
+// regression versus the original naked `String(...)` which at least
+// preserved `"0"`/`"false"`.
 function extractCodeOrString(val: unknown): string {
-  return extractExprCode(val) || (typeof val === 'string' ? val : '');
+  const fromExpr = extractExprCode(val);
+  if (fromExpr) return fromExpr;
+  if (typeof val === 'string') return val;
+  if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+  return '';
 }
 
 // Lower a prop value to a Python expression. Handles the JS-literal
@@ -27,12 +37,18 @@ function extractCodeOrString(val: unknown): string {
 // → `False`. Anything else routes through `rewriteFastAPIExpr` so
 // that KERN idioms (`params.X`, `effectName.result`, etc.) lower
 // consistently regardless of which IR prop they live in.
+//
+// Review fix (Codex+Gemini B4 on 86e6b893): trim the extracted code
+// before comparing against literal names so `{{ true }}` (with internal
+// whitespace from KERN curly-expression syntax) maps to `True`, not the
+// invalid Python identifier `true`.
 function lowerPropToPython(val: unknown, pathParams: string[]): string {
-  const code = extractCodeOrString(val);
-  if (code === '' || code === 'null' || code === 'undefined') return 'None';
-  if (code === 'true') return 'True';
-  if (code === 'false') return 'False';
-  return rewriteFastAPIExpr(code, pathParams);
+  const raw = extractCodeOrString(val);
+  const trimmed = raw.trim();
+  if (trimmed === '' || trimmed === 'null' || trimmed === 'undefined') return 'None';
+  if (trimmed === 'true') return 'True';
+  if (trimmed === 'false') return 'False';
+  return rewriteFastAPIExpr(raw, pathParams);
 }
 
 export function generatePortableChildFastAPI(
@@ -150,7 +166,14 @@ export function generatePortableChildFastAPI(
       const collectName = PY_BUILTINS.has(rawName) ? `${rawName}_result` : rawName;
       const from = lowerPropToPython(p.from, pathParams);
       const where = p.where ? extractExprCode(p.where) : undefined;
-      const limit = p.limit ? String(p.limit) : undefined;
+      // `limit` is typically a literal integer (`limit=10`) but can be a
+      // curly-expression (`limit={{params.max}}`) — route through the same
+      // helper used for from/order so the `[object Object]` bug class
+      // doesn't lurk here either (Gemini M3 on 86e6b893).
+      const limit =
+        p.limit !== undefined && p.limit !== null && p.limit !== ''
+          ? lowerPropToPython(p.limit, pathParams)
+          : undefined;
       const order = p.order ? extractCodeOrString(p.order) : undefined;
       if (where && !order && !limit) {
         lines.push(`${indent}${collectName} = [item for item in ${from} if ${rewriteFastAPIExpr(where, pathParams)}]`);

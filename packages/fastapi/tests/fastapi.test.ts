@@ -1955,6 +1955,90 @@ describe('FastAPI Transpiler', () => {
       expect(content).not.toContain('[object Object]');
     });
 
+    test('effect.recover.fallback={{ true }} (with whitespace) maps to Python True (B4)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      // Pre-fix: lowerPropToPython compared `code === 'true'` without
+      // trimming, so the curly form `{{ true }}` (which yields code
+      // ' true ' with surrounding whitespace) bypassed the literal map
+      // and emitted bare `true` — a Python `NameError` at runtime.
+      const source = [
+        'server name=Test',
+        '  route GET /api/x',
+        '    effect e',
+        '      trigger expr={{await f()}}',
+        '      recover fallback={{ true }}',
+        '    respond 200 json=e.result',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('e = True');
+      expect(route!.content).not.toMatch(/\be = true\b/);
+    });
+
+    test('effect.recover.fallback=0 preserves the numeric primitive (Gemini B5)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      // Pre-fix: `fallback=0` (or `fallback=false` as a raw boolean
+      // prop, before stringification) flowed through extractCodeOrString
+      // → '' → lowerPropToPython → 'None'. Silent data-loss regression
+      // vs the original naked `String(...)` which preserved "0"/"false".
+      // Now extractCodeOrString preserves bare number/boolean primitives
+      // via String(...) fallback.
+      // (The KERN parser typically yields strings for bare unquoted
+      // values, but if numeric props arrive directly through programmatic
+      // IR construction we shouldn't silently swallow them.)
+      const { default: portable } = await import('../src/fastapi-portable.js' as any).catch(async () => ({
+        default: null,
+      }));
+      // Direct unit test of the extractor + lowerer behavior via the
+      // public rewrite path: build an IR where `fallback` is a raw number.
+      const { transpileFastAPI: tx } = await import('../src/transpiler-fastapi.js');
+      const ir = {
+        type: 'server',
+        props: { name: 'T' },
+        children: [
+          {
+            type: 'route',
+            props: { method: 'get', path: '/api/n' },
+            children: [
+              {
+                type: 'effect',
+                props: { name: 'e' },
+                children: [
+                  { type: 'trigger', props: { expr: { __expr: true, code: 'await f()' } } },
+                  { type: 'recover', props: { fallback: 0 } as any },
+                ],
+              },
+              { type: 'respond', props: { status: 200, json: 'e.result' } },
+            ],
+          },
+        ],
+      } as any;
+      const result = tx(ir);
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('e = 0');
+      expect(route!.content).not.toContain('e = None');
+    });
+
+    test('collect.limit={{...}} curly form routes through lowerPropToPython (Gemini M3)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/items',
+        '    derive everything expr={{await db.all()}}',
+        '    collect name=top from=everything where={{item.score > 10}} limit={{params.max}}',
+        '    respond 200 json=top',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      const content = route!.content;
+      expect(content).not.toContain('[object Object]');
+      // params.max → max (query/path param rewrite via rewriteFastAPIExpr)
+      expect(content).toMatch(/\[:max\]/);
+    });
+
     test('effect.recover.fallback={{true}} / {{false}} lowers to Python True / False', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
