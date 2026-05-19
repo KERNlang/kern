@@ -338,17 +338,23 @@ function isLowerableJsValueExpression(expr: string): boolean {
   // that my fix-up 16 over-corrected by applying statement-level
   // reasoning to this expression-level gate.
   if (/\bnew\s+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*\(/.test(stripped)) return false;
-  // No-parens `new IDENT` form. Horizontal-whitespace-only `[^\S\r\n]+`
-  // between `new` and the identifier prevents Python's
-  // `return new\nfoo = 1` (where `new` is a variable on its own line)
-  // from false-positiving across the newline. Variable-width lookbehind
-  // handles `for  new in items:` with any horizontal whitespace between
-  // for/new. Negative lookahead excludes Python idioms `new is`,
-  // `new in`, `new for`, `new if`, `new else`, `new and`, `new or`,
-  // `new not` — all valid Python where `new` is a local variable name
-  // (Codex+Gemini fix-up 8 + 10 reviews).
+  // No-parens `new IDENT` form. Same asymmetric reasoning as the
+  // parens form above: this is an EXPRESSION-level gate (`res.json(X)`
+  // payload), so `new\nDate` is unambiguously JS construction — no
+  // statement boundaries within X. Use `\s+` (newlines OK).
+  // Gemini fix-up 18 review pointed out that I'd only relaxed the
+  // parens form, leaving this no-parens form horizontal-only by
+  // accident — a false-negative for `res.json({ x: new\nDate })`.
+  //
+  // The negative lookahead still excludes Python idioms `new is`,
+  // `new in`, `new for`, etc. — those checks are language-content,
+  // not whitespace-shape, so they remain.
+  //
+  // Lookbehind kept on `\bfor\s+` (with `\s+`, not `[^\S\r\n]+`) so
+  // newline-separated `for new` patterns also get the Python-idiom
+  // suppression in expression context.
   if (
-    /(?<!\bfor[^\S\r\n]+)\bnew[^\S\r\n]+(?!(?:is|in|for|if|else|and|or|not)\b)[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\b/.test(
+    /(?<!\bfor\s+)\bnew\s+(?!(?:is|in|for|if|else|and|or|not)\b)[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\b/.test(
       stripped,
     )
   )

@@ -2683,6 +2683,27 @@ describe('FastAPI Transpiler', () => {
       expect(route!.content).toContain('NotImplementedError');
     });
 
+    test('isLowerableJsValueExpression: no-parens `new\\nDate` in payload also rejected (Gemini fix-up 18)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      // Gemini fix-up 18 caught that I'd relaxed only the parens-form
+      // regex in expression context; the no-parens form `new\nDate`
+      // (no trailing parens) was still horizontal-only, so this
+      // multiline form slipped the guard. Now both forms use `\s+`
+      // in expression scope.
+      const source = [
+        'server name=Test',
+        '  route GET /api/noparens',
+        '    handler <<<',
+        '      res.json({ x: new',
+        '        Date });',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('get_api_noparens'));
+      expect(route!.content).toContain('NotImplementedError');
+    });
+
     test('isLowerableJsValueExpression: single-line `new Date()` payload still rejected', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');

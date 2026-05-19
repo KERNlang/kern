@@ -186,6 +186,17 @@ export function hasObjectShorthandOutsideStrings(expr: string): boolean {
   return false;
 }
 
+// NOTE on cross-file asymmetry: `isUnsupportedJsHandlerBody` (this
+// function) inspects FULL HANDLER BODIES which contain multiple
+// statements — Python like `return new\nDate()` is two statements
+// and must NOT false-positive. Hence the `new` regexes here use
+// horizontal-whitespace-only `[^\S\r\n]+`.
+//
+// The sister guard `isLowerableJsValueExpression` in fastapi-route.ts
+// inspects EXPRESSION CONTENT (e.g., the X in `res.json(X)`) — a single
+// syntactic unit with no statement boundaries, so it can safely use
+// `\s+` (newlines OK) to catch `new\nDate()` etc. The asymmetry is
+// principled per Codex fix-up 16 review.
 export function isUnsupportedJsHandlerBody(code: string): boolean {
   // Run JS-keyword detection on a string-stripped view so a Python body
   // like `text = "uses res.send pattern"` or `msg = "const x = ..."`
