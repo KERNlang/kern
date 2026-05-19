@@ -129,14 +129,23 @@ function isIntentionalNoopExcept(exceptNode: Parser.SyntaxNode, source: string):
 
   if (hasOnly(['ProcessLookupError']) && tryBody.length === 1 && /\bos\.kill\s*\(/.test(tryBody[0])) return true;
   if (hasOnly(['ChildProcessError']) && tryBody.length === 1 && /\bos\.waitpid\s*\(/.test(tryBody[0])) return true;
-  if (hasOnly(['FileNotFoundError']) && tryBody.length === 1 && /\b(os\.)?(unlink|remove|rmdir)\s*\(/.test(tryBody[0])) {
+  if (
+    hasOnly(['FileNotFoundError']) &&
+    tryBody.length === 1 &&
+    /\b(os\.)?(unlink|remove|rmdir)\s*\(/.test(tryBody[0])
+  ) {
     return true;
   }
   if (hasOnly(['OSError']) && tryBody.length === 1 && /\bos\.close\s*\(/.test(tryBody[0])) return true;
-  if (hasOnly(['OSError']) && tryBody.length > 0 && tryBody.every((line) => /^(\w+\s*=\s*)?fcntl\.fcntl\s*\(/.test(line))) {
+  if (
+    hasOnly(['OSError']) &&
+    tryBody.length > 0 &&
+    tryBody.every((line) => /^(\w+\s*=\s*)?fcntl\.fcntl\s*\(/.test(line))
+  ) {
     return true;
   }
-  if (hasOnly(['BrokenPipeError']) && tryBody.length === 1 && /\.(write|flush|close)\s*\(/.test(tryBody[0])) return true;
+  if (hasOnly(['BrokenPipeError']) && tryBody.length === 1 && /\.(write|flush|close)\s*\(/.test(tryBody[0]))
+    return true;
   if (
     hasOnly(['AttributeError', 'ImportError', 'ValueError']) &&
     tryBody.length === 1 &&
@@ -154,7 +163,14 @@ function parseExceptTypes(line: string): string[] {
   const raw = match[1] ?? match[2] ?? '';
   return raw
     .split(',')
-    .map((part) => part.trim().replace(/\s+as\s+\w+$/, '').split('.').pop() ?? '')
+    .map(
+      (part) =>
+        part
+          .trim()
+          .replace(/\s+as\s+\w+$/, '')
+          .split('.')
+          .pop() ?? '',
+    )
     .filter(Boolean);
 }
 
