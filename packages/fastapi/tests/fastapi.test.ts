@@ -2047,6 +2047,66 @@ describe('FastAPI Transpiler', () => {
       expect(route!.content).not.toContain('e = None');
     });
 
+    test('collect.order=null suppresses sorted() emission (Codex BLOCKING on fix-up 6)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      // Pre-fix: order=null lowered to 'None' then emitted
+      // `sorted(items, key=lambda item: None)` — Python runtime TypeError.
+      // Now `null`/`undefined`/empty resolve to "absent" so `sorted()`
+      // isn't emitted at all.
+      const source = [
+        'server name=Test',
+        '  route GET /api/items',
+        '    derive items expr={{await db.all()}}',
+        '    collect name=ranked from=items order=null',
+        '    respond 200 json=ranked',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).not.toContain('sorted(');
+      expect(route!.content).not.toContain('key=lambda item: None');
+    });
+
+    test('collect.order={{null}} curly form also suppresses sorted()', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/items',
+        '    derive items expr={{await db.all()}}',
+        '    collect name=ranked from=items order={{null}}',
+        '    respond 200 json=ranked',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).not.toContain('sorted(');
+    });
+
+    test('JS literals preserved after `.` with whitespace (Codex fix-up 1 followup)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      // Pre-fix: `(?<!\.)` only checked the immediate previous char, so
+      // `obj . true` (whitespace between dot and keyword) still lowered
+      // to `obj . True` — Python SyntaxError. Now `(?<!\.\s*)` handles
+      // any whitespace between.
+      expect(rewriteFastAPIExpr('obj . true', [])).toBe('obj . true');
+      expect(rewriteFastAPIExpr('obj  .  null', [])).toBe('obj  .  null');
+      expect(rewriteFastAPIExpr('a.b . false', [])).toBe('a.b . false');
+    });
+
+    test('Python comment containing JS keywords does NOT false-positive (Codex fix-up 1 followup)', async () => {
+      const { isUnsupportedJsHandlerBody } = await import('../src/fastapi-raw-handler.js');
+      // Pre-fix: stripStringsForJsCheck only stripped strings, not
+      // comments. A Python comment mentioning JS keywords would still
+      // trip the `\bconst\s+\w+\s*=` regex.
+      expect(isUnsupportedJsHandlerBody('# const x = 1 is JS syntax\nreturn 42')).toBe(false);
+      expect(isUnsupportedJsHandlerBody('# uses res.json pattern in JS\nreturn {"ok": True}')).toBe(false);
+      expect(isUnsupportedJsHandlerBody('# arrow syntax: (x) => x\nreturn 1')).toBe(false);
+      expect(isUnsupportedJsHandlerBody('// JS-style comment about const x = 1\nreturn 1')).toBe(false);
+      expect(isUnsupportedJsHandlerBody('/* block: new Date() */\nreturn 1')).toBe(false);
+      // …but actual code outside comments still trips
+      expect(isUnsupportedJsHandlerBody('# a comment\nconst x = 1;\nreturn x')).toBe(true);
+    });
+
     test('collect.order={{...}} curly form routes through lowerPropToPython too (Gemini fix-up 6)', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');

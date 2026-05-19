@@ -70,9 +70,10 @@ const STRICT_EQ_RE = new RegExp(`${STRING_LITERAL_ALT}|===|!==`, 'g');
 // Same trick for JS-literal lowering: any literal text inside a quoted
 // string OR after a `.` (property accessor — `obj.true` must NOT become
 // `obj.True`, which is a Python SyntaxError) is preserved untouched.
-// The lookbehind `(?<!\.)` skips literal-name tokens that are property
-// accesses on the preceding expression.
-const JS_LITERAL_RE = new RegExp(`${STRING_LITERAL_ALT}|(?<!\\.)\\b(?:undefined|null|true|false)\\b`, 'g');
+// Variable-width lookbehind `(?<!\.\s*)` handles both tight (`obj.true`)
+// and loose (`obj . true`) forms; the latter caught by Codex review on
+// commit 68565826.
+const JS_LITERAL_RE = new RegExp(`${STRING_LITERAL_ALT}|(?<!\\.\\s*)\\b(?:undefined|null|true|false)\\b`, 'g');
 
 function lowerJsArrayMethods(expr: string): string {
   // Iterate so chained calls (`.filter(...).map(...)`) collapse fully.

@@ -178,16 +178,24 @@ export function generatePortableChildFastAPI(
         p.limit !== undefined && p.limit !== null && p.limit !== ''
           ? lowerPropToPython(p.limit, pathParams)
           : undefined;
-      // Match the `from`/`limit` routing — `lowerPropToPython` applies
-      // both the JS-literal mapping AND `rewriteFastAPIExpr`. Pre-fix,
-      // `order` skipped the literal mapping, so `order=null` would emit
-      // `sorted(items, key=lambda item: null)` (a Python `NameError`).
-      // Presence-check (not truthy) so an empty/absent `order` correctly
-      // disables the `sorted()` emission (Gemini review on commit 7a25348b).
+      // Compute order in two stages so we can suppress `sorted()`
+      // emission entirely when the source value resolves to absent / null
+      // / undefined. Fix-up 6 routed `order` through `lowerPropToPython`,
+      // but that maps `null`/`undefined`/empty to `'None'` — which then
+      // emitted `sorted(items, key=lambda item: None)` and crashed at
+      // runtime with `TypeError: '<' not supported between instances of
+      // 'NoneType' and 'NoneType'`. Worse failure than the pre-fix
+      // `NameError: null`. Codex flagged this as blocking on commit
+      // 7a25348b.
+      //
+      // The right call is: `order=null`/`order={{null}}` means "no
+      // ordering," not "sort by None." Detect those forms in the source
+      // and skip sort emission entirely.
+      const orderSourceTrimmed = extractCodeOrString(p.order).trim();
       const order =
-        p.order !== undefined && p.order !== null && p.order !== ''
-          ? lowerPropToPython(p.order, pathParams)
-          : undefined;
+        orderSourceTrimmed === '' || orderSourceTrimmed === 'null' || orderSourceTrimmed === 'undefined'
+          ? undefined
+          : lowerPropToPython(p.order, pathParams);
       if (where && !order && !limit) {
         lines.push(`${indent}${collectName} = [item for item in ${from} if ${rewriteFastAPIExpr(where, pathParams)}]`);
       } else {

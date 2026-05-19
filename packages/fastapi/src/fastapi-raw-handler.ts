@@ -23,34 +23,40 @@
  * introducing an import cycle between portable and route.
  */
 
-// Replace contents of every string literal (single-quote, double-quote,
-// backtick) with `_` so JS-keyword detection regexes don't false-positive
-// on text inside Python string literals. Preserves quote delimiters,
+// Replace contents of every string literal AND comment with `_` so
+// JS-keyword detection regexes don't false-positive on tokens that
+// appear only inside strings or comments. Preserves quote delimiters,
 // newlines, and code outside strings. Honors backslash escapes so
 // `"\""` doesn't terminate the string early.
 //
-// Review fix: Codex flagged that `isUnsupportedJsHandlerBody` and
-// `isLowerableJsValueExpression` ran their JS-keyword regexes on raw
-// text — a `lang="python"` body containing `"const x ="` as a string
-// literal, or `res.json({ msg: "example: new Date()" })`, would
-// false-positive and emit a NotImplementedError stub even though the
-// underlying Python is valid.
+// Comment forms recognized:
+//   - Python line comments: `# ...` to end of line
+//   - JS line comments: `// ...` to end of line
+//   - JS block comments: `/* ... */`
+//
+// Review fix: Codex flagged on commit 68565826 that the original
+// version stripped strings but NOT comments — a `lang="python"` body
+// containing `# const x = 1` (a comment mentioning JS syntax) would
+// still trip the `\bconst\s+\w+\s*=` regex and emit a NotImplementedError
+// for valid Python.
 export function stripStringsForJsCheck(code: string): string {
   let result = '';
   let i = 0;
-  let quote: '"' | "'" | '`' | null = null;
+  // null | quote-char | '//' (JS line) | '#' (Python line) | '/*' (JS block)
+  let mode: '"' | "'" | '`' | '//' | '#' | '/*' | null = null;
   let escaped = false;
   while (i < code.length) {
     const ch = code[i];
-    if (quote) {
+    const next = code[i + 1];
+    if (mode === '"' || mode === "'" || mode === '`') {
       if (escaped) {
         escaped = false;
         result += '_';
       } else if (ch === '\\') {
         escaped = true;
         result += '_';
-      } else if (ch === quote) {
-        quote = null;
+      } else if (ch === mode) {
+        mode = null;
         result += ch;
       } else {
         result += ch === '\n' ? '\n' : '_';
@@ -58,9 +64,49 @@ export function stripStringsForJsCheck(code: string): string {
       i += 1;
       continue;
     }
+    if (mode === '//' || mode === '#') {
+      if (ch === '\n') {
+        mode = null;
+        result += '\n';
+      } else {
+        result += '_';
+      }
+      i += 1;
+      continue;
+    }
+    if (mode === '/*') {
+      if (ch === '*' && next === '/') {
+        mode = null;
+        result += '__';
+        i += 2;
+        continue;
+      }
+      result += ch === '\n' ? '\n' : '_';
+      i += 1;
+      continue;
+    }
+    // mode is null — code mode
     if (ch === '"' || ch === "'" || ch === '`') {
-      quote = ch;
+      mode = ch;
       result += ch;
+      i += 1;
+      continue;
+    }
+    if (ch === '/' && next === '/') {
+      mode = '//';
+      result += '__';
+      i += 2;
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      mode = '/*';
+      result += '__';
+      i += 2;
+      continue;
+    }
+    if (ch === '#') {
+      mode = '#';
+      result += '_';
       i += 1;
       continue;
     }
