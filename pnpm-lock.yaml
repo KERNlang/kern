@@ -48,9 +48,6 @@ importers:
       '@kernlang/express':
         specifier: workspace:*
         version: link:../express
-      '@kernlang/fastapi':
-        specifier: workspace:*
-        version: link:../fastapi
       '@kernlang/mcp':
         specifier: workspace:*
         version: link:../mcp
@@ -60,6 +57,9 @@ importers:
       '@kernlang/native':
         specifier: workspace:*
         version: link:../native
+      '@kernlang/python':
+        specifier: workspace:*
+        version: link:../python
       '@kernlang/react':
         specifier: workspace:*
         version: link:../react
@@ -111,9 +111,6 @@ importers:
       '@kernlang/express':
         specifier: workspace:*
         version: link:../express
-      '@kernlang/fastapi':
-        specifier: workspace:*
-        version: link:../fastapi
       '@kernlang/metrics':
         specifier: workspace:*
         version: link:../metrics
@@ -123,6 +120,9 @@ importers:
       '@kernlang/protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@kernlang/python':
+        specifier: workspace:*
+        version: link:../python
       '@kernlang/react':
         specifier: workspace:*
         version: link:../react
@@ -157,12 +157,6 @@ importers:
         specifier: workspace:*
         version: link:../core
 
-  packages/fastapi:
-    dependencies:
-      '@kernlang/core':
-        specifier: workspace:*
-        version: link:../core
-
   packages/mcp:
     dependencies:
       '@kernlang/core':
@@ -177,12 +171,12 @@ importers:
       '@kernlang/express':
         specifier: workspace:*
         version: link:../express
-      '@kernlang/fastapi':
-        specifier: workspace:*
-        version: link:../fastapi
       '@kernlang/mcp':
         specifier: workspace:*
         version: link:../mcp
+      '@kernlang/python':
+        specifier: workspace:*
+        version: link:../python
       '@kernlang/react':
         specifier: workspace:*
         version: link:../react
@@ -232,12 +226,12 @@ importers:
       '@kernlang/express':
         specifier: workspace:*
         version: link:../express
-      '@kernlang/fastapi':
-        specifier: workspace:*
-        version: link:../fastapi
       '@kernlang/native':
         specifier: workspace:*
         version: link:../native
+      '@kernlang/python':
+        specifier: workspace:*
+        version: link:../python
       '@kernlang/react':
         specifier: workspace:*
         version: link:../react
@@ -280,6 +274,12 @@ importers:
         version: 6.0.3
 
   packages/protocol: {}
+
+  packages/python:
+    dependencies:
+      '@kernlang/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/react:
     dependencies:

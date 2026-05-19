@@ -208,7 +208,7 @@ const PY_CORE_CAPABILITIES: CapabilityEntry[] = [
     note: 'FastAPI codegen has not been wired to ValueIR for field initializers; `value=` would emit raw',
   },
   // Slice 3c P2 follow-up (shipped) — FastAPI's 4 ad-hoc param parsers were
-  // consolidated behind `buildPythonParamList` in packages/fastapi/src/codegen-helpers.ts,
+  // consolidated behind `buildPythonParamList` in packages/python/src/codegen-helpers.ts,
   // which reads structured `param` children first (slice 3c+ canonical form)
   // and falls back to legacy `params="..."` for back-compat. Optional `?`
   // emits `Optional[T] = None`, variadic `...` emits `*args: T`, destructured

@@ -1,7 +1,7 @@
 {
-  "name": "@kernlang/fastapi",
+  "name": "@kernlang/python",
   "version": "3.5.1",
-  "description": "Kern FastAPI Python backend transpiler",
+  "description": "KERN Python backend codegen (FastAPI router target included)",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

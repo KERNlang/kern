@@ -31,7 +31,7 @@
  *
  * Usage:
  *   pnpm --filter @kernlang/core build
- *   pnpm --filter @kernlang/fastapi build
+ *   pnpm --filter @kernlang/python build
  *   node scripts/lift-rate-python.mjs              # scan examples/
  *   node scripts/lift-rate-python.mjs <dir>        # scan custom directory
  *   node scripts/lift-rate-python.mjs --json       # JSON output
@@ -46,7 +46,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
 
 const { parse } = await import(join(REPO_ROOT, 'packages/core/dist/index.js'));
-const { transpileFastAPI } = await import(join(REPO_ROOT, 'packages/fastapi/dist/index.js'));
+const { transpileFastAPI } = await import(join(REPO_ROOT, 'packages/python/dist/index.js'));
 
 const rawArgs = process.argv.slice(2);
 

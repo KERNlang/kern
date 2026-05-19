@@ -52,7 +52,7 @@ export interface DifferentialOptions {
    */
   skipTs?: boolean;
   /**
-   * PR-3b — Python leg runner injected from `@kernlang/fastapi` (the core
+   * PR-3b — Python leg runner injected from `@kernlang/python` (the core
    * package can't depend on fastapi without a circular import, so the
    * Python leg lives in fastapi and is passed in here). When omitted AND
    * `skipPython !== true`, the harness falls back to throwing "not wired",

@@ -34,7 +34,7 @@ import {
   VALUE_SHORTHANDS,
 } from '@kernlang/core';
 import { transpileExpress } from '@kernlang/express';
-import { transpileFastAPI } from '@kernlang/fastapi';
+import { transpileFastAPI } from '@kernlang/python';
 import { transpileMCP, transpileMCPPython } from '@kernlang/mcp';
 import { generateReactNode, isReactNode, transpileNextjs, transpileTailwind, transpileWeb } from '@kernlang/react';
 import { reviewKernSource, reviewSource } from '@kernlang/review';

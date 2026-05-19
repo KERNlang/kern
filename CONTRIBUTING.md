@@ -62,7 +62,7 @@ KERN is a pnpm monorepo. Key packages:
 | `packages/react` | Next.js / React / Tailwind transpilers |
 | `packages/vue` | Vue 3 / Nuxt 3 transpilers |
 | `packages/express` | Express backend transpiler |
-| `packages/fastapi` | FastAPI Python transpiler |
+| `packages/python` | FastAPI Python transpiler |
 
 Architecture guide: [docs/architecture.md](docs/architecture.md)
 

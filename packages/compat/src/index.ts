@@ -9,7 +9,7 @@ export { transpileCliApp } from '@kernlang/cli';
 // Core (parser, types, config, spec, styles, codegen, utils)
 export * from '@kernlang/core';
 export { transpileExpress } from '@kernlang/express';
-export { transpileFastAPI } from '@kernlang/fastapi';
+export { transpileFastAPI } from '@kernlang/python';
 export type { LanguageMetrics, NodeTypeMetrics, ProjectSummary, StyleMetrics } from '@kernlang/metrics';
 // Metrics + context export
 export {

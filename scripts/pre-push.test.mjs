@@ -12,7 +12,7 @@ import {
 const packages = [
   { relDir: 'packages/compat', name: 'kern-lang', scripts: { build: 'tsc -b' } },
   { relDir: 'packages/core', name: '@kernlang/core', scripts: { build: 'tsc -b', test: 'jest' } },
-  { relDir: 'packages/fastapi', name: '@kernlang/fastapi', scripts: { build: 'tsc -b', test: 'jest' } },
+  { relDir: 'packages/python', name: '@kernlang/python', scripts: { build: 'tsc -b', test: 'jest' } },
   { relDir: 'packages/duplicate-name', name: 'kern-lang', scripts: {} },
 ];
 
@@ -23,11 +23,11 @@ test('prePushChangedFiles parses updated ref stdin', () => {
     gitCommand(args) {
       calls.push(args);
       assert.deepEqual(args, ['diff', '--name-only', 'remote-sha', 'local-sha']);
-      return 'packages/core/src/parser-core.ts\npackages/fastapi/tests/http.test.ts\n';
+      return 'packages/core/src/parser-core.ts\npackages/python/tests/http.test.ts\n';
     },
   });
 
-  assert.deepEqual(files, ['packages/core/src/parser-core.ts', 'packages/fastapi/tests/http.test.ts']);
+  assert.deepEqual(files, ['packages/core/src/parser-core.ts', 'packages/python/tests/http.test.ts']);
   assert.equal(calls.length, 1);
 });
 
@@ -127,7 +127,7 @@ test('affectedPackages expands root infra changes to all workspace packages', ()
 
   assert.deepEqual(
     affected.map((pkg) => pkg.relDir),
-    ['packages/compat', 'packages/core', 'packages/duplicate-name', 'packages/fastapi'],
+    ['packages/compat', 'packages/core', 'packages/duplicate-name', 'packages/python'],
   );
 });
 
@@ -136,7 +136,7 @@ test('affectedPackages expands root script changes to all workspace packages', (
 
   assert.deepEqual(
     affected.map((pkg) => pkg.relDir),
-    ['packages/compat', 'packages/core', 'packages/duplicate-name', 'packages/fastapi'],
+    ['packages/compat', 'packages/core', 'packages/duplicate-name', 'packages/python'],
   );
 });
 

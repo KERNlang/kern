@@ -53,7 +53,7 @@
   "dependencies": {
     "@kernlang/core": "workspace:*",
     "@kernlang/express": "workspace:*",
-    "@kernlang/fastapi": "workspace:*",
+    "@kernlang/python": "workspace:*",
     "@kernlang/mcp": "workspace:*",
     "@kernlang/react": "workspace:*",
     "@kernlang/review": "workspace:*",

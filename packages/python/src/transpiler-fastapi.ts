@@ -1,5 +1,5 @@
 /**
- * @kernlang/fastapi — FastAPI Python backend transpiler
+ * @kernlang/python — FastAPI Python backend transpiler
  *
  * IR → Python/FastAPI multi-file output.
  * Blueprint: transpiler-express.ts — same IR nodes, same multi-file pattern, Python output.

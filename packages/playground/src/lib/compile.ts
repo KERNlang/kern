@@ -3,7 +3,7 @@ import { resolveConfig } from '@kernlang/core/config';
 import { parse } from '@kernlang/core/parser';
 import { serializeIR } from '@kernlang/core/utils';
 import { transpileExpress } from '@kernlang/express';
-import { transpileFastAPI } from '@kernlang/fastapi';
+import { transpileFastAPI } from '@kernlang/python';
 import { transpile as transpileNative } from '@kernlang/native';
 import { transpileNextjs, transpileTailwind, transpileWeb } from '@kernlang/react';
 import { transpileInk, transpileTerminal } from '@kernlang/terminal';
