@@ -1,0 +1,12 @@
+type name=SupportedAssignOperator alias="'=' | '+=' | '-=' | '*=' | '/=' | '%=' | '**=' | '&=' | '|=' | '^=' | '<<=' | '>>=' | '++' | '--'"
+type name=PostfixMutationOperator alias="'++' | '--'"
+
+const name=SUPPORTED_ASSIGN_OPERATORS value={{['=', '+=', '-=', '*=', '/=', '%=', '**=', '&=', '|=', '^=', '<<=', '>>=', '++', '--']}}
+
+fn name=isSupportedAssignOperator params="op:string" returns=boolean export=true
+  handler
+    return value="SUPPORTED_ASSIGN_OPERATORS.includes(op)"
+
+fn name=isPostfixMutationOperator params="op:string" returns=boolean export=true
+  handler
+    return value="op === '++' || op === '--'"
