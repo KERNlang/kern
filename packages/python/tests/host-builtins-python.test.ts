@@ -92,4 +92,43 @@ describe('Host-builtin mapping (Python target)', () => {
     expect(code).toContain('"crypto.randomUUID()"');
     expect(code).not.toContain('uuid.uuid4');
   });
+
+  test('a custom receiver ending in a global name is NOT rewritten', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=get path=/api/recv',
+      '    derive a expr={{myJSON.stringify(x)}}',
+      '    derive b expr={{some.crypto.randomUUID()}}',
+      '    respond 200 json=a',
+    ]);
+    const code = routeContent(result, 'recv');
+    expect(code).toContain('myJSON.stringify(x)');
+    expect(code).toContain('some.crypto.randomUUID()');
+    expect(code).not.toContain('myjson.dumps');
+    expect(code).not.toContain('some.str(uuid');
+  });
+
+  test('JSON.stringify pretty-print form maps the spacer to indent=', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=post path=/api/pretty',
+      '    schema body="{payload: string}"',
+      '    derive s expr={{JSON.stringify(body.payload, null, 2)}}',
+      '    respond 200 json=s',
+    ]);
+    const code = routeContent(result, 'pretty');
+    expect(code).toContain('json.dumps(body.payload, indent=2)');
+    expect(code).not.toContain('None, 2)');
+  });
+
+  test('JSON.parse handles a nested call argument', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=get path=/api/nested',
+      '    derive v expr={{JSON.parse(read())}}',
+      '    respond 200 json=v',
+    ]);
+    const code = routeContent(result, 'nested');
+    expect(code).toContain('json.loads(read())');
+  });
 });

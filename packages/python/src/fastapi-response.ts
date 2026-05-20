@@ -158,9 +158,16 @@ export function rewriteFastAPIExpr(
   });
 
   // ── Host-builtin lowering (JS globals → Python stdlib) ────────────────
+  // Each pattern skips string literals (STRING_LITERAL_ALT) and requires the
+  // global NOT be a property of something else via `(?<![\w.])`, so a custom
+  // receiver like `myJSON.stringify(x)` or `some.crypto.randomUUID()` is left
+  // untouched (Codex review on 6f53c0bd). HB_ARG matches a single argument
+  // with one level of nested parens and no top-level comma, so `JSON.parse(
+  // load())` works while multi-arg forms don't mis-capture (Codex review).
+  const HB_ARG = '(?:[^(),]|\\([^()]*\\))+';
+
   // crypto.randomUUID() → str(uuid.uuid4())
-  const CRYPTO_UUID_RE = new RegExp(`${STRING_LITERAL_ALT}|crypto\\.randomUUID\\(\\)`, 'g');
-  result = result.replace(CRYPTO_UUID_RE, (match) => {
+  result = result.replace(new RegExp(`${STRING_LITERAL_ALT}|(?<![\\w.])crypto\\.randomUUID\\(\\)`, 'g'), (match) => {
     if (match === 'crypto.randomUUID()') {
       imports?.add('import uuid');
       return 'str(uuid.uuid4())';
@@ -169,34 +176,55 @@ export function rewriteFastAPIExpr(
   });
 
   // new Date().toISOString() → datetime.now(timezone.utc).isoformat()
-  const DATE_ISO_RE = new RegExp(`${STRING_LITERAL_ALT}|new Date\\(\\)\\.toISOString\\(\\)`, 'g');
-  result = result.replace(DATE_ISO_RE, (match) => {
-    if (match === 'new Date().toISOString()') {
-      imports?.add('from datetime import datetime, timezone');
-      return 'datetime.now(timezone.utc).isoformat()';
-    }
-    return match;
-  });
+  result = result.replace(
+    new RegExp(`${STRING_LITERAL_ALT}|(?<![\\w.])new Date\\(\\)\\.toISOString\\(\\)`, 'g'),
+    (match) => {
+      if (match === 'new Date().toISOString()') {
+        imports?.add('from datetime import datetime, timezone');
+        return 'datetime.now(timezone.utc).isoformat()';
+      }
+      return match;
+    },
+  );
+
+  // JSON.stringify(x, null, n) → json.dumps(x, indent=n) — the pretty-print
+  // form (the literal pass already mapped null→None). Matched before the
+  // 1-arg form so the spacer args become `indent=` instead of breaking
+  // json.dumps with extra positionals (Codex review on 6f53c0bd).
+  result = result.replace(
+    new RegExp(`${STRING_LITERAL_ALT}|(?<![\\w.])JSON\\.stringify\\((${HB_ARG}),\\s*(?:None|null)\\s*,\\s*(\\d+)\\)`, 'g'),
+    (match, arg, indent) => {
+      if (arg !== undefined) {
+        imports?.add('import json');
+        return `json.dumps(${arg.trim()}, indent=${indent})`;
+      }
+      return match;
+    },
+  );
 
   // JSON.stringify(x) → json.dumps(x)
-  const JSON_STRINGIFY_RE = new RegExp(`${STRING_LITERAL_ALT}|JSON\\.stringify\\(([^)]+)\\)`, 'g');
-  result = result.replace(JSON_STRINGIFY_RE, (match, arg) => {
-    if (arg !== undefined) {
-      imports?.add('import json');
-      return `json.dumps(${arg})`;
-    }
-    return match;
-  });
+  result = result.replace(
+    new RegExp(`${STRING_LITERAL_ALT}|(?<![\\w.])JSON\\.stringify\\((${HB_ARG})\\)`, 'g'),
+    (match, arg) => {
+      if (arg !== undefined) {
+        imports?.add('import json');
+        return `json.dumps(${arg.trim()})`;
+      }
+      return match;
+    },
+  );
 
   // JSON.parse(x) → json.loads(x)
-  const JSON_PARSE_RE = new RegExp(`${STRING_LITERAL_ALT}|JSON\\.parse\\(([^)]+)\\)`, 'g');
-  result = result.replace(JSON_PARSE_RE, (match, arg) => {
-    if (arg !== undefined) {
-      imports?.add('import json');
-      return `json.loads(${arg})`;
-    }
-    return match;
-  });
+  result = result.replace(
+    new RegExp(`${STRING_LITERAL_ALT}|(?<![\\w.])JSON\\.parse\\((${HB_ARG})\\)`, 'g'),
+    (match, arg) => {
+      if (arg !== undefined) {
+        imports?.add('import json');
+        return `json.loads(${arg.trim()})`;
+      }
+      return match;
+    },
+  );
 
   // Object-literal keys → quoted Python dict keys (`{userId: x}` →
   // `{"userId": x}`). Applied last, mirroring the raw `res.json(...)` path's
