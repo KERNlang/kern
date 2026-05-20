@@ -295,42 +295,41 @@ function parseTemplateLiteral(expr: string, startIndex: number): ParsedTemplateL
   return undefined;
 }
 
-// Decode the JS-template escape sequences that parseTemplateLiteral kept raw
-// (it preserves `\x` as two characters) into the actual characters they denote,
-// so they can be re-encoded for Python. Without this, `\n` would survive as a
-// literal backslash-n rather than a newline (Codex review on 678e6bc1).
-function decodeJsTemplateEscapes(raw: string): string {
-  return raw.replace(/\\(.)/g, (_m, ch) => {
-    switch (ch) {
-      case 'n':
-        return '\n';
-      case 't':
-        return '\t';
-      case 'r':
-        return '\r';
-      case '0':
-        return '\0';
-      // `\``, `\$`, `\\`, `\"`, `\'` and any other escaped char denote the
-      // bare character.
-      default:
-        return ch;
+// Re-encode JS-template literal text (kept raw by parseTemplateLiteral, with `\x`
+// as two characters) for a Python double-quoted string. Most JS escapes are
+// ALSO valid Python escapes (`\n \t \r \b \f \v \\ \" \uXXXX \xXX \0`), so they
+// are preserved verbatim — decoding then re-encoding them only risks corrupting
+// the exotic ones (Codex reviews on 678e6bc1 and the escape-decoder commit).
+// Only the JS-specific escapes that Python does not recognise are converted to
+// the bare character: `\`` → backtick, `\$` → `$`, `\'` → `'`. A bare `"` (or a
+// bare trailing backslash, or raw control char) is escaped so the literal stays
+// valid.
+function escapeJsTemplateTextForPy(raw: string): string {
+  let out = '';
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i];
+    if (c === '\\' && i + 1 < raw.length) {
+      const next = raw[i + 1];
+      if (next === '`' || next === '$' || next === "'") {
+        out += next; // JS-only escape → bare char (Python has no such escape)
+      } else {
+        out += '\\' + next; // valid Python escape (\n, \uXXXX, \0, ...) — keep
+      }
+      i += 1;
+      continue;
     }
-  });
-}
-
-// Encode actual characters for a Python double-quoted string literal, including
-// control characters that cannot appear raw inside a `"..."`.
-function escapeForPyDoubleQuoted(text: string): string {
-  return text
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, '\\n')
-    .replace(/\r/g, '\\r')
-    .replace(/\t/g, '\\t');
+    if (c === '\\') out += '\\\\'; // lone trailing backslash
+    else if (c === '"') out += '\\"';
+    else if (c === '\n') out += '\\n';
+    else if (c === '\r') out += '\\r';
+    else if (c === '\t') out += '\\t';
+    else out += c;
+  }
+  return out;
 }
 
 function escapePythonTemplateText(text: string, forFormatTemplate: boolean): string {
-  const escaped = escapeForPyDoubleQuoted(decodeJsTemplateEscapes(text));
+  const escaped = escapeJsTemplateTextForPy(text);
   if (!forFormatTemplate) return escaped;
   // str.format treats { } as field markers, so literal braces must be doubled.
   return escaped.replace(/{/g, '{{').replace(/}/g, '}}');
