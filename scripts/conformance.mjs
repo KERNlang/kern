@@ -159,6 +159,15 @@ const FIXTURES = [
     expected: [0, 2, 4],
   },
   {
+    // Shorthand length object `{ length }` must be expanded before Array.from
+    // lowering recognises the `length:` property (codex review of d75a9d05).
+    name: 'Array.from with a shorthand length object',
+    expr: 'Array.from({ length }, (_, i) => i)',
+    path: '/api/shortlen',
+    bindings: { locals: { length: 3 } },
+    expected: [0, 1, 2],
+  },
+  {
     name: 'Array.from producing objects with a query param length',
     expr: 'Array.from({ length: query.n }, (_, i) => ({ idx: i, base: query.n }))',
     path: '/api/grid',

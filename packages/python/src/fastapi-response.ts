@@ -638,6 +638,12 @@ export function rewriteFastAPIExpr(
   // Spread → unpacking first, so the request-ref rewrites below see clean
   // operands (e.g. `*user.roles`, not `...user.roles`).
   result = lowerSpreadElements(result);
+  // Expand object shorthand BEFORE Array.from lowering, so a shorthand length
+  // object `Array.from({ length }, …)` becomes `{ length: length }` and is
+  // recognised (codex review of d75a9d05). No later pass creates new object
+  // literals, so this single early pass covers length objects, arrow bodies,
+  // and every other object.
+  result = expandObjectShorthand(result);
   // Array.from(length, arrow) → list comprehension. Runs before the ref/key
   // passes so they lower the count and body of the produced comprehension.
   result = lowerArrayFromCalls(result);
@@ -734,9 +740,6 @@ export function rewriteFastAPIExpr(
   // JSON.stringify(...) → json.dumps(...) / JSON.parse(...) → json.loads(...)
   result = lowerJsonBuiltinCalls(result, imports);
 
-  // Object-literal shorthand `{ items }` → `{ items: items }` so the key-quoting
-  // pass can quote them; runs immediately before it.
-  result = expandObjectShorthand(result);
   // Object-literal keys → quoted Python dict keys (`{userId: x}` →
   // `{"userId": x}`). Applied last, mirroring the raw `res.json(...)` path's
   // outer quote-after-lower order; runs after array-method lowering so dicts

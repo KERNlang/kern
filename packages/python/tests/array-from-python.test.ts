@@ -84,6 +84,19 @@ describe('Array.from(length, arrow) → Python comprehension', () => {
     expect(code).toContain('[[i * 2 + j for j in range(2)] for i in range(2)]');
   });
 
+  test('a shorthand length object is recognised after shorthand expansion', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=get path=/api/shortlen',
+      '    params length:number=3',
+      '    derive xs expr={{ Array.from({ length }, (_, i) => i) }}',
+      '    respond 200 json=xs',
+    ]);
+    const code = routeContent(result, 'shortlen');
+    expect(code).toContain('[i for i in range(length)]');
+    expect(code).not.toContain('Array.from');
+  });
+
   test('a single-param arrow does NOT promote the element to the index var', async () => {
     const result = await transpile([
       'server name=API port=8000',
