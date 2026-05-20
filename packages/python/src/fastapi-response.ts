@@ -111,8 +111,13 @@ export function rewriteFastAPIExpr(
   // user.X → user["X"]: with auth, `user` is the decoded JWT payload (a dict
   // returned by auth_required/auth_optional), so attribute access would raise
   // AttributeError. Only applied when the route declares auth (Codex review).
+  // Skip text inside string literals so `{{"user.id"}}` isn't corrupted to
+  // `"user["id"]"` (Codex review on 02ecb2fa), and require `user` NOT be a
+  // property of something else (negative lookbehind `(?<!\.)`) so a nested
+  // body access like `body.user.id` is left intact (Kimi review on 02ecb2fa).
   if (authUser) {
-    result = result.replace(/\buser\.([A-Za-z_]\w*)/g, 'user["$1"]');
+    const USER_FIELD_RE = new RegExp(`${STRING_LITERAL_ALT}|(?<!\\.)\\buser\\.([A-Za-z_]\\w*)`, 'g');
+    result = result.replace(USER_FIELD_RE, (match, field) => (field ? `user["${field}"]` : match));
   }
   // body.X → body.<snake_case(X)>: the generated Pydantic model snake-cases
   // every field, so a camelCase access would raise AttributeError at runtime.

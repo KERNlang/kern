@@ -339,6 +339,12 @@ export function buildRouteArtifact(
   routeNode: IRNode,
   routeIndex: number,
   sourceMap: SourceMapEntry[],
+  // Module specifier a `routes/*.py` artifact uses to import the generated
+  // auth helper. Defaults to the flat `'auth'` (single-file / non-package
+  // output); the caller passes a package-relative spec like `'..auth'` when
+  // emitting a Python package, so the import resolves from the routes
+  // subpackage instead of looking for a top-level `auth` module (Codex review).
+  routeAuthModuleSpec = 'auth',
 ): RouteArtifactRef {
   const props = getProps(routeNode);
   const method = String(props.method || 'get').toLowerCase();
@@ -536,10 +542,12 @@ export function buildRouteArtifact(
     if (authNode) {
       const authMode = String(getProps(authNode).mode || 'required');
       const authFunc = authMode === 'optional' ? 'auth_optional' : 'auth_required';
-      // The auth helper lives in the generated root `auth.py`; each route
-      // module that depends on it must import it, or the route file fails at
-      // import time with a NameError (Codex review on commit 54fb0e24).
-      imports.add(`from auth import ${authFunc}`);
+      // The auth helper lives in the generated `auth.py`; each route module
+      // that depends on it must import it, or the route file fails at import
+      // time with a NameError (Codex review on commit 54fb0e24). The specifier
+      // is package-aware (`routeAuthModuleSpec`) so packaged output resolves it
+      // relatively (Codex review on commit 02ecb2fa).
+      imports.add(`from ${routeAuthModuleSpec} import ${authFunc}`);
       paramParts.push(`user = Depends(${authFunc})`);
     }
 

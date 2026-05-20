@@ -99,4 +99,54 @@ describe('FastAPI portable expression codegen (route artifacts)', () => {
     expect(code).toContain('user.id');
     expect(code).not.toContain('user["id"]');
   });
+
+  test('P2-followup: the user.<field> rewrite skips string literals', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=get path=/api/me',
+      '    auth required',
+      '    derive label expr={{tag("user.id")}}',
+      '    respond 200 json=label',
+    ]);
+    const code = routeContent(result, 'me');
+    // The literal string "user.id" must be preserved verbatim, not corrupted
+    // into "user["id"]" — which would be invalid Python.
+    expect(code).toContain('"user.id"');
+    expect(code).not.toContain('"user["id"]"');
+  });
+
+  test('auth optional routes import auth_optional and subscript the payload', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=get path=/api/maybe',
+      '    auth optional',
+      '    derive who expr={{lookup(user.id)}}',
+      '    respond 200 json=who',
+    ]);
+    const code = routeContent(result, 'maybe');
+    expect(code).toContain('from auth import auth_optional');
+    expect(code).toContain('user["id"]');
+  });
+
+  test('P1-followup: packaged output imports auth with a package-relative spec', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+    const root = parse(
+      [
+        'server name=API port=8000',
+        '  route method=get path=/api/me',
+        '    auth required',
+        '    derive me expr={{lookup(user.id)}}',
+        '    respond 200 json=me',
+      ].join('\n'),
+    );
+    // Emit as a package: the app module is `myapp.main`, so auth is `myapp.auth`
+    // and a route at `myapp.routes.*` must import it as `..auth`, not `auth`.
+    const result = transpileFastAPI(root, {
+      fastapi: { sourceFile: 'app.kern', modulePathByFile: { 'app.kern': 'myapp.main' } },
+    } as Parameters<typeof transpileFastAPI>[1]);
+    const code = routeContent(result, 'me');
+    expect(code).toContain('from ..auth import auth_required');
+    expect(code).not.toContain('from auth import');
+  });
 });
