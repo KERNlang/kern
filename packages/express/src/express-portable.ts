@@ -15,6 +15,8 @@ export function rewriteExpressExpr(expr: string, path: string): string {
   result = result.replace(/\bquery\.([A-Za-z_]\w*)/g, 'req.query.$1');
   // headers.X → req.headers['X']
   result = result.replace(/\bheaders\.([A-Za-z_][\w-]*)/g, (_m, key) => `req.headers['${key}']`);
+  // Auth payload exposed by `auth required`/`auth optional`.
+  result = result.replace(/\buser\.([A-Za-z_]\w*)/g, 'req.user.$1');
   // effectName.result → effectName (effect variables hold the result directly)
   result = result.replace(/\b([A-Za-z_]\w*)\.result\b/g, '$1');
   return result;
@@ -22,12 +24,21 @@ export function rewriteExpressExpr(expr: string, path: string): string {
 
 // ── Portable handler generation (derive → guard → handler → respond) ─────
 
+export interface PortableExpressOptions {
+  errorMessagesByStatus?: ReadonlyMap<number, string>;
+}
+
 export function extractExprCode(prop: unknown): string {
   if (typeof prop === 'object' && prop !== null && (prop as any).__expr) return (prop as any).code;
   return typeof prop === 'string' ? prop : '';
 }
 
-export function generatePortableChildExpress(child: IRNode, indent: string, path: string): string[] {
+export function generatePortableChildExpress(
+  child: IRNode,
+  indent: string,
+  path: string,
+  options: PortableExpressOptions = {},
+): string[] {
   const lines: string[] = [];
   const p = getProps(child);
 
@@ -44,7 +55,10 @@ export function generatePortableChildExpress(child: IRNode, indent: string, path
       const name = String(p.name || '');
       const exprCode = extractExprCode(p.expr);
       const elseStatus = p.else ? parseInt(String(p.else), 10) : 404;
-      const elseMessage = typeof p.message === 'string' ? p.message : name ? `${name} guard failed` : 'Guard failed';
+      const elseMessage =
+        typeof p.message === 'string'
+          ? p.message
+          : options.errorMessagesByStatus?.get(elseStatus) || (name ? `${name} guard failed` : 'Guard failed');
       if (exprCode) {
         lines.push(`${indent}if (!(${rewriteExpressExpr(exprCode, path)})) {`);
         lines.push(
@@ -80,7 +94,7 @@ export function generatePortableChildExpress(child: IRNode, indent: string, path
         lines.push(`${indent}${keyword} (${on} === '${escapeSingleQuotes(value)}') {`);
         // Recurse into path children
         for (const pathChild of pathNode.children || []) {
-          lines.push(...generatePortableChildExpress(pathChild, `${indent}  `, path));
+          lines.push(...generatePortableChildExpress(pathChild, `${indent}  `, path, options));
         }
         lines.push(`${indent}}`);
       }
@@ -96,7 +110,7 @@ export function generatePortableChildExpress(child: IRNode, indent: string, path
         lines.push(`${indent}for (const ${name} of ${collection}) {`);
       }
       for (const eachChild of child.children || []) {
-        lines.push(...generatePortableChildExpress(eachChild, `${indent}  `, path));
+        lines.push(...generatePortableChildExpress(eachChild, `${indent}  `, path, options));
       }
       lines.push(`${indent}}`);
       break;
@@ -151,7 +165,12 @@ export function generatePortableChildExpress(child: IRNode, indent: string, path
   return lines;
 }
 
-export function generatePortableHandlerExpress(routeNode: IRNode, indent: string, path: string): string[] {
+export function generatePortableHandlerExpress(
+  routeNode: IRNode,
+  indent: string,
+  path: string,
+  options: PortableExpressOptions = {},
+): string[] {
   const lines: string[] = [];
   const children = routeNode.children || [];
 
@@ -159,7 +178,7 @@ export function generatePortableHandlerExpress(routeNode: IRNode, indent: string
   const PORTABLE_TYPES = new Set(['derive', 'guard', 'handler', 'respond', 'branch', 'each', 'collect', 'effect']);
   for (const child of children) {
     if (PORTABLE_TYPES.has(child.type)) {
-      lines.push(...generatePortableChildExpress(child, indent, path));
+      lines.push(...generatePortableChildExpress(child, indent, path, options));
     }
   }
 

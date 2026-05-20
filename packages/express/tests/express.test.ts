@@ -513,6 +513,40 @@ describe('Express Transpiler', () => {
       expect(route!.content).toContain("req.headers['authorization']");
     });
 
+    test('portable auth user ref rewrites to req.user', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/tracks',
+        '    auth required',
+        '    derive tracks expr={{await db.tracks.findAll({userId: user.id})}}',
+        '    respond 200 json=tracks',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('authRequired');
+      expect(route!.content).toContain('userId: req.user.id');
+      expect(route!.content).not.toContain('userId: user.id');
+    });
+
+    test('portable guard reuses matching route error contract message', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/tracks/:id',
+        '    derive track expr={{await db.tracks.findById(params.id)}}',
+        '    guard name=exists expr={{track}} else=404',
+        '    respond 200 json=track',
+        '    error 404 "Not found"',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain("res.status(404).json({ error: 'Not found' })");
+      expect(route!.content).not.toContain('exists guard failed');
+    });
+
     test('handler + respond coexist (escape hatch pattern)', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');
