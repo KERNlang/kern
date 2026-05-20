@@ -9,7 +9,7 @@ import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 import type { KernConfig, KernTarget } from './config.js';
 import { DEFAULT_CONFIG } from './config.js';
-import { detectVersionsFromPackageJson } from './generated/utils/version-detect.js';
+import { detectVersionsFromPackageJson } from './version-detect.js';
 
 // ── Types ────────────────────────────────────────────────────────────────
 

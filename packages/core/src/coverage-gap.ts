@@ -9,7 +9,7 @@
 import { randomBytes } from 'crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'fs';
 import { join, resolve } from 'path';
-import { classifyHandlerGap, type GapCategory } from './generated/utils/migrate-literals.js';
+import { classifyHandlerGap, type GapCategory } from './migrate-literals.js';
 import type { IRNode } from './types.js';
 
 export interface CoverageGap {

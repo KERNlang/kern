@@ -1,25 +1,27 @@
-// Checked in by `pnpm --filter @kernlang/core kern:compile`.
+// The src facade delegates to the generated utility checked in by `pnpm --filter @kernlang/core kern:compile`.
 import * as generatedMigrateLiterals from '../src/generated/utils/migrate-literals.js';
 import {
-  classifyHandlerGap as sourceClassifyHandlerGap,
-  isInlineSafeExpression as sourceIsInlineSafeExpression,
-  isInlineSafeLiteral as sourceIsInlineSafeLiteral,
+  classifyHandlerGap as facadeClassifyHandlerGap,
+  isInlineSafeExpression as facadeIsInlineSafeExpression,
+  isInlineSafeLiteral as facadeIsInlineSafeLiteral,
 } from '../src/migrate-literals.js';
 
 const migrateLiteralImplementations = [
   {
-    classifyHandlerGap: sourceClassifyHandlerGap,
-    isInlineSafeExpression: sourceIsInlineSafeExpression,
-    isInlineSafeLiteral: sourceIsInlineSafeLiteral,
-    label: 'source',
-  },
-  {
-    classifyHandlerGap: generatedMigrateLiterals.classifyHandlerGap,
-    isInlineSafeExpression: generatedMigrateLiterals.isInlineSafeExpression,
-    isInlineSafeLiteral: generatedMigrateLiterals.isInlineSafeLiteral,
-    label: 'generated',
+    classifyHandlerGap: facadeClassifyHandlerGap,
+    isInlineSafeExpression: facadeIsInlineSafeExpression,
+    isInlineSafeLiteral: facadeIsInlineSafeLiteral,
+    label: 'facade',
   },
 ];
+
+describe('migrate-literals facade', () => {
+  it('delegates to generated KERN utility exports', () => {
+    expect(facadeClassifyHandlerGap).toBe(generatedMigrateLiterals.classifyHandlerGap);
+    expect(facadeIsInlineSafeExpression).toBe(generatedMigrateLiterals.isInlineSafeExpression);
+    expect(facadeIsInlineSafeLiteral).toBe(generatedMigrateLiterals.isInlineSafeLiteral);
+  });
+});
 
 describe.each(migrateLiteralImplementations)('migrate-literals ($label)', (implementation) => {
   const { classifyHandlerGap, isInlineSafeExpression, isInlineSafeLiteral } = implementation;

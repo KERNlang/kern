@@ -1,6 +1,6 @@
-// Compare source logic with the generated utility checked in by `pnpm --filter @kernlang/core kern:compile`.
+// The src facade delegates to the generated utility checked in by `pnpm --filter @kernlang/core kern:compile`.
 import * as generatedVersionDetect from '../src/generated/utils/version-detect.js';
-import * as sourceVersionDetect from '../src/version-detect.js';
+import * as facadeVersionDetect from '../src/version-detect.js';
 import {
   applyTailwindTokenRules,
   buildNextjsProfile,
@@ -14,22 +14,24 @@ import {
 
 const versionDetectionImplementations = [
   {
-    detectVersionsFromPackageJson: sourceVersionDetect.detectVersionsFromPackageJson,
-    label: 'source',
-    parseMajorVersion: sourceVersionDetect.parseMajorVersion,
-    resolveNextjsMajor: sourceVersionDetect.resolveNextjsMajor,
-    resolveReactMajor: sourceVersionDetect.resolveReactMajor,
-    resolveTailwindMajor: sourceVersionDetect.resolveTailwindMajor,
-  },
-  {
-    detectVersionsFromPackageJson: generatedVersionDetect.detectVersionsFromPackageJson,
-    label: 'generated',
-    parseMajorVersion: generatedVersionDetect.parseMajorVersion,
-    resolveNextjsMajor: generatedVersionDetect.resolveNextjsMajor,
-    resolveReactMajor: generatedVersionDetect.resolveReactMajor,
-    resolveTailwindMajor: generatedVersionDetect.resolveTailwindMajor,
+    detectVersionsFromPackageJson: facadeVersionDetect.detectVersionsFromPackageJson,
+    label: 'facade',
+    parseMajorVersion: facadeVersionDetect.parseMajorVersion,
+    resolveNextjsMajor: facadeVersionDetect.resolveNextjsMajor,
+    resolveReactMajor: facadeVersionDetect.resolveReactMajor,
+    resolveTailwindMajor: facadeVersionDetect.resolveTailwindMajor,
   },
 ];
+
+describe('version-detect facade', () => {
+  it('delegates to generated KERN utility exports', () => {
+    expect(facadeVersionDetect.detectVersionsFromPackageJson).toBe(generatedVersionDetect.detectVersionsFromPackageJson);
+    expect(facadeVersionDetect.parseMajorVersion).toBe(generatedVersionDetect.parseMajorVersion);
+    expect(facadeVersionDetect.resolveNextjsMajor).toBe(generatedVersionDetect.resolveNextjsMajor);
+    expect(facadeVersionDetect.resolveReactMajor).toBe(generatedVersionDetect.resolveReactMajor);
+    expect(facadeVersionDetect.resolveTailwindMajor).toBe(generatedVersionDetect.resolveTailwindMajor);
+  });
+});
 
 describe.each(versionDetectionImplementations)('Version Detection ($label)', (implementation) => {
   const {

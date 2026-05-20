@@ -10,7 +10,7 @@
  */
 
 import type { FrameworkVersions } from './config.js';
-import { resolveNextjsMajor, resolveReactMajor, resolveTailwindMajor } from './generated/utils/version-detect.js';
+import { resolveNextjsMajor, resolveReactMajor, resolveTailwindMajor } from './version-detect.js';
 
 // ── React Version Adapter ───────────────────────────────────────────────
 
