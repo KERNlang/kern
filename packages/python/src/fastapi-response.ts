@@ -203,6 +203,121 @@ function lowerJsonBuiltinCalls(expr: string, imports?: Set<string>): string {
   return out;
 }
 
+function escapeTemplateLiteralTextForPy(text: string): string {
+  return escapePyStr(text).replace(/\{/g, '{{').replace(/\}/g, '}}');
+}
+
+function lowerJsTemplateLiteralsToPyStrings(expr: string): string {
+  let out = '';
+  let i = 0;
+  let quote: '"' | "'" | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    if (c !== '`') {
+      out += c;
+      i += 1;
+      continue;
+    }
+
+    const parts: Array<{ kind: 'text'; value: string } | { kind: 'expr'; value: string }> = [];
+    let text = '';
+    let j = i + 1;
+    let hasInterpolation = false;
+    let terminated = false;
+
+    while (j < expr.length) {
+      const ch = expr[j];
+      if (ch === '\\' && j + 1 < expr.length) {
+        text += ch + expr[j + 1];
+        j += 2;
+        continue;
+      }
+      if (ch === '`') {
+        terminated = true;
+        j += 1;
+        break;
+      }
+      if (ch === '$' && expr[j + 1] === '{') {
+        hasInterpolation = true;
+        if (text) parts.push({ kind: 'text', value: text });
+        text = '';
+        let depth = 1;
+        let k = j + 2;
+        let innerQuote: '"' | "'" | '`' | null = null;
+        while (k < expr.length && depth > 0) {
+          const inner = expr[k];
+          if (innerQuote) {
+            if (inner === '\\' && k + 1 < expr.length) {
+              k += 2;
+              continue;
+            }
+            if (inner === innerQuote) innerQuote = null;
+            k += 1;
+            continue;
+          }
+          if (inner === '"' || inner === "'" || inner === '`') {
+            innerQuote = inner;
+            k += 1;
+            continue;
+          }
+          if (inner === '{') depth += 1;
+          else if (inner === '}') {
+            depth -= 1;
+            if (depth === 0) break;
+          }
+          k += 1;
+        }
+        if (depth !== 0) {
+          break;
+        }
+        parts.push({ kind: 'expr', value: expr.slice(j + 2, k) });
+        j = k + 1;
+        continue;
+      }
+      text += ch;
+      j += 1;
+    }
+
+    if (!terminated) {
+      out += c;
+      i += 1;
+      continue;
+    }
+    if (text) parts.push({ kind: 'text', value: text });
+
+    if (!hasInterpolation) {
+      const plain = parts.map((part) => part.value).join('');
+      out += `"${escapePyStr(plain)}"`;
+    } else {
+      out += 'f"';
+      for (const part of parts) {
+        if (part.kind === 'text') out += escapeTemplateLiteralTextForPy(part.value);
+        else out += `{${part.value}}`;
+      }
+      out += '"';
+    }
+    i = j;
+  }
+  return out;
+}
+
 export function rewriteFastAPIExpr(
   expr: string,
   pathParams: string[],
@@ -300,6 +415,12 @@ export function rewriteFastAPIExpr(
   // outer quote-after-lower order; runs after array-method lowering so dicts
   // produced inside list comprehensions are quoted too.
   result = quoteObjectKeysOutsideStrings(result);
+
+  // JS template literals in portable expressions → Python strings/f-strings.
+  // `${expr}` interpolation expressions are already lowered by earlier passes,
+  // so this only rewrites template syntax and escapes literal braces in
+  // f-string text segments.
+  result = lowerJsTemplateLiteralsToPyStrings(result);
 
   return result;
 }
