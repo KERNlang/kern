@@ -168,6 +168,27 @@ describe('generated external-boundary-utils behavior', () => {
     expect('signatures' in binding).toBe(false);
   });
 
+  it('resolves external package names from extern and import props', () => {
+    expect(generated.externalPackageNameFromExternProps({ package: 'numpy' })).toBe('numpy');
+    expect(generated.externalPackageNameFromExternProps({ package: '' })).toBeNull();
+    expect(generated.externalPackageNameFromExternProps({ from: 'numpy' })).toBeNull();
+    expect(generated.externalPackageNameFromExternProps({})).toBeNull();
+    expect(generated.externalPackageNameFromExternProps({ package: 1 })).toBeNull();
+    expect(generated.externalPackageNameFromExternProps({ package: null })).toBeNull();
+
+    expect(generated.externalPackageNameFromImportProps({ package: 'requests', from: 'fallback' })).toBe('requests');
+    expect(generated.externalPackageNameFromImportProps({ package: '', from: 'fallback' })).toBe('fallback');
+    expect(generated.externalPackageNameFromImportProps({ from: 'fallback' })).toBe('fallback');
+    expect(generated.externalPackageNameFromImportProps({ package: '', from: '' })).toBeNull();
+    expect(generated.externalPackageNameFromImportProps({ package: 1, from: false })).toBeNull();
+
+    expect(generated.hasExplicitExternalPackageProp({ package: 'requests' })).toBe(true);
+    expect(generated.hasExplicitExternalPackageProp({ package: '', from: 'requests' })).toBe(false);
+    expect(generated.hasExplicitExternalPackageProp({})).toBe(false);
+    expect(generated.hasExplicitExternalPackageProp({ package: 1 })).toBe(false);
+    expect(generated.hasExplicitExternalPackageProp({ package: null })).toBe(false);
+  });
+
   it('builds external boundary shapes from normalized metadata and inherited props', () => {
     expect(
       generated.externalBoundaryFromParts(
@@ -674,6 +695,8 @@ describe('generated external-boundary-utils behavior', () => {
     expect(facade.externalBoundaryFromParts).toBe(generated.externalBoundaryFromParts);
     expect(facade.externalImportBindingFromParts).toBe(generated.externalImportBindingFromParts);
     expect(facade.externalIslandRefFromParts).toBe(generated.externalIslandRefFromParts);
+    expect(facade.externalPackageNameFromExternProps).toBe(generated.externalPackageNameFromExternProps);
+    expect(facade.externalPackageNameFromImportProps).toBe(generated.externalPackageNameFromImportProps);
     expect(facade.externalStringProp).toBe(generated.externalStringProp);
     expect(facade.externalBoolProp).toBe(generated.externalBoolProp);
     expect(facade.externalRuntimeImports).toBe(generated.externalRuntimeImports);
@@ -686,6 +709,7 @@ describe('generated external-boundary-utils behavior', () => {
     expect(facade.inheritExternalString).toBe(generated.inheritExternalString);
     expect(facade.inheritExternalArgs).toBe(generated.inheritExternalArgs);
     expect(facade.hasExternalRuntimeImports).toBe(generated.hasExternalRuntimeImports);
+    expect(facade.hasExplicitExternalPackageProp).toBe(generated.hasExplicitExternalPackageProp);
     expect(facade.isPythonSidecarBoundaryShape).toBe(generated.isPythonSidecarBoundaryShape);
     expect(facade.isLoosePythonBoundaryShape).toBe(generated.isLoosePythonBoundaryShape);
   });

@@ -12,8 +12,11 @@ import {
   externalImportBindingFromParts,
   externalIslandRefFromParts,
   externalLooseSidecarManifestFromBoundary,
+  externalPackageNameFromExternProps,
+  externalPackageNameFromImportProps,
   externalSidecarManifestFromIsland,
   externalSidecarPackageFromBoundary,
+  hasExplicitExternalPackageProp,
   hasExternalRuntimeImports,
   isLoosePythonBoundaryShape,
   isPythonSidecarBoundaryShape,
@@ -105,8 +108,8 @@ function importBindingFromProps(props: Record<string, unknown>, loc?: IRNode['lo
 
 function boundaryFromExtern(node: IRNode, island?: CapabilityIslandRef): ExternalBoundary | null {
   const props = node.props ?? {};
-  const packageName = props.package;
-  if (typeof packageName !== 'string' || packageName.length === 0) return null;
+  const packageName = externalPackageNameFromExternProps(props);
+  if (!packageName) return null;
 
   const childImports = (node.children ?? []).filter((child) => child.type === 'import');
   const registry = importRegistryOf(props.registry);
@@ -133,12 +136,7 @@ function boundaryFromImport(node: IRNode, island?: CapabilityIslandRef): Externa
   const registry = importRegistryOf(props.registry);
   if (registry === 'host') return null;
 
-  const packageName =
-    typeof props.package === 'string' && props.package.length > 0
-      ? props.package
-      : typeof props.from === 'string' && props.from.length > 0
-        ? props.from
-        : '';
+  const packageName = externalPackageNameFromImportProps(props);
   if (!packageName) return null;
 
   const boundary: ExternalBoundary = externalBoundaryFromParts(
@@ -152,7 +150,7 @@ function boundaryFromImport(node: IRNode, island?: CapabilityIslandRef): Externa
     node.loc?.line,
     node.loc?.col,
   );
-  if (typeof props.package === 'string' && props.package.length > 0) {
+  if (hasExplicitExternalPackageProp(props)) {
     Object.defineProperty(boundary, 'explicitPackage', {
       value: true,
       enumerable: false,

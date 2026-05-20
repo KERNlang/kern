@@ -111,6 +111,27 @@ fn name=externalImportBindingFromParts returns=ExternalRuntimeImportShape export
     return binding;
   >>>
 
+fn name=externalPackageNameFromExternProps returns="string | null" export=true
+  param name=props type="Record<string, unknown>"
+  handler
+    let name=packageName value="props.package"
+    if cond="typeof packageName !== 'string' || packageName.length === 0"
+      return value="null"
+    return value="packageName"
+
+fn name=externalPackageNameFromImportProps returns="string | null" export=true
+  param name=props type="Record<string, unknown>"
+  handler <<<
+    if (typeof props.package === 'string' && props.package.length > 0) return props.package;
+    if (typeof props.from === 'string' && props.from.length > 0) return props.from;
+    return null;
+  >>>
+
+fn name=hasExplicitExternalPackageProp returns=boolean export=true
+  param name=props type="Record<string, unknown>"
+  handler
+    return value="typeof props.package === 'string' && props.package.length > 0"
+
 fn name=hasExternalRuntimeImports returns=boolean export=true
   param name=boundary type=ExternalBoundaryRuntimeShape
   handler
