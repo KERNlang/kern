@@ -642,6 +642,23 @@ describe('Express Transpiler', () => {
       expect(route!.content).toContain('req.params.id'); // real ref rewritten
       expect(route!.content).not.toContain('req.user.id');
     });
+
+    test('portable refs inside a template-literal interpolation are rewritten on Express', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API port=8000',
+        '  route method=get path=/api/tl/:id',
+        '    derive label expr={{ `Item ${params.id}` }}',
+        '    respond 200 json=label',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('get-api-tl-id'));
+      expect(route).toBeDefined();
+      // template stays valid JS, but the interpolation is rewritten
+      expect(route!.content).toContain('`Item ${req.params.id}`');
+      expect(route!.content).not.toContain('${params.id}');
+    });
   });
 
   describe('Portable Control Flow — branch, each, collect', () => {

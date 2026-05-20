@@ -4,9 +4,12 @@ import { derivePathParams, escapeSingleQuotes, generateRespondExpress, indentBlo
 
 // ── Portable request reference rewriting ──────────────────────────────────
 
-// Match a single/double-quoted or backtick string literal (escapes honored)
-// so portable-ref rewrites can be applied only OUTSIDE string contents.
-const EXPRESS_STRING_LITERAL = '"(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'|`(?:[^`\\\\]|\\\\.)*`';
+// Match a single/double-quoted string literal (escapes honored) so portable-ref
+// rewrites are applied only OUTSIDE quoted-string contents. Backticks are NOT
+// matched: a template literal stays valid JS on the Express target and its
+// `${...}` interpolations are real expressions that MUST be rewritten
+// (`${params.id}` → `${req.params.id}`), so templates are treated as code.
+const EXPRESS_STRING_LITERAL = '"(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'';
 
 export function rewriteExpressExpr(expr: string, path: string): string {
   const _pathParams = derivePathParams(path);
