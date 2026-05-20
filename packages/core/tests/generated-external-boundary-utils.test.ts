@@ -390,6 +390,62 @@ describe('generated external-boundary-utils behavior', () => {
     });
   });
 
+  it('builds capability islands from refs and collected imports', () => {
+    const island = {
+      name: 'Data',
+      runtime: 'python',
+      effects: ['fs'],
+      requiresSidecar: true,
+    };
+    const imports = [
+      {
+        package: 'numpy',
+        registry: 'pypi' as const,
+        target: 'python' as const,
+        targetFamily: 'python' as const,
+        effects: ['fs'],
+        imports: [{ names: ['array'], types: false }],
+      },
+    ];
+
+    expect(generated.externalCapabilityIslandFromParts(null, imports)).toBeNull();
+    expect(generated.externalCapabilityIslandFromParts(island, imports)).toEqual({
+      ...island,
+      imports,
+    });
+    expect(generated.externalCapabilityIslandFromParts(island, [])).toEqual({
+      ...island,
+      imports: [],
+    });
+  });
+
+  it('names loose python sidecars from default import aliases', () => {
+    expect(
+      generated.externalLoosePythonSidecarName({
+        package: 'pandas',
+        registry: 'pypi',
+        targetFamily: 'python',
+        imports: [{ default: 'pd', names: [], types: false }],
+      }),
+    ).toBe('PdPandas');
+    expect(
+      generated.externalLoosePythonSidecarName({
+        package: 'numpy',
+        registry: 'pypi',
+        targetFamily: 'python',
+        imports: [{ names: ['array'], types: false }],
+      }),
+    ).toBe('Numpy');
+    expect(
+      generated.externalLoosePythonSidecarName({
+        package: 'numpy',
+        registry: 'pypi',
+        targetFamily: 'python',
+        imports: [],
+      }),
+    ).toBe('Numpy');
+  });
+
   it('detects runtime imports directly', () => {
     expect(generated.hasExternalRuntimeImports({ imports: [] })).toBe(false);
     expect(generated.hasExternalRuntimeImports({ imports: [{ names: [], types: true }] })).toBe(false);
@@ -793,8 +849,10 @@ describe('generated external-boundary-utils behavior', () => {
     expect(facade.externalBoundaryFromParts).toBe(generated.externalBoundaryFromParts);
     expect(facade.externalBoundaryFromExternParts).toBe(generated.externalBoundaryFromExternParts);
     expect(facade.externalBoundaryFromImportParts).toBe(generated.externalBoundaryFromImportParts);
+    expect(facade.externalCapabilityIslandFromParts).toBe(generated.externalCapabilityIslandFromParts);
     expect(facade.externalImportBindingFromParts).toBe(generated.externalImportBindingFromParts);
     expect(facade.externalIslandRefFromParts).toBe(generated.externalIslandRefFromParts);
+    expect(facade.externalLoosePythonSidecarName).toBe(generated.externalLoosePythonSidecarName);
     expect(facade.externalPackageNameFromExternProps).toBe(generated.externalPackageNameFromExternProps);
     expect(facade.externalPackageNameFromImportProps).toBe(generated.externalPackageNameFromImportProps);
     expect(facade.externalStringProp).toBe(generated.externalStringProp);

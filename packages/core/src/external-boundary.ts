@@ -10,8 +10,10 @@ import {
   type ExternalBoundaryIslandShape,
   externalBoundaryFromExternParts,
   externalBoundaryFromImportParts,
+  externalCapabilityIslandFromParts,
   externalImportBindingFromParts,
   externalIslandRefFromParts,
+  externalLoosePythonSidecarName,
   externalLooseSidecarManifestFromBoundary,
   externalSidecarManifestFromIsland,
   externalSidecarPackageFromBoundary,
@@ -20,7 +22,6 @@ import {
   isPythonSidecarBoundaryShape,
   mergeExternalSidecarManifestPackage,
 } from './external-boundary-utils.js';
-import { pythonSidecarNameFromAliasAndPackage } from './python-sidecar.js';
 import type { IRNode } from './types.js';
 
 export interface ExternalImportBinding {
@@ -184,12 +185,7 @@ function collectIslandImports(node: IRNode, island: CapabilityIslandRef): Extern
 
 function islandFromNode(node: IRNode): CapabilityIsland | null {
   const island = islandRefFromNode(node);
-  if (!island) return null;
-
-  return {
-    ...island,
-    imports: collectIslandImports(node, island),
-  };
+  return externalCapabilityIslandFromParts(island, island ? collectIslandImports(node, island) : []);
 }
 
 function walkIslands(node: IRNode, out: CapabilityIsland[]): void {
@@ -256,6 +252,5 @@ export function collectSidecarManifests(root: IRNode): SidecarManifest[] {
 }
 
 function loosePythonSidecarName(boundary: ExternalBoundary): string {
-  const alias = boundary.imports.find((binding) => binding.default)?.default;
-  return pythonSidecarNameFromAliasAndPackage(alias, boundary.package);
+  return externalLoosePythonSidecarName(boundary);
 }

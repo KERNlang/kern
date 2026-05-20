@@ -6,14 +6,18 @@ use path="./import-metadata.kern"
 use path="./ecosystem-signatures.kern"
   from name=ExternalSignatureMap kind=type
   from name=parseExternalSignatureMap kind=fn
+use path="./python-sidecar.kern"
+  from name=pythonSidecarNameFromAliasAndPackage kind=fn
 
 type name=ExternalBoundaryStringKey alias="'runtime' | 'serialization' | 'version' | 'review' | 'reason' | 'protocol' | 'module' | 'session' | 'options' | 'error' | 'timeout'"
 type name=ExternalBoundaryInheritance alias="{ runtime?: string; serialization?: string; version?: string; review?: string; reason?: string; protocol?: string; module?: string; session?: string; options?: string; error?: string; timeout?: string; effects?: string[]; args?: string[] }"
 type name=ExternalBoundaryIslandShape alias="{ name: string; kind?: string; runtime?: string; serialization?: string; version?: string; review?: string; reason?: string; protocol?: string; module?: string; session?: string; options?: string; error?: string; timeout?: string; effects: string[]; args?: string[]; requiresSidecar: boolean; line?: number; col?: number }"
 type name=ExternalRuntimeImportShape alias="{ names: string[]; default?: string; from?: string; signature?: string; signatures?: ExternalSignatureMap; types: boolean; line?: number; col?: number }"
 type name=ExternalBoundaryRuntimeShape alias="{ explicitPackage?: boolean; island?: unknown; imports: ExternalRuntimeImportShape[]; requiresSidecar?: boolean; targetFamily?: string; registry?: string }"
+type name=ExternalLoosePythonSidecarNameShape alias="ExternalBoundaryRuntimeShape & { package: string }"
 type name=ExternalSidecarBoundaryShape alias="ExternalBoundaryRuntimeShape & { package: string; registry: ExternalImportRegistry; target: ExternalImportTarget; targetFamily: ExternalImportTargetFamily; effects?: string[]; serialization?: string; version?: string; line?: number; col?: number }"
 type name=ExternalBoundaryShape alias="{ package: string; explicitPackage?: boolean; registry: ExternalImportRegistry; target: ExternalImportTarget; targetFamily: ExternalImportTargetFamily; island?: ExternalBoundaryIslandShape; runtime?: string; protocol?: string; module?: string; args?: string[]; session?: string; options?: string; error?: string; timeout?: string; effects: string[]; serialization?: string; requiresSidecar?: boolean; version?: string; review?: string; reason?: string; imports: ExternalRuntimeImportShape[]; line?: number; col?: number }"
+type name=ExternalCapabilityIslandShape alias="ExternalBoundaryIslandShape & { imports: ExternalBoundaryShape[] }"
 type name=ExternalSidecarPackageShape alias="{ package: string; registry: ExternalImportRegistry; target: ExternalImportTarget; targetFamily: ExternalImportTargetFamily; imports: ExternalRuntimeImportShape[]; version?: string; line?: number; col?: number }"
 type name=ExternalSidecarIslandShape alias="{ name: string; kind?: string; runtime?: string; protocol?: string; module?: string; args?: string[]; session?: string; options?: string; error?: string; timeout?: string; effects: string[]; serialization?: string; requiresSidecar: boolean; imports: ExternalSidecarBoundaryShape[]; line?: number; col?: number }"
 type name=ExternalSidecarManifestShape alias="{ name: string; kind?: string; runtime: string; protocol?: string; module?: string; args?: string[]; session?: string; options?: string; error?: string; timeout?: string; effects: string[]; serialization?: string; requiresSidecar: true; packages: ExternalSidecarPackageShape[]; line?: number; col?: number }"
@@ -169,6 +173,20 @@ fn name=externalBoundaryFromImportParts returns="ExternalBoundaryShape | null" e
     }
     return boundary;
   >>>
+
+fn name=externalCapabilityIslandFromParts returns="ExternalCapabilityIslandShape | null" export=true
+  param name=island type="ExternalBoundaryIslandShape | null"
+  param name=imports type="ExternalBoundaryShape[]"
+  handler
+    if cond="!island"
+      return value="null"
+    return value="{ ...island, imports }"
+
+fn name=externalLoosePythonSidecarName returns=string export=true
+  param name=boundary type=ExternalLoosePythonSidecarNameShape
+  handler
+    let name=alias value="boundary.imports.find((binding) => binding.default)?.default"
+    return value="pythonSidecarNameFromAliasAndPackage(alias, boundary.package)"
 
 fn name=hasExternalRuntimeImports returns=boolean export=true
   param name=boundary type=ExternalBoundaryRuntimeShape
