@@ -95,7 +95,12 @@ function lowerJsArrayMethods(expr: string): string {
   return next;
 }
 
-export function rewriteFastAPIExpr(expr: string, pathParams: string[], bodyFields: Set<string> = new Set()): string {
+export function rewriteFastAPIExpr(
+  expr: string,
+  pathParams: string[],
+  bodyFields: Set<string> = new Set(),
+  authUser = false,
+): string {
   let result = expr;
   // params.X → X (function param) for path params
   for (const param of pathParams) {
@@ -103,6 +108,12 @@ export function rewriteFastAPIExpr(expr: string, pathParams: string[], bodyField
   }
   // Fallback: any remaining params.X → X (for query params not in pathParams)
   result = result.replace(/\bparams\.([A-Za-z_]\w*)/g, '$1');
+  // user.X → user["X"]: with auth, `user` is the decoded JWT payload (a dict
+  // returned by auth_required/auth_optional), so attribute access would raise
+  // AttributeError. Only applied when the route declares auth (Codex review).
+  if (authUser) {
+    result = result.replace(/\buser\.([A-Za-z_]\w*)/g, 'user["$1"]');
+  }
   // body.X → body.<snake_case(X)>: the generated Pydantic model snake-cases
   // every field, so a camelCase access would raise AttributeError at runtime.
   // Only remap fields the model actually declares; leave unknown `body.X`

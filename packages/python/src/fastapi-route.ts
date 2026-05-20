@@ -536,6 +536,10 @@ export function buildRouteArtifact(
     if (authNode) {
       const authMode = String(getProps(authNode).mode || 'required');
       const authFunc = authMode === 'optional' ? 'auth_optional' : 'auth_required';
+      // The auth helper lives in the generated root `auth.py`; each route
+      // module that depends on it must import it, or the route file fails at
+      // import time with a NameError (Codex review on commit 54fb0e24).
+      imports.add(`from auth import ${authFunc}`);
       paramParts.push(`user = Depends(${authFunc})`);
     }
 
@@ -557,7 +561,10 @@ export function buildRouteArtifact(
       // model WE generate (inline `schema.body`) are remapped; an external
       // `validate` schema's field naming is the author's contract.
       const bodyFields = new Set(schema.body ? extractBodyFieldNames(schema.body) : []);
-      bodyLines.push(...generatePortableHandlerFastAPI(routeNode, '    ', pathParams, imports, bodyFields));
+      // When the route declares auth, the `user` symbol is the decoded JWT
+      // payload — a plain dict returned by auth_required/auth_optional — so
+      // attribute access (`user.id`) must lower to subscript (`user["id"]`).
+      bodyLines.push(...generatePortableHandlerFastAPI(routeNode, '    ', pathParams, imports, bodyFields, !!authNode));
     } else if (isKernHandler) {
       // Slice 4a — native KERN handler body (Python target).
       //  - Path params: camelCase as-is in the signature (line 300), so
