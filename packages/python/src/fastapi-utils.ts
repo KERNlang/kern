@@ -21,6 +21,77 @@ export function escapePyStr(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
+// Quote bare identifier keys in JS object literals so they become valid
+// Python dict literals: `{userId: x}` → `{"userId": x}`. Scans char-by-char,
+// skipping string/template contents, and only quotes an identifier that
+// directly follows `{` or `,` AND is followed by `:` — so ternary colons
+// (`a ? b : c`), slices, and call args are left untouched.
+//
+// Shared by the raw `res.json(...)` payload path (fastapi-route.ts) and the
+// portable-node expression path (rewriteFastAPIExpr) so both lower object
+// literals consistently. Lives here, in the neutral utils module, to avoid
+// an import cycle between fastapi-route and fastapi-response/portable.
+export function quoteObjectKeysOutsideStrings(expr: string): string {
+  let output = '';
+  let index = 0;
+  let quote: '"' | "'" | '`' | null = null;
+  let escaped = false;
+
+  while (index < expr.length) {
+    const char = expr[index];
+
+    if (quote) {
+      output += char;
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === quote) {
+        quote = null;
+      }
+      index += 1;
+      continue;
+    }
+
+    if (char === '"' || char === "'" || char === '`') {
+      quote = char;
+      output += char;
+      index += 1;
+      continue;
+    }
+
+    if (char !== '{' && char !== ',') {
+      output += char;
+      index += 1;
+      continue;
+    }
+
+    output += char;
+    index += 1;
+    const whitespaceStart = index;
+    while (index < expr.length && /\s/.test(expr[index])) index += 1;
+    const whitespace = expr.slice(whitespaceStart, index);
+    const keyStart = index;
+    if (index < expr.length && /[A-Za-z_$]/.test(expr[index])) {
+      index += 1;
+      while (index < expr.length && /[\w$]/.test(expr[index])) index += 1;
+      const key = expr.slice(keyStart, index);
+      const afterKeyStart = index;
+      while (index < expr.length && /\s/.test(expr[index])) index += 1;
+      if (expr[index] === ':') {
+        output += `${whitespace}"${key}"${expr.slice(afterKeyStart, index)}:`;
+        index += 1;
+        continue;
+      }
+    }
+
+    output += whitespace;
+    output += expr.slice(keyStart, index);
+  }
+
+  return output;
+}
+
 /** Indent handler code by a fixed prefix, preserving internal structure. */
 export function indentHandler(code: string, indent: string): string[] {
   const dedented = dedent(code);
@@ -103,4 +174,24 @@ export function buildPydanticModel(name: string, schemaType: string): string[] {
     }
   }
   return lines;
+}
+
+// Original (camelCase) field names declared in an inline schema body, e.g.
+// `{trackId: string, options?: {stems: boolean}}` → ['trackId', 'options'].
+// Parsing mirrors buildPydanticModel exactly (same naive top-level comma
+// split) so the returned set matches the fields the generated model
+// snake-cases. Callers use it to rewrite `body.<field>` access expressions
+// to the model's snake_case attribute names.
+export function extractBodyFieldNames(schemaType: string): string[] {
+  const trimmed = schemaType.trim();
+  if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return [];
+  const inner = trimmed.slice(1, -1);
+  const names: string[] = [];
+  for (const part of inner.split(',')) {
+    const colonIdx = part.indexOf(':');
+    if (colonIdx === -1) continue;
+    const rawKey = part.slice(0, colonIdx).trim().replace(/['"?]/g, '');
+    if (rawKey) names.push(rawKey);
+  }
+  return names;
 }

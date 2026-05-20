@@ -25,7 +25,9 @@ import {
   convertPath,
   derivePathParams,
   escapePyStr,
+  extractBodyFieldNames,
   indentHandler,
+  quoteObjectKeysOutsideStrings,
   routeFileBase,
   slugify,
 } from './fastapi-utils.js';
@@ -230,67 +232,6 @@ function replaceJsLiteralsOutsideStrings(expr: string): string {
 
     output += char;
     index += 1;
-  }
-
-  return output;
-}
-
-function quoteObjectKeysOutsideStrings(expr: string): string {
-  let output = '';
-  let index = 0;
-  let quote: '"' | "'" | '`' | null = null;
-  let escaped = false;
-
-  while (index < expr.length) {
-    const char = expr[index];
-
-    if (quote) {
-      output += char;
-      if (escaped) {
-        escaped = false;
-      } else if (char === '\\') {
-        escaped = true;
-      } else if (char === quote) {
-        quote = null;
-      }
-      index += 1;
-      continue;
-    }
-
-    if (char === '"' || char === "'" || char === '`') {
-      quote = char;
-      output += char;
-      index += 1;
-      continue;
-    }
-
-    if (char !== '{' && char !== ',') {
-      output += char;
-      index += 1;
-      continue;
-    }
-
-    output += char;
-    index += 1;
-    const whitespaceStart = index;
-    while (index < expr.length && /\s/.test(expr[index])) index += 1;
-    const whitespace = expr.slice(whitespaceStart, index);
-    const keyStart = index;
-    if (index < expr.length && /[A-Za-z_$]/.test(expr[index])) {
-      index += 1;
-      while (index < expr.length && /[\w$]/.test(expr[index])) index += 1;
-      const key = expr.slice(keyStart, index);
-      const afterKeyStart = index;
-      while (index < expr.length && /\s/.test(expr[index])) index += 1;
-      if (expr[index] === ':') {
-        output += `${whitespace}"${key}"${expr.slice(afterKeyStart, index)}:`;
-        index += 1;
-        continue;
-      }
-    }
-
-    output += whitespace;
-    output += expr.slice(keyStart, index);
   }
 
   return output;
@@ -610,7 +551,13 @@ export function buildRouteArtifact(
     }
 
     if (hasPortableNodes) {
-      bodyLines.push(...generatePortableHandlerFastAPI(routeNode, '    ', pathParams, imports));
+      // Body fields are snake-cased into the generated Pydantic model, so
+      // portable expressions referencing `body.<camelField>` must be
+      // rewritten to the model's snake_case attribute. Only fields from a
+      // model WE generate (inline `schema.body`) are remapped; an external
+      // `validate` schema's field naming is the author's contract.
+      const bodyFields = new Set(schema.body ? extractBodyFieldNames(schema.body) : []);
+      bodyLines.push(...generatePortableHandlerFastAPI(routeNode, '    ', pathParams, imports, bodyFields));
     } else if (isKernHandler) {
       // Slice 4a — native KERN handler body (Python target).
       //  - Path params: camelCase as-is in the signature (line 300), so

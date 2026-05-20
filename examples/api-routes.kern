@@ -6,29 +6,22 @@ server name=MusicAPI port=3001
   import from="./services/analyzer.js" names=analyzeTrack
 
   route method=get path=/api/tracks
-    handler <<<
-      const tracks = await db.tracks.findAll({ userId: req.user.id });
-      res.json(tracks);
-    >>>
+    auth required
+    derive tracks expr={{await db.tracks.findAll({userId: user.id})}}
+    respond 200 json=tracks
 
   route method=post path=/api/tracks/analyze
     schema body="{trackId: string, options?: {stems: boolean}}"
-    handler <<<
-      const { trackId, options } = req.body;
-      const result = await analyzeTrack(trackId, options);
-      res.json(result);
-    >>>
+    derive result expr={{await analyzeTrack(body.trackId, body.options)}}
+    respond 200 json=result
 
   route method=get path=/api/tracks/:id
-    handler <<<
-      const track = await db.tracks.findById(req.params.id);
-      if (!track) return res.status(404).json({ error: 'Not found' });
-      res.json(track);
-    >>>
+    derive track expr={{await db.tracks.findById(params.id)}}
+    guard name=exists expr={{track}} else=404
+    respond 200 json=track
+    error 404 "Not found"
 
   route method=delete path=/api/tracks/:id
     middleware name=requireOwner
-    handler <<<
-      await db.tracks.delete(req.params.id);
-      res.status(204).send();
-    >>>
+    derive deleted expr={{await db.tracks.delete(params.id)}}
+    respond 204

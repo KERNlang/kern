@@ -49,7 +49,8 @@ if __name__ == "__main__":
 `;
 
 exports[`Golden Snapshot Tests FastAPI output for api-routes.kern 1`] = `
-"from fastapi import FastAPI
+"from auth import auth_required, auth_optional
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from middleware.auth import AuthMiddleware

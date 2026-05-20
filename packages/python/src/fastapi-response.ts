@@ -9,7 +9,7 @@
 
 import type { IRNode } from '@kernlang/core';
 import { getProps } from '@kernlang/core';
-import { escapePyStr } from './fastapi-utils.js';
+import { escapePyStr, quoteObjectKeysOutsideStrings } from './fastapi-utils.js';
 import { toSnakeCase } from './type-map.js';
 
 export function generateRespondFastAPI(respondNode: IRNode, indent: string): string[] {
@@ -95,7 +95,7 @@ function lowerJsArrayMethods(expr: string): string {
   return next;
 }
 
-export function rewriteFastAPIExpr(expr: string, pathParams: string[]): string {
+export function rewriteFastAPIExpr(expr: string, pathParams: string[], bodyFields: Set<string> = new Set()): string {
   let result = expr;
   // params.X → X (function param) for path params
   for (const param of pathParams) {
@@ -103,7 +103,13 @@ export function rewriteFastAPIExpr(expr: string, pathParams: string[]): string {
   }
   // Fallback: any remaining params.X → X (for query params not in pathParams)
   result = result.replace(/\bparams\.([A-Za-z_]\w*)/g, '$1');
-  // body.X → body.X (Pydantic model — already correct)
+  // body.X → body.<snake_case(X)>: the generated Pydantic model snake-cases
+  // every field, so a camelCase access would raise AttributeError at runtime.
+  // Only remap fields the model actually declares; leave unknown `body.X`
+  // (e.g. external validate schemas) untouched.
+  result = result.replace(/\bbody\.([A-Za-z_]\w*)/g, (match, field) =>
+    bodyFields.has(field) ? `body.${toSnakeCase(field)}` : match,
+  );
   // query.X → X (function param)
   result = result.replace(/\bquery\.([A-Za-z_]\w*)/g, '$1');
   // headers.X → request.headers.get("X")
@@ -133,6 +139,12 @@ export function rewriteFastAPIExpr(expr: string, pathParams: string[]): string {
     if (match === 'false') return 'False';
     return match; // quoted string
   });
+
+  // Object-literal keys → quoted Python dict keys (`{userId: x}` →
+  // `{"userId": x}`). Applied last, mirroring the raw `res.json(...)` path's
+  // outer quote-after-lower order; runs after array-method lowering so dicts
+  // produced inside list comprehensions are quoted too.
+  result = quoteObjectKeysOutsideStrings(result);
 
   return result;
 }
