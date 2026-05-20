@@ -143,6 +143,30 @@ const FIXTURES = [
     expected: { name: 'widget', id: 1 },
   },
   {
+    name: 'Array.from length+index arrow → comprehension',
+    expr: 'Array.from({ length: 3 }, (_, i) => i * 2)',
+    path: '/api/range',
+    bindings: {},
+    expected: [0, 2, 4],
+  },
+  {
+    name: 'Array.from producing objects with a query param length',
+    expr: 'Array.from({ length: query.n }, (_, i) => ({ idx: i, base: query.n }))',
+    path: '/api/grid',
+    bindings: { query: { n: 2 } },
+    expected: [
+      { idx: 0, base: 2 },
+      { idx: 1, base: 2 },
+    ],
+  },
+  {
+    name: 'Array.from with a template-literal body',
+    expr: 'Array.from({ length: 2 }, (_, i) => `item-${i + 1}`)',
+    path: '/api/labels',
+    bindings: {},
+    expected: ['item-1', 'item-2'],
+  },
+  {
     name: 'crypto.randomUUID is a string on both targets',
     expr: '{ id: crypto.randomUUID() }',
     path: '/api/id',

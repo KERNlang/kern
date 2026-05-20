@@ -203,6 +203,76 @@ function lowerJsonBuiltinCalls(expr: string, imports?: Set<string>): string {
   return out;
 }
 
+// Lower `Array.from({ length: N }, (_, i) => BODY)` to a Python list
+// comprehension `[BODY for i in range(N)]`. `Array.from` with a length object is
+// a range generator; the arrow's SECOND parameter is the index (Array.from
+// calls fn(element, index) and the length-form element is undefined), so it
+// becomes the loop variable. A 0-param arrow iterates an anonymous `_`. Uses a
+// balanced, string-aware scan (regex cannot capture the nested arrow body) and
+// runs BEFORE the ref/key/template passes so they lower N and BODY in place.
+// Only the `{ length: N }` form is handled; `Array.from(iterable, fn)` (map
+// form) is left untouched. Express keeps Array.from (valid JS).
+function lowerArrayFromCalls(expr: string): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    const m = expr.slice(i).match(/^Array\.from\(/);
+    const prev = expr[i - 1];
+    if (m && !(prev && /[\w.]/.test(prev))) {
+      const openIdx = i + m[0].length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1) {
+        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));
+        const lengthMatch = (args[0] ?? '').match(/^\{\s*length\s*:\s*([\s\S]+?)\s*\}$/);
+        const arrow =
+          (args[1] ?? '').match(/^\(([\s\S]*?)\)\s*=>\s*([\s\S]+)$/) ||
+          (args[1] ?? '').match(/^([A-Za-z_$][\w$]*)\s*=>\s*([\s\S]+)$/);
+        if (lengthMatch && arrow) {
+          // Recurse so a nested Array.from in N or BODY is lowered too.
+          const count = lowerArrayFromCalls(lengthMatch[1].trim());
+          const params = arrow[1]
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+          const idxVar = params[1] || params[0] || '_';
+          let body = arrow[2].trim();
+          // `(_, i) => ({...})` wraps the object body in parens to disambiguate
+          // it from a block; strip a single fully-enclosing pair.
+          if (body.startsWith('(') && matchBalancedParen(body, 0) === body.length - 1) {
+            body = body.slice(1, -1).trim();
+          }
+          body = lowerArrayFromCalls(body);
+          out += `[${body} for ${idxVar} in range(${count})]`;
+          i = closeIdx + 1;
+          continue;
+        }
+      }
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
 type ParsedTemplateLiteral = {
   endIndex: number;
   textParts: string[];
@@ -484,6 +554,9 @@ export function rewriteFastAPIExpr(
   // Spread → unpacking first, so the request-ref rewrites below see clean
   // operands (e.g. `*user.roles`, not `...user.roles`).
   result = lowerSpreadElements(result);
+  // Array.from(length, arrow) → list comprehension. Runs before the ref/key
+  // passes so they lower the count and body of the produced comprehension.
+  result = lowerArrayFromCalls(result);
   // params.X → X (function param) for path params
   for (const param of pathParams) {
     result = result.replace(new RegExp(`\\bparams\\.${param}\\b`, 'g'), param);
