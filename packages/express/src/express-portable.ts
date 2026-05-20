@@ -74,12 +74,16 @@ export function generatePortableChildExpress(
       break;
     }
     case 'respond': {
-      // Clone props to avoid mutating shared AST, then rewrite portable refs
+      // Clone props to avoid mutating shared AST, then rewrite portable refs.
+      // Use extractExprCode (as derive does) so a curly-expression value
+      // (`json={{ {a: 1} }}`) yields its code instead of String({__expr}) →
+      // "[object Object]" → invalid `res.json([object Object])` (Codex review
+      // on f61f987f). Plain identifiers (`json=user`) pass through unchanged.
       const clonedRespond: IRNode = { ...child, props: { ...child.props } };
       if (clonedRespond.props!.json)
-        clonedRespond.props!.json = rewriteExpressExpr(String(clonedRespond.props!.json), path);
+        clonedRespond.props!.json = rewriteExpressExpr(extractExprCode(clonedRespond.props!.json), path);
       if (clonedRespond.props!.text)
-        clonedRespond.props!.text = rewriteExpressExpr(String(clonedRespond.props!.text), path);
+        clonedRespond.props!.text = rewriteExpressExpr(extractExprCode(clonedRespond.props!.text), path);
       lines.push(...generateRespondExpress(clonedRespond, indent));
       break;
     }

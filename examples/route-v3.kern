@@ -7,8 +7,10 @@ server name=UserAPI port=3001
     auth required
     validate UserQuerySchema
     middleware rateLimit, cors
-    derive users expr={{await db.query("SELECT * FROM users LIMIT $1 OFFSET $2", [limit, (page - 1) * limit])}}
-    respond 200 json=users
+    handler <<<
+      const users = await db.query('SELECT * FROM users LIMIT $1 OFFSET $2', [limit, (page - 1) * limit]);
+      res.json(users);
+    >>>
     error 401 "Unauthorized"
     error 500 "Server error"
 
