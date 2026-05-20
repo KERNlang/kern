@@ -51,6 +51,14 @@ export function rewriteExpressExpr(expr: string, path: string): string {
 
 export interface PortableExpressOptions {
   errorMessagesByStatus?: ReadonlyMap<number, string>;
+  /**
+   * When set (SSE `stream` body only), the name of an in-scope `AbortController`
+   * whose `.signal` is checked so concurrent `fanout` producers skip work and
+   * `each await` loops break once the client disconnects — mirroring the
+   * hand-written `abortController.signal.aborted` guards in the raw SSE handler.
+   * Unset for ordinary routes, so non-stream `each await` emits no abort code.
+   */
+  streamAbortVar?: string;
 }
 
 export function extractExprCode(prop: unknown): string {
@@ -156,11 +164,32 @@ export function generatePortableChildExpress(
       }
       break;
     }
+    case 'let': {
+      // Stream/route-body binding — `let name value=...` → `const name = ...;`
+      // (or `let` when `kind=let`). Flows through the same rewriter as `derive`.
+      const name = String(p.name || '');
+      if (!name) break;
+      const valueCode = extractExprCode(p.value) || extractExprCode(p.expr);
+      if (valueCode) {
+        const kw = p.kind === 'let' ? 'let' : 'const';
+        lines.push(`${indent}${kw} ${name} = ${rewriteExpressExpr(valueCode, path)};`);
+      }
+      break;
+    }
     case 'each': {
       const name = String(p.name || 'item');
       const collection = rewriteExpressExpr(extractExprCode(p.in) || String(p.in || ''), path);
       const index = p.index ? String(p.index) : undefined;
-      if (index) {
+      const isAwait = p.await === true || p.await === 'true';
+      if (isAwait) {
+        // `each await=true` → `for await (const x of ...)`. Cannot combine with
+        // `index=` (rejected by the core validator), so no entries() branch.
+        lines.push(`${indent}for await (const ${name} of ${collection}) {`);
+        if (options.streamAbortVar) {
+          // Stop pulling from the upstream async iterable once the client is gone.
+          lines.push(`${indent}  if (${options.streamAbortVar}.signal.aborted) break;`);
+        }
+      } else if (index) {
         lines.push(`${indent}for (const [${index}, ${name}] of (${collection}).entries()) {`);
       } else {
         lines.push(`${indent}for (const ${name} of ${collection}) {`);
@@ -169,6 +198,33 @@ export function generatePortableChildExpress(
         lines.push(...generatePortableChildExpress(eachChild, `${indent}  `, path, options));
       }
       lines.push(`${indent}}`);
+      break;
+    }
+    case 'fanout': {
+      // Concurrent fan-out → `await Promise.allSettled(coll.map(async (x) => {…}))`.
+      // Each producer's emits interleave through the shared `emit()` helper.
+      const name = String(p.name || 'item');
+      const collection = rewriteExpressExpr(extractExprCode(p.in) || String(p.in || ''), path);
+      // `Array.from(...)` so any sync iterable (Set/Map/generator), not just an
+      // array, can be fanned out — matching Python's list-comprehension over
+      // the same collection (Gemini review). `.map` alone would throw on a Set.
+      lines.push(`${indent}await Promise.allSettled(Array.from(${collection}).map(async (${name}) => {`);
+      if (options.streamAbortVar) {
+        // Don't start a producer whose client has already disconnected.
+        lines.push(`${indent}  if (${options.streamAbortVar}.signal.aborted) return;`);
+      }
+      for (const fanChild of child.children || []) {
+        lines.push(...generatePortableChildExpress(fanChild, `${indent}  `, path, options));
+      }
+      lines.push(`${indent}}));`);
+      break;
+    }
+    case 'emit': {
+      // Push one SSE event through the scaffold's `emit(data, event?)` helper.
+      const value = extractExprCode(p.value) || String(p.value || '');
+      if (!value) break;
+      const ev = typeof p.event === 'string' && p.event ? `, '${escapeSingleQuotes(p.event)}'` : '';
+      lines.push(`${indent}emit(${rewriteExpressExpr(value, path)}${ev});`);
       break;
     }
     case 'collect': {
@@ -218,6 +274,38 @@ export function generatePortableChildExpress(
       break;
   }
 
+  return lines;
+}
+
+// Portable SSE body node types (slice 4c) — the subset of route nodes that
+// composes inside a `stream`, plus the streaming primitives `fanout`/`emit`.
+const PORTABLE_STREAM_TYPES = new Set(['derive', 'let', 'each', 'fanout', 'emit', 'do', 'assign', 'branch', 'collect']);
+
+export function hasPortableStreamBody(streamNode: IRNode): boolean {
+  return (streamNode.children || []).some((c) => PORTABLE_STREAM_TYPES.has(c.type));
+}
+
+/**
+ * Lower a portable `stream` body (derive/let/each/fanout/emit/…) to the SSE
+ * handler lines that slot into `generateStreamWrap`. Reuses the request-scoped
+ * `ac` AbortController the route scaffold always declares for stream routes
+ * (`needsAbortController` is true whenever `hasStream`), so concurrent `fanout`
+ * producers and `each await` loops stop once the client disconnects — without a
+ * redundant second controller (Gemini review on slice 4c).
+ */
+export function generatePortableStreamExpress(
+  streamNode: IRNode,
+  indent: string,
+  path: string,
+  options: PortableExpressOptions = {},
+): string[] {
+  const lines: string[] = [];
+  const streamOptions: PortableExpressOptions = { ...options, streamAbortVar: 'ac' };
+  for (const child of streamNode.children || []) {
+    if (PORTABLE_STREAM_TYPES.has(child.type)) {
+      lines.push(...generatePortableChildExpress(child, indent, path, streamOptions));
+    }
+  }
   return lines;
 }
 

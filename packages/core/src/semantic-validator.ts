@@ -218,7 +218,11 @@ function validateNode(
     const parent = ancestry[ancestry.length - 1];
     const nativeBodyContainers = new Set(['if', 'else', 'try', 'catch', 'finally', 'while', 'for']);
     let approved = false;
-    if (parent === 'each') {
+    if (parent === 'each' || parent === 'fanout' || parent === 'stream') {
+      // `fanout` is the concurrent iteration scope (slice 4c); a per-iteration
+      // `let` binding lowers to a `const` inside the async producer callback,
+      // exactly as `let` does inside `each`. A `let` directly under `stream` is
+      // a generator-scope binding the portable SSE emitter lowers the same way.
       approved = true;
     } else if (parent === 'handler') {
       // Immediate handler boundary must be opted into kern body-stmt mode.
@@ -232,11 +236,49 @@ function validateNode(
         rule: 'let-must-be-inside-each',
         nodeType: 'let',
         message:
-          '`let` must be a direct child of `each`, or of `handler`/`if`/`else`/`try`/`catch`/`finally`/`while`/`for` inside a `handler lang="kern"` scope. Use `derive` for component-scoped bindings, or `const` at file scope.',
+          '`let` must be a direct child of `each`/`fanout`/`stream`, or of `handler`/`if`/`else`/`try`/`catch`/`finally`/`while`/`for` inside a `handler lang="kern"` scope. Use `derive` for component-scoped bindings, or `const` at file scope.',
         line: node.loc?.line,
         col: node.loc?.col,
       });
     }
+  }
+
+  // ── emit / fanout require an enclosing `stream` ──────────────────────
+  // Both are streaming primitives with no codegen target outside a `stream`
+  // response body: `emit` writes through the SSE `emit()` helper / fan-in
+  // queue, and `fanout` lowers to the concurrent producer scaffold. Placed
+  // anywhere else they would silently drop (no stream to attach to), so flag
+  // at source level with a line number rather than emit broken code.
+  if ((node.type === 'emit' || node.type === 'fanout') && !ancestry.includes('stream')) {
+    violations.push({
+      rule: 'emit-fanout-require-stream',
+      nodeType: node.type,
+      message:
+        `\`${node.type}\` is a streaming primitive and is only valid inside a \`stream\` response body. ` +
+        (node.type === 'emit'
+          ? 'Use `respond` for a single buffered HTTP response.'
+          : 'Use `each` for sequential iteration outside a stream.'),
+      line: node.loc?.line,
+      col: node.loc?.col,
+    });
+  }
+
+  // ── HTTP-response nodes are forbidden anywhere inside a `stream` ──────
+  // `each`/`branch` are unrestricted containers, so `stream > each > respond`
+  // or `stream > branch > path > guard` passes schema validation — but the
+  // portable walker would emit a buffered HTTP response inside the SSE
+  // generator: a value-returning `return`/`raise` in a Python async generator
+  // (SyntaxError) or an Express `res.json` after the SSE headers are already
+  // sent. Push `guard`/`respond` BEFORE the `stream` block as a route sibling,
+  // and use `emit` for streamed output (Codex review on slice 4c).
+  if ((node.type === 'respond' || node.type === 'guard') && ancestry.includes('stream')) {
+    violations.push({
+      rule: 'no-http-response-in-stream',
+      nodeType: node.type,
+      message: `\`${node.type}\` emits a buffered HTTP response and cannot appear inside a \`stream\` body — SSE headers are already sent. Use \`emit\` to push events. Validate the request up front with \`schema\`/\`validate\`/\`middleware\` (these run before streaming begins); a route-level \`guard\`/\`respond\` is not lowered on a stream route.`,
+      line: node.loc?.line,
+      col: node.loc?.col,
+    });
   }
 
   // ── step / catch must be direct children of try ──────────────────────
