@@ -15,6 +15,7 @@ export type {
 export {
   externalBoundaryFromParts,
   externalBoolProp,
+  externalIslandRefFromParts,
   externalRuntimeImports,
   externalLooseSidecarManifestFromBoundary,
   externalSidecarManifestFromIsland,

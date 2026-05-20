@@ -57,6 +57,37 @@ fn name=inheritExternalArgs returns="string[] | undefined" export=true
     let name=args value="splitExternalNames(props.args)"
     return value="args.length > 0 ? args : island?.args"
 
+fn name=externalIslandRefFromParts returns="ExternalBoundaryIslandShape | null" export=true
+  param name=props type="Record<string, unknown>"
+  param name=line type="number | undefined"
+  param name=col type="number | undefined"
+  handler <<<
+    const name = externalStringProp(props, 'name');
+    if (!name) return null;
+    const args = splitExternalNames(props.args);
+    const island: ExternalBoundaryIslandShape = {
+      name,
+      kind: externalStringProp(props, 'kind'),
+      runtime: externalStringProp(props, 'runtime'),
+      protocol: externalStringProp(props, 'protocol'),
+      module: externalStringProp(props, 'module'),
+      ...(args.length > 0 ? { args } : {}),
+      session: externalStringProp(props, 'session'),
+      options: externalStringProp(props, 'options'),
+      error: externalStringProp(props, 'error'),
+      timeout: externalStringProp(props, 'timeout'),
+      effects: splitExternalNames(props.effects),
+      serialization: externalStringProp(props, 'serialization'),
+      requiresSidecar: externalBoolProp(props, 'requiresSidecar'),
+      version: externalStringProp(props, 'version'),
+      review: externalStringProp(props, 'review'),
+      reason: externalStringProp(props, 'reason'),
+      line,
+      col,
+    };
+    return island;
+  >>>
+
 fn name=hasExternalRuntimeImports returns=boolean export=true
   param name=boundary type=ExternalBoundaryRuntimeShape
   handler

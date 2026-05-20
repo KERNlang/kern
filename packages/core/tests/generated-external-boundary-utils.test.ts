@@ -9,12 +9,15 @@ describe('generated external-boundary-utils behavior', () => {
   });
 
   it('reads non-empty string props and boolean props', () => {
-    const props = { runtime: 'python', empty: '', requiresSidecar: 'true', disabled: false };
+    const props = { runtime: 'python', empty: '', requiresSidecar: 'true', disabled: false, nope: 'false', loose: 1 };
 
     expect(generated.externalStringProp(props, 'runtime')).toBe('python');
     expect(generated.externalStringProp(props, 'empty')).toBeUndefined();
+    expect(generated.externalStringProp({ name: 0 }, 'name')).toBeUndefined();
     expect(generated.externalBoolProp(props, 'requiresSidecar')).toBe(true);
     expect(generated.externalBoolProp(props, 'disabled')).toBe(false);
+    expect(generated.externalBoolProp(props, 'nope')).toBe(false);
+    expect(generated.externalBoolProp(props, 'loose')).toBe(false);
   });
 
   it('merges explicit effects after inherited island effects', () => {
@@ -38,6 +41,76 @@ describe('generated external-boundary-utils behavior', () => {
     expect(generated.inheritExternalArgs({}, island)).toEqual(['session']);
     expect(generated.inheritExternalArgs({ args: 'local' }, undefined)).toEqual(['local']);
     expect(generated.inheritExternalArgs({}, undefined)).toBeUndefined();
+  });
+
+  it('builds island ref shapes from raw props', () => {
+    expect(generated.externalIslandRefFromParts({}, 1, 1)).toBeNull();
+    expect(generated.externalIslandRefFromParts({ name: '' }, 1, 1)).toBeNull();
+    expect(generated.externalIslandRefFromParts({ name: 0 }, 1, 1)).toBeNull();
+
+    expect(
+      generated.externalIslandRefFromParts(
+        {
+          name: 'ClaudeCli',
+          kind: 'sidecar',
+          runtime: 'python',
+          protocol: 'pty-session',
+          module: 'kern_engines.cli.daemon',
+          args: '[claude]',
+          session: 'ClaudeCliSession',
+          options: 'ClaudeSpawnOptions',
+          error: 'ClaudeSessionError',
+          timeout: 'ClaudeSessionTimeout',
+          effects: '[exec,stream]',
+          serialization: 'ndjson',
+          requiresSidecar: 'true',
+          version: '1',
+          review: 'known',
+          reason: 'provider boundary',
+        },
+        9,
+        2,
+      ),
+    ).toEqual({
+      name: 'ClaudeCli',
+      kind: 'sidecar',
+      runtime: 'python',
+      protocol: 'pty-session',
+      module: 'kern_engines.cli.daemon',
+      args: ['claude'],
+      session: 'ClaudeCliSession',
+      options: 'ClaudeSpawnOptions',
+      error: 'ClaudeSessionError',
+      timeout: 'ClaudeSessionTimeout',
+      effects: ['exec', 'stream'],
+      serialization: 'ndjson',
+      requiresSidecar: true,
+      version: '1',
+      review: 'known',
+      reason: 'provider boundary',
+      line: 9,
+      col: 2,
+    });
+  });
+
+  it('omits empty island args while preserving empty effects', () => {
+    const island = generated.externalIslandRefFromParts(
+      {
+        name: 'OpenCode',
+        runtime: 'node',
+        args: '',
+      },
+      undefined,
+      undefined,
+    );
+
+    expect(island).toMatchObject({
+      name: 'OpenCode',
+      runtime: 'node',
+      effects: [],
+      requiresSidecar: false,
+    });
+    expect(island && 'args' in island).toBe(false);
   });
 
   it('builds external boundary shapes from normalized metadata and inherited props', () => {
@@ -544,6 +617,7 @@ describe('generated external-boundary-utils behavior', () => {
   it('src facade delegates generated utility exports', () => {
     expect(facade.splitExternalNames).toBe(generated.splitExternalNames);
     expect(facade.externalBoundaryFromParts).toBe(generated.externalBoundaryFromParts);
+    expect(facade.externalIslandRefFromParts).toBe(generated.externalIslandRefFromParts);
     expect(facade.externalStringProp).toBe(generated.externalStringProp);
     expect(facade.externalBoolProp).toBe(generated.externalBoolProp);
     expect(facade.externalRuntimeImports).toBe(generated.externalRuntimeImports);

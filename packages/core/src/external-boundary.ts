@@ -9,11 +9,10 @@ import {
 import {
   type ExternalBoundaryIslandShape,
   externalBoundaryFromParts,
-  externalBoolProp,
+  externalIslandRefFromParts,
   externalLooseSidecarManifestFromBoundary,
   externalSidecarManifestFromIsland,
   externalSidecarPackageFromBoundary,
-  externalStringProp,
   hasExternalRuntimeImports,
   isLoosePythonBoundaryShape,
   isPythonSidecarBoundaryShape,
@@ -60,7 +59,7 @@ export interface ExternalBoundary {
   col?: number;
 }
 
-export interface CapabilityIslandRef extends ExternalBoundaryIslandShape {}
+export type CapabilityIslandRef = ExternalBoundaryIslandShape;
 
 export interface CapabilityIsland extends CapabilityIslandRef {
   imports: ExternalBoundary[];
@@ -100,40 +99,8 @@ function splitNames(value: unknown): string[] {
   return splitExternalNames(value);
 }
 
-function stringProp(props: Record<string, unknown>, key: string): string | undefined {
-  return externalStringProp(props, key);
-}
-
-function boolProp(props: Record<string, unknown>, key: string): boolean {
-  return externalBoolProp(props, key);
-}
-
 function islandRefFromNode(node: IRNode): CapabilityIslandRef | null {
-  const props = node.props ?? {};
-  const name = stringProp(props, 'name');
-  if (!name) return null;
-  const args = splitNames(props.args);
-
-  return {
-    name,
-    kind: stringProp(props, 'kind'),
-    runtime: stringProp(props, 'runtime'),
-    protocol: stringProp(props, 'protocol'),
-    module: stringProp(props, 'module'),
-    ...(args.length > 0 ? { args } : {}),
-    session: stringProp(props, 'session'),
-    options: stringProp(props, 'options'),
-    error: stringProp(props, 'error'),
-    timeout: stringProp(props, 'timeout'),
-    effects: splitNames(props.effects),
-    serialization: stringProp(props, 'serialization'),
-    requiresSidecar: boolProp(props, 'requiresSidecar'),
-    version: stringProp(props, 'version'),
-    review: stringProp(props, 'review'),
-    reason: stringProp(props, 'reason'),
-    line: node.loc?.line,
-    col: node.loc?.col,
-  };
+  return externalIslandRefFromParts(node.props ?? {}, node.loc?.line, node.loc?.col);
 }
 
 function importBindingFromProps(props: Record<string, unknown>, loc?: IRNode['loc']): ExternalImportBinding {

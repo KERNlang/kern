@@ -71,31 +71,59 @@ export function inheritExternalArgs(props: Record<string, unknown>, island: Exte
 }
 
 // @kern-source: external-boundary-utils:60
+export function externalIslandRefFromParts(props: Record<string, unknown>, line: number | undefined, col: number | undefined): ExternalBoundaryIslandShape | null {
+  const name = externalStringProp(props, 'name');
+  if (!name) return null;
+  const args = splitExternalNames(props.args);
+  const island: ExternalBoundaryIslandShape = {
+    name,
+    kind: externalStringProp(props, 'kind'),
+    runtime: externalStringProp(props, 'runtime'),
+    protocol: externalStringProp(props, 'protocol'),
+    module: externalStringProp(props, 'module'),
+    ...(args.length > 0 ? { args } : {}),
+    session: externalStringProp(props, 'session'),
+    options: externalStringProp(props, 'options'),
+    error: externalStringProp(props, 'error'),
+    timeout: externalStringProp(props, 'timeout'),
+    effects: splitExternalNames(props.effects),
+    serialization: externalStringProp(props, 'serialization'),
+    requiresSidecar: externalBoolProp(props, 'requiresSidecar'),
+    version: externalStringProp(props, 'version'),
+    review: externalStringProp(props, 'review'),
+    reason: externalStringProp(props, 'reason'),
+    line,
+    col,
+  };
+  return island;
+}
+
+// @kern-source: external-boundary-utils:91
 export function hasExternalRuntimeImports(boundary: ExternalBoundaryRuntimeShape): boolean {
   return boundary.imports.some((binding) => binding.types !== true);
 }
 
-// @kern-source: external-boundary-utils:65
+// @kern-source: external-boundary-utils:96
 export function externalRuntimeImports(imports: ExternalRuntimeImportShape[]): ExternalRuntimeImportShape[] {
   return imports.filter((binding) => binding.types !== true);
 }
 
-// @kern-source: external-boundary-utils:70
+// @kern-source: external-boundary-utils:101
 export function isPythonSidecarBoundaryShape(boundary: ExternalBoundaryRuntimeShape): boolean {
   return boundary.requiresSidecar === true && hasExternalRuntimeImports(boundary) && (boundary.targetFamily === 'python' || boundary.registry === 'pypi');
 }
 
-// @kern-source: external-boundary-utils:75
+// @kern-source: external-boundary-utils:106
 export function isLoosePythonBoundaryShape(boundary: ExternalBoundaryRuntimeShape): boolean {
   return boundary.explicitPackage === true && !boundary.island && hasExternalRuntimeImports(boundary) && (boundary.targetFamily === 'python' || boundary.registry === 'pypi');
 }
 
-// @kern-source: external-boundary-utils:80
+// @kern-source: external-boundary-utils:111
 export function externalSidecarPackageKey(sidecarPackage: ExternalSidecarPackageShape): string {
   return `${sidecarPackage.package}\x00${sidecarPackage.registry}\x00${sidecarPackage.target}`;
 }
 
-// @kern-source: external-boundary-utils:85
+// @kern-source: external-boundary-utils:116
 export function externalSidecarPackageFromBoundary(boundary: ExternalSidecarBoundaryShape): ExternalSidecarPackageShape {
   const sidecarPackage: ExternalSidecarPackageShape = {
     package: boundary.package,
@@ -110,7 +138,7 @@ export function externalSidecarPackageFromBoundary(boundary: ExternalSidecarBoun
   return sidecarPackage;
 }
 
-// @kern-source: external-boundary-utils:101
+// @kern-source: external-boundary-utils:132
 export function externalBoundaryFromParts(packageName: string, registry: ExternalImportRegistry, target: ExternalImportTarget, targetFamily: ExternalImportTargetFamily, props: Record<string, unknown>, island: ExternalBoundaryIslandShape | undefined, imports: ExternalRuntimeImportShape[], line: number | undefined, col: number | undefined): ExternalBoundaryShape {
   const boundary: ExternalBoundaryShape = {
     package: packageName,
@@ -139,7 +167,7 @@ export function externalBoundaryFromParts(packageName: string, registry: Externa
   return boundary;
 }
 
-// @kern-source: external-boundary-utils:139
+// @kern-source: external-boundary-utils:170
 export function externalSidecarManifestFromIsland(island: ExternalSidecarIslandShape): ExternalSidecarManifestShape | null {
   if (island.requiresSidecar !== true || island.runtime !== 'python') return null;
   const packages = island.imports
@@ -168,7 +196,7 @@ export function externalSidecarManifestFromIsland(island: ExternalSidecarIslandS
   return manifest;
 }
 
-// @kern-source: external-boundary-utils:169
+// @kern-source: external-boundary-utils:200
 export function externalLooseSidecarManifestFromBoundary(name: string, boundary: ExternalSidecarBoundaryShape, sidecarPackage: ExternalSidecarPackageShape): ExternalSidecarManifestShape {
   const manifest: ExternalSidecarManifestShape = {
     name,
@@ -184,7 +212,7 @@ export function externalLooseSidecarManifestFromBoundary(name: string, boundary:
   return manifest;
 }
 
-// @kern-source: external-boundary-utils:188
+// @kern-source: external-boundary-utils:219
 export function mergeExternalSidecarManifestPackage(manifest: ExternalSidecarManifestShape, sidecarPackage: ExternalSidecarPackageShape, effects: string[] | undefined): ExternalSidecarManifestShape {
   manifest.effects = [...new Set([...manifest.effects, ...(effects ?? [])])];
   const packageKey = externalSidecarPackageKey(sidecarPackage);
