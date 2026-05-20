@@ -66,9 +66,9 @@ fn name=isString params="value:unknown" returns="value is string"
     return value="typeof value === \"string\""
 
 fn name=assertUser params="x:unknown" returns="asserts x is User"
-  handler <<<
-    if (!x) throw new Error("not a user");
-  >>>
+  handler
+    if cond="!x"
+      throw value="new Error(\"not a user\")"
 
 class name=Account
   method name=isAdmin returns="this is AdminUser"
