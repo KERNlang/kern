@@ -217,8 +217,12 @@ export {
   snapshotRegistry,
   tracesEqual,
 } from './ir/semantics/index.js';
-export type { GapCategory, GapClassification } from './migrate-literals.js';
-export { classifyHandlerGap, isInlineSafeExpression, isInlineSafeLiteral } from './migrate-literals.js';
+export type { GapCategory, GapClassification } from './generated/utils/migrate-literals.js';
+export {
+  classifyHandlerGap,
+  isInlineSafeExpression,
+  isInlineSafeLiteral,
+} from './generated/utils/migrate-literals.js';
 // Native KERN handler eligibility (slice 5a) — heuristic classifier used by
 // the diagnostic layer and the future `kern migrate native-handlers` CLI.
 export type { EligibilityResult, FileEligibilityReport, RawBody } from './native-eligibility.js';
@@ -426,7 +430,7 @@ export {
   resolveNextjsMajor,
   resolveReactMajor,
   resolveTailwindMajor,
-} from './version-detect.js';
+} from './generated/utils/version-detect.js';
 export type { Visitor, VisitorFn, VisitorMap, WalkContext } from './walk.js';
 // Walker
 export { getNodeAtPosition, walkIR } from './walk.js';

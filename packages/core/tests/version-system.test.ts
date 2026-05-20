@@ -1,5 +1,6 @@
-// Checked in by `pnpm --filter @kernlang/core kern:compile`.
+// Compare source logic with the generated utility checked in by `pnpm --filter @kernlang/core kern:compile`.
 import * as generatedVersionDetect from '../src/generated/utils/version-detect.js';
+import * as sourceVersionDetect from '../src/version-detect.js';
 import {
   applyTailwindTokenRules,
   buildNextjsProfile,
@@ -7,23 +8,18 @@ import {
   buildTailwindProfile,
   buildVersionProfile,
   resolveConfig,
-  detectVersionsFromPackageJson as sourceDetectVersionsFromPackageJson,
-  parseMajorVersion as sourceParseMajorVersion,
-  resolveNextjsMajor as sourceResolveNextjsMajor,
-  resolveReactMajor as sourceResolveReactMajor,
-  resolveTailwindMajor as sourceResolveTailwindMajor,
 } from '../src/index.js';
 
 // ── Version Detection ────────────────────────────────────────────────────
 
 const versionDetectionImplementations = [
   {
-    detectVersionsFromPackageJson: sourceDetectVersionsFromPackageJson,
+    detectVersionsFromPackageJson: sourceVersionDetect.detectVersionsFromPackageJson,
     label: 'source',
-    parseMajorVersion: sourceParseMajorVersion,
-    resolveNextjsMajor: sourceResolveNextjsMajor,
-    resolveReactMajor: sourceResolveReactMajor,
-    resolveTailwindMajor: sourceResolveTailwindMajor,
+    parseMajorVersion: sourceVersionDetect.parseMajorVersion,
+    resolveNextjsMajor: sourceVersionDetect.resolveNextjsMajor,
+    resolveReactMajor: sourceVersionDetect.resolveReactMajor,
+    resolveTailwindMajor: sourceVersionDetect.resolveTailwindMajor,
   },
   {
     detectVersionsFromPackageJson: generatedVersionDetect.detectVersionsFromPackageJson,
