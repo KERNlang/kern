@@ -22,7 +22,5 @@ server name=StarterAPI port=3001
 
   route path="/api/items" method=post
     validate schema=CreateItemInput
-    handler <<<
-      const item = { id: crypto.randomUUID(), ...req.body, createdAt: new Date().toISOString() };
-      res.status(201).json(item);
-    >>>
+    derive item expr={{ { id: crypto.randomUUID(), ...body, createdAt: new Date().toISOString() } }}
+    respond 201 json=item

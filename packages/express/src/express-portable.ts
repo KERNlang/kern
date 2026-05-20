@@ -18,6 +18,11 @@ export function rewriteExpressExpr(expr: string, path: string): string {
   // isn't corrupted into `"req.user.id"` (Codex review on ff924afe).
   const rewriteSegment = (seg: string): string => {
     let result = seg;
+    // Spread of a bare request namespace (`{...body}`, `[...user.roles]` is
+    // handled by the member rules below): rewrite the aggregate to its Express
+    // form. The `(?!\.)` guard leaves member operands (`...user.roles`) to the
+    // `user.X` rule so they aren't double-prefixed to `req.req.user.roles`.
+    result = result.replace(/\.\.\.(params|query|body|headers|user)\b(?!\.)/g, '...req.$1');
     result = result.replace(/\bparams\.([A-Za-z_]\w*)/g, 'req.params.$1');
     result = result.replace(/\bbody\.([A-Za-z_]\w*)/g, 'req.body.$1');
     result = result.replace(/\bquery\.([A-Za-z_]\w*)/g, 'req.query.$1');

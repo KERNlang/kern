@@ -96,6 +96,43 @@ const FIXTURES = [
     expected: { sub: 'user-42' },
   },
   {
+    name: 'object spread of a plain dict',
+    expr: '{ ...user, extra: 1 }',
+    path: '/api/spread-obj',
+    authUser: true,
+    bindings: { user: { a: 1, b: 2 } },
+    expected: { a: 1, b: 2, extra: 1 },
+  },
+  {
+    name: 'object spread of a Pydantic body (must use model_dump)',
+    // The trap: a naive {**body} raises TypeError because a Pydantic model is
+    // not a mapping. Single-word field keeps snake==camel so the wire shape
+    // matches Express.
+    expr: '{ ...body, id: 1 }',
+    path: '/api/spread-body',
+    bindings: { body: { name: 'widget' } },
+    expected: { name: 'widget', id: 1 },
+  },
+  {
+    name: 'array spread with a member operand',
+    expr: '[...user.roles, "x"]',
+    path: '/api/spread-arr',
+    authUser: true,
+    bindings: { user: { roles: ['a', 'b'] } },
+    expected: ['a', 'b', 'x'],
+  },
+  {
+    // External `validate schema=X`: body IS a Pydantic model but its field
+    // names are unknown to the rewriter (bodyFields empty). model_dump() must
+    // still fire — this is the starter POST /items case.
+    name: 'object spread of body with an external schema (unknown fields)',
+    expr: '{ ...body, id: 1 }',
+    path: '/api/spread-ext',
+    externalSchema: true,
+    bindings: { body: { name: 'widget' } },
+    expected: { name: 'widget', id: 1 },
+  },
+  {
     name: 'crypto.randomUUID is a string on both targets',
     expr: '{ id: crypto.randomUUID() }',
     path: '/api/id',
@@ -214,7 +251,9 @@ for (const fx of FIXTURES) {
   selected++;
   const mode = fx.compare ?? 'value';
   const pathParams = [...fx.path.matchAll(/:([A-Za-z_]\w*)/g)].map((m) => m[1]);
-  const bodyFields = new Set(Object.keys(fx.bindings.body ?? {}));
+  // externalSchema mirrors `validate schema=X`: the body is a model but its
+  // field names are unknown to the rewriter, so bodyFields is empty.
+  const bodyFields = fx.externalSchema ? new Set() : new Set(Object.keys(fx.bindings.body ?? {}));
   const imports = new Set();
 
   // Out-of-scope guard (see SCOPE in header): a camelCase param/query key

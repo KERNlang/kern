@@ -530,6 +530,26 @@ describe('Express Transpiler', () => {
       expect(route!.content).not.toContain('userId: user.id');
     });
 
+    test('portable spread of bare body/user rewrites the aggregate to req.*', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=Test',
+        '  route POST /api/items',
+        '    auth required',
+        '    derive item expr={{ { ...body, owner: user.id, roles: [...user.roles] } }}',
+        '    respond 201 json=item',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      // bare spread of a request namespace → spread of req.*
+      expect(route!.content).toContain('...req.body');
+      expect(route!.content).toContain('owner: req.user.id');
+      // member operand spread must NOT double-prefix to req.req.user.roles
+      expect(route!.content).toContain('[...req.user.roles]');
+      expect(route!.content).not.toContain('req.req.');
+    });
+
     test('portable guard reuses matching route error contract message', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');

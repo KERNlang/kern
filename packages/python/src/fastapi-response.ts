@@ -414,6 +414,61 @@ function extractTemplateLiterals(
   return { maskedExpr, replacements };
 }
 
+// Lower JS spread elements to Python unpacking, choosing the operator from the
+// enclosing bracket: `{...x}` → `{**x}`, `[...x]` / `f(...x)` → `[*x]` / `f(*x)`.
+// Bracket-aware (a stack) and string-aware (skips quoted contents) so a literal
+// "..." inside a string is left intact. Runs BEFORE the request-ref rewrites so
+// that, e.g., `...user.roles` becomes `*user.roles` and the auth rewrite's
+// `(?<!\.)` lookbehind no longer sees the spread's trailing dot.
+function lowerSpreadElements(expr: string): string {
+  let out = '';
+  const stack: string[] = [];
+  let i = 0;
+  while (i < expr.length) {
+    const ch = expr[i];
+    if (ch === '"' || ch === "'") {
+      const q = ch;
+      out += ch;
+      i++;
+      while (i < expr.length) {
+        out += expr[i];
+        if (expr[i] === '\\') {
+          i++;
+          if (i < expr.length) out += expr[i];
+          i++;
+          continue;
+        }
+        if (expr[i] === q) {
+          i++;
+          break;
+        }
+        i++;
+      }
+      continue;
+    }
+    if (ch === '{' || ch === '[' || ch === '(') {
+      stack.push(ch);
+      out += ch;
+      i++;
+      continue;
+    }
+    if (ch === '}' || ch === ']' || ch === ')') {
+      stack.pop();
+      out += ch;
+      i++;
+      continue;
+    }
+    if (ch === '.' && expr[i + 1] === '.' && expr[i + 2] === '.') {
+      out += stack[stack.length - 1] === '{' ? '**' : '*';
+      i += 3;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
 export function rewriteFastAPIExpr(
   expr: string,
   pathParams: string[],
@@ -423,6 +478,9 @@ export function rewriteFastAPIExpr(
 ): string {
   const { maskedExpr, replacements } = extractTemplateLiterals(expr, pathParams, bodyFields, authUser, imports);
   let result = maskedExpr;
+  // Spread → unpacking first, so the request-ref rewrites below see clean
+  // operands (e.g. `*user.roles`, not `...user.roles`).
+  result = lowerSpreadElements(result);
   // params.X → X (function param) for path params
   for (const param of pathParams) {
     result = result.replace(new RegExp(`\\bparams\\.${param}\\b`, 'g'), param);
@@ -447,6 +505,15 @@ export function rewriteFastAPIExpr(
   result = result.replace(/\bbody\.([A-Za-z_]\w*)/g, (match, field) =>
     bodyFields.has(field) ? `body.${toSnakeCase(field)}` : match,
   );
+  // Spreading the whole request body: `{**body}` raises TypeError because a
+  // Pydantic model is not a mapping, so unpack its dict form instead. This is
+  // unconditional: whenever the `body` symbol exists it is a Pydantic model
+  // (inline `RequestBody`, or an external `validate` schema typed `body: X` for
+  // POST/PUT/PATCH) — there is no `body: dict` codegen path, so model_dump() is
+  // always correct. Keying on bodyFields would wrongly skip external schemas
+  // (their field names are unknown but the param is still a model). A
+  // `**body.field` member spread is left alone via the `(?!\s*\.)` guard.
+  result = result.replace(/\*\*body\b(?!\s*\.)/g, '**body.model_dump()');
   // query.X → X (function param)
   result = result.replace(/\bquery\.([A-Za-z_]\w*)/g, '$1');
   // headers.X → request.headers.get("X")
