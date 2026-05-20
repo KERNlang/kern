@@ -1,0 +1,63 @@
+use path="./import-metadata.kern"
+  from name=splitCapabilityList kind=fn
+
+type name=ExternalBoundaryStringKey alias="'runtime' | 'serialization' | 'version' | 'review' | 'reason' | 'protocol' | 'module' | 'session' | 'options' | 'error' | 'timeout'"
+type name=ExternalBoundaryInheritance alias="{ runtime?: string; serialization?: string; version?: string; review?: string; reason?: string; protocol?: string; module?: string; session?: string; options?: string; error?: string; timeout?: string; effects?: string[]; args?: string[] }"
+type name=ExternalBoundaryRuntimeShape alias="{ explicitPackage?: boolean; island?: unknown; imports: Array<{ types?: boolean }>; requiresSidecar?: boolean; targetFamily?: string; registry?: string }"
+
+fn name=splitExternalNames params="value:unknown" returns="string[]" export=true
+  handler
+    return value="splitCapabilityList(value)"
+
+fn name=externalStringProp returns="string | undefined" export=true
+  param name=props type="Record<string, unknown>"
+  param name=key type=string
+  handler
+    let name=value value="props[key]"
+    return value="typeof value === 'string' && value.length > 0 ? value : undefined"
+
+fn name=externalBoolProp returns=boolean export=true
+  param name=props type="Record<string, unknown>"
+  param name=key type=string
+  handler
+    return value="props[key] === true || props[key] === 'true'"
+
+fn name=mergeExternalEffects returns="string[]" export=true
+  param name=props type="Record<string, unknown>"
+  param name=island type="ExternalBoundaryInheritance | undefined"
+  handler
+    let name=islandEffects value="Array.isArray(island?.effects) ? island.effects : []"
+    return value="[...new Set([...islandEffects, ...splitExternalNames(props.effects)])]"
+
+fn name=inheritExternalString returns="string | undefined" export=true
+  param name=props type="Record<string, unknown>"
+  param name=key type=ExternalBoundaryStringKey
+  param name=island type="ExternalBoundaryInheritance | undefined"
+  handler
+    let name=value value="externalStringProp(props, key)"
+    if cond="value !== undefined"
+      return value="value"
+    let name=inherited value="island?.[key]"
+    return value="typeof inherited === 'string' ? inherited : undefined"
+
+fn name=inheritExternalArgs returns="string[] | undefined" export=true
+  param name=props type="Record<string, unknown>"
+  param name=island type="ExternalBoundaryInheritance | undefined"
+  handler
+    let name=args value="splitExternalNames(props.args)"
+    return value="args.length > 0 ? args : island?.args"
+
+fn name=hasExternalRuntimeImports returns=boolean export=true
+  param name=boundary type=ExternalBoundaryRuntimeShape
+  handler
+    return value="boundary.imports.some((binding) => binding.types !== true)"
+
+fn name=isPythonSidecarBoundaryShape returns=boolean export=true
+  param name=boundary type=ExternalBoundaryRuntimeShape
+  handler
+    return value="boundary.requiresSidecar === true && hasExternalRuntimeImports(boundary) && (boundary.targetFamily === 'python' || boundary.registry === 'pypi')"
+
+fn name=isLoosePythonBoundaryShape returns=boolean export=true
+  param name=boundary type=ExternalBoundaryRuntimeShape
+  handler
+    return value="boundary.explicitPackage === true && !boundary.island && hasExternalRuntimeImports(boundary) && (boundary.targetFamily === 'python' || boundary.registry === 'pypi')"
