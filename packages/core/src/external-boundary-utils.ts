@@ -1,7 +1,9 @@
 // Facade. Source of truth: packages/core/src/kern/utils/external-boundary-utils.kern.
 export type {
   ExternalBoundaryInheritance,
+  ExternalBoundaryIslandShape,
   ExternalBoundaryRuntimeShape,
+  ExternalBoundaryShape,
   ExternalRuntimeImportShape,
   ExternalSidecarBoundaryShape,
   ExternalSidecarIslandShape,
@@ -11,6 +13,7 @@ export type {
 } from './generated/utils/external-boundary-utils.js';
 
 export {
+  externalBoundaryFromParts,
   externalBoolProp,
   externalRuntimeImports,
   externalLooseSidecarManifestFromBoundary,

@@ -6,9 +6,11 @@ use path="./import-metadata.kern"
 
 type name=ExternalBoundaryStringKey alias="'runtime' | 'serialization' | 'version' | 'review' | 'reason' | 'protocol' | 'module' | 'session' | 'options' | 'error' | 'timeout'"
 type name=ExternalBoundaryInheritance alias="{ runtime?: string; serialization?: string; version?: string; review?: string; reason?: string; protocol?: string; module?: string; session?: string; options?: string; error?: string; timeout?: string; effects?: string[]; args?: string[] }"
+type name=ExternalBoundaryIslandShape alias="{ name: string; kind?: string; runtime?: string; serialization?: string; version?: string; review?: string; reason?: string; protocol?: string; module?: string; session?: string; options?: string; error?: string; timeout?: string; effects: string[]; args?: string[]; requiresSidecar: boolean; line?: number; col?: number }"
 type name=ExternalRuntimeImportShape alias="{ names: string[]; default?: string; from?: string; signature?: string; signatures?: Record<string, string>; types: boolean; line?: number; col?: number }"
 type name=ExternalBoundaryRuntimeShape alias="{ explicitPackage?: boolean; island?: unknown; imports: ExternalRuntimeImportShape[]; requiresSidecar?: boolean; targetFamily?: string; registry?: string }"
 type name=ExternalSidecarBoundaryShape alias="ExternalBoundaryRuntimeShape & { package: string; registry: ExternalImportRegistry; target: ExternalImportTarget; targetFamily: ExternalImportTargetFamily; effects?: string[]; serialization?: string; version?: string; line?: number; col?: number }"
+type name=ExternalBoundaryShape alias="{ package: string; explicitPackage?: boolean; registry: ExternalImportRegistry; target: ExternalImportTarget; targetFamily: ExternalImportTargetFamily; island?: ExternalBoundaryIslandShape; runtime?: string; protocol?: string; module?: string; args?: string[]; session?: string; options?: string; error?: string; timeout?: string; effects: string[]; serialization?: string; requiresSidecar?: boolean; version?: string; review?: string; reason?: string; imports: ExternalRuntimeImportShape[]; line?: number; col?: number }"
 type name=ExternalSidecarPackageShape alias="{ package: string; registry: ExternalImportRegistry; target: ExternalImportTarget; targetFamily: ExternalImportTargetFamily; imports: ExternalRuntimeImportShape[]; version?: string; line?: number; col?: number }"
 type name=ExternalSidecarIslandShape alias="{ name: string; kind?: string; runtime?: string; protocol?: string; module?: string; args?: string[]; session?: string; options?: string; error?: string; timeout?: string; effects: string[]; serialization?: string; requiresSidecar: boolean; imports: ExternalSidecarBoundaryShape[]; line?: number; col?: number }"
 type name=ExternalSidecarManifestShape alias="{ name: string; kind?: string; runtime: string; protocol?: string; module?: string; args?: string[]; session?: string; options?: string; error?: string; timeout?: string; effects: string[]; serialization?: string; requiresSidecar: true; packages: ExternalSidecarPackageShape[]; line?: number; col?: number }"
@@ -94,6 +96,44 @@ fn name=externalSidecarPackageFromBoundary returns=ExternalSidecarPackageShape e
     if (boundary.line !== undefined) sidecarPackage.line = boundary.line;
     if (boundary.col !== undefined) sidecarPackage.col = boundary.col;
     return sidecarPackage;
+  >>>
+
+fn name=externalBoundaryFromParts returns=ExternalBoundaryShape export=true
+  param name=packageName type=string
+  param name=registry type=ExternalImportRegistry
+  param name=target type=ExternalImportTarget
+  param name=targetFamily type=ExternalImportTargetFamily
+  param name=props type="Record<string, unknown>"
+  param name=island type="ExternalBoundaryIslandShape | undefined"
+  param name=imports type="ExternalRuntimeImportShape[]"
+  param name=line type="number | undefined"
+  param name=col type="number | undefined"
+  handler <<<
+    const boundary: ExternalBoundaryShape = {
+      package: packageName,
+      registry,
+      target,
+      targetFamily,
+      island,
+      runtime: inheritExternalString(props, 'runtime', island),
+      protocol: inheritExternalString(props, 'protocol', island),
+      module: inheritExternalString(props, 'module', island),
+      args: inheritExternalArgs(props, island),
+      session: inheritExternalString(props, 'session', island),
+      options: inheritExternalString(props, 'options', island),
+      error: inheritExternalString(props, 'error', island),
+      timeout: inheritExternalString(props, 'timeout', island),
+      effects: mergeExternalEffects(props, island),
+      serialization: inheritExternalString(props, 'serialization', island),
+      requiresSidecar: externalBoolProp(props, 'requiresSidecar') || island?.requiresSidecar === true,
+      version: inheritExternalString(props, 'version', island),
+      review: inheritExternalString(props, 'review', island),
+      reason: inheritExternalString(props, 'reason', island),
+      imports,
+      line,
+      col,
+    };
+    return boundary;
   >>>
 
 fn name=externalSidecarManifestFromIsland returns="ExternalSidecarManifestShape | null" export=true

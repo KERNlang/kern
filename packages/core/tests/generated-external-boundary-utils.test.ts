@@ -40,6 +40,109 @@ describe('generated external-boundary-utils behavior', () => {
     expect(generated.inheritExternalArgs({}, undefined)).toBeUndefined();
   });
 
+  it('builds external boundary shapes from normalized metadata and inherited props', () => {
+    expect(
+      generated.externalBoundaryFromParts(
+        'local_engine',
+        'pypi',
+        'python',
+        'python',
+        {
+          args: '[codex]',
+          effects: '[fs,cpu]',
+          serialization: 'ndjson',
+          requiresSidecar: 'true',
+          version: '2',
+          review: 'known',
+          reason: 'runtime bridge',
+        },
+        {
+          name: 'Multi',
+          kind: 'sidecar',
+          runtime: 'python',
+          protocol: 'pty-session',
+          module: 'kern_engines.cli.daemon',
+          args: ['claude'],
+          session: 'Session',
+          options: 'Options',
+          error: 'ErrorShape',
+          timeout: 'TimeoutShape',
+          effects: ['exec', 'fs'],
+          serialization: 'json',
+          requiresSidecar: false,
+          line: 1,
+          col: 1,
+        },
+        [{ names: ['run'], types: false, line: 2, col: 3 }],
+        2,
+        3,
+      ),
+    ).toEqual({
+      package: 'local_engine',
+      registry: 'pypi',
+      target: 'python',
+      targetFamily: 'python',
+      island: {
+        name: 'Multi',
+        kind: 'sidecar',
+        runtime: 'python',
+        protocol: 'pty-session',
+        module: 'kern_engines.cli.daemon',
+        args: ['claude'],
+        session: 'Session',
+        options: 'Options',
+        error: 'ErrorShape',
+        timeout: 'TimeoutShape',
+        effects: ['exec', 'fs'],
+        serialization: 'json',
+        requiresSidecar: false,
+        line: 1,
+        col: 1,
+      },
+      runtime: 'python',
+      protocol: 'pty-session',
+      module: 'kern_engines.cli.daemon',
+      args: ['codex'],
+      session: 'Session',
+      options: 'Options',
+      error: 'ErrorShape',
+      timeout: 'TimeoutShape',
+      effects: ['exec', 'fs', 'cpu'],
+      serialization: 'ndjson',
+      requiresSidecar: true,
+      version: '2',
+      review: 'known',
+      reason: 'runtime bridge',
+      imports: [{ names: ['run'], types: false, line: 2, col: 3 }],
+      line: 2,
+      col: 3,
+    });
+  });
+
+  it('builds external boundary shapes without island inheritance', () => {
+    expect(
+      generated.externalBoundaryFromParts(
+        'react',
+        'npm',
+        'react',
+        'ts',
+        { names: 'useState' },
+        undefined,
+        [{ names: ['useState'], types: false }],
+        undefined,
+        undefined,
+      ),
+    ).toMatchObject({
+      package: 'react',
+      registry: 'npm',
+      target: 'react',
+      targetFamily: 'ts',
+      effects: [],
+      requiresSidecar: false,
+      imports: [{ names: ['useState'], types: false }],
+    });
+  });
+
   it('detects runtime imports directly', () => {
     expect(generated.hasExternalRuntimeImports({ imports: [] })).toBe(false);
     expect(generated.hasExternalRuntimeImports({ imports: [{ names: [], types: true }] })).toBe(false);
@@ -440,6 +543,7 @@ describe('generated external-boundary-utils behavior', () => {
 
   it('src facade delegates generated utility exports', () => {
     expect(facade.splitExternalNames).toBe(generated.splitExternalNames);
+    expect(facade.externalBoundaryFromParts).toBe(generated.externalBoundaryFromParts);
     expect(facade.externalStringProp).toBe(generated.externalStringProp);
     expect(facade.externalBoolProp).toBe(generated.externalBoolProp);
     expect(facade.externalRuntimeImports).toBe(generated.externalRuntimeImports);

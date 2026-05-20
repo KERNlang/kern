@@ -7,18 +7,17 @@ import {
   importTargetOf,
 } from './import-metadata.js';
 import {
+  type ExternalBoundaryIslandShape,
+  externalBoundaryFromParts,
   externalBoolProp,
   externalLooseSidecarManifestFromBoundary,
   externalSidecarManifestFromIsland,
   externalSidecarPackageFromBoundary,
   externalStringProp,
   hasExternalRuntimeImports,
-  inheritExternalArgs,
-  inheritExternalString,
   isLoosePythonBoundaryShape,
   isPythonSidecarBoundaryShape,
   mergeExternalSidecarManifestPackage,
-  mergeExternalEffects,
   splitExternalNames,
 } from './external-boundary-utils.js';
 import { pythonSidecarNameFromAliasAndPackage } from './python-sidecar.js';
@@ -61,47 +60,10 @@ export interface ExternalBoundary {
   col?: number;
 }
 
-export interface CapabilityIslandRef {
-  name: string;
-  kind?: string;
-  runtime?: string;
-  protocol?: string;
-  module?: string;
-  args?: string[];
-  session?: string;
-  options?: string;
-  error?: string;
-  timeout?: string;
-  effects: string[];
-  serialization?: string;
-  requiresSidecar: boolean;
-  version?: string;
-  review?: string;
-  reason?: string;
-  line?: number;
-  col?: number;
-}
+export interface CapabilityIslandRef extends ExternalBoundaryIslandShape {}
 
-export interface CapabilityIsland {
-  name: string;
-  kind?: string;
-  runtime?: string;
-  protocol?: string;
-  module?: string;
-  args?: string[];
-  session?: string;
-  options?: string;
-  error?: string;
-  timeout?: string;
-  effects: string[];
-  serialization?: string;
-  requiresSidecar: boolean;
-  version?: string;
-  review?: string;
-  reason?: string;
+export interface CapabilityIsland extends CapabilityIslandRef {
   imports: ExternalBoundary[];
-  line?: number;
-  col?: number;
 }
 
 export interface SidecarPackage {
@@ -144,33 +106,6 @@ function stringProp(props: Record<string, unknown>, key: string): string | undef
 
 function boolProp(props: Record<string, unknown>, key: string): boolean {
   return externalBoolProp(props, key);
-}
-
-function mergeEffects(props: Record<string, unknown>, island?: CapabilityIslandRef): string[] {
-  return mergeExternalEffects(props, island);
-}
-
-function inheritString(
-  props: Record<string, unknown>,
-  key:
-    | 'runtime'
-    | 'serialization'
-    | 'version'
-    | 'review'
-    | 'reason'
-    | 'protocol'
-    | 'module'
-    | 'session'
-    | 'options'
-    | 'error'
-    | 'timeout',
-  island?: CapabilityIslandRef,
-): string | undefined {
-  return inheritExternalString(props, key, island);
-}
-
-function inheritArgs(props: Record<string, unknown>, island?: CapabilityIslandRef): string[] | undefined {
-  return inheritExternalArgs(props, island);
 }
 
 function islandRefFromNode(node: IRNode): CapabilityIslandRef | null {
@@ -229,30 +164,17 @@ function boundaryFromExtern(node: IRNode, island?: CapabilityIslandRef): Externa
       ? childImports.map((child) => importBindingFromProps(child.props ?? {}, child.loc))
       : [importBindingFromProps(props, node.loc)];
 
-  return {
-    package: packageName,
+  return externalBoundaryFromParts(
+    packageName,
     registry,
-    target: importTargetOf(props.target, props.registry),
-    targetFamily: importTargetFamilyOf(props.target, props.registry),
+    importTargetOf(props.target, props.registry),
+    importTargetFamilyOf(props.target, props.registry),
+    props,
     island,
-    runtime: inheritString(props, 'runtime', island),
-    protocol: inheritString(props, 'protocol', island),
-    module: inheritString(props, 'module', island),
-    args: inheritArgs(props, island),
-    session: inheritString(props, 'session', island),
-    options: inheritString(props, 'options', island),
-    error: inheritString(props, 'error', island),
-    timeout: inheritString(props, 'timeout', island),
-    effects: mergeEffects(props, island),
-    serialization: inheritString(props, 'serialization', island),
-    requiresSidecar: boolProp(props, 'requiresSidecar') || island?.requiresSidecar === true,
-    version: inheritString(props, 'version', island),
-    review: inheritString(props, 'review', island),
-    reason: inheritString(props, 'reason', island),
     imports,
-    line: node.loc?.line,
-    col: node.loc?.col,
-  };
+    node.loc?.line,
+    node.loc?.col,
+  );
 }
 
 function boundaryFromImport(node: IRNode, island?: CapabilityIslandRef): ExternalBoundary | null {
@@ -268,30 +190,17 @@ function boundaryFromImport(node: IRNode, island?: CapabilityIslandRef): Externa
         : '';
   if (!packageName) return null;
 
-  const boundary: ExternalBoundary = {
-    package: packageName,
+  const boundary: ExternalBoundary = externalBoundaryFromParts(
+    packageName,
     registry,
-    target: importTargetOf(props.target, props.registry),
-    targetFamily: importTargetFamilyOf(props.target, props.registry),
+    importTargetOf(props.target, props.registry),
+    importTargetFamilyOf(props.target, props.registry),
+    props,
     island,
-    runtime: inheritString(props, 'runtime', island),
-    protocol: inheritString(props, 'protocol', island),
-    module: inheritString(props, 'module', island),
-    args: inheritArgs(props, island),
-    session: inheritString(props, 'session', island),
-    options: inheritString(props, 'options', island),
-    error: inheritString(props, 'error', island),
-    timeout: inheritString(props, 'timeout', island),
-    effects: mergeEffects(props, island),
-    serialization: inheritString(props, 'serialization', island),
-    requiresSidecar: boolProp(props, 'requiresSidecar') || island?.requiresSidecar === true,
-    version: inheritString(props, 'version', island),
-    review: inheritString(props, 'review', island),
-    reason: inheritString(props, 'reason', island),
-    imports: [importBindingFromProps(props, node.loc)],
-    line: node.loc?.line,
-    col: node.loc?.col,
-  };
+    [importBindingFromProps(props, node.loc)],
+    node.loc?.line,
+    node.loc?.col,
+  );
   if (typeof props.package === 'string' && props.package.length > 0) {
     Object.defineProperty(boundary, 'explicitPackage', {
       value: true,
