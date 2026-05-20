@@ -113,6 +113,61 @@ describe('generated external-boundary-utils behavior', () => {
     expect(island && 'args' in island).toBe(false);
   });
 
+  it('builds import binding shapes from raw props', () => {
+    expect(
+      generated.externalImportBindingFromParts(
+        {
+          names: '[sqrt,pow]',
+          default: 'math',
+          from: 'math',
+          signature: '(x: number) => number',
+          signatures: 'sqrt:(x: number) => number; pow:(x: number, y: number) => number',
+          types: 'true',
+        },
+        4,
+        5,
+      ),
+    ).toEqual({
+      names: ['sqrt', 'pow'],
+      default: 'math',
+      from: 'math',
+      signature: '(x: number) => number',
+      signatures: {
+        sqrt: '(x: number) => number',
+        pow: '(x: number, y: number) => number',
+      },
+      types: true,
+      line: 4,
+      col: 5,
+    });
+  });
+
+  it('omits empty import binding optional fields and invalid signature maps', () => {
+    const binding = generated.externalImportBindingFromParts(
+      {
+        names: 'array',
+        default: '',
+        from: '',
+        signature: '',
+        signatures: 'bad signature',
+        types: false,
+      },
+      undefined,
+      undefined,
+    );
+
+    expect(binding).toEqual({
+      names: ['array'],
+      default: undefined,
+      from: undefined,
+      signature: undefined,
+      types: false,
+      line: undefined,
+      col: undefined,
+    });
+    expect('signatures' in binding).toBe(false);
+  });
+
   it('builds external boundary shapes from normalized metadata and inherited props', () => {
     expect(
       generated.externalBoundaryFromParts(
@@ -617,6 +672,7 @@ describe('generated external-boundary-utils behavior', () => {
   it('src facade delegates generated utility exports', () => {
     expect(facade.splitExternalNames).toBe(generated.splitExternalNames);
     expect(facade.externalBoundaryFromParts).toBe(generated.externalBoundaryFromParts);
+    expect(facade.externalImportBindingFromParts).toBe(generated.externalImportBindingFromParts);
     expect(facade.externalIslandRefFromParts).toBe(generated.externalIslandRefFromParts);
     expect(facade.externalStringProp).toBe(generated.externalStringProp);
     expect(facade.externalBoolProp).toBe(generated.externalBoolProp);

@@ -1,4 +1,4 @@
-import { type ExternalSignatureMap, parseExternalSignatureMap } from './ecosystem-signatures.js';
+import { type ExternalSignatureMap } from './ecosystem-signatures.js';
 import {
   type ExternalImportRegistry,
   type ExternalImportTarget,
@@ -9,6 +9,7 @@ import {
 import {
   type ExternalBoundaryIslandShape,
   externalBoundaryFromParts,
+  externalImportBindingFromParts,
   externalIslandRefFromParts,
   externalLooseSidecarManifestFromBoundary,
   externalSidecarManifestFromIsland,
@@ -17,7 +18,6 @@ import {
   isLoosePythonBoundaryShape,
   isPythonSidecarBoundaryShape,
   mergeExternalSidecarManifestPackage,
-  splitExternalNames,
 } from './external-boundary-utils.js';
 import { pythonSidecarNameFromAliasAndPackage } from './python-sidecar.js';
 import type { IRNode } from './types.js';
@@ -95,28 +95,12 @@ export interface SidecarManifest {
   col?: number;
 }
 
-function splitNames(value: unknown): string[] {
-  return splitExternalNames(value);
-}
-
 function islandRefFromNode(node: IRNode): CapabilityIslandRef | null {
   return externalIslandRefFromParts(node.props ?? {}, node.loc?.line, node.loc?.col);
 }
 
 function importBindingFromProps(props: Record<string, unknown>, loc?: IRNode['loc']): ExternalImportBinding {
-  const explicitSignatures = parseExternalSignatureMap(props.signatures);
-  const binding: ExternalImportBinding = {
-    names: splitNames(props.names),
-    default: typeof props.default === 'string' && props.default.length > 0 ? props.default : undefined,
-    from: typeof props.from === 'string' && props.from.length > 0 ? props.from : undefined,
-    signature: typeof props.signature === 'string' && props.signature.length > 0 ? props.signature : undefined,
-    signatures: explicitSignatures,
-    types: props.types === true || props.types === 'true',
-    line: loc?.line,
-    col: loc?.col,
-  };
-  if (!binding.signatures) delete binding.signatures;
-  return binding;
+  return externalImportBindingFromParts(props, loc?.line, loc?.col);
 }
 
 function boundaryFromExtern(node: IRNode, island?: CapabilityIslandRef): ExternalBoundary | null {

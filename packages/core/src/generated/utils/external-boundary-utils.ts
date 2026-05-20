@@ -2,59 +2,63 @@
 import { splitCapabilityList } from './import-metadata.js';
 import type { ExternalImportRegistry, ExternalImportTarget, ExternalImportTargetFamily } from './import-metadata.js';
 
-// @kern-source: external-boundary-utils:7
-export type ExternalBoundaryStringKey = 'runtime' | 'serialization' | 'version' | 'review' | 'reason' | 'protocol' | 'module' | 'session' | 'options' | 'error' | 'timeout';
-
-// @kern-source: external-boundary-utils:8
-export type ExternalBoundaryInheritance = { runtime?: string; serialization?: string; version?: string; review?: string; reason?: string; protocol?: string; module?: string; session?: string; options?: string; error?: string; timeout?: string; effects?: string[]; args?: string[] };
-
-// @kern-source: external-boundary-utils:9
-export type ExternalBoundaryIslandShape = { name: string; kind?: string; runtime?: string; serialization?: string; version?: string; review?: string; reason?: string; protocol?: string; module?: string; session?: string; options?: string; error?: string; timeout?: string; effects: string[]; args?: string[]; requiresSidecar: boolean; line?: number; col?: number };
+// @kern-source: external-boundary-utils:6
+import { parseExternalSignatureMap } from './ecosystem-signatures.js';
+import type { ExternalSignatureMap } from './ecosystem-signatures.js';
 
 // @kern-source: external-boundary-utils:10
-export type ExternalRuntimeImportShape = { names: string[]; default?: string; from?: string; signature?: string; signatures?: Record<string, string>; types: boolean; line?: number; col?: number };
+export type ExternalBoundaryStringKey = 'runtime' | 'serialization' | 'version' | 'review' | 'reason' | 'protocol' | 'module' | 'session' | 'options' | 'error' | 'timeout';
 
 // @kern-source: external-boundary-utils:11
-export type ExternalBoundaryRuntimeShape = { explicitPackage?: boolean; island?: unknown; imports: ExternalRuntimeImportShape[]; requiresSidecar?: boolean; targetFamily?: string; registry?: string };
+export type ExternalBoundaryInheritance = { runtime?: string; serialization?: string; version?: string; review?: string; reason?: string; protocol?: string; module?: string; session?: string; options?: string; error?: string; timeout?: string; effects?: string[]; args?: string[] };
 
 // @kern-source: external-boundary-utils:12
-export type ExternalSidecarBoundaryShape = ExternalBoundaryRuntimeShape & { package: string; registry: ExternalImportRegistry; target: ExternalImportTarget; targetFamily: ExternalImportTargetFamily; effects?: string[]; serialization?: string; version?: string; line?: number; col?: number };
+export type ExternalBoundaryIslandShape = { name: string; kind?: string; runtime?: string; serialization?: string; version?: string; review?: string; reason?: string; protocol?: string; module?: string; session?: string; options?: string; error?: string; timeout?: string; effects: string[]; args?: string[]; requiresSidecar: boolean; line?: number; col?: number };
 
 // @kern-source: external-boundary-utils:13
-export type ExternalBoundaryShape = { package: string; explicitPackage?: boolean; registry: ExternalImportRegistry; target: ExternalImportTarget; targetFamily: ExternalImportTargetFamily; island?: ExternalBoundaryIslandShape; runtime?: string; protocol?: string; module?: string; args?: string[]; session?: string; options?: string; error?: string; timeout?: string; effects: string[]; serialization?: string; requiresSidecar?: boolean; version?: string; review?: string; reason?: string; imports: ExternalRuntimeImportShape[]; line?: number; col?: number };
+export type ExternalRuntimeImportShape = { names: string[]; default?: string; from?: string; signature?: string; signatures?: ExternalSignatureMap; types: boolean; line?: number; col?: number };
 
 // @kern-source: external-boundary-utils:14
-export type ExternalSidecarPackageShape = { package: string; registry: ExternalImportRegistry; target: ExternalImportTarget; targetFamily: ExternalImportTargetFamily; imports: ExternalRuntimeImportShape[]; version?: string; line?: number; col?: number };
+export type ExternalBoundaryRuntimeShape = { explicitPackage?: boolean; island?: unknown; imports: ExternalRuntimeImportShape[]; requiresSidecar?: boolean; targetFamily?: string; registry?: string };
 
 // @kern-source: external-boundary-utils:15
-export type ExternalSidecarIslandShape = { name: string; kind?: string; runtime?: string; protocol?: string; module?: string; args?: string[]; session?: string; options?: string; error?: string; timeout?: string; effects: string[]; serialization?: string; requiresSidecar: boolean; imports: ExternalSidecarBoundaryShape[]; line?: number; col?: number };
+export type ExternalSidecarBoundaryShape = ExternalBoundaryRuntimeShape & { package: string; registry: ExternalImportRegistry; target: ExternalImportTarget; targetFamily: ExternalImportTargetFamily; effects?: string[]; serialization?: string; version?: string; line?: number; col?: number };
 
 // @kern-source: external-boundary-utils:16
-export type ExternalSidecarManifestShape = { name: string; kind?: string; runtime: string; protocol?: string; module?: string; args?: string[]; session?: string; options?: string; error?: string; timeout?: string; effects: string[]; serialization?: string; requiresSidecar: true; packages: ExternalSidecarPackageShape[]; line?: number; col?: number };
+export type ExternalBoundaryShape = { package: string; explicitPackage?: boolean; registry: ExternalImportRegistry; target: ExternalImportTarget; targetFamily: ExternalImportTargetFamily; island?: ExternalBoundaryIslandShape; runtime?: string; protocol?: string; module?: string; args?: string[]; session?: string; options?: string; error?: string; timeout?: string; effects: string[]; serialization?: string; requiresSidecar?: boolean; version?: string; review?: string; reason?: string; imports: ExternalRuntimeImportShape[]; line?: number; col?: number };
+
+// @kern-source: external-boundary-utils:17
+export type ExternalSidecarPackageShape = { package: string; registry: ExternalImportRegistry; target: ExternalImportTarget; targetFamily: ExternalImportTargetFamily; imports: ExternalRuntimeImportShape[]; version?: string; line?: number; col?: number };
 
 // @kern-source: external-boundary-utils:18
+export type ExternalSidecarIslandShape = { name: string; kind?: string; runtime?: string; protocol?: string; module?: string; args?: string[]; session?: string; options?: string; error?: string; timeout?: string; effects: string[]; serialization?: string; requiresSidecar: boolean; imports: ExternalSidecarBoundaryShape[]; line?: number; col?: number };
+
+// @kern-source: external-boundary-utils:19
+export type ExternalSidecarManifestShape = { name: string; kind?: string; runtime: string; protocol?: string; module?: string; args?: string[]; session?: string; options?: string; error?: string; timeout?: string; effects: string[]; serialization?: string; requiresSidecar: true; packages: ExternalSidecarPackageShape[]; line?: number; col?: number };
+
+// @kern-source: external-boundary-utils:21
 export function splitExternalNames(value: unknown): string[] {
   return splitCapabilityList(value);
 }
 
-// @kern-source: external-boundary-utils:22
+// @kern-source: external-boundary-utils:25
 export function externalStringProp(props: Record<string, unknown>, key: string): string | undefined {
   const value = props[key];
   return (typeof value === 'string' && value.length > 0) ? value : undefined;
 }
 
-// @kern-source: external-boundary-utils:29
+// @kern-source: external-boundary-utils:32
 export function externalBoolProp(props: Record<string, unknown>, key: string): boolean {
   return props[key] === true || props[key] === 'true';
 }
 
-// @kern-source: external-boundary-utils:35
+// @kern-source: external-boundary-utils:38
 export function mergeExternalEffects(props: Record<string, unknown>, island: ExternalBoundaryInheritance | undefined): string[] {
   const islandEffects = Array.isArray(island?.effects) ? island.effects : [];
   return [...new Set([...islandEffects, ...splitExternalNames(props.effects)])];
 }
 
-// @kern-source: external-boundary-utils:42
+// @kern-source: external-boundary-utils:45
 export function inheritExternalString(props: Record<string, unknown>, key: ExternalBoundaryStringKey, island: ExternalBoundaryInheritance | undefined): string | undefined {
   const value = externalStringProp(props, key);
   if (value !== undefined) {
@@ -64,13 +68,13 @@ export function inheritExternalString(props: Record<string, unknown>, key: Exter
   return (typeof inherited === 'string') ? inherited : undefined;
 }
 
-// @kern-source: external-boundary-utils:53
+// @kern-source: external-boundary-utils:56
 export function inheritExternalArgs(props: Record<string, unknown>, island: ExternalBoundaryInheritance | undefined): string[] | undefined {
   const args = splitExternalNames(props.args);
   return (args.length > 0) ? args : island?.args;
 }
 
-// @kern-source: external-boundary-utils:60
+// @kern-source: external-boundary-utils:63
 export function externalIslandRefFromParts(props: Record<string, unknown>, line: number | undefined, col: number | undefined): ExternalBoundaryIslandShape | null {
   const name = externalStringProp(props, 'name');
   if (!name) return null;
@@ -98,32 +102,49 @@ export function externalIslandRefFromParts(props: Record<string, unknown>, line:
   return island;
 }
 
-// @kern-source: external-boundary-utils:91
+// @kern-source: external-boundary-utils:94
+export function externalImportBindingFromParts(props: Record<string, unknown>, line: number | undefined, col: number | undefined): ExternalRuntimeImportShape {
+  const explicitSignatures = parseExternalSignatureMap(props.signatures);
+  const binding: ExternalRuntimeImportShape = {
+    names: splitExternalNames(props.names),
+    default: typeof props.default === 'string' && props.default.length > 0 ? props.default : undefined,
+    from: typeof props.from === 'string' && props.from.length > 0 ? props.from : undefined,
+    signature: typeof props.signature === 'string' && props.signature.length > 0 ? props.signature : undefined,
+    signatures: explicitSignatures,
+    types: props.types === true || props.types === 'true',
+    line,
+    col,
+  };
+  if (!binding.signatures) delete binding.signatures;
+  return binding;
+}
+
+// @kern-source: external-boundary-utils:114
 export function hasExternalRuntimeImports(boundary: ExternalBoundaryRuntimeShape): boolean {
   return boundary.imports.some((binding) => binding.types !== true);
 }
 
-// @kern-source: external-boundary-utils:96
+// @kern-source: external-boundary-utils:119
 export function externalRuntimeImports(imports: ExternalRuntimeImportShape[]): ExternalRuntimeImportShape[] {
   return imports.filter((binding) => binding.types !== true);
 }
 
-// @kern-source: external-boundary-utils:101
+// @kern-source: external-boundary-utils:124
 export function isPythonSidecarBoundaryShape(boundary: ExternalBoundaryRuntimeShape): boolean {
   return boundary.requiresSidecar === true && hasExternalRuntimeImports(boundary) && (boundary.targetFamily === 'python' || boundary.registry === 'pypi');
 }
 
-// @kern-source: external-boundary-utils:106
+// @kern-source: external-boundary-utils:129
 export function isLoosePythonBoundaryShape(boundary: ExternalBoundaryRuntimeShape): boolean {
   return boundary.explicitPackage === true && !boundary.island && hasExternalRuntimeImports(boundary) && (boundary.targetFamily === 'python' || boundary.registry === 'pypi');
 }
 
-// @kern-source: external-boundary-utils:111
+// @kern-source: external-boundary-utils:134
 export function externalSidecarPackageKey(sidecarPackage: ExternalSidecarPackageShape): string {
   return `${sidecarPackage.package}\x00${sidecarPackage.registry}\x00${sidecarPackage.target}`;
 }
 
-// @kern-source: external-boundary-utils:116
+// @kern-source: external-boundary-utils:139
 export function externalSidecarPackageFromBoundary(boundary: ExternalSidecarBoundaryShape): ExternalSidecarPackageShape {
   const sidecarPackage: ExternalSidecarPackageShape = {
     package: boundary.package,
@@ -138,7 +159,7 @@ export function externalSidecarPackageFromBoundary(boundary: ExternalSidecarBoun
   return sidecarPackage;
 }
 
-// @kern-source: external-boundary-utils:132
+// @kern-source: external-boundary-utils:155
 export function externalBoundaryFromParts(packageName: string, registry: ExternalImportRegistry, target: ExternalImportTarget, targetFamily: ExternalImportTargetFamily, props: Record<string, unknown>, island: ExternalBoundaryIslandShape | undefined, imports: ExternalRuntimeImportShape[], line: number | undefined, col: number | undefined): ExternalBoundaryShape {
   const boundary: ExternalBoundaryShape = {
     package: packageName,
@@ -167,7 +188,7 @@ export function externalBoundaryFromParts(packageName: string, registry: Externa
   return boundary;
 }
 
-// @kern-source: external-boundary-utils:170
+// @kern-source: external-boundary-utils:193
 export function externalSidecarManifestFromIsland(island: ExternalSidecarIslandShape): ExternalSidecarManifestShape | null {
   if (island.requiresSidecar !== true || island.runtime !== 'python') return null;
   const packages = island.imports
@@ -196,7 +217,7 @@ export function externalSidecarManifestFromIsland(island: ExternalSidecarIslandS
   return manifest;
 }
 
-// @kern-source: external-boundary-utils:200
+// @kern-source: external-boundary-utils:223
 export function externalLooseSidecarManifestFromBoundary(name: string, boundary: ExternalSidecarBoundaryShape, sidecarPackage: ExternalSidecarPackageShape): ExternalSidecarManifestShape {
   const manifest: ExternalSidecarManifestShape = {
     name,
@@ -212,7 +233,7 @@ export function externalLooseSidecarManifestFromBoundary(name: string, boundary:
   return manifest;
 }
 
-// @kern-source: external-boundary-utils:219
+// @kern-source: external-boundary-utils:242
 export function mergeExternalSidecarManifestPackage(manifest: ExternalSidecarManifestShape, sidecarPackage: ExternalSidecarPackageShape, effects: string[] | undefined): ExternalSidecarManifestShape {
   manifest.effects = [...new Set([...manifest.effects, ...(effects ?? [])])];
   const packageKey = externalSidecarPackageKey(sidecarPackage);
