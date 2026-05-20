@@ -63,6 +63,8 @@
   },
   "scripts": {
     "build": "tsc -b",
+    "kern:compile": "pnpm --filter @kernlang/cli run build && node ../cli/dist/cli.js compile src/kern --outdir=src/generated",
+    "kern:check": "pnpm run kern:compile && git diff --exit-code -- src/generated/utils/version-detect.ts",
     "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --config jest.config.js"
   },
   "dependencies": {},
