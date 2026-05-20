@@ -46,6 +46,86 @@ describe('Express Transpiler', () => {
     expect(result.code).not.toContain('IgnoreMe');
   });
 
+  describe('Portable assign/do as route children', () => {
+    async function toggleRoute(): Promise<string> {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/providers/toggle',
+        '    schema body="{id: string, enabled: boolean}"',
+        '    derive provider expr={{ registry.get(body.id) }}',
+        '    guard expr={{ provider }}',
+        '      error status=404 message="Not found"',
+        '    assign target="provider.enabled" value="body.enabled"',
+        '    do value="registry.register(provider)"',
+        '    do value="saveConfig()"',
+        '    respond 200 json={{ {ok: true} }}',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const art = result.artifacts?.find((a: any) => a.path.includes('toggle') && a.path.endsWith('.ts'));
+      if (!art) throw new Error('toggle route artifact not found');
+      return art.content as string;
+    }
+
+    test('assign rewrites body→req.body; do emits bare calls; guard 404 stays', async () => {
+      const code = await toggleRoute();
+      // assign LHS/RHS flow through the portable rewriter, so `body.enabled`
+      // becomes `req.body.enabled` (the kern-body path leaves it unbound).
+      expect(code).toContain('provider.enabled = req.body.enabled;');
+      expect(code).toContain('registry.register(provider);');
+      expect(code).toContain('saveConfig();');
+      expect(code).toContain('res.status(404)');
+      expect(code).toContain('res.json({ok: true})');
+    });
+
+    test('postfix ++ stays a JS postfix on the Express target', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/counter',
+        '    derive state expr={{ store.get() }}',
+        '    assign target="state.hits" op="++"',
+        '    respond 200 json=state',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const art = result.artifacts?.find((a: any) => a.path.includes('counter') && a.path.endsWith('.ts'));
+      expect(art?.content).toContain('state.hits++;');
+    });
+
+    test('compound op and do both rewrite body refs to req.body', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/acc',
+        '    schema body="{amount: number}"',
+        '    derive state expr={{ store.get() }}',
+        '    assign target="state.total" op="+=" value="body.amount"',
+        '    do value="audit.record(body.amount)"',
+        '    respond 200 json=state',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const art = result.artifacts?.find((a: any) => a.path.includes('acc') && a.path.endsWith('.ts'));
+      expect(art?.content).toContain('state.total += req.body.amount;');
+      expect(art?.content).toContain('audit.record(req.body.amount);');
+    });
+
+    test('a non-postfix assign with no value fails loud (parity with FastAPI)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/novalue',
+        '    derive state expr={{ store.get() }}',
+        '    assign target="state.x"',
+        '    respond 200 json=state',
+      ].join('\n');
+      expect(() => transpileExpress(parse(source))).toThrow(/requires `value=`/);
+    });
+  });
+
   describe('Stream/Spawn/Timer', () => {
     test('stream route generates SSE headers and emit helper', async () => {
       const { parse } = await import('../../core/src/parser.js');

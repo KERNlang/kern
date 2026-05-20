@@ -27,24 +27,19 @@ server name=ReviewAPI port=3002
 
   route method=post path=/api/providers/toggle
     schema body="{id: string, enabled: boolean}"
-    handler <<<
-      const provider = registry.get(req.body.id);
-      if (!provider) return res.status(404).json({ error: 'Not found' });
-      provider.enabled = req.body.enabled;
-      registry.register(provider);
-      saveConfig();
-      res.json({ ok: true });
-    >>>
+    derive provider expr={{ registry.get(body.id) }}
+    guard expr={{ provider }} else=404 message="Not found"
+    assign target="provider.enabled" value="body.enabled"
+    do value="registry.register(provider)"
+    do value="saveConfig()"
+    respond 200 json={{ {ok: true} }}
 
   route method=post path=/api/providers/test
     schema body="{id: string}"
-    guard expr={{registry.get(req.body.id)}}
-      error status=404 message="Provider not found"
-    handler <<<
-      const provider = registry.get(req.body.id);
-      const result = await provider.test();
-      res.json({ ok: true, message: result });
-    >>>
+    derive provider expr={{ registry.get(body.id) }}
+    guard expr={{ provider }} else=404 message="Provider not found"
+    derive result expr={{ await provider.test() }}
+    respond 200 json={{ {ok: true, message: result} }}
     error status=408 message="Test timed out"
 
   route method=get path=/health

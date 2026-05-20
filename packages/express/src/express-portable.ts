@@ -1,5 +1,5 @@
 import type { IRNode } from '@kernlang/core';
-import { getChildren, getFirstChild, getProps } from '@kernlang/core';
+import { getChildren, getFirstChild, getProps, isPostfixMutationOperator } from '@kernlang/core';
 import { derivePathParams, escapeSingleQuotes, generateRespondExpress, indentBlock } from './express-utils.js';
 
 // ── Portable request reference rewriting ──────────────────────────────────
@@ -74,6 +74,33 @@ export function generatePortableChildExpress(
       if (name && exprCode) {
         lines.push(`${indent}const ${name} = ${rewriteExpressExpr(exprCode, path)};`);
       }
+      break;
+    }
+    case 'assign': {
+      // Portable side-effect: `assign target="provider.enabled" value="body.enabled"`
+      // → `provider.enabled = req.body.enabled;`. Both sides flow through the same
+      // rewriter as `derive`, so `body.x` lowers to `req.body.x`.
+      const target = extractExprCode(p.target);
+      if (!target) break;
+      const op = p.op === undefined || p.op === '' ? '=' : String(p.op);
+      const lhs = rewriteExpressExpr(target, path);
+      if (isPostfixMutationOperator(op)) {
+        lines.push(`${indent}${lhs}${op};`);
+      } else {
+        const valueCode = extractExprCode(p.value);
+        // `value` is schema-required for a non-postfix `assign`; fail loud here
+        // too rather than silently dropping the statement for a direct-IR caller.
+        if (!valueCode) {
+          throw new Error('portable route `assign` requires `value=` for a non-postfix operator.');
+        }
+        lines.push(`${indent}${lhs} ${op} ${rewriteExpressExpr(valueCode, path)};`);
+      }
+      break;
+    }
+    case 'do': {
+      // Portable void side-effect: `do value="registry.register(provider)"`.
+      const value = extractExprCode(p.value);
+      if (value) lines.push(`${indent}${rewriteExpressExpr(value, path)};`);
       break;
     }
     case 'guard': {
@@ -204,7 +231,18 @@ export function generatePortableHandlerExpress(
   const children = routeNode.children || [];
 
   // Walk all route children in document order — portable nodes are emitted inline
-  const PORTABLE_TYPES = new Set(['derive', 'guard', 'handler', 'respond', 'branch', 'each', 'collect', 'effect']);
+  const PORTABLE_TYPES = new Set([
+    'derive',
+    'guard',
+    'handler',
+    'respond',
+    'branch',
+    'each',
+    'collect',
+    'effect',
+    'assign',
+    'do',
+  ]);
   for (const child of children) {
     if (PORTABLE_TYPES.has(child.type)) {
       lines.push(...generatePortableChildExpress(child, indent, path, options));

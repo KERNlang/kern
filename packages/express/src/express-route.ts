@@ -41,6 +41,11 @@ export function buildRouteArtifact(
   const eachNodes = getChildren(routeNode, 'each');
   const collectNodes = getChildren(routeNode, 'collect');
   const effectNodes = getChildren(routeNode, 'effect');
+  // Only DIRECT assign/do children are counted; a nested one (inside a portable
+  // branch/each) is covered transitively because its enclosing portable node
+  // already flips hasPortableNodes.
+  const assignNodes = getChildren(routeNode, 'assign');
+  const doNodes = getChildren(routeNode, 'do');
   const hasPortableNodes =
     deriveNodes.length > 0 ||
     guardNodes.length > 0 ||
@@ -48,7 +53,9 @@ export function buildRouteArtifact(
     branchNodes.length > 0 ||
     eachNodes.length > 0 ||
     collectNodes.length > 0 ||
-    effectNodes.length > 0;
+    effectNodes.length > 0 ||
+    assignNodes.length > 0 ||
+    doNodes.length > 0;
 
   // Get handler code — priority: stream handler > timer handler > route handler > portable > 501
   const handlerNode = caps.hasStream

@@ -77,6 +77,81 @@ describe('do body-statement — parser + validator', () => {
     expect(errs.length).toBeGreaterThan(0);
   });
 
+  test('assign and do are allowed as direct `route` children (portable side-effects)', () => {
+    const src = [
+      'server name=API',
+      '  route method=post path=/api/toggle',
+      '    derive provider expr={{ registry.get(body.id) }}',
+      '    assign target="provider.enabled" value="body.enabled"',
+      '    do value="registry.register(provider)"',
+      '    respond 200 json=provider',
+    ].join('\n');
+    const { diagnostics } = parseDocumentWithDiagnostics(src);
+    expect(
+      diagnostics.filter((d) => d.severity === 'error' && d.code === 'BODY_STATEMENT_OUTSIDE_NATIVE_HANDLER'),
+    ).toHaveLength(0);
+  });
+
+  test('the route exemption does NOT leak to other body-statements (return stays gated)', () => {
+    const src = ['server name=API', '  route method=post path=/api/x', '    return value="1"'].join('\n');
+    const { diagnostics } = parseDocumentWithDiagnostics(src);
+    expect(
+      diagnostics.filter((d) => d.severity === 'error' && d.code === 'BODY_STATEMENT_OUTSIDE_NATIVE_HANDLER').length,
+    ).toBeGreaterThan(0);
+  });
+
+  test('assign/do nested inside a portable `each` under a route also validate', () => {
+    // The portable FastAPI/Express emitters lower assign/do recursively inside
+    // `each` bodies, so the validator must accept them anywhere in a route
+    // subtree (inPortableRoute), not only as direct route children.
+    const src = [
+      'server name=API',
+      '  route method=post path=/api/x',
+      '    derive items expr={{ store.all() }}',
+      '    each name=item in=items',
+      '      do value="item.touch()"',
+      '    respond 200 json=items',
+    ].join('\n');
+    const { diagnostics } = parseDocumentWithDiagnostics(src);
+    expect(
+      diagnostics.filter((d) => d.severity === 'error' && d.code === 'BODY_STATEMENT_OUTSIDE_NATIVE_HANDLER'),
+    ).toHaveLength(0);
+  });
+
+  test('assign/do nested inside a portable `branch` path under a route also validate', () => {
+    // Same inPortableRoute propagation as `each`, but through branch → path,
+    // which the portable emitters also lower recursively.
+    const src = [
+      'server name=API',
+      '  route method=post path=/api/x',
+      '    derive state expr={{ store.get() }}',
+      '    branch on={{ body.action }}',
+      '      path value="enable"',
+      '        assign target="state.on" value="true"',
+      '      path default=true',
+      '        do value="state.noop()"',
+      '    respond 200 json=state',
+    ].join('\n');
+    const { diagnostics } = parseDocumentWithDiagnostics(src);
+    expect(
+      diagnostics.filter((d) => d.severity === 'error' && d.code === 'BODY_STATEMENT_OUTSIDE_NATIVE_HANDLER'),
+    ).toHaveLength(0);
+  });
+
+  test('passes full schema validation as a direct route child (allowedChildren)', async () => {
+    const { validateSchema } = await import('../src/schema.js');
+    const src = [
+      'server name=API',
+      '  route method=post path=/api/toggle',
+      '    derive provider expr={{ registry.get(body.id) }}',
+      '    assign target="provider.enabled" value="body.enabled"',
+      '    do value="registry.register(provider)"',
+      '    respond 200 json=provider',
+    ].join('\n');
+    const violations = validateSchema(parseDocumentWithDiagnostics(src).root);
+    expect(violations.filter((v) => /does not allow child type '(assign|do)'/.test(v.message))).toEqual([]);
+  });
+
   test('round-trip: parse handler with `do` child preserves shape through codegen', () => {
     const src = [
       'fn name=ok returns=number',

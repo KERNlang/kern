@@ -6,7 +6,13 @@
  */
 
 import type { IRNode } from '@kernlang/core';
-import { getChildren, getFirstChild, getProps } from '@kernlang/core';
+import {
+  getChildren,
+  getFirstChild,
+  getProps,
+  isPostfixMutationOperator,
+  isSupportedAssignOperator,
+} from '@kernlang/core';
 import { isUnsupportedJsHandlerBody, unsupportedRawHandlerBody } from './fastapi-raw-handler.js';
 import { addRespondImports, extractExprCode, generateRespondFastAPI, rewriteFastAPIExpr } from './fastapi-response.js';
 import { escapePyStr, indentHandler } from './fastapi-utils.js';
@@ -81,6 +87,40 @@ export function generatePortableChildFastAPI(
           `${indent}${toSnakeCase(name)} = ${rewriteFastAPIExpr(exprCode, pathParams, bodyFields, authUser, imports)}`,
         );
       }
+      break;
+    }
+    case 'assign': {
+      // Portable side-effect: `assign target="provider.enabled" value="body.enabled"`
+      // → `provider.enabled = body.enabled`. Both sides flow through the same
+      // rewriter as `derive`, so `body.x` lowers to the Pydantic field access.
+      const target = extractExprCode(p.target);
+      if (!target) break;
+      const op = p.op === undefined || p.op === '' ? '=' : String(p.op);
+      if (!isSupportedAssignOperator(op)) {
+        throw new Error(`portable route \`assign op="${op}"\` is not supported on the FastAPI target.`);
+      }
+      const lhs = rewriteFastAPIExpr(target, pathParams, bodyFields, authUser, imports);
+      if (isPostfixMutationOperator(op)) {
+        // Python lacks `++`/`--`; lower to the canonical compound form.
+        lines.push(`${indent}${lhs} ${op === '++' ? '+=' : '-='} 1`);
+      } else {
+        const valueCode = extractExprCode(p.value);
+        // `value` is schema-required for a non-postfix `assign`; fail loud here
+        // too (parity with the body-statement emitter) rather than silently
+        // dropping the statement for a direct-IR caller that skipped validation.
+        if (!valueCode) {
+          throw new Error('portable route `assign` requires `value=` for a non-postfix operator.');
+        }
+        const rhs = rewriteFastAPIExpr(valueCode, pathParams, bodyFields, authUser, imports);
+        lines.push(`${indent}${lhs} ${op} ${rhs}`);
+      }
+      break;
+    }
+    case 'do': {
+      // Portable void side-effect: `do value="registry.register(provider)"` →
+      // the bare call statement.
+      const value = extractExprCode(p.value);
+      if (value) lines.push(`${indent}${rewriteFastAPIExpr(value, pathParams, bodyFields, authUser, imports)}`);
       break;
     }
     case 'guard': {
@@ -340,7 +380,18 @@ export function generatePortableHandlerFastAPI(
   const children = routeNode.children || [];
 
   // Walk all route children in document order
-  const PORTABLE_TYPES = new Set(['derive', 'guard', 'handler', 'respond', 'branch', 'each', 'collect', 'effect']);
+  const PORTABLE_TYPES = new Set([
+    'derive',
+    'guard',
+    'handler',
+    'respond',
+    'branch',
+    'each',
+    'collect',
+    'effect',
+    'assign',
+    'do',
+  ]);
   for (const child of children) {
     if (PORTABLE_TYPES.has(child.type)) {
       lines.push(...generatePortableChildFastAPI(child, indent, pathParams, imports, bodyFields, authUser));
