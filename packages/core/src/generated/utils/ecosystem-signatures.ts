@@ -1,10 +1,11 @@
 // @kern-source: ecosystem-signatures:1
-export type ExternalImportRegistry = 'host' | 'npm' | 'pypi' | 'kern';
+import type { ExternalImportRegistry } from './import-metadata.js';
+export type { ExternalImportRegistry } from './import-metadata.js';
 
-// @kern-source: ecosystem-signatures:2
+// @kern-source: ecosystem-signatures:3
 export type ExternalSignatureMap = Record<string, string>;
 
-// @kern-source: ecosystem-signatures:4
+// @kern-source: ecosystem-signatures:5
 export const PYTHON_STDLIB_SIGNATURES = ({
   builtins: {
     bool: '(value?: unknown) => Promise<boolean>',
@@ -81,7 +82,7 @@ export const PYTHON_STDLIB_SIGNATURES = ({
   },
 } as Record<string, ExternalSignatureMap>);
 
-// @kern-source: ecosystem-signatures:82
+// @kern-source: ecosystem-signatures:83
 export function parseExternalSignatureMap(value: unknown): ExternalSignatureMap | undefined {
   const isSafeSignatureName = (name: string): boolean =>
     /^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*$/u.test(name);
@@ -168,7 +169,7 @@ export function parseExternalSignatureMap(value: unknown): ExternalSignatureMap 
   return parseCompactSignatureMap(trimmed);
 }
 
-// @kern-source: ecosystem-signatures:169
+// @kern-source: ecosystem-signatures:170
 export function inferExternalSignature(registry: ExternalImportRegistry, packageName: string, importedName: string): string | undefined {
   if (registry !== 'pypi') {
     return undefined;
@@ -176,7 +177,7 @@ export function inferExternalSignature(registry: ExternalImportRegistry, package
   return PYTHON_STDLIB_SIGNATURES[packageName]?.[importedName];
 }
 
-// @kern-source: ecosystem-signatures:178
+// @kern-source: ecosystem-signatures:179
 export function inferExternalSignatureMap(registry: ExternalImportRegistry, packageName: string): ExternalSignatureMap | undefined {
   if (registry !== 'pypi') {
     return undefined;
@@ -185,7 +186,7 @@ export function inferExternalSignatureMap(registry: ExternalImportRegistry, pack
   return signatures ? { ...signatures } : undefined;
 }
 
-// @kern-source: ecosystem-signatures:187
+// @kern-source: ecosystem-signatures:188
 export function mergeExternalSignatureMaps(inferred: ExternalSignatureMap | undefined, explicit: ExternalSignatureMap | undefined): ExternalSignatureMap | undefined {
   const merged = { ...inferred ?? {}, ...explicit ?? {} };
   return (Object.keys(merged).length > 0) ? merged : undefined;

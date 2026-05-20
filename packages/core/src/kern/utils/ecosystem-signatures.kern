@@ -1,4 +1,5 @@
-type name=ExternalImportRegistry alias="'host' | 'npm' | 'pypi' | 'kern'"
+use path="./import-metadata.kern"
+  from name=ExternalImportRegistry kind=type export=true
 type name=ExternalSignatureMap alias="Record<string, string>"
 
 const name=PYTHON_STDLIB_SIGNATURES value={{

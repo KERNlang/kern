@@ -10,8 +10,11 @@ type TypeEqual<A, B> =
       : false
     : false;
 type Assert<T extends true> = T;
-type _ExternalImportRegistryMatchesCanonical = Assert<
+type _ExternalImportRegistryReExportMatchesCanonical = Assert<
   TypeEqual<GeneratedExternalImportRegistry, CanonicalExternalImportRegistry>
+>;
+type _ExternalImportRegistryKeepsExpectedLiterals = Assert<
+  TypeEqual<GeneratedExternalImportRegistry, 'host' | 'npm' | 'pypi' | 'kern'>
 >;
 
 describe('generated ecosystem-signatures behavior', () => {
@@ -64,7 +67,8 @@ describe('generated ecosystem-signatures behavior', () => {
   });
 
   it('infers Python stdlib signatures only for PyPI packages', () => {
-    expect(generated.inferExternalSignature('pypi', 'math', 'sqrt')).toBe('(x: number) => Promise<number>');
+    const registry: GeneratedExternalImportRegistry = 'pypi';
+    expect(generated.inferExternalSignature(registry, 'math', 'sqrt')).toBe('(x: number) => Promise<number>');
     expect(generated.inferExternalSignature('npm', 'math', 'sqrt')).toBeUndefined();
     expect(generated.inferExternalSignature('pypi', 'math', 'missing')).toBeUndefined();
   });
