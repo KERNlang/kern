@@ -625,6 +625,23 @@ describe('Express Transpiler', () => {
       expect(getUsersRoute).toBeDefined();
       expect(getUsersRoute!.content).toContain("db.query('SELECT * FROM users");
     });
+
+    test('respond json inline object lowers; portable-ref inside a string literal is preserved', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API port=8000',
+        '  route method=get path=/api/lit/:id',
+        '    respond 200 json={{ {label: "user.id", real: params.id} }}',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('get-api-lit-id'));
+      expect(route).toBeDefined();
+      expect(route!.content).not.toContain('[object Object]');
+      expect(route!.content).toContain('"user.id"'); // string literal preserved
+      expect(route!.content).toContain('req.params.id'); // real ref rewritten
+      expect(route!.content).not.toContain('req.user.id');
+    });
   });
 
   describe('Portable Control Flow — branch, each, collect', () => {

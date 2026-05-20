@@ -4,22 +4,34 @@ import { derivePathParams, escapeSingleQuotes, generateRespondExpress, indentBlo
 
 // ── Portable request reference rewriting ──────────────────────────────────
 
+// Match a single/double-quoted or backtick string literal (escapes honored)
+// so portable-ref rewrites can be applied only OUTSIDE string contents.
+const EXPRESS_STRING_LITERAL = '"(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'|`(?:[^`\\\\]|\\\\.)*`';
+
 export function rewriteExpressExpr(expr: string, path: string): string {
   const _pathParams = derivePathParams(path);
-  let result = expr;
-  // params.X → req.params.X
-  result = result.replace(/\bparams\.([A-Za-z_]\w*)/g, 'req.params.$1');
-  // body.X → req.body.X
-  result = result.replace(/\bbody\.([A-Za-z_]\w*)/g, 'req.body.$1');
-  // query.X → req.query.X
-  result = result.replace(/\bquery\.([A-Za-z_]\w*)/g, 'req.query.$1');
-  // headers.X → req.headers['X']
-  result = result.replace(/\bheaders\.([A-Za-z_][\w-]*)/g, (_m, key) => `req.headers['${key}']`);
-  // Auth payload exposed by `auth required`/`auth optional`.
-  result = result.replace(/\buser\.([A-Za-z_]\w*)/g, 'req.user.$1');
-  // effectName.result → effectName (effect variables hold the result directly)
-  result = result.replace(/\b([A-Za-z_]\w*)\.result\b/g, '$1');
-  return result;
+  // Rewrite portable request references to their Express equivalents. Applied
+  // only to text OUTSIDE string literals so a payload like `{ label: "user.id" }`
+  // isn't corrupted into `"req.user.id"` (Codex review on ff924afe).
+  const rewriteSegment = (seg: string): string => {
+    let result = seg;
+    result = result.replace(/\bparams\.([A-Za-z_]\w*)/g, 'req.params.$1');
+    result = result.replace(/\bbody\.([A-Za-z_]\w*)/g, 'req.body.$1');
+    result = result.replace(/\bquery\.([A-Za-z_]\w*)/g, 'req.query.$1');
+    result = result.replace(/\bheaders\.([A-Za-z_][\w-]*)/g, (_m, key) => `req.headers['${key}']`);
+    result = result.replace(/\buser\.([A-Za-z_]\w*)/g, 'req.user.$1');
+    result = result.replace(/\b([A-Za-z_]\w*)\.result\b/g, '$1');
+    return result;
+  };
+
+  let out = '';
+  let last = 0;
+  for (const m of expr.matchAll(new RegExp(EXPRESS_STRING_LITERAL, 'g'))) {
+    out += rewriteSegment(expr.slice(last, m.index)) + m[0];
+    last = m.index + m[0].length;
+  }
+  out += rewriteSegment(expr.slice(last));
+  return out;
 }
 
 // ── Portable handler generation (derive → guard → handler → respond) ─────
