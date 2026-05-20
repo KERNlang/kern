@@ -315,3 +315,25 @@ export function mergeExternalSidecarManifestPackage(manifest: ExternalSidecarMan
   return manifest;
 }
 
+// @kern-source: external-boundary-utils:338
+export function externalSidecarManifestsFromParts(islands: ExternalSidecarIslandShape[], boundaries: ExternalSidecarBoundaryShape[]): ExternalSidecarManifestShape[] {
+  const manifests: ExternalSidecarManifestShape[] = [];
+  for (const island of islands) {
+    const manifest = externalSidecarManifestFromIsland(island);
+    if (manifest) manifests.push(manifest);
+  }
+  const looseManifests = new Map<string, ExternalSidecarManifestShape>();
+  for (const boundary of boundaries.filter(isLoosePythonBoundaryShape)) {
+    const name = externalLoosePythonSidecarName(boundary);
+    const sidecarPackage = externalSidecarPackageFromBoundary(boundary);
+    const existing = looseManifests.get(name);
+    if (!existing) {
+      looseManifests.set(name, externalLooseSidecarManifestFromBoundary(name, boundary, sidecarPackage));
+      continue;
+    }
+    mergeExternalSidecarManifestPackage(existing, sidecarPackage, boundary.effects);
+  }
+  manifests.push(...looseManifests.values());
+  return manifests;
+}
+

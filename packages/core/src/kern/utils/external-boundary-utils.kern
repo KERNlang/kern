@@ -334,3 +334,27 @@ fn name=mergeExternalSidecarManifestPackage returns=ExternalSidecarManifestShape
     }
     return manifest;
   >>>
+
+fn name=externalSidecarManifestsFromParts returns="ExternalSidecarManifestShape[]" export=true
+  param name=islands type="ExternalSidecarIslandShape[]"
+  param name=boundaries type="ExternalSidecarBoundaryShape[]"
+  handler <<<
+    const manifests: ExternalSidecarManifestShape[] = [];
+    for (const island of islands) {
+      const manifest = externalSidecarManifestFromIsland(island);
+      if (manifest) manifests.push(manifest);
+    }
+    const looseManifests = new Map<string, ExternalSidecarManifestShape>();
+    for (const boundary of boundaries.filter(isLoosePythonBoundaryShape)) {
+      const name = externalLoosePythonSidecarName(boundary);
+      const sidecarPackage = externalSidecarPackageFromBoundary(boundary);
+      const existing = looseManifests.get(name);
+      if (!existing) {
+        looseManifests.set(name, externalLooseSidecarManifestFromBoundary(name, boundary, sidecarPackage));
+        continue;
+      }
+      mergeExternalSidecarManifestPackage(existing, sidecarPackage, boundary.effects);
+    }
+    manifests.push(...looseManifests.values());
+    return manifests;
+  >>>

@@ -13,14 +13,8 @@ import {
   externalCapabilityIslandFromParts,
   externalImportBindingFromParts,
   externalIslandRefFromParts,
-  externalLoosePythonSidecarName,
-  externalLooseSidecarManifestFromBoundary,
   externalSidecarManifestFromIsland,
-  externalSidecarPackageFromBoundary,
-  hasExternalRuntimeImports,
-  isLoosePythonBoundaryShape,
-  isPythonSidecarBoundaryShape,
-  mergeExternalSidecarManifestPackage,
+  externalSidecarManifestsFromParts,
 } from './external-boundary-utils.js';
 import type { IRNode } from './types.js';
 
@@ -204,22 +198,6 @@ export function collectCapabilityIslands(root: IRNode): CapabilityIsland[] {
   return out;
 }
 
-function isPythonSidecarBoundary(boundary: ExternalBoundary): boolean {
-  return isPythonSidecarBoundaryShape(boundary);
-}
-
-function isLoosePythonBoundary(boundary: ExternalBoundary): boolean {
-  return isLoosePythonBoundaryShape(boundary);
-}
-
-function hasRuntimeImports(boundary: ExternalBoundary): boolean {
-  return hasExternalRuntimeImports(boundary);
-}
-
-function sidecarPackageFromBoundary(boundary: ExternalBoundary): SidecarPackage {
-  return externalSidecarPackageFromBoundary(boundary);
-}
-
 export function sidecarManifestFromIsland(island: CapabilityIsland): SidecarManifest | null {
   return externalSidecarManifestFromIsland(island);
 }
@@ -231,26 +209,5 @@ export function sidecarManifestFromNode(node: IRNode): SidecarManifest | null {
 }
 
 export function collectSidecarManifests(root: IRNode): SidecarManifest[] {
-  const manifests: SidecarManifest[] = [];
-  for (const island of collectCapabilityIslands(root)) {
-    const manifest = sidecarManifestFromIsland(island);
-    if (manifest) manifests.push(manifest);
-  }
-  const looseManifests = new Map<string, SidecarManifest>();
-  for (const boundary of collectExternalBoundaries(root).filter(isLoosePythonBoundary)) {
-    const name = loosePythonSidecarName(boundary);
-    const sidecarPackage = sidecarPackageFromBoundary(boundary);
-    const existing = looseManifests.get(name);
-    if (!existing) {
-      looseManifests.set(name, externalLooseSidecarManifestFromBoundary(name, boundary, sidecarPackage));
-      continue;
-    }
-    mergeExternalSidecarManifestPackage(existing, sidecarPackage, boundary.effects);
-  }
-  manifests.push(...looseManifests.values());
-  return manifests;
-}
-
-function loosePythonSidecarName(boundary: ExternalBoundary): string {
-  return externalLoosePythonSidecarName(boundary);
+  return externalSidecarManifestsFromParts(collectCapabilityIslands(root), collectExternalBoundaries(root));
 }

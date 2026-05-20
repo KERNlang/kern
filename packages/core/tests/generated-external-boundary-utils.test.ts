@@ -844,6 +844,105 @@ describe('generated external-boundary-utils behavior', () => {
     });
   });
 
+  it('collects sidecar manifests from islands and loose python boundaries', () => {
+    expect(generated.externalSidecarManifestsFromParts([], [])).toEqual([]);
+    expect(
+      generated.externalSidecarManifestsFromParts(
+        [
+          {
+            name: 'Data',
+            runtime: 'python',
+            effects: ['fs'],
+            requiresSidecar: true,
+            imports: [
+              {
+                package: 'numpy',
+                registry: 'pypi',
+                target: 'python',
+                targetFamily: 'python',
+                effects: ['fs'],
+                requiresSidecar: true,
+                imports: [{ names: ['array'], types: false }],
+              },
+            ],
+          },
+          {
+            name: 'IgnoredTs',
+            runtime: 'ts',
+            effects: [],
+            requiresSidecar: true,
+            imports: [],
+          },
+        ],
+        [
+          {
+            package: 'requests',
+            explicitPackage: true,
+            registry: 'pypi',
+            target: 'python',
+            targetFamily: 'python',
+            effects: ['net'],
+            imports: [{ default: 'rq', names: ['get'], types: false }],
+          },
+          {
+            package: 'requests',
+            explicitPackage: true,
+            registry: 'pypi',
+            target: 'python',
+            targetFamily: 'python',
+            effects: ['fs', 'net'],
+            imports: [{ default: 'rq', names: ['post'], types: false }],
+          },
+          {
+            package: 'node-fetch',
+            explicitPackage: true,
+            registry: 'npm',
+            target: 'ts',
+            targetFamily: 'ts',
+            effects: ['net'],
+            imports: [{ names: ['fetch'], types: false }],
+          },
+        ],
+      ),
+    ).toEqual([
+      {
+        name: 'Data',
+        runtime: 'python',
+        effects: ['fs'],
+        requiresSidecar: true,
+        packages: [
+          {
+            package: 'numpy',
+            registry: 'pypi',
+            target: 'python',
+            targetFamily: 'python',
+            imports: [{ names: ['array'], types: false }],
+          },
+        ],
+      },
+      {
+        name: 'RqRequests',
+        kind: 'sidecar',
+        runtime: 'python',
+        effects: ['net', 'fs'],
+        serialization: 'json',
+        requiresSidecar: true,
+        packages: [
+          {
+            package: 'requests',
+            registry: 'pypi',
+            target: 'python',
+            targetFamily: 'python',
+            imports: [
+              { default: 'rq', names: ['get'], types: false },
+              { default: 'rq', names: ['post'], types: false },
+            ],
+          },
+        ],
+      },
+    ]);
+  });
+
   it('src facade delegates generated utility exports', () => {
     expect(facade.splitExternalNames).toBe(generated.splitExternalNames);
     expect(facade.externalBoundaryFromParts).toBe(generated.externalBoundaryFromParts);
@@ -860,6 +959,7 @@ describe('generated external-boundary-utils behavior', () => {
     expect(facade.externalRuntimeImports).toBe(generated.externalRuntimeImports);
     expect(facade.externalLooseSidecarManifestFromBoundary).toBe(generated.externalLooseSidecarManifestFromBoundary);
     expect(facade.externalSidecarManifestFromIsland).toBe(generated.externalSidecarManifestFromIsland);
+    expect(facade.externalSidecarManifestsFromParts).toBe(generated.externalSidecarManifestsFromParts);
     expect(facade.externalSidecarPackageFromBoundary).toBe(generated.externalSidecarPackageFromBoundary);
     expect(facade.externalSidecarPackageKey).toBe(generated.externalSidecarPackageKey);
     expect(facade.mergeExternalSidecarManifestPackage).toBe(generated.mergeExternalSidecarManifestPackage);

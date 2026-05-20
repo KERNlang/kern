@@ -28,6 +28,7 @@ export {
   externalLooseSidecarManifestFromBoundary,
   externalLoosePythonSidecarName,
   externalSidecarManifestFromIsland,
+  externalSidecarManifestsFromParts,
   externalSidecarPackageFromBoundary,
   externalSidecarPackageKey,
   externalStringProp,
