@@ -18,10 +18,7 @@ server name=StarterAPI port=3001
     >>>
 
   route path="/api/items/:id" method=get
-    handler <<<
-      const { id } = req.params;
-      res.json({ id, name: `Item ${id}`, createdAt: new Date().toISOString() });
-    >>>
+    respond 200 json={{ {id: params.id, name: `Item ${params.id}`, createdAt: new Date().toISOString()} }}
 
   route path="/api/items" method=post
     validate schema=CreateItemInput
