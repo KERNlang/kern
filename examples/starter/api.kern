@@ -4,9 +4,7 @@ server name=StarterAPI port=3001
   middleware name=cors
 
   route path="/api/health" method=get
-    handler <<<
-      res.json({ status: 'ok', timestamp: new Date().toISOString() });
-    >>>
+    respond 200 json={{ {status: "ok", timestamp: new Date().toISOString()} }}
 
   route path="/api/items" method=get
     params items="[{name:page,type:number,default:1},{name:limit,type:number,default:20}]"

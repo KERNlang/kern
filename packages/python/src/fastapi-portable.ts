@@ -104,11 +104,14 @@ export function generatePortableChildFastAPI(
       break;
     }
     case 'respond': {
-      // Clone props to avoid mutating shared AST, then rewrite portable refs
+      // Clone props to avoid mutating shared AST, then rewrite portable refs.
+      // Use extractExprCode so a curly-expression value (`json={{ {a: 1} }}`)
+      // yields its code rather than `String({__expr})` → "[object Object]";
+      // plain identifiers (`json=user`) pass through unchanged.
       const clonedRespond: IRNode = { ...child, props: { ...child.props } };
       if (clonedRespond.props!.json)
         clonedRespond.props!.json = rewriteFastAPIExpr(
-          String(clonedRespond.props!.json),
+          extractExprCode(clonedRespond.props!.json),
           pathParams,
           bodyFields,
           authUser,
@@ -116,7 +119,7 @@ export function generatePortableChildFastAPI(
         );
       if (clonedRespond.props!.text)
         clonedRespond.props!.text = rewriteFastAPIExpr(
-          String(clonedRespond.props!.text),
+          extractExprCode(clonedRespond.props!.text),
           pathParams,
           bodyFields,
           authUser,

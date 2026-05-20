@@ -128,6 +128,17 @@ describe('FastAPI portable expression codegen (route artifacts)', () => {
     expect(code).toContain('user["id"]');
   });
 
+  test('respond json with an inline object expression lowers to a dict (not [object Object])', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=get path=/api/obj',
+      '    respond 200 json={{ {status: "ok", count: 1} }}',
+    ]);
+    const code = routeContent(result, 'obj');
+    expect(code).toContain('return {"status": "ok", "count": 1}');
+    expect(code).not.toContain('[object Object]');
+  });
+
   test('P1-followup: packaged output imports auth with a package-relative spec', async () => {
     const { parse } = await import('../../core/src/parser.js');
     const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
