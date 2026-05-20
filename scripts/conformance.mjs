@@ -167,6 +167,16 @@ const FIXTURES = [
     expected: ['item-1', 'item-2'],
   },
   {
+    name: 'nested Array.from lowers recursively',
+    expr: 'Array.from({ length: 2 }, (_, i) => Array.from({ length: 2 }, (_, j) => i * 2 + j))',
+    path: '/api/matrix',
+    bindings: {},
+    expected: [
+      [0, 1],
+      [2, 3],
+    ],
+  },
+  {
     name: 'crypto.randomUUID is a string on both targets',
     expr: '{ id: crypto.randomUUID() }',
     path: '/api/id',

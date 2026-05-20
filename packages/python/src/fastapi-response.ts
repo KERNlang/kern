@@ -203,15 +203,68 @@ function lowerJsonBuiltinCalls(expr: string, imports?: Set<string>): string {
   return out;
 }
 
+// Build the Python comprehension for one `Array.from(...)` call's argument list,
+// or return null if the call isn't a lowerable length-form. Uses the balanced
+// helpers (not regex) so a length value or arrow params containing braces/parens
+// don't desync (codex/gemini review of cd7c40ae).
+function tryLowerArrayFrom(args: string[]): string | null {
+  if (args.length < 2) return null;
+  // arg0 must be an object literal whose `length` property gives the count.
+  const arg0 = args[0].trim();
+  if (!arg0.startsWith('{') || matchBalancedParen(arg0, 0) !== arg0.length - 1) return null;
+  let count: string | null = null;
+  for (const prop of splitTopLevelArgs(arg0.slice(1, -1))) {
+    const mm = prop.match(/^(?:length|["']length["'])\s*:\s*([\s\S]+)$/);
+    if (mm) {
+      count = mm[1].trim();
+      break;
+    }
+  }
+  if (count === null) return null;
+  // arg1 must be an arrow `(params) => body` or `param => body`.
+  const arrowStr = args[1].trim();
+  let params: string[];
+  let body: string;
+  if (arrowStr.startsWith('(')) {
+    const pClose = matchBalancedParen(arrowStr, 0);
+    if (pClose === -1) return null;
+    const after = arrowStr.slice(pClose + 1).trim();
+    if (!after.startsWith('=>')) return null;
+    params = splitTopLevelArgs(arrowStr.slice(1, pClose))
+      .map((s) => s.trim())
+      .filter(Boolean);
+    body = after.slice(2).trim();
+  } else {
+    const am = arrowStr.match(/^([A-Za-z_$][\w$]*)\s*=>\s*([\s\S]+)$/);
+    if (!am) return null;
+    params = [am[1]];
+    body = am[2].trim();
+  }
+  // Loop var = the INDEX (2nd param). The 1st param is the element, which is
+  // undefined for the length form, so it is NOT promoted to the loop variable
+  // (doing so would diverge from JS — `(x) => x` is [undefined…], not [0,1,…]).
+  // A non-simple index (destructuring) isn't a valid Python loop target → bail.
+  const idxVar = params[1] || '_';
+  if (!/^[A-Za-z_$][\w$]*$/.test(idxVar)) return null;
+  // `(_, i) => ({...})` parenthesizes the object body to disambiguate it from a
+  // block; unwrap ONLY when the enclosed body is an object literal, so a comma
+  // operator `(1, 2)` or grouped expr isn't mis-stripped (codex review).
+  if (body.startsWith('(') && matchBalancedParen(body, 0) === body.length - 1) {
+    const inner = body.slice(1, -1).trim();
+    if (inner.startsWith('{')) body = inner;
+  }
+  // Recurse so a nested Array.from in the count or body is lowered too.
+  return `[${lowerArrayFromCalls(body)} for ${idxVar} in range(${lowerArrayFromCalls(count)})]`;
+}
+
 // Lower `Array.from({ length: N }, (_, i) => BODY)` to a Python list
-// comprehension `[BODY for i in range(N)]`. `Array.from` with a length object is
-// a range generator; the arrow's SECOND parameter is the index (Array.from
-// calls fn(element, index) and the length-form element is undefined), so it
-// becomes the loop variable. A 0-param arrow iterates an anonymous `_`. Uses a
-// balanced, string-aware scan (regex cannot capture the nested arrow body) and
-// runs BEFORE the ref/key/template passes so they lower N and BODY in place.
-// Only the `{ length: N }` form is handled; `Array.from(iterable, fn)` (map
-// form) is left untouched. Express keeps Array.from (valid JS).
+// comprehension `[BODY for i in range(N)]` (Express keeps Array.from — valid
+// JS). Balanced, string-aware scan; runs BEFORE the ref/key/template passes so
+// they lower N and BODY in place. Only the `{ length: N }` form is handled;
+// `Array.from(iterable, fn)` (map form) is left untouched. A call immediately
+// followed by a method chain (`.map`, `.filter`, …) is left raw rather than
+// lowered, because the array-method pass cannot consume a comprehension
+// receiver and would emit malformed Python (codex review of cd7c40ae).
 function lowerArrayFromCalls(expr: string): string {
   let out = '';
   let i = 0;
@@ -240,28 +293,10 @@ function lowerArrayFromCalls(expr: string): string {
     if (m && !(prev && /[\w.]/.test(prev))) {
       const openIdx = i + m[0].length - 1;
       const closeIdx = matchBalancedParen(expr, openIdx);
-      if (closeIdx !== -1) {
-        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));
-        const lengthMatch = (args[0] ?? '').match(/^\{\s*length\s*:\s*([\s\S]+?)\s*\}$/);
-        const arrow =
-          (args[1] ?? '').match(/^\(([\s\S]*?)\)\s*=>\s*([\s\S]+)$/) ||
-          (args[1] ?? '').match(/^([A-Za-z_$][\w$]*)\s*=>\s*([\s\S]+)$/);
-        if (lengthMatch && arrow) {
-          // Recurse so a nested Array.from in N or BODY is lowered too.
-          const count = lowerArrayFromCalls(lengthMatch[1].trim());
-          const params = arrow[1]
-            .split(',')
-            .map((s) => s.trim())
-            .filter(Boolean);
-          const idxVar = params[1] || params[0] || '_';
-          let body = arrow[2].trim();
-          // `(_, i) => ({...})` wraps the object body in parens to disambiguate
-          // it from a block; strip a single fully-enclosing pair.
-          if (body.startsWith('(') && matchBalancedParen(body, 0) === body.length - 1) {
-            body = body.slice(1, -1).trim();
-          }
-          body = lowerArrayFromCalls(body);
-          out += `[${body} for ${idxVar} in range(${count})]`;
+      if (closeIdx !== -1 && expr[closeIdx + 1] !== '.') {
+        const lowered = tryLowerArrayFrom(splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)));
+        if (lowered !== null) {
+          out += lowered;
           i = closeIdx + 1;
           continue;
         }

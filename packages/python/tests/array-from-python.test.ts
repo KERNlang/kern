@@ -73,6 +73,43 @@ describe('Array.from(length, arrow) → Python comprehension', () => {
     expect(code).toContain('[0 for _ in range(4)]');
   });
 
+  test('nested Array.from lowers recursively', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=get path=/api/matrix',
+      '    derive m expr={{ Array.from({ length: 2 }, (_, i) => Array.from({ length: 2 }, (_, j) => i * 2 + j)) }}',
+      '    respond 200 json=m',
+    ]);
+    const code = routeContent(result, 'matrix');
+    expect(code).toContain('[[i * 2 + j for j in range(2)] for i in range(2)]');
+  });
+
+  test('a single-param arrow does NOT promote the element to the index var', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=get path=/api/single',
+      '    derive s expr={{ Array.from({ length: 3 }, (x) => x) }}',
+      '    respond 200 json=s',
+    ]);
+    const code = routeContent(result, 'single');
+    // index is the 2nd param; with only the element param present the loop var
+    // is the throwaway `_`, never `x` (which is undefined in JS for length form).
+    expect(code).toContain('for _ in range(3)');
+    expect(code).not.toContain('for x in range(3)');
+  });
+
+  test('Array.from followed by a method chain is left raw (not malformed)', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=get path=/api/chain',
+      '    derive c expr={{ Array.from({ length: 3 }, (_, i) => i).join(",") }}',
+      '    respond 200 json=c',
+    ]);
+    const code = routeContent(result, 'chain');
+    // not lowered to a comprehension that would then be mis-chained
+    expect(code).not.toContain('range(3)].join');
+  });
+
   test('Array.from over an iterable (map form) is left untouched', async () => {
     const result = await transpile([
       'server name=API port=8000',
