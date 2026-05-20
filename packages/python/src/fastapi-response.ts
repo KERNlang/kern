@@ -100,6 +100,7 @@ export function rewriteFastAPIExpr(
   pathParams: string[],
   bodyFields: Set<string> = new Set(),
   authUser = false,
+  imports?: Set<string>,
 ): string {
   let result = expr;
   // params.X → X (function param) for path params
@@ -154,6 +155,47 @@ export function rewriteFastAPIExpr(
     if (match === 'true') return 'True';
     if (match === 'false') return 'False';
     return match; // quoted string
+  });
+
+  // ── Host-builtin lowering (JS globals → Python stdlib) ────────────────
+  // crypto.randomUUID() → str(uuid.uuid4())
+  const CRYPTO_UUID_RE = new RegExp(`${STRING_LITERAL_ALT}|crypto\\.randomUUID\\(\\)`, 'g');
+  result = result.replace(CRYPTO_UUID_RE, (match) => {
+    if (match === 'crypto.randomUUID()') {
+      imports?.add('import uuid');
+      return 'str(uuid.uuid4())';
+    }
+    return match; // string literal — leave untouched
+  });
+
+  // new Date().toISOString() → datetime.now(timezone.utc).isoformat()
+  const DATE_ISO_RE = new RegExp(`${STRING_LITERAL_ALT}|new Date\\(\\)\\.toISOString\\(\\)`, 'g');
+  result = result.replace(DATE_ISO_RE, (match) => {
+    if (match === 'new Date().toISOString()') {
+      imports?.add('from datetime import datetime, timezone');
+      return 'datetime.now(timezone.utc).isoformat()';
+    }
+    return match;
+  });
+
+  // JSON.stringify(x) → json.dumps(x)
+  const JSON_STRINGIFY_RE = new RegExp(`${STRING_LITERAL_ALT}|JSON\\.stringify\\(([^)]+)\\)`, 'g');
+  result = result.replace(JSON_STRINGIFY_RE, (match, arg) => {
+    if (arg !== undefined) {
+      imports?.add('import json');
+      return `json.dumps(${arg})`;
+    }
+    return match;
+  });
+
+  // JSON.parse(x) → json.loads(x)
+  const JSON_PARSE_RE = new RegExp(`${STRING_LITERAL_ALT}|JSON\\.parse\\(([^)]+)\\)`, 'g');
+  result = result.replace(JSON_PARSE_RE, (match, arg) => {
+    if (arg !== undefined) {
+      imports?.add('import json');
+      return `json.loads(${arg})`;
+    }
+    return match;
   });
 
   // Object-literal keys → quoted Python dict keys (`{userId: x}` →
