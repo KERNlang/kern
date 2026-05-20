@@ -42,30 +42,37 @@ describe('generated external-boundary-utils behavior', () => {
 
   it('detects runtime imports directly', () => {
     expect(generated.hasExternalRuntimeImports({ imports: [] })).toBe(false);
-    expect(generated.hasExternalRuntimeImports({ imports: [{ types: true }] })).toBe(false);
-    expect(generated.hasExternalRuntimeImports({ imports: [{ types: false }] })).toBe(true);
-    expect(generated.hasExternalRuntimeImports({ imports: [{ types: true }, { types: false }] })).toBe(true);
+    expect(generated.hasExternalRuntimeImports({ imports: [{ names: [], types: true }] })).toBe(false);
+    expect(generated.hasExternalRuntimeImports({ imports: [{ names: [], types: false }] })).toBe(true);
+    expect(generated.hasExternalRuntimeImports({ imports: [{ names: [], types: true }, { names: [], types: false }] })).toBe(
+      true,
+    );
+    expect(generated.externalRuntimeImports([])).toEqual([]);
+    expect(generated.externalRuntimeImports([{ names: [], types: true }])).toEqual([]);
+    expect(generated.externalRuntimeImports([{ names: ['sqrt'], types: false }])).toEqual([
+      { names: ['sqrt'], types: false },
+    ]);
   });
 
   it('classifies sidecar boundary runtime shapes', () => {
     expect(
       generated.isPythonSidecarBoundaryShape({
         requiresSidecar: true,
-        imports: [{ types: false }],
+        imports: [{ names: [], types: false }],
         targetFamily: 'python',
       }),
     ).toBe(true);
     expect(
       generated.isPythonSidecarBoundaryShape({
         requiresSidecar: true,
-        imports: [{ types: true }],
+        imports: [{ names: [], types: true }],
         targetFamily: 'python',
       }),
     ).toBe(false);
     expect(
       generated.isLoosePythonBoundaryShape({
         explicitPackage: true,
-        imports: [{ types: false }],
+        imports: [{ names: [], types: false }],
         registry: 'pypi',
       }),
     ).toBe(true);
@@ -73,16 +80,76 @@ describe('generated external-boundary-utils behavior', () => {
       generated.isLoosePythonBoundaryShape({
         explicitPackage: true,
         island: {},
-        imports: [{ types: false }],
+        imports: [{ names: [], types: false }],
         registry: 'pypi',
       }),
     ).toBe(false);
+  });
+
+  it('builds sidecar package shapes from runtime imports only', () => {
+    expect(
+      generated.externalSidecarPackageFromBoundary({
+        package: 'math',
+        registry: 'pypi',
+        target: 'python',
+        targetFamily: 'python',
+        imports: [{ names: ['NDArray'], types: true }, { names: ['sqrt'], types: false }],
+        version: '3',
+        line: 10,
+        col: 3,
+      }),
+    ).toEqual({
+      package: 'math',
+      registry: 'pypi',
+      target: 'python',
+      targetFamily: 'python',
+      imports: [{ names: ['sqrt'], types: false }],
+      version: '3',
+      line: 10,
+      col: 3,
+    });
+  });
+
+  it('omits sidecar package optional fields when not present', () => {
+    const sidecarPackage = generated.externalSidecarPackageFromBoundary({
+      package: 'math',
+      registry: 'pypi',
+      target: 'python',
+      targetFamily: 'python',
+      imports: [{ names: ['sqrt'], types: false }],
+    });
+
+    expect(sidecarPackage).toEqual({
+      package: 'math',
+      registry: 'pypi',
+      target: 'python',
+      targetFamily: 'python',
+      imports: [{ names: ['sqrt'], types: false }],
+    });
+    expect('version' in sidecarPackage).toBe(false);
+    expect('line' in sidecarPackage).toBe(false);
+    expect('col' in sidecarPackage).toBe(false);
+  });
+
+  it('keys sidecar packages by package registry and target', () => {
+    expect(
+      generated.externalSidecarPackageKey({
+        package: 'math',
+        registry: 'pypi',
+        target: 'python',
+        targetFamily: 'python',
+        imports: [],
+      }),
+    ).toBe('math\0pypi\0python');
   });
 
   it('src facade delegates generated utility exports', () => {
     expect(facade.splitExternalNames).toBe(generated.splitExternalNames);
     expect(facade.externalStringProp).toBe(generated.externalStringProp);
     expect(facade.externalBoolProp).toBe(generated.externalBoolProp);
+    expect(facade.externalRuntimeImports).toBe(generated.externalRuntimeImports);
+    expect(facade.externalSidecarPackageFromBoundary).toBe(generated.externalSidecarPackageFromBoundary);
+    expect(facade.externalSidecarPackageKey).toBe(generated.externalSidecarPackageKey);
     expect(facade.mergeExternalEffects).toBe(generated.mergeExternalEffects);
     expect(facade.inheritExternalString).toBe(generated.inheritExternalString);
     expect(facade.inheritExternalArgs).toBe(generated.inheritExternalArgs);

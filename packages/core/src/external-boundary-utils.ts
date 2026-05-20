@@ -2,11 +2,17 @@
 export type {
   ExternalBoundaryInheritance,
   ExternalBoundaryRuntimeShape,
+  ExternalRuntimeImportShape,
+  ExternalSidecarBoundaryShape,
+  ExternalSidecarPackageShape,
   ExternalBoundaryStringKey,
 } from './generated/utils/external-boundary-utils.js';
 
 export {
   externalBoolProp,
+  externalRuntimeImports,
+  externalSidecarPackageFromBoundary,
+  externalSidecarPackageKey,
   externalStringProp,
   hasExternalRuntimeImports,
   inheritExternalArgs,

@@ -8,6 +8,8 @@ import {
 } from './import-metadata.js';
 import {
   externalBoolProp,
+  externalSidecarPackageFromBoundary,
+  externalSidecarPackageKey,
   externalStringProp,
   hasExternalRuntimeImports,
   inheritExternalArgs,
@@ -376,17 +378,7 @@ function hasRuntimeImports(boundary: ExternalBoundary): boolean {
 }
 
 function sidecarPackageFromBoundary(boundary: ExternalBoundary): SidecarPackage {
-  const sidecarPackage: SidecarPackage = {
-    package: boundary.package,
-    registry: boundary.registry,
-    target: boundary.target,
-    targetFamily: boundary.targetFamily,
-    imports: boundary.imports.filter((binding) => binding.types !== true),
-  };
-  if (boundary.version !== undefined) sidecarPackage.version = boundary.version;
-  if (boundary.line !== undefined) sidecarPackage.line = boundary.line;
-  if (boundary.col !== undefined) sidecarPackage.col = boundary.col;
-  return sidecarPackage;
+  return externalSidecarPackageFromBoundary(boundary);
 }
 
 export function sidecarManifestFromIsland(island: CapabilityIsland): SidecarManifest | null {
@@ -449,9 +441,9 @@ export function collectSidecarManifests(root: IRNode): SidecarManifest[] {
       continue;
     }
     existing.effects = [...new Set([...existing.effects, ...boundary.effects])];
-    const packageKey = `${sidecarPackage.package}\0${sidecarPackage.registry}\0${sidecarPackage.target}`;
+    const packageKey = externalSidecarPackageKey(sidecarPackage);
     const existingPackage = existing.packages.find(
-      (pkg) => `${pkg.package}\0${pkg.registry}\0${pkg.target}` === packageKey,
+      (pkg) => externalSidecarPackageKey(pkg) === packageKey,
     );
     if (existingPackage) {
       existingPackage.imports.push(...sidecarPackage.imports);
