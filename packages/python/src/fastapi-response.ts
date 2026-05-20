@@ -181,7 +181,10 @@ function lowerJsonBuiltinCalls(expr: string, imports?: Set<string>): string {
       const closeIdx = matchBalancedParen(expr, openIdx);
       if (closeIdx !== -1) {
         const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));
-        const a0 = args[0] ?? '';
+        // Recurse so a nested builtin in the argument is lowered too, e.g.
+        // JSON.stringify(JSON.parse(x)) → json.dumps(json.loads(x)) (Codex
+        // review on 9d8ed8d0). Terminates: the argument is strictly shorter.
+        const a0 = lowerJsonBuiltinCalls(args[0] ?? '', imports);
         imports?.add('import json');
         if (method === 'parse') {
           out += `json.loads(${a0})`;

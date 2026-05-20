@@ -157,4 +157,17 @@ describe('Host-builtin mapping (Python target)', () => {
     expect(code).toContain('json.loads(');
     expect(code).not.toContain('JSON.parse');
   });
+
+  test('nested JSON builtins lower both calls', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=post path=/api/round',
+      '    schema body="{raw: string}"',
+      '    derive r expr={{JSON.stringify(JSON.parse(body.raw))}}',
+      '    respond 200 json=r',
+    ]);
+    const code = routeContent(result, 'round');
+    expect(code).toContain('json.dumps(json.loads(body.raw))');
+    expect(code).not.toContain('JSON.');
+  });
 });
