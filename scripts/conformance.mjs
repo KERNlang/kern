@@ -133,6 +133,16 @@ const FIXTURES = [
     expected: { name: 'widget', id: 1 },
   },
   {
+    // Whitespace after the spread operator is valid JS and must still lower
+    // correctly on both targets (Codex review of a1465d70).
+    name: 'object spread with whitespace after the operator',
+    expr: '{ ... body, id: 1 }',
+    path: '/api/spread-ws',
+    externalSchema: true,
+    bindings: { body: { name: 'widget' } },
+    expected: { name: 'widget', id: 1 },
+  },
+  {
     name: 'crypto.randomUUID is a string on both targets',
     expr: '{ id: crypto.randomUUID() }',
     path: '/api/id',

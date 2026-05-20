@@ -461,6 +461,9 @@ function lowerSpreadElements(expr: string): string {
     if (ch === '.' && expr[i + 1] === '.' && expr[i + 2] === '.') {
       out += stack[stack.length - 1] === '{' ? '**' : '*';
       i += 3;
+      // Collapse whitespace after the operator so `{ ... body }` yields tight
+      // `{**body}` — the model_dump pass matches `**body`, not `** body` (Codex).
+      while (i < expr.length && /\s/.test(expr[i])) i++;
       continue;
     }
     out += ch;
