@@ -14,6 +14,8 @@ export type {
 
 export {
   externalBoundaryFromParts,
+  externalBoundaryFromExternParts,
+  externalBoundaryFromImportParts,
   externalBoolProp,
   externalImportBindingFromParts,
   externalIslandRefFromParts,

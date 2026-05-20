@@ -268,6 +268,104 @@ describe('generated external-boundary-utils behavior', () => {
     });
   });
 
+  it('builds external boundaries from extern and import parts', () => {
+    expect(
+      generated.externalBoundaryFromExternParts(
+        { from: 'numpy', names: 'array' },
+        'pypi',
+        'python',
+        'python',
+        undefined,
+        [{ names: ['array'], types: false }],
+        2,
+        3,
+      ),
+    ).toBeNull();
+
+    const island = {
+      name: 'Data',
+      runtime: 'python',
+      effects: ['fs'],
+      requiresSidecar: true,
+    };
+    expect(
+      generated.externalBoundaryFromExternParts(
+        { package: 'numpy', names: 'array', effects: '[cpu]' },
+        'pypi',
+        'python',
+        'python',
+        island,
+        [{ names: ['array'], types: false }],
+        2,
+        3,
+      ),
+    ).toEqual({
+      package: 'numpy',
+      registry: 'pypi',
+      target: 'python',
+      targetFamily: 'python',
+      island,
+      runtime: 'python',
+      protocol: undefined,
+      module: undefined,
+      args: undefined,
+      session: undefined,
+      options: undefined,
+      error: undefined,
+      timeout: undefined,
+      effects: ['fs', 'cpu'],
+      serialization: undefined,
+      requiresSidecar: true,
+      version: undefined,
+      review: undefined,
+      reason: undefined,
+      imports: [{ names: ['array'], types: false }],
+      line: 2,
+      col: 3,
+    });
+
+    const explicit = generated.externalBoundaryFromImportParts(
+      { package: 'requests', from: 'fallback', names: 'get' },
+      'pypi',
+      'python',
+      'python',
+      undefined,
+      { names: ['get'], types: false },
+      4,
+      5,
+    );
+    expect(explicit).toMatchObject({ package: 'requests', explicitPackage: true });
+    expect(Object.prototype.propertyIsEnumerable.call(explicit, 'explicitPackage')).toBe(false);
+
+    expect(
+      generated.externalBoundaryFromImportParts(
+        { from: 'requests', names: 'get' },
+        'pypi',
+        'python',
+        'python',
+        undefined,
+        { names: ['get'], types: false },
+        4,
+        5,
+      ),
+    ).toMatchObject({ package: 'requests' });
+    expect(
+      generated.externalBoundaryFromImportParts(
+        { from: 'requests', names: 'get' },
+        'pypi',
+        'python',
+        'python',
+        undefined,
+        { names: ['get'], types: false },
+        4,
+        5,
+      )?.explicitPackage,
+    ).toBeUndefined();
+    expect(
+      generated.externalBoundaryFromImportParts({}, 'pypi', 'python', 'python', undefined, { names: [], types: false }, 1, 1),
+    ).toBeNull();
+  });
+
   it('builds external boundary shapes without island inheritance', () => {
     expect(
       generated.externalBoundaryFromParts(
@@ -693,6 +791,8 @@ describe('generated external-boundary-utils behavior', () => {
   it('src facade delegates generated utility exports', () => {
     expect(facade.splitExternalNames).toBe(generated.splitExternalNames);
     expect(facade.externalBoundaryFromParts).toBe(generated.externalBoundaryFromParts);
+    expect(facade.externalBoundaryFromExternParts).toBe(generated.externalBoundaryFromExternParts);
+    expect(facade.externalBoundaryFromImportParts).toBe(generated.externalBoundaryFromImportParts);
     expect(facade.externalImportBindingFromParts).toBe(generated.externalImportBindingFromParts);
     expect(facade.externalIslandRefFromParts).toBe(generated.externalIslandRefFromParts);
     expect(facade.externalPackageNameFromExternProps).toBe(generated.externalPackageNameFromExternProps);

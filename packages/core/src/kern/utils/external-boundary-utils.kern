@@ -132,6 +132,44 @@ fn name=hasExplicitExternalPackageProp returns=boolean export=true
   handler
     return value="typeof props.package === 'string' && props.package.length > 0"
 
+fn name=externalBoundaryFromExternParts returns="ExternalBoundaryShape | null" export=true
+  param name=props type="Record<string, unknown>"
+  param name=registry type=ExternalImportRegistry
+  param name=target type=ExternalImportTarget
+  param name=targetFamily type=ExternalImportTargetFamily
+  param name=island type="ExternalBoundaryIslandShape | undefined"
+  param name=imports type="ExternalRuntimeImportShape[]"
+  param name=line type="number | undefined"
+  param name=col type="number | undefined"
+  handler <<<
+    const packageName = externalPackageNameFromExternProps(props);
+    if (!packageName) return null;
+    return externalBoundaryFromParts(packageName, registry, target, targetFamily, props, island, imports, line, col);
+  >>>
+
+fn name=externalBoundaryFromImportParts returns="ExternalBoundaryShape | null" export=true
+  param name=props type="Record<string, unknown>"
+  param name=registry type=ExternalImportRegistry
+  param name=target type=ExternalImportTarget
+  param name=targetFamily type=ExternalImportTargetFamily
+  param name=island type="ExternalBoundaryIslandShape | undefined"
+  param name=importBinding type=ExternalRuntimeImportShape
+  param name=line type="number | undefined"
+  param name=col type="number | undefined"
+  handler <<<
+    const packageName = externalPackageNameFromImportProps(props);
+    if (!packageName) return null;
+    const boundary = externalBoundaryFromParts(packageName, registry, target, targetFamily, props, island, [importBinding], line, col);
+    if (hasExplicitExternalPackageProp(props)) {
+      Object.defineProperty(boundary, 'explicitPackage', {
+        value: true,
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    return boundary;
+  >>>
+
 fn name=hasExternalRuntimeImports returns=boolean export=true
   param name=boundary type=ExternalBoundaryRuntimeShape
   handler

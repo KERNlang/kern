@@ -8,15 +8,13 @@ import {
 } from './import-metadata.js';
 import {
   type ExternalBoundaryIslandShape,
-  externalBoundaryFromParts,
+  externalBoundaryFromExternParts,
+  externalBoundaryFromImportParts,
   externalImportBindingFromParts,
   externalIslandRefFromParts,
   externalLooseSidecarManifestFromBoundary,
-  externalPackageNameFromExternProps,
-  externalPackageNameFromImportProps,
   externalSidecarManifestFromIsland,
   externalSidecarPackageFromBoundary,
-  hasExplicitExternalPackageProp,
   hasExternalRuntimeImports,
   isLoosePythonBoundaryShape,
   isPythonSidecarBoundaryShape,
@@ -108,8 +106,6 @@ function importBindingFromProps(props: Record<string, unknown>, loc?: IRNode['lo
 
 function boundaryFromExtern(node: IRNode, island?: CapabilityIslandRef): ExternalBoundary | null {
   const props = node.props ?? {};
-  const packageName = externalPackageNameFromExternProps(props);
-  if (!packageName) return null;
 
   const childImports = (node.children ?? []).filter((child) => child.type === 'import');
   const registry = importRegistryOf(props.registry);
@@ -118,12 +114,11 @@ function boundaryFromExtern(node: IRNode, island?: CapabilityIslandRef): Externa
       ? childImports.map((child) => importBindingFromProps(child.props ?? {}, child.loc))
       : [importBindingFromProps(props, node.loc)];
 
-  return externalBoundaryFromParts(
-    packageName,
+  return externalBoundaryFromExternParts(
+    props,
     registry,
     importTargetOf(props.target, props.registry),
     importTargetFamilyOf(props.target, props.registry),
-    props,
     island,
     imports,
     node.loc?.line,
@@ -136,28 +131,16 @@ function boundaryFromImport(node: IRNode, island?: CapabilityIslandRef): Externa
   const registry = importRegistryOf(props.registry);
   if (registry === 'host') return null;
 
-  const packageName = externalPackageNameFromImportProps(props);
-  if (!packageName) return null;
-
-  const boundary: ExternalBoundary = externalBoundaryFromParts(
-    packageName,
+  return externalBoundaryFromImportParts(
+    props,
     registry,
     importTargetOf(props.target, props.registry),
     importTargetFamilyOf(props.target, props.registry),
-    props,
     island,
-    [importBindingFromProps(props, node.loc)],
+    importBindingFromProps(props, node.loc),
     node.loc?.line,
     node.loc?.col,
   );
-  if (hasExplicitExternalPackageProp(props)) {
-    Object.defineProperty(boundary, 'explicitPackage', {
-      value: true,
-      enumerable: false,
-      configurable: true,
-    });
-  }
-  return boundary;
 }
 
 function walk(node: IRNode, out: ExternalBoundary[], insideExtern = false, island?: CapabilityIslandRef): void {
