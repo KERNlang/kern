@@ -3,30 +3,25 @@ const name=base value=10
 fn name=add returns=number
   param name=a type=number
   param name=b type=number
-  handler <<<
-    return a + b;
-  >>>
+  handler
+    return value="a + b"
 
 fn name=withBase params="value:number" returns=number
-  handler <<<
-    return add(value, base);
-  >>>
+  handler
+    return value="add(value, base)"
 
 fn name=discountedTotal returns=number
   param name=order type=object
-  handler <<<
-    const subtotal = order.items.reduce((sum, item) => sum + item.price * item.qty, 0);
-    if (subtotal >= 50) {
-      return subtotal * 0.9;
-    }
-    return subtotal;
-  >>>
+  handler
+    let name=subtotal value="order.items.reduce((sum, item) => sum + item.price * item.qty, 0)"
+    if cond="subtotal >= 50"
+      return value="subtotal * 0.9"
+    return value="subtotal"
 
 fn name=loadTotal async=true returns=number
   param name=amount type=number
-  handler <<<
-    const loaded = await Promise.resolve(amount);
-    return loaded + 5;
-  >>>
+  handler
+    let name=loaded value="await Promise.resolve(amount)"
+    return value="loaded + 5"
 
 derive name=runtimeTotal expr={{discountedTotal(order) + base}}
