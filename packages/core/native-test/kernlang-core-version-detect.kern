@@ -1,0 +1,54 @@
+type name=FrameworkVersions alias="{ react?: string; tailwind?: string; nextjs?: string }"
+type name=ReactMajor alias="18 | 19"
+type name=TailwindMajor alias="3 | 4"
+type name=NextjsMajor alias="13 | 14 | 15 | 16"
+
+fn name=parseMajorVersion params="version:string" returns=number export=true
+  handler
+    let name=cleaned value="version.replace(new RegExp('^[\\\\^~>=<]*', 'g'), '').trim()"
+    let name=major value="parseInt(cleaned.split('.')[0], 10)"
+    return value="Number.isNaN(major) ? 0 : major"
+
+fn name=detectVersionsFromPackageJson returns=FrameworkVersions export=true
+  param name=packageJson type="Record<string, unknown>"
+  handler
+    let name=versions value="{} as FrameworkVersions"
+    let name=deps value="(packageJson.dependencies ?? {}) as Record<string, string>"
+    let name=devDeps value="(packageJson.devDependencies ?? {}) as Record<string, string>"
+    let name=reactVersion value="deps.react ?? devDeps.react"
+    if cond="reactVersion"
+      assign target="versions.react" value="reactVersion"
+    let name=tailwindVersion value="devDeps.tailwindcss ?? deps.tailwindcss"
+    if cond="tailwindVersion"
+      assign target="versions.tailwind" value="tailwindVersion"
+    let name=nextVersion value="deps.next ?? devDeps.next"
+    if cond="nextVersion"
+      assign target="versions.nextjs" value="nextVersion"
+    return value="versions"
+
+fn name=resolveReactMajor params="versions:FrameworkVersions" returns=ReactMajor export=true
+  handler
+    if cond="!versions.react"
+      return value="19"
+    let name=major value="parseMajorVersion(versions.react)"
+    return value="major <= 18 ? 18 : 19"
+
+fn name=resolveTailwindMajor params="versions:FrameworkVersions" returns=TailwindMajor export=true
+  handler
+    if cond="!versions.tailwind"
+      return value="3"
+    let name=major value="parseMajorVersion(versions.tailwind)"
+    return value="major >= 4 ? 4 : 3"
+
+fn name=resolveNextjsMajor params="versions:FrameworkVersions" returns=NextjsMajor export=true
+  handler
+    if cond="!versions.nextjs"
+      return value="14"
+    let name=major value="parseMajorVersion(versions.nextjs)"
+    if cond="major >= 16"
+      return value="16"
+    if cond="major >= 15"
+      return value="15"
+    if cond="major <= 13"
+      return value="13"
+    return value="14"
