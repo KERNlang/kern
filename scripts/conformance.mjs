@@ -143,6 +143,15 @@ const FIXTURES = [
     expected: { name: 'widget', id: 1 },
   },
   {
+    // Shorthand props are only portable for in-scope locals (Express keeps the
+    // `{x}` shorthand, which requires `x` bound; Python expands to `x: x`).
+    name: 'object shorthand props expand for locals',
+    expr: '{ a, b, total: 100 }',
+    path: '/api/short',
+    bindings: { locals: { a: 1, b: 'two' } },
+    expected: { a: 1, b: 'two', total: 100 },
+  },
+  {
     name: 'Array.from length+index arrow → comprehension',
     expr: 'Array.from({ length: 3 }, (_, i) => i * 2)',
     path: '/api/range',
@@ -204,6 +213,9 @@ const pyVal = (v) => {
 
 function buildPython(loweredExpr, bindings, imports) {
   const lines = ['import json', ...imports];
+  // `locals` model derived variables / declared params bound bare on both
+  // targets (e.g. a prior `derive`, or a query param the route signature binds).
+  for (const [k, v] of Object.entries(bindings.locals ?? {})) lines.push(`${k} = ${pyVal(v)}`);
   for (const [k, v] of Object.entries(bindings.params ?? {})) lines.push(`${k} = ${pyVal(v)}`);
   for (const [k, v] of Object.entries(bindings.query ?? {})) lines.push(`${k} = ${pyVal(v)}`);
   // Pydantic-like body: attribute access works (recursively, so body.user.id
@@ -243,7 +255,11 @@ function buildNode(loweredExpr, bindings) {
   };
   // Guard older Node: ensure a global `crypto` with randomUUID exists.
   const preamble = "import { webcrypto } from 'node:crypto'; if (!globalThis.crypto) globalThis.crypto = webcrypto;\n";
-  return `${preamble}const req = ${JSON.stringify(req)};\nconsole.log(JSON.stringify(${loweredExpr}));`;
+  // `locals` are bound bare on both targets (derived vars / route-bound params).
+  const localLines = Object.entries(bindings.locals ?? {})
+    .map(([k, v]) => `const ${k} = ${JSON.stringify(v)};`)
+    .join('\n');
+  return `${preamble}${localLines}\nconst req = ${JSON.stringify(req)};\nconsole.log(JSON.stringify(${loweredExpr}));`;
 }
 
 // ── Comparison ───────────────────────────────────────────────────────────────

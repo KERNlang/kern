@@ -257,6 +257,55 @@ function tryLowerArrayFrom(args: string[]): string | null {
   return `[${lowerArrayFromCalls(body)} for ${idxVar} in range(${lowerArrayFromCalls(count)})]`;
 }
 
+// Expand JS object-literal shorthand properties to explicit `key: key` so the
+// dict-key quoting pass can quote them: `{ items, page }` → `{ items: items,
+// page: page }`. Bracket/string-aware: only an object-literal entry that is a
+// bare identifier is expanded; `key: value`, `**spread`, computed keys, and
+// array/comprehension contents (`[]`) are left alone, and nested objects are
+// handled by recursing into each entry. Runs just before key quoting.
+function expandObjectShorthand(expr: string): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    if (c === '{') {
+      const close = matchBalancedParen(expr, i);
+      if (close !== -1) {
+        const rebuilt = splitTopLevelArgs(expr.slice(i + 1, close)).map((entry) => {
+          const t = entry.trim();
+          if (t === '') return entry;
+          if (/^[A-Za-z_$][\w$]*$/.test(t)) return `${t}: ${t}`;
+          return expandObjectShorthand(entry);
+        });
+        out += `{${rebuilt.join(', ')}}`;
+        i = close + 1;
+        continue;
+      }
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
 // Lower `Array.from({ length: N }, (_, i) => BODY)` to a Python list
 // comprehension `[BODY for i in range(N)]` (Express keeps Array.from — valid
 // JS). Balanced, string-aware scan; runs BEFORE the ref/key/template passes so
@@ -685,6 +734,9 @@ export function rewriteFastAPIExpr(
   // JSON.stringify(...) → json.dumps(...) / JSON.parse(...) → json.loads(...)
   result = lowerJsonBuiltinCalls(result, imports);
 
+  // Object-literal shorthand `{ items }` → `{ items: items }` so the key-quoting
+  // pass can quote them; runs immediately before it.
+  result = expandObjectShorthand(result);
   // Object-literal keys → quoted Python dict keys (`{userId: x}` →
   // `{"userId": x}`). Applied last, mirroring the raw `res.json(...)` path's
   // outer quote-after-lower order; runs after array-method lowering so dicts

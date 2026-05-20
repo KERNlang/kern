@@ -7,15 +7,9 @@ server name=StarterAPI port=3001
     respond 200 json={{ {status: "ok", timestamp: new Date().toISOString()} }}
 
   route path="/api/items" method=get
-    params items="[{name:page,type:number,default:1},{name:limit,type:number,default:20}]"
-    handler <<<
-      const items = Array.from({ length: limit }, (_, i) => ({
-        id: `item-${(page - 1) * limit + i + 1}`,
-        name: `Item ${(page - 1) * limit + i + 1}`,
-        createdAt: new Date().toISOString(),
-      }));
-      res.json({ items, page, limit, total: 100 });
-    >>>
+    params page:number=1, limit:number=20
+    derive items expr={{ Array.from({ length: limit }, (_, i) => ({ id: `item-${(page - 1) * limit + i + 1}`, name: `Item ${(page - 1) * limit + i + 1}`, createdAt: new Date().toISOString() })) }}
+    respond 200 json={{ {items, page, limit, total: 100} }}
 
   route path="/api/items/:id" method=get
     respond 200 json={{ {id: params.id, name: `Item ${params.id}`, createdAt: new Date().toISOString()} }}

@@ -48,7 +48,7 @@ describe('Array.from(length, arrow) → Python comprehension', () => {
       '    respond 200 json=cells',
     ]);
     const code = routeContent(result, 'grid');
-    expect(code).toContain('[{ "idx": i, "base": n } for i in range(n)]');
+    expect(code).toContain('[{"idx": i, "base": n} for i in range(n)]');
   });
 
   test('template-literal body lowers inside the comprehension', async () => {
