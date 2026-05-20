@@ -107,6 +107,19 @@ describe('Template literal → Python (.format) lowering', () => {
     expect(code).not.toContain('===');
   });
 
+  test('JS template escape sequences are decoded then re-escaped for Python', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=get path=/api/esc/:id',
+      '    derive s expr={{ `line1\\n${params.id}` }}',
+      '    respond 200 json=s',
+    ]);
+    const code = routeContent(result, 'esc');
+    // \n must be a single Python newline escape, not a doubled literal \\n
+    expect(code).toContain('"line1\\n{}".format(id)');
+    expect(code).not.toContain('line1\\\\n');
+  });
+
   test('an interpolation whose rewrite contains quotes stays valid (no f-string quote clash)', async () => {
     const result = await transpile([
       'server name=API port=8000',

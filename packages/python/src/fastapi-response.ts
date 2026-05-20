@@ -295,9 +295,44 @@ function parseTemplateLiteral(expr: string, startIndex: number): ParsedTemplateL
   return undefined;
 }
 
+// Decode the JS-template escape sequences that parseTemplateLiteral kept raw
+// (it preserves `\x` as two characters) into the actual characters they denote,
+// so they can be re-encoded for Python. Without this, `\n` would survive as a
+// literal backslash-n rather than a newline (Codex review on 678e6bc1).
+function decodeJsTemplateEscapes(raw: string): string {
+  return raw.replace(/\\(.)/g, (_m, ch) => {
+    switch (ch) {
+      case 'n':
+        return '\n';
+      case 't':
+        return '\t';
+      case 'r':
+        return '\r';
+      case '0':
+        return '\0';
+      // `\``, `\$`, `\\`, `\"`, `\'` and any other escaped char denote the
+      // bare character.
+      default:
+        return ch;
+    }
+  });
+}
+
+// Encode actual characters for a Python double-quoted string literal, including
+// control characters that cannot appear raw inside a `"..."`.
+function escapeForPyDoubleQuoted(text: string): string {
+  return text
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t');
+}
+
 function escapePythonTemplateText(text: string, forFormatTemplate: boolean): string {
-  const escaped = escapePyStr(text);
+  const escaped = escapeForPyDoubleQuoted(decodeJsTemplateEscapes(text));
   if (!forFormatTemplate) return escaped;
+  // str.format treats { } as field markers, so literal braces must be doubled.
   return escaped.replace(/{/g, '{{').replace(/}/g, '}}');
 }
 
