@@ -131,4 +131,30 @@ describe('Host-builtin mapping (Python target)', () => {
     const code = routeContent(result, 'nested');
     expect(code).toContain('json.loads(read())');
   });
+
+  test('JSON.stringify of an object literal (commas in the single arg) still lowers', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=get path=/api/obj',
+      '    derive s expr={{JSON.stringify({a: 1, b: 2})}}',
+      '    respond 200 json=s',
+    ]);
+    const code = routeContent(result, 'obj');
+    // object keys also get quoted by the later pass; the call itself must lower
+    expect(code).toContain('json.dumps({');
+    expect(code).toContain('import json');
+    expect(code).not.toContain('JSON.stringify');
+  });
+
+  test('JSON.parse of a string literal containing commas/braces lowers intact', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=get path=/api/str',
+      '    derive v expr={{JSON.parse("{\\"a\\":1,\\"b\\":2}")}}',
+      '    respond 200 json=v',
+    ]);
+    const code = routeContent(result, 'str');
+    expect(code).toContain('json.loads(');
+    expect(code).not.toContain('JSON.parse');
+  });
 });

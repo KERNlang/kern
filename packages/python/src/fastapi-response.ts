@@ -95,6 +95,111 @@ function lowerJsArrayMethods(expr: string): string {
   return next;
 }
 
+// Index of the bracket that closes the one at `openIdx`, tracking ()[]{} depth
+// and skipping string/template literals. -1 if unbalanced.
+function matchBalancedParen(expr: string, openIdx: number): number {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = openIdx; i < expr.length; i++) {
+    const c = expr[i];
+    if (quote) {
+      if (c === '\\') i += 1;
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') quote = c;
+    else if (c === '(' || c === '[' || c === '{') depth += 1;
+    else if (c === ')' || c === ']' || c === '}') {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+// Split a call's inner argument text on top-level commas, ignoring commas
+// inside nested ()[]{} or string literals.
+function splitTopLevelArgs(inner: string): string[] {
+  const args: string[] = [];
+  let depth = 0;
+  let quote: string | null = null;
+  let start = 0;
+  for (let i = 0; i < inner.length; i++) {
+    const c = inner[i];
+    if (quote) {
+      if (c === '\\') i += 1;
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') quote = c;
+    else if (c === '(' || c === '[' || c === '{') depth += 1;
+    else if (c === ')' || c === ']' || c === '}') depth -= 1;
+    else if (c === ',' && depth === 0) {
+      args.push(inner.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  args.push(inner.slice(start).trim());
+  return args;
+}
+
+// Lower JSON.stringify(...) / JSON.parse(...) to json.dumps/loads. Uses a
+// balanced, string-aware scan because the single argument can itself contain
+// commas, nested parens, brackets, braces, or string literals — which regex
+// cannot reliably capture (three regex iterations were each holed by review).
+// Skips occurrences inside string literals and those that are a property of
+// another receiver (e.g. `myJSON.stringify`). Handles the pretty-print form
+// `JSON.stringify(x, null, n)` → `json.dumps(x, indent=n)`.
+function lowerJsonBuiltinCalls(expr: string, imports?: Set<string>): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    const m = expr.slice(i).match(/^JSON\.(stringify|parse)\(/);
+    const prev = expr[i - 1];
+    if (m && !(prev && /[\w.]/.test(prev))) {
+      const method = m[1];
+      const openIdx = i + m[0].length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1) {
+        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));
+        const a0 = args[0] ?? '';
+        imports?.add('import json');
+        if (method === 'parse') {
+          out += `json.loads(${a0})`;
+        } else if (args.length >= 3 && /^(None|null)$/.test(args[1]) && /^\d+$/.test(args[2])) {
+          out += `json.dumps(${a0}, indent=${args[2]})`;
+        } else {
+          out += `json.dumps(${a0})`;
+        }
+        i = closeIdx + 1;
+        continue;
+      }
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
 export function rewriteFastAPIExpr(
   expr: string,
   pathParams: string[],
@@ -158,13 +263,10 @@ export function rewriteFastAPIExpr(
   });
 
   // ── Host-builtin lowering (JS globals → Python stdlib) ────────────────
-  // Each pattern skips string literals (STRING_LITERAL_ALT) and requires the
-  // global NOT be a property of something else via `(?<![\w.])`, so a custom
-  // receiver like `myJSON.stringify(x)` or `some.crypto.randomUUID()` is left
-  // untouched (Codex review on 6f53c0bd). HB_ARG matches a single argument
-  // with one level of nested parens and no top-level comma, so `JSON.parse(
-  // load())` works while multi-arg forms don't mis-capture (Codex review).
-  const HB_ARG = '(?:[^(),]|\\([^()]*\\))+';
+  // crypto / Date are fixed forms matched by regex with a `(?<![\w.])` guard so
+  // a custom receiver (`some.crypto.randomUUID()`) is left untouched. The JSON
+  // calls need balanced argument parsing (regex can't), so they go through the
+  // string-aware scanner `lowerJsonBuiltinCalls`.
 
   // crypto.randomUUID() → str(uuid.uuid4())
   result = result.replace(new RegExp(`${STRING_LITERAL_ALT}|(?<![\\w.])crypto\\.randomUUID\\(\\)`, 'g'), (match) => {
@@ -187,44 +289,8 @@ export function rewriteFastAPIExpr(
     },
   );
 
-  // JSON.stringify(x, null, n) → json.dumps(x, indent=n) — the pretty-print
-  // form (the literal pass already mapped null→None). Matched before the
-  // 1-arg form so the spacer args become `indent=` instead of breaking
-  // json.dumps with extra positionals (Codex review on 6f53c0bd).
-  result = result.replace(
-    new RegExp(`${STRING_LITERAL_ALT}|(?<![\\w.])JSON\\.stringify\\((${HB_ARG}),\\s*(?:None|null)\\s*,\\s*(\\d+)\\)`, 'g'),
-    (match, arg, indent) => {
-      if (arg !== undefined) {
-        imports?.add('import json');
-        return `json.dumps(${arg.trim()}, indent=${indent})`;
-      }
-      return match;
-    },
-  );
-
-  // JSON.stringify(x) → json.dumps(x)
-  result = result.replace(
-    new RegExp(`${STRING_LITERAL_ALT}|(?<![\\w.])JSON\\.stringify\\((${HB_ARG})\\)`, 'g'),
-    (match, arg) => {
-      if (arg !== undefined) {
-        imports?.add('import json');
-        return `json.dumps(${arg.trim()})`;
-      }
-      return match;
-    },
-  );
-
-  // JSON.parse(x) → json.loads(x)
-  result = result.replace(
-    new RegExp(`${STRING_LITERAL_ALT}|(?<![\\w.])JSON\\.parse\\((${HB_ARG})\\)`, 'g'),
-    (match, arg) => {
-      if (arg !== undefined) {
-        imports?.add('import json');
-        return `json.loads(${arg.trim()})`;
-      }
-      return match;
-    },
-  );
+  // JSON.stringify(...) → json.dumps(...) / JSON.parse(...) → json.loads(...)
+  result = lowerJsonBuiltinCalls(result, imports);
 
   // Object-literal keys → quoted Python dict keys (`{userId: x}` →
   // `{"userId": x}`). Applied last, mirroring the raw `res.json(...)` path's
