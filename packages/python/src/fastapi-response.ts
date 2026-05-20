@@ -313,12 +313,13 @@ function escapeJsTemplateTextForPy(raw: string): string {
       if (next === '`' || next === '$' || next === "'") {
         out += next; // JS-only escape → bare char (Python has no such escape)
       } else {
-        out += '\\' + next; // valid Python escape (\n, \uXXXX, \0, ...) — keep
+        out += `\\${next}`; // valid Python escape (\n, \uXXXX, \0, ...) — keep
       }
       i += 1;
       continue;
     }
-    if (c === '\\') out += '\\\\'; // lone trailing backslash
+    if (c === '\\')
+      out += '\\\\'; // lone trailing backslash
     else if (c === '"') out += '\\"';
     else if (c === '\n') out += '\\n';
     else if (c === '\r') out += '\\r';

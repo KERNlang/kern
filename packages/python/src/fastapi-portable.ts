@@ -42,7 +42,13 @@ function extractCodeOrString(val: unknown): string {
 // before comparing against literal names so `{{ true }}` (with internal
 // whitespace from KERN curly-expression syntax) maps to `True`, not the
 // invalid Python identifier `true`.
-function lowerPropToPython(val: unknown, pathParams: string[], bodyFields: Set<string>, authUser: boolean, imports?: Set<string>): string {
+function lowerPropToPython(
+  val: unknown,
+  pathParams: string[],
+  bodyFields: Set<string>,
+  authUser: boolean,
+  imports?: Set<string>,
+): string {
   const raw = extractCodeOrString(val);
   const trimmed = raw.trim();
   if (trimmed === '' || trimmed === 'null' || trimmed === 'undefined') return 'None';
@@ -71,7 +77,9 @@ export function generatePortableChildFastAPI(
       const name = String(p.name || '');
       const exprCode = extractExprCode(p.expr);
       if (name && exprCode) {
-        lines.push(`${indent}${toSnakeCase(name)} = ${rewriteFastAPIExpr(exprCode, pathParams, bodyFields, authUser, imports)}`);
+        lines.push(
+          `${indent}${toSnakeCase(name)} = ${rewriteFastAPIExpr(exprCode, pathParams, bodyFields, authUser, imports)}`,
+        );
       }
       break;
     }
@@ -305,7 +313,9 @@ export function generatePortableChildFastAPI(
         lines.push(`${indent}            ${effectName} = ${pyFallback}`);
       } else {
         lines.push(`${indent}try:`);
-        lines.push(`${indent}    ${effectName} = ${rewriteFastAPIExpr(triggerExpr, pathParams, bodyFields, authUser, imports)}`);
+        lines.push(
+          `${indent}    ${effectName} = ${rewriteFastAPIExpr(triggerExpr, pathParams, bodyFields, authUser, imports)}`,
+        );
         lines.push(`${indent}except Exception:`);
         lines.push(`${indent}    ${effectName} = ${pyFallback}`);
       }
