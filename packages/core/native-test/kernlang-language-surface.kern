@@ -48,26 +48,21 @@ class name=UserDirectory export=true
   field name=items type="User[]" private=true value={{ [] }}
   constructor
     param name=initial type="User[]" value={{ [] }}
-    handler <<<
-      this.items = initial;
-    >>>
+    handler
+      assign target="this.items" value="initial"
   method name=active returns="User[]"
-    handler <<<
-      return this.items.filter((user) => user.active);
-    >>>
+    handler
+      return value="this.items.filter((user) => user.active)"
   method name=names returns="string[]"
-    handler <<<
-      return this.active().map((user) => user.name);
-    >>>
+    handler
+      return value="this.active().map((user) => user.name)"
   getter name=count returns=number
-    handler <<<
-      return this.items.length;
-    >>>
+    handler
+      return value="this.items.length"
 
 fn name=selectActive returns="User[]"
   param name=items type="User[]"
-  handler <<<
-    return new UserDirectory(items).active();
-  >>>
+  handler
+    return value="new UserDirectory(items).active()"
 
 derive name=languageSummary expr={{activeUsers.length + ":" + activeNames.join(",") + ":" + scoreTotal}}

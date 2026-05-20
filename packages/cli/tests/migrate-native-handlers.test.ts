@@ -2,7 +2,7 @@
  *
  *  Verifies the pure rewriter in isolation. The rewriter takes raw `.kern`
  *  source containing `handler <<< … >>>` blocks and converts the eligible
- *  ones to `handler lang="kern"` body-statement form. Anything outside the
+ *  ones to `handler` body-statement form. Anything outside the
  *  supported AST shape (`var`, mutable destructuring, unsupported loops, comments,
  *  block-bodied arrow functions etc.) is skipped — never half-migrated.
  *
@@ -41,7 +41,7 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     const result = rewriteNativeHandlers(source);
 
     expect(result.hits).toHaveLength(1);
-    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toMatch(/^\s*handler\s*$/m);
     expect(result.output).toContain('let name=msg value="who"');
     expect(result.output).toContain('return value="msg"');
     expect(result.output).not.toContain('<<<');
@@ -108,7 +108,7 @@ describe('rewriteNativeHandlers — supported statement types', () => {
 
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(1);
-    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toMatch(/^\s*handler\s*$/m);
     expect(result.output).toContain('each name=user in="users"');
     expect(result.output).toContain('do value="notify(user)"');
     expect(result.output).toMatch(/^\s*return\s*$/m);
@@ -128,7 +128,7 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(1);
     expect(result.skipped).toHaveLength(0);
-    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toMatch(/^\s*handler\s*$/m);
     // Value-less `entries=true` attribute MUST be absent: the source did not
     // wrap in `Object.entries(...)`, so the migration emits the bare pair form
     // which re-emits as `for (const [key, value] of pairs)` byte-cleanly.
@@ -197,7 +197,7 @@ describe('rewriteNativeHandlers — supported statement types', () => {
 
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(1);
-    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toMatch(/^\s*handler\s*$/m);
     expect(result.output).toContain(
       'each pairKey=key pairValue=value in="raw as Record<string, unknown>" entries=true',
     );
@@ -281,7 +281,7 @@ describe('rewriteNativeHandlers — supported statement types', () => {
 
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(1);
-    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toMatch(/^\s*handler\s*$/m);
     expect(result.output).toContain('each pairKey=key pairValue=value in="cache" await=true');
     expect(result.output).toContain('do value="await notify(key, value)"');
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
@@ -299,7 +299,7 @@ describe('rewriteNativeHandlers — supported statement types', () => {
 
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(1);
-    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toMatch(/^\s*handler\s*$/m);
     expect(result.output).toContain('each name=user in="users" type="User | null"');
     expect(result.output).toContain('do value="notify(user)"');
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
@@ -318,7 +318,7 @@ describe('rewriteNativeHandlers — supported statement types', () => {
 
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(1);
-    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toMatch(/^\s*handler\s*$/m);
     expect(result.output).toContain('each name=event in="events" await=true');
     expect(result.output).toContain('do value="await notify(event)"');
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
@@ -336,7 +336,7 @@ describe('rewriteNativeHandlers — supported statement types', () => {
 
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(1);
-    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toMatch(/^\s*handler\s*$/m);
     expect(result.output).toContain('each name=event in="events" type="Event" await=true');
     expect(result.output).toContain('do value="await notify(event)"');
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
@@ -383,7 +383,7 @@ describe('rewriteNativeHandlers — supported statement types', () => {
 
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(1);
-    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toMatch(/^\s*handler\s*$/m);
     expect(result.output).toContain('while cond="queue.length > 0"');
     expect(result.output).toContain('let name=item value="queue.shift()"');
     expect(result.output).toContain('do value="process(item)"');
@@ -985,7 +985,7 @@ describe('rewriteNativeHandlers — bail conditions', () => {
     const source = ['fn name=ok returns=void', '  handler <<<', '    doIt();', '  >>>'].join('\n');
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(1);
-    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toMatch(/^\s*handler\s*$/m);
     expect(result.output).toContain('do value="doIt()"');
   });
 
@@ -1093,7 +1093,7 @@ describe('rewriteNativeHandlers — bail conditions', () => {
     ].join('\n');
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(1);
-    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toMatch(/^\s*handler\s*$/m);
     expect(result.output).toContain('if cond="a"');
     expect(result.output).toContain('if cond="b"');
     // The nested-`if` lives inside `else`, not as a sibling. Expressed in
@@ -1450,7 +1450,7 @@ describe('rewriteNativeHandlers — round-trip', () => {
     ].join('\n');
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(1);
-    expect(result.output).toContain('    handler lang="kern"');
+    expect(result.output).toMatch(/^ {4}handler\s*$/m);
     expect(result.output).toContain('      let name=m value="\\"hi\\""');
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
@@ -1486,7 +1486,7 @@ describe('rewriteNativeHandlers — review-found regressions', () => {
     const source = ['fn name=ok returns=any', '  handler <<<', '    return ok ? a : b;', '  >>>'].join('\n');
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(1);
-    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toMatch(/^\s*handler\s*$/m);
     expect(result.output).toContain('return value="ok ? a : b"');
   });
 
@@ -1604,7 +1604,7 @@ describe('rewriteNativeHandlers — multi-handler files', () => {
     ].join('\n');
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(2);
-    expect((result.output.match(/handler lang="kern"/g) ?? []).length).toBe(2);
+    expect((result.output.match(/^\s*handler\s*$/gm) ?? []).length).toBe(2);
   });
 
   test('mixed: migrates eligible, leaves ineligible alone', () => {
@@ -1620,7 +1620,7 @@ describe('rewriteNativeHandlers — multi-handler files', () => {
     ].join('\n');
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(1);
-    expect((result.output.match(/handler lang="kern"/g) ?? []).length).toBe(1);
+    expect((result.output.match(/^\s*handler\s*$/gm) ?? []).length).toBe(1);
     // Non-block for-of would drift under --verify because `each` emits braces,
     // so the second handler stays raw `<<<…>>>`.
     expect(result.output).toContain('for (const x of xs) doSideEffect(x);');

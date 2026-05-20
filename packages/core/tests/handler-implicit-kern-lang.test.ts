@@ -12,7 +12,8 @@
  *    - the `on event=… → set …` event-handler shortcut untouched
  */
 
-import { parseDocumentWithDiagnostics } from '../src/parser.js';
+import { decompile } from '../src/decompiler.js';
+import { parseDocumentStrict, parseDocumentWithDiagnostics } from '../src/parser.js';
 import type { IRNode } from '../src/types.js';
 
 function findHandler(root: IRNode): IRNode | null {
@@ -41,6 +42,49 @@ describe('canonicalizeImplicitKernHandlerLang — inference', () => {
     const handler = findHandler(root);
     expect(handler).not.toBeNull();
     expect(handler?.props?.lang).toBe('kern');
+  });
+
+  test('decompiler omits inferred lang="kern" but preserves other handler props', () => {
+    const src = [
+      'fn name=ok returns=string',
+      '  handler reason="native dogfood" review=skip',
+      '    return value="\\"ok\\""',
+    ].join('\n');
+    const { root, diagnostics } = parseDocumentWithDiagnostics(src);
+    expect(diagnostics.filter((d) => d.severity === 'error')).toHaveLength(0);
+    const handler = findHandler(root);
+    expect(handler).not.toBeNull();
+
+    const text = decompile(handler as IRNode).code;
+    expect(text).toContain('handler reason="native dogfood" review=skip');
+    expect(text).not.toContain('lang="kern"');
+    expect(text).toContain('return value="\\"ok\\""');
+  });
+
+  test('decompiled inferred-KERN handler with control flow round-trips', () => {
+    const src = [
+      'fn name=classify returns=string',
+      '  handler',
+      '    try',
+      '      if cond="n > 0"',
+      '        return value="\\"pos\\""',
+      '      else',
+      '        throw value="new Error(\\"neg\\")"',
+      '    catch name=err type=any',
+      '      return value="err.message"',
+      '    finally',
+      '      do value="cleanup()"',
+    ].join('\n');
+    const { root, diagnostics } = parseDocumentWithDiagnostics(src);
+    expect(diagnostics.filter((d) => d.severity === 'error')).toHaveLength(0);
+    const fn = findNode(root, 'fn');
+    expect(fn).not.toBeNull();
+
+    const text = decompile(fn as IRNode).code;
+    expect(text).toContain('handler');
+    expect(text).not.toContain('lang="kern"');
+    expect(text).not.toContain('If (');
+    expect(() => parseDocumentStrict(text)).not.toThrow();
   });
 
   test('handler with `let` + `assign` children has lang="kern" inferred', () => {

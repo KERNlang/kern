@@ -36,40 +36,34 @@ interface name=TupleBox
 class name=Container generics="<T>" export=true
   field name=value type=T
   method name=bar generics="<U>" params="x:U" returns=U
-    handler <<<
-      return x;
-    >>>
+    handler
+      return value="x"
 
 const name=amount value=7
 const name=text value="hello"
 
 fn name=identity generics="<T>" params="x:T" returns=T export=true
-  handler <<<
-    return x;
-  >>>
+  handler
+    return value="x"
 
 fn name=clone generics="<T extends object>" params="x:T" returns=T
-  handler <<<
-    return { ...x };
-  >>>
+  handler
+    return value="{ ...x }"
 
 fn name=add params="a:any,b:any" returns=any export=true
   overload params="a:number,b:number" returns=number
   overload params="a:string,b:string" returns=string
-  handler <<<
-    return a + b;
-  >>>
+  handler
+    return value="a + b"
 
 fn name=defaulted params="a:number=0,b:number=0" returns=number
   overload params="a:number=0,b:number=0" returns=number
-  handler <<<
-    return a + b;
-  >>>
+  handler
+    return value="a + b"
 
 fn name=isString params="value:unknown" returns="value is string"
-  handler <<<
-    return typeof value === "string";
-  >>>
+  handler
+    return value="typeof value === \"string\""
 
 fn name=assertUser params="x:unknown" returns="asserts x is User"
   handler <<<
@@ -78,6 +72,5 @@ fn name=assertUser params="x:unknown" returns="asserts x is User"
 
 class name=Account
   method name=isAdmin returns="this is AdminUser"
-    handler <<<
-      return this.role === "admin";
-    >>>
+    handler
+      return value="this.role === \"admin\""
