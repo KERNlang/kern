@@ -1,0 +1,19 @@
+fn name=pythonSidecarNameFromAliasAndPackage returns=string export=true
+  param name=alias type="string | undefined"
+  param name=packageName type=string
+  handler
+    let name=packageTitle value="titleCasePythonSidecarName(packageName)"
+    if cond="!alias"
+      return value="packageTitle"
+    let name=aliasTitle value="titleCasePythonSidecarName(alias)"
+    let name=lastPackageSegment value="packageName.split(new RegExp('[./_-]+', 'u')).filter(Boolean).at(-1)"
+    let name=lastPackageTitle value="lastPackageSegment ? titleCasePythonSidecarName(lastPackageSegment) : packageTitle"
+    let name=aliasKey value="aliasTitle.toLowerCase()"
+    return value="aliasKey === lastPackageTitle.toLowerCase() || aliasKey === packageTitle.toLowerCase() ? aliasTitle : aliasTitle + packageTitle"
+
+fn name=titleCasePythonSidecarName params="raw:string" returns=string
+  handler
+    let name=parts value="raw.replace(new RegExp('-', 'gu'), '.dash.').replace(new RegExp('_', 'gu'), '.underscore.').split(new RegExp('[./]+', 'u')).map((part) => part.replace(new RegExp('[^A-Za-z0-9_$]', 'gu'), '')).filter(Boolean)"
+    let name=words value="parts.length > 0 ? parts : ['Python']"
+    let name=name value="words.map((word) => word[0].toUpperCase() + word.slice(1)).join('')"
+    return value="new RegExp('^[A-Za-z_$]', 'u').test(name) ? name : 'Py' + name"
