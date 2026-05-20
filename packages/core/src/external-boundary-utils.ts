@@ -4,6 +4,8 @@ export type {
   ExternalBoundaryRuntimeShape,
   ExternalRuntimeImportShape,
   ExternalSidecarBoundaryShape,
+  ExternalSidecarIslandShape,
+  ExternalSidecarManifestShape,
   ExternalSidecarPackageShape,
   ExternalBoundaryStringKey,
 } from './generated/utils/external-boundary-utils.js';
@@ -11,6 +13,8 @@ export type {
 export {
   externalBoolProp,
   externalRuntimeImports,
+  externalLooseSidecarManifestFromBoundary,
+  externalSidecarManifestFromIsland,
   externalSidecarPackageFromBoundary,
   externalSidecarPackageKey,
   externalStringProp,
@@ -19,6 +23,7 @@ export {
   inheritExternalString,
   isLoosePythonBoundaryShape,
   isPythonSidecarBoundaryShape,
+  mergeExternalSidecarManifestPackage,
   mergeExternalEffects,
   splitExternalNames,
 } from './generated/utils/external-boundary-utils.js';

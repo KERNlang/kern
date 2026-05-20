@@ -93,6 +93,7 @@ describe('generated external-boundary-utils behavior', () => {
         registry: 'pypi',
         target: 'python',
         targetFamily: 'python',
+        effects: [],
         imports: [{ names: ['NDArray'], types: true }, { names: ['sqrt'], types: false }],
         version: '3',
         line: 10,
@@ -116,6 +117,7 @@ describe('generated external-boundary-utils behavior', () => {
       registry: 'pypi',
       target: 'python',
       targetFamily: 'python',
+      effects: [],
       imports: [{ names: ['sqrt'], types: false }],
     });
 
@@ -143,13 +145,309 @@ describe('generated external-boundary-utils behavior', () => {
     ).toBe('math\0pypi\0python');
   });
 
+  it('builds sidecar manifests from eligible python islands', () => {
+    expect(
+      generated.externalSidecarManifestFromIsland({
+        name: 'ignored',
+        runtime: 'python',
+        effects: [],
+        requiresSidecar: false,
+        imports: [],
+      }),
+    ).toBeNull();
+    expect(
+      generated.externalSidecarManifestFromIsland({
+        name: 'ignored',
+        runtime: 'node',
+        effects: [],
+        requiresSidecar: true,
+        imports: [],
+      }),
+    ).toBeNull();
+    expect(
+      generated.externalSidecarManifestFromIsland({
+        name: 'ignored',
+        runtime: 'python',
+        effects: [],
+        requiresSidecar: true,
+        imports: [],
+      }),
+    ).toBeNull();
+    expect(
+      generated.externalSidecarManifestFromIsland({
+        name: 'typeOnly',
+        runtime: 'python',
+        effects: [],
+        requiresSidecar: true,
+        imports: [
+          {
+            package: 'numpy',
+            registry: 'pypi',
+            target: 'python',
+            targetFamily: 'python',
+            effects: [],
+            requiresSidecar: true,
+            imports: [{ names: ['NDArray'], types: true }],
+          },
+        ],
+      }),
+    ).toBeNull();
+    expect(
+      generated.externalSidecarManifestFromIsland({
+        name: 'mixed',
+        runtime: 'python',
+        effects: ['fs'],
+        requiresSidecar: true,
+        imports: [
+          {
+            package: 'numpy',
+            registry: 'pypi',
+            target: 'python',
+            targetFamily: 'python',
+            effects: ['fs'],
+            requiresSidecar: true,
+            imports: [{ names: ['array'], types: false }],
+          },
+          {
+            package: 'react',
+            registry: 'npm',
+            target: 'react',
+            targetFamily: 'ts',
+            requiresSidecar: true,
+            imports: [{ names: ['useState'], types: false }],
+          },
+        ],
+      })?.packages,
+    ).toEqual([
+      {
+        package: 'numpy',
+        registry: 'pypi',
+        target: 'python',
+        targetFamily: 'python',
+        imports: [{ names: ['array'], types: false }],
+      },
+    ]);
+
+    expect(
+      generated.externalSidecarManifestFromIsland({
+        name: 'tracks',
+        kind: 'sidecar',
+        runtime: 'python',
+        protocol: 'stdio',
+        module: 'svc.tracks',
+        args: ['--debug'],
+        session: 'session',
+        options: 'options',
+        error: 'error',
+        timeout: '10s',
+        effects: ['fs'],
+        serialization: 'json',
+        requiresSidecar: true,
+        imports: [
+          {
+            package: 'numpy',
+            registry: 'pypi',
+            target: 'python',
+            targetFamily: 'python',
+            effects: ['fs'],
+            requiresSidecar: true,
+            imports: [{ names: ['NDArray'], types: true }, { names: ['array'], types: false }],
+            version: '2',
+            line: 7,
+            col: 2,
+          },
+        ],
+        line: 5,
+        col: 1,
+      }),
+    ).toEqual({
+      name: 'tracks',
+      kind: 'sidecar',
+      runtime: 'python',
+      protocol: 'stdio',
+      module: 'svc.tracks',
+      args: ['--debug'],
+      session: 'session',
+      options: 'options',
+      error: 'error',
+      timeout: '10s',
+      effects: ['fs'],
+      serialization: 'json',
+      requiresSidecar: true,
+      packages: [
+        {
+          package: 'numpy',
+          registry: 'pypi',
+          target: 'python',
+          targetFamily: 'python',
+          imports: [{ names: ['array'], types: false }],
+          version: '2',
+          line: 7,
+          col: 2,
+        },
+      ],
+      line: 5,
+      col: 1,
+    });
+  });
+
+  it('keeps protocol-only python sidecar manifests', () => {
+    expect(
+      generated.externalSidecarManifestFromIsland({
+        name: 'protocolOnly',
+        runtime: 'python',
+        protocol: 'stdio',
+        effects: ['net'],
+        requiresSidecar: true,
+        imports: [],
+      }),
+    ).toEqual({
+      name: 'protocolOnly',
+      runtime: 'python',
+      protocol: 'stdio',
+      effects: ['net'],
+      requiresSidecar: true,
+      packages: [],
+    });
+  });
+
+  it('builds loose sidecar manifests from explicit python package boundaries', () => {
+    const sidecarPackage = {
+      package: 'requests',
+      registry: 'pypi' as const,
+      target: 'python' as const,
+      targetFamily: 'python' as const,
+      imports: [{ names: ['get'], types: false }],
+    };
+
+    expect(
+      generated.externalLooseSidecarManifestFromBoundary(
+        'requestsSidecar',
+        {
+          package: 'requests',
+          registry: 'pypi',
+          target: 'python',
+          targetFamily: 'python',
+          imports: [{ names: ['get'], types: false }],
+          effects: ['net'],
+          line: 12,
+          col: 4,
+        },
+        sidecarPackage,
+      ),
+    ).toEqual({
+      name: 'requestsSidecar',
+      kind: 'sidecar',
+      runtime: 'python',
+      effects: ['net'],
+      serialization: 'json',
+      requiresSidecar: true,
+      packages: [sidecarPackage],
+      line: 12,
+      col: 4,
+    });
+    expect(
+      generated.externalLooseSidecarManifestFromBoundary(
+        'requestsSidecar',
+        {
+          package: 'requests',
+          registry: 'pypi',
+          target: 'python',
+          targetFamily: 'python',
+          imports: [{ names: ['get'], types: false }],
+        },
+        sidecarPackage,
+      ).effects,
+    ).toEqual([]);
+  });
+
+  it('merges loose sidecar manifest packages by key', () => {
+    const manifest = {
+      name: 'requestsSidecar',
+      runtime: 'python',
+      effects: ['net'],
+      requiresSidecar: true as const,
+      packages: [
+        {
+          package: 'requests',
+          registry: 'pypi' as const,
+          target: 'python' as const,
+          targetFamily: 'python' as const,
+          imports: [{ names: ['get'], types: false }],
+        },
+      ],
+    };
+
+    generated.mergeExternalSidecarManifestPackage(
+      manifest,
+      {
+        package: 'requests',
+        registry: 'pypi',
+        target: 'python',
+        targetFamily: 'python',
+        imports: [{ names: ['post'], types: false }],
+        version: '2',
+      },
+      ['fs', 'net'],
+    );
+    generated.mergeExternalSidecarManifestPackage(
+      manifest,
+      {
+        package: 'numpy',
+        registry: 'pypi',
+        target: 'python',
+        targetFamily: 'python',
+        imports: [{ names: ['array'], types: false }],
+      },
+      ['cpu'],
+    );
+    generated.mergeExternalSidecarManifestPackage(
+      manifest,
+      {
+        package: 'requests',
+        registry: 'pypi',
+        target: 'python',
+        targetFamily: 'python',
+        imports: [],
+      },
+      undefined,
+    );
+
+    expect(manifest).toEqual({
+      name: 'requestsSidecar',
+      runtime: 'python',
+      effects: ['net', 'fs', 'cpu'],
+      requiresSidecar: true,
+      packages: [
+        {
+          package: 'requests',
+          registry: 'pypi',
+          target: 'python',
+          targetFamily: 'python',
+          imports: [{ names: ['get'], types: false }, { names: ['post'], types: false }],
+          version: '2',
+        },
+        {
+          package: 'numpy',
+          registry: 'pypi',
+          target: 'python',
+          targetFamily: 'python',
+          imports: [{ names: ['array'], types: false }],
+        },
+      ],
+    });
+  });
+
   it('src facade delegates generated utility exports', () => {
     expect(facade.splitExternalNames).toBe(generated.splitExternalNames);
     expect(facade.externalStringProp).toBe(generated.externalStringProp);
     expect(facade.externalBoolProp).toBe(generated.externalBoolProp);
     expect(facade.externalRuntimeImports).toBe(generated.externalRuntimeImports);
+    expect(facade.externalLooseSidecarManifestFromBoundary).toBe(generated.externalLooseSidecarManifestFromBoundary);
+    expect(facade.externalSidecarManifestFromIsland).toBe(generated.externalSidecarManifestFromIsland);
     expect(facade.externalSidecarPackageFromBoundary).toBe(generated.externalSidecarPackageFromBoundary);
     expect(facade.externalSidecarPackageKey).toBe(generated.externalSidecarPackageKey);
+    expect(facade.mergeExternalSidecarManifestPackage).toBe(generated.mergeExternalSidecarManifestPackage);
     expect(facade.mergeExternalEffects).toBe(generated.mergeExternalEffects);
     expect(facade.inheritExternalString).toBe(generated.inheritExternalString);
     expect(facade.inheritExternalArgs).toBe(generated.inheritExternalArgs);

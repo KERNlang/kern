@@ -8,14 +8,16 @@ import {
 } from './import-metadata.js';
 import {
   externalBoolProp,
+  externalLooseSidecarManifestFromBoundary,
+  externalSidecarManifestFromIsland,
   externalSidecarPackageFromBoundary,
-  externalSidecarPackageKey,
   externalStringProp,
   hasExternalRuntimeImports,
   inheritExternalArgs,
   inheritExternalString,
   isLoosePythonBoundaryShape,
   isPythonSidecarBoundaryShape,
+  mergeExternalSidecarManifestPackage,
   mergeExternalEffects,
   splitExternalNames,
 } from './external-boundary-utils.js';
@@ -382,30 +384,7 @@ function sidecarPackageFromBoundary(boundary: ExternalBoundary): SidecarPackage 
 }
 
 export function sidecarManifestFromIsland(island: CapabilityIsland): SidecarManifest | null {
-  if (island.requiresSidecar !== true || island.runtime !== 'python') return null;
-  const packages: SidecarPackage[] = island.imports.filter(isPythonSidecarBoundary).map(sidecarPackageFromBoundary);
-
-  const protocol = island.protocol;
-  if (packages.length === 0 && !protocol) return null;
-  const manifest: SidecarManifest = {
-    name: island.name,
-    runtime: island.runtime,
-    effects: island.effects,
-    requiresSidecar: true,
-    packages,
-  };
-  if (island.kind !== undefined) manifest.kind = island.kind;
-  if (protocol !== undefined) manifest.protocol = protocol;
-  if (island.module !== undefined) manifest.module = island.module;
-  if (island.args !== undefined && island.args.length > 0) manifest.args = island.args;
-  if (island.session !== undefined) manifest.session = island.session;
-  if (island.options !== undefined) manifest.options = island.options;
-  if (island.error !== undefined) manifest.error = island.error;
-  if (island.timeout !== undefined) manifest.timeout = island.timeout;
-  if (island.serialization !== undefined) manifest.serialization = island.serialization;
-  if (island.line !== undefined) manifest.line = island.line;
-  if (island.col !== undefined) manifest.col = island.col;
-  return manifest;
+  return externalSidecarManifestFromIsland(island);
 }
 
 export function sidecarManifestFromNode(node: IRNode): SidecarManifest | null {
@@ -426,31 +405,10 @@ export function collectSidecarManifests(root: IRNode): SidecarManifest[] {
     const sidecarPackage = sidecarPackageFromBoundary(boundary);
     const existing = looseManifests.get(name);
     if (!existing) {
-      const manifest: SidecarManifest = {
-        name,
-        kind: 'sidecar',
-        runtime: 'python',
-        effects: boundary.effects,
-        serialization: boundary.serialization ?? 'json',
-        requiresSidecar: true,
-        packages: [sidecarPackage],
-      };
-      if (boundary.line !== undefined) manifest.line = boundary.line;
-      if (boundary.col !== undefined) manifest.col = boundary.col;
-      looseManifests.set(name, manifest);
+      looseManifests.set(name, externalLooseSidecarManifestFromBoundary(name, boundary, sidecarPackage));
       continue;
     }
-    existing.effects = [...new Set([...existing.effects, ...boundary.effects])];
-    const packageKey = externalSidecarPackageKey(sidecarPackage);
-    const existingPackage = existing.packages.find(
-      (pkg) => externalSidecarPackageKey(pkg) === packageKey,
-    );
-    if (existingPackage) {
-      existingPackage.imports.push(...sidecarPackage.imports);
-      if (!existingPackage.version && sidecarPackage.version) existingPackage.version = sidecarPackage.version;
-    } else {
-      existing.packages.push(sidecarPackage);
-    }
+    mergeExternalSidecarManifestPackage(existing, sidecarPackage, boundary.effects);
   }
   manifests.push(...looseManifests.values());
   return manifests;
