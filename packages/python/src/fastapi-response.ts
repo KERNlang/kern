@@ -203,6 +203,182 @@ function lowerJsonBuiltinCalls(expr: string, imports?: Set<string>): string {
   return out;
 }
 
+type ParsedTemplateLiteral = {
+  endIndex: number;
+  textParts: string[];
+  interpolationParts: string[];
+};
+
+function scanQuotedString(expr: string, startIndex: number, quote: '"' | "'"): number {
+  for (let i = startIndex + 1; i < expr.length; i++) {
+    if (expr[i] === '\\') {
+      i += 1;
+      continue;
+    }
+    if (expr[i] === quote) return i;
+  }
+  return -1;
+}
+
+function scanTemplateInterpolationEnd(expr: string, startIndex: number): number {
+  let depth = 1;
+  for (let i = startIndex; i < expr.length; i++) {
+    const c = expr[i];
+    if (c === '"' || c === "'") {
+      const quotedEnd = scanQuotedString(expr, i, c);
+      if (quotedEnd === -1) return -1;
+      i = quotedEnd;
+      continue;
+    }
+    if (c === '`') {
+      const templateEnd = scanTemplateLiteralEnd(expr, i);
+      if (templateEnd === -1) return -1;
+      i = templateEnd;
+      continue;
+    }
+    if (c === '{') depth += 1;
+    else if (c === '}') {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function scanTemplateLiteralEnd(expr: string, startIndex: number): number {
+  for (let i = startIndex + 1; i < expr.length; i++) {
+    const c = expr[i];
+    if (c === '\\') {
+      i += 1;
+      continue;
+    }
+    if (c === '`') return i;
+    if (c === '$' && expr[i + 1] === '{') {
+      const interpolationEnd = scanTemplateInterpolationEnd(expr, i + 2);
+      if (interpolationEnd === -1) return -1;
+      i = interpolationEnd;
+    }
+  }
+  return -1;
+}
+
+function parseTemplateLiteral(expr: string, startIndex: number): ParsedTemplateLiteral | undefined {
+  const textParts: string[] = [];
+  const interpolationParts: string[] = [];
+  let text = '';
+
+  for (let i = startIndex + 1; i < expr.length; ) {
+    const c = expr[i];
+    if (c === '\\') {
+      text += c;
+      if (i + 1 < expr.length) text += expr[i + 1];
+      i += 2;
+      continue;
+    }
+    if (c === '`') {
+      textParts.push(text);
+      return { endIndex: i, textParts, interpolationParts };
+    }
+    if (c === '$' && expr[i + 1] === '{') {
+      textParts.push(text);
+      text = '';
+      const interpolationEnd = scanTemplateInterpolationEnd(expr, i + 2);
+      if (interpolationEnd === -1) return undefined;
+      interpolationParts.push(expr.slice(i + 2, interpolationEnd));
+      i = interpolationEnd + 1;
+      continue;
+    }
+    text += c;
+    i += 1;
+  }
+
+  return undefined;
+}
+
+function escapePythonTemplateText(text: string, forFormatTemplate: boolean): string {
+  const escaped = escapePyStr(text);
+  if (!forFormatTemplate) return escaped;
+  return escaped.replace(/{/g, '{{').replace(/}/g, '}}');
+}
+
+function lowerTemplateLiteralToPython(
+  parsed: ParsedTemplateLiteral,
+  pathParams: string[],
+  bodyFields: Set<string>,
+  authUser: boolean,
+  imports?: Set<string>,
+): string {
+  if (parsed.interpolationParts.length === 0) {
+    return `"${escapePythonTemplateText(parsed.textParts.join(''), false)}"`;
+  }
+
+  const rewrittenInterpolations = parsed.interpolationParts.map((part) =>
+    rewriteFastAPIExpr(part.trim(), pathParams, bodyFields, authUser, imports),
+  );
+
+  let fmt = '';
+  for (let i = 0; i < parsed.textParts.length; i++) {
+    fmt += escapePythonTemplateText(parsed.textParts[i], true);
+    if (i < parsed.interpolationParts.length) fmt += '{}';
+  }
+
+  return `"${fmt}".format(${rewrittenInterpolations.join(', ')})`;
+}
+
+function extractTemplateLiterals(
+  expr: string,
+  pathParams: string[],
+  bodyFields: Set<string>,
+  authUser: boolean,
+  imports?: Set<string>,
+): { maskedExpr: string; replacements: Array<{ placeholder: string; lowered: string }> } {
+  let maskedExpr = '';
+  const replacements: Array<{ placeholder: string; lowered: string }> = [];
+  let quote: '"' | "'" | null = null;
+
+  for (let i = 0; i < expr.length; ) {
+    const c = expr[i];
+    if (quote) {
+      maskedExpr += c;
+      if (c === '\\') {
+        maskedExpr += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+
+    if (c === '"' || c === "'") {
+      quote = c;
+      maskedExpr += c;
+      i += 1;
+      continue;
+    }
+
+    if (c === '`') {
+      const parsed = parseTemplateLiteral(expr, i);
+      if (!parsed) {
+        maskedExpr += c;
+        i += 1;
+        continue;
+      }
+      const placeholder = `__KERN_TEMPLATE_${replacements.length}__`;
+      const lowered = lowerTemplateLiteralToPython(parsed, pathParams, bodyFields, authUser, imports);
+      replacements.push({ placeholder, lowered });
+      maskedExpr += placeholder;
+      i = parsed.endIndex + 1;
+      continue;
+    }
+
+    maskedExpr += c;
+    i += 1;
+  }
+
+  return { maskedExpr, replacements };
+}
+
 export function rewriteFastAPIExpr(
   expr: string,
   pathParams: string[],
@@ -210,7 +386,8 @@ export function rewriteFastAPIExpr(
   authUser = false,
   imports?: Set<string>,
 ): string {
-  let result = expr;
+  const { maskedExpr, replacements } = extractTemplateLiterals(expr, pathParams, bodyFields, authUser, imports);
+  let result = maskedExpr;
   // params.X → X (function param) for path params
   for (const param of pathParams) {
     result = result.replace(new RegExp(`\\bparams\\.${param}\\b`, 'g'), param);
@@ -300,6 +477,10 @@ export function rewriteFastAPIExpr(
   // outer quote-after-lower order; runs after array-method lowering so dicts
   // produced inside list comprehensions are quoted too.
   result = quoteObjectKeysOutsideStrings(result);
+
+  for (const replacement of replacements) {
+    result = result.split(replacement.placeholder).join(replacement.lowered);
+  }
 
   return result;
 }
