@@ -111,7 +111,7 @@ export async function runTsEmitterLeg(fixture: FixtureForLeg, env: SemanticEnv):
   };
 
   const bodyCode = emitNativeKernBodyTS(handlerWrapper, {
-    traceHooks: { eachIterNext: true },
+    traceHooks: { eachIterNext: true, forIterNext: true },
   });
 
   const events: TraceEvent[] = [];

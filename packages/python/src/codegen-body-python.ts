@@ -81,7 +81,7 @@ export interface BodyEmitOptions {
    * TS body-ts.ts. Production codegen never sets this. See
    * packages/core/src/ir/semantics/python-leg.ts for the runtime contract.
    */
-  traceHooks?: { eachIterNext?: boolean };
+  traceHooks?: { eachIterNext?: boolean; forIterNext?: boolean };
 }
 
 /** Slice 3e — public return shape. `code` is the joined body text;
@@ -121,7 +121,7 @@ interface BodyEmitContext {
   propagateStyle: 'value' | 'http-exception';
   usedPropagation: boolean;
   /** PR-3b differential-harness opt-in (see BodyEmitOptions.traceHooks). */
-  traceHooks?: { eachIterNext?: boolean };
+  traceHooks?: { eachIterNext?: boolean; forIterNext?: boolean };
   /** Slice 4c review fix (OpenCode + Gemini critical) — depth of nested
    *  `try` blocks. Propagation `?` lowers to `return tmp` (or `raise
    *  HTTPException` in route mode), and BOTH bypass the enclosing
@@ -591,8 +591,11 @@ function emitRangeForPy(node: IRNode, ctx: BodyEmitContext, indent: string): str
     `${indent}try:`,
     `${tryIndent}for ${name} in range(${rangeArgs}):`,
   ];
+  if (ctx.traceHooks?.forIterNext) {
+    out.push(`${bodyIndent}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(name)}, "value": ${name}})`);
+  }
   const inner = emitChildrenPy(node.children ?? [], ctx, bodyIndent, [[name, 'const']]);
-  if (inner.length === 0) out.push(`${bodyIndent}pass`);
+  if (inner.length === 0 && !ctx.traceHooks?.forIterNext) out.push(`${bodyIndent}pass`);
   for (const sl of inner) out.push(sl);
   out.push(`${indent}finally:`);
   out.push(`${tryIndent}if ${prevVar} is ${missingVar}:`);
@@ -664,13 +667,18 @@ function emitWithPy(node: IRNode, ctx: BodyEmitContext, indent: string): string[
 }
 
 function validatePositiveRangeStep(rawStep: string): void {
+  parseRangeStepLiteral(rawStep);
+}
+
+function parseRangeStepLiteral(rawStep: string): number {
   const trimmed = rawStep.trim();
   const numeric = Number(trimmed);
-  if (!/^[0-9]+$/.test(trimmed) || !Number.isSafeInteger(numeric) || numeric <= 0) {
+  if (!/^[+-]?[0-9]+$/.test(trimmed) || !Number.isSafeInteger(numeric) || numeric === 0) {
     throw new Error(
-      'body-statement `for step=` must be a positive integer literal in this cross-target range-loop slice.',
+      'body-statement `for step=` must be a non-zero integer literal in this cross-target range-loop slice.',
     );
   }
+  return numeric;
 }
 
 function validateIntegerRangeBound(rawBound: string, propName: 'from' | 'to'): void {
@@ -683,7 +691,7 @@ function validateIntegerRangeBound(rawBound: string, propName: 'from' | 'to'): v
 
 function isRangeStepOne(rawStep: string): boolean {
   const numeric = Number(rawStep.trim());
-  return /^[0-9]+$/.test(rawStep.trim()) && Number.isSafeInteger(numeric) && numeric === 1;
+  return /^[+-]?[0-9]+$/.test(rawStep.trim()) && Number.isSafeInteger(numeric) && numeric === 1;
 }
 
 function validateRangeLoopIdentifier(name: string): void {

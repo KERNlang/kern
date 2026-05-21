@@ -272,7 +272,7 @@ export async function runPythonEmitterLeg(fixture: NodeFixture, env: SemanticEnv
   let bodyHelpers: ReadonlyArray<string>;
   try {
     const result = emitNativeKernBodyPythonWithImports(handlerWrapper, {
-      traceHooks: { eachIterNext: true },
+      traceHooks: { eachIterNext: true, forIterNext: true },
     });
     if (result.imports.size > 0) {
       // Differential fixtures don't exercise stdlib-import codegen (math, etc.);

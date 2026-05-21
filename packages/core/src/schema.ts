@@ -1766,7 +1766,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   for: {
     description:
-      'Body-statement numeric range loop — emits a TS `for` loop with a single-evaluated end bound and Python `range(from, to, step)` inside a `lang="kern"` handler body. `step` defaults to `1` and must be a positive integer literal for this first cross-target slice. Use KERN stdlib calls such as `List.length(items)` for cross-target bounds instead of target-specific `.length` expressions.',
+      'Body-statement numeric range loop — emits a TS `for` loop with single-evaluated bounds and Python `range(from, to, step)` inside a `lang="kern"` handler body. `step` defaults to `1` and must be a non-zero integer literal; negative steps count down. Use KERN stdlib calls such as `List.length(items)` for cross-target bounds instead of target-specific `.length` expressions.',
     example: 'for name=i from=0 to="List.length(items)"\n  do value="visit(items[i])"',
     props: {
       name: { required: true, kind: 'identifier' },

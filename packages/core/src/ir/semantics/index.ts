@@ -35,17 +35,41 @@ export interface SemanticEnv {
 /**
  * Build a fresh environment with deterministic defaults.
  *
- * **Always clones `overrides.bindings`** — passing the same fixture env to
- * multiple legs (or multiple runs of the same fixture) must not allow
- * mutation in one to bleed into another. Callers that want shared bindings
- * must opt in by writing through a shared reference explicitly.
+ * **Always clones `overrides.bindings` and their JSON-shaped values** —
+ * passing the same fixture env to multiple legs (or multiple runs of the same
+ * fixture) must not allow mutation in one to bleed into another. Callers that
+ * want shared bindings must opt in by writing through a shared reference
+ * explicitly.
  */
 export function makeEnv(overrides: Partial<SemanticEnv> = {}): SemanticEnv {
   return {
-    bindings: overrides.bindings ? new Map(overrides.bindings) : new Map(),
+    bindings: overrides.bindings ? cloneBindings(overrides.bindings) : new Map(),
     seed: overrides.seed ?? 0,
     now: overrides.now ?? 0,
   };
+}
+
+function cloneBindings(bindings: Map<string, unknown>): Map<string, unknown> {
+  const out = new Map<string, unknown>();
+  for (const [key, value] of bindings) out.set(key, cloneSemanticValue(value));
+  return out;
+}
+
+function cloneSemanticValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(cloneSemanticValue);
+  if (value instanceof Map) {
+    return new Map(Array.from(value.entries(), ([k, v]) => [cloneSemanticValue(k), cloneSemanticValue(v)]));
+  }
+  if (value instanceof Set) return new Set(Array.from(value.values(), cloneSemanticValue));
+  if (value && typeof value === 'object') {
+    const proto = Object.getPrototypeOf(value);
+    if (proto === Object.prototype || proto === null) {
+      return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, cloneSemanticValue(v)]),
+      );
+    }
+  }
+  return value;
 }
 
 /**

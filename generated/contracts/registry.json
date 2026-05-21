@@ -3,6 +3,18 @@
   "generatedBy": "kern-ir-semantics-doc-generator",
   "contracts": [
     {
+      "nodeType": "__assignIndex",
+      "forbiddenRewrites": [],
+      "fixtureCount": 0,
+      "fixtureSamples": []
+    },
+    {
+      "nodeType": "__breakIfEqual",
+      "forbiddenRewrites": [],
+      "fixtureCount": 0,
+      "fixtureSamples": []
+    },
+    {
       "nodeType": "__trace",
       "forbiddenRewrites": [],
       "fixtureCount": 0,
@@ -62,6 +74,29 @@
           "description": "array-indexed: break on first iteration leaves no further iter-next",
           "expectedCompletionKind": "normal",
           "expectedEventCount": 1
+        }
+      ]
+    },
+    {
+      "nodeType": "for",
+      "forbiddenRewrites": [
+        "re-evaluate from/to/step after loop entry",
+        "treat to= as inclusive",
+        "rewrite negative steps as positive forward iteration",
+        "allow body mutation of the loop binding to affect the next index",
+        "silently accept step=0"
+      ],
+      "fixtureCount": 8,
+      "fixtureSamples": [
+        {
+          "description": "for: forward half-open range 0..3 yields 0, 1, 2",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 6
+        },
+        {
+          "description": "for: mismatched negative step on forward bounds yields no iterations",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 0
         }
       ]
     },

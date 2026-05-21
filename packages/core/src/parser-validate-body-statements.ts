@@ -135,12 +135,12 @@ function validateForStatementShape(state: ParseState, node: IRNode): void {
     );
   }
   const rawStep = node.props?.step;
-  if (rawStep !== undefined && rawStep !== '' && !isPositiveIntegerLiteral(String(rawStep))) {
+  if (rawStep !== undefined && rawStep !== '' && !isNonZeroIntegerLiteral(String(rawStep))) {
     emitDiagnostic(
       state,
       'BODY_FOR_INVALID_STEP',
       'error',
-      '`for step=` must be a positive integer literal in this cross-target range-loop slice.',
+      '`for step=` must be a non-zero integer literal in this cross-target range-loop slice.',
       loc.line,
       loc.col,
       { endCol: loc.endCol ?? loc.col + 1 },
@@ -166,10 +166,10 @@ function isCrossTargetIdentifier(name: string): boolean {
   return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name);
 }
 
-function isPositiveIntegerLiteral(raw: string): boolean {
+function isNonZeroIntegerLiteral(raw: string): boolean {
   const trimmed = raw.trim();
   const numeric = Number(trimmed);
-  return /^[0-9]+$/.test(trimmed) && Number.isSafeInteger(numeric) && numeric > 0;
+  return /^[+-]?[0-9]+$/.test(trimmed) && Number.isSafeInteger(numeric) && numeric !== 0;
 }
 
 function isNonIntegerNumericLiteral(raw: string): boolean {

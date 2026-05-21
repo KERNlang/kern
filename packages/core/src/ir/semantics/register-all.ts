@@ -15,6 +15,7 @@
 
 import { registerBranchContract } from './branch.js';
 import { registerEachContract } from './each.js';
+import { registerForContract } from './for.js';
 import { registerIfContract } from './if.js';
 import { registerPrimitives } from './primitives.js';
 
@@ -23,4 +24,5 @@ export function registerAllContracts(): void {
   registerEachContract();
   registerBranchContract();
   registerIfContract();
+  registerForContract();
 }
