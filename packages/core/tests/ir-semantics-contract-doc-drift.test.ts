@@ -15,6 +15,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CONTRACT_REGISTRY, registerAllContracts, serializeJson } from '../src/index.js';
+import { _resetBranchContractForTest } from '../src/ir/semantics/branch.js';
 import { _resetEachContractForTest } from '../src/ir/semantics/each.js';
 import { _resetPrimitivesForTest } from '../src/ir/semantics/primitives.js';
 
@@ -26,12 +27,14 @@ const REGISTRY_PATH = path.resolve(__dirname, '../../../generated/contracts/regi
 
 beforeEach(() => {
   CONTRACT_REGISTRY.clear();
+  _resetBranchContractForTest();
   _resetEachContractForTest();
   _resetPrimitivesForTest();
 });
 
 afterEach(() => {
   CONTRACT_REGISTRY.clear();
+  _resetBranchContractForTest();
   _resetEachContractForTest();
   _resetPrimitivesForTest();
 });

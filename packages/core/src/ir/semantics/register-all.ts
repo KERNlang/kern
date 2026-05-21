@@ -13,10 +13,12 @@
  * the per-contract `_resetXForTest()` helpers first.
  */
 
+import { registerBranchContract } from './branch.js';
 import { registerEachContract } from './each.js';
 import { registerPrimitives } from './primitives.js';
 
 export function registerAllContracts(): void {
   registerPrimitives();
   registerEachContract();
+  registerBranchContract();
 }

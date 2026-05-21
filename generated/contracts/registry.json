@@ -9,6 +9,29 @@
       "fixtureSamples": []
     },
     {
+      "nodeType": "branch",
+      "forbiddenRewrites": [
+        "reorder non-default paths with overlapping values",
+        "treat default source position as observable",
+        "fall through from one path body into another",
+        "hoist path-local bindings out of their case block",
+        "compare branch values with cross-type coercion (Python bool/int trap)"
+      ],
+      "fixtureCount": 10,
+      "fixtureSamples": [
+        {
+          "description": "branch: single matching string path runs its body",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 1
+        },
+        {
+          "description": "branch: numeric case values compare as numbers",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 1
+        }
+      ]
+    },
+    {
       "nodeType": "break",
       "forbiddenRewrites": [],
       "fixtureCount": 0,

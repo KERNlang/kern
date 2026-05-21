@@ -14,6 +14,11 @@
 
 import { spawnSync } from 'node:child_process';
 import { CONTRACT_REGISTRY, makeEnv, runDifferential, type Verdict } from '../../core/src/index.js';
+import {
+  _resetBranchContractForTest,
+  branchContract,
+  registerBranchContract,
+} from '../../core/src/ir/semantics/branch.js';
 import { _resetEachContractForTest, eachContract, registerEachContract } from '../../core/src/ir/semantics/each.js';
 import { _resetPrimitivesForTest, registerPrimitives } from '../../core/src/ir/semantics/primitives.js';
 import { runPythonEmitterLeg } from '../src/ir-semantics/python-leg.js';
@@ -31,14 +36,17 @@ const describeIfPython = pythonAvailable ? describe : describe.skip;
 
 beforeEach(() => {
   CONTRACT_REGISTRY.clear();
+  _resetBranchContractForTest();
   _resetEachContractForTest();
   _resetPrimitivesForTest();
   registerPrimitives();
   registerEachContract();
+  registerBranchContract();
 });
 
 afterEach(() => {
   CONTRACT_REGISTRY.clear();
+  _resetBranchContractForTest();
   _resetEachContractForTest();
   _resetPrimitivesForTest();
 });
@@ -60,6 +68,26 @@ afterEach(() => {
 
 describeIfPython('Python emitter leg — each fixtures (differential vs reference)', () => {
   it.each(eachContract.fixtures.map((f) => [f.description, f] as const))(
+    'fixture: %s',
+    async (_desc, fixture) => {
+      const result = await runDifferential(fixture, { skipTs: true, pythonLeg: runPythonEmitterLeg });
+      if (result.verdict !== 'pass') {
+        throw new Error(
+          `verdict=${result.verdict}\n` +
+            `fixture=${fixture.description}\n` +
+            `reference=${JSON.stringify(result.reference, null, 2)}\n` +
+            `python=${JSON.stringify(result.python, null, 2)}\n` +
+            `legError=${JSON.stringify(result.legError, null, 2)}`,
+        );
+      }
+      expect(result.verdict).toBe<Verdict>('pass');
+    },
+    15_000,
+  );
+});
+
+describeIfPython('Python emitter leg — branch fixtures (differential vs reference)', () => {
+  it.each(branchContract.fixtures.map((f) => [f.description, f] as const))(
     'fixture: %s',
     async (_desc, fixture) => {
       const result = await runDifferential(fixture, { skipTs: true, pythonLeg: runPythonEmitterLeg });
