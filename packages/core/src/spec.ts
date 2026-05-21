@@ -308,6 +308,9 @@ export const NODE_TYPES = [
   'candidate',
   'discriminator',
   'collect',
+  // Portable SSE streaming primitives (slice 4c)
+  'fanout',
+  'emit',
   'pattern',
   'apply',
   'expect',

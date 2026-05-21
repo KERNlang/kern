@@ -9,7 +9,11 @@
 import type { IRNode, SourceMapEntry } from '@kernlang/core';
 import { getChildren, getFirstChild, getProps } from '@kernlang/core';
 import { emitNativeKernBodyPythonWithImports } from './codegen-body-python.js';
-import { generatePortableHandlerFastAPI } from './fastapi-portable.js';
+import {
+  generatePortableHandlerFastAPI,
+  generatePortableStreamFastAPI,
+  hasPortableStreamBodyFastAPI,
+} from './fastapi-portable.js';
 import {
   hasObjectShorthandOutsideStrings,
   isUnsupportedJsHandlerBody,
@@ -35,25 +39,109 @@ import { toSnakeCase } from './type-map.js';
 
 // ── SSE Stream code generator ────────────────────────────────────────────
 
+export interface StreamSignatureInputs {
+  queryParams: Array<{ name: string; type: string; default?: string }>;
+  middlewareDeps: string[];
+  authNode?: IRNode | null;
+  validateNode?: IRNode | null;
+  normalizedMethod: string;
+  authModuleSpec: string;
+}
+
 export function generateStreamRoute(
   _routeNode: IRNode,
   caps: RouteCapabilities,
   method: string,
   fastapiPath: string,
   pathParams: string[],
+  imports: Set<string>,
+  bodyFields: Set<string>,
+  hasBody: boolean,
+  sig: StreamSignatureInputs,
 ): string[] {
   const lines: string[] = [];
   const handlerNode = caps.streamNode ? getFirstChild(caps.streamNode!, 'handler') : undefined;
   const handlerProps = handlerNode ? getProps(handlerNode) : {};
   const handlerCode = typeof handlerProps.code === 'string' ? String(handlerProps.code) : '';
 
-  const paramStr = pathParams.length > 0 ? pathParams.map((p) => `${p}: str`).join(', ') : '';
+  // Slice 4c: a `stream` whose body is portable nodes (derive/let/each/fanout/
+  // emit/…) lowers through the portable emitter; the raw-handler/spawn paths
+  // are unchanged.
+  const portable = !!caps.streamNode && hasPortableStreamBodyFastAPI(caps.streamNode);
+  if (portable && (getFirstChild(caps.streamNode!, 'handler') || getFirstChild(caps.streamNode!, 'spawn'))) {
+    // A portable body and a raw `handler`/`spawn` are different lowering paths;
+    // the portable walker would silently drop the raw child. Fail loud.
+    throw new Error(
+      "FastAPI 'stream' mixes portable nodes (fanout/emit/derive/…) with a raw `handler`/`spawn` body. " +
+        'Use one streaming style per route.',
+    );
+  }
+
+  // authUser drives the rewriter's `user.x` → `user["x"]` lowering; set when the
+  // portable stream route declares auth (Codex/Gemini/kimi review on slice 4c).
+  let authUser = false;
+  let paramStr: string;
+  if (portable) {
+    // Bucket params by whether they carry a default — Python forbids a
+    // non-default parameter after a defaulted one, and query params may arrive
+    // in any source order (Codex review). All no-default params are emitted
+    // first, then all defaulted ones.
+    const required: string[] = pathParams.map((p) => `${p}: str`);
+    const defaulted: string[] = [];
+    // `request` powers is_disconnected(); the Pydantic body model binds input.
+    required.push('request: Request');
+    imports.add('from fastapi import Request');
+    if (hasBody) required.push('body: RequestBody');
+    // Query params, validate, middleware, and auth dependencies — the same
+    // injections a standard portable route receives. Previously omitted, so a
+    // stream referencing `query.x` / `user.x` or guarded by auth middleware
+    // generated a broken signature (NameError / missing Depends).
+    for (const qp of sig.queryParams) {
+      const pyType = qp.type === 'number' ? 'int' : qp.type === 'boolean' ? 'bool' : 'str';
+      if (qp.default !== undefined) defaulted.push(`${toSnakeCase(qp.name)}: ${pyType} = ${qp.default}`);
+      else required.push(`${toSnakeCase(qp.name)}: ${pyType}`);
+    }
+    if (sig.validateNode && !hasBody) {
+      const validateSchema = String(getProps(sig.validateNode).schema || '');
+      if (validateSchema) {
+        if (new Set(['post', 'put', 'patch']).has(sig.normalizedMethod)) {
+          required.push(`body: ${validateSchema}`);
+        } else {
+          imports.add('from fastapi import Depends');
+          defaulted.push(`validated = Depends(${toSnakeCase(validateSchema)})`);
+        }
+      }
+    }
+    for (const dep of sig.middlewareDeps) defaulted.push(`_${dep} = Depends(${dep})`);
+    if (sig.authNode) {
+      const authMode = String(getProps(sig.authNode).mode || 'required');
+      const authFunc = authMode === 'optional' ? 'auth_optional' : 'auth_required';
+      imports.add(`from ${sig.authModuleSpec} import ${authFunc}`);
+      defaulted.push(`user = Depends(${authFunc})`);
+      authUser = true;
+    }
+    paramStr = [...required, ...defaulted].join(', ');
+  } else {
+    paramStr = pathParams.map((p) => `${p}: str`).join(', ');
+  }
 
   lines.push(`@router.${method}("${fastapiPath}")`);
   lines.push(`async def ${toSnakeCase(method)}_${slugify(fastapiPath)}(${paramStr}):`);
   lines.push(`    async def event_generator():`);
 
-  if (caps.hasSpawn && caps.spawnNode) {
+  if (portable) {
+    const bodyLines = generatePortableStreamFastAPI(
+      caps.streamNode!,
+      '        ',
+      pathParams,
+      imports,
+      bodyFields,
+      authUser,
+    );
+    if (bodyLines.length === 0) lines.push(`        pass`);
+    else lines.push(...bodyLines);
+    lines.push(`        yield "data: [DONE]\\n\\n"`);
+  } else if (caps.hasSpawn && caps.spawnNode) {
     const spawnProps = getProps(caps.spawnNode);
     const binary = String(spawnProps.binary || 'echo');
     const args = spawnProps.args as string | undefined;
@@ -365,6 +453,11 @@ export function buildRouteArtifact(
   const eachNodes = getChildren(routeNode, 'each');
   const collectNodes = getChildren(routeNode, 'collect');
   const effectNodes = getChildren(routeNode, 'effect');
+  // Only DIRECT assign/do children are counted; a nested one (inside a portable
+  // branch/each) is covered transitively because its enclosing portable node
+  // already flips hasPortableNodes.
+  const assignNodes = getChildren(routeNode, 'assign');
+  const doNodes = getChildren(routeNode, 'do');
   const hasPortableNodes =
     deriveNodes.length > 0 ||
     guardNodes.length > 0 ||
@@ -372,7 +465,9 @@ export function buildRouteArtifact(
     branchNodes.length > 0 ||
     eachNodes.length > 0 ||
     collectNodes.length > 0 ||
-    effectNodes.length > 0;
+    effectNodes.length > 0 ||
+    assignNodes.length > 0 ||
+    doNodes.length > 0;
 
   // Get handler code
   const handlerNode = caps.hasStream
@@ -495,7 +590,29 @@ export function buildRouteArtifact(
 
   // Route handler
   if (caps.hasStream) {
-    bodyLines.push(...generateStreamRoute(routeNode, caps, normalizedMethod, fastapiPath, pathParams));
+    // Portable stream bodies remap `body.<camelField>` to the snake_case
+    // Pydantic attribute, exactly as the standard portable route does.
+    const streamBodyFields = new Set(schema.body ? extractBodyFieldNames(schema.body) : []);
+    bodyLines.push(
+      ...generateStreamRoute(
+        routeNode,
+        caps,
+        normalizedMethod,
+        fastapiPath,
+        pathParams,
+        imports,
+        streamBodyFields,
+        !!schema.body,
+        {
+          queryParams,
+          middlewareDeps,
+          authNode,
+          validateNode,
+          normalizedMethod,
+          authModuleSpec: routeAuthModuleSpec,
+        },
+      ),
+    );
   } else if (caps.hasTimer && caps.timerNode) {
     bodyLines.push(...generateTimerRoute(routeNode, caps, normalizedMethod, fastapiPath, pathParams, routeHandlerCode));
   } else {

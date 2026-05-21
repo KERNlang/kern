@@ -1,8 +1,23 @@
 name: Canary Publish
 
+# Publishes a canary build to npm for every GREEN commit on dev.
+#
+# This workflow is gated on CI success via `workflow_run`: it fires only after
+# the "CI" workflow completes on dev, and the job runs only when that CI run
+# concluded successfully. That means the full test suite (build, tests,
+# test:kern, review, semantics harness) is exercised exactly once — by CI — and
+# the canary job never re-runs it. The canary job only rebuilds (publish needs
+# dist/) and publishes the exact commit CI tested.
+#
+# IMPORTANT: `workflow_run` triggers are read ONLY from the default branch
+# (main). This file must be merged to main before the trigger activates. Until
+# then, use the `workflow_dispatch` escape hatch to publish a canary manually.
+
 on:
-  push:
+  workflow_run:
+    workflows: ['CI']
     branches: [dev]
+    types: [completed]
   workflow_dispatch:
     inputs:
       npm_tag:
@@ -12,7 +27,7 @@ on:
         type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -21,12 +36,23 @@ permissions:
 jobs:
   publish:
     name: Publish canary to npm
-    if: ${{ github.repository == 'KERNlang/kern' }}
+    # Only publish green commits. Manual dispatch bypasses the CI gate (the
+    # operator owns that decision); workflow_run runs require conclusion=success.
+    if: >-
+      github.repository == 'KERNlang/kern' &&
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
+
+    env:
+      # The commit CI actually tested (workflow_run), or the dispatched ref.
+      BUILD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
     steps:
       - uses: actions/checkout@v6
         with:
+          # Check out the exact commit CI validated, not the default-branch HEAD
+          # (github.sha lies on workflow_run events).
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0
 
       - uses: actions/setup-node@v6
@@ -39,13 +65,6 @@ jobs:
           corepack enable
           corepack prepare pnpm@10.32.1 --activate
           pnpm --version
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
-      - name: Install Python MCP SDK
-        run: pip install mcp
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -65,7 +84,7 @@ jobs:
           EOF
 
           NEXT_PATCH=$((PATCH + 1))
-          SHORT_SHA=$(printf '%s' "$GITHUB_SHA" | cut -c1-8)
+          SHORT_SHA=$(printf '%s' "$BUILD_SHA" | cut -c1-8)
           CANARY_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}-canary.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}.${SHORT_SHA}"
           NPM_TAG="${NPM_TAG_INPUT:-canary}"
 
@@ -107,12 +126,6 @@ jobs:
 
       - name: Build
         run: pnpm build
-
-      - name: Test
-        run: pnpm test
-
-      - name: Native KERN Tests
-        run: pnpm test:kern
 
       - name: Publish dry run
         run: pnpm -r publish --dry-run --no-git-checks --access public --tag "$NPM_TAG"

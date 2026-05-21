@@ -56,11 +56,11 @@ function checkReadme() {
 function checkContributing() {
   const contributingPath = path.join(root, 'CONTRIBUTING.md');
   const contributing = readFileSync(contributingPath, 'utf8');
-  const { pnpmVersion } = collectRepoFacts();
+  const { pnpmVersion, ruleCount } = collectRepoFacts();
   const requiredPhrases = [
     `corepack prepare pnpm@${pnpmVersion} --activate`,
     'pnpm 10+',
-    '130 rules',
+    `${ruleCount} rules`,
     'Architecture guide: [docs/architecture.md](docs/architecture.md)',
     'Run `Release Preflight` from `main` before tagging a release.',
     'Publish GitHub Releases with lowercase tags like `v3.2.4`.',

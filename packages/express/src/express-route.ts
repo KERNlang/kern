@@ -1,7 +1,11 @@
 import type { IRNode, SourceMapEntry } from '@kernlang/core';
 import { emitNativeKernBodyTS, getChildren, getFirstChild, getProps } from '@kernlang/core';
 import { buildSchema, resolveMiddlewareUsage } from './express-middleware.js';
-import { generatePortableHandlerExpress } from './express-portable.js';
+import {
+  generatePortableHandlerExpress,
+  generatePortableStreamExpress,
+  hasPortableStreamBody,
+} from './express-portable.js';
 import { generateSpawnCode, generateStreamSetup, generateStreamWrap, generateTimerCode } from './express-stream.js';
 import type { KeyTypeInfo, MiddlewareArtifactRef, RouteArtifactRef } from './express-types.js';
 import { analyzeRouteCapabilities, HTTP_METHODS } from './express-types.js';
@@ -41,6 +45,11 @@ export function buildRouteArtifact(
   const eachNodes = getChildren(routeNode, 'each');
   const collectNodes = getChildren(routeNode, 'collect');
   const effectNodes = getChildren(routeNode, 'effect');
+  // Only DIRECT assign/do children are counted; a nested one (inside a portable
+  // branch/each) is covered transitively because its enclosing portable node
+  // already flips hasPortableNodes.
+  const assignNodes = getChildren(routeNode, 'assign');
+  const doNodes = getChildren(routeNode, 'do');
   const hasPortableNodes =
     deriveNodes.length > 0 ||
     guardNodes.length > 0 ||
@@ -48,7 +57,9 @@ export function buildRouteArtifact(
     branchNodes.length > 0 ||
     eachNodes.length > 0 ||
     collectNodes.length > 0 ||
-    effectNodes.length > 0;
+    effectNodes.length > 0 ||
+    assignNodes.length > 0 ||
+    doNodes.length > 0;
 
   // Get handler code — priority: stream handler > timer handler > route handler > portable > 501
   const handlerNode = caps.hasStream
@@ -303,10 +314,26 @@ export function buildRouteArtifact(
     lines.push(...generateStreamSetup('    '));
     lines.push('');
 
-    const streamHandlerLines = handlerCode
-      .split('\n')
-      .map((l) => l.trim())
-      .filter(Boolean);
+    // Slice 4c: a `stream` whose body is portable nodes (derive/let/each/
+    // fanout/emit/…) instead of a raw `<<<JS>>>` handler lowers through the
+    // portable emitter, declaring its own abort controller. The raw-handler
+    // path is unchanged.
+    const portableStream = caps.streamNode && hasPortableStreamBody(caps.streamNode);
+    if (portableStream && (getFirstChild(caps.streamNode!, 'handler') || getFirstChild(caps.streamNode!, 'spawn'))) {
+      // A portable body (fanout/emit/…) and a raw `handler`/`spawn` are two
+      // different lowering paths; the portable walker would silently drop the
+      // raw child. Fail loud (mirrors the route-level portable-vs-kern guard).
+      throw new Error(
+        "Express 'stream' mixes portable nodes (fanout/emit/derive/…) with a raw `handler`/`spawn` body. " +
+          'Use one streaming style per route.',
+      );
+    }
+    const streamHandlerLines = portableStream
+      ? generatePortableStreamExpress(caps.streamNode!, '', path, { errorMessagesByStatus })
+      : handlerCode
+          .split('\n')
+          .map((l) => l.trim())
+          .filter(Boolean);
 
     // If spawn inside stream, generate spawn code
     if (caps.hasSpawn && caps.spawnNode) {

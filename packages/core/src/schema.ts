@@ -1890,6 +1890,17 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'each',
       'collect',
       'effect',
+      // Portable side-effect statements — valid as direct route children
+      // (alongside derive/guard/respond) for mutate-and-persist routes.
+      'assign',
+      'do',
+      // SSE streaming container — a direct route child codegen has always read
+      // via `caps.streamNode`; list it so schema validation matches reality.
+      // (`timer` is intentionally NOT listed: a route's stream branch always
+      // wins over a sibling `timer`, so admitting both would silently drop the
+      // timeout — keep the schema warning that surfaces that mistake. `spawn`
+      // lives under `stream`, so it stays in `stream.allowedChildren`.)
+      'stream',
     ],
   },
   middleware: {
@@ -2161,9 +2172,29 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
 
   // ── Backend: Stream / Spawn / Timer ───────────────────────────────────
 
+  emit: {
+    description:
+      'Stream event — pushes ONE value into the enclosing `stream` response. TS lowers to `emit(value)` (the SSE scaffold helper that writes `data: …\\n\\n`); Python lowers to `await __k_q.put(value)` inside a `fanout` producer task, or `yield value` in a plain (sequential) stream body. Optional `event=` names the SSE event. Only valid inside a `stream` body (directly, or nested in `fanout`/`each`/`branch`). Distinct from `respond` (one buffered HTTP response) and `collect` (gather results into an array).',
+    example: 'emit value={{ event }}\nemit value={{ chunk }} event="message"',
+    props: {
+      value: { required: true, kind: 'expression' },
+      event: { kind: 'string' },
+    },
+  },
+  fanout: {
+    description:
+      'Concurrent fan-out streaming — iterates a collection, runs each iteration CONCURRENTLY, and merges every `emit`ted event into the one enclosing `stream`. TS lowers to `await Promise.allSettled(<in>.map(async (<name>) => { <body> }))`; Python lowers to an `asyncio.Queue` fan-in (N producer tasks `put`, the response generator `yield`s until all finish). The concurrent counterpart to sequential `each` — use `each` when ordering matters, `fanout` when N independent producers should interleave. Only valid inside a `stream` body. Producer failures are ISOLATED (Promise.allSettled / gather(return_exceptions=True)): one producer throwing does not abort the others, and — matching that contract — does not by itself emit an error frame. Wrap risky work in your own try/catch + `emit` if you need per-producer error events.',
+    example:
+      'fanout name=config in=expanded\n  each await=true name=event in={{ adapter.stream(config) }}\n    emit value={{ event }}',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+    },
+    allowedChildren: ['derive', 'let', 'each', 'fanout', 'emit', 'do', 'assign', 'branch', 'collect'],
+  },
   stream: {
     description:
-      'Async stream — SSE route (backend), or AsyncGenerator → state with cleanup (Ink). mode=channel for dispatch bridging.',
+      'Async stream — SSE route (backend), or AsyncGenerator → state with cleanup (Ink). mode=channel for dispatch bridging. Backend SSE bodies may be a raw `handler` (legacy) or a portable body of `derive`/`let`/`each`/`fanout`/`emit`/`do`/`assign`/`branch` nodes (slice 4c) that lowers to the same scaffold without raw JS.',
     example: 'stream name=messages source=session.messages mode=channel dispatch=handleChunk',
     props: {
       name: { kind: 'identifier' },
@@ -2172,7 +2203,23 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       mode: { kind: 'string' },
       dispatch: { kind: 'rawExpr' },
     },
-    allowedChildren: ['spawn', 'handler', 'on', 'timer'],
+    allowedChildren: [
+      'spawn',
+      'handler',
+      'on',
+      'timer',
+      // Portable SSE body (slice 4c) — composes the same nodes as a route,
+      // plus the streaming primitives `fanout` and `emit`.
+      'derive',
+      'let',
+      'each',
+      'fanout',
+      'emit',
+      'do',
+      'assign',
+      'branch',
+      'collect',
+    ],
   },
   spawn: {
     description:

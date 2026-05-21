@@ -12,6 +12,71 @@ function consumeBareIdent(s: TokenStream, props: Record<string, unknown>, propNa
   if (id) props[propName] = id;
 }
 
+type ParamItem = { name: string; type: string; default?: string };
+
+/** Strip a single layer of matching wrapping quotes ("", '', ``), if present. */
+function stripWrappingQuotes(v: string): string {
+  const t = v.trim();
+  if (t.length >= 2 && (t[0] === '"' || t[0] === "'" || t[0] === '`') && t[t.length - 1] === t[0]) {
+    return t.slice(1, -1).trim();
+  }
+  return t;
+}
+
+/**
+ * Parse the documented array form `items="[{name:page,type:number,default:1}]"`.
+ * Keys and values may be bare identifiers/numbers or quoted; whitespace is
+ * tolerated. Objects missing name or type are skipped (defensive, not garbage).
+ */
+function parseParamItemsArray(raw: string): ParamItem[] {
+  let body = stripWrappingQuotes(raw);
+  if (body.startsWith('[')) body = body.slice(1);
+  if (body.endsWith(']')) body = body.slice(0, -1);
+  const items: ParamItem[] = [];
+  for (const objRaw of splitTopLevel(body, ',')) {
+    let obj = objRaw.trim();
+    if (obj.startsWith('{')) obj = obj.slice(1);
+    if (obj.endsWith('}')) obj = obj.slice(0, -1);
+    const fields: Record<string, string> = {};
+    for (const fieldRaw of splitTopLevel(obj, ',')) {
+      const idx = fieldRaw.indexOf(':');
+      if (idx === -1) continue;
+      const key = stripWrappingQuotes(fieldRaw.slice(0, idx));
+      if (!key) continue;
+      const rawVal = fieldRaw.slice(idx + 1).trim();
+      // name/type are KERN identifiers (unquote them); default is a target-language
+      // literal that the generators interpolate verbatim, so its quotes are
+      // semantic — keep `default:'relevance'` as `'relevance'`, not `relevance`
+      // (which would emit an unbound `sort: str = relevance`).
+      fields[key] = key === 'default' ? rawVal : stripWrappingQuotes(rawVal);
+    }
+    if (fields.name && fields.type) {
+      const item: ParamItem = { name: fields.name, type: fields.type };
+      if (fields.default !== undefined) item.default = fields.default;
+      items.push(item);
+    }
+  }
+  return items;
+}
+
+/** Parse the bare comma-list form `page:number=1, limit:number=20`. */
+function parseBareParams(raw: string): ParamItem[] {
+  const items: ParamItem[] = [];
+  // splitTopLevel (not raw.split) so a default value carrying a comma —
+  // e.g. `tags:string[]=["a","b"]` — stays in one part.
+  for (const part of splitTopLevel(raw, ',')
+    .map((p) => p.trim())
+    .filter(Boolean)) {
+    const m = part.match(/^([A-Za-z_]\w*):([A-Za-z_]\w*(?:\[\])?)(?:\s*=\s*(.+))?$/);
+    if (m) {
+      const item: ParamItem = { name: m[1], type: m[2] };
+      if (m[3] !== undefined) item.default = m[3].trim();
+      items.push(item);
+    }
+  }
+  return items;
+}
+
 function splitTopLevel(input: string, delimiter: string): string[] {
   const parts: string[] = [];
   let current = '';
@@ -537,23 +602,12 @@ export const KEYWORD_HANDLERS = new Map<string, KeywordHandler>([
     'params',
     (s, props, content) => {
       s.skipWS();
-      const remaining = s.remainingRaw(content);
-      if (remaining.length > 0) {
-        const items: Array<{ name: string; type: string; default?: string }> = [];
-        const parts = remaining
-          .split(',')
-          .map((p) => p.trim())
-          .filter(Boolean);
-        for (const part of parts) {
-          const m = part.match(/^([A-Za-z_]\w*):([A-Za-z_]\w*(?:\[\])?)(?:\s*=\s*(.+))?$/);
-          if (m) {
-            const item: { name: string; type: string; default?: string } = { name: m[1], type: m[2] };
-            if (m[3] !== undefined) item.default = m[3].trim();
-            items.push(item);
-          }
-        }
-        props.items = items;
-      }
+      const remaining = s.remainingRaw(content).trim();
+      if (remaining.length === 0) return;
+      // Two accepted forms: the documented `items="[{name,type,default?}]"`
+      // array, and the bare comma-list `page:number=1, limit:number=20`.
+      const m = remaining.match(/^items\s*=\s*(.+)$/s);
+      props.items = m ? parseParamItemsArray(m[1]) : parseBareParams(remaining);
     },
   ],
 
