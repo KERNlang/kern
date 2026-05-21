@@ -15,10 +15,12 @@
 
 import { registerBranchContract } from './branch.js';
 import { registerEachContract } from './each.js';
+import { registerIfContract } from './if.js';
 import { registerPrimitives } from './primitives.js';
 
 export function registerAllContracts(): void {
   registerPrimitives();
   registerEachContract();
   registerBranchContract();
+  registerIfContract();
 }

@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { CONTRACT_REGISTRY, registerAllContracts, serializeJson } from '../src/index.js';
 import { _resetBranchContractForTest } from '../src/ir/semantics/branch.js';
 import { _resetEachContractForTest } from '../src/ir/semantics/each.js';
+import { _resetIfContractForTest } from '../src/ir/semantics/if.js';
 import { _resetPrimitivesForTest } from '../src/ir/semantics/primitives.js';
 
 // Jest is configured with ESM transforms (`--experimental-vm-modules`) so
@@ -29,6 +30,7 @@ beforeEach(() => {
   CONTRACT_REGISTRY.clear();
   _resetBranchContractForTest();
   _resetEachContractForTest();
+  _resetIfContractForTest();
   _resetPrimitivesForTest();
 });
 
@@ -36,6 +38,7 @@ afterEach(() => {
   CONTRACT_REGISTRY.clear();
   _resetBranchContractForTest();
   _resetEachContractForTest();
+  _resetIfContractForTest();
   _resetPrimitivesForTest();
 });
 

@@ -2,10 +2,9 @@
  * PR-1 smoke test for the IR-semantics skeleton.
  *
  * Verifies the contract registry, reference-runner dispatcher, and 3-way
- * harness compile and behave correctly with zero contracts registered.
- * PR-2 lands the first real contract (`each`); this test stays as the
- * permanent baseline that the skeleton remains wired even after contracts
- * land.
+ * harness compile and behave correctly with zero contracts registered. This
+ * stays as the permanent baseline that the skeleton remains wired as more
+ * contracts land.
  */
 
 import {

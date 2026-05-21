@@ -116,6 +116,13 @@ function refsFor(target: LowerTarget): LowerRefs {
 export function lowerFixtureForTarget(node: IRNode, target: LowerTarget): IRNode {
   const refs = refsFor(target);
 
+  if (node.type === '__block') {
+    return {
+      ...node,
+      props: node.props ? { ...node.props } : node.props,
+      children: (node.children ?? []).map((c) => lowerFixtureForTarget(c, target)),
+    };
+  }
   if (node.type === '__trace') {
     const event = node.props?.event;
     if (event === undefined) {

@@ -103,10 +103,11 @@ function canonicalizeErrorName(err: unknown): string {
  */
 export async function runTsEmitterLeg(fixture: FixtureForLeg, env: SemanticEnv): Promise<Trace> {
   const lowered = lowerFixtureToKernIR(fixture.ir);
+  const handlerChildren = lowered.type === '__block' ? (lowered.children ?? []) : [lowered];
   const handlerWrapper: IRNode = {
     type: 'handler',
     props: { lang: 'kern' },
-    children: [lowered],
+    children: handlerChildren,
   };
 
   const bodyCode = emitNativeKernBodyTS(handlerWrapper, {

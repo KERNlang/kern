@@ -7,7 +7,8 @@
  * these directly. Docs (under `docs/ir-semantics/`, gitignored) are generated
  * from JSDoc on contracts and fixture descriptions — never hand-edited.
  *
- * Phase 1 ships `each` only. See `.plan-review.md` for the rollout sequence.
+ * Phase 1 started with `each`; later contracts add body-statement control
+ * flow such as `if` / sibling `else`.
  */
 
 import type { IRNode } from '../../types.js';
@@ -86,7 +87,7 @@ export interface NodeContract<TNode extends IRNode = IRNode> {
 }
 
 /**
- * Registry of all node contracts. Phase 1 starts empty; PR-2 lands `each`.
+ * Registry of all node contracts.
  * Adding an entry here is the canonical way to register a new node spec —
  * the harness, doc generator, and CI gate all read from this map.
  */

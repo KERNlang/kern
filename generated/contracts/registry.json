@@ -66,6 +66,29 @@
       ]
     },
     {
+      "nodeType": "if",
+      "forbiddenRewrites": [
+        "evaluate if cond more than once",
+        "evaluate later else-if conditions after an earlier branch matched",
+        "run more than one if/else branch from the same chain",
+        "change else > [if, else] chain collapse into a different branch order",
+        "widen condition truthiness to arrays or objects without a cross-target contract revision"
+      ],
+      "fixtureCount": 7,
+      "fixtureSamples": [
+        {
+          "description": "if-true: truthy condition runs then branch",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 1
+        },
+        {
+          "description": "if-else-if-else: three-arm chain evaluates in order and runs middle arm",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 1
+        }
+      ]
+    },
+    {
       "nodeType": "return",
       "forbiddenRewrites": [],
       "fixtureCount": 0,
