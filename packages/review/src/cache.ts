@@ -2,10 +2,58 @@ import { createHash } from 'crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { dirname, join, resolve } from 'path';
+import { fileURLToPath } from 'url';
 import type { ReviewConfig, ReviewReport } from './types.js';
 
-// Version stamp for cache invalidation — changes when rules/analyzers change
+// Manual coarse override for the cache key — bump only to force a global flush.
+// You normally do NOT need to touch this: getEngineFingerprint() below hashes
+// the compiled review analyzer, so any rule/analyzer change self-invalidates the
+// cache on the next rebuild. (Previously this stamp was frozen at 3.3.9 and was
+// the ONLY engine signal in the key, so a rebuilt rule at the same package
+// version kept serving stale findings — exactly the bug this replaces.)
 const REVIEW_CACHE_VERSION = '3.3.9-review-cache-2-fix-safety';
+
+// Content fingerprint of the compiled review engine, computed once per process.
+// Folding the emitted analyzer code into the cache key means findings invalidate
+// exactly when the analyzer that produced them changes — no manual bump needed.
+let cachedEngineFingerprint: string | undefined;
+function getEngineFingerprint(): string {
+  if (cachedEngineFingerprint !== undefined) return cachedEngineFingerprint;
+  const hash = createHash('sha256');
+  hash.update(REVIEW_CACHE_VERSION);
+  try {
+    // dirname(import.meta.url) is the review package's compiled output dir
+    // (packages/review/dist). Walk it and fold every emitted .js file in, in a
+    // deterministic order so the digest is stable across runs/platforms.
+    const engineDir = dirname(fileURLToPath(import.meta.url));
+    for (const file of collectEngineFiles(engineDir).sort()) {
+      hash.update(file);
+      hash.update(readFileSync(file));
+    }
+  } catch {
+    // Unreadable / bundled dist (e.g. virtual fs): fall back to the manual stamp.
+  }
+  cachedEngineFingerprint = hash.digest('hex').slice(0, 32);
+  return cachedEngineFingerprint;
+}
+
+function safeReaddir(dir: string) {
+  try {
+    return readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+}
+
+function collectEngineFiles(dir: string, depth = 0, acc: string[] = []): string[] {
+  if (depth > 8) return acc;
+  for (const entry of safeReaddir(dir)) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) collectEngineFiles(full, depth + 1, acc);
+    else if (entry.isFile() && entry.name.endsWith('.js')) acc.push(full);
+  }
+  return acc;
+}
 const IMPORT_SPECIFIER_RE =
   /(?:import|export)\s+(?:[^'"`]*?\s+from\s+)?['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g;
 const EXTENSION_FALLBACK: Record<string, string[]> = {
@@ -83,8 +131,9 @@ export class ReviewCache {
 
 export function computeCacheKey(fileContent: string, config: ReviewConfig, filePath: string): string {
   const hash = createHash('sha256');
-  // Include version so cache auto-invalidates when kern-lang is upgraded
-  hash.update(REVIEW_CACHE_VERSION);
+  // Fold in the engine fingerprint so cache auto-invalidates whenever the
+  // compiled analyzer changes (rule edits, upgrades), not just on a manual bump.
+  hash.update(getEngineFingerprint());
   hash.update(fileContent);
   hash.update(JSON.stringify(serializeConfigForCache(config, filePath)));
   hash.update(filePath);
