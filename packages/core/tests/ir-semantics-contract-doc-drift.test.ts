@@ -19,6 +19,7 @@ import { _resetBranchContractForTest } from '../src/ir/semantics/branch.js';
 import { _resetEachContractForTest } from '../src/ir/semantics/each.js';
 import { _resetForContractForTest } from '../src/ir/semantics/for.js';
 import { _resetIfContractForTest } from '../src/ir/semantics/if.js';
+import { _resetLambdaContractForTest } from '../src/ir/semantics/lambda.js';
 import { _resetPrimitivesForTest } from '../src/ir/semantics/primitives.js';
 
 // Jest is configured with ESM transforms (`--experimental-vm-modules`) so
@@ -33,6 +34,7 @@ beforeEach(() => {
   _resetEachContractForTest();
   _resetIfContractForTest();
   _resetForContractForTest();
+  _resetLambdaContractForTest();
   _resetPrimitivesForTest();
 });
 
@@ -42,6 +44,7 @@ afterEach(() => {
   _resetEachContractForTest();
   _resetIfContractForTest();
   _resetForContractForTest();
+  _resetLambdaContractForTest();
   _resetPrimitivesForTest();
 });
 

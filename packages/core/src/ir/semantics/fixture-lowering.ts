@@ -186,6 +186,24 @@ export function lowerFixtureForTarget(node: IRNode, target: LowerTarget): IRNode
       },
     };
   }
+  if (node.type === 'lambda') {
+    const expr = node.props?.expr;
+    if (typeof expr !== 'string' || expr.length === 0) {
+      throw new Error('lowerFixtureForTarget: lambda node requires a non-empty string `expr` prop');
+    }
+    const traceFn = target === 'ts' ? '__kernTrace' : '_kern_trace';
+    return {
+      type: 'if',
+      props: { cond: 'true' },
+      children: [
+        ...(node.children ?? []).map((c) => lowerFixtureForTarget(c, target)),
+        {
+          type: 'do',
+          props: { value: `${traceFn}({op: "stdout", text: List.join(${expr}, ",")})` },
+        },
+      ],
+    };
+  }
   // Preserve `children: []` (instead of stripping it) so emit paths that
   // distinguish "no body" from "body present but empty" stay accurate.
   if (Array.isArray(node.children)) {

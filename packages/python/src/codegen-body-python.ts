@@ -1469,6 +1469,94 @@ function emitLambdaPy(node: Extract<ValueIR, { kind: 'lambda' }>, ctx: BodyEmitC
   }
 }
 
+function valueReferencesIdent(node: ValueIR, name: string): boolean {
+  switch (node.kind) {
+    case 'ident':
+      return node.name === name;
+    case 'member':
+      return valueReferencesIdent(node.object, name);
+    case 'index':
+      return valueReferencesIdent(node.object, name) || valueReferencesIdent(node.index, name);
+    case 'call':
+      return valueReferencesIdent(node.callee, name) || node.args.some((a) => valueReferencesIdent(a, name));
+    case 'binary':
+      return valueReferencesIdent(node.left, name) || valueReferencesIdent(node.right, name);
+    case 'unary':
+    case 'spread':
+    case 'await':
+    case 'new':
+      return valueReferencesIdent(node.argument, name);
+    case 'typeAssert':
+    case 'nonNull':
+      return valueReferencesIdent(node.expression, name);
+    case 'propagate':
+      return valueReferencesIdent(node.argument, name);
+    case 'conditional':
+      return (
+        valueReferencesIdent(node.test, name) ||
+        valueReferencesIdent(node.consequent, name) ||
+        valueReferencesIdent(node.alternate, name)
+      );
+    case 'tmplLit':
+      return node.expressions.some((e) => valueReferencesIdent(e, name));
+    case 'objectLit':
+      return node.entries.some((entry) => {
+        if ('kind' in entry && entry.kind === 'spread') return valueReferencesIdent(entry.argument, name);
+        return valueReferencesIdent((entry as { value: ValueIR }).value, name);
+      });
+    case 'arrayLit':
+      return node.items.some((item) => valueReferencesIdent(item, name));
+    case 'lambda':
+      if (node.params.some((p) => p.name === name)) return false;
+      return valueReferencesIdent(node.body, name);
+    default:
+      return false;
+  }
+}
+
+function containsLambdaCapturingIdent(node: ValueIR, name: string): boolean {
+  switch (node.kind) {
+    case 'lambda':
+      if (node.params.some((p) => p.name === name)) return false;
+      return valueReferencesIdent(node.body, name);
+    case 'member':
+      return containsLambdaCapturingIdent(node.object, name);
+    case 'index':
+      return containsLambdaCapturingIdent(node.object, name) || containsLambdaCapturingIdent(node.index, name);
+    case 'call':
+      return containsLambdaCapturingIdent(node.callee, name) || node.args.some((a) => containsLambdaCapturingIdent(a, name));
+    case 'binary':
+      return containsLambdaCapturingIdent(node.left, name) || containsLambdaCapturingIdent(node.right, name);
+    case 'unary':
+    case 'spread':
+    case 'await':
+    case 'new':
+      return containsLambdaCapturingIdent(node.argument, name);
+    case 'typeAssert':
+    case 'nonNull':
+      return containsLambdaCapturingIdent(node.expression, name);
+    case 'propagate':
+      return containsLambdaCapturingIdent(node.argument, name);
+    case 'conditional':
+      return (
+        containsLambdaCapturingIdent(node.test, name) ||
+        containsLambdaCapturingIdent(node.consequent, name) ||
+        containsLambdaCapturingIdent(node.alternate, name)
+      );
+    case 'tmplLit':
+      return node.expressions.some((e) => containsLambdaCapturingIdent(e, name));
+    case 'objectLit':
+      return node.entries.some((entry) => {
+        if ('kind' in entry && entry.kind === 'spread') return containsLambdaCapturingIdent(entry.argument, name);
+        return containsLambdaCapturingIdent((entry as { value: ValueIR }).value, name);
+      });
+    case 'arrayLit':
+      return node.items.some((item) => containsLambdaCapturingIdent(item, name));
+    default:
+      return false;
+  }
+}
+
 /** Slice 3d (review fix) — chain-aware lowering for member/call expressions.
  *  Returns `{ guard, expr }` where `guard` is an accumulated `is not None`
  *  test (or `null` if no `?.` appears in the chain) and `expr` is the
@@ -1769,6 +1857,9 @@ function lowerListLambdaPython(
   ctx.shadowedSymbols.add(name);
   try {
     const body = emitPyExprCtx(callback.body, ctx);
+    if (methodName === 'map' && containsLambdaCapturingIdent(callback.body, name)) {
+      return `list(map(lambda ${name}: ${body}, ${source}))`;
+    }
     return methodName === 'map'
       ? `[${body} for ${name} in ${source}]`
       : `[${name} for ${name} in ${source} if ${body}]`;

@@ -124,6 +124,28 @@
       ]
     },
     {
+      "nodeType": "lambda",
+      "forbiddenRewrites": [
+        "convert by-reference outer captures into by-value snapshots",
+        "reuse callback loop binding across closure instances (Python late-binding closure bug)",
+        "rewrite single-expression lambda body into multi-statement closure",
+        "evaluate lambda body before invocation"
+      ],
+      "fixtureCount": 5,
+      "fixtureSamples": [
+        {
+          "description": "lambda: List.map transforms each item with a single-expression callback",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 1
+        },
+        {
+          "description": "lambda: closure reads the current outer binding by reference",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 1
+        }
+      ]
+    },
+    {
       "nodeType": "return",
       "forbiddenRewrites": [],
       "fixtureCount": 0,

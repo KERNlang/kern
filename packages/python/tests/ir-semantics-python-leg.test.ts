@@ -22,6 +22,11 @@ import {
 import { _resetEachContractForTest, eachContract, registerEachContract } from '../../core/src/ir/semantics/each.js';
 import { _resetForContractForTest, forContract, registerForContract } from '../../core/src/ir/semantics/for.js';
 import { _resetIfContractForTest, ifContract, registerIfContract } from '../../core/src/ir/semantics/if.js';
+import {
+  _resetLambdaContractForTest,
+  lambdaContract,
+  registerLambdaContract,
+} from '../../core/src/ir/semantics/lambda.js';
 import { _resetPrimitivesForTest, registerPrimitives } from '../../core/src/ir/semantics/primitives.js';
 import { runPythonEmitterLeg } from '../src/ir-semantics/python-leg.js';
 
@@ -42,12 +47,14 @@ beforeEach(() => {
   _resetEachContractForTest();
   _resetIfContractForTest();
   _resetForContractForTest();
+  _resetLambdaContractForTest();
   _resetPrimitivesForTest();
   registerPrimitives();
   registerEachContract();
   registerBranchContract();
   registerIfContract();
   registerForContract();
+  registerLambdaContract();
 });
 
 afterEach(() => {
@@ -56,6 +63,7 @@ afterEach(() => {
   _resetEachContractForTest();
   _resetIfContractForTest();
   _resetForContractForTest();
+  _resetLambdaContractForTest();
   _resetPrimitivesForTest();
 });
 
@@ -96,6 +104,26 @@ describeIfPython('Python emitter leg — each fixtures (differential vs referenc
 
 describeIfPython('Python emitter leg — branch fixtures (differential vs reference)', () => {
   it.each(branchContract.fixtures.map((f) => [f.description, f] as const))(
+    'fixture: %s',
+    async (_desc, fixture) => {
+      const result = await runDifferential(fixture, { skipTs: true, pythonLeg: runPythonEmitterLeg });
+      if (result.verdict !== 'pass') {
+        throw new Error(
+          `verdict=${result.verdict}\n` +
+            `fixture=${fixture.description}\n` +
+            `reference=${JSON.stringify(result.reference, null, 2)}\n` +
+            `python=${JSON.stringify(result.python, null, 2)}\n` +
+            `legError=${JSON.stringify(result.legError, null, 2)}`,
+        );
+      }
+      expect(result.verdict).toBe<Verdict>('pass');
+    },
+    15_000,
+  );
+});
+
+describeIfPython('Python emitter leg — lambda fixtures (differential vs reference)', () => {
+  it.each(lambdaContract.fixtures.map((f) => [f.description, f] as const))(
     'fixture: %s',
     async (_desc, fixture) => {
       const result = await runDifferential(fixture, { skipTs: true, pythonLeg: runPythonEmitterLeg });
