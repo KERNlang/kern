@@ -4,6 +4,13 @@ import { join, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+// A consumer that stops reading our (voluminous) output — a CI/agent harness,
+// or `git push | head` — closes the pipe. Without a listener the resulting
+// EPIPE bubbles up as an unhandled stream error and can abort an otherwise
+// passing push. Swallow it and let the natural exit code stand.
+process.stdout.on('error', () => {});
+process.stderr.on('error', () => {});
+
 const ZERO_SHA = '0000000000000000000000000000000000000000';
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const ROOT_WIDE_FILES = new Set([
@@ -221,7 +228,24 @@ function runScopedReview(packages) {
   ensureCliBuilt();
   for (const pkg of reviewTargets) {
     console.log(`[pre-push] KERN review ${pkg.relDir}...`);
-    run('node', ['packages/cli/dist/cli.js', 'review', pkg.relDir, '--recursive', '--llm']);
+    // Capture review output instead of streaming it. `kern review` emits tens
+    // of thousands of advisory lines; flooding an inherited stdout that a
+    // consumer stops reading (CI/agent harness, piped shell) can raise SIGPIPE
+    // (exit 141) that aborts an otherwise-passing push. We still gate on the
+    // exit status — full output is surfaced only on failure, and a short
+    // trailing summary on success.
+    const proc = spawnSync(
+      'node',
+      ['packages/cli/dist/cli.js', 'review', pkg.relDir, '--recursive', '--llm'],
+      { cwd: repoRoot, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 },
+    );
+    if (proc.error) throw proc.error;
+    if (proc.status !== 0) {
+      if (proc.stdout) process.stdout.write(proc.stdout);
+      if (proc.stderr) process.stderr.write(proc.stderr);
+      throw new Error(`kern review ${pkg.relDir} failed (exit ${proc.status ?? 'signal'})`);
+    }
+    for (const line of splitLines(proc.stdout ?? '').slice(-3)) console.log(`  ${line}`);
   }
 }
 
