@@ -1,5 +1,5 @@
-import * as facade from '../src/import-metadata.js';
 import * as generated from '../src/generated/utils/import-metadata.js';
+import * as facade from '../src/import-metadata.js';
 
 describe('generated import-metadata behavior', () => {
   it.each([
@@ -56,12 +56,15 @@ describe('generated import-metadata behavior', () => {
     [{ registry: 'pypi' }, 'node', false],
     [{ target: 'bad' }, 'node', true],
     [{ target: 'all' }, 'fastapi', true],
-  ] satisfies Array<[Parameters<typeof generated.shouldEmitImportForTarget>[0], Parameters<typeof generated.shouldEmitImportForTarget>[1], boolean]>)(
-    'shouldEmitImportForTarget(%p, %p) returns %p',
-    (props, target, expected) => {
-      expect(generated.shouldEmitImportForTarget(props, target)).toBe(expected);
-    },
-  );
+  ] satisfies Array<
+    [
+      Parameters<typeof generated.shouldEmitImportForTarget>[0],
+      Parameters<typeof generated.shouldEmitImportForTarget>[1],
+      boolean,
+    ]
+  >)('shouldEmitImportForTarget(%p, %p) returns %p', (props, target, expected) => {
+    expect(generated.shouldEmitImportForTarget(props, target)).toBe(expected);
+  });
 
   it('validates import metadata conflicts and invalid values', () => {
     expect(generated.validateImportMetadata({ type: 'import', props: { registry: 'bad' } })).toEqual([
@@ -70,9 +73,9 @@ describe('generated import-metadata behavior', () => {
     expect(generated.validateImportMetadata({ type: 'extern', props: { target: 'bad' } })).toEqual([
       "'extern target=' must be one of all, ts, python, react, node, express, cli, lib, mcp, terminal, ink, vue, nuxt, nextjs, native, web, fastapi",
     ]);
-    expect(generated.validateImportMetadata({ type: 'import', props: { registry: 'npm', target: 'fastapi' } })).toEqual([
-      "'import registry=npm' must target a TS-family target or omit target= so KERN can infer ts",
-    ]);
+    expect(generated.validateImportMetadata({ type: 'import', props: { registry: 'npm', target: 'fastapi' } })).toEqual(
+      ["'import registry=npm' must target a TS-family target or omit target= so KERN can infer ts"],
+    );
     expect(generated.validateImportMetadata({ type: 'extern', props: { registry: 'pypi', target: 'node' } })).toEqual([
       "'extern registry=pypi' must target python/fastapi or omit target= so KERN can infer python",
     ]);

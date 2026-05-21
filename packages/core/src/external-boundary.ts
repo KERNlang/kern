@@ -1,11 +1,4 @@
-import { type ExternalSignatureMap } from './ecosystem-signatures.js';
-import {
-  type ExternalImportRegistry,
-  type ExternalImportTarget,
-  importRegistryOf,
-  importTargetFamilyOf,
-  importTargetOf,
-} from './import-metadata.js';
+import type { ExternalSignatureMap } from './ecosystem-signatures.js';
 import {
   type ExternalBoundaryIslandShape,
   externalBoundaryFromExternParts,
@@ -16,6 +9,13 @@ import {
   externalSidecarManifestFromIsland,
   externalSidecarManifestsFromParts,
 } from './external-boundary-utils.js';
+import {
+  type ExternalImportRegistry,
+  type ExternalImportTarget,
+  importRegistryOf,
+  importTargetFamilyOf,
+  importTargetOf,
+} from './import-metadata.js';
 import type { IRNode } from './types.js';
 
 export interface ExternalImportBinding {

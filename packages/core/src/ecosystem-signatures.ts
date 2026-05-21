@@ -1,6 +1,7 @@
 // Facade. Source of truth: packages/core/src/kern/utils/ecosystem-signatures.kern.
-import type { ExternalImportRegistry } from './import-metadata.js';
+
 import * as generated from './generated/utils/ecosystem-signatures.js';
+import type { ExternalImportRegistry } from './import-metadata.js';
 
 export type { ExternalSignatureMap } from './generated/utils/ecosystem-signatures.js';
 

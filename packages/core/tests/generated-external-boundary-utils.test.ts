@@ -21,12 +21,11 @@ describe('generated external-boundary-utils behavior', () => {
   });
 
   it('merges explicit effects after inherited island effects', () => {
-    expect(
-      generated.mergeExternalEffects(
-        { effects: '[cpu, stream]' },
-        { effects: ['fs', 'cpu'] },
-      ),
-    ).toEqual(['fs', 'cpu', 'stream']);
+    expect(generated.mergeExternalEffects({ effects: '[cpu, stream]' }, { effects: ['fs', 'cpu'] })).toEqual([
+      'fs',
+      'cpu',
+      'stream',
+    ]);
     expect(generated.mergeExternalEffects({ effects: 'cpu' }, undefined)).toEqual(['cpu']);
   });
 
@@ -362,7 +361,16 @@ describe('generated external-boundary-utils behavior', () => {
       )?.explicitPackage,
     ).toBeUndefined();
     expect(
-      generated.externalBoundaryFromImportParts({}, 'pypi', 'python', 'python', undefined, { names: [], types: false }, 1, 1),
+      generated.externalBoundaryFromImportParts(
+        {},
+        'pypi',
+        'python',
+        'python',
+        undefined,
+        { names: [], types: false },
+        1,
+        1,
+      ),
     ).toBeNull();
   });
 
@@ -450,9 +458,14 @@ describe('generated external-boundary-utils behavior', () => {
     expect(generated.hasExternalRuntimeImports({ imports: [] })).toBe(false);
     expect(generated.hasExternalRuntimeImports({ imports: [{ names: [], types: true }] })).toBe(false);
     expect(generated.hasExternalRuntimeImports({ imports: [{ names: [], types: false }] })).toBe(true);
-    expect(generated.hasExternalRuntimeImports({ imports: [{ names: [], types: true }, { names: [], types: false }] })).toBe(
-      true,
-    );
+    expect(
+      generated.hasExternalRuntimeImports({
+        imports: [
+          { names: [], types: true },
+          { names: [], types: false },
+        ],
+      }),
+    ).toBe(true);
     expect(generated.externalRuntimeImports([])).toEqual([]);
     expect(generated.externalRuntimeImports([{ names: [], types: true }])).toEqual([]);
     expect(generated.externalRuntimeImports([{ names: ['sqrt'], types: false }])).toEqual([
@@ -500,7 +513,10 @@ describe('generated external-boundary-utils behavior', () => {
         target: 'python',
         targetFamily: 'python',
         effects: [],
-        imports: [{ names: ['NDArray'], types: true }, { names: ['sqrt'], types: false }],
+        imports: [
+          { names: ['NDArray'], types: true },
+          { names: ['sqrt'], types: false },
+        ],
         version: '3',
         line: 10,
         col: 3,
@@ -657,7 +673,10 @@ describe('generated external-boundary-utils behavior', () => {
             targetFamily: 'python',
             effects: ['fs'],
             requiresSidecar: true,
-            imports: [{ names: ['NDArray'], types: true }, { names: ['array'], types: false }],
+            imports: [
+              { names: ['NDArray'], types: true },
+              { names: ['array'], types: false },
+            ],
             version: '2',
             line: 7,
             col: 2,
@@ -830,7 +849,10 @@ describe('generated external-boundary-utils behavior', () => {
           registry: 'pypi',
           target: 'python',
           targetFamily: 'python',
-          imports: [{ names: ['get'], types: false }, { names: ['post'], types: false }],
+          imports: [
+            { names: ['get'], types: false },
+            { names: ['post'], types: false },
+          ],
           version: '2',
         },
         {

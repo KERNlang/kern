@@ -1,5 +1,5 @@
-import * as facade from '../src/version-detect.js';
 import * as generated from '../src/generated/utils/version-detect.js';
+import * as facade from '../src/version-detect.js';
 
 describe('generated version-detect behavior', () => {
   it.each([
@@ -70,12 +70,7 @@ describe('generated version-detect behavior', () => {
     expect(generated.resolveNextjsMajor(versions)).toBe(expected);
   });
 
-  it.each([
-    '3.4.1',
-    '^18.3.1',
-    'latest',
-    '',
-  ])('version-detect facade delegates parseMajorVersion(%p)', (input) => {
+  it.each(['3.4.1', '^18.3.1', 'latest', ''])('version-detect facade delegates parseMajorVersion(%p)', (input) => {
     expect(facade.parseMajorVersion(input)).toBe(generated.parseMajorVersion(input));
   });
 

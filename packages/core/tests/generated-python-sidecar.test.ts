@@ -1,5 +1,5 @@
-import * as facade from '../src/python-sidecar.js';
 import * as generated from '../src/generated/utils/python-sidecar.js';
+import * as facade from '../src/python-sidecar.js';
 
 const cases = [
   [undefined, 'demucs', 'Demucs'],

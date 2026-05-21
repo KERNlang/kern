@@ -1,4 +1,4 @@
-import { type ExternalSignatureMap } from './ecosystem-signatures.js';
+import type { ExternalSignatureMap } from './ecosystem-signatures.js';
 import {
   collectExternalBoundaries,
   collectSidecarManifests,

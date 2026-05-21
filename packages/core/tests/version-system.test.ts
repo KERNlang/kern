@@ -1,6 +1,5 @@
 // The src facade delegates to the generated utility checked in by `pnpm --filter @kernlang/core kern:compile`.
 import * as generatedVersionDetect from '../src/generated/utils/version-detect.js';
-import * as facadeVersionDetect from '../src/version-detect.js';
 import {
   applyTailwindTokenRules,
   buildNextjsProfile,
@@ -9,6 +8,7 @@ import {
   buildVersionProfile,
   resolveConfig,
 } from '../src/index.js';
+import * as facadeVersionDetect from '../src/version-detect.js';
 
 // ── Version Detection ────────────────────────────────────────────────────
 
@@ -25,7 +25,9 @@ const versionDetectionImplementations = [
 
 describe('version-detect facade', () => {
   it('delegates to generated KERN utility exports', () => {
-    expect(facadeVersionDetect.detectVersionsFromPackageJson).toBe(generatedVersionDetect.detectVersionsFromPackageJson);
+    expect(facadeVersionDetect.detectVersionsFromPackageJson).toBe(
+      generatedVersionDetect.detectVersionsFromPackageJson,
+    );
     expect(facadeVersionDetect.parseMajorVersion).toBe(generatedVersionDetect.parseMajorVersion);
     expect(facadeVersionDetect.resolveNextjsMajor).toBe(generatedVersionDetect.resolveNextjsMajor);
     expect(facadeVersionDetect.resolveReactMajor).toBe(generatedVersionDetect.resolveReactMajor);
