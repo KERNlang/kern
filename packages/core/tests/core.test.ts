@@ -313,6 +313,66 @@ describe('Kern Core', () => {
       expect(items[0]).toEqual({ name: 'q', type: 'string' });
     });
 
+    test('parses the documented items="[...]" array form', async () => {
+      const { parse } = await import('../src/parser.js');
+      const ast = parse(
+        'route GET /api/users\n  params items="[{name:page,type:number,default:1},{name:limit,type:number,default:20}]"',
+      );
+      const items = ast.children![0].props?.items as Array<{ name: string; type: string; default?: string }>;
+      expect(items).toHaveLength(2);
+      expect(items[0]).toEqual({ name: 'page', type: 'number', default: '1' });
+      expect(items[1]).toEqual({ name: 'limit', type: 'number', default: '20' });
+    });
+
+    test('items="[...]" unquotes name/type but PRESERVES a string default verbatim', async () => {
+      // Regression (Codex): name/type are identifiers (unquote), but `default`
+      // is a target-language literal — its quotes are semantic. Stripping them
+      // would emit an unbound `sort: str = relevance`.
+      const { parse } = await import('../src/parser.js');
+      const ast = parse(
+        "route GET /api/search\n  params items=\"[ { name: 'sort', type: 'string', default: 'relevance' } ]\"",
+      );
+      const items = ast.children![0].props?.items as Array<{ name: string; type: string; default?: string }>;
+      expect(items).toHaveLength(1);
+      expect(items[0]).toEqual({ name: 'sort', type: 'string', default: "'relevance'" });
+    });
+
+    test('items="[...]" keeps a comma inside a quoted default (splitTopLevel is quote-aware)', async () => {
+      const { parse } = await import('../src/parser.js');
+      const ast = parse(
+        'route GET /api/x\n  params items="[{name:label,type:string,default:\'a, b\'},{name:n,type:number,default:2}]"',
+      );
+      const items = ast.children![0].props?.items as Array<{ name: string; type: string; default?: string }>;
+      expect(items).toHaveLength(2);
+      expect(items[0]).toEqual({ name: 'label', type: 'string', default: "'a, b'" });
+      expect(items[1]).toEqual({ name: 'n', type: 'number', default: '2' });
+    });
+
+    test('items="[...]" without a default omits the default field', async () => {
+      const { parse } = await import('../src/parser.js');
+      const ast = parse('route GET /api/x\n  params items="[{name:q,type:string}]"');
+      const items = ast.children![0].props?.items as Array<{ name: string; type: string; default?: string }>;
+      expect(items).toHaveLength(1);
+      expect(items[0]).toEqual({ name: 'q', type: 'string' });
+    });
+
+    test('items="[]" yields an empty list; objects missing name/type are skipped', async () => {
+      const { parse } = await import('../src/parser.js');
+      expect(parse('route GET /api/x\n  params items="[]"').children![0].props?.items as unknown[]).toEqual([]);
+      // Missing `type` → skipped, not garbage.
+      expect(parse('route GET /api/x\n  params items="[{name:q}]"').children![0].props?.items as unknown[]).toEqual([]);
+    });
+
+    test('bare params: a comma inside an array-typed default stays in one param', async () => {
+      // Regression (Gemini): parseBareParams uses splitTopLevel, not raw.split(',').
+      const { parse } = await import('../src/parser.js');
+      const ast = parse('route GET /api/x\n  params tags:string[]=["a","b"], q:string');
+      const items = ast.children![0].props?.items as Array<{ name: string; type: string; default?: string }>;
+      expect(items).toHaveLength(2);
+      expect(items[0]).toEqual({ name: 'tags', type: 'string[]', default: '["a","b"]' });
+      expect(items[1]).toEqual({ name: 'q', type: 'string' });
+    });
+
     test('parses auth mode', async () => {
       const { parse } = await import('../src/parser.js');
       const ast = parse('route GET /api/users\n  auth required');
