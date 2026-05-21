@@ -1,0 +1,28 @@
+
+error name=MyError extends=AgonError
+  field name=code type=number
+  handler lang=kern
+    assign target="this.code" value="404"
+
+screen name=MyScreen
+  state name=count type=number initial=0
+  
+  memo name=doubled deps="count"
+    handler lang=kern
+      return value="count * 2"
+      
+  callback name=increment deps="count" params="step:number"
+    handler lang=kern
+      try
+        assign target="count" value="count + step"
+        catch name=err type=any
+          do value="console.error(err)"
+      
+  effect deps="count"
+    handler lang=kern
+      do value="console.log('Count changed', count)"
+
+class NativeClass
+  constructor
+    handler lang=kern
+      do value="console.log('Class initialized')"
