@@ -9,21 +9,23 @@ describe('generated external-boundary-utils behavior', () => {
   });
 
   it('reads non-empty string props and boolean props', () => {
-    const props = { runtime: 'python', empty: '', requiresSidecar: 'true', disabled: false };
+    const props = { runtime: 'python', empty: '', requiresSidecar: 'true', disabled: false, nope: 'false', loose: 1 };
 
     expect(generated.externalStringProp(props, 'runtime')).toBe('python');
     expect(generated.externalStringProp(props, 'empty')).toBeUndefined();
+    expect(generated.externalStringProp({ name: 0 }, 'name')).toBeUndefined();
     expect(generated.externalBoolProp(props, 'requiresSidecar')).toBe(true);
     expect(generated.externalBoolProp(props, 'disabled')).toBe(false);
+    expect(generated.externalBoolProp(props, 'nope')).toBe(false);
+    expect(generated.externalBoolProp(props, 'loose')).toBe(false);
   });
 
   it('merges explicit effects after inherited island effects', () => {
-    expect(
-      generated.mergeExternalEffects(
-        { effects: '[cpu, stream]' },
-        { effects: ['fs', 'cpu'] },
-      ),
-    ).toEqual(['fs', 'cpu', 'stream']);
+    expect(generated.mergeExternalEffects({ effects: '[cpu, stream]' }, { effects: ['fs', 'cpu'] })).toEqual([
+      'fs',
+      'cpu',
+      'stream',
+    ]);
     expect(generated.mergeExternalEffects({ effects: 'cpu' }, undefined)).toEqual(['cpu']);
   });
 
@@ -40,13 +42,430 @@ describe('generated external-boundary-utils behavior', () => {
     expect(generated.inheritExternalArgs({}, undefined)).toBeUndefined();
   });
 
+  it('builds island ref shapes from raw props', () => {
+    expect(generated.externalIslandRefFromParts({}, 1, 1)).toBeNull();
+    expect(generated.externalIslandRefFromParts({ name: '' }, 1, 1)).toBeNull();
+    expect(generated.externalIslandRefFromParts({ name: 0 }, 1, 1)).toBeNull();
+
+    expect(
+      generated.externalIslandRefFromParts(
+        {
+          name: 'ClaudeCli',
+          kind: 'sidecar',
+          runtime: 'python',
+          protocol: 'pty-session',
+          module: 'kern_engines.cli.daemon',
+          args: '[claude]',
+          session: 'ClaudeCliSession',
+          options: 'ClaudeSpawnOptions',
+          error: 'ClaudeSessionError',
+          timeout: 'ClaudeSessionTimeout',
+          effects: '[exec,stream]',
+          serialization: 'ndjson',
+          requiresSidecar: 'true',
+          version: '1',
+          review: 'known',
+          reason: 'provider boundary',
+        },
+        9,
+        2,
+      ),
+    ).toEqual({
+      name: 'ClaudeCli',
+      kind: 'sidecar',
+      runtime: 'python',
+      protocol: 'pty-session',
+      module: 'kern_engines.cli.daemon',
+      args: ['claude'],
+      session: 'ClaudeCliSession',
+      options: 'ClaudeSpawnOptions',
+      error: 'ClaudeSessionError',
+      timeout: 'ClaudeSessionTimeout',
+      effects: ['exec', 'stream'],
+      serialization: 'ndjson',
+      requiresSidecar: true,
+      version: '1',
+      review: 'known',
+      reason: 'provider boundary',
+      line: 9,
+      col: 2,
+    });
+  });
+
+  it('omits empty island args while preserving empty effects', () => {
+    const island = generated.externalIslandRefFromParts(
+      {
+        name: 'OpenCode',
+        runtime: 'node',
+        args: '',
+      },
+      undefined,
+      undefined,
+    );
+
+    expect(island).toMatchObject({
+      name: 'OpenCode',
+      runtime: 'node',
+      effects: [],
+      requiresSidecar: false,
+    });
+    expect(island && 'args' in island).toBe(false);
+  });
+
+  it('builds import binding shapes from raw props', () => {
+    expect(
+      generated.externalImportBindingFromParts(
+        {
+          names: '[sqrt,pow]',
+          default: 'math',
+          from: 'math',
+          signature: '(x: number) => number',
+          signatures: 'sqrt:(x: number) => number; pow:(x: number, y: number) => number',
+          types: 'true',
+        },
+        4,
+        5,
+      ),
+    ).toEqual({
+      names: ['sqrt', 'pow'],
+      default: 'math',
+      from: 'math',
+      signature: '(x: number) => number',
+      signatures: {
+        sqrt: '(x: number) => number',
+        pow: '(x: number, y: number) => number',
+      },
+      types: true,
+      line: 4,
+      col: 5,
+    });
+  });
+
+  it('omits empty import binding optional fields and invalid signature maps', () => {
+    const binding = generated.externalImportBindingFromParts(
+      {
+        names: 'array',
+        default: '',
+        from: '',
+        signature: '',
+        signatures: 'bad signature',
+        types: false,
+      },
+      undefined,
+      undefined,
+    );
+
+    expect(binding).toEqual({
+      names: ['array'],
+      default: undefined,
+      from: undefined,
+      signature: undefined,
+      types: false,
+      line: undefined,
+      col: undefined,
+    });
+    expect('signatures' in binding).toBe(false);
+  });
+
+  it('resolves external package names from extern and import props', () => {
+    expect(generated.externalPackageNameFromExternProps({ package: 'numpy' })).toBe('numpy');
+    expect(generated.externalPackageNameFromExternProps({ package: '' })).toBeNull();
+    expect(generated.externalPackageNameFromExternProps({ from: 'numpy' })).toBeNull();
+    expect(generated.externalPackageNameFromExternProps({})).toBeNull();
+    expect(generated.externalPackageNameFromExternProps({ package: 1 })).toBeNull();
+    expect(generated.externalPackageNameFromExternProps({ package: null })).toBeNull();
+
+    expect(generated.externalPackageNameFromImportProps({ package: 'requests', from: 'fallback' })).toBe('requests');
+    expect(generated.externalPackageNameFromImportProps({ package: '', from: 'fallback' })).toBe('fallback');
+    expect(generated.externalPackageNameFromImportProps({ from: 'fallback' })).toBe('fallback');
+    expect(generated.externalPackageNameFromImportProps({ package: '', from: '' })).toBeNull();
+    expect(generated.externalPackageNameFromImportProps({ package: 1, from: false })).toBeNull();
+
+    expect(generated.hasExplicitExternalPackageProp({ package: 'requests' })).toBe(true);
+    expect(generated.hasExplicitExternalPackageProp({ package: '', from: 'requests' })).toBe(false);
+    expect(generated.hasExplicitExternalPackageProp({})).toBe(false);
+    expect(generated.hasExplicitExternalPackageProp({ package: 1 })).toBe(false);
+    expect(generated.hasExplicitExternalPackageProp({ package: null })).toBe(false);
+  });
+
+  it('builds external boundary shapes from normalized metadata and inherited props', () => {
+    expect(
+      generated.externalBoundaryFromParts(
+        'local_engine',
+        'pypi',
+        'python',
+        'python',
+        {
+          args: '[codex]',
+          effects: '[fs,cpu]',
+          serialization: 'ndjson',
+          requiresSidecar: 'true',
+          version: '2',
+          review: 'known',
+          reason: 'runtime bridge',
+        },
+        {
+          name: 'Multi',
+          kind: 'sidecar',
+          runtime: 'python',
+          protocol: 'pty-session',
+          module: 'kern_engines.cli.daemon',
+          args: ['claude'],
+          session: 'Session',
+          options: 'Options',
+          error: 'ErrorShape',
+          timeout: 'TimeoutShape',
+          effects: ['exec', 'fs'],
+          serialization: 'json',
+          requiresSidecar: false,
+          line: 1,
+          col: 1,
+        },
+        [{ names: ['run'], types: false, line: 2, col: 3 }],
+        2,
+        3,
+      ),
+    ).toEqual({
+      package: 'local_engine',
+      registry: 'pypi',
+      target: 'python',
+      targetFamily: 'python',
+      island: {
+        name: 'Multi',
+        kind: 'sidecar',
+        runtime: 'python',
+        protocol: 'pty-session',
+        module: 'kern_engines.cli.daemon',
+        args: ['claude'],
+        session: 'Session',
+        options: 'Options',
+        error: 'ErrorShape',
+        timeout: 'TimeoutShape',
+        effects: ['exec', 'fs'],
+        serialization: 'json',
+        requiresSidecar: false,
+        line: 1,
+        col: 1,
+      },
+      runtime: 'python',
+      protocol: 'pty-session',
+      module: 'kern_engines.cli.daemon',
+      args: ['codex'],
+      session: 'Session',
+      options: 'Options',
+      error: 'ErrorShape',
+      timeout: 'TimeoutShape',
+      effects: ['exec', 'fs', 'cpu'],
+      serialization: 'ndjson',
+      requiresSidecar: true,
+      version: '2',
+      review: 'known',
+      reason: 'runtime bridge',
+      imports: [{ names: ['run'], types: false, line: 2, col: 3 }],
+      line: 2,
+      col: 3,
+    });
+  });
+
+  it('builds external boundaries from extern and import parts', () => {
+    expect(
+      generated.externalBoundaryFromExternParts(
+        { from: 'numpy', names: 'array' },
+        'pypi',
+        'python',
+        'python',
+        undefined,
+        [{ names: ['array'], types: false }],
+        2,
+        3,
+      ),
+    ).toBeNull();
+
+    const island = {
+      name: 'Data',
+      runtime: 'python',
+      effects: ['fs'],
+      requiresSidecar: true,
+    };
+    expect(
+      generated.externalBoundaryFromExternParts(
+        { package: 'numpy', names: 'array', effects: '[cpu]' },
+        'pypi',
+        'python',
+        'python',
+        island,
+        [{ names: ['array'], types: false }],
+        2,
+        3,
+      ),
+    ).toEqual({
+      package: 'numpy',
+      registry: 'pypi',
+      target: 'python',
+      targetFamily: 'python',
+      island,
+      runtime: 'python',
+      protocol: undefined,
+      module: undefined,
+      args: undefined,
+      session: undefined,
+      options: undefined,
+      error: undefined,
+      timeout: undefined,
+      effects: ['fs', 'cpu'],
+      serialization: undefined,
+      requiresSidecar: true,
+      version: undefined,
+      review: undefined,
+      reason: undefined,
+      imports: [{ names: ['array'], types: false }],
+      line: 2,
+      col: 3,
+    });
+
+    const explicit = generated.externalBoundaryFromImportParts(
+      { package: 'requests', from: 'fallback', names: 'get' },
+      'pypi',
+      'python',
+      'python',
+      undefined,
+      { names: ['get'], types: false },
+      4,
+      5,
+    );
+    expect(explicit).toMatchObject({ package: 'requests', explicitPackage: true });
+    expect(Object.prototype.propertyIsEnumerable.call(explicit, 'explicitPackage')).toBe(false);
+
+    expect(
+      generated.externalBoundaryFromImportParts(
+        { from: 'requests', names: 'get' },
+        'pypi',
+        'python',
+        'python',
+        undefined,
+        { names: ['get'], types: false },
+        4,
+        5,
+      ),
+    ).toMatchObject({ package: 'requests' });
+    expect(
+      generated.externalBoundaryFromImportParts(
+        { from: 'requests', names: 'get' },
+        'pypi',
+        'python',
+        'python',
+        undefined,
+        { names: ['get'], types: false },
+        4,
+        5,
+      )?.explicitPackage,
+    ).toBeUndefined();
+    expect(
+      generated.externalBoundaryFromImportParts(
+        {},
+        'pypi',
+        'python',
+        'python',
+        undefined,
+        { names: [], types: false },
+        1,
+        1,
+      ),
+    ).toBeNull();
+  });
+
+  it('builds external boundary shapes without island inheritance', () => {
+    expect(
+      generated.externalBoundaryFromParts(
+        'react',
+        'npm',
+        'react',
+        'ts',
+        { names: 'useState' },
+        undefined,
+        [{ names: ['useState'], types: false }],
+        undefined,
+        undefined,
+      ),
+    ).toMatchObject({
+      package: 'react',
+      registry: 'npm',
+      target: 'react',
+      targetFamily: 'ts',
+      effects: [],
+      requiresSidecar: false,
+      imports: [{ names: ['useState'], types: false }],
+    });
+  });
+
+  it('builds capability islands from refs and collected imports', () => {
+    const island = {
+      name: 'Data',
+      runtime: 'python',
+      effects: ['fs'],
+      requiresSidecar: true,
+    };
+    const imports = [
+      {
+        package: 'numpy',
+        registry: 'pypi' as const,
+        target: 'python' as const,
+        targetFamily: 'python' as const,
+        effects: ['fs'],
+        imports: [{ names: ['array'], types: false }],
+      },
+    ];
+
+    expect(generated.externalCapabilityIslandFromParts(null, imports)).toBeNull();
+    expect(generated.externalCapabilityIslandFromParts(island, imports)).toEqual({
+      ...island,
+      imports,
+    });
+    expect(generated.externalCapabilityIslandFromParts(island, [])).toEqual({
+      ...island,
+      imports: [],
+    });
+  });
+
+  it('names loose python sidecars from default import aliases', () => {
+    expect(
+      generated.externalLoosePythonSidecarName({
+        package: 'pandas',
+        registry: 'pypi',
+        targetFamily: 'python',
+        imports: [{ default: 'pd', names: [], types: false }],
+      }),
+    ).toBe('PdPandas');
+    expect(
+      generated.externalLoosePythonSidecarName({
+        package: 'numpy',
+        registry: 'pypi',
+        targetFamily: 'python',
+        imports: [{ names: ['array'], types: false }],
+      }),
+    ).toBe('Numpy');
+    expect(
+      generated.externalLoosePythonSidecarName({
+        package: 'numpy',
+        registry: 'pypi',
+        targetFamily: 'python',
+        imports: [],
+      }),
+    ).toBe('Numpy');
+  });
+
   it('detects runtime imports directly', () => {
     expect(generated.hasExternalRuntimeImports({ imports: [] })).toBe(false);
     expect(generated.hasExternalRuntimeImports({ imports: [{ names: [], types: true }] })).toBe(false);
     expect(generated.hasExternalRuntimeImports({ imports: [{ names: [], types: false }] })).toBe(true);
-    expect(generated.hasExternalRuntimeImports({ imports: [{ names: [], types: true }, { names: [], types: false }] })).toBe(
-      true,
-    );
+    expect(
+      generated.hasExternalRuntimeImports({
+        imports: [
+          { names: [], types: true },
+          { names: [], types: false },
+        ],
+      }),
+    ).toBe(true);
     expect(generated.externalRuntimeImports([])).toEqual([]);
     expect(generated.externalRuntimeImports([{ names: [], types: true }])).toEqual([]);
     expect(generated.externalRuntimeImports([{ names: ['sqrt'], types: false }])).toEqual([
@@ -93,7 +512,11 @@ describe('generated external-boundary-utils behavior', () => {
         registry: 'pypi',
         target: 'python',
         targetFamily: 'python',
-        imports: [{ names: ['NDArray'], types: true }, { names: ['sqrt'], types: false }],
+        effects: [],
+        imports: [
+          { names: ['NDArray'], types: true },
+          { names: ['sqrt'], types: false },
+        ],
         version: '3',
         line: 10,
         col: 3,
@@ -116,6 +539,7 @@ describe('generated external-boundary-utils behavior', () => {
       registry: 'pypi',
       target: 'python',
       targetFamily: 'python',
+      effects: [],
       imports: [{ names: ['sqrt'], types: false }],
     });
 
@@ -143,17 +567,429 @@ describe('generated external-boundary-utils behavior', () => {
     ).toBe('math\0pypi\0python');
   });
 
+  it('builds sidecar manifests from eligible python islands', () => {
+    expect(
+      generated.externalSidecarManifestFromIsland({
+        name: 'ignored',
+        runtime: 'python',
+        effects: [],
+        requiresSidecar: false,
+        imports: [],
+      }),
+    ).toBeNull();
+    expect(
+      generated.externalSidecarManifestFromIsland({
+        name: 'ignored',
+        runtime: 'node',
+        effects: [],
+        requiresSidecar: true,
+        imports: [],
+      }),
+    ).toBeNull();
+    expect(
+      generated.externalSidecarManifestFromIsland({
+        name: 'ignored',
+        runtime: 'python',
+        effects: [],
+        requiresSidecar: true,
+        imports: [],
+      }),
+    ).toBeNull();
+    expect(
+      generated.externalSidecarManifestFromIsland({
+        name: 'typeOnly',
+        runtime: 'python',
+        effects: [],
+        requiresSidecar: true,
+        imports: [
+          {
+            package: 'numpy',
+            registry: 'pypi',
+            target: 'python',
+            targetFamily: 'python',
+            effects: [],
+            requiresSidecar: true,
+            imports: [{ names: ['NDArray'], types: true }],
+          },
+        ],
+      }),
+    ).toBeNull();
+    expect(
+      generated.externalSidecarManifestFromIsland({
+        name: 'mixed',
+        runtime: 'python',
+        effects: ['fs'],
+        requiresSidecar: true,
+        imports: [
+          {
+            package: 'numpy',
+            registry: 'pypi',
+            target: 'python',
+            targetFamily: 'python',
+            effects: ['fs'],
+            requiresSidecar: true,
+            imports: [{ names: ['array'], types: false }],
+          },
+          {
+            package: 'react',
+            registry: 'npm',
+            target: 'react',
+            targetFamily: 'ts',
+            requiresSidecar: true,
+            imports: [{ names: ['useState'], types: false }],
+          },
+        ],
+      })?.packages,
+    ).toEqual([
+      {
+        package: 'numpy',
+        registry: 'pypi',
+        target: 'python',
+        targetFamily: 'python',
+        imports: [{ names: ['array'], types: false }],
+      },
+    ]);
+
+    expect(
+      generated.externalSidecarManifestFromIsland({
+        name: 'tracks',
+        kind: 'sidecar',
+        runtime: 'python',
+        protocol: 'stdio',
+        module: 'svc.tracks',
+        args: ['--debug'],
+        session: 'session',
+        options: 'options',
+        error: 'error',
+        timeout: '10s',
+        effects: ['fs'],
+        serialization: 'json',
+        requiresSidecar: true,
+        imports: [
+          {
+            package: 'numpy',
+            registry: 'pypi',
+            target: 'python',
+            targetFamily: 'python',
+            effects: ['fs'],
+            requiresSidecar: true,
+            imports: [
+              { names: ['NDArray'], types: true },
+              { names: ['array'], types: false },
+            ],
+            version: '2',
+            line: 7,
+            col: 2,
+          },
+        ],
+        line: 5,
+        col: 1,
+      }),
+    ).toEqual({
+      name: 'tracks',
+      kind: 'sidecar',
+      runtime: 'python',
+      protocol: 'stdio',
+      module: 'svc.tracks',
+      args: ['--debug'],
+      session: 'session',
+      options: 'options',
+      error: 'error',
+      timeout: '10s',
+      effects: ['fs'],
+      serialization: 'json',
+      requiresSidecar: true,
+      packages: [
+        {
+          package: 'numpy',
+          registry: 'pypi',
+          target: 'python',
+          targetFamily: 'python',
+          imports: [{ names: ['array'], types: false }],
+          version: '2',
+          line: 7,
+          col: 2,
+        },
+      ],
+      line: 5,
+      col: 1,
+    });
+  });
+
+  it('keeps protocol-only python sidecar manifests', () => {
+    expect(
+      generated.externalSidecarManifestFromIsland({
+        name: 'protocolOnly',
+        runtime: 'python',
+        protocol: 'stdio',
+        effects: ['net'],
+        requiresSidecar: true,
+        imports: [],
+      }),
+    ).toEqual({
+      name: 'protocolOnly',
+      runtime: 'python',
+      protocol: 'stdio',
+      effects: ['net'],
+      requiresSidecar: true,
+      packages: [],
+    });
+  });
+
+  it('builds loose sidecar manifests from explicit python package boundaries', () => {
+    const sidecarPackage = {
+      package: 'requests',
+      registry: 'pypi' as const,
+      target: 'python' as const,
+      targetFamily: 'python' as const,
+      imports: [{ names: ['get'], types: false }],
+    };
+
+    expect(
+      generated.externalLooseSidecarManifestFromBoundary(
+        'requestsSidecar',
+        {
+          package: 'requests',
+          registry: 'pypi',
+          target: 'python',
+          targetFamily: 'python',
+          imports: [{ names: ['get'], types: false }],
+          effects: ['net'],
+          line: 12,
+          col: 4,
+        },
+        sidecarPackage,
+      ),
+    ).toEqual({
+      name: 'requestsSidecar',
+      kind: 'sidecar',
+      runtime: 'python',
+      effects: ['net'],
+      serialization: 'json',
+      requiresSidecar: true,
+      packages: [sidecarPackage],
+      line: 12,
+      col: 4,
+    });
+    expect(
+      generated.externalLooseSidecarManifestFromBoundary(
+        'requestsSidecar',
+        {
+          package: 'requests',
+          registry: 'pypi',
+          target: 'python',
+          targetFamily: 'python',
+          imports: [{ names: ['get'], types: false }],
+        },
+        sidecarPackage,
+      ).effects,
+    ).toEqual([]);
+  });
+
+  it('merges loose sidecar manifest packages by key', () => {
+    const manifest = {
+      name: 'requestsSidecar',
+      runtime: 'python',
+      effects: ['net'],
+      requiresSidecar: true as const,
+      packages: [
+        {
+          package: 'requests',
+          registry: 'pypi' as const,
+          target: 'python' as const,
+          targetFamily: 'python' as const,
+          imports: [{ names: ['get'], types: false }],
+        },
+      ],
+    };
+
+    generated.mergeExternalSidecarManifestPackage(
+      manifest,
+      {
+        package: 'requests',
+        registry: 'pypi',
+        target: 'python',
+        targetFamily: 'python',
+        imports: [{ names: ['post'], types: false }],
+        version: '2',
+      },
+      ['fs', 'net'],
+    );
+    generated.mergeExternalSidecarManifestPackage(
+      manifest,
+      {
+        package: 'numpy',
+        registry: 'pypi',
+        target: 'python',
+        targetFamily: 'python',
+        imports: [{ names: ['array'], types: false }],
+      },
+      ['cpu'],
+    );
+    generated.mergeExternalSidecarManifestPackage(
+      manifest,
+      {
+        package: 'requests',
+        registry: 'pypi',
+        target: 'python',
+        targetFamily: 'python',
+        imports: [],
+      },
+      undefined,
+    );
+
+    expect(manifest).toEqual({
+      name: 'requestsSidecar',
+      runtime: 'python',
+      effects: ['net', 'fs', 'cpu'],
+      requiresSidecar: true,
+      packages: [
+        {
+          package: 'requests',
+          registry: 'pypi',
+          target: 'python',
+          targetFamily: 'python',
+          imports: [
+            { names: ['get'], types: false },
+            { names: ['post'], types: false },
+          ],
+          version: '2',
+        },
+        {
+          package: 'numpy',
+          registry: 'pypi',
+          target: 'python',
+          targetFamily: 'python',
+          imports: [{ names: ['array'], types: false }],
+        },
+      ],
+    });
+  });
+
+  it('collects sidecar manifests from islands and loose python boundaries', () => {
+    expect(generated.externalSidecarManifestsFromParts([], [])).toEqual([]);
+    expect(
+      generated.externalSidecarManifestsFromParts(
+        [
+          {
+            name: 'Data',
+            runtime: 'python',
+            effects: ['fs'],
+            requiresSidecar: true,
+            imports: [
+              {
+                package: 'numpy',
+                registry: 'pypi',
+                target: 'python',
+                targetFamily: 'python',
+                effects: ['fs'],
+                requiresSidecar: true,
+                imports: [{ names: ['array'], types: false }],
+              },
+            ],
+          },
+          {
+            name: 'IgnoredTs',
+            runtime: 'ts',
+            effects: [],
+            requiresSidecar: true,
+            imports: [],
+          },
+        ],
+        [
+          {
+            package: 'requests',
+            explicitPackage: true,
+            registry: 'pypi',
+            target: 'python',
+            targetFamily: 'python',
+            effects: ['net'],
+            imports: [{ default: 'rq', names: ['get'], types: false }],
+          },
+          {
+            package: 'requests',
+            explicitPackage: true,
+            registry: 'pypi',
+            target: 'python',
+            targetFamily: 'python',
+            effects: ['fs', 'net'],
+            imports: [{ default: 'rq', names: ['post'], types: false }],
+          },
+          {
+            package: 'node-fetch',
+            explicitPackage: true,
+            registry: 'npm',
+            target: 'ts',
+            targetFamily: 'ts',
+            effects: ['net'],
+            imports: [{ names: ['fetch'], types: false }],
+          },
+        ],
+      ),
+    ).toEqual([
+      {
+        name: 'Data',
+        runtime: 'python',
+        effects: ['fs'],
+        requiresSidecar: true,
+        packages: [
+          {
+            package: 'numpy',
+            registry: 'pypi',
+            target: 'python',
+            targetFamily: 'python',
+            imports: [{ names: ['array'], types: false }],
+          },
+        ],
+      },
+      {
+        name: 'RqRequests',
+        kind: 'sidecar',
+        runtime: 'python',
+        effects: ['net', 'fs'],
+        serialization: 'json',
+        requiresSidecar: true,
+        packages: [
+          {
+            package: 'requests',
+            registry: 'pypi',
+            target: 'python',
+            targetFamily: 'python',
+            imports: [
+              { default: 'rq', names: ['get'], types: false },
+              { default: 'rq', names: ['post'], types: false },
+            ],
+          },
+        ],
+      },
+    ]);
+  });
+
   it('src facade delegates generated utility exports', () => {
     expect(facade.splitExternalNames).toBe(generated.splitExternalNames);
+    expect(facade.externalBoundaryFromParts).toBe(generated.externalBoundaryFromParts);
+    expect(facade.externalBoundaryFromExternParts).toBe(generated.externalBoundaryFromExternParts);
+    expect(facade.externalBoundaryFromImportParts).toBe(generated.externalBoundaryFromImportParts);
+    expect(facade.externalCapabilityIslandFromParts).toBe(generated.externalCapabilityIslandFromParts);
+    expect(facade.externalImportBindingFromParts).toBe(generated.externalImportBindingFromParts);
+    expect(facade.externalIslandRefFromParts).toBe(generated.externalIslandRefFromParts);
+    expect(facade.externalLoosePythonSidecarName).toBe(generated.externalLoosePythonSidecarName);
+    expect(facade.externalPackageNameFromExternProps).toBe(generated.externalPackageNameFromExternProps);
+    expect(facade.externalPackageNameFromImportProps).toBe(generated.externalPackageNameFromImportProps);
     expect(facade.externalStringProp).toBe(generated.externalStringProp);
     expect(facade.externalBoolProp).toBe(generated.externalBoolProp);
     expect(facade.externalRuntimeImports).toBe(generated.externalRuntimeImports);
+    expect(facade.externalLooseSidecarManifestFromBoundary).toBe(generated.externalLooseSidecarManifestFromBoundary);
+    expect(facade.externalSidecarManifestFromIsland).toBe(generated.externalSidecarManifestFromIsland);
+    expect(facade.externalSidecarManifestsFromParts).toBe(generated.externalSidecarManifestsFromParts);
     expect(facade.externalSidecarPackageFromBoundary).toBe(generated.externalSidecarPackageFromBoundary);
     expect(facade.externalSidecarPackageKey).toBe(generated.externalSidecarPackageKey);
+    expect(facade.mergeExternalSidecarManifestPackage).toBe(generated.mergeExternalSidecarManifestPackage);
     expect(facade.mergeExternalEffects).toBe(generated.mergeExternalEffects);
     expect(facade.inheritExternalString).toBe(generated.inheritExternalString);
     expect(facade.inheritExternalArgs).toBe(generated.inheritExternalArgs);
     expect(facade.hasExternalRuntimeImports).toBe(generated.hasExternalRuntimeImports);
+    expect(facade.hasExplicitExternalPackageProp).toBe(generated.hasExplicitExternalPackageProp);
     expect(facade.isPythonSidecarBoundaryShape).toBe(generated.isPythonSidecarBoundaryShape);
     expect(facade.isLoosePythonBoundaryShape).toBe(generated.isLoosePythonBoundaryShape);
   });

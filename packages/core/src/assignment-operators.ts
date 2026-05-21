@@ -1,13 +1,10 @@
 // Facade. Source of truth: packages/core/src/kern/utils/assignment-operators.kern.
 import ts from 'typescript';
+import type { PostfixMutationOperator, SupportedAssignOperator } from './generated/utils/assignment-operators.js';
 import {
+  SUPPORTED_ASSIGN_OPERATORS as GENERATED_SUPPORTED_ASSIGN_OPERATORS,
   isPostfixMutationOperator as isGeneratedPostfixMutationOperator,
   isSupportedAssignOperator as isGeneratedSupportedAssignOperator,
-  SUPPORTED_ASSIGN_OPERATORS as GENERATED_SUPPORTED_ASSIGN_OPERATORS,
-} from './generated/utils/assignment-operators.js';
-import type {
-  PostfixMutationOperator,
-  SupportedAssignOperator,
 } from './generated/utils/assignment-operators.js';
 
 export type {

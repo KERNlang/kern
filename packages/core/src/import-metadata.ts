@@ -1,5 +1,5 @@
 // Facade. Source of truth: packages/core/src/kern/utils/import-metadata.kern.
-import type { IRNode } from './types.js';
+
 import {
   importRegistryOf,
   importTargetFamilyOf,
@@ -9,6 +9,7 @@ import {
   validateCapabilityMetadata as validateGeneratedCapabilityMetadata,
   validateImportMetadata as validateGeneratedImportMetadata,
 } from './generated/utils/import-metadata.js';
+import type { IRNode } from './types.js';
 
 export type {
   CapabilityEffect,
@@ -18,13 +19,7 @@ export type {
   ExternalImportTarget,
 } from './generated/utils/import-metadata.js';
 
-export {
-  importRegistryOf,
-  importTargetFamilyOf,
-  importTargetOf,
-  shouldEmitImportForTarget,
-  splitCapabilityList,
-};
+export { importRegistryOf, importTargetFamilyOf, importTargetOf, shouldEmitImportForTarget, splitCapabilityList };
 
 export function validateImportMetadata(node: IRNode): string[] {
   return validateGeneratedImportMetadata(node);

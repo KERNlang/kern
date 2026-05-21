@@ -1,11 +1,11 @@
 import * as facade from '../src/ecosystem-signatures.js';
-import * as generated from '../src/generated/utils/ecosystem-signatures.js';
 import type { ExternalImportRegistry as GeneratedExternalImportRegistry } from '../src/generated/utils/ecosystem-signatures.js';
+import * as generated from '../src/generated/utils/ecosystem-signatures.js';
 import type { ExternalImportRegistry as CanonicalExternalImportRegistry } from '../src/import-metadata.js';
 
 type TypeEqual<A, B> =
-  (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2)
-    ? (<T>() => T extends B ? 1 : 2) extends (<T>() => T extends A ? 1 : 2)
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+    ? (<T>() => T extends B ? 1 : 2) extends <T>() => T extends A ? 1 : 2
       ? true
       : false
     : false;
@@ -41,16 +41,24 @@ describe('generated ecosystem-signatures behavior', () => {
     });
   });
 
-  it.each([undefined, null, '', '   ', '{bad json}', 'missingSeparator', 'bad-name:() => void', 'ok:'])(
-    'returns undefined for invalid signature map %p',
-    (value) => {
-      expect(generated.parseExternalSignatureMap(value)).toBeUndefined();
-    },
-  );
+  it.each([
+    undefined,
+    null,
+    '',
+    '   ',
+    '{bad json}',
+    'missingSeparator',
+    'bad-name:() => void',
+    'ok:',
+  ])('returns undefined for invalid signature map %p', (value) => {
+    expect(generated.parseExternalSignatureMap(value)).toBeUndefined();
+  });
 
   it('keeps compact parser separators inside escaped quoted strings', () => {
     expect(
-      generated.parseExternalSignatureMap(String.raw`quote:(value: "a\";b") => Promise<string>; next:() => Promise<void>`),
+      generated.parseExternalSignatureMap(
+        String.raw`quote:(value: "a\";b") => Promise<string>; next:() => Promise<void>`,
+      ),
     ).toEqual({
       quote: String.raw`(value: "a\";b") => Promise<string>`,
       next: '() => Promise<void>',
@@ -58,9 +66,7 @@ describe('generated ecosystem-signatures behavior', () => {
   });
 
   it('keeps compact parser separators inside generic angle brackets', () => {
-    expect(
-      generated.parseExternalSignatureMap('make:() => Promise<Result<A;B>>; next:() => Promise<void>'),
-    ).toEqual({
+    expect(generated.parseExternalSignatureMap('make:() => Promise<Result<A;B>>; next:() => Promise<void>')).toEqual({
       make: '() => Promise<Result<A;B>>',
       next: '() => Promise<void>',
     });
@@ -101,7 +107,9 @@ describe('generated ecosystem-signatures behavior', () => {
     expect(facade.inferExternalSignature('pypi', 'math', 'sqrt')).toBe(
       generated.inferExternalSignature('pypi', 'math', 'sqrt'),
     );
-    expect(facade.inferExternalSignatureMap('pypi', 'json')).toEqual(generated.inferExternalSignatureMap('pypi', 'json'));
+    expect(facade.inferExternalSignatureMap('pypi', 'json')).toEqual(
+      generated.inferExternalSignatureMap('pypi', 'json'),
+    );
     expect(facade.mergeExternalSignatureMaps).toBe(generated.mergeExternalSignatureMaps);
   });
 });
