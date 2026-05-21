@@ -5,54 +5,46 @@ const name=pair value={{[1, 2]}}
 
 fn name=retry returns=number
   param name=attempts type=number value=3
-  handler <<<
-    return attempts;
-  >>>
+  handler
+    return value="attempts"
 
 fn name=stamp returns=number
   param name=ts type=number value={{Date.now()}}
-  handler <<<
-    return ts;
-  >>>
+  handler
+    return value="ts"
 
 fn name=greet returns=string
   param name=name type=string value="world"
-  handler <<<
-    return name;
-  >>>
+  handler
+    return value="name"
 
 fn name=load params="id:string,retries:number=3" returns=string
-  handler <<<
-    return id;
-  >>>
+  handler
+    return value="id"
 
 fn name=maybe returns=string
   param name=salutation type=string optional=true
-  handler <<<
-    return salutation ?? "hi";
-  >>>
+  handler
+    return value="salutation ?? \"hi\""
 
 fn name=concat returns=string
   param name=parts type="string[]" variadic=true
-  handler <<<
-    return parts.join(",");
-  >>>
+  handler
+    return value="parts.join(\",\")"
 
 fn name=length returns=number
   param type=Point
     binding name=x
     binding name=y
-  handler <<<
-    return Math.hypot(x, y);
-  >>>
+  handler
+    return value="Math.hypot(x, y)"
 
 fn name=swap returns="[number, number]"
   param type="[number, number]"
     element name=a index=0
     element name=b index=1
-  handler <<<
-    return [b, a];
-  >>>
+  handler
+    return value="[b, a]"
 
 destructure kind=const source=user
   binding name=id

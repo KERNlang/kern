@@ -2348,19 +2348,16 @@ describe('FastAPI Transpiler', () => {
       expect(rewriteFastAPIExpr('msg = "set to true"', [])).toBe('msg = "set to true"');
     });
 
-    test('backtick template literals are skipped by ===/!== rewrite (Codex+Gemini B3)', async () => {
+    test('backtick templates without interpolation lower to plain strings', async () => {
       const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      // Pre-fix: STRICT_EQ_RE only consumed " and ' strings; backticks
-      // were not part of the alternation so `===` inside backticks got
-      // mangled to `==`.
-      expect(rewriteFastAPIExpr('msg = `use === for strict equality`', [])).toBe('msg = `use === for strict equality`');
-      expect(rewriteFastAPIExpr('msg = `a !== b`', [])).toBe('msg = `a !== b`');
+      expect(rewriteFastAPIExpr('msg = `use === for strict equality`', [])).toBe('msg = "use === for strict equality"');
+      expect(rewriteFastAPIExpr('msg = `a !== b`', [])).toBe('msg = "a !== b"');
     });
 
     test('JS literals preserved inside backtick template literals (B3 cont.)', async () => {
       const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      expect(rewriteFastAPIExpr('s = `undefined behavior`', [])).toBe('s = `undefined behavior`');
-      expect(rewriteFastAPIExpr('s = `set to true`', [])).toBe('s = `set to true`');
+      expect(rewriteFastAPIExpr('s = `undefined behavior`', [])).toBe('s = "undefined behavior"');
+      expect(rewriteFastAPIExpr('s = `set to true`', [])).toBe('s = "set to true"');
     });
 
     test('JS literals skipped when used as property access (Codex+Gemini B2)', async () => {

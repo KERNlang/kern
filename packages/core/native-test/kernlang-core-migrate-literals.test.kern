@@ -1,0 +1,50 @@
+test name="KERN-authored core migrate literal classifier parity" target="./kernlang-core-migrate-literals.kern"
+  it name="accepts inline-safe literals"
+    expect expr={{isInlineSafeLiteral("42")}} equals=true
+    expect expr={{isInlineSafeLiteral("-17")}} equals=true
+    expect expr={{isInlineSafeLiteral("3.14")}} equals=true
+    expect expr={{isInlineSafeLiteral("0xFF")}} equals=true
+    expect expr={{isInlineSafeLiteral("0b1010")}} equals=true
+    expect expr={{isInlineSafeLiteral("0o77")}} equals=true
+    expect expr={{isInlineSafeLiteral("1e3")}} equals=true
+    expect expr={{isInlineSafeLiteral("1_000_000")}} equals=true
+    expect expr={{isInlineSafeLiteral("true")}} equals=true
+    expect expr={{isInlineSafeLiteral("false")}} equals=true
+    expect expr={{isInlineSafeLiteral("null")}} equals=true
+    expect expr={{isInlineSafeLiteral("undefined")}} equals=true
+
+  it name="rejects unsafe literals"
+    expect expr={{isInlineSafeLiteral("\"hello\"")}} equals=false
+    expect expr={{isInlineSafeLiteral("foo")}} equals=false
+    expect expr={{isInlineSafeLiteral("60 * 60")}} equals=false
+    expect expr={{isInlineSafeLiteral("{}")}} equals=false
+    expect expr={{isInlineSafeLiteral("[]")}} equals=false
+    expect expr={{isInlineSafeLiteral("")}} equals=false
+    expect expr={{isInlineSafeLiteral("   ")}} equals=false
+
+  it name="accepts non-empty expressions without closing expr blocks"
+    expect expr={{isInlineSafeExpression("60 * 60 * 1000")}} equals=true
+    expect expr={{isInlineSafeExpression("\"hello\"")}} equals=true
+    expect expr={{isInlineSafeExpression("{ a: 1 }")}} equals=true
+
+  it name="rejects empty expressions and closing expr blocks"
+    expect expr={{isInlineSafeExpression("")}} equals=false
+    expect expr={{isInlineSafeExpression("  ")}} equals=false
+    expect expr={{isInlineSafeExpression("x }" + "} y")}} equals=false
+
+  it name="classifies const and fn single-line gaps as migratable"
+    expect expr={{classifyHandlerGap("const", "42").category}} equals="migratable"
+    expect expr={{classifyHandlerGap("const", "42").migration}} equals="literal-const"
+    expect expr={{classifyHandlerGap("const", "60 * 60 * 1000").category}} equals="migratable"
+    expect expr={{classifyHandlerGap("const", "60 * 60 * 1000").migration}} equals="literal-const"
+    expect expr={{classifyHandlerGap("fn", FN_SINGLE_LINE_BODY).category}} equals="migratable"
+    expect expr={{classifyHandlerGap("fn", FN_SINGLE_LINE_BODY).migration}} equals="fn-expr"
+
+  it name="keeps unsupported parent types and unsafe bodies detected"
+    expect expr={{classifyHandlerGap("route", ROUTE_BODY).category}} equals="detected"
+    expect expr={{classifyHandlerGap("screen", SCREEN_BODY).category}} equals="detected"
+    expect expr={{classifyHandlerGap("const", MULTI_LINE_BODY).category}} equals="detected"
+    expect expr={{classifyHandlerGap("fn", MULTI_LINE_BODY).category}} equals="detected"
+    expect expr={{classifyHandlerGap("const", "x }" + "} y").category}} equals="detected"
+    expect expr={{classifyHandlerGap("fn", "x }" + "} y").category}} equals="detected"
+    expect expr={{classifyHandlerGap(undefined, "42").category}} equals="detected"

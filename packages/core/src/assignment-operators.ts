@@ -1,36 +1,28 @@
+// Facade. Source of truth: packages/core/src/kern/utils/assignment-operators.kern.
 import ts from 'typescript';
+import {
+  isPostfixMutationOperator as isGeneratedPostfixMutationOperator,
+  isSupportedAssignOperator as isGeneratedSupportedAssignOperator,
+  SUPPORTED_ASSIGN_OPERATORS as GENERATED_SUPPORTED_ASSIGN_OPERATORS,
+} from './generated/utils/assignment-operators.js';
+import type {
+  PostfixMutationOperator,
+  SupportedAssignOperator,
+} from './generated/utils/assignment-operators.js';
 
-export const SUPPORTED_ASSIGN_OPERATORS = [
-  '=',
-  '+=',
-  '-=',
-  '*=',
-  '/=',
-  '%=',
-  '**=',
-  '&=',
-  '|=',
-  '^=',
-  '<<=',
-  '>>=',
-  // Postfix mutation operators — accepted by the `assign` body-statement as a
-  // value-less form (`assign target=X op="++"`). Required for byte-equivalent
-  // round-trip of standalone postfix expressions (`i++;`) in raw handler
-  // migration — see migrate-native-handlers and the slice α-3 parity invariant.
-  '++',
-  '--',
-] as const;
+export type {
+  PostfixMutationOperator,
+  SupportedAssignOperator,
+} from './generated/utils/assignment-operators.js';
 
-export type SupportedAssignOperator = (typeof SUPPORTED_ASSIGN_OPERATORS)[number];
-
-const SUPPORTED_ASSIGN_OPERATOR_SET = new Set<string>(SUPPORTED_ASSIGN_OPERATORS);
+export const SUPPORTED_ASSIGN_OPERATORS = GENERATED_SUPPORTED_ASSIGN_OPERATORS as readonly SupportedAssignOperator[];
 
 export function isSupportedAssignOperator(op: string): op is SupportedAssignOperator {
-  return SUPPORTED_ASSIGN_OPERATOR_SET.has(op);
+  return isGeneratedSupportedAssignOperator(op);
 }
 
-export function isPostfixMutationOperator(op: string): op is '++' | '--' {
-  return op === '++' || op === '--';
+export function isPostfixMutationOperator(op: string): op is PostfixMutationOperator {
+  return isGeneratedPostfixMutationOperator(op);
 }
 
 export function supportedCompoundAssignmentOperator(kind: ts.SyntaxKind): SupportedAssignOperator | null {

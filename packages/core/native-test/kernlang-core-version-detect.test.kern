@@ -1,0 +1,44 @@
+test name="KERN-authored core version detection parity" target="./kernlang-core-version-detect.kern"
+  it name="parses semver and common range prefixes"
+    expect expr={{parseMajorVersion("3.4.1")}} equals=3
+    expect expr={{parseMajorVersion("4.0.0")}} equals=4
+    expect expr={{parseMajorVersion("15.2.3")}} equals=15
+    expect expr={{parseMajorVersion("^3.4.1")}} equals=3
+    expect expr={{parseMajorVersion("~4.0.0")}} equals=4
+    expect expr={{parseMajorVersion(">=14.0.0")}} equals=14
+    expect expr={{parseMajorVersion("latest")}} equals=0
+    expect expr={{parseMajorVersion("")}} equals=0
+
+  it name="detects framework versions from dependencies and devDependencies"
+    expect expr={{detectVersionsFromPackageJson({ dependencies: { react: "^19.2.0" } }).react}} equals="^19.2.0"
+    expect expr={{detectVersionsFromPackageJson({ devDependencies: { tailwindcss: "^3.4.1" } }).tailwind}} equals="^3.4.1"
+    expect expr={{detectVersionsFromPackageJson({ dependencies: { next: "^14.2.0" } }).nextjs}} equals="^14.2.0"
+    expect expr={{detectVersionsFromPackageJson({ dependencies: { react: "^19.0.0", next: "15.0.0" }, devDependencies: { tailwindcss: "4.0.0" } }).react}} equals="^19.0.0"
+    expect expr={{detectVersionsFromPackageJson({ dependencies: { react: "^19.0.0", next: "15.0.0" }, devDependencies: { tailwindcss: "4.0.0" } }).tailwind}} equals="4.0.0"
+    expect expr={{detectVersionsFromPackageJson({ dependencies: { react: "^19.0.0", next: "15.0.0" }, devDependencies: { tailwindcss: "4.0.0" } }).nextjs}} equals="15.0.0"
+    expect expr={{detectVersionsFromPackageJson({ dependencies: { react: "19-deps", tailwindcss: "3-deps", next: "15-deps" }, devDependencies: { react: "18-dev", tailwindcss: "4-dev", next: "14-dev" } }).react}} equals="19-deps"
+    expect expr={{detectVersionsFromPackageJson({ dependencies: { react: "19-deps", tailwindcss: "3-deps", next: "15-deps" }, devDependencies: { react: "18-dev", tailwindcss: "4-dev", next: "14-dev" } }).tailwind}} equals="4-dev"
+    expect expr={{detectVersionsFromPackageJson({ dependencies: { react: "19-deps", tailwindcss: "3-deps", next: "15-deps" }, devDependencies: { react: "18-dev", tailwindcss: "4-dev", next: "14-dev" } }).nextjs}} equals="15-deps"
+    expect expr={{detectVersionsFromPackageJson({ dependencies: { vue: "^3.5.0" } }).react === undefined}} equals=true
+    expect expr={{detectVersionsFromPackageJson({ dependencies: { vue: "^3.5.0" } }).tailwind === undefined}} equals=true
+    expect expr={{detectVersionsFromPackageJson({ dependencies: { vue: "^3.5.0" } }).nextjs === undefined}} equals=true
+    expect expr={{Object.keys(detectVersionsFromPackageJson({ dependencies: { vue: "^3.5.0" } }))}} equals={{[]}}
+
+  it name="resolves effective React major"
+    expect expr={{resolveReactMajor({})}} equals=19
+    expect expr={{resolveReactMajor({ react: "^18.3.1" })}} equals=18
+    expect expr={{resolveReactMajor({ react: "19.2.0" })}} equals=19
+    expect expr={{resolveReactMajor({ react: "^20.0.0" })}} equals=19
+
+  it name="resolves effective Tailwind major"
+    expect expr={{resolveTailwindMajor({})}} equals=3
+    expect expr={{resolveTailwindMajor({ tailwind: "^3.4.1" })}} equals=3
+    expect expr={{resolveTailwindMajor({ tailwind: "4.0.0" })}} equals=4
+
+  it name="resolves effective Nextjs major"
+    expect expr={{resolveNextjsMajor({})}} equals=14
+    expect expr={{resolveNextjsMajor({ nextjs: "^13.5.0" })}} equals=13
+    expect expr={{resolveNextjsMajor({ nextjs: "14.2.0" })}} equals=14
+    expect expr={{resolveNextjsMajor({ nextjs: "~15.0.0" })}} equals=15
+    expect expr={{resolveNextjsMajor({ nextjs: "16.1.6" })}} equals=16
+    expect expr={{resolveNextjsMajor({ nextjs: "^16.2.2" })}} equals=16

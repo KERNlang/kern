@@ -35,6 +35,20 @@ export function decompile(root: IRNode): DecompileResult {
   }
 
   function pushHandler(node: IRNode, indent: string): void {
+    if (node.props?.lang === 'kern' && (node.children?.length ?? 0) > 0) {
+      const quoted = node.__quotedProps ?? [];
+      const parts = ['handler'];
+      for (const [key, value] of Object.entries(node.props ?? {})) {
+        if (key === 'lang' || key === 'code' || value === undefined) continue;
+        parts.push(renderScalarProp(key, value, quoted));
+      }
+      lines.push(`${indent}${parts.join(' ')}`);
+      for (const child of node.children ?? []) {
+        render(child, `${indent}  `);
+      }
+      return;
+    }
+
     const code = String(node.props?.code || '');
     lines.push(`${indent}handler <<<`);
     for (const line of code.split('\n')) {
@@ -100,6 +114,10 @@ export function decompile(root: IRNode): DecompileResult {
       renderDoc(node, indent);
       return;
     }
+    if (node.type === 'comment') {
+      renderComment(node, indent);
+      return;
+    }
     if (node.type === 'island') {
       renderIsland(node, indent);
       return;
@@ -116,8 +134,36 @@ export function decompile(root: IRNode): DecompileResult {
       renderAssign(node, indent);
       return;
     }
+    if (node.type === 'cell') {
+      renderCell(node, indent);
+      return;
+    }
+    if (node.type === 'set') {
+      renderSet(node, indent);
+      return;
+    }
     if (node.type === 'do') {
       renderDo(node, indent);
+      return;
+    }
+    if (node.type === 'fmt') {
+      renderFmt(node, indent);
+      return;
+    }
+    if (node.type === 'return') {
+      renderReturn(node, indent);
+      return;
+    }
+    if (node.type === 'if') {
+      renderIf(node, indent);
+      return;
+    }
+    if (node.type === 'else') {
+      renderElse(node, indent);
+      return;
+    }
+    if (node.type === 'while') {
+      renderWhile(node, indent);
       return;
     }
     if (node.type === 'for') {
@@ -126,6 +172,34 @@ export function decompile(root: IRNode): DecompileResult {
     }
     if (node.type === 'with') {
       renderWith(node, indent);
+      return;
+    }
+    if (node.type === 'try') {
+      renderTry(node, indent);
+      return;
+    }
+    if (node.type === 'catch') {
+      renderCatch(node, indent);
+      return;
+    }
+    if (node.type === 'finally') {
+      renderFinally(node, indent);
+      return;
+    }
+    if (node.type === 'throw') {
+      renderThrow(node, indent);
+      return;
+    }
+    if (node.type === 'continue' || node.type === 'break') {
+      lines.push(`${indent}${node.type}`);
+      return;
+    }
+    if (node.type === 'branch') {
+      renderBranch(node, indent);
+      return;
+    }
+    if (node.type === 'path') {
+      renderPath(node, indent);
       return;
     }
     if (node.type === 'field') {
@@ -351,6 +425,15 @@ export function decompile(root: IRNode): DecompileResult {
     lines.push(`${indent}>>>`);
   }
 
+  function renderComment(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    const parts = ['comment'];
+    if (props.raw !== undefined) parts.push(renderScalarProp('raw', props.raw, quoted));
+    if (props.text !== undefined) parts.push(renderScalarProp('text', props.text, quoted));
+    lines.push(`${indent}${parts.join(' ')}`);
+  }
+
   function renderLet(node: IRNode, indent: string): void {
     const props = node.props || {};
     const quoted = node.__quotedProps ?? [];
@@ -405,10 +488,68 @@ export function decompile(root: IRNode): DecompileResult {
     lines.push(`${indent}${parts.join(' ')}`);
   }
 
+  function renderCell(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    const parts = ['cell', renderScalarProp('name', props.name ?? '', quoted)];
+    if (props.initial !== undefined) parts.push(renderScalarProp('initial', props.initial, quoted));
+    if (props.type !== undefined) parts.push(renderScalarProp('type', props.type, quoted));
+    lines.push(`${indent}${parts.join(' ')}`);
+  }
+
+  function renderSet(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    lines.push(
+      `${indent}set ${renderScalarProp('name', props.name ?? '', quoted)} ${renderScalarProp('to', props.to ?? '', quoted)}`,
+    );
+  }
+
   function renderDo(node: IRNode, indent: string): void {
     const props = node.props || {};
     const quoted = node.__quotedProps ?? [];
     lines.push(`${indent}do ${renderScalarProp('value', props.value ?? '', quoted)}`);
+  }
+
+  function renderFmt(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    const parts = ['fmt'];
+    if (props.name !== undefined) parts.push(renderScalarProp('name', props.name, quoted));
+    if (props.template !== undefined) parts.push(renderScalarProp('template', props.template, quoted));
+    if (props.type !== undefined) parts.push(renderScalarProp('type', props.type, quoted));
+    if (props.export !== undefined) parts.push(renderScalarProp('export', props.export, quoted));
+    if (props.return !== undefined) parts.push(renderScalarProp('return', props.return, quoted));
+    lines.push(`${indent}${parts.join(' ')}`);
+  }
+
+  function renderReturn(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    if (props.value === undefined || props.value === '') {
+      lines.push(`${indent}return`);
+      return;
+    }
+    lines.push(`${indent}return ${renderScalarProp('value', props.value, quoted)}`);
+  }
+
+  function renderIf(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    lines.push(`${indent}if ${renderScalarProp('cond', props.cond ?? '', quoted)}`);
+    for (const child of node.children ?? []) render(child, `${indent}  `);
+  }
+
+  function renderElse(node: IRNode, indent: string): void {
+    lines.push(`${indent}else`);
+    for (const child of node.children ?? []) render(child, `${indent}  `);
+  }
+
+  function renderWhile(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    lines.push(`${indent}while ${renderScalarProp('cond', props.cond ?? '', quoted)}`);
+    for (const child of node.children ?? []) render(child, `${indent}  `);
   }
 
   function renderFor(node: IRNode, indent: string): void {
@@ -444,6 +585,60 @@ export function decompile(root: IRNode): DecompileResult {
     if (props.protocol !== undefined && props.protocol !== '') {
       parts.push(renderScalarProp('protocol', props.protocol, quoted));
     }
+    lines.push(`${indent}${parts.join(' ')}`);
+    for (const child of node.children ?? []) render(child, `${indent}  `);
+  }
+
+  function renderTry(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    const parts = ['try'];
+    if (props.name !== undefined) parts.push(renderScalarProp('name', props.name, quoted));
+    lines.push(`${indent}${parts.join(' ')}`);
+    for (const child of node.children ?? []) render(child, `${indent}  `);
+  }
+
+  function renderCatch(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    const parts = ['catch'];
+    if (props.name !== undefined) parts.push(renderScalarProp('name', props.name, quoted));
+    if (props.type !== undefined) parts.push(renderScalarProp('type', props.type, quoted));
+    lines.push(`${indent}${parts.join(' ')}`);
+    for (const child of node.children ?? []) render(child, `${indent}  `);
+  }
+
+  function renderFinally(node: IRNode, indent: string): void {
+    lines.push(`${indent}finally`);
+    for (const child of node.children ?? []) render(child, `${indent}  `);
+  }
+
+  function renderThrow(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    if (props.value === undefined || props.value === '') {
+      lines.push(`${indent}throw`);
+      return;
+    }
+    lines.push(`${indent}throw ${renderScalarProp('value', props.value, quoted)}`);
+  }
+
+  function renderBranch(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    const parts = ['branch'];
+    if (props.name !== undefined) parts.push(renderScalarProp('name', props.name, quoted));
+    if (props.on !== undefined) parts.push(renderScalarProp('on', props.on, quoted));
+    lines.push(`${indent}${parts.join(' ')}`);
+    for (const child of node.children ?? []) render(child, `${indent}  `);
+  }
+
+  function renderPath(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    const parts = ['path'];
+    if (props.value !== undefined) parts.push(renderScalarProp('value', props.value, quoted));
+    if (props.default !== undefined) parts.push(renderScalarProp('default', props.default, quoted));
     lines.push(`${indent}${parts.join(' ')}`);
     for (const child of node.children ?? []) render(child, `${indent}  `);
   }

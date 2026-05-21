@@ -261,8 +261,21 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
     middlewareLines.push(usage.addLine);
   }
 
-  // Build route artifacts
-  const routeArtifacts = routeNodes.map((routeNode, index) => buildRouteArtifact(routeNode, index, sourceMap));
+  // Build route artifacts. Routes live in the `routes` subpackage and the
+  // auth helper is a sibling of the app module, so the spec a route uses to
+  // import auth is relative when emitting a package (e.g. `..auth`) and flat
+  // (`auth`) otherwise. The depth is identical for every route, so compute it
+  // once with a representative route module path.
+  const sourcePackageParts = sourceModulePath ? sourceModulePath.split('.').filter(Boolean).slice(0, -1) : [];
+  const routeAuthModuleSpec = sourceModulePath
+    ? relativePythonModuleSpec(
+        [...sourcePackageParts, 'routes', '_route'].join('.'),
+        [...sourcePackageParts, 'auth'].join('.'),
+      )
+    : 'auth';
+  const routeArtifacts = routeNodes.map((routeNode, index) =>
+    buildRouteArtifact(routeNode, index, sourceMap, routeAuthModuleSpec),
+  );
 
   // Auth: generate auth.py artifact when any route uses auth
   const hasAuth = routeNodes.some((r) => getFirstChild(r, 'auth'));

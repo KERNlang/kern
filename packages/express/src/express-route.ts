@@ -41,6 +41,11 @@ export function buildRouteArtifact(
   const eachNodes = getChildren(routeNode, 'each');
   const collectNodes = getChildren(routeNode, 'collect');
   const effectNodes = getChildren(routeNode, 'effect');
+  // Only DIRECT assign/do children are counted; a nested one (inside a portable
+  // branch/each) is covered transitively because its enclosing portable node
+  // already flips hasPortableNodes.
+  const assignNodes = getChildren(routeNode, 'assign');
+  const doNodes = getChildren(routeNode, 'do');
   const hasPortableNodes =
     deriveNodes.length > 0 ||
     guardNodes.length > 0 ||
@@ -48,7 +53,9 @@ export function buildRouteArtifact(
     branchNodes.length > 0 ||
     eachNodes.length > 0 ||
     collectNodes.length > 0 ||
-    effectNodes.length > 0;
+    effectNodes.length > 0 ||
+    assignNodes.length > 0 ||
+    doNodes.length > 0;
 
   // Get handler code — priority: stream handler > timer handler > route handler > portable > 501
   const handlerNode = caps.hasStream
@@ -121,6 +128,7 @@ export function buildRouteArtifact(
     status: getProps(n).status as number,
     message: String(getProps(n).message || 'Error'),
   }));
+  const errorMessagesByStatus = new Map(errorResponses.map((er) => [er.status, er.message]));
 
   const paramsType = schema.params || buildPathParamsType(path) || 'Record<string, never>';
   const queryType = schema.query || 'Record<string, never>';
@@ -323,7 +331,7 @@ export function buildRouteArtifact(
 
     // Phase 1-3: Portable handler — derive → guard → handler → respond
     if (hasPortableNodes) {
-      lines.push(...generatePortableHandlerExpress(routeNode, '      ', path));
+      lines.push(...generatePortableHandlerExpress(routeNode, '      ', path, { errorMessagesByStatus }));
     } else if (isKernHandler) {
       // Slice 4a + 4a review fixes (Codex P1+P2, Gemini #1+#3): Express
       // route handlers don't communicate via `return X` — Express ignores

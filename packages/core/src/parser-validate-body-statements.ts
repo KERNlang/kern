@@ -37,9 +37,17 @@ interface WalkContext {
   loopDepth: number;
   /** Type of the immediate parent — used to disambiguate `else` form. */
   parentType: string | null;
+  /**
+   * True once we've entered a `route` (and all descendants). Portable
+   * side-effects (`assign`/`do`) are valid anywhere in a route's subtree — both
+   * as direct children and nested inside portable `branch`/`each` bodies, which
+   * the FastAPI/Express portable emitters lower recursively. A route subtree has
+   * no render context, so this never wrongly admits them into JSX.
+   */
+  inPortableRoute: boolean;
 }
 
-const ROOT_CTX: WalkContext = { inNativeBody: false, loopDepth: 0, parentType: null };
+const ROOT_CTX: WalkContext = { inNativeBody: false, loopDepth: 0, parentType: null, inPortableRoute: false };
 
 export function validateBodyStatements(state: ParseState, root: IRNode): void {
   walk(state, root, ROOT_CTX);
@@ -94,6 +102,7 @@ function walk(state: ParseState, node: IRNode, ctx: WalkContext): void {
     inNativeBody,
     loopDepth: inNativeBody && isBodyStatementLoop(node) ? ctx.loopDepth + 1 : ctx.loopDepth,
     parentType: node.type,
+    inPortableRoute: ctx.inPortableRoute || node.type === 'route',
   };
   if (node.children) {
     for (const child of node.children) walk(state, child, childCtx);
@@ -194,11 +203,18 @@ function isBodyStatementMisplaced(node: IRNode, ctx: WalkContext): boolean {
       // body-stmt form is parented by handler/try/catch/finally/while/for. Only
       // flag as misplaced when neither parent context applies.
       return ctx.parentType !== 'on';
+    case 'assign':
+    case 'do':
+      // Dual-context, mirroring `set`: valid as a body-statement inside a
+      // `handler lang="kern"` (handled by the `inNativeBody` early-return above),
+      // AND as a portable side-effect anywhere in a `route` subtree — both as a
+      // direct child (`assign target="provider.enabled" value="body.enabled"`)
+      // and nested inside a portable `branch`/`each`, which the portable emitters
+      // lower recursively. Every other non-native context stays rejected.
+      return !ctx.inPortableRoute;
     case 'cell':
     case 'return':
-    case 'assign':
     case 'throw':
-    case 'do':
     case 'continue':
     case 'break':
     case 'while':

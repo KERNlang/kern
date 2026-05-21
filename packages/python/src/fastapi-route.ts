@@ -25,7 +25,9 @@ import {
   convertPath,
   derivePathParams,
   escapePyStr,
+  extractBodyFieldNames,
   indentHandler,
+  quoteObjectKeysOutsideStrings,
   routeFileBase,
   slugify,
 } from './fastapi-utils.js';
@@ -235,67 +237,6 @@ function replaceJsLiteralsOutsideStrings(expr: string): string {
   return output;
 }
 
-function quoteObjectKeysOutsideStrings(expr: string): string {
-  let output = '';
-  let index = 0;
-  let quote: '"' | "'" | '`' | null = null;
-  let escaped = false;
-
-  while (index < expr.length) {
-    const char = expr[index];
-
-    if (quote) {
-      output += char;
-      if (escaped) {
-        escaped = false;
-      } else if (char === '\\') {
-        escaped = true;
-      } else if (char === quote) {
-        quote = null;
-      }
-      index += 1;
-      continue;
-    }
-
-    if (char === '"' || char === "'" || char === '`') {
-      quote = char;
-      output += char;
-      index += 1;
-      continue;
-    }
-
-    if (char !== '{' && char !== ',') {
-      output += char;
-      index += 1;
-      continue;
-    }
-
-    output += char;
-    index += 1;
-    const whitespaceStart = index;
-    while (index < expr.length && /\s/.test(expr[index])) index += 1;
-    const whitespace = expr.slice(whitespaceStart, index);
-    const keyStart = index;
-    if (index < expr.length && /[A-Za-z_$]/.test(expr[index])) {
-      index += 1;
-      while (index < expr.length && /[\w$]/.test(expr[index])) index += 1;
-      const key = expr.slice(keyStart, index);
-      const afterKeyStart = index;
-      while (index < expr.length && /\s/.test(expr[index])) index += 1;
-      if (expr[index] === ':') {
-        output += `${whitespace}"${key}"${expr.slice(afterKeyStart, index)}:`;
-        index += 1;
-        continue;
-      }
-    }
-
-    output += whitespace;
-    output += expr.slice(keyStart, index);
-  }
-
-  return output;
-}
-
 function lowerJsValueExpressionForPython(expr: string): string {
   return quoteObjectKeysOutsideStrings(replaceJsLiteralsOutsideStrings(expr.trim().replace(/;$/, '')));
 }
@@ -398,6 +339,12 @@ export function buildRouteArtifact(
   routeNode: IRNode,
   routeIndex: number,
   sourceMap: SourceMapEntry[],
+  // Module specifier a `routes/*.py` artifact uses to import the generated
+  // auth helper. Defaults to the flat `'auth'` (single-file / non-package
+  // output); the caller passes a package-relative spec like `'..auth'` when
+  // emitting a Python package, so the import resolves from the routes
+  // subpackage instead of looking for a top-level `auth` module (Codex review).
+  routeAuthModuleSpec = 'auth',
 ): RouteArtifactRef {
   const props = getProps(routeNode);
   const method = String(props.method || 'get').toLowerCase();
@@ -418,6 +365,11 @@ export function buildRouteArtifact(
   const eachNodes = getChildren(routeNode, 'each');
   const collectNodes = getChildren(routeNode, 'collect');
   const effectNodes = getChildren(routeNode, 'effect');
+  // Only DIRECT assign/do children are counted; a nested one (inside a portable
+  // branch/each) is covered transitively because its enclosing portable node
+  // already flips hasPortableNodes.
+  const assignNodes = getChildren(routeNode, 'assign');
+  const doNodes = getChildren(routeNode, 'do');
   const hasPortableNodes =
     deriveNodes.length > 0 ||
     guardNodes.length > 0 ||
@@ -425,7 +377,9 @@ export function buildRouteArtifact(
     branchNodes.length > 0 ||
     eachNodes.length > 0 ||
     collectNodes.length > 0 ||
-    effectNodes.length > 0;
+    effectNodes.length > 0 ||
+    assignNodes.length > 0 ||
+    doNodes.length > 0;
 
   // Get handler code
   const handlerNode = caps.hasStream
@@ -595,6 +549,12 @@ export function buildRouteArtifact(
     if (authNode) {
       const authMode = String(getProps(authNode).mode || 'required');
       const authFunc = authMode === 'optional' ? 'auth_optional' : 'auth_required';
+      // The auth helper lives in the generated `auth.py`; each route module
+      // that depends on it must import it, or the route file fails at import
+      // time with a NameError (Codex review on commit 54fb0e24). The specifier
+      // is package-aware (`routeAuthModuleSpec`) so packaged output resolves it
+      // relatively (Codex review on commit 02ecb2fa).
+      imports.add(`from ${routeAuthModuleSpec} import ${authFunc}`);
       paramParts.push(`user = Depends(${authFunc})`);
     }
 
@@ -610,7 +570,16 @@ export function buildRouteArtifact(
     }
 
     if (hasPortableNodes) {
-      bodyLines.push(...generatePortableHandlerFastAPI(routeNode, '    ', pathParams, imports));
+      // Body fields are snake-cased into the generated Pydantic model, so
+      // portable expressions referencing `body.<camelField>` must be
+      // rewritten to the model's snake_case attribute. Only fields from a
+      // model WE generate (inline `schema.body`) are remapped; an external
+      // `validate` schema's field naming is the author's contract.
+      const bodyFields = new Set(schema.body ? extractBodyFieldNames(schema.body) : []);
+      // When the route declares auth, the `user` symbol is the decoded JWT
+      // payload — a plain dict returned by auth_required/auth_optional — so
+      // attribute access (`user.id`) must lower to subscript (`user["id"]`).
+      bodyLines.push(...generatePortableHandlerFastAPI(routeNode, '    ', pathParams, imports, bodyFields, !!authNode));
     } else if (isKernHandler) {
       // Slice 4a — native KERN handler body (Python target).
       //  - Path params: camelCase as-is in the signature (line 300), so

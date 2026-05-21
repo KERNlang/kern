@@ -5,8 +5,20 @@ import {
   importRegistryOf,
   importTargetFamilyOf,
   importTargetOf,
-  splitCapabilityList,
 } from './import-metadata.js';
+import {
+  externalBoolProp,
+  externalSidecarPackageFromBoundary,
+  externalSidecarPackageKey,
+  externalStringProp,
+  hasExternalRuntimeImports,
+  inheritExternalArgs,
+  inheritExternalString,
+  isLoosePythonBoundaryShape,
+  isPythonSidecarBoundaryShape,
+  mergeExternalEffects,
+  splitExternalNames,
+} from './external-boundary-utils.js';
 import { pythonSidecarNameFromAliasAndPackage } from './python-sidecar.js';
 import type { IRNode } from './types.js';
 
@@ -121,20 +133,19 @@ export interface SidecarManifest {
 }
 
 function splitNames(value: unknown): string[] {
-  return splitCapabilityList(value);
+  return splitExternalNames(value);
 }
 
 function stringProp(props: Record<string, unknown>, key: string): string | undefined {
-  const value = props[key];
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
+  return externalStringProp(props, key);
 }
 
 function boolProp(props: Record<string, unknown>, key: string): boolean {
-  return props[key] === true || props[key] === 'true';
+  return externalBoolProp(props, key);
 }
 
 function mergeEffects(props: Record<string, unknown>, island?: CapabilityIslandRef): string[] {
-  return [...new Set([...(island?.effects ?? []), ...splitNames(props.effects)])];
+  return mergeExternalEffects(props, island);
 }
 
 function inheritString(
@@ -153,12 +164,11 @@ function inheritString(
     | 'timeout',
   island?: CapabilityIslandRef,
 ): string | undefined {
-  return stringProp(props, key) ?? island?.[key];
+  return inheritExternalString(props, key, island);
 }
 
 function inheritArgs(props: Record<string, unknown>, island?: CapabilityIslandRef): string[] | undefined {
-  const args = splitNames(props.args);
-  return args.length > 0 ? args : island?.args;
+  return inheritExternalArgs(props, island);
 }
 
 function islandRefFromNode(node: IRNode): CapabilityIslandRef | null {
@@ -356,38 +366,19 @@ export function collectCapabilityIslands(root: IRNode): CapabilityIsland[] {
 }
 
 function isPythonSidecarBoundary(boundary: ExternalBoundary): boolean {
-  return (
-    boundary.requiresSidecar === true &&
-    hasRuntimeImports(boundary) &&
-    (boundary.targetFamily === 'python' || boundary.registry === 'pypi')
-  );
+  return isPythonSidecarBoundaryShape(boundary);
 }
 
 function isLoosePythonBoundary(boundary: ExternalBoundary): boolean {
-  return (
-    boundary.explicitPackage === true &&
-    !boundary.island &&
-    hasRuntimeImports(boundary) &&
-    (boundary.targetFamily === 'python' || boundary.registry === 'pypi')
-  );
+  return isLoosePythonBoundaryShape(boundary);
 }
 
 function hasRuntimeImports(boundary: ExternalBoundary): boolean {
-  return boundary.imports.some((binding) => binding.types !== true);
+  return hasExternalRuntimeImports(boundary);
 }
 
 function sidecarPackageFromBoundary(boundary: ExternalBoundary): SidecarPackage {
-  const sidecarPackage: SidecarPackage = {
-    package: boundary.package,
-    registry: boundary.registry,
-    target: boundary.target,
-    targetFamily: boundary.targetFamily,
-    imports: boundary.imports.filter((binding) => binding.types !== true),
-  };
-  if (boundary.version !== undefined) sidecarPackage.version = boundary.version;
-  if (boundary.line !== undefined) sidecarPackage.line = boundary.line;
-  if (boundary.col !== undefined) sidecarPackage.col = boundary.col;
-  return sidecarPackage;
+  return externalSidecarPackageFromBoundary(boundary);
 }
 
 export function sidecarManifestFromIsland(island: CapabilityIsland): SidecarManifest | null {
@@ -450,9 +441,9 @@ export function collectSidecarManifests(root: IRNode): SidecarManifest[] {
       continue;
     }
     existing.effects = [...new Set([...existing.effects, ...boundary.effects])];
-    const packageKey = `${sidecarPackage.package}\0${sidecarPackage.registry}\0${sidecarPackage.target}`;
+    const packageKey = externalSidecarPackageKey(sidecarPackage);
     const existingPackage = existing.packages.find(
-      (pkg) => `${pkg.package}\0${pkg.registry}\0${pkg.target}` === packageKey,
+      (pkg) => externalSidecarPackageKey(pkg) === packageKey,
     );
     if (existingPackage) {
       existingPackage.imports.push(...sidecarPackage.imports);

@@ -31,21 +31,17 @@ class name=UserDirectory export=true
   field name=items type="User[]" private=true value={{ [] }}
   constructor
     param name=initial type="User[]" value={{ [] }}
-    handler <<<
-      this.items = initial;
-    >>>
+    handler
+      assign target="this.items" value="initial"
   method name=list returns="User[]"
-    handler <<<
-      return this.items;
-    >>>
+    handler
+      return value="this.items"
   method name=select generics="<T extends User>" params="items:T[]" returns="T[]"
-    handler <<<
-      return items.filter((item) => item.active);
-    >>>
+    handler
+      return value="items.filter((item) => item.active)"
 
 fn name=selectActive generics="<T extends User>" returns="T[]"
   param name=items type="T[]"
   param name=predicate type="(item: T) => boolean" value={{ (item) => item.active }}
-  handler <<<
-    return items.filter(predicate);
-  >>>
+  handler
+    return value="items.filter(predicate)"

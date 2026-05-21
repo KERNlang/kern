@@ -46,6 +46,86 @@ describe('Express Transpiler', () => {
     expect(result.code).not.toContain('IgnoreMe');
   });
 
+  describe('Portable assign/do as route children', () => {
+    async function toggleRoute(): Promise<string> {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/providers/toggle',
+        '    schema body="{id: string, enabled: boolean}"',
+        '    derive provider expr={{ registry.get(body.id) }}',
+        '    guard expr={{ provider }}',
+        '      error status=404 message="Not found"',
+        '    assign target="provider.enabled" value="body.enabled"',
+        '    do value="registry.register(provider)"',
+        '    do value="saveConfig()"',
+        '    respond 200 json={{ {ok: true} }}',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const art = result.artifacts?.find((a: any) => a.path.includes('toggle') && a.path.endsWith('.ts'));
+      if (!art) throw new Error('toggle route artifact not found');
+      return art.content as string;
+    }
+
+    test('assign rewrites body→req.body; do emits bare calls; guard 404 stays', async () => {
+      const code = await toggleRoute();
+      // assign LHS/RHS flow through the portable rewriter, so `body.enabled`
+      // becomes `req.body.enabled` (the kern-body path leaves it unbound).
+      expect(code).toContain('provider.enabled = req.body.enabled;');
+      expect(code).toContain('registry.register(provider);');
+      expect(code).toContain('saveConfig();');
+      expect(code).toContain('res.status(404)');
+      expect(code).toContain('res.json({ok: true})');
+    });
+
+    test('postfix ++ stays a JS postfix on the Express target', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/counter',
+        '    derive state expr={{ store.get() }}',
+        '    assign target="state.hits" op="++"',
+        '    respond 200 json=state',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const art = result.artifacts?.find((a: any) => a.path.includes('counter') && a.path.endsWith('.ts'));
+      expect(art?.content).toContain('state.hits++;');
+    });
+
+    test('compound op and do both rewrite body refs to req.body', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/acc',
+        '    schema body="{amount: number}"',
+        '    derive state expr={{ store.get() }}',
+        '    assign target="state.total" op="+=" value="body.amount"',
+        '    do value="audit.record(body.amount)"',
+        '    respond 200 json=state',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const art = result.artifacts?.find((a: any) => a.path.includes('acc') && a.path.endsWith('.ts'));
+      expect(art?.content).toContain('state.total += req.body.amount;');
+      expect(art?.content).toContain('audit.record(req.body.amount);');
+    });
+
+    test('a non-postfix assign with no value fails loud (parity with FastAPI)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/novalue',
+        '    derive state expr={{ store.get() }}',
+        '    assign target="state.x"',
+        '    respond 200 json=state',
+      ].join('\n');
+      expect(() => transpileExpress(parse(source))).toThrow(/requires `value=`/);
+    });
+  });
+
   describe('Stream/Spawn/Timer', () => {
     test('stream route generates SSE headers and emit helper', async () => {
       const { parse } = await import('../../core/src/parser.js');
@@ -513,6 +593,60 @@ describe('Express Transpiler', () => {
       expect(route!.content).toContain("req.headers['authorization']");
     });
 
+    test('portable auth user ref rewrites to req.user', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/tracks',
+        '    auth required',
+        '    derive tracks expr={{await db.tracks.findAll({userId: user.id})}}',
+        '    respond 200 json=tracks',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('authRequired');
+      expect(route!.content).toContain('userId: req.user.id');
+      expect(route!.content).not.toContain('userId: user.id');
+    });
+
+    test('portable spread of bare body/user rewrites the aggregate to req.*', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=Test',
+        '  route POST /api/items',
+        '    auth required',
+        '    derive item expr={{ { ...body, owner: user.id, roles: [...user.roles] } }}',
+        '    respond 201 json=item',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      // bare spread of a request namespace → spread of req.*
+      expect(route!.content).toContain('...req.body');
+      expect(route!.content).toContain('owner: req.user.id');
+      // member operand spread must NOT double-prefix to req.req.user.roles
+      expect(route!.content).toContain('[...req.user.roles]');
+      expect(route!.content).not.toContain('req.req.');
+    });
+
+    test('portable guard reuses matching route error contract message', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/tracks/:id',
+        '    derive track expr={{await db.tracks.findById(params.id)}}',
+        '    guard name=exists expr={{track}} else=404',
+        '    respond 200 json=track',
+        '    error 404 "Not found"',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain("res.status(404).json({ error: 'Not found' })");
+      expect(route!.content).not.toContain('exists guard failed');
+    });
+
     test('handler + respond coexist (escape hatch pattern)', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');
@@ -590,6 +724,40 @@ describe('Express Transpiler', () => {
       const getUsersRoute = result.artifacts!.find((a: any) => a.path.includes('get-api-users'));
       expect(getUsersRoute).toBeDefined();
       expect(getUsersRoute!.content).toContain("db.query('SELECT * FROM users");
+    });
+
+    test('respond json inline object lowers; portable-ref inside a string literal is preserved', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API port=8000',
+        '  route method=get path=/api/lit/:id',
+        '    respond 200 json={{ {label: "user.id", real: params.id} }}',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('get-api-lit-id'));
+      expect(route).toBeDefined();
+      expect(route!.content).not.toContain('[object Object]');
+      expect(route!.content).toContain('"user.id"'); // string literal preserved
+      expect(route!.content).toContain('req.params.id'); // real ref rewritten
+      expect(route!.content).not.toContain('req.user.id');
+    });
+
+    test('portable refs inside a template-literal interpolation are rewritten on Express', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API port=8000',
+        '  route method=get path=/api/tl/:id',
+        '    derive label expr={{ `Item ${params.id}` }}',
+        '    respond 200 json=label',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('get-api-tl-id'));
+      expect(route).toBeDefined();
+      // template stays valid JS, but the interpolation is rewritten
+      expect(route!.content).toContain('`Item ${req.params.id}`');
+      expect(route!.content).not.toContain('${params.id}');
     });
   });
 

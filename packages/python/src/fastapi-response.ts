@@ -9,7 +9,7 @@
 
 import type { IRNode } from '@kernlang/core';
 import { getProps } from '@kernlang/core';
-import { escapePyStr } from './fastapi-utils.js';
+import { escapePyStr, quoteObjectKeysOutsideStrings } from './fastapi-utils.js';
 import { toSnakeCase } from './type-map.js';
 
 export function generateRespondFastAPI(respondNode: IRNode, indent: string): string[] {
@@ -95,15 +95,591 @@ function lowerJsArrayMethods(expr: string): string {
   return next;
 }
 
-export function rewriteFastAPIExpr(expr: string, pathParams: string[]): string {
-  let result = expr;
+// Index of the bracket that closes the one at `openIdx`, tracking ()[]{} depth
+// and skipping string/template literals. -1 if unbalanced.
+function matchBalancedParen(expr: string, openIdx: number): number {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = openIdx; i < expr.length; i++) {
+    const c = expr[i];
+    if (quote) {
+      if (c === '\\') i += 1;
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') quote = c;
+    else if (c === '(' || c === '[' || c === '{') depth += 1;
+    else if (c === ')' || c === ']' || c === '}') {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+// Split a call's inner argument text on top-level commas, ignoring commas
+// inside nested ()[]{} or string literals.
+function splitTopLevelArgs(inner: string): string[] {
+  const args: string[] = [];
+  let depth = 0;
+  let quote: string | null = null;
+  let start = 0;
+  for (let i = 0; i < inner.length; i++) {
+    const c = inner[i];
+    if (quote) {
+      if (c === '\\') i += 1;
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') quote = c;
+    else if (c === '(' || c === '[' || c === '{') depth += 1;
+    else if (c === ')' || c === ']' || c === '}') depth -= 1;
+    else if (c === ',' && depth === 0) {
+      args.push(inner.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  args.push(inner.slice(start).trim());
+  return args;
+}
+
+// Lower JSON.stringify(...) / JSON.parse(...) to json.dumps/loads. Uses a
+// balanced, string-aware scan because the single argument can itself contain
+// commas, nested parens, brackets, braces, or string literals — which regex
+// cannot reliably capture (three regex iterations were each holed by review).
+// Skips occurrences inside string literals and those that are a property of
+// another receiver (e.g. `myJSON.stringify`). Handles the pretty-print form
+// `JSON.stringify(x, null, n)` → `json.dumps(x, indent=n)`.
+function lowerJsonBuiltinCalls(expr: string, imports?: Set<string>): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    const m = expr.slice(i).match(/^JSON\.(stringify|parse)\(/);
+    const prev = expr[i - 1];
+    if (m && !(prev && /[\w.]/.test(prev))) {
+      const method = m[1];
+      const openIdx = i + m[0].length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1) {
+        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));
+        // Recurse so a nested builtin in the argument is lowered too, e.g.
+        // JSON.stringify(JSON.parse(x)) → json.dumps(json.loads(x)) (Codex
+        // review on 9d8ed8d0). Terminates: the argument is strictly shorter.
+        const a0 = lowerJsonBuiltinCalls(args[0] ?? '', imports);
+        imports?.add('import json');
+        if (method === 'parse') {
+          out += `json.loads(${a0})`;
+        } else if (args.length >= 3 && /^(None|null)$/.test(args[1]) && /^\d+$/.test(args[2])) {
+          out += `json.dumps(${a0}, indent=${args[2]})`;
+        } else {
+          out += `json.dumps(${a0})`;
+        }
+        i = closeIdx + 1;
+        continue;
+      }
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
+// Build the Python comprehension for one `Array.from(...)` call's argument list,
+// or return null if the call isn't a lowerable length-form. Uses the balanced
+// helpers (not regex) so a length value or arrow params containing braces/parens
+// don't desync (codex/gemini review of cd7c40ae).
+function tryLowerArrayFrom(args: string[]): string | null {
+  if (args.length < 2) return null;
+  // arg0 must be an object literal whose `length` property gives the count.
+  const arg0 = args[0].trim();
+  if (!arg0.startsWith('{') || matchBalancedParen(arg0, 0) !== arg0.length - 1) return null;
+  let count: string | null = null;
+  for (const prop of splitTopLevelArgs(arg0.slice(1, -1))) {
+    const mm = prop.match(/^(?:length|["']length["'])\s*:\s*([\s\S]+)$/);
+    if (mm) {
+      count = mm[1].trim();
+      break;
+    }
+  }
+  if (count === null) return null;
+  // arg1 must be an arrow `(params) => body` or `param => body`.
+  const arrowStr = args[1].trim();
+  let params: string[];
+  let body: string;
+  if (arrowStr.startsWith('(')) {
+    const pClose = matchBalancedParen(arrowStr, 0);
+    if (pClose === -1) return null;
+    const after = arrowStr.slice(pClose + 1).trim();
+    if (!after.startsWith('=>')) return null;
+    params = splitTopLevelArgs(arrowStr.slice(1, pClose))
+      .map((s) => s.trim())
+      .filter(Boolean);
+    body = after.slice(2).trim();
+  } else {
+    const am = arrowStr.match(/^([A-Za-z_$][\w$]*)\s*=>\s*([\s\S]+)$/);
+    if (!am) return null;
+    params = [am[1]];
+    body = am[2].trim();
+  }
+  // Loop var = the INDEX (2nd param). The 1st param is the element, which is
+  // undefined for the length form, so it is NOT promoted to the loop variable
+  // (doing so would diverge from JS — `(x) => x` is [undefined…], not [0,1,…]).
+  // A non-simple index (destructuring) isn't a valid Python loop target → bail.
+  const idxVar = params[1] || '_';
+  if (!/^[A-Za-z_$][\w$]*$/.test(idxVar)) return null;
+  // `(_, i) => ({...})` parenthesizes the object body to disambiguate it from a
+  // block; unwrap ONLY when the enclosed body is an object literal, so a comma
+  // operator `(1, 2)` or grouped expr isn't mis-stripped (codex review).
+  if (body.startsWith('(') && matchBalancedParen(body, 0) === body.length - 1) {
+    const inner = body.slice(1, -1).trim();
+    if (inner.startsWith('{')) body = inner;
+  }
+  // Recurse so a nested Array.from in the count or body is lowered too.
+  return `[${lowerArrayFromCalls(body)} for ${idxVar} in range(${lowerArrayFromCalls(count)})]`;
+}
+
+// Expand JS object-literal shorthand properties to explicit `key: key` so the
+// dict-key quoting pass can quote them: `{ items, page }` → `{ items: items,
+// page: page }`. Bracket/string-aware: only an object-literal entry that is a
+// bare identifier is expanded; `key: value`, `**spread`, computed keys, and
+// array/comprehension contents (`[]`) are left alone, and nested objects are
+// handled by recursing into each entry. Runs just before key quoting.
+function expandObjectShorthand(expr: string): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    if (c === '{') {
+      const close = matchBalancedParen(expr, i);
+      if (close !== -1) {
+        const rebuilt = splitTopLevelArgs(expr.slice(i + 1, close)).map((entry) => {
+          const t = entry.trim();
+          if (t === '') return entry;
+          if (/^[A-Za-z_$][\w$]*$/.test(t)) return `${t}: ${t}`;
+          return expandObjectShorthand(entry);
+        });
+        out += `{${rebuilt.join(', ')}}`;
+        i = close + 1;
+        continue;
+      }
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
+// Lower `Array.from({ length: N }, (_, i) => BODY)` to a Python list
+// comprehension `[BODY for i in range(N)]` (Express keeps Array.from — valid
+// JS). Balanced, string-aware scan; runs BEFORE the ref/key/template passes so
+// they lower N and BODY in place. Only the `{ length: N }` form is handled;
+// `Array.from(iterable, fn)` (map form) is left untouched. A call immediately
+// followed by a method chain (`.map`, `.filter`, …) is left raw rather than
+// lowered, because the array-method pass cannot consume a comprehension
+// receiver and would emit malformed Python (codex review of cd7c40ae).
+function lowerArrayFromCalls(expr: string): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    const m = expr.slice(i).match(/^Array\.from\(/);
+    const prev = expr[i - 1];
+    if (m && !(prev && /[\w.]/.test(prev))) {
+      const openIdx = i + m[0].length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1 && expr[closeIdx + 1] !== '.') {
+        const lowered = tryLowerArrayFrom(splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)));
+        if (lowered !== null) {
+          out += lowered;
+          i = closeIdx + 1;
+          continue;
+        }
+      }
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
+type ParsedTemplateLiteral = {
+  endIndex: number;
+  textParts: string[];
+  interpolationParts: string[];
+};
+
+function scanQuotedString(expr: string, startIndex: number, quote: '"' | "'"): number {
+  for (let i = startIndex + 1; i < expr.length; i++) {
+    if (expr[i] === '\\') {
+      i += 1;
+      continue;
+    }
+    if (expr[i] === quote) return i;
+  }
+  return -1;
+}
+
+function scanTemplateInterpolationEnd(expr: string, startIndex: number): number {
+  let depth = 1;
+  for (let i = startIndex; i < expr.length; i++) {
+    const c = expr[i];
+    if (c === '"' || c === "'") {
+      const quotedEnd = scanQuotedString(expr, i, c);
+      if (quotedEnd === -1) return -1;
+      i = quotedEnd;
+      continue;
+    }
+    if (c === '`') {
+      const templateEnd = scanTemplateLiteralEnd(expr, i);
+      if (templateEnd === -1) return -1;
+      i = templateEnd;
+      continue;
+    }
+    if (c === '{') depth += 1;
+    else if (c === '}') {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function scanTemplateLiteralEnd(expr: string, startIndex: number): number {
+  for (let i = startIndex + 1; i < expr.length; i++) {
+    const c = expr[i];
+    if (c === '\\') {
+      i += 1;
+      continue;
+    }
+    if (c === '`') return i;
+    if (c === '$' && expr[i + 1] === '{') {
+      const interpolationEnd = scanTemplateInterpolationEnd(expr, i + 2);
+      if (interpolationEnd === -1) return -1;
+      i = interpolationEnd;
+    }
+  }
+  return -1;
+}
+
+function parseTemplateLiteral(expr: string, startIndex: number): ParsedTemplateLiteral | undefined {
+  const textParts: string[] = [];
+  const interpolationParts: string[] = [];
+  let text = '';
+
+  for (let i = startIndex + 1; i < expr.length; ) {
+    const c = expr[i];
+    if (c === '\\') {
+      text += c;
+      if (i + 1 < expr.length) text += expr[i + 1];
+      i += 2;
+      continue;
+    }
+    if (c === '`') {
+      textParts.push(text);
+      return { endIndex: i, textParts, interpolationParts };
+    }
+    if (c === '$' && expr[i + 1] === '{') {
+      textParts.push(text);
+      text = '';
+      const interpolationEnd = scanTemplateInterpolationEnd(expr, i + 2);
+      if (interpolationEnd === -1) return undefined;
+      interpolationParts.push(expr.slice(i + 2, interpolationEnd));
+      i = interpolationEnd + 1;
+      continue;
+    }
+    text += c;
+    i += 1;
+  }
+
+  return undefined;
+}
+
+// Re-encode JS-template literal text (kept raw by parseTemplateLiteral, with `\x`
+// as two characters) for a Python double-quoted string. Most JS escapes are
+// ALSO valid Python escapes (`\n \t \r \b \f \v \\ \" \uXXXX \xXX \0`), so they
+// are preserved verbatim — decoding then re-encoding them only risks corrupting
+// the exotic ones (Codex reviews on 678e6bc1 and the escape-decoder commit).
+// Only the JS-specific escapes that Python does not recognise are converted to
+// the bare character: `\`` → backtick, `\$` → `$`, `\'` → `'`. A bare `"` (or a
+// bare trailing backslash, or raw control char) is escaped so the literal stays
+// valid.
+function escapeJsTemplateTextForPy(raw: string): string {
+  let out = '';
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i];
+    if (c === '\\' && i + 1 < raw.length) {
+      const next = raw[i + 1];
+      if (next === '`' || next === '$' || next === "'") {
+        out += next; // JS-only escape → bare char (Python has no such escape)
+      } else {
+        out += `\\${next}`; // valid Python escape (\n, \uXXXX, \0, ...) — keep
+      }
+      i += 1;
+      continue;
+    }
+    if (c === '\\')
+      out += '\\\\'; // lone trailing backslash
+    else if (c === '"') out += '\\"';
+    else if (c === '\n') out += '\\n';
+    else if (c === '\r') out += '\\r';
+    else if (c === '\t') out += '\\t';
+    else out += c;
+  }
+  return out;
+}
+
+function escapePythonTemplateText(text: string, forFormatTemplate: boolean): string {
+  const escaped = escapeJsTemplateTextForPy(text);
+  if (!forFormatTemplate) return escaped;
+  // str.format treats { } as field markers, so literal braces must be doubled.
+  return escaped.replace(/{/g, '{{').replace(/}/g, '}}');
+}
+
+function lowerTemplateLiteralToPython(
+  parsed: ParsedTemplateLiteral,
+  pathParams: string[],
+  bodyFields: Set<string>,
+  authUser: boolean,
+  imports?: Set<string>,
+): string {
+  if (parsed.interpolationParts.length === 0) {
+    return `"${escapePythonTemplateText(parsed.textParts.join(''), false)}"`;
+  }
+
+  const rewrittenInterpolations = parsed.interpolationParts.map((part) =>
+    rewriteFastAPIExpr(part.trim(), pathParams, bodyFields, authUser, imports),
+  );
+
+  let fmt = '';
+  for (let i = 0; i < parsed.textParts.length; i++) {
+    fmt += escapePythonTemplateText(parsed.textParts[i], true);
+    if (i < parsed.interpolationParts.length) fmt += '{}';
+  }
+
+  return `"${fmt}".format(${rewrittenInterpolations.join(', ')})`;
+}
+
+function extractTemplateLiterals(
+  expr: string,
+  pathParams: string[],
+  bodyFields: Set<string>,
+  authUser: boolean,
+  imports?: Set<string>,
+): { maskedExpr: string; replacements: Array<{ placeholder: string; lowered: string }> } {
+  let maskedExpr = '';
+  const replacements: Array<{ placeholder: string; lowered: string }> = [];
+  let quote: '"' | "'" | null = null;
+
+  for (let i = 0; i < expr.length; ) {
+    const c = expr[i];
+    if (quote) {
+      maskedExpr += c;
+      if (c === '\\') {
+        maskedExpr += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+
+    if (c === '"' || c === "'") {
+      quote = c;
+      maskedExpr += c;
+      i += 1;
+      continue;
+    }
+
+    if (c === '`') {
+      const parsed = parseTemplateLiteral(expr, i);
+      if (!parsed) {
+        maskedExpr += c;
+        i += 1;
+        continue;
+      }
+      const placeholder = `__KERN_TEMPLATE_${replacements.length}__`;
+      const lowered = lowerTemplateLiteralToPython(parsed, pathParams, bodyFields, authUser, imports);
+      replacements.push({ placeholder, lowered });
+      maskedExpr += placeholder;
+      i = parsed.endIndex + 1;
+      continue;
+    }
+
+    maskedExpr += c;
+    i += 1;
+  }
+
+  return { maskedExpr, replacements };
+}
+
+// Lower JS spread elements to Python unpacking, choosing the operator from the
+// enclosing bracket: `{...x}` → `{**x}`, `[...x]` / `f(...x)` → `[*x]` / `f(*x)`.
+// Bracket-aware (a stack) and string-aware (skips quoted contents) so a literal
+// "..." inside a string is left intact. Runs BEFORE the request-ref rewrites so
+// that, e.g., `...user.roles` becomes `*user.roles` and the auth rewrite's
+// `(?<!\.)` lookbehind no longer sees the spread's trailing dot.
+function lowerSpreadElements(expr: string): string {
+  let out = '';
+  const stack: string[] = [];
+  let i = 0;
+  while (i < expr.length) {
+    const ch = expr[i];
+    if (ch === '"' || ch === "'") {
+      const q = ch;
+      out += ch;
+      i++;
+      while (i < expr.length) {
+        out += expr[i];
+        if (expr[i] === '\\') {
+          i++;
+          if (i < expr.length) out += expr[i];
+          i++;
+          continue;
+        }
+        if (expr[i] === q) {
+          i++;
+          break;
+        }
+        i++;
+      }
+      continue;
+    }
+    if (ch === '{' || ch === '[' || ch === '(') {
+      stack.push(ch);
+      out += ch;
+      i++;
+      continue;
+    }
+    if (ch === '}' || ch === ']' || ch === ')') {
+      stack.pop();
+      out += ch;
+      i++;
+      continue;
+    }
+    if (ch === '.' && expr[i + 1] === '.' && expr[i + 2] === '.') {
+      out += stack[stack.length - 1] === '{' ? '**' : '*';
+      i += 3;
+      // Collapse whitespace after the operator so `{ ... body }` yields tight
+      // `{**body}` — the model_dump pass matches `**body`, not `** body` (Codex).
+      while (i < expr.length && /\s/.test(expr[i])) i++;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+export function rewriteFastAPIExpr(
+  expr: string,
+  pathParams: string[],
+  bodyFields: Set<string> = new Set(),
+  authUser = false,
+  imports?: Set<string>,
+): string {
+  const { maskedExpr, replacements } = extractTemplateLiterals(expr, pathParams, bodyFields, authUser, imports);
+  let result = maskedExpr;
+  // Spread → unpacking first, so the request-ref rewrites below see clean
+  // operands (e.g. `*user.roles`, not `...user.roles`).
+  result = lowerSpreadElements(result);
+  // Expand object shorthand BEFORE Array.from lowering, so a shorthand length
+  // object `Array.from({ length }, …)` becomes `{ length: length }` and is
+  // recognised (codex review of d75a9d05). No later pass creates new object
+  // literals, so this single early pass covers length objects, arrow bodies,
+  // and every other object.
+  result = expandObjectShorthand(result);
+  // Array.from(length, arrow) → list comprehension. Runs before the ref/key
+  // passes so they lower the count and body of the produced comprehension.
+  result = lowerArrayFromCalls(result);
   // params.X → X (function param) for path params
   for (const param of pathParams) {
     result = result.replace(new RegExp(`\\bparams\\.${param}\\b`, 'g'), param);
   }
   // Fallback: any remaining params.X → X (for query params not in pathParams)
   result = result.replace(/\bparams\.([A-Za-z_]\w*)/g, '$1');
-  // body.X → body.X (Pydantic model — already correct)
+  // user.X → user["X"]: with auth, `user` is the decoded JWT payload (a dict
+  // returned by auth_required/auth_optional), so attribute access would raise
+  // AttributeError. Only applied when the route declares auth (Codex review).
+  // Skip text inside string literals so `{{"user.id"}}` isn't corrupted to
+  // `"user["id"]"` (Codex review on 02ecb2fa), and require `user` NOT be a
+  // property of something else (negative lookbehind `(?<!\.)`) so a nested
+  // body access like `body.user.id` is left intact (Kimi review on 02ecb2fa).
+  if (authUser) {
+    const USER_FIELD_RE = new RegExp(`${STRING_LITERAL_ALT}|(?<!\\.)\\buser\\.([A-Za-z_]\\w*)`, 'g');
+    result = result.replace(USER_FIELD_RE, (match, field) => (field ? `user["${field}"]` : match));
+  }
+  // body.X → body.<snake_case(X)>: the generated Pydantic model snake-cases
+  // every field, so a camelCase access would raise AttributeError at runtime.
+  // Only remap fields the model actually declares; leave unknown `body.X`
+  // (e.g. external validate schemas) untouched.
+  result = result.replace(/\bbody\.([A-Za-z_]\w*)/g, (match, field) =>
+    bodyFields.has(field) ? `body.${toSnakeCase(field)}` : match,
+  );
+  // Spreading the whole request body: `{**body}` raises TypeError because a
+  // Pydantic model is not a mapping, so unpack its dict form instead. This is
+  // unconditional: whenever the `body` symbol exists it is a Pydantic model
+  // (inline `RequestBody`, or an external `validate` schema typed `body: X` for
+  // POST/PUT/PATCH) — there is no `body: dict` codegen path, so model_dump() is
+  // always correct. Keying on bodyFields would wrongly skip external schemas
+  // (their field names are unknown but the param is still a model). A
+  // `**body.field` member spread is left alone via the `(?!\s*\.)` guard.
+  result = result.replace(/\*\*body\b(?!\s*\.)/g, '**body.model_dump()');
   // query.X → X (function param)
   result = result.replace(/\bquery\.([A-Za-z_]\w*)/g, '$1');
   // headers.X → request.headers.get("X")
@@ -133,6 +709,46 @@ export function rewriteFastAPIExpr(expr: string, pathParams: string[]): string {
     if (match === 'false') return 'False';
     return match; // quoted string
   });
+
+  // ── Host-builtin lowering (JS globals → Python stdlib) ────────────────
+  // crypto / Date are fixed forms matched by regex with a `(?<![\w.])` guard so
+  // a custom receiver (`some.crypto.randomUUID()`) is left untouched. The JSON
+  // calls need balanced argument parsing (regex can't), so they go through the
+  // string-aware scanner `lowerJsonBuiltinCalls`.
+
+  // crypto.randomUUID() → str(uuid.uuid4())
+  result = result.replace(new RegExp(`${STRING_LITERAL_ALT}|(?<![\\w.])crypto\\.randomUUID\\(\\)`, 'g'), (match) => {
+    if (match === 'crypto.randomUUID()') {
+      imports?.add('import uuid');
+      return 'str(uuid.uuid4())';
+    }
+    return match; // string literal — leave untouched
+  });
+
+  // new Date().toISOString() → datetime.now(timezone.utc).isoformat()
+  result = result.replace(
+    new RegExp(`${STRING_LITERAL_ALT}|(?<![\\w.])new Date\\(\\)\\.toISOString\\(\\)`, 'g'),
+    (match) => {
+      if (match === 'new Date().toISOString()') {
+        imports?.add('from datetime import datetime, timezone');
+        return 'datetime.now(timezone.utc).isoformat()';
+      }
+      return match;
+    },
+  );
+
+  // JSON.stringify(...) → json.dumps(...) / JSON.parse(...) → json.loads(...)
+  result = lowerJsonBuiltinCalls(result, imports);
+
+  // Object-literal keys → quoted Python dict keys (`{userId: x}` →
+  // `{"userId": x}`). Applied last, mirroring the raw `res.json(...)` path's
+  // outer quote-after-lower order; runs after array-method lowering so dicts
+  // produced inside list comprehensions are quoted too.
+  result = quoteObjectKeysOutsideStrings(result);
+
+  for (const replacement of replacements) {
+    result = result.split(replacement.placeholder).join(replacement.lowered);
+  }
 
   return result;
 }
