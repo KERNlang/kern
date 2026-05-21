@@ -95,6 +95,103 @@ export function render(el: HTMLElement, safe: string, raw: string): void {
     expect(f!.severity).toBe('error');
   });
 
+  // Escape-awareness through a same-function `const` (Agon webview FP class #1).
+  it('demotes .innerHTML assigned an escaped const variable to advisory (info)', () => {
+    const source = `
+declare function kswEscapeHtml(s: string): string;
+export function render(el: HTMLElement, x: string): void {
+  const safe = kswEscapeHtml(x);
+  el.innerHTML = safe;
+}
+`;
+    const report = reviewSource(source, 'dom.ts');
+    const f = report.findings.find((f) => f.ruleId === 'xss-unsafe-html');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('info');
+  });
+
+  it('resolves short escaped const-alias chains to advisory (info)', () => {
+    const source = `
+declare function kswEscapeHtml(s: string): string;
+export function render(el: HTMLElement, x: string): void {
+  const safe = kswEscapeHtml(x);
+  const html = safe;
+  el.innerHTML = html;
+}
+`;
+    const report = reviewSource(source, 'dom.ts');
+    const f = report.findings.find((f) => f.ruleId === 'xss-unsafe-html');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('info');
+  });
+
+  // Map/join HTML-builder idiom with escaped callback (Agon webview FP class #2).
+  it('demotes .innerHTML from items.map(escape).join("") to advisory (info)', () => {
+    const source = `
+declare function kswEscapeHtml(s: string): string;
+export function render(el: HTMLElement, items: string[]): void {
+  el.innerHTML = items.map((i) => \`<li>\${kswEscapeHtml(i)}</li>\`).join('');
+}
+`;
+    const report = reviewSource(source, 'dom.ts');
+    const f = report.findings.find((f) => f.ruleId === 'xss-unsafe-html');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('info');
+  });
+
+  // False-negative guards — these must stay 'error'. A security rule must never
+  // infer safety from mutable bindings, unknown sources, params, helper
+  // callbacks, unescaped interpolation, or a bare map without join.
+  it.each([
+    [
+      'let reassigned after escape',
+      `declare function escapeHtml(s: string): string;
+export function render(el: HTMLElement, x: string, raw: string): void {
+  let safe = escapeHtml(x);
+  safe = raw;
+  el.innerHTML = safe;
+}`,
+    ],
+    [
+      'const aliasing an unknown property source',
+      `export function render(el: HTMLElement, props: { safeHtml: string }): void {
+  const safe = props.safeHtml;
+  el.innerHTML = safe;
+}`,
+    ],
+    [
+      'a function parameter',
+      `export function render(el: HTMLElement, safe: string): void {
+  el.innerHTML = safe;
+}`,
+    ],
+    [
+      'map with an unescaped param interpolation',
+      `export function render(el: HTMLElement, items: string[]): void {
+  el.innerHTML = items.map((i) => \`<li>\${i}</li>\`).join('');
+}`,
+    ],
+    [
+      'map with a helper (non-inline) callback',
+      `declare function renderItem(i: string): string;
+export function render(el: HTMLElement, items: string[]): void {
+  el.innerHTML = items.map(renderItem).join('');
+}`,
+    ],
+    [
+      'a bare map without join (implicit comma coercion)',
+      `declare function escapeHtml(s: string): string;
+export function render(el: { innerHTML: unknown }, items: string[]): void {
+  el.innerHTML = items.map((i) => \`<li>\${escapeHtml(i)}</li>\`);
+}`,
+    ],
+  ])('keeps .innerHTML from %s at error', (_label, source) => {
+    const report = reviewSource(source, 'dom.ts');
+    const f = report.findings.find((f) => f.ruleId === 'xss-unsafe-html');
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe('error');
+  });
+
   it('recognizes DOMPurify.sanitize as an escape helper', () => {
     const source = `
 declare const DOMPurify: { sanitize(s: string): string };

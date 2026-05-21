@@ -7,7 +7,7 @@
  * Always active, regardless of target.
  */
 
-import { SyntaxKind } from 'ts-morph';
+import { SyntaxKind, VariableDeclarationKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext, SourceSpan } from '../types.js';
 import { createFingerprint } from '../types.js';
 import { resolveConfidence } from './confidence-baseline.js';
@@ -72,6 +72,35 @@ const HTML_ESCAPE_ROOTS: ReadonlySet<string> = new Set(['DOMPurify', 'purify', '
 
 type RhsClass = 'literal' | 'escaped' | 'unsafe';
 
+// Resolution context threaded through classifyHtmlRhs so identifier and map/join
+// handling stays intra-function, acyclic, and depth-bounded — a conservative
+// proof engine, not a general taint analyzer. (Design: 6-engine agon council.)
+interface HtmlRhsCtx {
+  // Enclosing function-like of the sink assignment (undefined at module scope);
+  // a binding only resolves when declared in this same boundary.
+  sinkFn: import('ts-morph').Node | undefined;
+  // Start offset of the sink — only bindings declared *before* it resolve.
+  sinkPos: number;
+  // const declarations on the current resolution path — cycle guard.
+  resolving: Set<import('ts-morph').Node>;
+  aliasDepth: number;
+  maxAliasDepth: number;
+}
+
+const FUNCTION_LIKE_KINDS: ReadonlySet<SyntaxKind> = new Set([
+  SyntaxKind.FunctionDeclaration,
+  SyntaxKind.FunctionExpression,
+  SyntaxKind.ArrowFunction,
+  SyntaxKind.MethodDeclaration,
+  SyntaxKind.GetAccessor,
+  SyntaxKind.SetAccessor,
+  SyntaxKind.Constructor,
+]);
+
+function enclosingFunction(node: import('ts-morph').Node): import('ts-morph').Node | undefined {
+  return node.getFirstAncestor((ancestor) => FUNCTION_LIKE_KINDS.has(ancestor.getKind()));
+}
+
 function mergeRhs(a: RhsClass, b: RhsClass): RhsClass {
   if (a === 'unsafe' || b === 'unsafe') return 'unsafe';
   if (a === 'escaped' || b === 'escaped') return 'escaped';
@@ -94,7 +123,95 @@ function isEscapeCall(node: import('ts-morph').Node): boolean {
   return false;
 }
 
-function classifyHtmlRhs(node: import('ts-morph').Node): RhsClass {
+// Resolve a bare identifier ONLY to a same-function `const` initializer declared
+// before the sink. `const` guarantees no later reassignment; parameters, imports,
+// catch bindings, destructures, globals, outer-closure captures, and any
+// `let`/`var` deliberately stay 'unsafe' (control flow makes their value
+// unprovable syntactically).
+function classifyIdentifierRhs(id: import('ts-morph').Identifier, ctx: HtmlRhsCtx): RhsClass {
+  const decl = id.getSymbol()?.getValueDeclaration();
+  if (!decl || decl.getKind() !== SyntaxKind.VariableDeclaration) return 'unsafe';
+  const varDecl = decl as import('ts-morph').VariableDeclaration;
+  // Plain `const name = ...` only — never a destructuring pattern.
+  if (varDecl.getNameNode().getKind() !== SyntaxKind.Identifier) return 'unsafe';
+  const statement = varDecl.getVariableStatement();
+  if (!statement || statement.getDeclarationKind() !== VariableDeclarationKind.Const) return 'unsafe';
+  const init = varDecl.getInitializer();
+  if (!init) return 'unsafe';
+  if (enclosingFunction(varDecl) !== ctx.sinkFn) return 'unsafe';
+  if (varDecl.getStart() >= ctx.sinkPos) return 'unsafe';
+  if (ctx.resolving.has(varDecl) || ctx.aliasDepth >= ctx.maxAliasDepth) return 'unsafe';
+
+  ctx.resolving.add(varDecl);
+  const result = classifyHtmlRhs(init, { ...ctx, aliasDepth: ctx.aliasDepth + 1 });
+  ctx.resolving.delete(varDecl);
+  return result === 'unsafe' ? 'unsafe' : result;
+}
+
+// Direct `return` expressions of `fn` only — never descend into nested functions.
+function directReturnExpressions(fn: import('ts-morph').Node): Array<import('ts-morph').Expression | undefined> {
+  return fn
+    .getDescendantsOfKind(SyntaxKind.ReturnStatement)
+    .filter((ret) => enclosingFunction(ret) === fn)
+    .map((ret) => ret.getExpression());
+}
+
+function classifyCallbackReturn(
+  fn: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
+  ctx: HtmlRhsCtx,
+): RhsClass {
+  if (fn.getKind() === SyntaxKind.ArrowFunction) {
+    const body = (fn as import('ts-morph').ArrowFunction).getBody();
+    if (body.getKind() !== SyntaxKind.Block) return classifyHtmlRhs(body, ctx);
+  }
+  const returns = directReturnExpressions(fn);
+  if (returns.length === 0) return 'unsafe';
+  let acc: RhsClass = 'literal';
+  for (const expr of returns) {
+    if (!expr) return 'unsafe';
+    acc = mergeRhs(acc, classifyHtmlRhs(expr, ctx));
+    if (acc === 'unsafe') return 'unsafe';
+  }
+  return acc;
+}
+
+// Recognize ONLY the narrow HTML-builder idiom `<recv>.map(inlineCb).join(<lit>)`.
+// The inline callback's returned expression is classified; its parameters are
+// unknown, so an unescaped interpolation of a param stays 'unsafe'. Bare
+// `.map(cb)`, helper-function callbacks, and non-literal/omitted separators are
+// not trusted.
+function classifyCallRhs(call: import('ts-morph').CallExpression, ctx: HtmlRhsCtx): RhsClass {
+  if (isEscapeCall(call)) return 'escaped';
+
+  const joinCallee = call.getExpression();
+  if (joinCallee.getKind() !== SyntaxKind.PropertyAccessExpression) return 'unsafe';
+  const joinPa = joinCallee as import('ts-morph').PropertyAccessExpression;
+  if (joinPa.getName() !== 'join') return 'unsafe';
+
+  // Separator: require exactly one string-literal argument (e.g. `join('')`).
+  const joinArgs = call.getArguments();
+  if (joinArgs.length !== 1) return 'unsafe';
+  const sepKind = joinArgs[0].getKind();
+  if (sepKind !== SyntaxKind.StringLiteral && sepKind !== SyntaxKind.NoSubstitutionTemplateLiteral) return 'unsafe';
+
+  const mapCandidate = joinPa.getExpression();
+  if (mapCandidate.getKind() !== SyntaxKind.CallExpression) return 'unsafe';
+  const mapCall = mapCandidate as import('ts-morph').CallExpression;
+  const mapCallee = mapCall.getExpression();
+  if (mapCallee.getKind() !== SyntaxKind.PropertyAccessExpression) return 'unsafe';
+  if ((mapCallee as import('ts-morph').PropertyAccessExpression).getName() !== 'map') return 'unsafe';
+
+  const cb = mapCall.getArguments()[0];
+  if (!cb) return 'unsafe';
+  const cbKind = cb.getKind();
+  if (cbKind !== SyntaxKind.ArrowFunction && cbKind !== SyntaxKind.FunctionExpression) return 'unsafe';
+  return classifyCallbackReturn(
+    cb as import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
+    ctx,
+  );
+}
+
+function classifyHtmlRhs(node: import('ts-morph').Node, ctx: HtmlRhsCtx): RhsClass {
   const kind = node.getKind();
   if (
     kind === SyntaxKind.StringLiteral ||
@@ -107,30 +224,35 @@ function classifyHtmlRhs(node: import('ts-morph').Node): RhsClass {
     return 'literal';
   }
   if (kind === SyntaxKind.ParenthesizedExpression) {
-    return classifyHtmlRhs((node as import('ts-morph').ParenthesizedExpression).getExpression());
+    return classifyHtmlRhs((node as import('ts-morph').ParenthesizedExpression).getExpression(), ctx);
   }
   if (kind === SyntaxKind.BinaryExpression) {
     const be = node as import('ts-morph').BinaryExpression;
     const op = be.getOperatorToken().getKind();
     // String concat, logical OR/nullish — both branches flow to the sink.
     if (op === SyntaxKind.PlusToken || op === SyntaxKind.BarBarToken || op === SyntaxKind.QuestionQuestionToken) {
-      return mergeRhs(classifyHtmlRhs(be.getLeft()), classifyHtmlRhs(be.getRight()));
+      return mergeRhs(classifyHtmlRhs(be.getLeft(), ctx), classifyHtmlRhs(be.getRight(), ctx));
     }
     return 'unsafe';
   }
   if (kind === SyntaxKind.ConditionalExpression) {
     const ce = node as import('ts-morph').ConditionalExpression;
-    return mergeRhs(classifyHtmlRhs(ce.getWhenTrue()), classifyHtmlRhs(ce.getWhenFalse()));
+    return mergeRhs(classifyHtmlRhs(ce.getWhenTrue(), ctx), classifyHtmlRhs(ce.getWhenFalse(), ctx));
   }
   if (kind === SyntaxKind.TemplateExpression) {
     const te = node as import('ts-morph').TemplateExpression;
     let acc: RhsClass = 'literal';
     for (const span of te.getTemplateSpans()) {
-      acc = mergeRhs(acc, classifyHtmlRhs(span.getExpression()));
+      acc = mergeRhs(acc, classifyHtmlRhs(span.getExpression(), ctx));
     }
     return acc;
   }
-  if (isEscapeCall(node)) return 'escaped';
+  if (kind === SyntaxKind.Identifier) {
+    return classifyIdentifierRhs(node as import('ts-morph').Identifier, ctx);
+  }
+  if (kind === SyntaxKind.CallExpression) {
+    return classifyCallRhs(node as import('ts-morph').CallExpression, ctx);
+  }
   return 'unsafe';
 }
 
@@ -163,7 +285,13 @@ function xssUnsafeHtml(ctx: RuleContext): ReviewFinding[] {
     const propName = pa.getName();
     if (propName !== 'innerHTML' && propName !== 'outerHTML') continue;
 
-    const rhsClass = classifyHtmlRhs(bin.getRight());
+    const rhsClass = classifyHtmlRhs(bin.getRight(), {
+      sinkFn: enclosingFunction(bin),
+      sinkPos: bin.getStart(),
+      resolving: new Set(),
+      aliasDepth: 0,
+      maxAliasDepth: 3,
+    });
     if (rhsClass === 'literal') continue;
 
     if (rhsClass === 'escaped') {
