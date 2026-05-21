@@ -1,4 +1,4 @@
-import { type ExternalSignatureMap, inferExternalSignatureMap } from './ecosystem-signatures.js';
+import type { ExternalSignatureMap } from './ecosystem-signatures.js';
 import {
   collectExternalBoundaries,
   collectSidecarManifests,
@@ -7,6 +7,12 @@ import {
   type SidecarManifest,
   type SidecarPackage,
 } from './external-boundary.js';
+import {
+  externalNamedBindingSignature,
+  externalSignatureMapForSidecarPackage,
+  externalSymbolsFromSidecarManifest,
+  parseExternalNamedBinding as parseExternalNamedBindingGenerated,
+} from './external-symbol-utils.js';
 import type { ExternalImportRegistry, ExternalImportTarget } from './import-metadata.js';
 import type { IRNode } from './types.js';
 
@@ -57,34 +63,12 @@ export interface ExternalSignatureDiagnostic {
   col?: number;
 }
 
-const SAFE_IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
-
 export function parseExternalNamedBinding(raw: string): ExternalNamedBinding | null {
-  const match = raw.trim().match(/^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/u);
-  if (!match) return null;
-  return { name: match[1], alias: match[2] ?? match[1] };
+  return parseExternalNamedBindingGenerated(raw);
 }
 
 export function signatureMapForSidecarPackage(sidecarPackage: SidecarPackage): ExternalSignatureMap {
-  const signatures: ExternalSignatureMap = {
-    ...(inferExternalSignatureMap(sidecarPackage.registry, sidecarPackage.package) ?? {}),
-  };
-  for (const binding of sidecarPackage.imports) {
-    if (binding.signatures && (binding.default || binding.names.length === 0)) {
-      Object.assign(signatures, binding.signatures);
-    }
-    for (const rawName of binding.names) {
-      const namedBinding = parseExternalNamedBinding(rawName);
-      if (!namedBinding) continue;
-      const signature = binding.signatures?.[namedBinding.name];
-      if (signature) signatures[namedBinding.name] = signature;
-    }
-    if (binding.signature && binding.names.length === 1) {
-      const namedBinding = parseExternalNamedBinding(binding.names[0]);
-      if (namedBinding) signatures[namedBinding.name] = binding.signature;
-    }
-  }
-  return signatures;
+  return externalSignatureMapForSidecarPackage(sidecarPackage);
 }
 
 export function collectExternalImportSymbols(root: IRNode): ExternalImportSymbolTable {
@@ -189,7 +173,7 @@ function symbolsFromBoundary(boundary: ExternalBoundary): ExternalImportSymbol[]
         targetFamily: boundary.targetFamily,
         from: binding.from,
         sourceName: namedBinding.name,
-        signature: namedBindingSignature(binding, namedBinding.name),
+        signature: externalNamedBindingSignature(binding, namedBinding.name),
         runtime: boundary.runtime,
         boundary,
         binding,
@@ -217,61 +201,8 @@ function symbolsFromBoundary(boundary: ExternalBoundary): ExternalImportSymbol[]
   return symbols;
 }
 
-function namedBindingSignature(binding: ExternalImportBinding, name: string): string | undefined {
-  if (binding.names.length === 1) return binding.signature ?? binding.signatures?.[name];
-  return binding.signatures?.[name];
-}
-
 function symbolsFromSidecarManifest(manifest: SidecarManifest): ExternalImportSymbol[] {
-  const symbols: ExternalImportSymbol[] = [];
-  for (const sidecarPackage of manifest.packages) {
-    const signatures = signatureMapForSidecarPackage(sidecarPackage);
-    const moduleAliases = new Set<string>();
-    for (const binding of sidecarPackage.imports) {
-      if (binding.default) moduleAliases.add(binding.default);
-    }
-    if (moduleAliases.size === 0 && SAFE_IDENTIFIER_RE.test(sidecarPackage.package)) {
-      moduleAliases.add(sidecarPackage.package);
-    }
-    for (const localName of moduleAliases) {
-      symbols.push({
-        localName,
-        kind: 'module',
-        package: sidecarPackage.package,
-        registry: sidecarPackage.registry,
-        target: sidecarPackage.target,
-        targetFamily: sidecarPackage.targetFamily,
-        signatures,
-        sidecarName: manifest.name,
-        runtime: manifest.runtime,
-        line: sidecarPackage.line ?? manifest.line,
-        col: sidecarPackage.col ?? manifest.col,
-      });
-    }
-    for (const binding of sidecarPackage.imports) {
-      for (const rawName of binding.names) {
-        const namedBinding = parseExternalNamedBinding(rawName);
-        if (!namedBinding) continue;
-        symbols.push({
-          localName: namedBinding.alias,
-          kind: 'function',
-          package: sidecarPackage.package,
-          registry: sidecarPackage.registry,
-          target: sidecarPackage.target,
-          targetFamily: sidecarPackage.targetFamily,
-          from: binding.from,
-          sourceName: namedBinding.name,
-          signature: signatures[namedBinding.name],
-          sidecarName: manifest.name,
-          runtime: manifest.runtime,
-          binding,
-          line: binding.line ?? sidecarPackage.line ?? manifest.line,
-          col: binding.col ?? sidecarPackage.col ?? manifest.col,
-        });
-      }
-    }
-  }
-  return symbols;
+  return externalSymbolsFromSidecarManifest(manifest);
 }
 
 function indexSymbols(symbols: ExternalImportSymbol[]): ExternalImportSymbolTable {

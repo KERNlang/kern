@@ -1,0 +1,39 @@
+type name=GapCategory alias="'detected' | 'migratable' | 'blocked-by-parser' | 'blocked-by-codegen' | 'needs-new-node'"
+type name=GapClassification alias="{ category: GapCategory; migration?: string }"
+
+const name=INLINE_SAFE_NUMBER_PATTERN value={{"^-?(?:0x[0-9a-fA-F][0-9a-fA-F_]*|0b[01][01_]*|0o[0-7][0-7_]*|\\d[\\d_]*(?:\\.\\d[\\d_]*)?(?:[eE][+-]?\\d[\\d_]*)?)$"}}
+const name=FN_SINGLE_LINE_BODY value={{"return users.filter(u => u.active)"}}
+const name=ROUTE_BODY value={{"return []"}}
+const name=SCREEN_BODY value={{"return null"}}
+const name=MULTI_LINE_BODY value={{"return x\nreturn x * 2"}}
+
+fn name=isInlineSafeLiteral params="text:string" returns=boolean export=true
+  handler
+    let name=t value="text.trim()"
+    if cond="t.length === 0"
+      return value="false"
+    if cond="t === 'true' || t === 'false' || t === 'null' || t === 'undefined'"
+      return value="true"
+    return value="new RegExp(INLINE_SAFE_NUMBER_PATTERN).test(t)"
+
+fn name=isInlineSafeExpression params="text:string" returns=boolean export=true
+  handler
+    let name=t value="text.trim()"
+    if cond="t.length === 0"
+      return value="false"
+    if cond="t.includes('}}')"
+      return value="false"
+    return value="true"
+
+fn name=classifyHandlerGap returns=GapClassification export=true
+  param name=parentType type="string | undefined"
+  param name=body type=string
+  handler
+    let name=trimmed value="body.trim()"
+    if cond="trimmed.length === 0 || trimmed.includes('\n')"
+      return value="{ category: 'detected' }"
+    if cond="parentType === 'const' && (isInlineSafeLiteral(trimmed) || isInlineSafeExpression(trimmed))"
+      return value="{ category: 'migratable', migration: 'literal-const' }"
+    if cond="parentType === 'fn' && isInlineSafeExpression(trimmed)"
+      return value="{ category: 'migratable', migration: 'fn-expr' }"
+    return value="{ category: 'detected' }"

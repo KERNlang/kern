@@ -513,6 +513,60 @@ describe('Express Transpiler', () => {
       expect(route!.content).toContain("req.headers['authorization']");
     });
 
+    test('portable auth user ref rewrites to req.user', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/tracks',
+        '    auth required',
+        '    derive tracks expr={{await db.tracks.findAll({userId: user.id})}}',
+        '    respond 200 json=tracks',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('authRequired');
+      expect(route!.content).toContain('userId: req.user.id');
+      expect(route!.content).not.toContain('userId: user.id');
+    });
+
+    test('portable spread of bare body/user rewrites the aggregate to req.*', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=Test',
+        '  route POST /api/items',
+        '    auth required',
+        '    derive item expr={{ { ...body, owner: user.id, roles: [...user.roles] } }}',
+        '    respond 201 json=item',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      // bare spread of a request namespace → spread of req.*
+      expect(route!.content).toContain('...req.body');
+      expect(route!.content).toContain('owner: req.user.id');
+      // member operand spread must NOT double-prefix to req.req.user.roles
+      expect(route!.content).toContain('[...req.user.roles]');
+      expect(route!.content).not.toContain('req.req.');
+    });
+
+    test('portable guard reuses matching route error contract message', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/tracks/:id',
+        '    derive track expr={{await db.tracks.findById(params.id)}}',
+        '    guard name=exists expr={{track}} else=404',
+        '    respond 200 json=track',
+        '    error 404 "Not found"',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain("res.status(404).json({ error: 'Not found' })");
+      expect(route!.content).not.toContain('exists guard failed');
+    });
+
     test('handler + respond coexist (escape hatch pattern)', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');
@@ -590,6 +644,40 @@ describe('Express Transpiler', () => {
       const getUsersRoute = result.artifacts!.find((a: any) => a.path.includes('get-api-users'));
       expect(getUsersRoute).toBeDefined();
       expect(getUsersRoute!.content).toContain("db.query('SELECT * FROM users");
+    });
+
+    test('respond json inline object lowers; portable-ref inside a string literal is preserved', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API port=8000',
+        '  route method=get path=/api/lit/:id',
+        '    respond 200 json={{ {label: "user.id", real: params.id} }}',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('get-api-lit-id'));
+      expect(route).toBeDefined();
+      expect(route!.content).not.toContain('[object Object]');
+      expect(route!.content).toContain('"user.id"'); // string literal preserved
+      expect(route!.content).toContain('req.params.id'); // real ref rewritten
+      expect(route!.content).not.toContain('req.user.id');
+    });
+
+    test('portable refs inside a template-literal interpolation are rewritten on Express', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API port=8000',
+        '  route method=get path=/api/tl/:id',
+        '    derive label expr={{ `Item ${params.id}` }}',
+        '    respond 200 json=label',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('get-api-tl-id'));
+      expect(route).toBeDefined();
+      // template stays valid JS, but the interpolation is rewritten
+      expect(route!.content).toContain('`Item ${req.params.id}`');
+      expect(route!.content).not.toContain('${params.id}');
     });
   });
 

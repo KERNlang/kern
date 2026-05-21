@@ -42,7 +42,13 @@ function extractCodeOrString(val: unknown): string {
 // before comparing against literal names so `{{ true }}` (with internal
 // whitespace from KERN curly-expression syntax) maps to `True`, not the
 // invalid Python identifier `true`.
-function lowerPropToPython(val: unknown, pathParams: string[]): string {
+function lowerPropToPython(
+  val: unknown,
+  pathParams: string[],
+  bodyFields: Set<string>,
+  authUser: boolean,
+  imports?: Set<string>,
+): string {
   const raw = extractCodeOrString(val);
   const trimmed = raw.trim();
   if (trimmed === '' || trimmed === 'null' || trimmed === 'undefined') return 'None';
@@ -52,7 +58,7 @@ function lowerPropToPython(val: unknown, pathParams: string[]): string {
   // a curly-expression carries no semantic information and only risks
   // confusing any future anchor-based regex (Gemini defensive note on
   // commit 7a25348b).
-  return rewriteFastAPIExpr(trimmed, pathParams);
+  return rewriteFastAPIExpr(trimmed, pathParams, bodyFields, authUser, imports);
 }
 
 export function generatePortableChildFastAPI(
@@ -60,6 +66,8 @@ export function generatePortableChildFastAPI(
   indent: string,
   pathParams: string[],
   imports: Set<string>,
+  bodyFields: Set<string> = new Set(),
+  authUser = false,
 ): string[] {
   const lines: string[] = [];
   const p = getProps(child);
@@ -69,7 +77,9 @@ export function generatePortableChildFastAPI(
       const name = String(p.name || '');
       const exprCode = extractExprCode(p.expr);
       if (name && exprCode) {
-        lines.push(`${indent}${toSnakeCase(name)} = ${rewriteFastAPIExpr(exprCode, pathParams)}`);
+        lines.push(
+          `${indent}${toSnakeCase(name)} = ${rewriteFastAPIExpr(exprCode, pathParams, bodyFields, authUser, imports)}`,
+        );
       }
       break;
     }
@@ -80,7 +90,7 @@ export function generatePortableChildFastAPI(
       const elseMessage = typeof p.message === 'string' ? p.message : name ? `${name} guard failed` : 'Guard failed';
       if (exprCode) {
         imports.add('from fastapi import HTTPException');
-        lines.push(`${indent}if not (${rewriteFastAPIExpr(exprCode, pathParams)}):`);
+        lines.push(`${indent}if not (${rewriteFastAPIExpr(exprCode, pathParams, bodyFields, authUser, imports)}):`);
         lines.push(`${indent}    raise HTTPException(status_code=${elseStatus}, detail="${escapePyStr(elseMessage)}")`);
       }
       break;
@@ -102,18 +112,33 @@ export function generatePortableChildFastAPI(
       break;
     }
     case 'respond': {
-      // Clone props to avoid mutating shared AST, then rewrite portable refs
+      // Clone props to avoid mutating shared AST, then rewrite portable refs.
+      // Use extractExprCode so a curly-expression value (`json={{ {a: 1} }}`)
+      // yields its code rather than `String({__expr})` → "[object Object]";
+      // plain identifiers (`json=user`) pass through unchanged.
       const clonedRespond: IRNode = { ...child, props: { ...child.props } };
       if (clonedRespond.props!.json)
-        clonedRespond.props!.json = rewriteFastAPIExpr(String(clonedRespond.props!.json), pathParams);
+        clonedRespond.props!.json = rewriteFastAPIExpr(
+          extractExprCode(clonedRespond.props!.json),
+          pathParams,
+          bodyFields,
+          authUser,
+          imports,
+        );
       if (clonedRespond.props!.text)
-        clonedRespond.props!.text = rewriteFastAPIExpr(String(clonedRespond.props!.text), pathParams);
+        clonedRespond.props!.text = rewriteFastAPIExpr(
+          extractExprCode(clonedRespond.props!.text),
+          pathParams,
+          bodyFields,
+          authUser,
+          imports,
+        );
       addRespondImports(clonedRespond, imports);
       lines.push(...generateRespondFastAPI(clonedRespond, indent));
       break;
     }
     case 'branch': {
-      const on = lowerPropToPython(p.on, pathParams);
+      const on = lowerPropToPython(p.on, pathParams, bodyFields, authUser, imports);
       const paths = getChildren(child, 'path');
       for (let i = 0; i < paths.length; i++) {
         const pathNode = paths[i];
@@ -123,7 +148,9 @@ export function generatePortableChildFastAPI(
         lines.push(`${indent}${keyword} ${on} == "${escapePyStr(value)}":`);
         const bodyStart = lines.length;
         for (const pathChild of pathNode.children || []) {
-          lines.push(...generatePortableChildFastAPI(pathChild, `${indent}    `, pathParams, imports));
+          lines.push(
+            ...generatePortableChildFastAPI(pathChild, `${indent}    `, pathParams, imports, bodyFields, authUser),
+          );
         }
         if (lines.length === bodyStart) lines.push(`${indent}    pass`);
       }
@@ -131,7 +158,13 @@ export function generatePortableChildFastAPI(
     }
     case 'each': {
       const name = String(p.name || 'item');
-      const collection = rewriteFastAPIExpr(extractExprCode(p.in) || String(p.in || ''), pathParams);
+      const collection = rewriteFastAPIExpr(
+        extractExprCode(p.in) || String(p.in || ''),
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+      );
       const index = p.index ? String(p.index) : undefined;
       if (index) {
         lines.push(`${indent}for ${index}, ${name} in enumerate(${collection}):`);
@@ -140,7 +173,9 @@ export function generatePortableChildFastAPI(
       }
       const bodyStart = lines.length;
       for (const eachChild of child.children || []) {
-        lines.push(...generatePortableChildFastAPI(eachChild, `${indent}    `, pathParams, imports));
+        lines.push(
+          ...generatePortableChildFastAPI(eachChild, `${indent}    `, pathParams, imports, bodyFields, authUser),
+        );
       }
       if (lines.length === bodyStart) lines.push(`${indent}    pass`);
       break;
@@ -168,7 +203,7 @@ export function generatePortableChildFastAPI(
         'all',
       ]);
       const collectName = PY_BUILTINS.has(rawName) ? `${rawName}_result` : rawName;
-      const from = lowerPropToPython(p.from, pathParams);
+      const from = lowerPropToPython(p.from, pathParams, bodyFields, authUser, imports);
       const where = p.where ? extractExprCode(p.where) : undefined;
       // `limit` is typically a literal integer (`limit=10`) but can be a
       // curly-expression (`limit={{params.max}}`) — route through the same
@@ -176,7 +211,7 @@ export function generatePortableChildFastAPI(
       // doesn't lurk here either (Gemini M3 on 86e6b893).
       const limit =
         p.limit !== undefined && p.limit !== null && p.limit !== ''
-          ? lowerPropToPython(p.limit, pathParams)
+          ? lowerPropToPython(p.limit, pathParams, bodyFields, authUser, imports)
           : undefined;
       // Compute order in two stages so we can suppress `sorted()`
       // emission entirely when the source value resolves to absent / null
@@ -195,14 +230,16 @@ export function generatePortableChildFastAPI(
       const order =
         orderSourceTrimmed === '' || orderSourceTrimmed === 'null' || orderSourceTrimmed === 'undefined'
           ? undefined
-          : lowerPropToPython(p.order, pathParams);
+          : lowerPropToPython(p.order, pathParams, bodyFields, authUser, imports);
       if (where && !order && !limit) {
-        lines.push(`${indent}${collectName} = [item for item in ${from} if ${rewriteFastAPIExpr(where, pathParams)}]`);
+        lines.push(
+          `${indent}${collectName} = [item for item in ${from} if ${rewriteFastAPIExpr(where, pathParams, bodyFields, authUser, imports)}]`,
+        );
       } else {
         lines.push(`${indent}${collectName} = ${from}`);
         if (where)
           lines.push(
-            `${indent}${collectName} = [item for item in ${collectName} if ${rewriteFastAPIExpr(where, pathParams)}]`,
+            `${indent}${collectName} = [item for item in ${collectName} if ${rewriteFastAPIExpr(where, pathParams, bodyFields, authUser, imports)}]`,
           );
         if (order)
           // `order` already routed through `lowerPropToPython` above (which
@@ -255,20 +292,30 @@ export function generatePortableChildFastAPI(
         triggerExpr = '';
       }
       const retryCount = recoverNode ? parseInt(String(getProps(recoverNode).retry || '0'), 10) : 0;
-      const pyFallback = lowerPropToPython(recoverNode ? getProps(recoverNode).fallback : undefined, pathParams);
+      const pyFallback = lowerPropToPython(
+        recoverNode ? getProps(recoverNode).fallback : undefined,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+      );
 
       if (retryCount > 0) {
         lines.push(`${indent}${effectName} = ${pyFallback}`);
         lines.push(`${indent}for _attempt in range(${retryCount}):`);
         lines.push(`${indent}    try:`);
-        lines.push(`${indent}        ${effectName} = ${rewriteFastAPIExpr(triggerExpr, pathParams)}`);
+        lines.push(
+          `${indent}        ${effectName} = ${rewriteFastAPIExpr(triggerExpr, pathParams, bodyFields, authUser, imports)}`,
+        );
         lines.push(`${indent}        break`);
         lines.push(`${indent}    except Exception:`);
         lines.push(`${indent}        if _attempt == ${retryCount - 1}:`);
         lines.push(`${indent}            ${effectName} = ${pyFallback}`);
       } else {
         lines.push(`${indent}try:`);
-        lines.push(`${indent}    ${effectName} = ${rewriteFastAPIExpr(triggerExpr, pathParams)}`);
+        lines.push(
+          `${indent}    ${effectName} = ${rewriteFastAPIExpr(triggerExpr, pathParams, bodyFields, authUser, imports)}`,
+        );
         lines.push(`${indent}except Exception:`);
         lines.push(`${indent}    ${effectName} = ${pyFallback}`);
       }
@@ -286,6 +333,8 @@ export function generatePortableHandlerFastAPI(
   indent: string,
   pathParams: string[],
   imports: Set<string>,
+  bodyFields: Set<string> = new Set(),
+  authUser = false,
 ): string[] {
   const lines: string[] = [];
   const children = routeNode.children || [];
@@ -294,7 +343,7 @@ export function generatePortableHandlerFastAPI(
   const PORTABLE_TYPES = new Set(['derive', 'guard', 'handler', 'respond', 'branch', 'each', 'collect', 'effect']);
   for (const child of children) {
     if (PORTABLE_TYPES.has(child.type)) {
-      lines.push(...generatePortableChildFastAPI(child, indent, pathParams, imports));
+      lines.push(...generatePortableChildFastAPI(child, indent, pathParams, imports, bodyFields, authUser));
     }
   }
 

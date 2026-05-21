@@ -11,7 +11,7 @@ import { rewriteNativeHandlers } from '../src/commands/migrate-native-handlers.j
 describe('rewriteNativeHandlers — declaration-only refusal', () => {
   test('refuses a handler that emits only `let` (no action-bearing statement)', () => {
     // Pure declaration body: `const x = …;` and nothing else. The rewriter
-    // could technically emit `handler lang="kern" / let name=x value="..."`
+    // could technically emit `handler / let name=x value="..."`
     // and pass parser strict, but the original handler likely existed for a
     // reason we missed — leave it raw so the author audits it.
     const source = ['fn name=stub returns=void', '  handler <<<', '    const unused = compute();', '  >>>'].join('\n');
@@ -118,7 +118,7 @@ describe('rewriteNativeHandlers — skip reasons', () => {
 
 describe('rewriteNativeHandlers — nested let in try/catch/while', () => {
   // Mirror the Agon-AI sample: `let` nested inside `try` under
-  // `handler lang="kern"` must round-trip without bogus diagnostics.
+  // Inferred-KERN `handler` must round-trip without bogus diagnostics.
   test('migrates a try/catch with nested let bindings', () => {
     const source = [
       'fn name=loadAuthStore returns=any',
@@ -138,7 +138,7 @@ describe('rewriteNativeHandlers — nested let in try/catch/while', () => {
 
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(1);
-    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toMatch(/^\s*handler\s*$/m);
     expect(result.output).toContain('try');
     expect(result.output).toContain('let name=data');
     expect(result.output).toContain('catch name=_e');

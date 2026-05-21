@@ -4,30 +4,66 @@ import { derivePathParams, escapeSingleQuotes, generateRespondExpress, indentBlo
 
 // ── Portable request reference rewriting ──────────────────────────────────
 
+// Match a single/double-quoted string literal (escapes honored) so portable-ref
+// rewrites are applied only OUTSIDE quoted-string contents. Backticks are NOT
+// matched: a template literal stays valid JS on the Express target and its
+// `${...}` interpolations are real expressions that MUST be rewritten
+// (`${params.id}` → `${req.params.id}`), so templates are treated as code.
+const EXPRESS_STRING_LITERAL = '"(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'';
+
 export function rewriteExpressExpr(expr: string, path: string): string {
   const _pathParams = derivePathParams(path);
-  let result = expr;
-  // params.X → req.params.X
-  result = result.replace(/\bparams\.([A-Za-z_]\w*)/g, 'req.params.$1');
-  // body.X → req.body.X
-  result = result.replace(/\bbody\.([A-Za-z_]\w*)/g, 'req.body.$1');
-  // query.X → req.query.X
-  result = result.replace(/\bquery\.([A-Za-z_]\w*)/g, 'req.query.$1');
-  // headers.X → req.headers['X']
-  result = result.replace(/\bheaders\.([A-Za-z_][\w-]*)/g, (_m, key) => `req.headers['${key}']`);
-  // effectName.result → effectName (effect variables hold the result directly)
-  result = result.replace(/\b([A-Za-z_]\w*)\.result\b/g, '$1');
-  return result;
+  // Rewrite portable request references to their Express equivalents. Applied
+  // only to text OUTSIDE string literals so a payload like `{ label: "user.id" }`
+  // isn't corrupted into `"req.user.id"` (Codex review on ff924afe).
+  const rewriteSegment = (seg: string): string => {
+    let result = seg;
+    // Spread of a bare request namespace → its Express aggregate. Scoped to
+    // `body` and `user` because only those have a portable Python aggregate to
+    // spread (a Pydantic model / the auth dict); `query`/`params`/`headers` are
+    // decomposed into individual params on the Python target, so spreading them
+    // is not portable and is left to fail symmetrically on both targets rather
+    // than silently working on Express only (agon/kimi review). Optional space
+    // after `...` is valid JS (Codex). The `(?!\.)` guard leaves member operands
+    // (`...user.roles`) to the `user.X` rule so they aren't double-prefixed to
+    // `req.req.user.roles`.
+    result = result.replace(/\.\.\.\s*(body|user)\b(?!\.)/g, '...req.$1');
+    result = result.replace(/\bparams\.([A-Za-z_]\w*)/g, 'req.params.$1');
+    result = result.replace(/\bbody\.([A-Za-z_]\w*)/g, 'req.body.$1');
+    result = result.replace(/\bquery\.([A-Za-z_]\w*)/g, 'req.query.$1');
+    result = result.replace(/\bheaders\.([A-Za-z_][\w-]*)/g, (_m, key) => `req.headers['${key}']`);
+    result = result.replace(/\buser\.([A-Za-z_]\w*)/g, 'req.user.$1');
+    result = result.replace(/\b([A-Za-z_]\w*)\.result\b/g, '$1');
+    return result;
+  };
+
+  let out = '';
+  let last = 0;
+  for (const m of expr.matchAll(new RegExp(EXPRESS_STRING_LITERAL, 'g'))) {
+    out += rewriteSegment(expr.slice(last, m.index)) + m[0];
+    last = m.index + m[0].length;
+  }
+  out += rewriteSegment(expr.slice(last));
+  return out;
 }
 
 // ── Portable handler generation (derive → guard → handler → respond) ─────
+
+export interface PortableExpressOptions {
+  errorMessagesByStatus?: ReadonlyMap<number, string>;
+}
 
 export function extractExprCode(prop: unknown): string {
   if (typeof prop === 'object' && prop !== null && (prop as any).__expr) return (prop as any).code;
   return typeof prop === 'string' ? prop : '';
 }
 
-export function generatePortableChildExpress(child: IRNode, indent: string, path: string): string[] {
+export function generatePortableChildExpress(
+  child: IRNode,
+  indent: string,
+  path: string,
+  options: PortableExpressOptions = {},
+): string[] {
   const lines: string[] = [];
   const p = getProps(child);
 
@@ -44,7 +80,10 @@ export function generatePortableChildExpress(child: IRNode, indent: string, path
       const name = String(p.name || '');
       const exprCode = extractExprCode(p.expr);
       const elseStatus = p.else ? parseInt(String(p.else), 10) : 404;
-      const elseMessage = typeof p.message === 'string' ? p.message : name ? `${name} guard failed` : 'Guard failed';
+      const elseMessage =
+        typeof p.message === 'string'
+          ? p.message
+          : options.errorMessagesByStatus?.get(elseStatus) || (name ? `${name} guard failed` : 'Guard failed');
       if (exprCode) {
         lines.push(`${indent}if (!(${rewriteExpressExpr(exprCode, path)})) {`);
         lines.push(
@@ -60,12 +99,16 @@ export function generatePortableChildExpress(child: IRNode, indent: string, path
       break;
     }
     case 'respond': {
-      // Clone props to avoid mutating shared AST, then rewrite portable refs
+      // Clone props to avoid mutating shared AST, then rewrite portable refs.
+      // Use extractExprCode (as derive does) so a curly-expression value
+      // (`json={{ {a: 1} }}`) yields its code instead of String({__expr}) →
+      // "[object Object]" → invalid `res.json([object Object])` (Codex review
+      // on f61f987f). Plain identifiers (`json=user`) pass through unchanged.
       const clonedRespond: IRNode = { ...child, props: { ...child.props } };
       if (clonedRespond.props!.json)
-        clonedRespond.props!.json = rewriteExpressExpr(String(clonedRespond.props!.json), path);
+        clonedRespond.props!.json = rewriteExpressExpr(extractExprCode(clonedRespond.props!.json), path);
       if (clonedRespond.props!.text)
-        clonedRespond.props!.text = rewriteExpressExpr(String(clonedRespond.props!.text), path);
+        clonedRespond.props!.text = rewriteExpressExpr(extractExprCode(clonedRespond.props!.text), path);
       lines.push(...generateRespondExpress(clonedRespond, indent));
       break;
     }
@@ -80,7 +123,7 @@ export function generatePortableChildExpress(child: IRNode, indent: string, path
         lines.push(`${indent}${keyword} (${on} === '${escapeSingleQuotes(value)}') {`);
         // Recurse into path children
         for (const pathChild of pathNode.children || []) {
-          lines.push(...generatePortableChildExpress(pathChild, `${indent}  `, path));
+          lines.push(...generatePortableChildExpress(pathChild, `${indent}  `, path, options));
         }
         lines.push(`${indent}}`);
       }
@@ -96,7 +139,7 @@ export function generatePortableChildExpress(child: IRNode, indent: string, path
         lines.push(`${indent}for (const ${name} of ${collection}) {`);
       }
       for (const eachChild of child.children || []) {
-        lines.push(...generatePortableChildExpress(eachChild, `${indent}  `, path));
+        lines.push(...generatePortableChildExpress(eachChild, `${indent}  `, path, options));
       }
       lines.push(`${indent}}`);
       break;
@@ -151,7 +194,12 @@ export function generatePortableChildExpress(child: IRNode, indent: string, path
   return lines;
 }
 
-export function generatePortableHandlerExpress(routeNode: IRNode, indent: string, path: string): string[] {
+export function generatePortableHandlerExpress(
+  routeNode: IRNode,
+  indent: string,
+  path: string,
+  options: PortableExpressOptions = {},
+): string[] {
   const lines: string[] = [];
   const children = routeNode.children || [];
 
@@ -159,7 +207,7 @@ export function generatePortableHandlerExpress(routeNode: IRNode, indent: string
   const PORTABLE_TYPES = new Set(['derive', 'guard', 'handler', 'respond', 'branch', 'each', 'collect', 'effect']);
   for (const child of children) {
     if (PORTABLE_TYPES.has(child.type)) {
-      lines.push(...generatePortableChildExpress(child, indent, path));
+      lines.push(...generatePortableChildExpress(child, indent, path, options));
     }
   }
 

@@ -1,14 +1,15 @@
 /**
  * `kern migrate native-handlers` — rewrite raw `<<<…>>>` handler bodies to
- * `lang="kern"` body-statement form.
+ * inferred-KERN body-statement form.
  *
  * Input:  raw JS body in `<<<…>>>` that passes the slice 5a `classifyHandlerBody`
  *         eligibility check (no arrow functions, unsupported loops, unsafe mutation,
  *         regex literals, console/process/req/res access, …).
  *
- * Output: `handler lang="kern"` with structured body-statement children
- *         (`let`/`return`/`if`/`else`/`try`/`catch`/`throw`). Slice 5b-pre
- *         shipped the parser surface so the output round-trips end-to-end.
+ * Output: `handler` with structured body-statement children
+ *         (`let`/`return`/`if`/`else`/`try`/`catch`/`throw`). The parser
+ *         infers `lang="kern"` for this shape, so the migration no longer
+ *         emits explicit opt-in boilerplate.
  *
  * Anything outside the supported AST shape causes the whole handler to be
  * skipped — never half-migrated. Verify mode (`--verify`) is the safety net:
@@ -672,12 +673,6 @@ function mapBranch(node: ts.Statement, source: ts.SourceFile, indent: string, ct
 // "eligibility ≡ migrate-success" invariant tight, so the canonical
 // implementations now live in core and both sides import them.
 
-/** Append `lang="kern"` to a header-props string. Caller filters out
- *  handlers that already carry any `lang=` so we can append unconditionally. */
-function ensureLangKern(headerProps: string): string {
-  return headerProps.length === 0 ? 'lang="kern"' : `${headerProps} lang="kern"`;
-}
-
 /** Statement node types that prove a migrated body actually does work
  *  (not just declarations or comments). Used to refuse "declaration-only"
  *  migrations that would silently strip behaviour.
@@ -801,7 +796,7 @@ export function rewriteNativeHandlers(source: string): NativeHandlerResult {
       continue;
     }
 
-    const newHeader = `${block.headerIndent}handler ${ensureLangKern(block.headerProps)}`.replace(/\s+$/, '');
+    const newHeader = `${block.headerIndent}handler ${block.headerProps}`.replace(/\s+$/, '');
     const replacementLines = [newHeader, ...stmtLines];
     replacements.push({
       startLine: block.startLine,

@@ -121,6 +121,7 @@ export function buildRouteArtifact(
     status: getProps(n).status as number,
     message: String(getProps(n).message || 'Error'),
   }));
+  const errorMessagesByStatus = new Map(errorResponses.map((er) => [er.status, er.message]));
 
   const paramsType = schema.params || buildPathParamsType(path) || 'Record<string, never>';
   const queryType = schema.query || 'Record<string, never>';
@@ -323,7 +324,7 @@ export function buildRouteArtifact(
 
     // Phase 1-3: Portable handler — derive → guard → handler → respond
     if (hasPortableNodes) {
-      lines.push(...generatePortableHandlerExpress(routeNode, '      ', path));
+      lines.push(...generatePortableHandlerExpress(routeNode, '      ', path, { errorMessagesByStatus }));
     } else if (isKernHandler) {
       // Slice 4a + 4a review fixes (Codex P1+P2, Gemini #1+#3): Express
       // route handlers don't communicate via `return X` — Express ignores

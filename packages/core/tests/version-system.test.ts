@@ -1,122 +1,154 @@
+// The src facade delegates to the generated utility checked in by `pnpm --filter @kernlang/core kern:compile`.
+import * as generatedVersionDetect from '../src/generated/utils/version-detect.js';
 import {
   applyTailwindTokenRules,
   buildNextjsProfile,
   buildReactProfile,
   buildTailwindProfile,
   buildVersionProfile,
-  detectVersionsFromPackageJson,
-  parseMajorVersion,
   resolveConfig,
-  resolveNextjsMajor,
-  resolveReactMajor,
-  resolveTailwindMajor,
 } from '../src/index.js';
+import * as facadeVersionDetect from '../src/version-detect.js';
 
 // ── Version Detection ────────────────────────────────────────────────────
 
-describe('parseMajorVersion', () => {
-  it('parses clean semver', () => {
-    expect(parseMajorVersion('3.4.1')).toBe(3);
-    expect(parseMajorVersion('4.0.0')).toBe(4);
-    expect(parseMajorVersion('15.2.3')).toBe(15);
-  });
+const versionDetectionImplementations = [
+  {
+    detectVersionsFromPackageJson: facadeVersionDetect.detectVersionsFromPackageJson,
+    label: 'facade',
+    parseMajorVersion: facadeVersionDetect.parseMajorVersion,
+    resolveNextjsMajor: facadeVersionDetect.resolveNextjsMajor,
+    resolveReactMajor: facadeVersionDetect.resolveReactMajor,
+    resolveTailwindMajor: facadeVersionDetect.resolveTailwindMajor,
+  },
+];
 
-  it('handles caret/tilde ranges', () => {
-    expect(parseMajorVersion('^3.4.1')).toBe(3);
-    expect(parseMajorVersion('~4.0.0')).toBe(4);
-    expect(parseMajorVersion('>=14.0.0')).toBe(14);
-  });
-
-  it('returns 0 for invalid input', () => {
-    expect(parseMajorVersion('latest')).toBe(0);
-    expect(parseMajorVersion('')).toBe(0);
+describe('version-detect facade', () => {
+  it('delegates to generated KERN utility exports', () => {
+    expect(facadeVersionDetect.detectVersionsFromPackageJson).toBe(
+      generatedVersionDetect.detectVersionsFromPackageJson,
+    );
+    expect(facadeVersionDetect.parseMajorVersion).toBe(generatedVersionDetect.parseMajorVersion);
+    expect(facadeVersionDetect.resolveNextjsMajor).toBe(generatedVersionDetect.resolveNextjsMajor);
+    expect(facadeVersionDetect.resolveReactMajor).toBe(generatedVersionDetect.resolveReactMajor);
+    expect(facadeVersionDetect.resolveTailwindMajor).toBe(generatedVersionDetect.resolveTailwindMajor);
   });
 });
 
-describe('detectVersionsFromPackageJson', () => {
-  it('detects react from dependencies', () => {
-    const pkg = { dependencies: { react: '^19.2.0' } };
-    const v = detectVersionsFromPackageJson(pkg);
-    expect(v.react).toBe('^19.2.0');
+describe.each(versionDetectionImplementations)('Version Detection ($label)', (implementation) => {
+  const {
+    detectVersionsFromPackageJson,
+    parseMajorVersion,
+    resolveNextjsMajor,
+    resolveReactMajor,
+    resolveTailwindMajor,
+  } = implementation;
+
+  describe('parseMajorVersion', () => {
+    it('parses clean semver', () => {
+      expect(parseMajorVersion('3.4.1')).toBe(3);
+      expect(parseMajorVersion('4.0.0')).toBe(4);
+      expect(parseMajorVersion('15.2.3')).toBe(15);
+    });
+
+    it('handles caret/tilde ranges', () => {
+      expect(parseMajorVersion('^3.4.1')).toBe(3);
+      expect(parseMajorVersion('~4.0.0')).toBe(4);
+      expect(parseMajorVersion('>=14.0.0')).toBe(14);
+    });
+
+    it('returns 0 for invalid input', () => {
+      expect(parseMajorVersion('latest')).toBe(0);
+      expect(parseMajorVersion('')).toBe(0);
+    });
   });
 
-  it('detects tailwindcss from devDependencies', () => {
-    const pkg = { devDependencies: { tailwindcss: '^3.4.1' } };
-    const v = detectVersionsFromPackageJson(pkg);
-    expect(v.tailwind).toBe('^3.4.1');
+  describe('detectVersionsFromPackageJson', () => {
+    it('detects react from dependencies', () => {
+      const pkg = { dependencies: { react: '^19.2.0' } };
+      const v = detectVersionsFromPackageJson(pkg);
+      expect(v.react).toBe('^19.2.0');
+    });
+
+    it('detects tailwindcss from devDependencies', () => {
+      const pkg = { devDependencies: { tailwindcss: '^3.4.1' } };
+      const v = detectVersionsFromPackageJson(pkg);
+      expect(v.tailwind).toBe('^3.4.1');
+    });
+
+    it('detects next from dependencies', () => {
+      const pkg = { dependencies: { next: '^14.2.0' } };
+      const v = detectVersionsFromPackageJson(pkg);
+      expect(v.nextjs).toBe('^14.2.0');
+    });
+
+    it('detects all supported frameworks', () => {
+      const pkg = {
+        dependencies: { react: '^19.0.0', next: '15.0.0' },
+        devDependencies: { tailwindcss: '4.0.0' },
+      };
+      const v = detectVersionsFromPackageJson(pkg);
+      expect(v.react).toBe('^19.0.0');
+      expect(v.tailwind).toBe('4.0.0');
+      expect(v.nextjs).toBe('15.0.0');
+    });
+
+    it('returns empty for missing frameworks', () => {
+      const pkg = { dependencies: { vue: '^3.5.0' } };
+      const v = detectVersionsFromPackageJson(pkg);
+      expect(v.react).toBeUndefined();
+      expect(v.tailwind).toBeUndefined();
+      expect(v.nextjs).toBeUndefined();
+    });
   });
 
-  it('detects next from dependencies', () => {
-    const pkg = { dependencies: { next: '^14.2.0' } };
-    const v = detectVersionsFromPackageJson(pkg);
-    expect(v.nextjs).toBe('^14.2.0');
+  describe('resolveReactMajor', () => {
+    it('defaults to 19 when no version is set', () => {
+      expect(resolveReactMajor({})).toBe(19);
+    });
+    it('resolves 18 for React 18.x', () => {
+      expect(resolveReactMajor({ react: '^18.3.1' })).toBe(18);
+    });
+    it('resolves 19 for React 19.x', () => {
+      expect(resolveReactMajor({ react: '19.2.0' })).toBe(19);
+    });
+    it('collapses future majors to 19 until explicitly modeled', () => {
+      expect(resolveReactMajor({ react: '^20.0.0' })).toBe(19);
+    });
   });
 
-  it('detects both frameworks', () => {
-    const pkg = {
-      dependencies: { react: '^19.0.0', next: '15.0.0' },
-      devDependencies: { tailwindcss: '4.0.0' },
-    };
-    const v = detectVersionsFromPackageJson(pkg);
-    expect(v.react).toBe('^19.0.0');
-    expect(v.tailwind).toBe('4.0.0');
-    expect(v.nextjs).toBe('15.0.0');
+  describe('resolveTailwindMajor', () => {
+    it('defaults to 3 when no version', () => {
+      expect(resolveTailwindMajor({})).toBe(3);
+    });
+    it('resolves v3 for 3.x', () => {
+      expect(resolveTailwindMajor({ tailwind: '^3.4.1' })).toBe(3);
+    });
+    it('resolves v4 for 4.x', () => {
+      expect(resolveTailwindMajor({ tailwind: '4.0.0' })).toBe(4);
+    });
   });
 
-  it('returns empty for missing frameworks', () => {
-    const pkg = { dependencies: { vue: '^3.5.0' } };
-    const v = detectVersionsFromPackageJson(pkg);
-    expect(v.react).toBeUndefined();
-    expect(v.tailwind).toBeUndefined();
-    expect(v.nextjs).toBeUndefined();
-  });
-});
-
-describe('resolveReactMajor', () => {
-  it('defaults to 19 when no version is set', () => {
-    expect(resolveReactMajor({})).toBe(19);
-  });
-  it('resolves 18 for React 18.x', () => {
-    expect(resolveReactMajor({ react: '^18.3.1' })).toBe(18);
-  });
-  it('resolves 19 for React 19.x', () => {
-    expect(resolveReactMajor({ react: '19.2.0' })).toBe(19);
-  });
-  it('collapses future majors to 19 until explicitly modeled', () => {
-    expect(resolveReactMajor({ react: '^20.0.0' })).toBe(19);
-  });
-});
-
-describe('resolveTailwindMajor', () => {
-  it('defaults to 3 when no version', () => {
-    expect(resolveTailwindMajor({})).toBe(3);
-  });
-  it('resolves v3 for 3.x', () => {
-    expect(resolveTailwindMajor({ tailwind: '^3.4.1' })).toBe(3);
-  });
-  it('resolves v4 for 4.x', () => {
-    expect(resolveTailwindMajor({ tailwind: '4.0.0' })).toBe(4);
-  });
-});
-
-describe('resolveNextjsMajor', () => {
-  it('defaults to 14 when no version', () => {
-    expect(resolveNextjsMajor({})).toBe(14);
-  });
-  it('resolves 13 for 13.x', () => {
-    expect(resolveNextjsMajor({ nextjs: '^13.5.0' })).toBe(13);
-  });
-  it('resolves 14 for 14.x', () => {
-    expect(resolveNextjsMajor({ nextjs: '14.2.0' })).toBe(14);
-  });
-  it('resolves 15 for 15.x', () => {
-    expect(resolveNextjsMajor({ nextjs: '~15.0.0' })).toBe(15);
-  });
-  it('resolves 16 for 16.x', () => {
-    expect(resolveNextjsMajor({ nextjs: '16.1.6' })).toBe(16);
-  });
-  it('resolves 16 for future versions', () => {
-    expect(resolveNextjsMajor({ nextjs: '^16.2.2' })).toBe(16);
+  describe('resolveNextjsMajor', () => {
+    it('defaults to 14 when no version', () => {
+      expect(resolveNextjsMajor({})).toBe(14);
+    });
+    it('resolves 13 for 13.x', () => {
+      expect(resolveNextjsMajor({ nextjs: '^13.5.0' })).toBe(13);
+    });
+    it('resolves 14 for 14.x', () => {
+      expect(resolveNextjsMajor({ nextjs: '14.2.0' })).toBe(14);
+    });
+    it('resolves 15 for 15.x', () => {
+      expect(resolveNextjsMajor({ nextjs: '~15.0.0' })).toBe(15);
+    });
+    it('resolves 16 for 16.x', () => {
+      expect(resolveNextjsMajor({ nextjs: '16.1.6' })).toBe(16);
+    });
+    it('resolves 16 for future versions', () => {
+      expect(resolveNextjsMajor({ nextjs: '^16.2.2' })).toBe(16);
+      expect(resolveNextjsMajor({ nextjs: '^17.0.0' })).toBe(16);
+    });
   });
 });
 
