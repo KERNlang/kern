@@ -10,11 +10,7 @@
  */
 
 import { CONTRACT_REGISTRY, makeEnv, runDifferential, type Verdict } from '../src/index.js';
-import {
-  _resetBranchContractForTest,
-  branchContract,
-  registerBranchContract,
-} from '../src/ir/semantics/branch.js';
+import { _resetBranchContractForTest, branchContract, registerBranchContract } from '../src/ir/semantics/branch.js';
 import { _resetEachContractForTest, eachContract, registerEachContract } from '../src/ir/semantics/each.js';
 import { _resetPrimitivesForTest, registerPrimitives } from '../src/ir/semantics/primitives.js';
 import { lowerFixtureToKernIR, runTsEmitterLeg } from '../src/ir/semantics/ts-leg.js';

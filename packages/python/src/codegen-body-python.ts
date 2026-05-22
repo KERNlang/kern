@@ -1524,7 +1524,9 @@ function containsLambdaCapturingIdent(node: ValueIR, name: string): boolean {
     case 'index':
       return containsLambdaCapturingIdent(node.object, name) || containsLambdaCapturingIdent(node.index, name);
     case 'call':
-      return containsLambdaCapturingIdent(node.callee, name) || node.args.some((a) => containsLambdaCapturingIdent(a, name));
+      return (
+        containsLambdaCapturingIdent(node.callee, name) || node.args.some((a) => containsLambdaCapturingIdent(a, name))
+      );
     case 'binary':
       return containsLambdaCapturingIdent(node.left, name) || containsLambdaCapturingIdent(node.right, name);
     case 'unary':

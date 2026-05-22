@@ -77,12 +77,7 @@ describe('body-statement for — TS target', () => {
     expect(() => emitNativeKernBodyTS(handler)).toThrow(/Propagation '\?' is not allowed in `for from=`/);
   });
 
-  test.each([
-    '0',
-    '0.5',
-    '1.0',
-    'someStep',
-  ])('rejects zero, non-integer, or non-literal step %s', (step) => {
+  test.each(['0', '0.5', '1.0', 'someStep'])('rejects zero, non-integer, or non-literal step %s', (step) => {
     const handler = makeHandler([{ type: 'for', props: { name: 'i', from: '0', to: '10', step }, children: [] }]);
     expect(() => emitNativeKernBodyTS(handler)).toThrow(/for step=.*non-zero integer literal/);
   });

@@ -14,11 +14,7 @@ import {
   runDifferential,
   type Verdict,
 } from '../src/index.js';
-import {
-  _resetBranchContractForTest,
-  branchContract,
-  registerBranchContract,
-} from '../src/ir/semantics/branch.js';
+import { _resetBranchContractForTest, branchContract, registerBranchContract } from '../src/ir/semantics/branch.js';
 import { _resetPrimitivesForTest, registerPrimitives } from '../src/ir/semantics/primitives.js';
 import type { IRNode } from '../src/types.js';
 

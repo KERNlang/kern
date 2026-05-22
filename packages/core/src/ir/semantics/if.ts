@@ -71,10 +71,7 @@ function conditionValue(cond: string, env: SemanticEnv): unknown {
   if (trimmed === 'false' || trimmed === 'False') return false;
   if (trimmed === 'null' || trimmed === 'undefined' || trimmed === 'None') return null;
   if (/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(trimmed)) return Number(trimmed);
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
     return parseStringLiteral(trimmed);
   }
   if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(trimmed)) {

@@ -490,9 +490,7 @@ function emitRangeForTS(node: IRNode, ctx: BodyEmitContext, indent: string): str
   const lines = [`${indent}const ${startVar} = ${fromExpr};`, `${indent}const ${endVar} = ${toExpr};`];
   lines.push(`${indent}for (let ${name} = ${startVar}; ${name} ${compare} ${endVar}; ${update}) {`);
   if (ctx.traceHooks?.forIterNext) {
-    lines.push(
-      `${indent}${INDENT_STEP}__kernTrace({op:'iter-next',binding:${JSON.stringify(name)},value:${name}});`,
-    );
+    lines.push(`${indent}${INDENT_STEP}__kernTrace({op:'iter-next',binding:${JSON.stringify(name)},value:${name}});`);
   }
   for (const sl of emitChildrenTS(node.children ?? [], ctx, indent + INDENT_STEP, [[name, 'const']])) lines.push(sl);
   lines.push(`${indent}}`);
@@ -559,11 +557,6 @@ function validateIntegerRangeBound(rawBound: string, propName: 'from' | 'to'): v
   if (trimmed !== '' && Number.isFinite(numeric) && !Number.isInteger(numeric)) {
     throw new Error(`body-statement \`for ${propName}=\` must be an integer expression.`);
   }
-}
-
-function isRangeStepOne(rawStep: string): boolean {
-  const numeric = Number(rawStep.trim());
-  return /^[+-]?[0-9]+$/.test(rawStep.trim()) && Number.isSafeInteger(numeric) && numeric === 1;
 }
 
 function validateRangeLoopIdentifier(name: string): void {

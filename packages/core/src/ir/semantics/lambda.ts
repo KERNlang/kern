@@ -16,7 +16,7 @@ import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
 import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
-import { emptyTrace, type Trace } from './trace.js';
+import type { Trace } from './trace.js';
 
 interface EvalScope {
   bindings: Map<string, unknown>;
@@ -193,7 +193,11 @@ function runSetup(children: readonly IRNode[], scope: EvalScope): void {
       const name = String(props.name ?? '');
       if (!name) throw new Error('lambda: setup let requires name');
       const rawValue = props.value;
-      setBinding(scope, name, rawValue === undefined || rawValue === '' ? undefined : evalValue(parseExpression(String(rawValue)), scope));
+      setBinding(
+        scope,
+        name,
+        rawValue === undefined || rawValue === '' ? undefined : evalValue(parseExpression(String(rawValue)), scope),
+      );
       continue;
     }
     if (child.type === 'assign') {
