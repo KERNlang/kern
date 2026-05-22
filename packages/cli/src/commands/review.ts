@@ -53,7 +53,8 @@ import {
   compareReportsToBaseline,
   createReviewBaseline,
   filterReportsToNewFindings,
-  getReviewBaselineKeyForFinding,
+  type LineAccessor,
+  newFindingsAgainstPrior,
   parseReviewBaseline,
   type ReviewBaselineComparison,
   type ReviewBaselineFile,
@@ -61,6 +62,29 @@ import {
 import { collectTsFilesFlat, hasFlag, loadConfig, parseAndSurface, parseFlag, parseFlagOrNext } from '../shared.js';
 
 type ReviewReportWithSuppressed = ReviewReport & { suppressedFindings?: ReviewFinding[] };
+
+/** A LineAccessor that reads (and caches) source lines from disk on demand. */
+function createDiskLineAccessor(): LineAccessor {
+  const cache = new Map<string, string[] | null>();
+  return (filePath, line) => {
+    let lines = cache.get(filePath);
+    if (lines === undefined) {
+      try {
+        lines = readFileSync(filePath, 'utf-8').split(/\r?\n/u);
+      } catch {
+        lines = null;
+      }
+      cache.set(filePath, lines);
+    }
+    return lines ? lines[line - 1] : undefined;
+  };
+}
+
+/** A LineAccessor backed by an in-memory snapshot (e.g. a pre-edit file body). */
+function createStringLineAccessor(content: string): LineAccessor {
+  const lines = content.split(/\r?\n/u);
+  return (_filePath, line) => lines[line - 1];
+}
 
 /**
  * Pick a safe default diff base for bare `kern review` inside a git repo.
@@ -780,10 +804,12 @@ async function runReviewPipeline(
     }
 
     if (verifyMode && snapshots.size > 0) {
-      const preFpsByFile = new Map<string, Set<string>>();
+      const preFindingsByFile = new Map<string, ReviewFinding[]>();
       for (const report of reports) {
-        preFpsByFile.set(report.filePath, new Set(report.findings.map((f) => f.fingerprint)));
+        preFindingsByFile.set(report.filePath, report.findings);
       }
+      // Post-edit source is on disk; pre-edit source is the saved snapshot.
+      const postLine = createDiskLineAccessor();
 
       const verifyConfig: ReviewConfig = { ...reviewConfig, noCache: true };
       const regressions: { file: string; newFindings: ReviewFinding[] }[] = [];
@@ -810,10 +836,16 @@ async function runReviewPipeline(
           });
           continue;
         }
-        const preFps = preFpsByFile.get(file) ?? new Set();
-        const newFindings = postReport.findings.filter(
-          (f) => !preFps.has(f.fingerprint) && (f.severity === 'error' || f.source === 'tsc'),
-        );
+        // Content-anchored so an autofix that only SHIFTS a pre-existing finding
+        // isn't reported as a regression — only genuinely-new findings count.
+        const preLine = createStringLineAccessor(snapshots.get(file) ?? '');
+        const newFindings = newFindingsAgainstPrior(
+          file,
+          preFindingsByFile.get(file) ?? [],
+          postReport.findings,
+          preLine,
+          postLine,
+        ).filter((f) => f.severity === 'error' || f.source === 'tsc');
         if (newFindings.length > 0) regressions.push({ file, newFindings });
       }
 
@@ -890,7 +922,13 @@ async function runReviewPipeline(
   let reportsForEnforcement = reports;
 
   if (baseline) {
-    baselineComparison = compareReportsToBaseline(reports, baseline);
+    baselineComparison = compareReportsToBaseline(reports, baseline, createDiskLineAccessor());
+    if (baselineComparison.baselineWasLegacy) {
+      // stderr (console.warn) so it never corrupts --json / --sarif stdout.
+      console.warn(
+        '  Note: baseline uses the legacy line-based format — a line shift can still mislabel a pre-existing finding as new. Regenerate with --write-baseline for shift-resistant matching.',
+      );
+    }
     reportsForEnforcement = filterReportsToNewFindings(reports, baselineComparison);
     if (newOnly) {
       reportsForOutput = reportsForEnforcement;
@@ -902,7 +940,10 @@ async function runReviewPipeline(
     if (baselineDir && baselineDir !== '.') {
       mkdirSync(baselineDir, { recursive: true });
     }
-    writeFileSync(writeBaselinePath, `${JSON.stringify(createReviewBaseline(reports), null, 2)}\n`);
+    writeFileSync(
+      writeBaselinePath,
+      `${JSON.stringify(createReviewBaseline(reports, createDiskLineAccessor()), null, 2)}\n`,
+    );
     if (!jsonOutput && !sarifOutput) {
       console.log(`  Baseline written: ${writeBaselinePath}`);
     }
@@ -933,8 +974,9 @@ async function runReviewPipeline(
     if (baselineComparison) {
       console.log(
         formatSARIFWithMetadata(reportsForOutput, {
-          getBaselineStatus: (report: ReviewReport, finding: ReviewFinding) => {
-            const key = getReviewBaselineKeyForFinding(report.filePath, finding);
+          getBaselineStatus: (_report: ReviewReport, finding: ReviewFinding) => {
+            const key = baselineComparison!.findingKeys.get(finding);
+            if (key === undefined) return undefined;
             if (baselineComparison!.knownKeys.has(key)) return 'existing';
             if (baselineComparison!.newKeys.has(key)) return 'new';
             return undefined;

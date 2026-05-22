@@ -242,6 +242,21 @@ const AMBIENT_NAMES = new Set([
   'Event',
   'EventTarget',
   'CustomEvent',
+  // Web platform / Node 18+ globals
+  'DOMException',
+  'AbortSignal',
+  'BigInt',
+  'Intl',
+  'performance',
+  'WebSocket',
+  'MessageChannel',
+  'MessagePort',
+  'MessageEvent',
+  'BroadcastChannel',
+  'ErrorEvent',
+  'CloseEvent',
+  'TextEncoderStream',
+  'TextDecoderStream',
   // Node.js globals
   'require',
   '__dirname',
@@ -711,25 +726,41 @@ function collectVisibleBindings(
   return bindings;
 }
 
+// A handler body that is a single object literal (`{ a: x, fmt: (v) => {...} }`)
+// parses, in statement position, as a Block of LabeledStatements + comma/binary
+// expressions — turning its keys into phantom identifier references that fire
+// undefined-reference false positives (the keys are declared nowhere). Detect a
+// genuine object-literal body by probe-parsing it as a parenthesized expression:
+// a clean ObjectLiteralExpression with no parse errors means we should reparse
+// the snippet in expression mode, where keys stay PropertyAssignments and are
+// filtered by `isNonReferencePropertyName`. This replaces an older regex that
+// bailed whenever the object contained `;`/`return` — i.e. any method/arrow
+// value — leaving those bodies mis-parsed in block mode.
+function parsesAsObjectLiteralBody(project: Project, code: string): boolean {
+  const trimmed = code.trim();
+  if (!trimmed.startsWith('{') || !trimmed.endsWith('}') || !trimmed.includes(':')) return false;
+  const probePath = `__kern_objprobe_${Math.random().toString(36).slice(2)}.tsx`;
+  const probe = project.createSourceFile(probePath, `(${trimmed})`, { overwrite: true });
+  try {
+    // parseDiagnostics is populated at parse time (no type program needed); a
+    // non-empty list means error recovery kicked in, so it is not a clean object.
+    const parseDiagnostics = (probe.compilerNode as { parseDiagnostics?: unknown[] }).parseDiagnostics;
+    if (parseDiagnostics && parseDiagnostics.length > 0) return false;
+    const statements = probe.getStatements();
+    if (statements.length !== 1) return false;
+    const parenthesized = statements[0]
+      .asKind(SyntaxKind.ExpressionStatement)
+      ?.getExpression()
+      .asKind(SyntaxKind.ParenthesizedExpression);
+    return parenthesized?.getExpression().getKind() === SyntaxKind.ObjectLiteralExpression;
+  } finally {
+    probe.forget();
+  }
+}
+
 function createSnippetAnalysis(project: Project, code: string, key: string, mode: 'block' | 'expr'): SnippetAnalysis {
   const filePath = `__kern_${key.replace(/[^A-Za-z0-9_]/g, '_')}_${Math.random().toString(36).slice(2)}.tsx`;
-  // Auto-detect object-literal-only handler bodies. TS parses `{ a: 1, b: 2 }`
-  // inside a function body as a Block containing LabeledStatement + comma
-  // expressions, which makes `b` etc. look like undefined identifier references
-  // even though they're property keys. Reparsing as expression preserves the
-  // object literal meaning.
-  let effectiveMode = mode;
-  if (mode === 'block') {
-    const trimmed = code.trim();
-    if (
-      trimmed.startsWith('{') &&
-      trimmed.endsWith('}') &&
-      trimmed.includes(':') &&
-      !/[;]|^\s*(return|const|let|var|if|for|while|throw|try)\b/m.test(trimmed.slice(1, -1))
-    ) {
-      effectiveMode = 'expr';
-    }
-  }
+  const effectiveMode = mode === 'block' && parsesAsObjectLiteralBody(project, code) ? 'expr' : mode;
   const wrapped =
     effectiveMode === 'expr'
       ? `async function __kern__() { return (${code}); }\n`

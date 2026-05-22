@@ -26,6 +26,60 @@ screen name=Lookup
     expect(finding?.primarySpan.file).toBe('lookup.kern');
   });
 
+  // Regression — Agon webview review flagged DOMException (a valid Web/Node-18+
+  // global) as an undefined reference because it was missing from AMBIENT_NAMES.
+  it('does not flag DOMException or other Web/Node-18 globals as undefined references', () => {
+    const source = `
+server name=Api
+  route POST /chat
+    handler <<<
+      const ac = new AbortController();
+      try {
+        return performance.now();
+      } catch (e) {
+        if (e instanceof DOMException) throw e;
+        return null;
+      }
+    >>>
+`;
+    const report = reviewKernSource(source, 'globals.kern');
+    const undef = report.findings.filter((f) => f.ruleId === 'undefined-reference');
+    for (const global of ['DOMException', 'AbortController', 'performance']) {
+      expect(undef.some((f) => f.message.includes(global))).toBe(false);
+    }
+  });
+
+  // Regression — Agon webview stream handler: a handler body that is a single
+  // object literal whose values include a method/arrow (`fmt: (v) => {...}`)
+  // failed the old "no `;`/`return`" object-literal heuristic, so it stayed in
+  // block mode and TS parsed it as labeled/binary statements. Its KEYS
+  // (engine_used, model_used, billable, fmt) then surfaced as phantom identifier
+  // references and fired undefined-reference. The probe-parse now reparses a
+  // genuine object-literal body in expression mode, where keys are
+  // PropertyAssignments and are filtered — while a real undefined VALUE
+  // reference (`provider`) keeps firing.
+  it('does not flag object-literal keys as references when values are methods', () => {
+    const source = `
+server name=Api
+  route POST /chat
+    handler <<<
+      {
+        engine_used: provider,
+        model_used: provider,
+        billable: true,
+        fmt: (v) => { return String(v); }
+      }
+    >>>
+`;
+    const report = reviewKernSource(source, 'stream-meta.kern');
+    const undef = report.findings.filter((f) => f.ruleId === 'undefined-reference');
+    for (const key of ['engine_used', 'model_used', 'billable', 'fmt']) {
+      expect(undef.some((f) => f.message.includes(key))).toBe(false);
+    }
+    // the genuine undefined VALUE reference must still fire
+    expect(undef.some((f) => f.message.includes('provider'))).toBe(true);
+  });
+
   // Regression — Agon reported `use path="..." from name=X` bindings were
   // invisible to the undefined-reference rule: the codegen emitted the
   // matching `import { X } from '...';` line but `collectVisibleBindings`
