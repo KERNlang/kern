@@ -82,10 +82,14 @@ function countByReason(handlers: HandlerCoverage[]): Array<{ reason: string; cou
 function printSelfCoverageHelp(): void {
   process.stdout.write(
     [
-      'Usage: kern self-coverage [dir] [--root=<dir>] [--json] [--verbose]',
+      'Usage: kern self-coverage [dir] [--root=<dir>] [--canonicalize-braces] [--json] [--verbose]',
       '',
       'Measures how much handler logic is already native KERN, migratable to native KERN,',
       'or intentionally foreign/template code.',
+      '',
+      '  --canonicalize-braces  also count non-block control-flow bodies (`if (c) stmt;`)',
+      '                         as migratable — mirrors the opt-in `kern migrate',
+      '                         native-handlers --canonicalize-braces` lift.',
       '',
     ].join('\n'),
   );
@@ -106,7 +110,7 @@ function parseRootArg(rest: string[]): string | undefined {
   return value;
 }
 
-export function collectSelfCoverage(rootDir: string): SelfCoverageReport {
+export function collectSelfCoverage(rootDir: string, opts?: { canonicalizeBraces?: boolean }): SelfCoverageReport {
   const files = listKernFiles(rootDir);
   const handlers: HandlerCoverage[] = [];
   const parseErrors: SelfCoverageReport['parseErrors'] = [];
@@ -174,7 +178,7 @@ export function collectSelfCoverage(rootDir: string): SelfCoverageReport {
         continue;
       }
 
-      const result = classifyHandlerBody(code);
+      const result = classifyHandlerBody(code, { allowNonBlock: opts?.canonicalizeBraces });
       if (result.eligible) {
         handlers.push({ file: rel, line, status: 'migratable', reason: result.reason });
       } else if (result.reason === 'template-placeholder') {
@@ -279,7 +283,7 @@ export async function runSelfCoverage(args: string[]): Promise<void> {
     throw new Error(`self-coverage root must be a directory: ${rootArg}`);
   }
 
-  const report = collectSelfCoverage(rootDir);
+  const report = collectSelfCoverage(rootDir, { canonicalizeBraces: hasFlag(args, '--canonicalize-braces') });
   if (hasFlag(args, '--json')) {
     process.stdout.write(
       `${JSON.stringify({ ...report, root: relative(process.cwd(), report.root) || '.' }, null, 2)}\n`,
