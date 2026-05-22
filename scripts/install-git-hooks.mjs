@@ -11,7 +11,7 @@
  * Why a script and not husky/simple-git-hooks: avoids adding another
  * runtime dependency to a repo that already has a strict lockfile gate.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, chmodSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -20,6 +20,15 @@ const gitDir = join(repoRoot, '.git');
 
 if (!existsSync(gitDir)) {
   // Not a git checkout (e.g. tarball install) — nothing to do.
+  process.exit(0);
+}
+
+// In a linked worktree (or submodule), `.git` is a FILE pointing at the real
+// git dir, not a hooks-bearing directory. Worktrees share the primary
+// checkout's hooks, so there is nothing to install here — skip gracefully
+// instead of crashing on `mkdir .git/hooks` (ENOTDIR). This keeps
+// `pnpm install` working inside throwaway worktrees (e.g. agon goal runs).
+if (!statSync(gitDir).isDirectory()) {
   process.exit(0);
 }
 
