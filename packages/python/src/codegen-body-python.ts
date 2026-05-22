@@ -590,7 +590,7 @@ function emitChildrenPy(
       if (
         typeof trailingComment === 'string' &&
         trailingComment !== '' &&
-        lines.length > trailStart &&
+        lines.length === trailStart + 1 && // exactly one line emitted (a true single-line stmt)
         TRAILING_COMMENT_TYPES.has(child.type)
       ) {
         lines[lines.length - 1] += `  ${trailingCommentToPy(trailingComment)}`;
