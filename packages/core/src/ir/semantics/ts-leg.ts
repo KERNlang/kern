@@ -175,10 +175,13 @@ export async function runTsEmitterLeg(fixture: FixtureForLeg, env: SemanticEnv):
 }
 
 function shouldTraceLetAssign(ir: IRNode): boolean {
-  // Both the `let` (declaration) and `assign` (reassignment) contracts observe
-  // binding mutation through the same `{op:"assign"}` trace hook.
+  // `let` (declaration), `assign` (reassignment), and `fmt` (formatted binding)
+  // all observe their binding write through the same `{op:"assign"}` trace hook.
   const contract = ir.props?.__semanticContract;
-  return ir.type === 'let' || ir.type === 'assign' || contract === 'let' || contract === 'assign';
+  const t = ir.type;
+  return (
+    t === 'let' || t === 'assign' || t === 'fmt' || contract === 'let' || contract === 'assign' || contract === 'fmt'
+  );
 }
 
 export class TsLegError extends Error {

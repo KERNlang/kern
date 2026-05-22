@@ -7,7 +7,7 @@
  *  body expression context so target-specific stdlib lowerings apply. */
 
 import type { IRNode } from '@kernlang/core';
-import { emitNativeKernBodyPython } from '../src/codegen-body-python.js';
+import { emitNativeKernBodyPython, KERN_FMT_HELPER_PY } from '../src/codegen-body-python.js';
 
 function makeHandler(children: Array<{ type: string; props?: Record<string, unknown> }>): IRNode {
   return {
@@ -17,15 +17,21 @@ function makeHandler(children: Array<{ type: string; props?: Record<string, unkn
   };
 }
 
+// Interpolating templates route each `${expr}` through the `_kern_fmt`
+// canonicalizer (bool/None -> 'true'/'false'/'null', matching TS template
+// literals), so the helper def is prepended to any body that interpolates.
+// Literal-only templates emit no interpolation and stay byte-identical.
+const withHelper = (body: string): string => `${KERN_FMT_HELPER_PY}\n\n${body}`;
+
 describe('fmt body-statement — Python codegen', () => {
   test('binding form lowers to f-string assignment', () => {
     const handler = makeHandler([{ type: 'fmt', props: { name: 'label', template: '${count} files' } }]);
-    expect(emitNativeKernBodyPython(handler)).toBe('label = f"{count} files"');
+    expect(emitNativeKernBodyPython(handler)).toBe(withHelper('label = f"{_kern_fmt(count)} files"'));
   });
 
   test('return form lowers to `return f"..."`', () => {
     const handler = makeHandler([{ type: 'fmt', props: { template: '${ms}ms', return: 'true' } }]);
-    expect(emitNativeKernBodyPython(handler)).toBe('return f"{ms}ms"');
+    expect(emitNativeKernBodyPython(handler)).toBe(withHelper('return f"{_kern_fmt(ms)}ms"'));
   });
 
   test('multi-interpolation template lowers to multi-segment f-string', () => {
@@ -35,7 +41,9 @@ describe('fmt body-statement — Python codegen', () => {
         props: { name: 'summary', template: '${count} files over ${total} MB' },
       },
     ]);
-    expect(emitNativeKernBodyPython(handler)).toBe('summary = f"{count} files over {total} MB"');
+    expect(emitNativeKernBodyPython(handler)).toBe(
+      withHelper('summary = f"{_kern_fmt(count)} files over {_kern_fmt(total)} MB"'),
+    );
   });
 
   test('literal text only (no interpolation) wraps in f-string', () => {
@@ -60,7 +68,7 @@ describe('fmt body-statement — Python codegen', () => {
       { type: 'return', props: { value: 'label' } },
     ]);
     expect(emitNativeKernBodyPython(handler)).toBe(
-      ['count = 7', 'label = f"{count} files"', 'return label'].join('\n'),
+      withHelper(['count = 7', 'label = f"{_kern_fmt(count)} files"', 'return label'].join('\n')),
     );
   });
 
@@ -86,7 +94,7 @@ describe('fmt body-statement — Python codegen', () => {
 
   test('member access inside ${...} is preserved', () => {
     const handler = makeHandler([{ type: 'fmt', props: { name: 'msg', template: 'hi ${user.name}' } }]);
-    expect(emitNativeKernBodyPython(handler)).toBe('msg = f"hi {user.name}"');
+    expect(emitNativeKernBodyPython(handler)).toBe(withHelper('msg = f"hi {_kern_fmt(user.name)}"'));
   });
 });
 
@@ -101,7 +109,7 @@ describe('fmt body-statement — Python codegen, backslash escape sequences', ()
 
   test('passes `\\t` and `\\x1b` ANSI escapes through verbatim', () => {
     const handler = makeHandler([{ type: 'fmt', props: { template: '\\x1b[31m${text}\\x1b[0m', return: 'true' } }]);
-    expect(emitNativeKernBodyPython(handler)).toBe('return f"\\x1b[31m{text}\\x1b[0m"');
+    expect(emitNativeKernBodyPython(handler)).toBe(withHelper('return f"\\x1b[31m{_kern_fmt(text)}\\x1b[0m"'));
   });
 
   test('TS `\\${` (literal dollar-brace) lowers to Python `${{` (renders as `${`)', () => {
@@ -133,7 +141,8 @@ describe('fmt body-statement — Python codegen, backslash escape sequences', ()
     // emitPyExpr; the important assertion is that the f-string is well-formed
     // (closes at the right brace, no premature termination).
     const result = emitNativeKernBodyPython(handler);
-    expect(result.startsWith('msg = f"val: {')).toBe(true);
+    // The `_kern_fmt` helper is prepended, so the f-string body follows it.
+    expect(result).toContain('msg = f"val: {');
     expect(result.endsWith('}"')).toBe(true);
   });
 });

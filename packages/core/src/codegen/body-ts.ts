@@ -1024,5 +1024,9 @@ function emitFmtTS(node: IRNode, ctx: BodyEmitContext): string[] {
   const kind = props.kind === 'let' ? 'let' : 'const';
   declareLocalBinding(ctx, name, kind);
   const typeAnn = props.type ? `: ${emitTypeAnnotation(String(props.type), 'unknown', node)}` : '';
-  return [`${kind} ${name}${typeAnn} = \`${escapedTemplate}\`;`];
+  const lines = [`${kind} ${name}${typeAnn} = \`${escapedTemplate}\`;`];
+  // Differential-harness opt-in: observe the formatted binding via the same
+  // {op:assign} event let/assign emit. Production callers set no traceHooks.
+  if (ctx.traceHooks?.letAssign) lines.push(letAssignTraceTS(name));
+  return lines;
 }

@@ -183,6 +183,26 @@ export const KERN_PAIR_HELPERS_PY = [
   '            yield __k_item',
 ].join('\n');
 
+/** KERN-canonical interpolation formatter for `fmt` / template literals.
+ *  Python `f"{v}"` uses `str()`, which gives `True`/`False`/`None` — diverging
+ *  from KERN's canonical lowercase `true`/`false`/`null` that TS template
+ *  literals already produce (`${true}` → `"true"`, `${null}` → `"null"`). This
+ *  helper closes that gap so the SAME KERN source yields byte-identical strings
+ *  on both targets for the portable scalar domain (string / finite int / bool /
+ *  null). The `isinstance(__k_v, bool)` check MUST precede any int handling:
+ *  Python's `bool` subclasses `int`, so a plain int branch would misroute
+ *  `True` → `"True"`. Co-located with the codegen so the production emitter and
+ *  the differential harness use byte-identical defs; emitted at module scope
+ *  via `BodyEmitResult.helpers` whenever an interpolation is wrapped. */
+export const KERN_FMT_HELPER_PY = [
+  'def _kern_fmt(__k_v):',
+  '    if isinstance(__k_v, bool):',
+  "        return 'true' if __k_v else 'false'",
+  '    if __k_v is None:',
+  "        return 'null'",
+  '    return str(__k_v)',
+].join('\n');
+
 /** Emit the body of a native KERN handler as Python source. Returns the
  *  joined body text. Each top-level line is unindented; nested `if`-bodies
  *  carry one level of 4-space indent per level of nesting.
@@ -1048,7 +1068,11 @@ function emitFmtPy(node: IRNode, ctx: BodyEmitContext): string[] {
   }
   const rawName = String(props.name);
   const name = ctx.symbolMap[rawName] ?? rawName;
-  return [`${name} = ${fstring}`];
+  const lines = [`${name} = ${fstring}`];
+  // Differential-harness opt-in: observe the formatted binding via the same
+  // {op:assign} event let/assign emit. Production callers set no traceHooks.
+  if (ctx.traceHooks?.letAssign) lines.push(letAssignTracePy(name));
+  return lines;
 }
 
 function templateToPyFString(template: string, ctx: BodyEmitContext): string {
@@ -1137,7 +1161,14 @@ function templateToPyFString(template: string, ctx: BodyEmitContext): string {
       if (exprIR.kind === 'propagate') {
         throw new Error("Propagation '?' is not allowed inside an `fmt` template — bind via `let` first.");
       }
-      out += `{${emitPyExprCtx(exprIR, ctx)}}`;
+      // Route every interpolation through `_kern_fmt` so bool/None render as
+      // KERN-canonical `true`/`false`/`null` (matching TS template-literal
+      // coercion) instead of Python's `True`/`False`/`None`. Unconditional by
+      // design (6-engine council): the emitter has no reliable static type at
+      // each slot, and str()/int paths are unchanged so string/int interpolation
+      // stays byte-identical to before.
+      out += `{_kern_fmt(${emitPyExprCtx(exprIR, ctx)})}`;
+      ctx.helpers.add(KERN_FMT_HELPER_PY);
       i = j + 1;
     } else if (c === '{' || c === '}') {
       out += c + c;

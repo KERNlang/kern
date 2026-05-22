@@ -101,6 +101,29 @@
       ]
     },
     {
+      "nodeType": "fmt",
+      "forbiddenRewrites": [
+        "use raw Python str()/f-string coercion for bool/null without canonicalization",
+        "integer -> float coercion in interpolation",
+        "platform printf / %d codes or locale-dependent formatting",
+        "reorder or double-evaluate an interpolation",
+        "implicit object toString / __str__ in the portable domain"
+      ],
+      "fixtureCount": 7,
+      "fixtureSamples": [
+        {
+          "description": "fmt: integer interpolation renders as base-10",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 1
+        },
+        {
+          "description": "fmt: boolean false canonicalizes to \"false\"",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 1
+        }
+      ]
+    },
+    {
       "nodeType": "for",
       "forbiddenRewrites": [
         "re-evaluate from/to/step after loop entry",
