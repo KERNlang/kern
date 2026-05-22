@@ -22,6 +22,7 @@ import { registerIfContract } from './if.js';
 import { registerLambdaContract } from './lambda.js';
 import { registerLetContract } from './let.js';
 import { registerPrimitives } from './primitives.js';
+import { registerTryContract } from './try.js';
 import { registerWhileContract } from './while.js';
 
 export function registerAllContracts(): void {
@@ -35,4 +36,5 @@ export function registerAllContracts(): void {
   registerAssignContract();
   registerFmtContract();
   registerWhileContract();
+  registerTryContract();
 }

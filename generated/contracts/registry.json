@@ -226,6 +226,30 @@
       "fixtureSamples": []
     },
     {
+      "nodeType": "try",
+      "forbiddenRewrites": [
+        "swallow errors silently",
+        "reorder or skip finally",
+        "run finally before catch",
+        "widen or narrow the exception type",
+        "drop the {kind,message} canonicalization or leak the raw platform error to catch",
+        "compare raw error message text instead of the canonical kind + pattern"
+      ],
+      "fixtureCount": 7,
+      "fixtureSamples": [
+        {
+          "description": "try/catch: a thrown canonical error is caught and the loop completes normally",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 2
+        },
+        {
+          "description": "try/finally: an uncaught throw runs finally, then propagates as the completion",
+          "expectedCompletionKind": "throw",
+          "expectedEventCount": 2
+        }
+      ]
+    },
+    {
       "nodeType": "while",
       "forbiddenRewrites": [
         "rewrite to for / recursion",
