@@ -14,8 +14,8 @@
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "build": "tsc -b && pnpm --filter @kernlang/playground build",
-    "test": "pnpm -r --filter '!@kernlang/review-python' test && pnpm test:prepush && pnpm check:rule-coverage",
-    "test:non-semantics": "pnpm -r --filter '!@kernlang/review-python' test --testPathIgnorePatterns=ir-semantics && pnpm test:prepush && pnpm check:rule-coverage",
+    "test": "pnpm -r --filter '!kern-monorepo' --filter '!@kernlang/review-python' test && pnpm test:prepush && pnpm check:rule-coverage",
+    "test:non-semantics": "pnpm -r --filter '!kern-monorepo' --filter '!@kernlang/review-python' test --testPathIgnorePatterns=ir-semantics && pnpm test:prepush && pnpm check:rule-coverage",
     "check:rule-coverage": "node ./scripts/check-rule-coverage.mjs",
     "check:python-codegen": "pnpm --filter @kernlang/core --filter @kernlang/python build && node ./scripts/lift-rate-python.mjs --check",
     "docs:contracts": "pnpm --filter @kernlang/core build && node ./scripts/generate-ir-semantics-docs.mjs --format=markdown --out=-",

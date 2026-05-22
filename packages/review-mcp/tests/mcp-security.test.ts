@@ -1,7 +1,8 @@
 import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { detectMCPServer, inferMCPNodes, inferMCPNodesPython, reviewMCPSource } from '../src/index.js';
+import { describe, expect, test } from '../../../scripts/node-test-compat.ts';
+import { detectMCPServer, inferMCPNodes, inferMCPNodesPython, reviewMCPSource } from '../dist/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURES = resolve(__dirname, 'fixtures');

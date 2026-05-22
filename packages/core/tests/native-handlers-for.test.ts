@@ -40,6 +40,21 @@ describe('body-statement for — TS target', () => {
     expect(out).toContain('for (let i = __k_for_start_1; i < __k_for_end_2; i += 2) {');
   });
 
+  test('emits explicit negative step', () => {
+    const handler = makeHandler([
+      {
+        type: 'for',
+        props: { name: 'i', from: '2', to: '-1', step: '-1' },
+        children: [{ type: 'do', props: { value: 'visit(i)' } }],
+      },
+    ]);
+
+    const out = emitNativeKernBodyTS(handler);
+    expect(out).toContain('const __k_for_start_1 = 2;');
+    expect(out).toContain('const __k_for_end_2 = -1;');
+    expect(out).toContain('for (let i = __k_for_start_1; i > __k_for_end_2; i--) {');
+  });
+
   test('composes with continue and break', () => {
     const handler = makeHandler([
       {
@@ -62,15 +77,9 @@ describe('body-statement for — TS target', () => {
     expect(() => emitNativeKernBodyTS(handler)).toThrow(/Propagation '\?' is not allowed in `for from=`/);
   });
 
-  test.each([
-    '0',
-    '-1',
-    '0.5',
-    '1.0',
-    'someStep',
-  ])('rejects non-positive, non-integer, or non-literal step %s', (step) => {
+  test.each(['0', '0.5', '1.0', 'someStep'])('rejects zero, non-integer, or non-literal step %s', (step) => {
     const handler = makeHandler([{ type: 'for', props: { name: 'i', from: '0', to: '10', step }, children: [] }]);
-    expect(() => emitNativeKernBodyTS(handler)).toThrow(/for step=.*positive integer literal/);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/for step=.*non-zero integer literal/);
   });
 
   test('rejects non-cross-target loop identifier', () => {

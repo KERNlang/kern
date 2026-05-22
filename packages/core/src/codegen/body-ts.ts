@@ -74,7 +74,7 @@ export interface BodyEmitOptions {
    * Scoped to `each` in PR-3a. Adding hooks for other nodes is an explicit
    * spec revision and a new flag.
    */
-  traceHooks?: { eachIterNext?: boolean };
+  traceHooks?: { eachIterNext?: boolean; forIterNext?: boolean; letAssign?: boolean };
 }
 
 /** Slice 3e — public return shape, parity with the Python body emitter.
@@ -100,7 +100,7 @@ interface BodyEmitContext {
    *  override pending control flow, so it gets a finally-specific error. */
   finallyDepth: number;
   /** Differential harness opt-in (see BodyEmitOptions.traceHooks). */
-  traceHooks?: { eachIterNext?: boolean };
+  traceHooks?: { eachIterNext?: boolean; forIterNext?: boolean; letAssign?: boolean };
 }
 
 const INDENT_STEP = '  ';
@@ -482,11 +482,16 @@ function emitRangeForTS(node: IRNode, ctx: BodyEmitContext, indent: string): str
   const fromExpr = emitExpression(fromIR);
   const toExpr = emitExpression(toIR);
   const stepExpr = emitExpression(stepIR);
-  const update = isRangeStepOne(rawStep) ? `${name}++` : `${name} += ${stepExpr}`;
+  const stepValue = parseRangeStepLiteral(rawStep);
+  const update = stepValue === 1 ? `${name}++` : stepValue === -1 ? `${name}--` : `${name} += ${stepExpr}`;
+  const compare = stepValue > 0 ? '<' : '>';
   const startVar = `__k_for_start_${++ctx.gensymCounter}`;
   const endVar = `__k_for_end_${++ctx.gensymCounter}`;
   const lines = [`${indent}const ${startVar} = ${fromExpr};`, `${indent}const ${endVar} = ${toExpr};`];
-  lines.push(`${indent}for (let ${name} = ${startVar}; ${name} < ${endVar}; ${update}) {`);
+  lines.push(`${indent}for (let ${name} = ${startVar}; ${name} ${compare} ${endVar}; ${update}) {`);
+  if (ctx.traceHooks?.forIterNext) {
+    lines.push(`${indent}${INDENT_STEP}__kernTrace({op:'iter-next',binding:${JSON.stringify(name)},value:${name}});`);
+  }
   for (const sl of emitChildrenTS(node.children ?? [], ctx, indent + INDENT_STEP, [[name, 'const']])) lines.push(sl);
   lines.push(`${indent}}`);
   return lines;
@@ -532,13 +537,18 @@ function emitWithTS(node: IRNode, ctx: BodyEmitContext, indent: string): string[
 }
 
 function validatePositiveRangeStep(rawStep: string): void {
+  parseRangeStepLiteral(rawStep);
+}
+
+function parseRangeStepLiteral(rawStep: string): number {
   const trimmed = rawStep.trim();
   const numeric = Number(trimmed);
-  if (!/^[0-9]+$/.test(trimmed) || !Number.isSafeInteger(numeric) || numeric <= 0) {
+  if (!/^[+-]?[0-9]+$/.test(trimmed) || !Number.isSafeInteger(numeric) || numeric === 0) {
     throw new Error(
-      'body-statement `for step=` must be a positive integer literal in this cross-target range-loop slice.',
+      'body-statement `for step=` must be a non-zero integer literal in this cross-target range-loop slice.',
     );
   }
+  return numeric;
 }
 
 function validateIntegerRangeBound(rawBound: string, propName: 'from' | 'to'): void {
@@ -547,11 +557,6 @@ function validateIntegerRangeBound(rawBound: string, propName: 'from' | 'to'): v
   if (trimmed !== '' && Number.isFinite(numeric) && !Number.isInteger(numeric)) {
     throw new Error(`body-statement \`for ${propName}=\` must be an integer expression.`);
   }
-}
-
-function isRangeStepOne(rawStep: string): boolean {
-  const numeric = Number(rawStep.trim());
-  return /^[0-9]+$/.test(rawStep.trim()) && Number.isSafeInteger(numeric) && numeric === 1;
 }
 
 function validateRangeLoopIdentifier(name: string): void {
@@ -639,13 +644,21 @@ function emitLetTS(node: IRNode, ctx: BodyEmitContext): string[] {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
     const inner = emitExpression(valueIR.argument);
-    return [
+    const lines = [
       `const ${tmp} = ${inner};`,
       `if (${tmp}.kind === 'err') return ${tmp};`,
       `${bindingKind} ${name}${typeAnn} = ${tmp}.value;`,
     ];
+    if (ctx.traceHooks?.letAssign) lines.push(letAssignTraceTS(name));
+    return lines;
   }
-  return [`${bindingKind} ${name}${typeAnn} = ${emitExpression(valueIR)};`];
+  const lines = [`${bindingKind} ${name}${typeAnn} = ${emitExpression(valueIR)};`];
+  if (ctx.traceHooks?.letAssign) lines.push(letAssignTraceTS(name));
+  return lines;
+}
+
+function letAssignTraceTS(name: string): string {
+  return `__kernTrace({ op: "assign", target: ${JSON.stringify(name)}, value: ${name} });`;
 }
 
 function bodyLetBindingKind(rawKind: unknown): 'const' | 'let' {

@@ -103,14 +103,15 @@ function canonicalizeErrorName(err: unknown): string {
  */
 export async function runTsEmitterLeg(fixture: FixtureForLeg, env: SemanticEnv): Promise<Trace> {
   const lowered = lowerFixtureToKernIR(fixture.ir);
+  const handlerChildren = lowered.type === '__block' ? (lowered.children ?? []) : [lowered];
   const handlerWrapper: IRNode = {
     type: 'handler',
     props: { lang: 'kern' },
-    children: [lowered],
+    children: handlerChildren,
   };
 
   const bodyCode = emitNativeKernBodyTS(handlerWrapper, {
-    traceHooks: { eachIterNext: true },
+    traceHooks: { eachIterNext: true, forIterNext: true, letAssign: shouldTraceLetAssign(fixture.ir) },
   });
 
   const events: TraceEvent[] = [];
@@ -171,6 +172,10 @@ export async function runTsEmitterLeg(fixture: FixtureForLeg, env: SemanticEnv):
   }
 
   return { events, completion };
+}
+
+function shouldTraceLetAssign(ir: IRNode): boolean {
+  return ir.type === 'let' || ir.props?.__semanticContract === 'let';
 }
 
 export class TsLegError extends Error {

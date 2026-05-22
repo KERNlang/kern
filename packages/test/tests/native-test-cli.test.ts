@@ -1,7 +1,8 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { runNativeKernTestCli } from '../src/cli.js';
+import { afterEach, beforeEach, describe, expect, test } from '../../../scripts/node-test-compat.ts';
+import { runNativeKernTestCli } from '../dist/cli.js';
 
 describe('standalone kern-test CLI', () => {
   let tmpDir: string;

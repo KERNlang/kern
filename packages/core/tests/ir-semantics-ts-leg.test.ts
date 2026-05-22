@@ -10,6 +10,7 @@
  */
 
 import { CONTRACT_REGISTRY, makeEnv, runDifferential, type Verdict } from '../src/index.js';
+import { _resetBranchContractForTest, branchContract, registerBranchContract } from '../src/ir/semantics/branch.js';
 import { _resetEachContractForTest, eachContract, registerEachContract } from '../src/ir/semantics/each.js';
 import { _resetPrimitivesForTest, registerPrimitives } from '../src/ir/semantics/primitives.js';
 import { lowerFixtureToKernIR, runTsEmitterLeg } from '../src/ir/semantics/ts-leg.js';
@@ -17,20 +18,39 @@ import type { IRNode } from '../src/types.js';
 
 beforeEach(() => {
   CONTRACT_REGISTRY.clear();
+  _resetBranchContractForTest();
   _resetEachContractForTest();
   _resetPrimitivesForTest();
   registerPrimitives();
   registerEachContract();
+  registerBranchContract();
 });
 
 afterEach(() => {
   CONTRACT_REGISTRY.clear();
+  _resetBranchContractForTest();
   _resetEachContractForTest();
   _resetPrimitivesForTest();
 });
 
 describe('TS emitter leg — each fixtures (differential vs reference)', () => {
   it.each(eachContract.fixtures.map((f) => [f.description, f] as const))('fixture: %s', async (_desc, fixture) => {
+    const result = await runDifferential(fixture, { skipPython: true });
+    if (result.verdict !== 'pass') {
+      throw new Error(
+        `verdict=${result.verdict}\n` +
+          `fixture=${fixture.description}\n` +
+          `reference=${JSON.stringify(result.reference, null, 2)}\n` +
+          `ts=${JSON.stringify(result.ts, null, 2)}\n` +
+          `legError=${JSON.stringify(result.legError, null, 2)}`,
+      );
+    }
+    expect(result.verdict).toBe<Verdict>('pass');
+  });
+});
+
+describe('TS emitter leg — branch fixtures (differential vs reference)', () => {
+  it.each(branchContract.fixtures.map((f) => [f.description, f] as const))('fixture: %s', async (_desc, fixture) => {
     const result = await runDifferential(fixture, { skipPython: true });
     if (result.verdict !== 'pass') {
       throw new Error(

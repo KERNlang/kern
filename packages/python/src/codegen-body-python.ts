@@ -81,7 +81,7 @@ export interface BodyEmitOptions {
    * TS body-ts.ts. Production codegen never sets this. See
    * packages/core/src/ir/semantics/python-leg.ts for the runtime contract.
    */
-  traceHooks?: { eachIterNext?: boolean };
+  traceHooks?: { eachIterNext?: boolean; forIterNext?: boolean; letAssign?: boolean };
 }
 
 /** Slice 3e — public return shape. `code` is the joined body text;
@@ -121,7 +121,7 @@ interface BodyEmitContext {
   propagateStyle: 'value' | 'http-exception';
   usedPropagation: boolean;
   /** PR-3b differential-harness opt-in (see BodyEmitOptions.traceHooks). */
-  traceHooks?: { eachIterNext?: boolean };
+  traceHooks?: { eachIterNext?: boolean; forIterNext?: boolean; letAssign?: boolean };
   /** Slice 4c review fix (OpenCode + Gemini critical) — depth of nested
    *  `try` blocks. Propagation `?` lowers to `return tmp` (or `raise
    *  HTTPException` in route mode), and BOTH bypass the enclosing
@@ -591,8 +591,11 @@ function emitRangeForPy(node: IRNode, ctx: BodyEmitContext, indent: string): str
     `${indent}try:`,
     `${tryIndent}for ${name} in range(${rangeArgs}):`,
   ];
+  if (ctx.traceHooks?.forIterNext) {
+    out.push(`${bodyIndent}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(name)}, "value": ${name}})`);
+  }
   const inner = emitChildrenPy(node.children ?? [], ctx, bodyIndent, [[name, 'const']]);
-  if (inner.length === 0) out.push(`${bodyIndent}pass`);
+  if (inner.length === 0 && !ctx.traceHooks?.forIterNext) out.push(`${bodyIndent}pass`);
   for (const sl of inner) out.push(sl);
   out.push(`${indent}finally:`);
   out.push(`${tryIndent}if ${prevVar} is ${missingVar}:`);
@@ -664,13 +667,18 @@ function emitWithPy(node: IRNode, ctx: BodyEmitContext, indent: string): string[
 }
 
 function validatePositiveRangeStep(rawStep: string): void {
+  parseRangeStepLiteral(rawStep);
+}
+
+function parseRangeStepLiteral(rawStep: string): number {
   const trimmed = rawStep.trim();
   const numeric = Number(trimmed);
-  if (!/^[0-9]+$/.test(trimmed) || !Number.isSafeInteger(numeric) || numeric <= 0) {
+  if (!/^[+-]?[0-9]+$/.test(trimmed) || !Number.isSafeInteger(numeric) || numeric === 0) {
     throw new Error(
-      'body-statement `for step=` must be a positive integer literal in this cross-target range-loop slice.',
+      'body-statement `for step=` must be a non-zero integer literal in this cross-target range-loop slice.',
     );
   }
+  return numeric;
 }
 
 function validateIntegerRangeBound(rawBound: string, propName: 'from' | 'to'): void {
@@ -683,7 +691,7 @@ function validateIntegerRangeBound(rawBound: string, propName: 'from' | 'to'): v
 
 function isRangeStepOne(rawStep: string): boolean {
   const numeric = Number(rawStep.trim());
-  return /^[0-9]+$/.test(rawStep.trim()) && Number.isSafeInteger(numeric) && numeric === 1;
+  return /^[+-]?[0-9]+$/.test(rawStep.trim()) && Number.isSafeInteger(numeric) && numeric === 1;
 }
 
 function validateRangeLoopIdentifier(name: string): void {
@@ -838,9 +846,22 @@ function emitLetPy(node: IRNode, ctx: BodyEmitContext): string[] {
     const tmp = `__k_t${++ctx.gensymCounter}`;
     const inner = emitPyExprCtx(valueIR.argument, ctx);
     ctx.usedPropagation = true;
-    return [`${tmp} = ${inner}`, `if ${tmp}.kind == 'err':`, errPropagationLine(tmp, ctx), `${name} = ${tmp}.value`];
+    const lines = [
+      `${tmp} = ${inner}`,
+      `if ${tmp}.kind == 'err':`,
+      errPropagationLine(tmp, ctx),
+      `${name} = ${tmp}.value`,
+    ];
+    if (ctx.traceHooks?.letAssign) lines.push(letAssignTracePy(name));
+    return lines;
   }
-  return [`${name} = ${emitPyExprCtx(valueIR, ctx)}`];
+  const lines = [`${name} = ${emitPyExprCtx(valueIR, ctx)}`];
+  if (ctx.traceHooks?.letAssign) lines.push(letAssignTracePy(name));
+  return lines;
+}
+
+function letAssignTracePy(name: string): string {
+  return `_kern_trace({"op": "assign", "target": ${JSON.stringify(name)}, "value": ${name}})`;
 }
 
 function validateBodyLetKind(rawKind: unknown): void {
@@ -1461,6 +1482,96 @@ function emitLambdaPy(node: Extract<ValueIR, { kind: 'lambda' }>, ctx: BodyEmitC
   }
 }
 
+function valueReferencesIdent(node: ValueIR, name: string): boolean {
+  switch (node.kind) {
+    case 'ident':
+      return node.name === name;
+    case 'member':
+      return valueReferencesIdent(node.object, name);
+    case 'index':
+      return valueReferencesIdent(node.object, name) || valueReferencesIdent(node.index, name);
+    case 'call':
+      return valueReferencesIdent(node.callee, name) || node.args.some((a) => valueReferencesIdent(a, name));
+    case 'binary':
+      return valueReferencesIdent(node.left, name) || valueReferencesIdent(node.right, name);
+    case 'unary':
+    case 'spread':
+    case 'await':
+    case 'new':
+      return valueReferencesIdent(node.argument, name);
+    case 'typeAssert':
+    case 'nonNull':
+      return valueReferencesIdent(node.expression, name);
+    case 'propagate':
+      return valueReferencesIdent(node.argument, name);
+    case 'conditional':
+      return (
+        valueReferencesIdent(node.test, name) ||
+        valueReferencesIdent(node.consequent, name) ||
+        valueReferencesIdent(node.alternate, name)
+      );
+    case 'tmplLit':
+      return node.expressions.some((e) => valueReferencesIdent(e, name));
+    case 'objectLit':
+      return node.entries.some((entry) => {
+        if ('kind' in entry && entry.kind === 'spread') return valueReferencesIdent(entry.argument, name);
+        return valueReferencesIdent((entry as { value: ValueIR }).value, name);
+      });
+    case 'arrayLit':
+      return node.items.some((item) => valueReferencesIdent(item, name));
+    case 'lambda':
+      if (node.params.some((p) => p.name === name)) return false;
+      return valueReferencesIdent(node.body, name);
+    default:
+      return false;
+  }
+}
+
+function containsLambdaCapturingIdent(node: ValueIR, name: string): boolean {
+  switch (node.kind) {
+    case 'lambda':
+      if (node.params.some((p) => p.name === name)) return false;
+      return valueReferencesIdent(node.body, name);
+    case 'member':
+      return containsLambdaCapturingIdent(node.object, name);
+    case 'index':
+      return containsLambdaCapturingIdent(node.object, name) || containsLambdaCapturingIdent(node.index, name);
+    case 'call':
+      return (
+        containsLambdaCapturingIdent(node.callee, name) || node.args.some((a) => containsLambdaCapturingIdent(a, name))
+      );
+    case 'binary':
+      return containsLambdaCapturingIdent(node.left, name) || containsLambdaCapturingIdent(node.right, name);
+    case 'unary':
+    case 'spread':
+    case 'await':
+    case 'new':
+      return containsLambdaCapturingIdent(node.argument, name);
+    case 'typeAssert':
+    case 'nonNull':
+      return containsLambdaCapturingIdent(node.expression, name);
+    case 'propagate':
+      return containsLambdaCapturingIdent(node.argument, name);
+    case 'conditional':
+      return (
+        containsLambdaCapturingIdent(node.test, name) ||
+        containsLambdaCapturingIdent(node.consequent, name) ||
+        containsLambdaCapturingIdent(node.alternate, name)
+      );
+    case 'tmplLit':
+      return node.expressions.some((e) => containsLambdaCapturingIdent(e, name));
+    case 'objectLit':
+      return node.entries.some((entry) => {
+        if ('kind' in entry && entry.kind === 'spread') return containsLambdaCapturingIdent(entry.argument, name);
+        return containsLambdaCapturingIdent((entry as { value: ValueIR }).value, name);
+      });
+    case 'arrayLit':
+      return node.items.some((item) => containsLambdaCapturingIdent(item, name));
+    default:
+      return false;
+  }
+}
+
 /** Slice 3d (review fix) — chain-aware lowering for member/call expressions.
  *  Returns `{ guard, expr }` where `guard` is an accumulated `is not None`
  *  test (or `null` if no `?.` appears in the chain) and `expr` is the
@@ -1761,6 +1872,9 @@ function lowerListLambdaPython(
   ctx.shadowedSymbols.add(name);
   try {
     const body = emitPyExprCtx(callback.body, ctx);
+    if (methodName === 'map' && containsLambdaCapturingIdent(callback.body, name)) {
+      return `list(map(lambda ${name}: ${body}, ${source}))`;
+    }
     return methodName === 'map'
       ? `[${body} for ${name} in ${source}]`
       : `[${name} for ${name} in ${source} if ${body}]`;

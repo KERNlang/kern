@@ -1,9 +1,10 @@
 import { spawn } from 'child_process';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { describe, expect, it } from '../../../scripts/node-test-compat.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SERVER_PATH = resolve(__dirname, '../../dist/index.js');
+const SERVER_PATH = resolve(__dirname, '../dist/index.js');
 
 function sendMCP(messages: object[]): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {

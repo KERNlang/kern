@@ -1,51 +1,52 @@
 import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { describe, expect, test } from '../../../scripts/node-test-compat.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('Metrics Engine', () => {
   describe('isEscapedStyleKey', () => {
     test('known shorthand "p" → false (maps to padding)', async () => {
-      const { isEscapedStyleKey } = await import('../src/metrics.js');
+      const { isEscapedStyleKey } = await import('../dist/metrics.js');
       expect(isEscapedStyleKey('p')).toBe(false);
     });
 
     test('known full name "backgroundColor" → false', async () => {
-      const { isEscapedStyleKey } = await import('../src/metrics.js');
+      const { isEscapedStyleKey } = await import('../dist/metrics.js');
       expect(isEscapedStyleKey('backgroundColor')).toBe(false);
     });
 
     test('shorthand "br" → borderRadius → false', async () => {
-      const { isEscapedStyleKey } = await import('../src/metrics.js');
+      const { isEscapedStyleKey } = await import('../dist/metrics.js');
       expect(isEscapedStyleKey('br')).toBe(false);
     });
 
     test('unknown "backdrop-filter" → true', async () => {
-      const { isEscapedStyleKey } = await import('../src/metrics.js');
+      const { isEscapedStyleKey } = await import('../dist/metrics.js');
       expect(isEscapedStyleKey('backdrop-filter')).toBe(true);
     });
 
     test('unknown "transition" → true', async () => {
-      const { isEscapedStyleKey } = await import('../src/metrics.js');
+      const { isEscapedStyleKey } = await import('../dist/metrics.js');
       expect(isEscapedStyleKey('transition')).toBe(true);
     });
 
     test('shorthand "ta" → textAlign → false (now mapped)', async () => {
-      const { isEscapedStyleKey } = await import('../src/metrics.js');
+      const { isEscapedStyleKey } = await import('../dist/metrics.js');
       expect(isEscapedStyleKey('ta')).toBe(false);
     });
 
     test('shorthand "shadow" → elevation → false (now mapped)', async () => {
-      const { isEscapedStyleKey } = await import('../src/metrics.js');
+      const { isEscapedStyleKey } = await import('../dist/metrics.js');
       expect(isEscapedStyleKey('shadow')).toBe(false);
     });
   });
 
   describe('collectLanguageMetrics — dashboard.kern', () => {
     test('produces valid metrics', async () => {
-      const { parse } = await import('../../core/src/parser.js');
-      const { collectLanguageMetrics } = await import('../src/metrics.js');
+      const { parse } = await import('../../core/dist/parser.js');
+      const { collectLanguageMetrics } = await import('../dist/metrics.js');
       const source = readFileSync(resolve(ROOT, 'examples/dashboard.kern'), 'utf-8');
       const ast = parse(source);
       const metrics = collectLanguageMetrics(ast);
@@ -60,8 +61,8 @@ describe('Metrics Engine', () => {
 
   describe('collectLanguageMetrics — nextjs-landing.kern', () => {
     test('detects escape hatches', async () => {
-      const { parse } = await import('../../core/src/parser.js');
-      const { collectLanguageMetrics } = await import('../src/metrics.js');
+      const { parse } = await import('../../core/dist/parser.js');
+      const { collectLanguageMetrics } = await import('../dist/metrics.js');
       const source = readFileSync(resolve(ROOT, 'examples/nextjs-landing.kern'), 'utf-8');
       const ast = parse(source);
       const metrics = collectLanguageMetrics(ast);
@@ -73,12 +74,11 @@ describe('Metrics Engine', () => {
 
   describe('collectLanguageMetrics — with TranspileResult', () => {
     test('attaches token efficiency', async () => {
-      const { parse } = await import('../../core/src/parser.js');
-      const { transpileTailwind } = await import('../../react/src/transpiler-tailwind.js');
-      const { collectLanguageMetrics } = await import('../src/metrics.js');
+      const { parse } = await import('../../core/dist/parser.js');
+      const { collectLanguageMetrics } = await import('../dist/metrics.js');
       const source = readFileSync(resolve(ROOT, 'examples/dashboard.kern'), 'utf-8');
       const ast = parse(source);
-      const result = transpileTailwind(ast);
+      const result = { irTokenCount: 100, tsTokenCount: 60, tokenReduction: 40 };
       const metrics = collectLanguageMetrics(ast, result);
 
       expect(metrics.tokenEfficiency).not.toBeNull();
@@ -88,8 +88,8 @@ describe('Metrics Engine', () => {
 
   describe('collectLanguageMetrics — empty tree', () => {
     test('handles minimal input', async () => {
-      const { parse } = await import('../../core/src/parser.js');
-      const { collectLanguageMetrics } = await import('../src/metrics.js');
+      const { parse } = await import('../../core/dist/parser.js');
+      const { collectLanguageMetrics } = await import('../dist/metrics.js');
       const ast = parse('screen name=Empty');
       const metrics = collectLanguageMetrics(ast);
 
@@ -101,8 +101,8 @@ describe('Metrics Engine', () => {
 
   describe('mergeMetrics', () => {
     test('merges metrics from multiple files', async () => {
-      const { parse } = await import('../../core/src/parser.js');
-      const { collectLanguageMetrics, mergeMetrics } = await import('../src/metrics.js');
+      const { parse } = await import('../../core/dist/parser.js');
+      const { collectLanguageMetrics, mergeMetrics } = await import('../dist/metrics.js');
 
       const ast1 = parse(readFileSync(resolve(ROOT, 'examples/dashboard.kern'), 'utf-8'));
       const ast2 = parse(readFileSync(resolve(ROOT, 'examples/nextjs-landing.kern'), 'utf-8'));

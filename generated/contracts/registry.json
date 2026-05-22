@@ -3,10 +3,45 @@
   "generatedBy": "kern-ir-semantics-doc-generator",
   "contracts": [
     {
+      "nodeType": "__assignIndex",
+      "forbiddenRewrites": [],
+      "fixtureCount": 0,
+      "fixtureSamples": []
+    },
+    {
+      "nodeType": "__breakIfEqual",
+      "forbiddenRewrites": [],
+      "fixtureCount": 0,
+      "fixtureSamples": []
+    },
+    {
       "nodeType": "__trace",
       "forbiddenRewrites": [],
       "fixtureCount": 0,
       "fixtureSamples": []
+    },
+    {
+      "nodeType": "branch",
+      "forbiddenRewrites": [
+        "reorder non-default paths with overlapping values",
+        "treat default source position as observable",
+        "fall through from one path body into another",
+        "hoist path-local bindings out of their case block",
+        "compare branch values with cross-type coercion (Python bool/int trap)"
+      ],
+      "fixtureCount": 10,
+      "fixtureSamples": [
+        {
+          "description": "branch: single matching string path runs its body",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 1
+        },
+        {
+          "description": "branch: numeric case values compare as numbers",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 1
+        }
+      ]
     },
     {
       "nodeType": "break",
@@ -37,6 +72,96 @@
         },
         {
           "description": "array-indexed: break on first iteration leaves no further iter-next",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 1
+        }
+      ]
+    },
+    {
+      "nodeType": "for",
+      "forbiddenRewrites": [
+        "re-evaluate from/to/step after loop entry",
+        "treat to= as inclusive",
+        "rewrite negative steps as positive forward iteration",
+        "allow body mutation of the loop binding to affect the next index",
+        "silently accept step=0"
+      ],
+      "fixtureCount": 8,
+      "fixtureSamples": [
+        {
+          "description": "for: forward half-open range 0..3 yields 0, 1, 2",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 6
+        },
+        {
+          "description": "for: mismatched negative step on forward bounds yields no iterations",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 0
+        }
+      ]
+    },
+    {
+      "nodeType": "if",
+      "forbiddenRewrites": [
+        "evaluate if cond more than once",
+        "evaluate later else-if conditions after an earlier branch matched",
+        "run more than one if/else branch from the same chain",
+        "change else > [if, else] chain collapse into a different branch order",
+        "widen condition truthiness to arrays or objects without a cross-target contract revision"
+      ],
+      "fixtureCount": 7,
+      "fixtureSamples": [
+        {
+          "description": "if-true: truthy condition runs then branch",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 1
+        },
+        {
+          "description": "if-else-if-else: three-arm chain evaluates in order and runs middle arm",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 1
+        }
+      ]
+    },
+    {
+      "nodeType": "lambda",
+      "forbiddenRewrites": [
+        "convert by-reference outer captures into by-value snapshots",
+        "reuse callback loop binding across closure instances (Python late-binding closure bug)",
+        "rewrite single-expression lambda body into multi-statement closure",
+        "evaluate lambda body before invocation"
+      ],
+      "fixtureCount": 5,
+      "fixtureSamples": [
+        {
+          "description": "lambda: List.map transforms each item with a single-expression callback",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 1
+        },
+        {
+          "description": "lambda: closure reads the current outer binding by reference",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 1
+        }
+      ]
+    },
+    {
+      "nodeType": "let",
+      "forbiddenRewrites": [
+        "hoist the declaration",
+        "collapse block-scoped let to var/global",
+        "widen block scope to function scope",
+        "silently convert let to const"
+      ],
+      "fixtureCount": 5,
+      "fixtureSamples": [
+        {
+          "description": "let: string initializer creates one block-local binding",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 1
+        },
+        {
+          "description": "let: boolean initializer is portable",
           "expectedCompletionKind": "normal",
           "expectedEventCount": 1
         }

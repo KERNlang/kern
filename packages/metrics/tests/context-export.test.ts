@@ -1,12 +1,13 @@
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { describe, expect, test } from '../../../scripts/node-test-compat.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('Context Export', () => {
   describe('scanKernProject', () => {
     test('finds .kern files in project', async () => {
-      const { scanKernProject } = await import('../src/context-export.js');
+      const { scanKernProject } = await import('../dist/context-export.js');
       const summary = scanKernProject(ROOT);
 
       expect(summary.kernFiles.length).toBeGreaterThanOrEqual(3);
@@ -16,7 +17,7 @@ describe('Context Export', () => {
     });
 
     test('returns null metrics for empty directory', async () => {
-      const { scanKernProject } = await import('../src/context-export.js');
+      const { scanKernProject } = await import('../dist/context-export.js');
       const summary = scanKernProject(resolve(ROOT, 'packages/core/dist'));
 
       expect(summary.kernFiles).toEqual([]);
@@ -26,7 +27,7 @@ describe('Context Export', () => {
 
   describe('projectToKern', () => {
     test('produces Kern-format context block', async () => {
-      const { scanKernProject, projectToKern } = await import('../src/context-export.js');
+      const { scanKernProject, projectToKern } = await import('../dist/context-export.js');
       const summary = scanKernProject(ROOT);
       const output = projectToKern(summary);
 
@@ -39,7 +40,7 @@ describe('Context Export', () => {
     });
 
     test('handles empty project gracefully', async () => {
-      const { projectToKern } = await import('../src/context-export.js');
+      const { projectToKern } = await import('../dist/context-export.js');
       const summary: any = {
         cwd: '/tmp/empty',
         target: 'tailwind',
