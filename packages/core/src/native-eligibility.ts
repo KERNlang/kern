@@ -196,8 +196,8 @@ export function isExplicitForeignRawBody(body: Pick<RawBody, 'declaredLang' | 'd
 
 /** Classify a single raw body. Slice α-3: delegates to the AST walker so
  *  eligibility ≡ migrate-success by construction. */
-export function classifyHandlerBody(rawBody: string): EligibilityResult {
-  return classifyHandlerBodyAst(rawBody);
+export function classifyHandlerBody(rawBody: string, opts?: { allowNonBlock?: boolean }): EligibilityResult {
+  return classifyHandlerBodyAst(rawBody, opts);
 }
 
 /** Walk a `.kern` source file's text and pull out every `<<< … >>>` body,

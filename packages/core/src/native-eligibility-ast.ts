@@ -38,6 +38,10 @@ export interface AstEligibilityResult {
 
 interface ClassifyContext {
   loopDepth: number;
+  /** W2 — when true, non-block control-flow bodies (`if (c) stmt;`) are
+   *  eligible; the migrator emits a braced form and the opt-in canonicalizing
+   *  `--verify` accepts the brace-only delta. Off by default (strict). */
+  allowNonBlock?: boolean;
 }
 
 /** True when `exprText` parses cleanly under KERN's parser-expression.
@@ -602,7 +606,7 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
     // wrap `if` bodies in braces / indented blocks. A raw `if (cond) stmt;`
     // would migrate to `if cond=… → { stmt; }` and lose byte-equivalence under
     // `--verify`. Mirror the `for-of-non-block` / `while-non-block` guards.
-    if (!ts.isBlock(stmt.thenStatement)) return 'if-non-block-then';
+    if (!ctx.allowNonBlock && !ts.isBlock(stmt.thenStatement)) return 'if-non-block-then';
     const thenReason = classifyBranch(stmt.thenStatement, sf, ctx);
     if (thenReason !== null) return thenReason;
     if (stmt.elseStatement) {
@@ -611,7 +615,7 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
       // resulting `else > if` shape back to `else if` / `elif` (commit
       // 88c06dcc on dev). classifyBranch handles the nested IfStatement
       // by re-entering classifyStmt, so the recursion is automatic.
-      if (!ts.isIfStatement(stmt.elseStatement) && !ts.isBlock(stmt.elseStatement)) {
+      if (!ctx.allowNonBlock && !ts.isIfStatement(stmt.elseStatement) && !ts.isBlock(stmt.elseStatement)) {
         return 'if-non-block-else';
       }
       const elseReason = classifyBranch(stmt.elseStatement, sf, ctx);
@@ -716,14 +720,14 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
     // Only block-shaped loops are currently migratable. `each` always emits
     // braces, so migrating `for (const x of xs) do(x);` would drift under
     // --verify even though it is semantically close.
-    if (!ts.isBlock(stmt.statement)) return 'for-of-non-block';
-    if (stmt.statement.statements.length === 0) return 'for-of-empty-body';
+    if (!ctx.allowNonBlock && !ts.isBlock(stmt.statement)) return 'for-of-non-block';
+    if (ts.isBlock(stmt.statement) && stmt.statement.statements.length === 0) return 'for-of-empty-body';
     return classifyBranch(stmt.statement, sf, { ...ctx, loopDepth: ctx.loopDepth + 1 });
   }
   if (ts.isWhileStatement(stmt)) {
     if (!isValidKernExpression(stmt.expression.getText(sf))) return 'while-bad-cond';
-    if (!ts.isBlock(stmt.statement)) return 'while-non-block';
-    if (stmt.statement.statements.length === 0) return 'while-empty-body';
+    if (!ctx.allowNonBlock && !ts.isBlock(stmt.statement)) return 'while-non-block';
+    if (ts.isBlock(stmt.statement) && stmt.statement.statements.length === 0) return 'while-empty-body';
     return classifyBranch(stmt.statement, sf, { ...ctx, loopDepth: ctx.loopDepth + 1 });
   }
   if (ts.isForStatement(stmt) || ts.isForInStatement(stmt)) return 'for-stmt';
@@ -798,7 +802,7 @@ function classifyBranch(node: ts.Statement, sf: ts.SourceFile, ctx: ClassifyCont
  *  the slice 5a regex pass. Returns `eligible: true` only if every top-level
  *  statement (and every nested if/try branch) maps to a body-statement form
  *  the migrator can emit. */
-export function classifyHandlerBodyAst(rawBody: string): AstEligibilityResult {
+export function classifyHandlerBodyAst(rawBody: string, opts?: { allowNonBlock?: boolean }): AstEligibilityResult {
   const trimmed = rawBody.trim();
   if (trimmed === '') return { eligible: true, reason: 'empty' };
   const sf = ts.createSourceFile('__handler.ts', rawBody, ts.ScriptTarget.Latest, true);
@@ -818,7 +822,7 @@ export function classifyHandlerBodyAst(rawBody: string): AstEligibilityResult {
     return { eligible: false, reason: 'comments-present' };
   }
   for (const stmt of sf.statements) {
-    const r = classifyStmt(stmt, sf, { loopDepth: 0 });
+    const r = classifyStmt(stmt, sf, { loopDepth: 0, allowNonBlock: opts?.allowNonBlock });
     if (r !== null) return { eligible: false, reason: r };
   }
   return { eligible: true, reason: 'ok' };

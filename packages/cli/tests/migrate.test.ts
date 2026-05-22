@@ -378,6 +378,33 @@ describe('kern migrate command', () => {
       expect(onDisk).not.toContain('handler lang="kern"');
     });
 
+    test('--canonicalize-braces lifts a non-block `if` that strict mode rejects', () => {
+      const kernFile = join(tmpDir, 'clamp.kern');
+      const source = [
+        'fn name=clamp returns=number',
+        '  handler <<<',
+        '    if (x > 10) return 10;',
+        '    return x;',
+        '  >>>',
+      ].join('\n');
+
+      // Strict mode: the non-block `if` is rejected (if-non-block-then).
+      writeFileSync(kernFile, source);
+      runMigrate(['migrate', 'native-handlers', tmpDir, '--check-equivalent', '--json']);
+      const strict = JSON.parse(out());
+      expect(strict.totalHits).toBe(0);
+      const strictFile = strict.files.find((f: { skipped?: unknown[] }) => (f.skipped?.length ?? 0) > 0);
+      expect(strictFile.skipped[0].reason).toMatch(/if-non-block-then/);
+
+      // Opt-in: the same handler now converts.
+      stdoutChunks.length = 0;
+      writeFileSync(kernFile, source);
+      runMigrate(['migrate', 'native-handlers', tmpDir, '--check-equivalent', '--canonicalize-braces', '--json']);
+      const canon = JSON.parse(out());
+      expect(canon.totalHits).toBe(1);
+      expect(canon.totalSkipped).toBe(0);
+    });
+
     test('rejects --check-equivalent combined with --write', () => {
       const origExit = process.exit;
       const exitCalls: Array<number | undefined> = [];
