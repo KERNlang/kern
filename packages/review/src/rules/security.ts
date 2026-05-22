@@ -205,10 +205,7 @@ function classifyCallRhs(call: import('ts-morph').CallExpression, ctx: HtmlRhsCt
   if (!cb) return 'unsafe';
   const cbKind = cb.getKind();
   if (cbKind !== SyntaxKind.ArrowFunction && cbKind !== SyntaxKind.FunctionExpression) return 'unsafe';
-  return classifyCallbackReturn(
-    cb as import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
-    ctx,
-  );
+  return classifyCallbackReturn(cb as import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression, ctx);
 }
 
 function classifyHtmlRhs(node: import('ts-morph').Node, ctx: HtmlRhsCtx): RhsClass {

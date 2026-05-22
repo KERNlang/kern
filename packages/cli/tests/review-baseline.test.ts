@@ -219,7 +219,11 @@ describe('review baseline helpers', () => {
 
   it('keeps identical-text findings distinct (occurrence index) and stable across shifts', () => {
     const allSink = () => SINK;
-    const rows = (offset: number) => report('app.js', Array.from({ length: 18 }, (_v, i) => xss(1 + offset + i)));
+    const rows = (offset: number) =>
+      report(
+        'app.js',
+        Array.from({ length: 18 }, (_v, i) => xss(1 + offset + i)),
+      );
 
     const baseline = createReviewBaseline([rows(0)], allSink);
     // Unrelated insertion of 5 lines above all 18 — same order/content.
@@ -228,11 +232,7 @@ describe('review baseline helpers', () => {
     expect(shifted.newCount).toBe(0);
 
     // A genuinely-new 19th identical line IS flagged new.
-    const withExtra = compareReportsToBaseline(
-      [report('app.js', [...rows(5).findings, xss(24)])],
-      baseline,
-      allSink,
-    );
+    const withExtra = compareReportsToBaseline([report('app.js', [...rows(5).findings, xss(24)])], baseline, allSink);
     expect(withExtra.newCount).toBe(1);
     expect(withExtra.knownCount).toBe(18);
   });
