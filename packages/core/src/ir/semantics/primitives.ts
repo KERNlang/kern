@@ -9,6 +9,8 @@
  *   - `continue` — sets completion to `{kind: 'continue'}`
  *   - `return`   — sets completion to `{kind: 'return', value}`
  *   - `throw`    — sets completion to `{kind: 'throw', error}`
+ *   - `__breakIfEqual` — fixture helper for conditional loop exits
+ *   - `__assignIndex`  — fixture helper for mutating an indexed binding
  *
  * These are explicitly minimal and stay until Phase 2 lands full
  * contracts for `do`/`let`/`assign`. `__trace` is a permanent fixture
@@ -87,6 +89,42 @@ export const throwContract: NodeContract = {
   fixtures: NO_FIXTURES,
 };
 
+export const breakIfEqualContract: NodeContract = {
+  nodeType: '__breakIfEqual',
+  preconditions: (ir) => typeof ir.props?.name === 'string' && Object.hasOwn(ir.props, 'value'),
+  effects: (ir, env) => {
+    const name = ir.props?.name as string;
+    return {
+      events: [],
+      completion: Object.is(env.bindings.get(name), ir.props?.value) ? { kind: 'break' } : { kind: 'normal' },
+    };
+  },
+  completion: (ir, env) => breakIfEqualContract.effects(ir, env).completion,
+  forbiddenRewrites: [],
+  fixtures: NO_FIXTURES,
+};
+
+export const assignIndexContract: NodeContract = {
+  nodeType: '__assignIndex',
+  preconditions: (ir) =>
+    typeof ir.props?.target === 'string' &&
+    typeof ir.props?.index === 'number' &&
+    Number.isSafeInteger(ir.props.index) &&
+    Object.hasOwn(ir.props, 'value'),
+  effects: (ir, env) => {
+    const targetName = ir.props?.target as string;
+    const target = env.bindings.get(targetName);
+    if (!Array.isArray(target)) {
+      throw new Error(`__assignIndex: binding "${targetName}" must be an array`);
+    }
+    target[ir.props?.index as number] = ir.props?.value;
+    return { events: [], completion: { kind: 'normal' } };
+  },
+  completion: () => ({ kind: 'normal' }),
+  forbiddenRewrites: [],
+  fixtures: NO_FIXTURES,
+};
+
 let registered = false;
 
 /**
@@ -101,6 +139,8 @@ export function registerPrimitives(): void {
   registerContract(continueContract);
   registerContract(returnContract);
   registerContract(throwContract);
+  registerContract(breakIfEqualContract);
+  registerContract(assignIndexContract);
   registered = true;
 }
 

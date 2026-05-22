@@ -14,7 +14,19 @@
 
 import { spawnSync } from 'node:child_process';
 import { CONTRACT_REGISTRY, makeEnv, runDifferential, type Verdict } from '../../core/src/index.js';
+import {
+  _resetBranchContractForTest,
+  branchContract,
+  registerBranchContract,
+} from '../../core/src/ir/semantics/branch.js';
 import { _resetEachContractForTest, eachContract, registerEachContract } from '../../core/src/ir/semantics/each.js';
+import { _resetForContractForTest, forContract, registerForContract } from '../../core/src/ir/semantics/for.js';
+import { _resetIfContractForTest, ifContract, registerIfContract } from '../../core/src/ir/semantics/if.js';
+import {
+  _resetLambdaContractForTest,
+  lambdaContract,
+  registerLambdaContract,
+} from '../../core/src/ir/semantics/lambda.js';
 import { _resetPrimitivesForTest, registerPrimitives } from '../../core/src/ir/semantics/primitives.js';
 import { runPythonEmitterLeg } from '../src/ir-semantics/python-leg.js';
 
@@ -31,15 +43,27 @@ const describeIfPython = pythonAvailable ? describe : describe.skip;
 
 beforeEach(() => {
   CONTRACT_REGISTRY.clear();
+  _resetBranchContractForTest();
   _resetEachContractForTest();
+  _resetIfContractForTest();
+  _resetForContractForTest();
+  _resetLambdaContractForTest();
   _resetPrimitivesForTest();
   registerPrimitives();
   registerEachContract();
+  registerBranchContract();
+  registerIfContract();
+  registerForContract();
+  registerLambdaContract();
 });
 
 afterEach(() => {
   CONTRACT_REGISTRY.clear();
+  _resetBranchContractForTest();
   _resetEachContractForTest();
+  _resetIfContractForTest();
+  _resetForContractForTest();
+  _resetLambdaContractForTest();
   _resetPrimitivesForTest();
 });
 
@@ -68,6 +92,88 @@ describeIfPython('Python emitter leg — each fixtures (differential vs referenc
           `verdict=${result.verdict}\n` +
             `fixture=${fixture.description}\n` +
             `reference=${JSON.stringify(result.reference, null, 2)}\n` +
+            `python=${JSON.stringify(result.python, null, 2)}\n` +
+            `legError=${JSON.stringify(result.legError, null, 2)}`,
+        );
+      }
+      expect(result.verdict).toBe<Verdict>('pass');
+    },
+    15_000,
+  );
+});
+
+describeIfPython('Python emitter leg — branch fixtures (differential vs reference)', () => {
+  it.each(branchContract.fixtures.map((f) => [f.description, f] as const))(
+    'fixture: %s',
+    async (_desc, fixture) => {
+      const result = await runDifferential(fixture, { skipTs: true, pythonLeg: runPythonEmitterLeg });
+      if (result.verdict !== 'pass') {
+        throw new Error(
+          `verdict=${result.verdict}\n` +
+            `fixture=${fixture.description}\n` +
+            `reference=${JSON.stringify(result.reference, null, 2)}\n` +
+            `python=${JSON.stringify(result.python, null, 2)}\n` +
+            `legError=${JSON.stringify(result.legError, null, 2)}`,
+        );
+      }
+      expect(result.verdict).toBe<Verdict>('pass');
+    },
+    15_000,
+  );
+});
+
+describeIfPython('Python emitter leg — lambda fixtures (differential vs reference)', () => {
+  it.each(lambdaContract.fixtures.map((f) => [f.description, f] as const))(
+    'fixture: %s',
+    async (_desc, fixture) => {
+      const result = await runDifferential(fixture, { skipTs: true, pythonLeg: runPythonEmitterLeg });
+      if (result.verdict !== 'pass') {
+        throw new Error(
+          `verdict=${result.verdict}\n` +
+            `fixture=${fixture.description}\n` +
+            `reference=${JSON.stringify(result.reference, null, 2)}\n` +
+            `python=${JSON.stringify(result.python, null, 2)}\n` +
+            `legError=${JSON.stringify(result.legError, null, 2)}`,
+        );
+      }
+      expect(result.verdict).toBe<Verdict>('pass');
+    },
+    15_000,
+  );
+});
+
+describeIfPython('Python emitter leg — if fixtures (3-way differential)', () => {
+  it.each(ifContract.fixtures.map((f) => [f.description, f] as const))(
+    'fixture: %s',
+    async (_desc, fixture) => {
+      const result = await runDifferential(fixture, { pythonLeg: runPythonEmitterLeg });
+      if (result.verdict !== 'pass') {
+        throw new Error(
+          `verdict=${result.verdict}\n` +
+            `fixture=${fixture.description}\n` +
+            `reference=${JSON.stringify(result.reference, null, 2)}\n` +
+            `ts=${JSON.stringify(result.ts, null, 2)}\n` +
+            `python=${JSON.stringify(result.python, null, 2)}\n` +
+            `legError=${JSON.stringify(result.legError, null, 2)}`,
+        );
+      }
+      expect(result.verdict).toBe<Verdict>('pass');
+    },
+    15_000,
+  );
+});
+
+describeIfPython('Python emitter leg — for fixtures (three-way differential)', () => {
+  it.each(forContract.fixtures.map((f) => [f.description, f] as const))(
+    'fixture: %s',
+    async (_desc, fixture) => {
+      const result = await runDifferential(fixture, { pythonLeg: runPythonEmitterLeg });
+      if (result.verdict !== 'pass') {
+        throw new Error(
+          `verdict=${result.verdict}\n` +
+            `fixture=${fixture.description}\n` +
+            `reference=${JSON.stringify(result.reference, null, 2)}\n` +
+            `ts=${JSON.stringify(result.ts, null, 2)}\n` +
             `python=${JSON.stringify(result.python, null, 2)}\n` +
             `legError=${JSON.stringify(result.legError, null, 2)}`,
         );

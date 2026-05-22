@@ -15,7 +15,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CONTRACT_REGISTRY, registerAllContracts, serializeJson } from '../src/index.js';
+import { _resetBranchContractForTest } from '../src/ir/semantics/branch.js';
 import { _resetEachContractForTest } from '../src/ir/semantics/each.js';
+import { _resetForContractForTest } from '../src/ir/semantics/for.js';
+import { _resetIfContractForTest } from '../src/ir/semantics/if.js';
+import { _resetLambdaContractForTest } from '../src/ir/semantics/lambda.js';
 import { _resetPrimitivesForTest } from '../src/ir/semantics/primitives.js';
 
 // Jest is configured with ESM transforms (`--experimental-vm-modules`) so
@@ -26,13 +30,21 @@ const REGISTRY_PATH = path.resolve(__dirname, '../../../generated/contracts/regi
 
 beforeEach(() => {
   CONTRACT_REGISTRY.clear();
+  _resetBranchContractForTest();
   _resetEachContractForTest();
+  _resetIfContractForTest();
+  _resetForContractForTest();
+  _resetLambdaContractForTest();
   _resetPrimitivesForTest();
 });
 
 afterEach(() => {
   CONTRACT_REGISTRY.clear();
+  _resetBranchContractForTest();
   _resetEachContractForTest();
+  _resetIfContractForTest();
+  _resetForContractForTest();
+  _resetLambdaContractForTest();
   _resetPrimitivesForTest();
 });
 

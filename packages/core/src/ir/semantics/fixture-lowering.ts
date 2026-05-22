@@ -12,6 +12,8 @@
  *                          / `throw value="_KernReturn(<value-literal>)"`    (Python)
  *   - `throw  {errorKind:K}` → `throw value="new __KernThrow(<kind>)"` (TS)
  *                            / `throw value="_KernThrow(<kind>)"`    (Python)
+ *   - `__breakIfEqual {name:N,value:V}` → `if cond="<N> == <V>" > break`
+ *   - `__assignIndex {target:T,index:I,value:V}` → `assign target="T[I]" value="V"`
  *
  * `break` and `continue` pass through (they are real KERN body-stmts in both
  * targets).
@@ -116,6 +118,13 @@ function refsFor(target: LowerTarget): LowerRefs {
 export function lowerFixtureForTarget(node: IRNode, target: LowerTarget): IRNode {
   const refs = refsFor(target);
 
+  if (node.type === '__block') {
+    return {
+      ...node,
+      props: node.props ? { ...node.props } : node.props,
+      children: (node.children ?? []).map((c) => lowerFixtureForTarget(c, target)),
+    };
+  }
   if (node.type === '__trace') {
     const event = node.props?.event;
     if (event === undefined) {
@@ -141,6 +150,58 @@ export function lowerFixtureForTarget(node: IRNode, target: LowerTarget): IRNode
     return {
       type: 'throw',
       props: { value: `${refs.newKeyword}${refs.throwSentinel}(${serializeValue(errorKind, target)})` },
+    };
+  }
+  if (node.type === '__breakIfEqual') {
+    const name = node.props?.name;
+    if (typeof name !== 'string') {
+      throw new Error('lowerFixtureForTarget: __breakIfEqual node requires a string `name` prop');
+    }
+    if (!Object.hasOwn(node.props ?? {}, 'value')) {
+      throw new Error('lowerFixtureForTarget: __breakIfEqual node requires a `value` prop');
+    }
+    return {
+      type: 'if',
+      props: { cond: `${name} == ${serializeValue(node.props?.value, target)}` },
+      children: [{ type: 'break' }],
+    };
+  }
+  if (node.type === '__assignIndex') {
+    const targetName = node.props?.target;
+    const index = node.props?.index;
+    if (typeof targetName !== 'string') {
+      throw new Error('lowerFixtureForTarget: __assignIndex node requires a string `target` prop');
+    }
+    if (typeof index !== 'number' || !Number.isSafeInteger(index)) {
+      throw new Error('lowerFixtureForTarget: __assignIndex node requires an integer `index` prop');
+    }
+    if (!Object.hasOwn(node.props ?? {}, 'value')) {
+      throw new Error('lowerFixtureForTarget: __assignIndex node requires a `value` prop');
+    }
+    return {
+      type: 'assign',
+      props: {
+        target: `${targetName}[${index}]`,
+        value: serializeValue(node.props?.value, target),
+      },
+    };
+  }
+  if (node.type === 'lambda') {
+    const expr = node.props?.expr;
+    if (typeof expr !== 'string' || expr.length === 0) {
+      throw new Error('lowerFixtureForTarget: lambda node requires a non-empty string `expr` prop');
+    }
+    const traceFn = target === 'ts' ? '__kernTrace' : '_kern_trace';
+    return {
+      type: 'if',
+      props: { cond: 'true' },
+      children: [
+        ...(node.children ?? []).map((c) => lowerFixtureForTarget(c, target)),
+        {
+          type: 'do',
+          props: { value: `${traceFn}({op: "stdout", text: List.join(${expr}, ",")})` },
+        },
+      ],
     };
   }
   // Preserve `children: []` (instead of stripping it) so emit paths that
