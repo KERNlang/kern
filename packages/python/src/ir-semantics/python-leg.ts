@@ -321,5 +321,8 @@ export async function runPythonEmitterLeg(fixture: NodeFixture, env: SemanticEnv
 }
 
 function shouldTraceLetAssign(ir: NodeFixture['ir']): boolean {
-  return ir.type === 'let' || ir.props?.__semanticContract === 'let';
+  // Both the `let` (declaration) and `assign` (reassignment) contracts observe
+  // binding mutation through the same `{op:"assign"}` trace hook.
+  const contract = ir.props?.__semanticContract;
+  return ir.type === 'let' || ir.type === 'assign' || contract === 'let' || contract === 'assign';
 }

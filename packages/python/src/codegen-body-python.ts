@@ -908,7 +908,15 @@ function emitAssignPy(node: IRNode, ctx: BodyEmitContext): string[] {
       `Propagation \`${valueIR.op}\` is not supported in \`assign value=\` — bind to \`let\` first, then assign.`,
     );
   }
-  return [`${emitPyExprCtx(targetIR, ctx)} ${rawOp} ${emitPyExprCtx(valueIR, ctx)}`];
+  const stmt = `${emitPyExprCtx(targetIR, ctx)} ${rawOp} ${emitPyExprCtx(valueIR, ctx)}`;
+  // Differential-harness opt-in (see BodyEmitOptions.traceHooks.letAssign): the
+  // `assign` contract observes a reassignment via the same `{op:"assign"}` event
+  // a `let` declaration emits. Scoped to identifier targets — the contract
+  // domain excludes member/index targets. Mirrors the TS leg in body-ts.ts.
+  if (targetIR.kind === 'ident' && ctx.traceHooks?.letAssign) {
+    return [stmt, letAssignTracePy(targetIR.name)];
+  }
+  return [stmt];
 }
 
 function declareLocalBinding(ctx: BodyEmitContext, name: string, kind: 'const' | 'let' | 'cell'): void {

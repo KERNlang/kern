@@ -13,6 +13,7 @@
  * the per-contract `_resetXForTest()` helpers first.
  */
 
+import { registerAssignContract } from './assign.js';
 import { registerBranchContract } from './branch.js';
 import { registerEachContract } from './each.js';
 import { registerForContract } from './for.js';
@@ -29,4 +30,5 @@ export function registerAllContracts(): void {
   registerForContract();
   registerLambdaContract();
   registerLetContract();
+  registerAssignContract();
 }

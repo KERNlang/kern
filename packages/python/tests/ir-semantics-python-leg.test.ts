@@ -15,6 +15,11 @@
 import { spawnSync } from 'node:child_process';
 import { CONTRACT_REGISTRY, makeEnv, runDifferential, type Verdict } from '../../core/src/index.js';
 import {
+  _resetAssignContractForTest,
+  assignContract,
+  registerAssignContract,
+} from '../../core/src/ir/semantics/assign.js';
+import {
   _resetBranchContractForTest,
   branchContract,
   registerBranchContract,
@@ -50,6 +55,7 @@ beforeEach(() => {
   _resetForContractForTest();
   _resetLambdaContractForTest();
   _resetLetContractForTest();
+  _resetAssignContractForTest();
   _resetPrimitivesForTest();
   registerPrimitives();
   registerEachContract();
@@ -58,6 +64,7 @@ beforeEach(() => {
   registerForContract();
   registerLambdaContract();
   registerLetContract();
+  registerAssignContract();
 });
 
 afterEach(() => {
@@ -68,6 +75,7 @@ afterEach(() => {
   _resetForContractForTest();
   _resetLambdaContractForTest();
   _resetLetContractForTest();
+  _resetAssignContractForTest();
   _resetPrimitivesForTest();
 });
 
@@ -148,6 +156,27 @@ describeIfPython('Python emitter leg — lambda fixtures (differential vs refere
 
 describeIfPython('Python emitter leg — let fixtures (three-way differential)', () => {
   it.each(letContract.fixtures.map((f) => [f.description, f] as const))(
+    'fixture: %s',
+    async (_desc, fixture) => {
+      const result = await runDifferential(fixture, { pythonLeg: runPythonEmitterLeg });
+      if (result.verdict !== 'pass') {
+        throw new Error(
+          `verdict=${result.verdict}\n` +
+            `fixture=${fixture.description}\n` +
+            `reference=${JSON.stringify(result.reference, null, 2)}\n` +
+            `ts=${JSON.stringify(result.ts, null, 2)}\n` +
+            `python=${JSON.stringify(result.python, null, 2)}\n` +
+            `legError=${JSON.stringify(result.legError, null, 2)}`,
+        );
+      }
+      expect(result.verdict).toBe<Verdict>('pass');
+    },
+    15_000,
+  );
+});
+
+describeIfPython('Python emitter leg — assign fixtures (three-way differential)', () => {
+  it.each(assignContract.fixtures.map((f) => [f.description, f] as const))(
     'fixture: %s',
     async (_desc, fixture) => {
       const result = await runDifferential(fixture, { pythonLeg: runPythonEmitterLeg });

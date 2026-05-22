@@ -21,6 +21,29 @@
       "fixtureSamples": []
     },
     {
+      "nodeType": "assign",
+      "forbiddenRewrites": [
+        "inject Python global/nonlocal",
+        "collapse an assign into a declaration",
+        "lower `x += y` to `x = x + y`",
+        "reorder the read-modify-write",
+        "elide the assign event when the value is unchanged"
+      ],
+      "fixtureCount": 6,
+      "fixtureSamples": [
+        {
+          "description": "assign: plain `=` reassigns a number binding in place",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 2
+        },
+        {
+          "description": "assign: `+=` numeric add reads the current value once",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 2
+        }
+      ]
+    },
+    {
       "nodeType": "branch",
       "forbiddenRewrites": [
         "reorder non-default paths with overlapping values",

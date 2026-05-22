@@ -71,8 +71,12 @@ export interface BodyEmitOptions {
    * accepted the next iteration value and KERN bindings have been
    * established, before the loop body's first child executes.
    *
-   * Scoped to `each` in PR-3a. Adding hooks for other nodes is an explicit
-   * spec revision and a new flag.
+   * `letAssign` is shared by the `let` (declaration) and `assign`
+   * (reassignment) contracts — both emit a `__kernTrace({op:'assign', target,
+   * value})` call after the binding is written, on identifier targets only.
+   *
+   * Scoped per-flag. Adding hooks for other nodes is an explicit spec
+   * revision and a new flag.
    */
   traceHooks?: { eachIterNext?: boolean; forIterNext?: boolean; letAssign?: boolean };
 }
@@ -732,7 +736,15 @@ function emitAssignTS(node: IRNode, ctx: BodyEmitContext): string[] {
       `Propagation \`${valueIR.op}\` is not supported in \`assign value=\` — bind to \`let\` first, then assign.`,
     );
   }
-  return [`${emitExpression(targetIR)} ${rawOp} ${emitExpression(valueIR)};`];
+  const stmt = `${emitExpression(targetIR)} ${rawOp} ${emitExpression(valueIR)};`;
+  // Differential-harness opt-in (see BodyEmitOptions.traceHooks.letAssign): the
+  // `assign` contract observes a reassignment via the same `{op:"assign"}` event
+  // a `let` declaration emits. Scoped to identifier targets — the contract
+  // domain excludes member/index targets.
+  if (targetIR.kind === 'ident' && ctx.traceHooks?.letAssign) {
+    return [stmt, letAssignTraceTS(targetIR.name)];
+  }
+  return [stmt];
 }
 
 function emitCellTS(node: IRNode, ctx: BodyEmitContext): string[] {
