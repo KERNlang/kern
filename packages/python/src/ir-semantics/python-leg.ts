@@ -322,10 +322,18 @@ export async function runPythonEmitterLeg(fixture: NodeFixture, env: SemanticEnv
 
 function shouldTraceLetAssign(ir: NodeFixture['ir']): boolean {
   // `let` (declaration), `assign` (reassignment), and `fmt` (formatted binding)
-  // all observe their binding write through the same `{op:"assign"}` trace hook.
+  // observe their binding write through the same `{op:"assign"}` trace hook.
+  // `while` fixtures opt in too: their counter setup/advance (let + assign in
+  // body) must emit the same assign events the reference produces.
   const contract = ir.props?.__semanticContract;
   const t = ir.type;
   return (
-    t === 'let' || t === 'assign' || t === 'fmt' || contract === 'let' || contract === 'assign' || contract === 'fmt'
+    t === 'let' ||
+    t === 'assign' ||
+    t === 'fmt' ||
+    contract === 'let' ||
+    contract === 'assign' ||
+    contract === 'fmt' ||
+    contract === 'while'
   );
 }

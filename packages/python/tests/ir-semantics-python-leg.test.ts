@@ -35,6 +35,7 @@ import {
 } from '../../core/src/ir/semantics/lambda.js';
 import { _resetLetContractForTest, letContract, registerLetContract } from '../../core/src/ir/semantics/let.js';
 import { _resetPrimitivesForTest, registerPrimitives } from '../../core/src/ir/semantics/primitives.js';
+import { _resetWhileContractForTest, registerWhileContract, whileContract } from '../../core/src/ir/semantics/while.js';
 import { runPythonEmitterLeg } from '../src/ir-semantics/python-leg.js';
 
 const pythonAvailable = (() => {
@@ -58,6 +59,7 @@ beforeEach(() => {
   _resetLetContractForTest();
   _resetAssignContractForTest();
   _resetFmtContractForTest();
+  _resetWhileContractForTest();
   _resetPrimitivesForTest();
   registerPrimitives();
   registerEachContract();
@@ -68,6 +70,7 @@ beforeEach(() => {
   registerLetContract();
   registerAssignContract();
   registerFmtContract();
+  registerWhileContract();
 });
 
 afterEach(() => {
@@ -80,6 +83,7 @@ afterEach(() => {
   _resetLetContractForTest();
   _resetAssignContractForTest();
   _resetFmtContractForTest();
+  _resetWhileContractForTest();
   _resetPrimitivesForTest();
 });
 
@@ -181,6 +185,27 @@ describeIfPython('Python emitter leg — let fixtures (three-way differential)',
 
 describeIfPython('Python emitter leg — assign fixtures (three-way differential)', () => {
   it.each(assignContract.fixtures.map((f) => [f.description, f] as const))(
+    'fixture: %s',
+    async (_desc, fixture) => {
+      const result = await runDifferential(fixture, { pythonLeg: runPythonEmitterLeg });
+      if (result.verdict !== 'pass') {
+        throw new Error(
+          `verdict=${result.verdict}\n` +
+            `fixture=${fixture.description}\n` +
+            `reference=${JSON.stringify(result.reference, null, 2)}\n` +
+            `ts=${JSON.stringify(result.ts, null, 2)}\n` +
+            `python=${JSON.stringify(result.python, null, 2)}\n` +
+            `legError=${JSON.stringify(result.legError, null, 2)}`,
+        );
+      }
+      expect(result.verdict).toBe<Verdict>('pass');
+    },
+    15_000,
+  );
+});
+
+describeIfPython('Python emitter leg — while fixtures (three-way differential)', () => {
+  it.each(whileContract.fixtures.map((f) => [f.description, f] as const))(
     'fixture: %s',
     async (_desc, fixture) => {
       const result = await runDifferential(fixture, { pythonLeg: runPythonEmitterLeg });

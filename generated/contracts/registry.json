@@ -224,6 +224,29 @@
       "forbiddenRewrites": [],
       "fixtureCount": 0,
       "fixtureSamples": []
+    },
+    {
+      "nodeType": "while",
+      "forbiddenRewrites": [
+        "rewrite to for / recursion",
+        "loop-unroll",
+        "hoist or cache the condition (it must be re-evaluated each pass)",
+        "emit Python while...else",
+        "let break/continue escape as the loop's final completion (they are consumed by the loop)"
+      ],
+      "fixtureCount": 6,
+      "fixtureSamples": [
+        {
+          "description": "while: counts up to a literal bound, one body pass per iteration",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 7
+        },
+        {
+          "description": "while: a body continue skips the rest of the iteration but keeps looping",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 4
+        }
+      ]
     }
   ]
 }
