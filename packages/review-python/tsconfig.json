@@ -9,7 +9,7 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["node", "jest"],
+    "types": ["node"],
     "resolveJsonModule": true
   },
   "include": ["src"],

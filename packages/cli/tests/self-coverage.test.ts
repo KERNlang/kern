@@ -73,6 +73,23 @@ describe('kern self-coverage command', () => {
     expect(report.blockers[0]).toMatchObject({ reason: 'unsupported-stmt-FunctionDeclaration', count: 1 });
   });
 
+  test('--canonicalize-braces counts a non-block `if` body as migratable', () => {
+    writeFileSync(
+      join(tmpDir, 'clamp.kern'),
+      ['fn name=clamp', '  handler <<<', '    if (x > 10) return 10;', '    return x;', '  >>>'].join('\n'),
+    );
+
+    // Default metric: the non-block `if` is blocked (if-non-block-then).
+    const strict = collectSelfCoverage(tmpDir);
+    expect(strict.migratableRawHandlers).toBe(0);
+    expect(strict.blockers.some((b) => b.reason === 'if-non-block-then')).toBe(true);
+
+    // Opt-in: mirrors the migrate `--canonicalize-braces` lift — now migratable.
+    const canon = collectSelfCoverage(tmpDir, { canonicalizeBraces: true });
+    expect(canon.migratableRawHandlers).toBe(1);
+    expect(canon.blockers.some((b) => b.reason === 'if-non-block-then')).toBe(false);
+  });
+
   test('--json emits structured output', async () => {
     writeFileSync(join(tmpDir, 'app.kern'), ['fn name=x', '  handler <<<', '    return 1;', '  >>>'].join('\n'));
 

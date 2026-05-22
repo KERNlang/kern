@@ -33,6 +33,7 @@ import {
   transpileAndWrite,
   writeSidecarInstallFilesForAsts,
 } from '../shared.js';
+import { isBraceOnlyDelta } from '../verify-brace-canonical.js';
 
 const SKIP_DIRS = new Set([
   'node_modules',
@@ -329,7 +330,7 @@ export interface MigrationDef {
   /** One-line description shown in help + `list` output. */
   summary: string;
   /** Pure rewriter — takes source, returns new source + per-hit breakdown. */
-  rewrite: (source: string) => LiteralConstResult;
+  rewrite: (source: string, opts?: { canonicalizeBraces?: boolean }) => LiteralConstResult;
 }
 
 import { rewriteClassBodies } from './migrate-class-body.js';
@@ -536,7 +537,7 @@ function listRel(dir: string, base = dir, out: string[] = []): string[] {
   return out;
 }
 
-function collectDriftBetween(beforeDir: string, afterDir: string): DriftEntry[] {
+function collectDriftBetween(beforeDir: string, afterDir: string, canonicalizeBraces: boolean): DriftEntry[] {
   const beforeFiles = new Set(listRel(beforeDir));
   const afterFiles = new Set(listRel(afterDir));
   const drift: DriftEntry[] = [];
@@ -549,7 +550,13 @@ function collectDriftBetween(beforeDir: string, afterDir: string): DriftEntry[] 
     try {
       const a = readFileSync(join(beforeDir, rel), 'utf-8');
       const b = readFileSync(join(afterDir, rel), 'utf-8');
-      if (a !== b) drift.push({ file: rel, reason: 'content' });
+      // In canonical mode a drift is forgiven ONLY when the compiled TS differs
+      // solely by brace-wrapping non-block control-flow bodies (sound, closed
+      // transform — see verify-brace-canonical.ts). Any other byte difference
+      // is real drift and still rolls back.
+      if (a !== b && !(canonicalizeBraces && isBraceOnlyDelta(a, b))) {
+        drift.push({ file: rel, reason: 'content' });
+      }
     } catch {
       drift.push({ file: rel, reason: 'content' });
     }
@@ -571,10 +578,13 @@ function cleanupTmp(dir: string | undefined): void {
 
 function printUsage(): void {
   process.stderr.write(
-    'Usage: kern migrate <migration|list> [dir] [--write] [--verify] [--check-equivalent] [--json]\n',
+    'Usage: kern migrate <migration|list> [dir] [--write] [--verify] [--canonicalize-braces] [--check-equivalent] [--json]\n',
   );
   process.stderr.write(
     '  --check-equivalent  dry-run audit listing eligible/converted/skipped with reasons + source line ranges (native-handlers)\n',
+  );
+  process.stderr.write(
+    '  --canonicalize-braces  (native-handlers) also lift non-block `if (c) stmt;` / `while` / `for-of` bodies; forces a brace-canonicalizing --verify that accepts ONLY the brace-only re-emission\n',
   );
   process.stderr.write('Migrations:\n');
   const padTo = migrationList().reduce((m, d) => Math.max(m, d.name.length), 0);
@@ -625,7 +635,12 @@ export function runMigrate(args: string[]): void {
   const rootArg = args.slice(2).find((a) => !a.startsWith('--'));
   const rootDir = resolve(parseFlagOrNext(args, '--root') ?? rootArg ?? process.cwd());
   const write = hasFlag(args, '--write');
-  const verify = hasFlag(args, '--verify');
+  // `--canonicalize-braces` opts the native-handlers migration into the
+  // non-block lift (`if (c) stmt;` → braced) AND the brace-canonicalizing
+  // verify that checks the brace-only re-emission. It forces `--verify` on any
+  // write so a non-block migration is never written without that check.
+  const canonicalizeBraces = hasFlag(args, '--canonicalize-braces');
+  const verify = hasFlag(args, '--verify') || (canonicalizeBraces && write);
   // `--check-equivalent` is a richer dry-run: it never writes, and surfaces
   // per-handler skip reasons + source line ranges so authors can audit why
   // the migrator declined to rewrite specific handlers. Mutually exclusive
@@ -682,7 +697,7 @@ export function runMigrate(args: string[]): void {
     } catch {
       continue;
     }
-    const result = def.rewrite(source);
+    const result = def.rewrite(source, { canonicalizeBraces });
     const skipped = result.skipped ?? [];
     fileReports.push({
       file,
@@ -727,7 +742,7 @@ export function runMigrate(args: string[]): void {
       process.exit(1);
     }
 
-    const drift = collectDriftBetween(beforeDir!, afterDir);
+    const drift = collectDriftBetween(beforeDir!, afterDir, canonicalizeBraces);
     cleanupTmp(beforeDir);
     cleanupTmp(afterDir);
 

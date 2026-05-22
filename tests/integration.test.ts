@@ -152,7 +152,8 @@ describe('End-to-End Integration', () => {
       expect(kern.isEscapedStyleKey).toBeDefined();
       expect(kern.scanKernProject).toBeDefined();
       expect(kern.projectToKern).toBeDefined();
-      expect(kern.KERN_VERSION).toBe('2.0.0');
+      const packageJson = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf-8'));
+      expect(kern.KERN_VERSION).toBe(packageJson.version);
       expect(kern.STYLE_SHORTHANDS).toBeDefined();
     });
   });

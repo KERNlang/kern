@@ -74,6 +74,11 @@ interface MapContext {
    *  caller surfaces this in NativeHandlerSkip so authors can see the
    *  precise statement kind that blocked migration. Reset per-handler. */
   skipReason?: string;
+  /** W2 — when true, non-block control-flow bodies (`if (c) stmt;`) are
+   *  migrated to a braced native-KERN form. Only set under the opt-in
+   *  `--canonicalize-braces` flag, which forces the brace-canonicalizing
+   *  `--verify` so the brace-only re-emission is checked. */
+  allowNonBlock?: boolean;
 }
 
 function recordSkip(ctx: MapContext, reason: string): null {
@@ -148,7 +153,29 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string,
     }
     return null;
   }
+  // W1 — capture an inline same-line trailing comment and re-attach it via the
+  // `trailingComment=` slot on the single emitted body-stmt line. Only simple
+  // (single-line) statements qualify; compound statements emit multiple lines
+  // and leave the comment for the eligibility gate to reject.
+  if (mapped.length === 1) {
+    const trailing = trailingCommentRaw(stmt, source);
+    if (trailing !== null) mapped[0] = `${mapped[0]} trailingComment="${escapeKernString(trailing)}"`;
+  }
   return [...mapLeadingComments(stmt, source, indent), ...mapped];
+}
+
+/** A single same-line trailing comment after a simple statement
+ *  (`return x; // note`). `ts.getTrailingCommentRanges` returns only comments
+ *  up to the next line break, so these are same-line by construction. Returns
+ *  null for none, more than one (rare; trips eligibility), or a newline-
+ *  spanning block comment (can't be an inline slot). Must stay in lockstep
+ *  with the `hasOnlyMigratableComments` trailing predicate in core. */
+function trailingCommentRaw(stmt: ts.Statement, source: ts.SourceFile): string | null {
+  const ranges = ts.getTrailingCommentRanges(source.text, stmt.getEnd());
+  if (!ranges || ranges.length !== 1) return null;
+  const raw = source.text.slice(ranges[0].pos, ranges[0].end);
+  if (raw.includes('\n')) return null;
+  return raw;
 }
 
 function mapLeadingComments(stmt: ts.Statement, source: ts.SourceFile, indent: string): string[] {
@@ -413,7 +440,7 @@ function mapIf(stmt: ts.IfStatement, source: ts.SourceFile, indent: string, ctx:
   // raw `if (cond) stmt;` would re-emit as `if (cond) { stmt; }`. Mirror the
   // check here as defense-in-depth so direct migrator entry points stay
   // safe even if the classifier is bypassed.
-  if (!ts.isBlock(stmt.thenStatement)) return null;
+  if (!ctx.allowNonBlock && !ts.isBlock(stmt.thenStatement)) return null;
   const innerIndent = indent + INDENT_STEP;
   const out: string[] = [`${indent}if cond="${escapeKernString(canonical)}"`];
 
@@ -432,7 +459,7 @@ function mapIf(stmt: ts.IfStatement, source: ts.SourceFile, indent: string, ctx:
       if (nested === null) return null;
       out.push(...nested);
     } else {
-      if (!ts.isBlock(stmt.elseStatement)) return null;
+      if (!ctx.allowNonBlock && !ts.isBlock(stmt.elseStatement)) return null;
       const elseLines = mapBranch(stmt.elseStatement, source, innerIndent, ctx);
       if (elseLines === null) return null;
       out.push(...elseLines);
@@ -548,8 +575,8 @@ function mapForOf(stmt: ts.ForOfStatement, source: ts.SourceFile, indent: string
   const decl = decls[0];
   if (decl.initializer) return null;
   const typeText = decl.type?.getText(source);
-  if (!ts.isBlock(stmt.statement)) return null;
-  if (stmt.statement.statements.length === 0) return null;
+  if (!ctx.allowNonBlock && !ts.isBlock(stmt.statement)) return null;
+  if (ts.isBlock(stmt.statement) && stmt.statement.statements.length === 0) return null;
 
   const innerIndent = indent + INDENT_STEP;
   const awaitAttr = stmt.awaitModifier ? ' await=true' : '';
@@ -638,8 +665,8 @@ function mapWhile(stmt: ts.WhileStatement, source: ts.SourceFile, indent: string
   const condText = stmt.expression.getText(source);
   const canonical = canonicalKernExpression(condText);
   if (canonical === null) return null;
-  if (!ts.isBlock(stmt.statement)) return null;
-  if (stmt.statement.statements.length === 0) return null;
+  if (!ctx.allowNonBlock && !ts.isBlock(stmt.statement)) return null;
+  if (ts.isBlock(stmt.statement) && stmt.statement.statements.length === 0) return null;
 
   const innerIndent = indent + INDENT_STEP;
   const out: string[] = [`${indent}while cond="${escapeKernString(canonical)}"`];
@@ -703,7 +730,7 @@ function isActionBearingLine(line: string): boolean {
   return false;
 }
 
-export function rewriteNativeHandlers(source: string): NativeHandlerResult {
+export function rewriteNativeHandlers(source: string, opts?: { canonicalizeBraces?: boolean }): NativeHandlerResult {
   const lines = source.split('\n');
   const hits: NativeHandlerHit[] = [];
   const skipped: NativeHandlerSkip[] = [];
@@ -725,7 +752,7 @@ export function rewriteNativeHandlers(source: string): NativeHandlerResult {
     if (/\blang=/.test(block.headerProps)) continue;
     if (block.bodyText.trim() === '') continue;
 
-    const cls = classifyHandlerBody(block.bodyText);
+    const cls = classifyHandlerBody(block.bodyText, { allowNonBlock: opts?.canonicalizeBraces });
     if (!cls.eligible) {
       skipped.push({ headerLine: headerLine1, endLine: endLine1, reason: `not eligible: ${cls.reason}` });
       continue;
@@ -750,7 +777,7 @@ export function rewriteNativeHandlers(source: string): NativeHandlerResult {
 
     const bodyIndent = block.headerIndent + INDENT_STEP;
     const stmtLines: string[] = [];
-    const ctx: MapContext = { loopDepth: 0 };
+    const ctx: MapContext = { loopDepth: 0, allowNonBlock: opts?.canonicalizeBraces };
     let bailed = false;
     for (const stmt of sourceFile.statements) {
       const mapped = mapStatement(stmt, sourceFile, bodyIndent, ctx);

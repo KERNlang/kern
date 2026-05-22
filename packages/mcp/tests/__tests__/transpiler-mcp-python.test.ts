@@ -3,7 +3,7 @@ import { execSync, spawn } from 'child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { transpileMCPPython } from '../transpiler-mcp-python.js';
+import { transpileMCPPython } from '../../src/transpiler-mcp-python.js';
 
 function node(type: string, props: Record<string, unknown> = {}, children: IRNode[] = []): IRNode {
   return { type, props, children, loc: { line: 1, col: 1, endLine: 1, endCol: 1 } } as IRNode;

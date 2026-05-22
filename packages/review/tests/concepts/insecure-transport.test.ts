@@ -1,4 +1,3 @@
-/// <reference types="jest" />
 import type { ConceptMap, ConceptNode, EffectPayload } from '@kernlang/core';
 import { insecureTransport } from '../../src/concept-rules/insecure-transport.js';
 

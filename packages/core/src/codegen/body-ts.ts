@@ -146,6 +146,12 @@ export function emitNativeKernBodyTSWithImports(handlerNode: IRNode, options?: B
   return { code, imports: new Set<string>() };
 }
 
+/** Body-statement node types that map to a SINGLE emitted line and may carry
+ *  an inline same-line trailing comment (`stmt; // note`) captured by the
+ *  migrator into a `trailingComment=` prop. Compound statements (if/while/for/
+ *  try/each) emit multiple lines and never receive the slot. */
+const TRAILING_COMMENT_TYPES = new Set(['let', 'assign', 'fmt', 'return', 'throw', 'do', 'continue', 'break']);
+
 function emitChildrenTS(
   children: IRNode[],
   ctx: BodyEmitContext,
@@ -157,6 +163,7 @@ function emitChildrenTS(
   try {
     for (let i = 0; i < children.length; i++) {
       const child = children[i];
+      const trailStart = lines.length;
       if (child.type === 'comment') {
         for (const line of emitCommentTS(child)) lines.push(`${indent}${line}`);
       } else if (child.type === 'cell') {
@@ -455,6 +462,19 @@ function emitChildrenTS(
         for (const line of emitBranchTS(child, ctx, indent)) lines.push(line);
       }
       // Other child types fall through silently — slice 3 adds more.
+
+      // W1 — re-attach an inline same-line trailing comment (captured by the
+      // migrator as `trailingComment=`) to the simple statement's last line so
+      // `stmt; // note` round-trips byte-clean instead of dropping the comment.
+      const trailingComment = child.props?.trailingComment;
+      if (
+        typeof trailingComment === 'string' &&
+        trailingComment !== '' &&
+        lines.length === trailStart + 1 && // exactly one line emitted (a true single-line stmt)
+        TRAILING_COMMENT_TYPES.has(child.type)
+      ) {
+        lines[lines.length - 1] += ` ${trailingComment}`;
+      }
     }
   } finally {
     ctx.localScopes.pop();

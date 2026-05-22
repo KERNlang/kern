@@ -1,7 +1,7 @@
 /**
  * ESM smoke test — imports the built dist/ output in a Node subprocess and runs
  * reviewFile/reviewSource end-to-end. Catches the class of bug where the source
- * tree tests pass (ts-jest transpiles from src/) but the published artifact is
+ * tree tests pass under the local runner but the published artifact is
  * broken: missing .js extensions, accidental CJS-only API usage, bad
  * moduleResolution fallout, or a transitive dep that only loads under one module
  * system. The original review assessment flagged one such bug that lived
@@ -19,7 +19,7 @@ import { tmpdir } from 'os';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
-// Jest runs this test under ESM (see jest.config.js — extensionsToTreatAsEsm, useESM).
+// The repo node-test runner executes this suite under ESM.
 // __dirname is not defined in ESM scope, so derive it from import.meta.url the same way
 // obligations-e2e.test.ts does.
 const __dirname = dirname(fileURLToPath(import.meta.url));

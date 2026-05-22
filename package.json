@@ -23,7 +23,7 @@
     "docs:contracts:check": "pnpm --filter @kernlang/core build && node ./scripts/check-contract-docs.mjs",
     "test:ir-semantics": "pnpm --filter @kernlang/core test --testPathPatterns=ir-semantics && pnpm --filter @kernlang/python test --testPathPatterns=ir-semantics-python-leg",
     "test:kern": "pnpm --filter @kernlang/test build && node packages/test/dist/cli.js examples/native-test --coverage --min-coverage 100 && node packages/test/dist/cli.js packages/core/native-test --coverage --min-coverage 100",
-    "test:root": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config jest.config.js",
+    "test:root": "pnpm build && node ./scripts/run-node-tests.mjs \"tests/**/*.test.ts\"",
     "test:prepush": "node --test scripts/pre-push.test.mjs",
     "fitness": "pnpm test && pnpm test:kern",
     "check:repo": "node ./scripts/check-repo-consistency.mjs",
@@ -45,15 +45,14 @@
       "brace-expansion": ">=5.0.6",
       "picomatch": ">=4.0.4",
       "hono": ">=4.12.19",
-      "@hono/node-server": ">=1.19.13"
+      "@hono/node-server": ">=1.19.13",
+      "postcss": "8.5.15",
+      "ip-address": "10.2.0"
     }
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
-    "@types/jest": "^30.0.0",
     "@types/node": "^25.8.0",
-    "jest": "^30.4.2",
-    "ts-jest": "^29.4.9",
     "typescript": "^6.0.3"
   }
 }

@@ -11,8 +11,8 @@
  *   node scripts/check-contract-docs.mjs        # fail on drift
  *   node scripts/check-contract-docs.mjs --fix  # write current registry, exit 0
  *
- * Wired into `pnpm lint` adjacent to `check:rule-coverage` so the gate fires
- * BEFORE jest in CI (cheaper signal earlier in the pipeline).
+ * Wired adjacent to `check:rule-coverage` so the gate fires before the slower
+ * package test matrix in CI.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
