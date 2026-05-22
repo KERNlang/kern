@@ -10,7 +10,7 @@
   },
   "scripts": {
     "build": "tsc -b && node scripts/compile-rules.mjs",
-    "test": "pnpm run build && node --test --test-reporter=dot tests/*.test.ts"
+    "test": "pnpm run build && node ../../scripts/run-node-tests.mjs \"tests/**/*.test.ts\""
   },
   "dependencies": {
     "@kernlang/core": "workspace:*",

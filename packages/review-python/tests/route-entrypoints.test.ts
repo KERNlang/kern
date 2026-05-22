@@ -1,4 +1,3 @@
-/// <reference types="jest" />
 import type { ConceptNode, EntrypointPayload } from '@kernlang/core';
 import { extractPythonConcepts } from '../src/mapper.js';
 

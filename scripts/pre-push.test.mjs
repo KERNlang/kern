@@ -11,8 +11,8 @@ import {
 
 const packages = [
   { relDir: 'packages/compat', name: 'kern-lang', scripts: { build: 'tsc -b' } },
-  { relDir: 'packages/core', name: '@kernlang/core', scripts: { build: 'tsc -b', test: 'jest' } },
-  { relDir: 'packages/python', name: '@kernlang/python', scripts: { build: 'tsc -b', test: 'jest' } },
+  { relDir: 'packages/core', name: '@kernlang/core', scripts: { build: 'tsc -b', test: 'node --test' } },
+  { relDir: 'packages/python', name: '@kernlang/python', scripts: { build: 'tsc -b', test: 'node --test' } },
   { relDir: 'packages/duplicate-name', name: 'kern-lang', scripts: {} },
 ];
 

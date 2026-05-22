@@ -220,8 +220,10 @@ describe('rewritePropagationInBody — runtime semantics', () => {
       parse: () => errResult,
       x: 1,
       KernUnwrapError: class KernUnwrapError extends Error {
-        constructor(public cause: unknown) {
+        cause: unknown;
+        constructor(cause: unknown) {
           super('kern unwrap');
+          this.cause = cause;
         }
       },
     });
@@ -235,8 +237,10 @@ describe('rewritePropagationInBody — runtime semantics', () => {
       parse: () => ({ kind: 'ok', value: 99 }),
       x: 1,
       KernUnwrapError: class KernUnwrapError extends Error {
-        constructor(public cause: unknown) {
+        cause: unknown;
+        constructor(cause: unknown) {
           super('kern unwrap');
+          this.cause = cause;
         }
       },
     });

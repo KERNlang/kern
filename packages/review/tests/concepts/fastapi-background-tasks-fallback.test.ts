@@ -1,4 +1,3 @@
-/// <reference types="jest" />
 import type { ConceptNode, EffectPayload } from '@kernlang/core';
 import { extractPythonConceptsFallback } from '../../src/python-fallback.js';
 

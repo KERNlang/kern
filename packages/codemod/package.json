@@ -29,7 +29,7 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "test": "pnpm run build && node --test --test-reporter=dot tests/*.test.ts"
+    "test": "pnpm run build && node ../../scripts/run-node-tests.mjs \"tests/**/*.test.ts\""
   },
   "dependencies": {
     "@kernlang/core": "workspace:*",

@@ -13,7 +13,7 @@ import { tmpdir } from 'os';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { parse } from '../../../core/src/parser.js';
-import { transpileMCP } from '../transpiler-mcp.js';
+import { transpileMCP } from '../../src/transpiler-mcp.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MONOREPO_ROOT = resolve(__dirname, '../../../../');

@@ -2,9 +2,8 @@
  * PR-5a — drift gate for `generated/contracts/registry.json`.
  *
  * Belt-and-suspenders. CI also runs `pnpm docs:contracts:check` adjacent to
- * `check:rule-coverage`, but jest catches the drift earlier (pre-push hook
- * runs `pnpm lint`, but a contributor who skipped the hook still sees the
- * failure in `pnpm test`). Two paths to red is cheap insurance.
+ * `check:rule-coverage`, and this test catches the drift in the package test
+ * matrix. Two paths to red is cheap insurance.
  *
  * The test does not invoke the script — it reproduces the serializer's
  * output in-process and compares against the committed file. That keeps
@@ -22,8 +21,7 @@ import { _resetIfContractForTest } from '../src/ir/semantics/if.js';
 import { _resetLambdaContractForTest } from '../src/ir/semantics/lambda.js';
 import { _resetPrimitivesForTest } from '../src/ir/semantics/primitives.js';
 
-// Jest is configured with ESM transforms (`--experimental-vm-modules`) so
-// `__dirname` is not defined; derive it from `import.meta.url`.
+// Node ESM does not define `__dirname`; derive it from `import.meta.url`.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REGISTRY_PATH = path.resolve(__dirname, '../../../generated/contracts/registry.json');

@@ -15,7 +15,6 @@ const ZERO_SHA = '0000000000000000000000000000000000000000';
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const ROOT_WIDE_FILES = new Set([
   'biome.json',
-  'jest.config.js',
   'package.json',
   'pnpm-lock.yaml',
   'pnpm-workspace.yaml',
