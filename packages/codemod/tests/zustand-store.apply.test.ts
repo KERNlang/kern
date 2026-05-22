@@ -15,7 +15,8 @@
 
 import { detectTemplates } from '@kernlang/review';
 import { Project } from 'ts-morph';
-import { applyMatch, snapshotAffectedSet } from '../src/index.js';
+import { describe, expect, it } from '../../../scripts/node-test-compat.ts';
+import { applyMatch, snapshotAffectedSet } from '../dist/index.js';
 
 const FILE = '/virtual/counter.ts';
 

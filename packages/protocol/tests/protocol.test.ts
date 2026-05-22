@@ -1,7 +1,9 @@
+import { describe, expect, test } from '../../../scripts/node-test-compat.ts';
+
 describe('Draft Protocol', () => {
   describe('parseKernDraft', () => {
     test('parses a well-formed draft block', async () => {
-      const { parseKernDraft } = await import('../src/draft-protocol.js');
+      const { parseKernDraft } = await import('../dist/draft-protocol.js');
 
       const input = `draft {
   approach: "Use middleware chain with JWT validation"
@@ -28,7 +30,7 @@ describe('Draft Protocol', () => {
     });
 
     test('handles markdown fences around draft', async () => {
-      const { parseKernDraft } = await import('../src/draft-protocol.js');
+      const { parseKernDraft } = await import('../dist/draft-protocol.js');
 
       const input = `Here is my proposal:
 
@@ -56,14 +58,14 @@ That's my plan.`;
     });
 
     test('returns null for invalid input', async () => {
-      const { parseKernDraft } = await import('../src/draft-protocol.js');
+      const { parseKernDraft } = await import('../dist/draft-protocol.js');
       expect(parseKernDraft('just some random text')).toBeNull();
       expect(parseKernDraft('draft { }')).toBeNull();
       expect(parseKernDraft('')).toBeNull();
     });
 
     test('handles missing optional fields gracefully', async () => {
-      const { parseKernDraft } = await import('../src/draft-protocol.js');
+      const { parseKernDraft } = await import('../dist/draft-protocol.js');
 
       const input = `draft {
   approach: "Simple fix — just change the import"
@@ -85,7 +87,7 @@ That's my plan.`;
 
   describe('buildKernDraftPrompt', () => {
     test('builds brainstorm prompt', async () => {
-      const { buildKernDraftPrompt } = await import('../src/draft-protocol.js');
+      const { buildKernDraftPrompt } = await import('../dist/draft-protocol.js');
       const prompt = buildKernDraftPrompt({
         question: 'How should we handle auth?',
         mode: 'brainstorm',
@@ -98,7 +100,7 @@ That's my plan.`;
     });
 
     test('includes context when provided', async () => {
-      const { buildKernDraftPrompt } = await import('../src/draft-protocol.js');
+      const { buildKernDraftPrompt } = await import('../dist/draft-protocol.js');
       const prompt = buildKernDraftPrompt({
         question: 'Add caching layer',
         context: 'kern-project AudioFacets { target: "nextjs" }',
@@ -110,7 +112,7 @@ That's my plan.`;
     });
 
     test('builds tribunal prompt', async () => {
-      const { buildKernDraftPrompt } = await import('../src/draft-protocol.js');
+      const { buildKernDraftPrompt } = await import('../dist/draft-protocol.js');
       const prompt = buildKernDraftPrompt({
         question: 'Should we use Redis or Memcached?',
         mode: 'tribunal-position',
@@ -123,7 +125,7 @@ That's my plan.`;
 
   describe('buildKernRankPrompt', () => {
     test('builds ranking prompt from drafts', async () => {
-      const { buildKernRankPrompt } = await import('../src/draft-protocol.js');
+      const { buildKernRankPrompt } = await import('../dist/draft-protocol.js');
       const prompt = buildKernRankPrompt([
         {
           engineId: 'codex',

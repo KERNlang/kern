@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { computeSecurityScore, gradeColor } from '../src/score.js';
+import { describe, it } from '../../../scripts/node-test-compat.ts';
+import { computeSecurityScore, gradeColor } from '../dist/score.js';
 
 function makeAction(name: string, effects: { kind: string }[], guards: { kind?: string }[] = []) {
   return {

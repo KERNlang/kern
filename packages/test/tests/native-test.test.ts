@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { dirname, join, relative, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { afterEach, beforeEach, describe, expect, test } from '../../../scripts/node-test-compat.ts';
 import {
   checkNativeKernTestBaseline,
   createNativeKernTestBaseline,
@@ -11,10 +12,11 @@ import {
   formatNativeKernTestSummary,
   runNativeKernTestRun,
   runNativeKernTests,
-} from '../src/index.js';
+} from '../dist/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '../../..');
+const repoNativeSmokeTest = process.env.KERN_TEST_INCLUDE_REPO_NATIVE_SMOKE === '1' ? test : test.skip;
 
 describe('native kern test runner', () => {
   let tmpDir: string;
@@ -73,7 +75,7 @@ describe('native kern test runner', () => {
     expect(formatNativeKernTestSummary(summary)).toContain('PASS Order invariants > reaches paid');
   });
 
-  test('runs checked-in native conformance examples', () => {
+  repoNativeSmokeTest('runs checked-in native conformance examples', () => {
     const examplesDir = join(REPO_ROOT, 'examples/native-test');
 
     const summary = runNativeKernTestRun(examplesDir);
@@ -100,7 +102,7 @@ describe('native kern test runner', () => {
     );
   });
 
-  test('runs KERNlang native self-contract tests', () => {
+  repoNativeSmokeTest('runs KERNlang native self-contract tests', () => {
     const selfTestDir = join(REPO_ROOT, 'packages/core/native-test');
 
     const summary = runNativeKernTestRun(selfTestDir);

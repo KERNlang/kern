@@ -3,7 +3,8 @@ import type { IRNode } from '@kernlang/core';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { generateLockFile, verifyLockFile } from '../src/tool-pin.js';
+import { describe, it } from '../../../scripts/node-test-compat.ts';
+import { generateLockFile, verifyLockFile } from '../dist/tool-pin.js';
 
 function makeIRNodes(tools: Array<{ name: string; description: string; children?: object[] }>): IRNode[] {
   return tools.map((t) => ({

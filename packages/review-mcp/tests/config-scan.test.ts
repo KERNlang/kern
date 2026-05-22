@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import type { ConfigIssue, ConfigScanResult, McpServerEntry } from '../src/config-scan.js';
-import { scanMcpConfigs } from '../src/config-scan.js';
+import { describe, it } from '../../../scripts/node-test-compat.ts';
+import type { ConfigIssue, ConfigScanResult, McpServerEntry } from '../dist/config-scan.js';
+import { scanMcpConfigs } from '../dist/config-scan.js';
 
 let testConfigPath = '';
 

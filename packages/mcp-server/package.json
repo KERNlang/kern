@@ -48,7 +48,7 @@
   "scripts": {
     "build": "tsc -b",
     "start": "node dist/index.js",
-    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --passWithNoTests --config jest.config.js"
+    "test": "pnpm run build && node --test --test-reporter=dot tests/*.test.ts"
   },
   "dependencies": {
     "@kernlang/core": "workspace:*",

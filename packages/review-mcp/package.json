@@ -10,7 +10,7 @@
   },
   "scripts": {
     "build": "tsc -b && node scripts/compile-rules.mjs",
-    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --config jest.config.js"
+    "test": "pnpm run build && node --test --test-reporter=dot tests/*.test.ts"
   },
   "dependencies": {
     "@kernlang/core": "workspace:*",
