@@ -148,7 +148,29 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string,
     }
     return null;
   }
+  // W1 — capture an inline same-line trailing comment and re-attach it via the
+  // `trailingComment=` slot on the single emitted body-stmt line. Only simple
+  // (single-line) statements qualify; compound statements emit multiple lines
+  // and leave the comment for the eligibility gate to reject.
+  if (mapped.length === 1) {
+    const trailing = trailingCommentRaw(stmt, source);
+    if (trailing !== null) mapped[0] = `${mapped[0]} trailingComment="${escapeKernString(trailing)}"`;
+  }
   return [...mapLeadingComments(stmt, source, indent), ...mapped];
+}
+
+/** A single same-line trailing comment after a simple statement
+ *  (`return x; // note`). `ts.getTrailingCommentRanges` returns only comments
+ *  up to the next line break, so these are same-line by construction. Returns
+ *  null for none, more than one (rare; trips eligibility), or a newline-
+ *  spanning block comment (can't be an inline slot). Must stay in lockstep
+ *  with the `hasOnlyMigratableComments` trailing predicate in core. */
+function trailingCommentRaw(stmt: ts.Statement, source: ts.SourceFile): string | null {
+  const ranges = ts.getTrailingCommentRanges(source.text, stmt.getEnd());
+  if (!ranges || ranges.length !== 1) return null;
+  const raw = source.text.slice(ranges[0].pos, ranges[0].end);
+  if (raw.includes('\n')) return null;
+  return raw;
 }
 
 function mapLeadingComments(stmt: ts.Statement, source: ts.SourceFile, indent: string): string[] {

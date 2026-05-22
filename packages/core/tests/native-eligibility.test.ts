@@ -759,14 +759,12 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
   });
 
   // KERN-GAPS gap `comments-present` lift: standalone comments that sit on
-  // their own line at a statement boundary are now migratable. The
-  // migrator emits them as `comment` body-stmts attached as the leading
-  // comment of the following statement, or as a trailing `comment` node
-  // at the body / nested-block tail. Same-line inline trailing comments
-  // (`foo(); // x`) stay rejected — the migrated KERN would emit them on
-  // a new line, byte-drifting the codegen output and tripping `--verify`.
-  test('inline same-line trailing comment remains rejected (byte-drift)', () => {
-    rejected(`return 1; // note`, 'comments-present');
+  // their own line at a statement boundary are migratable, AND (W1) a single
+  // same-line trailing comment on a simple statement is now migratable via the
+  // `trailingComment=` slot, which the body emitters re-attach inline so the
+  // codegen stays byte-clean under `--verify`.
+  test('inline same-line trailing comment on a simple statement is now eligible', () => {
+    expect(classifyHandlerBody(`return 1; // note`)).toEqual({ eligible: true, reason: 'ok' });
   });
 
   test('tail comment after last statement is now eligible', () => {

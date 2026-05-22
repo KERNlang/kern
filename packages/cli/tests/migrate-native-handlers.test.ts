@@ -1538,16 +1538,52 @@ describe('rewriteNativeHandlers — review-found regressions', () => {
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
-  // KERN-GAPS gap `comments-present` — inline same-line trailing comments
-  // (`foo(); // x`) stay rejected because migrating them would byte-drift
-  // the codegen output (the comment moves to its own line) and trip
-  // `--verify` rollback. Authors who want this handler migrated should
-  // move the trailing comment to its own line first.
-  test('does NOT migrate inline same-line trailing comments (byte-drift)', () => {
+  // KERN-GAPS gap `comments-present` lift (W1) — inline same-line trailing
+  // comments (`foo(); // x`) on simple single-line statements now migrate via
+  // the `trailingComment=` slot. The body emitters re-emit the comment inline
+  // (`stmt; // x`), so the codegen stays byte-clean under `--verify` instead
+  // of dropping the comment to its own line.
+  test('migrates inline same-line trailing comments via the trailingComment slot', () => {
     const source = ['fn name=ok returns=number', '  handler <<<', '    return total; // done', '  >>>'].join('\n');
     const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.skipped).toHaveLength(0);
+    expect(result.output).toContain('return value="total" trailingComment="// done"');
+  });
+
+  test('migrates multiple simple statements each carrying a trailing comment', () => {
+    const source = [
+      'fn name=calc returns=number',
+      '  handler <<<',
+      '    let total = 0; // running sum',
+      '    total += 5; // add five',
+      '    return total; // done',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.skipped).toHaveLength(0);
+    expect(result.output).toContain('let name=total kind=let value="0" trailingComment="// running sum"');
+    expect(result.output).toContain('assign target="total" op="+=" value="5" trailingComment="// add five"');
+    expect(result.output).toContain('return value="total" trailingComment="// done"');
+  });
+
+  // A trailing comment on a COMPOUND statement (e.g. after `if (x) { ... }`)
+  // is not a simple single-line statement, so the migrator does not lift it
+  // into a `trailingComment=` slot — the handler stays raw (comments-present).
+  test('does NOT migrate a trailing comment on a compound statement header', () => {
+    const source = [
+      'fn name=ok returns=number',
+      '  handler <<<',
+      '    if (x) { // guard',
+      '      return 1;',
+      '    }',
+      '    return 0;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(0);
-    expect(result.skipped.some((s) => /comments-present/.test(s.reason))).toBe(true);
+    expect(result.skipped.some((s) => /comments/.test(s.reason))).toBe(true);
   });
 
   // KERN-GAPS gap `comments-present` — tail comments inside a nested block

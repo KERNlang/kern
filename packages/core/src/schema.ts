@@ -610,6 +610,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       type: { kind: 'typeAnnotation' },
       export: { kind: 'boolean' },
       return: { kind: 'boolean' },
+      trailingComment: { kind: 'string' },
     },
   },
   set: {
@@ -1391,6 +1392,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       expr: { kind: 'rawExpr' },
       type: { kind: 'typeAnnotation' },
       kind: { kind: 'identifier' },
+      trailingComment: { kind: 'string' },
     },
   },
   local: {
@@ -1686,6 +1688,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     example: 'return value="exists"',
     props: {
       value: { kind: 'expression' },
+      trailingComment: { kind: 'string' },
     },
   },
   assign: {
@@ -1697,6 +1700,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       target: { required: true, kind: 'expression' },
       value: { required: true, kind: 'expression' },
       op: { kind: 'string' },
+      trailingComment: { kind: 'string' },
     },
   },
   throw: {
@@ -1705,6 +1709,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     example: 'throw value="new Error(\\"user not found\\")"',
     props: {
       value: { kind: 'expression' },
+      trailingComment: { kind: 'string' },
     },
   },
   do: {
@@ -1713,19 +1718,24 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     example: 'do value="reg.load(engDir)"',
     props: {
       value: { kind: 'expression' },
+      trailingComment: { kind: 'string' },
     },
   },
   continue: {
     description:
       'Body-statement loop-continue — emits `continue;` (TS) or `continue` (Python). Only valid inside a `lang="kern"` handler body, and the surrounding TS/Python compiler still rejects use outside an enclosing loop. Pair with `for`/`each` to express skip-this-iteration logic without dropping into a raw handler.',
     example: 'each name=item in=items\n  if cond="item.skip"\n    continue\n  do value="process(item)"',
-    props: {},
+    props: {
+      trailingComment: { kind: 'string' },
+    },
   },
   break: {
     description:
       'Body-statement loop-break — emits `break;` (TS) or `break` (Python). Only valid inside a `lang="kern"` handler body, and the surrounding TS/Python compiler still rejects use outside an enclosing loop. Pair with `for`/`each` to express early-exit search/find loops without dropping into a raw handler.',
     example: 'each name=item in=items\n  if cond="item.matches"\n    let name=found value="item"\n    break',
-    props: {},
+    props: {
+      trailingComment: { kind: 'string' },
+    },
   },
   if: {
     description:

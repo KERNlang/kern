@@ -253,6 +253,20 @@ export function emitNativeKernBodyPythonWithImports(handlerNode: IRNode, options
   return { code, imports: ctx.imports, usedPropagation: ctx.usedPropagation, helpers: ctx.helpers };
 }
 
+/** Body-statement node types that map to a SINGLE emitted line and may carry
+ *  an inline same-line trailing comment captured by the migrator into a
+ *  `trailingComment=` prop. Mirrors the TS emitter's set. */
+const TRAILING_COMMENT_TYPES = new Set(['let', 'assign', 'fmt', 'return', 'throw', 'do', 'continue', 'break']);
+
+/** Convert a captured TS-form trailing comment (a line `// note` or a block
+ *  comment) to an idiomatic Python inline comment (`# note`). Mirrors
+ *  emitCommentPy. */
+function trailingCommentToPy(raw: string): string {
+  if (raw.startsWith('//')) return `# ${raw.slice(2).trim()}`.trimEnd();
+  if (raw.startsWith('/*') && raw.endsWith('*/')) return `# ${raw.slice(2, -2).trim()}`.trimEnd();
+  return `# ${raw}`.trimEnd();
+}
+
 function emitChildrenPy(
   children: IRNode[],
   ctx: BodyEmitContext,
@@ -265,6 +279,7 @@ function emitChildrenPy(
   try {
     for (let i = 0; i < children.length; i++) {
       const child = children[i];
+      const trailStart = lines.length;
       if (child.type === 'comment') {
         for (const line of emitCommentPy(child)) lines.push(`${indent}${line}`);
       } else if (child.type === 'cell') {
@@ -566,6 +581,19 @@ function emitChildrenPy(
         // fastapi target. We gensym the `on=` expression once so it's not
         // double-evaluated across cases.
         for (const line of emitBranchPy(child, ctx, indent)) lines.push(line);
+      }
+
+      // W1 — re-attach an inline same-line trailing comment (captured by the
+      // migrator as `trailingComment=`) to the simple statement's last line,
+      // converted to a Python `#` comment.
+      const trailingComment = child.props?.trailingComment;
+      if (
+        typeof trailingComment === 'string' &&
+        trailingComment !== '' &&
+        lines.length > trailStart &&
+        TRAILING_COMMENT_TYPES.has(child.type)
+      ) {
+        lines[lines.length - 1] += `  ${trailingCommentToPy(trailingComment)}`;
       }
     }
   } finally {

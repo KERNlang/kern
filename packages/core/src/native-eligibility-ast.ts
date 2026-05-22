@@ -446,6 +446,16 @@ export function hasOnlyMigratableComments(bodyText: string): boolean {
       for (const range of ts.getLeadingCommentRanges(sf.text, node.getFullStart()) ?? []) {
         if (isStandaloneCommentRange(sf.text, range)) migratable.add(commentRangeKey(range));
       }
+      // W1 — a single same-line trailing comment on a simple (single-line)
+      // statement is migratable via the `trailingComment=` slot the migrator
+      // re-emits inline. Must mirror the migrator's `trailingCommentRaw`
+      // predicate exactly (exactly one range, no embedded newline).
+      if (isSimpleTrailingStmt(node)) {
+        const trailing = ts.getTrailingCommentRanges(sf.text, node.getEnd());
+        if (trailing && trailing.length === 1 && !sf.text.slice(trailing[0].pos, trailing[0].end).includes('\n')) {
+          migratable.add(commentRangeKey(trailing[0]));
+        }
+      }
     }
     if (ts.isBlock(node)) addBlockTail(node);
     ts.forEachChild(node, visit);
@@ -494,6 +504,28 @@ function isStandaloneCommentRange(text: string, range: ts.CommentRange): boolean
 
 function commentRangeKey(range: ts.CommentRange): string {
   return `${range.pos}:${range.end}:${range.kind}`;
+}
+
+/** A statement the migrator maps to a SINGLE body-stmt line, hence one that can
+ *  carry an inline trailing comment via the `trailingComment=` slot. Mirrors
+ *  the single-line `mapStatementCore` cases; destructuring and multi-declarator
+ *  var decls map to multiple lines and are excluded. Keep in lockstep with the
+ *  migrator's `trailingCommentRaw` capture. */
+function isSimpleTrailingStmt(node: ts.Node): boolean {
+  if (
+    ts.isReturnStatement(node) ||
+    ts.isThrowStatement(node) ||
+    ts.isBreakStatement(node) ||
+    ts.isContinueStatement(node) ||
+    ts.isExpressionStatement(node)
+  ) {
+    return true;
+  }
+  if (ts.isVariableStatement(node)) {
+    const decls = node.declarationList.declarations;
+    return decls.length === 1 && ts.isIdentifier(decls[0].name);
+  }
+  return false;
 }
 
 /** Classify a single statement. Returns null if the migrator can emit it,
