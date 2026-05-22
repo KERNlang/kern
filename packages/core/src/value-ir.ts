@@ -17,6 +17,7 @@ export type BinaryOp =
   | '<='
   | '>'
   | '>='
+  | 'instanceof'
   | '&&'
   | '||'
   | '??'

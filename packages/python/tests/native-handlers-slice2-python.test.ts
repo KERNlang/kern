@@ -96,6 +96,19 @@ describe('emitPyExpression — arithmetic + comparison + unary', () => {
     expect(emitPyExpression(parseExpression('a || b'))).toBe('a or b');
   });
 
+  // `instanceof` has no infix Python form — emitting it verbatim would be a
+  // Python SyntaxError, so it MUST lower to the `isinstance(...)` call form.
+  // The RHS class name emits as-is (like host globals such as `Date`).
+  test('instanceof lowers to Python isinstance(...)', () => {
+    expect(emitPyExpression(parseExpression('x instanceof Error'))).toBe('isinstance(x, Error)');
+    expect(emitPyExpression(parseExpression('x instanceof a.b.C'))).toBe('isinstance(x, a.b.C)');
+    expect(emitPyExpression(parseExpression('a instanceof B && c'))).toBe('isinstance(a, B) and c');
+    // The dominant idiom — mirrors the TS-side round-trip in core/expression.test.ts.
+    expect(emitPyExpression(parseExpression('err instanceof Error ? err.message : String(err)'))).toBe(
+      'err.message if (isinstance(err, Error)) else String(err)',
+    );
+  });
+
   test('unary ! lowers to Python not', () => {
     expect(emitPyExpression(parseExpression('!isReady'))).toBe('not isReady');
   });

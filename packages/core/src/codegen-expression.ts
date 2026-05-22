@@ -18,6 +18,7 @@ const PREC: Record<string, number> = {
   '<=': 11,
   '>': 11,
   '>=': 11,
+  instanceof: 11,
   '+': 13,
   '-': 13,
   '*': 14,

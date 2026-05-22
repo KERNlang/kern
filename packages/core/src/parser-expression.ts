@@ -640,7 +640,15 @@ export function tokenizeExpression(input: string): ExprToken[] {
       const start = i;
       while (i < input.length && isIdentChar(input[i])) i++;
       const word = input.slice(start, i);
-      const kw = KEYWORDS[word];
+      // `Object.hasOwn` guard: KEYWORDS is a plain object, so a bare
+      // `KEYWORDS[word]` resolves inherited `Object.prototype` members
+      // (`toString`, `valueOf`, `toLocaleString`, `hasOwnProperty`,
+      // `constructor`, …) to truthy functions. That mis-tokenized any
+      // property access or call named after a prototype method — e.g.
+      // `x.toString()`, `Date.now().toString()`, `err.valueOf()` —
+      // throwing `Expected ident, got function toString()`. Only own keys
+      // are real keywords.
+      const kw = Object.hasOwn(KEYWORDS, word) ? KEYWORDS[word] : undefined;
       if (kw) {
         tokens.push({ kind: kw, value: word, pos: start });
       } else {
@@ -912,10 +920,22 @@ class Parser {
   }
 
   // Slice 2c — relational (<, <=, >, >=), left-associative.
+  // `instanceof` shares relational precedence in JS. Like `as`/`new`, it stays
+  // an `ident` token (never a reserved keyword kind) so it can't shadow a
+  // property name (`obj.instanceof`) or object key (`{ instanceof: 1 }`); here,
+  // in operator position after a complete operand, an `ident` named
+  // `instanceof` can only be the operator.
   private parseRelational(): ValueIR {
     let left = this.parseAdditive();
     while (true) {
-      const k = this.peek().kind;
+      const t = this.peek();
+      if (t.kind === 'ident' && t.value === 'instanceof') {
+        this.advance();
+        const right = this.parseAdditive();
+        left = { kind: 'binary', op: 'instanceof', left, right };
+        continue;
+      }
+      const k = t.kind;
       if (k !== 'lt' && k !== 'lte' && k !== 'gt' && k !== 'gte') break;
       const op = this.advance().value as '<' | '<=' | '>' | '>=';
       const right = this.parseAdditive();

@@ -17,6 +17,8 @@ describe('canonicalKernExpression — single-line normalization', () => {
   test('passes single-line expression through unchanged structure', () => {
     expect(canonicalKernExpression('x + 1')).toBe('x + 1');
     expect(canonicalKernExpression('process.env.X || "default"')).toBe('process.env.X || "default"');
+    expect(canonicalKernExpression('err instanceof Error')).toBe('err instanceof Error');
+    expect(canonicalKernExpression('id.toString()')).toBe('id.toString()');
   });
 
   test('preserves KERN stdlib call surface (does NOT translate List.map → .map)', () => {
@@ -103,6 +105,21 @@ describe('classifyHandlerBody — eligible bodies', () => {
 
   test('KERN-stdlib call is eligible', () => {
     expect(classifyHandlerBody(`return Text.upper(name);`).eligible).toBe(true);
+  });
+
+  test('instanceof is eligible — the `err instanceof Error` idiom is now native', () => {
+    expect(classifyHandlerBody(`return err instanceof Error ? err.message : String(err);`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+    expect(classifyHandlerBody(`const ok = value instanceof Map;\nreturn ok;`).eligible).toBe(true);
+  });
+
+  test('member access named after an Object.prototype member is eligible (prototype-pollution fix)', () => {
+    // Regression for the `KEYWORDS[word]` prototype-pollution bug: `.toString()`
+    // / `.valueOf()` previously threw at parse time and bailed as bad-expr.
+    expect(classifyHandlerBody(`return id.toString();`).eligible).toBe(true);
+    expect(classifyHandlerBody(`const s = Date.now().toString();\nreturn s;`).eligible).toBe(true);
   });
 
   test('expression-bodied callbacks are eligible', () => {
@@ -540,7 +557,12 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
     expect(LEGACY_NEG_PATTERNS.some((re) => re.test(body))).toBe(false);
   });
 
-  test('instanceof rejected (parser-expression bails)', () => rejected(`return x instanceof Date;`, 'return-bad-expr'));
+  // `instanceof` is now a supported relational operator (TS `instanceof` /
+  // Python `isinstance`), so it is no longer a disqualifier. See the
+  // "instanceof is eligible" test above.
+  test('instanceof is eligible (no longer bails)', () => {
+    expect(classifyHandlerBody(`return x instanceof Date;`).eligible).toBe(true);
+  });
 
   test('import statement rejected', () =>
     rejected(`import { foo } from 'bar';\nreturn foo();`, 'unsupported-stmt-ImportDeclaration'));

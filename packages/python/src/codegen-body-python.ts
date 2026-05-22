@@ -1402,6 +1402,16 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       const left = emitPyExprCtx(node.left, ctx);
       const right = emitPyExprCtx(node.right, ctx);
 
+      if (node.op === 'instanceof') {
+        // JS `a instanceof B` → Python `isinstance(a, B)`. Emitting `instanceof`
+        // verbatim would be a Python *syntax* error, so this lowering is
+        // mandatory (unlike raw host methods, which emit verbatim). The RHS
+        // class name emits as-is — e.g. `Error` stays `Error`, consistent with
+        // how host globals like `Date` already emit; KERN's portable surface is
+        // the stdlib namespace, not raw host constructors.
+        return `isinstance(${left}, ${right})`;
+      }
+
       if (node.op === '??') {
         // Slice 4c — nullish coalesce lowering. Two shapes:
         //
