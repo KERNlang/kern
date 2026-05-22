@@ -340,7 +340,10 @@ fn name=loadUser params="id:string" returns=unknown
     );
 
     const baselinePath = join(tmpDir, 'baseline.json');
-    const baseline = createReviewBaseline([reviewFile(file, { requireConfidenceAnnotations: true })]);
+    // Build the baseline with a content accessor, as `--write-baseline` does in
+    // production, so its content-anchored keys match the review-time comparison.
+    const baselineLines = readFileSync(file, 'utf-8').split(/\r?\n/u);
+    const baseline = createReviewBaseline([reviewFile(file, { requireConfidenceAnnotations: true })], (_f, line) => baselineLines[line - 1]);
     writeFileSync(baselinePath, JSON.stringify(baseline, null, 2));
 
     let exitCode: number | undefined;
