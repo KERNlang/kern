@@ -272,7 +272,7 @@ export async function runPythonEmitterLeg(fixture: NodeFixture, env: SemanticEnv
   let bodyHelpers: ReadonlyArray<string>;
   try {
     const result = emitNativeKernBodyPythonWithImports(handlerWrapper, {
-      traceHooks: { eachIterNext: true, forIterNext: true },
+      traceHooks: { eachIterNext: true, forIterNext: true, letAssign: shouldTraceLetAssign(fixture.ir) },
     });
     if (result.imports.size > 0) {
       // Differential fixtures don't exercise stdlib-import codegen (math, etc.);
@@ -318,4 +318,8 @@ export async function runPythonEmitterLeg(fixture: NodeFixture, env: SemanticEnv
   }
 
   return { events, completion };
+}
+
+function shouldTraceLetAssign(ir: NodeFixture['ir']): boolean {
+  return ir.type === 'let' || ir.props?.__semanticContract === 'let';
 }

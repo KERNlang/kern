@@ -74,7 +74,7 @@ export interface BodyEmitOptions {
    * Scoped to `each` in PR-3a. Adding hooks for other nodes is an explicit
    * spec revision and a new flag.
    */
-  traceHooks?: { eachIterNext?: boolean; forIterNext?: boolean };
+  traceHooks?: { eachIterNext?: boolean; forIterNext?: boolean; letAssign?: boolean };
 }
 
 /** Slice 3e — public return shape, parity with the Python body emitter.
@@ -100,7 +100,7 @@ interface BodyEmitContext {
    *  override pending control flow, so it gets a finally-specific error. */
   finallyDepth: number;
   /** Differential harness opt-in (see BodyEmitOptions.traceHooks). */
-  traceHooks?: { eachIterNext?: boolean; forIterNext?: boolean };
+  traceHooks?: { eachIterNext?: boolean; forIterNext?: boolean; letAssign?: boolean };
 }
 
 const INDENT_STEP = '  ';
@@ -644,13 +644,21 @@ function emitLetTS(node: IRNode, ctx: BodyEmitContext): string[] {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
     const inner = emitExpression(valueIR.argument);
-    return [
+    const lines = [
       `const ${tmp} = ${inner};`,
       `if (${tmp}.kind === 'err') return ${tmp};`,
       `${bindingKind} ${name}${typeAnn} = ${tmp}.value;`,
     ];
+    if (ctx.traceHooks?.letAssign) lines.push(letAssignTraceTS(name));
+    return lines;
   }
-  return [`${bindingKind} ${name}${typeAnn} = ${emitExpression(valueIR)};`];
+  const lines = [`${bindingKind} ${name}${typeAnn} = ${emitExpression(valueIR)};`];
+  if (ctx.traceHooks?.letAssign) lines.push(letAssignTraceTS(name));
+  return lines;
+}
+
+function letAssignTraceTS(name: string): string {
+  return `__kernTrace({ op: "assign", target: ${JSON.stringify(name)}, value: ${name} });`;
 }
 
 function bodyLetBindingKind(rawKind: unknown): 'const' | 'let' {

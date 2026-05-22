@@ -18,6 +18,7 @@ import { registerEachContract } from './each.js';
 import { registerForContract } from './for.js';
 import { registerIfContract } from './if.js';
 import { registerLambdaContract } from './lambda.js';
+import { registerLetContract } from './let.js';
 import { registerPrimitives } from './primitives.js';
 
 export function registerAllContracts(): void {
@@ -27,4 +28,5 @@ export function registerAllContracts(): void {
   registerIfContract();
   registerForContract();
   registerLambdaContract();
+  registerLetContract();
 }

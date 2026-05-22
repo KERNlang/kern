@@ -81,7 +81,7 @@ export interface BodyEmitOptions {
    * TS body-ts.ts. Production codegen never sets this. See
    * packages/core/src/ir/semantics/python-leg.ts for the runtime contract.
    */
-  traceHooks?: { eachIterNext?: boolean; forIterNext?: boolean };
+  traceHooks?: { eachIterNext?: boolean; forIterNext?: boolean; letAssign?: boolean };
 }
 
 /** Slice 3e — public return shape. `code` is the joined body text;
@@ -121,7 +121,7 @@ interface BodyEmitContext {
   propagateStyle: 'value' | 'http-exception';
   usedPropagation: boolean;
   /** PR-3b differential-harness opt-in (see BodyEmitOptions.traceHooks). */
-  traceHooks?: { eachIterNext?: boolean; forIterNext?: boolean };
+  traceHooks?: { eachIterNext?: boolean; forIterNext?: boolean; letAssign?: boolean };
   /** Slice 4c review fix (OpenCode + Gemini critical) — depth of nested
    *  `try` blocks. Propagation `?` lowers to `return tmp` (or `raise
    *  HTTPException` in route mode), and BOTH bypass the enclosing
@@ -846,9 +846,22 @@ function emitLetPy(node: IRNode, ctx: BodyEmitContext): string[] {
     const tmp = `__k_t${++ctx.gensymCounter}`;
     const inner = emitPyExprCtx(valueIR.argument, ctx);
     ctx.usedPropagation = true;
-    return [`${tmp} = ${inner}`, `if ${tmp}.kind == 'err':`, errPropagationLine(tmp, ctx), `${name} = ${tmp}.value`];
+    const lines = [
+      `${tmp} = ${inner}`,
+      `if ${tmp}.kind == 'err':`,
+      errPropagationLine(tmp, ctx),
+      `${name} = ${tmp}.value`,
+    ];
+    if (ctx.traceHooks?.letAssign) lines.push(letAssignTracePy(name));
+    return lines;
   }
-  return [`${name} = ${emitPyExprCtx(valueIR, ctx)}`];
+  const lines = [`${name} = ${emitPyExprCtx(valueIR, ctx)}`];
+  if (ctx.traceHooks?.letAssign) lines.push(letAssignTracePy(name));
+  return lines;
+}
+
+function letAssignTracePy(name: string): string {
+  return `_kern_trace({"op": "assign", "target": ${JSON.stringify(name)}, "value": ${name}})`;
 }
 
 function validateBodyLetKind(rawKind: unknown): void {

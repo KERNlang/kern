@@ -146,6 +146,28 @@
       ]
     },
     {
+      "nodeType": "let",
+      "forbiddenRewrites": [
+        "hoist the declaration",
+        "collapse block-scoped let to var/global",
+        "widen block scope to function scope",
+        "silently convert let to const"
+      ],
+      "fixtureCount": 5,
+      "fixtureSamples": [
+        {
+          "description": "let: string initializer creates one block-local binding",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 1
+        },
+        {
+          "description": "let: boolean initializer is portable",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 1
+        }
+      ]
+    },
+    {
       "nodeType": "return",
       "forbiddenRewrites": [],
       "fixtureCount": 0,

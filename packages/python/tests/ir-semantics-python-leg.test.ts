@@ -27,6 +27,7 @@ import {
   lambdaContract,
   registerLambdaContract,
 } from '../../core/src/ir/semantics/lambda.js';
+import { _resetLetContractForTest, letContract, registerLetContract } from '../../core/src/ir/semantics/let.js';
 import { _resetPrimitivesForTest, registerPrimitives } from '../../core/src/ir/semantics/primitives.js';
 import { runPythonEmitterLeg } from '../src/ir-semantics/python-leg.js';
 
@@ -48,6 +49,7 @@ beforeEach(() => {
   _resetIfContractForTest();
   _resetForContractForTest();
   _resetLambdaContractForTest();
+  _resetLetContractForTest();
   _resetPrimitivesForTest();
   registerPrimitives();
   registerEachContract();
@@ -55,6 +57,7 @@ beforeEach(() => {
   registerIfContract();
   registerForContract();
   registerLambdaContract();
+  registerLetContract();
 });
 
 afterEach(() => {
@@ -64,6 +67,7 @@ afterEach(() => {
   _resetIfContractForTest();
   _resetForContractForTest();
   _resetLambdaContractForTest();
+  _resetLetContractForTest();
   _resetPrimitivesForTest();
 });
 
@@ -132,6 +136,27 @@ describeIfPython('Python emitter leg — lambda fixtures (differential vs refere
           `verdict=${result.verdict}\n` +
             `fixture=${fixture.description}\n` +
             `reference=${JSON.stringify(result.reference, null, 2)}\n` +
+            `python=${JSON.stringify(result.python, null, 2)}\n` +
+            `legError=${JSON.stringify(result.legError, null, 2)}`,
+        );
+      }
+      expect(result.verdict).toBe<Verdict>('pass');
+    },
+    15_000,
+  );
+});
+
+describeIfPython('Python emitter leg — let fixtures (three-way differential)', () => {
+  it.each(letContract.fixtures.map((f) => [f.description, f] as const))(
+    'fixture: %s',
+    async (_desc, fixture) => {
+      const result = await runDifferential(fixture, { pythonLeg: runPythonEmitterLeg });
+      if (result.verdict !== 'pass') {
+        throw new Error(
+          `verdict=${result.verdict}\n` +
+            `fixture=${fixture.description}\n` +
+            `reference=${JSON.stringify(result.reference, null, 2)}\n` +
+            `ts=${JSON.stringify(result.ts, null, 2)}\n` +
             `python=${JSON.stringify(result.python, null, 2)}\n` +
             `legError=${JSON.stringify(result.legError, null, 2)}`,
         );
