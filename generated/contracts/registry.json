@@ -21,6 +21,29 @@
       "fixtureSamples": []
     },
     {
+      "nodeType": "assign",
+      "forbiddenRewrites": [
+        "inject Python global/nonlocal",
+        "collapse an assign into a declaration",
+        "lower `x += y` to `x = x + y`",
+        "reorder the read-modify-write",
+        "elide the assign event when the value is unchanged"
+      ],
+      "fixtureCount": 6,
+      "fixtureSamples": [
+        {
+          "description": "assign: plain `=` reassigns a number binding in place",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 2
+        },
+        {
+          "description": "assign: `+=` numeric add reads the current value once",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 2
+        }
+      ]
+    },
+    {
       "nodeType": "branch",
       "forbiddenRewrites": [
         "reorder non-default paths with overlapping values",
@@ -72,6 +95,29 @@
         },
         {
           "description": "array-indexed: break on first iteration leaves no further iter-next",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 1
+        }
+      ]
+    },
+    {
+      "nodeType": "fmt",
+      "forbiddenRewrites": [
+        "use raw Python str()/f-string coercion for bool/null without canonicalization",
+        "integer -> float coercion in interpolation",
+        "platform printf / %d codes or locale-dependent formatting",
+        "reorder or double-evaluate an interpolation",
+        "implicit object toString / __str__ in the portable domain"
+      ],
+      "fixtureCount": 7,
+      "fixtureSamples": [
+        {
+          "description": "fmt: integer interpolation renders as base-10",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 1
+        },
+        {
+          "description": "fmt: boolean false canonicalizes to \"false\"",
           "expectedCompletionKind": "normal",
           "expectedEventCount": 1
         }
@@ -178,6 +224,53 @@
       "forbiddenRewrites": [],
       "fixtureCount": 0,
       "fixtureSamples": []
+    },
+    {
+      "nodeType": "try",
+      "forbiddenRewrites": [
+        "swallow errors silently",
+        "reorder or skip finally",
+        "run finally before catch",
+        "widen or narrow the exception type",
+        "drop the {kind,message} canonicalization or leak the raw platform error to catch",
+        "compare raw error message text instead of the canonical kind + pattern"
+      ],
+      "fixtureCount": 7,
+      "fixtureSamples": [
+        {
+          "description": "try/catch: a thrown canonical error is caught and the loop completes normally",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 2
+        },
+        {
+          "description": "try/finally: an uncaught throw runs finally, then propagates as the completion",
+          "expectedCompletionKind": "throw",
+          "expectedEventCount": 2
+        }
+      ]
+    },
+    {
+      "nodeType": "while",
+      "forbiddenRewrites": [
+        "rewrite to for / recursion",
+        "loop-unroll",
+        "hoist or cache the condition (it must be re-evaluated each pass)",
+        "emit Python while...else",
+        "let break/continue escape as the loop's final completion (they are consumed by the loop)"
+      ],
+      "fixtureCount": 6,
+      "fixtureSamples": [
+        {
+          "description": "while: counts up to a literal bound, one body pass per iteration",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 7
+        },
+        {
+          "description": "while: a body continue skips the rest of the iteration but keeps looping",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 4
+        }
+      ]
     }
   ]
 }
