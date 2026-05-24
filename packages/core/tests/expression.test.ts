@@ -21,6 +21,18 @@ describe('Expression tokenizer', () => {
     expect(toks).toEqual(['kwNull', 'kwUndef', 'kwTrue', 'kwFalse', 'ident', 'eof']);
   });
 
+  // Regression: the keyword lookup used a bare `KEYWORDS[word]` on a plain
+  // object, so identifiers that collide with `Object.prototype` members
+  // (`toString`, `valueOf`, `toLocaleString`, `hasOwnProperty`, `constructor`,
+  // …) resolved to inherited functions and mis-tokenized as keywords —
+  // throwing `Expected ident, got function toString()` on `x.toString()`.
+  test('prototype-member names tokenize as plain identifiers, not keywords', () => {
+    for (const name of ['toString', 'valueOf', 'toLocaleString', 'hasOwnProperty', 'constructor', 'isPrototypeOf']) {
+      const toks = tokenizeExpression(name).map((t) => t.kind);
+      expect(toks).toEqual(['ident', 'eof']);
+    }
+  });
+
   test('numbers (int, float, bigint, hex)', () => {
     const toks = tokenizeExpression('42 3.14 123n 0xFF').map((t) => ({ k: t.kind, v: t.value }));
     expect(toks).toEqual([
@@ -89,6 +101,19 @@ describe('Expression parser → ValueIR', () => {
     });
   });
 
+  test('member access / calls named after Object.prototype members', () => {
+    // These round-trip verbatim to TS (and likewise to Python) exactly as any
+    // other host method (`x.toFixed(2)`) already does — the fix only removed an
+    // arbitrary parse-time crash, it does not change the emit contract.
+    expect(roundtrip('x.toString()')).toBe('x.toString()');
+    expect(roundtrip('Date.now().toString()')).toBe('Date.now().toString()');
+    expect(roundtrip('n.toString(36)')).toBe('n.toString(36)');
+    expect(roundtrip('err.valueOf()')).toBe('err.valueOf()');
+    expect(roundtrip('obj.hasOwnProperty("k")')).toBe('obj.hasOwnProperty("k")');
+    expect(roundtrip('d.toLocaleString()')).toBe('d.toLocaleString()');
+    expect(roundtrip('x.constructor')).toBe('x.constructor');
+  });
+
   test('optional chaining', () => {
     expect(parseExpression('user?.profile?.name')).toEqual({
       kind: 'member',
@@ -132,6 +157,29 @@ describe('Expression parser → ValueIR', () => {
   test('generic-call lookahead does not hijack comparisons', () => {
     expect(roundtrip('count < limit && count > offset')).toBe('count < limit && count > offset');
     expect(roundtrip('a < b ? c : d')).toBe('(a < b) ? c : d');
+  });
+
+  test('instanceof — relational precedence binary operator', () => {
+    expect(parseExpression('x instanceof Error')).toEqual({
+      kind: 'binary',
+      op: 'instanceof',
+      left: { kind: 'ident', name: 'x' },
+      right: { kind: 'ident', name: 'Error' },
+    });
+    // Round-trips verbatim to TS.
+    expect(roundtrip('x instanceof Error')).toBe('x instanceof Error');
+    // RHS may be a member chain.
+    expect(roundtrip('x instanceof a.b.C')).toBe('x instanceof a.b.C');
+    // Relational precedence: binds tighter than `&&`/`||`, looser than `as`.
+    expect(roundtrip('a instanceof B && c')).toBe('a instanceof B && c');
+    expect(roundtrip('!(x instanceof Y)')).toBe('!(x instanceof Y)');
+    // The dominant real-world idiom.
+    expect(roundtrip('err instanceof Error ? err.message : String(err)')).toBe(
+      '(err instanceof Error) ? err.message : String(err)',
+    );
+    // `instanceof` is only an operator in operator position — it stays usable
+    // as a property name / object key.
+    expect(roundtrip('obj.instanceof')).toBe('obj.instanceof');
   });
 
   test('regex literals and non-null assertions round-trip', () => {
