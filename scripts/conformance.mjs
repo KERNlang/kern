@@ -257,6 +257,16 @@ const FIXTURES = [
   { name: 'Math.sqrt(16)', expr: 'Math.sqrt(a)', path: '/api/m', bindings: { locals: { a: 16 } }, expected: 4 },
   { name: 'Math.hypot(3,4)', expr: 'Math.hypot(a, b)', path: '/api/m', bindings: { locals: { a: 3, b: 4 } }, expected: 5 },
   { name: 'Math.random is a number on both targets', expr: 'Math.random()', path: '/api/m', bindings: {}, compare: 'shape', expected: 0 },
+
+  // Task 03 — Number / parse / format (FORGE TARGET: these fail until 03 lands).
+  // Non-whole values for parse* avoid the JS-int vs Python-float JSON artifact
+  // (a serialization quirk, not a lowering bug). toFixed must return a STRING.
+  { name: 'parseInt base-10', expr: 'parseInt(s)', path: '/api/n', bindings: { locals: { s: '42' } }, expected: 42 },
+  { name: 'parseInt explicit radix 10', expr: 'parseInt(s, 10)', path: '/api/n', bindings: { locals: { s: '42' } }, expected: 42 },
+  { name: 'parseFloat', expr: 'parseFloat(s)', path: '/api/n', bindings: { locals: { s: '3.14' } }, expected: 3.14 },
+  { name: 'toFixed returns a STRING', expr: 'n.toFixed(2)', path: '/api/n', bindings: { locals: { n: 3.14159 } }, expected: '3.14' },
+  { name: 'Number.isInteger true', expr: 'Number.isInteger(a)', path: '/api/n', bindings: { locals: { a: 5 } }, expected: true },
+  { name: 'Number.isInteger false', expr: 'Number.isInteger(a)', path: '/api/n', bindings: { locals: { a: 5.5 } }, expected: false },
 ];
 
 // ── Value → literal emitters ────────────────────────────────────────────────
