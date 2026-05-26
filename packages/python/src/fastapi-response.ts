@@ -281,14 +281,16 @@ function lowerMathBuiltinCalls(expr: string, imports?: Set<string>): string {
   return out;
 }
 
-// Lower JS string case builtins to Python methods:
+// Lower JS string builtins to Python methods:
 //   x.toUpperCase() -> x.upper()
 //   x.toLowerCase() -> x.lower()
+//   x.trim()        -> x.strip()
 // Skip string literals so text like "a.toUpperCase()" stays unchanged.
-function lowerStringCaseBuiltinCalls(expr: string): string {
-  return expr.replace(new RegExp(`${STRING_LITERAL_ALT}|\\.toUpperCase\\(\\)|\\.toLowerCase\\(\\)`, 'g'), (match) => {
+function lowerStringBuiltinCalls(expr: string): string {
+  return expr.replace(new RegExp(`${STRING_LITERAL_ALT}|\\.toUpperCase\\(\\)|\\.toLowerCase\\(\\)|\\.trim\\(\\)`, 'g'), (match) => {
     if (match === '.toUpperCase()') return '.upper()';
     if (match === '.toLowerCase()') return '.lower()';
+    if (match === '.trim()') return '.strip()';
     return match;
   });
 }
@@ -831,8 +833,8 @@ export function rewriteFastAPIExpr(
   result = lowerJsonBuiltinCalls(result, imports);
   // Number/Math arithmetic builtins in portable expressions.
   result = lowerMathBuiltinCalls(result, imports);
-  // String case builtins in portable expressions.
-  result = lowerStringCaseBuiltinCalls(result);
+  // String builtins in portable expressions.
+  result = lowerStringBuiltinCalls(result);
 
   // Object-literal keys → quoted Python dict keys (`{userId: x}` →
   // `{"userId": x}`). Applied last, mirroring the raw `res.json(...)` path's

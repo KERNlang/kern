@@ -212,4 +212,17 @@ describe('Host-builtin mapping (Python target)', () => {
     expect(code).not.toContain('.toUpperCase()');
     expect(code).not.toContain('.toLowerCase()');
   });
+
+  test('string trim builtin lowers to Python strip()', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=post path=/api/trim',
+      '    schema body="{name: string}"',
+      '    derive clean expr={{body.name.trim()}}',
+      '    respond 200 json=clean',
+    ]);
+    const code = routeContent(result, 'trim');
+    expect(code).toContain('body.name.strip()');
+    expect(code).not.toContain('.trim()');
+  });
 });
