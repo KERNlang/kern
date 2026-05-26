@@ -234,7 +234,9 @@ function lowerMathBuiltinCalls(expr: string, imports?: Set<string>): string {
     }
     const m = expr
       .slice(i)
-      .match(/^(?:(?:Number|Math)\.(floor|ceil|round|abs|trunc|isFinite|isNaN)|Math\.(min|max|pow|sqrt|hypot|random))\(/);
+      .match(
+        /^(?:(?:Number|Math)\.(floor|ceil|round|abs|trunc|isFinite|isNaN)|Math\.(min|max|pow|sqrt|hypot|random))\(/,
+      );
     const prev = expr[i - 1];
     if (m && !(prev && /[\w.]/.test(prev))) {
       const method = m[1] ?? m[2];
@@ -312,6 +314,121 @@ function lowerMathBuiltinCalls(expr: string, imports?: Set<string>): string {
         continue;
       }
     }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
+// Find the start of the JS expression that ends just before the current position.
+// Uses a balanced-scan (backwards) to skip over () [] {}.
+function findReceiverStart(s: string): number {
+  let j = s.length - 1;
+  while (j >= 0 && /\s/.test(s[j])) j--;
+  if (j < 0) return -1;
+
+  let depth = 0;
+  while (j >= 0) {
+    const c = s[j];
+    if (c === ')' || c === ']' || c === '}') {
+      depth++;
+    } else if (c === '(' || c === '[' || c === '{') {
+      depth--;
+      if (depth < 0) return j + 1;
+    } else if (depth === 0) {
+      // At top level, we stop at anything that isn't part of an identifier,
+      // property access, or indexed access.
+      if (!/[\w.$]/.test(c)) return j + 1;
+    }
+    j--;
+  }
+  return 0;
+}
+
+// Lower Number parsing and formatting builtins:
+//   parseInt(x) / parseInt(x, 10) -> int(x)
+//   parseFloat(x)                 -> float(x)
+//   Number.isInteger(x)           -> (isinstance(x, int) and not isinstance(x, bool))
+//   Number(x)                     -> float(x)  (best-effort coercion)
+//   (n).toFixed(d)                -> f"{n:.{d}f}"
+// String-aware + balanced-paren scan so nested calls survive.
+function lowerNumberBuiltinCalls(expr: string, imports?: Set<string>): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+
+    const m = expr
+      .slice(i)
+      .match(/^(?:Number\.isInteger|Number\.parseInt|Number\.parseFloat|Number|parseInt|parseFloat)\(/);
+    const prev = expr[i - 1];
+    if (m && !(prev && /[\w.]/.test(prev))) {
+      const match = m[0];
+      const method = match.slice(0, -1);
+      const openIdx = i + match.length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1) {
+        const inner = expr.slice(openIdx + 1, closeIdx);
+        const args = splitTopLevelArgs(inner);
+        const a0 = lowerNumberBuiltinCalls(args[0] ?? '', imports).trim();
+        if (method === 'parseInt' || method === 'Number.parseInt') {
+          if (args.length === 1 || (args.length === 2 && args[1].trim() === '10')) {
+            out += `int(${a0})`;
+          } else {
+            const a1 = args[1] ? lowerNumberBuiltinCalls(args[1], imports).trim() : '';
+            out += `int(${a0}, ${a1})`;
+          }
+        } else if (method === 'parseFloat' || method === 'Number.parseFloat') {
+          out += `float(${a0})`;
+        } else if (method === 'Number.isInteger') {
+          out += `(isinstance(${a0}, int) and not isinstance(${a0}, bool))`;
+        } else if (method === 'Number') {
+          out += `float(${a0})`;
+        }
+        i = closeIdx + 1;
+        continue;
+      }
+    }
+
+    if (expr.startsWith('.toFixed(', i)) {
+      const openIdx = i + '.toFixed('.length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1) {
+        const inner = expr.slice(openIdx + 1, closeIdx);
+        const args = splitTopLevelArgs(inner);
+        const precision = args[0] ? lowerNumberBuiltinCalls(args[0], imports).trim() : '0';
+        const receiverStart = findReceiverStart(out);
+        if (receiverStart !== -1) {
+          const receiver = out.slice(receiverStart);
+          const pre = out.slice(0, receiverStart);
+          // Quote-safe: a nested f-string `f"{receiver:.{p}f}"` is a SyntaxError
+          // on CPython <3.12 when the receiver contains `"` (e.g. data["k"]).
+          // `format(x, '.' + str(p) + 'f')` keeps the receiver as a bare arg.
+          out = `${pre}format(${receiver}, '.' + str(${precision}) + 'f')`;
+          i = closeIdx + 1;
+          continue;
+        }
+      }
+    }
+
     out += c;
     i += 1;
   }
@@ -987,6 +1104,8 @@ export function rewriteFastAPIExpr(
   result = lowerJsonBuiltinCalls(result, imports);
   // Number/Math arithmetic builtins in portable expressions.
   result = lowerMathBuiltinCalls(result, imports);
+  // Number parsing and formatting builtins.
+  result = lowerNumberBuiltinCalls(result, imports);
   // String builtins in portable expressions.
   result = lowerStringBuiltinCalls(result);
   // String .replace → first-only parity (JS replaces first; Python replaces all).
