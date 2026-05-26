@@ -203,6 +203,84 @@ function lowerJsonBuiltinCalls(expr: string, imports?: Set<string>): string {
   return out;
 }
 
+// Lower Number/Math arithmetic builtins used in portable expressions.
+// String-aware + balanced-paren scan, so nested calls/expressions survive:
+//   Number.floor(a + b) -> __k_math.floor(a + b)
+//   Number.round(x)     -> __k_math.floor(x + 0.5)  (JS Math.round parity)
+// Guards skip member calls on custom receivers (e.g. myNumber.floor(x)).
+function lowerMathBuiltinCalls(expr: string, imports?: Set<string>): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    const m = expr
+      .slice(i)
+      .match(/^(Number|Math)\.(floor|ceil|round|abs|isFinite|isNaN)\(/);
+    const prev = expr[i - 1];
+    if (m && !(prev && /[\w.]/.test(prev))) {
+      const method = m[2];
+      const openIdx = i + m[0].length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1) {
+        const arg = lowerMathBuiltinCalls(expr.slice(openIdx + 1, closeIdx), imports).trim();
+        switch (method) {
+          case 'floor':
+            imports?.add('import math as __k_math');
+            out += `__k_math.floor(${arg})`;
+            break;
+          case 'ceil':
+            imports?.add('import math as __k_math');
+            out += `__k_math.ceil(${arg})`;
+            break;
+          case 'round':
+            imports?.add('import math as __k_math');
+            out += `__k_math.floor(${arg} + 0.5)`;
+            break;
+          case 'abs':
+            out += `abs(${arg})`;
+            break;
+          case 'isFinite':
+            imports?.add('import math as __k_math');
+            // Type guard: Number.isFinite returns false for non-numbers; math.isfinite raises TypeError
+            out += `(isinstance(${arg}, (int, float)) and __k_math.isfinite(${arg}))`;
+            break;
+          case 'isNaN':
+            imports?.add('import math as __k_math');
+            // Type guard: Number.isNaN returns false for non-numbers; math.isnan raises TypeError
+            out += `(isinstance(${arg}, (int, float)) and __k_math.isnan(${arg}))`;
+            break;
+          default:
+            out += expr.slice(i, closeIdx + 1);
+            break;
+        }
+        i = closeIdx + 1;
+        continue;
+      }
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
 // Build the Python comprehension for one `Array.from(...)` call's argument list,
 // or return null if the call isn't a lowerable length-form. Uses the balanced
 // helpers (not regex) so a length value or arrow params containing braces/parens
@@ -739,6 +817,8 @@ export function rewriteFastAPIExpr(
 
   // JSON.stringify(...) → json.dumps(...) / JSON.parse(...) → json.loads(...)
   result = lowerJsonBuiltinCalls(result, imports);
+  // Number/Math arithmetic builtins in portable expressions.
+  result = lowerMathBuiltinCalls(result, imports);
 
   // Object-literal keys → quoted Python dict keys (`{userId: x}` →
   // `{"userId": x}`). Applied last, mirroring the raw `res.json(...)` path's

@@ -170,4 +170,30 @@ describe('Host-builtin mapping (Python target)', () => {
     expect(code).toContain('json.dumps(json.loads(body.raw))');
     expect(code).not.toContain('JSON.');
   });
+
+  test('Number/Math arithmetic builtins lower to Python forms and add math import', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=get path=/api/math',
+      '    derive floorV expr={{Number.floor(1.8)}}',
+      '    derive ceilV expr={{Number.ceil(1.2)}}',
+      '    derive roundV expr={{Number.round(2.5)}}',
+      '    derive absV expr={{Number.abs(-2)}}',
+      '    derive finiteV expr={{Number.isFinite(2)}}',
+      '    derive nanV expr={{Number.isNaN(0 / 0)}}',
+      '    derive mathFloor expr={{Math.floor(3.9)}}',
+      '    respond 200 json=roundV',
+    ]);
+    const code = routeContent(result, 'math');
+    expect(code).toContain('__k_math.floor(1.8)');
+    expect(code).toContain('__k_math.ceil(1.2)');
+    expect(code).toContain('__k_math.floor(2.5 + 0.5)');
+    expect(code).toContain('abs(-2)');
+    expect(code).toContain('__k_math.isfinite(2)');
+    expect(code).toContain('__k_math.isnan(0 / 0)');
+    expect(code).toContain('__k_math.floor(3.9)');
+    expect(code).toContain('import math as __k_math');
+    expect(code).not.toContain('Number.floor');
+    expect(code).not.toContain('Math.floor');
+  });
 });
