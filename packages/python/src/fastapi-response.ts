@@ -295,6 +295,64 @@ function lowerStringBuiltinCalls(expr: string): string {
   });
 }
 
+// Lower selected Object/Array/Date host builtins in portable expressions:
+//   Object.keys(x)    -> list(x.keys())
+//   Object.values(x)  -> list(x.values())
+//   Object.entries(x) -> list(x.items())
+//   Array.isArray(x)  -> isinstance(x, list)
+//   Date.now()        -> int(datetime.now(timezone.utc).timestamp() * 1000)
+// Uses the same string-aware balanced scan as other builtin lowerers.
+function lowerObjectArrayDateBuiltinCalls(expr: string, imports?: Set<string>): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    const m = expr.slice(i).match(/^(Object\.(keys|values|entries)|Array\.isArray)\(/);
+    const prev = expr[i - 1];
+    if (m && !(prev && /[\w.]/.test(prev))) {
+      const method = m[1];
+      const openIdx = i + m[0].length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1) {
+        const arg = lowerObjectArrayDateBuiltinCalls(expr.slice(openIdx + 1, closeIdx), imports).trim();
+        if (method === 'Object.keys') out += `list(${arg}.keys())`;
+        else if (method === 'Object.values') out += `list(${arg}.values())`;
+        else if (method === 'Object.entries') out += `list(${arg}.items())`;
+        else out += `isinstance(${arg}, list)`;
+        i = closeIdx + 1;
+        continue;
+      }
+    }
+    if (expr.startsWith('Date.now()', i) && !(expr[i - 1] && /[\w.]/.test(expr[i - 1]))) {
+      imports?.add('from datetime import datetime, timezone');
+      out += 'int(datetime.now(timezone.utc).timestamp() * 1000)';
+      i += 'Date.now()'.length;
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
 // Build the Python comprehension for one `Array.from(...)` call's argument list,
 // or return null if the call isn't a lowerable length-form. Uses the balanced
 // helpers (not regex) so a length value or arrow params containing braces/parens
@@ -835,6 +893,8 @@ export function rewriteFastAPIExpr(
   result = lowerMathBuiltinCalls(result, imports);
   // String builtins in portable expressions.
   result = lowerStringBuiltinCalls(result);
+  // Object/Array/Date host builtins in portable expressions.
+  result = lowerObjectArrayDateBuiltinCalls(result, imports);
 
   // Object-literal keys → quoted Python dict keys (`{userId: x}` →
   // `{"userId": x}`). Applied last, mirroring the raw `res.json(...)` path's

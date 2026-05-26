@@ -225,4 +225,83 @@ describe('Host-builtin mapping (Python target)', () => {
     expect(code).toContain('body.name.strip()');
     expect(code).not.toContain('.trim()');
   });
+
+  test('Object/Array/Date builtins lower to Python equivalents', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=post path=/api/objarrdate',
+      '    schema body="{raw: string}"',
+      '    derive ks expr={{Object.keys(JSON.parse(body.raw))}}',
+      '    derive vs expr={{Object.values(JSON.parse(body.raw))}}',
+      '    derive es expr={{Object.entries(JSON.parse(body.raw))}}',
+      '    derive ok expr={{Array.isArray(vs)}}',
+      '    derive t expr={{Date.now()}}',
+      '    respond 200 json={{ {ks, vs, es, ok, t} }}',
+    ]);
+    const code = routeContent(result, 'objarrdate');
+    expect(code).toContain('list(json.loads(body.raw).keys())');
+    expect(code).toContain('list(json.loads(body.raw).values())');
+    expect(code).toContain('list(json.loads(body.raw).items())');
+    expect(code).toContain('isinstance(vs, list)');
+    expect(code).toContain('int(datetime.now(timezone.utc).timestamp() * 1000)');
+    expect(code).toContain('import json');
+    expect(code).toContain('from datetime import datetime, timezone');
+    expect(code).not.toContain('Object.keys');
+    expect(code).not.toContain('Object.values');
+    expect(code).not.toContain('Object.entries');
+    expect(code).not.toContain('Array.isArray');
+    expect(code).not.toContain('Date.now()');
+  });
+
+  test('Object/Array/Date builtins inside string literals are not rewritten', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=get path=/api/objarrdate-lit',
+      '    derive s expr={{tag("Object.keys(x) Array.isArray(y) Date.now()")}}',
+      '    respond 200 json=s',
+    ]);
+    const code = routeContent(result, 'objarrdate_lit');
+    expect(code).toContain('"Object.keys(x) Array.isArray(y) Date.now()"');
+    expect(code).not.toContain('list(x.keys())');
+    expect(code).not.toContain('isinstance(y, list)');
+    expect(code).not.toContain('datetime.now(timezone.utc)');
+  });
+
+  test('custom receivers ending in Object/Array/Date names are not rewritten', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=get path=/api/objarrdate-recv',
+      '    derive a expr={{myObject.keys(v)}}',
+      '    derive b expr={{obj.Array.isArray(v)}}',
+      '    derive c expr={{clock.Date.now()}}',
+      '    respond 200 json=a',
+    ]);
+    const code = routeContent(result, 'objarrdate_recv');
+    expect(code).toContain('myObject.keys(v)');
+    expect(code).toContain('obj.Array.isArray(v)');
+    expect(code).toContain('clock.Date.now()');
+    expect(code).not.toContain('list(v.keys())');
+    expect(code).not.toContain('isinstance(v, list)');
+    expect(code).not.toContain('datetime.now(timezone.utc)');
+  });
+
+  test('nested Object/Array/Date builtins lower with balanced nested bounds', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=post path=/api/objarrdate-nested',
+      '    schema body="{raw: string}"',
+      '    derive ok expr={{Array.isArray(Object.keys(JSON.parse(body.raw)))}}',
+      '    derive t expr={{Object.entries({now: Date.now()})}}',
+      '    respond 200 json={{ {ok, t} }}',
+    ]);
+    const code = routeContent(result, 'objarrdate_nested');
+    expect(code).toContain('isinstance(list(json.loads(body.raw).keys()), list)');
+    expect(code).toContain('list({"now": int(datetime.now(timezone.utc).timestamp() * 1000)}.items())');
+    expect(code).toContain('import json');
+    expect(code).toContain('from datetime import datetime, timezone');
+    expect(code).not.toContain('Array.isArray');
+    expect(code).not.toContain('Object.keys');
+    expect(code).not.toContain('Object.entries');
+    expect(code).not.toContain('Date.now()');
+  });
 });
