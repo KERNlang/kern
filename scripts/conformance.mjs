@@ -271,6 +271,59 @@ const FIXTURES = [
   { name: 'toFixed on a bracket-access receiver (quote-safe)', expr: 'data["price"].toFixed(2)', path: '/api/n', bindings: { locals: { data: { price: 3.14159 } } }, expected: '3.14' },
   { name: 'Number.isInteger true', expr: 'Number.isInteger(a)', path: '/api/n', bindings: { locals: { a: 5 } }, expected: true },
   { name: 'Number.isInteger false', expr: 'Number.isInteger(a)', path: '/api/n', bindings: { locals: { a: 5.5 } }, expected: false },
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // BACKFILL ORACLE (goal: conformance-backfill, 2026-05-26). These RED fixtures
+  // encode bugs the differential harness caught that codegen-string tests masked.
+  // Each slice (arr-core / arr-method / str-method) is a goal task; the task gate
+  // is `node scripts/conformance.mjs --filter "<slice>:"`. Element bindings are
+  // DICTS (json.loads) — the real shape of inline-schema/fetch/literal arrays —
+  // so attribute access `x.field` MUST lower to subscript `x["field"]`.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  // ── arr-core: filter/map/find on DICT elements + arrow-shape robustness ──
+  // BUG: lowerJsArrayMethods emits `[x.field for x in ...]` (attribute access),
+  // which raises AttributeError on dict elements. Must emit `x["field"]`.
+  { name: 'arr-core: filter on a dict field', expr: 'items.filter((x) => x.active)', path: '/api/a', bindings: { locals: { items: [{ active: true, n: 1 }, { active: false, n: 2 }] } }, expected: [{ active: true, n: 1 }] },
+  { name: 'arr-core: map a dict field', expr: 'items.map((x) => x.n)', path: '/api/a', bindings: { locals: { items: [{ active: true, n: 1 }, { active: false, n: 2 }] } }, expected: [1, 2] },
+  { name: 'arr-core: find on a dict field', expr: 'items.find((x) => x.n === 2)', path: '/api/a', bindings: { locals: { items: [{ active: true, n: 1 }, { active: false, n: 2 }] } }, expected: { active: false, n: 2 } },
+  { name: 'arr-core: chained filter then map (dict fields)', expr: 'items.filter((x) => x.active).map((x) => x.n)', path: '/api/a', bindings: { locals: { items: [{ active: true, n: 1 }, { active: false, n: 2 }] } }, expected: [1] },
+  { name: 'arr-core: map a nested dict field x.meta.tag', expr: 'items.map((x) => x.meta.tag)', path: '/api/a', bindings: { locals: { items: [{ meta: { tag: 'a' } }, { meta: { tag: 'b' } }] } }, expected: ['a', 'b'] },
+  // arrow-shape robustness: index param, element+index, bare (unparenthesized)
+  // param, and a 2-level-nested arrow body combined with member access.
+  { name: 'arr-core: map with an index param (x, i) => i', expr: 'items.map((x, i) => i)', path: '/api/a', bindings: { locals: { items: [{ n: 1 }, { n: 2 }] } }, expected: [0, 1] },
+  { name: 'arr-core: map element + index (dict field + i)', expr: 'items.map((x, i) => x.n + i)', path: '/api/a', bindings: { locals: { items: [{ n: 10 }, { n: 20 }] } }, expected: [10, 21] },
+  { name: 'arr-core: filter with a bare (unparenthesized) param', expr: 'items.filter(x => x.active)', path: '/api/a', bindings: { locals: { items: [{ active: true, n: 1 }, { active: false, n: 2 }] } }, expected: [{ active: true, n: 1 }] },
+  { name: 'arr-core: map with a 2-level nested body + member access', expr: 'items.map((x) => Math.max(x.n, 0))', path: '/api/a', bindings: { locals: { items: [{ n: -1 }, { n: 5 }] } }, expected: [0, 5] },
+
+  // ── arr-method: array methods NOT yet lowered → AttributeError on Python ──
+  // includes/indexOf/slice work for both str+array via `in`/slicing; indexOf on a
+  // MISSING element must yield -1 (JS), not raise (Python list.index raises).
+  { name: 'arr-method: includes true', expr: 'nums.includes(2)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: true },
+  { name: 'arr-method: includes false', expr: 'nums.includes(9)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: false },
+  { name: 'arr-method: join coerces to strings', expr: 'nums.join(",")', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: '1,2,3' },
+  { name: 'arr-method: slice(0, 2)', expr: 'nums.slice(0, 2)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: [1, 2] },
+  { name: 'arr-method: slice(-2) negative start', expr: 'nums.slice(-2)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: [2, 3] },
+  { name: 'arr-method: indexOf present', expr: 'nums.indexOf(2)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: 1 },
+  { name: 'arr-method: indexOf missing is -1 (not raise)', expr: 'nums.indexOf(9)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: -1 },
+  { name: 'arr-method: some (scalar predicate)', expr: 'nums.some((n) => n === 2)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: true },
+  { name: 'arr-method: every (scalar predicate)', expr: 'nums.every((n) => n > 0)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: true },
+  { name: 'arr-method: reduce sum with seed', expr: 'nums.reduce((a, b) => a + b, 0)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: 6 },
+
+  // ── str-method: string methods NOT yet lowered → AttributeError on Python ──
+  // split(sep, limit) is the SILENT trap: JS keeps the first `limit` parts;
+  // Python's maxsplit keeps ALL parts (limit splits) → wrong result, no error.
+  { name: 'str-method: includes true', expr: 's.includes("ana")', path: '/api/s', bindings: { locals: { s: 'banana' } }, expected: true },
+  { name: 'str-method: includes false', expr: 's.includes("zzz")', path: '/api/s', bindings: { locals: { s: 'banana' } }, expected: false },
+  { name: 'str-method: slice(1, 3)', expr: 's.slice(1, 3)', path: '/api/s', bindings: { locals: { s: 'banana' } }, expected: 'an' },
+  { name: 'str-method: slice(-3) negative start', expr: 's.slice(-3)', path: '/api/s', bindings: { locals: { s: 'banana' } }, expected: 'ana' },
+  { name: 'str-method: substring(0, 2)', expr: 's.substring(0, 2)', path: '/api/s', bindings: { locals: { s: 'banana' } }, expected: 'ba' },
+  { name: 'str-method: indexOf present', expr: 's.indexOf("n")', path: '/api/s', bindings: { locals: { s: 'banana' } }, expected: 2 },
+  { name: 'str-method: indexOf missing is -1', expr: 's.indexOf("z")', path: '/api/s', bindings: { locals: { s: 'banana' } }, expected: -1 },
+  { name: 'str-method: padStart', expr: 's.padStart(8, "0")', path: '/api/s', bindings: { locals: { s: 'banana' } }, expected: '00banana' },
+  { name: 'str-method: padEnd', expr: 's.padEnd(8, "0")', path: '/api/s', bindings: { locals: { s: 'banana' } }, expected: 'banana00' },
+  { name: 'str-method: repeat', expr: 's.repeat(2)', path: '/api/s', bindings: { locals: { s: 'ab' } }, expected: 'abab' },
+  { name: 'str-method: split with a limit (JS first-N, not maxsplit)', expr: 's.split(",", 2)', path: '/api/s', bindings: { locals: { s: 'a,b,c' } }, expected: ['a', 'b'] },
 ];
 
 // ── Value → literal emitters ────────────────────────────────────────────────
