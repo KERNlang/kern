@@ -233,7 +233,7 @@ function lowerMathBuiltinCalls(expr: string, imports?: Set<string>): string {
     }
     const m = expr
       .slice(i)
-      .match(/^(Number|Math)\.(floor|ceil|round|abs|isFinite|isNaN)\(/);
+      .match(/^(Number|Math)\.(floor|ceil|round|abs|trunc|isFinite|isNaN)\(/);
     const prev = expr[i - 1];
     if (m && !(prev && /[\w.]/.test(prev))) {
       const method = m[2];
@@ -256,6 +256,11 @@ function lowerMathBuiltinCalls(expr: string, imports?: Set<string>): string {
             break;
           case 'abs':
             out += `abs(${arg})`;
+            break;
+          case 'trunc':
+            // JS Math.trunc truncates toward zero; math.trunc matches.
+            imports?.add('import math as __k_math');
+            out += `__k_math.trunc(${arg})`;
             break;
           case 'isFinite':
             imports?.add('import math as __k_math');
@@ -287,12 +292,71 @@ function lowerMathBuiltinCalls(expr: string, imports?: Set<string>): string {
 //   x.trim()        -> x.strip()
 // Skip string literals so text like "a.toUpperCase()" stays unchanged.
 function lowerStringBuiltinCalls(expr: string): string {
-  return expr.replace(new RegExp(`${STRING_LITERAL_ALT}|\\.toUpperCase\\(\\)|\\.toLowerCase\\(\\)|\\.trim\\(\\)`, 'g'), (match) => {
-    if (match === '.toUpperCase()') return '.upper()';
-    if (match === '.toLowerCase()') return '.lower()';
-    if (match === '.trim()') return '.strip()';
-    return match;
-  });
+  return expr.replace(
+    new RegExp(
+      `${STRING_LITERAL_ALT}|\\.toUpperCase\\(\\)|\\.toLowerCase\\(\\)|\\.trim\\(\\)|\\.startsWith\\(|\\.endsWith\\(`,
+      'g',
+    ),
+    (match) => {
+      if (match === '.toUpperCase()') return '.upper()';
+      if (match === '.toLowerCase()') return '.lower()';
+      if (match === '.trim()') return '.strip()';
+      // startsWith/endsWith take args; match only the method+`(` so the
+      // argument list passes through to Python's str.startswith/endswith.
+      if (match === '.startsWith(') return '.startswith(';
+      if (match === '.endsWith(') return '.endswith(';
+      return match;
+    },
+  );
+}
+
+// Lower JS String.prototype.replace (string-arg form) to Python's first-only
+// replace. JS `s.replace("a", "b")` replaces only the FIRST occurrence, but
+// Python str.replace replaces ALL — so emit the count=1 third arg for parity.
+// Only the 2-arg form is lowered; a regex first arg (`s.replace(/re/, b)`) is
+// out of scope and left unchanged. `.replaceAll(` never matches (it isn't
+// `.replace(`). String-aware + balanced so args with commas/parens survive.
+function lowerStringReplaceFirstOnly(expr: string): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    if (expr.startsWith('.replace(', i)) {
+      const openIdx = i + '.replace('.length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1) {
+        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));
+        if (args.length === 2 && !args[0].trim().startsWith('/')) {
+          const a0 = lowerStringReplaceFirstOnly(args[0]).trim();
+          const a1 = lowerStringReplaceFirstOnly(args[1]).trim();
+          out += `.replace(${a0}, ${a1}, 1)`;
+          i = closeIdx + 1;
+          continue;
+        }
+      }
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
 }
 
 // Lower selected Object/Array/Date host builtins in portable expressions:
@@ -893,6 +957,8 @@ export function rewriteFastAPIExpr(
   result = lowerMathBuiltinCalls(result, imports);
   // String builtins in portable expressions.
   result = lowerStringBuiltinCalls(result);
+  // String .replace → first-only parity (JS replaces first; Python replaces all).
+  result = lowerStringReplaceFirstOnly(result);
   // Object/Array/Date host builtins in portable expressions.
   result = lowerObjectArrayDateBuiltinCalls(result, imports);
 

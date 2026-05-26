@@ -210,6 +210,40 @@ const FIXTURES = [
     compare: 'shape',
     expected: { at: 'string' },
   },
+
+  // ── Host-builtin runtime parity (backfilled verification for goal tasks
+  // 01/04/05/06). These RUN the lowered expr on both targets and assert
+  // agreement — the differential proof the codegen-string tests don't give.
+  // Trap cases are first-class: JS↔Python divergences hide here.
+
+  // Task 01 — Math arithmetic. Math.round is the headline trap: JS rounds half
+  // UP (Math.round(2.5)===3, Math.round(-2.5)===-2); Python round() is banker's.
+  { name: 'Math.round(2.5) half-up (banker trap)', expr: 'Math.round(x)', path: '/api/m', bindings: { locals: { x: 2.5 } }, expected: 3 },
+  { name: 'Math.round(-2.5) half-up toward +inf', expr: 'Math.round(x)', path: '/api/m', bindings: { locals: { x: -2.5 } }, expected: -2 },
+  { name: 'Math.floor(-2.5)', expr: 'Math.floor(x)', path: '/api/m', bindings: { locals: { x: -2.5 } }, expected: -3 },
+  { name: 'Math.ceil(-2.5)', expr: 'Math.ceil(x)', path: '/api/m', bindings: { locals: { x: -2.5 } }, expected: -2 },
+  { name: 'Math.trunc(-3.7) (truncate toward zero)', expr: 'Math.trunc(x)', path: '/api/m', bindings: { locals: { x: -3.7 } }, expected: -3 },
+  { name: 'Math.abs(-5)', expr: 'Math.abs(x)', path: '/api/m', bindings: { locals: { x: -5 } }, expected: 5 },
+
+  // Task 04 — String case / test.
+  { name: 'String toUpperCase', expr: 's.toUpperCase()', path: '/api/s', bindings: { locals: { s: 'HeLLo' } }, expected: 'HELLO' },
+  { name: 'String toLowerCase', expr: 's.toLowerCase()', path: '/api/s', bindings: { locals: { s: 'HeLLo' } }, expected: 'hello' },
+  { name: 'String trim', expr: 's.trim()', path: '/api/s', bindings: { locals: { s: '  hi  ' } }, expected: 'hi' },
+  { name: 'String startsWith true', expr: 's.startsWith(p)', path: '/api/s', bindings: { locals: { s: 'abcdef', p: 'abc' } }, expected: true },
+  { name: 'String startsWith false', expr: 's.startsWith(p)', path: '/api/s', bindings: { locals: { s: 'abcdef', p: 'xyz' } }, expected: false },
+
+  // Task 05 — String transform. .replace is the trap: JS replaces only the
+  // FIRST occurrence of a string arg; Python str.replace replaces ALL.
+  { name: 'String replace first-only (banana trap)', expr: 's.replace(a, b)', path: '/api/s', bindings: { locals: { s: 'banana', a: 'a', b: 'X' } }, expected: 'bXnana' },
+  { name: 'String split', expr: 's.split(sep)', path: '/api/s', bindings: { locals: { s: 'a,b,c', sep: ',' } }, expected: ['a', 'b', 'c'] },
+
+  // Task 06 — Object / Array static + Date.
+  { name: 'Object.keys', expr: 'Object.keys(o)', path: '/api/o', bindings: { locals: { o: { a: 1, b: 2 } } }, expected: ['a', 'b'] },
+  { name: 'Object.values', expr: 'Object.values(o)', path: '/api/o', bindings: { locals: { o: { a: 1, b: 2 } } }, expected: [1, 2] },
+  { name: 'Object.entries', expr: 'Object.entries(o)', path: '/api/o', bindings: { locals: { o: { a: 1 } } }, expected: [['a', 1]] },
+  { name: 'Array.isArray true', expr: 'Array.isArray(v)', path: '/api/a', bindings: { locals: { v: [1, 2] } }, expected: true },
+  { name: 'Array.isArray false', expr: 'Array.isArray(v)', path: '/api/a', bindings: { locals: { v: 'x' } }, expected: false },
+  { name: 'Date.now is an int on both targets', expr: 'Date.now()', path: '/api/d', bindings: {}, compare: 'shape', expected: 0 },
 ];
 
 // ── Value → literal emitters ────────────────────────────────────────────────
