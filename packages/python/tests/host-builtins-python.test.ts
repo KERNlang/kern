@@ -197,6 +197,27 @@ describe('Host-builtin mapping (Python target)', () => {
     expect(code).not.toContain('Math.floor');
   });
 
+  test('Math aggregate builtins lower to Python min/max forms', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=get path=/api/math-aggregate',
+      '    derive minV expr={{Math.min(9, Number.floor(2.9), 4)}}',
+      '    derive maxV expr={{Math.max(3, Number.ceil(1.2), -5)}}',
+      '    derive numberMin expr={{Number.min(10, 2)}}',
+      '    derive minEmpty expr={{Math.min()}}',
+      '    derive maxEmpty expr={{Math.max()}}',
+      '    respond 200 json={{ {minV, maxV, numberMin, minEmpty, maxEmpty} }}',
+    ]);
+    const code = routeContent(result, 'math_aggregate');
+    expect(code).toContain('min(9, __k_math.floor(2.9), 4)');
+    expect(code).toContain('max(3, __k_math.ceil(1.2), -5)');
+    expect(code).toContain('Number.min(10, 2)');
+    expect(code).toContain('float("inf")');
+    expect(code).toContain('float("-inf")');
+    expect(code).not.toContain('Math.min');
+    expect(code).not.toContain('Math.max');
+  });
+
   test('string case builtins lower to Python string methods', async () => {
     const result = await transpile([
       'server name=API port=8000',

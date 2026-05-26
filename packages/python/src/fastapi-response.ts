@@ -207,6 +207,7 @@ function lowerJsonBuiltinCalls(expr: string, imports?: Set<string>): string {
 // String-aware + balanced-paren scan, so nested calls/expressions survive:
 //   Number.floor(a + b) -> __k_math.floor(a + b)
 //   Number.round(x)     -> __k_math.floor(x + 0.5)  (JS Math.round parity)
+//   Math.max(a, b, c)   -> max(a, b, c)
 // Guards skip member calls on custom receivers (e.g. myNumber.floor(x)).
 function lowerMathBuiltinCalls(expr: string, imports?: Set<string>): string {
   let out = '';
@@ -233,14 +234,17 @@ function lowerMathBuiltinCalls(expr: string, imports?: Set<string>): string {
     }
     const m = expr
       .slice(i)
-      .match(/^(Number|Math)\.(floor|ceil|round|abs|trunc|isFinite|isNaN)\(/);
+      .match(/^(?:(?:Number|Math)\.(floor|ceil|round|abs|trunc|isFinite|isNaN)|Math\.(min|max))\(/);
     const prev = expr[i - 1];
     if (m && !(prev && /[\w.]/.test(prev))) {
-      const method = m[2];
+      const method = m[1] ?? m[2];
       const openIdx = i + m[0].length - 1;
       const closeIdx = matchBalancedParen(expr, openIdx);
       if (closeIdx !== -1) {
-        const arg = lowerMathBuiltinCalls(expr.slice(openIdx + 1, closeIdx), imports).trim();
+        const inner = expr.slice(openIdx + 1, closeIdx);
+        const rawArgs = inner.trim() === '' ? [] : splitTopLevelArgs(inner);
+        const loweredArgs = rawArgs.map((a) => lowerMathBuiltinCalls(a, imports).trim());
+        const arg = loweredArgs[0] ?? '';
         switch (method) {
           case 'floor':
             imports?.add('import math as __k_math');
@@ -271,6 +275,14 @@ function lowerMathBuiltinCalls(expr: string, imports?: Set<string>): string {
             imports?.add('import math as __k_math');
             // Type guard: Number.isNaN returns false for non-numbers; math.isnan raises TypeError
             out += `(isinstance(${arg}, (int, float)) and __k_math.isnan(${arg}))`;
+            break;
+          case 'min':
+            if (loweredArgs.length === 0) out += 'float("inf")';
+            else out += `min(${loweredArgs.join(', ')})`;
+            break;
+          case 'max':
+            if (loweredArgs.length === 0) out += 'float("-inf")';
+            else out += `max(${loweredArgs.join(', ')})`;
             break;
           default:
             out += expr.slice(i, closeIdx + 1);
