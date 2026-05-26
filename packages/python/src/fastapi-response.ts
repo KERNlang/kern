@@ -203,6 +203,369 @@ function lowerJsonBuiltinCalls(expr: string, imports?: Set<string>): string {
   return out;
 }
 
+// Lower Number/Math arithmetic builtins used in portable expressions.
+// String-aware + balanced-paren scan, so nested calls/expressions survive:
+//   Number.floor(a + b) -> __k_math.floor(a + b)
+//   Number.round(x)     -> __k_math.floor(x + 0.5)  (JS Math.round parity)
+//   Math.max(a, b, c)   -> max(a, b, c)
+// Guards skip member calls on custom receivers (e.g. myNumber.floor(x)).
+function lowerMathBuiltinCalls(expr: string, imports?: Set<string>): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    const m = expr
+      .slice(i)
+      .match(
+        /^(?:(?:Number|Math)\.(floor|ceil|round|abs|trunc|isFinite|isNaN)|Math\.(min|max|pow|sqrt|hypot|random))\(/,
+      );
+    const prev = expr[i - 1];
+    if (m && !(prev && /[\w.]/.test(prev))) {
+      const method = m[1] ?? m[2];
+      const openIdx = i + m[0].length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1) {
+        const inner = expr.slice(openIdx + 1, closeIdx);
+        const rawArgs = inner.trim() === '' ? [] : splitTopLevelArgs(inner);
+        const loweredArgs = rawArgs.map((a) => lowerMathBuiltinCalls(a, imports).trim());
+        const arg = loweredArgs[0] ?? '';
+        switch (method) {
+          case 'floor':
+            imports?.add('import math as __k_math');
+            out += `__k_math.floor(${arg})`;
+            break;
+          case 'ceil':
+            imports?.add('import math as __k_math');
+            out += `__k_math.ceil(${arg})`;
+            break;
+          case 'round':
+            imports?.add('import math as __k_math');
+            out += `__k_math.floor(${arg} + 0.5)`;
+            break;
+          case 'abs':
+            out += `abs(${arg})`;
+            break;
+          case 'trunc':
+            // JS Math.trunc truncates toward zero; math.trunc matches.
+            imports?.add('import math as __k_math');
+            out += `__k_math.trunc(${arg})`;
+            break;
+          case 'isFinite':
+            imports?.add('import math as __k_math');
+            // Type guard: Number.isFinite returns false for non-numbers; math.isfinite raises TypeError
+            out += `(isinstance(${arg}, (int, float)) and __k_math.isfinite(${arg}))`;
+            break;
+          case 'isNaN':
+            imports?.add('import math as __k_math');
+            // Type guard: Number.isNaN returns false for non-numbers; math.isnan raises TypeError
+            out += `(isinstance(${arg}, (int, float)) and __k_math.isnan(${arg}))`;
+            break;
+          case 'min':
+            // JS Math.min(): 0 args → +Infinity; 1 arg → that value (Python
+            // min(x) treats a lone arg as an iterable and raises).
+            if (loweredArgs.length === 0) out += 'float("inf")';
+            else if (loweredArgs.length === 1) out += `(${arg})`;
+            else out += `min(${loweredArgs.join(', ')})`;
+            break;
+          case 'max':
+            if (loweredArgs.length === 0) out += 'float("-inf")';
+            else if (loweredArgs.length === 1) out += `(${arg})`;
+            else out += `max(${loweredArgs.join(', ')})`;
+            break;
+          case 'pow':
+            // JS Math.pow(a, b) === a ** b; fewer than 2 args is NaN in JS.
+            out += loweredArgs.length >= 2 ? `(${loweredArgs[0]} ** ${loweredArgs[1]})` : 'float("nan")';
+            break;
+          case 'sqrt':
+            imports?.add('import math as __k_math');
+            out += `__k_math.sqrt(${arg})`;
+            break;
+          case 'hypot':
+            imports?.add('import math as __k_math');
+            out += `__k_math.hypot(${loweredArgs.join(', ')})`;
+            break;
+          case 'random':
+            imports?.add('import random as __k_random');
+            out += '__k_random.random()';
+            break;
+          default:
+            out += expr.slice(i, closeIdx + 1);
+            break;
+        }
+        i = closeIdx + 1;
+        continue;
+      }
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
+// Find the start of the JS expression that ends just before the current position.
+// Uses a balanced-scan (backwards) to skip over () [] {}.
+function findReceiverStart(s: string): number {
+  let j = s.length - 1;
+  while (j >= 0 && /\s/.test(s[j])) j--;
+  if (j < 0) return -1;
+
+  let depth = 0;
+  while (j >= 0) {
+    const c = s[j];
+    if (c === ')' || c === ']' || c === '}') {
+      depth++;
+    } else if (c === '(' || c === '[' || c === '{') {
+      depth--;
+      if (depth < 0) return j + 1;
+    } else if (depth === 0) {
+      // At top level, we stop at anything that isn't part of an identifier,
+      // property access, or indexed access.
+      if (!/[\w.$]/.test(c)) return j + 1;
+    }
+    j--;
+  }
+  return 0;
+}
+
+// Lower Number parsing and formatting builtins:
+//   parseInt(x) / parseInt(x, 10) -> int(x)
+//   parseFloat(x)                 -> float(x)
+//   Number.isInteger(x)           -> (isinstance(x, int) and not isinstance(x, bool))
+//   Number(x)                     -> float(x)  (best-effort coercion)
+//   (n).toFixed(d)                -> f"{n:.{d}f}"
+// String-aware + balanced-paren scan so nested calls survive.
+function lowerNumberBuiltinCalls(expr: string, imports?: Set<string>): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+
+    const m = expr
+      .slice(i)
+      .match(/^(?:Number\.isInteger|Number\.parseInt|Number\.parseFloat|Number|parseInt|parseFloat)\(/);
+    const prev = expr[i - 1];
+    if (m && !(prev && /[\w.]/.test(prev))) {
+      const match = m[0];
+      const method = match.slice(0, -1);
+      const openIdx = i + match.length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1) {
+        const inner = expr.slice(openIdx + 1, closeIdx);
+        const args = splitTopLevelArgs(inner);
+        const a0 = lowerNumberBuiltinCalls(args[0] ?? '', imports).trim();
+        if (method === 'parseInt' || method === 'Number.parseInt') {
+          if (args.length === 1 || (args.length === 2 && args[1].trim() === '10')) {
+            out += `int(${a0})`;
+          } else {
+            const a1 = args[1] ? lowerNumberBuiltinCalls(args[1], imports).trim() : '';
+            out += `int(${a0}, ${a1})`;
+          }
+        } else if (method === 'parseFloat' || method === 'Number.parseFloat') {
+          out += `float(${a0})`;
+        } else if (method === 'Number.isInteger') {
+          out += `(isinstance(${a0}, int) and not isinstance(${a0}, bool))`;
+        } else if (method === 'Number') {
+          out += `float(${a0})`;
+        }
+        i = closeIdx + 1;
+        continue;
+      }
+    }
+
+    if (expr.startsWith('.toFixed(', i)) {
+      const openIdx = i + '.toFixed('.length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1) {
+        const inner = expr.slice(openIdx + 1, closeIdx);
+        const args = splitTopLevelArgs(inner);
+        const precision = args[0] ? lowerNumberBuiltinCalls(args[0], imports).trim() : '0';
+        const receiverStart = findReceiverStart(out);
+        if (receiverStart !== -1) {
+          const receiver = out.slice(receiverStart);
+          const pre = out.slice(0, receiverStart);
+          // Quote-safe: a nested f-string `f"{receiver:.{p}f}"` is a SyntaxError
+          // on CPython <3.12 when the receiver contains `"` (e.g. data["k"]).
+          // `format(x, '.' + str(p) + 'f')` keeps the receiver as a bare arg.
+          out = `${pre}format(${receiver}, '.' + str(${precision}) + 'f')`;
+          i = closeIdx + 1;
+          continue;
+        }
+      }
+    }
+
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
+// Lower JS string builtins to Python methods:
+//   x.toUpperCase() -> x.upper()
+//   x.toLowerCase() -> x.lower()
+//   x.trim()        -> x.strip()
+// Skip string literals so text like "a.toUpperCase()" stays unchanged.
+function lowerStringBuiltinCalls(expr: string): string {
+  return expr.replace(
+    new RegExp(
+      `${STRING_LITERAL_ALT}|\\.toUpperCase\\(\\)|\\.toLowerCase\\(\\)|\\.trim\\(\\)|\\.startsWith\\(|\\.endsWith\\(`,
+      'g',
+    ),
+    (match) => {
+      if (match === '.toUpperCase()') return '.upper()';
+      if (match === '.toLowerCase()') return '.lower()';
+      if (match === '.trim()') return '.strip()';
+      // startsWith/endsWith take args; match only the method+`(` so the
+      // argument list passes through to Python's str.startswith/endswith.
+      if (match === '.startsWith(') return '.startswith(';
+      if (match === '.endsWith(') return '.endswith(';
+      return match;
+    },
+  );
+}
+
+// Lower JS String.prototype.replace (string-arg form) to Python's first-only
+// replace. JS `s.replace("a", "b")` replaces only the FIRST occurrence, but
+// Python str.replace replaces ALL — so emit the count=1 third arg for parity.
+// Only the 2-arg form is lowered; a regex first arg (`s.replace(/re/, b)`) is
+// out of scope and left unchanged. `.replaceAll(` never matches (it isn't
+// `.replace(`). String-aware + balanced so args with commas/parens survive.
+function lowerStringReplaceFirstOnly(expr: string): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    if (expr.startsWith('.replace(', i)) {
+      const openIdx = i + '.replace('.length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1) {
+        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));
+        if (args.length === 2 && !args[0].trim().startsWith('/')) {
+          const a0 = lowerStringReplaceFirstOnly(args[0]).trim();
+          const a1 = lowerStringReplaceFirstOnly(args[1]).trim();
+          out += `.replace(${a0}, ${a1}, 1)`;
+          i = closeIdx + 1;
+          continue;
+        }
+      }
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
+// Lower selected Object/Array/Date host builtins in portable expressions:
+//   Object.keys(x)    -> list(x.keys())
+//   Object.values(x)  -> list(x.values())
+//   Object.entries(x) -> list(x.items())
+//   Array.isArray(x)  -> isinstance(x, list)
+//   Date.now()        -> int(datetime.now(timezone.utc).timestamp() * 1000)
+// Uses the same string-aware balanced scan as other builtin lowerers.
+function lowerObjectArrayDateBuiltinCalls(expr: string, imports?: Set<string>): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    const m = expr.slice(i).match(/^(Object\.(keys|values|entries)|Array\.isArray)\(/);
+    const prev = expr[i - 1];
+    if (m && !(prev && /[\w.]/.test(prev))) {
+      const method = m[1];
+      const openIdx = i + m[0].length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1) {
+        const arg = lowerObjectArrayDateBuiltinCalls(expr.slice(openIdx + 1, closeIdx), imports).trim();
+        if (method === 'Object.keys') out += `list(${arg}.keys())`;
+        else if (method === 'Object.values') out += `list(${arg}.values())`;
+        else if (method === 'Object.entries') out += `list(${arg}.items())`;
+        else out += `isinstance(${arg}, list)`;
+        i = closeIdx + 1;
+        continue;
+      }
+    }
+    if (expr.startsWith('Date.now()', i) && !(expr[i - 1] && /[\w.]/.test(expr[i - 1]))) {
+      imports?.add('from datetime import datetime, timezone');
+      out += 'int(datetime.now(timezone.utc).timestamp() * 1000)';
+      i += 'Date.now()'.length;
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
 // Build the Python comprehension for one `Array.from(...)` call's argument list,
 // or return null if the call isn't a lowerable length-form. Uses the balanced
 // helpers (not regex) so a length value or arrow params containing braces/parens
@@ -739,6 +1102,16 @@ export function rewriteFastAPIExpr(
 
   // JSON.stringify(...) → json.dumps(...) / JSON.parse(...) → json.loads(...)
   result = lowerJsonBuiltinCalls(result, imports);
+  // Number/Math arithmetic builtins in portable expressions.
+  result = lowerMathBuiltinCalls(result, imports);
+  // Number parsing and formatting builtins.
+  result = lowerNumberBuiltinCalls(result, imports);
+  // String builtins in portable expressions.
+  result = lowerStringBuiltinCalls(result);
+  // String .replace → first-only parity (JS replaces first; Python replaces all).
+  result = lowerStringReplaceFirstOnly(result);
+  // Object/Array/Date host builtins in portable expressions.
+  result = lowerObjectArrayDateBuiltinCalls(result, imports);
 
   // Object-literal keys → quoted Python dict keys (`{userId: x}` →
   // `{"userId": x}`). Applied last, mirroring the raw `res.json(...)` path's
