@@ -244,6 +244,19 @@ const FIXTURES = [
   { name: 'Array.isArray true', expr: 'Array.isArray(v)', path: '/api/a', bindings: { locals: { v: [1, 2] } }, expected: true },
   { name: 'Array.isArray false', expr: 'Array.isArray(v)', path: '/api/a', bindings: { locals: { v: 'x' } }, expected: false },
   { name: 'Date.now is an int on both targets', expr: 'Date.now()', path: '/api/d', bindings: {}, compare: 'shape', expected: 0 },
+
+  // Task 02 — Math aggregate/power. The arity traps the review fought over:
+  // JS Math.max(x) with ONE arg returns x; Python max(x) treats a lone arg as
+  // an iterable and raises TypeError — so the 1-arg form must NOT emit max()/min().
+  { name: 'Math.max 3-arg', expr: 'Math.max(a, b, c)', path: '/api/m', bindings: { locals: { a: 3, b: 9, c: 5 } }, expected: 9 },
+  { name: 'Math.min 2-arg', expr: 'Math.min(a, b)', path: '/api/m', bindings: { locals: { a: 3, b: 9 } }, expected: 3 },
+  { name: 'Math.max 1-arg returns the value (not max(x))', expr: 'Math.max(a)', path: '/api/m', bindings: { locals: { a: 7 } }, expected: 7 },
+  { name: 'Math.min 1-arg returns the value (not min(x))', expr: 'Math.min(a)', path: '/api/m', bindings: { locals: { a: 7 } }, expected: 7 },
+  { name: 'Math.max with a nested call arg', expr: 'Math.max(a, Math.abs(b))', path: '/api/m', bindings: { locals: { a: 2, b: -10 } }, expected: 10 },
+  { name: 'Math.pow(2,10)', expr: 'Math.pow(a, b)', path: '/api/m', bindings: { locals: { a: 2, b: 10 } }, expected: 1024 },
+  { name: 'Math.sqrt(16)', expr: 'Math.sqrt(a)', path: '/api/m', bindings: { locals: { a: 16 } }, expected: 4 },
+  { name: 'Math.hypot(3,4)', expr: 'Math.hypot(a, b)', path: '/api/m', bindings: { locals: { a: 3, b: 4 } }, expected: 5 },
+  { name: 'Math.random is a number on both targets', expr: 'Math.random()', path: '/api/m', bindings: {}, compare: 'shape', expected: 0 },
 ];
 
 // ── Value → literal emitters ────────────────────────────────────────────────

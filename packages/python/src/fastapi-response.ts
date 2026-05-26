@@ -234,7 +234,7 @@ function lowerMathBuiltinCalls(expr: string, imports?: Set<string>): string {
     }
     const m = expr
       .slice(i)
-      .match(/^(?:(?:Number|Math)\.(floor|ceil|round|abs|trunc|isFinite|isNaN)|Math\.(min|max))\(/);
+      .match(/^(?:(?:Number|Math)\.(floor|ceil|round|abs|trunc|isFinite|isNaN)|Math\.(min|max|pow|sqrt|hypot|random))\(/);
     const prev = expr[i - 1];
     if (m && !(prev && /[\w.]/.test(prev))) {
       const method = m[1] ?? m[2];
@@ -277,12 +277,32 @@ function lowerMathBuiltinCalls(expr: string, imports?: Set<string>): string {
             out += `(isinstance(${arg}, (int, float)) and __k_math.isnan(${arg}))`;
             break;
           case 'min':
+            // JS Math.min(): 0 args → +Infinity; 1 arg → that value (Python
+            // min(x) treats a lone arg as an iterable and raises).
             if (loweredArgs.length === 0) out += 'float("inf")';
+            else if (loweredArgs.length === 1) out += `(${arg})`;
             else out += `min(${loweredArgs.join(', ')})`;
             break;
           case 'max':
             if (loweredArgs.length === 0) out += 'float("-inf")';
+            else if (loweredArgs.length === 1) out += `(${arg})`;
             else out += `max(${loweredArgs.join(', ')})`;
+            break;
+          case 'pow':
+            // JS Math.pow(a, b) === a ** b; fewer than 2 args is NaN in JS.
+            out += loweredArgs.length >= 2 ? `(${loweredArgs[0]} ** ${loweredArgs[1]})` : 'float("nan")';
+            break;
+          case 'sqrt':
+            imports?.add('import math as __k_math');
+            out += `__k_math.sqrt(${arg})`;
+            break;
+          case 'hypot':
+            imports?.add('import math as __k_math');
+            out += `__k_math.hypot(${loweredArgs.join(', ')})`;
+            break;
+          case 'random':
+            imports?.add('import random as __k_random');
+            out += '__k_random.random()';
             break;
           default:
             out += expr.slice(i, closeIdx + 1);
