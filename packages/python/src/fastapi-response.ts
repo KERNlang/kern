@@ -281,6 +281,18 @@ function lowerMathBuiltinCalls(expr: string, imports?: Set<string>): string {
   return out;
 }
 
+// Lower JS string case builtins to Python methods:
+//   x.toUpperCase() -> x.upper()
+//   x.toLowerCase() -> x.lower()
+// Skip string literals so text like "a.toUpperCase()" stays unchanged.
+function lowerStringCaseBuiltinCalls(expr: string): string {
+  return expr.replace(new RegExp(`${STRING_LITERAL_ALT}|\\.toUpperCase\\(\\)|\\.toLowerCase\\(\\)`, 'g'), (match) => {
+    if (match === '.toUpperCase()') return '.upper()';
+    if (match === '.toLowerCase()') return '.lower()';
+    return match;
+  });
+}
+
 // Build the Python comprehension for one `Array.from(...)` call's argument list,
 // or return null if the call isn't a lowerable length-form. Uses the balanced
 // helpers (not regex) so a length value or arrow params containing braces/parens
@@ -819,6 +831,8 @@ export function rewriteFastAPIExpr(
   result = lowerJsonBuiltinCalls(result, imports);
   // Number/Math arithmetic builtins in portable expressions.
   result = lowerMathBuiltinCalls(result, imports);
+  // String case builtins in portable expressions.
+  result = lowerStringCaseBuiltinCalls(result);
 
   // Object-literal keys → quoted Python dict keys (`{userId: x}` →
   // `{"userId": x}`). Applied last, mirroring the raw `res.json(...)` path's

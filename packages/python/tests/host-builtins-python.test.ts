@@ -196,4 +196,20 @@ describe('Host-builtin mapping (Python target)', () => {
     expect(code).not.toContain('Number.floor');
     expect(code).not.toContain('Math.floor');
   });
+
+  test('string case builtins lower to Python string methods', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=post path=/api/case',
+      '    schema body="{name: string}"',
+      '    derive upper expr={{body.name.toUpperCase()}}',
+      '    derive lower expr={{body.name.toLowerCase()}}',
+      '    respond 200 json=upper',
+    ]);
+    const code = routeContent(result, 'case');
+    expect(code).toContain('body.name.upper()');
+    expect(code).toContain('body.name.lower()');
+    expect(code).not.toContain('.toUpperCase()');
+    expect(code).not.toContain('.toLowerCase()');
+  });
 });
