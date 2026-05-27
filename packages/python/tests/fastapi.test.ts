@@ -2323,6 +2323,30 @@ describe('FastAPI Transpiler', () => {
       expect(rewriteFastAPIExpr('items.map((x, i) => x.n + i)', [])).toBe('[x["n"] + i for i, x in enumerate(items)]');
     });
 
+    test('arr-core filter/find/some with an index param bind it via enumerate (codex review ab192611)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      // The index var was previously unbound for filter/find/some → NameError.
+      expect(rewriteFastAPIExpr('items.filter((x, i) => i > 0)', [])).toBe('[x for i, x in enumerate(items) if i > 0]');
+      expect(rewriteFastAPIExpr('items.find((x, i) => i === 1)', [])).toBe(
+        'next((x for i, x in enumerate(items) if i == 1), None)',
+      );
+      expect(rewriteFastAPIExpr('items.some((x, i) => i > 0)', [])).toBe('any(i > 0 for i, x in enumerate(items))');
+    });
+
+    test('arr-core subscripts data fields before a method call + nested map (codex review ab192611)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      // Data field before a method must be subscripted; the method segment is
+      // kept (and itself lowered): x.name.toUpperCase() → x["name"].upper().
+      expect(rewriteFastAPIExpr('items.map((x) => x.name.toUpperCase())', [])).toBe(
+        '[x["name"].upper() for x in items]',
+      );
+      // Nested array method: the inner receiver x.tags must be subscripted so
+      // the inner comprehension iterates a dict field, not an attribute.
+      expect(rewriteFastAPIExpr('items.map((x) => x.tags.map((t) => t.name))', [])).toBe(
+        '[[t["name"] for t in x["tags"]] for x in items]',
+      );
+    });
+
     test('=== / !== are skipped when inside string literals (Codex P2)', async () => {
       const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
       expect(rewriteFastAPIExpr('label = "use === for strict equality"', [])).toBe(

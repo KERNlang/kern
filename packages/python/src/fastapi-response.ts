@@ -108,7 +108,14 @@ function lowerDictMemberAccess(text: string, varName: string): string {
       }
       if (fields.length > 0) {
         if (text[k] === '(') {
-          out += text.slice(i, k); // method call — leave for the string pass
+          // Method call: subscript the leading DATA fields but keep the final
+          // segment as attribute access (the method name) so the string-method
+          // / nested-array passes still see it — `x.name.toUpperCase()` →
+          // `x["name"].toUpperCase()`, `x.tags.map(...)` → `x["tags"].map(...)`
+          // (codex review of ab192611). A lone `x.method()` is unchanged.
+          const dataFields = fields.slice(0, -1);
+          const methodField = fields[fields.length - 1];
+          out += varName + dataFields.map((field) => `[${JSON.stringify(field)}]`).join('') + `.${methodField}`;
         } else {
           out += varName + fields.map((field) => `[${JSON.stringify(field)}]`).join('');
         }
@@ -196,15 +203,19 @@ function lowerJsArrayMethods(expr: string, imports?: Set<string>): string {
           // Recurse for nested array methods in the body; subscript the element
           // var's member access. The index var (if any) stays a bare int.
           const body = lowerJsArrayMethods(lowerDictMemberAccess(arrow.body, elemVar), imports);
+          // A second callback param is the element index — bind it via
+          // enumerate() for every method, not just map, so a predicate that
+          // references the index (`(x, i) => i > 0`) doesn't emit an unbound
+          // name (codex review of ab192611).
+          const loopTarget = idxVar ? `${idxVar}, ${elemVar}` : elemVar;
+          const source = idxVar ? `enumerate(${receiver})` : receiver;
           let lowered: string;
           if (method === 'filter') {
-            lowered = `[${elemVar} for ${elemVar} in ${receiver} if ${body}]`;
+            lowered = `[${elemVar} for ${loopTarget} in ${source} if ${body}]`;
           } else if (method === 'find') {
-            lowered = `next((${elemVar} for ${elemVar} in ${receiver} if ${body}), None)`;
-          } else if (idxVar) {
-            lowered = `[${body} for ${idxVar}, ${elemVar} in enumerate(${receiver})]`;
+            lowered = `next((${elemVar} for ${loopTarget} in ${source} if ${body}), None)`;
           } else {
-            lowered = `[${body} for ${elemVar} in ${receiver}]`;
+            lowered = `[${body} for ${loopTarget} in ${source}]`;
           }
           out = `${pre}${lowered}`;
           i = closeIdx + 1;
@@ -250,13 +261,16 @@ function lowerJsArrayMethods(expr: string, imports?: Set<string>): string {
           const arrow = parseArrowCallback(expr.slice(openIdx + 1, closeIdx));
           if (arrow && arrow.params.length >= 1) {
             const elemVar = arrow.params[0];
-            let body = lowerDictMemberAccess(arrow.body, elemVar);
-            if (arrow.params[1]) body = lowerDictMemberAccess(body, arrow.params[1]);
-            const pred = lowerJsArrayMethods(body, imports);
+            const idxVar = arrow.params[1];
+            // Only the element var is dict-subscripted; the index var stays a
+            // bare int and must be bound via enumerate() when present.
+            const pred = lowerJsArrayMethods(lowerDictMemberAccess(arrow.body, elemVar), imports);
+            const loopTarget = idxVar ? `${idxVar}, ${elemVar}` : elemVar;
+            const source = idxVar ? `enumerate(${receiver})` : receiver;
             lowered =
               method === 'some'
-                ? `any(${pred} for ${elemVar} in ${receiver})`
-                : `all(${pred} for ${elemVar} in ${receiver})`;
+                ? `any(${pred} for ${loopTarget} in ${source})`
+                : `all(${pred} for ${loopTarget} in ${source})`;
           }
         } else if (method === 'reduce') {
           const rawArgs = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));
@@ -723,9 +737,7 @@ function lowerStringArgMethods(expr: string): string {
       if (closeIdx !== -1) {
         // Receiver is already in `out`; `s.substring(a, b)` and `s[a:b]` both
         // trail the receiver, so just append the slice — no receiver surgery.
-        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) =>
-          lowerStringArgMethods(a).trim(),
-        );
+        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) => lowerStringArgMethods(a).trim());
         const start = args[0] ?? '';
         const end = args[1] ?? '';
         out += `[${start}:${end}]`;
@@ -737,9 +749,7 @@ function lowerStringArgMethods(expr: string): string {
       const openIdx = i + '.repeat('.length - 1;
       const closeIdx = matchBalancedParen(expr, openIdx);
       if (closeIdx !== -1) {
-        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) =>
-          lowerStringArgMethods(a).trim(),
-        );
+        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) => lowerStringArgMethods(a).trim());
         const n = args[0] ?? '0';
         const receiverStart = findReceiverStart(out);
         if (receiverStart !== -1) {
@@ -755,9 +765,7 @@ function lowerStringArgMethods(expr: string): string {
       const openIdx = i + '.split('.length - 1;
       const closeIdx = matchBalancedParen(expr, openIdx);
       if (closeIdx !== -1) {
-        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) =>
-          lowerStringArgMethods(a).trim(),
-        );
+        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) => lowerStringArgMethods(a).trim());
         // Only the 2-arg limit form needs rewriting; the no-limit form is left
         // raw (falls through) because Python str.split(sep) already matches JS.
         if (args.length === 2) {
