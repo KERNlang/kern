@@ -53,6 +53,16 @@ jobs:
       - name: Python codegen quality gate
         run: pnpm check:python-codegen
 
+      # Differential parity gate: executes portable KERN expressions through BOTH
+      # the Python (FastAPI) and Express (JS) codegen paths and diffs the runtime
+      # results. Unlike the codegen quality gate above (ast-valid but semantically
+      # blind), this proves Python<->TS behavioral parity by actually running the
+      # generated artifacts -- it is what caught the host-builtin and array/string
+      # method portability bug cliffs. Needs python3 (set up above) + the built
+      # core/python/express dist (the script builds them).
+      - name: Differential conformance (Python<->Express parity)
+        run: pnpm check:conformance
+
       - name: Test (excluding IR-semantics harness)
         run: pnpm test:non-semantics
 
