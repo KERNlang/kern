@@ -782,11 +782,13 @@ function lowerStringArgMethods(expr: string): string {
 }
 
 // Lower selected Object/Array/Date host builtins in portable expressions:
-//   Object.keys(x)    -> list(x.keys())
-//   Object.values(x)  -> list(x.values())
-//   Object.entries(x) -> list(x.items())
-//   Array.isArray(x)  -> isinstance(x, list)
-//   Date.now()        -> int(datetime.now(timezone.utc).timestamp() * 1000)
+//   Object.keys(x)       -> list(x.keys())
+//   Object.values(x)     -> list(x.values())
+//   Object.entries(x)    -> list(x.items())
+//   Object.assign(t,s,…) -> {**t, **s, ...}
+//   Object.fromEntries(p) -> dict(p)
+//   Array.isArray(x)     -> isinstance(x, list)
+//   Date.now()           -> int(datetime.now(timezone.utc).timestamp() * 1000)
 // Uses the same string-aware balanced scan as other builtin lowerers.
 function lowerObjectArrayDateBuiltinCalls(expr: string, imports?: Set<string>): string {
   let out = '';
@@ -811,18 +813,35 @@ function lowerObjectArrayDateBuiltinCalls(expr: string, imports?: Set<string>): 
       i += 1;
       continue;
     }
-    const m = expr.slice(i).match(/^(Object\.(keys|values|entries)|Array\.isArray)\(/);
+    const m = expr.slice(i).match(/^(Object\.(keys|values|entries|assign|fromEntries)|Array\.isArray)\(/);
     const prev = expr[i - 1];
     if (m && !(prev && /[\w.]/.test(prev))) {
       const method = m[1];
       const openIdx = i + m[0].length - 1;
       const closeIdx = matchBalancedParen(expr, openIdx);
       if (closeIdx !== -1) {
-        const arg = lowerObjectArrayDateBuiltinCalls(expr.slice(openIdx + 1, closeIdx), imports).trim();
-        if (method === 'Object.keys') out += `list(${arg}.keys())`;
-        else if (method === 'Object.values') out += `list(${arg}.values())`;
-        else if (method === 'Object.entries') out += `list(${arg}.items())`;
-        else out += `isinstance(${arg}, list)`;
+        const rawArgs = expr.slice(openIdx + 1, closeIdx);
+        if (method === 'Object.assign') {
+          const args = splitTopLevelArgs(rawArgs)
+            .map((a) => lowerObjectArrayDateBuiltinCalls(a, imports).trim())
+            .filter(Boolean);
+          if (args.length >= 1) {
+            // The request `body` is a Pydantic BaseModel, not a mapping, so
+            // `{**body}` raises TypeError. Unpack its dict form instead.
+            out += `{${args.map((a) => (a === 'body' ? '**body.model_dump()' : `**${a}`)).join(', ')}}`;
+          } else {
+            out += '{}';
+          }
+        } else if (method === 'Object.fromEntries') {
+          const arg = lowerObjectArrayDateBuiltinCalls(rawArgs, imports).trim();
+          out += `dict(${arg})`;
+        } else {
+          const arg = lowerObjectArrayDateBuiltinCalls(rawArgs, imports).trim();
+          if (method === 'Object.keys') out += `list(${arg}.keys())`;
+          else if (method === 'Object.values') out += `list(${arg}.values())`;
+          else if (method === 'Object.entries') out += `list(${arg}.items())`;
+          else out += `isinstance(${arg}, list)`;
+        }
         i = closeIdx + 1;
         continue;
       }
