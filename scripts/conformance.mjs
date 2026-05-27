@@ -360,6 +360,62 @@ const FIXTURES = [
   { name: 'math-more: Math.sign(-5)', expr: 'Math.sign(x)', path: '/api/m', bindings: { locals: { x: -5 } }, expected: -1 },
   { name: 'math-more: Math.sign(0)', expr: 'Math.sign(x)', path: '/api/m', bindings: { locals: { x: 0 } }, expected: 0 },
   { name: 'math-more: Math.sign(3)', expr: 'Math.sign(x)', path: '/api/m', bindings: { locals: { x: 3 } }, expected: 1 },
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // PARITY GOAL ORACLE — RUN 2 (-extra slices, 2026-05-27). Same differential
+  // contract; all probe-verified node==python3 on this machine (incl. libm
+  // transcendentals and the toExponential e+0N exponent-pad trap) before commit.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  // ── math-extra: math-module functions/constants not lowered → NameError ──
+  { name: 'math-extra: cbrt(27)', expr: 'Math.cbrt(x)', path: '/api/m', bindings: { locals: { x: 27 } }, expected: 3 },
+  { name: 'math-extra: log natural (ln 1 = 0)', expr: 'Math.log(x)', path: '/api/m', bindings: { locals: { x: 1 } }, expected: 0 },
+  { name: 'math-extra: log natural (ln 2)', expr: 'Math.log(x)', path: '/api/m', bindings: { locals: { x: 2 } }, expected: Math.log(2) },
+  { name: 'math-extra: log2(8)', expr: 'Math.log2(x)', path: '/api/m', bindings: { locals: { x: 8 } }, expected: 3 },
+  { name: 'math-extra: log10(1000)', expr: 'Math.log10(x)', path: '/api/m', bindings: { locals: { x: 1000 } }, expected: 3 },
+  { name: 'math-extra: exp(0)', expr: 'Math.exp(x)', path: '/api/m', bindings: { locals: { x: 0 } }, expected: 1 },
+  { name: 'math-extra: sin(0)', expr: 'Math.sin(x)', path: '/api/m', bindings: { locals: { x: 0 } }, expected: 0 },
+  { name: 'math-extra: sin(1) transcendental parity', expr: 'Math.sin(x)', path: '/api/m', bindings: { locals: { x: 1 } }, expected: Math.sin(1) },
+  { name: 'math-extra: cos(0)', expr: 'Math.cos(x)', path: '/api/m', bindings: { locals: { x: 0 } }, expected: 1 },
+  { name: 'math-extra: atan2(0, 1)', expr: 'Math.atan2(y, x)', path: '/api/m', bindings: { locals: { y: 0, x: 1 } }, expected: 0 },
+  { name: 'math-extra: PI constant', expr: 'Math.PI', path: '/api/m', bindings: {}, expected: Math.PI },
+  { name: 'math-extra: E constant', expr: 'Math.E', path: '/api/m', bindings: {}, expected: Math.E },
+
+  // ── num-extra: Number features not lowered → AttributeError/NameError ──
+  { name: 'num-extra: isSafeInteger true', expr: 'Number.isSafeInteger(n)', path: '/api/n', bindings: { locals: { n: 9007199254740991 } }, expected: true },
+  { name: 'num-extra: isSafeInteger false', expr: 'Number.isSafeInteger(n)', path: '/api/n', bindings: { locals: { n: 9007199254740992 } }, expected: false },
+  { name: 'num-extra: toString(16) hex', expr: 'n.toString(16)', path: '/api/n', bindings: { locals: { n: 255 } }, expected: 'ff' },
+  { name: 'num-extra: toString(2) binary', expr: 'n.toString(2)', path: '/api/n', bindings: { locals: { n: 8 } }, expected: '1000' },
+  { name: 'num-extra: toString(8) octal', expr: 'n.toString(8)', path: '/api/n', bindings: { locals: { n: 255 } }, expected: '377' },
+  { name: 'num-extra: toPrecision(4)', expr: 'n.toPrecision(4)', path: '/api/n', bindings: { locals: { n: 123.456 } }, expected: '123.5' },
+  { name: 'num-extra: toExponential(2) (JS e+3, not e+03)', expr: 'n.toExponential(2)', path: '/api/n', bindings: { locals: { n: 1234 } }, expected: '1.23e+3' },
+  { name: 'num-extra: global isNaN(finite) is false', expr: 'isNaN(n)', path: '/api/n', bindings: { locals: { n: 3 } }, expected: false },
+  { name: 'num-extra: global isFinite(finite) is true', expr: 'isFinite(n)', path: '/api/n', bindings: { locals: { n: 3 } }, expected: true },
+
+  // ── str-extra: string methods not lowered → AttributeError on Python ──
+  { name: 'str-extra: trimStart', expr: 's.trimStart()', path: '/api/s', bindings: { locals: { s: '  hi ' } }, expected: 'hi ' },
+  { name: 'str-extra: trimEnd', expr: 's.trimEnd()', path: '/api/s', bindings: { locals: { s: ' hi  ' } }, expected: ' hi' },
+  { name: 'str-extra: charCodeAt', expr: 's.charCodeAt(i)', path: '/api/s', bindings: { locals: { s: 'ABC', i: 1 } }, expected: 66 },
+  { name: 'str-extra: codePointAt', expr: 's.codePointAt(i)', path: '/api/s', bindings: { locals: { s: 'ABC', i: 0 } }, expected: 65 },
+  { name: 'str-extra: lastIndexOf present', expr: 's.lastIndexOf(sub)', path: '/api/s', bindings: { locals: { s: 'banana', sub: 'a' } }, expected: 5 },
+  { name: 'str-extra: lastIndexOf missing is -1', expr: 's.lastIndexOf(sub)', path: '/api/s', bindings: { locals: { s: 'banana', sub: 'z' } }, expected: -1 },
+  { name: 'str-extra: String.fromCharCode', expr: 'String.fromCharCode(c)', path: '/api/s', bindings: { locals: { c: 65 } }, expected: 'A' },
+
+  // ── arr-extra: array methods not lowered → AttributeError/wrong semantics ──
+  { name: 'arr-extra: fill', expr: 'arr.fill(v)', path: '/api/a', bindings: { locals: { arr: [1, 2, 3], v: 0 } }, expected: [0, 0, 0] },
+  { name: 'arr-extra: lastIndexOf present', expr: 'arr.lastIndexOf(v)', path: '/api/a', bindings: { locals: { arr: [1, 2, 1], v: 1 } }, expected: 2 },
+  { name: 'arr-extra: lastIndexOf missing is -1', expr: 'arr.lastIndexOf(v)', path: '/api/a', bindings: { locals: { arr: [1, 2, 3], v: 9 } }, expected: -1 },
+  { name: 'arr-extra: findLastIndex', expr: 'arr.findLastIndex((x) => x === 2)', path: '/api/a', bindings: { locals: { arr: [1, 2, 3, 2] } }, expected: 3 },
+  { name: 'arr-extra: reduceRight (no seed, order matters)', expr: 'arr.reduceRight((a, b) => a + b)', path: '/api/a', bindings: { locals: { arr: ['a', 'b', 'c'] } }, expected: 'cba' },
+  { name: 'arr-extra: Array.of', expr: 'Array.of(a, b, c)', path: '/api/a', bindings: { locals: { a: 1, b: 2, c: 3 } }, expected: [1, 2, 3] },
+
+  // ── op-extra: operators whose Python pass-through DIVERGES from JS ──
+  { name: 'op-extra: % follows DIVIDEND sign (-7 % 3 = -1, not 2)', expr: 'a % b', path: '/api/o', bindings: { locals: { a: -7, b: 3 } }, expected: -1 },
+  { name: 'op-extra: % positive', expr: 'a % b', path: '/api/o', bindings: { locals: { a: 7, b: 3 } }, expected: 1 },
+  { name: 'op-extra: >>> unsigned (-1 >>> 0 = 4294967295)', expr: 'a >>> b', path: '/api/o', bindings: { locals: { a: -1, b: 0 } }, expected: 4294967295 },
+  { name: 'op-extra: >>> shift (256 >>> 2 = 64)', expr: 'a >>> b', path: '/api/o', bindings: { locals: { a: 256, b: 2 } }, expected: 64 },
+  { name: 'op-extra: ?? null coalesces', expr: 'a ?? b', path: '/api/o', bindings: { locals: { a: null, b: 5 } }, expected: 5 },
+  { name: 'op-extra: ?? keeps falsy 0 (null-only, not falsy)', expr: 'a ?? b', path: '/api/o', bindings: { locals: { a: 0, b: 5 } }, expected: 0 },
 ];
 
 // ── Value → literal emitters ────────────────────────────────────────────────
@@ -455,17 +511,23 @@ const filter = (() => {
   }
   return process.argv[i + 1];
 })();
-// --exclude drops fixtures whose name contains the substring — lets a CI/goal
-// gate run the green baseline while a slice of RED goal fixtures is mid-flight
-// (e.g. `--exclude "-more:"` to skip in-progress parity slices).
+// --exclude drops fixtures whose name contains ANY of the comma-separated
+// substrings — lets a CI/goal gate run the green baseline while one or more
+// slices of RED goal fixtures are mid-flight. A single substring still works
+// (`--exclude "-more:"`); a comma-list excludes several non-adjacent slices at
+// once (`--exclude "arr-more:,str-more:,math-extra:"`) without also dropping a
+// green sibling like obj-more that a broad `-more:` substring would catch.
 const exclude = (() => {
   const i = process.argv.indexOf('--exclude');
-  if (i < 0) return null;
+  if (i < 0) return [];
   if (process.argv[i + 1] == null) {
     console.error('--exclude requires a value');
     process.exit(2);
   }
-  return process.argv[i + 1];
+  return process.argv[i + 1]
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
 })();
 const dir = mkdtempSync(join(tmpdir(), 'kern-conf-'));
 process.on('exit', () => {
@@ -479,7 +541,7 @@ const failures = [];
 let selected = 0;
 for (const fx of FIXTURES) {
   if (filter && !fx.name.includes(filter)) continue;
-  if (exclude && fx.name.includes(exclude)) continue;
+  if (exclude.some((ex) => fx.name.includes(ex))) continue;
   selected++;
   const mode = fx.compare ?? 'value';
   const pathParams = [...fx.path.matchAll(/:([A-Za-z_]\w*)/g)].map((m) => m[1]);
