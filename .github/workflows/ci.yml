@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   build-and-test:
-    name: Build & Test & Review
+    name: Build & Test
     runs-on: ubuntu-latest
 
     steps:
