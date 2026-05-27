@@ -22,6 +22,11 @@ const ROOT_WIDE_FILES = new Set([
   'tsconfig.json',
 ]);
 const ROOT_WIDE_PREFIXES = ['scripts/'];
+// Packages whose codegen the differential conformance harness exercises. When
+// any is in the affected set, run `check:conformance` so a Python↔Express
+// parity regression is caught before the push (the harness executes both
+// generated artifacts and diffs the results).
+const CONFORMANCE_PACKAGES = new Set(['@kernlang/core', '@kernlang/python', '@kernlang/express']);
 
 function run(command, args, options = {}) {
   const proc = spawnSync(command, args, {
@@ -248,6 +253,18 @@ function runScopedReview(packages) {
   }
 }
 
+function runConformance(packages) {
+  if (process.env.KERN_PRE_PUSH_SKIP_CONFORMANCE === '1') {
+    console.log('[pre-push] differential conformance skipped by KERN_PRE_PUSH_SKIP_CONFORMANCE=1.');
+    return;
+  }
+  const triggers = packages.filter((pkg) => CONFORMANCE_PACKAGES.has(pkg.name));
+  if (triggers.length === 0) return;
+
+  console.log(`[pre-push] differential conformance (Python↔Express) — triggered by ${triggers.map((pkg) => pkg.name).join(', ')}...`);
+  run('pnpm', ['check:conformance']);
+}
+
 export function main() {
   try {
     const changedFiles = prePushChangedFiles();
@@ -264,6 +281,9 @@ export function main() {
     console.log(`[pre-push] affected packages: ${affected.map((pkg) => pkg.name).join(', ')}`);
     runPackageScript(affected, 'build');
     runPackageScript(affected, 'test');
+    // Run the cross-target parity gate before the (heavier) scoped review so a
+    // portability regression fails fast.
+    runConformance(affected);
     runScopedReview(affected);
 
     console.log('[pre-push] scoped checks passed.');
