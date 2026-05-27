@@ -350,6 +350,18 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   // Collect imports needed by core language nodes
   const coreTypes = new Set(coreNodes.map((n) => n.type));
   const hasExplicitDb = coreNodes.some((n) => n.type === 'dependency' && String(n.props?.kind) === 'database');
+
+  // Render the core-node bodies up front (generatePythonCoreNode is pure) so
+  // import emission can be driven by the symbols actually generated, not a
+  // per-node-type allowlist. The old `coreTypes.has('union')` gate imported
+  // BaseModel/Literal/Union only when a `union` node happened to be present, so
+  // a models-only file emitted code that referenced undefined names and failed
+  // at import: interface → `class X(BaseModel)`, `type` with values →
+  // `X = Literal[...]`, event → `XType = Literal[...]`. The same rendered lines
+  // are reused when assembling main.py below.
+  const coreNodeBodies = coreNodes.map((node) => generatePythonCoreNode(node, pythonCodegenOptions));
+  const coreNodeText = coreNodeBodies.flat().join('\n');
+
   if (coreTypes.has('model')) {
     serverImports.add('from sqlmodel import SQLModel, Field, Relationship');
     // Implicit DB connection: add engine/session imports when models exist but no explicit database dependency
@@ -359,10 +371,14 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
       serverImports.add('from sqlalchemy.orm import sessionmaker');
     }
   }
-  if (coreTypes.has('union')) {
-    serverImports.add('from pydantic import BaseModel');
-    serverImports.add('from typing import Literal, Union');
-  }
+  // Pydantic / typing imports, driven by what the core nodes actually emit
+  // (interface & union → BaseModel; type-with-values, event & union → Literal;
+  // union → Union; bare/`Any` aliases → Any). Per-symbol `from typing import`
+  // lines match the existing Any/Callable adds below and dedupe via the Set.
+  if (/\bBaseModel\b/.test(coreNodeText)) serverImports.add('from pydantic import BaseModel');
+  if (/\bLiteral\[/.test(coreNodeText)) serverImports.add('from typing import Literal');
+  if (/\bUnion\[/.test(coreNodeText)) serverImports.add('from typing import Union');
+  if (/\bAny\b/.test(coreNodeText)) serverImports.add('from typing import Any');
   if (coreTypes.has('repository')) {
     serverImports.add('from sqlalchemy.ext.asyncio import AsyncSession');
   }
@@ -411,11 +427,11 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
     lines.push(...stdlibPreamble.lines);
   }
 
-  // Core language nodes (models, types, etc.)
-  if (coreNodes.length > 0) {
+  // Core language nodes (models, types, etc.) — reuse the bodies rendered above
+  // for import detection so the emitted code and the scanned text never drift.
+  if (coreNodeBodies.length > 0) {
     lines.push('');
-    for (const node of coreNodes) {
-      const coreLines = generatePythonCoreNode(node, pythonCodegenOptions);
+    for (const coreLines of coreNodeBodies) {
       if (coreLines.length > 0) {
         lines.push(...coreLines);
         lines.push('');

@@ -190,6 +190,35 @@ describe('FastAPI Transpiler', () => {
       expect(output).toContain('duration: float | None = None');
     });
 
+    test('emits BaseModel/Literal imports for a models-only file (no union node)', async () => {
+      // Regression: import emission used to be gated on `coreTypes.has('union')`,
+      // so interface→BaseModel and `type ... values=`→Literal emitted code that
+      // referenced undefined names whenever no union node was present. The
+      // server file must import every symbol it actually uses.
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+
+      const source = [
+        'type name=Role values="admin|user|guest"',
+        'interface name=User export=true',
+        '  field name=id type=string',
+        '  field name=role type=Role',
+      ].join('\n');
+
+      const code = transpileFastAPI(parse(source)).code;
+
+      // The symbols are used …
+      expect(code).toContain('class User(BaseModel):');
+      expect(code).toContain('Role = Literal[');
+      // … and now imported (this is what regressed).
+      expect(code).toContain('from pydantic import BaseModel');
+      expect(code).toContain('from typing import Literal');
+      // Every referenced symbol is imported before first use, so the import
+      // line precedes the definition that uses it.
+      expect(code.indexOf('from pydantic import BaseModel')).toBeLessThan(code.indexOf('class User(BaseModel):'));
+      expect(code.indexOf('from typing import Literal')).toBeLessThan(code.indexOf('Role = Literal['));
+    });
+
     test('generates async def for fn node', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { generatePythonCoreNode } = await import('../src/codegen-python.js');
