@@ -2425,6 +2425,52 @@ describe('FastAPI Transpiler', () => {
       // this would still be a property access — preserve.
       expect(rewriteFastAPIExpr('a.b.true', [])).toBe('a.b.true');
     });
+
+    // ── str-method portability (task 03-str-method): substring/pad*/repeat +
+    //    the split(sep, limit) maxsplit trap. includes/indexOf/slice already
+    //    covered above (receiver-agnostic, shared with arr-method). ──────────
+    test('substring lowers to a Python slice (JS form dropped)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('s.substring(0, 2)', [])).toBe('s[0:2]');
+      expect(rewriteFastAPIExpr('s.substring(2)', [])).toBe('s[2:]');
+      expect(rewriteFastAPIExpr('s.substring(0, 2)', [])).not.toContain('.substring(');
+    });
+
+    test('padStart/padEnd lower to rjust/ljust (default + explicit fill)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('s.padStart(8, "0")', [])).toBe('s.rjust(8, "0")');
+      expect(rewriteFastAPIExpr('s.padEnd(8, "0")', [])).toBe('s.ljust(8, "0")');
+      // 1-arg form: JS pads with " " and Python rjust/ljust default to " " too.
+      expect(rewriteFastAPIExpr('s.padStart(8)', [])).toBe('s.rjust(8)');
+      const out = rewriteFastAPIExpr('s.padStart(8, "0")', []);
+      expect(out).not.toContain('.padStart(');
+      expect(out).not.toContain('.padEnd(');
+    });
+
+    test('repeat lowers to a parenthesized `*` (receiver pulled in front)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('s.repeat(2)', [])).toBe('(s * 2)');
+      // Bracket-access receiver is carried into the product too.
+      expect(rewriteFastAPIExpr('data["k"].repeat(3)', [])).toBe('(data["k"] * 3)');
+      expect(rewriteFastAPIExpr('s.repeat(2)', [])).not.toContain('.repeat(');
+    });
+
+    test('split(sep, limit) is the maxsplit TRAP → split(sep)[:limit], not maxsplit', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      // JS keeps the FIRST `limit` parts; Python's 2nd arg is maxsplit (keeps
+      // the remainder), so the only correct lowering truncates AFTER a full split.
+      expect(rewriteFastAPIExpr('s.split(",", 2)', [])).toBe('s.split(",")[:2]');
+      // Must NOT emit the maxsplit form `s.split(",", 2)`.
+      expect(rewriteFastAPIExpr('s.split(",", 2)', [])).not.toBe('s.split(",", 2)');
+      // The existing no-limit form stays raw (Python str.split matches JS).
+      expect(rewriteFastAPIExpr('s.split(",")', [])).toBe('s.split(",")');
+    });
+
+    test('a quoted ".repeat(" / ".substring(" inside a string literal stays raw', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('msg = "call .repeat( in docs"', [])).toBe('msg = "call .repeat( in docs"');
+      expect(rewriteFastAPIExpr("note = 'use .substring(0, 2) here'", [])).toBe("note = 'use .substring(0, 2) here'");
+    });
   });
 
   // ── Raw-JS handler guard — portable + stream paths ─────────────────

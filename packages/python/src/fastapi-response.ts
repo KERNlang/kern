@@ -633,11 +633,17 @@ function lowerNumberBuiltinCalls(expr: string, imports?: Set<string>): string {
 //   x.toUpperCase() -> x.upper()
 //   x.toLowerCase() -> x.lower()
 //   x.trim()        -> x.strip()
-// Skip string literals so text like "a.toUpperCase()" stays unchanged.
+//   x.padStart(n[, fill]) -> x.rjust(n[, fill])  (JS/Python both default to " ")
+//   x.padEnd(n[, fill])   -> x.ljust(n[, fill])
+// Skip string literals so text like "a.toUpperCase()" / ".padStart(" stays raw.
+// pad*/startsWith/endsWith take args, so only the method+`(` is matched and the
+// argument list flows through to Python unchanged. Note: JS pad* accept a
+// multi-char fill while Python rjust/ljust require a single fill char — only the
+// 1-char fixture form is in scope; a multi-char fill is left to raise on Python.
 function lowerStringBuiltinCalls(expr: string): string {
   return expr.replace(
     new RegExp(
-      `${STRING_LITERAL_ALT}|\\.toUpperCase\\(\\)|\\.toLowerCase\\(\\)|\\.trim\\(\\)|\\.startsWith\\(|\\.endsWith\\(`,
+      `${STRING_LITERAL_ALT}|\\.toUpperCase\\(\\)|\\.toLowerCase\\(\\)|\\.trim\\(\\)|\\.startsWith\\(|\\.endsWith\\(|\\.padStart\\(|\\.padEnd\\(`,
       'g',
     ),
     (match) => {
@@ -648,18 +654,33 @@ function lowerStringBuiltinCalls(expr: string): string {
       // argument list passes through to Python's str.startswith/endswith.
       if (match === '.startsWith(') return '.startswith(';
       if (match === '.endsWith(') return '.endswith(';
+      if (match === '.padStart(') return '.rjust(';
+      if (match === '.padEnd(') return '.ljust(';
       return match;
     },
   );
 }
 
-// Lower JS String.prototype.replace (string-arg form) to Python's first-only
-// replace. JS `s.replace("a", "b")` replaces only the FIRST occurrence, but
-// Python str.replace replaces ALL — so emit the count=1 third arg for parity.
-// Only the 2-arg form is lowered; a regex first arg (`s.replace(/re/, b)`) is
-// out of scope and left unchanged. `.replaceAll(` never matches (it isn't
-// `.replace(`). String-aware + balanced so args with commas/parens survive.
-function lowerStringReplaceFirstOnly(expr: string): string {
+// Lower the argument-taking JS String methods that need more than a bare method
+// rename (those are handled by lowerStringBuiltinCalls). One string-aware,
+// balanced scan reused for all of them; the shared matchBalancedParen /
+// splitTopLevelArgs / findReceiverStart helpers carve out args and receiver so
+// no new char-loop matcher is introduced:
+//   s.replace("a", "b")  -> s.replace("a", "b", 1)   (JS replaces FIRST only,
+//                            Python str.replace replaces ALL — pin count=1)
+//   s.substring(a, b)    -> s[a:b]      (and s.substring(a) -> s[a:])
+//   s.repeat(n)          -> (s * n)
+//   s.split(sep, limit)  -> s.split(sep)[:limit]      THE TRAP: Python's 2nd
+//                            arg is maxsplit, which KEEPS the remainder; JS
+//                            keeps only the first `limit` parts. The no-limit
+//                            s.split(sep) form is left raw (Python matches JS).
+// replace: only the 2-arg, non-regex form is lowered (`s.replace(/re/, b)` is
+// out of scope); `.replaceAll(` never matches. A quoted `".repeat("` etc. is
+// skipped by the quote tracking, so string-literal text stays raw.
+// substring edge (scoped out): JS substring clamps negative args to 0 and SWAPS
+// them when a > b; Python slicing does neither. Only the simple non-negative
+// fixture case is lowered — a negative/swapped substring would diverge.
+function lowerStringArgMethods(expr: string): string {
   let out = '';
   let i = 0;
   let quote: string | null = null;
@@ -688,9 +709,59 @@ function lowerStringReplaceFirstOnly(expr: string): string {
       if (closeIdx !== -1) {
         const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));
         if (args.length === 2 && !args[0].trim().startsWith('/')) {
-          const a0 = lowerStringReplaceFirstOnly(args[0]).trim();
-          const a1 = lowerStringReplaceFirstOnly(args[1]).trim();
+          const a0 = lowerStringArgMethods(args[0]).trim();
+          const a1 = lowerStringArgMethods(args[1]).trim();
           out += `.replace(${a0}, ${a1}, 1)`;
+          i = closeIdx + 1;
+          continue;
+        }
+      }
+    }
+    if (expr.startsWith('.substring(', i)) {
+      const openIdx = i + '.substring('.length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1) {
+        // Receiver is already in `out`; `s.substring(a, b)` and `s[a:b]` both
+        // trail the receiver, so just append the slice — no receiver surgery.
+        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) =>
+          lowerStringArgMethods(a).trim(),
+        );
+        const start = args[0] ?? '';
+        const end = args[1] ?? '';
+        out += `[${start}:${end}]`;
+        i = closeIdx + 1;
+        continue;
+      }
+    }
+    if (expr.startsWith('.repeat(', i)) {
+      const openIdx = i + '.repeat('.length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1) {
+        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) =>
+          lowerStringArgMethods(a).trim(),
+        );
+        const n = args[0] ?? '0';
+        const receiverStart = findReceiverStart(out);
+        if (receiverStart !== -1) {
+          const receiver = out.slice(receiverStart);
+          const pre = out.slice(0, receiverStart);
+          out = `${pre}(${receiver} * ${n})`;
+          i = closeIdx + 1;
+          continue;
+        }
+      }
+    }
+    if (expr.startsWith('.split(', i)) {
+      const openIdx = i + '.split('.length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1) {
+        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) =>
+          lowerStringArgMethods(a).trim(),
+        );
+        // Only the 2-arg limit form needs rewriting; the no-limit form is left
+        // raw (falls through) because Python str.split(sep) already matches JS.
+        if (args.length === 2) {
+          out += `.split(${args[0]})[:${args[1]}]`;
           i = closeIdx + 1;
           continue;
         }
@@ -1300,10 +1371,11 @@ export function rewriteFastAPIExpr(
   result = lowerMathBuiltinCalls(result, imports);
   // Number parsing and formatting builtins.
   result = lowerNumberBuiltinCalls(result, imports);
-  // String builtins in portable expressions.
+  // String builtins in portable expressions (bare renames + pad → rjust/ljust).
   result = lowerStringBuiltinCalls(result);
-  // String .replace → first-only parity (JS replaces first; Python replaces all).
-  result = lowerStringReplaceFirstOnly(result);
+  // Argument-taking string methods: replace (first-only), substring → slice,
+  // repeat → `*`, and the split(sep, limit) maxsplit trap.
+  result = lowerStringArgMethods(result);
   // Object/Array/Date host builtins in portable expressions.
   result = lowerObjectArrayDateBuiltinCalls(result, imports);
 
