@@ -238,10 +238,23 @@ function runScopedReview(packages) {
     // (exit 141) that aborts an otherwise-passing push. We still gate on the
     // exit status — full output is surfaced only on failure, and a short
     // trailing summary on success.
+    //
+    // Run RULE-BASED only — mirror what CI's `kern review` step does. The
+    // single-model LLM pass is redundant with the agon multi-engine review run
+    // before every commit and with kern-guard's hosted PR review, and its
+    // multi-minute round-trips were the dominant cause of pushes timing out the
+    // SSH connection. We drop `--llm` AND blank KERN_LLM_API_KEY so the
+    // auto-LLM path (packages/cli/.../review.ts: `!llmMode && isLLMAvailable()`)
+    // can't silently re-enable the LLM whenever a key is present in the env.
     const proc = spawnSync(
       'node',
-      ['packages/cli/dist/cli.js', 'review', pkg.relDir, '--recursive', '--llm'],
-      { cwd: repoRoot, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 },
+      ['packages/cli/dist/cli.js', 'review', pkg.relDir, '--recursive'],
+      {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        maxBuffer: 256 * 1024 * 1024,
+        env: { ...process.env, KERN_LLM_API_KEY: '' },
+      },
     );
     if (proc.error) throw proc.error;
     if (proc.status !== 0) {
