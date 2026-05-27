@@ -18,6 +18,7 @@
     "test:non-semantics": "pnpm -r --filter '!kern-monorepo' --filter '!@kernlang/review-python' test --testPathIgnorePatterns=ir-semantics && pnpm test:prepush && pnpm check:rule-coverage",
     "check:rule-coverage": "node ./scripts/check-rule-coverage.mjs",
     "check:python-codegen": "pnpm --filter @kernlang/core --filter @kernlang/python build && node ./scripts/lift-rate-python.mjs --check",
+    "check:conformance": "pnpm --filter @kernlang/core --filter @kernlang/python --filter @kernlang/express build && node ./scripts/conformance.mjs",
     "docs:contracts": "pnpm --filter @kernlang/core build && node ./scripts/generate-ir-semantics-docs.mjs --format=markdown --out=-",
     "docs:contracts:json": "pnpm --filter @kernlang/core build && node ./scripts/generate-ir-semantics-docs.mjs --format=json --out=generated/contracts/registry.json",
     "docs:contracts:check": "pnpm --filter @kernlang/core build && node ./scripts/check-contract-docs.mjs",
