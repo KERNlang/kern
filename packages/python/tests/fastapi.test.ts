@@ -2278,18 +2278,18 @@ describe('FastAPI Transpiler', () => {
 
     test('.filter((x) => pred) lowers to list comprehension', async () => {
       const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      expect(rewriteFastAPIExpr('users.filter((u) => u.active)', [])).toBe('[u for u in users if u.active]');
+      expect(rewriteFastAPIExpr('users.filter((u) => u.active)', [])).toBe('[u for u in users if u["active"]]');
     });
 
     test('.map((x) => expr) lowers to list comprehension', async () => {
       const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      expect(rewriteFastAPIExpr('users.map((u) => u.name)', [])).toBe('[u.name for u in users]');
+      expect(rewriteFastAPIExpr('users.map((u) => u.name)', [])).toBe('[u["name"] for u in users]');
     });
 
     test('.find((x) => pred) lowers to next() with None default', async () => {
       const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
       expect(rewriteFastAPIExpr('users.find((u) => u.id == id)', [])).toBe(
-        'next((u for u in users if u.id == id), None)',
+        'next((u for u in users if u["id"] == id), None)',
       );
     });
 
@@ -2298,14 +2298,29 @@ describe('FastAPI Transpiler', () => {
       // Arrow rewrite runs first; the inner `===` is then caught by the
       // strict-equality pass on the rewritten predicate.
       expect(rewriteFastAPIExpr('users.find((item) => item.id === id)', [])).toBe(
-        'next((item for item in users if item.id == id), None)',
+        'next((item for item in users if item["id"] == id), None)',
       );
     });
 
-    test('arrows with multi-arg fall through untouched', async () => {
+    test('map with index arg lowers via enumerate()', async () => {
       const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      // Two-arg arrow — not lowered (the simple regex requires single arg)
-      expect(rewriteFastAPIExpr('arr.map((u, i) => u.name)', [])).toBe('arr.map((u, i) => u.name)');
+      expect(rewriteFastAPIExpr('arr.map((u, i) => u.name)', [])).toBe('[u["name"] for i, u in enumerate(arr)]');
+    });
+
+    test('arr-core dict member access lowers to subscript form', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('items.filter((x) => x.active)', [])).toBe('[x for x in items if x["active"]]');
+      expect(rewriteFastAPIExpr('items.map((x) => x.n)', [])).toBe('[x["n"] for x in items]');
+      expect(rewriteFastAPIExpr('items.find((x) => x.n === 2)', [])).toBe(
+        'next((x for x in items if x["n"] == 2), None)',
+      );
+    });
+
+    test('arr-core supports bare arrow params and nested dict member access', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('items.filter(x => x.active)', [])).toBe('[x for x in items if x["active"]]');
+      expect(rewriteFastAPIExpr('items.map((x) => x.meta.tag)', [])).toBe('[x["meta"]["tag"] for x in items]');
+      expect(rewriteFastAPIExpr('items.map((x, i) => x.n + i)', [])).toBe('[x["n"] + i for i, x in enumerate(items)]');
     });
 
     test('=== / !== are skipped when inside string literals (Codex P2)', async () => {
@@ -2323,13 +2338,13 @@ describe('FastAPI Transpiler', () => {
     test('chained .filter().map() rewrites fully (Gemini #2)', async () => {
       const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
       expect(rewriteFastAPIExpr('users.filter((u) => u.active).map((u) => u.name)', [])).toBe(
-        '[u.name for u in [u for u in users if u.active]]',
+        '[u["name"] for u in [u for u in users if u["active"]]]',
       );
     });
 
     test('arrow predicate with one level of nested parens (Gemini #3)', async () => {
       const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      expect(rewriteFastAPIExpr('users.filter((u) => (u.age > 18))', [])).toBe('[u for u in users if (u.age > 18)]');
+      expect(rewriteFastAPIExpr('users.filter((u) => (u.age > 18))', [])).toBe('[u for u in users if (u["age"] > 18)]');
     });
 
     test('undefined / null lower to None outside strings (Gemini #4)', async () => {

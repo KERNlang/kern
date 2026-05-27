@@ -47,18 +47,6 @@ export function generateRespondFastAPI(respondNode: IRNode, indent: string): str
   return [`${indent}return Response(status_code=200)`];
 }
 
-// One level of nested parens inside the arrow body: matches `(u.age > 18)`,
-// `Math.max(a, b)`, etc. Two-or-more levels still fall through (acceptable
-// fallback per the lift-rate metric).
-const ARROW_BODY = '((?:[^()]|\\([^()]*\\))+)';
-// Receiver allows brackets + spaces so chained calls work after the inner
-// call has already been rewritten to a list-comprehension (which contains
-// brackets). The outer iteration re-runs the regex on the rewritten form.
-const ARROW_RECEIVER = '([\\w.\\[\\] ]+?)';
-
-const FILTER_RE = new RegExp(`${ARROW_RECEIVER}\\.filter\\(\\((\\w+)\\)\\s*=>\\s*${ARROW_BODY}\\)`, 'g');
-const MAP_RE = new RegExp(`${ARROW_RECEIVER}\\.map\\(\\((\\w+)\\)\\s*=>\\s*${ARROW_BODY}\\)`, 'g');
-const FIND_RE = new RegExp(`${ARROW_RECEIVER}\\.find\\(\\((\\w+)\\)\\s*=>\\s*${ARROW_BODY}\\)`, 'g');
 // Quoted strings absorbed by the alternation; only literal `===`/`!==`
 // outside strings get rewritten. Both single and double quotes AND
 // backtick template literals are covered so a message like
@@ -75,24 +63,157 @@ const STRICT_EQ_RE = new RegExp(`${STRING_LITERAL_ALT}|===|!==`, 'g');
 // commit 68565826.
 const JS_LITERAL_RE = new RegExp(`${STRING_LITERAL_ALT}|(?<!\\.\\s*)\\b(?:undefined|null|true|false)\\b`, 'g');
 
-function lowerJsArrayMethods(expr: string): string {
-  // Iterate so chained calls (`.filter(...).map(...)`) collapse fully.
-  // Each pass rewrites the innermost matchable call; the broadened
-  // receiver picks up the list-comprehension produced by the prior pass.
-  // Bounded at 8 iterations to prevent any accidental infinite-loop bug;
-  // realistic chains rarely exceed 3-4 calls.
-  let prev = '';
-  let next = expr;
+// Within an arrow body/predicate, rewrite member access on the bound element
+// variable to dict-subscript form so iterating a list of dicts works at
+// runtime: `x.n` → `x["n"]`, `x.meta.tag` → `x["meta"]["tag"]`. A chain that is
+// immediately followed by `(` is a METHOD call (`x.toUpperCase()`) and is left
+// untouched for the string-method pass. String-aware (literal `"x.n"` is kept)
+// and skips a chain that is itself a property of something else (`body.x.n`).
+// Manual scan (no RegExp sticky matching) so single-char fields like `.n` are
+// handled — the prior regex required two-plus-char field names.
+function lowerDictMemberAccess(text: string, varName: string): string {
+  let out = '';
   let i = 0;
-  while (prev !== next && i < 8) {
-    prev = next;
-    next = next
-      .replace(FILTER_RE, (_m, arr, varName, pred) => `[${varName} for ${varName} in ${arr} if ${pred}]`)
-      .replace(MAP_RE, (_m, arr, varName, body) => `[${body} for ${varName} in ${arr}]`)
-      .replace(FIND_RE, (_m, arr, varName, pred) => `next((${varName} for ${varName} in ${arr} if ${pred}), None)`);
+  let quote: string | null = null;
+  while (i < text.length) {
+    const c = text[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += text[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    const prev = text[i - 1];
+    const boundaryOk = !(prev && /[\w.$]/.test(prev));
+    const afterVar = text[i + varName.length] ?? '';
+    if (boundaryOk && text.startsWith(varName, i) && !/[\w$]/.test(afterVar)) {
+      let k = i + varName.length;
+      const fields: string[] = [];
+      while (text[k] === '.') {
+        const fm = text.slice(k + 1).match(/^[A-Za-z_$]\w*/);
+        if (!fm) break;
+        fields.push(fm[0]);
+        k += 1 + fm[0].length;
+      }
+      if (fields.length > 0) {
+        if (text[k] === '(') {
+          out += text.slice(i, k); // method call — leave for the string pass
+        } else {
+          out += varName + fields.map((field) => `[${JSON.stringify(field)}]`).join('');
+        }
+        i = k;
+        continue;
+      }
+    }
+    out += c;
     i += 1;
   }
-  return next;
+  return out;
+}
+
+// Parse an arrow callback's argument text into `{ params, body }`, or null when
+// it isn't a single arrow function (e.g. `.map(fn)` with a bare reference, which
+// is left unchanged). Handles `(p) => body`, `p => body`, and `(p, i) => body`.
+function parseArrowCallback(inner: string): { params: string[]; body: string } | null {
+  const trimmed = inner.trim();
+  if (trimmed.startsWith('(')) {
+    const close = matchBalancedParen(trimmed, 0);
+    if (close === -1) return null;
+    const after = trimmed.slice(close + 1).trim();
+    if (!after.startsWith('=>')) return null;
+    const params = splitTopLevelArgs(trimmed.slice(1, close))
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return { params, body: after.slice(2).trim() };
+  }
+  const m = trimmed.match(/^([A-Za-z_$][\w$]*)\s*=>\s*([\s\S]+)$/);
+  if (!m) return null;
+  return { params: [m[1]], body: m[2].trim() };
+}
+
+// Lower JS arrow-callback array methods to Python comprehensions:
+//   arr.filter((x) => pred)      -> [x for x in arr if pred]
+//   arr.map((x) => body)         -> [body for x in arr]
+//   arr.map((x, i) => body)      -> [body for i, x in enumerate(arr)]
+//   arr.find((x) => pred)        -> next((x for x in arr if pred), None)
+// Balanced + string-aware scan (NOT regex): the receiver is taken from the
+// already-emitted output via findReceiverStart, so chained calls compose
+// naturally (`arr.filter(...).map(...)` nests one comprehension inside the
+// next) and the quotes/brackets of a lowered comprehension can never desync the
+// receiver — the failure mode of the prior regex form. Member access on the
+// bound element is dict-subscripted so a list-of-dicts iterates correctly.
+const ARROW_ARRAY_METHODS = new Set(['filter', 'map', 'find']);
+
+function lowerJsArrayMethods(expr: string): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    const m = expr.slice(i).match(/^\.([A-Za-z]\w*)\(/);
+    if (m && ARROW_ARRAY_METHODS.has(m[1])) {
+      const method = m[1];
+      const openIdx = i + m[0].length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      const recvStart = findReceiverStart(out);
+      if (closeIdx !== -1 && recvStart !== -1) {
+        const arrow = parseArrowCallback(expr.slice(openIdx + 1, closeIdx));
+        if (arrow && arrow.params.length >= 1) {
+          const receiver = out.slice(recvStart);
+          const pre = out.slice(0, recvStart);
+          const elemVar = arrow.params[0];
+          const idxVar = arrow.params[1];
+          // Recurse for nested array methods in the body; subscript the element
+          // var's member access. The index var (if any) stays a bare int.
+          const body = lowerJsArrayMethods(lowerDictMemberAccess(arrow.body, elemVar));
+          let lowered: string;
+          if (method === 'filter') {
+            lowered = `[${elemVar} for ${elemVar} in ${receiver} if ${body}]`;
+          } else if (method === 'find') {
+            lowered = `next((${elemVar} for ${elemVar} in ${receiver} if ${body}), None)`;
+          } else if (idxVar) {
+            lowered = `[${body} for ${idxVar}, ${elemVar} in enumerate(${receiver})]`;
+          } else {
+            lowered = `[${body} for ${elemVar} in ${receiver}]`;
+          }
+          out = `${pre}${lowered}`;
+          i = closeIdx + 1;
+          continue;
+        }
+      }
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
 }
 
 // Index of the bracket that closes the one at `openIdx`, tracking ()[]{} depth
