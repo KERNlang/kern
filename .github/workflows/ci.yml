@@ -155,5 +155,11 @@ jobs:
       - name: Native KERN Tests
         run: pnpm test:kern
 
-      - name: KERN Review
-        run: node packages/cli/dist/cli.js review packages/ --recursive
+      # PR review is handled by the kern-guard GitHub App (KERNlang/kern-guard),
+      # installed on this repo — it runs the same @kernlang/review engine on the
+      # PR head (changed files only, baseline-deduped, posted as Checks
+      # annotations) in parallel with this workflow. The old in-CI
+      # `kern review packages/ --recursive` step was removed so review no longer
+      # serializes inside Actions. Local fail-fast still runs rule-based review
+      # in the pre-push hook; the agon multi-engine review remains the hard gate
+      # before commits.
