@@ -219,6 +219,23 @@ describe('FastAPI Transpiler', () => {
       expect(code.indexOf('from typing import Literal')).toBeLessThan(code.indexOf('Role = Literal['));
     });
 
+    test('emits a lone top-level interface (single core node, no server, no union)', async () => {
+      // Regression: a single top-level core node becomes the parse root, and
+      // with no `server` present serverNode falls back to root — the old
+      // `root !== serverNode` guard then excluded it, so the interface emitted
+      // NOTHING (no class, no import). This is the models-only KERN→Python case.
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+
+      const code = transpileFastAPI(
+        parse('interface name=User export=true\n  field name=id type=string\n  field name=name type=string'),
+      ).code;
+
+      expect(code).toContain('class User(BaseModel):');
+      expect(code).toContain('from pydantic import BaseModel');
+      expect(code).toContain('id: str');
+    });
+
     test('generates async def for fn node', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { generatePythonCoreNode } = await import('../src/codegen-python.js');
