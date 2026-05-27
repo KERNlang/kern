@@ -47,18 +47,6 @@ export function generateRespondFastAPI(respondNode: IRNode, indent: string): str
   return [`${indent}return Response(status_code=200)`];
 }
 
-// One level of nested parens inside the arrow body: matches `(u.age > 18)`,
-// `Math.max(a, b)`, etc. Two-or-more levels still fall through (acceptable
-// fallback per the lift-rate metric).
-const ARROW_BODY = '((?:[^()]|\\([^()]*\\))+)';
-// Receiver allows brackets + spaces so chained calls work after the inner
-// call has already been rewritten to a list-comprehension (which contains
-// brackets). The outer iteration re-runs the regex on the rewritten form.
-const ARROW_RECEIVER = '([\\w.\\[\\] ]+?)';
-
-const FILTER_RE = new RegExp(`${ARROW_RECEIVER}\\.filter\\(\\((\\w+)\\)\\s*=>\\s*${ARROW_BODY}\\)`, 'g');
-const MAP_RE = new RegExp(`${ARROW_RECEIVER}\\.map\\(\\((\\w+)\\)\\s*=>\\s*${ARROW_BODY}\\)`, 'g');
-const FIND_RE = new RegExp(`${ARROW_RECEIVER}\\.find\\(\\((\\w+)\\)\\s*=>\\s*${ARROW_BODY}\\)`, 'g');
 // Quoted strings absorbed by the alternation; only literal `===`/`!==`
 // outside strings get rewritten. Both single and double quotes AND
 // backtick template literals are covered so a message like
@@ -75,24 +63,244 @@ const STRICT_EQ_RE = new RegExp(`${STRING_LITERAL_ALT}|===|!==`, 'g');
 // commit 68565826.
 const JS_LITERAL_RE = new RegExp(`${STRING_LITERAL_ALT}|(?<!\\.\\s*)\\b(?:undefined|null|true|false)\\b`, 'g');
 
-function lowerJsArrayMethods(expr: string): string {
-  // Iterate so chained calls (`.filter(...).map(...)`) collapse fully.
-  // Each pass rewrites the innermost matchable call; the broadened
-  // receiver picks up the list-comprehension produced by the prior pass.
-  // Bounded at 8 iterations to prevent any accidental infinite-loop bug;
-  // realistic chains rarely exceed 3-4 calls.
-  let prev = '';
-  let next = expr;
+// Within an arrow body/predicate, rewrite member access on the bound element
+// variable to dict-subscript form so iterating a list of dicts works at
+// runtime: `x.n` → `x["n"]`, `x.meta.tag` → `x["meta"]["tag"]`. A chain that is
+// immediately followed by `(` is a METHOD call (`x.toUpperCase()`) and is left
+// untouched for the string-method pass. String-aware (literal `"x.n"` is kept)
+// and skips a chain that is itself a property of something else (`body.x.n`).
+// Manual scan (no RegExp sticky matching) so single-char fields like `.n` are
+// handled — the prior regex required two-plus-char field names.
+function lowerDictMemberAccess(text: string, varName: string): string {
+  let out = '';
   let i = 0;
-  while (prev !== next && i < 8) {
-    prev = next;
-    next = next
-      .replace(FILTER_RE, (_m, arr, varName, pred) => `[${varName} for ${varName} in ${arr} if ${pred}]`)
-      .replace(MAP_RE, (_m, arr, varName, body) => `[${body} for ${varName} in ${arr}]`)
-      .replace(FIND_RE, (_m, arr, varName, pred) => `next((${varName} for ${varName} in ${arr} if ${pred}), None)`);
+  let quote: string | null = null;
+  while (i < text.length) {
+    const c = text[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += text[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    const prev = text[i - 1];
+    const boundaryOk = !(prev && /[\w.$]/.test(prev));
+    const afterVar = text[i + varName.length] ?? '';
+    if (boundaryOk && text.startsWith(varName, i) && !/[\w$]/.test(afterVar)) {
+      let k = i + varName.length;
+      const fields: string[] = [];
+      while (text[k] === '.') {
+        const fm = text.slice(k + 1).match(/^[A-Za-z_$]\w*/);
+        if (!fm) break;
+        fields.push(fm[0]);
+        k += 1 + fm[0].length;
+      }
+      if (fields.length > 0) {
+        if (text[k] === '(') {
+          // Method call: subscript the leading DATA fields but keep the final
+          // segment as attribute access (the method name) so the string-method
+          // / nested-array passes still see it — `x.name.toUpperCase()` →
+          // `x["name"].toUpperCase()`, `x.tags.map(...)` → `x["tags"].map(...)`
+          // (codex review of ab192611). A lone `x.method()` is unchanged.
+          const dataFields = fields.slice(0, -1);
+          const methodField = fields[fields.length - 1];
+          out += varName + dataFields.map((field) => `[${JSON.stringify(field)}]`).join('') + `.${methodField}`;
+        } else {
+          out += varName + fields.map((field) => `[${JSON.stringify(field)}]`).join('');
+        }
+        i = k;
+        continue;
+      }
+    }
+    out += c;
     i += 1;
   }
-  return next;
+  return out;
+}
+
+// Parse an arrow callback's argument text into `{ params, body }`, or null when
+// it isn't a single arrow function (e.g. `.map(fn)` with a bare reference, which
+// is left unchanged). Handles `(p) => body`, `p => body`, and `(p, i) => body`.
+function parseArrowCallback(inner: string): { params: string[]; body: string } | null {
+  const trimmed = inner.trim();
+  if (trimmed.startsWith('(')) {
+    const close = matchBalancedParen(trimmed, 0);
+    if (close === -1) return null;
+    const after = trimmed.slice(close + 1).trim();
+    if (!after.startsWith('=>')) return null;
+    const params = splitTopLevelArgs(trimmed.slice(1, close))
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return { params, body: after.slice(2).trim() };
+  }
+  const m = trimmed.match(/^([A-Za-z_$][\w$]*)\s*=>\s*([\s\S]+)$/);
+  if (!m) return null;
+  return { params: [m[1]], body: m[2].trim() };
+}
+
+// Lower JS arrow-callback array methods to Python comprehensions:
+//   arr.filter((x) => pred)      -> [x for x in arr if pred]
+//   arr.map((x) => body)         -> [body for x in arr]
+//   arr.map((x, i) => body)      -> [body for i, x in enumerate(arr)]
+//   arr.find((x) => pred)        -> next((x for x in arr if pred), None)
+// Balanced + string-aware scan (NOT regex): the receiver is taken from the
+// already-emitted output via findReceiverStart, so chained calls compose
+// naturally (`arr.filter(...).map(...)` nests one comprehension inside the
+// next) and the quotes/brackets of a lowered comprehension can never desync the
+// receiver — the failure mode of the prior regex form. Member access on the
+// bound element is dict-subscripted so a list-of-dicts iterates correctly.
+const ARROW_ARRAY_METHODS = new Set(['filter', 'map', 'find']);
+const PORTABLE_ARRAY_METHODS = new Set(['includes', 'indexOf', 'join', 'slice', 'some', 'every', 'reduce']);
+const LAMBDA_COLON_PLACEHOLDER = '__KERN_LAMBDA_COLON__';
+
+function lowerJsArrayMethods(expr: string, imports?: Set<string>): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    const m = expr.slice(i).match(/^\.([A-Za-z]\w*)\(/);
+    if (m && ARROW_ARRAY_METHODS.has(m[1])) {
+      const method = m[1];
+      const openIdx = i + m[0].length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      const recvStart = findReceiverStart(out);
+      if (closeIdx !== -1 && recvStart !== -1) {
+        const arrow = parseArrowCallback(expr.slice(openIdx + 1, closeIdx));
+        if (arrow && arrow.params.length >= 1) {
+          const receiver = out.slice(recvStart);
+          const pre = out.slice(0, recvStart);
+          const elemVar = arrow.params[0];
+          const idxVar = arrow.params[1];
+          // Recurse for nested array methods in the body; subscript the element
+          // var's member access. The index var (if any) stays a bare int.
+          const body = lowerJsArrayMethods(lowerDictMemberAccess(arrow.body, elemVar), imports);
+          // A second callback param is the element index — bind it via
+          // enumerate() for every method, not just map, so a predicate that
+          // references the index (`(x, i) => i > 0`) doesn't emit an unbound
+          // name (codex review of ab192611).
+          const loopTarget = idxVar ? `${idxVar}, ${elemVar}` : elemVar;
+          const source = idxVar ? `enumerate(${receiver})` : receiver;
+          let lowered: string;
+          if (method === 'filter') {
+            lowered = `[${elemVar} for ${loopTarget} in ${source} if ${body}]`;
+          } else if (method === 'find') {
+            lowered = `next((${elemVar} for ${loopTarget} in ${source} if ${body}), None)`;
+          } else {
+            lowered = `[${body} for ${loopTarget} in ${source}]`;
+          }
+          out = `${pre}${lowered}`;
+          i = closeIdx + 1;
+          continue;
+        }
+      }
+    }
+    const mArray = expr.slice(i).match(/^\.([A-Za-z]\w*)\(/);
+    if (mArray && PORTABLE_ARRAY_METHODS.has(mArray[1])) {
+      const method = mArray[1];
+      const openIdx = i + mArray[0].length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      const recvStart = findReceiverStart(out);
+      if (closeIdx !== -1 && recvStart !== -1) {
+        const receiver = out.slice(recvStart);
+        const pre = out.slice(0, recvStart);
+        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) =>
+          lowerJsArrayMethods(a.trim(), imports),
+        );
+        let lowered: string | null = null;
+        if (method === 'includes') {
+          const needle = args[0] ?? '';
+          lowered = `(${needle} in ${receiver})`;
+        } else if (method === 'indexOf') {
+          const needle = args[0] ?? '';
+          const fromIndex = args[1] ?? null;
+          if (fromIndex) {
+            lowered = `(next((__i for __i, __v in enumerate(${receiver}) if __i >= ${fromIndex} and __v == ${needle}), -1))`;
+          } else {
+            lowered = `(next((__i for __i, __v in enumerate(${receiver}) if __v == ${needle}), -1))`;
+          }
+        } else if (method === 'join') {
+          const sep = args[0] ?? '","';
+          lowered = `${sep}.join(str(__v) for __v in ${receiver})`;
+        } else if (method === 'slice') {
+          const start = args[0];
+          const end = args[1];
+          if (!start && !end) lowered = `${receiver}[:]`;
+          else if (start && !end) lowered = `${receiver}[${start}:]`;
+          else if (!start && end) lowered = `${receiver}[:${end}]`;
+          else lowered = `${receiver}[${start}:${end}]`;
+        } else if (method === 'some' || method === 'every') {
+          const arrow = parseArrowCallback(expr.slice(openIdx + 1, closeIdx));
+          if (arrow && arrow.params.length >= 1) {
+            const elemVar = arrow.params[0];
+            const idxVar = arrow.params[1];
+            // Only the element var is dict-subscripted; the index var stays a
+            // bare int and must be bound via enumerate() when present.
+            const pred = lowerJsArrayMethods(lowerDictMemberAccess(arrow.body, elemVar), imports);
+            const loopTarget = idxVar ? `${idxVar}, ${elemVar}` : elemVar;
+            const source = idxVar ? `enumerate(${receiver})` : receiver;
+            lowered =
+              method === 'some'
+                ? `any(${pred} for ${loopTarget} in ${source})`
+                : `all(${pred} for ${loopTarget} in ${source})`;
+          }
+        } else if (method === 'reduce') {
+          const rawArgs = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));
+          const arrow = parseArrowCallback(rawArgs[0] ?? '');
+          if (arrow && arrow.params.length >= 2) {
+            const accVar = arrow.params[0];
+            const elemVar = arrow.params[1];
+            let body = lowerDictMemberAccess(arrow.body, accVar);
+            body = lowerDictMemberAccess(body, elemVar);
+            const loweredBody = lowerJsArrayMethods(body, imports);
+            imports?.add('import functools');
+            if (rawArgs.length >= 2) {
+              const seed = lowerJsArrayMethods(rawArgs[1].trim(), imports);
+              lowered = `functools.reduce(lambda ${accVar}, ${elemVar}${LAMBDA_COLON_PLACEHOLDER} ${loweredBody}, ${receiver}, ${seed})`;
+            } else {
+              lowered = `functools.reduce(lambda ${accVar}, ${elemVar}${LAMBDA_COLON_PLACEHOLDER} ${loweredBody}, ${receiver})`;
+            }
+          }
+        }
+        if (lowered) {
+          out = `${pre}${lowered}`;
+          i = closeIdx + 1;
+          continue;
+        }
+      }
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
 }
 
 // Index of the bracket that closes the one at `openIdx`, tracking ()[]{} depth
@@ -439,11 +647,17 @@ function lowerNumberBuiltinCalls(expr: string, imports?: Set<string>): string {
 //   x.toUpperCase() -> x.upper()
 //   x.toLowerCase() -> x.lower()
 //   x.trim()        -> x.strip()
-// Skip string literals so text like "a.toUpperCase()" stays unchanged.
+//   x.padStart(n[, fill]) -> x.rjust(n[, fill])  (JS/Python both default to " ")
+//   x.padEnd(n[, fill])   -> x.ljust(n[, fill])
+// Skip string literals so text like "a.toUpperCase()" / ".padStart(" stays raw.
+// pad*/startsWith/endsWith take args, so only the method+`(` is matched and the
+// argument list flows through to Python unchanged. Note: JS pad* accept a
+// multi-char fill while Python rjust/ljust require a single fill char — only the
+// 1-char fixture form is in scope; a multi-char fill is left to raise on Python.
 function lowerStringBuiltinCalls(expr: string): string {
   return expr.replace(
     new RegExp(
-      `${STRING_LITERAL_ALT}|\\.toUpperCase\\(\\)|\\.toLowerCase\\(\\)|\\.trim\\(\\)|\\.startsWith\\(|\\.endsWith\\(`,
+      `${STRING_LITERAL_ALT}|\\.toUpperCase\\(\\)|\\.toLowerCase\\(\\)|\\.trim\\(\\)|\\.startsWith\\(|\\.endsWith\\(|\\.padStart\\(|\\.padEnd\\(`,
       'g',
     ),
     (match) => {
@@ -454,18 +668,33 @@ function lowerStringBuiltinCalls(expr: string): string {
       // argument list passes through to Python's str.startswith/endswith.
       if (match === '.startsWith(') return '.startswith(';
       if (match === '.endsWith(') return '.endswith(';
+      if (match === '.padStart(') return '.rjust(';
+      if (match === '.padEnd(') return '.ljust(';
       return match;
     },
   );
 }
 
-// Lower JS String.prototype.replace (string-arg form) to Python's first-only
-// replace. JS `s.replace("a", "b")` replaces only the FIRST occurrence, but
-// Python str.replace replaces ALL — so emit the count=1 third arg for parity.
-// Only the 2-arg form is lowered; a regex first arg (`s.replace(/re/, b)`) is
-// out of scope and left unchanged. `.replaceAll(` never matches (it isn't
-// `.replace(`). String-aware + balanced so args with commas/parens survive.
-function lowerStringReplaceFirstOnly(expr: string): string {
+// Lower the argument-taking JS String methods that need more than a bare method
+// rename (those are handled by lowerStringBuiltinCalls). One string-aware,
+// balanced scan reused for all of them; the shared matchBalancedParen /
+// splitTopLevelArgs / findReceiverStart helpers carve out args and receiver so
+// no new char-loop matcher is introduced:
+//   s.replace("a", "b")  -> s.replace("a", "b", 1)   (JS replaces FIRST only,
+//                            Python str.replace replaces ALL — pin count=1)
+//   s.substring(a, b)    -> s[a:b]      (and s.substring(a) -> s[a:])
+//   s.repeat(n)          -> (s * n)
+//   s.split(sep, limit)  -> s.split(sep)[:limit]      THE TRAP: Python's 2nd
+//                            arg is maxsplit, which KEEPS the remainder; JS
+//                            keeps only the first `limit` parts. The no-limit
+//                            s.split(sep) form is left raw (Python matches JS).
+// replace: only the 2-arg, non-regex form is lowered (`s.replace(/re/, b)` is
+// out of scope); `.replaceAll(` never matches. A quoted `".repeat("` etc. is
+// skipped by the quote tracking, so string-literal text stays raw.
+// substring edge (scoped out): JS substring clamps negative args to 0 and SWAPS
+// them when a > b; Python slicing does neither. Only the simple non-negative
+// fixture case is lowered — a negative/swapped substring would diverge.
+function lowerStringArgMethods(expr: string): string {
   let out = '';
   let i = 0;
   let quote: string | null = null;
@@ -494,9 +723,53 @@ function lowerStringReplaceFirstOnly(expr: string): string {
       if (closeIdx !== -1) {
         const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));
         if (args.length === 2 && !args[0].trim().startsWith('/')) {
-          const a0 = lowerStringReplaceFirstOnly(args[0]).trim();
-          const a1 = lowerStringReplaceFirstOnly(args[1]).trim();
+          const a0 = lowerStringArgMethods(args[0]).trim();
+          const a1 = lowerStringArgMethods(args[1]).trim();
           out += `.replace(${a0}, ${a1}, 1)`;
+          i = closeIdx + 1;
+          continue;
+        }
+      }
+    }
+    if (expr.startsWith('.substring(', i)) {
+      const openIdx = i + '.substring('.length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1) {
+        // Receiver is already in `out`; `s.substring(a, b)` and `s[a:b]` both
+        // trail the receiver, so just append the slice — no receiver surgery.
+        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) => lowerStringArgMethods(a).trim());
+        const start = args[0] ?? '';
+        const end = args[1] ?? '';
+        out += `[${start}:${end}]`;
+        i = closeIdx + 1;
+        continue;
+      }
+    }
+    if (expr.startsWith('.repeat(', i)) {
+      const openIdx = i + '.repeat('.length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1) {
+        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) => lowerStringArgMethods(a).trim());
+        const n = args[0] ?? '0';
+        const receiverStart = findReceiverStart(out);
+        if (receiverStart !== -1) {
+          const receiver = out.slice(receiverStart);
+          const pre = out.slice(0, receiverStart);
+          out = `${pre}(${receiver} * ${n})`;
+          i = closeIdx + 1;
+          continue;
+        }
+      }
+    }
+    if (expr.startsWith('.split(', i)) {
+      const openIdx = i + '.split('.length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1) {
+        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) => lowerStringArgMethods(a).trim());
+        // Only the 2-arg limit form needs rewriting; the no-limit form is left
+        // raw (falls through) because Python str.split(sep) already matches JS.
+        if (args.length === 2) {
+          out += `.split(${args[0]})[:${args[1]}]`;
           i = closeIdx + 1;
           continue;
         }
@@ -1054,7 +1327,7 @@ export function rewriteFastAPIExpr(
   // Array methods first (so any `===` inside an arrow body is hoisted into
   // a list-comprehension predicate that the strict-equality pass below
   // then catches).
-  result = lowerJsArrayMethods(result);
+  result = lowerJsArrayMethods(result, imports);
 
   // Strict equality: skip text inside quoted strings so a user message
   // like `"use === for strict equality"` doesn't get mangled to `==`.
@@ -1106,10 +1379,11 @@ export function rewriteFastAPIExpr(
   result = lowerMathBuiltinCalls(result, imports);
   // Number parsing and formatting builtins.
   result = lowerNumberBuiltinCalls(result, imports);
-  // String builtins in portable expressions.
+  // String builtins in portable expressions (bare renames + pad → rjust/ljust).
   result = lowerStringBuiltinCalls(result);
-  // String .replace → first-only parity (JS replaces first; Python replaces all).
-  result = lowerStringReplaceFirstOnly(result);
+  // Argument-taking string methods: replace (first-only), substring → slice,
+  // repeat → `*`, and the split(sep, limit) maxsplit trap.
+  result = lowerStringArgMethods(result);
   // Object/Array/Date host builtins in portable expressions.
   result = lowerObjectArrayDateBuiltinCalls(result, imports);
 
@@ -1122,6 +1396,7 @@ export function rewriteFastAPIExpr(
   for (const replacement of replacements) {
     result = result.split(replacement.placeholder).join(replacement.lowered);
   }
+  result = result.split(LAMBDA_COLON_PLACEHOLDER).join(':');
 
   return result;
 }

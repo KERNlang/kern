@@ -2278,18 +2278,18 @@ describe('FastAPI Transpiler', () => {
 
     test('.filter((x) => pred) lowers to list comprehension', async () => {
       const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      expect(rewriteFastAPIExpr('users.filter((u) => u.active)', [])).toBe('[u for u in users if u.active]');
+      expect(rewriteFastAPIExpr('users.filter((u) => u.active)', [])).toBe('[u for u in users if u["active"]]');
     });
 
     test('.map((x) => expr) lowers to list comprehension', async () => {
       const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      expect(rewriteFastAPIExpr('users.map((u) => u.name)', [])).toBe('[u.name for u in users]');
+      expect(rewriteFastAPIExpr('users.map((u) => u.name)', [])).toBe('[u["name"] for u in users]');
     });
 
     test('.find((x) => pred) lowers to next() with None default', async () => {
       const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
       expect(rewriteFastAPIExpr('users.find((u) => u.id == id)', [])).toBe(
-        'next((u for u in users if u.id == id), None)',
+        'next((u for u in users if u["id"] == id), None)',
       );
     });
 
@@ -2298,14 +2298,53 @@ describe('FastAPI Transpiler', () => {
       // Arrow rewrite runs first; the inner `===` is then caught by the
       // strict-equality pass on the rewritten predicate.
       expect(rewriteFastAPIExpr('users.find((item) => item.id === id)', [])).toBe(
-        'next((item for item in users if item.id == id), None)',
+        'next((item for item in users if item["id"] == id), None)',
       );
     });
 
-    test('arrows with multi-arg fall through untouched', async () => {
+    test('map with index arg lowers via enumerate()', async () => {
       const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      // Two-arg arrow — not lowered (the simple regex requires single arg)
-      expect(rewriteFastAPIExpr('arr.map((u, i) => u.name)', [])).toBe('arr.map((u, i) => u.name)');
+      expect(rewriteFastAPIExpr('arr.map((u, i) => u.name)', [])).toBe('[u["name"] for i, u in enumerate(arr)]');
+    });
+
+    test('arr-core dict member access lowers to subscript form', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('items.filter((x) => x.active)', [])).toBe('[x for x in items if x["active"]]');
+      expect(rewriteFastAPIExpr('items.map((x) => x.n)', [])).toBe('[x["n"] for x in items]');
+      expect(rewriteFastAPIExpr('items.find((x) => x.n === 2)', [])).toBe(
+        'next((x for x in items if x["n"] == 2), None)',
+      );
+    });
+
+    test('arr-core supports bare arrow params and nested dict member access', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('items.filter(x => x.active)', [])).toBe('[x for x in items if x["active"]]');
+      expect(rewriteFastAPIExpr('items.map((x) => x.meta.tag)', [])).toBe('[x["meta"]["tag"] for x in items]');
+      expect(rewriteFastAPIExpr('items.map((x, i) => x.n + i)', [])).toBe('[x["n"] + i for i, x in enumerate(items)]');
+    });
+
+    test('arr-core filter/find/some with an index param bind it via enumerate (codex review ab192611)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      // The index var was previously unbound for filter/find/some → NameError.
+      expect(rewriteFastAPIExpr('items.filter((x, i) => i > 0)', [])).toBe('[x for i, x in enumerate(items) if i > 0]');
+      expect(rewriteFastAPIExpr('items.find((x, i) => i === 1)', [])).toBe(
+        'next((x for i, x in enumerate(items) if i == 1), None)',
+      );
+      expect(rewriteFastAPIExpr('items.some((x, i) => i > 0)', [])).toBe('any(i > 0 for i, x in enumerate(items))');
+    });
+
+    test('arr-core subscripts data fields before a method call + nested map (codex review ab192611)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      // Data field before a method must be subscripted; the method segment is
+      // kept (and itself lowered): x.name.toUpperCase() → x["name"].upper().
+      expect(rewriteFastAPIExpr('items.map((x) => x.name.toUpperCase())', [])).toBe(
+        '[x["name"].upper() for x in items]',
+      );
+      // Nested array method: the inner receiver x.tags must be subscripted so
+      // the inner comprehension iterates a dict field, not an attribute.
+      expect(rewriteFastAPIExpr('items.map((x) => x.tags.map((t) => t.name))', [])).toBe(
+        '[[t["name"] for t in x["tags"]] for x in items]',
+      );
     });
 
     test('=== / !== are skipped when inside string literals (Codex P2)', async () => {
@@ -2323,13 +2362,48 @@ describe('FastAPI Transpiler', () => {
     test('chained .filter().map() rewrites fully (Gemini #2)', async () => {
       const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
       expect(rewriteFastAPIExpr('users.filter((u) => u.active).map((u) => u.name)', [])).toBe(
-        '[u.name for u in [u for u in users if u.active]]',
+        '[u["name"] for u in [u for u in users if u["active"]]]',
       );
+    });
+
+    test('arr-method lowerings rewrite to Python forms (and drop JS method syntax)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      const out = rewriteFastAPIExpr(
+        'nums.includes(2) && nums.indexOf(2) >= 0 && nums.join(",") == "1,2,3" && nums.slice(0, 2)',
+        [],
+      );
+      expect(out).toContain('(2 in nums)');
+      expect(out).toContain('next((__i for __i, __v in enumerate(nums) if __v == 2), -1)');
+      expect(out).toContain('",".join(str(__v) for __v in nums)');
+      expect(out).toContain('nums[0:2]');
+      expect(out).not.toContain('nums.includes(');
+      expect(out).not.toContain('nums.indexOf(');
+      expect(out).not.toContain('nums.join(');
+      expect(out).not.toContain('nums.slice(');
+    });
+
+    test('arr-method callbacks some/every/reduce lower and reduce adds functools import', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      const imports = new Set<string>();
+      const out = rewriteFastAPIExpr(
+        'nums.some((n) => n === 2) && nums.every((n) => n > 0) && nums.reduce((a, b) => a + b, 0)',
+        [],
+        new Set(),
+        false,
+        imports,
+      );
+      expect(out).toContain('any(n == 2 for n in nums)');
+      expect(out).toContain('all(n > 0 for n in nums)');
+      expect(out).toContain('functools.reduce(lambda a, b: a + b, nums, 0)');
+      expect(out).not.toContain('nums.some(');
+      expect(out).not.toContain('nums.every(');
+      expect(out).not.toContain('nums.reduce(');
+      expect(imports.has('import functools')).toBe(true);
     });
 
     test('arrow predicate with one level of nested parens (Gemini #3)', async () => {
       const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      expect(rewriteFastAPIExpr('users.filter((u) => (u.age > 18))', [])).toBe('[u for u in users if (u.age > 18)]');
+      expect(rewriteFastAPIExpr('users.filter((u) => (u.age > 18))', [])).toBe('[u for u in users if (u["age"] > 18)]');
     });
 
     test('undefined / null lower to None outside strings (Gemini #4)', async () => {
@@ -2374,6 +2448,52 @@ describe('FastAPI Transpiler', () => {
       // …and a token after a dotted access (`obj.x.true` ?) actually
       // this would still be a property access — preserve.
       expect(rewriteFastAPIExpr('a.b.true', [])).toBe('a.b.true');
+    });
+
+    // ── str-method portability (task 03-str-method): substring/pad*/repeat +
+    //    the split(sep, limit) maxsplit trap. includes/indexOf/slice already
+    //    covered above (receiver-agnostic, shared with arr-method). ──────────
+    test('substring lowers to a Python slice (JS form dropped)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('s.substring(0, 2)', [])).toBe('s[0:2]');
+      expect(rewriteFastAPIExpr('s.substring(2)', [])).toBe('s[2:]');
+      expect(rewriteFastAPIExpr('s.substring(0, 2)', [])).not.toContain('.substring(');
+    });
+
+    test('padStart/padEnd lower to rjust/ljust (default + explicit fill)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('s.padStart(8, "0")', [])).toBe('s.rjust(8, "0")');
+      expect(rewriteFastAPIExpr('s.padEnd(8, "0")', [])).toBe('s.ljust(8, "0")');
+      // 1-arg form: JS pads with " " and Python rjust/ljust default to " " too.
+      expect(rewriteFastAPIExpr('s.padStart(8)', [])).toBe('s.rjust(8)');
+      const out = rewriteFastAPIExpr('s.padStart(8, "0")', []);
+      expect(out).not.toContain('.padStart(');
+      expect(out).not.toContain('.padEnd(');
+    });
+
+    test('repeat lowers to a parenthesized `*` (receiver pulled in front)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('s.repeat(2)', [])).toBe('(s * 2)');
+      // Bracket-access receiver is carried into the product too.
+      expect(rewriteFastAPIExpr('data["k"].repeat(3)', [])).toBe('(data["k"] * 3)');
+      expect(rewriteFastAPIExpr('s.repeat(2)', [])).not.toContain('.repeat(');
+    });
+
+    test('split(sep, limit) is the maxsplit TRAP → split(sep)[:limit], not maxsplit', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      // JS keeps the FIRST `limit` parts; Python's 2nd arg is maxsplit (keeps
+      // the remainder), so the only correct lowering truncates AFTER a full split.
+      expect(rewriteFastAPIExpr('s.split(",", 2)', [])).toBe('s.split(",")[:2]');
+      // Must NOT emit the maxsplit form `s.split(",", 2)`.
+      expect(rewriteFastAPIExpr('s.split(",", 2)', [])).not.toBe('s.split(",", 2)');
+      // The existing no-limit form stays raw (Python str.split matches JS).
+      expect(rewriteFastAPIExpr('s.split(",")', [])).toBe('s.split(",")');
+    });
+
+    test('a quoted ".repeat(" / ".substring(" inside a string literal stays raw', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      expect(rewriteFastAPIExpr('msg = "call .repeat( in docs"', [])).toBe('msg = "call .repeat( in docs"');
+      expect(rewriteFastAPIExpr("note = 'use .substring(0, 2) here'", [])).toBe("note = 'use .substring(0, 2) here'");
     });
   });
 
