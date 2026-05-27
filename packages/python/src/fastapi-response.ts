@@ -443,7 +443,7 @@ function lowerMathBuiltinCalls(expr: string, imports?: Set<string>): string {
     const m = expr
       .slice(i)
       .match(
-        /^(?:(?:Number|Math)\.(floor|ceil|round|abs|trunc|isFinite|isNaN)|Math\.(min|max|pow|sqrt|hypot|random))\(/,
+        /^(?:(?:Number|Math)\.(floor|ceil|round|abs|trunc|isFinite|isNaN)|Math\.(min|max|pow|sqrt|hypot|random|sign))\(/,
       );
     const prev = expr[i - 1];
     if (m && !(prev && /[\w.]/.test(prev))) {
@@ -513,6 +513,10 @@ function lowerMathBuiltinCalls(expr: string, imports?: Set<string>): string {
           case 'random':
             imports?.add('import random as __k_random');
             out += '__k_random.random()';
+            break;
+          case 'sign':
+            // JS Math.sign returns -1, 0, or 1; 0 args → NaN.
+            out += loweredArgs.length === 0 ? 'float("nan")' : `(1 if ${arg} > 0 else (-1 if ${arg} < 0 else 0))`;
             break;
           default:
             out += expr.slice(i, closeIdx + 1);

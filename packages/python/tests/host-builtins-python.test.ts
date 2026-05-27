@@ -218,6 +218,22 @@ describe('Host-builtin mapping (Python target)', () => {
     expect(code).not.toContain('Math.max');
   });
 
+  test('Math.sign lowers to Python ternary expression', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=get path=/api/math-sign',
+      '    derive signNeg expr={{Math.sign(-5)}}',
+      '    derive signZero expr={{Math.sign(0)}}',
+      '    derive signPos expr={{Math.sign(3)}}',
+      '    respond 200 json={{ {signNeg, signZero, signPos} }}',
+    ]);
+    const code = routeContent(result, 'math_sign');
+    expect(code).toContain('(1 if -5 > 0 else (-1 if -5 < 0 else 0))');
+    expect(code).toContain('(1 if 0 > 0 else (-1 if 0 < 0 else 0))');
+    expect(code).toContain('(1 if 3 > 0 else (-1 if 3 < 0 else 0))');
+    expect(code).not.toContain('Math.sign');
+  });
+
   test('string case builtins lower to Python string methods', async () => {
     const result = await transpile([
       'server name=API port=8000',
