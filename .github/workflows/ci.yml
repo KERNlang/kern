@@ -1,8 +1,12 @@
 name: CI
 
 on:
+  # `push` only on main (post-merge sanity); dev is NOT here on purpose — a
+  # push to dev while a dev→main PR is open otherwise runs CI twice (push +
+  # pull_request) on the same code. dev iteration is gated locally (pre-push
+  # rule-based review + tests) and validated by the dev→main PR run below.
   push:
-    branches: [main, dev]
+    branches: [main]
   pull_request:
     branches: [main]
 
