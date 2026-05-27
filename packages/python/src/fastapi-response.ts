@@ -154,8 +154,10 @@ function parseArrowCallback(inner: string): { params: string[]; body: string } |
 // receiver — the failure mode of the prior regex form. Member access on the
 // bound element is dict-subscripted so a list-of-dicts iterates correctly.
 const ARROW_ARRAY_METHODS = new Set(['filter', 'map', 'find']);
+const PORTABLE_ARRAY_METHODS = new Set(['includes', 'indexOf', 'join', 'slice', 'some', 'every', 'reduce']);
+const LAMBDA_COLON_PLACEHOLDER = '__KERN_LAMBDA_COLON__';
 
-function lowerJsArrayMethods(expr: string): string {
+function lowerJsArrayMethods(expr: string, imports?: Set<string>): string {
   let out = '';
   let i = 0;
   let quote: string | null = null;
@@ -193,7 +195,7 @@ function lowerJsArrayMethods(expr: string): string {
           const idxVar = arrow.params[1];
           // Recurse for nested array methods in the body; subscript the element
           // var's member access. The index var (if any) stays a bare int.
-          const body = lowerJsArrayMethods(lowerDictMemberAccess(arrow.body, elemVar));
+          const body = lowerJsArrayMethods(lowerDictMemberAccess(arrow.body, elemVar), imports);
           let lowered: string;
           if (method === 'filter') {
             lowered = `[${elemVar} for ${elemVar} in ${receiver} if ${body}]`;
@@ -204,6 +206,77 @@ function lowerJsArrayMethods(expr: string): string {
           } else {
             lowered = `[${body} for ${elemVar} in ${receiver}]`;
           }
+          out = `${pre}${lowered}`;
+          i = closeIdx + 1;
+          continue;
+        }
+      }
+    }
+    const mArray = expr.slice(i).match(/^\.([A-Za-z]\w*)\(/);
+    if (mArray && PORTABLE_ARRAY_METHODS.has(mArray[1])) {
+      const method = mArray[1];
+      const openIdx = i + mArray[0].length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      const recvStart = findReceiverStart(out);
+      if (closeIdx !== -1 && recvStart !== -1) {
+        const receiver = out.slice(recvStart);
+        const pre = out.slice(0, recvStart);
+        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) =>
+          lowerJsArrayMethods(a.trim(), imports),
+        );
+        let lowered: string | null = null;
+        if (method === 'includes') {
+          const needle = args[0] ?? '';
+          lowered = `(${needle} in ${receiver})`;
+        } else if (method === 'indexOf') {
+          const needle = args[0] ?? '';
+          const fromIndex = args[1] ?? null;
+          if (fromIndex) {
+            lowered = `(next((__i for __i, __v in enumerate(${receiver}) if __i >= ${fromIndex} and __v == ${needle}), -1))`;
+          } else {
+            lowered = `(next((__i for __i, __v in enumerate(${receiver}) if __v == ${needle}), -1))`;
+          }
+        } else if (method === 'join') {
+          const sep = args[0] ?? '","';
+          lowered = `${sep}.join(str(__v) for __v in ${receiver})`;
+        } else if (method === 'slice') {
+          const start = args[0];
+          const end = args[1];
+          if (!start && !end) lowered = `${receiver}[:]`;
+          else if (start && !end) lowered = `${receiver}[${start}:]`;
+          else if (!start && end) lowered = `${receiver}[:${end}]`;
+          else lowered = `${receiver}[${start}:${end}]`;
+        } else if (method === 'some' || method === 'every') {
+          const arrow = parseArrowCallback(expr.slice(openIdx + 1, closeIdx));
+          if (arrow && arrow.params.length >= 1) {
+            const elemVar = arrow.params[0];
+            let body = lowerDictMemberAccess(arrow.body, elemVar);
+            if (arrow.params[1]) body = lowerDictMemberAccess(body, arrow.params[1]);
+            const pred = lowerJsArrayMethods(body, imports);
+            lowered =
+              method === 'some'
+                ? `any(${pred} for ${elemVar} in ${receiver})`
+                : `all(${pred} for ${elemVar} in ${receiver})`;
+          }
+        } else if (method === 'reduce') {
+          const rawArgs = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));
+          const arrow = parseArrowCallback(rawArgs[0] ?? '');
+          if (arrow && arrow.params.length >= 2) {
+            const accVar = arrow.params[0];
+            const elemVar = arrow.params[1];
+            let body = lowerDictMemberAccess(arrow.body, accVar);
+            body = lowerDictMemberAccess(body, elemVar);
+            const loweredBody = lowerJsArrayMethods(body, imports);
+            imports?.add('import functools');
+            if (rawArgs.length >= 2) {
+              const seed = lowerJsArrayMethods(rawArgs[1].trim(), imports);
+              lowered = `functools.reduce(lambda ${accVar}, ${elemVar}${LAMBDA_COLON_PLACEHOLDER} ${loweredBody}, ${receiver}, ${seed})`;
+            } else {
+              lowered = `functools.reduce(lambda ${accVar}, ${elemVar}${LAMBDA_COLON_PLACEHOLDER} ${loweredBody}, ${receiver})`;
+            }
+          }
+        }
+        if (lowered) {
           out = `${pre}${lowered}`;
           i = closeIdx + 1;
           continue;
@@ -1175,7 +1248,7 @@ export function rewriteFastAPIExpr(
   // Array methods first (so any `===` inside an arrow body is hoisted into
   // a list-comprehension predicate that the strict-equality pass below
   // then catches).
-  result = lowerJsArrayMethods(result);
+  result = lowerJsArrayMethods(result, imports);
 
   // Strict equality: skip text inside quoted strings so a user message
   // like `"use === for strict equality"` doesn't get mangled to `==`.
@@ -1243,6 +1316,7 @@ export function rewriteFastAPIExpr(
   for (const replacement of replacements) {
     result = result.split(replacement.placeholder).join(replacement.lowered);
   }
+  result = result.split(LAMBDA_COLON_PLACEHOLDER).join(':');
 
   return result;
 }

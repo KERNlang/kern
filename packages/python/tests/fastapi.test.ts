@@ -2342,6 +2342,41 @@ describe('FastAPI Transpiler', () => {
       );
     });
 
+    test('arr-method lowerings rewrite to Python forms (and drop JS method syntax)', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      const out = rewriteFastAPIExpr(
+        'nums.includes(2) && nums.indexOf(2) >= 0 && nums.join(",") == "1,2,3" && nums.slice(0, 2)',
+        [],
+      );
+      expect(out).toContain('(2 in nums)');
+      expect(out).toContain('next((__i for __i, __v in enumerate(nums) if __v == 2), -1)');
+      expect(out).toContain('",".join(str(__v) for __v in nums)');
+      expect(out).toContain('nums[0:2]');
+      expect(out).not.toContain('nums.includes(');
+      expect(out).not.toContain('nums.indexOf(');
+      expect(out).not.toContain('nums.join(');
+      expect(out).not.toContain('nums.slice(');
+    });
+
+    test('arr-method callbacks some/every/reduce lower and reduce adds functools import', async () => {
+      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      const imports = new Set<string>();
+      const out = rewriteFastAPIExpr(
+        'nums.some((n) => n === 2) && nums.every((n) => n > 0) && nums.reduce((a, b) => a + b, 0)',
+        [],
+        new Set(),
+        false,
+        imports,
+      );
+      expect(out).toContain('any(n == 2 for n in nums)');
+      expect(out).toContain('all(n > 0 for n in nums)');
+      expect(out).toContain('functools.reduce(lambda a, b: a + b, nums, 0)');
+      expect(out).not.toContain('nums.some(');
+      expect(out).not.toContain('nums.every(');
+      expect(out).not.toContain('nums.reduce(');
+      expect(imports.has('import functools')).toBe(true);
+    });
+
     test('arrow predicate with one level of nested parens (Gemini #3)', async () => {
       const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
       expect(rewriteFastAPIExpr('users.filter((u) => (u.age > 18))', [])).toBe('[u for u in users if (u["age"] > 18)]');
