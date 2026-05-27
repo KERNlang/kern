@@ -324,6 +324,42 @@ const FIXTURES = [
   { name: 'str-method: padEnd', expr: 's.padEnd(8, "0")', path: '/api/s', bindings: { locals: { s: 'banana' } }, expected: 'banana00' },
   { name: 'str-method: repeat', expr: 's.repeat(2)', path: '/api/s', bindings: { locals: { s: 'ab' } }, expected: 'abab' },
   { name: 'str-method: split with a limit (JS first-N, not maxsplit)', expr: 's.split(",", 2)', path: '/api/s', bindings: { locals: { s: 'a,b,c' } }, expected: ['a', 'b'] },
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // PARITY GOAL ORACLE (goal: ts-python-parity, 2026-05-27). These RED fixtures
+  // encode portable JS methods not yet lowered to Python — the differential
+  // proof the codegen-string tests don't give. Each slice is a goal task; the
+  // task gate is `node scripts/conformance.mjs --filter "<slice>:"`. Element
+  // bindings are bare locals (json.loads on Python). Trap cases are first-class.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  // ── arr-more: array methods not lowered → AttributeError / wrong semantics ──
+  // sort() is the headline trap: JS default sort is LEXICOGRAPHIC and returns
+  // the array; Python list.sort() is numeric AND returns None (in-place).
+  { name: 'arr-more: sort() default is lexicographic', expr: 'arr.sort()', path: '/api/a', bindings: { locals: { arr: [10, 2, 1] } }, expected: [1, 10, 2] },
+  { name: 'arr-more: sort() numeric comparator', expr: 'arr.sort((a, b) => a - b)', path: '/api/a', bindings: { locals: { arr: [10, 2, 1] } }, expected: [1, 2, 10] },
+  { name: 'arr-more: findIndex present', expr: 'arr.findIndex((x) => x === 2)', path: '/api/a', bindings: { locals: { arr: [1, 2, 3] } }, expected: 1 },
+  { name: 'arr-more: findIndex missing is -1 (not raise)', expr: 'arr.findIndex((x) => x === 9)', path: '/api/a', bindings: { locals: { arr: [1, 2, 3] } }, expected: -1 },
+  { name: 'arr-more: flatMap', expr: 'arr.flatMap((x) => [x, x])', path: '/api/a', bindings: { locals: { arr: [1, 2] } }, expected: [1, 1, 2, 2] },
+  { name: 'arr-more: flat one level', expr: 'arr.flat()', path: '/api/a', bindings: { locals: { arr: [[1, 2], [3]] } }, expected: [1, 2, 3] },
+  { name: 'arr-more: at(-1) negative index', expr: 'arr.at(-1)', path: '/api/a', bindings: { locals: { arr: [1, 2, 3] } }, expected: 3 },
+  { name: 'arr-more: reverse() returns the reversed array', expr: 'arr.reverse()', path: '/api/a', bindings: { locals: { arr: [1, 2, 3] } }, expected: [3, 2, 1] },
+  { name: 'arr-more: concat', expr: 'arr.concat(b)', path: '/api/a', bindings: { locals: { arr: [1, 2], b: [3, 4] } }, expected: [1, 2, 3, 4] },
+  { name: 'arr-more: findLast', expr: 'arr.findLast((x) => x < 3)', path: '/api/a', bindings: { locals: { arr: [1, 2, 3] } }, expected: 2 },
+
+  // ── str-more: string methods not lowered → AttributeError on Python ──
+  { name: 'str-more: replaceAll (all occurrences)', expr: 's.replaceAll(a, b)', path: '/api/s', bindings: { locals: { s: 'banana', a: 'a', b: 'X' } }, expected: 'bXnXnX' },
+  { name: 'str-more: charAt', expr: 's.charAt(i)', path: '/api/s', bindings: { locals: { s: 'banana', i: 2 } }, expected: 'n' },
+  { name: 'str-more: at(-1) negative index', expr: 's.at(-1)', path: '/api/s', bindings: { locals: { s: 'banana' } }, expected: 'a' },
+
+  // ── obj-more: Object statics not lowered → NameError on Python ──
+  { name: 'obj-more: Object.assign merges', expr: 'Object.assign({}, o1, o2)', path: '/api/o', bindings: { locals: { o1: { a: 1 }, o2: { b: 2 } } }, expected: { a: 1, b: 2 } },
+  { name: 'obj-more: Object.fromEntries', expr: 'Object.fromEntries(pairs)', path: '/api/o', bindings: { locals: { pairs: [['a', 1], ['b', 2]] } }, expected: { a: 1, b: 2 } },
+
+  // ── math-more: Math.sign not lowered → NameError on Python ──
+  { name: 'math-more: Math.sign(-5)', expr: 'Math.sign(x)', path: '/api/m', bindings: { locals: { x: -5 } }, expected: -1 },
+  { name: 'math-more: Math.sign(0)', expr: 'Math.sign(x)', path: '/api/m', bindings: { locals: { x: 0 } }, expected: 0 },
+  { name: 'math-more: Math.sign(3)', expr: 'Math.sign(x)', path: '/api/m', bindings: { locals: { x: 3 } }, expected: 1 },
 ];
 
 // ── Value → literal emitters ────────────────────────────────────────────────
@@ -419,6 +455,18 @@ const filter = (() => {
   }
   return process.argv[i + 1];
 })();
+// --exclude drops fixtures whose name contains the substring — lets a CI/goal
+// gate run the green baseline while a slice of RED goal fixtures is mid-flight
+// (e.g. `--exclude "-more:"` to skip in-progress parity slices).
+const exclude = (() => {
+  const i = process.argv.indexOf('--exclude');
+  if (i < 0) return null;
+  if (process.argv[i + 1] == null) {
+    console.error('--exclude requires a value');
+    process.exit(2);
+  }
+  return process.argv[i + 1];
+})();
 const dir = mkdtempSync(join(tmpdir(), 'kern-conf-'));
 process.on('exit', () => {
   try {
@@ -431,6 +479,7 @@ const failures = [];
 let selected = 0;
 for (const fx of FIXTURES) {
   if (filter && !fx.name.includes(filter)) continue;
+  if (exclude && fx.name.includes(exclude)) continue;
   selected++;
   const mode = fx.compare ?? 'value';
   const pathParams = [...fx.path.matchAll(/:([A-Za-z_]\w*)/g)].map((m) => m[1]);
