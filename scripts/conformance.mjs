@@ -38,6 +38,11 @@ const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 const { rewriteFastAPIExpr } = await import(join(REPO, 'packages/python/dist/fastapi-response.js'));
 const { rewriteExpressExpr } = await import(join(REPO, 'packages/express/dist/express-portable.js'));
 const { toSnakeCase } = await import(join(REPO, 'packages/python/dist/type-map.js'));
+// Statement-level (kind:'stmt') fixtures lower a native `lang=kern` handler BODY via these,
+// run it in an isolated subprocess (TS via --experimental-strip-types), and compare the
+// RETURNED value — capturing control-flow behaviour the expression harness cannot reach.
+const { parse, emitNativeKernBodyTSWithImports } = await import(join(REPO, 'packages/core/dist/index.js'));
+const { emitNativeKernBodyPythonWithImports } = await import(join(REPO, 'packages/python/dist/codegen-body-python.js'));
 
 // ── Fixtures ───────────────────────────────────────────────────────────────
 // bindings namespaces mirror the portable request model:
@@ -354,6 +359,43 @@ const FIXTURES = [
   { name: 'numbermodel: ToInt32 on string float', expr: 'a|z', path: '/api/n', bindings: { locals: { a: '2.9', z: 0 } }, expected: 2 },
   { name: 'numbermodel: modulo on string float', expr: 'a%b', path: '/api/n', bindings: { locals: { a: '-5.5', b: 2 } }, expected: -1.5 },
   { name: 'numbermodel: bitwise NOT on string float', expr: '~a', path: '/api/n', bindings: { locals: { a: '-3.9' } }, expected: 2 },
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // stmt: STATEMENT-LEVEL control flow (kind:'stmt', goal: stmt-harness 2026-05-28).
+  // Each lowers a native `lang=kern` handler BODY to BOTH targets (emitNativeKernBodyTS /
+  // emitNativeKernBodyPython), runs it in an isolated subprocess, and compares the RETURN
+  // value. Design: 6-engine council + nero red-team (side-effect witness, allow_nan=False,
+  // block-scope probed+deferred). Operands are PARAMS, never inline literals in the observable.
+  // Scope = intra-function control flow ONLY (block scope / number-repr / framework errors deferred).
+  // ──────────────────────────────────────────────────────────────────────────
+  { kind: 'stmt', name: 'stmt: if/else selects true branch',
+    params: [{ name: 'n', type: 'number', value: 20 }, { name: 'min', type: 'number', value: 10 }],
+    body: `let name=v value="n * 2"\nif cond="v > min"\n  return value="{ big: true, v: v }"\nelse\n  return value="{ big: false, v: v }"`,
+    expected: { big: true, v: 40 } },
+  { kind: 'stmt', name: 'stmt: if/else selects false branch',
+    params: [{ name: 'n', type: 'number', value: 3 }, { name: 'min', type: 'number', value: 10 }],
+    body: `let name=v value="n * 2"\nif cond="v > min"\n  return value="{ big: true, v: v }"\nelse\n  return value="{ big: false, v: v }"`,
+    expected: { big: false, v: 6 } },
+  { kind: 'stmt', name: 'stmt: while loop accumulates (mutable kind=let)',
+    params: [{ name: 'n', type: 'number', value: 5 }, { name: 'min', type: 'number', value: 0 }],
+    body: `let name=total value="0" kind=let\nlet name=i value="0" kind=let\nwhile cond="i < n"\n  assign target="total" value="total + i"\n  assign target="i" value="i + 1"\nreturn value="{ total: total }"`,
+    expected: { total: 10 } },
+  { kind: 'stmt', name: 'stmt: for loop early-returns mid-iteration',
+    params: [{ name: 'n', type: 'number', value: 0 }, { name: 'min', type: 'number', value: 5 }],
+    body: `let name=acc value="0" kind=let\neach name=x in="[1, 2, 3, 4]" index=j\n  assign target="acc" value="acc + x"\n  if cond="acc > min"\n    return value="{ stopped: acc, at: j }"\nreturn value="{ stopped: acc, at: -1 }"`,
+    expected: { stopped: 6, at: 2 } },
+  { kind: 'stmt', name: 'stmt: statements after return do not run',
+    params: [{ name: 'n', type: 'number', value: 0 }, { name: 'min', type: 'number', value: 0 }],
+    body: `let name=hits value="0" kind=let\nreturn value="{ hits: hits }"\nassign target="hits" value="999"`,
+    expected: { hits: 0 } },
+  { kind: 'stmt', name: 'stmt: try/catch recovers from a thrown error',
+    params: [{ name: 'bad', type: 'string', value: '{' }, { name: 'min', type: 'number', value: 0 }],
+    body: `let name=out value="0" kind=let\ntry\n  assign target="out" value="JSON.parse(bad).x"\n  catch name=err type=any\n    assign target="out" value="-1"\nreturn value="{ out: out }"`,
+    expected: { out: -1 } },
+  { kind: 'stmt', name: 'stmt: try body runs up to the throw, then catch (side-effect witness)',
+    params: [{ name: 'bad', type: 'string', value: '{' }, { name: 'min', type: 'number', value: 0 }],
+    body: `let name=log value="''" kind=let\nlet name=tmp value="0" kind=let\ntry\n  assign target="log" value="log + 'a'"\n  assign target="tmp" value="JSON.parse(bad)"\n  assign target="log" value="log + 'b'"\n  catch name=err type=any\n    assign target="log" value="log + 'X'"\nreturn value="{ log: log }"`,
+    expected: { log: 'aX' } },
 ];
 
 // ── Value → literal emitters ────────────────────────────────────────────────
@@ -472,6 +514,44 @@ for (const fx of FIXTURES) {
   if (filter && !fx.name.includes(filter)) continue;
   if (exclude && fx.name.includes(exclude)) continue;
   selected++;
+
+  // ── statement-level branch: lower a native `lang=kern` BODY to both targets, run in
+  // isolated subprocesses, strict-compare the RETURN value (ts == py == golden). Expression
+  // fixtures below are untouched. Strict JSON.parse => non-JSON/non-zero-exit fails loud (no masking).
+  if (fx.kind === 'stmt') {
+    try {
+      const sig = fx.params.map((p) => `${p.name}:${p.type}`).join(',');
+      const kern = `screen name=S\n  callback name=fn params="${sig}"\n    handler lang=kern\n` +
+        fx.body.split('\n').map((l) => `      ${l}`).join('\n');
+      const handler = ((function find(n) {
+        if (!n) return null;
+        if (n.type === 'handler') return n;
+        for (const c of n.children ?? []) { const h = find(c); if (h) return h; }
+        return null;
+      })(parse(kern)));
+      if (!handler) throw new Error('no handler node parsed');
+      const ts = emitNativeKernBodyTSWithImports(handler);
+      const pyEmit = emitNativeKernBodyPythonWithImports(handler);
+      const names = fx.params.map((p) => p.name);
+      const tsFile = join(dir, 'stmt.ts');
+      const pyFile = join(dir, 'stmt.py');
+      writeFileSync(tsFile, `${[...(ts.imports ?? [])].join('\n')}\nfunction __h(${names.join(', ')}: any): any {\n${ts.code}\n}\nconsole.log(JSON.stringify(__h(${fx.params.map((p) => JSON.stringify(p.value)).join(', ')})));`);
+      writeFileSync(pyFile, `import json\n${[...(pyEmit.imports ?? [])].join('\n')}\ndef __h(${names.join(', ')}):\n${pyEmit.code.split('\n').map((l) => `    ${l}`).join('\n')}\nprint(json.dumps(__h(${fx.params.map((p) => pyVal(p.value)).join(', ')}), default=str, allow_nan=False))`);
+      const stmtOpts = { encoding: 'utf8', timeout: 10_000 };
+      const tsOut = execFileSync('node', ['--experimental-strip-types', tsFile], stmtOpts).trim();
+      const pyOut = execFileSync('python3', [pyFile], stmtOpts).trim();
+      const cTs = canon(JSON.parse(tsOut), 'value');
+      const cPy = canon(JSON.parse(pyOut), 'value');
+      const cExp = canon(fx.expected, 'value');
+      if (cTs !== cPy) failures.push({ name: fx.name, why: `ts ≠ py\n      ts: ${cTs}\n      py: ${cPy}` });
+      else if (cTs !== cExp) failures.push({ name: fx.name, why: `result ≠ expected\n      got: ${cTs}\n      exp: ${cExp}` });
+      else pass++;
+    } catch (err) {
+      failures.push({ name: fx.name, why: `stmt exec error: ${String(err.message ?? err).split('\n').slice(-4).join(' ')}` });
+    }
+    continue;
+  }
+
   const mode = fx.compare ?? 'value';
   const pathParams = [...fx.path.matchAll(/:([A-Za-z_]\w*)/g)].map((m) => m[1]);
   // externalSchema mirrors `validate schema=X`: the body is a model but its
