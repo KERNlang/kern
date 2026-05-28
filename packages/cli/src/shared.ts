@@ -5,6 +5,7 @@ import type {
   ParseDiagnostic,
   ResolvedKernConfig,
   SchemaViolation,
+  ShadowAnalyzeOptions,
   ShadowDiagnostic,
 } from '@kernlang/core';
 import {
@@ -1411,9 +1412,12 @@ export function loadTemplates(cfg: ResolvedKernConfig): void {
  * and swallows errors from the optional `typescript` peer so a missing peer becomes
  * a single diagnostic rather than a crash.
  */
-export async function runShadowAnalysis(root: IRNode): Promise<ShadowDiagnostic[]> {
+export async function runShadowAnalysis(
+  root: IRNode,
+  options?: ShadowAnalyzeOptions,
+): Promise<ShadowDiagnostic[]> {
   try {
-    return await analyzeShadow(root);
+    return await analyzeShadow(root, options);
   } catch (err) {
     return [
       {

@@ -276,3 +276,79 @@ export function makeImportResolverForFile(
     return registry.get(abs) ?? null;
   };
 }
+
+// ── Shadow real-types: project-wide type-node index ──────────────────────────
+
+/** Type-declaration kinds whose real shape the shadow analyzer can reproduce.
+ *  Mirrors EMITTABLE_TYPE_NODES in shadow-analyzer.ts. */
+const SHADOW_TYPE_KINDS = new Set(['interface', 'union', 'type']);
+
+function collectTypeDecls(node: IRNode, out: Map<string, IRNode>): void {
+  if (SHADOW_TYPE_KINDS.has(node.type)) {
+    const name = node.props?.name;
+    if (typeof name === 'string' && /^[A-Za-z_]\w*$/.test(name) && !out.has(name)) {
+      out.set(name, node);
+    }
+  }
+  for (const child of node.children ?? []) collectTypeDecls(child, out);
+}
+
+/** Index every emittable type declaration (interface/union/type) in each
+ *  project file, keyed by absolute path → simple type name → IR node. Feeds
+ *  the shadow analyzer's real-type emission so a `<<< >>>` fence that touches
+ *  an imported domain type is checked against its true shape rather than an
+ *  `any` stub. First declaration wins on a same-file name clash. Parse
+ *  failures are skipped — the per-file compile surfaces its own diagnostics. */
+export function buildProjectTypeNodeIndex(kernFiles: readonly string[]): Map<string, Map<string, IRNode>> {
+  const index = new Map<string, Map<string, IRNode>>();
+  for (const file of kernFiles) {
+    try {
+      const abs = resolve(file);
+      const root = parseDocument(readFileSync(abs, 'utf-8'));
+      const types = new Map<string, IRNode>();
+      collectTypeDecls(root, types);
+      index.set(abs, types);
+    } catch {
+      // Parse failures aren't an index concern — skip and let the per-file
+      // compile surface its diagnostics.
+    }
+  }
+  return index;
+}
+
+/** Resolve the emittable type declarations a file pulls in via `use path="…"`
+ *  imports, keyed by the LOCAL name (honoring `from … as alias`). Direct
+ *  imports only: a type reached through a re-export barrel isn't followed and
+ *  degrades to an `any` stub in the shadow support file, which is safe — it
+ *  weakens checking, never introduces a false positive. */
+export function resolveImportedTypeNodesForFile(
+  currentFileAbs: string,
+  root: IRNode,
+  typeIndex: Map<string, Map<string, IRNode>>,
+): Map<string, IRNode> {
+  const result = new Map<string, IRNode>();
+
+  function walk(node: IRNode): void {
+    const path = node.props?.path;
+    if (node.type === 'use' && typeof path === 'string') {
+      const targetAbs = resolveKernImportPath(currentFileAbs, path);
+      const targetTypes = targetAbs ? typeIndex.get(targetAbs) : null;
+      if (targetTypes) {
+        for (const child of node.children ?? []) {
+          if (child.type !== 'from') continue;
+          const sourceName = child.props?.name;
+          if (typeof sourceName !== 'string') continue;
+          const typeNode = targetTypes.get(sourceName);
+          if (!typeNode) continue;
+          const aliasRaw = child.props?.as;
+          const localName = typeof aliasRaw === 'string' && aliasRaw ? aliasRaw : sourceName;
+          if (!result.has(localName)) result.set(localName, typeNode);
+        }
+      }
+    }
+    for (const child of node.children ?? []) walk(child);
+  }
+
+  walk(root);
+  return result;
+}

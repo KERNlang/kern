@@ -5,11 +5,16 @@
  *  verifies the resolver maps `use path="…"` correctly, and confirms the
  *  imported call gets propagation lowering. */
 
-import { parseDocumentWithDiagnostics } from '@kernlang/core';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { parseDocument, parseDocumentWithDiagnostics } from '@kernlang/core';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
-import { buildCrossModuleRegistry, makeImportResolverForFile } from '../src/lib/cross-module-registry.js';
+import {
+  buildCrossModuleRegistry,
+  buildProjectTypeNodeIndex,
+  makeImportResolverForFile,
+  resolveImportedTypeNodesForFile,
+} from '../src/lib/cross-module-registry.js';
 
 function findHandlerCode(node: { type: string; props?: Record<string, unknown>; children?: unknown[] }): string | null {
   if (node.type === 'handler' && typeof node.props?.code === 'string') {
@@ -532,5 +537,95 @@ describe('cross-module registry — end-to-end', () => {
     );
     const registry = buildCrossModuleRegistry([aPath]);
     expect(registry.get(resolve(aPath))?.resultFns.has('parseUser')).toBe(false);
+  });
+});
+
+describe('shadow real-types — project type-node index + per-file resolution', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'kern-x-types-'));
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function writeModels(): string {
+    const modelsPath = join(tmpDir, 'models.kern');
+    writeFileSync(
+      modelsPath,
+      [
+        'type name=UserId values=string',
+        'interface name=UserProfile',
+        '  field name=id type=UserId',
+        '  field name=email type=string',
+      ].join('\n'),
+    );
+    return modelsPath;
+  }
+
+  test('buildProjectTypeNodeIndex collects interface/type by file and simple name', () => {
+    const modelsPath = writeModels();
+    const index = buildProjectTypeNodeIndex([modelsPath]);
+    const byName = index.get(resolve(modelsPath));
+    expect(byName?.get('UserProfile')?.type).toBe('interface');
+    expect(byName?.get('UserId')?.type).toBe('type');
+  });
+
+  test('resolveImportedTypeNodesForFile maps a use…from import to the target type node', () => {
+    const modelsPath = writeModels();
+    const handlerPath = join(tmpDir, 'handler.kern');
+    writeFileSync(
+      handlerPath,
+      [
+        'use path="./models"',
+        '  from name=UserProfile kind=type',
+        'fn name=describe params="u:UserProfile" returns=string',
+        '  handler <<<',
+        '    return u.email;',
+        '  >>>',
+      ].join('\n'),
+    );
+    const index = buildProjectTypeNodeIndex([modelsPath, handlerPath]);
+    const root = parseDocument(readFileSync(handlerPath, 'utf-8'));
+    const imported = resolveImportedTypeNodesForFile(resolve(handlerPath), root, index);
+    expect(imported.get('UserProfile')?.type).toBe('interface');
+  });
+
+  test('honors `from … as alias` — keyed by the local name', () => {
+    const modelsPath = writeModels();
+    const handlerPath = join(tmpDir, 'handler.kern');
+    writeFileSync(
+      handlerPath,
+      ['use path="./models"', '  from name=UserProfile as=Profile kind=type'].join('\n'),
+    );
+    const index = buildProjectTypeNodeIndex([modelsPath, handlerPath]);
+    const root = parseDocument(readFileSync(handlerPath, 'utf-8'));
+    const imported = resolveImportedTypeNodesForFile(resolve(handlerPath), root, index);
+    expect(imported.get('Profile')?.type).toBe('interface');
+    expect(imported.has('UserProfile')).toBe(false);
+  });
+
+  test('an imported name absent from the target degrades (not included)', () => {
+    const modelsPath = writeModels();
+    const handlerPath = join(tmpDir, 'handler.kern');
+    writeFileSync(
+      handlerPath,
+      ['use path="./models"', '  from name=DoesNotExist kind=type'].join('\n'),
+    );
+    const index = buildProjectTypeNodeIndex([modelsPath, handlerPath]);
+    const root = parseDocument(readFileSync(handlerPath, 'utf-8'));
+    const imported = resolveImportedTypeNodesForFile(resolve(handlerPath), root, index);
+    expect(imported.has('DoesNotExist')).toBe(false);
+  });
+
+  test('a bare / unresolvable import path yields no entries (clean degradation)', () => {
+    const handlerPath = join(tmpDir, 'handler.kern');
+    writeFileSync(handlerPath, ['use path="zod"', '  from name=Schema kind=type'].join('\n'));
+    const index = buildProjectTypeNodeIndex([handlerPath]);
+    const root = parseDocument(readFileSync(handlerPath, 'utf-8'));
+    const imported = resolveImportedTypeNodesForFile(resolve(handlerPath), root, index);
+    expect(imported.size).toBe(0);
   });
 });

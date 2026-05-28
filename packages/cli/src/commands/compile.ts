@@ -1,4 +1,4 @@
-import type { IRNode, KernTarget, ModuleExports, ResolvedKernConfig } from '@kernlang/core';
+import type { IRNode, KernTarget, ModuleExports, ResolvedKernConfig, ShadowAnalyzeOptions } from '@kernlang/core';
 import {
   ALL_TARGETS,
   collectCapabilityIslands,
@@ -23,7 +23,12 @@ import { generateReactNode, isReactNode } from '@kernlang/react';
 import type { ChildProcess } from 'child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'fs';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'path';
-import { buildCrossModuleRegistry, makeImportResolverForFile } from '../lib/cross-module-registry.js';
+import {
+  buildCrossModuleRegistry,
+  buildProjectTypeNodeIndex,
+  makeImportResolverForFile,
+  resolveImportedTypeNodesForFile,
+} from '../lib/cross-module-registry.js';
 import {
   type BarrelEntry,
   extractExportsFromLines,
@@ -115,6 +120,8 @@ async function compileDefaultSingle(
   shadow: boolean,
   inputBase?: string,
   parseOptions?: import('@kernlang/core').ParseOptions,
+  shadowRealTypes = false,
+  typeNodeIndex: Map<string, Map<string, IRNode>> | null = null,
 ): Promise<DefaultCompileResult> {
   const source = readFileSync(file, 'utf-8');
 
@@ -160,7 +167,11 @@ async function compileDefaultSingle(
 
   // ── Shadow semantic analysis (opt-in) ────────────────────────────────
   if (shadow) {
-    const shadowDiagnostics = await runShadowAnalysis(ast);
+    const shadowOptions: ShadowAnalyzeOptions | undefined =
+      shadowRealTypes && typeNodeIndex
+        ? { realTypes: true, importedTypeNodes: resolveImportedTypeNodesForFile(resolve(file), ast, typeNodeIndex) }
+        : undefined;
+    const shadowDiagnostics = await runShadowAnalysis(ast, shadowOptions);
     if (jsonOutput) {
       const current = jsonDiagnostics.find((entry) => entry.file === file);
       if (current) {
@@ -507,7 +518,7 @@ export async function runCompile(args: string[]): Promise<void> {
 
   if (!compileInput) {
     console.error(
-      'Usage: kern compile <file.kern|dir> [--target=<target>] [--outdir=<dir>] [--watch] [--facades] [--index] [--shadow]',
+      'Usage: kern compile <file.kern|dir> [--target=<target>] [--outdir=<dir>] [--watch] [--facades] [--index] [--shadow] [--shadow-real-types]',
     );
     process.exit(1);
   }
@@ -541,7 +552,8 @@ export async function runCompile(args: string[]): Promise<void> {
   const jsonOutput = hasFlag(args, '--json');
   const watchMode = hasFlag(args, '--watch');
   const serveMode = hasFlag(args, '--serve');
-  const shadow = hasFlag(args, '--shadow');
+  const shadowRealTypes = hasFlag(args, '--shadow-real-types');
+  const shadow = hasFlag(args, '--shadow') || shadowRealTypes;
   const targetArg = parseFlag(args, '--target') as KernTarget | undefined;
 
   if (targetArg && !ALL_TARGETS.includes(targetArg)) {
@@ -590,6 +602,9 @@ export async function runCompile(args: string[]): Promise<void> {
   // imported module's ModuleExports, enabling `?`/`!` propagation across
   // KERN-to-KERN imports.
   let crossModuleRegistry = buildCrossModuleRegistry(kernFiles);
+  // Real-type shadow checking resolves each fence's imported domain types
+  // against their true shape; the index is parsed once, opt-in via the flag.
+  const projectTypeNodeIndex = shadowRealTypes ? buildProjectTypeNodeIndex(kernFiles) : null;
   let fastApiModulePlan = targetArg
     ? buildFastApiModulePlan(kernFiles, outDir, cfg as ResolvedKernConfig, isDir ? inputPath : undefined)
     : null;
@@ -680,7 +695,14 @@ export async function runCompile(args: string[]): Promise<void> {
           try {
             const source = readFileSync(file, 'utf-8');
             const { root: shadowRoot } = parseWithDiagnostics(source);
-            const shadowDiagnostics = await runShadowAnalysis(shadowRoot);
+            const shadowOptions: ShadowAnalyzeOptions | undefined =
+              shadowRealTypes && projectTypeNodeIndex
+                ? {
+                    realTypes: true,
+                    importedTypeNodes: resolveImportedTypeNodesForFile(resolve(file), shadowRoot, projectTypeNodeIndex),
+                  }
+                : undefined;
+            const shadowDiagnostics = await runShadowAnalysis(shadowRoot, shadowOptions);
             if (jsonOutput) {
               const shadowErrors = shadowDiagnostics.filter((d) => d.rule === 'shadow-ts').length;
               totalErrors += shadowErrors;
@@ -724,6 +746,8 @@ export async function runCompile(args: string[]): Promise<void> {
           shadow,
           isDir ? inputPath : undefined,
           { resolveImport: makeImportResolverForFile(resolve(file), crossModuleRegistry) },
+          shadowRealTypes,
+          projectTypeNodeIndex,
         );
         if (result.compiled) compiled++;
         totalErrors += result.errors;
@@ -965,9 +989,18 @@ export async function runCompile(args: string[]): Promise<void> {
           transpileTargetWithPlan(filePath, fastApiModulePlan);
         }
       } else {
-        await compileDefaultSingle(filePath, outDir, strictParse, false, [], shadow, isDir ? inputPath : undefined, {
-          resolveImport: makeImportResolverForFile(resolve(filePath), crossModuleRegistry),
-        });
+        await compileDefaultSingle(
+          filePath,
+          outDir,
+          strictParse,
+          false,
+          [],
+          shadow,
+          isDir ? inputPath : undefined,
+          { resolveImport: makeImportResolverForFile(resolve(filePath), crossModuleRegistry) },
+          shadowRealTypes,
+          projectTypeNodeIndex,
+        );
       }
       if (!sidecarsRefreshed) {
         refreshSidecarEntry(filePath);
