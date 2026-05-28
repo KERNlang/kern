@@ -369,6 +369,7 @@ const FIXTURES = [
 
   // ── math-extra: math-module functions/constants not lowered → NameError ──
   { name: 'math-extra: cbrt(27)', expr: 'Math.cbrt(x)', path: '/api/m', bindings: { locals: { x: 27 } }, expected: 3 },
+  { name: 'math-extra: cbrt(-8) negative', expr: 'Math.cbrt(x)', path: '/api/m', bindings: { locals: { x: -8 } }, expected: -2 },
   { name: 'math-extra: log natural (ln 1 = 0)', expr: 'Math.log(x)', path: '/api/m', bindings: { locals: { x: 1 } }, expected: 0 },
   { name: 'math-extra: log natural (ln 2)', expr: 'Math.log(x)', path: '/api/m', bindings: { locals: { x: 2 } }, expected: Math.log(2) },
   { name: 'math-extra: log2(8)', expr: 'Math.log2(x)', path: '/api/m', bindings: { locals: { x: 8 } }, expected: 3 },
@@ -378,6 +379,7 @@ const FIXTURES = [
   { name: 'math-extra: sin(1) transcendental parity', expr: 'Math.sin(x)', path: '/api/m', bindings: { locals: { x: 1 } }, expected: Math.sin(1) },
   { name: 'math-extra: cos(0)', expr: 'Math.cos(x)', path: '/api/m', bindings: { locals: { x: 0 } }, expected: 1 },
   { name: 'math-extra: atan2(0, 1)', expr: 'Math.atan2(y, x)', path: '/api/m', bindings: { locals: { y: 0, x: 1 } }, expected: 0 },
+  { name: 'math-extra: atan2(3, 4) uses BOTH args', expr: 'Math.atan2(y, x)', path: '/api/m', bindings: { locals: { y: 3, x: 4 } }, expected: Math.atan2(3, 4) },
   { name: 'math-extra: PI constant', expr: 'Math.PI', path: '/api/m', bindings: {}, expected: Math.PI },
   { name: 'math-extra: E constant', expr: 'Math.E', path: '/api/m', bindings: {}, expected: Math.E },
 
@@ -387,8 +389,12 @@ const FIXTURES = [
   { name: 'num-extra: toString(16) hex', expr: 'n.toString(16)', path: '/api/n', bindings: { locals: { n: 255 } }, expected: 'ff' },
   { name: 'num-extra: toString(2) binary', expr: 'n.toString(2)', path: '/api/n', bindings: { locals: { n: 8 } }, expected: '1000' },
   { name: 'num-extra: toString(8) octal', expr: 'n.toString(8)', path: '/api/n', bindings: { locals: { n: 255 } }, expected: '377' },
-  { name: 'num-extra: toPrecision(4)', expr: 'n.toPrecision(4)', path: '/api/n', bindings: { locals: { n: 123.456 } }, expected: '123.5' },
+  { name: 'num-extra: toString(10) is plain decimal', expr: 'n.toString(10)', path: '/api/n', bindings: { locals: { n: 255 } }, expected: '255' },
+  // toPrecision is intentionally OUT OF SCOPE: JS keeps trailing zeros
+  // ((123).toPrecision(5) === "123.00") and uses a different exponential
+  // threshold than Python's %g, which strips zeros — no clean 1:1 lowering.
   { name: 'num-extra: toExponential(2) (JS e+3, not e+03)', expr: 'n.toExponential(2)', path: '/api/n', bindings: { locals: { n: 1234 } }, expected: '1.23e+3' },
+  { name: 'num-extra: toExponential(2) negative exponent', expr: 'n.toExponential(2)', path: '/api/n', bindings: { locals: { n: 0.001234 } }, expected: '1.23e-3' },
   { name: 'num-extra: global isNaN(finite) is false', expr: 'isNaN(n)', path: '/api/n', bindings: { locals: { n: 3 } }, expected: false },
   { name: 'num-extra: global isFinite(finite) is true', expr: 'isFinite(n)', path: '/api/n', bindings: { locals: { n: 3 } }, expected: true },
 
@@ -412,10 +418,13 @@ const FIXTURES = [
   // ── op-extra: operators whose Python pass-through DIVERGES from JS ──
   { name: 'op-extra: % follows DIVIDEND sign (-7 % 3 = -1, not 2)', expr: 'a % b', path: '/api/o', bindings: { locals: { a: -7, b: 3 } }, expected: -1 },
   { name: 'op-extra: % positive', expr: 'a % b', path: '/api/o', bindings: { locals: { a: 7, b: 3 } }, expected: 1 },
+  { name: 'op-extra: % negative divisor (dividend sign wins: 7 % -3 = 1)', expr: 'a % b', path: '/api/o', bindings: { locals: { a: 7, b: -3 } }, expected: 1 },
+  { name: 'op-extra: % keeps the fraction for floats (5.5 % 2 = 1.5)', expr: 'a % b', path: '/api/o', bindings: { locals: { a: 5.5, b: 2 } }, expected: 1.5 },
   { name: 'op-extra: >>> unsigned (-1 >>> 0 = 4294967295)', expr: 'a >>> b', path: '/api/o', bindings: { locals: { a: -1, b: 0 } }, expected: 4294967295 },
   { name: 'op-extra: >>> shift (256 >>> 2 = 64)', expr: 'a >>> b', path: '/api/o', bindings: { locals: { a: 256, b: 2 } }, expected: 64 },
   { name: 'op-extra: ?? null coalesces', expr: 'a ?? b', path: '/api/o', bindings: { locals: { a: null, b: 5 } }, expected: 5 },
   { name: 'op-extra: ?? keeps falsy 0 (null-only, not falsy)', expr: 'a ?? b', path: '/api/o', bindings: { locals: { a: 0, b: 5 } }, expected: 0 },
+  { name: 'op-extra: ?? keeps empty string (null-only, not falsy)', expr: 'a ?? b', path: '/api/o', bindings: { locals: { a: '', b: 'x' } }, expected: '' },
 ];
 
 // ── Value → literal emitters ────────────────────────────────────────────────
