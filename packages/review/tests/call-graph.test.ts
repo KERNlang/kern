@@ -642,7 +642,7 @@ export async function fetchMore() { return []; }
     expect(findings.filter((f) => f.ruleId === 'floating-promise')).toHaveLength(0);
   });
 
-  it('does NOT flag handled cross-file async calls (return / assign / void)', () => {
+  it('does NOT flag handled cross-file async calls (return / assign / void / .then / .catch)', () => {
     const project = createTestProject();
     project.createSourceFile(
       '/src/main.ts',
@@ -651,7 +651,8 @@ import { fetchData } from './api.js';
 export function returned() { return fetchData(); }
 export function captured() { const p = fetchData(); return p; }
 export function discarded() { void fetchData(); }
-export function chained() { fetchData().catch(() => {}); }
+export function caught() { fetchData().catch(() => {}); }
+export function chained() { fetchData().then(() => {}); }
 `,
     );
     project.createSourceFile(
