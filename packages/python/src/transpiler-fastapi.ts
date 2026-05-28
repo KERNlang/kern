@@ -211,8 +211,12 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
     ...rootChildren.filter((c) => TOP_LEVEL_CORE.has(c.type)),
     ...serverChildren.filter((c) => TOP_LEVEL_CORE.has(c.type)),
   ];
-  // If the root itself is a core node (parser wraps first top-level node as root), include it
-  if (TOP_LEVEL_CORE.has(root.type) && root !== serverNode) {
+  // If the root itself is a core node, include it. A single top-level core node
+  // (e.g. a lone `interface` or `type`) becomes the parse root, and with no
+  // `server` present serverNode falls back to root — so the old `root !==
+  // serverNode` guard excluded it and the node emitted nothing (no class, no
+  // imports). root is never its own child, so adding it can't duplicate.
+  if (TOP_LEVEL_CORE.has(root.type) && !coreNodes.includes(root)) {
     coreNodes.unshift(root);
   }
   for (const cn of coreNodes) accountNode(accounted, cn, 'expressed', 'core artifact', true);
