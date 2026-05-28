@@ -48,7 +48,8 @@
       "hono": ">=4.12.19",
       "@hono/node-server": ">=1.19.13",
       "postcss": "8.5.15",
-      "ip-address": "10.2.0"
+      "ip-address": "10.2.0",
+      "qs": ">=6.15.2"
     }
   },
   "devDependencies": {
