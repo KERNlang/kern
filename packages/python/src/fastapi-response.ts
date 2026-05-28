@@ -218,17 +218,23 @@ function lowerJsArrayMethods(expr: string, imports?: Set<string>): string {
           } else if (method === 'find') {
             lowered = `next((${elemVar} for ${loopTarget} in ${source} if ${body}), None)`;
           } else if (method === 'findIndex') {
-            // index of the first match, or -1 (never raises)
-            lowered = `next((__i for __i, ${elemVar} in enumerate(${receiver}) if ${body}), -1)`;
+            // index of the first match, or -1 (never raises). Bind the user's
+            // own index var when the callback has one, so `(x, i) => …i…` works.
+            const ix = idxVar ?? '__i';
+            lowered = `next((${ix} for ${ix}, ${elemVar} in enumerate(${receiver}) if ${body}), -1)`;
           } else if (method === 'findLast') {
             // last matching element, or None
-            lowered = `next((${elemVar} for ${elemVar} in reversed(${receiver}) if ${body}), None)`;
+            lowered = idxVar
+              ? `next((${elemVar} for ${idxVar}, ${elemVar} in reversed(list(enumerate(${receiver}))) if ${body}), None)`
+              : `next((${elemVar} for ${elemVar} in reversed(${receiver}) if ${body}), None)`;
           } else if (method === 'findLastIndex') {
             // index of the last match, or -1
-            lowered = `next((__i for __i, ${elemVar} in reversed(list(enumerate(${receiver}))) if ${body}), -1)`;
+            const ix = idxVar ?? '__i';
+            lowered = `next((${ix} for ${ix}, ${elemVar} in reversed(list(enumerate(${receiver}))) if ${body}), -1)`;
           } else if (method === 'flatMap') {
-            // map, then flatten one level — the body yields a list per element
-            lowered = `[__y for ${loopTarget} in ${source} for __y in (${body})]`;
+            // map, then flatten ONE level — JS flatMap only flattens arrays, so
+            // a scalar/string callback result is appended as a single element.
+            lowered = `[__y for ${loopTarget} in ${source} for __y in (${body} if isinstance(${body}, list) else [${body}])]`;
           } else {
             lowered = `[${body} for ${loopTarget} in ${source}]`;
           }
@@ -350,10 +356,20 @@ function lowerJsArrayMethods(expr: string, imports?: Set<string>): string {
           lowered = args.length ? `(${receiver} + ${args.join(' + ')})` : `${receiver}[:]`;
         } else if (method === 'fill') {
           const v = args[0] ?? 'None';
-          lowered = `[${v} for __ in ${receiver}]`;
+          if (args.length <= 1) {
+            lowered = `[${v} for __ in ${receiver}]`;
+          } else {
+            // fill(value, start, end) fills [start, end) with JS negative-index
+            // normalization; untouched positions keep their original element.
+            const s = args[1];
+            const e = args[2] ?? `len(${receiver})`;
+            lowered = `[(${v} if (${s} if ${s} >= 0 else ${s} + len(${receiver})) <= __i < (${e} if ${e} >= 0 else ${e} + len(${receiver})) else __x) for __i, __x in enumerate(${receiver})]`;
+          }
         } else if (method === 'lastIndexOf') {
           const needle = args[0] ?? '';
-          lowered = `(len(${receiver}) - 1 - ${receiver}[::-1].index(${needle}) if ${needle} in ${receiver} else -1)`;
+          // String receivers use rfind (correct for multi-char substrings, -1
+          // when absent); array receivers reverse-scan by element equality.
+          lowered = `(${receiver}.rfind(${needle}) if isinstance(${receiver}, str) else (len(${receiver}) - 1 - ${receiver}[::-1].index(${needle}) if ${needle} in ${receiver} else -1))`;
         }
         if (lowered) {
           out = `${pre}${lowered}`;
@@ -976,7 +992,9 @@ function lowerStringArgMethods(expr: string): string {
         if (receiverStart !== -1) {
           const receiver = out.slice(receiverStart);
           const pre = out.slice(0, receiverStart);
-          out = `${pre}ord(${receiver}[${idx}])`;
+          // JS charCodeAt/codePointAt never raise: out-of-range (incl. negative)
+          // → NaN/undefined, which both become JSON null. Guard to avoid IndexError.
+          out = `${pre}(ord(${receiver}[${idx}]) if 0 <= ${idx} < len(${receiver}) else None)`;
           i = closeIdx + 1;
           continue;
         }
@@ -1097,7 +1115,7 @@ function lowerObjectArrayDateBuiltinCalls(expr: string, imports?: Set<string>): 
           const args = rawArgs.trim() === ''
             ? []
             : splitTopLevelArgs(rawArgs).map((a) => lowerObjectArrayDateBuiltinCalls(a, imports).trim());
-          out += args.length <= 1 ? `chr(${args[0] ?? '0'})` : `''.join(chr(__c) for __c in [${args.join(', ')}])`;
+          out += args.length === 0 ? '""' : args.length === 1 ? `chr(${args[0]})` : `''.join(chr(__c) for __c in [${args.join(', ')}])`;
         } else {
           const arg = lowerObjectArrayDateBuiltinCalls(rawArgs, imports).trim();
           if (method === 'Object.keys') out += `list(${arg}.keys())`;
@@ -1563,6 +1581,26 @@ function findLeftOperandStart(expr: string, opIndex: number, stopChars: string):
   let depth = 0;
   for (; j >= 0; j--) {
     const c = expr[j];
+    if (c === '"' || c === "'" || c === '`') {
+      // A string operand is one atom — skip back to its opening quote (escape-
+      // aware) so a stop char inside the literal isn't mistaken for a boundary.
+      const q = c;
+      let k = j - 1;
+      while (k >= 0) {
+        if (expr[k] === q) {
+          let b = 0;
+          let p = k - 1;
+          while (p >= 0 && expr[p] === '\\') {
+            b++;
+            p--;
+          }
+          if (b % 2 === 0) break;
+        }
+        k--;
+      }
+      j = k; // loop's j-- moves past the opening quote next
+      continue;
+    }
     if (c === ')' || c === ']' || c === '}') {
       depth++;
       continue;
@@ -1581,8 +1619,21 @@ function findRightOperandEnd(expr: string, startIndex: number, stopChars: string
   let j = startIndex;
   while (j < expr.length && /\s/.test(expr[j])) j++;
   let depth = 0;
+  let quote: string | null = null;
   for (; j < expr.length; j++) {
     const c = expr[j];
+    if (quote) {
+      if (c === '\\') {
+        j++;
+        continue;
+      }
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      continue;
+    }
     if (c === '(' || c === '[' || c === '{') {
       depth++;
       continue;
