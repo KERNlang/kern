@@ -351,6 +351,9 @@ const FIXTURES = [
   { name: 'numbermodel: true division agree', expr: 'a/b', path: '/api/n', bindings: { locals: { a: 5, b: 2 } }, expected: 2.5 },
   { name: 'numbermodel: float add repr agree', expr: 'a+b', path: '/api/n', bindings: { locals: { a: 0.1, b: 0.2 } }, expected: 0.30000000000000004 },
   { name: 'numbermodel: 2^53 safe boundary agree', expr: 'a+b', path: '/api/n', bindings: { locals: { a: 9007199254740991, b: 1 } }, expected: 9007199254740992 },
+  { name: 'numbermodel: ToInt32 on string float', expr: 'a|z', path: '/api/n', bindings: { locals: { a: '2.9', z: 0 } }, expected: 2 },
+  { name: 'numbermodel: modulo on string float', expr: 'a%b', path: '/api/n', bindings: { locals: { a: '-5.5', b: 2 } }, expected: -1.5 },
+  { name: 'numbermodel: bitwise NOT on string float', expr: '~a', path: '/api/n', bindings: { locals: { a: '-3.9' } }, expected: 2 },
 ];
 
 // ── Value → literal emitters ────────────────────────────────────────────────

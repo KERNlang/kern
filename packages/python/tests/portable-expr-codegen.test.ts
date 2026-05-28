@@ -160,4 +160,21 @@ describe('FastAPI portable expression codegen (route artifacts)', () => {
     expect(code).toContain('from ..auth import auth_required');
     expect(code).not.toContain('from auth import');
   });
+
+  test('P3: JS bitwise and modulo operators lower to semantically equivalent Python with helper imports', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=get path=/api/num',
+      '    derive a expr={{a|z}}',
+      '    derive b expr={{a>>b}}',
+      '    derive c expr={{a%b}}',
+      '    respond 200 json=c',
+    ]);
+    const code = routeContent(result, 'num');
+    expect(code).toContain('_i32(_i32(a) | _i32(z))');
+    expect(code).toContain('_i32(_i32(a) >> (_i32(b) & 31))');
+    expect(code).toContain('_tmod(a, b)');
+    expect(code).toContain('def _i32(x):');
+    expect(code).toContain('def _tmod(a, b):');
+  });
 });

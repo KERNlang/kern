@@ -8,9 +8,10 @@
  */
 
 import type { IRNode } from '@kernlang/core';
-import { getProps } from '@kernlang/core';
+import { getProps, parseExpression, emitExpression } from '@kernlang/core';
 import { escapePyStr, quoteObjectKeysOutsideStrings } from './fastapi-utils.js';
 import { toSnakeCase } from './type-map.js';
+import { lowerBitwiseAndModuloAST, registerHelpers, KERN_I32_HELPER_PY, KERN_TMOD_HELPER_PY } from './codegen-body-python.js';
 
 export function generateRespondFastAPI(respondNode: IRNode, indent: string): string[] {
   const p = getProps(respondNode);
@@ -1269,6 +1270,17 @@ export function rewriteFastAPIExpr(
   authUser = false,
   imports?: Set<string>,
 ): string {
+  try {
+    const tokens = tokenizeJSExpr(expr);
+    const hasBitwiseOrModulo = tokens.some(t => t.type === 'UNARY' || t.type === 'OP');
+    if (hasBitwiseOrModulo) {
+      const ast = parseTokens(tokens);
+      expr = codegenASTToPython(ast, imports);
+    }
+  } catch (err) {
+    // Graceful fallback to original expr string if parsing/emission fails
+  }
+
   const { maskedExpr, replacements } = extractTemplateLiterals(expr, pathParams, bodyFields, authUser, imports);
   let result = maskedExpr;
   // Spread → unpacking first, so the request-ref rewrites below see clean
@@ -1415,4 +1427,265 @@ export function addRespondImports(respondNode: IRNode, imports: Set<string>): vo
   if (typeof rp.status === 'number' && !rp.json && !rp.text && !rp.redirect && !rp.error)
     imports.add('from fastapi.responses import Response');
   if (rp.error) imports.add('from fastapi import HTTPException');
+}
+
+type Token = 
+  | { type: 'LP' }
+  | { type: 'RP' }
+  | { type: 'OP'; value: '|' | '&' | '^' | '<<' | '>>' | '%' }
+  | { type: 'UNARY'; value: '~' }
+  | { type: 'TEXT'; value: string };
+
+function tokenizeJSExpr(expr: string): Token[] {
+  const tokens: Token[] = [];
+  let i = 0;
+  while (i < expr.length) {
+    while (i < expr.length && /\s/.test(expr[i])) {
+      i++;
+    }
+    if (i >= expr.length) break;
+    
+    const char = expr[i];
+    
+    if (char === '(') {
+      tokens.push({ type: 'LP' });
+      i++;
+      continue;
+    }
+    if (char === ')') {
+      tokens.push({ type: 'RP' });
+      i++;
+      continue;
+    }
+    if (char === '~') {
+      tokens.push({ type: 'UNARY', value: '~' });
+      i++;
+      continue;
+    }
+    
+    if (char === '"' || char === "'" || char === '`') {
+      const quote = char;
+      let val = quote;
+      i++;
+      while (i < expr.length) {
+        const c = expr[i];
+        val += c;
+        if (c === '\\') {
+          val += expr[i + 1] ?? '';
+          i += 2;
+          continue;
+        }
+        if (c === quote) {
+          i++;
+          break;
+        }
+        i++;
+      }
+      tokens.push({ type: 'TEXT', value: val });
+      continue;
+    }
+    
+    if (char === '&') {
+      if (expr[i + 1] === '&') {
+        // Fall through to TEXT
+      } else {
+        tokens.push({ type: 'OP', value: '&' });
+        i++;
+        continue;
+      }
+    }
+    if (char === '|') {
+      if (expr[i + 1] === '|') {
+        // Fall through to TEXT
+      } else {
+        tokens.push({ type: 'OP', value: '|' });
+        i++;
+        continue;
+      }
+    }
+    if (char === '^' || char === '%') {
+      tokens.push({ type: 'OP', value: char });
+      i++;
+      continue;
+    }
+    if (char === '<' && expr[i + 1] === '<') {
+      tokens.push({ type: 'OP', value: '<<' });
+      i += 2;
+      continue;
+    }
+    if (char === '>' && expr[i + 1] === '>') {
+      tokens.push({ type: 'OP', value: '>>' });
+      i += 2;
+      continue;
+    }
+    
+    let text = '';
+    while (i < expr.length) {
+      const c = expr[i];
+      if (c === '(' || c === ')' || c === '~' || c === '^' || c === '%') {
+        break;
+      }
+      if (c === '"' || c === "'" || c === '`') {
+        break;
+      }
+      if (c === '&') {
+        if (expr[i + 1] === '&') {
+          text += '&&';
+          i += 2;
+          continue;
+        } else {
+          break;
+        }
+      }
+      if (c === '|') {
+        if (expr[i + 1] === '|') {
+          text += '||';
+          i += 2;
+          continue;
+        } else {
+          break;
+        }
+      }
+      if (c === '<' && expr[i + 1] === '<') {
+        break;
+      }
+      if (c === '>' && expr[i + 1] === '>') {
+        break;
+      }
+      text += c;
+      i++;
+    }
+    if (text) {
+      tokens.push({ type: 'TEXT', value: text.trimEnd() });
+    }
+  }
+  return tokens;
+}
+
+interface ASTNode {
+  type: 'binary' | 'unary' | 'text' | 'group';
+  op?: string;
+  left?: ASTNode;
+  right?: ASTNode;
+  arg?: ASTNode;
+  value?: string;
+}
+
+function parseTokens(tokens: Token[]): ASTNode {
+  let index = 0;
+  
+  function peek(): Token | undefined {
+    return tokens[index];
+  }
+  
+  function consume(): Token {
+    return tokens[index++];
+  }
+  
+  function getPrecedence(op: string): number {
+    switch (op) {
+      case '|': return 1;
+      case '^': return 2;
+      case '&': return 3;
+      case '<<':
+      case '>>': return 4;
+      case '%': return 5;
+      default: return 0;
+    }
+  }
+  
+  function parseExpression(precedence: number): ASTNode {
+    let left = parsePrimary();
+    
+    while (true) {
+      const next = peek();
+      if (!next || next.type !== 'OP') break;
+      
+      const opPrecedence = getPrecedence(next.value);
+      if (opPrecedence < precedence) break;
+      
+      consume();
+      const right = parseExpression(opPrecedence + 1);
+      left = { type: 'binary', op: next.value, left, right };
+    }
+    
+    return left;
+  }
+  
+  function parsePrimary(): ASTNode {
+    const t = peek();
+    if (!t) throw new Error('Unexpected EOF');
+    
+    if (t.type === 'UNARY') {
+      consume();
+      const arg = parseExpression(6);
+      return { type: 'unary', op: t.value, arg };
+    }
+    
+    if (t.type === 'LP') {
+      consume();
+      const inner = parseExpression(0);
+      const next = peek();
+      if (next && next.type === 'RP') {
+        consume();
+      }
+      return { type: 'group', arg: inner };
+    }
+    
+    if (t.type === 'TEXT') {
+      consume();
+      return { type: 'text', value: t.value };
+    }
+    
+    consume();
+    return { type: 'text', value: t.type === 'OP' ? t.value : '' };
+  }
+  
+  return parseExpression(0);
+}
+
+function codegenASTToPython(node: ASTNode, imports?: Set<string>): string {
+  switch (node.type) {
+    case 'text':
+      return node.value!;
+    case 'group':
+      return `(${codegenASTToPython(node.arg!, imports)})`;
+    case 'unary': {
+      const argStr = codegenASTToPython(node.arg!, imports);
+      if (node.op === '~') {
+        imports?.add(KERN_I32_HELPER_PY);
+        return `_i32(~_i32(${argStr}))`;
+      }
+      return `${node.op}${argStr}`;
+    }
+    case 'binary': {
+      const leftStr = codegenASTToPython(node.left!, imports);
+      const rightStr = codegenASTToPython(node.right!, imports);
+      if (node.op === '|') {
+        imports?.add(KERN_I32_HELPER_PY);
+        return `_i32(_i32(${leftStr}) | _i32(${rightStr}))`;
+      }
+      if (node.op === '&') {
+        imports?.add(KERN_I32_HELPER_PY);
+        return `_i32(_i32(${leftStr}) & _i32(${rightStr}))`;
+      }
+      if (node.op === '^') {
+        imports?.add(KERN_I32_HELPER_PY);
+        return `_i32(_i32(${leftStr}) ^ _i32(${rightStr}))`;
+      }
+      if (node.op === '<<') {
+        imports?.add(KERN_I32_HELPER_PY);
+        return `_i32(_i32(${leftStr}) << (_i32(${rightStr}) & 31))`;
+      }
+      if (node.op === '>>') {
+        imports?.add(KERN_I32_HELPER_PY);
+        return `_i32(_i32(${leftStr}) >> (_i32(${rightStr}) & 31))`;
+      }
+      if (node.op === '%') {
+        imports?.add(KERN_TMOD_HELPER_PY);
+        return `_tmod(${leftStr}, ${rightStr})`;
+      }
+      return `${leftStr} ${node.op} ${rightStr}`;
+    }
+  }
 }
