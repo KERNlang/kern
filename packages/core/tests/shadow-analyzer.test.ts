@@ -52,6 +52,32 @@ describe('Shadow Analyzer — realTypes (project-wide imported types)', () => {
     );
     expect(diagnostics.filter((d) => d.rule === 'shadow-ts')).toHaveLength(0);
   });
+
+  it('an in-file declaration wins over an imported type of the same name', async () => {
+    // Imported NeroResult = { ok: boolean }; in-file NeroResult = { ok: number }.
+    // Returning { ok: 1 } must be CLEAN — proving the fence is checked against the
+    // in-file shape, not the import (otherwise `1` would fail `ok: boolean`).
+    const importedNeroResult = findNode(
+      parse('interface name=NeroResult\n  field name=ok type=boolean'),
+      'interface',
+      'NeroResult',
+    );
+    if (!importedNeroResult) throw new Error('test fixture parse failed');
+    const source = [
+      'interface name=NeroResult',
+      '  field name=ok type=number',
+      '',
+      'fn name=run returns=NeroResult',
+      '  handler <<<',
+      '    return { ok: 1 };',
+      '  >>>',
+    ].join('\n');
+    const diagnostics = await analyzeShadow(parse(source), {
+      realTypes: true,
+      importedTypeNodes: new Map([['NeroResult', importedNeroResult]]),
+    });
+    expect(diagnostics.filter((d) => d.rule === 'shadow-ts')).toHaveLength(0);
+  });
 });
 
 describe('Shadow Analyzer — realTypes (in-file declared types)', () => {
