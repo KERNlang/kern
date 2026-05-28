@@ -218,6 +218,22 @@ describe('Host-builtin mapping (Python target)', () => {
     expect(code).not.toContain('Math.max');
   });
 
+  test('Math.sign lowers to Python ternary expression', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=get path=/api/math-sign',
+      '    derive signNeg expr={{Math.sign(-5)}}',
+      '    derive signZero expr={{Math.sign(0)}}',
+      '    derive signPos expr={{Math.sign(3)}}',
+      '    respond 200 json={{ {signNeg, signZero, signPos} }}',
+    ]);
+    const code = routeContent(result, 'math_sign');
+    expect(code).toContain('(1 if -5 > 0 else (-1 if -5 < 0 else 0))');
+    expect(code).toContain('(1 if 0 > 0 else (-1 if 0 < 0 else 0))');
+    expect(code).toContain('(1 if 3 > 0 else (-1 if 3 < 0 else 0))');
+    expect(code).not.toContain('Math.sign');
+  });
+
   test('string case builtins lower to Python string methods', async () => {
     const result = await transpile([
       'server name=API port=8000',
@@ -272,6 +288,60 @@ describe('Host-builtin mapping (Python target)', () => {
     expect(code).not.toContain('Object.entries');
     expect(code).not.toContain('Array.isArray');
     expect(code).not.toContain('Date.now()');
+  });
+
+  test('Object.assign lowers to dict merge', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=post path=/api/merge',
+      '    schema body="{a: number, b: number}"',
+      '    derive merged expr={{Object.assign({}, body, {c: 3})}}',
+      '    respond 200 json=merged',
+    ]);
+    const code = routeContent(result, 'merge');
+    expect(code).toContain('{**{}, **body.model_dump(), **{"c": 3}}');
+    expect(code).not.toContain('Object.assign');
+  });
+
+  test('Object.fromEntries lowers to dict()', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=post path=/api/from-entries',
+      '    schema body="{pairs: any}"',
+      '    derive obj expr={{Object.fromEntries(body.pairs)}}',
+      '    respond 200 json=obj',
+    ]);
+    const code = routeContent(result, 'from_entries');
+    expect(code).toContain('dict(body.pairs)');
+    expect(code).not.toContain('Object.fromEntries');
+  });
+
+  test('Object.assign and Object.fromEntries inside string literals are not rewritten', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=get path=/api/obj-lit2',
+      '    derive s expr={{tag("Object.assign(x,y) Object.fromEntries(z)")}}',
+      '    respond 200 json=s',
+    ]);
+    const code = routeContent(result, 'obj_lit2');
+    expect(code).toContain('"Object.assign(x,y) Object.fromEntries(z)"');
+    expect(code).not.toContain('dict(z)');
+    expect(code).not.toContain('{**x, **y}');
+  });
+
+  test('custom receivers ending in Object names are not rewritten for assign/fromEntries', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=get path=/api/obj-recv2',
+      '    derive a expr={{myObject.assign(x, y)}}',
+      '    derive b expr={{obj.Object.fromEntries(z)}}',
+      '    respond 200 json=a',
+    ]);
+    const code = routeContent(result, 'obj_recv2');
+    expect(code).toContain('myObject.assign(x, y)');
+    expect(code).toContain('obj.Object.fromEntries(z)');
+    expect(code).not.toContain('{**x, **y}');
+    expect(code).not.toContain('dict(z)');
   });
 
   test('Object/Array/Date builtins inside string literals are not rewritten', async () => {
