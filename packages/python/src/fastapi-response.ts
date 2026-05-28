@@ -162,8 +162,21 @@ function parseArrowCallback(inner: string): { params: string[]; body: string } |
 // bound element is dict-subscripted so a list-of-dicts iterates correctly.
 const ARROW_ARRAY_METHODS = new Set(['filter', 'map', 'find', 'findIndex', 'findLast', 'findLastIndex', 'flatMap']);
 const PORTABLE_ARRAY_METHODS = new Set([
-  'includes', 'indexOf', 'join', 'slice', 'some', 'every', 'reduce',
-  'sort', 'flat', 'at', 'reverse', 'concat', 'fill', 'lastIndexOf', 'reduceRight',
+  'includes',
+  'indexOf',
+  'join',
+  'slice',
+  'some',
+  'every',
+  'reduce',
+  'sort',
+  'flat',
+  'at',
+  'reverse',
+  'concat',
+  'fill',
+  'lastIndexOf',
+  'reduceRight',
 ]);
 const LAMBDA_COLON_PLACEHOLDER = '__KERN_LAMBDA_COLON__';
 
@@ -738,7 +751,9 @@ function lowerNumberBuiltinCalls(expr: string, imports?: Set<string>): string {
 
     const m = expr
       .slice(i)
-      .match(/^(?:Number\.isInteger|Number\.isSafeInteger|Number\.parseInt|Number\.parseFloat|Number|parseInt|parseFloat|isNaN|isFinite)\(/);
+      .match(
+        /^(?:Number\.isInteger|Number\.isSafeInteger|Number\.parseInt|Number\.parseFloat|Number|parseInt|parseFloat|isNaN|isFinite)\(/,
+      );
     const prev = expr[i - 1];
     if (m && !(prev && /[\w.]/.test(prev))) {
       const match = m[0];
@@ -1082,7 +1097,9 @@ function lowerObjectArrayDateBuiltinCalls(expr: string, imports?: Set<string>): 
       i += 1;
       continue;
     }
-    const m = expr.slice(i).match(/^(Object\.(keys|values|entries|assign|fromEntries)|Array\.(isArray|of)|String\.fromCharCode)\(/);
+    const m = expr
+      .slice(i)
+      .match(/^(Object\.(keys|values|entries|assign|fromEntries)|Array\.(isArray|of)|String\.fromCharCode)\(/);
     const prev = expr[i - 1];
     if (m && !(prev && /[\w.]/.test(prev))) {
       const method = m[1];
@@ -1106,16 +1123,23 @@ function lowerObjectArrayDateBuiltinCalls(expr: string, imports?: Set<string>): 
           out += `dict(${arg})`;
         } else if (method === 'Array.of') {
           // Array.of(...items) is a plain list of its args (NOT Array(n) length).
-          const args = rawArgs.trim() === ''
-            ? []
-            : splitTopLevelArgs(rawArgs).map((a) => lowerObjectArrayDateBuiltinCalls(a, imports).trim());
+          const args =
+            rawArgs.trim() === ''
+              ? []
+              : splitTopLevelArgs(rawArgs).map((a) => lowerObjectArrayDateBuiltinCalls(a, imports).trim());
           out += `[${args.join(', ')}]`;
         } else if (method === 'String.fromCharCode') {
           // chr() per code unit; join when there are several.
-          const args = rawArgs.trim() === ''
-            ? []
-            : splitTopLevelArgs(rawArgs).map((a) => lowerObjectArrayDateBuiltinCalls(a, imports).trim());
-          out += args.length === 0 ? '""' : args.length === 1 ? `chr(${args[0]})` : `''.join(chr(__c) for __c in [${args.join(', ')}])`;
+          const args =
+            rawArgs.trim() === ''
+              ? []
+              : splitTopLevelArgs(rawArgs).map((a) => lowerObjectArrayDateBuiltinCalls(a, imports).trim());
+          out +=
+            args.length === 0
+              ? '""'
+              : args.length === 1
+                ? `chr(${args[0]})`
+                : `''.join(chr(__c) for __c in [${args.join(', ')}])`;
         } else {
           const arg = lowerObjectArrayDateBuiltinCalls(rawArgs, imports).trim();
           if (method === 'Object.keys') out += `list(${arg}.keys())`;
