@@ -1,5 +1,6 @@
 import { parse } from '../src/parser.js';
 import { analyzeShadow } from '../src/shadow-analyzer.js';
+import type { IRNode } from '../src/types.js';
 
 async function analyze(source: string) {
   return analyzeShadow(parse(source));
@@ -8,6 +9,50 @@ async function analyze(source: string) {
 async function analyzeReal(source: string) {
   return analyzeShadow(parse(source), { realTypes: true });
 }
+
+function findNode(node: IRNode, type: string, name: string): IRNode | undefined {
+  if (node.type === type && node.props?.name === name) return node;
+  for (const child of node.children ?? []) {
+    const found = findNode(child, type, name);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+describe('Shadow Analyzer — realTypes (project-wide imported types)', () => {
+  const registryNode = (): IRNode => {
+    const n = findNode(parse('interface name=EngineRegistry\n  field name=count type=number'), 'interface', 'EngineRegistry');
+    if (!n) throw new Error('test fixture parse failed');
+    return n;
+  };
+  const consumer = (access: string) =>
+    ['fn name=run params="r:EngineRegistry" returns=number', '  handler <<<', `    return ${access};`, '  >>>'].join('\n');
+
+  it('checks a fence against a resolved imported interface (missing field caught)', async () => {
+    const diagnostics = await analyzeShadow(parse(consumer('r.missing')), {
+      realTypes: true,
+      importedTypeNodes: new Map([['EngineRegistry', registryNode()]]),
+    });
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ rule: 'shadow-ts', nodeType: 'fn', tsCode: 2339 })]),
+    );
+  });
+
+  it('a correct access against the resolved import is clean', async () => {
+    const diagnostics = await analyzeShadow(parse(consumer('r.count')), {
+      realTypes: true,
+      importedTypeNodes: new Map([['EngineRegistry', registryNode()]]),
+    });
+    expect(diagnostics.filter((d) => d.rule === 'shadow-ts')).toHaveLength(0);
+  });
+
+  it('unresolved imported param type degrades cleanly (no false positive)', async () => {
+    const diagnostics = await analyzeReal(
+      ['fn name=run params="r:EngineRegistry" returns=number', '  handler <<<', '    return 1;', '  >>>'].join('\n'),
+    );
+    expect(diagnostics.filter((d) => d.rule === 'shadow-ts')).toHaveLength(0);
+  });
+});
 
 describe('Shadow Analyzer — realTypes (in-file declared types)', () => {
   const misusedReturn = [

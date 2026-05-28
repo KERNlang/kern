@@ -103,6 +103,17 @@ export interface ShadowAnalyzeOptions {
    * behavior). Project-wide (cross-module) resolution layers on top of this seam.
    */
   realTypes?: boolean;
+  /**
+   * Project-wide resolution: imported type nodes keyed by the name they are referenced
+   * by inside this file (the import's local/aliased name). The caller (CLI compile path)
+   * resolves a file's KERN imports to the exported type IR and supplies them here so a
+   * fence using `NeroOptions{registry: EngineRegistry}` is checked against the real
+   * `@agon/core` shapes. Only honored when `realTypes` is set; in-file declarations win
+   * on a name clash. The map need not be transitively complete — any referenced type the
+   * map omits degrades cleanly to `any` (no false positive), so partial resolution just
+   * means partial checking.
+   */
+  importedTypeNodes?: Map<string, IRNode>;
 }
 
 // ── Internal ───────────────────────────────────────────────────────────────
@@ -204,7 +215,17 @@ export async function analyzeShadow(
   }
 
   const declaredTypeNames = collectDeclaredTypeNames(root);
-  const realTypeNodes = analyzeOptions.realTypes ? collectDeclaredTypeNodes(root) : new Map<string, IRNode>();
+  // Type names used in fn/method SIGNATURES (params/returns) land in the `__shadow`
+  // wrapper, where an undefined type errors and is attributed to the handler (a false
+  // positive). Stub any such name that isn't declared/resolved as `any` so the signature
+  // resolves — "rather miss than false-positive". Fixes the pre-existing case of a fn with
+  // an imported param type, and makes unresolved imports degrade cleanly under realTypes.
+  const referencedTypeNames = collectReferencedSignatureTypeNames(root);
+  // In-file declarations win over imported ones on a name clash (a local declaration
+  // shadows an import). Imported nodes are seeded first, then overwritten by in-file.
+  const realTypeNodes = analyzeOptions.realTypes
+    ? new Map<string, IRNode>([...(analyzeOptions.importedTypeNodes ?? []), ...collectDeclaredTypeNodes(root)])
+    : new Map<string, IRNode>();
   const moduleDeclarations = collectModuleDeclarations(root);
   const diagnostics: ShadowDiagnostic[] = [];
   const units: HandlerUnit[] = [];
@@ -225,7 +246,7 @@ export async function analyzeShadow(
 
   const supportFileName = '/__kern_shadow__/support.d.ts';
   const files = new Map<string, string>([
-    [supportFileName, buildSupportFile(declaredTypeNames, moduleDeclarations, realTypeNodes)],
+    [supportFileName, buildSupportFile(declaredTypeNames, moduleDeclarations, realTypeNodes, referencedTypeNames)],
   ]);
   const unitsByFile = new Map<string, HandlerUnit>();
 
@@ -478,15 +499,21 @@ function buildSupportFile(
   declaredTypeNames: Set<string>,
   moduleDeclarations: string[],
   realTypeNodes: Map<string, IRNode>,
+  referencedTypeNames: Set<string> = new Set(),
 ): string {
-  const extraTypes = [...declaredTypeNames]
+  // Union of: in-file declared names; caller-supplied imported type names (not in
+  // declaredTypeNames, which only walks this file); and signature-referenced names (which
+  // must exist so the `__shadow` wrapper doesn't error). Names with a real node emit the
+  // real shape; the rest fall through to an `any` stub.
+  const allNames = new Set<string>([...declaredTypeNames, ...realTypeNodes.keys(), ...referencedTypeNames]);
+  const extraTypes = [...allNames]
     .filter((name) => !BUILTIN_TYPE_NAMES.has(name))
     .sort()
     .flatMap((name) => {
       const node = realTypeNodes.get(name);
-      // Real in-file shape when available + opted in; otherwise the lossy `any` stub.
-      // A name absent from realTypeNodes is either an imported/unresolved type (still `any`
-      // until project-wide resolution lands) or a non-emittable kind (service/model/error).
+      // Real shape (in-file or resolved import) when available + opted in; otherwise the
+      // lossy `any` stub. A name absent from realTypeNodes is an unresolved import or a
+      // non-emittable kind (service/model/error) — either way it degrades to `any`.
       return node ? emitRealShadowType(node) : [`type ${name} = any;`];
     });
 
@@ -796,6 +823,31 @@ function collectDeclaredTypeNodes(root: IRNode): Map<string, IRNode> {
   });
 
   return nodes;
+}
+
+// Node kinds that carry a typed signature (params/returns) which is reproduced in the
+// `__shadow` wrapper, so any type name they reference must exist in the support file.
+const SIGNATURE_NODE_TYPES = new Set(['fn', 'method', 'on', 'constructor', 'getter', 'setter']);
+
+/** PascalCase type names referenced in fn/method signature positions (params + returns).
+ *  Undeclared ones get an `any` stub in the support file so the wrapper signature resolves
+ *  instead of erroring on the handler. Lowercase tokens (param names, primitives, keywords)
+ *  are skipped by the PascalCase match; builtin PascalCase types (Promise/Array/...) are
+ *  filtered later by BUILTIN_TYPE_NAMES, so they never get a bogus stub. */
+function collectReferencedSignatureTypeNames(root: IRNode): Set<string> {
+  const names = new Set<string>();
+  const add = (typeText: unknown): void => {
+    if (typeof typeText !== 'string') return;
+    for (const match of typeText.matchAll(/[A-Z][A-Za-z0-9_$]*/g)) {
+      names.add(match[0]);
+    }
+  };
+  walk(root, [], (node) => {
+    if (!SIGNATURE_NODE_TYPES.has(node.type)) return;
+    add(node.props?.params);
+    add(node.props?.returns);
+  });
+  return names;
 }
 
 /** Shadow type-emission adapter around the pure codegen emitters. Emits the type with
