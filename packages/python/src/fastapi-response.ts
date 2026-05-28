@@ -537,7 +537,7 @@ function lowerMathBuiltinCalls(expr: string, imports?: Set<string>): string {
     const m = expr
       .slice(i)
       .match(
-        /^(?:(?:Number|Math)\.(floor|ceil|round|abs|trunc|isFinite|isNaN)|Math\.(min|max|pow|sqrt|hypot|random|sign|cbrt|log10|log2|log|exp|sin|cos|atan2))\(/,
+        /^(?:(?:Number|Math)\.(floor|ceil|round|abs|trunc|isFinite|isNaN)|Math\.(min|max|pow|sqrt|hypot|random|sign|log10|log2|log|exp|sin|cos|atan2))\(/,
       );
     const prev = expr[i - 1];
     // Math.PI / Math.E are constants (no call), so the call regex never sees
@@ -621,12 +621,10 @@ function lowerMathBuiltinCalls(expr: string, imports?: Set<string>): string {
             // JS Math.sign returns -1, 0, or 1; 0 args → NaN.
             out += loweredArgs.length === 0 ? 'float("nan")' : `(1 if ${arg} > 0 else (-1 if ${arg} < 0 else 0))`;
             break;
-          case 'cbrt':
-            // math.cbrt is correctly-rounded (Python 3.11+); pow(x, 1/3) is NOT
-            // (cbrt(27) would give 2.9999…). Matches V8's Math.cbrt bit-for-bit.
-            imports?.add('import math as __k_math');
-            out += `__k_math.cbrt(${arg})`;
-            break;
+          // Math.cbrt is intentionally NOT lowered: V8's Math.cbrt and the
+          // platform libm cbrt disagree in the last ulp (Linux: cbrt(27) =
+          // 3.0000000000000004, V8 = 3), so no Python expression reproduces it
+          // bit-for-bit — same out-of-scope reason as toPrecision.
           case 'log':
             imports?.add('import math as __k_math');
             out += `__k_math.log(${arg})`;

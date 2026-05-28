@@ -370,8 +370,10 @@ const FIXTURES = [
   // ──────────────────────────────────────────────────────────────────────────
 
   // ── math-extra: math-module functions/constants not lowered → NameError ──
-  { name: 'math-extra: cbrt(27)', expr: 'Math.cbrt(x)', path: '/api/m', bindings: { locals: { x: 27 } }, expected: 3 },
-  { name: 'math-extra: cbrt(-8) negative', expr: 'Math.cbrt(x)', path: '/api/m', bindings: { locals: { x: -8 } }, expected: -2 },
+  // NB: Math.cbrt is OUT OF SCOPE — V8's Math.cbrt and platform libm cbrt
+  // disagree in the last ulp (Linux: cbrt(27) = 3.0000000000000004 vs V8's 3),
+  // so it has no bit-exact Python lowering. macOS libm happens to agree, which
+  // hid this locally — CI on Linux is the real cross-platform check.
   { name: 'math-extra: log natural (ln 1 = 0)', expr: 'Math.log(x)', path: '/api/m', bindings: { locals: { x: 1 } }, expected: 0 },
   { name: 'math-extra: log natural (ln 2)', expr: 'Math.log(x)', path: '/api/m', bindings: { locals: { x: 2 } }, expected: Math.log(2) },
   { name: 'math-extra: log2(8)', expr: 'Math.log2(x)', path: '/api/m', bindings: { locals: { x: 8 } }, expected: 3 },
