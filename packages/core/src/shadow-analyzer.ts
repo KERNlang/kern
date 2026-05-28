@@ -12,6 +12,7 @@
  */
 
 import { parseParamList } from './codegen/helpers.js';
+import { generateInterface, generateType, generateUnion } from './codegen/type-system.js';
 import type { IRNode } from './types.js';
 
 // ── Structural TypeScript surface — avoids leaking `typescript` into consumer type graphs ──
@@ -92,6 +93,16 @@ export interface ShadowDiagnostic {
   line?: number;
   col?: number;
   tsCode?: number;
+}
+
+export interface ShadowAnalyzeOptions {
+  /**
+   * Emit the real TypeScript shape for in-file declared types (interface/union/type)
+   * into the shadow support file instead of the lossy `type X = any;` stub, so fence
+   * bodies are checked against actual domain shapes. Default `false` (legacy any-stub
+   * behavior). Project-wide (cross-module) resolution layers on top of this seam.
+   */
+  realTypes?: boolean;
 }
 
 // ── Internal ───────────────────────────────────────────────────────────────
@@ -175,7 +186,10 @@ const DECLARING_NODE_TYPES = new Set([
   'repository',
 ]);
 
-export async function analyzeShadow(root: IRNode): Promise<ShadowDiagnostic[]> {
+export async function analyzeShadow(
+  root: IRNode,
+  analyzeOptions: ShadowAnalyzeOptions = {},
+): Promise<ShadowDiagnostic[]> {
   const ts = await loadTypeScript();
   if (!ts) {
     return [
@@ -190,6 +204,7 @@ export async function analyzeShadow(root: IRNode): Promise<ShadowDiagnostic[]> {
   }
 
   const declaredTypeNames = collectDeclaredTypeNames(root);
+  const realTypeNodes = analyzeOptions.realTypes ? collectDeclaredTypeNodes(root) : new Map<string, IRNode>();
   const moduleDeclarations = collectModuleDeclarations(root);
   const diagnostics: ShadowDiagnostic[] = [];
   const units: HandlerUnit[] = [];
@@ -209,7 +224,9 @@ export async function analyzeShadow(root: IRNode): Promise<ShadowDiagnostic[]> {
   if (units.length === 0) return diagnostics;
 
   const supportFileName = '/__kern_shadow__/support.d.ts';
-  const files = new Map<string, string>([[supportFileName, buildSupportFile(declaredTypeNames, moduleDeclarations)]]);
+  const files = new Map<string, string>([
+    [supportFileName, buildSupportFile(declaredTypeNames, moduleDeclarations, realTypeNodes)],
+  ]);
   const unitsByFile = new Map<string, HandlerUnit>();
 
   for (const unit of units) {
@@ -457,11 +474,21 @@ function createUnit({
   };
 }
 
-function buildSupportFile(declaredTypeNames: Set<string>, moduleDeclarations: string[]): string {
+function buildSupportFile(
+  declaredTypeNames: Set<string>,
+  moduleDeclarations: string[],
+  realTypeNodes: Map<string, IRNode>,
+): string {
   const extraTypes = [...declaredTypeNames]
     .filter((name) => !BUILTIN_TYPE_NAMES.has(name))
     .sort()
-    .map((name) => `type ${name} = any;`);
+    .flatMap((name) => {
+      const node = realTypeNodes.get(name);
+      // Real in-file shape when available + opted in; otherwise the lossy `any` stub.
+      // A name absent from realTypeNodes is either an imported/unresolved type (still `any`
+      // until project-wide resolution lands) or a non-emittable kind (service/model/error).
+      return node ? emitRealShadowType(node) : [`type ${name} = any;`];
+    });
 
   // `lib: ['lib.es2022.d.ts']` strips Node's ambient runtime globals, so we stub the
   // handful that real handlers routinely reach for. Typed as `any` to avoid downstream
@@ -747,6 +774,50 @@ function collectDeclaredTypeNames(root: IRNode): Set<string> {
   });
 
   return names;
+}
+
+// Node kinds whose real TS shape we can emit into the support file via the pure
+// codegen emitters. Deliberately narrower than DECLARING_NODE_TYPES: service/class/
+// repository compile to values (handled as `declare const` in collectModuleDeclarations)
+// and model/event/error have value/runtime-adjacent emission, so they stay `any` stubs.
+const EMITTABLE_TYPE_NODES = new Set(['interface', 'union', 'type']);
+
+/** Map of declared type name -> IR node for the kinds whose real shape is emittable.
+ *  First declaration wins on a name clash (mirrors single-file scope). */
+function collectDeclaredTypeNodes(root: IRNode): Map<string, IRNode> {
+  const nodes = new Map<string, IRNode>();
+
+  walk(root, [], (node) => {
+    if (!EMITTABLE_TYPE_NODES.has(node.type)) return;
+    const name = typeof node.props?.name === 'string' ? node.props.name : '';
+    if (name && /^[A-Za-z_]\w*$/.test(name) && !nodes.has(name)) {
+      nodes.set(name, node);
+    }
+  });
+
+  return nodes;
+}
+
+/** Shadow type-emission adapter around the pure codegen emitters. Strips `export`
+ *  so the declaration is ambient in the `/// <reference>`-d support file rather than
+ *  a module export (which would hide it from the virtual handler files). This is the
+ *  seam where project-wide canonical-id mangling will layer in. */
+function emitRealShadowType(node: IRNode): string[] {
+  let lines: string[];
+  switch (node.type) {
+    case 'interface':
+      lines = generateInterface(node);
+      break;
+    case 'union':
+      lines = generateUnion(node);
+      break;
+    case 'type':
+      lines = generateType(node);
+      break;
+    default:
+      return [`type ${typeof node.props?.name === 'string' ? node.props.name : 'Unknown'} = any;`];
+  }
+  return lines.map((line) => line.replace(/^export /, ''));
 }
 
 function walk(node: IRNode, ancestors: IRNode[], visit: (node: IRNode, ancestors: IRNode[]) => void): void {
