@@ -318,6 +318,8 @@ const FIXTURES = [
   { name: 'arr-method: some (scalar predicate)', expr: 'nums.some((n) => n === 2)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: true },
   { name: 'arr-method: every (scalar predicate)', expr: 'nums.every((n) => n > 0)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: true },
   { name: 'arr-method: reduce sum with seed', expr: 'nums.reduce((a, b) => a + b, 0)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: 6 },
+  // push mutates AND returns the new length (JS) -> Python `(recv.append(x) or len(recv))` (#6).
+  { name: 'arr-method: push returns new length', expr: 'nums.push(9)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: 4 },
 
   // ── str-method: string methods NOT yet lowered → AttributeError on Python ──
   // split(sep, limit) is the SILENT trap: JS keeps the first `limit` parts;

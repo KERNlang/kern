@@ -162,7 +162,7 @@ function parseArrowCallback(inner: string): { params: string[]; body: string } |
 // receiver — the failure mode of the prior regex form. Member access on the
 // bound element is dict-subscripted so a list-of-dicts iterates correctly.
 const ARROW_ARRAY_METHODS = new Set(['filter', 'map', 'find']);
-const PORTABLE_ARRAY_METHODS = new Set(['includes', 'indexOf', 'join', 'slice', 'some', 'every', 'reduce']);
+const PORTABLE_ARRAY_METHODS = new Set(['includes', 'indexOf', 'join', 'slice', 'some', 'every', 'reduce', 'push']);
 const LAMBDA_COLON_PLACEHOLDER = '__KERN_LAMBDA_COLON__';
 
 function lowerJsArrayMethods(expr: string, imports?: Set<string>): string {
@@ -248,6 +248,11 @@ function lowerJsArrayMethods(expr: string, imports?: Set<string>): string {
           } else {
             lowered = `(next((__i for __i, __v in enumerate(${receiver}) if __v == ${needle}), -1))`;
           }
+        } else if (method === 'push') {
+          // JS Array.push mutates AND returns the new length. Python list.append
+          // returns None, so emit `(recv.append(x) or len(recv))` for exact parity
+          // (mutate + length). Single-arg only; varargs push left unsupported.
+          if (args.length === 1) lowered = `(${receiver}.append(${args[0]}) or len(${receiver}))`;
         } else if (method === 'join') {
           const sep = args[0] ?? '","';
           lowered = `${sep}.join(str(__v) for __v in ${receiver})`;
