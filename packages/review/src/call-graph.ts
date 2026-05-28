@@ -40,8 +40,12 @@ export interface CallSite {
   argumentCount: number;
   /** False = could not resolve target (HOF, dynamic, computed property, etc.) */
   resolved: boolean;
-  /** Whether the call site is awaited */
-  hasAwait: boolean;
+  /** Whether the call's promise is HANDLED rather than left floating — true when
+   *  the call is awaited, returned, assigned/captured, passed as an argument
+   *  (e.g. an element of `Promise.all([...])`), void-ed, or `.then`/`.catch`
+   *  chained. False only when the call is a bare value-discarding statement.
+   *  Mirrors the single-file floating-promise rule's "expression statement" test. */
+  isHandled: boolean;
 }
 
 export interface FunctionNode {
@@ -490,9 +494,17 @@ function extractCallSites(
     const callee = call.getExpression();
     const args = call.getArguments();
 
-    // Check if the call is awaited
+    // A promise floats only when its value is DISCARDED — i.e. the call sits
+    // directly as an expression statement. Every other position hands the
+    // promise off: `await f()` (AwaitExpression), `return f()` (ReturnStatement),
+    // `const x = f()` (VariableDeclaration), `Promise.all([f(), g()])` (the call
+    // is an array element / argument), `void f()`, `f().then(...)/.catch(...)`.
+    // So a single "is the parent an ExpressionStatement?" test captures handling
+    // correctly — matching the single-file floating-promise rule, which only
+    // walks expression statements. (Previously this only checked for a direct
+    // AwaitExpression parent, which false-flagged `await Promise.all([f()])`.)
     const parent = call.getParent();
-    const hasAwait = parent?.getKind() === SyntaxKind.AwaitExpression;
+    const isHandled = parent?.getKind() !== SyntaxKind.ExpressionStatement;
 
     const calleeKind = callee.getKindName();
 
@@ -513,7 +525,7 @@ function extractCallSites(
           line: call.getStartLineNumber(),
           argumentCount: args.length,
           resolved: true,
-          hasAwait,
+          isHandled,
         });
         return;
       }
@@ -529,7 +541,7 @@ function extractCallSites(
           line: call.getStartLineNumber(),
           argumentCount: args.length,
           resolved: true,
-          hasAwait,
+          isHandled,
         });
         return;
       }
@@ -546,7 +558,7 @@ function extractCallSites(
           line: call.getStartLineNumber(),
           argumentCount: args.length,
           resolved: true,
-          hasAwait,
+          isHandled,
         });
         return;
       }
@@ -560,7 +572,7 @@ function extractCallSites(
         line: call.getStartLineNumber(),
         argumentCount: args.length,
         resolved: false,
-        hasAwait,
+        isHandled,
       });
       return;
     }
@@ -582,7 +594,7 @@ function extractCallSites(
           line: call.getStartLineNumber(),
           argumentCount: args.length,
           resolved: localFnNames.has(methodName),
-          hasAwait,
+          isHandled,
         });
         return;
       }
@@ -600,7 +612,7 @@ function extractCallSites(
             line: call.getStartLineNumber(),
             argumentCount: args.length,
             resolved: false,
-            hasAwait,
+            isHandled,
           });
           return;
         }
@@ -612,7 +624,7 @@ function extractCallSites(
           line: call.getStartLineNumber(),
           argumentCount: args.length,
           resolved: true,
-          hasAwait,
+          isHandled,
         });
         return;
       }
@@ -626,7 +638,7 @@ function extractCallSites(
         line: call.getStartLineNumber(),
         argumentCount: args.length,
         resolved: false,
-        hasAwait,
+        isHandled,
       });
       return;
     }
@@ -640,7 +652,7 @@ function extractCallSites(
       line: call.getStartLineNumber(),
       argumentCount: args.length,
       resolved: false,
-      hasAwait,
+      isHandled,
     });
   });
 
