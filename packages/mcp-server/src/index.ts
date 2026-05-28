@@ -4,7 +4,7 @@
  * @kernlang/mcp-server — KERN MCP Server
  *
  * Complete MCP interface for KERN: compile, review, parse, decompile, and analyze.
- * AI agents can write .kern, compile to 13 targets, review code, and scan MCP servers.
+ * AI agents can write .kern, compile to 14 targets, review code, and scan MCP servers.
  *
  * Usage:  kern-mcp
  * Config: { "mcpServers": { "kern": { "command": "npx", "args": ["@kernlang/mcp-server"] } } }
@@ -64,7 +64,7 @@ const server = new McpServer(
   },
   {
     instructions:
-      'KERN is a declarative DSL that compiles to 13 targets. Use the write-kern prompt to learn the syntax before writing .kern code. Use compile to generate output, review to analyze code, and review-kern to lint .kern source.',
+      'KERN is a declarative DSL that compiles to 14 targets. Use the write-kern prompt to learn the syntax before writing .kern code. Use compile to generate output, review to analyze code, and review-kern to lint .kern source.',
   },
 );
 
