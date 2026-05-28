@@ -798,26 +798,24 @@ function collectDeclaredTypeNodes(root: IRNode): Map<string, IRNode> {
   return nodes;
 }
 
-/** Shadow type-emission adapter around the pure codegen emitters. Strips `export`
- *  so the declaration is ambient in the `/// <reference>`-d support file rather than
- *  a module export (which would hide it from the virtual handler files). This is the
- *  seam where project-wide canonical-id mangling will layer in. */
+/** Shadow type-emission adapter around the pure codegen emitters. Emits the type with
+ *  `export` forced OFF (via `props.export='false'`, which `exportPrefix` honors) so the
+ *  declaration is ambient in the `/// <reference>`-d support file — a module export would
+ *  hide it from the virtual handler files. Setting the prop is robust where a line-start
+ *  regex strip is not (indentation, `export default`, `export` inside literals). This is
+ *  the seam where project-wide canonical-id mangling will layer in. */
 function emitRealShadowType(node: IRNode): string[] {
-  let lines: string[];
+  const ambient: IRNode = { ...node, props: { ...(node.props ?? {}), export: 'false' } };
   switch (node.type) {
     case 'interface':
-      lines = generateInterface(node);
-      break;
+      return generateInterface(ambient);
     case 'union':
-      lines = generateUnion(node);
-      break;
+      return generateUnion(ambient);
     case 'type':
-      lines = generateType(node);
-      break;
+      return generateType(ambient);
     default:
       return [`type ${typeof node.props?.name === 'string' ? node.props.name : 'Unknown'} = any;`];
   }
-  return lines.map((line) => line.replace(/^export /, ''));
 }
 
 function walk(node: IRNode, ancestors: IRNode[], visit: (node: IRNode, ancestors: IRNode[]) => void): void {
