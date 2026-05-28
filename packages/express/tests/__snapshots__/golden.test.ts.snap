@@ -242,7 +242,7 @@ export function registerGetApiTracksIdRoute(app: Express): void {
     try {
       const track = await db.tracks.findById(req.params.id);
       if (!(track)) {
-        return res.status(404).json({ error: 'Not found' });
+        return res.status(404).json({ detail: 'Not found' });
       }
       res.json(track);
     } catch (error) {

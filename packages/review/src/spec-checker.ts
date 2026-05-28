@@ -382,7 +382,7 @@ function checkGuards(spec: SpecContract, impl: ImplRoute): SpecViolation[] {
       violations.push({
         kind: 'spec-guard-missing',
         detail: `.kern declares 'guard ${guard.name} else=${guard.elseStatus}' on ${spec.routeKey} but ${!hasConditional ? 'no conditional check' : `no ${guard.elseStatus} response`} found`,
-        suggestion: `Add: if (!${guard.name}) return res.status(${guard.elseStatus}).json({ error: '...' })`,
+        suggestion: `Add: if (!${guard.name}) return res.status(${guard.elseStatus}).json({ detail: '...' })`,
         kernFile: spec.kernFile,
         kernLine: spec.line,
         tsFile: impl.filePath,

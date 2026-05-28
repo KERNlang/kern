@@ -643,7 +643,8 @@ describe('Express Transpiler', () => {
       ].join('\n');
       const result = transpileExpress(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
-      expect(route!.content).toContain("res.status(404).json({ error: 'Not found' })");
+      // #3 contract: guard failures emit FastAPI's canonical {detail} shape on both targets.
+      expect(route!.content).toContain("res.status(404).json({ detail: 'Not found' })");
       expect(route!.content).not.toContain('exists guard failed');
     });
 

@@ -43,6 +43,10 @@ const { toSnakeCase } = await import(join(REPO, 'packages/python/dist/type-map.j
 // RETURNED value — capturing control-flow behaviour the expression harness cannot reach.
 const { parse, emitNativeKernBodyTSWithImports } = await import(join(REPO, 'packages/core/dist/index.js'));
 const { emitNativeKernBodyPythonWithImports } = await import(join(REPO, 'packages/python/dist/codegen-body-python.js'));
+// Route-level (kind:'route') fixtures lower a full portable route HANDLER to both targets and
+// compare the {status, body} HTTP response — covering guard/respond error-shape parity (#3).
+const { generatePortableHandlerExpress } = await import(join(REPO, 'packages/express/dist/express-portable.js'));
+const { generatePortableHandlerFastAPI } = await import(join(REPO, 'packages/python/dist/fastapi-portable.js'));
 
 // ── Fixtures ───────────────────────────────────────────────────────────────
 // bindings namespaces mirror the portable request model:
@@ -396,6 +400,23 @@ const FIXTURES = [
     params: [{ name: 'bad', type: 'string', value: '{' }, { name: 'min', type: 'number', value: 0 }],
     body: `let name=log value="''" kind=let\nlet name=tmp value="0" kind=let\ntry\n  assign target="log" value="log + 'a'"\n  assign target="tmp" value="JSON.parse(bad)"\n  assign target="log" value="log + 'b'"\n  catch name=err type=any\n    assign target="log" value="log + 'X'"\nreturn value="{ log: log }"`,
     expected: { log: 'aX' } },
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // route: ROUTE-LEVEL HTTP response parity (kind:'route', goal: error-semantics 2026-05-28).
+  // Lowers a full portable route handler to both targets, runs it (mock res -> {status,body} on
+  // Express; HTTPException -> {status, body:{detail}} on FastAPI), compares {status, body}.
+  // CONTRACT (council bb0g4njli, 85%): error bodies use FastAPI's canonical {"detail":...} on BOTH.
+  // guard-fail was RED-at-base (Express emitted {error}); the express-portable {detail} fix converges.
+  // ──────────────────────────────────────────────────────────────────────────
+  { kind: 'route', name: 'route: guard pass -> 200 success body',
+    kern: `route method=post path=/api/t\n  derive name=doubled expr={{ n * 2 }}\n  guard name=floor expr={{ doubled >= min }} else=422\n  respond 200 json={{ {result: doubled} }}`,
+    bindings: { locals: { n: 20, min: 30 } }, expected: { status: 200, body: { result: 40 } } },
+  { kind: 'route', name: 'route: guard fail -> 422 {detail} parity',
+    kern: `route method=post path=/api/t\n  derive name=doubled expr={{ n * 2 }}\n  guard name=floor expr={{ doubled >= min }} else=422\n  respond 200 json={{ {result: doubled} }}`,
+    bindings: { locals: { n: 10, min: 30 } }, expected: { status: 422, body: { detail: 'floor guard failed' } } },
+  { kind: 'route', name: 'route: guard fail -> 404 {detail} (second status)',
+    kern: `route method=post path=/api/t\n  derive name=x expr={{ n }}\n  guard name=exists expr={{ x > 0 }} else=404\n  respond 200 json={{ {x: x} }}`,
+    bindings: { locals: { n: 0 } }, expected: { status: 404, body: { detail: 'exists guard failed' } } },
 ];
 
 // ── Value → literal emitters ────────────────────────────────────────────────
@@ -548,6 +569,37 @@ for (const fx of FIXTURES) {
       else pass++;
     } catch (err) {
       failures.push({ name: fx.name, why: `stmt exec error: ${String(err.message ?? err).split('\n').slice(-4).join(' ')}` });
+    }
+    continue;
+  }
+
+  // ── route-level branch: lower a full portable route handler to both targets, run it, and
+  // compare the {status, body} HTTP response. Express -> mock res; FastAPI HTTPException ->
+  // {status, body:{detail}} (its real serialization). Verifies error-shape parity (#3).
+  if (fx.kind === 'route') {
+    try {
+      const root = parse(fx.kern);
+      const jsLines = generatePortableHandlerExpress(root, '  ', '/api/t', {});
+      const routeImports = new Set();
+      const pyLines = generatePortableHandlerFastAPI(root, '    ', [], routeImports, new Set(), false);
+      const locals = fx.bindings?.locals ?? {};
+      const jsLocals = Object.entries(locals).map(([k, v]) => `const ${k} = ${JSON.stringify(v)};`).join('\n');
+      const jsFile = join(dir, 'route.mjs');
+      writeFileSync(jsFile, `${jsLocals}\nconst req = { params: {}, query: {}, body: {}, headers: {}, user: {} };\nlet __s = 200, __b;\nconst res = { status(n){ __s = n; return this; }, json(b){ __b = b; return this; }, send(b){ __b = b; return this; } };\nfunction __h(req, res) {\n${jsLines.join('\n')}\n}\ntry { __h(req, res); } catch (e) { __s = 500; __b = { detail: String(e && e.message || e) }; }\nconsole.log(JSON.stringify({ status: __s, body: __b }));`);
+      const pyLocals = Object.entries(locals).map(([k, v]) => `${k} = ${pyVal(v)}`).join('\n');
+      const pyFile = join(dir, 'route.py');
+      writeFileSync(pyFile, `import json\n${[...routeImports].filter((i) => !i.includes('HTTPException')).join('\n')}\nclass HTTPException(Exception):\n    def __init__(self, status_code, detail=None):\n        self.status_code = status_code; self.detail = detail\n${pyLocals}\ndef __h():\n${pyLines.map((l) => `    ${l}`).join('\n')}\ntry:\n    __r = __h()\n    print(json.dumps({"status": 200, "body": __r}, sort_keys=True, default=str))\nexcept HTTPException as e:\n    print(json.dumps({"status": e.status_code, "body": {"detail": e.detail}}, sort_keys=True, default=str))`);
+      const routeOpts = { encoding: 'utf8', timeout: 10_000 };
+      const jsOut = execFileSync('node', [jsFile], routeOpts).trim();
+      const pyOut = execFileSync('python3', [pyFile], routeOpts).trim();
+      const cJs = canon(JSON.parse(jsOut), 'value');
+      const cPy = canon(JSON.parse(pyOut), 'value');
+      const cExp = canon(fx.expected, 'value');
+      if (cJs !== cPy) failures.push({ name: fx.name, why: `ts ≠ py\n      ts: ${cJs}\n      py: ${cPy}` });
+      else if (cJs !== cExp) failures.push({ name: fx.name, why: `result ≠ expected\n      got: ${cJs}\n      exp: ${cExp}` });
+      else pass++;
+    } catch (err) {
+      failures.push({ name: fx.name, why: `route exec error: ${String(err.message ?? err).split('\n').slice(-4).join(' ')}` });
     }
     continue;
   }
