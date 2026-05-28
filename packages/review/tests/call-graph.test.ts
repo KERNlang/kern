@@ -610,6 +610,63 @@ export async function fetchData() { return []; }
     const findings = crossFileAsyncRule(callGraph, '/src/main.ts');
     expect(findings.length).toBe(0);
   });
+
+  // Regression: the inner calls inside `await Promise.all([...])` are array
+  // elements, not directly awaited, so the old `parent === AwaitExpression`
+  // check false-flagged them. `await Promise.all([...])` handles every member
+  // promise, so none float.
+  it('does NOT flag calls inside await Promise.all([...])', () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/main.ts',
+      `
+import { fetchData, fetchMore } from './api.js';
+export async function handler() {
+  const [a, b] = await Promise.all([fetchData(), fetchMore()]);
+  return [a, b];
+}
+`,
+    );
+    project.createSourceFile(
+      '/src/api.ts',
+      `
+export async function fetchData() { return []; }
+export async function fetchMore() { return []; }
+`,
+    );
+
+    const graph = resolveImportGraph(['/src/main.ts'], { project });
+    const callGraph = buildCallGraph(graph, project);
+
+    const findings = crossFileAsyncRule(callGraph, '/src/main.ts');
+    expect(findings.filter((f) => f.ruleId === 'floating-promise')).toHaveLength(0);
+  });
+
+  it('does NOT flag handled cross-file async calls (return / assign / void)', () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/main.ts',
+      `
+import { fetchData } from './api.js';
+export function returned() { return fetchData(); }
+export function captured() { const p = fetchData(); return p; }
+export function discarded() { void fetchData(); }
+export function chained() { fetchData().catch(() => {}); }
+`,
+    );
+    project.createSourceFile(
+      '/src/api.ts',
+      `
+export async function fetchData() { return []; }
+`,
+    );
+
+    const graph = resolveImportGraph(['/src/main.ts'], { project });
+    const callGraph = buildCallGraph(graph, project);
+
+    const findings = crossFileAsyncRule(callGraph, '/src/main.ts');
+    expect(findings.filter((f) => f.ruleId === 'floating-promise')).toHaveLength(0);
+  });
 });
 
 // Phase 4 step 5 — test files are NOT production consumers. A helper called

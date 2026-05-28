@@ -187,7 +187,7 @@ export function crossFileAsyncRule(callGraph: CallGraph, filePath: string): Revi
     if (fn.filePath !== filePath) continue;
 
     for (const call of fn.calls) {
-      if (!call.resolved || call.hasAwait) continue;
+      if (!call.resolved || call.isHandled) continue;
 
       const targetKey = `${call.targetFile}#${call.targetName}`;
       const target = callGraph.functions.get(targetKey);
