@@ -133,6 +133,14 @@ export function runTranspile(args: string[]): void {
     }
     config = { ...config, structure: cliStructure as KernStructure };
   }
+  const emitArg = parseFlag(args, '--emit');
+  if (emitArg) {
+    config = { ...config, emit: emitArg };
+  }
+  const pythonModelBackend = parseFlag(args, '--python-model-backend');
+  if (pythonModelBackend) {
+    config = { ...config, pythonModelBackend: pythonModelBackend as any };
+  }
 
   const irSource = readFileSync(resolve(inputFile), 'utf-8');
   const ast = parseAndSurface(irSource, inputFile);

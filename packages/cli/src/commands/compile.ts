@@ -581,7 +581,14 @@ export async function runCompile(args: string[]): Promise<void> {
   }
 
   // ── Resolve config with target ─────────────────────────────────────
-  const cfg = targetArg ? resolveConfig({ ...compileConfig, target: targetArg }) : compileConfig;
+  const emitArg = parseFlag(args, '--emit');
+  const pythonModelBackend = parseFlag(args, '--python-model-backend');
+  const cfg = resolveConfig({
+    ...compileConfig,
+    ...(targetArg ? { target: targetArg } : {}),
+    ...(emitArg ? { emit: emitArg } : {}),
+    ...(pythonModelBackend ? { pythonModelBackend: pythonModelBackend as any } : {}),
+  });
 
   // ── Slice 7 v2 — cross-module Result/Option registry ───────────────
   // Index every `.kern` file's exported fn signatures once, before the

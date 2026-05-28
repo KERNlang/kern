@@ -20,7 +20,8 @@ export type KernTarget =
   | 'vue'
   | 'nuxt'
   | 'fastapi'
-  | 'mcp';
+  | 'mcp'
+  | 'python';
 
 /** Concrete transpiler targets (displayed to users). */
 export const VALID_TARGETS: KernTarget[] = [
@@ -37,6 +38,7 @@ export const VALID_TARGETS: KernTarget[] = [
   'nuxt',
   'fastapi',
   'mcp',
+  'python',
 ];
 
 /** All accepted target values including meta-targets like 'auto'. */
@@ -59,6 +61,8 @@ export interface KernConfig {
   structure?: KernStructure;
   frameworkVersions?: FrameworkVersions;
   templates?: string[];
+  emit?: string;
+  pythonModelBackend?: 'pydantic' | 'sqlmodel' | 'auto';
 
   i18n?: {
     enabled?: boolean;
@@ -137,6 +141,8 @@ export interface ResolvedKernConfig {
   structure: KernStructure;
   frameworkVersions: FrameworkVersions;
   templates: string[];
+  emit?: string;
+  pythonModelBackend?: 'pydantic' | 'sqlmodel' | 'auto';
 
   i18n: {
     enabled: boolean;
@@ -277,6 +283,8 @@ export function resolveConfig(user?: Partial<KernConfig>): ResolvedKernConfig {
   return {
     target: user.target || DEFAULT_CONFIG.target,
     structure: user.structure || DEFAULT_CONFIG.structure,
+    emit: user.emit,
+    pythonModelBackend: user.pythonModelBackend,
     frameworkVersions: {
       ...DEFAULT_CONFIG.frameworkVersions,
       ...user.frameworkVersions,

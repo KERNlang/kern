@@ -107,6 +107,7 @@ export {
 
 export interface PythonCodegenOptions {
   resolveKernModuleSpec?: (rawPath: string, node: IRNode) => string | undefined;
+  pythonModelBackend?: 'pydantic' | 'sqlmodel' | 'auto';
 }
 
 /** Generate Python for any core language node. Returns string lines. */
@@ -144,7 +145,7 @@ export function generatePythonCoreNode(node: IRNode, options: PythonCodegenOptio
       return generateConst(node);
     // Data layer
     case 'model':
-      return generatePythonModel(node);
+      return generatePythonModel(node, options);
     case 'repository':
       return generatePythonRepository(node);
     case 'cache':
