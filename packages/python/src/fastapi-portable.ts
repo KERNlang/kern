@@ -452,10 +452,15 @@ export function generatePortableChildFastAPI(
           lines.push(
             `${indent}${collectName} = [item for item in ${collectName} if ${rewriteFastAPIExpr(where, pathParams, bodyFields, authUser, imports)}]`,
           );
-        if (order)
-          // `order` already routed through `lowerPropToPython` above (which
-          // includes the rewriter), so no second `rewriteFastAPIExpr` call.
-          lines.push(`${indent}${collectName} = sorted(${collectName}, key=lambda item: ${order})`);
+        if (order) {
+          // `order` is a COMPARATOR expression over a/b — the Express and ground-layer
+          // targets both emit `.sort((a, b) => <order>)`, and JS is the declared reference
+          // (scripts/conformance.mjs header). Python must reproduce that, so wrap with
+          // cmp_to_key; a 1-arg `key=lambda item: <order>` was the divergent outlier and
+          // NameErrors on the a/b operands. (`order` already routed through lowerPropToPython.)
+          imports.add('from functools import cmp_to_key');
+          lines.push(`${indent}${collectName} = sorted(${collectName}, key=cmp_to_key(lambda a, b: ${order}))`);
+        }
         if (limit) lines.push(`${indent}${collectName} = ${collectName}[:${limit}]`);
       }
       break;

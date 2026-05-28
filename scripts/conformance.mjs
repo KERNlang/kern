@@ -417,6 +417,13 @@ const FIXTURES = [
   { kind: 'route', name: 'route: guard fail -> 404 {detail} (second status)',
     kern: `route method=post path=/api/t\n  derive name=x expr={{ n }}\n  guard name=exists expr={{ x > 0 }} else=404\n  respond 200 json={{ {x: x} }}`,
     bindings: { locals: { n: 0 } }, expected: { status: 404, body: { detail: 'exists guard failed' } } },
+  // collect order is a COMPARATOR (a,b) — Express + ground-layer both emit .sort((a,b)=>order);
+  // Python must reproduce via sorted(key=cmp_to_key(lambda a,b: order)) (#6). Filter active,
+  // sort score desc, limit 2 -> [u2(9), u1(8)].
+  { kind: 'route', name: 'route: collect where+order(comparator)+limit parity',
+    kern: `route method=post path=/api/t\n  collect name=top from=users where={{ item.active }} order={{ b.score - a.score }} limit=2\n  respond 200 json={{ {top: top} }}`,
+    bindings: { locals: { users: [{ id: 'u1', active: true, score: 8 }, { id: 'u2', active: true, score: 9 }, { id: 'u3', active: false, score: 4 }, { id: 'u4', active: true, score: 6 }] } },
+    expected: { status: 200, body: { top: [{ id: 'u2', active: true, score: 9 }, { id: 'u1', active: true, score: 8 }] } } },
 ];
 
 // ── Value → literal emitters ────────────────────────────────────────────────
@@ -586,9 +593,12 @@ for (const fx of FIXTURES) {
       const jsLocals = Object.entries(locals).map(([k, v]) => `const ${k} = ${JSON.stringify(v)};`).join('\n');
       const jsFile = join(dir, 'route.mjs');
       writeFileSync(jsFile, `${jsLocals}\nconst req = { params: {}, query: {}, body: {}, headers: {}, user: {} };\nlet __s = 200, __b;\nconst res = { status(n){ __s = n; return this; }, json(b){ __b = b; return this; }, send(b){ __b = b; return this; } };\nfunction __h(req, res) {\n${jsLines.join('\n')}\n}\ntry { __h(req, res); } catch (e) { __s = 500; __b = { detail: String(e && e.message || e) }; }\nconsole.log(JSON.stringify({ status: __s, body: __b }));`);
-      const pyLocals = Object.entries(locals).map(([k, v]) => `${k} = ${pyVal(v)}`).join('\n');
+      // Wrap object/list locals so attribute access mirrors Pydantic (item.score), then
+      // _unwrap before serializing. Primitives pass through unchanged (guard fixtures).
+      const pyLocals = Object.entries(locals).map(([k, v]) => `${k} = _wrap(${pyVal(v)})`).join('\n');
       const pyFile = join(dir, 'route.py');
-      writeFileSync(pyFile, `import json\n${[...routeImports].filter((i) => !i.includes('HTTPException')).join('\n')}\nclass HTTPException(Exception):\n    def __init__(self, status_code, detail=None):\n        self.status_code = status_code; self.detail = detail\n${pyLocals}\ndef __h():\n${pyLines.map((l) => `    ${l}`).join('\n')}\ntry:\n    __r = __h()\n    print(json.dumps({"status": 200, "body": __r}, sort_keys=True, default=str))\nexcept HTTPException as e:\n    print(json.dumps({"status": e.status_code, "body": {"detail": e.detail}}, sort_keys=True, default=str))`);
+      const pyHelpers = `class _Body:\n    def __init__(self, d):\n        self._d = d\n        for k, v in d.items(): setattr(self, k, _wrap(v))\n    def __getitem__(self, k): return getattr(self, k)\ndef _wrap(v):\n    if isinstance(v, dict): return _Body(v)\n    if isinstance(v, list): return [_wrap(x) for x in v]\n    return v\ndef _unwrap(v):\n    if isinstance(v, _Body): return {k: _unwrap(x) for k, x in v._d.items()}\n    if isinstance(v, dict): return {k: _unwrap(x) for k, x in v.items()}\n    if isinstance(v, list): return [_unwrap(x) for x in v]\n    return v`;
+      writeFileSync(pyFile, `import json\n${[...routeImports].filter((i) => !i.includes('HTTPException')).join('\n')}\nclass HTTPException(Exception):\n    def __init__(self, status_code, detail=None):\n        self.status_code = status_code; self.detail = detail\n${pyHelpers}\n${pyLocals}\ndef __h():\n${pyLines.map((l) => `    ${l}`).join('\n')}\ntry:\n    __r = __h()\n    print(json.dumps({"status": 200, "body": _unwrap(__r)}, sort_keys=True, default=str))\nexcept HTTPException as e:\n    print(json.dumps({"status": e.status_code, "body": {"detail": _unwrap(e.detail)}}, sort_keys=True, default=str))`);
       const routeOpts = { encoding: 'utf8', timeout: 10_000 };
       const jsOut = execFileSync('node', [jsFile], routeOpts).trim();
       const pyOut = execFileSync('python3', [pyFile], routeOpts).trim();
