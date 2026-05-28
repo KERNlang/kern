@@ -324,6 +324,32 @@ const FIXTURES = [
   { name: 'str-method: padEnd', expr: 's.padEnd(8, "0")', path: '/api/s', bindings: { locals: { s: 'banana' } }, expected: 'banana00' },
   { name: 'str-method: repeat', expr: 's.repeat(2)', path: '/api/s', bindings: { locals: { s: 'ab' } }, expected: 'abab' },
   { name: 'str-method: split with a limit (JS first-N, not maxsplit)', expr: 's.split(",", 2)', path: '/api/s', bindings: { locals: { s: 'a,b,c' } }, expected: ['a', 'b'] },
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // numbermodel: JS bitwise-int32 + JS truncated-modulo (goal: number-model, 2026-05-28).
+  // Contract decided by 6-engine council: EMULATE bitwise (int32 via _i32/_u32, >>> via _ushr,
+  // shift counts &31, ToInt32 truncs floats) + truncated modulo (_tmod(a,b)=a-trunc(a/b)*b);
+  // declare >2^53 / NaN / Infinity / -0 NON-PORTABLE. Operands are VARIABLE (bindings.locals),
+  // NOT literals, so a constant-folding Python lowering cannot hardcode the outputs.
+  // Task verify: `node scripts/conformance.mjs --filter "numbermodel:"` (RED until Python lowers).
+  // ──────────────────────────────────────────────────────────────────────────
+  { name: 'numbermodel: |0 sign bit', expr: 'a|z', path: '/api/n', bindings: { locals: { a: 2147483648, z: 0 } }, expected: -2147483648 },
+  { name: 'numbermodel: |0 wraparound', expr: 'a|z', path: '/api/n', bindings: { locals: { a: 4294967296, z: 0 } }, expected: 0 },
+  { name: 'numbermodel: >> on >32-bit', expr: 'a>>b', path: '/api/n', bindings: { locals: { a: 8589934592, b: 1 } }, expected: 0 },
+  { name: 'numbermodel: >>> unsigned of -1', expr: 'a>>>b', path: '/api/n', bindings: { locals: { a: -1, b: 1 } }, expected: 2147483647 },
+  { name: 'numbermodel: << shift-count mask (33&31=1)', expr: 'a<<b', path: '/api/n', bindings: { locals: { a: 1, b: 33 } }, expected: 2 },
+  { name: 'numbermodel: i32 on a COMPUTED sum', expr: '(a+b)|z', path: '/api/n', bindings: { locals: { a: 2147483647, b: 1, z: 0 } }, expected: -2147483648 },
+  { name: 'numbermodel: >>> count mask to 0 (32&31=0)', expr: 'a>>>b', path: '/api/n', bindings: { locals: { a: -1, b: 32 } }, expected: 4294967295 },
+  { name: 'numbermodel: ToInt32 truncs a float', expr: 'a|z', path: '/api/n', bindings: { locals: { a: -2.9, z: 0 } }, expected: -2 },
+  { name: 'numbermodel: & agree smoke', expr: 'a&b', path: '/api/n', bindings: { locals: { a: 5, b: 3 } }, expected: 1 },
+  { name: 'numbermodel: -5 % 3 (sign of dividend)', expr: 'a%b', path: '/api/n', bindings: { locals: { a: -5, b: 3 } }, expected: -2 },
+  { name: 'numbermodel: 5 % -3', expr: 'a%b', path: '/api/n', bindings: { locals: { a: 5, b: -3 } }, expected: 2 },
+  { name: 'numbermodel: negative float -5.5 % 2', expr: 'a%b', path: '/api/n', bindings: { locals: { a: -5.5, b: 2 } }, expected: -1.5 },
+  { name: 'numbermodel: float divisor 5 % 2.5', expr: 'a%b', path: '/api/n', bindings: { locals: { a: 5, b: 2.5 } }, expected: 0 },
+  { name: 'numbermodel: 7 % 3 agree smoke', expr: 'a%b', path: '/api/n', bindings: { locals: { a: 7, b: 3 } }, expected: 1 },
+  { name: 'numbermodel: true division agree', expr: 'a/b', path: '/api/n', bindings: { locals: { a: 5, b: 2 } }, expected: 2.5 },
+  { name: 'numbermodel: float add repr agree', expr: 'a+b', path: '/api/n', bindings: { locals: { a: 0.1, b: 0.2 } }, expected: 0.30000000000000004 },
+  { name: 'numbermodel: 2^53 safe boundary agree', expr: 'a+b', path: '/api/n', bindings: { locals: { a: 9007199254740991, b: 1 } }, expected: 9007199254740992 },
 ];
 
 // ── Value → literal emitters ────────────────────────────────────────────────
@@ -419,6 +445,15 @@ const filter = (() => {
   }
   return process.argv[i + 1];
 })();
+const exclude = (() => {
+  const i = process.argv.indexOf('--exclude');
+  if (i < 0) return null;
+  if (process.argv[i + 1] == null) {
+    console.error('--exclude requires a value');
+    process.exit(2);
+  }
+  return process.argv[i + 1];
+})();
 const dir = mkdtempSync(join(tmpdir(), 'kern-conf-'));
 process.on('exit', () => {
   try {
@@ -431,6 +466,7 @@ const failures = [];
 let selected = 0;
 for (const fx of FIXTURES) {
   if (filter && !fx.name.includes(filter)) continue;
+  if (exclude && fx.name.includes(exclude)) continue;
   selected++;
   const mode = fx.compare ?? 'value';
   const pathParams = [...fx.path.matchAll(/:([A-Za-z_]\w*)/g)].map((m) => m[1]);
