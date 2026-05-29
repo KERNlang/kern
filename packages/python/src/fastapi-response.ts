@@ -162,7 +162,7 @@ function parseArrowCallback(inner: string): { params: string[]; body: string } |
 // receiver — the failure mode of the prior regex form. Member access on the
 // bound element is dict-subscripted so a list-of-dicts iterates correctly.
 const ARROW_ARRAY_METHODS = new Set(['filter', 'map', 'find']);
-const PORTABLE_ARRAY_METHODS = new Set(['includes', 'indexOf', 'join', 'slice', 'some', 'every', 'reduce', 'push']);
+const PORTABLE_ARRAY_METHODS = new Set(['includes', 'indexOf', 'join', 'slice', 'some', 'every', 'reduce', 'push', 'reverse', 'concat']);
 const LAMBDA_COLON_PLACEHOLDER = '__KERN_LAMBDA_COLON__';
 
 function lowerJsArrayMethods(expr: string, imports?: Set<string>): string {
@@ -253,6 +253,15 @@ function lowerJsArrayMethods(expr: string, imports?: Set<string>): string {
           // returns None, so emit `(recv.append(x) or len(recv))` for exact parity
           // (mutate + length). Single-arg only; varargs push left unsupported.
           if (args.length === 1) lowered = `(${receiver}.append(${args[0]}) or len(${receiver}))`;
+        } else if (method === 'reverse') {
+          // JS Array.reverse mutates AND returns the (same, reversed) array; Python
+          // list.reverse returns None -> `(recv.reverse() or recv)` mutates + returns it.
+          lowered = `(${receiver}.reverse() or ${receiver})`;
+        } else if (method === 'concat') {
+          // JS Array.concat returns a NEW array; an array arg is spread, a scalar arg
+          // is appended. Mirror with `recv + (x if isinstance(x, list) else [x])`.
+          // Single-arg only; varargs concat left unsupported.
+          if (args.length === 1) lowered = `(${receiver} + (${args[0]} if isinstance(${args[0]}, list) else [${args[0]}]))`;
         } else if (method === 'join') {
           const sep = args[0] ?? '","';
           lowered = `${sep}.join(str(__v) for __v in ${receiver})`;

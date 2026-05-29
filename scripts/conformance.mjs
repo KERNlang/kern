@@ -320,6 +320,10 @@ const FIXTURES = [
   { name: 'arr-method: reduce sum with seed', expr: 'nums.reduce((a, b) => a + b, 0)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: 6 },
   // push mutates AND returns the new length (JS) -> Python `(recv.append(x) or len(recv))` (#6).
   { name: 'arr-method: push returns new length', expr: 'nums.push(9)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: 4 },
+  // reverse mutates + returns the reversed array; concat returns a new array (arr spread / scalar appended).
+  { name: 'arr-method: reverse returns reversed array', expr: 'nums.reverse()', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: [3, 2, 1] },
+  { name: 'arr-method: concat array arg spreads', expr: 'nums.concat(more)', path: '/api/a', bindings: { locals: { nums: [1], more: [2, 3] } }, expected: [1, 2, 3] },
+  { name: 'arr-method: concat scalar arg appends', expr: 'nums.concat(9)', path: '/api/a', bindings: { locals: { nums: [1, 2] } }, expected: [1, 2, 9] },
 
   // ── str-method: string methods NOT yet lowered → AttributeError on Python ──
   // split(sep, limit) is the SILENT trap: JS keeps the first `limit` parts;
