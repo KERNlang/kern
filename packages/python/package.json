@@ -1,6 +1,6 @@
 {
   "name": "@kernlang/python",
-  "version": "3.5.4",
+  "version": "3.5.5",
   "description": "KERN Python backend codegen (FastAPI router target included)",
   "type": "module",
   "main": "./dist/index.js",

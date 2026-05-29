@@ -198,8 +198,25 @@ function parseArrowCallback(inner: string): { params: string[]; body: string } |
 // next) and the quotes/brackets of a lowered comprehension can never desync the
 // receiver — the failure mode of the prior regex form. Member access on the
 // bound element is dict-subscripted so a list-of-dicts iterates correctly.
-const ARROW_ARRAY_METHODS = new Set(['filter', 'map', 'find']);
-const PORTABLE_ARRAY_METHODS = new Set(['includes', 'indexOf', 'join', 'slice', 'some', 'every', 'reduce', 'push', 'reverse', 'concat']);
+const ARROW_ARRAY_METHODS = new Set(['filter', 'map', 'find', 'findIndex', 'findLast', 'findLastIndex', 'flatMap']);
+const PORTABLE_ARRAY_METHODS = new Set([
+  'includes',
+  'indexOf',
+  'join',
+  'slice',
+  'some',
+  'every',
+  'reduce',
+  'sort',
+  'flat',
+  'at',
+  'push',
+  'reverse',
+  'concat',
+  'fill',
+  'lastIndexOf',
+  'reduceRight',
+]);
 const LAMBDA_COLON_PLACEHOLDER = '__KERN_LAMBDA_COLON__';
 
 function lowerJsArrayMethods(expr: string, imports?: Set<string>): string {
@@ -252,6 +269,24 @@ function lowerJsArrayMethods(expr: string, imports?: Set<string>): string {
             lowered = `[${elemVar} for ${loopTarget} in ${source} if ${body}]`;
           } else if (method === 'find') {
             lowered = `next((${elemVar} for ${loopTarget} in ${source} if ${body}), None)`;
+          } else if (method === 'findIndex') {
+            // index of the first match, or -1 (never raises). Bind the user's
+            // own index var when the callback has one, so `(x, i) => …i…` works.
+            const ix = idxVar ?? '__i';
+            lowered = `next((${ix} for ${ix}, ${elemVar} in enumerate(${receiver}) if ${body}), -1)`;
+          } else if (method === 'findLast') {
+            // last matching element, or None
+            lowered = idxVar
+              ? `next((${elemVar} for ${idxVar}, ${elemVar} in reversed(list(enumerate(${receiver}))) if ${body}), None)`
+              : `next((${elemVar} for ${elemVar} in reversed(${receiver}) if ${body}), None)`;
+          } else if (method === 'findLastIndex') {
+            // index of the last match, or -1
+            const ix = idxVar ?? '__i';
+            lowered = `next((${ix} for ${ix}, ${elemVar} in reversed(list(enumerate(${receiver}))) if ${body}), -1)`;
+          } else if (method === 'flatMap') {
+            // map, then flatten ONE level — JS flatMap only flattens arrays, so
+            // a scalar/string callback result is appended as a single element.
+            lowered = `[__y for ${loopTarget} in ${source} for __y in (${body} if isinstance(${body}, list) else [${body}])]`;
           } else {
             lowered = `[${body} for ${loopTarget} in ${source}]`;
           }
@@ -341,6 +376,66 @@ function lowerJsArrayMethods(expr: string, imports?: Set<string>): string {
               lowered = `functools.reduce(lambda ${accVar}, ${elemVar}${LAMBDA_COLON_PLACEHOLDER} ${loweredBody}, ${receiver})`;
             }
           }
+        } else if (method === 'reduceRight') {
+          // reduce from the right: same callback (acc, cur), reversed sequence.
+          const rawArgs = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));
+          const arrow = parseArrowCallback(rawArgs[0] ?? '');
+          if (arrow && arrow.params.length >= 2) {
+            const accVar = arrow.params[0];
+            const elemVar = arrow.params[1];
+            let body = lowerDictMemberAccess(arrow.body, accVar);
+            body = lowerDictMemberAccess(body, elemVar);
+            const loweredBody = lowerJsArrayMethods(body, imports);
+            imports?.add('import functools');
+            if (rawArgs.length >= 2) {
+              const seed = lowerJsArrayMethods(rawArgs[1].trim(), imports);
+              lowered = `functools.reduce(lambda ${accVar}, ${elemVar}${LAMBDA_COLON_PLACEHOLDER} ${loweredBody}, ${receiver}[::-1], ${seed})`;
+            } else {
+              lowered = `functools.reduce(lambda ${accVar}, ${elemVar}${LAMBDA_COLON_PLACEHOLDER} ${loweredBody}, ${receiver}[::-1])`;
+            }
+          }
+        } else if (method === 'sort') {
+          // JS default sort is LEXICOGRAPHIC and returns a NEW array (Python's
+          // list.sort() is numeric AND in-place → None). A 2-arg comparator
+          // sorts numerically; anything else falls back to the string key.
+          const arrow = parseArrowCallback(expr.slice(openIdx + 1, closeIdx));
+          if (arrow && arrow.params.length >= 2) {
+            const a = arrow.params[0];
+            const b = arrow.params[1];
+            const body = lowerJsArrayMethods(arrow.body, imports);
+            imports?.add('import functools');
+            lowered = `sorted(${receiver}, key=functools.cmp_to_key(lambda ${a}, ${b}${LAMBDA_COLON_PLACEHOLDER} ${body}))`;
+          } else {
+            lowered = `sorted(${receiver}, key=lambda __v${LAMBDA_COLON_PLACEHOLDER} str(__v))`;
+          }
+        } else if (method === 'flat') {
+          // one level: flatten nested lists, keep scalars
+          lowered = `[__y for __x in ${receiver} for __y in (__x if isinstance(__x, list) else [__x])]`;
+        } else if (method === 'at') {
+          const n = args[0] ?? '0';
+          lowered = `(${receiver}[${n}] if -len(${receiver}) <= ${n} < len(${receiver}) else None)`;
+        } else if (method === 'reverse') {
+          // JS reverses in place AND returns the array; we only need the value.
+          lowered = `${receiver}[::-1]`;
+        } else if (method === 'concat') {
+          // array args only (scalar-arg concat is out of scope)
+          lowered = args.length ? `(${receiver} + ${args.join(' + ')})` : `${receiver}[:]`;
+        } else if (method === 'fill') {
+          const v = args[0] ?? 'None';
+          if (args.length <= 1) {
+            lowered = `[${v} for __ in ${receiver}]`;
+          } else {
+            // fill(value, start, end) fills [start, end) with JS negative-index
+            // normalization; untouched positions keep their original element.
+            const s = args[1];
+            const e = args[2] ?? `len(${receiver})`;
+            lowered = `[(${v} if (${s} if ${s} >= 0 else ${s} + len(${receiver})) <= __i < (${e} if ${e} >= 0 else ${e} + len(${receiver})) else __x) for __i, __x in enumerate(${receiver})]`;
+          }
+        } else if (method === 'lastIndexOf') {
+          const needle = args[0] ?? '';
+          // String receivers use rfind (correct for multi-char substrings, -1
+          // when absent); array receivers reverse-scan by element equality.
+          lowered = `(${receiver}.rfind(${needle}) if isinstance(${receiver}, str) else (len(${receiver}) - 1 - ${receiver}[::-1].index(${needle}) if ${needle} in ${receiver} else -1))`;
         }
         if (lowered) {
           out = `${pre}${lowered}`;
@@ -495,9 +590,18 @@ function lowerMathBuiltinCalls(expr: string, imports?: Set<string>): string {
     const m = expr
       .slice(i)
       .match(
-        /^(?:(?:Number|Math)\.(floor|ceil|round|abs|trunc|isFinite|isNaN)|Math\.(min|max|pow|sqrt|hypot|random))\(/,
+        /^(?:(?:Number|Math)\.(floor|ceil|round|abs|trunc|isFinite|isNaN)|Math\.(min|max|pow|sqrt|hypot|random|sign|log10|log2|log|exp|sin|cos|atan2))\(/,
       );
     const prev = expr[i - 1];
+    // Math.PI / Math.E are constants (no call), so the call regex never sees
+    // them — handle them here before the method dispatch.
+    const cm = expr.slice(i).match(/^Math\.(PI|E)\b/);
+    if (cm && !(prev && /[\w.]/.test(prev))) {
+      imports?.add('import math as __k_math');
+      out += cm[1] === 'PI' ? '__k_math.pi' : '__k_math.e';
+      i += cm[0].length;
+      continue;
+    }
     if (m && !(prev && /[\w.]/.test(prev))) {
       const method = m[1] ?? m[2];
       const openIdx = i + m[0].length - 1;
@@ -566,6 +670,43 @@ function lowerMathBuiltinCalls(expr: string, imports?: Set<string>): string {
             imports?.add('import random as __k_random');
             out += '__k_random.random()';
             break;
+          case 'sign':
+            // JS Math.sign returns -1, 0, or 1; 0 args → NaN.
+            out += loweredArgs.length === 0 ? 'float("nan")' : `(1 if ${arg} > 0 else (-1 if ${arg} < 0 else 0))`;
+            break;
+          // Math.cbrt is intentionally NOT lowered: V8's Math.cbrt and the
+          // platform libm cbrt disagree in the last ulp (Linux: cbrt(27) =
+          // 3.0000000000000004, V8 = 3), so no Python expression reproduces it
+          // bit-for-bit — same out-of-scope reason as toPrecision.
+          case 'log':
+            imports?.add('import math as __k_math');
+            out += `__k_math.log(${arg})`;
+            break;
+          case 'log2':
+            imports?.add('import math as __k_math');
+            out += `__k_math.log2(${arg})`;
+            break;
+          case 'log10':
+            imports?.add('import math as __k_math');
+            out += `__k_math.log10(${arg})`;
+            break;
+          case 'exp':
+            imports?.add('import math as __k_math');
+            out += `__k_math.exp(${arg})`;
+            break;
+          case 'sin':
+            imports?.add('import math as __k_math');
+            out += `__k_math.sin(${arg})`;
+            break;
+          case 'cos':
+            imports?.add('import math as __k_math');
+            out += `__k_math.cos(${arg})`;
+            break;
+          case 'atan2':
+            // JS Math.atan2(y, x) needs BOTH args; fewer → NaN.
+            imports?.add('import math as __k_math');
+            out += loweredArgs.length >= 2 ? `__k_math.atan2(${loweredArgs[0]}, ${loweredArgs[1]})` : 'float("nan")';
+            break;
           default:
             out += expr.slice(i, closeIdx + 1);
             break;
@@ -590,6 +731,29 @@ function findReceiverStart(s: string): number {
   let depth = 0;
   while (j >= 0) {
     const c = s[j];
+    if (c === '"' || c === "'" || c === '`') {
+      // A string literal is one atom — scan back to its matching open quote,
+      // honoring backslash escapes, so `"a.b(".charAt(1)` or `data["k"].at(0)`
+      // don't desync the receiver. (The old scan stopped AT the quote, leaving
+      // an empty receiver and emitting broken Python.)
+      const q = c;
+      let k = j - 1;
+      while (k >= 0) {
+        if (s[k] === q) {
+          let b = 0;
+          let p = k - 1;
+          while (p >= 0 && s[p] === '\\') {
+            b++;
+            p--;
+          }
+          if (b % 2 === 0) break;
+        }
+        k--;
+      }
+      if (depth === 0) return k < 0 ? 0 : k; // the literal is the receiver atom
+      j = k - 1; // literal sits inside brackets — skip it and keep scanning
+      continue;
+    }
     if (c === ')' || c === ']' || c === '}') {
       depth++;
     } else if (c === '(' || c === '[' || c === '{') {
@@ -638,7 +802,9 @@ function lowerNumberBuiltinCalls(expr: string, imports?: Set<string>): string {
 
     const m = expr
       .slice(i)
-      .match(/^(?:Number\.isInteger|Number\.parseInt|Number\.parseFloat|Number|parseInt|parseFloat)\(/);
+      .match(
+        /^(?:Number\.isInteger|Number\.isSafeInteger|Number\.parseInt|Number\.parseFloat|Number|parseInt|parseFloat|isNaN|isFinite)\(/,
+      );
     const prev = expr[i - 1];
     if (m && !(prev && /[\w.]/.test(prev))) {
       const match = m[0];
@@ -660,6 +826,19 @@ function lowerNumberBuiltinCalls(expr: string, imports?: Set<string>): string {
           out += `float(${a0})`;
         } else if (method === 'Number.isInteger') {
           out += `(isinstance(${a0}, int) and not isinstance(${a0}, bool))`;
+        } else if (method === 'Number.isSafeInteger') {
+          // JS: an integer-valued finite number within ±(2^53 − 1). Whole floats
+          // count too; bool is not a number on the JS side.
+          imports?.add('import math as __k_math');
+          out += `(isinstance(${a0}, (int, float)) and not isinstance(${a0}, bool) and __k_math.isfinite(${a0}) and __k_math.floor(${a0}) == ${a0} and abs(${a0}) <= 9007199254740991)`;
+        } else if (method === 'isNaN') {
+          // GLOBAL isNaN (not Number.isNaN) — numeric inputs only (full JS
+          // string-coercion is out of scope); raises on non-numbers.
+          imports?.add('import math as __k_math');
+          out += `__k_math.isnan(${a0})`;
+        } else if (method === 'isFinite') {
+          imports?.add('import math as __k_math');
+          out += `__k_math.isfinite(${a0})`;
         } else if (method === 'Number') {
           out += `float(${a0})`;
         }
@@ -683,6 +862,47 @@ function lowerNumberBuiltinCalls(expr: string, imports?: Set<string>): string {
           // on CPython <3.12 when the receiver contains `"` (e.g. data["k"]).
           // `format(x, '.' + str(p) + 'f')` keeps the receiver as a bare arg.
           out = `${pre}format(${receiver}, '.' + str(${precision}) + 'f')`;
+          i = closeIdx + 1;
+          continue;
+        }
+      }
+    }
+
+    // (n).toString(radix) → format/str. Only the explicit radix form is lowered
+    // (radix 2/8/16 via format spec, 10 via str); a no-arg .toString() is left
+    // raw because on a non-number receiver it would mean the wrong thing.
+    if (expr.startsWith('.toString(', i)) {
+      const openIdx = i + '.toString('.length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1) {
+        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));
+        const radix = (args[0] ?? '').trim();
+        const spec = radix === '2' ? 'b' : radix === '8' ? 'o' : radix === '16' ? 'x' : null;
+        const receiverStart = findReceiverStart(out);
+        if (receiverStart !== -1 && (spec || radix === '10')) {
+          const receiver = out.slice(receiverStart);
+          const pre = out.slice(0, receiverStart);
+          out = spec ? `${pre}format(${receiver}, '${spec}')` : `${pre}str(${receiver})`;
+          i = closeIdx + 1;
+          continue;
+        }
+      }
+    }
+
+    // (n).toExponential(d) → '%.<d>e' then strip the leading zero(s) JS omits in
+    // the exponent: Python gives 1.23e+03, JS gives 1.23e+3.
+    if (expr.startsWith('.toExponential(', i)) {
+      const openIdx = i + '.toExponential('.length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1) {
+        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));
+        const digits = args[0] ? lowerNumberBuiltinCalls(args[0], imports).trim() : '';
+        const receiverStart = findReceiverStart(out);
+        if (receiverStart !== -1 && digits !== '') {
+          const receiver = out.slice(receiverStart);
+          const pre = out.slice(0, receiverStart);
+          imports?.add('import re as __k_re');
+          out = `${pre}__k_re.sub(r"e([+-])0*(\\d)", r"e\\1\\2", ('%.' + str(${digits}) + 'e') % (${receiver}))`;
           i = closeIdx + 1;
           continue;
         }
@@ -769,6 +989,21 @@ function lowerStringArgMethods(expr: string): string {
       i += 1;
       continue;
     }
+    if (expr.startsWith('.replaceAll(', i)) {
+      const openIdx = i + '.replaceAll('.length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1) {
+        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));
+        if (args.length === 2 && !args[0].trim().startsWith('/')) {
+          const a0 = lowerStringArgMethods(args[0]).trim();
+          const a1 = lowerStringArgMethods(args[1]).trim();
+          // Python str.replace already replaces ALL occurrences (no count arg).
+          out += `.replace(${a0}, ${a1})`;
+          i = closeIdx + 1;
+          continue;
+        }
+      }
+    }
     if (expr.startsWith('.replace(', i)) {
       const openIdx = i + '.replace('.length - 1;
       const closeIdx = matchBalancedParen(expr, openIdx);
@@ -778,6 +1013,54 @@ function lowerStringArgMethods(expr: string): string {
           const a0 = lowerStringArgMethods(args[0]).trim();
           const a1 = lowerStringArgMethods(args[1]).trim();
           out += `.replace(${a0}, ${a1}, 1)`;
+          i = closeIdx + 1;
+          continue;
+        }
+      }
+    }
+    // trimStart/trimEnd → lstrip/rstrip (method→method, receiver trails in `out`).
+    if (expr.startsWith('.trimStart()', i)) {
+      out += '.lstrip()';
+      i += '.trimStart()'.length;
+      continue;
+    }
+    if (expr.startsWith('.trimEnd()', i)) {
+      out += '.rstrip()';
+      i += '.trimEnd()'.length;
+      continue;
+    }
+    // charAt(i) → char or "" out of range (JS never raises; negative → "").
+    if (expr.startsWith('.charAt(', i)) {
+      const openIdx = i + '.charAt('.length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1) {
+        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) => lowerStringArgMethods(a).trim());
+        const idx = args[0] ?? '0';
+        const receiverStart = findReceiverStart(out);
+        if (receiverStart !== -1) {
+          const receiver = out.slice(receiverStart);
+          const pre = out.slice(0, receiverStart);
+          out = `${pre}(${receiver}[${idx}] if 0 <= ${idx} < len(${receiver}) else "")`;
+          i = closeIdx + 1;
+          continue;
+        }
+      }
+    }
+    // charCodeAt(i)/codePointAt(i) → ord of the char (in-range; BMP only).
+    if (expr.startsWith('.charCodeAt(', i) || expr.startsWith('.codePointAt(', i)) {
+      const tok = expr.startsWith('.charCodeAt(', i) ? '.charCodeAt(' : '.codePointAt(';
+      const openIdx = i + tok.length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1) {
+        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) => lowerStringArgMethods(a).trim());
+        const idx = args[0] ?? '0';
+        const receiverStart = findReceiverStart(out);
+        if (receiverStart !== -1) {
+          const receiver = out.slice(receiverStart);
+          const pre = out.slice(0, receiverStart);
+          // JS charCodeAt/codePointAt never raise: out-of-range (incl. negative)
+          // → NaN/undefined, which both become JSON null. Guard to avoid IndexError.
+          out = `${pre}(ord(${receiver}[${idx}]) if 0 <= ${idx} < len(${receiver}) else None)`;
           i = closeIdx + 1;
           continue;
         }
@@ -834,11 +1117,13 @@ function lowerStringArgMethods(expr: string): string {
 }
 
 // Lower selected Object/Array/Date host builtins in portable expressions:
-//   Object.keys(x)    -> list(x.keys())
-//   Object.values(x)  -> list(x.values())
-//   Object.entries(x) -> list(x.items())
-//   Array.isArray(x)  -> isinstance(x, list)
-//   Date.now()        -> int(datetime.now(timezone.utc).timestamp() * 1000)
+//   Object.keys(x)       -> list(x.keys())
+//   Object.values(x)     -> list(x.values())
+//   Object.entries(x)    -> list(x.items())
+//   Object.assign(t,s,…) -> {**t, **s, ...}
+//   Object.fromEntries(p) -> dict(p)
+//   Array.isArray(x)     -> isinstance(x, list)
+//   Date.now()           -> int(datetime.now(timezone.utc).timestamp() * 1000)
 // Uses the same string-aware balanced scan as other builtin lowerers.
 function lowerObjectArrayDateBuiltinCalls(expr: string, imports?: Set<string>): string {
   let out = '';
@@ -863,18 +1148,56 @@ function lowerObjectArrayDateBuiltinCalls(expr: string, imports?: Set<string>): 
       i += 1;
       continue;
     }
-    const m = expr.slice(i).match(/^(Object\.(keys|values|entries)|Array\.isArray)\(/);
+    const m = expr
+      .slice(i)
+      .match(/^(Object\.(keys|values|entries|assign|fromEntries)|Array\.(isArray|of)|String\.fromCharCode)\(/);
     const prev = expr[i - 1];
     if (m && !(prev && /[\w.]/.test(prev))) {
       const method = m[1];
       const openIdx = i + m[0].length - 1;
       const closeIdx = matchBalancedParen(expr, openIdx);
       if (closeIdx !== -1) {
-        const arg = lowerObjectArrayDateBuiltinCalls(expr.slice(openIdx + 1, closeIdx), imports).trim();
-        if (method === 'Object.keys') out += `list(${arg}.keys())`;
-        else if (method === 'Object.values') out += `list(${arg}.values())`;
-        else if (method === 'Object.entries') out += `list(${arg}.items())`;
-        else out += `isinstance(${arg}, list)`;
+        const rawArgs = expr.slice(openIdx + 1, closeIdx);
+        if (method === 'Object.assign') {
+          const args = splitTopLevelArgs(rawArgs)
+            .map((a) => lowerObjectArrayDateBuiltinCalls(a, imports).trim())
+            .filter(Boolean);
+          if (args.length >= 1) {
+            // The request `body` is a Pydantic BaseModel, not a mapping, so
+            // `{**body}` raises TypeError. Unpack its dict form instead.
+            out += `{${args.map((a) => (a === 'body' ? '**body.model_dump()' : `**${a}`)).join(', ')}}`;
+          } else {
+            out += '{}';
+          }
+        } else if (method === 'Object.fromEntries') {
+          const arg = lowerObjectArrayDateBuiltinCalls(rawArgs, imports).trim();
+          out += `dict(${arg})`;
+        } else if (method === 'Array.of') {
+          // Array.of(...items) is a plain list of its args (NOT Array(n) length).
+          const args =
+            rawArgs.trim() === ''
+              ? []
+              : splitTopLevelArgs(rawArgs).map((a) => lowerObjectArrayDateBuiltinCalls(a, imports).trim());
+          out += `[${args.join(', ')}]`;
+        } else if (method === 'String.fromCharCode') {
+          // chr() per code unit; join when there are several.
+          const args =
+            rawArgs.trim() === ''
+              ? []
+              : splitTopLevelArgs(rawArgs).map((a) => lowerObjectArrayDateBuiltinCalls(a, imports).trim());
+          out +=
+            args.length === 0
+              ? '""'
+              : args.length === 1
+                ? `chr(${args[0]})`
+                : `''.join(chr(__c) for __c in [${args.join(', ')}])`;
+        } else {
+          const arg = lowerObjectArrayDateBuiltinCalls(rawArgs, imports).trim();
+          if (method === 'Object.keys') out += `list(${arg}.keys())`;
+          else if (method === 'Object.values') out += `list(${arg}.values())`;
+          else if (method === 'Object.entries') out += `list(${arg}.items())`;
+          else out += `isinstance(${arg}, list)`;
+        }
         i = closeIdx + 1;
         continue;
       }
@@ -1314,6 +1637,154 @@ function lowerSpreadElements(expr: string): string {
   return out;
 }
 
+// ── Portable JS operators whose Python spelling diverges or doesn't exist ────
+// `%` (JS follows the DIVIDEND sign; Python's follows the divisor), `>>>` (no
+// Python equivalent — emit a 32-bit-masked unsigned shift), and `??` (null-only
+// coalesce, NOT falsy). Operand boundaries are found by a balanced, sign-aware
+// scan over precedence "stop" chars; findNextJsOperator skips string literals.
+function isUnarySign(expr: string, index: number): boolean {
+  const c = expr[index];
+  if (c !== '+' && c !== '-') return false;
+  let j = index - 1;
+  while (j >= 0 && /\s/.test(expr[j])) j--;
+  return j < 0 || /[({[,:?+\-*/%<>=!&|^~]/.test(expr[j]);
+}
+
+function findLeftOperandStart(expr: string, opIndex: number, stopChars: string): number {
+  let j = opIndex - 1;
+  while (j >= 0 && /\s/.test(expr[j])) j--;
+  let depth = 0;
+  for (; j >= 0; j--) {
+    const c = expr[j];
+    if (c === '"' || c === "'" || c === '`') {
+      // A string operand is one atom — skip back to its opening quote (escape-
+      // aware) so a stop char inside the literal isn't mistaken for a boundary.
+      const q = c;
+      let k = j - 1;
+      while (k >= 0) {
+        if (expr[k] === q) {
+          let b = 0;
+          let p = k - 1;
+          while (p >= 0 && expr[p] === '\\') {
+            b++;
+            p--;
+          }
+          if (b % 2 === 0) break;
+        }
+        k--;
+      }
+      j = k; // loop's j-- moves past the opening quote next
+      continue;
+    }
+    if (c === ')' || c === ']' || c === '}') {
+      depth++;
+      continue;
+    }
+    if (c === '(' || c === '[' || c === '{') {
+      if (depth === 0) return j + 1;
+      depth--;
+      continue;
+    }
+    if (depth === 0 && stopChars.includes(c) && !isUnarySign(expr, j)) return j + 1;
+  }
+  return 0;
+}
+
+function findRightOperandEnd(expr: string, startIndex: number, stopChars: string): number {
+  let j = startIndex;
+  while (j < expr.length && /\s/.test(expr[j])) j++;
+  let depth = 0;
+  let quote: string | null = null;
+  for (; j < expr.length; j++) {
+    const c = expr[j];
+    if (quote) {
+      if (c === '\\') {
+        j++;
+        continue;
+      }
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      continue;
+    }
+    if (c === '(' || c === '[' || c === '{') {
+      depth++;
+      continue;
+    }
+    if (c === ')' || c === ']' || c === '}') {
+      if (depth === 0) return j;
+      depth--;
+      continue;
+    }
+    if (depth === 0 && stopChars.includes(c) && !isUnarySign(expr, j)) return j;
+  }
+  return expr.length;
+}
+
+function findNextJsOperator(expr: string, op: string, from: number): number {
+  let quote: string | null = null;
+  for (let i = 0; i < expr.length; i++) {
+    const c = expr[i];
+    if (quote) {
+      if (c === '\\') i += 1;
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      continue;
+    }
+    if (i >= from && expr.startsWith(op, i)) return i;
+  }
+  return -1;
+}
+
+function replaceJsOperator(
+  expr: string,
+  op: string,
+  stopChars: string,
+  lower: (left: string, right: string) => string,
+): string {
+  let result = expr;
+  let from = 0;
+  while (true) {
+    const opIndex = findNextJsOperator(result, op, from);
+    if (opIndex === -1) return result;
+    const leftStart = findLeftOperandStart(result, opIndex, stopChars);
+    const rightEnd = findRightOperandEnd(result, opIndex + op.length, stopChars);
+    const left = result.slice(leftStart, opIndex).trim();
+    const right = result.slice(opIndex + op.length, rightEnd).trim();
+    if (!left || !right) {
+      // Not a binary use here — skip past this occurrence to avoid a loop.
+      from = opIndex + op.length;
+      continue;
+    }
+    const lowered = lower(left, right);
+    result = `${result.slice(0, leftStart)}${lowered}${result.slice(rightEnd)}`;
+    from = leftStart + lowered.length;
+  }
+}
+
+function lowerPortableJsOperators(expr: string, imports?: Set<string>): string {
+  // `%` binds at multiplicative precedence; `>>>` and `??` are loose (low).
+  const multiplicativeStops = ',:?+-*/%<>=!&|^';
+  const looseBinaryStops = ',:?';
+  let result = expr;
+  // >>> first (longest operator); mask the dividend to 32 bits and the shift
+  // count to 5 bits, mirroring JS ToUint32 + (count & 31).
+  result = replaceJsOperator(result, '>>>', looseBinaryStops, (l, r) => `((${l} & 0xFFFFFFFF) >> (${r} & 31))`);
+  // `%`: math.fmod follows the DIVIDEND sign like JS (and keeps the fractional
+  // part for float operands — int() would wrongly truncate 5.5 % 2 → 1).
+  result = replaceJsOperator(result, '%', multiplicativeStops, (l, r) => {
+    imports?.add('import math as __k_math');
+    return `__k_math.fmod(${l}, ${r})`;
+  });
+  result = replaceJsOperator(result, '??', looseBinaryStops, (l, r) => `(${l} if ${l} is not None else ${r})`);
+  return result;
+}
+
 export function rewriteFastAPIExpr(
   expr: string,
   pathParams: string[],
@@ -1436,6 +1907,9 @@ export function rewriteFastAPIExpr(
     },
   );
 
+  // Portable operators whose Python spelling diverges (`%`, `??`) or is absent
+  // (`>>>`) — lower before the number builtins emit any `%`-format strings.
+  result = lowerPortableJsOperators(result, imports);
   // JSON.stringify(...) → json.dumps(...) / JSON.parse(...) → json.loads(...)
   result = lowerJsonBuiltinCalls(result, imports);
   // Number/Math arithmetic builtins in portable expressions.
