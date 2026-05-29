@@ -2,6 +2,7 @@ import type { IRNode, ResolvedKernConfig, TranspileResult } from '@kernlang/core
 import { countTokens, serializeIR } from '@kernlang/core';
 import { emitImports } from '../core/emit-imports.js';
 import { emitModels } from '../core/emit-models.js';
+import { collectFenceDiagnostics } from '../core/fence-diagnostics.js';
 
 /**
  * First-class `python` transpiler target. Lowering KERN types and models to pure Python.
@@ -53,6 +54,6 @@ export function transpilePython(root: IRNode, config?: ResolvedKernConfig): Tran
     tsTokenCount,
     tokenReduction,
     artifacts: [],
-    diagnostics: [],
+    diagnostics: collectFenceDiagnostics(root, config?.pythonFenceSeverity ?? 'warning'),
   };
 }
