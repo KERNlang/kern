@@ -283,14 +283,22 @@ export function makeImportResolverForFile(
  *  Mirrors EMITTABLE_TYPE_NODES in shadow-analyzer.ts. */
 const SHADOW_TYPE_KINDS = new Set(['interface', 'union', 'type']);
 
-function collectTypeDecls(node: IRNode, out: Map<string, IRNode>): void {
-  if (SHADOW_TYPE_KINDS.has(node.type)) {
-    const name = node.props?.name;
+function collectTypeDecls(root: IRNode, out: Map<string, IRNode>): void {
+  // Only top-level, exported type declarations are importable, so only those
+  // can back a `use…from` reference. Nested types (declared inside a
+  // class/service) and non-exported types can't be imported by name — indexing
+  // them would let --shadow-real-types validate against a shape the generated
+  // import can't actually access.
+  const topLevel = SHADOW_TYPE_KINDS.has(root.type) ? [root] : (root.children ?? []);
+  for (const node of topLevel) {
+    if (!SHADOW_TYPE_KINDS.has(node.type)) continue;
+    const props = node.props ?? {};
+    if (props.export === 'false' || props.export === false) continue;
+    const name = props.name;
     if (typeof name === 'string' && /^[A-Za-z_]\w*$/.test(name) && !out.has(name)) {
       out.set(name, node);
     }
   }
-  for (const child of node.children ?? []) collectTypeDecls(child, out);
 }
 
 /** Index every emittable type declaration (interface/union/type) in each

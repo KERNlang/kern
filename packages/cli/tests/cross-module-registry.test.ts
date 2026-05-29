@@ -573,6 +573,18 @@ describe('shadow real-types — project type-node index + per-file resolution', 
     expect(byName?.get('UserId')?.type).toBe('type');
   });
 
+  test('buildProjectTypeNodeIndex excludes non-exported (export=false) types', () => {
+    const modelsPath = join(tmpDir, 'models.kern');
+    writeFileSync(
+      modelsPath,
+      ['interface name=PublicShape', '  field name=id type=string', 'interface name=PrivateShape export=false', '  field name=secret type=string'].join('\n'),
+    );
+    const index = buildProjectTypeNodeIndex([modelsPath]);
+    const byName = index.get(resolve(modelsPath));
+    expect(byName?.get('PublicShape')?.type).toBe('interface');
+    expect(byName?.has('PrivateShape')).toBe(false);
+  });
+
   test('resolveImportedTypeNodesForFile maps a use…from import to the target type node', () => {
     const modelsPath = writeModels();
     const handlerPath = join(tmpDir, 'handler.kern');
