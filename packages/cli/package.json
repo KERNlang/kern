@@ -34,6 +34,7 @@
     "@kernlang/core": "workspace:*",
     "@kernlang/evolve": "workspace:*",
     "@kernlang/express": "workspace:*",
+    "@kernlang/go": "workspace:*",
     "@kernlang/python": "workspace:*",
     "@kernlang/mcp": "workspace:*",
     "@kernlang/metrics": "workspace:*",

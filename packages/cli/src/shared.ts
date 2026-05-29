@@ -38,6 +38,7 @@ import {
   writeCoverageGaps,
 } from '@kernlang/core';
 import { emitInterfaces, transpileExpress } from '@kernlang/express';
+import { transpileGo } from '@kernlang/go';
 import { transpileMCP } from '@kernlang/mcp';
 import { transpile } from '@kernlang/native';
 import { transpileFastAPI, transpilePython } from '@kernlang/python';
@@ -655,6 +656,8 @@ export function getOutputExtension(target: KernTarget): string {
     case 'fastapi':
     case 'python':
       return '.py';
+    case 'go':
+      return '.go';
     case 'vue':
     case 'nuxt':
       return '.vue';
@@ -1120,21 +1123,23 @@ function dispatchTranspile(target: KernTarget, ast: IRNode, cfg: ResolvedKernCon
             ? transpileMCP(ast, cfg)
             : target === 'express'
               ? transpileExpress(ast, cfg)
-              : target === 'fastapi'
-                ? transpileFastAPI(ast, cfg)
-                : target === 'python'
-                  ? transpilePython(ast, cfg)
-                  : target === 'cli'
-                    ? transpileCliApp(ast, cfg)
-                    : target === 'terminal'
-                      ? transpileTerminal(ast, cfg)
-                      : target === 'ink'
-                        ? transpileInk(ast, cfg)
-                        : target === 'vue'
-                          ? transpileVue(ast, cfg)
-                          : target === 'nuxt'
-                            ? transpileNuxt(ast, cfg)
-                            : transpileNextjs(ast, cfg);
+              : target === 'go'
+                ? transpileGo(ast, cfg)
+                : target === 'fastapi'
+                  ? transpileFastAPI(ast, cfg)
+                  : target === 'python'
+                    ? transpilePython(ast, cfg)
+                    : target === 'cli'
+                      ? transpileCliApp(ast, cfg)
+                      : target === 'terminal'
+                        ? transpileTerminal(ast, cfg)
+                        : target === 'ink'
+                          ? transpileInk(ast, cfg)
+                          : target === 'vue'
+                            ? transpileVue(ast, cfg)
+                            : target === 'nuxt'
+                              ? transpileNuxt(ast, cfg)
+                              : transpileNextjs(ast, cfg);
 }
 
 export function transpileForTarget(ast: IRNode, cfg: ResolvedKernConfig) {
@@ -1234,7 +1239,12 @@ export function transpileAndWrite(
   mkdirSync(outDir, { recursive: true });
   if (options?.writeSidecarInstallFiles !== false) writeSidecarInstallFiles(ast, outDir);
 
-  if (result.artifacts && result.artifacts.length > 0 && cfg.structure !== 'flat' && target !== 'fastapi') {
+  if (
+    result.artifacts &&
+    result.artifacts.length > 0 &&
+    (cfg.structure !== 'flat' || target === 'go') &&
+    target !== 'fastapi'
+  ) {
     for (const artifact of result.artifacts) {
       const artifactPath = resolve(outDir, artifact.path);
       mkdirSync(dirname(artifactPath), { recursive: true });
@@ -1250,9 +1260,11 @@ export function transpileAndWrite(
         ? '.py'
         : target === 'vue' || target === 'nuxt'
           ? '.vue'
-          : target === 'lib' || target === 'express' || target === 'cli' || target === 'terminal' || target === 'mcp'
-            ? '.ts'
-            : '.tsx';
+          : target === 'go'
+            ? '.go'
+            : target === 'lib' || target === 'express' || target === 'cli' || target === 'terminal' || target === 'mcp'
+              ? '.ts'
+              : '.tsx';
     const resultWithFiles = result as { files?: Array<{ path: string; content: string }> };
     const outFileName =
       target === 'nextjs' && resultWithFiles.files && resultWithFiles.files.length > 0
