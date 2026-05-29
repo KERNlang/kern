@@ -269,10 +269,10 @@ export function runTSCDiagnostics(
       // for other missing props.
       const isJsxChildrenInferenceNoise =
         code === 2741 && brokenJsxNamespaceFiles.has(filePath) && isMissingChildrenDiagnostic(messageStr);
-      // TS2875 — the automatic-runtime (jsx:'react-jsx') equivalent of the
-      // TS2307 bare-module miss review mode already downgrades. Review path
-      // only; the explicit --lint/typecheck path still surfaces it so a repo
-      // genuinely lacking the JSX runtime is reported. See
+      // TS2875 — the automatic-runtime (jsx:'react-jsx') exports-subpath analog
+      // of the TS2307 bare-module miss review mode already downgrades. Review
+      // path only; the explicit --lint/typecheck path still surfaces it so a
+      // repo genuinely lacking the JSX runtime is reported. See
       // isBrokenJsxRuntimeDiagnostic for why the message gate is safe.
       const isBrokenJsxRuntimeNoise = code === 2875 && isBrokenJsxRuntimeDiagnostic(messageStr);
       if (
@@ -342,27 +342,25 @@ function collectReviewModeSuppressedModuleMisses(
 //     signal the whole JSX-typechecking surface is degraded for that file.
 //   - TS2503 with `'JSX'` namespace — direct "Cannot find namespace 'JSX'."
 //     when source code references the JSX namespace at type position.
-//   - TS2875 ("This JSX tag requires the module path 'react/jsx-runtime' to
-//     exist…") — the automatic-runtime (jsx:'react-jsx') signal that the JSX
-//     runtime is unreachable. It is the same file-level break as TS7026, so a
-//     co-firing TS2741 children cascade on that file is suppressed too. (In
-//     practice the automatic runtime errors at TS2875 before children-checking,
-//     so the cascade rarely materializes — this is belt-and-suspenders.)
 // We deliberately do NOT use TS2604 ("JSX element type X has no construct
 // or call signatures") as a signal: it can fire for legitimate misuses of
 // non-React-component values in JSX position and would over-suppress.
+// (TS2875 — the automatic-runtime jsx-runtime miss — is suppressed directly in
+// the diagnostic loop, NOT registered here: under the automatic runtime TS
+// errors at TS2875 before children-checking, so no TS2741 children cascade
+// co-fires to suppress, and adding 2875-only files here could hide a genuine
+// missing-`children` error on a file whose JSX namespace is otherwise intact.)
 function collectBrokenJsxNamespaceFiles(diagnostics: ReturnType<Project['getPreEmitDiagnostics']>): Set<string> {
   const files = new Set<string>();
   for (const diag of diagnostics) {
     const code = diag.getCode();
-    if (code !== 7026 && code !== 2503 && code !== 2875) continue;
+    if (code !== 7026 && code !== 2503) continue;
     const sourceFile = diag.getSourceFile();
     if (!sourceFile) continue;
-    if (code === 2503 || code === 2875) {
+    if (code === 2503) {
       const message = diag.getMessageText();
       const messageStr = typeof message === 'string' ? message : message.getMessageText();
-      if (code === 2503 && !/Cannot find namespace ['"]JSX['"]/.test(messageStr)) continue;
-      if (code === 2875 && !isBrokenJsxRuntimeDiagnostic(messageStr)) continue;
+      if (!/Cannot find namespace ['"]JSX['"]/.test(messageStr)) continue;
     }
     files.add(sourceFile.getFilePath());
   }
@@ -381,18 +379,22 @@ function isMissingChildrenDiagnostic(message: string): boolean {
 
 // TS2875 ("This JSX tag requires the module path 'react/jsx-runtime' to exist,
 // but none could be found") is the automatic-runtime (jsx:'react-jsx')
-// equivalent of two classic-runtime signals review mode already downgrades:
-// the TS7026/TS2503 broken-JSX-namespace pair AND the TS2307 bare-module miss
-// (isReviewModeModuleResolutionNoise). The dev's local `tsc --noEmit` resolves
-// `react/jsx-runtime` through the package's `exports` map; review's ad-hoc
-// ts-morph Project — sparse clone, no node_modules / no exports-subpath
-// resolution — cannot, so it fires per JSX tag. The interpolated module path is
-// locale-independent and always ends in `jsx-runtime` or `jsx-dev-runtime`
-// (react, preact/jsx-runtime, @emotion/react/jsx-runtime, react/jsx-dev-runtime
-// …). Code 2875 is otherwise exclusively this diagnostic, but gating on the
-// path keeps any future reuse of the code from being silently swallowed.
+// counterpart of the classic-runtime TS7026/TS2503 broken-JSX signals, and the
+// exports-subpath analog of the TS2307 bare-module miss review mode already
+// downgrades (isReviewModeModuleResolutionNoise): the dev's local `tsc --noEmit`
+// resolves `react/jsx-runtime` through the package's `exports` map; review's
+// ad-hoc ts-morph Project — sparse clone, no node_modules / no exports-subpath
+// resolution — cannot, so it fires per JSX tag.
+//
+// The message interpolates the unresolved module path: always a quoted
+// specifier ending in `/jsx-runtime` or `/jsx-dev-runtime` (react/jsx-runtime,
+// react/jsx-dev-runtime, preact/jsx-runtime, @emotion/react/jsx-runtime, …).
+// Code 2875 is exclusively this diagnostic, so the gate is belt-and-suspenders
+// against a future reuse of the code — anchored to the quoted path (not a bare
+// substring) so unrelated prose mentioning "jsx-runtime" cannot match.
+const BROKEN_JSX_RUNTIME_RE = /['"][^'"]*\/jsx-(?:dev-)?runtime['"]/;
 function isBrokenJsxRuntimeDiagnostic(message: string): boolean {
-  return /jsx-(?:dev-)?runtime/.test(message);
+  return BROKEN_JSX_RUNTIME_RE.test(message);
 }
 
 function isReviewModeGeneratedFacadeExportCascade(

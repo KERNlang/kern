@@ -60,6 +60,10 @@ describe('runTSCDiagnostics — automatic JSX runtime noise (kern-guard ts2875 F
     const project = automaticRuntimeProject({ '/Counter.tsx': HOST_ELEMENT_TSX });
     const findings = runTSCDiagnostics(project, { downgradeProjectLoadingErrors: true });
     expect(findings.find((f) => f.ruleId === 'ts2875')).toBeUndefined();
+    // The host element also co-fires ts7026 (no JSX.IntrinsicElements), which
+    // is suppressed as environmental noise in review mode too — assert it so a
+    // regression that leaks ts7026 alongside ts2875 is caught here.
+    expect(findings.find((f) => f.ruleId === 'ts7026')).toBeUndefined();
   });
 
   it('drops TS2875 even for component-only JSX (no host element, no co-firing ts7026)', () => {
