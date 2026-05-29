@@ -1,9 +1,152 @@
 import { parse } from '../src/parser.js';
 import { analyzeShadow } from '../src/shadow-analyzer.js';
+import type { IRNode } from '../src/types.js';
 
 async function analyze(source: string) {
   return analyzeShadow(parse(source));
 }
+
+async function analyzeReal(source: string) {
+  return analyzeShadow(parse(source), { realTypes: true });
+}
+
+function findNode(node: IRNode, type: string, name: string): IRNode | undefined {
+  if (node.type === type && node.props?.name === name) return node;
+  for (const child of node.children ?? []) {
+    const found = findNode(child, type, name);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+describe('Shadow Analyzer — realTypes (project-wide imported types)', () => {
+  const registryNode = (): IRNode => {
+    const n = findNode(
+      parse('interface name=EngineRegistry\n  field name=count type=number'),
+      'interface',
+      'EngineRegistry',
+    );
+    if (!n) throw new Error('test fixture parse failed');
+    return n;
+  };
+  const consumer = (access: string) =>
+    ['fn name=run params="r:EngineRegistry" returns=number', '  handler <<<', `    return ${access};`, '  >>>'].join(
+      '\n',
+    );
+
+  it('checks a fence against a resolved imported interface (missing field caught)', async () => {
+    const diagnostics = await analyzeShadow(parse(consumer('r.missing')), {
+      realTypes: true,
+      importedTypeNodes: new Map([['EngineRegistry', registryNode()]]),
+    });
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ rule: 'shadow-ts', nodeType: 'fn', tsCode: 2339 })]),
+    );
+  });
+
+  it('a correct access against the resolved import is clean', async () => {
+    const diagnostics = await analyzeShadow(parse(consumer('r.count')), {
+      realTypes: true,
+      importedTypeNodes: new Map([['EngineRegistry', registryNode()]]),
+    });
+    expect(diagnostics.filter((d) => d.rule === 'shadow-ts')).toHaveLength(0);
+  });
+
+  it('unresolved imported param type degrades cleanly (no false positive)', async () => {
+    const diagnostics = await analyzeReal(
+      ['fn name=run params="r:EngineRegistry" returns=number', '  handler <<<', '    return 1;', '  >>>'].join('\n'),
+    );
+    expect(diagnostics.filter((d) => d.rule === 'shadow-ts')).toHaveLength(0);
+  });
+
+  it('an in-file declaration wins over an imported type of the same name', async () => {
+    // Imported NeroResult = { ok: boolean }; in-file NeroResult = { ok: number }.
+    // Returning { ok: 1 } must be CLEAN — proving the fence is checked against the
+    // in-file shape, not the import (otherwise `1` would fail `ok: boolean`).
+    const importedNeroResult = findNode(
+      parse('interface name=NeroResult\n  field name=ok type=boolean'),
+      'interface',
+      'NeroResult',
+    );
+    if (!importedNeroResult) throw new Error('test fixture parse failed');
+    const source = [
+      'interface name=NeroResult',
+      '  field name=ok type=number',
+      '',
+      'fn name=run returns=NeroResult',
+      '  handler <<<',
+      '    return { ok: 1 };',
+      '  >>>',
+    ].join('\n');
+    const diagnostics = await analyzeShadow(parse(source), {
+      realTypes: true,
+      importedTypeNodes: new Map([['NeroResult', importedNeroResult]]),
+    });
+    expect(diagnostics.filter((d) => d.rule === 'shadow-ts')).toHaveLength(0);
+  });
+});
+
+describe('Shadow Analyzer — realTypes (in-file declared types)', () => {
+  const misusedReturn = [
+    'interface name=NeroResult',
+    '  field name=ok type=boolean',
+    '  field name=verdict type=string',
+    '',
+    'fn name=run returns=NeroResult',
+    '  handler <<<',
+    "    return { ok: 'yes', verdict: 1 };",
+    '  >>>',
+  ].join('\n');
+
+  it('catches a fence return that mis-types an in-file interface field', async () => {
+    const diagnostics = await analyzeReal(misusedReturn);
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ rule: 'shadow-ts', nodeType: 'fn' })]),
+    );
+  });
+
+  it('default (any-stub) behavior leaves the same mis-typed return unchecked', async () => {
+    const diagnostics = await analyze(misusedReturn);
+    expect(diagnostics.filter((d) => d.rule === 'shadow-ts')).toHaveLength(0);
+  });
+
+  it('degrades cleanly when an in-file interface field references an undeclared (imported) type', async () => {
+    // EngineRegistry is NOT declared in-file (simulates an import). A correct fence
+    // must NOT get a spurious "cannot find name" cascade — the field should degrade to any.
+    const source = [
+      'interface name=NeroOptions',
+      '  field name=registry type=EngineRegistry',
+      '  field name=timeout type=number',
+      '',
+      'fn name=run params="opts:NeroOptions" returns=number',
+      '  handler <<<',
+      '    return opts.timeout;',
+      '  >>>',
+    ].join('\n');
+    const diagnostics = await analyzeReal(source);
+    expect(diagnostics.filter((d) => d.rule === 'shadow-ts')).toHaveLength(0);
+  });
+
+  it('does not flag a correct fence against a real in-file union (exhaustive switch)', async () => {
+    const source = [
+      'union name=Shape discriminant=kind',
+      '  variant name=circle',
+      '    field name=r type=number',
+      '  variant name=square',
+      '    field name=side type=number',
+      '',
+      'fn name=area params="s:Shape" returns=number',
+      '  handler <<<',
+      '    switch (s.kind) {',
+      "      case 'circle': return Math.PI * s.r * s.r;",
+      "      case 'square': return s.side * s.side;",
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const diagnostics = await analyzeReal(source);
+    expect(diagnostics.filter((d) => d.rule === 'shadow-ts')).toHaveLength(0);
+  });
+});
 
 describe('Shadow Analyzer — fn', () => {
   it('catches undefined variables in fn handlers', async () => {
