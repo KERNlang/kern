@@ -63,6 +63,8 @@ export interface KernConfig {
   templates?: string[];
   emit?: string;
   pythonModelBackend?: 'pydantic' | 'sqlmodel' | 'auto';
+  /** Severity for raw (unmarked) TS fences dropped by the python target. Default 'warning'. */
+  pythonFenceSeverity?: 'error' | 'warning' | 'info';
 
   i18n?: {
     enabled?: boolean;
@@ -143,6 +145,7 @@ export interface ResolvedKernConfig {
   templates: string[];
   emit?: string;
   pythonModelBackend?: 'pydantic' | 'sqlmodel' | 'auto';
+  pythonFenceSeverity?: 'error' | 'warning' | 'info';
 
   i18n: {
     enabled: boolean;
@@ -285,6 +288,7 @@ export function resolveConfig(user?: Partial<KernConfig>): ResolvedKernConfig {
     structure: user.structure || DEFAULT_CONFIG.structure,
     emit: user.emit,
     pythonModelBackend: user.pythonModelBackend,
+    pythonFenceSeverity: user.pythonFenceSeverity,
     frameworkVersions: {
       ...DEFAULT_CONFIG.frameworkVersions,
       ...user.frameworkVersions,

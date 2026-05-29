@@ -271,7 +271,9 @@ export function runTranspile(args: string[]): void {
     for (const d of result.diagnostics) counts[d.outcome] = (counts[d.outcome] || 0) + 1;
     const parts = Object.entries(counts).map(([k, v]) => `${v} ${k}`);
     console.log(`Diagnostics: ${parts.join(', ')}`);
-    const unsupported = result.diagnostics.filter((d) => d.outcome === 'unsupported');
+    // Severity-bearing diagnostics render via the richer severity block below, so
+    // skip the terse line here to avoid printing the same diagnostic twice.
+    const unsupported = result.diagnostics.filter((d) => d.outcome === 'unsupported' && !d.severity);
     if (unsupported.length > 0) {
       for (const d of unsupported) {
         const loc = d.loc ? `:${d.loc.line}` : '';
