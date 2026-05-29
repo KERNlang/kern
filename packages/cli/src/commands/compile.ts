@@ -603,8 +603,9 @@ export async function runCompile(args: string[]): Promise<void> {
   // KERN-to-KERN imports.
   let crossModuleRegistry = buildCrossModuleRegistry(kernFiles);
   // Real-type shadow checking resolves each fence's imported domain types
-  // against their true shape; the index is parsed once, opt-in via the flag.
-  const projectTypeNodeIndex = shadowRealTypes ? buildProjectTypeNodeIndex(kernFiles) : null;
+  // against their true shape; opt-in via the flag. Rebuilt on change in watch
+  // mode so edited/added type definitions aren't checked against a stale index.
+  let projectTypeNodeIndex = shadowRealTypes ? buildProjectTypeNodeIndex(kernFiles) : null;
   let fastApiModulePlan = targetArg
     ? buildFastApiModulePlan(kernFiles, outDir, cfg as ResolvedKernConfig, isDir ? inputPath : undefined)
     : null;
@@ -989,6 +990,11 @@ export async function runCompile(args: string[]): Promise<void> {
           transpileTargetWithPlan(filePath, fastApiModulePlan);
         }
       } else {
+        // Refresh the type-node index so a changed/added type definition is
+        // checked against its current shape, not the startup snapshot.
+        if (shadowRealTypes) {
+          projectTypeNodeIndex = buildProjectTypeNodeIndex(isDir ? findKernFiles(inputPath) : kernFiles);
+        }
         await compileDefaultSingle(
           filePath,
           outDir,
