@@ -577,7 +577,12 @@ describe('shadow real-types — project type-node index + per-file resolution', 
     const modelsPath = join(tmpDir, 'models.kern');
     writeFileSync(
       modelsPath,
-      ['interface name=PublicShape', '  field name=id type=string', 'interface name=PrivateShape export=false', '  field name=secret type=string'].join('\n'),
+      [
+        'interface name=PublicShape',
+        '  field name=id type=string',
+        'interface name=PrivateShape export=false',
+        '  field name=secret type=string',
+      ].join('\n'),
     );
     const index = buildProjectTypeNodeIndex([modelsPath]);
     const byName = index.get(resolve(modelsPath));
@@ -608,10 +613,7 @@ describe('shadow real-types — project type-node index + per-file resolution', 
   test('honors `from … as alias` — keyed by the local name', () => {
     const modelsPath = writeModels();
     const handlerPath = join(tmpDir, 'handler.kern');
-    writeFileSync(
-      handlerPath,
-      ['use path="./models"', '  from name=UserProfile as=Profile kind=type'].join('\n'),
-    );
+    writeFileSync(handlerPath, ['use path="./models"', '  from name=UserProfile as=Profile kind=type'].join('\n'));
     const index = buildProjectTypeNodeIndex([modelsPath, handlerPath]);
     const root = parseDocument(readFileSync(handlerPath, 'utf-8'));
     const imported = resolveImportedTypeNodesForFile(resolve(handlerPath), root, index);
@@ -626,10 +628,7 @@ describe('shadow real-types — project type-node index + per-file resolution', 
   test('an imported name absent from the target degrades (not included)', () => {
     const modelsPath = writeModels();
     const handlerPath = join(tmpDir, 'handler.kern');
-    writeFileSync(
-      handlerPath,
-      ['use path="./models"', '  from name=DoesNotExist kind=type'].join('\n'),
-    );
+    writeFileSync(handlerPath, ['use path="./models"', '  from name=DoesNotExist kind=type'].join('\n'));
     const index = buildProjectTypeNodeIndex([modelsPath, handlerPath]);
     const root = parseDocument(readFileSync(handlerPath, 'utf-8'));
     const imported = resolveImportedTypeNodesForFile(resolve(handlerPath), root, index);

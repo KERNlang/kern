@@ -21,12 +21,18 @@ function findNode(node: IRNode, type: string, name: string): IRNode | undefined 
 
 describe('Shadow Analyzer — realTypes (project-wide imported types)', () => {
   const registryNode = (): IRNode => {
-    const n = findNode(parse('interface name=EngineRegistry\n  field name=count type=number'), 'interface', 'EngineRegistry');
+    const n = findNode(
+      parse('interface name=EngineRegistry\n  field name=count type=number'),
+      'interface',
+      'EngineRegistry',
+    );
     if (!n) throw new Error('test fixture parse failed');
     return n;
   };
   const consumer = (access: string) =>
-    ['fn name=run params="r:EngineRegistry" returns=number', '  handler <<<', `    return ${access};`, '  >>>'].join('\n');
+    ['fn name=run params="r:EngineRegistry" returns=number', '  handler <<<', `    return ${access};`, '  >>>'].join(
+      '\n',
+    );
 
   it('checks a fence against a resolved imported interface (missing field caught)', async () => {
     const diagnostics = await analyzeShadow(parse(consumer('r.missing')), {
