@@ -130,6 +130,43 @@ function lowerDictMemberAccess(text: string, varName: string): string {
   return out;
 }
 
+// A statement body that is EXACTLY `{ return E; }` is semantically identical to the
+// expression body `E`, so unwrap it to reuse the expression-bodied lowering (slice 1 of
+// native closures, #5). Richer statement bodies (locals, control flow, side effects
+// before the return) need full closure lowering (hoisted nested defs) and are NOT handled
+// here — they stay untouched (still unsupported) rather than mis-lowered. The scan is
+// string/bracket-aware so `{ return f({a:1}); }` unwraps but `{ return a; more(); }` does not.
+function unwrapSingleReturnBlock(body: string): string {
+  const t = body.trim();
+  if (t.length < 2 || t[0] !== '{' || t[t.length - 1] !== '}') return body;
+  const topLevelBreaks = (s: string, breakOnSemicolon: boolean): boolean => {
+    let depth = 0;
+    let inStr: string | null = null;
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i];
+      if (inStr) {
+        if (c === inStr && s[i - 1] !== '\\') inStr = null;
+        continue;
+      }
+      if (c === '"' || c === "'" || c === '`') inStr = c;
+      else if (c === '{' || c === '(' || c === '[') depth++;
+      else if (c === '}' || c === ')' || c === ']') {
+        depth--;
+        // the opening brace must match the FINAL char, else `{..}{..}` etc.
+        if (!breakOnSemicolon && depth === 0 && i !== s.length - 1) return true;
+      } else if (breakOnSemicolon && c === ';' && depth === 0) return true;
+    }
+    return false;
+  };
+  if (topLevelBreaks(t, false)) return body; // outer braces don't span the whole body
+  let inner = t.slice(1, -1).trim();
+  if (!/^return\b/.test(inner)) return body;
+  inner = inner.slice(6).trim();
+  if (inner.endsWith(';')) inner = inner.slice(0, -1).trim();
+  if (!inner || topLevelBreaks(inner, true)) return body; // empty or multi-statement
+  return inner;
+}
+
 // Parse an arrow callback's argument text into `{ params, body }`, or null when
 // it isn't a single arrow function (e.g. `.map(fn)` with a bare reference, which
 // is left unchanged). Handles `(p) => body`, `p => body`, and `(p, i) => body`.
@@ -143,11 +180,11 @@ function parseArrowCallback(inner: string): { params: string[]; body: string } |
     const params = splitTopLevelArgs(trimmed.slice(1, close))
       .map((s) => s.trim())
       .filter(Boolean);
-    return { params, body: after.slice(2).trim() };
+    return { params, body: unwrapSingleReturnBlock(after.slice(2).trim()) };
   }
   const m = trimmed.match(/^([A-Za-z_$][\w$]*)\s*=>\s*([\s\S]+)$/);
   if (!m) return null;
-  return { params: [m[1]], body: m[2].trim() };
+  return { params: [m[1]], body: unwrapSingleReturnBlock(m[2].trim()) };
 }
 
 // Lower JS arrow-callback array methods to Python comprehensions:

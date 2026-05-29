@@ -325,6 +325,15 @@ const FIXTURES = [
   { name: 'arr-method: concat array arg spreads', expr: 'nums.concat(more)', path: '/api/a', bindings: { locals: { nums: [1], more: [2, 3] } }, expected: [1, 2, 3] },
   { name: 'arr-method: concat scalar arg appends', expr: 'nums.concat(9)', path: '/api/a', bindings: { locals: { nums: [1, 2] } }, expected: [1, 2, 9] },
 
+  // ── closures slice 1 (#5): an arrow STATEMENT body that is EXACTLY `{ return E }` is ──
+  // semantically the expression body E, so it unwraps to the existing comprehension
+  // lowering (unwrapSingleReturnBlock in fastapi-response.ts). Richer statement bodies
+  // (locals/control-flow before the return) are NOT unwrapped and still need full closure
+  // lowering — deferred to the multi-statement closure build.
+  { name: 'closure: map single-return block body', expr: 'nums.map((x) => { return x * 2; })', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: [2, 4, 6] },
+  { name: 'closure: filter single-return block body', expr: 'nums.filter((x) => { return x > 1; })', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: [2, 3] },
+  { name: 'closure: map single-return object literal', expr: 'nums.map((x) => { return { v: x }; })', path: '/api/a', bindings: { locals: { nums: [1, 2] } }, expected: [{ v: 1 }, { v: 2 }] },
+
   // ── str-method: string methods NOT yet lowered → AttributeError on Python ──
   // split(sep, limit) is the SILENT trap: JS keeps the first `limit` parts;
   // Python's maxsplit keeps ALL parts (limit splits) → wrong result, no error.
