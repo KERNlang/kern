@@ -2011,6 +2011,16 @@ export const KERN_TMOD_HELPER_PY = [
   '    return fa - math.trunc(fa / fb) * fb',
 ].join('\n');
 
+export const KERN_JS_HELPER_PY = [
+  'def js_truthy(x):',
+  '    if x is None or x is False: return False',
+  '    if isinstance(x, (int, float)) and x == 0: return False',
+  '    if isinstance(x, str) and x == "": return False',
+  '    return True',
+  'def js_equals(a, b):',
+  '    return a == b',
+].join('\n');
+
 export function lowerBitwiseAndModuloAST(node: ValueIR): ValueIR {
   switch (node.kind) {
     case 'binary': {

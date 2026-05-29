@@ -8,6 +8,11 @@ export {
   SUPPORTED_ASSIGN_OPERATORS,
   supportedCompoundAssignmentOperator,
 } from './assignment-operators.js';
+export type {
+  LowerJsClosureBodyToPythonOptions,
+  LowerJsClosureBodyToPythonResult,
+} from './closure-python-lowering.js';
+export { lowerJsClosureBodyToPython } from './closure-python-lowering.js';
 export type { BodyEmitOptions, BodyEmitResult } from './codegen/body-ts.js';
 export { emitNativeKernBodyTS, emitNativeKernBodyTSWithImports } from './codegen/body-ts.js';
 export type { StdlibEntry } from './codegen/kern-stdlib.js';

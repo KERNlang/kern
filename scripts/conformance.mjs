@@ -43,6 +43,7 @@ const { toSnakeCase } = await import(join(REPO, 'packages/python/dist/type-map.j
 // RETURNED value — capturing control-flow behaviour the expression harness cannot reach.
 const { parse, emitNativeKernBodyTSWithImports } = await import(join(REPO, 'packages/core/dist/index.js'));
 const { emitNativeKernBodyPythonWithImports } = await import(join(REPO, 'packages/python/dist/codegen-body-python.js'));
+const tsCompiler = await import('typescript');
 // Route-level (kind:'route') fixtures lower a full portable route HANDLER to both targets and
 // compare the {status, body} HTTP response — covering guard/respond error-shape parity (#3).
 const { generatePortableHandlerExpress } = await import(join(REPO, 'packages/express/dist/express-portable.js'));
@@ -333,6 +334,17 @@ const FIXTURES = [
   { name: 'closure: map single-return block body', expr: 'nums.map((x) => { return x * 2; })', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: [2, 4, 6] },
   { name: 'closure: filter single-return block body', expr: 'nums.filter((x) => { return x > 1; })', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: [2, 3] },
   { name: 'closure: map single-return object literal', expr: 'nums.map((x) => { return { v: x }; })', path: '/api/a', bindings: { locals: { nums: [1, 2] } }, expected: [{ v: 1 }, { v: 2 }] },
+
+  // ── closures slice 2 (#5 FULL): multi-statement / control-flow arrow bodies. These are RED
+  // at base (today they emit garbage Python `[{if (x>2){...}} for x in items]`). A correct
+  // build lowers the body to a hoisted nested `def` + comprehension reference, with js_truthy()
+  // for JS truthiness. The empty-array case is the discriminator: [] is TRUTHY in JS but FALSY
+  // in Python, so a naive `if a:` lowering FAILS it — only js_truthy(a) passes.
+  { name: 'closure: map if/else returns', expr: 'items.map((x) => { if (x > 2) { return x * 10; } return x; })', path: '/api/a', bindings: { locals: { items: [1, 2, 3, 4] } }, expected: [1, 2, 30, 40] },
+  { name: 'closure: map if-without-else clamp', expr: 'items.map((n) => { if (n < 0) { return 0; } return n; })', path: '/api/a', bindings: { locals: { items: [-1, 2, -3] } }, expected: [0, 2, 0] },
+  { name: 'closure: map const-chain then return', expr: 'items.map((x) => { const d = x * 2; const t = d + 1; return t; })', path: '/api/a', bindings: { locals: { items: [1, 2] } }, expected: [3, 5] },
+  { name: 'closure: filter with local binding', expr: 'items.filter((x) => { const ok = x % 2 === 0; return ok; })', path: '/api/a', bindings: { locals: { items: [1, 2, 3, 4] } }, expected: [2, 4] },
+  { name: 'closure: map JS-truthiness of empty array ([] truthy in JS, falsy in Python)', expr: 'items.map((a) => { if (a) { return 1; } return 0; })', path: '/api/a', bindings: { locals: { items: [[], [1], []] } }, expected: [1, 1, 1] },
 
   // ── str-method: string methods NOT yet lowered → AttributeError on Python ──
   // split(sep, limit) is the SILENT trap: JS keeps the first `limit` parts;
@@ -694,12 +706,18 @@ for (const fx of FIXTURES) {
       const ts = emitNativeKernBodyTSWithImports(handler);
       const pyEmit = emitNativeKernBodyPythonWithImports(handler);
       const names = fx.params.map((p) => p.name);
-      const tsFile = join(dir, 'stmt.ts');
+      const tsFile = join(dir, 'stmt.mjs');
       const pyFile = join(dir, 'stmt.py');
-      writeFileSync(tsFile, `${[...(ts.imports ?? [])].join('\n')}\nfunction __h(${names.join(', ')}: any): any {\n${ts.code}\n}\nconsole.log(JSON.stringify(__h(${fx.params.map((p) => JSON.stringify(p.value)).join(', ')})));`);
+      const tsSource = `${[...(ts.imports ?? [])].join('\n')}\nfunction __h(${names.join(', ')}: any): any {\n${ts.code}\n}\nconsole.log(JSON.stringify(__h(${fx.params.map((p) => JSON.stringify(p.value)).join(', ')})));`;
+      writeFileSync(
+        tsFile,
+        tsCompiler.transpileModule(tsSource, {
+          compilerOptions: { module: tsCompiler.ModuleKind.ESNext, target: tsCompiler.ScriptTarget.ES2022 },
+        }).outputText,
+      );
       writeFileSync(pyFile, `import json\n${[...(pyEmit.imports ?? [])].join('\n')}\ndef __h(${names.join(', ')}):\n${pyEmit.code.split('\n').map((l) => `    ${l}`).join('\n')}\nprint(json.dumps(__h(${fx.params.map((p) => pyVal(p.value)).join(', ')}), default=str, allow_nan=False))`);
       const stmtOpts = { encoding: 'utf8', timeout: 10_000 };
-      const tsOut = execFileSync('node', ['--experimental-strip-types', tsFile], stmtOpts).trim();
+      const tsOut = execFileSync('node', [tsFile], stmtOpts).trim();
       const pyOut = execFileSync('python3', [pyFile], stmtOpts).trim();
       const cTs = canon(JSON.parse(tsOut), 'value');
       const cPy = canon(JSON.parse(pyOut), 'value');

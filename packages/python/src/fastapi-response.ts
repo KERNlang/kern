@@ -8,8 +8,8 @@
  */
 
 import type { IRNode } from '@kernlang/core';
-import { getProps } from '@kernlang/core';
-import { KERN_I32_HELPER_PY, KERN_TMOD_HELPER_PY } from './codegen-body-python.js';
+import { getProps, lowerJsClosureBodyToPython } from '@kernlang/core';
+import { KERN_I32_HELPER_PY, KERN_JS_HELPER_PY, KERN_TMOD_HELPER_PY } from './codegen-body-python.js';
 import { escapePyStr, quoteObjectKeysOutsideStrings } from './fastapi-utils.js';
 import { toSnakeCase } from './type-map.js';
 
@@ -219,7 +219,58 @@ const PORTABLE_ARRAY_METHODS = new Set([
 ]);
 const LAMBDA_COLON_PLACEHOLDER = '__KERN_LAMBDA_COLON__';
 
-function lowerJsArrayMethods(expr: string, imports?: Set<string>): string {
+interface FastAPIExprRewriteContext {
+  pathParams: string[];
+  bodyFields: Set<string>;
+  authUser: boolean;
+  imports?: Set<string>;
+  hoistedDefs?: string[];
+  closureSeq?: { n: number };
+}
+
+function lowerArrowBlockClosure(
+  arrow: { params: string[]; body: string },
+  ctx: FastAPIExprRewriteContext,
+): string | null {
+  if (!arrow.body.trim().startsWith('{')) return null;
+  const seq = ctx.closureSeq ?? { n: 0 };
+  const name = `__kern_closure_${seq.n++}`;
+  if (!ctx.closureSeq) ctx.closureSeq = seq;
+  const result = lowerJsClosureBodyToPython(arrow.body, {
+    lowerExpression: (raw) =>
+      rewriteFastAPIExpr(
+        lowerDictMemberAccess(raw, arrow.params[0]),
+        ctx.pathParams,
+        ctx.bodyFields,
+        ctx.authUser,
+        ctx.imports,
+        undefined,
+        ctx.closureSeq,
+      ),
+    lowerCondition: (raw) =>
+      `js_truthy(${rewriteFastAPIExpr(
+        lowerDictMemberAccess(raw, arrow.params[0]),
+        ctx.pathParams,
+        ctx.bodyFields,
+        ctx.authUser,
+        ctx.imports,
+        undefined,
+        ctx.closureSeq,
+      )})`,
+  });
+  if (!result.ok) return null;
+  ctx.imports?.add(KERN_JS_HELPER_PY);
+  const params = arrow.params.join(', ');
+  const def = [`def ${name}(${params}):`, ...(result.lines.length > 0 ? result.lines : ['    pass'])].join('\n');
+  if (ctx.hoistedDefs) {
+    ctx.hoistedDefs.push(def);
+  } else {
+    ctx.imports?.add(def);
+  }
+  return `${name}(${arrow.params.join(', ')})`;
+}
+
+function lowerJsArrayMethods(expr: string, ctx: FastAPIExprRewriteContext): string {
   let out = '';
   let i = 0;
   let quote: string | null = null;
@@ -257,7 +308,8 @@ function lowerJsArrayMethods(expr: string, imports?: Set<string>): string {
           const idxVar = arrow.params[1];
           // Recurse for nested array methods in the body; subscript the element
           // var's member access. The index var (if any) stays a bare int.
-          const body = lowerJsArrayMethods(lowerDictMemberAccess(arrow.body, elemVar), imports);
+          const blockClosure = lowerArrowBlockClosure(arrow, ctx);
+          const body = blockClosure ?? lowerJsArrayMethods(lowerDictMemberAccess(arrow.body, elemVar), ctx);
           // A second callback param is the element index — bind it via
           // enumerate() for every method, not just map, so a predicate that
           // references the index (`(x, i) => i > 0`) doesn't emit an unbound
@@ -306,7 +358,7 @@ function lowerJsArrayMethods(expr: string, imports?: Set<string>): string {
         const receiver = out.slice(recvStart);
         const pre = out.slice(0, recvStart);
         const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) =>
-          lowerJsArrayMethods(a.trim(), imports),
+          lowerJsArrayMethods(a.trim(), ctx),
         );
         let lowered: string | null = null;
         if (method === 'includes') {
@@ -352,7 +404,8 @@ function lowerJsArrayMethods(expr: string, imports?: Set<string>): string {
             const idxVar = arrow.params[1];
             // Only the element var is dict-subscripted; the index var stays a
             // bare int and must be bound via enumerate() when present.
-            const pred = lowerJsArrayMethods(lowerDictMemberAccess(arrow.body, elemVar), imports);
+            const blockClosure = lowerArrowBlockClosure(arrow, ctx);
+            const pred = blockClosure ?? lowerJsArrayMethods(lowerDictMemberAccess(arrow.body, elemVar), ctx);
             const loopTarget = idxVar ? `${idxVar}, ${elemVar}` : elemVar;
             const source = idxVar ? `enumerate(${receiver})` : receiver;
             lowered =
@@ -368,10 +421,10 @@ function lowerJsArrayMethods(expr: string, imports?: Set<string>): string {
             const elemVar = arrow.params[1];
             let body = lowerDictMemberAccess(arrow.body, accVar);
             body = lowerDictMemberAccess(body, elemVar);
-            const loweredBody = lowerJsArrayMethods(body, imports);
-            imports?.add('import functools');
+            const loweredBody = lowerJsArrayMethods(body, ctx);
+            ctx.imports?.add('import functools');
             if (rawArgs.length >= 2) {
-              const seed = lowerJsArrayMethods(rawArgs[1].trim(), imports);
+              const seed = lowerJsArrayMethods(rawArgs[1].trim(), ctx);
               lowered = `functools.reduce(lambda ${accVar}, ${elemVar}${LAMBDA_COLON_PLACEHOLDER} ${loweredBody}, ${receiver}, ${seed})`;
             } else {
               lowered = `functools.reduce(lambda ${accVar}, ${elemVar}${LAMBDA_COLON_PLACEHOLDER} ${loweredBody}, ${receiver})`;
@@ -386,10 +439,10 @@ function lowerJsArrayMethods(expr: string, imports?: Set<string>): string {
             const elemVar = arrow.params[1];
             let body = lowerDictMemberAccess(arrow.body, accVar);
             body = lowerDictMemberAccess(body, elemVar);
-            const loweredBody = lowerJsArrayMethods(body, imports);
-            imports?.add('import functools');
+            const loweredBody = lowerJsArrayMethods(body, ctx);
+            ctx.imports?.add('import functools');
             if (rawArgs.length >= 2) {
-              const seed = lowerJsArrayMethods(rawArgs[1].trim(), imports);
+              const seed = lowerJsArrayMethods(rawArgs[1].trim(), ctx);
               lowered = `functools.reduce(lambda ${accVar}, ${elemVar}${LAMBDA_COLON_PLACEHOLDER} ${loweredBody}, ${receiver}[::-1], ${seed})`;
             } else {
               lowered = `functools.reduce(lambda ${accVar}, ${elemVar}${LAMBDA_COLON_PLACEHOLDER} ${loweredBody}, ${receiver}[::-1])`;
@@ -403,8 +456,8 @@ function lowerJsArrayMethods(expr: string, imports?: Set<string>): string {
           if (arrow && arrow.params.length >= 2) {
             const a = arrow.params[0];
             const b = arrow.params[1];
-            const body = lowerJsArrayMethods(arrow.body, imports);
-            imports?.add('import functools');
+            const body = lowerJsArrayMethods(arrow.body, ctx);
+            ctx.imports?.add('import functools');
             lowered = `sorted(${receiver}, key=functools.cmp_to_key(lambda ${a}, ${b}${LAMBDA_COLON_PLACEHOLDER} ${body}))`;
           } else {
             lowered = `sorted(${receiver}, key=lambda __v${LAMBDA_COLON_PLACEHOLDER} str(__v))`;
@@ -1789,10 +1842,15 @@ export function rewriteFastAPIExpr(
   bodyFields: Set<string> = new Set(),
   authUser = false,
   imports?: Set<string>,
+  hoistedDefs?: string[],
+  closureSeq?: { n: number },
 ): string {
   try {
     const tokens = tokenizeJSExpr(expr);
-    const hasBitwiseOrModulo = tokens.some((t) => t.type === 'UNARY' || t.type === 'OP');
+    const comparisonProbe = expr.replace(/>>>|>>|<</g, '');
+    const hasLooseComparison = /(?:===|!==|==|!=|<=|>=|<|>)/.test(comparisonProbe);
+    const hasBitwiseOrModulo =
+      !expr.includes('=>') && !hasLooseComparison && tokens.some((t) => t.type === 'UNARY' || t.type === 'OP');
     if (hasBitwiseOrModulo) {
       const ast = parseTokens(tokens);
       expr = codegenASTToPython(ast, imports);
@@ -1859,7 +1917,7 @@ export function rewriteFastAPIExpr(
   // Array methods first (so any `===` inside an arrow body is hoisted into
   // a list-comprehension predicate that the strict-equality pass below
   // then catches).
-  result = lowerJsArrayMethods(result, imports);
+  result = lowerJsArrayMethods(result, { pathParams, bodyFields, authUser, imports, hoistedDefs, closureSeq });
 
   // Strict equality: skip text inside quoted strings so a user message
   // like `"use === for strict equality"` doesn't get mangled to `==`.
