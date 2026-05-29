@@ -36,10 +36,10 @@ import {
   validateSemantics,
   writeCoverageGaps,
 } from '@kernlang/core';
-import { transpileExpress } from '@kernlang/express';
+import { emitInterfaces, transpileExpress } from '@kernlang/express';
 import { transpileMCP } from '@kernlang/mcp';
 import { transpile } from '@kernlang/native';
-import { transpileFastAPI } from '@kernlang/python';
+import { transpileFastAPI, transpilePython } from '@kernlang/python';
 import { generateReactNode, isReactNode, transpileNextjs, transpileTailwind, transpileWeb } from '@kernlang/react';
 import { transpileInk, transpileTerminal } from '@kernlang/terminal';
 import { transpileNuxt, transpileVue } from '@kernlang/vue';
@@ -260,7 +260,7 @@ function withGeneratedHeader(content: string, header: string): string {
 }
 
 function generatedHeaderForTarget(target: KernTarget, relSource: string): string {
-  const prefix = target === 'fastapi' ? PYTHON_GENERATED_HEADER : GENERATED_HEADER;
+  const prefix = target === 'fastapi' || target === 'python' ? PYTHON_GENERATED_HEADER : GENERATED_HEADER;
   return `${prefix + relSource}\n\n`;
 }
 
@@ -652,6 +652,7 @@ export function parseWithJSONDiagnostics(
 export function getOutputExtension(target: KernTarget): string {
   switch (target) {
     case 'fastapi':
+    case 'python':
       return '.py';
     case 'vue':
     case 'nuxt':
@@ -720,7 +721,7 @@ export function pythonModuleName(name: string): string {
 }
 
 export function outputBaseNameForTarget(name: string, target: KernTarget): string {
-  return target === 'fastapi' ? pythonModuleName(name) : name;
+  return target === 'fastapi' || target === 'python' ? pythonModuleName(name) : name;
 }
 
 export function withFastApiEntryModules(cfg: ResolvedKernConfig, entryModules: string[]): ResolvedKernConfig {
@@ -999,6 +1000,11 @@ export function collectTsFilesFlat(dirPath: string, recursive: boolean): string[
 
 /** Plain TypeScript output — no framework wrapper, no JSX, no scaffold. */
 function transpileLib(ast: IRNode, _cfg: ResolvedKernConfig): import('@kernlang/core').TranspileResult {
+  if (_cfg.emit === 'types') {
+    const { code } = emitInterfaces(ast, { emit: 'types', target: 'lib' });
+    return { code, sourceMap: [], irTokenCount: 0, tsTokenCount: 0, tokenReduction: 0 };
+  }
+
   const lines: string[] = [];
 
   function processNode(node: IRNode): void {
@@ -1115,17 +1121,19 @@ function dispatchTranspile(target: KernTarget, ast: IRNode, cfg: ResolvedKernCon
               ? transpileExpress(ast, cfg)
               : target === 'fastapi'
                 ? transpileFastAPI(ast, cfg)
-                : target === 'cli'
-                  ? transpileCliApp(ast, cfg)
-                  : target === 'terminal'
-                    ? transpileTerminal(ast, cfg)
-                    : target === 'ink'
-                      ? transpileInk(ast, cfg)
-                      : target === 'vue'
-                        ? transpileVue(ast, cfg)
-                        : target === 'nuxt'
-                          ? transpileNuxt(ast, cfg)
-                          : transpileNextjs(ast, cfg);
+                : target === 'python'
+                  ? transpilePython(ast, cfg)
+                  : target === 'cli'
+                    ? transpileCliApp(ast, cfg)
+                    : target === 'terminal'
+                      ? transpileTerminal(ast, cfg)
+                      : target === 'ink'
+                        ? transpileInk(ast, cfg)
+                        : target === 'vue'
+                          ? transpileVue(ast, cfg)
+                          : target === 'nuxt'
+                            ? transpileNuxt(ast, cfg)
+                            : transpileNextjs(ast, cfg);
 }
 
 export function transpileForTarget(ast: IRNode, cfg: ResolvedKernConfig) {
@@ -1206,7 +1214,7 @@ export function transpileAndWrite(
     options?.fastApiModuleNameByFile,
     options?.fastApiModulePathByFile,
   );
-  const commentPrefix = target === 'fastapi' ? '#' : '//';
+  const commentPrefix = target === 'fastapi' || target === 'python' ? '#' : '//';
   const header = generatedHeaderForTarget(target, relSource);
   const result = transpileForTarget(ast, transpileCfg);
 
@@ -1237,7 +1245,7 @@ export function transpileAndWrite(
     }
   } else {
     const outExt =
-      target === 'fastapi'
+      target === 'fastapi' || target === 'python'
         ? '.py'
         : target === 'vue' || target === 'nuxt'
           ? '.vue'
@@ -1257,7 +1265,7 @@ export function transpileAndWrite(
       relSource,
     );
 
-    if (target === 'fastapi' && result.artifacts && result.artifacts.length > 0) {
+    if ((target === 'fastapi' || target === 'python') && result.artifacts && result.artifacts.length > 0) {
       for (const artifact of result.artifacts) {
         const artifactPath = resolve(outDir, artifact.path);
         mkdirSync(dirname(artifactPath), { recursive: true });

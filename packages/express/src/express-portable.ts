@@ -122,7 +122,9 @@ export function generatePortableChildExpress(
       if (exprCode) {
         lines.push(`${indent}if (!(${rewriteExpressExpr(exprCode, path)})) {`);
         lines.push(
-          `${indent}  return res.status(${elseStatus}).json({ error: '${escapeSingleQuotes(elseMessage)}' });`,
+          // Error-body parity (#3, council bb0g4njli): emit FastAPI's canonical {detail} shape so
+          // guard failures are byte-equal across targets (FastAPI HTTPException already -> {detail}).
+          `${indent}  return res.status(${elseStatus}).json({ detail: '${escapeSingleQuotes(elseMessage)}' });`,
         );
         lines.push(`${indent}}`);
       }

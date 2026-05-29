@@ -128,7 +128,10 @@ export function mapColumnToPython(kernType: string): string {
 //   relation name=posts target=Post kind=one-to-many
 // -> class User(SQLModel, table=True): ...
 
-export function generatePythonModel(node: IRNode): string[] {
+export function generatePythonModel(
+  node: IRNode,
+  options?: { pythonModelBackend?: 'pydantic' | 'sqlmodel' | 'auto' },
+): string[] {
   const props = propsOf<'model'>(node);
   const name = emitIdentifier(props.name, 'UnknownModel', node);
   const table = props.table;
@@ -136,6 +139,33 @@ export function generatePythonModel(node: IRNode): string[] {
   const columns = kids(node, 'column');
   const relations = kids(node, 'relation');
   const lines: string[] = [];
+
+  const backend = options?.pythonModelBackend || 'auto';
+  if (backend === 'pydantic') {
+    const baseClass = extendsModel || 'BaseModel';
+    lines.push(`class ${name}(${baseClass}):`);
+    if (columns.length === 0) {
+      lines.push('    pass');
+      return lines;
+    }
+    for (const col of columns) {
+      const cp = propsOf<'column'>(col);
+      const colName = toSnakeCase(cp.name || 'column');
+      const colType = mapColumnToPython(cp.type || 'str');
+      const isNullable = cp.nullable === 'true' || cp.nullable === true;
+      const defaultVal = cp.default;
+
+      const typeStr = isNullable ? `${colType} | None` : colType;
+      if (defaultVal !== undefined) {
+        lines.push(`    ${colName}: ${typeStr} = ${formatPythonDefault(defaultVal, cp.type || '')}`);
+      } else if (isNullable) {
+        lines.push(`    ${colName}: ${typeStr} = None`);
+      } else {
+        lines.push(`    ${colName}: ${typeStr}`);
+      }
+    }
+    return lines;
+  }
 
   const baseClass = extendsModel || 'SQLModel';
   lines.push(`class ${name}(${baseClass}, table=True):`);

@@ -38,6 +38,15 @@ const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 const { rewriteFastAPIExpr } = await import(join(REPO, 'packages/python/dist/fastapi-response.js'));
 const { rewriteExpressExpr } = await import(join(REPO, 'packages/express/dist/express-portable.js'));
 const { toSnakeCase } = await import(join(REPO, 'packages/python/dist/type-map.js'));
+// Statement-level (kind:'stmt') fixtures lower a native `lang=kern` handler BODY via these,
+// run it in an isolated subprocess (TS via --experimental-strip-types), and compare the
+// RETURNED value — capturing control-flow behaviour the expression harness cannot reach.
+const { parse, emitNativeKernBodyTSWithImports } = await import(join(REPO, 'packages/core/dist/index.js'));
+const { emitNativeKernBodyPythonWithImports } = await import(join(REPO, 'packages/python/dist/codegen-body-python.js'));
+// Route-level (kind:'route') fixtures lower a full portable route HANDLER to both targets and
+// compare the {status, body} HTTP response — covering guard/respond error-shape parity (#3).
+const { generatePortableHandlerExpress } = await import(join(REPO, 'packages/express/dist/express-portable.js'));
+const { generatePortableHandlerFastAPI } = await import(join(REPO, 'packages/python/dist/fastapi-portable.js'));
 
 // ── Fixtures ───────────────────────────────────────────────────────────────
 // bindings namespaces mirror the portable request model:
@@ -309,6 +318,21 @@ const FIXTURES = [
   { name: 'arr-method: some (scalar predicate)', expr: 'nums.some((n) => n === 2)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: true },
   { name: 'arr-method: every (scalar predicate)', expr: 'nums.every((n) => n > 0)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: true },
   { name: 'arr-method: reduce sum with seed', expr: 'nums.reduce((a, b) => a + b, 0)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: 6 },
+  // push mutates AND returns the new length (JS) -> Python `(recv.append(x) or len(recv))` (#6).
+  { name: 'arr-method: push returns new length', expr: 'nums.push(9)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: 4 },
+  // reverse mutates + returns the reversed array; concat returns a new array (arr spread / scalar appended).
+  { name: 'arr-method: reverse returns reversed array', expr: 'nums.reverse()', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: [3, 2, 1] },
+  { name: 'arr-method: concat array arg spreads', expr: 'nums.concat(more)', path: '/api/a', bindings: { locals: { nums: [1], more: [2, 3] } }, expected: [1, 2, 3] },
+  { name: 'arr-method: concat scalar arg appends', expr: 'nums.concat(9)', path: '/api/a', bindings: { locals: { nums: [1, 2] } }, expected: [1, 2, 9] },
+
+  // ── closures slice 1 (#5): an arrow STATEMENT body that is EXACTLY `{ return E }` is ──
+  // semantically the expression body E, so it unwraps to the existing comprehension
+  // lowering (unwrapSingleReturnBlock in fastapi-response.ts). Richer statement bodies
+  // (locals/control-flow before the return) are NOT unwrapped and still need full closure
+  // lowering — deferred to the multi-statement closure build.
+  { name: 'closure: map single-return block body', expr: 'nums.map((x) => { return x * 2; })', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: [2, 4, 6] },
+  { name: 'closure: filter single-return block body', expr: 'nums.filter((x) => { return x > 1; })', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: [2, 3] },
+  { name: 'closure: map single-return object literal', expr: 'nums.map((x) => { return { v: x }; })', path: '/api/a', bindings: { locals: { nums: [1, 2] } }, expected: [{ v: 1 }, { v: 2 }] },
 
   // ── str-method: string methods NOT yet lowered → AttributeError on Python ──
   // split(sep, limit) is the SILENT trap: JS keeps the first `limit` parts;
@@ -326,6 +350,96 @@ const FIXTURES = [
   { name: 'str-method: split with a limit (JS first-N, not maxsplit)', expr: 's.split(",", 2)', path: '/api/s', bindings: { locals: { s: 'a,b,c' } }, expected: ['a', 'b'] },
 
   // ──────────────────────────────────────────────────────────────────────────
+  // numbermodel: JS bitwise-int32 + JS truncated-modulo (goal: number-model, 2026-05-28).
+  // Contract decided by 6-engine council: EMULATE bitwise (int32 via _i32/_u32, >>> via _ushr,
+  // shift counts &31, ToInt32 truncs floats) + truncated modulo (_tmod(a,b)=a-trunc(a/b)*b);
+  // declare >2^53 / NaN / Infinity / -0 NON-PORTABLE. Operands are VARIABLE (bindings.locals),
+  // NOT literals, so a constant-folding Python lowering cannot hardcode the outputs.
+  // Task verify: `node scripts/conformance.mjs --filter "numbermodel:"` (RED until Python lowers).
+  // ──────────────────────────────────────────────────────────────────────────
+  { name: 'numbermodel: |0 sign bit', expr: 'a|z', path: '/api/n', bindings: { locals: { a: 2147483648, z: 0 } }, expected: -2147483648 },
+  { name: 'numbermodel: |0 wraparound', expr: 'a|z', path: '/api/n', bindings: { locals: { a: 4294967296, z: 0 } }, expected: 0 },
+  { name: 'numbermodel: >> on >32-bit', expr: 'a>>b', path: '/api/n', bindings: { locals: { a: 8589934592, b: 1 } }, expected: 0 },
+  // NB: `>>>` (unsigned right shift) is DEFERRED to a focused follow-up — it is the only
+  // parser-NEW operator (KERN already parses | & ^ << >> ~ %) and naively adding it collides
+  // with nested-generic close `Foo<Bar<X>>` (the >> shift-vs-generic ambiguity). Non-portable for now.
+  { name: 'numbermodel: << shift-count mask (33&31=1)', expr: 'a<<b', path: '/api/n', bindings: { locals: { a: 1, b: 33 } }, expected: 2 },
+  { name: 'numbermodel: i32 on a COMPUTED sum', expr: '(a+b)|z', path: '/api/n', bindings: { locals: { a: 2147483647, b: 1, z: 0 } }, expected: -2147483648 },
+  { name: 'numbermodel: ToInt32 truncs a float', expr: 'a|z', path: '/api/n', bindings: { locals: { a: -2.9, z: 0 } }, expected: -2 },
+  { name: 'numbermodel: & agree smoke', expr: 'a&b', path: '/api/n', bindings: { locals: { a: 5, b: 3 } }, expected: 1 },
+  { name: 'numbermodel: -5 % 3 (sign of dividend)', expr: 'a%b', path: '/api/n', bindings: { locals: { a: -5, b: 3 } }, expected: -2 },
+  { name: 'numbermodel: 5 % -3', expr: 'a%b', path: '/api/n', bindings: { locals: { a: 5, b: -3 } }, expected: 2 },
+  { name: 'numbermodel: negative float -5.5 % 2', expr: 'a%b', path: '/api/n', bindings: { locals: { a: -5.5, b: 2 } }, expected: -1.5 },
+  { name: 'numbermodel: float divisor 5 % 2.5', expr: 'a%b', path: '/api/n', bindings: { locals: { a: 5, b: 2.5 } }, expected: 0 },
+  { name: 'numbermodel: 7 % 3 agree smoke', expr: 'a%b', path: '/api/n', bindings: { locals: { a: 7, b: 3 } }, expected: 1 },
+  { name: 'numbermodel: true division agree', expr: 'a/b', path: '/api/n', bindings: { locals: { a: 5, b: 2 } }, expected: 2.5 },
+  { name: 'numbermodel: float add repr agree', expr: 'a+b', path: '/api/n', bindings: { locals: { a: 0.1, b: 0.2 } }, expected: 0.30000000000000004 },
+  { name: 'numbermodel: 2^53 safe boundary agree', expr: 'a+b', path: '/api/n', bindings: { locals: { a: 9007199254740991, b: 1 } }, expected: 9007199254740992 },
+  { name: 'numbermodel: ToInt32 on string float', expr: 'a|z', path: '/api/n', bindings: { locals: { a: '2.9', z: 0 } }, expected: 2 },
+  { name: 'numbermodel: modulo on string float', expr: 'a%b', path: '/api/n', bindings: { locals: { a: '-5.5', b: 2 } }, expected: -1.5 },
+  { name: 'numbermodel: bitwise NOT on string float', expr: '~a', path: '/api/n', bindings: { locals: { a: '-3.9' } }, expected: 2 },
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // stmt: STATEMENT-LEVEL control flow (kind:'stmt', goal: stmt-harness 2026-05-28).
+  // Each lowers a native `lang=kern` handler BODY to BOTH targets (emitNativeKernBodyTS /
+  // emitNativeKernBodyPython), runs it in an isolated subprocess, and compares the RETURN
+  // value. Design: 6-engine council + nero red-team (side-effect witness, allow_nan=False,
+  // block-scope probed+deferred). Operands are PARAMS, never inline literals in the observable.
+  // Scope = intra-function control flow ONLY (block scope / number-repr / framework errors deferred).
+  // ──────────────────────────────────────────────────────────────────────────
+  { kind: 'stmt', name: 'stmt: if/else selects true branch',
+    params: [{ name: 'n', type: 'number', value: 20 }, { name: 'min', type: 'number', value: 10 }],
+    body: `let name=v value="n * 2"\nif cond="v > min"\n  return value="{ big: true, v: v }"\nelse\n  return value="{ big: false, v: v }"`,
+    expected: { big: true, v: 40 } },
+  { kind: 'stmt', name: 'stmt: if/else selects false branch',
+    params: [{ name: 'n', type: 'number', value: 3 }, { name: 'min', type: 'number', value: 10 }],
+    body: `let name=v value="n * 2"\nif cond="v > min"\n  return value="{ big: true, v: v }"\nelse\n  return value="{ big: false, v: v }"`,
+    expected: { big: false, v: 6 } },
+  { kind: 'stmt', name: 'stmt: while loop accumulates (mutable kind=let)',
+    params: [{ name: 'n', type: 'number', value: 5 }, { name: 'min', type: 'number', value: 0 }],
+    body: `let name=total value="0" kind=let\nlet name=i value="0" kind=let\nwhile cond="i < n"\n  assign target="total" value="total + i"\n  assign target="i" value="i + 1"\nreturn value="{ total: total }"`,
+    expected: { total: 10 } },
+  { kind: 'stmt', name: 'stmt: for loop early-returns mid-iteration',
+    params: [{ name: 'n', type: 'number', value: 0 }, { name: 'min', type: 'number', value: 5 }],
+    body: `let name=acc value="0" kind=let\neach name=x in="[1, 2, 3, 4]" index=j\n  assign target="acc" value="acc + x"\n  if cond="acc > min"\n    return value="{ stopped: acc, at: j }"\nreturn value="{ stopped: acc, at: -1 }"`,
+    expected: { stopped: 6, at: 2 } },
+  { kind: 'stmt', name: 'stmt: statements after return do not run',
+    params: [{ name: 'n', type: 'number', value: 0 }, { name: 'min', type: 'number', value: 0 }],
+    body: `let name=hits value="0" kind=let\nreturn value="{ hits: hits }"\nassign target="hits" value="999"`,
+    expected: { hits: 0 } },
+  { kind: 'stmt', name: 'stmt: try/catch recovers from a thrown error',
+    params: [{ name: 'bad', type: 'string', value: '{' }, { name: 'min', type: 'number', value: 0 }],
+    body: `let name=out value="0" kind=let\ntry\n  assign target="out" value="JSON.parse(bad).x"\n  catch name=err type=any\n    assign target="out" value="-1"\nreturn value="{ out: out }"`,
+    expected: { out: -1 } },
+  { kind: 'stmt', name: 'stmt: try body runs up to the throw, then catch (side-effect witness)',
+    params: [{ name: 'bad', type: 'string', value: '{' }, { name: 'min', type: 'number', value: 0 }],
+    body: `let name=log value="''" kind=let\nlet name=tmp value="0" kind=let\ntry\n  assign target="log" value="log + 'a'"\n  assign target="tmp" value="JSON.parse(bad)"\n  assign target="log" value="log + 'b'"\n  catch name=err type=any\n    assign target="log" value="log + 'X'"\nreturn value="{ log: log }"`,
+    expected: { log: 'aX' } },
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // route: ROUTE-LEVEL HTTP response parity (kind:'route', goal: error-semantics 2026-05-28).
+  // Lowers a full portable route handler to both targets, runs it (mock res -> {status,body} on
+  // Express; HTTPException -> {status, body:{detail}} on FastAPI), compares {status, body}.
+  // CONTRACT (council bb0g4njli, 85%): error bodies use FastAPI's canonical {"detail":...} on BOTH.
+  // guard-fail was RED-at-base (Express emitted {error}); the express-portable {detail} fix converges.
+  // ──────────────────────────────────────────────────────────────────────────
+  { kind: 'route', name: 'route: guard pass -> 200 success body',
+    kern: `route method=post path=/api/t\n  derive name=doubled expr={{ n * 2 }}\n  guard name=floor expr={{ doubled >= min }} else=422\n  respond 200 json={{ {result: doubled} }}`,
+    bindings: { locals: { n: 20, min: 30 } }, expected: { status: 200, body: { result: 40 } } },
+  { kind: 'route', name: 'route: guard fail -> 422 {detail} parity',
+    kern: `route method=post path=/api/t\n  derive name=doubled expr={{ n * 2 }}\n  guard name=floor expr={{ doubled >= min }} else=422\n  respond 200 json={{ {result: doubled} }}`,
+    bindings: { locals: { n: 10, min: 30 } }, expected: { status: 422, body: { detail: 'floor guard failed' } } },
+  { kind: 'route', name: 'route: guard fail -> 404 {detail} (second status)',
+    kern: `route method=post path=/api/t\n  derive name=x expr={{ n }}\n  guard name=exists expr={{ x > 0 }} else=404\n  respond 200 json={{ {x: x} }}`,
+    bindings: { locals: { n: 0 } }, expected: { status: 404, body: { detail: 'exists guard failed' } } },
+  // collect order is a COMPARATOR (a,b) — Express + ground-layer both emit .sort((a,b)=>order);
+  // Python must reproduce via sorted(key=cmp_to_key(lambda a,b: order)) (#6). Filter active,
+  // sort score desc, limit 2 -> [u2(9), u1(8)].
+  { kind: 'route', name: 'route: collect where+order(comparator)+limit parity',
+    kern: `route method=post path=/api/t\n  collect name=top from=users where={{ item.active }} order={{ b.score - a.score }} limit=2\n  respond 200 json={{ {top: top} }}`,
+    bindings: { locals: { users: [{ id: 'u1', active: true, score: 8 }, { id: 'u2', active: true, score: 9 }, { id: 'u3', active: false, score: 4 }, { id: 'u4', active: true, score: 6 }] } },
+    expected: { status: 200, body: { top: [{ id: 'u2', active: true, score: 9 }, { id: 'u1', active: true, score: 8 }] } } },
+
   // PARITY GOAL ORACLE (goal: ts-python-parity, 2026-05-27). These RED fixtures
   // encode portable JS methods not yet lowered to Python — the differential
   // proof the codegen-string tests don't give. Each slice is a goal task; the
@@ -561,6 +675,78 @@ for (const fx of FIXTURES) {
   if (filter && !fx.name.includes(filter)) continue;
   if (exclude.some((ex) => fx.name.includes(ex))) continue;
   selected++;
+
+  // ── statement-level branch: lower a native `lang=kern` BODY to both targets, run in
+  // isolated subprocesses, strict-compare the RETURN value (ts == py == golden). Expression
+  // fixtures below are untouched. Strict JSON.parse => non-JSON/non-zero-exit fails loud (no masking).
+  if (fx.kind === 'stmt') {
+    try {
+      const sig = fx.params.map((p) => `${p.name}:${p.type}`).join(',');
+      const kern = `screen name=S\n  callback name=fn params="${sig}"\n    handler lang=kern\n` +
+        fx.body.split('\n').map((l) => `      ${l}`).join('\n');
+      const handler = ((function find(n) {
+        if (!n) return null;
+        if (n.type === 'handler') return n;
+        for (const c of n.children ?? []) { const h = find(c); if (h) return h; }
+        return null;
+      })(parse(kern)));
+      if (!handler) throw new Error('no handler node parsed');
+      const ts = emitNativeKernBodyTSWithImports(handler);
+      const pyEmit = emitNativeKernBodyPythonWithImports(handler);
+      const names = fx.params.map((p) => p.name);
+      const tsFile = join(dir, 'stmt.ts');
+      const pyFile = join(dir, 'stmt.py');
+      writeFileSync(tsFile, `${[...(ts.imports ?? [])].join('\n')}\nfunction __h(${names.join(', ')}: any): any {\n${ts.code}\n}\nconsole.log(JSON.stringify(__h(${fx.params.map((p) => JSON.stringify(p.value)).join(', ')})));`);
+      writeFileSync(pyFile, `import json\n${[...(pyEmit.imports ?? [])].join('\n')}\ndef __h(${names.join(', ')}):\n${pyEmit.code.split('\n').map((l) => `    ${l}`).join('\n')}\nprint(json.dumps(__h(${fx.params.map((p) => pyVal(p.value)).join(', ')}), default=str, allow_nan=False))`);
+      const stmtOpts = { encoding: 'utf8', timeout: 10_000 };
+      const tsOut = execFileSync('node', ['--experimental-strip-types', tsFile], stmtOpts).trim();
+      const pyOut = execFileSync('python3', [pyFile], stmtOpts).trim();
+      const cTs = canon(JSON.parse(tsOut), 'value');
+      const cPy = canon(JSON.parse(pyOut), 'value');
+      const cExp = canon(fx.expected, 'value');
+      if (cTs !== cPy) failures.push({ name: fx.name, why: `ts ≠ py\n      ts: ${cTs}\n      py: ${cPy}` });
+      else if (cTs !== cExp) failures.push({ name: fx.name, why: `result ≠ expected\n      got: ${cTs}\n      exp: ${cExp}` });
+      else pass++;
+    } catch (err) {
+      failures.push({ name: fx.name, why: `stmt exec error: ${String(err.message ?? err).split('\n').slice(-4).join(' ')}` });
+    }
+    continue;
+  }
+
+  // ── route-level branch: lower a full portable route handler to both targets, run it, and
+  // compare the {status, body} HTTP response. Express -> mock res; FastAPI HTTPException ->
+  // {status, body:{detail}} (its real serialization). Verifies error-shape parity (#3).
+  if (fx.kind === 'route') {
+    try {
+      const root = parse(fx.kern);
+      const jsLines = generatePortableHandlerExpress(root, '  ', '/api/t', {});
+      const routeImports = new Set();
+      const pyLines = generatePortableHandlerFastAPI(root, '    ', [], routeImports, new Set(), false);
+      const locals = fx.bindings?.locals ?? {};
+      const jsLocals = Object.entries(locals).map(([k, v]) => `const ${k} = ${JSON.stringify(v)};`).join('\n');
+      const jsFile = join(dir, 'route.mjs');
+      writeFileSync(jsFile, `${jsLocals}\nconst req = { params: {}, query: {}, body: {}, headers: {}, user: {} };\nlet __s = 200, __b;\nconst res = { status(n){ __s = n; return this; }, json(b){ __b = b; return this; }, send(b){ __b = b; return this; } };\nfunction __h(req, res) {\n${jsLines.join('\n')}\n}\ntry { __h(req, res); } catch (e) { __s = 500; __b = { detail: String(e && e.message || e) }; }\nconsole.log(JSON.stringify({ status: __s, body: __b }));`);
+      // Wrap object/list locals so attribute access mirrors Pydantic (item.score), then
+      // _unwrap before serializing. Primitives pass through unchanged (guard fixtures).
+      const pyLocals = Object.entries(locals).map(([k, v]) => `${k} = _wrap(${pyVal(v)})`).join('\n');
+      const pyFile = join(dir, 'route.py');
+      const pyHelpers = `class _Body:\n    def __init__(self, d):\n        self._d = d\n        for k, v in d.items(): setattr(self, k, _wrap(v))\n    def __getitem__(self, k): return getattr(self, k)\ndef _wrap(v):\n    if isinstance(v, dict): return _Body(v)\n    if isinstance(v, list): return [_wrap(x) for x in v]\n    return v\ndef _unwrap(v):\n    if isinstance(v, _Body): return {k: _unwrap(x) for k, x in v._d.items()}\n    if isinstance(v, dict): return {k: _unwrap(x) for k, x in v.items()}\n    if isinstance(v, list): return [_unwrap(x) for x in v]\n    return v`;
+      writeFileSync(pyFile, `import json\n${[...routeImports].filter((i) => !i.includes('HTTPException')).join('\n')}\nclass HTTPException(Exception):\n    def __init__(self, status_code, detail=None):\n        self.status_code = status_code; self.detail = detail\n${pyHelpers}\n${pyLocals}\ndef __h():\n${pyLines.map((l) => `    ${l}`).join('\n')}\ntry:\n    __r = __h()\n    print(json.dumps({"status": 200, "body": _unwrap(__r)}, sort_keys=True, default=str))\nexcept HTTPException as e:\n    print(json.dumps({"status": e.status_code, "body": {"detail": _unwrap(e.detail)}}, sort_keys=True, default=str))`);
+      const routeOpts = { encoding: 'utf8', timeout: 10_000 };
+      const jsOut = execFileSync('node', [jsFile], routeOpts).trim();
+      const pyOut = execFileSync('python3', [pyFile], routeOpts).trim();
+      const cJs = canon(JSON.parse(jsOut), 'value');
+      const cPy = canon(JSON.parse(pyOut), 'value');
+      const cExp = canon(fx.expected, 'value');
+      if (cJs !== cPy) failures.push({ name: fx.name, why: `ts ≠ py\n      ts: ${cJs}\n      py: ${cPy}` });
+      else if (cJs !== cExp) failures.push({ name: fx.name, why: `result ≠ expected\n      got: ${cJs}\n      exp: ${cExp}` });
+      else pass++;
+    } catch (err) {
+      failures.push({ name: fx.name, why: `route exec error: ${String(err.message ?? err).split('\n').slice(-4).join(' ')}` });
+    }
+    continue;
+  }
+
   const mode = fx.compare ?? 'value';
   const pathParams = [...fx.path.matchAll(/:([A-Za-z_]\w*)/g)].map((m) => m[1]);
   // externalSchema mirrors `validate schema=X`: the body is a model but its

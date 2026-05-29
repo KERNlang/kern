@@ -256,6 +256,7 @@ export const CAPABILITY_MATRIX: CapabilityMatrix = {
   vue: TS_CORE_CAPABILITIES,
   nuxt: TS_CORE_CAPABILITIES,
   fastapi: PY_CORE_CAPABILITIES,
+  python: PY_CORE_CAPABILITIES,
   mcp: TS_CORE_CAPABILITIES,
 };
 

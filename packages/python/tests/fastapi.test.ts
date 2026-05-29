@@ -1846,14 +1846,15 @@ describe('FastAPI Transpiler', () => {
         'server name=Test',
         '  route GET /api/tracks',
         '    derive tracks expr={{await db.query("SELECT * FROM tracks")}}',
-        '    collect name=sorted from=tracks order=item.score',
+        '    collect name=sorted from=tracks order={{a.score - b.score}}',
         '    respond 200 json=sorted',
       ].join('\n');
       const result = transpileFastAPI(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
 
-      // 'sorted' is a Python built-in → renamed to sorted_result
-      expect(route!.content).toContain('sorted(sorted_result, key=lambda item: item.score)');
+      // 'sorted' is a Python built-in → renamed to sorted_result.
+      // `order` is a COMPARATOR (a,b) — matches Express/.sort((a,b)=>...); cmp_to_key (#6).
+      expect(route!.content).toContain('sorted(sorted_result, key=cmp_to_key(lambda a, b: a.score - b.score))');
     });
 
     test('branch.on={{...}} curly-expr form is unwrapped (regression)', async () => {
@@ -1901,14 +1902,14 @@ describe('FastAPI Transpiler', () => {
         'server name=Test',
         '  route GET /api/items',
         '    derive items expr={{await db.all()}}',
-        '    collect name=ranked from=items order={{item.score}}',
+        '    collect name=ranked from=items order={{a.score - b.score}}',
         '    respond 200 json=ranked',
       ].join('\n');
       const result = transpileFastAPI(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
       const content = route!.content;
       expect(content).not.toContain('[object Object]');
-      expect(content).toContain('sorted(ranked, key=lambda item: item.score)');
+      expect(content).toContain('sorted(ranked, key=cmp_to_key(lambda a, b: a.score - b.score))');
     });
   });
 
@@ -2241,8 +2242,9 @@ describe('FastAPI Transpiler', () => {
       const result = transpileFastAPI(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
       const content = route!.content;
-      // params.sortKey → sortKey (query param rewrite)
-      expect(content).toContain('sorted(ranked, key=lambda item: sortKey)');
+      // params.sortKey → sortKey (query param rewrite); order is a comparator -> cmp_to_key (#6).
+      // (This test validates the lowerPropToPython routing, not sort semantics.)
+      expect(content).toContain('sorted(ranked, key=cmp_to_key(lambda a, b: sortKey))');
       // No [object Object] or double-rewrite artifacts
       expect(content).not.toContain('[object Object]');
     });

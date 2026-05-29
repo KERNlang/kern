@@ -1389,6 +1389,18 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       return out;
     }
     case 'binary': {
+      if (
+        node.op === '|' ||
+        node.op === '&' ||
+        node.op === '^' ||
+        node.op === '<<' ||
+        node.op === '>>' ||
+        node.op === '%'
+      ) {
+        const transformed = lowerBitwiseAndModuloAST(node);
+        registerHelpers(transformed, ctx);
+        return emitPyExprCtx(transformed, ctx);
+      }
       // Slice 2c — arithmetic / comparison / logical lowering for Python.
       // Use precedence-aware paren-wrapping so `a + b * c` doesn't redundantly
       // wrap the right side (`a + (b * c)`) — same rule as the TS side.
@@ -1449,6 +1461,11 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       return `${lp} ${op} ${rp}`;
     }
     case 'unary': {
+      if (node.op === '~') {
+        const transformed = lowerBitwiseAndModuloAST(node);
+        registerHelpers(transformed, ctx);
+        return emitPyExprCtx(transformed, ctx);
+      }
       // Slice 2c — `!x` → `not x`, `-x` → `-x`.
       // Slice typeof — expose the now-eligible native KERN `typeof` shape on
       // Python too. Dynamic Python values are an approximation of JS typeof:
@@ -1957,5 +1974,223 @@ function lowerListLambdaPython(
       : `[${name} for ${name} in ${source} if ${body}]`;
   } finally {
     ctx.shadowedSymbols = previous;
+  }
+}
+
+export const KERN_I32_HELPER_PY = [
+  'import math',
+  'def _i32(x):',
+  '    if x is None: return 0',
+  '    try:',
+  '        if not math.isfinite(x): return 0',
+  '        val = int(math.trunc(x))',
+  '    except Exception:',
+  '        try:',
+  '            val = float(x)',
+  '            if not math.isfinite(val): return 0',
+  '            val = int(math.trunc(val))',
+  '        except Exception:',
+  '            return 0',
+  '    return ((val & 0xFFFFFFFF) ^ 0x80000000) - 0x80000000',
+].join('\n');
+
+export const KERN_TMOD_HELPER_PY = [
+  'import math',
+  'def _tmod(a, b):',
+  '    if a is None: a = 0',
+  '    if b is None: b = 0',
+  '    try:',
+  '        fa = float(a)',
+  '        fb = float(b)',
+  '    except Exception:',
+  "        return float('nan')",
+  "    if math.isnan(fa) or math.isnan(fb): return float('nan')",
+  "    if math.isinf(fa): return float('nan')",
+  "    if fb == 0: return float('nan')",
+  '    if math.isinf(fb): return fa',
+  '    return fa - math.trunc(fa / fb) * fb',
+].join('\n');
+
+export function lowerBitwiseAndModuloAST(node: ValueIR): ValueIR {
+  switch (node.kind) {
+    case 'binary': {
+      const left = lowerBitwiseAndModuloAST(node.left);
+      const right = lowerBitwiseAndModuloAST(node.right);
+      if (node.op === '|' || node.op === '&' || node.op === '^' || node.op === '<<' || node.op === '>>') {
+        let rewrittenRight = right;
+        if (node.op === '<<' || node.op === '>>') {
+          const i32Right = wrapInI32(right);
+          rewrittenRight = {
+            kind: 'binary',
+            op: '&',
+            left: i32Right,
+            right: { kind: 'numLit', value: 31, raw: '31' },
+          };
+        } else {
+          rewrittenRight = wrapInI32(right);
+        }
+        const i32Left = wrapInI32(left);
+        const bitwiseNode: ValueIR = {
+          kind: 'binary',
+          op: node.op,
+          left: i32Left,
+          right: rewrittenRight,
+        };
+        return wrapInI32(bitwiseNode);
+      } else if (node.op === '%') {
+        return {
+          kind: 'call',
+          callee: { kind: 'ident', name: '_tmod' },
+          args: [left, right],
+          optional: false,
+        };
+      }
+      return { ...node, left, right };
+    }
+    case 'unary': {
+      const argument = lowerBitwiseAndModuloAST(node.argument);
+      if (node.op === '~') {
+        const i32Arg = wrapInI32(argument);
+        const unaryNode: ValueIR = {
+          kind: 'unary',
+          op: '~',
+          argument: i32Arg,
+        };
+        return wrapInI32(unaryNode);
+      }
+      return { ...node, argument };
+    }
+    case 'tmplLit':
+      return { ...node, expressions: node.expressions.map(lowerBitwiseAndModuloAST) };
+    case 'member':
+      return { ...node, object: lowerBitwiseAndModuloAST(node.object) };
+    case 'index':
+      return { ...node, object: lowerBitwiseAndModuloAST(node.object), index: lowerBitwiseAndModuloAST(node.index) };
+    case 'call':
+      return {
+        ...node,
+        callee: lowerBitwiseAndModuloAST(node.callee),
+        args: node.args.map(lowerBitwiseAndModuloAST),
+      };
+    case 'lambda':
+      return { ...node, body: lowerBitwiseAndModuloAST(node.body) };
+    case 'spread':
+      return { ...node, argument: lowerBitwiseAndModuloAST(node.argument) };
+    case 'await':
+      return { ...node, argument: lowerBitwiseAndModuloAST(node.argument) };
+    case 'new':
+      return { ...node, argument: lowerBitwiseAndModuloAST(node.argument) };
+    case 'typeAssert':
+      return { ...node, expression: lowerBitwiseAndModuloAST(node.expression) };
+    case 'nonNull':
+      return { ...node, expression: lowerBitwiseAndModuloAST(node.expression) };
+    case 'propagate':
+      return { ...node, argument: lowerBitwiseAndModuloAST(node.argument) };
+    case 'objectLit':
+      return {
+        ...node,
+        entries: node.entries.map((e) =>
+          'kind' in e && (e as any).kind === 'spread'
+            ? { kind: 'spread', argument: lowerBitwiseAndModuloAST((e as any).argument) }
+            : { ...(e as any), value: lowerBitwiseAndModuloAST((e as any).value) },
+        ),
+      };
+    case 'arrayLit':
+      return { ...node, items: node.items.map(lowerBitwiseAndModuloAST) };
+    case 'conditional':
+      return {
+        ...node,
+        test: lowerBitwiseAndModuloAST(node.test),
+        consequent: lowerBitwiseAndModuloAST(node.consequent),
+        alternate: lowerBitwiseAndModuloAST(node.alternate),
+      };
+    default:
+      return node;
+  }
+}
+
+function wrapInI32(node: ValueIR): ValueIR {
+  return {
+    kind: 'call',
+    callee: { kind: 'ident', name: '_i32' },
+    args: [node],
+    optional: false,
+  };
+}
+
+export function registerHelpers(node: ValueIR, ctx: BodyEmitContext) {
+  switch (node.kind) {
+    case 'call':
+      if (node.callee.kind === 'ident') {
+        if (node.callee.name === '_i32') {
+          ctx.helpers.add(KERN_I32_HELPER_PY);
+        } else if (node.callee.name === '_tmod') {
+          ctx.helpers.add(KERN_TMOD_HELPER_PY);
+        }
+      }
+      registerHelpers(node.callee, ctx);
+      for (const arg of node.args) {
+        registerHelpers(arg, ctx);
+      }
+      break;
+    case 'binary':
+      registerHelpers(node.left, ctx);
+      registerHelpers(node.right, ctx);
+      break;
+    case 'unary':
+      registerHelpers(node.argument, ctx);
+      break;
+    case 'tmplLit':
+      for (const expr of node.expressions) {
+        registerHelpers(expr, ctx);
+      }
+      break;
+    case 'member':
+      registerHelpers(node.object, ctx);
+      break;
+    case 'index':
+      registerHelpers(node.object, ctx);
+      registerHelpers(node.index, ctx);
+      break;
+    case 'lambda':
+      registerHelpers(node.body, ctx);
+      break;
+    case 'spread':
+      registerHelpers(node.argument, ctx);
+      break;
+    case 'await':
+      registerHelpers(node.argument, ctx);
+      break;
+    case 'new':
+      registerHelpers(node.argument, ctx);
+      break;
+    case 'typeAssert':
+      registerHelpers(node.expression, ctx);
+      break;
+    case 'nonNull':
+      registerHelpers(node.expression, ctx);
+      break;
+    case 'propagate':
+      registerHelpers(node.argument, ctx);
+      break;
+    case 'objectLit':
+      for (const e of node.entries) {
+        if ('kind' in e && e.kind === 'spread') {
+          registerHelpers(e.argument, ctx);
+        } else {
+          registerHelpers((e as any).value, ctx);
+        }
+      }
+      break;
+    case 'arrayLit':
+      for (const item of node.items) {
+        registerHelpers(item, ctx);
+      }
+      break;
+    case 'conditional':
+      registerHelpers(node.test, ctx);
+      registerHelpers(node.consequent, ctx);
+      registerHelpers(node.alternate, ctx);
+      break;
   }
 }

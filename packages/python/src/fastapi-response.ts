@@ -9,6 +9,7 @@
 
 import type { IRNode } from '@kernlang/core';
 import { getProps } from '@kernlang/core';
+import { KERN_I32_HELPER_PY, KERN_TMOD_HELPER_PY } from './codegen-body-python.js';
 import { escapePyStr, quoteObjectKeysOutsideStrings } from './fastapi-utils.js';
 import { toSnakeCase } from './type-map.js';
 
@@ -115,7 +116,7 @@ function lowerDictMemberAccess(text: string, varName: string): string {
           // (codex review of ab192611). A lone `x.method()` is unchanged.
           const dataFields = fields.slice(0, -1);
           const methodField = fields[fields.length - 1];
-          out += varName + dataFields.map((field) => `[${JSON.stringify(field)}]`).join('') + `.${methodField}`;
+          out += `${varName + dataFields.map((field) => `[${JSON.stringify(field)}]`).join('')}.${methodField}`;
         } else {
           out += varName + fields.map((field) => `[${JSON.stringify(field)}]`).join('');
         }
@@ -127,6 +128,43 @@ function lowerDictMemberAccess(text: string, varName: string): string {
     i += 1;
   }
   return out;
+}
+
+// A statement body that is EXACTLY `{ return E; }` is semantically identical to the
+// expression body `E`, so unwrap it to reuse the expression-bodied lowering (slice 1 of
+// native closures, #5). Richer statement bodies (locals, control flow, side effects
+// before the return) need full closure lowering (hoisted nested defs) and are NOT handled
+// here — they stay untouched (still unsupported) rather than mis-lowered. The scan is
+// string/bracket-aware so `{ return f({a:1}); }` unwraps but `{ return a; more(); }` does not.
+function unwrapSingleReturnBlock(body: string): string {
+  const t = body.trim();
+  if (t.length < 2 || t[0] !== '{' || t[t.length - 1] !== '}') return body;
+  const topLevelBreaks = (s: string, breakOnSemicolon: boolean): boolean => {
+    let depth = 0;
+    let inStr: string | null = null;
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i];
+      if (inStr) {
+        if (c === inStr && s[i - 1] !== '\\') inStr = null;
+        continue;
+      }
+      if (c === '"' || c === "'" || c === '`') inStr = c;
+      else if (c === '{' || c === '(' || c === '[') depth++;
+      else if (c === '}' || c === ')' || c === ']') {
+        depth--;
+        // the opening brace must match the FINAL char, else `{..}{..}` etc.
+        if (!breakOnSemicolon && depth === 0 && i !== s.length - 1) return true;
+      } else if (breakOnSemicolon && c === ';' && depth === 0) return true;
+    }
+    return false;
+  };
+  if (topLevelBreaks(t, false)) return body; // outer braces don't span the whole body
+  let inner = t.slice(1, -1).trim();
+  if (!/^return\b/.test(inner)) return body;
+  inner = inner.slice(6).trim();
+  if (inner.endsWith(';')) inner = inner.slice(0, -1).trim();
+  if (!inner || topLevelBreaks(inner, true)) return body; // empty or multi-statement
+  return inner;
 }
 
 // Parse an arrow callback's argument text into `{ params, body }`, or null when
@@ -142,11 +180,11 @@ function parseArrowCallback(inner: string): { params: string[]; body: string } |
     const params = splitTopLevelArgs(trimmed.slice(1, close))
       .map((s) => s.trim())
       .filter(Boolean);
-    return { params, body: after.slice(2).trim() };
+    return { params, body: unwrapSingleReturnBlock(after.slice(2).trim()) };
   }
   const m = trimmed.match(/^([A-Za-z_$][\w$]*)\s*=>\s*([\s\S]+)$/);
   if (!m) return null;
-  return { params: [m[1]], body: m[2].trim() };
+  return { params: [m[1]], body: unwrapSingleReturnBlock(m[2].trim()) };
 }
 
 // Lower JS arrow-callback array methods to Python comprehensions:
@@ -172,6 +210,7 @@ const PORTABLE_ARRAY_METHODS = new Set([
   'sort',
   'flat',
   'at',
+  'push',
   'reverse',
   'concat',
   'fill',
@@ -281,6 +320,21 @@ function lowerJsArrayMethods(expr: string, imports?: Set<string>): string {
           } else {
             lowered = `(next((__i for __i, __v in enumerate(${receiver}) if __v == ${needle}), -1))`;
           }
+        } else if (method === 'push') {
+          // JS Array.push mutates AND returns the new length. Python list.append
+          // returns None, so emit `(recv.append(x) or len(recv))` for exact parity
+          // (mutate + length). Single-arg only; varargs push left unsupported.
+          if (args.length === 1) lowered = `(${receiver}.append(${args[0]}) or len(${receiver}))`;
+        } else if (method === 'reverse') {
+          // JS Array.reverse mutates AND returns the (same, reversed) array; Python
+          // list.reverse returns None -> `(recv.reverse() or recv)` mutates + returns it.
+          lowered = `(${receiver}.reverse() or ${receiver})`;
+        } else if (method === 'concat') {
+          // JS Array.concat returns a NEW array; an array arg is spread, a scalar arg
+          // is appended. Mirror with `recv + (x if isinstance(x, list) else [x])`.
+          // Single-arg only; varargs concat left unsupported.
+          if (args.length === 1)
+            lowered = `(${receiver} + (${args[0]} if isinstance(${args[0]}, list) else [${args[0]}]))`;
         } else if (method === 'join') {
           const sep = args[0] ?? '","';
           lowered = `${sep}.join(str(__v) for __v in ${receiver})`;
@@ -361,12 +415,9 @@ function lowerJsArrayMethods(expr: string, imports?: Set<string>): string {
         } else if (method === 'at') {
           const n = args[0] ?? '0';
           lowered = `(${receiver}[${n}] if -len(${receiver}) <= ${n} < len(${receiver}) else None)`;
-        } else if (method === 'reverse') {
-          // JS reverses in place AND returns the array; we only need the value.
-          lowered = `${receiver}[::-1]`;
-        } else if (method === 'concat') {
-          // array args only (scalar-arg concat is out of scope)
-          lowered = args.length ? `(${receiver} + ${args.join(' + ')})` : `${receiver}[:]`;
+          // NB: `reverse` and `concat` are handled earlier in this chain (they mutate /
+          // accept scalar args per JS) — main's later array-only duplicates were dropped
+          // in the roadmap-stack merge (they were dead + concat broke on scalar args).
         } else if (method === 'fill') {
           const v = args[0] ?? 'None';
           if (args.length <= 1) {
@@ -1739,6 +1790,17 @@ export function rewriteFastAPIExpr(
   authUser = false,
   imports?: Set<string>,
 ): string {
+  try {
+    const tokens = tokenizeJSExpr(expr);
+    const hasBitwiseOrModulo = tokens.some((t) => t.type === 'UNARY' || t.type === 'OP');
+    if (hasBitwiseOrModulo) {
+      const ast = parseTokens(tokens);
+      expr = codegenASTToPython(ast, imports);
+    }
+  } catch (_err) {
+    // Graceful fallback to original expr string if parsing/emission fails
+  }
+
   const { maskedExpr, replacements } = extractTemplateLiterals(expr, pathParams, bodyFields, authUser, imports);
   let result = maskedExpr;
   // Spread → unpacking first, so the request-ref rewrites below see clean
@@ -1888,4 +1950,280 @@ export function addRespondImports(respondNode: IRNode, imports: Set<string>): vo
   if (typeof rp.status === 'number' && !rp.json && !rp.text && !rp.redirect && !rp.error)
     imports.add('from fastapi.responses import Response');
   if (rp.error) imports.add('from fastapi import HTTPException');
+}
+
+type Token =
+  | { type: 'LP' }
+  | { type: 'RP' }
+  | { type: 'OP'; value: '|' | '&' | '^' | '<<' | '>>' | '%' }
+  | { type: 'UNARY'; value: '~' }
+  | { type: 'TEXT'; value: string };
+
+function tokenizeJSExpr(expr: string): Token[] {
+  const tokens: Token[] = [];
+  let i = 0;
+  while (i < expr.length) {
+    while (i < expr.length && /\s/.test(expr[i])) {
+      i++;
+    }
+    if (i >= expr.length) break;
+
+    const char = expr[i];
+
+    if (char === '(') {
+      tokens.push({ type: 'LP' });
+      i++;
+      continue;
+    }
+    if (char === ')') {
+      tokens.push({ type: 'RP' });
+      i++;
+      continue;
+    }
+    if (char === '~') {
+      tokens.push({ type: 'UNARY', value: '~' });
+      i++;
+      continue;
+    }
+
+    if (char === '"' || char === "'" || char === '`') {
+      const quote = char;
+      let val = quote;
+      i++;
+      while (i < expr.length) {
+        const c = expr[i];
+        val += c;
+        if (c === '\\') {
+          val += expr[i + 1] ?? '';
+          i += 2;
+          continue;
+        }
+        if (c === quote) {
+          i++;
+          break;
+        }
+        i++;
+      }
+      tokens.push({ type: 'TEXT', value: val });
+      continue;
+    }
+
+    if (char === '&') {
+      if (expr[i + 1] === '&') {
+        // Fall through to TEXT
+      } else {
+        tokens.push({ type: 'OP', value: '&' });
+        i++;
+        continue;
+      }
+    }
+    if (char === '|') {
+      if (expr[i + 1] === '|') {
+        // Fall through to TEXT
+      } else {
+        tokens.push({ type: 'OP', value: '|' });
+        i++;
+        continue;
+      }
+    }
+    if (char === '^' || char === '%') {
+      tokens.push({ type: 'OP', value: char });
+      i++;
+      continue;
+    }
+    if (char === '<' && expr[i + 1] === '<') {
+      tokens.push({ type: 'OP', value: '<<' });
+      i += 2;
+      continue;
+    }
+    // `>>>` (unsigned right shift) is intentionally OUT of the int32 AST path
+    // (deferred — see the numbermodel oracle note). Bail the whole expr out of
+    // the AST path by throwing (caught in rewriteFastAPIExpr) so the downstream
+    // string-level operator lowering — which 32-bit-masks `>>>` correctly —
+    // handles it. Must be checked BEFORE `>>`, else `>>` greedily eats two of
+    // the three `>` and leaves a stray `>` that mangles the operand.
+    if (char === '>' && expr[i + 1] === '>' && expr[i + 2] === '>') {
+      throw new Error('unsupported-operator: >>> (defer to string lowering)');
+    }
+    if (char === '>' && expr[i + 1] === '>') {
+      tokens.push({ type: 'OP', value: '>>' });
+      i += 2;
+      continue;
+    }
+
+    let text = '';
+    while (i < expr.length) {
+      const c = expr[i];
+      if (c === '(' || c === ')' || c === '~' || c === '^' || c === '%') {
+        break;
+      }
+      if (c === '"' || c === "'" || c === '`') {
+        break;
+      }
+      if (c === '&') {
+        if (expr[i + 1] === '&') {
+          text += '&&';
+          i += 2;
+          continue;
+        } else {
+          break;
+        }
+      }
+      if (c === '|') {
+        if (expr[i + 1] === '|') {
+          text += '||';
+          i += 2;
+          continue;
+        } else {
+          break;
+        }
+      }
+      if (c === '<' && expr[i + 1] === '<') {
+        break;
+      }
+      if (c === '>' && expr[i + 1] === '>') {
+        break;
+      }
+      text += c;
+      i++;
+    }
+    if (text) {
+      tokens.push({ type: 'TEXT', value: text.trimEnd() });
+    }
+  }
+  return tokens;
+}
+
+interface ASTNode {
+  type: 'binary' | 'unary' | 'text' | 'group';
+  op?: string;
+  left?: ASTNode;
+  right?: ASTNode;
+  arg?: ASTNode;
+  value?: string;
+}
+
+function parseTokens(tokens: Token[]): ASTNode {
+  let index = 0;
+
+  function peek(): Token | undefined {
+    return tokens[index];
+  }
+
+  function consume(): Token {
+    return tokens[index++];
+  }
+
+  function getPrecedence(op: string): number {
+    switch (op) {
+      case '|':
+        return 1;
+      case '^':
+        return 2;
+      case '&':
+        return 3;
+      case '<<':
+      case '>>':
+        return 4;
+      case '%':
+        return 5;
+      default:
+        return 0;
+    }
+  }
+
+  function parseExpression(precedence: number): ASTNode {
+    let left = parsePrimary();
+
+    while (true) {
+      const next = peek();
+      if (!next || next.type !== 'OP') break;
+
+      const opPrecedence = getPrecedence(next.value);
+      if (opPrecedence < precedence) break;
+
+      consume();
+      const right = parseExpression(opPrecedence + 1);
+      left = { type: 'binary', op: next.value, left, right };
+    }
+
+    return left;
+  }
+
+  function parsePrimary(): ASTNode {
+    const t = peek();
+    if (!t) throw new Error('Unexpected EOF');
+
+    if (t.type === 'UNARY') {
+      consume();
+      const arg = parseExpression(6);
+      return { type: 'unary', op: t.value, arg };
+    }
+
+    if (t.type === 'LP') {
+      consume();
+      const inner = parseExpression(0);
+      const next = peek();
+      if (next && next.type === 'RP') {
+        consume();
+      }
+      return { type: 'group', arg: inner };
+    }
+
+    if (t.type === 'TEXT') {
+      consume();
+      return { type: 'text', value: t.value };
+    }
+
+    consume();
+    return { type: 'text', value: t.type === 'OP' ? t.value : '' };
+  }
+
+  return parseExpression(0);
+}
+
+function codegenASTToPython(node: ASTNode, imports?: Set<string>): string {
+  switch (node.type) {
+    case 'text':
+      return node.value!;
+    case 'group':
+      return `(${codegenASTToPython(node.arg!, imports)})`;
+    case 'unary': {
+      const argStr = codegenASTToPython(node.arg!, imports);
+      if (node.op === '~') {
+        imports?.add(KERN_I32_HELPER_PY);
+        return `_i32(~_i32(${argStr}))`;
+      }
+      return `${node.op}${argStr}`;
+    }
+    case 'binary': {
+      const leftStr = codegenASTToPython(node.left!, imports);
+      const rightStr = codegenASTToPython(node.right!, imports);
+      if (node.op === '|') {
+        imports?.add(KERN_I32_HELPER_PY);
+        return `_i32(_i32(${leftStr}) | _i32(${rightStr}))`;
+      }
+      if (node.op === '&') {
+        imports?.add(KERN_I32_HELPER_PY);
+        return `_i32(_i32(${leftStr}) & _i32(${rightStr}))`;
+      }
+      if (node.op === '^') {
+        imports?.add(KERN_I32_HELPER_PY);
+        return `_i32(_i32(${leftStr}) ^ _i32(${rightStr}))`;
+      }
+      if (node.op === '<<') {
+        imports?.add(KERN_I32_HELPER_PY);
+        return `_i32(_i32(${leftStr}) << (_i32(${rightStr}) & 31))`;
+      }
+      if (node.op === '>>') {
+        imports?.add(KERN_I32_HELPER_PY);
+        return `_i32(_i32(${leftStr}) >> (_i32(${rightStr}) & 31))`;
+      }
+      if (node.op === '%') {
+        imports?.add(KERN_TMOD_HELPER_PY);
+        return `_tmod(${leftStr}, ${rightStr})`;
+      }
+      return `${leftStr} ${node.op} ${rightStr}`;
+    }
+  }
 }
