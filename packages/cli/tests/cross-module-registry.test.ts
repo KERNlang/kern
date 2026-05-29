@@ -605,6 +605,10 @@ describe('shadow real-types — project type-node index + per-file resolution', 
     const imported = resolveImportedTypeNodesForFile(resolve(handlerPath), root, index);
     expect(imported.get('Profile')?.type).toBe('interface');
     expect(imported.has('UserProfile')).toBe(false);
+    // The node must carry the LOCAL name so the shadow support file emits
+    // `interface Profile`, not `interface UserProfile` (else the alias would
+    // resolve to "Cannot find name 'Profile'").
+    expect(imported.get('Profile')?.props?.name).toBe('Profile');
   });
 
   test('an imported name absent from the target degrades (not included)', () => {

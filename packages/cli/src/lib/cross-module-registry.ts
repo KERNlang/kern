@@ -342,7 +342,17 @@ export function resolveImportedTypeNodesForFile(
           if (!typeNode) continue;
           const aliasRaw = child.props?.as;
           const localName = typeof aliasRaw === 'string' && aliasRaw ? aliasRaw : sourceName;
-          if (!result.has(localName)) result.set(localName, typeNode);
+          if (result.has(localName)) continue;
+          // Under an alias the node must emit under the LOCAL name: the shadow
+          // support file renders each node via its `props.name`, so an un-renamed
+          // clone would emit `interface UserProfile` while the handler references
+          // `Profile` → a spurious "Cannot find name 'Profile'". Clone with the
+          // local name so the emitted declaration matches the key.
+          const localNode =
+            localName === sourceName
+              ? typeNode
+              : { ...typeNode, props: { ...(typeNode.props ?? {}), name: localName } };
+          result.set(localName, localNode);
         }
       }
     }
