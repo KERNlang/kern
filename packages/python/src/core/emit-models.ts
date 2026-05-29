@@ -21,7 +21,7 @@ export function emitModels(
     emit?: string;
     target?: string;
     resolveKernModuleSpec?: (rawPath: string, node: IRNode) => string | undefined;
-  }
+  },
 ): { code: string; bodies: string[][] } {
   const isModelsOnly = options?.emit === 'models' || options?.target === 'python';
 
@@ -64,13 +64,7 @@ export function emitModels(
     'recover',
   ]);
 
-  const MODEL_ONLY_CORE = new Set([
-    'type',
-    'interface',
-    'event',
-    'model',
-    'union',
-  ]);
+  const MODEL_ONLY_CORE = new Set(['type', 'interface', 'event', 'model', 'union']);
 
   const allowedTypes = isModelsOnly ? MODEL_ONLY_CORE : TOP_LEVEL_CORE;
 

@@ -19,7 +19,7 @@ export function emitInterfaces(
   options?: {
     emit?: string;
     target?: string;
-  }
+  },
 ): { code: string; bodies: string[][] } {
   const isTypesOnly = options?.emit === 'types' || (options?.target === 'lib' && options?.emit === 'types');
 
@@ -62,13 +62,7 @@ export function emitInterfaces(
     'recover',
   ]);
 
-  const INTERFACE_ONLY_CORE = new Set([
-    'type',
-    'interface',
-    'event',
-    'model',
-    'union',
-  ]);
+  const INTERFACE_ONLY_CORE = new Set(['type', 'interface', 'event', 'model', 'union']);
 
   const allowedTypes = isTypesOnly ? INTERFACE_ONLY_CORE : TOP_LEVEL_CORE;
 

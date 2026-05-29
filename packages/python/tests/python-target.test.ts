@@ -1,16 +1,18 @@
+import type { ResolvedKernConfig } from '@kernlang/core';
 import { parse } from '../../core/src/parser.js';
 import { transpilePython } from '../src/targets/python.js';
-import type { ResolvedKernConfig } from '@kernlang/core';
 
 describe('Python Transpiler Target & emit=models Flag', () => {
   test('emits pure portable Pydantic models for interface-only source', () => {
-    const root = parse([
-      'interface name=User',
-      '  field name=id type=string',
-      '  field name=email type=string',
-      '',
-      'type name=Role values="admin|user|guest"',
-    ].join('\n'));
+    const root = parse(
+      [
+        'interface name=User',
+        '  field name=id type=string',
+        '  field name=email type=string',
+        '',
+        'type name=Role values="admin|user|guest"',
+      ].join('\n'),
+    );
 
     const result = transpilePython(root, {
       target: 'python',
@@ -27,10 +29,7 @@ describe('Python Transpiler Target & emit=models Flag', () => {
   });
 
   test('respects --python-model-backend=pydantic', () => {
-    const root = parse([
-      'model name=User table=users',
-      '  column name=id type=string',
-    ].join('\n'));
+    const root = parse(['model name=User table=users', '  column name=id type=string'].join('\n'));
 
     const result = transpilePython(root, {
       target: 'python',
@@ -45,10 +44,7 @@ describe('Python Transpiler Target & emit=models Flag', () => {
   });
 
   test('respects --python-model-backend=sqlmodel', () => {
-    const root = parse([
-      'model name=User table=users',
-      '  column name=id type=string',
-    ].join('\n'));
+    const root = parse(['model name=User table=users', '  column name=id type=string'].join('\n'));
 
     const result = transpilePython(root, {
       target: 'python',
@@ -62,19 +58,18 @@ describe('Python Transpiler Target & emit=models Flag', () => {
   });
 
   test('route invariance (decl-driven emit-models)', () => {
-    const root1 = parse([
-      'interface name=User',
-      '  field name=id type=string',
-    ].join('\n'));
+    const root1 = parse(['interface name=User', '  field name=id type=string'].join('\n'));
 
-    const root2 = parse([
-      'interface name=User',
-      '  field name=id type=string',
-      '',
-      'server name=API port=8000',
-      '  route method=get path=/api',
-      '    respond 200 json={{ {status: "ok"} }}',
-    ].join('\n'));
+    const root2 = parse(
+      [
+        'interface name=User',
+        '  field name=id type=string',
+        '',
+        'server name=API port=8000',
+        '  route method=get path=/api',
+        '    respond 200 json={{ {status: "ok"} }}',
+      ].join('\n'),
+    );
 
     const res1 = transpilePython(root1, { target: 'python', emit: 'models' } as ResolvedKernConfig);
     const res2 = transpilePython(root2, { target: 'python', emit: 'models' } as ResolvedKernConfig);

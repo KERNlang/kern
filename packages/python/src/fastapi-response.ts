@@ -8,10 +8,10 @@
  */
 
 import type { IRNode } from '@kernlang/core';
-import { getProps, parseExpression, emitExpression } from '@kernlang/core';
+import { getProps } from '@kernlang/core';
+import { KERN_I32_HELPER_PY, KERN_TMOD_HELPER_PY } from './codegen-body-python.js';
 import { escapePyStr, quoteObjectKeysOutsideStrings } from './fastapi-utils.js';
 import { toSnakeCase } from './type-map.js';
-import { lowerBitwiseAndModuloAST, registerHelpers, KERN_I32_HELPER_PY, KERN_TMOD_HELPER_PY } from './codegen-body-python.js';
 
 export function generateRespondFastAPI(respondNode: IRNode, indent: string): string[] {
   const p = getProps(respondNode);
@@ -116,7 +116,7 @@ function lowerDictMemberAccess(text: string, varName: string): string {
           // (codex review of ab192611). A lone `x.method()` is unchanged.
           const dataFields = fields.slice(0, -1);
           const methodField = fields[fields.length - 1];
-          out += varName + dataFields.map((field) => `[${JSON.stringify(field)}]`).join('') + `.${methodField}`;
+          out += `${varName + dataFields.map((field) => `[${JSON.stringify(field)}]`).join('')}.${methodField}`;
         } else {
           out += varName + fields.map((field) => `[${JSON.stringify(field)}]`).join('');
         }
@@ -333,7 +333,8 @@ function lowerJsArrayMethods(expr: string, imports?: Set<string>): string {
           // JS Array.concat returns a NEW array; an array arg is spread, a scalar arg
           // is appended. Mirror with `recv + (x if isinstance(x, list) else [x])`.
           // Single-arg only; varargs concat left unsupported.
-          if (args.length === 1) lowered = `(${receiver} + (${args[0]} if isinstance(${args[0]}, list) else [${args[0]}]))`;
+          if (args.length === 1)
+            lowered = `(${receiver} + (${args[0]} if isinstance(${args[0]}, list) else [${args[0]}]))`;
         } else if (method === 'join') {
           const sep = args[0] ?? '","';
           lowered = `${sep}.join(str(__v) for __v in ${receiver})`;
@@ -414,12 +415,9 @@ function lowerJsArrayMethods(expr: string, imports?: Set<string>): string {
         } else if (method === 'at') {
           const n = args[0] ?? '0';
           lowered = `(${receiver}[${n}] if -len(${receiver}) <= ${n} < len(${receiver}) else None)`;
-        } else if (method === 'reverse') {
-          // JS reverses in place AND returns the array; we only need the value.
-          lowered = `${receiver}[::-1]`;
-        } else if (method === 'concat') {
-          // array args only (scalar-arg concat is out of scope)
-          lowered = args.length ? `(${receiver} + ${args.join(' + ')})` : `${receiver}[:]`;
+          // NB: `reverse` and `concat` are handled earlier in this chain (they mutate /
+          // accept scalar args per JS) — main's later array-only duplicates were dropped
+          // in the roadmap-stack merge (they were dead + concat broke on scalar args).
         } else if (method === 'fill') {
           const v = args[0] ?? 'None';
           if (args.length <= 1) {
@@ -1794,12 +1792,12 @@ export function rewriteFastAPIExpr(
 ): string {
   try {
     const tokens = tokenizeJSExpr(expr);
-    const hasBitwiseOrModulo = tokens.some(t => t.type === 'UNARY' || t.type === 'OP');
+    const hasBitwiseOrModulo = tokens.some((t) => t.type === 'UNARY' || t.type === 'OP');
     if (hasBitwiseOrModulo) {
       const ast = parseTokens(tokens);
       expr = codegenASTToPython(ast, imports);
     }
-  } catch (err) {
+  } catch (_err) {
     // Graceful fallback to original expr string if parsing/emission fails
   }
 
@@ -1954,7 +1952,7 @@ export function addRespondImports(respondNode: IRNode, imports: Set<string>): vo
   if (rp.error) imports.add('from fastapi import HTTPException');
 }
 
-type Token = 
+type Token =
   | { type: 'LP' }
   | { type: 'RP' }
   | { type: 'OP'; value: '|' | '&' | '^' | '<<' | '>>' | '%' }
@@ -1969,9 +1967,9 @@ function tokenizeJSExpr(expr: string): Token[] {
       i++;
     }
     if (i >= expr.length) break;
-    
+
     const char = expr[i];
-    
+
     if (char === '(') {
       tokens.push({ type: 'LP' });
       i++;
@@ -1987,7 +1985,7 @@ function tokenizeJSExpr(expr: string): Token[] {
       i++;
       continue;
     }
-    
+
     if (char === '"' || char === "'" || char === '`') {
       const quote = char;
       let val = quote;
@@ -2009,7 +2007,7 @@ function tokenizeJSExpr(expr: string): Token[] {
       tokens.push({ type: 'TEXT', value: val });
       continue;
     }
-    
+
     if (char === '&') {
       if (expr[i + 1] === '&') {
         // Fall through to TEXT
@@ -2038,12 +2036,21 @@ function tokenizeJSExpr(expr: string): Token[] {
       i += 2;
       continue;
     }
+    // `>>>` (unsigned right shift) is intentionally OUT of the int32 AST path
+    // (deferred — see the numbermodel oracle note). Bail the whole expr out of
+    // the AST path by throwing (caught in rewriteFastAPIExpr) so the downstream
+    // string-level operator lowering — which 32-bit-masks `>>>` correctly —
+    // handles it. Must be checked BEFORE `>>`, else `>>` greedily eats two of
+    // the three `>` and leaves a stray `>` that mangles the operand.
+    if (char === '>' && expr[i + 1] === '>' && expr[i + 2] === '>') {
+      throw new Error('unsupported-operator: >>> (defer to string lowering)');
+    }
     if (char === '>' && expr[i + 1] === '>') {
       tokens.push({ type: 'OP', value: '>>' });
       i += 2;
       continue;
     }
-    
+
     let text = '';
     while (i < expr.length) {
       const c = expr[i];
@@ -2098,55 +2105,61 @@ interface ASTNode {
 
 function parseTokens(tokens: Token[]): ASTNode {
   let index = 0;
-  
+
   function peek(): Token | undefined {
     return tokens[index];
   }
-  
+
   function consume(): Token {
     return tokens[index++];
   }
-  
+
   function getPrecedence(op: string): number {
     switch (op) {
-      case '|': return 1;
-      case '^': return 2;
-      case '&': return 3;
+      case '|':
+        return 1;
+      case '^':
+        return 2;
+      case '&':
+        return 3;
       case '<<':
-      case '>>': return 4;
-      case '%': return 5;
-      default: return 0;
+      case '>>':
+        return 4;
+      case '%':
+        return 5;
+      default:
+        return 0;
     }
   }
-  
+
   function parseExpression(precedence: number): ASTNode {
     let left = parsePrimary();
-    
+
     while (true) {
       const next = peek();
       if (!next || next.type !== 'OP') break;
-      
+
       const opPrecedence = getPrecedence(next.value);
       if (opPrecedence < precedence) break;
-      
+
       consume();
       const right = parseExpression(opPrecedence + 1);
       left = { type: 'binary', op: next.value, left, right };
     }
-    
+
     return left;
   }
-  
+
   function parsePrimary(): ASTNode {
     const t = peek();
     if (!t) throw new Error('Unexpected EOF');
-    
+
     if (t.type === 'UNARY') {
       consume();
       const arg = parseExpression(6);
       return { type: 'unary', op: t.value, arg };
     }
-    
+
     if (t.type === 'LP') {
       consume();
       const inner = parseExpression(0);
@@ -2156,16 +2169,16 @@ function parseTokens(tokens: Token[]): ASTNode {
       }
       return { type: 'group', arg: inner };
     }
-    
+
     if (t.type === 'TEXT') {
       consume();
       return { type: 'text', value: t.value };
     }
-    
+
     consume();
     return { type: 'text', value: t.type === 'OP' ? t.value : '' };
   }
-  
+
   return parseExpression(0);
 }
 

@@ -18,7 +18,7 @@ function findServerNode(root: IRNode): IRNode | undefined {
  */
 export function emitImports(
   root: IRNode,
-  options?: { pythonModelBackend?: 'pydantic' | 'sqlmodel' | 'auto' }
+  options?: { pythonModelBackend?: 'pydantic' | 'sqlmodel' | 'auto' },
 ): { lines: string[]; imports: Set<string> } {
   const imports = new Set<string>();
 

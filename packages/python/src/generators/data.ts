@@ -128,7 +128,10 @@ export function mapColumnToPython(kernType: string): string {
 //   relation name=posts target=Post kind=one-to-many
 // -> class User(SQLModel, table=True): ...
 
-export function generatePythonModel(node: IRNode, options?: { pythonModelBackend?: 'pydantic' | 'sqlmodel' | 'auto' }): string[] {
+export function generatePythonModel(
+  node: IRNode,
+  options?: { pythonModelBackend?: 'pydantic' | 'sqlmodel' | 'auto' },
+): string[] {
   const props = propsOf<'model'>(node);
   const name = emitIdentifier(props.name, 'UnknownModel', node);
   const table = props.table;

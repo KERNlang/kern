@@ -32,7 +32,7 @@ describe('lib target --emit=types (Types-Only Projection)', () => {
         '  >>>',
       ].join('\n'),
       'lib',
-      'types'
+      'types',
     );
 
     // Should include core models and types

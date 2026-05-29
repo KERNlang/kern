@@ -1389,7 +1389,14 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       return out;
     }
     case 'binary': {
-      if (node.op === '|' || node.op === '&' || node.op === '^' || node.op === '<<' || node.op === '>>' || node.op === '%') {
+      if (
+        node.op === '|' ||
+        node.op === '&' ||
+        node.op === '^' ||
+        node.op === '<<' ||
+        node.op === '>>' ||
+        node.op === '%'
+      ) {
         const transformed = lowerBitwiseAndModuloAST(node);
         registerHelpers(transformed, ctx);
         return emitPyExprCtx(transformed, ctx);
@@ -1996,10 +2003,10 @@ export const KERN_TMOD_HELPER_PY = [
   '        fa = float(a)',
   '        fb = float(b)',
   '    except Exception:',
-  '        return float(\'nan\')',
-  '    if math.isnan(fa) or math.isnan(fb): return float(\'nan\')',
-  '    if math.isinf(fa): return float(\'nan\')',
-  '    if fb == 0: return float(\'nan\')',
+  "        return float('nan')",
+  "    if math.isnan(fa) or math.isnan(fb): return float('nan')",
+  "    if math.isinf(fa): return float('nan')",
+  "    if fb == 0: return float('nan')",
   '    if math.isinf(fb): return fa',
   '    return fa - math.trunc(fa / fb) * fb',
 ].join('\n');
@@ -2017,7 +2024,7 @@ export function lowerBitwiseAndModuloAST(node: ValueIR): ValueIR {
             kind: 'binary',
             op: '&',
             left: i32Right,
-            right: { kind: 'numLit', value: 31, raw: '31' }
+            right: { kind: 'numLit', value: 31, raw: '31' },
           };
         } else {
           rewrittenRight = wrapInI32(right);
@@ -2027,7 +2034,7 @@ export function lowerBitwiseAndModuloAST(node: ValueIR): ValueIR {
           kind: 'binary',
           op: node.op,
           left: i32Left,
-          right: rewrittenRight
+          right: rewrittenRight,
         };
         return wrapInI32(bitwiseNode);
       } else if (node.op === '%') {
@@ -2035,7 +2042,7 @@ export function lowerBitwiseAndModuloAST(node: ValueIR): ValueIR {
           kind: 'call',
           callee: { kind: 'ident', name: '_tmod' },
           args: [left, right],
-          optional: false
+          optional: false,
         };
       }
       return { ...node, left, right };
@@ -2047,7 +2054,7 @@ export function lowerBitwiseAndModuloAST(node: ValueIR): ValueIR {
         const unaryNode: ValueIR = {
           kind: 'unary',
           op: '~',
-          argument: i32Arg
+          argument: i32Arg,
         };
         return wrapInI32(unaryNode);
       }
@@ -2063,7 +2070,7 @@ export function lowerBitwiseAndModuloAST(node: ValueIR): ValueIR {
       return {
         ...node,
         callee: lowerBitwiseAndModuloAST(node.callee),
-        args: node.args.map(lowerBitwiseAndModuloAST)
+        args: node.args.map(lowerBitwiseAndModuloAST),
       };
     case 'lambda':
       return { ...node, body: lowerBitwiseAndModuloAST(node.body) };
@@ -2082,11 +2089,11 @@ export function lowerBitwiseAndModuloAST(node: ValueIR): ValueIR {
     case 'objectLit':
       return {
         ...node,
-        entries: node.entries.map(e =>
+        entries: node.entries.map((e) =>
           'kind' in e && (e as any).kind === 'spread'
             ? { kind: 'spread', argument: lowerBitwiseAndModuloAST((e as any).argument) }
-            : { ...(e as any), value: lowerBitwiseAndModuloAST((e as any).value) }
-        )
+            : { ...(e as any), value: lowerBitwiseAndModuloAST((e as any).value) },
+        ),
       };
     case 'arrayLit':
       return { ...node, items: node.items.map(lowerBitwiseAndModuloAST) };
@@ -2095,7 +2102,7 @@ export function lowerBitwiseAndModuloAST(node: ValueIR): ValueIR {
         ...node,
         test: lowerBitwiseAndModuloAST(node.test),
         consequent: lowerBitwiseAndModuloAST(node.consequent),
-        alternate: lowerBitwiseAndModuloAST(node.alternate)
+        alternate: lowerBitwiseAndModuloAST(node.alternate),
       };
     default:
       return node;
@@ -2107,7 +2114,7 @@ function wrapInI32(node: ValueIR): ValueIR {
     kind: 'call',
     callee: { kind: 'ident', name: '_i32' },
     args: [node],
-    optional: false
+    optional: false,
   };
 }
 

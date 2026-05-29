@@ -36,7 +36,7 @@ import {
   validateSemantics,
   writeCoverageGaps,
 } from '@kernlang/core';
-import { transpileExpress, emitInterfaces } from '@kernlang/express';
+import { emitInterfaces, transpileExpress } from '@kernlang/express';
 import { transpileMCP } from '@kernlang/mcp';
 import { transpile } from '@kernlang/native';
 import { transpileFastAPI, transpilePython } from '@kernlang/python';
@@ -260,7 +260,7 @@ function withGeneratedHeader(content: string, header: string): string {
 }
 
 function generatedHeaderForTarget(target: KernTarget, relSource: string): string {
-  const prefix = (target === 'fastapi' || target === 'python') ? PYTHON_GENERATED_HEADER : GENERATED_HEADER;
+  const prefix = target === 'fastapi' || target === 'python' ? PYTHON_GENERATED_HEADER : GENERATED_HEADER;
   return `${prefix + relSource}\n\n`;
 }
 
@@ -721,7 +721,7 @@ export function pythonModuleName(name: string): string {
 }
 
 export function outputBaseNameForTarget(name: string, target: KernTarget): string {
-  return (target === 'fastapi' || target === 'python') ? pythonModuleName(name) : name;
+  return target === 'fastapi' || target === 'python' ? pythonModuleName(name) : name;
 }
 
 export function withFastApiEntryModules(cfg: ResolvedKernConfig, entryModules: string[]): ResolvedKernConfig {
@@ -1123,17 +1123,17 @@ function dispatchTranspile(target: KernTarget, ast: IRNode, cfg: ResolvedKernCon
                 ? transpileFastAPI(ast, cfg)
                 : target === 'python'
                   ? transpilePython(ast, cfg)
-                : target === 'cli'
-                  ? transpileCliApp(ast, cfg)
-                  : target === 'terminal'
-                    ? transpileTerminal(ast, cfg)
-                    : target === 'ink'
-                      ? transpileInk(ast, cfg)
-                      : target === 'vue'
-                        ? transpileVue(ast, cfg)
-                        : target === 'nuxt'
-                          ? transpileNuxt(ast, cfg)
-                          : transpileNextjs(ast, cfg);
+                  : target === 'cli'
+                    ? transpileCliApp(ast, cfg)
+                    : target === 'terminal'
+                      ? transpileTerminal(ast, cfg)
+                      : target === 'ink'
+                        ? transpileInk(ast, cfg)
+                        : target === 'vue'
+                          ? transpileVue(ast, cfg)
+                          : target === 'nuxt'
+                            ? transpileNuxt(ast, cfg)
+                            : transpileNextjs(ast, cfg);
 }
 
 export function transpileForTarget(ast: IRNode, cfg: ResolvedKernConfig) {
@@ -1214,7 +1214,7 @@ export function transpileAndWrite(
     options?.fastApiModuleNameByFile,
     options?.fastApiModulePathByFile,
   );
-  const commentPrefix = (target === 'fastapi' || target === 'python') ? '#' : '//';
+  const commentPrefix = target === 'fastapi' || target === 'python' ? '#' : '//';
   const header = generatedHeaderForTarget(target, relSource);
   const result = transpileForTarget(ast, transpileCfg);
 
@@ -1245,7 +1245,7 @@ export function transpileAndWrite(
     }
   } else {
     const outExt =
-      (target === 'fastapi' || target === 'python')
+      target === 'fastapi' || target === 'python'
         ? '.py'
         : target === 'vue' || target === 'nuxt'
           ? '.vue'
