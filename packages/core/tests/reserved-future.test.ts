@@ -47,7 +47,7 @@ describe('LexMode dispatch', () => {
 describe('Capability matrix', () => {
   test('all targets have entries (or empty array)', () => {
     const targets = Object.keys(CAPABILITY_MATRIX);
-    expect(targets).toHaveLength(15); // 14 concrete (incl. 'python') + 'auto'
+    expect(targets).toHaveLength(16); // 15 concrete (incl. 'python' + 'go') + 'auto'
   });
 
   test('lookup returns native for nextjs literal-float', () => {

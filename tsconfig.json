@@ -7,6 +7,7 @@
     { "path": "packages/native" },
     { "path": "packages/express" },
     { "path": "packages/python" },
+    { "path": "packages/go" },
     { "path": "packages/terminal" },
     { "path": "packages/metrics" },
     { "path": "packages/test" },

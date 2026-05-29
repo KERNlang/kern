@@ -37,35 +37,12 @@ function extractCodeOrString(val: unknown): string {
   return '';
 }
 
-// Lower a prop value to a Python expression. Handles the JS-literal
-// translations that KERN authors expect to flow across the language
-// boundary: `null`/`undefined` → `None`, `true` → `True`, `false`
-// → `False`. Anything else routes through `rewriteFastAPIExpr` so
-// that KERN idioms (`params.X`, `effectName.result`, etc.) lower
-// consistently regardless of which IR prop they live in.
-//
-// Review fix (Codex+Gemini B4 on 86e6b893): trim the extracted code
-// before comparing against literal names so `{{ true }}` (with internal
-// whitespace from KERN curly-expression syntax) maps to `True`, not the
-// invalid Python identifier `true`.
-function lowerPropToPython(
-  val: unknown,
-  pathParams: string[],
-  bodyFields: Set<string>,
-  authUser: boolean,
-  imports?: Set<string>,
-): string {
-  const raw = extractCodeOrString(val);
-  const trimmed = raw.trim();
-  if (trimmed === '' || trimmed === 'null' || trimmed === 'undefined') return 'None';
-  if (trimmed === 'true') return 'True';
-  if (trimmed === 'false') return 'False';
-  // Pass the TRIMMED form to the rewriter — leading/trailing whitespace in
-  // a curly-expression carries no semantic information and only risks
-  // confusing any future anchor-based regex (Gemini defensive note on
-  // commit 7a25348b).
-  return rewriteFastAPIExpr(trimmed, pathParams, bodyFields, authUser, imports);
-}
+// NOTE: the former `lowerPropToPython` helper was removed when native closure
+// hoisting landed (#5): every prop site now routes through `rewriteFastAPIStmtExpr`
+// so a closure inside a prop (`respond json={{ items.map(x => { … }) }}`) can flush
+// its hoisted `def`. The JS-literal translations it used to do (`true`→`True`,
+// `null`/`undefined`→`None`) are already performed inside `rewriteFastAPIExpr`; each
+// call site keeps the `.trim()` + empty-string→`None` guard it relied on.
 
 /**
  * Streaming-body context (slice 4c). Threaded through the portable emitter only
@@ -90,6 +67,28 @@ export interface FastAPIStreamCtx {
   fanoutSeq?: { n: number };
 }
 
+interface FastAPIClosureHoistCtx {
+  seq: { n: number };
+}
+
+function indentHoistedDef(def: string, indent: string): string[] {
+  return def.split('\n').map((line) => `${indent}${line}`);
+}
+
+function rewriteFastAPIStmtExpr(
+  expr: string,
+  indent: string,
+  pathParams: string[],
+  bodyFields: Set<string>,
+  authUser: boolean,
+  imports: Set<string>,
+  hoistCtx: FastAPIClosureHoistCtx,
+): { expr: string; hoists: string[] } {
+  const defs: string[] = [];
+  const rewritten = rewriteFastAPIExpr(expr, pathParams, bodyFields, authUser, imports, defs, hoistCtx.seq);
+  return { expr: rewritten, hoists: defs.flatMap((def) => indentHoistedDef(def, indent)) };
+}
+
 export function generatePortableChildFastAPI(
   child: IRNode,
   indent: string,
@@ -98,18 +97,19 @@ export function generatePortableChildFastAPI(
   bodyFields: Set<string> = new Set(),
   authUser = false,
   streamCtx?: FastAPIStreamCtx,
+  closureHoistCtx?: FastAPIClosureHoistCtx,
 ): string[] {
   const lines: string[] = [];
   const p = getProps(child);
+  const hoistCtx = closureHoistCtx ?? { seq: { n: 0 } };
 
   switch (child.type) {
     case 'derive': {
       const name = String(p.name || '');
       const exprCode = extractExprCode(p.expr);
       if (name && exprCode) {
-        lines.push(
-          `${indent}${toSnakeCase(name)} = ${rewriteFastAPIExpr(exprCode, pathParams, bodyFields, authUser, imports)}`,
-        );
+        const rewritten = rewriteFastAPIStmtExpr(exprCode, indent, pathParams, bodyFields, authUser, imports, hoistCtx);
+        lines.push(...rewritten.hoists, `${indent}${toSnakeCase(name)} = ${rewritten.expr}`);
       }
       break;
     }
@@ -123,10 +123,11 @@ export function generatePortableChildFastAPI(
       if (!isSupportedAssignOperator(op)) {
         throw new Error(`portable route \`assign op="${op}"\` is not supported on the FastAPI target.`);
       }
-      const lhs = rewriteFastAPIExpr(target, pathParams, bodyFields, authUser, imports);
+      const lhs = rewriteFastAPIStmtExpr(target, indent, pathParams, bodyFields, authUser, imports, hoistCtx);
+      lines.push(...lhs.hoists);
       if (isPostfixMutationOperator(op)) {
         // Python lacks `++`/`--`; lower to the canonical compound form.
-        lines.push(`${indent}${lhs} ${op === '++' ? '+=' : '-='} 1`);
+        lines.push(`${indent}${lhs.expr} ${op === '++' ? '+=' : '-='} 1`);
       } else {
         const valueCode = extractExprCode(p.value);
         // `value` is schema-required for a non-postfix `assign`; fail loud here
@@ -135,8 +136,8 @@ export function generatePortableChildFastAPI(
         if (!valueCode) {
           throw new Error('portable route `assign` requires `value=` for a non-postfix operator.');
         }
-        const rhs = rewriteFastAPIExpr(valueCode, pathParams, bodyFields, authUser, imports);
-        lines.push(`${indent}${lhs} ${op} ${rhs}`);
+        const rhs = rewriteFastAPIStmtExpr(valueCode, indent, pathParams, bodyFields, authUser, imports, hoistCtx);
+        lines.push(...rhs.hoists, `${indent}${lhs.expr} ${op} ${rhs.expr}`);
       }
       break;
     }
@@ -144,7 +145,10 @@ export function generatePortableChildFastAPI(
       // Portable void side-effect: `do value="registry.register(provider)"` →
       // the bare call statement.
       const value = extractExprCode(p.value);
-      if (value) lines.push(`${indent}${rewriteFastAPIExpr(value, pathParams, bodyFields, authUser, imports)}`);
+      if (value) {
+        const rewritten = rewriteFastAPIStmtExpr(value, indent, pathParams, bodyFields, authUser, imports, hoistCtx);
+        lines.push(...rewritten.hoists, `${indent}${rewritten.expr}`);
+      }
       break;
     }
     case 'guard': {
@@ -154,7 +158,8 @@ export function generatePortableChildFastAPI(
       const elseMessage = typeof p.message === 'string' ? p.message : name ? `${name} guard failed` : 'Guard failed';
       if (exprCode) {
         imports.add('from fastapi import HTTPException');
-        lines.push(`${indent}if not (${rewriteFastAPIExpr(exprCode, pathParams, bodyFields, authUser, imports)}):`);
+        const rewritten = rewriteFastAPIStmtExpr(exprCode, indent, pathParams, bodyFields, authUser, imports, hoistCtx);
+        lines.push(...rewritten.hoists, `${indent}if not (${rewritten.expr}):`);
         lines.push(`${indent}    raise HTTPException(status_code=${elseStatus}, detail="${escapePyStr(elseMessage)}")`);
       }
       break;
@@ -181,35 +186,50 @@ export function generatePortableChildFastAPI(
       // yields its code rather than `String({__expr})` → "[object Object]";
       // plain identifiers (`json=user`) pass through unchanged.
       const clonedRespond: IRNode = { ...child, props: { ...child.props } };
-      if (clonedRespond.props!.json)
-        clonedRespond.props!.json = rewriteFastAPIExpr(
+      if (clonedRespond.props!.json) {
+        const rewritten = rewriteFastAPIStmtExpr(
           extractExprCode(clonedRespond.props!.json),
+          indent,
           pathParams,
           bodyFields,
           authUser,
           imports,
+          hoistCtx,
         );
-      if (clonedRespond.props!.text)
-        clonedRespond.props!.text = rewriteFastAPIExpr(
+        lines.push(...rewritten.hoists);
+        clonedRespond.props!.json = rewritten.expr;
+      }
+      if (clonedRespond.props!.text) {
+        const rewritten = rewriteFastAPIStmtExpr(
           extractExprCode(clonedRespond.props!.text),
+          indent,
           pathParams,
           bodyFields,
           authUser,
           imports,
+          hoistCtx,
         );
+        lines.push(...rewritten.hoists);
+        clonedRespond.props!.text = rewritten.expr;
+      }
       addRespondImports(clonedRespond, imports);
       lines.push(...generateRespondFastAPI(clonedRespond, indent));
       break;
     }
     case 'branch': {
-      const on = lowerPropToPython(p.on, pathParams, bodyFields, authUser, imports);
+      const onSource = extractCodeOrString(p.on);
+      const on =
+        onSource.trim() === '' || onSource.trim() === 'null' || onSource.trim() === 'undefined'
+          ? { expr: 'None', hoists: [] }
+          : rewriteFastAPIStmtExpr(onSource.trim(), indent, pathParams, bodyFields, authUser, imports, hoistCtx);
+      lines.push(...on.hoists);
       const paths = getChildren(child, 'path');
       for (let i = 0; i < paths.length; i++) {
         const pathNode = paths[i];
         const pp = getProps(pathNode);
         const value = String(pp.value || '');
         const keyword = i === 0 ? 'if' : 'elif';
-        lines.push(`${indent}${keyword} ${on} == "${escapePyStr(value)}":`);
+        lines.push(`${indent}${keyword} ${on.expr} == "${escapePyStr(value)}":`);
         const bodyStart = lines.length;
         for (const pathChild of pathNode.children || []) {
           lines.push(
@@ -221,6 +241,7 @@ export function generatePortableChildFastAPI(
               bodyFields,
               authUser,
               streamCtx,
+              hoistCtx,
             ),
           );
         }
@@ -237,29 +258,41 @@ export function generatePortableChildFastAPI(
       if (!name) break;
       const valueCode = extractExprCode(p.value) || extractExprCode(p.expr);
       if (valueCode) {
-        lines.push(`${indent}${name} = ${rewriteFastAPIExpr(valueCode, pathParams, bodyFields, authUser, imports)}`);
+        const rewritten = rewriteFastAPIStmtExpr(
+          valueCode,
+          indent,
+          pathParams,
+          bodyFields,
+          authUser,
+          imports,
+          hoistCtx,
+        );
+        lines.push(...rewritten.hoists, `${indent}${name} = ${rewritten.expr}`);
       }
       break;
     }
     case 'each': {
       const name = String(p.name || 'item');
-      const collection = rewriteFastAPIExpr(
+      const collection = rewriteFastAPIStmtExpr(
         extractExprCode(p.in) || String(p.in || ''),
+        indent,
         pathParams,
         bodyFields,
         authUser,
         imports,
+        hoistCtx,
       );
+      lines.push(...collection.hoists);
       const index = p.index ? String(p.index) : undefined;
       const isAwait = p.await === true || p.await === 'true';
       if (isAwait) {
         // `each await=true` → `async for x in <aiter>:`. Cannot combine with
         // `index=` (rejected by the core validator), so no enumerate() branch.
-        lines.push(`${indent}async for ${name} in ${collection}:`);
+        lines.push(`${indent}async for ${name} in ${collection.expr}:`);
       } else if (index) {
-        lines.push(`${indent}for ${index}, ${name} in enumerate(${collection}):`);
+        lines.push(`${indent}for ${index}, ${name} in enumerate(${collection.expr}):`);
       } else {
-        lines.push(`${indent}for ${name} in ${collection}:`);
+        lines.push(`${indent}for ${name} in ${collection.expr}:`);
       }
       const bodyStart = lines.length;
       if (isAwait && streamCtx?.abortExpr) {
@@ -277,6 +310,7 @@ export function generatePortableChildFastAPI(
             bodyFields,
             authUser,
             streamCtx,
+            hoistCtx,
           ),
         );
       }
@@ -293,13 +327,16 @@ export function generatePortableChildFastAPI(
       // one generator don't collide.
       imports.add('import asyncio');
       const name = String(p.name || 'item');
-      const collection = rewriteFastAPIExpr(
+      const collection = rewriteFastAPIStmtExpr(
         extractExprCode(p.in) || String(p.in || ''),
+        indent,
         pathParams,
         bodyFields,
         authUser,
         imports,
+        hoistCtx,
       );
+      lines.push(...collection.hoists);
       // Suffix with the loop var AND a per-stream sequence so sibling fan-outs
       // sharing a name (`fanout name=item` twice) don't collide in the shared
       // generator scope.
@@ -338,12 +375,13 @@ export function generatePortableChildFastAPI(
             bodyFields,
             authUser,
             producerCtx,
+            hoistCtx,
           ),
         );
       }
       lines.push(`${indent}async def ${merge}():`);
       lines.push(
-        `${indent}    await asyncio.gather(*[${producer}(${name}) for ${name} in ${collection}], return_exceptions=True)`,
+        `${indent}    await asyncio.gather(*[${producer}(${name}) for ${name} in ${collection.expr}], return_exceptions=True)`,
       );
       lines.push(`${indent}    await ${q}.put(${done})`);
       lines.push(`${indent}${mergeTask} = asyncio.create_task(${merge}())`);
@@ -374,7 +412,8 @@ export function generatePortableChildFastAPI(
       const value = extractExprCode(p.value) || String(p.value || '');
       if (!value) break;
       imports.add('import json');
-      const rewritten = rewriteFastAPIExpr(value, pathParams, bodyFields, authUser, imports);
+      const rewritten = rewriteFastAPIStmtExpr(value, indent, pathParams, bodyFields, authUser, imports, hoistCtx);
+      lines.push(...rewritten.hoists);
       const evName = typeof p.event === 'string' && p.event ? p.event : undefined;
       // String concatenation, NOT an f-string: a rewritten object/dict payload
       // (`{{ {type: x} }}` → `{"type": x}`) contains double quotes that would
@@ -382,8 +421,8 @@ export function generatePortableChildFastAPI(
       // Python < 3.12 (PEP 701). Concatenation sidesteps the nesting entirely
       // (Codex P1 on slice 4c).
       const frame = evName
-        ? `"event: ${escapePyStr(evName)}\\ndata: " + json.dumps(${rewritten}) + "\\n\\n"`
-        : `"data: " + json.dumps(${rewritten}) + "\\n\\n"`;
+        ? `"event: ${escapePyStr(evName)}\\ndata: " + json.dumps(${rewritten.expr}) + "\\n\\n"`
+        : `"data: " + json.dumps(${rewritten.expr}) + "\\n\\n"`;
       if (streamCtx?.queueVar) {
         lines.push(`${indent}await ${streamCtx.queueVar}.put(${frame})`);
       } else {
@@ -414,7 +453,16 @@ export function generatePortableChildFastAPI(
         'all',
       ]);
       const collectName = PY_BUILTINS.has(rawName) ? `${rawName}_result` : rawName;
-      const from = lowerPropToPython(p.from, pathParams, bodyFields, authUser, imports);
+      const from = rewriteFastAPIStmtExpr(
+        extractCodeOrString(p.from).trim(),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      lines.push(...from.hoists);
       const where = p.where ? extractExprCode(p.where) : undefined;
       // `limit` is typically a literal integer (`limit=10`) but can be a
       // curly-expression (`limit={{params.max}}`) — route through the same
@@ -422,7 +470,15 @@ export function generatePortableChildFastAPI(
       // doesn't lurk here either (Gemini M3 on 86e6b893).
       const limit =
         p.limit !== undefined && p.limit !== null && p.limit !== ''
-          ? lowerPropToPython(p.limit, pathParams, bodyFields, authUser, imports)
+          ? rewriteFastAPIStmtExpr(
+              extractCodeOrString(p.limit).trim(),
+              indent,
+              pathParams,
+              bodyFields,
+              authUser,
+              imports,
+              hoistCtx,
+            )
           : undefined;
       // Compute order in two stages so we can suppress `sorted()`
       // emission entirely when the source value resolves to absent / null
@@ -441,17 +497,22 @@ export function generatePortableChildFastAPI(
       const order =
         orderSourceTrimmed === '' || orderSourceTrimmed === 'null' || orderSourceTrimmed === 'undefined'
           ? undefined
-          : lowerPropToPython(p.order, pathParams, bodyFields, authUser, imports);
+          : rewriteFastAPIStmtExpr(orderSourceTrimmed, indent, pathParams, bodyFields, authUser, imports, hoistCtx);
+      if (limit) lines.push(...limit.hoists);
+      if (order) lines.push(...order.hoists);
       if (where && !order && !limit) {
-        lines.push(
-          `${indent}${collectName} = [item for item in ${from} if ${rewriteFastAPIExpr(where, pathParams, bodyFields, authUser, imports)}]`,
-        );
+        const whereExpr = rewriteFastAPIStmtExpr(where, indent, pathParams, bodyFields, authUser, imports, hoistCtx);
+        lines.push(...whereExpr.hoists);
+        lines.push(`${indent}${collectName} = [item for item in ${from.expr} if ${whereExpr.expr}]`);
       } else {
-        lines.push(`${indent}${collectName} = ${from}`);
-        if (where)
+        lines.push(`${indent}${collectName} = ${from.expr}`);
+        if (where) {
+          const whereExpr = rewriteFastAPIStmtExpr(where, indent, pathParams, bodyFields, authUser, imports, hoistCtx);
           lines.push(
-            `${indent}${collectName} = [item for item in ${collectName} if ${rewriteFastAPIExpr(where, pathParams, bodyFields, authUser, imports)}]`,
+            ...whereExpr.hoists,
+            `${indent}${collectName} = [item for item in ${collectName} if ${whereExpr.expr}]`,
           );
+        }
         if (order) {
           // `order` is a COMPARATOR expression over a/b — the Express and ground-layer
           // targets both emit `.sort((a, b) => <order>)`, and JS is the declared reference
@@ -459,9 +520,9 @@ export function generatePortableChildFastAPI(
           // cmp_to_key; a 1-arg `key=lambda item: <order>` was the divergent outlier and
           // NameErrors on the a/b operands. (`order` already routed through lowerPropToPython.)
           imports.add('from functools import cmp_to_key');
-          lines.push(`${indent}${collectName} = sorted(${collectName}, key=cmp_to_key(lambda a, b: ${order}))`);
+          lines.push(`${indent}${collectName} = sorted(${collectName}, key=cmp_to_key(lambda a, b: ${order.expr}))`);
         }
-        if (limit) lines.push(`${indent}${collectName} = ${collectName}[:${limit}]`);
+        if (limit) lines.push(`${indent}${collectName} = ${collectName}[:${limit.expr}]`);
       }
       break;
     }
@@ -508,32 +569,34 @@ export function generatePortableChildFastAPI(
         triggerExpr = '';
       }
       const retryCount = recoverNode ? parseInt(String(getProps(recoverNode).retry || '0'), 10) : 0;
-      const pyFallback = lowerPropToPython(
-        recoverNode ? getProps(recoverNode).fallback : undefined,
+      const pyFallback = rewriteFastAPIStmtExpr(
+        extractCodeOrString(recoverNode ? getProps(recoverNode).fallback : undefined).trim() || 'None',
+        indent,
         pathParams,
         bodyFields,
         authUser,
         imports,
+        hoistCtx,
       );
+      const trigger = triggerExpr
+        ? rewriteFastAPIStmtExpr(triggerExpr, indent, pathParams, bodyFields, authUser, imports, hoistCtx)
+        : { expr: 'None', hoists: [] };
+      lines.push(...pyFallback.hoists, ...trigger.hoists);
 
       if (retryCount > 0) {
-        lines.push(`${indent}${effectName} = ${pyFallback}`);
+        lines.push(`${indent}${effectName} = ${pyFallback.expr}`);
         lines.push(`${indent}for _attempt in range(${retryCount}):`);
         lines.push(`${indent}    try:`);
-        lines.push(
-          `${indent}        ${effectName} = ${rewriteFastAPIExpr(triggerExpr, pathParams, bodyFields, authUser, imports)}`,
-        );
+        lines.push(`${indent}        ${effectName} = ${trigger.expr}`);
         lines.push(`${indent}        break`);
         lines.push(`${indent}    except Exception:`);
         lines.push(`${indent}        if _attempt == ${retryCount - 1}:`);
-        lines.push(`${indent}            ${effectName} = ${pyFallback}`);
+        lines.push(`${indent}            ${effectName} = ${pyFallback.expr}`);
       } else {
         lines.push(`${indent}try:`);
-        lines.push(
-          `${indent}    ${effectName} = ${rewriteFastAPIExpr(triggerExpr, pathParams, bodyFields, authUser, imports)}`,
-        );
+        lines.push(`${indent}    ${effectName} = ${trigger.expr}`);
         lines.push(`${indent}except Exception:`);
-        lines.push(`${indent}    ${effectName} = ${pyFallback}`);
+        lines.push(`${indent}    ${effectName} = ${pyFallback.expr}`);
       }
       break;
     }
@@ -568,9 +631,12 @@ export function generatePortableHandlerFastAPI(
     'assign',
     'do',
   ]);
+  const hoistCtx: FastAPIClosureHoistCtx = { seq: { n: 0 } };
   for (const child of children) {
     if (PORTABLE_TYPES.has(child.type)) {
-      lines.push(...generatePortableChildFastAPI(child, indent, pathParams, imports, bodyFields, authUser));
+      lines.push(
+        ...generatePortableChildFastAPI(child, indent, pathParams, imports, bodyFields, authUser, undefined, hoistCtx),
+      );
     }
   }
 
@@ -605,9 +671,12 @@ export function generatePortableStreamFastAPI(
   // client-disconnect check (the route signature always injects `request`).
   // `fanoutSeq` uniquifies helper names across every fan-out in this generator.
   const ctx: FastAPIStreamCtx = { abortExpr: 'await request.is_disconnected()', fanoutSeq: { n: 0 } };
+  const hoistCtx: FastAPIClosureHoistCtx = { seq: { n: 0 } };
   for (const child of streamNode.children || []) {
     if (PORTABLE_STREAM_TYPES.has(child.type)) {
-      lines.push(...generatePortableChildFastAPI(child, indent, pathParams, imports, bodyFields, authUser, ctx));
+      lines.push(
+        ...generatePortableChildFastAPI(child, indent, pathParams, imports, bodyFields, authUser, ctx, hoistCtx),
+      );
     }
   }
   return lines;

@@ -242,6 +242,33 @@ const PY_CORE_CAPABILITIES: CapabilityEntry[] = [
   },
 ];
 
+const GO_CORE_CAPABILITIES: CapabilityEntry[] = [
+  { feature: 'literal-float', position: 'expression', support: 'native' },
+  { feature: 'literal-numeric-separator', position: 'expression', support: 'lowered' },
+  { feature: 'literal-bigint', position: 'expression', support: 'unsupported' },
+  { feature: 'literal-hex', position: 'expression', support: 'native' },
+  { feature: 'literal-binary', position: 'expression', support: 'native' },
+  { feature: 'literal-octal', position: 'expression', support: 'native' },
+  { feature: 'literal-string-single-quote', position: 'expression', support: 'lowered' },
+  { feature: 'optional-chain', position: 'expression', support: 'lowered', note: 'lowered through kernrt.OptionalGet' },
+  { feature: 'nullish-coalesce', position: 'expression', support: 'lowered', note: 'lowered through kernrt.Coalesce' },
+  { feature: 'spread', position: 'expression', support: 'unsupported' },
+  { feature: 'template-literal', position: 'expression', support: 'unsupported' },
+  { feature: 'const-value-as-expression', position: 'top-level', support: 'unsupported' },
+  { feature: 'tuple-type', position: 'top-level', support: 'unsupported' },
+  { feature: 'enum-type', position: 'top-level', support: 'unsupported' },
+  { feature: 'index-signature', position: 'top-level', support: 'unsupported' },
+  { feature: 'type-guard', position: 'top-level', support: 'unsupported' },
+  { feature: 'function-overloads', position: 'top-level', support: 'unsupported' },
+  { feature: 'generics', position: 'top-level', support: 'unsupported' },
+  { feature: 'cross-kern-import', position: 'top-level', support: 'unsupported' },
+  { feature: 'let-native-value', position: 'top-level', support: 'unsupported' },
+  { feature: 'field-native-value', position: 'top-level', support: 'unsupported' },
+  { feature: 'param-native-value', position: 'top-level', support: 'unsupported' },
+  { feature: 'destructure-native', position: 'top-level', support: 'unsupported' },
+  { feature: 'maplit-setlit-native', position: 'top-level', support: 'unsupported' },
+];
+
 export const CAPABILITY_MATRIX: CapabilityMatrix = {
   auto: TS_CORE_CAPABILITIES,
   lib: TS_CORE_CAPABILITIES,
@@ -257,6 +284,7 @@ export const CAPABILITY_MATRIX: CapabilityMatrix = {
   nuxt: TS_CORE_CAPABILITIES,
   fastapi: PY_CORE_CAPABILITIES,
   python: PY_CORE_CAPABILITIES,
+  go: GO_CORE_CAPABILITIES,
   mcp: TS_CORE_CAPABILITIES,
 };
 

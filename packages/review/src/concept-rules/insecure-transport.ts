@@ -25,14 +25,20 @@ import type { ConceptRuleContext } from './index.js';
 
 // `127.\d+(\.\d+){0,2}` covers short-form IPv4 like `127.1` and `127.0.1`,
 // which resolve to 127.0.0.1 in libc but bypass strict dotted-quad regex.
-const LOCALHOST_RE = /^(localhost|127\.\d+(?:\.\d+){0,2}|0\.0\.0\.0|::1|\[::1\])(?::\d+)?$/i;
+// The port suffix is `(?::[^/?#\s]*)?` (not `:\d+`) because a loopback/private
+// host stays loopback regardless of the port FORM — including a template-
+// interpolated port that the concept mapper renders non-numerically, e.g.
+// `http://127.0.0.1:${port}` → host `127.0.0.1::port`. Only the port is
+// loosened; the host prefix still must match an exempt class, so a public host
+// like `127.0.0.1.evil.com` (no leading `:` after the IP) is NOT exempted.
+const LOCALHOST_RE = /^(localhost|127\.\d+(?:\.\d+){0,2}|0\.0\.0\.0|::1|\[::1\])(?::[^/?#\s]*)?$/i;
 const RFC1918_RE =
-  /^(10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|169\.254\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(?::\d+)?$/;
+  /^(10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|169\.254\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(?::[^/?#\s]*)?$/;
 // Anchored at end of host: `auth.internal$` exempt, `internal.com$` not.
 // Single-label hosts like `http://svc/` (Docker/k8s service DNS) are
 // exempted via the `(?:^|\.)` alternative — `svc$` matches with empty `^`.
-const SPECIAL_TLD_RE = /(?:^|\.)(?:local|internal|test|svc)(?::\d+)?$/i;
-const CLUSTER_LOCAL_RE = /\.cluster\.local(?::\d+)?$/i;
+const SPECIAL_TLD_RE = /(?:^|\.)(?:local|internal|test|svc)(?::[^/?#\s]*)?$/i;
+const CLUSTER_LOCAL_RE = /\.cluster\.local(?::[^/?#\s]*)?$/i;
 
 export function insecureTransport(ctx: ConceptRuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];

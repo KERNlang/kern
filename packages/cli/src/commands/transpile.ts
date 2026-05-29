@@ -211,7 +211,10 @@ export function runTranspile(args: string[]): void {
 
   const outDir = resolve(dirname(inputFile), config.output.outDir);
   const isStructured =
-    target !== 'fastapi' && effectiveConfig.structure !== 'flat' && result.artifacts && result.artifacts.length > 0;
+    target !== 'fastapi' &&
+    (effectiveConfig.structure !== 'flat' || target === 'go') &&
+    result.artifacts &&
+    result.artifacts.length > 0;
 
   if (isStructured) {
     for (const artifact of result.artifacts!) {
@@ -244,6 +247,7 @@ export function runTranspile(args: string[]): void {
     nextjs: 'Next.js App Router',
     express: 'Express TypeScript',
     fastapi: 'FastAPI Python',
+    go: 'Go net/http',
     cli: 'Commander.js CLI',
     terminal: 'ANSI Terminal',
     ink: 'Ink (React for Terminals)',
@@ -296,7 +300,7 @@ export function runTranspile(args: string[]): void {
 
 export function printHelp(): void {
   console.log(
-    'Usage: kern <file.kern> [--target=lib|nextjs|tailwind|web|native|express|cli|terminal|ink|vue|nuxt|fastapi|mcp] [options]',
+    'Usage: kern <file.kern> [--target=lib|nextjs|tailwind|web|native|express|go|cli|terminal|ink|vue|nuxt|fastapi|mcp] [options]',
   );
   console.log('');
   console.log('Commands:');
@@ -333,6 +337,7 @@ export function printHelp(): void {
   console.log('  nuxt      Nuxt 3 (pages, layouts, server routes)');
   console.log('  native    React Native component');
   console.log('  express   Express TypeScript backend');
+  console.log('  go        Go net/http backend');
   console.log('  cli       Commander.js CLI app');
   console.log('  terminal  ANSI terminal rendering');
   console.log('  ink       React Ink terminal UI');

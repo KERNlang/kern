@@ -10,7 +10,7 @@
 
   <br>
 
-  **Built for humans and AI.** 192-line spec. 14 compile targets. 233 review rules.<br>
+  **Built for humans and AI.** 192-line spec. 15 compile targets. 233 review rules.<br>
   <sub>LLMs write .kern in up to 85% fewer tokens. 7 LLMs verified.</sub>
 
   <br>
@@ -43,7 +43,7 @@ kern schema --json                                            # Full schema for 
 
 **KERN is a structural language with five capabilities: Compile, Review, Evolve, Infer, and MCP Security.**
 
-Write `.kern` once, compile to 14 targets. Or skip `.kern` entirely and use `kern review` to scan your existing TypeScript and Python for security bugs, unguarded effects, flaky tests, and prompt injection — 233 AST-based rules that catch what ESLint misses.
+Write `.kern` once, compile to 15 targets. Or skip `.kern` entirely and use `kern review` to scan your existing TypeScript and Python for security bugs, unguarded effects, flaky tests, and prompt injection — 233 AST-based rules that catch what ESLint misses.
 
 ### Compilation Targets
 

@@ -11,6 +11,7 @@
     { "path": "../react" },
     { "path": "../express" },
     { "path": "../python" },
+    { "path": "../go" },
     { "path": "../mcp" },
     { "path": "../terminal" },
     { "path": "../vue" },

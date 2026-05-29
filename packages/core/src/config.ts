@@ -21,7 +21,8 @@ export type KernTarget =
   | 'nuxt'
   | 'fastapi'
   | 'mcp'
-  | 'python';
+  | 'python'
+  | 'go';
 
 /** Concrete transpiler targets (displayed to users). */
 export const VALID_TARGETS: KernTarget[] = [
@@ -39,6 +40,7 @@ export const VALID_TARGETS: KernTarget[] = [
   'fastapi',
   'mcp',
   'python',
+  'go',
 ];
 
 /** All accepted target values including meta-targets like 'auto'. */
