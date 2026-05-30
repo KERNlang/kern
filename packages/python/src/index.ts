@@ -1,3 +1,4 @@
+export { emitFastAPIAdapter } from './adapters/fastapi.js';
 export { generatePythonCoreNode } from './codegen-python.js';
 export { collectFenceDiagnostics, type FenceSeverity } from './core/fence-diagnostics.js';
 export { transpilePython } from './targets/python.js';

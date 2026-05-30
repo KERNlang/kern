@@ -43,6 +43,128 @@ export interface FastAPIAdapterArtifacts {
   imports: Set<string>;
 }
 
-export function emitFastAPIAdapter(_handlers: PurePythonHandler[]): FastAPIAdapterArtifacts {
-  throw new Error('emitFastAPIAdapter: Phase 3a has not yet implemented the FastAPI wrapper layer.');
+export function emitFastAPIAdapter(handlers: PurePythonHandler[]): FastAPIAdapterArtifacts {
+  const imports = new Set<string>([
+    'from fastapi import FastAPI, Request',
+    'from fastapi.responses import JSONResponse',
+  ]);
+
+  const appPyLines: string[] = [];
+
+  // Add standard imports for FastAPI
+  appPyLines.push('from fastapi import FastAPI, Request');
+  appPyLines.push('from fastapi.responses import JSONResponse');
+
+  // Import each pure handler and its validatesSchema model (if any) from the pure_handlers module
+  // Use try-except to support both absolute and relative imports across different runtime environments
+  for (const handler of handlers) {
+    appPyLines.push('try:');
+    appPyLines.push(`    from .pure_handlers import ${handler.fnName}`);
+    appPyLines.push('except ImportError:');
+    appPyLines.push(`    from pure_handlers import ${handler.fnName}`);
+
+    if (handler.validatesSchema) {
+      appPyLines.push('try:');
+      appPyLines.push(`    from .pure_handlers import ${handler.validatesSchema}`);
+      appPyLines.push('except ImportError:');
+      appPyLines.push(`    from pure_handlers import ${handler.validatesSchema}`);
+    }
+  }
+
+  appPyLines.push('');
+  appPyLines.push('app = FastAPI()');
+  appPyLines.push('');
+
+  function mapPythonType(typeStr: string | undefined): string {
+    if (!typeStr) return 'str';
+    const t = typeStr.trim().toLowerCase();
+    if (t === 'string') return 'str';
+    if (t === 'number') return 'float';
+    if (t === 'boolean') return 'bool';
+    if (t === 'integer') return 'int';
+    return typeStr;
+  }
+
+  for (const handler of handlers) {
+    // Convert path param style from KERN (:param) to FastAPI ({param})
+    const pathWithFastapiBraces = handler.path.replace(/:([a-zA-Z0-9_]+)/g, '{$1}');
+
+    // Extract path param names
+    const paramMatches = handler.path.match(/:([a-zA-Z0-9_]+)/g) || [];
+    const paramNames = paramMatches.map((m) => m.slice(1));
+
+    // Map path params to typed parameters
+    const typedPathParams = paramNames.map((name) => {
+      const type = handler.pathParamTypes[name] || 'str';
+      return `${name}: ${mapPythonType(type)}`;
+    });
+
+    const bodyPydanticParamOrNone = handler.validatesSchema ? `body_pydantic_param: ${handler.validatesSchema}` : '';
+
+    const routeArgs: string[] = [];
+    for (const p of typedPathParams) {
+      routeArgs.push(p);
+    }
+    if (bodyPydanticParamOrNone) {
+      routeArgs.push(bodyPydanticParamOrNone);
+    }
+    routeArgs.push('request: Request');
+
+    const routeArgsStr = routeArgs.join(', ');
+
+    // Construct path params dict
+    const pathParamsEntries = paramNames.map((name) => `"${name}": ${name}`).join(', ');
+    const pathParamsStr = `{${pathParamsEntries}}`;
+
+    const responseHeadersLiteral = JSON.stringify(handler.responseHeaders);
+    const methodLower = handler.method.toLowerCase();
+    const methodUpper = handler.method.toUpperCase();
+
+    appPyLines.push(`@app.${methodLower}("${pathWithFastapiBraces}")`);
+    appPyLines.push(`async def ${handler.fnName}_route(${routeArgsStr}):`);
+
+    if (!handler.validatesSchema) {
+      appPyLines.push('    body_pydantic_param = None');
+    }
+
+    appPyLines.push('    pure_request = {');
+    appPyLines.push(`        "method": "${methodUpper}",`);
+    appPyLines.push(`        "path_params": ${pathParamsStr},`);
+    appPyLines.push(
+      '        "query": {k: (request.query_params.getlist(k)[0] if len(request.query_params.getlist(k)) == 1 else request.query_params.getlist(k)) for k in request.query_params.keys()},',
+    );
+    appPyLines.push(
+      '        "body": (body_pydantic_param.model_dump() if body_pydantic_param is not None else (await request.json() if "application/json" in request.headers.get("content-type", "") else (await request.body()))),',
+    );
+    appPyLines.push('        "headers": {k.lower(): v for k, v in request.headers.items()},');
+    appPyLines.push('        "user": getattr(request.state, "user", None),');
+    appPyLines.push('    }');
+    appPyLines.push(`    result = ${handler.fnName}(pure_request)`);
+    appPyLines.push('    status, body, *rest = result if isinstance(result, tuple) else (200, result)');
+    appPyLines.push('    extra_headers = rest[0] if rest else {}');
+    appPyLines.push(`    merged_headers = {**${responseHeadersLiteral}, **extra_headers}`);
+    appPyLines.push('    return JSONResponse(content=body, status_code=status, headers=merged_headers or None)');
+    appPyLines.push('');
+  }
+
+  // Concatenate all handler code to build pureHandlersPy, including their combined imports
+  const allPureImports = new Set<string>();
+  for (const handler of handlers) {
+    if (handler.imports) {
+      for (const imp of handler.imports) {
+        allPureImports.add(imp);
+      }
+    }
+  }
+
+  const sortedPureImports = Array.from(allPureImports).sort();
+  const pureImportsStr = sortedPureImports.length > 0 ? `${sortedPureImports.join('\n')}\n\n` : '';
+
+  const pureHandlersPy = `${pureImportsStr + handlers.map((h) => `${h.signature}\n${h.bodyLines.join('\n')}`).join('\n\n')}\n`;
+
+  return {
+    appPy: appPyLines.join('\n'),
+    pureHandlersPy,
+    imports,
+  };
 }
