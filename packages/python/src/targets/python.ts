@@ -15,7 +15,7 @@ export function transpilePython(root: IRNode, config?: ResolvedKernConfig): Tran
   const { lines: preambleLines, imports } = emitImports(root, { pythonModelBackend });
 
   // 2. Core node render
-  const { code: modelsCode, bodies } = emitModels(root, {
+  const { code: modelsCode } = emitModels(root, {
     pythonModelBackend,
     emit,
     target: 'python',

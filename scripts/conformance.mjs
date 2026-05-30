@@ -35,7 +35,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
-const { rewriteFastAPIExpr } = await import(join(REPO, 'packages/python/dist/fastapi-response.js'));
+const { rewriteExpr } = await import(join(REPO, 'packages/python/dist/core/expr/index.js'));
 const { rewriteExpressExpr } = await import(join(REPO, 'packages/express/dist/express-portable.js'));
 const { toSnakeCase } = await import(join(REPO, 'packages/python/dist/type-map.js'));
 // Statement-level (kind:'stmt') fixtures lower a native `lang=kern` handler BODY via these,
@@ -784,7 +784,7 @@ for (const fx of FIXTURES) {
 
   let py, js;
   try {
-    const pyExpr = rewriteFastAPIExpr(fx.expr, pathParams, bodyFields, !!fx.authUser, imports);
+    const pyExpr = rewriteExpr(fx.expr, pathParams, bodyFields, !!fx.authUser, imports);
     const jsExpr = rewriteExpressExpr(fx.expr, fx.path);
     const pyFile = join(dir, 'run.py');
     const jsFile = join(dir, 'run.mjs');
