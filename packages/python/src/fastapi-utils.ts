@@ -4,6 +4,7 @@
 
 import type { IRNode } from '@kernlang/core';
 import { dedent, getFirstChild, getProps } from '@kernlang/core';
+import { quoteObjectKeysOutsideStrings } from './core/expr/index.js';
 import type { RouteCapabilities, SchemaShape } from './fastapi-types.js';
 import { mapTsTypeToPython, toSnakeCase } from './type-map.js';
 
@@ -31,66 +32,7 @@ export function escapePyStr(value: string): string {
 // portable-node expression path (rewriteFastAPIExpr) so both lower object
 // literals consistently. Lives here, in the neutral utils module, to avoid
 // an import cycle between fastapi-route and fastapi-response/portable.
-export function quoteObjectKeysOutsideStrings(expr: string): string {
-  let output = '';
-  let index = 0;
-  let quote: '"' | "'" | '`' | null = null;
-  let escaped = false;
-
-  while (index < expr.length) {
-    const char = expr[index];
-
-    if (quote) {
-      output += char;
-      if (escaped) {
-        escaped = false;
-      } else if (char === '\\') {
-        escaped = true;
-      } else if (char === quote) {
-        quote = null;
-      }
-      index += 1;
-      continue;
-    }
-
-    if (char === '"' || char === "'" || char === '`') {
-      quote = char;
-      output += char;
-      index += 1;
-      continue;
-    }
-
-    if (char !== '{' && char !== ',') {
-      output += char;
-      index += 1;
-      continue;
-    }
-
-    output += char;
-    index += 1;
-    const whitespaceStart = index;
-    while (index < expr.length && /\s/.test(expr[index])) index += 1;
-    const whitespace = expr.slice(whitespaceStart, index);
-    const keyStart = index;
-    if (index < expr.length && /[A-Za-z_$]/.test(expr[index])) {
-      index += 1;
-      while (index < expr.length && /[\w$]/.test(expr[index])) index += 1;
-      const key = expr.slice(keyStart, index);
-      const afterKeyStart = index;
-      while (index < expr.length && /\s/.test(expr[index])) index += 1;
-      if (expr[index] === ':') {
-        output += `${whitespace}"${key}"${expr.slice(afterKeyStart, index)}:`;
-        index += 1;
-        continue;
-      }
-    }
-
-    output += whitespace;
-    output += expr.slice(keyStart, index);
-  }
-
-  return output;
-}
+export { quoteObjectKeysOutsideStrings };
 
 /** Indent handler code by a fixed prefix, preserving internal structure. */
 export function indentHandler(code: string, indent: string): string[] {

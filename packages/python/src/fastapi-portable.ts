@@ -13,8 +13,9 @@ import {
   isPostfixMutationOperator,
   isSupportedAssignOperator,
 } from '@kernlang/core';
+import { extractExprCode, rewriteExpr } from './core/expr/index.js';
 import { isUnsupportedJsHandlerBody, unsupportedRawHandlerBody } from './fastapi-raw-handler.js';
-import { addRespondImports, extractExprCode, generateRespondFastAPI, rewriteFastAPIExpr } from './fastapi-response.js';
+import { addRespondImports, generateRespondFastAPI } from './fastapi-response.js';
 import { escapePyStr, indentHandler } from './fastapi-utils.js';
 import { toSnakeCase } from './type-map.js';
 
@@ -85,7 +86,7 @@ function rewriteFastAPIStmtExpr(
   hoistCtx: FastAPIClosureHoistCtx,
 ): { expr: string; hoists: string[] } {
   const defs: string[] = [];
-  const rewritten = rewriteFastAPIExpr(expr, pathParams, bodyFields, authUser, imports, defs, hoistCtx.seq);
+  const rewritten = rewriteExpr(expr, pathParams, bodyFields, authUser, imports, defs, hoistCtx.seq);
   return { expr: rewritten, hoists: defs.flatMap((def) => indentHoistedDef(def, indent)) };
 }
 

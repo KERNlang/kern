@@ -51,6 +51,12 @@ import {
   parseExpression,
   suggestStdlibMethod,
 } from '@kernlang/core';
+import {
+  KERN_FMT_HELPER_PY,
+  KERN_I32_HELPER_PY,
+  KERN_PAIR_HELPERS_PY,
+  KERN_TMOD_HELPER_PY,
+} from './core/expr/index.js';
 
 /** Slice 3e — caller-provided options for the Python body emitter.
  *  Currently only `symbolMap`; future slices may add diagnostics, source-map
@@ -170,18 +176,6 @@ function freshCtx(options?: BodyEmitOptions): BodyEmitContext {
  *      async iterable; sync data is wrapped at iteration entry).
  *
  *  Both helpers are pure functions on the input; no captures, no globals. */
-export const KERN_PAIR_HELPERS_PY = [
-  'def _kern_pairs(__k_v):',
-  '    return __k_v.items() if hasattr(__k_v, "items") else iter(__k_v)',
-  '',
-  'async def _kern_async_pairs(__k_v):',
-  '    if hasattr(__k_v, "__aiter__"):',
-  '        async for __k_item in __k_v:',
-  '            yield __k_item',
-  '    else:',
-  '        for __k_item in _kern_pairs(__k_v):',
-  '            yield __k_item',
-].join('\n');
 
 /** KERN-canonical interpolation formatter for `fmt` / template literals.
  *  Python `f"{v}"` uses `str()`, which gives `True`/`False`/`None` — diverging
@@ -194,14 +188,6 @@ export const KERN_PAIR_HELPERS_PY = [
  *  `True` → `"True"`. Co-located with the codegen so the production emitter and
  *  the differential harness use byte-identical defs; emitted at module scope
  *  via `BodyEmitResult.helpers` whenever an interpolation is wrapped. */
-export const KERN_FMT_HELPER_PY = [
-  'def _kern_fmt(__k_v):',
-  '    if isinstance(__k_v, bool):',
-  "        return 'true' if __k_v else 'false'",
-  '    if __k_v is None:',
-  "        return 'null'",
-  '    return str(__k_v)',
-].join('\n');
 
 /** Emit the body of a native KERN handler as Python source. Returns the
  *  joined body text. Each top-level line is unindented; nested `if`-bodies
@@ -1976,50 +1962,6 @@ function lowerListLambdaPython(
     ctx.shadowedSymbols = previous;
   }
 }
-
-export const KERN_I32_HELPER_PY = [
-  'import math',
-  'def _i32(x):',
-  '    if x is None: return 0',
-  '    try:',
-  '        if not math.isfinite(x): return 0',
-  '        val = int(math.trunc(x))',
-  '    except Exception:',
-  '        try:',
-  '            val = float(x)',
-  '            if not math.isfinite(val): return 0',
-  '            val = int(math.trunc(val))',
-  '        except Exception:',
-  '            return 0',
-  '    return ((val & 0xFFFFFFFF) ^ 0x80000000) - 0x80000000',
-].join('\n');
-
-export const KERN_TMOD_HELPER_PY = [
-  'import math',
-  'def _tmod(a, b):',
-  '    if a is None: a = 0',
-  '    if b is None: b = 0',
-  '    try:',
-  '        fa = float(a)',
-  '        fb = float(b)',
-  '    except Exception:',
-  "        return float('nan')",
-  "    if math.isnan(fa) or math.isnan(fb): return float('nan')",
-  "    if math.isinf(fa): return float('nan')",
-  "    if fb == 0: return float('nan')",
-  '    if math.isinf(fb): return fa',
-  '    return fa - math.trunc(fa / fb) * fb',
-].join('\n');
-
-export const KERN_JS_HELPER_PY = [
-  'def js_truthy(x):',
-  '    if x is None or x is False: return False',
-  '    if isinstance(x, (int, float)) and x == 0: return False',
-  '    if isinstance(x, str) and x == "": return False',
-  '    return True',
-  'def js_equals(a, b):',
-  '    return a == b',
-].join('\n');
 
 export function lowerBitwiseAndModuloAST(node: ValueIR): ValueIR {
   switch (node.kind) {
