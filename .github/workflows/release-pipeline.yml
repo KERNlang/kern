@@ -150,10 +150,17 @@ jobs:
           git reset --hard HEAD
           git clean -fd
           git fetch origin dev
-          # Sync dev forward from the released commit, not from stale origin/dev.
-          # origin/dev can lag behind main; rebuilding the sync commit from it
-          # can resurrect removed packages and trigger obsolete pre-push checks.
-          git checkout -B dev HEAD
+          # Apply the version bump on top of the ACTUAL origin/dev tip, not
+          # main's. dev intentionally carries independent commits (canary
+          # triggers, dev-only fixes that haven't shipped via main yet) — the
+          # previous `checkout -B dev HEAD` quietly tried to overwrite them
+          # with `main + bump` and the push was correctly rejected as
+          # non-fast-forward on the v3.5.6 release (PR #344, 2026-05-29).
+          # The bump loop below iterates EXISTING package.json files only, so
+          # a deleted-on-main / present-on-dev package is updated in place,
+          # not resurrected; a true dev↔main divergence is resolved by the
+          # next dev→main PR, not by this sync step.
+          git checkout -B dev origin/dev
 
           tmp=$(mktemp)
           jq --arg v "$RELEASE_VERSION" '.version = $v' package.json > "$tmp"
@@ -182,4 +189,22 @@ jobs:
             exit 0
           fi
           git commit -m "chore: sync versions to v${RELEASE_VERSION} [skip ci]"
-          git push --no-verify origin dev
+          # Retry to absorb a concurrent push to dev (e.g. canary-publish
+          # writing a tag while we're mid-step). Rebase the version-bump
+          # commit onto the new tip and re-push, up to 3 attempts. Plain
+          # push, never --force: a truly incompatible history should still
+          # fail loudly rather than silently overwrite dev-only work.
+          push_ok=false
+          for attempt in 1 2 3; do
+            if git push --no-verify origin dev; then
+              push_ok=true
+              break
+            fi
+            echo "Push attempt $attempt rejected; refetching origin/dev and rebasing..."
+            git fetch origin dev
+            git rebase origin/dev || { git rebase --abort; exit 1; }
+          done
+          if ! $push_ok; then
+            echo "Failed to push to origin/dev after 3 attempts." >&2
+            exit 1
+          fi
