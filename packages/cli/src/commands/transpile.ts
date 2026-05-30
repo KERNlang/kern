@@ -89,7 +89,20 @@ function prettyKern(node: IRNode, indent = ''): string {
 // ── Main transpile command ──────────────────────────────────────────────
 
 export function runTranspile(args: string[]): void {
-  const inputFile = args.find((a) => !a.startsWith('--'));
+  const flagsWithValue = new Set(['--target', '--structure', '--emit', '--python-model-backend', '--outdir']);
+  let inputFile: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg.startsWith('--')) {
+      const eqIdx = arg.indexOf('=');
+      if (eqIdx === -1 && flagsWithValue.has(arg)) {
+        i++;
+      }
+    } else {
+      inputFile = arg;
+      break;
+    }
+  }
 
   if (!inputFile) {
     printHelp();
@@ -142,7 +155,7 @@ export function runTranspile(args: string[]): void {
     config = { ...config, pythonModelBackend: pythonModelBackend as any };
   }
 
-  const irSource = readFileSync(resolve(inputFile), 'utf-8');
+  const irSource = inputFile === '-' ? readFileSync(0, 'utf-8') : readFileSync(resolve(inputFile), 'utf-8');
   const ast = parseAndSurface(irSource, inputFile);
   const ext = inputFile.endsWith('.kern') ? '.kern' : '.ir';
   const name = basename(inputFile, ext);
@@ -210,6 +223,10 @@ export function runTranspile(args: string[]): void {
   const result = transpileForTarget(ast, withFastApiEntryModules(effectiveConfig, [outBaseName]));
 
   const outDir = resolve(dirname(inputFile), config.output.outDir);
+  if (inputFile === '-') {
+    process.stdout.write(result.code);
+    process.exit(0);
+  }
   const isStructured =
     target !== 'fastapi' &&
     (effectiveConfig.structure !== 'flat' || target === 'go') &&
