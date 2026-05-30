@@ -54,9 +54,22 @@ async function main(): Promise<void> {
       return;
     }
 
-    // No command match — default to transpile mode (kern <file.kern> [options])
-    // or show help if no input file given
-    if (!cmd || cmd.startsWith('--')) {
+    const flagsWithValue = new Set(['--target', '--structure', '--emit', '--python-model-backend', '--outdir']);
+    let hasInputFile = false;
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
+      if (arg.startsWith('--')) {
+        const eqIdx = arg.indexOf('=');
+        if (eqIdx === -1 && flagsWithValue.has(arg)) {
+          i++;
+        }
+      } else {
+        hasInputFile = true;
+        break;
+      }
+    }
+
+    if (!hasInputFile) {
       printHelp();
       process.exit(1);
     }
