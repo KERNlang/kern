@@ -90,7 +90,11 @@ function prettyKern(node: IRNode, indent = ''): string {
 
 export function runTranspile(args: string[]): void {
   const flagsWithValue = new Set(['--target', '--structure', '--emit', '--python-model-backend', '--outdir']);
-  let inputFile: string | undefined;
+  // Sentinel default keeps the type `string` throughout; the `!inputPath`
+  // guard below treats the empty default as "missing". Avoids both tsc's
+  // `string | undefined` narrowing and kern-guard's ts18048/ts2322 — both
+  // narrowers struggle with `process.exit` as `never`.
+  let inputPath = '';
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg.startsWith('--')) {
@@ -99,19 +103,15 @@ export function runTranspile(args: string[]): void {
         i++;
       }
     } else {
-      inputFile = arg;
+      inputPath = arg;
       break;
     }
   }
 
-  if (!inputFile) {
+  if (!inputPath) {
     printHelp();
     process.exit(1);
   }
-  // Narrowed alias so the rest of the function sees `string` rather than
-  // `string | undefined` (kern-guard ts18048 doesn't infer `process.exit`
-  // as `never`, even though tsc does).
-  const inputPath: string = inputFile;
 
   // Load config
   let config: ResolvedKernConfig;
