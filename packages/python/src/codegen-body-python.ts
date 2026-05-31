@@ -88,6 +88,14 @@ export interface BodyEmitOptions {
    * packages/core/src/ir/semantics/python-leg.ts for the runtime contract.
    */
   traceHooks?: { eachIterNext?: boolean; forIterNext?: boolean; letAssign?: boolean };
+  /** Outer-scope names the body INHERITS — typically function parameters and
+   * module-level globals the wrapper has bound. Pre-populated as the
+   * outermost `localScopes` map so an inner-block `let` that shadows ANY of
+   * these triggers the block-scope rename (closes nero red-team Challenge 2
+   * for param shadows). Each name is recorded as 'const' (the body must not
+   * reassign a param directly; an outer-scope `let` reassign goes through
+   * its own declaration on entry). */
+  outerBindings?: string[];
 }
 
 /** Slice 3e — public return shape. `code` is the joined body text;
@@ -243,8 +251,26 @@ export function emitNativeKernBodyPython(handlerNode: IRNode, options?: BodyEmit
  *  when `propagateStyle: 'http-exception'` is in effect. */
 export function emitNativeKernBodyPythonWithImports(handlerNode: IRNode, options?: BodyEmitOptions): BodyEmitResult {
   const ctx = freshCtx(options);
-  const code = emitChildrenPy(handlerNode.children ?? [], ctx, '').join('\n');
-  return { code, imports: ctx.imports, usedPropagation: ctx.usedPropagation, helpers: ctx.helpers };
+  // Push the param/outer-binding scope ABOVE the function-body scope so an
+  // inner-block `let x` that shadows a param is detected by
+  // `maybeRenameOnShadow` (nero red-team Challenge 2). `emitChildrenPy`
+  // pushes its own scope on top; we pop ours after it returns.
+  const outerBindings = options?.outerBindings ?? [];
+  if (outerBindings.length > 0) {
+    ctx.localScopes.push(new Map(outerBindings.map((n) => [n, 'const' as const])));
+    ctx.regexScopes.push(new Map(outerBindings.map((n) => [n, null])));
+    ctx.renameStack.push(new Map());
+  }
+  try {
+    const code = emitChildrenPy(handlerNode.children ?? [], ctx, '').join('\n');
+    return { code, imports: ctx.imports, usedPropagation: ctx.usedPropagation, helpers: ctx.helpers };
+  } finally {
+    if (outerBindings.length > 0) {
+      ctx.localScopes.pop();
+      ctx.regexScopes.pop();
+      ctx.renameStack.pop();
+    }
+  }
 }
 
 /** Body-statement node types that map to a SINGLE emitted line and may carry

@@ -452,6 +452,20 @@ const FIXTURES = [
     params: [{ name: 'a', type: 'boolean', value: true }, { name: 'b', type: 'boolean', value: true }],
     body: `let name=x value="1"\nif cond="a"\n  let name=x value="2"\nif cond="b"\n  let name=x value="3"\nreturn value="{ x: x }"`,
     expected: { x: 1 } },
+  // nero PROBE: WRITE-path inside the shadow. Mutates the inner-shadowed binding via `assign`
+  // and verifies the gensym is the target (outer stays untouched). Kills a "rename decl+read
+  // only" wrong fix (nero Challenge 1/4).
+  { kind: 'stmt', name: 'stmt: block-scope inner let MUTATED by assign, outer untouched',
+    params: [{ name: 'c', type: 'boolean', value: true }],
+    body: `let name=x value="1" kind=let\nlet name=witness value="0" kind=let\nif cond="c"\n  let name=x value="10" kind=let\n  assign target="x" value="x + 5"\n  assign target="witness" value="x"\nreturn value="{ x: x, witness: witness }"`,
+    expected: { x: 1, witness: 15 } },
+  // nero PROBE: PARAMETER shadow. A handler param `x` is shadowed by an inner `let x`.
+  // The assign-after-decl writes the gensym; the return reads the param (outer). Kills the
+  // nero Challenge 2 case (params not in localScopes -> no rename -> param clobbered).
+  { kind: 'stmt', name: 'stmt: block-scope param shadow (inner let MUTATED, param untouched on return)',
+    params: [{ name: 'x', type: 'number', value: 7 }, { name: 'c', type: 'boolean', value: true }],
+    body: `let name=witness value="0" kind=let\nif cond="c"\n  let name=x value="100" kind=let\n  assign target="x" value="x + 1"\n  assign target="witness" value="x"\nreturn value="{ x: x, witness: witness }"`,
+    expected: { x: 7, witness: 101 } },
 
   // ──────────────────────────────────────────────────────────────────────────
   // route: ROUTE-LEVEL HTTP response parity (kind:'route', goal: error-semantics 2026-05-28).
@@ -729,8 +743,10 @@ for (const fx of FIXTURES) {
       })(parse(kern)));
       if (!handler) throw new Error('no handler node parsed');
       const ts = emitNativeKernBodyTSWithImports(handler);
-      const pyEmit = emitNativeKernBodyPythonWithImports(handler);
       const names = fx.params.map((p) => p.name);
+      // Pass param names as outerBindings so an inner-block `let` that shadows
+      // a param triggers the block-scope rename (nero Challenge 2 fix).
+      const pyEmit = emitNativeKernBodyPythonWithImports(handler, { outerBindings: names });
       const tsFile = join(dir, 'stmt.mjs');
       const pyFile = join(dir, 'stmt.py');
       const tsSource = `${[...(ts.imports ?? [])].join('\n')}\nfunction __h(${names.join(', ')}: any): any {\n${ts.code}\n}\nconsole.log(JSON.stringify(__h(${fx.params.map((p) => JSON.stringify(p.value)).join(', ')})));`;
