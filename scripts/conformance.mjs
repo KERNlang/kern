@@ -428,6 +428,31 @@ const FIXTURES = [
     body: `let name=log value="''" kind=let\nlet name=tmp value="0" kind=let\ntry\n  assign target="log" value="log + 'a'"\n  assign target="tmp" value="JSON.parse(bad)"\n  assign target="log" value="log + 'b'"\n  catch name=err type=any\n    assign target="log" value="log + 'X'"\nreturn value="{ log: log }"`,
     expected: { log: 'aX' } },
 
+  // ── BLOCK SCOPE oracle (memory's #6 known divergence; deferred from #1 slice 1). ───
+  // TS `let` is block-scoped, Python assignment is function-scoped. Discriminating fixtures:
+  // (1) baseline shadow: catches "Python leaks inner let".
+  // (2) inner usage: catches "lazy fix that omits the inner let entirely" (still wrong — must
+  //     use 2 inside, 1 outside).
+  // (3) no-shadow block: catches "lazy fix that always renames every let" (no-shadow block
+  //     should still let outer code see the value through normal Python scoping).
+  // (4) two siblings shadow: catches "fix that gensym-leaks across sibling blocks".
+  { kind: 'stmt', name: 'stmt: block-scope let-shadow (outer 1, inner if-block 2, return outer)',
+    params: [{ name: 'c', type: 'boolean', value: true }],
+    body: `let name=x value="1"\nif cond="c"\n  let name=x value="2"\nreturn value="{ x: x }"`,
+    expected: { x: 1 } },
+  { kind: 'stmt', name: 'stmt: block-scope inner let USED inside block then return outer (witness)',
+    params: [{ name: 'c', type: 'boolean', value: true }],
+    body: `let name=x value="1" kind=let\nlet name=seen value="0" kind=let\nif cond="c"\n  let name=x value="2"\n  assign target="seen" value="x"\nreturn value="{ x: x, seen: seen }"`,
+    expected: { x: 1, seen: 2 } },
+  { kind: 'stmt', name: 'stmt: block-scope NO outer shadow (regular inner let must still work)',
+    params: [{ name: 'c', type: 'boolean', value: true }],
+    body: `let name=outer value="10" kind=let\nif cond="c"\n  let name=inner value="3"\n  assign target="outer" value="outer + inner"\nreturn value="{ outer: outer }"`,
+    expected: { outer: 13 } },
+  { kind: 'stmt', name: 'stmt: block-scope two sibling shadows (separate blocks, neither leaks)',
+    params: [{ name: 'a', type: 'boolean', value: true }, { name: 'b', type: 'boolean', value: true }],
+    body: `let name=x value="1"\nif cond="a"\n  let name=x value="2"\nif cond="b"\n  let name=x value="3"\nreturn value="{ x: x }"`,
+    expected: { x: 1 } },
+
   // ──────────────────────────────────────────────────────────────────────────
   // route: ROUTE-LEVEL HTTP response parity (kind:'route', goal: error-semantics 2026-05-28).
   // Lowers a full portable route handler to both targets, runs it (mock res -> {status,body} on

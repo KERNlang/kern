@@ -124,6 +124,13 @@ interface BodyEmitContext {
   shadowedSymbols: Set<string>;
   localScopes: Array<Map<string, 'const' | 'let' | 'cell'>>;
   regexScopes: Array<Map<string, Extract<ValueIR, { kind: 'regexLit' }> | null>>;
+  /** Per-scope `userName -> emittedName` map. Populated when an inner-block
+   * `let` shadows an outer binding so TS block-scope (`let x=1; if(c){let x=2}
+   * return x` → 1) survives Python's flat function-scope (would otherwise
+   * leak 2). Parallel to `localScopes`; pushed/popped together. The outermost
+   * scope never renames (function-body lets stay user-facing). Resolved via
+   * `resolveLocalRename`; consulted in ident emission. */
+  renameStack: Array<Map<string, string>>;
   propagateStyle: 'value' | 'http-exception';
   usedPropagation: boolean;
   /** PR-3b differential-harness opt-in (see BodyEmitOptions.traceHooks). */
@@ -150,6 +157,7 @@ function freshCtx(options?: BodyEmitOptions): BodyEmitContext {
     shadowedSymbols: new Set<string>(),
     localScopes: [],
     regexScopes: [],
+    renameStack: [],
     propagateStyle: options?.propagateStyle ?? 'value',
     usedPropagation: false,
     tryDepth: 0,
@@ -262,6 +270,7 @@ function emitChildrenPy(
   const lines: string[] = [];
   ctx.localScopes.push(new Map(initialBindings));
   ctx.regexScopes.push(new Map(initialBindings.map(([name]) => [name, null])));
+  ctx.renameStack.push(new Map());
   try {
     for (let i = 0; i < children.length; i++) {
       const child = children[i];
@@ -585,8 +594,42 @@ function emitChildrenPy(
   } finally {
     ctx.localScopes.pop();
     ctx.regexScopes.pop();
+    ctx.renameStack.pop();
   }
   return lines;
+}
+
+/** Returns the rename for `name` from the innermost scope that has one, else
+ * `name` itself. Consulted in ident emission and at `let`/`assign` LHS
+ * rendering so a shadowed inner `let x` (emitted as `__k_shadow_x_N`) and
+ * its references inside the block resolve consistently, while outer
+ * references after the block still see the user-facing name. */
+function resolveLocalRename(ctx: BodyEmitContext, name: string): string {
+  for (let i = ctx.renameStack.length - 1; i >= 0; i--) {
+    const scope = ctx.renameStack[i];
+    const renamed = scope.get(name);
+    if (renamed !== undefined) return renamed;
+  }
+  return name;
+}
+
+/** Returns the renamed name if `let name=` here would shadow a binding in
+ * any OUTER scope; otherwise returns `name` unchanged. Used by `emitLetPy`
+ * to give an inner-block shadow a unique Python name + record the rename
+ * in the current scope so within-block references resolve to it. Returns
+ * `name` for function-body lets (no outer scope to shadow) and for
+ * non-shadowing inner lets (so unrelated locals stay user-friendly). */
+function maybeRenameOnShadow(ctx: BodyEmitContext, name: string): string {
+  // Only the inner-most CURRENT scope is the "newcomer"; check OUTER scopes.
+  if (ctx.localScopes.length < 2) return name;
+  for (let i = ctx.localScopes.length - 2; i >= 0; i--) {
+    if (ctx.localScopes[i].has(name)) {
+      const renamed = `__k_shadow_${name}_${++ctx.gensymCounter}`;
+      ctx.renameStack.at(-1)?.set(name, renamed);
+      return renamed;
+    }
+  }
+  return name;
 }
 
 function emitRangeForPy(node: IRNode, ctx: BodyEmitContext, indent: string): string[] {
@@ -866,15 +909,22 @@ function emitSetPy(node: IRNode, ctx: BodyEmitContext): string[] {
 
 function emitLetPy(node: IRNode, ctx: BodyEmitContext): string[] {
   const props = (node.props ?? {}) as Record<string, unknown>;
-  const name = String(props.name ?? '_');
+  const userName = String(props.name ?? '_');
   validateBodyLetKind(props.kind);
-  declareLocalBinding(ctx, name, props.kind === 'let' ? 'let' : 'const');
+  declareLocalBinding(ctx, userName, props.kind === 'let' ? 'let' : 'const');
+  // Block-scope fix: an inner `let` that shadows an outer binding gets a
+  // gensym'd Python name so TS `let x=1; if(c){let x=2}; return x` (returns 1)
+  // doesn't degrade to Python's flat scoping (would return 2). The rename is
+  // stored in the current scope's renameStack and resolved by every ident
+  // emission inside this block; outer references after the block see the
+  // user-facing name (no entry in any in-scope rename map).
+  const name = maybeRenameOnShadow(ctx, userName);
   const rawValue = props.value;
   if (rawValue === undefined || rawValue === '') {
     return [`${name} = None`];
   }
   const valueIR = parseExpression(String(rawValue));
-  setRegexBinding(ctx, name, valueIR.kind === 'regexLit' ? valueIR : null);
+  setRegexBinding(ctx, userName, valueIR.kind === 'regexLit' ? valueIR : null);
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
@@ -1325,12 +1375,21 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
     case 'regexLit':
       ctx.imports.add('re');
       return `__k_re.compile(${pyRegexPattern(node)}, ${pyRegexFlags(node.flags, { allowGlobal: true })})`;
-    case 'ident':
+    case 'ident': {
+      // Block-scope rename takes precedence — an inner `let x` that shadows
+      // an outer binding was emitted with a gensym (`__k_shadow_x_N`) and
+      // every in-block reference must use the same gensym. Walk renameStack
+      // top-to-bottom (most-inner scope wins); after the inner block ends
+      // its scope is popped, so post-block references naturally see the
+      // outer user-facing name again.
+      const blockRename = resolveLocalRename(ctx, node.name);
+      if (blockRename !== node.name) return blockRename;
       // Slice 3a — apply symbol-map rename so KERN-form `userId` becomes
       // Python-form `user_id`. Identifiers not in the map (locals, globals,
       // module names) pass through unchanged.
       if (ctx.shadowedSymbols.has(node.name)) return node.name;
       return ctx.symbolMap[node.name] ?? node.name;
+    }
     case 'member':
     case 'call':
     case 'index': {
