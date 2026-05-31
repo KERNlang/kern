@@ -7,6 +7,101 @@ import { emitPureHandlers } from '../core/handlers/index.js';
 import { findServerNode } from '../fastapi-utils.js';
 
 /**
+ * The PyDotDict / _DotList shim, emitted at the top of every `--emit=backend`
+ * Python module that contains pure handlers. Re-exported so the conformance
+ * harness can import the SAME bytes instead of maintaining a near-duplicate
+ * string (Wave 3 round-3 agon-review finding D — kimi 0.90 / claude 0.50 /
+ * zai 0.65 convergence on the drift hazard).
+ *
+ * Design notes (cumulative across Wave 3 review rounds):
+ *   • Python name-mangling: an identifier with two leading underscores
+ *     INSIDE a class body becomes `_ClassName__name`. So `__DotDict(val)`
+ *     inside `__DotDict`'s own methods would resolve to `_DotDict__DotDict`
+ *     (NameError). Route dict recursion through `cls = type(self); cls(val)`,
+ *     and use `_DotList` (single underscore — NOT mangled) as the list
+ *     idempotency marker.
+ *   • Cached write-back (`self[key] = val`) makes both branches O(1) on
+ *     re-access and persists in-handler writes — `body.profile.name = "x"`
+ *     now sticks. SIDE EFFECT: a dotted read mutates the parent dict; raw
+ *     `body.items()` iteration sees wrapped values. Intentional.
+ *   • `_DotList.__getitem__` auto-wraps elements so post-access append/insert
+ *     of plain dicts still reads back as `__DotDict` — `body.rows.append({a:1});
+ *     body.rows[0].a` works (round-3 codex 0.86 + agy 0.95 regression close).
+ *     Bound at module level so the `__DotDict` reference inside it isn't
+ *     subject to class-body name-mangling.
+ *   • `__delattr__` mirrors `__getattr__`'s camelCase fallback; the
+ *     `from None` suppresses chained KeyError tracebacks (round-3 claude 0.70).
+ */
+export const DOT_DICT_SHIM_PY = `class _DotList(list):
+    pass
+
+
+class __DotDict(dict):
+    def __getattr__(self, name):
+        try:
+            val = self[name]
+            key = name
+        except KeyError:
+            camel = ''.join(x.capitalize() or '_' for x in name.split('_'))
+            camel = camel[0].lower() + camel[1:] if camel else ''
+            if camel in self:
+                val = self[camel]
+                key = camel
+            else:
+                raise AttributeError(name) from None
+        cls = type(self)
+        def _wrap(x):
+            if isinstance(x, cls):
+                return x
+            if isinstance(x, _DotList):
+                return x
+            if isinstance(x, dict):
+                return cls(x)
+            if isinstance(x, list):
+                return _DotList([_wrap(y) for y in x])
+            return x
+        if isinstance(val, dict) and not isinstance(val, cls):
+            val = cls(val)
+            self[key] = val
+        elif isinstance(val, list) and not isinstance(val, _DotList):
+            val = _DotList([_wrap(x) for x in val])
+            self[key] = val
+        return val
+
+    def __setattr__(self, name, value):
+        self[name] = value
+
+    def __delattr__(self, name):
+        try:
+            del self[name]
+        except KeyError:
+            camel = ''.join(x.capitalize() or '_' for x in name.split('_'))
+            camel = camel[0].lower() + camel[1:] if camel else ''
+            if camel in self:
+                del self[camel]
+            else:
+                raise AttributeError(name) from None
+
+
+def _dotlist_getitem(self, index):
+    val = list.__getitem__(self, index)
+    if isinstance(val, (__DotDict, _DotList)):
+        return val
+    if isinstance(val, dict):
+        wrapped = __DotDict(val)
+        list.__setitem__(self, index, wrapped)
+        return wrapped
+    if isinstance(val, list):
+        wrapped = _DotList(val)
+        list.__setitem__(self, index, wrapped)
+        return wrapped
+    return val
+
+
+_DotList.__getitem__ = _dotlist_getitem
+`;
+
+/**
  * First-class `python` transpiler target. Lowering KERN types and models to pure Python.
  */
 export function transpilePython(root: IRNode, config?: ResolvedKernConfig): TranspileResult {
@@ -25,88 +120,8 @@ export function transpilePython(root: IRNode, config?: ResolvedKernConfig): Tran
   if (serverNode) {
     const handlers = emitPureHandlers(serverNode, imports, root);
     if (handlers.length > 0) {
-      // Python name-mangling caveat: an identifier with two leading underscores inside a
-      // class body gets rewritten to `_ClassName__name`, so `return __DotDict(val)` inside
-      // this class's methods would resolve to `_DotDict__DotDict` (NameError). We dodge it
-      // by routing recursion through `type(self)` — the original class object — and by
-      // using `_DotList` (single underscore, NOT mangled) as the list marker class. Surfaced
-      // by the Wave 3 parity suite when a route's `path_params`/`query` (always dicts)
-      // triggered the dict-branch recursion; phase2 smokes only exercised scalar `body.value`
-      // so the bug stayed latent.
-      //
-      // Wave 3 agon-review follow-ups (rounds 1+2, 2026-05-31):
-      //   1. Cache wrapped values back into the parent (`self[key] = val`). Otherwise every
-      //      access reconstructs a fresh shallow copy — performance bites in `each`/`collect`
-      //      loops, and `body.profile.name = "Alice"` would mutate a temporary that the next
-      //      read of `body.profile` discards. The `isinstance(val, cls)` guard makes the
-      //      dict path idempotent.
-      //   2. Wrapping recurses through `_wrap`, so `body.matrix[0][0].value` works on
-      //      arbitrarily-nested lists of dicts. The phase2 emission only wrapped one level.
-      //   3. `_DotList(list)` is the list-side idempotency marker — without it, plain
-      //      `isinstance(val, list)` is true even for already-wrapped lists, so every access
-      //      re-builds a new list (caching gap agy/claude both flagged in round 2: a
-      //      stale-reference / lost-mutation edge — `ref = body.items; body.items; ref.append(x)`
-      //      mutates the orphan). The `_DotList` test gates re-wrap to genuinely-plain lists.
-      //   4. `__delattr__` mirrors `__getattr__`'s camelCase fallback (round 1, agy nit).
-      //
-      // SIDE EFFECT (intentional): write-back means a dotted read mutates the parent dict —
-      // `body.profile` rewrites self["profile"] to the wrapped form. This is what makes
-      // assignment persistence work; the downside is that anything which later iterates the
-      // raw dict (`body.items()`, re-serialization) sees wrapped values. Harmless for the
-      // conformance comparison and for in-handler use; flagging it here so future readers
-      // don't mistake it for a bug. (round 2 claude observation, severity nit.)
-      const dotDictCode = `class _DotList(list):
-    pass
-
-
-class __DotDict(dict):
-    def __getattr__(self, name):
-        try:
-            val = self[name]
-            key = name
-        except KeyError:
-            camel = ''.join(x.capitalize() or '_' for x in name.split('_'))
-            camel = camel[0].lower() + camel[1:] if camel else ''
-            if camel in self:
-                val = self[camel]
-                key = camel
-            else:
-                raise AttributeError(name)
-        cls = type(self)
-        def _wrap(x):
-            if isinstance(x, cls):
-                return x
-            if isinstance(x, _DotList):
-                return x
-            if isinstance(x, dict):
-                return cls(x)
-            if isinstance(x, list):
-                return _DotList(_wrap(y) for y in x)
-            return x
-        if isinstance(val, dict) and not isinstance(val, cls):
-            val = cls(val)
-            self[key] = val
-        elif isinstance(val, list) and not isinstance(val, _DotList):
-            val = _DotList(_wrap(x) for x in val)
-            self[key] = val
-        return val
-
-    def __setattr__(self, name, value):
-        self[name] = value
-
-    def __delattr__(self, name):
-        try:
-            del self[name]
-        except KeyError:
-            camel = ''.join(x.capitalize() or '_' for x in name.split('_'))
-            camel = camel[0].lower() + camel[1:] if camel else ''
-            if camel in self:
-                del self[camel]
-            else:
-                raise AttributeError(name)
-`;
       const handlerBlocks = handlers.map((h) => `${h.signature}\n${h.bodyLines.join('\n')}`).join('\n\n');
-      handlersCode = `\n${dotDictCode}\n\n${handlerBlocks}\n`;
+      handlersCode = `\n${DOT_DICT_SHIM_PY}\n\n${handlerBlocks}\n`;
     }
   }
 

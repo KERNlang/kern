@@ -56,6 +56,11 @@ const { generatePortableHandlerFastAPI } = await import(join(REPO, 'packages/pyt
 // run end-to-end on the route corpus). Route-bearing fixtures with `kind:'route'` are also
 // dual-routed through the pure path below for behavioral parity to the monolithic transpiler.
 const { emitPureHandlers } = await import(join(REPO, 'packages/python/dist/core/handlers/index.js'));
+// Single source of truth for the __DotDict shim — imported from the compiled python target
+// (Wave 3 round-3 agon-review finding D: kimi/claude/zai all flagged the byte-for-byte
+// duplication risk with no CI guard). The conformance harness now uses the EXACT bytes
+// production emits, so a future shim edit can't drift between the two.
+const { DOT_DICT_SHIM_PY } = await import(join(REPO, 'packages/python/dist/targets/python.js'));
 
 // ── Fixtures ───────────────────────────────────────────────────────────────
 // bindings namespaces mirror the portable request model:
@@ -755,60 +760,59 @@ function buildNode(loweredExpr, bindings) {
 function pyDictLiteral(obj) {
   return `{${Object.entries(obj).map(([k, v]) => `${JSON.stringify(k)}: ${pyVal(v)}`).join(', ')}}`;
 }
-// Must mirror the production shim in `packages/python/src/targets/python.ts` BYTE-FOR-BYTE
-// (modulo trailing whitespace + indentation). See targets/python.ts for the design rationale:
-//   • `type(self)` for dict recursion dodges Python name-mangling on `__DotDict`.
-//   • `_DotList` (single underscore — NOT mangled) is the list-side idempotency marker.
-//   • Cached write-back makes both branches O(1) on re-access and persists in-handler writes.
-const __PURE_DOT_DICT_SHIM = `class _DotList(list):
-    pass
+// The shim is imported from the production target as `DOT_DICT_SHIM_PY` (see the import
+// above). The legacy local constant `__PURE_DOT_DICT_SHIM` is kept as an alias for the rest
+// of the file — single source of truth, zero drift risk.
+const __PURE_DOT_DICT_SHIM = DOT_DICT_SHIM_PY.trimEnd();
 
+// Wave 3 round-3 agon-review (kimi 0.75 + claude 0.60): the list-idempotency fix shipped
+// without an automated regression test, so a future revert to `[_wrap(x) for x in val]` (no
+// `_DotList` marker) would silently keep conformance green. The bug surface is reference
+// identity + post-access mutation — patterns the route-DSL fixtures can't naturally produce.
+// This probe runs the shim directly with python3 and asserts the three invariants the fix
+// guarantees: (a) container identity (`o.x is o.x`), (b) late-mutation persistence
+// (`r = o.x; o.x.append(...); r is o.x`), and (c) post-access plain-dict append still wraps
+// (`o.x.append({...}); o.x[0].a` works — the codex round-3 regression case). NB: use `rows`
+// (not `items` — collides with dict.items builtin) per codex/claude round-3 nit.
+function runShimRegressionProbe() {
+  const tmp = mkdtempSync(join(tmpdir(), 'kern-shim-probe-'));
+  const probeFile = join(tmp, 'shim-probe.py');
+  writeFileSync(
+    probeFile,
+    `${__PURE_DOT_DICT_SHIM}
 
-class __DotDict(dict):
-    def __getattr__(self, name):
-        try:
-            val = self[name]
-            key = name
-        except KeyError:
-            camel = ''.join(x.capitalize() or '_' for x in name.split('_'))
-            camel = camel[0].lower() + camel[1:] if camel else ''
-            if camel in self:
-                val = self[camel]
-                key = camel
-            else:
-                raise AttributeError(name)
-        cls = type(self)
-        def _wrap(x):
-            if isinstance(x, cls):
-                return x
-            if isinstance(x, _DotList):
-                return x
-            if isinstance(x, dict):
-                return cls(x)
-            if isinstance(x, list):
-                return _DotList(_wrap(y) for y in x)
-            return x
-        if isinstance(val, dict) and not isinstance(val, cls):
-            val = cls(val)
-            self[key] = val
-        elif isinstance(val, list) and not isinstance(val, _DotList):
-            val = _DotList(_wrap(x) for x in val)
-            self[key] = val
-        return val
+# (a) container identity preserved across re-access
+o = __DotDict({"rows": [1, 2]})
+a = o.rows
+b = o.rows
+assert a is b, "identity broken: a is not b"
 
-    def __setattr__(self, name, value):
-        self[name] = value
+# (b) late mutation persists — appending via the dotted path reaches the held reference
+o2 = __DotDict({"tags": []})
+r = o2.tags
+o2.tags.append(99)
+assert r is o2.tags, "ref orphaned after dotted mutation"
+assert r == [99], f"r should be [99], got {r}"
 
-    def __delattr__(self, name):
-        try:
-            del self[name]
-        except KeyError:
-            camel = ''.join(x.capitalize() or '_' for x in name.split('_'))
-            camel = camel[0].lower() + camel[1:] if camel else ''
-            if camel in self:
-                del self[camel]
-            else:
-                raise AttributeError(name)`;
+# (c) post-access plain-dict append still wraps on next read (codex round-3 regression case)
+o3 = __DotDict({"rows": []})
+rs = o3.rows
+rs.append({"a": 1})
+assert o3.rows[0].a == 1, f"AttributeError expected, got {o3.rows[0]}"
+
+# (d) deep nested list of dicts (round-2 fixture, sanity)
+o4 = __DotDict({"matrix": [[{"value": "deep"}]]})
+assert o4.matrix[0][0].value == "deep"
+
+print("OK")
+`,
+  );
+  const out = execFileSync('python3', [probeFile], { encoding: 'utf8', timeout: 10_000 }).trim();
+  rmSync(tmp, { recursive: true, force: true });
+  if (out !== 'OK') {
+    throw new Error(`__DotDict shim regression probe failed: ${out}`);
+  }
+}
 function runPurePipeline(fx, dir) {
   const root = parse(fx.kern);
   const serverNode = root.type === 'server' ? root : { type: 'server', children: [root] };
@@ -841,14 +845,26 @@ function runPurePipeline(fx, dir) {
     headers: {},
     user: null,
   };
-  // Wave 3 agon-review follow-up (codex round 1 + claude round 2): assert the emitted
-  // handler's type metadata for path/query params so a regression in `pathParamTypes`/
+  // Wave 3 agon-review follow-up (codex round 1 + claude round 2 + round 3 ×4): assert the
+  // emitted handler's type metadata for path/query params so a regression in `pathParamTypes`/
   // `queryParamTypes` (or a re-coercion pass that silently strips them) doesn't slip past.
   // The runner feeds already-coerced values into PureRequest by design (matching what the
   // FastAPI adapter emits at the signature boundary), so the handler alone can't catch a
-  // metadata drift. Key-sorted stringify (per claude round 2) so multi-key fixtures don't
-  // false-fail on object-key-order divergence between the emitter and the fixture literal.
-  const stableJson = (o) => JSON.stringify(o, Object.keys(o).sort());
+  // metadata drift.
+  //
+  // CAVEAT (round 3 — agy 1.00, kimi 0.80, claude 0.80, zai 0.85 all convergent): the obvious
+  // `JSON.stringify(o, Object.keys(o).sort())` form uses the ARRAY replacer, which is a
+  // recursive PROPERTY ALLOWLIST applied at every nesting level — any nested key absent from
+  // the top-level array is SILENTLY DROPPED. Current `pathParamTypes`/`queryParamTypes` are
+  // flat `Record<string,string>`, so it'd work today; but a future nested schema (e.g.
+  // `{id: {type: 'int', required: true}}`) would have its inner keys vanish, masking real
+  // drift. The replacer-function form below recurses and sorts keys at every depth.
+  const stableJson = (o) =>
+    JSON.stringify(o, (_, v) =>
+      v && typeof v === 'object' && !Array.isArray(v)
+        ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b)))
+        : v,
+    );
   if (fx.expectPathParamTypes) {
     const got = stableJson(h.pathParamTypes ?? {});
     const want = stableJson(fx.expectPathParamTypes);
@@ -959,6 +975,20 @@ process.on('exit', () => {
     rmSync(dir, { recursive: true, force: true });
   } catch {}
 });
+
+// Wave 3 round-3 regression guard: run the __DotDict shim probe before any fixture so a
+// production-shim regression fails LOUD (`process.exit(1)`) rather than silently sliding
+// past the route-DSL-restricted fixtures. Skipped when --filter is set so single-slice goal
+// runs don't pay the probe cost; the probe is a global invariant, not a fixture.
+if (!filter) {
+  try {
+    runShimRegressionProbe();
+  } catch (err) {
+    console.error(`\n__DotDict shim regression: ${err.message}`);
+    process.exit(1);
+  }
+}
+
 let pass = 0;
 const failures = [];
 
