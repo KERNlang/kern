@@ -25,6 +25,13 @@ export function transpilePython(root: IRNode, config?: ResolvedKernConfig): Tran
   if (serverNode) {
     const handlers = emitPureHandlers(serverNode, imports, root);
     if (handlers.length > 0) {
+      // Python name-mangling caveat: an identifier with two leading underscores inside a
+      // class body gets rewritten to `_ClassName__name`, so `return __DotDict(val)` inside
+      // this class's methods would resolve to `_DotDict__DotDict` (NameError). We dodge it
+      // by routing recursion through `type(self)` — the original class object, regardless
+      // of the name it's bound to in the enclosing scope. Surfaced by the Wave 3 parity
+      // suite when a route's `path_params`/`query` (always dicts) triggered the dict-branch
+      // recursion; phase2 smokes only exercised scalar `body.value` so the bug stayed latent.
       const dotDictCode = `class __DotDict(dict):
     def __getattr__(self, name):
         try:
@@ -36,10 +43,11 @@ export function transpilePython(root: IRNode, config?: ResolvedKernConfig): Tran
                 val = self[camel]
             else:
                 raise AttributeError(name)
+        cls = type(self)
         if isinstance(val, dict):
-            return __DotDict(val)
+            return cls(val)
         if isinstance(val, list):
-            return [__DotDict(x) if isinstance(x, dict) else x for x in val]
+            return [cls(x) if isinstance(x, dict) else x for x in val]
         return val
 
     def __setattr__(self, name, value):
