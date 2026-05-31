@@ -538,11 +538,35 @@ const FIXTURES = [
   { kind: 'route-pipeline', name: 'route-pipeline: multi-step (path+query+body+derive+guard) pass',
     kern: `route method=post path=/api/users/:id\n  params multiplier:integer\n  derive name=score expr={{ body.base * multiplier }}\n  guard name=floor expr={{ score >= 100 }} else=422\n  respond 200 json={{ {id: params.id, score: score} }}`,
     pureRequest: { method: 'POST', path_params: { id: 'u7' }, query: { multiplier: 25 }, body: { base: 8 }, headers: {}, user: null },
+    // Asserts emitter metadata (agon-review codex #2): path params default to str, query
+    // gets the declared integer type. Catches a regression that strips/wrongs these without
+    // the fixture itself catching it (the runner pre-coerces, mirroring the adapter).
+    expectPathParamTypes: { id: 'str' },
+    expectQueryParamTypes: { multiplier: 'int' },
     expected: { status: 200, body: { id: 'u7', score: 200 } } },
   { kind: 'route-pipeline', name: 'route-pipeline: multi-step guard-fail returns 422 {detail}',
     kern: `route method=post path=/api/users/:id\n  params multiplier:integer\n  derive name=score expr={{ body.base * multiplier }}\n  guard name=floor expr={{ score >= 100 }} else=422\n  respond 200 json={{ {id: params.id, score: score} }}`,
     pureRequest: { method: 'POST', path_params: { id: 'u7' }, query: { multiplier: 5 }, body: { base: 8 }, headers: {}, user: null },
+    expectPathParamTypes: { id: 'str' },
+    expectQueryParamTypes: { multiplier: 'int' },
     expected: { status: 422, body: { detail: 'floor guard failed' } } },
+  // Wave 3 agon-review codex #1: pure handlers may return (status, body, headers) as the
+  // 3-tuple form. A `respond redirect={{ expr }}` lowers to that shape (`return 302, None,
+  // {"Location": expr}`). Runner now captures result[2] into JSON output `.headers`; this
+  // fixture catches an emitter that silently drops the third tuple slot or a runner that
+  // ignores it.
+  { kind: 'route-pipeline', name: 'route-pipeline: respond redirect returns 3-tuple with Location header',
+    kern: `route method=get path=/api/r\n  respond 302 redirect={{ "/api/next" }}`,
+    pureRequest: { method: 'GET', path_params: {}, query: {}, body: {}, headers: {}, user: null },
+    expected: { status: 302, body: null, headers: { Location: '/api/next' } } },
+  // Wave 3 agon-review agy #2: deep/nested list wrapping. body.matrix is a list-of-lists
+  // of dicts; without recursive _wrap, the inner-list elements stay plain dicts and
+  // `body.matrix[0][0].value` raises AttributeError. The discrimination here only fires
+  // when the fix is missing — green at HEAD, red at the pre-review shim.
+  { kind: 'route-pipeline', name: 'route-pipeline: deep list-of-list-of-dict body (recursive __DotDict)',
+    kern: `route method=post path=/api/m\n  respond 200 json={{ {echoed: body.matrix[0][0].value} }}`,
+    pureRequest: { method: 'POST', path_params: {}, query: {}, body: { matrix: [[{ value: 'deep' }]] }, headers: {}, user: null },
+    expected: { status: 200, body: { echoed: 'deep' } } },
 
   // PARITY GOAL ORACLE (goal: ts-python-parity, 2026-05-27). These RED fixtures
   // encode portable JS methods not yet lowered to Python — the differential
@@ -733,23 +757,36 @@ function pyDictLiteral(obj) {
 }
 // Must mirror the production shim in `packages/python/src/targets/python.ts` BYTE-FOR-BYTE
 // (modulo trailing whitespace). The `type(self)` recursion dodges Python name-mangling on
-// `__DotDict` inside its own class body — see the comment in targets/python.ts.
+// `__DotDict` inside its own class body; the cached write-back + recursive list wrap match
+// the production fixes from the Wave 3 agon-review pass — see targets/python.ts for the why.
 const __PURE_DOT_DICT_SHIM = `class __DotDict(dict):
     def __getattr__(self, name):
         try:
             val = self[name]
+            key = name
         except KeyError:
             camel = ''.join(x.capitalize() or '_' for x in name.split('_'))
             camel = camel[0].lower() + camel[1:] if camel else ''
             if camel in self:
                 val = self[camel]
+                key = camel
             else:
                 raise AttributeError(name)
         cls = type(self)
-        if isinstance(val, dict):
-            return cls(val)
-        if isinstance(val, list):
-            return [cls(x) if isinstance(x, dict) else x for x in val]
+        def _wrap(x):
+            if isinstance(x, cls):
+                return x
+            if isinstance(x, dict):
+                return cls(x)
+            if isinstance(x, list):
+                return [_wrap(y) for y in x]
+            return x
+        if isinstance(val, dict) and not isinstance(val, cls):
+            val = cls(val)
+            self[key] = val
+        elif isinstance(val, list):
+            val = [_wrap(x) for x in val]
+            self[key] = val
         return val
 
     def __setattr__(self, name, value):
@@ -758,7 +795,14 @@ const __PURE_DOT_DICT_SHIM = `class __DotDict(dict):
     def __delattr__(self, name):
         try:
             del self[name]
+            return
         except KeyError:
+            pass
+        camel = ''.join(x.capitalize() or '_' for x in name.split('_'))
+        camel = camel[0].lower() + camel[1:] if camel else ''
+        if camel in self:
+            del self[camel]
+        else:
             raise AttributeError(name)`;
 function runPurePipeline(fx, dir) {
   const root = parse(fx.kern);
@@ -792,6 +836,25 @@ function runPurePipeline(fx, dir) {
     headers: {},
     user: null,
   };
+  // Wave 3 agon-review follow-up (codex #2): assert the emitted handler's type metadata for
+  // path/query params so a regression in `pathParamTypes`/`queryParamTypes` (or a re-coercion
+  // pass that silently strips them) doesn't slip past — the runner feeds already-coerced
+  // values into PureRequest by design (matching what the FastAPI adapter would emit at the
+  // signature boundary), which means the handler ITSELF can't catch a metadata drift.
+  if (fx.expectPathParamTypes) {
+    const got = JSON.stringify(h.pathParamTypes ?? {});
+    const want = JSON.stringify(fx.expectPathParamTypes);
+    if (got !== want) {
+      throw new Error(`pathParamTypes mismatch: got ${got}, want ${want}`);
+    }
+  }
+  if (fx.expectQueryParamTypes) {
+    const got = JSON.stringify(h.queryParamTypes ?? {});
+    const want = JSON.stringify(fx.expectQueryParamTypes);
+    if (got !== want) {
+      throw new Error(`queryParamTypes mismatch: got ${got}, want ${want}`);
+    }
+  }
   const pureRequestLiteral = pyDictLiteral(pureRequest);
   const importLines = [...imports].join('\n');
   const pyFile = join(dir, 'route-pure.py');
@@ -809,12 +872,25 @@ result = ${h.fnName}(pure_request)
 if isinstance(result, tuple):
     status = result[0]
     body = result[1] if len(result) > 1 else None
+    headers = result[2] if len(result) > 2 else None
 else:
-    status, body = 200, result
-print(json.dumps({"status": status, "body": body}, sort_keys=True, default=str))
+    status, body, headers = 200, result, None
+out = {"status": status, "body": body}
+if headers is not None:
+    out["headers"] = headers
+print(json.dumps(out, sort_keys=True, default=str))
 `,
   );
-  return JSON.parse(execFileSync('python3', [pyFile], { encoding: 'utf8', timeout: 10_000 }).trim());
+  try {
+    return JSON.parse(execFileSync('python3', [pyFile], { encoding: 'utf8', timeout: 10_000 }).trim());
+  } catch (err) {
+    // Wave 3 agon-review follow-up (agy #4): surface the Python traceback from err.stderr
+    // when execFileSync fails. Without this the catch block in the runner sees only
+    // err.message ("Command failed: python3 …") and drops the real stack trace.
+    const detail = err.stderr ? String(err.stderr).trim() : '';
+    if (detail) err.message = `${err.message}\n${detail}`;
+    throw err;
+  }
 }
 
 // ── Comparison ───────────────────────────────────────────────────────────────

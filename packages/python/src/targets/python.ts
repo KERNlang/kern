@@ -32,22 +32,46 @@ export function transpilePython(root: IRNode, config?: ResolvedKernConfig): Tran
       // of the name it's bound to in the enclosing scope. Surfaced by the Wave 3 parity
       // suite when a route's `path_params`/`query` (always dicts) triggered the dict-branch
       // recursion; phase2 smokes only exercised scalar `body.value` so the bug stayed latent.
+      //
+      // Wave 3 agon-review follow-ups (all from agy 2026-05-31):
+      //   1. Cache wrapped values back into the parent (`self[name] = val`). Otherwise every
+      //      access reconstructs a fresh shallow copy — performance bites in `each`/`collect`
+      //      loops, and crucially `body.profile.name = "Alice"` would mutate a temporary
+      //      that's discarded on the next read of `body.profile`. The `isinstance(val, cls)`
+      //      guard makes the cache idempotent.
+      //   2. List wrapping recurses (via `_wrap`) so `body.matrix[0][0].value` works on
+      //      arbitrarily-nested lists of dicts. The phase2 emission only wrapped one level,
+      //      so a handler reading from a nested list raised AttributeError instead of dotting.
+      //   3. `__delattr__` now mirrors `__getattr__`'s camelCase fallback, so `del obj.some_attr`
+      //      finds a `someAttr` key the same way `obj.some_attr` finds it for read.
       const dotDictCode = `class __DotDict(dict):
     def __getattr__(self, name):
         try:
             val = self[name]
+            key = name
         except KeyError:
             camel = ''.join(x.capitalize() or '_' for x in name.split('_'))
             camel = camel[0].lower() + camel[1:] if camel else ''
             if camel in self:
                 val = self[camel]
+                key = camel
             else:
                 raise AttributeError(name)
         cls = type(self)
-        if isinstance(val, dict):
-            return cls(val)
-        if isinstance(val, list):
-            return [cls(x) if isinstance(x, dict) else x for x in val]
+        def _wrap(x):
+            if isinstance(x, cls):
+                return x
+            if isinstance(x, dict):
+                return cls(x)
+            if isinstance(x, list):
+                return [_wrap(y) for y in x]
+            return x
+        if isinstance(val, dict) and not isinstance(val, cls):
+            val = cls(val)
+            self[key] = val
+        elif isinstance(val, list):
+            val = [_wrap(x) for x in val]
+            self[key] = val
         return val
 
     def __setattr__(self, name, value):
@@ -56,7 +80,14 @@ export function transpilePython(root: IRNode, config?: ResolvedKernConfig): Tran
     def __delattr__(self, name):
         try:
             del self[name]
+            return
         except KeyError:
+            pass
+        camel = ''.join(x.capitalize() or '_' for x in name.split('_'))
+        camel = camel[0].lower() + camel[1:] if camel else ''
+        if camel in self:
+            del self[camel]
+        else:
             raise AttributeError(name)
 `;
       const handlerBlocks = handlers.map((h) => `${h.signature}\n${h.bodyLines.join('\n')}`).join('\n\n');
