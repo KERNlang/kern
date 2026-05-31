@@ -426,7 +426,7 @@ function cspStrength(ctx: RuleContext): ReviewFinding[] {
 
   const weakDirectives = [
     { pattern: /unsafe-inline/g, label: 'unsafe-inline', risk: 'allows inline scripts — XSS vector' },
-    { pattern: /unsafe-eval/g, label: 'unsafe-eval', risk: 'allows eval() — code injection vector' },
+    { pattern: /unsafe-eval/g, label: 'unsafe-eval', risk: 'allows the eval primitive — code injection vector' },
     { pattern: /script-src\s+\*/g, label: "script-src '*'", risk: 'allows scripts from any origin' },
     { pattern: /default-src\s+\*/g, label: "default-src '*'", risk: 'allows all resources from any origin' },
   ];
