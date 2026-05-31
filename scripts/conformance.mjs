@@ -428,6 +428,45 @@ const FIXTURES = [
     body: `let name=log value="''" kind=let\nlet name=tmp value="0" kind=let\ntry\n  assign target="log" value="log + 'a'"\n  assign target="tmp" value="JSON.parse(bad)"\n  assign target="log" value="log + 'b'"\n  catch name=err type=any\n    assign target="log" value="log + 'X'"\nreturn value="{ log: log }"`,
     expected: { log: 'aX' } },
 
+  // ── BLOCK SCOPE oracle (memory's #6 known divergence; deferred from #1 slice 1). ───
+  // TS `let` is block-scoped, Python assignment is function-scoped. Discriminating fixtures:
+  // (1) baseline shadow: catches "Python leaks inner let".
+  // (2) inner usage: catches "lazy fix that omits the inner let entirely" (still wrong — must
+  //     use 2 inside, 1 outside).
+  // (3) no-shadow block: catches "lazy fix that always renames every let" (no-shadow block
+  //     should still let outer code see the value through normal Python scoping).
+  // (4) two siblings shadow: catches "fix that gensym-leaks across sibling blocks".
+  { kind: 'stmt', name: 'stmt: block-scope let-shadow (outer 1, inner if-block 2, return outer)',
+    params: [{ name: 'c', type: 'boolean', value: true }],
+    body: `let name=x value="1"\nif cond="c"\n  let name=x value="2"\nreturn value="{ x: x }"`,
+    expected: { x: 1 } },
+  { kind: 'stmt', name: 'stmt: block-scope inner let USED inside block then return outer (witness)',
+    params: [{ name: 'c', type: 'boolean', value: true }],
+    body: `let name=x value="1" kind=let\nlet name=seen value="0" kind=let\nif cond="c"\n  let name=x value="2"\n  assign target="seen" value="x"\nreturn value="{ x: x, seen: seen }"`,
+    expected: { x: 1, seen: 2 } },
+  { kind: 'stmt', name: 'stmt: block-scope NO outer shadow (regular inner let must still work)',
+    params: [{ name: 'c', type: 'boolean', value: true }],
+    body: `let name=outer value="10" kind=let\nif cond="c"\n  let name=inner value="3"\n  assign target="outer" value="outer + inner"\nreturn value="{ outer: outer }"`,
+    expected: { outer: 13 } },
+  { kind: 'stmt', name: 'stmt: block-scope two sibling shadows (separate blocks, neither leaks)',
+    params: [{ name: 'a', type: 'boolean', value: true }, { name: 'b', type: 'boolean', value: true }],
+    body: `let name=x value="1"\nif cond="a"\n  let name=x value="2"\nif cond="b"\n  let name=x value="3"\nreturn value="{ x: x }"`,
+    expected: { x: 1 } },
+  // nero PROBE: WRITE-path inside the shadow. Mutates the inner-shadowed binding via `assign`
+  // and verifies the gensym is the target (outer stays untouched). Kills a "rename decl+read
+  // only" wrong fix (nero Challenge 1/4).
+  { kind: 'stmt', name: 'stmt: block-scope inner let MUTATED by assign, outer untouched',
+    params: [{ name: 'c', type: 'boolean', value: true }],
+    body: `let name=x value="1" kind=let\nlet name=witness value="0" kind=let\nif cond="c"\n  let name=x value="10" kind=let\n  assign target="x" value="x + 5"\n  assign target="witness" value="x"\nreturn value="{ x: x, witness: witness }"`,
+    expected: { x: 1, witness: 15 } },
+  // nero PROBE: PARAMETER shadow. A handler param `x` is shadowed by an inner `let x`.
+  // The assign-after-decl writes the gensym; the return reads the param (outer). Kills the
+  // nero Challenge 2 case (params not in localScopes -> no rename -> param clobbered).
+  { kind: 'stmt', name: 'stmt: block-scope param shadow (inner let MUTATED, param untouched on return)',
+    params: [{ name: 'x', type: 'number', value: 7 }, { name: 'c', type: 'boolean', value: true }],
+    body: `let name=witness value="0" kind=let\nif cond="c"\n  let name=x value="100" kind=let\n  assign target="x" value="x + 1"\n  assign target="witness" value="x"\nreturn value="{ x: x, witness: witness }"`,
+    expected: { x: 7, witness: 101 } },
+
   // ──────────────────────────────────────────────────────────────────────────
   // route: ROUTE-LEVEL HTTP response parity (kind:'route', goal: error-semantics 2026-05-28).
   // Lowers a full portable route handler to both targets, runs it (mock res -> {status,body} on
@@ -704,8 +743,10 @@ for (const fx of FIXTURES) {
       })(parse(kern)));
       if (!handler) throw new Error('no handler node parsed');
       const ts = emitNativeKernBodyTSWithImports(handler);
-      const pyEmit = emitNativeKernBodyPythonWithImports(handler);
       const names = fx.params.map((p) => p.name);
+      // Pass param names as outerBindings so an inner-block `let` that shadows
+      // a param triggers the block-scope rename (nero Challenge 2 fix).
+      const pyEmit = emitNativeKernBodyPythonWithImports(handler, { outerBindings: names });
       const tsFile = join(dir, 'stmt.mjs');
       const pyFile = join(dir, 'stmt.py');
       const tsSource = `${[...(ts.imports ?? [])].join('\n')}\nfunction __h(${names.join(', ')}: any): any {\n${ts.code}\n}\nconsole.log(JSON.stringify(__h(${fx.params.map((p) => JSON.stringify(p.value)).join(', ')})));`;
