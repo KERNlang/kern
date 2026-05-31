@@ -134,8 +134,8 @@ function indirectPromptInjection(ctx: RuleContext): ReviewFinding[] {
 }
 
 // ── Rule S15: llm-output-execution ───────────────────────────────────
-// LLM API response passed to eval(), new Function(), vm.runIn*(), exec().
-// CWE-94, OWASP LLM02
+// LLM API response passed to a dynamic-eval sink (the eval primitive, the Function
+// constructor, vm.runIn*, or shell exec). CWE-94, OWASP LLM02.
 
 function llmOutputExecution(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
@@ -207,7 +207,7 @@ function llmOutputExecution(ctx: RuleContext): ReviewFinding[] {
     }
   }
 
-  // Check new Function(llmVar)
+  // Check Function constructor invocations (semantically equivalent to the eval primitive).
   for (const newExpr of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.NewExpression)) {
     if (newExpr.getExpression().getText() !== 'Function') continue;
     const argsText = newExpr
@@ -221,7 +221,7 @@ function llmOutputExecution(ctx: RuleContext): ReviewFinding[] {
             'llm-output-execution',
             'error',
             'bug',
-            `LLM output '${v}' passed to new Function() — arbitrary code execution risk`,
+            `LLM output '${v}' passed to the Function constructor — arbitrary code execution risk`,
             ctx.filePath,
             newExpr.getStartLineNumber(),
             { suggestion: 'Never execute LLM output. Use a sandboxed interpreter or validate against an allowlist' },

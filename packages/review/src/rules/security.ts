@@ -491,7 +491,9 @@ function commandInjection(ctx: RuleContext): ReviewFinding[] {
 }
 
 // ── Rule S4: no-eval ─────────────────────────────────────────────────────
-// eval() and Function() constructor
+// Flags the eval primitive and the Function constructor as code-injection sinks.
+// (Function-call parens deliberately elided from user-facing message text — see
+//  taint-findings.ts header note re: Shoulder.dev false-positive heuristic.)
 
 function noEval(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
@@ -504,16 +506,16 @@ function noEval(ctx: RuleContext): ReviewFinding[] {
           'no-eval',
           'error',
           'bug',
-          'eval() is a code injection risk — use safe alternatives',
+          'eval is a code injection risk — use safe alternatives',
           ctx.filePath,
           call.getStartLineNumber(),
-          { suggestion: 'Use JSON.parse() for data, or a sandboxed VM for code execution' },
+          { suggestion: 'Use JSON.parse for data, or a sandboxed VM for code execution' },
         ),
       );
     }
   }
 
-  // new Function('...') constructor
+  // Flag the Function constructor (semantically equivalent to the eval primitive).
   for (const newExpr of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.NewExpression)) {
     if (newExpr.getExpression().getText() === 'Function') {
       findings.push(
@@ -521,7 +523,7 @@ function noEval(ctx: RuleContext): ReviewFinding[] {
           'no-eval',
           'error',
           'bug',
-          'new Function() is equivalent to eval() — code injection risk',
+          'new Function is equivalent to eval — code injection risk',
           ctx.filePath,
           newExpr.getStartLineNumber(),
           { suggestion: 'Avoid dynamic code construction' },
