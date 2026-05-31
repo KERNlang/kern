@@ -756,10 +756,15 @@ function pyDictLiteral(obj) {
   return `{${Object.entries(obj).map(([k, v]) => `${JSON.stringify(k)}: ${pyVal(v)}`).join(', ')}}`;
 }
 // Must mirror the production shim in `packages/python/src/targets/python.ts` BYTE-FOR-BYTE
-// (modulo trailing whitespace). The `type(self)` recursion dodges Python name-mangling on
-// `__DotDict` inside its own class body; the cached write-back + recursive list wrap match
-// the production fixes from the Wave 3 agon-review pass — see targets/python.ts for the why.
-const __PURE_DOT_DICT_SHIM = `class __DotDict(dict):
+// (modulo trailing whitespace + indentation). See targets/python.ts for the design rationale:
+//   • `type(self)` for dict recursion dodges Python name-mangling on `__DotDict`.
+//   • `_DotList` (single underscore — NOT mangled) is the list-side idempotency marker.
+//   • Cached write-back makes both branches O(1) on re-access and persists in-handler writes.
+const __PURE_DOT_DICT_SHIM = `class _DotList(list):
+    pass
+
+
+class __DotDict(dict):
     def __getattr__(self, name):
         try:
             val = self[name]
@@ -776,16 +781,18 @@ const __PURE_DOT_DICT_SHIM = `class __DotDict(dict):
         def _wrap(x):
             if isinstance(x, cls):
                 return x
+            if isinstance(x, _DotList):
+                return x
             if isinstance(x, dict):
                 return cls(x)
             if isinstance(x, list):
-                return [_wrap(y) for y in x]
+                return _DotList(_wrap(y) for y in x)
             return x
         if isinstance(val, dict) and not isinstance(val, cls):
             val = cls(val)
             self[key] = val
-        elif isinstance(val, list):
-            val = [_wrap(x) for x in val]
+        elif isinstance(val, list) and not isinstance(val, _DotList):
+            val = _DotList(_wrap(x) for x in val)
             self[key] = val
         return val
 
@@ -795,15 +802,13 @@ const __PURE_DOT_DICT_SHIM = `class __DotDict(dict):
     def __delattr__(self, name):
         try:
             del self[name]
-            return
         except KeyError:
-            pass
-        camel = ''.join(x.capitalize() or '_' for x in name.split('_'))
-        camel = camel[0].lower() + camel[1:] if camel else ''
-        if camel in self:
-            del self[camel]
-        else:
-            raise AttributeError(name)`;
+            camel = ''.join(x.capitalize() or '_' for x in name.split('_'))
+            camel = camel[0].lower() + camel[1:] if camel else ''
+            if camel in self:
+                del self[camel]
+            else:
+                raise AttributeError(name)`;
 function runPurePipeline(fx, dir) {
   const root = parse(fx.kern);
   const serverNode = root.type === 'server' ? root : { type: 'server', children: [root] };
@@ -836,21 +841,24 @@ function runPurePipeline(fx, dir) {
     headers: {},
     user: null,
   };
-  // Wave 3 agon-review follow-up (codex #2): assert the emitted handler's type metadata for
-  // path/query params so a regression in `pathParamTypes`/`queryParamTypes` (or a re-coercion
-  // pass that silently strips them) doesn't slip past — the runner feeds already-coerced
-  // values into PureRequest by design (matching what the FastAPI adapter would emit at the
-  // signature boundary), which means the handler ITSELF can't catch a metadata drift.
+  // Wave 3 agon-review follow-up (codex round 1 + claude round 2): assert the emitted
+  // handler's type metadata for path/query params so a regression in `pathParamTypes`/
+  // `queryParamTypes` (or a re-coercion pass that silently strips them) doesn't slip past.
+  // The runner feeds already-coerced values into PureRequest by design (matching what the
+  // FastAPI adapter emits at the signature boundary), so the handler alone can't catch a
+  // metadata drift. Key-sorted stringify (per claude round 2) so multi-key fixtures don't
+  // false-fail on object-key-order divergence between the emitter and the fixture literal.
+  const stableJson = (o) => JSON.stringify(o, Object.keys(o).sort());
   if (fx.expectPathParamTypes) {
-    const got = JSON.stringify(h.pathParamTypes ?? {});
-    const want = JSON.stringify(fx.expectPathParamTypes);
+    const got = stableJson(h.pathParamTypes ?? {});
+    const want = stableJson(fx.expectPathParamTypes);
     if (got !== want) {
       throw new Error(`pathParamTypes mismatch: got ${got}, want ${want}`);
     }
   }
   if (fx.expectQueryParamTypes) {
-    const got = JSON.stringify(h.queryParamTypes ?? {});
-    const want = JSON.stringify(fx.expectQueryParamTypes);
+    const got = stableJson(h.queryParamTypes ?? {});
+    const want = stableJson(fx.expectQueryParamTypes);
     if (got !== want) {
       throw new Error(`queryParamTypes mismatch: got ${got}, want ${want}`);
     }

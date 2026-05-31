@@ -28,23 +28,38 @@ export function transpilePython(root: IRNode, config?: ResolvedKernConfig): Tran
       // Python name-mangling caveat: an identifier with two leading underscores inside a
       // class body gets rewritten to `_ClassName__name`, so `return __DotDict(val)` inside
       // this class's methods would resolve to `_DotDict__DotDict` (NameError). We dodge it
-      // by routing recursion through `type(self)` — the original class object, regardless
-      // of the name it's bound to in the enclosing scope. Surfaced by the Wave 3 parity
-      // suite when a route's `path_params`/`query` (always dicts) triggered the dict-branch
-      // recursion; phase2 smokes only exercised scalar `body.value` so the bug stayed latent.
+      // by routing recursion through `type(self)` — the original class object — and by
+      // using `_DotList` (single underscore, NOT mangled) as the list marker class. Surfaced
+      // by the Wave 3 parity suite when a route's `path_params`/`query` (always dicts)
+      // triggered the dict-branch recursion; phase2 smokes only exercised scalar `body.value`
+      // so the bug stayed latent.
       //
-      // Wave 3 agon-review follow-ups (all from agy 2026-05-31):
-      //   1. Cache wrapped values back into the parent (`self[name] = val`). Otherwise every
+      // Wave 3 agon-review follow-ups (rounds 1+2, 2026-05-31):
+      //   1. Cache wrapped values back into the parent (`self[key] = val`). Otherwise every
       //      access reconstructs a fresh shallow copy — performance bites in `each`/`collect`
-      //      loops, and crucially `body.profile.name = "Alice"` would mutate a temporary
-      //      that's discarded on the next read of `body.profile`. The `isinstance(val, cls)`
-      //      guard makes the cache idempotent.
-      //   2. List wrapping recurses (via `_wrap`) so `body.matrix[0][0].value` works on
-      //      arbitrarily-nested lists of dicts. The phase2 emission only wrapped one level,
-      //      so a handler reading from a nested list raised AttributeError instead of dotting.
-      //   3. `__delattr__` now mirrors `__getattr__`'s camelCase fallback, so `del obj.some_attr`
-      //      finds a `someAttr` key the same way `obj.some_attr` finds it for read.
-      const dotDictCode = `class __DotDict(dict):
+      //      loops, and `body.profile.name = "Alice"` would mutate a temporary that the next
+      //      read of `body.profile` discards. The `isinstance(val, cls)` guard makes the
+      //      dict path idempotent.
+      //   2. Wrapping recurses through `_wrap`, so `body.matrix[0][0].value` works on
+      //      arbitrarily-nested lists of dicts. The phase2 emission only wrapped one level.
+      //   3. `_DotList(list)` is the list-side idempotency marker — without it, plain
+      //      `isinstance(val, list)` is true even for already-wrapped lists, so every access
+      //      re-builds a new list (caching gap agy/claude both flagged in round 2: a
+      //      stale-reference / lost-mutation edge — `ref = body.items; body.items; ref.append(x)`
+      //      mutates the orphan). The `_DotList` test gates re-wrap to genuinely-plain lists.
+      //   4. `__delattr__` mirrors `__getattr__`'s camelCase fallback (round 1, agy nit).
+      //
+      // SIDE EFFECT (intentional): write-back means a dotted read mutates the parent dict —
+      // `body.profile` rewrites self["profile"] to the wrapped form. This is what makes
+      // assignment persistence work; the downside is that anything which later iterates the
+      // raw dict (`body.items()`, re-serialization) sees wrapped values. Harmless for the
+      // conformance comparison and for in-handler use; flagging it here so future readers
+      // don't mistake it for a bug. (round 2 claude observation, severity nit.)
+      const dotDictCode = `class _DotList(list):
+    pass
+
+
+class __DotDict(dict):
     def __getattr__(self, name):
         try:
             val = self[name]
@@ -61,16 +76,18 @@ export function transpilePython(root: IRNode, config?: ResolvedKernConfig): Tran
         def _wrap(x):
             if isinstance(x, cls):
                 return x
+            if isinstance(x, _DotList):
+                return x
             if isinstance(x, dict):
                 return cls(x)
             if isinstance(x, list):
-                return [_wrap(y) for y in x]
+                return _DotList(_wrap(y) for y in x)
             return x
         if isinstance(val, dict) and not isinstance(val, cls):
             val = cls(val)
             self[key] = val
-        elif isinstance(val, list):
-            val = [_wrap(x) for x in val]
+        elif isinstance(val, list) and not isinstance(val, _DotList):
+            val = _DotList(_wrap(x) for x in val)
             self[key] = val
         return val
 
@@ -80,15 +97,13 @@ export function transpilePython(root: IRNode, config?: ResolvedKernConfig): Tran
     def __delattr__(self, name):
         try:
             del self[name]
-            return
         except KeyError:
-            pass
-        camel = ''.join(x.capitalize() or '_' for x in name.split('_'))
-        camel = camel[0].lower() + camel[1:] if camel else ''
-        if camel in self:
-            del self[camel]
-        else:
-            raise AttributeError(name)
+            camel = ''.join(x.capitalize() or '_' for x in name.split('_'))
+            camel = camel[0].lower() + camel[1:] if camel else ''
+            if camel in self:
+                del self[camel]
+            else:
+                raise AttributeError(name)
 `;
       const handlerBlocks = handlers.map((h) => `${h.signature}\n${h.bodyLines.join('\n')}`).join('\n\n');
       handlersCode = `\n${dotDictCode}\n\n${handlerBlocks}\n`;
