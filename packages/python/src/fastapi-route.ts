@@ -618,22 +618,31 @@ export function buildRouteArtifact(
   } else {
     // Standard route — build function signature
     const paramParts: string[] = [];
+    // Names IN the def signature — fed to the body emitter as outerBindings so
+    // a native KERN `let x` inside an inner block that shadows a param triggers
+    // the block-scope rename (post-agon-review #f1afb9b3; production-caller
+    // fix for nero Challenge 2). Order matches paramParts pushes 1:1.
+    const paramNames: string[] = [];
     for (const param of pathParams) {
       paramParts.push(`${param}: str`);
+      paramNames.push(param);
     }
 
     // v3 query params with types and defaults
     for (const qp of queryParams) {
       const pyType = qp.type === 'number' ? 'int' : qp.type === 'boolean' ? 'bool' : 'str';
+      const snake = toSnakeCase(qp.name);
       if (qp.default !== undefined) {
-        paramParts.push(`${toSnakeCase(qp.name)}: ${pyType} = ${qp.default}`);
+        paramParts.push(`${snake}: ${pyType} = ${qp.default}`);
       } else {
-        paramParts.push(`${toSnakeCase(qp.name)}: ${pyType}`);
+        paramParts.push(`${snake}: ${pyType}`);
       }
+      paramNames.push(snake);
     }
 
     if (schema.body) {
       paramParts.push('body: RequestBody');
+      paramNames.push('body');
     }
 
     // v3 validate — method-aware: body param for POST/PUT/PATCH, Depends for GET/DELETE
@@ -643,9 +652,11 @@ export function buildRouteArtifact(
         const bodyMethods = new Set(['post', 'put', 'patch']);
         if (bodyMethods.has(normalizedMethod)) {
           paramParts.push(`body: ${validateSchema}`);
+          paramNames.push('body');
         } else {
           imports.add('from fastapi import Depends');
           paramParts.push(`validated = Depends(${toSnakeCase(validateSchema)})`);
+          paramNames.push('validated');
         }
       }
     }
@@ -653,6 +664,7 @@ export function buildRouteArtifact(
     // v3 route-level middleware → Depends()
     for (const dep of middlewareDeps) {
       paramParts.push(`_${dep} = Depends(${dep})`);
+      paramNames.push(`_${dep}`);
     }
 
     // v3 auth — add Depends(auth_required)
@@ -666,6 +678,7 @@ export function buildRouteArtifact(
       // relatively (Codex review on commit 02ecb2fa).
       imports.add(`from ${routeAuthModuleSpec} import ${authFunc}`);
       paramParts.push(`user = Depends(${authFunc})`);
+      paramNames.push('user');
     }
 
     const paramStr = paramParts.join(', ');
@@ -727,7 +740,15 @@ export function buildRouteArtifact(
         imports: bodyImports,
         usedPropagation,
         helpers: bodyHelpers,
-      } = emitNativeKernBodyPythonWithImports(handlerNode, { symbolMap, propagateStyle: 'http-exception' });
+      } = emitNativeKernBodyPythonWithImports(handlerNode, {
+        symbolMap,
+        propagateStyle: 'http-exception',
+        // Pass def-signature param names so a native `let x` inside an inner
+        // block that shadows a param triggers __k_shadow_x_N rename in the
+        // body emitter. Without this, params remained unprotected in
+        // production builds (caught by agon review of commit f1afb9b3).
+        outerBindings: paramNames,
+      });
       for (const mod of bodyImports) {
         imports.add(`import ${mod} as __k_${mod}`);
       }

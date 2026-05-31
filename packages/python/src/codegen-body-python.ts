@@ -92,9 +92,11 @@ export interface BodyEmitOptions {
    * module-level globals the wrapper has bound. Pre-populated as the
    * outermost `localScopes` map so an inner-block `let` that shadows ANY of
    * these triggers the block-scope rename (closes nero red-team Challenge 2
-   * for param shadows). Each name is recorded as 'const' (the body must not
-   * reassign a param directly; an outer-scope `let` reassign goes through
-   * its own declaration on entry). */
+   * for param shadows). Each name is recorded as 'const' since the body's
+   * own re-declarations of these names go through `let` (a fresh
+   * declaration) rather than `assign`, so this annotation only governs
+   * shadow-detection — it never blocks legitimate inner reassignment of an
+   * unrelated inner binding. */
   outerBindings?: string[];
 }
 
@@ -258,6 +260,10 @@ export function emitNativeKernBodyPythonWithImports(handlerNode: IRNode, options
   const outerBindings = options?.outerBindings ?? [];
   if (outerBindings.length > 0) {
     ctx.localScopes.push(new Map(outerBindings.map((n) => [n, 'const' as const])));
+    // `null` is the existing "no active regex binding" sentinel — consumed
+    // by `lookupRegexBinding` (returns null when the scope has the name but
+    // no regex literal was assigned to it). Mirroring it here keeps regex
+    // and local-binding scope stacks index-aligned.
     ctx.regexScopes.push(new Map(outerBindings.map((n) => [n, null])));
     ctx.renameStack.push(new Map());
   }
