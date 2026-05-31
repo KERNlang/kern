@@ -973,7 +973,12 @@ const dir = mkdtempSync(join(tmpdir(), 'kern-conf-'));
 process.on('exit', () => {
   try {
     rmSync(dir, { recursive: true, force: true });
-  } catch {}
+  } catch (err) {
+    // tmpdir cleanup on process exit is best-effort — never crash the test run on it
+    // (the OS reaps the directory on its own). Surface as a soft warning so the silent-fail
+    // is observable in logs. (kern-guard ignored-error finding — Wave 3 PR #354.)
+    console.warn(`conformance: tmpdir cleanup failed: ${err?.message ?? err}`);
+  }
 });
 
 // Wave 3 round-3 regression guard: run the __DotDict shim probe before any fixture so a
