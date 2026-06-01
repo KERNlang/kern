@@ -89,9 +89,26 @@ function prettyKern(node: IRNode, indent = ''): string {
 // ── Main transpile command ──────────────────────────────────────────────
 
 export function runTranspile(args: string[]): void {
-  const inputFile = args.find((a) => !a.startsWith('--'));
+  const flagsWithValue = new Set(['--target', '--structure', '--emit', '--python-model-backend', '--outdir']);
+  // Sentinel default keeps the type `string` throughout; the `!inputPath`
+  // guard below treats the empty default as "missing". Avoids both tsc's
+  // `string | undefined` narrowing and kern-guard's ts18048/ts2322 — both
+  // narrowers struggle with `process.exit` as `never`.
+  let inputPath = '';
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg.startsWith('--')) {
+      const eqIdx = arg.indexOf('=');
+      if (eqIdx === -1 && flagsWithValue.has(arg)) {
+        i++;
+      }
+    } else {
+      inputPath = arg;
+      break;
+    }
+  }
 
-  if (!inputFile) {
+  if (!inputPath) {
     printHelp();
     process.exit(1);
   }
@@ -133,21 +150,29 @@ export function runTranspile(args: string[]): void {
     }
     config = { ...config, structure: cliStructure as KernStructure };
   }
+  const emitArg = parseFlag(args, '--emit');
+  if (emitArg) {
+    config = { ...config, emit: emitArg };
+  }
+  const pythonModelBackend = parseFlag(args, '--python-model-backend');
+  if (pythonModelBackend) {
+    config = { ...config, pythonModelBackend: pythonModelBackend as any };
+  }
 
-  const irSource = readFileSync(resolve(inputFile), 'utf-8');
-  const ast = parseAndSurface(irSource, inputFile);
-  const ext = inputFile.endsWith('.kern') ? '.kern' : '.ir';
-  const name = basename(inputFile, ext);
+  const irSource = inputPath === '-' ? readFileSync(0, 'utf-8') : readFileSync(resolve(inputPath), 'utf-8');
+  const ast = parseAndSurface(irSource, inputPath);
+  const ext = inputPath.endsWith('.kern') ? '.kern' : '.ir';
+  const name = basename(inputPath, ext);
   const target = config.target === 'auto' ? detectTarget(ast) : config.target;
   const effectiveConfig = config.target === 'auto' ? { ...config, target } : config;
 
   // Minify
   if (hasFlag(args, '--minify')) {
     const minified = minifyKern(ast);
-    const outFile = resolve(dirname(inputFile), `${name}.min.kern`);
+    const outFile = resolve(dirname(inputPath), `${name}.min.kern`);
     writeFileSync(outFile, minified);
     const savings = Math.round((1 - minified.length / irSource.length) * 100);
-    console.log(`Minified: ${inputFile} → ${outFile}`);
+    console.log(`Minified: ${inputPath} → ${outFile}`);
     console.log(`Chars:    ${irSource.length} → ${minified.length} (${savings}% smaller)`);
     process.exit(0);
   }
@@ -155,9 +180,9 @@ export function runTranspile(args: string[]): void {
   // Pretty
   if (hasFlag(args, '--pretty')) {
     const pretty = prettyKern(ast);
-    const outFile = resolve(dirname(inputFile), `${name}.kern`);
+    const outFile = resolve(dirname(inputPath), `${name}.kern`);
     writeFileSync(outFile, pretty);
-    console.log(`Formatted: ${inputFile} → ${outFile}`);
+    console.log(`Formatted: ${inputPath} → ${outFile}`);
     process.exit(0);
   }
 
@@ -171,7 +196,7 @@ export function runTranspile(args: string[]): void {
   // Metrics
   if (hasFlag(args, '--metrics')) {
     const metrics = collectLanguageMetrics(ast);
-    console.log(`Metrics: ${inputFile}`);
+    console.log(`Metrics: ${inputPath}`);
     console.log(`  Nodes:        ${metrics.nodeCount} (${metrics.nodeTypes.length} types)`);
     console.log(`  Styles:       ${metrics.styleMetrics.totalStyleDecls} declarations`);
     console.log(
@@ -201,9 +226,16 @@ export function runTranspile(args: string[]): void {
   const outBaseName = outputBaseNameForTarget(name, target);
   const result = transpileForTarget(ast, withFastApiEntryModules(effectiveConfig, [outBaseName]));
 
-  const outDir = resolve(dirname(inputFile), config.output.outDir);
+  const outDir = resolve(dirname(inputPath), config.output.outDir);
+  if (inputPath === '-') {
+    process.stdout.write(result.code);
+    process.exit(0);
+  }
   const isStructured =
-    target !== 'fastapi' && effectiveConfig.structure !== 'flat' && result.artifacts && result.artifacts.length > 0;
+    target !== 'fastapi' &&
+    (effectiveConfig.structure !== 'flat' || target === 'go') &&
+    result.artifacts &&
+    result.artifacts.length > 0;
 
   if (isStructured) {
     for (const artifact of result.artifacts!) {
@@ -213,7 +245,7 @@ export function runTranspile(args: string[]): void {
     }
     const entryArtifact = result.artifacts!.find((a) => a.type === 'entry' || a.type === 'page');
     const displayPath = entryArtifact ? resolve(outDir, entryArtifact.path) : resolve(outDir, `${name}.tsx`);
-    console.log(`Transpiled: ${inputFile} → ${displayPath}`);
+    console.log(`Transpiled: ${inputPath} → ${displayPath}`);
   } else {
     const outExt = getOutputExtension(target);
     const outFile = resolve(outDir, `${outBaseName}${outExt}`);
@@ -226,7 +258,7 @@ export function runTranspile(args: string[]): void {
         writeFileSync(artifactPath, artifact.content);
       }
     }
-    console.log(`Transpiled: ${inputFile} → ${outFile}`);
+    console.log(`Transpiled: ${inputPath} → ${outFile}`);
   }
 
   const targetNames: Record<string, string> = {
@@ -236,6 +268,7 @@ export function runTranspile(args: string[]): void {
     nextjs: 'Next.js App Router',
     express: 'Express TypeScript',
     fastapi: 'FastAPI Python',
+    go: 'Go net/http',
     cli: 'Commander.js CLI',
     terminal: 'ANSI Terminal',
     ink: 'Ink (React for Terminals)',
@@ -263,7 +296,9 @@ export function runTranspile(args: string[]): void {
     for (const d of result.diagnostics) counts[d.outcome] = (counts[d.outcome] || 0) + 1;
     const parts = Object.entries(counts).map(([k, v]) => `${v} ${k}`);
     console.log(`Diagnostics: ${parts.join(', ')}`);
-    const unsupported = result.diagnostics.filter((d) => d.outcome === 'unsupported');
+    // Severity-bearing diagnostics render via the richer severity block below, so
+    // skip the terse line here to avoid printing the same diagnostic twice.
+    const unsupported = result.diagnostics.filter((d) => d.outcome === 'unsupported' && !d.severity);
     if (unsupported.length > 0) {
       for (const d of unsupported) {
         const loc = d.loc ? `:${d.loc.line}` : '';
@@ -286,7 +321,7 @@ export function runTranspile(args: string[]): void {
 
 export function printHelp(): void {
   console.log(
-    'Usage: kern <file.kern> [--target=lib|nextjs|tailwind|web|native|express|cli|terminal|ink|vue|nuxt|fastapi|mcp] [options]',
+    'Usage: kern <file.kern> [--target=lib|nextjs|tailwind|web|native|express|go|cli|terminal|ink|vue|nuxt|fastapi|mcp] [options]',
   );
   console.log('');
   console.log('Commands:');
@@ -323,6 +358,7 @@ export function printHelp(): void {
   console.log('  nuxt      Nuxt 3 (pages, layouts, server routes)');
   console.log('  native    React Native component');
   console.log('  express   Express TypeScript backend');
+  console.log('  go        Go net/http backend');
   console.log('  cli       Commander.js CLI app');
   console.log('  terminal  ANSI terminal rendering');
   console.log('  ink       React Ink terminal UI');

@@ -1846,14 +1846,15 @@ describe('FastAPI Transpiler', () => {
         'server name=Test',
         '  route GET /api/tracks',
         '    derive tracks expr={{await db.query("SELECT * FROM tracks")}}',
-        '    collect name=sorted from=tracks order=item.score',
+        '    collect name=sorted from=tracks order={{a.score - b.score}}',
         '    respond 200 json=sorted',
       ].join('\n');
       const result = transpileFastAPI(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
 
-      // 'sorted' is a Python built-in → renamed to sorted_result
-      expect(route!.content).toContain('sorted(sorted_result, key=lambda item: item.score)');
+      // 'sorted' is a Python built-in → renamed to sorted_result.
+      // `order` is a COMPARATOR (a,b) — matches Express/.sort((a,b)=>...); cmp_to_key (#6).
+      expect(route!.content).toContain('sorted(sorted_result, key=cmp_to_key(lambda a, b: a.score - b.score))');
     });
 
     test('branch.on={{...}} curly-expr form is unwrapped (regression)', async () => {
@@ -1901,14 +1902,14 @@ describe('FastAPI Transpiler', () => {
         'server name=Test',
         '  route GET /api/items',
         '    derive items expr={{await db.all()}}',
-        '    collect name=ranked from=items order={{item.score}}',
+        '    collect name=ranked from=items order={{a.score - b.score}}',
         '    respond 200 json=ranked',
       ].join('\n');
       const result = transpileFastAPI(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
       const content = route!.content;
       expect(content).not.toContain('[object Object]');
-      expect(content).toContain('sorted(ranked, key=lambda item: item.score)');
+      expect(content).toContain('sorted(ranked, key=cmp_to_key(lambda a, b: a.score - b.score))');
     });
   });
 
@@ -2127,14 +2128,14 @@ describe('FastAPI Transpiler', () => {
     });
 
     test('JS literals preserved after `.` with whitespace (Codex fix-up 1 followup)', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
       // Pre-fix: `(?<!\.)` only checked the immediate previous char, so
       // `obj . true` (whitespace between dot and keyword) still lowered
       // to `obj . True` — Python SyntaxError. Now `(?<!\.\s*)` handles
       // any whitespace between.
-      expect(rewriteFastAPIExpr('obj . true', [])).toBe('obj . true');
-      expect(rewriteFastAPIExpr('obj  .  null', [])).toBe('obj  .  null');
-      expect(rewriteFastAPIExpr('a.b . false', [])).toBe('a.b . false');
+      expect(rewriteExpr('obj . true', [])).toBe('obj . true');
+      expect(rewriteExpr('obj  .  null', [])).toBe('obj  .  null');
+      expect(rewriteExpr('a.b . false', [])).toBe('a.b . false');
     });
 
     test('Python comment containing JS keywords does NOT false-positive (Codex fix-up 1 followup)', async () => {
@@ -2241,8 +2242,9 @@ describe('FastAPI Transpiler', () => {
       const result = transpileFastAPI(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
       const content = route!.content;
-      // params.sortKey → sortKey (query param rewrite)
-      expect(content).toContain('sorted(ranked, key=lambda item: sortKey)');
+      // params.sortKey → sortKey (query param rewrite); order is a comparator -> cmp_to_key (#6).
+      // (This test validates the lowerPropToPython routing, not sort semantics.)
+      expect(content).toContain('sorted(ranked, key=cmp_to_key(lambda a, b: sortKey))');
       // No [object Object] or double-rewrite artifacts
       expect(content).not.toContain('[object Object]');
     });
@@ -2261,7 +2263,7 @@ describe('FastAPI Transpiler', () => {
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
       const content = route!.content;
       expect(content).not.toContain('[object Object]');
-      // params.max → max (query/path param rewrite via rewriteFastAPIExpr)
+      // params.max → max (query/path param rewrite via rewriteExpr)
       expect(content).toMatch(/\[:max\]/);
     });
 
@@ -2311,110 +2313,100 @@ describe('FastAPI Transpiler', () => {
     });
   });
 
-  // ── rewriteFastAPIExpr — JS-to-Python expression lowerings ─────────
+  // ── rewriteExpr — JS-to-Python expression lowerings ─────────
 
-  describe('rewriteFastAPIExpr JS-to-Python lowerings', () => {
+  describe('rewriteExpr JS-to-Python lowerings', () => {
     test('=== / !== lower to == / !=', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      expect(rewriteFastAPIExpr('item.role === "admin"', [])).toBe('item.role == "admin"');
-      expect(rewriteFastAPIExpr('user.id !== other.id', [])).toBe('user.id != other.id');
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
+      expect(rewriteExpr('item.role === "admin"', [])).toBe('item.role == "admin"');
+      expect(rewriteExpr('user.id !== other.id', [])).toBe('user.id != other.id');
       // Doesn't touch already-correct ==/!=
-      expect(rewriteFastAPIExpr('a == b', [])).toBe('a == b');
+      expect(rewriteExpr('a == b', [])).toBe('a == b');
     });
 
     test('.filter((x) => pred) lowers to list comprehension', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      expect(rewriteFastAPIExpr('users.filter((u) => u.active)', [])).toBe('[u for u in users if u["active"]]');
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
+      expect(rewriteExpr('users.filter((u) => u.active)', [])).toBe('[u for u in users if u["active"]]');
     });
 
     test('.map((x) => expr) lowers to list comprehension', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      expect(rewriteFastAPIExpr('users.map((u) => u.name)', [])).toBe('[u["name"] for u in users]');
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
+      expect(rewriteExpr('users.map((u) => u.name)', [])).toBe('[u["name"] for u in users]');
     });
 
     test('.find((x) => pred) lowers to next() with None default', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      expect(rewriteFastAPIExpr('users.find((u) => u.id == id)', [])).toBe(
-        'next((u for u in users if u["id"] == id), None)',
-      );
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
+      expect(rewriteExpr('users.find((u) => u.id == id)', [])).toBe('next((u for u in users if u["id"] == id), None)');
     });
 
     test('combined: .find with === lowers correctly (ordering invariant)', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
       // Arrow rewrite runs first; the inner `===` is then caught by the
       // strict-equality pass on the rewritten predicate.
-      expect(rewriteFastAPIExpr('users.find((item) => item.id === id)', [])).toBe(
+      expect(rewriteExpr('users.find((item) => item.id === id)', [])).toBe(
         'next((item for item in users if item["id"] == id), None)',
       );
     });
 
     test('map with index arg lowers via enumerate()', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      expect(rewriteFastAPIExpr('arr.map((u, i) => u.name)', [])).toBe('[u["name"] for i, u in enumerate(arr)]');
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
+      expect(rewriteExpr('arr.map((u, i) => u.name)', [])).toBe('[u["name"] for i, u in enumerate(arr)]');
     });
 
     test('arr-core dict member access lowers to subscript form', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      expect(rewriteFastAPIExpr('items.filter((x) => x.active)', [])).toBe('[x for x in items if x["active"]]');
-      expect(rewriteFastAPIExpr('items.map((x) => x.n)', [])).toBe('[x["n"] for x in items]');
-      expect(rewriteFastAPIExpr('items.find((x) => x.n === 2)', [])).toBe(
-        'next((x for x in items if x["n"] == 2), None)',
-      );
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
+      expect(rewriteExpr('items.filter((x) => x.active)', [])).toBe('[x for x in items if x["active"]]');
+      expect(rewriteExpr('items.map((x) => x.n)', [])).toBe('[x["n"] for x in items]');
+      expect(rewriteExpr('items.find((x) => x.n === 2)', [])).toBe('next((x for x in items if x["n"] == 2), None)');
     });
 
     test('arr-core supports bare arrow params and nested dict member access', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      expect(rewriteFastAPIExpr('items.filter(x => x.active)', [])).toBe('[x for x in items if x["active"]]');
-      expect(rewriteFastAPIExpr('items.map((x) => x.meta.tag)', [])).toBe('[x["meta"]["tag"] for x in items]');
-      expect(rewriteFastAPIExpr('items.map((x, i) => x.n + i)', [])).toBe('[x["n"] + i for i, x in enumerate(items)]');
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
+      expect(rewriteExpr('items.filter(x => x.active)', [])).toBe('[x for x in items if x["active"]]');
+      expect(rewriteExpr('items.map((x) => x.meta.tag)', [])).toBe('[x["meta"]["tag"] for x in items]');
+      expect(rewriteExpr('items.map((x, i) => x.n + i)', [])).toBe('[x["n"] + i for i, x in enumerate(items)]');
     });
 
     test('arr-core filter/find/some with an index param bind it via enumerate (codex review ab192611)', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
       // The index var was previously unbound for filter/find/some → NameError.
-      expect(rewriteFastAPIExpr('items.filter((x, i) => i > 0)', [])).toBe('[x for i, x in enumerate(items) if i > 0]');
-      expect(rewriteFastAPIExpr('items.find((x, i) => i === 1)', [])).toBe(
+      expect(rewriteExpr('items.filter((x, i) => i > 0)', [])).toBe('[x for i, x in enumerate(items) if i > 0]');
+      expect(rewriteExpr('items.find((x, i) => i === 1)', [])).toBe(
         'next((x for i, x in enumerate(items) if i == 1), None)',
       );
-      expect(rewriteFastAPIExpr('items.some((x, i) => i > 0)', [])).toBe('any(i > 0 for i, x in enumerate(items))');
+      expect(rewriteExpr('items.some((x, i) => i > 0)', [])).toBe('any(i > 0 for i, x in enumerate(items))');
     });
 
     test('arr-core subscripts data fields before a method call + nested map (codex review ab192611)', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
       // Data field before a method must be subscripted; the method segment is
       // kept (and itself lowered): x.name.toUpperCase() → x["name"].upper().
-      expect(rewriteFastAPIExpr('items.map((x) => x.name.toUpperCase())', [])).toBe(
-        '[x["name"].upper() for x in items]',
-      );
+      expect(rewriteExpr('items.map((x) => x.name.toUpperCase())', [])).toBe('[x["name"].upper() for x in items]');
       // Nested array method: the inner receiver x.tags must be subscripted so
       // the inner comprehension iterates a dict field, not an attribute.
-      expect(rewriteFastAPIExpr('items.map((x) => x.tags.map((t) => t.name))', [])).toBe(
+      expect(rewriteExpr('items.map((x) => x.tags.map((t) => t.name))', [])).toBe(
         '[[t["name"] for t in x["tags"]] for x in items]',
       );
     });
 
     test('=== / !== are skipped when inside string literals (Codex P2)', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      expect(rewriteFastAPIExpr('label = "use === for strict equality"', [])).toBe(
-        'label = "use === for strict equality"',
-      );
-      expect(rewriteFastAPIExpr("msg = 'a !== b'", [])).toBe("msg = 'a !== b'");
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
+      expect(rewriteExpr('label = "use === for strict equality"', [])).toBe('label = "use === for strict equality"');
+      expect(rewriteExpr("msg = 'a !== b'", [])).toBe("msg = 'a !== b'");
       // Mixed — the in-string text is preserved, the out-of-string operator IS rewritten
-      expect(rewriteFastAPIExpr('cond = a === b && label === "x !== y"', [])).toBe(
-        'cond = a == b && label == "x !== y"',
-      );
+      expect(rewriteExpr('cond = a === b && label === "x !== y"', [])).toBe('cond = a == b && label == "x !== y"');
     });
 
     test('chained .filter().map() rewrites fully (Gemini #2)', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      expect(rewriteFastAPIExpr('users.filter((u) => u.active).map((u) => u.name)', [])).toBe(
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
+      expect(rewriteExpr('users.filter((u) => u.active).map((u) => u.name)', [])).toBe(
         '[u["name"] for u in [u for u in users if u["active"]]]',
       );
     });
 
     test('arr-method lowerings rewrite to Python forms (and drop JS method syntax)', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      const out = rewriteFastAPIExpr(
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
+      const out = rewriteExpr(
         'nums.includes(2) && nums.indexOf(2) >= 0 && nums.join(",") == "1,2,3" && nums.slice(0, 2)',
         [],
       );
@@ -2429,9 +2421,9 @@ describe('FastAPI Transpiler', () => {
     });
 
     test('arr-method callbacks some/every/reduce lower and reduce adds functools import', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
       const imports = new Set<string>();
-      const out = rewriteFastAPIExpr(
+      const out = rewriteExpr(
         'nums.some((n) => n === 2) && nums.every((n) => n > 0) && nums.reduce((a, b) => a + b, 0)',
         [],
         new Set(),
@@ -2448,98 +2440,98 @@ describe('FastAPI Transpiler', () => {
     });
 
     test('arrow predicate with one level of nested parens (Gemini #3)', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      expect(rewriteFastAPIExpr('users.filter((u) => (u.age > 18))', [])).toBe('[u for u in users if (u["age"] > 18)]');
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
+      expect(rewriteExpr('users.filter((u) => (u.age > 18))', [])).toBe('[u for u in users if (u["age"] > 18)]');
     });
 
     test('undefined / null lower to None outside strings (Gemini #4)', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      expect(rewriteFastAPIExpr('x === undefined', [])).toBe('x == None');
-      expect(rewriteFastAPIExpr('x !== null', [])).toBe('x != None');
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
+      expect(rewriteExpr('x === undefined', [])).toBe('x == None');
+      expect(rewriteExpr('x !== null', [])).toBe('x != None');
       // …and `undefined`/`null` inside strings are preserved
-      expect(rewriteFastAPIExpr('reason = "undefined behavior"', [])).toBe('reason = "undefined behavior"');
-      expect(rewriteFastAPIExpr('msg = "null pointer"', [])).toBe('msg = "null pointer"');
+      expect(rewriteExpr('reason = "undefined behavior"', [])).toBe('reason = "undefined behavior"');
+      expect(rewriteExpr('msg = "null pointer"', [])).toBe('msg = "null pointer"');
     });
 
     test('true / false lower to True / False outside strings', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      expect(rewriteFastAPIExpr('enabled = true', [])).toBe('enabled = True');
-      expect(rewriteFastAPIExpr('flag = false', [])).toBe('flag = False');
-      expect(rewriteFastAPIExpr('msg = "set to true"', [])).toBe('msg = "set to true"');
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
+      expect(rewriteExpr('enabled = true', [])).toBe('enabled = True');
+      expect(rewriteExpr('flag = false', [])).toBe('flag = False');
+      expect(rewriteExpr('msg = "set to true"', [])).toBe('msg = "set to true"');
     });
 
     test('backtick templates without interpolation lower to plain strings', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      expect(rewriteFastAPIExpr('msg = `use === for strict equality`', [])).toBe('msg = "use === for strict equality"');
-      expect(rewriteFastAPIExpr('msg = `a !== b`', [])).toBe('msg = "a !== b"');
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
+      expect(rewriteExpr('msg = `use === for strict equality`', [])).toBe('msg = "use === for strict equality"');
+      expect(rewriteExpr('msg = `a !== b`', [])).toBe('msg = "a !== b"');
     });
 
     test('JS literals preserved inside backtick template literals (B3 cont.)', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      expect(rewriteFastAPIExpr('s = `undefined behavior`', [])).toBe('s = "undefined behavior"');
-      expect(rewriteFastAPIExpr('s = `set to true`', [])).toBe('s = "set to true"');
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
+      expect(rewriteExpr('s = `undefined behavior`', [])).toBe('s = "undefined behavior"');
+      expect(rewriteExpr('s = `set to true`', [])).toBe('s = "set to true"');
     });
 
     test('JS literals skipped when used as property access (Codex+Gemini B2)', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
       // `obj.true` etc. would lower to `obj.True`, which is a Python
       // `SyntaxError` (True/False/None are reserved words and cannot
       // appear after a `.`). Skip the rewrite when preceded by `.`.
-      expect(rewriteFastAPIExpr('obj.true', [])).toBe('obj.true');
-      expect(rewriteFastAPIExpr('obj.null', [])).toBe('obj.null');
-      expect(rewriteFastAPIExpr('obj.undefined', [])).toBe('obj.undefined');
-      expect(rewriteFastAPIExpr('obj.false', [])).toBe('obj.false');
+      expect(rewriteExpr('obj.true', [])).toBe('obj.true');
+      expect(rewriteExpr('obj.null', [])).toBe('obj.null');
+      expect(rewriteExpr('obj.undefined', [])).toBe('obj.undefined');
+      expect(rewriteExpr('obj.false', [])).toBe('obj.false');
       // …but a bare token after a non-dot still lowers
-      expect(rewriteFastAPIExpr('x = true', [])).toBe('x = True');
+      expect(rewriteExpr('x = true', [])).toBe('x = True');
       // …and a token after a dotted access (`obj.x.true` ?) actually
       // this would still be a property access — preserve.
-      expect(rewriteFastAPIExpr('a.b.true', [])).toBe('a.b.true');
+      expect(rewriteExpr('a.b.true', [])).toBe('a.b.true');
     });
 
     // ── str-method portability (task 03-str-method): substring/pad*/repeat +
     //    the split(sep, limit) maxsplit trap. includes/indexOf/slice already
     //    covered above (receiver-agnostic, shared with arr-method). ──────────
     test('substring lowers to a Python slice (JS form dropped)', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      expect(rewriteFastAPIExpr('s.substring(0, 2)', [])).toBe('s[0:2]');
-      expect(rewriteFastAPIExpr('s.substring(2)', [])).toBe('s[2:]');
-      expect(rewriteFastAPIExpr('s.substring(0, 2)', [])).not.toContain('.substring(');
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
+      expect(rewriteExpr('s.substring(0, 2)', [])).toBe('s[0:2]');
+      expect(rewriteExpr('s.substring(2)', [])).toBe('s[2:]');
+      expect(rewriteExpr('s.substring(0, 2)', [])).not.toContain('.substring(');
     });
 
     test('padStart/padEnd lower to rjust/ljust (default + explicit fill)', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      expect(rewriteFastAPIExpr('s.padStart(8, "0")', [])).toBe('s.rjust(8, "0")');
-      expect(rewriteFastAPIExpr('s.padEnd(8, "0")', [])).toBe('s.ljust(8, "0")');
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
+      expect(rewriteExpr('s.padStart(8, "0")', [])).toBe('s.rjust(8, "0")');
+      expect(rewriteExpr('s.padEnd(8, "0")', [])).toBe('s.ljust(8, "0")');
       // 1-arg form: JS pads with " " and Python rjust/ljust default to " " too.
-      expect(rewriteFastAPIExpr('s.padStart(8)', [])).toBe('s.rjust(8)');
-      const out = rewriteFastAPIExpr('s.padStart(8, "0")', []);
+      expect(rewriteExpr('s.padStart(8)', [])).toBe('s.rjust(8)');
+      const out = rewriteExpr('s.padStart(8, "0")', []);
       expect(out).not.toContain('.padStart(');
       expect(out).not.toContain('.padEnd(');
     });
 
     test('repeat lowers to a parenthesized `*` (receiver pulled in front)', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      expect(rewriteFastAPIExpr('s.repeat(2)', [])).toBe('(s * 2)');
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
+      expect(rewriteExpr('s.repeat(2)', [])).toBe('(s * 2)');
       // Bracket-access receiver is carried into the product too.
-      expect(rewriteFastAPIExpr('data["k"].repeat(3)', [])).toBe('(data["k"] * 3)');
-      expect(rewriteFastAPIExpr('s.repeat(2)', [])).not.toContain('.repeat(');
+      expect(rewriteExpr('data["k"].repeat(3)', [])).toBe('(data["k"] * 3)');
+      expect(rewriteExpr('s.repeat(2)', [])).not.toContain('.repeat(');
     });
 
     test('split(sep, limit) is the maxsplit TRAP → split(sep)[:limit], not maxsplit', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
       // JS keeps the FIRST `limit` parts; Python's 2nd arg is maxsplit (keeps
       // the remainder), so the only correct lowering truncates AFTER a full split.
-      expect(rewriteFastAPIExpr('s.split(",", 2)', [])).toBe('s.split(",")[:2]');
+      expect(rewriteExpr('s.split(",", 2)', [])).toBe('s.split(",")[:2]');
       // Must NOT emit the maxsplit form `s.split(",", 2)`.
-      expect(rewriteFastAPIExpr('s.split(",", 2)', [])).not.toBe('s.split(",", 2)');
+      expect(rewriteExpr('s.split(",", 2)', [])).not.toBe('s.split(",", 2)');
       // The existing no-limit form stays raw (Python str.split matches JS).
-      expect(rewriteFastAPIExpr('s.split(",")', [])).toBe('s.split(",")');
+      expect(rewriteExpr('s.split(",")', [])).toBe('s.split(",")');
     });
 
     test('a quoted ".repeat(" / ".substring(" inside a string literal stays raw', async () => {
-      const { rewriteFastAPIExpr } = await import('../src/fastapi-response.js');
-      expect(rewriteFastAPIExpr('msg = "call .repeat( in docs"', [])).toBe('msg = "call .repeat( in docs"');
-      expect(rewriteFastAPIExpr("note = 'use .substring(0, 2) here'", [])).toBe("note = 'use .substring(0, 2) here'");
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
+      expect(rewriteExpr('msg = "call .repeat( in docs"', [])).toBe('msg = "call .repeat( in docs"');
+      expect(rewriteExpr("note = 'use .substring(0, 2) here'", [])).toBe("note = 'use .substring(0, 2) here'");
     });
   });
 

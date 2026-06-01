@@ -51,6 +51,12 @@ import {
   parseExpression,
   suggestStdlibMethod,
 } from '@kernlang/core';
+import {
+  KERN_FMT_HELPER_PY,
+  KERN_I32_HELPER_PY,
+  KERN_PAIR_HELPERS_PY,
+  KERN_TMOD_HELPER_PY,
+} from './core/expr/index.js';
 
 /** Slice 3e — caller-provided options for the Python body emitter.
  *  Currently only `symbolMap`; future slices may add diagnostics, source-map
@@ -82,6 +88,16 @@ export interface BodyEmitOptions {
    * packages/core/src/ir/semantics/python-leg.ts for the runtime contract.
    */
   traceHooks?: { eachIterNext?: boolean; forIterNext?: boolean; letAssign?: boolean };
+  /** Outer-scope names the body INHERITS — typically function parameters and
+   * module-level globals the wrapper has bound. Pre-populated as the
+   * outermost `localScopes` map so an inner-block `let` that shadows ANY of
+   * these triggers the block-scope rename (closes nero red-team Challenge 2
+   * for param shadows). Each name is recorded as 'const' since the body's
+   * own re-declarations of these names go through `let` (a fresh
+   * declaration) rather than `assign`, so this annotation only governs
+   * shadow-detection — it never blocks legitimate inner reassignment of an
+   * unrelated inner binding. */
+  outerBindings?: string[];
 }
 
 /** Slice 3e — public return shape. `code` is the joined body text;
@@ -118,6 +134,13 @@ interface BodyEmitContext {
   shadowedSymbols: Set<string>;
   localScopes: Array<Map<string, 'const' | 'let' | 'cell'>>;
   regexScopes: Array<Map<string, Extract<ValueIR, { kind: 'regexLit' }> | null>>;
+  /** Per-scope `userName -> emittedName` map. Populated when an inner-block
+   * `let` shadows an outer binding so TS block-scope (`let x=1; if(c){let x=2}
+   * return x` → 1) survives Python's flat function-scope (would otherwise
+   * leak 2). Parallel to `localScopes`; pushed/popped together. The outermost
+   * scope never renames (function-body lets stay user-facing). Resolved via
+   * `resolveLocalRename`; consulted in ident emission. */
+  renameStack: Array<Map<string, string>>;
   propagateStyle: 'value' | 'http-exception';
   usedPropagation: boolean;
   /** PR-3b differential-harness opt-in (see BodyEmitOptions.traceHooks). */
@@ -144,6 +167,7 @@ function freshCtx(options?: BodyEmitOptions): BodyEmitContext {
     shadowedSymbols: new Set<string>(),
     localScopes: [],
     regexScopes: [],
+    renameStack: [],
     propagateStyle: options?.propagateStyle ?? 'value',
     usedPropagation: false,
     tryDepth: 0,
@@ -170,18 +194,6 @@ function freshCtx(options?: BodyEmitOptions): BodyEmitContext {
  *      async iterable; sync data is wrapped at iteration entry).
  *
  *  Both helpers are pure functions on the input; no captures, no globals. */
-export const KERN_PAIR_HELPERS_PY = [
-  'def _kern_pairs(__k_v):',
-  '    return __k_v.items() if hasattr(__k_v, "items") else iter(__k_v)',
-  '',
-  'async def _kern_async_pairs(__k_v):',
-  '    if hasattr(__k_v, "__aiter__"):',
-  '        async for __k_item in __k_v:',
-  '            yield __k_item',
-  '    else:',
-  '        for __k_item in _kern_pairs(__k_v):',
-  '            yield __k_item',
-].join('\n');
 
 /** KERN-canonical interpolation formatter for `fmt` / template literals.
  *  Python `f"{v}"` uses `str()`, which gives `True`/`False`/`None` — diverging
@@ -194,14 +206,6 @@ export const KERN_PAIR_HELPERS_PY = [
  *  `True` → `"True"`. Co-located with the codegen so the production emitter and
  *  the differential harness use byte-identical defs; emitted at module scope
  *  via `BodyEmitResult.helpers` whenever an interpolation is wrapped. */
-export const KERN_FMT_HELPER_PY = [
-  'def _kern_fmt(__k_v):',
-  '    if isinstance(__k_v, bool):',
-  "        return 'true' if __k_v else 'false'",
-  '    if __k_v is None:',
-  "        return 'null'",
-  '    return str(__k_v)',
-].join('\n');
 
 /** Emit the body of a native KERN handler as Python source. Returns the
  *  joined body text. Each top-level line is unindented; nested `if`-bodies
@@ -249,8 +253,30 @@ export function emitNativeKernBodyPython(handlerNode: IRNode, options?: BodyEmit
  *  when `propagateStyle: 'http-exception'` is in effect. */
 export function emitNativeKernBodyPythonWithImports(handlerNode: IRNode, options?: BodyEmitOptions): BodyEmitResult {
   const ctx = freshCtx(options);
-  const code = emitChildrenPy(handlerNode.children ?? [], ctx, '').join('\n');
-  return { code, imports: ctx.imports, usedPropagation: ctx.usedPropagation, helpers: ctx.helpers };
+  // Push the param/outer-binding scope ABOVE the function-body scope so an
+  // inner-block `let x` that shadows a param is detected by
+  // `maybeRenameOnShadow` (nero red-team Challenge 2). `emitChildrenPy`
+  // pushes its own scope on top; we pop ours after it returns.
+  const outerBindings = options?.outerBindings ?? [];
+  if (outerBindings.length > 0) {
+    ctx.localScopes.push(new Map(outerBindings.map((n) => [n, 'const' as const])));
+    // `null` is the existing "no active regex binding" sentinel — consumed
+    // by `lookupRegexBinding` (returns null when the scope has the name but
+    // no regex literal was assigned to it). Mirroring it here keeps regex
+    // and local-binding scope stacks index-aligned.
+    ctx.regexScopes.push(new Map(outerBindings.map((n) => [n, null])));
+    ctx.renameStack.push(new Map());
+  }
+  try {
+    const code = emitChildrenPy(handlerNode.children ?? [], ctx, '').join('\n');
+    return { code, imports: ctx.imports, usedPropagation: ctx.usedPropagation, helpers: ctx.helpers };
+  } finally {
+    if (outerBindings.length > 0) {
+      ctx.localScopes.pop();
+      ctx.regexScopes.pop();
+      ctx.renameStack.pop();
+    }
+  }
 }
 
 /** Body-statement node types that map to a SINGLE emitted line and may carry
@@ -276,6 +302,7 @@ function emitChildrenPy(
   const lines: string[] = [];
   ctx.localScopes.push(new Map(initialBindings));
   ctx.regexScopes.push(new Map(initialBindings.map(([name]) => [name, null])));
+  ctx.renameStack.push(new Map());
   try {
     for (let i = 0; i < children.length; i++) {
       const child = children[i];
@@ -599,8 +626,42 @@ function emitChildrenPy(
   } finally {
     ctx.localScopes.pop();
     ctx.regexScopes.pop();
+    ctx.renameStack.pop();
   }
   return lines;
+}
+
+/** Returns the rename for `name` from the innermost scope that has one, else
+ * `name` itself. Consulted in ident emission and at `let`/`assign` LHS
+ * rendering so a shadowed inner `let x` (emitted as `__k_shadow_x_N`) and
+ * its references inside the block resolve consistently, while outer
+ * references after the block still see the user-facing name. */
+function resolveLocalRename(ctx: BodyEmitContext, name: string): string {
+  for (let i = ctx.renameStack.length - 1; i >= 0; i--) {
+    const scope = ctx.renameStack[i];
+    const renamed = scope.get(name);
+    if (renamed !== undefined) return renamed;
+  }
+  return name;
+}
+
+/** Returns the renamed name if `let name=` here would shadow a binding in
+ * any OUTER scope; otherwise returns `name` unchanged. Used by `emitLetPy`
+ * to give an inner-block shadow a unique Python name + record the rename
+ * in the current scope so within-block references resolve to it. Returns
+ * `name` for function-body lets (no outer scope to shadow) and for
+ * non-shadowing inner lets (so unrelated locals stay user-friendly). */
+function maybeRenameOnShadow(ctx: BodyEmitContext, name: string): string {
+  // Only the inner-most CURRENT scope is the "newcomer"; check OUTER scopes.
+  if (ctx.localScopes.length < 2) return name;
+  for (let i = ctx.localScopes.length - 2; i >= 0; i--) {
+    if (ctx.localScopes[i].has(name)) {
+      const renamed = `__k_shadow_${name}_${++ctx.gensymCounter}`;
+      ctx.renameStack.at(-1)?.set(name, renamed);
+      return renamed;
+    }
+  }
+  return name;
 }
 
 function emitRangeForPy(node: IRNode, ctx: BodyEmitContext, indent: string): string[] {
@@ -880,15 +941,22 @@ function emitSetPy(node: IRNode, ctx: BodyEmitContext): string[] {
 
 function emitLetPy(node: IRNode, ctx: BodyEmitContext): string[] {
   const props = (node.props ?? {}) as Record<string, unknown>;
-  const name = String(props.name ?? '_');
+  const userName = String(props.name ?? '_');
   validateBodyLetKind(props.kind);
-  declareLocalBinding(ctx, name, props.kind === 'let' ? 'let' : 'const');
+  declareLocalBinding(ctx, userName, props.kind === 'let' ? 'let' : 'const');
+  // Block-scope fix: an inner `let` that shadows an outer binding gets a
+  // gensym'd Python name so TS `let x=1; if(c){let x=2}; return x` (returns 1)
+  // doesn't degrade to Python's flat scoping (would return 2). The rename is
+  // stored in the current scope's renameStack and resolved by every ident
+  // emission inside this block; outer references after the block see the
+  // user-facing name (no entry in any in-scope rename map).
+  const name = maybeRenameOnShadow(ctx, userName);
   const rawValue = props.value;
   if (rawValue === undefined || rawValue === '') {
     return [`${name} = None`];
   }
   const valueIR = parseExpression(String(rawValue));
-  setRegexBinding(ctx, name, valueIR.kind === 'regexLit' ? valueIR : null);
+  setRegexBinding(ctx, userName, valueIR.kind === 'regexLit' ? valueIR : null);
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
@@ -1339,12 +1407,21 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
     case 'regexLit':
       ctx.imports.add('re');
       return `__k_re.compile(${pyRegexPattern(node)}, ${pyRegexFlags(node.flags, { allowGlobal: true })})`;
-    case 'ident':
+    case 'ident': {
+      // Block-scope rename takes precedence — an inner `let x` that shadows
+      // an outer binding was emitted with a gensym (`__k_shadow_x_N`) and
+      // every in-block reference must use the same gensym. Walk renameStack
+      // top-to-bottom (most-inner scope wins); after the inner block ends
+      // its scope is popped, so post-block references naturally see the
+      // outer user-facing name again.
+      const blockRename = resolveLocalRename(ctx, node.name);
+      if (blockRename !== node.name) return blockRename;
       // Slice 3a — apply symbol-map rename so KERN-form `userId` becomes
       // Python-form `user_id`. Identifiers not in the map (locals, globals,
       // module names) pass through unchanged.
       if (ctx.shadowedSymbols.has(node.name)) return node.name;
       return ctx.symbolMap[node.name] ?? node.name;
+    }
     case 'member':
     case 'call':
     case 'index': {
@@ -1389,6 +1466,18 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       return out;
     }
     case 'binary': {
+      if (
+        node.op === '|' ||
+        node.op === '&' ||
+        node.op === '^' ||
+        node.op === '<<' ||
+        node.op === '>>' ||
+        node.op === '%'
+      ) {
+        const transformed = lowerBitwiseAndModuloAST(node);
+        registerHelpers(transformed, ctx);
+        return emitPyExprCtx(transformed, ctx);
+      }
       // Slice 2c — arithmetic / comparison / logical lowering for Python.
       // Use precedence-aware paren-wrapping so `a + b * c` doesn't redundantly
       // wrap the right side (`a + (b * c)`) — same rule as the TS side.
@@ -1449,6 +1538,11 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       return `${lp} ${op} ${rp}`;
     }
     case 'unary': {
+      if (node.op === '~') {
+        const transformed = lowerBitwiseAndModuloAST(node);
+        registerHelpers(transformed, ctx);
+        return emitPyExprCtx(transformed, ctx);
+      }
       // Slice 2c — `!x` → `not x`, `-x` → `-x`.
       // Slice typeof — expose the now-eligible native KERN `typeof` shape on
       // Python too. Dynamic Python values are an approximation of JS typeof:
@@ -1957,5 +2051,189 @@ function lowerListLambdaPython(
       : `[${name} for ${name} in ${source} if ${body}]`;
   } finally {
     ctx.shadowedSymbols = previous;
+  }
+}
+
+export function lowerBitwiseAndModuloAST(node: ValueIR): ValueIR {
+  switch (node.kind) {
+    case 'binary': {
+      const left = lowerBitwiseAndModuloAST(node.left);
+      const right = lowerBitwiseAndModuloAST(node.right);
+      if (node.op === '|' || node.op === '&' || node.op === '^' || node.op === '<<' || node.op === '>>') {
+        let rewrittenRight = right;
+        if (node.op === '<<' || node.op === '>>') {
+          const i32Right = wrapInI32(right);
+          rewrittenRight = {
+            kind: 'binary',
+            op: '&',
+            left: i32Right,
+            right: { kind: 'numLit', value: 31, raw: '31' },
+          };
+        } else {
+          rewrittenRight = wrapInI32(right);
+        }
+        const i32Left = wrapInI32(left);
+        const bitwiseNode: ValueIR = {
+          kind: 'binary',
+          op: node.op,
+          left: i32Left,
+          right: rewrittenRight,
+        };
+        return wrapInI32(bitwiseNode);
+      } else if (node.op === '%') {
+        return {
+          kind: 'call',
+          callee: { kind: 'ident', name: '_tmod' },
+          args: [left, right],
+          optional: false,
+        };
+      }
+      return { ...node, left, right };
+    }
+    case 'unary': {
+      const argument = lowerBitwiseAndModuloAST(node.argument);
+      if (node.op === '~') {
+        const i32Arg = wrapInI32(argument);
+        const unaryNode: ValueIR = {
+          kind: 'unary',
+          op: '~',
+          argument: i32Arg,
+        };
+        return wrapInI32(unaryNode);
+      }
+      return { ...node, argument };
+    }
+    case 'tmplLit':
+      return { ...node, expressions: node.expressions.map(lowerBitwiseAndModuloAST) };
+    case 'member':
+      return { ...node, object: lowerBitwiseAndModuloAST(node.object) };
+    case 'index':
+      return { ...node, object: lowerBitwiseAndModuloAST(node.object), index: lowerBitwiseAndModuloAST(node.index) };
+    case 'call':
+      return {
+        ...node,
+        callee: lowerBitwiseAndModuloAST(node.callee),
+        args: node.args.map(lowerBitwiseAndModuloAST),
+      };
+    case 'lambda':
+      return { ...node, body: lowerBitwiseAndModuloAST(node.body) };
+    case 'spread':
+      return { ...node, argument: lowerBitwiseAndModuloAST(node.argument) };
+    case 'await':
+      return { ...node, argument: lowerBitwiseAndModuloAST(node.argument) };
+    case 'new':
+      return { ...node, argument: lowerBitwiseAndModuloAST(node.argument) };
+    case 'typeAssert':
+      return { ...node, expression: lowerBitwiseAndModuloAST(node.expression) };
+    case 'nonNull':
+      return { ...node, expression: lowerBitwiseAndModuloAST(node.expression) };
+    case 'propagate':
+      return { ...node, argument: lowerBitwiseAndModuloAST(node.argument) };
+    case 'objectLit':
+      return {
+        ...node,
+        entries: node.entries.map((e) =>
+          'kind' in e && (e as any).kind === 'spread'
+            ? { kind: 'spread', argument: lowerBitwiseAndModuloAST((e as any).argument) }
+            : { ...(e as any), value: lowerBitwiseAndModuloAST((e as any).value) },
+        ),
+      };
+    case 'arrayLit':
+      return { ...node, items: node.items.map(lowerBitwiseAndModuloAST) };
+    case 'conditional':
+      return {
+        ...node,
+        test: lowerBitwiseAndModuloAST(node.test),
+        consequent: lowerBitwiseAndModuloAST(node.consequent),
+        alternate: lowerBitwiseAndModuloAST(node.alternate),
+      };
+    default:
+      return node;
+  }
+}
+
+function wrapInI32(node: ValueIR): ValueIR {
+  return {
+    kind: 'call',
+    callee: { kind: 'ident', name: '_i32' },
+    args: [node],
+    optional: false,
+  };
+}
+
+export function registerHelpers(node: ValueIR, ctx: BodyEmitContext) {
+  switch (node.kind) {
+    case 'call':
+      if (node.callee.kind === 'ident') {
+        if (node.callee.name === '_i32') {
+          ctx.helpers.add(KERN_I32_HELPER_PY);
+        } else if (node.callee.name === '_tmod') {
+          ctx.helpers.add(KERN_TMOD_HELPER_PY);
+        }
+      }
+      registerHelpers(node.callee, ctx);
+      for (const arg of node.args) {
+        registerHelpers(arg, ctx);
+      }
+      break;
+    case 'binary':
+      registerHelpers(node.left, ctx);
+      registerHelpers(node.right, ctx);
+      break;
+    case 'unary':
+      registerHelpers(node.argument, ctx);
+      break;
+    case 'tmplLit':
+      for (const expr of node.expressions) {
+        registerHelpers(expr, ctx);
+      }
+      break;
+    case 'member':
+      registerHelpers(node.object, ctx);
+      break;
+    case 'index':
+      registerHelpers(node.object, ctx);
+      registerHelpers(node.index, ctx);
+      break;
+    case 'lambda':
+      registerHelpers(node.body, ctx);
+      break;
+    case 'spread':
+      registerHelpers(node.argument, ctx);
+      break;
+    case 'await':
+      registerHelpers(node.argument, ctx);
+      break;
+    case 'new':
+      registerHelpers(node.argument, ctx);
+      break;
+    case 'typeAssert':
+      registerHelpers(node.expression, ctx);
+      break;
+    case 'nonNull':
+      registerHelpers(node.expression, ctx);
+      break;
+    case 'propagate':
+      registerHelpers(node.argument, ctx);
+      break;
+    case 'objectLit':
+      for (const e of node.entries) {
+        if ('kind' in e && e.kind === 'spread') {
+          registerHelpers(e.argument, ctx);
+        } else {
+          registerHelpers((e as any).value, ctx);
+        }
+      }
+      break;
+    case 'arrayLit':
+      for (const item of node.items) {
+        registerHelpers(item, ctx);
+      }
+      break;
+    case 'conditional':
+      registerHelpers(node.test, ctx);
+      registerHelpers(node.consequent, ctx);
+      registerHelpers(node.alternate, ctx);
+      break;
   }
 }

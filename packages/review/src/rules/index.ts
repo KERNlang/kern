@@ -258,7 +258,7 @@ const REGISTRY: RuleInfo[] = [
     severity: 'error',
     description: 'exec/spawn with user-controlled input',
   },
-  { id: 'no-eval', layer: 'security', severity: 'error', description: 'eval() or Function() constructor usage' },
+  { id: 'no-eval', layer: 'security', severity: 'error', description: 'eval primitive or Function constructor usage' },
   {
     id: 'insecure-random',
     layer: 'security',

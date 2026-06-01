@@ -257,7 +257,9 @@ describe('KERN MCP Server Integration', () => {
     const lines = stdout.split('\n').filter(Boolean);
     const callResponse = JSON.parse(lines[lines.length - 1]);
     const text = callResponse.result.content[0].text;
-    expect(text).toContain('13 targets');
+    expect(text).toContain('15 targets');
+    expect(text).toContain('go');
+    expect(text).toContain('python');
     expect(text).toContain('mcp');
     expect(text).toContain('nextjs');
     expect(text).toContain('express');

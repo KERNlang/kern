@@ -8,6 +8,11 @@ export {
   SUPPORTED_ASSIGN_OPERATORS,
   supportedCompoundAssignmentOperator,
 } from './assignment-operators.js';
+export type {
+  LowerJsClosureBodyToPythonOptions,
+  LowerJsClosureBodyToPythonResult,
+} from './closure-python-lowering.js';
+export { lowerJsClosureBodyToPython } from './closure-python-lowering.js';
 export type { BodyEmitOptions, BodyEmitResult } from './codegen/body-ts.js';
 export { emitNativeKernBodyTS, emitNativeKernBodyTSWithImports } from './codegen/body-ts.js';
 export type { StdlibEntry } from './codegen/kern-stdlib.js';
@@ -327,7 +332,7 @@ export { exportSchemaJSON, NODE_SCHEMAS, validateSchema } from './schema.js';
 // Semantic validation
 export type { SemanticViolation } from './semantic-validator.js';
 export { validateSemantics } from './semantic-validator.js';
-export type { ShadowDiagnostic } from './shadow-analyzer.js';
+export type { ShadowAnalyzeOptions, ShadowDiagnostic } from './shadow-analyzer.js';
 export { analyzeShadow } from './shadow-analyzer.js';
 export type { SourceMapV3 } from './source-map.js';
 // Source map serialization

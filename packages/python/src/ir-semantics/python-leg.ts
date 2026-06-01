@@ -273,6 +273,11 @@ export async function runPythonEmitterLeg(fixture: NodeFixture, env: SemanticEnv
   try {
     const result = emitNativeKernBodyPythonWithImports(handlerWrapper, {
       traceHooks: { eachIterNext: true, forIterNext: true, letAssign: shouldTraceLetAssign(fixture.ir) },
+      // env.bindings become module-level Python names before the body runs;
+      // a native `let x` inside an inner block that shadows one needs the
+      // block-scope rename (production caller fix matching fastapi-route.ts;
+      // covers nero Challenge 2 / agon-review production-callers finding).
+      outerBindings: Array.from(env.bindings.keys()),
     });
     if (result.imports.size > 0) {
       // Differential fixtures don't exercise stdlib-import codegen (math, etc.);

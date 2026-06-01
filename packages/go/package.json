@@ -1,0 +1,30 @@
+{
+  "name": "@kernlang/go",
+  "version": "3.5.5",
+  "description": "KERN Go net/http backend codegen",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "kern",
+    "go",
+    "backend",
+    "transpiler"
+  ],
+  "license": "AGPL-3.0",
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@kernlang/core": "workspace:*"
+  }
+}

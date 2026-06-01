@@ -72,6 +72,30 @@ describe('insecure-transport', () => {
     }
   });
 
+  it('does not fire on loopback/private hosts with a templated or non-numeric port', () => {
+    // The mapper renders an interpolated port (`http://127.0.0.1:${port}`)
+    // non-numerically, e.g. host `127.0.0.1::port`. A loopback/private host is
+    // still loopback regardless of port form, so it must stay exempt.
+    for (const host of [
+      '127.0.0.1::port',
+      '127.0.0.1:${port}',
+      'localhost::port',
+      '10.0.0.1:${PORT}',
+      'service.svc::p',
+    ]) {
+      const findings = run([networkEffect(`http://${host}/double`, { host })]);
+      expect(findings).toHaveLength(0);
+    }
+  });
+
+  it('still FIRES on a public host with a normalized non-numeric port (no template markers)', () => {
+    // `${...}`-containing hosts are exempted separately as unresolved template
+    // residue; this guards that the looser port match did NOT start exempting
+    // real public hosts whose port was normalized to a bare `::port`.
+    const findings = run([networkEffect('http://api.example.com::port/x', { host: 'api.example.com::port' })]);
+    expect(findings).toHaveLength(1);
+  });
+
   it('does not fire on RFC1918 private IPs', () => {
     const cases = ['10.0.0.1', '10.20.30.40:9000', '192.168.1.1', '172.16.5.5', '172.31.0.1', '169.254.169.254'];
     for (const host of cases) {

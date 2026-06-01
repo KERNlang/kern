@@ -35,9 +35,32 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
-const { rewriteFastAPIExpr } = await import(join(REPO, 'packages/python/dist/fastapi-response.js'));
+const { rewriteExpr } = await import(join(REPO, 'packages/python/dist/core/expr/index.js'));
 const { rewriteExpressExpr } = await import(join(REPO, 'packages/express/dist/express-portable.js'));
 const { toSnakeCase } = await import(join(REPO, 'packages/python/dist/type-map.js'));
+// Statement-level (kind:'stmt') fixtures lower a native `lang=kern` handler BODY via these,
+// run it in an isolated subprocess (TS via --experimental-strip-types), and compare the
+// RETURNED value — capturing control-flow behaviour the expression harness cannot reach.
+const { parse, emitNativeKernBodyTSWithImports } = await import(join(REPO, 'packages/core/dist/index.js'));
+const { emitNativeKernBodyPythonWithImports } = await import(join(REPO, 'packages/python/dist/codegen-body-python.js'));
+const tsCompiler = await import('typescript');
+// Route-level (kind:'route') fixtures lower a full portable route HANDLER to both targets and
+// compare the {status, body} HTTP response — covering guard/respond error-shape parity (#3).
+const { generatePortableHandlerExpress } = await import(join(REPO, 'packages/express/dist/express-portable.js'));
+const { generatePortableHandlerFastAPI } = await import(join(REPO, 'packages/python/dist/fastapi-portable.js'));
+// Pipeline-parity (kind:'route-pipeline') fixtures lower a route through the PURE
+// framework-agnostic Python pipeline (`emitPureHandlers` → `def handler(request: dict)` →
+// returns `(status, body[, headers])` tuple, NO HTTPException). Each fixture invokes the pure
+// handler directly with a hand-built PureRequest and compares {status, body} to expected —
+// Wave 3 acceptance for the python-decouple split (phase 2 emitted handlers; this proves they
+// run end-to-end on the route corpus). Route-bearing fixtures with `kind:'route'` are also
+// dual-routed through the pure path below for behavioral parity to the monolithic transpiler.
+const { emitPureHandlers } = await import(join(REPO, 'packages/python/dist/core/handlers/index.js'));
+// Single source of truth for the __DotDict shim — imported from the compiled python target
+// (Wave 3 round-3 agon-review finding D: kimi/claude/zai all flagged the byte-for-byte
+// duplication risk with no CI guard). The conformance harness now uses the EXACT bytes
+// production emits, so a future shim edit can't drift between the two.
+const { DOT_DICT_SHIM_PY } = await import(join(REPO, 'packages/python/dist/targets/python.js'));
 
 // ── Fixtures ───────────────────────────────────────────────────────────────
 // bindings namespaces mirror the portable request model:
@@ -309,6 +332,32 @@ const FIXTURES = [
   { name: 'arr-method: some (scalar predicate)', expr: 'nums.some((n) => n === 2)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: true },
   { name: 'arr-method: every (scalar predicate)', expr: 'nums.every((n) => n > 0)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: true },
   { name: 'arr-method: reduce sum with seed', expr: 'nums.reduce((a, b) => a + b, 0)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: 6 },
+  // push mutates AND returns the new length (JS) -> Python `(recv.append(x) or len(recv))` (#6).
+  { name: 'arr-method: push returns new length', expr: 'nums.push(9)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: 4 },
+  // reverse mutates + returns the reversed array; concat returns a new array (arr spread / scalar appended).
+  { name: 'arr-method: reverse returns reversed array', expr: 'nums.reverse()', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: [3, 2, 1] },
+  { name: 'arr-method: concat array arg spreads', expr: 'nums.concat(more)', path: '/api/a', bindings: { locals: { nums: [1], more: [2, 3] } }, expected: [1, 2, 3] },
+  { name: 'arr-method: concat scalar arg appends', expr: 'nums.concat(9)', path: '/api/a', bindings: { locals: { nums: [1, 2] } }, expected: [1, 2, 9] },
+
+  // ── closures slice 1 (#5): an arrow STATEMENT body that is EXACTLY `{ return E }` is ──
+  // semantically the expression body E, so it unwraps to the existing comprehension
+  // lowering (unwrapSingleReturnBlock in fastapi-response.ts). Richer statement bodies
+  // (locals/control-flow before the return) are NOT unwrapped and still need full closure
+  // lowering — deferred to the multi-statement closure build.
+  { name: 'closure: map single-return block body', expr: 'nums.map((x) => { return x * 2; })', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: [2, 4, 6] },
+  { name: 'closure: filter single-return block body', expr: 'nums.filter((x) => { return x > 1; })', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: [2, 3] },
+  { name: 'closure: map single-return object literal', expr: 'nums.map((x) => { return { v: x }; })', path: '/api/a', bindings: { locals: { nums: [1, 2] } }, expected: [{ v: 1 }, { v: 2 }] },
+
+  // ── closures slice 2 (#5 FULL): multi-statement / control-flow arrow bodies. These are RED
+  // at base (today they emit garbage Python `[{if (x>2){...}} for x in items]`). A correct
+  // build lowers the body to a hoisted nested `def` + comprehension reference, with js_truthy()
+  // for JS truthiness. The empty-array case is the discriminator: [] is TRUTHY in JS but FALSY
+  // in Python, so a naive `if a:` lowering FAILS it — only js_truthy(a) passes.
+  { name: 'closure: map if/else returns', expr: 'items.map((x) => { if (x > 2) { return x * 10; } return x; })', path: '/api/a', bindings: { locals: { items: [1, 2, 3, 4] } }, expected: [1, 2, 30, 40] },
+  { name: 'closure: map if-without-else clamp', expr: 'items.map((n) => { if (n < 0) { return 0; } return n; })', path: '/api/a', bindings: { locals: { items: [-1, 2, -3] } }, expected: [0, 2, 0] },
+  { name: 'closure: map const-chain then return', expr: 'items.map((x) => { const d = x * 2; const t = d + 1; return t; })', path: '/api/a', bindings: { locals: { items: [1, 2] } }, expected: [3, 5] },
+  { name: 'closure: filter with local binding', expr: 'items.filter((x) => { const ok = x % 2 === 0; return ok; })', path: '/api/a', bindings: { locals: { items: [1, 2, 3, 4] } }, expected: [2, 4] },
+  { name: 'closure: map JS-truthiness of empty array ([] truthy in JS, falsy in Python)', expr: 'items.map((a) => { if (a) { return 1; } return 0; })', path: '/api/a', bindings: { locals: { items: [[], [1], []] } }, expected: [1, 1, 1] },
 
   // ── str-method: string methods NOT yet lowered → AttributeError on Python ──
   // split(sep, limit) is the SILENT trap: JS keeps the first `limit` parts;
@@ -326,6 +375,204 @@ const FIXTURES = [
   { name: 'str-method: split with a limit (JS first-N, not maxsplit)', expr: 's.split(",", 2)', path: '/api/s', bindings: { locals: { s: 'a,b,c' } }, expected: ['a', 'b'] },
 
   // ──────────────────────────────────────────────────────────────────────────
+  // numbermodel: JS bitwise-int32 + JS truncated-modulo (goal: number-model, 2026-05-28).
+  // Contract decided by 6-engine council: EMULATE bitwise (int32 via _i32/_u32, >>> via _ushr,
+  // shift counts &31, ToInt32 truncs floats) + truncated modulo (_tmod(a,b)=a-trunc(a/b)*b);
+  // declare >2^53 / NaN / Infinity / -0 NON-PORTABLE. Operands are VARIABLE (bindings.locals),
+  // NOT literals, so a constant-folding Python lowering cannot hardcode the outputs.
+  // Task verify: `node scripts/conformance.mjs --filter "numbermodel:"` (RED until Python lowers).
+  // ──────────────────────────────────────────────────────────────────────────
+  { name: 'numbermodel: |0 sign bit', expr: 'a|z', path: '/api/n', bindings: { locals: { a: 2147483648, z: 0 } }, expected: -2147483648 },
+  { name: 'numbermodel: |0 wraparound', expr: 'a|z', path: '/api/n', bindings: { locals: { a: 4294967296, z: 0 } }, expected: 0 },
+  { name: 'numbermodel: >> on >32-bit', expr: 'a>>b', path: '/api/n', bindings: { locals: { a: 8589934592, b: 1 } }, expected: 0 },
+  // NB: `>>>` (unsigned right shift) is DEFERRED to a focused follow-up — it is the only
+  // parser-NEW operator (KERN already parses | & ^ << >> ~ %) and naively adding it collides
+  // with nested-generic close `Foo<Bar<X>>` (the >> shift-vs-generic ambiguity). Non-portable for now.
+  { name: 'numbermodel: << shift-count mask (33&31=1)', expr: 'a<<b', path: '/api/n', bindings: { locals: { a: 1, b: 33 } }, expected: 2 },
+  { name: 'numbermodel: i32 on a COMPUTED sum', expr: '(a+b)|z', path: '/api/n', bindings: { locals: { a: 2147483647, b: 1, z: 0 } }, expected: -2147483648 },
+  { name: 'numbermodel: ToInt32 truncs a float', expr: 'a|z', path: '/api/n', bindings: { locals: { a: -2.9, z: 0 } }, expected: -2 },
+  { name: 'numbermodel: & agree smoke', expr: 'a&b', path: '/api/n', bindings: { locals: { a: 5, b: 3 } }, expected: 1 },
+  { name: 'numbermodel: -5 % 3 (sign of dividend)', expr: 'a%b', path: '/api/n', bindings: { locals: { a: -5, b: 3 } }, expected: -2 },
+  { name: 'numbermodel: 5 % -3', expr: 'a%b', path: '/api/n', bindings: { locals: { a: 5, b: -3 } }, expected: 2 },
+  { name: 'numbermodel: negative float -5.5 % 2', expr: 'a%b', path: '/api/n', bindings: { locals: { a: -5.5, b: 2 } }, expected: -1.5 },
+  { name: 'numbermodel: float divisor 5 % 2.5', expr: 'a%b', path: '/api/n', bindings: { locals: { a: 5, b: 2.5 } }, expected: 0 },
+  { name: 'numbermodel: 7 % 3 agree smoke', expr: 'a%b', path: '/api/n', bindings: { locals: { a: 7, b: 3 } }, expected: 1 },
+  { name: 'numbermodel: true division agree', expr: 'a/b', path: '/api/n', bindings: { locals: { a: 5, b: 2 } }, expected: 2.5 },
+  { name: 'numbermodel: float add repr agree', expr: 'a+b', path: '/api/n', bindings: { locals: { a: 0.1, b: 0.2 } }, expected: 0.30000000000000004 },
+  { name: 'numbermodel: 2^53 safe boundary agree', expr: 'a+b', path: '/api/n', bindings: { locals: { a: 9007199254740991, b: 1 } }, expected: 9007199254740992 },
+  { name: 'numbermodel: ToInt32 on string float', expr: 'a|z', path: '/api/n', bindings: { locals: { a: '2.9', z: 0 } }, expected: 2 },
+  { name: 'numbermodel: modulo on string float', expr: 'a%b', path: '/api/n', bindings: { locals: { a: '-5.5', b: 2 } }, expected: -1.5 },
+  { name: 'numbermodel: bitwise NOT on string float', expr: '~a', path: '/api/n', bindings: { locals: { a: '-3.9' } }, expected: 2 },
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // stmt: STATEMENT-LEVEL control flow (kind:'stmt', goal: stmt-harness 2026-05-28).
+  // Each lowers a native `lang=kern` handler BODY to BOTH targets (emitNativeKernBodyTS /
+  // emitNativeKernBodyPython), runs it in an isolated subprocess, and compares the RETURN
+  // value. Design: 6-engine council + nero red-team (side-effect witness, allow_nan=False,
+  // block-scope probed+deferred). Operands are PARAMS, never inline literals in the observable.
+  // Scope = intra-function control flow ONLY (block scope / number-repr / framework errors deferred).
+  // ──────────────────────────────────────────────────────────────────────────
+  { kind: 'stmt', name: 'stmt: if/else selects true branch',
+    params: [{ name: 'n', type: 'number', value: 20 }, { name: 'min', type: 'number', value: 10 }],
+    body: `let name=v value="n * 2"\nif cond="v > min"\n  return value="{ big: true, v: v }"\nelse\n  return value="{ big: false, v: v }"`,
+    expected: { big: true, v: 40 } },
+  { kind: 'stmt', name: 'stmt: if/else selects false branch',
+    params: [{ name: 'n', type: 'number', value: 3 }, { name: 'min', type: 'number', value: 10 }],
+    body: `let name=v value="n * 2"\nif cond="v > min"\n  return value="{ big: true, v: v }"\nelse\n  return value="{ big: false, v: v }"`,
+    expected: { big: false, v: 6 } },
+  { kind: 'stmt', name: 'stmt: while loop accumulates (mutable kind=let)',
+    params: [{ name: 'n', type: 'number', value: 5 }, { name: 'min', type: 'number', value: 0 }],
+    body: `let name=total value="0" kind=let\nlet name=i value="0" kind=let\nwhile cond="i < n"\n  assign target="total" value="total + i"\n  assign target="i" value="i + 1"\nreturn value="{ total: total }"`,
+    expected: { total: 10 } },
+  { kind: 'stmt', name: 'stmt: for loop early-returns mid-iteration',
+    params: [{ name: 'n', type: 'number', value: 0 }, { name: 'min', type: 'number', value: 5 }],
+    body: `let name=acc value="0" kind=let\neach name=x in="[1, 2, 3, 4]" index=j\n  assign target="acc" value="acc + x"\n  if cond="acc > min"\n    return value="{ stopped: acc, at: j }"\nreturn value="{ stopped: acc, at: -1 }"`,
+    expected: { stopped: 6, at: 2 } },
+  { kind: 'stmt', name: 'stmt: statements after return do not run',
+    params: [{ name: 'n', type: 'number', value: 0 }, { name: 'min', type: 'number', value: 0 }],
+    body: `let name=hits value="0" kind=let\nreturn value="{ hits: hits }"\nassign target="hits" value="999"`,
+    expected: { hits: 0 } },
+  { kind: 'stmt', name: 'stmt: try/catch recovers from a thrown error',
+    params: [{ name: 'bad', type: 'string', value: '{' }, { name: 'min', type: 'number', value: 0 }],
+    body: `let name=out value="0" kind=let\ntry\n  assign target="out" value="JSON.parse(bad).x"\n  catch name=err type=any\n    assign target="out" value="-1"\nreturn value="{ out: out }"`,
+    expected: { out: -1 } },
+  { kind: 'stmt', name: 'stmt: try body runs up to the throw, then catch (side-effect witness)',
+    params: [{ name: 'bad', type: 'string', value: '{' }, { name: 'min', type: 'number', value: 0 }],
+    body: `let name=log value="''" kind=let\nlet name=tmp value="0" kind=let\ntry\n  assign target="log" value="log + 'a'"\n  assign target="tmp" value="JSON.parse(bad)"\n  assign target="log" value="log + 'b'"\n  catch name=err type=any\n    assign target="log" value="log + 'X'"\nreturn value="{ log: log }"`,
+    expected: { log: 'aX' } },
+
+  // ── BLOCK SCOPE oracle (memory's #6 known divergence; deferred from #1 slice 1). ───
+  // TS `let` is block-scoped, Python assignment is function-scoped. Discriminating fixtures:
+  // (1) baseline shadow: catches "Python leaks inner let".
+  // (2) inner usage: catches "lazy fix that omits the inner let entirely" (still wrong — must
+  //     use 2 inside, 1 outside).
+  // (3) no-shadow block: catches "lazy fix that always renames every let" (no-shadow block
+  //     should still let outer code see the value through normal Python scoping).
+  // (4) two siblings shadow: catches "fix that gensym-leaks across sibling blocks".
+  { kind: 'stmt', name: 'stmt: block-scope let-shadow (outer 1, inner if-block 2, return outer)',
+    params: [{ name: 'c', type: 'boolean', value: true }],
+    body: `let name=x value="1"\nif cond="c"\n  let name=x value="2"\nreturn value="{ x: x }"`,
+    expected: { x: 1 } },
+  { kind: 'stmt', name: 'stmt: block-scope inner let USED inside block then return outer (witness)',
+    params: [{ name: 'c', type: 'boolean', value: true }],
+    body: `let name=x value="1" kind=let\nlet name=seen value="0" kind=let\nif cond="c"\n  let name=x value="2"\n  assign target="seen" value="x"\nreturn value="{ x: x, seen: seen }"`,
+    expected: { x: 1, seen: 2 } },
+  { kind: 'stmt', name: 'stmt: block-scope NO outer shadow (regular inner let must still work)',
+    params: [{ name: 'c', type: 'boolean', value: true }],
+    body: `let name=outer value="10" kind=let\nif cond="c"\n  let name=inner value="3"\n  assign target="outer" value="outer + inner"\nreturn value="{ outer: outer }"`,
+    expected: { outer: 13 } },
+  { kind: 'stmt', name: 'stmt: block-scope two sibling shadows (separate blocks, neither leaks)',
+    params: [{ name: 'a', type: 'boolean', value: true }, { name: 'b', type: 'boolean', value: true }],
+    body: `let name=x value="1"\nif cond="a"\n  let name=x value="2"\nif cond="b"\n  let name=x value="3"\nreturn value="{ x: x }"`,
+    expected: { x: 1 } },
+  // nero PROBE: WRITE-path inside the shadow. Mutates the inner-shadowed binding via `assign`
+  // and verifies the gensym is the target (outer stays untouched). Kills a "rename decl+read
+  // only" wrong fix (nero Challenge 1/4).
+  { kind: 'stmt', name: 'stmt: block-scope inner let MUTATED by assign, outer untouched',
+    params: [{ name: 'c', type: 'boolean', value: true }],
+    body: `let name=x value="1" kind=let\nlet name=witness value="0" kind=let\nif cond="c"\n  let name=x value="10" kind=let\n  assign target="x" value="x + 5"\n  assign target="witness" value="x"\nreturn value="{ x: x, witness: witness }"`,
+    expected: { x: 1, witness: 15 } },
+  // nero PROBE: PARAMETER shadow. A handler param `x` is shadowed by an inner `let x`.
+  // The assign-after-decl writes the gensym; the return reads the param (outer). Kills the
+  // nero Challenge 2 case (params not in localScopes -> no rename -> param clobbered).
+  { kind: 'stmt', name: 'stmt: block-scope param shadow (inner let MUTATED, param untouched on return)',
+    params: [{ name: 'x', type: 'number', value: 7 }, { name: 'c', type: 'boolean', value: true }],
+    body: `let name=witness value="0" kind=let\nif cond="c"\n  let name=x value="100" kind=let\n  assign target="x" value="x + 1"\n  assign target="witness" value="x"\nreturn value="{ x: x, witness: witness }"`,
+    expected: { x: 7, witness: 101 } },
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // route: ROUTE-LEVEL HTTP response parity (kind:'route', goal: error-semantics 2026-05-28).
+  // Lowers a full portable route handler to both targets, runs it (mock res -> {status,body} on
+  // Express; HTTPException -> {status, body:{detail}} on FastAPI), compares {status, body}.
+  // CONTRACT (council bb0g4njli, 85%): error bodies use FastAPI's canonical {"detail":...} on BOTH.
+  // guard-fail was RED-at-base (Express emitted {error}); the express-portable {detail} fix converges.
+  // ──────────────────────────────────────────────────────────────────────────
+  { kind: 'route', name: 'route: guard pass -> 200 success body',
+    kern: `route method=post path=/api/t\n  derive name=doubled expr={{ n * 2 }}\n  guard name=floor expr={{ doubled >= min }} else=422\n  respond 200 json={{ {result: doubled} }}`,
+    bindings: { locals: { n: 20, min: 30 } }, expected: { status: 200, body: { result: 40 } } },
+  { kind: 'route', name: 'route: guard fail -> 422 {detail} parity',
+    kern: `route method=post path=/api/t\n  derive name=doubled expr={{ n * 2 }}\n  guard name=floor expr={{ doubled >= min }} else=422\n  respond 200 json={{ {result: doubled} }}`,
+    bindings: { locals: { n: 10, min: 30 } }, expected: { status: 422, body: { detail: 'floor guard failed' } } },
+  { kind: 'route', name: 'route: guard fail -> 404 {detail} (second status)',
+    kern: `route method=post path=/api/t\n  derive name=x expr={{ n }}\n  guard name=exists expr={{ x > 0 }} else=404\n  respond 200 json={{ {x: x} }}`,
+    bindings: { locals: { n: 0 } }, expected: { status: 404, body: { detail: 'exists guard failed' } } },
+  // collect order is a COMPARATOR (a,b) — Express + ground-layer both emit .sort((a,b)=>order);
+  // Python must reproduce via sorted(key=cmp_to_key(lambda a,b: order)) (#6). Filter active,
+  // sort score desc, limit 2 -> [u2(9), u1(8)].
+  { kind: 'route', name: 'route: collect where+order(comparator)+limit parity',
+    kern: `route method=post path=/api/t\n  collect name=top from=users where={{ item.active }} order={{ b.score - a.score }} limit=2\n  respond 200 json={{ {top: top} }}`,
+    bindings: { locals: { users: [{ id: 'u1', active: true, score: 8 }, { id: 'u2', active: true, score: 9 }, { id: 'u3', active: false, score: 4 }, { id: 'u4', active: true, score: 6 }] } },
+    expected: { status: 200, body: { top: [{ id: 'u2', active: true, score: 9 }, { id: 'u1', active: true, score: 8 }] } } },
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // route-pipeline: PURE-pipeline-ONLY fixtures (Wave 3 python-decouple parity, 2026-05-31).
+  // Each exercises a PureRequest surface the bare-locals `route:` fixtures CAN'T (the
+  // monolithic test scaffold has no way to model path_params/query/body/user as the
+  // adapter would marshal them — it injects bare module-level locals everywhere). Discriminating
+  // by construction: each fixture FAILS a cheating handler that ignores ONE namespace —
+  //   • path-param echo: fails an impl that doesn't bind request.path_params
+  //   • query-param echo: fails an impl that doesn't bind request.query
+  //   • body field echo: fails an impl that doesn't read request.body
+  //   • auth-user echo: fails an impl that doesn't read request.user
+  //   • multi-step pass / fail: fails an impl that hardcodes the response status (always-200)
+  // Red-teamed pre-launch (ORACLE DESIGN GATE) — a "request.get('body', {})" stub
+  // that returns 200 + an empty body cannot pass any of these.
+  //
+  // Numeric query/path types: in production the FastAPI adapter coerces these via its
+  // typed signature (FastAPI reads `pathParamTypes`/`queryParamTypes` from the
+  // PurePythonHandler). The fixtures pass already-coerced values in the PureRequest dict —
+  // simulating the post-adapter shape the handler sees — so a contract change to the
+  // type-mapper would manifest here as a divergence at the adapter boundary, not silently.
+  // ──────────────────────────────────────────────────────────────────────────
+  { kind: 'route-pipeline', name: 'route-pipeline: path-param echo',
+    kern: `route method=get path=/api/items/:id\n  respond 200 json={{ {id: params.id} }}`,
+    pureRequest: { method: 'GET', path_params: { id: 'abc-42' }, query: {}, body: {}, headers: {}, user: null },
+    expected: { status: 200, body: { id: 'abc-42' } } },
+  { kind: 'route-pipeline', name: 'route-pipeline: query-param echo',
+    kern: `route method=get path=/api/q\n  params q:string\n  respond 200 json={{ {q: q} }}`,
+    pureRequest: { method: 'GET', path_params: {}, query: { q: 'hello' }, body: {}, headers: {}, user: null },
+    expected: { status: 200, body: { q: 'hello' } } },
+  { kind: 'route-pipeline', name: 'route-pipeline: body field echo',
+    kern: `route method=post path=/api/b\n  respond 200 json={{ {echoed: body.value} }}`,
+    pureRequest: { method: 'POST', path_params: {}, query: {}, body: { value: 'widget' }, headers: {}, user: null },
+    expected: { status: 200, body: { echoed: 'widget' } } },
+  { kind: 'route-pipeline', name: 'route-pipeline: auth-user echo',
+    kern: `route method=get path=/api/me\n  auth\n  respond 200 json={{ {sub: user.sub} }}`,
+    pureRequest: { method: 'GET', path_params: {}, query: {}, body: {}, headers: {}, user: { sub: 'user-42' } },
+    expected: { status: 200, body: { sub: 'user-42' } } },
+  { kind: 'route-pipeline', name: 'route-pipeline: multi-step (path+query+body+derive+guard) pass',
+    kern: `route method=post path=/api/users/:id\n  params multiplier:integer\n  derive name=score expr={{ body.base * multiplier }}\n  guard name=floor expr={{ score >= 100 }} else=422\n  respond 200 json={{ {id: params.id, score: score} }}`,
+    pureRequest: { method: 'POST', path_params: { id: 'u7' }, query: { multiplier: 25 }, body: { base: 8 }, headers: {}, user: null },
+    // Asserts emitter metadata (agon-review codex #2): path params default to str, query
+    // gets the declared integer type. Catches a regression that strips/wrongs these without
+    // the fixture itself catching it (the runner pre-coerces, mirroring the adapter).
+    expectPathParamTypes: { id: 'str' },
+    expectQueryParamTypes: { multiplier: 'int' },
+    expected: { status: 200, body: { id: 'u7', score: 200 } } },
+  { kind: 'route-pipeline', name: 'route-pipeline: multi-step guard-fail returns 422 {detail}',
+    kern: `route method=post path=/api/users/:id\n  params multiplier:integer\n  derive name=score expr={{ body.base * multiplier }}\n  guard name=floor expr={{ score >= 100 }} else=422\n  respond 200 json={{ {id: params.id, score: score} }}`,
+    pureRequest: { method: 'POST', path_params: { id: 'u7' }, query: { multiplier: 5 }, body: { base: 8 }, headers: {}, user: null },
+    expectPathParamTypes: { id: 'str' },
+    expectQueryParamTypes: { multiplier: 'int' },
+    expected: { status: 422, body: { detail: 'floor guard failed' } } },
+  // Wave 3 agon-review codex #1: pure handlers may return (status, body, headers) as the
+  // 3-tuple form. A `respond redirect={{ expr }}` lowers to that shape (`return 302, None,
+  // {"Location": expr}`). Runner now captures result[2] into JSON output `.headers`; this
+  // fixture catches an emitter that silently drops the third tuple slot or a runner that
+  // ignores it.
+  { kind: 'route-pipeline', name: 'route-pipeline: respond redirect returns 3-tuple with Location header',
+    kern: `route method=get path=/api/r\n  respond 302 redirect={{ "/api/next" }}`,
+    pureRequest: { method: 'GET', path_params: {}, query: {}, body: {}, headers: {}, user: null },
+    expected: { status: 302, body: null, headers: { Location: '/api/next' } } },
+  // Wave 3 agon-review agy #2: deep/nested list wrapping. body.matrix is a list-of-lists
+  // of dicts; without recursive _wrap, the inner-list elements stay plain dicts and
+  // `body.matrix[0][0].value` raises AttributeError. The discrimination here only fires
+  // when the fix is missing — green at HEAD, red at the pre-review shim.
+  { kind: 'route-pipeline', name: 'route-pipeline: deep list-of-list-of-dict body (recursive __DotDict)',
+    kern: `route method=post path=/api/m\n  respond 200 json={{ {echoed: body.matrix[0][0].value} }}`,
+    pureRequest: { method: 'POST', path_params: {}, query: {}, body: { matrix: [[{ value: 'deep' }]] }, headers: {}, user: null },
+    expected: { status: 200, body: { echoed: 'deep' } } },
+
   // PARITY GOAL ORACLE (goal: ts-python-parity, 2026-05-27). These RED fixtures
   // encode portable JS methods not yet lowered to Python — the differential
   // proof the codegen-string tests don't give. Each slice is a goal task; the
@@ -495,6 +742,181 @@ function buildNode(loweredExpr, bindings) {
   return `${preamble}${localLines}\nconst req = ${JSON.stringify(req)};\nconsole.log(JSON.stringify(${loweredExpr}));`;
 }
 
+// ── Pure-pipeline runner (Wave 3) ────────────────────────────────────────────
+// Lowers a route IR through `emitPureHandlers`, builds a self-contained Python file
+// (handler def + __DotDict shim + module-level locals + hand-built PureRequest +
+// invocation), runs python3, and parses the {status, body} the handler returned.
+//
+// PureRequest contract (PurePythonHandler doc): { method, path_params, query, body,
+// headers, user }. Fixtures may set `fx.pureRequest` to override defaults (empty
+// namespaces + null user); bare `fx.bindings.locals` are bound at MODULE scope so
+// they're visible to the handler body via Python's LEGB lookup — mirroring the
+// monolithic route path which also injects locals at module scope (route.py:749).
+//
+// The __DotDict shim is byte-identical to the one targets/python.ts emits (the
+// `emit:'backend'` preamble) so the handler's `request = __DotDict(request)` and
+// `body = __DotDict(...)` lines execute under the same semantics they would in
+// production. Diverging the shim here would mask production-shim bugs.
+function pyDictLiteral(obj) {
+  return `{${Object.entries(obj).map(([k, v]) => `${JSON.stringify(k)}: ${pyVal(v)}`).join(', ')}}`;
+}
+// The shim is imported from the production target as `DOT_DICT_SHIM_PY` (see the import
+// above). The legacy local constant `__PURE_DOT_DICT_SHIM` is kept as an alias for the rest
+// of the file — single source of truth, zero drift risk.
+const __PURE_DOT_DICT_SHIM = DOT_DICT_SHIM_PY.trimEnd();
+
+// Wave 3 round-3 agon-review (kimi 0.75 + claude 0.60): the list-idempotency fix shipped
+// without an automated regression test, so a future revert to `[_wrap(x) for x in val]` (no
+// `_DotList` marker) would silently keep conformance green. The bug surface is reference
+// identity + post-access mutation — patterns the route-DSL fixtures can't naturally produce.
+// This probe runs the shim directly with python3 and asserts the three invariants the fix
+// guarantees: (a) container identity (`o.x is o.x`), (b) late-mutation persistence
+// (`r = o.x; o.x.append(...); r is o.x`), and (c) post-access plain-dict append still wraps
+// (`o.x.append({...}); o.x[0].a` works — the codex round-3 regression case). NB: use `rows`
+// (not `items` — collides with dict.items builtin) per codex/claude round-3 nit.
+function runShimRegressionProbe() {
+  const tmp = mkdtempSync(join(tmpdir(), 'kern-shim-probe-'));
+  const probeFile = join(tmp, 'shim-probe.py');
+  writeFileSync(
+    probeFile,
+    `${__PURE_DOT_DICT_SHIM}
+
+# (a) container identity preserved across re-access
+o = __DotDict({"rows": [1, 2]})
+a = o.rows
+b = o.rows
+assert a is b, "identity broken: a is not b"
+
+# (b) late mutation persists — appending via the dotted path reaches the held reference
+o2 = __DotDict({"tags": []})
+r = o2.tags
+o2.tags.append(99)
+assert r is o2.tags, "ref orphaned after dotted mutation"
+assert r == [99], f"r should be [99], got {r}"
+
+# (c) post-access plain-dict append still wraps on next read (codex round-3 regression case)
+o3 = __DotDict({"rows": []})
+rs = o3.rows
+rs.append({"a": 1})
+assert o3.rows[0].a == 1, f"AttributeError expected, got {o3.rows[0]}"
+
+# (d) deep nested list of dicts (round-2 fixture, sanity)
+o4 = __DotDict({"matrix": [[{"value": "deep"}]]})
+assert o4.matrix[0][0].value == "deep"
+
+print("OK")
+`,
+  );
+  const out = execFileSync('python3', [probeFile], { encoding: 'utf8', timeout: 10_000 }).trim();
+  rmSync(tmp, { recursive: true, force: true });
+  if (out !== 'OK') {
+    throw new Error(`__DotDict shim regression probe failed: ${out}`);
+  }
+}
+function runPurePipeline(fx, dir) {
+  const root = parse(fx.kern);
+  const serverNode = root.type === 'server' ? root : { type: 'server', children: [root] };
+  const imports = new Set();
+  const handlers = emitPureHandlers(serverNode, imports, root);
+  if (handlers.length !== 1) {
+    throw new Error(`pure pipeline expected 1 handler, emitter returned ${handlers.length}`);
+  }
+  const [h] = handlers;
+  // Bare module-level locals are how `route` fixtures model "values visible to the handler"
+  // without going through PureRequest (they're test-only constructs — production routes
+  // derive these from request.body/query/path). Object/array locals need attribute access
+  // (e.g. `item.active` in a `collect` comparator), so wrap them in __DotDict the same way
+  // production code wraps body/request. Primitives pass through unchanged.
+  const locals = fx.bindings?.locals ?? {};
+  const localsLines = Object.entries(locals)
+    .map(([k, v]) => {
+      if (v === null || typeof v !== 'object') return `${k} = ${pyVal(v)}`;
+      if (Array.isArray(v)) {
+        return `${k} = [__DotDict(x) if isinstance(x, dict) else x for x in ${pyVal(v)}]`;
+      }
+      return `${k} = __DotDict(${pyVal(v)})`;
+    })
+    .join('\n');
+  const pureRequest = fx.pureRequest ?? {
+    method: h.method,
+    path_params: {},
+    query: {},
+    body: {},
+    headers: {},
+    user: null,
+  };
+  // Wave 3 agon-review follow-up (codex round 1 + claude round 2 + round 3 ×4): assert the
+  // emitted handler's type metadata for path/query params so a regression in `pathParamTypes`/
+  // `queryParamTypes` (or a re-coercion pass that silently strips them) doesn't slip past.
+  // The runner feeds already-coerced values into PureRequest by design (matching what the
+  // FastAPI adapter emits at the signature boundary), so the handler alone can't catch a
+  // metadata drift.
+  //
+  // CAVEAT (round 3 — agy 1.00, kimi 0.80, claude 0.80, zai 0.85 all convergent): the obvious
+  // `JSON.stringify(o, Object.keys(o).sort())` form uses the ARRAY replacer, which is a
+  // recursive PROPERTY ALLOWLIST applied at every nesting level — any nested key absent from
+  // the top-level array is SILENTLY DROPPED. Current `pathParamTypes`/`queryParamTypes` are
+  // flat `Record<string,string>`, so it'd work today; but a future nested schema (e.g.
+  // `{id: {type: 'int', required: true}}`) would have its inner keys vanish, masking real
+  // drift. The replacer-function form below recurses and sorts keys at every depth.
+  const stableJson = (o) =>
+    JSON.stringify(o, (_, v) =>
+      v && typeof v === 'object' && !Array.isArray(v)
+        ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b)))
+        : v,
+    );
+  if (fx.expectPathParamTypes) {
+    const got = stableJson(h.pathParamTypes ?? {});
+    const want = stableJson(fx.expectPathParamTypes);
+    if (got !== want) {
+      throw new Error(`pathParamTypes mismatch: got ${got}, want ${want}`);
+    }
+  }
+  if (fx.expectQueryParamTypes) {
+    const got = stableJson(h.queryParamTypes ?? {});
+    const want = stableJson(fx.expectQueryParamTypes);
+    if (got !== want) {
+      throw new Error(`queryParamTypes mismatch: got ${got}, want ${want}`);
+    }
+  }
+  const pureRequestLiteral = pyDictLiteral(pureRequest);
+  const importLines = [...imports].join('\n');
+  const pyFile = join(dir, 'route-pure.py');
+  writeFileSync(
+    pyFile,
+    `import json
+${importLines}
+${__PURE_DOT_DICT_SHIM}
+${localsLines}
+${h.signature}
+${h.bodyLines.join('\n')}
+
+pure_request = ${pureRequestLiteral}
+result = ${h.fnName}(pure_request)
+if isinstance(result, tuple):
+    status = result[0]
+    body = result[1] if len(result) > 1 else None
+    headers = result[2] if len(result) > 2 else None
+else:
+    status, body, headers = 200, result, None
+out = {"status": status, "body": body}
+if headers is not None:
+    out["headers"] = headers
+print(json.dumps(out, sort_keys=True, default=str))
+`,
+  );
+  try {
+    return JSON.parse(execFileSync('python3', [pyFile], { encoding: 'utf8', timeout: 10_000 }).trim());
+  } catch (err) {
+    // Wave 3 agon-review follow-up (agy #4): surface the Python traceback from err.stderr
+    // when execFileSync fails. Without this the catch block in the runner sees only
+    // err.message ("Command failed: python3 …") and drops the real stack trace.
+    const detail = err.stderr ? String(err.stderr).trim() : '';
+    if (detail) err.message = `${err.message}\n${detail}`;
+    throw err;
+  }
+}
+
 // ── Comparison ───────────────────────────────────────────────────────────────
 function shapeOf(v) {
   if (v === null) return 'null';
@@ -551,8 +973,27 @@ const dir = mkdtempSync(join(tmpdir(), 'kern-conf-'));
 process.on('exit', () => {
   try {
     rmSync(dir, { recursive: true, force: true });
-  } catch {}
+  } catch (err) {
+    // tmpdir cleanup on process exit is best-effort — never crash the test run on it
+    // (the OS reaps the directory on its own). Surface as a soft warning so the silent-fail
+    // is observable in logs. (kern-guard ignored-error finding — Wave 3 PR #354.)
+    console.warn(`conformance: tmpdir cleanup failed: ${err?.message ?? err}`);
+  }
 });
+
+// Wave 3 round-3 regression guard: run the __DotDict shim probe before any fixture so a
+// production-shim regression fails LOUD (`process.exit(1)`) rather than silently sliding
+// past the route-DSL-restricted fixtures. Skipped when --filter is set so single-slice goal
+// runs don't pay the probe cost; the probe is a global invariant, not a fixture.
+if (!filter) {
+  try {
+    runShimRegressionProbe();
+  } catch (err) {
+    console.error(`\n__DotDict shim regression: ${err.message}`);
+    process.exit(1);
+  }
+}
+
 let pass = 0;
 const failures = [];
 
@@ -561,6 +1002,130 @@ for (const fx of FIXTURES) {
   if (filter && !fx.name.includes(filter)) continue;
   if (exclude.some((ex) => fx.name.includes(ex))) continue;
   selected++;
+
+  // ── statement-level branch: lower a native `lang=kern` BODY to both targets, run in
+  // isolated subprocesses, strict-compare the RETURN value (ts == py == golden). Expression
+  // fixtures below are untouched. Strict JSON.parse => non-JSON/non-zero-exit fails loud (no masking).
+  if (fx.kind === 'stmt') {
+    try {
+      const sig = fx.params.map((p) => `${p.name}:${p.type}`).join(',');
+      const kern = `screen name=S\n  callback name=fn params="${sig}"\n    handler lang=kern\n` +
+        fx.body.split('\n').map((l) => `      ${l}`).join('\n');
+      const handler = ((function find(n) {
+        if (!n) return null;
+        if (n.type === 'handler') return n;
+        for (const c of n.children ?? []) { const h = find(c); if (h) return h; }
+        return null;
+      })(parse(kern)));
+      if (!handler) throw new Error('no handler node parsed');
+      const ts = emitNativeKernBodyTSWithImports(handler);
+      const names = fx.params.map((p) => p.name);
+      // Pass param names as outerBindings so an inner-block `let` that shadows
+      // a param triggers the block-scope rename (nero Challenge 2 fix).
+      const pyEmit = emitNativeKernBodyPythonWithImports(handler, { outerBindings: names });
+      const tsFile = join(dir, 'stmt.mjs');
+      const pyFile = join(dir, 'stmt.py');
+      const tsSource = `${[...(ts.imports ?? [])].join('\n')}\nfunction __h(${names.join(', ')}: any): any {\n${ts.code}\n}\nconsole.log(JSON.stringify(__h(${fx.params.map((p) => JSON.stringify(p.value)).join(', ')})));`;
+      writeFileSync(
+        tsFile,
+        tsCompiler.transpileModule(tsSource, {
+          compilerOptions: { module: tsCompiler.ModuleKind.ESNext, target: tsCompiler.ScriptTarget.ES2022 },
+        }).outputText,
+      );
+      writeFileSync(pyFile, `import json\n${[...(pyEmit.imports ?? [])].join('\n')}\ndef __h(${names.join(', ')}):\n${pyEmit.code.split('\n').map((l) => `    ${l}`).join('\n')}\nprint(json.dumps(__h(${fx.params.map((p) => pyVal(p.value)).join(', ')}), default=str, allow_nan=False))`);
+      const stmtOpts = { encoding: 'utf8', timeout: 10_000 };
+      const tsOut = execFileSync('node', [tsFile], stmtOpts).trim();
+      const pyOut = execFileSync('python3', [pyFile], stmtOpts).trim();
+      const cTs = canon(JSON.parse(tsOut), 'value');
+      const cPy = canon(JSON.parse(pyOut), 'value');
+      const cExp = canon(fx.expected, 'value');
+      if (cTs !== cPy) failures.push({ name: fx.name, why: `ts ≠ py\n      ts: ${cTs}\n      py: ${cPy}` });
+      else if (cTs !== cExp) failures.push({ name: fx.name, why: `result ≠ expected\n      got: ${cTs}\n      exp: ${cExp}` });
+      else pass++;
+    } catch (err) {
+      failures.push({ name: fx.name, why: `stmt exec error: ${String(err.message ?? err).split('\n').slice(-4).join(' ')}` });
+    }
+    continue;
+  }
+
+  // ── route-level branch: lower a full portable route handler to both targets, run it, and
+  // compare the {status, body} HTTP response. Express -> mock res; FastAPI HTTPException ->
+  // {status, body:{detail}} (its real serialization). Verifies error-shape parity (#3).
+  if (fx.kind === 'route') {
+    try {
+      const root = parse(fx.kern);
+      const jsLines = generatePortableHandlerExpress(root, '  ', '/api/t', {});
+      const routeImports = new Set();
+      const pyLines = generatePortableHandlerFastAPI(root, '    ', [], routeImports, new Set(), false);
+      const locals = fx.bindings?.locals ?? {};
+      const jsLocals = Object.entries(locals).map(([k, v]) => `const ${k} = ${JSON.stringify(v)};`).join('\n');
+      const jsFile = join(dir, 'route.mjs');
+      writeFileSync(jsFile, `${jsLocals}\nconst req = { params: {}, query: {}, body: {}, headers: {}, user: {} };\nlet __s = 200, __b;\nconst res = { status(n){ __s = n; return this; }, json(b){ __b = b; return this; }, send(b){ __b = b; return this; } };\nfunction __h(req, res) {\n${jsLines.join('\n')}\n}\ntry { __h(req, res); } catch (e) { __s = 500; __b = { detail: String(e && e.message || e) }; }\nconsole.log(JSON.stringify({ status: __s, body: __b }));`);
+      // Wrap object/list locals so attribute access mirrors Pydantic (item.score), then
+      // _unwrap before serializing. Primitives pass through unchanged (guard fixtures).
+      const pyLocals = Object.entries(locals).map(([k, v]) => `${k} = _wrap(${pyVal(v)})`).join('\n');
+      const pyFile = join(dir, 'route.py');
+      const pyHelpers = `class _Body:\n    def __init__(self, d):\n        self._d = d\n        for k, v in d.items(): setattr(self, k, _wrap(v))\n    def __getitem__(self, k): return getattr(self, k)\ndef _wrap(v):\n    if isinstance(v, dict): return _Body(v)\n    if isinstance(v, list): return [_wrap(x) for x in v]\n    return v\ndef _unwrap(v):\n    if isinstance(v, _Body): return {k: _unwrap(x) for k, x in v._d.items()}\n    if isinstance(v, dict): return {k: _unwrap(x) for k, x in v.items()}\n    if isinstance(v, list): return [_unwrap(x) for x in v]\n    return v`;
+      writeFileSync(pyFile, `import json\n${[...routeImports].filter((i) => !i.includes('HTTPException')).join('\n')}\nclass HTTPException(Exception):\n    def __init__(self, status_code, detail=None):\n        self.status_code = status_code; self.detail = detail\n${pyHelpers}\n${pyLocals}\ndef __h():\n${pyLines.map((l) => `    ${l}`).join('\n')}\ntry:\n    __r = __h()\n    print(json.dumps({"status": 200, "body": _unwrap(__r)}, sort_keys=True, default=str))\nexcept HTTPException as e:\n    print(json.dumps({"status": e.status_code, "body": {"detail": _unwrap(e.detail)}}, sort_keys=True, default=str))`);
+      const routeOpts = { encoding: 'utf8', timeout: 10_000 };
+      const jsOut = execFileSync('node', [jsFile], routeOpts).trim();
+      const pyOut = execFileSync('python3', [pyFile], routeOpts).trim();
+      const cJs = canon(JSON.parse(jsOut), 'value');
+      const cPy = canon(JSON.parse(pyOut), 'value');
+      const cExp = canon(fx.expected, 'value');
+      if (cJs !== cPy) failures.push({ name: fx.name, why: `ts ≠ py\n      ts: ${cJs}\n      py: ${cPy}` });
+      else if (cJs !== cExp) failures.push({ name: fx.name, why: `result ≠ expected\n      got: ${cJs}\n      exp: ${cExp}` });
+      else {
+        // Wave 3 parity: every monolithic route fixture must also pass the pure-pipeline
+        // path with the same {status, body} response. This is the behavioral-equivalence
+        // proof that `python-decouple` produces compatible output without the FastAPI
+        // glue burned into route handlers. Skips fixtures explicitly marked pureSkip
+        // (none yet — added if a future fixture is intrinsically monolithic-only).
+        if (!fx.pureSkip) {
+          try {
+            const purePy = runPurePipeline(fx, dir);
+            const cPure = canon(purePy, 'value');
+            if (cPure !== cExp) {
+              failures.push({ name: fx.name, why: `pure-pipeline ≠ expected\n      pure: ${cPure}\n      exp:  ${cExp}` });
+            } else {
+              pass++;
+            }
+          } catch (err) {
+            failures.push({ name: fx.name, why: `pure-pipeline exec error: ${String(err.message ?? err).split('\n').slice(-4).join(' ')}` });
+          }
+        } else {
+          pass++;
+        }
+      }
+    } catch (err) {
+      failures.push({ name: fx.name, why: `route exec error: ${String(err.message ?? err).split('\n').slice(-4).join(' ')}` });
+    }
+    continue;
+  }
+
+  // ── route-pipeline branch (Wave 3): lower a route through the PURE pipeline ONLY.
+  // Used for fixtures that exercise PureRequest surface area the monolithic route fixtures
+  // can't (path_params, query, body validate, user/auth) — the monolithic path expects bare
+  // module-level locals everywhere; PureRequest is the new contract that puts those into
+  // request.path_params / request.query / request.body / request.user namespaces. Each
+  // fixture provides `fx.pureRequest` shaped to the route's needs and the runner asserts
+  // the handler returns the expected {status, body}.
+  if (fx.kind === 'route-pipeline') {
+    try {
+      const purePy = runPurePipeline(fx, dir);
+      const cPure = canon(purePy, 'value');
+      const cExp = canon(fx.expected, 'value');
+      if (cPure !== cExp) {
+        failures.push({ name: fx.name, why: `pure-pipeline ≠ expected\n      pure: ${cPure}\n      exp:  ${cExp}` });
+      } else {
+        pass++;
+      }
+    } catch (err) {
+      failures.push({ name: fx.name, why: `pure-pipeline exec error: ${String(err.message ?? err).split('\n').slice(-4).join(' ')}` });
+    }
+    continue;
+  }
+
   const mode = fx.compare ?? 'value';
   const pathParams = [...fx.path.matchAll(/:([A-Za-z_]\w*)/g)].map((m) => m[1]);
   // externalSchema mirrors `validate schema=X`: the body is a model but its
@@ -580,7 +1145,7 @@ for (const fx of FIXTURES) {
 
   let py, js;
   try {
-    const pyExpr = rewriteFastAPIExpr(fx.expr, pathParams, bodyFields, !!fx.authUser, imports);
+    const pyExpr = rewriteExpr(fx.expr, pathParams, bodyFields, !!fx.authUser, imports);
     const jsExpr = rewriteExpressExpr(fx.expr, fx.path);
     const pyFile = join(dir, 'run.py');
     const jsFile = join(dir, 'run.mjs');

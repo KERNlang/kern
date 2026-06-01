@@ -20,7 +20,9 @@ export type KernTarget =
   | 'vue'
   | 'nuxt'
   | 'fastapi'
-  | 'mcp';
+  | 'mcp'
+  | 'python'
+  | 'go';
 
 /** Concrete transpiler targets (displayed to users). */
 export const VALID_TARGETS: KernTarget[] = [
@@ -37,6 +39,8 @@ export const VALID_TARGETS: KernTarget[] = [
   'nuxt',
   'fastapi',
   'mcp',
+  'python',
+  'go',
 ];
 
 /** All accepted target values including meta-targets like 'auto'. */
@@ -59,6 +63,10 @@ export interface KernConfig {
   structure?: KernStructure;
   frameworkVersions?: FrameworkVersions;
   templates?: string[];
+  emit?: string;
+  pythonModelBackend?: 'pydantic' | 'sqlmodel' | 'auto';
+  /** Severity for raw (unmarked) TS fences dropped by the python target. Default 'warning'. */
+  pythonFenceSeverity?: 'error' | 'warning' | 'info';
 
   i18n?: {
     enabled?: boolean;
@@ -137,6 +145,9 @@ export interface ResolvedKernConfig {
   structure: KernStructure;
   frameworkVersions: FrameworkVersions;
   templates: string[];
+  emit?: string;
+  pythonModelBackend?: 'pydantic' | 'sqlmodel' | 'auto';
+  pythonFenceSeverity?: 'error' | 'warning' | 'info';
 
   i18n: {
     enabled: boolean;
@@ -277,6 +288,9 @@ export function resolveConfig(user?: Partial<KernConfig>): ResolvedKernConfig {
   return {
     target: user.target || DEFAULT_CONFIG.target,
     structure: user.structure || DEFAULT_CONFIG.structure,
+    emit: user.emit,
+    pythonModelBackend: user.pythonModelBackend,
+    pythonFenceSeverity: user.pythonFenceSeverity,
     frameworkVersions: {
       ...DEFAULT_CONFIG.frameworkVersions,
       ...user.frameworkVersions,

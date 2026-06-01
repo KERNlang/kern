@@ -7,7 +7,8 @@
  *  body expression context so target-specific stdlib lowerings apply. */
 
 import type { IRNode } from '@kernlang/core';
-import { emitNativeKernBodyPython, KERN_FMT_HELPER_PY } from '../src/codegen-body-python.js';
+import { emitNativeKernBodyPython } from '../src/codegen-body-python.js';
+import { KERN_FMT_HELPER_PY } from '../src/core/expr/index.js';
 
 function makeHandler(children: Array<{ type: string; props?: Record<string, unknown> }>): IRNode {
   return {
