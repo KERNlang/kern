@@ -59,78 +59,29 @@ jobs:
       - name: Contract docs drift
         run: pnpm docs:contracts:check
 
-      # PR-5b — IR-semantics differential harness lives in its own step so the
-      # burn-in date-gate can decouple it from blocking CI without removing
-      # the harness from local `pnpm test` (which keeps running everything).
-      # First blocking day is 2026-06-01 (UTC); the `KERN_SEMANTICS_GATE` repo
-      # variable is a three-way escape hatch:
-      #   - `blocking`               → force blocking (early flip)
-      #   - any other non-empty val  → force non-blocking (delay past deadline)
-      #   - unset / empty            → follow the date gate
-      # The expiry step fails CI only when the deadline has passed AND no
-      # override is set, so the deadline cannot silently slip but can be
-      # explicitly extended by setting the variable.
-      - name: Compute differential-harness gate
-        id: gate
-        shell: bash
-        env:
-          KERN_SEMANTICS_GATE: ${{ vars.KERN_SEMANTICS_GATE }}
-        run: |
-          BURNIN_FLIPS_ON="2026-06-01"
-          TODAY=$(date -u +%Y-%m-%d)
-          case "$KERN_SEMANTICS_GATE" in
-            blocking)
-              blocking=true ;;
-            "")
-              if [[ "$TODAY" > "$BURNIN_FLIPS_ON" || "$TODAY" == "$BURNIN_FLIPS_ON" ]]; then
-                blocking=true
-              else
-                blocking=false
-              fi ;;
-            *)
-              blocking=false ;;
-          esac
-          echo "blocking=$blocking" >> "$GITHUB_OUTPUT"
-          echo "burnin_flips_on=$BURNIN_FLIPS_ON" >> "$GITHUB_OUTPUT"
-          echo "today=$TODAY" >> "$GITHUB_OUTPUT"
-
+      # PR-5b — IR-semantics differential harness lives in its own step (not
+      # folded into `pnpm test:non-semantics`) so its contract-docs summary
+      # stays separate; local `pnpm test` keeps running everything. Graduated
+      # to a blocking step on 2026-06-01 (UTC) — the burn-in window closed with
+      # the harness green, so the date-gate, the `KERN_SEMANTICS_GATE` repo-var
+      # escape hatch, and the expiry guard were removed.
       - name: Differential harness (IR semantics)
-        continue-on-error: ${{ steps.gate.outputs.blocking != 'true' }}
         shell: bash
         run: |
           # PR-5 buddy-review fix (codex 0.97): capture pipeline status BEFORE
           # the summary block, then exit with it. Without `exit "$status"` the
           # step's exit code is whatever the last command in the run block
           # produces (the summary `>>` redirect, always 0), which silently
-          # swallows harness failures after burn-in flips to blocking.
+          # swallows harness failures.
           set -o pipefail
           status=0
           pnpm test:ir-semantics 2>&1 | tee semantics.log || status=$?
           {
             echo "## IR-semantics contracts"
             echo ""
-            echo "_Burn-in flips on ${{ steps.gate.outputs.burnin_flips_on }} (today ${{ steps.gate.outputs.today }}); blocking=${{ steps.gate.outputs.blocking }}_"
-            echo ""
             pnpm docs:contracts
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
-
-      # Hard expiry — fails CI only when the date has passed AND no override
-      # at all is set (so unset is a hard error after deadline, but an
-      # explicit non-`blocking` override still delays).
-      - name: Enforce burn-in expiry
-        shell: bash
-        env:
-          KERN_SEMANTICS_GATE: ${{ vars.KERN_SEMANTICS_GATE }}
-        run: |
-          FLIPS_ON="${{ steps.gate.outputs.burnin_flips_on }}"
-          TODAY="${{ steps.gate.outputs.today }}"
-          if [[ ( "$TODAY" > "$FLIPS_ON" || "$TODAY" == "$FLIPS_ON" ) && -z "$KERN_SEMANTICS_GATE" ]]; then
-            echo "Burn-in deadline ($FLIPS_ON) has passed but KERN_SEMANTICS_GATE is unset." >&2
-            echo "Either set the variable to 'blocking' (or any non-blocking override to delay), " >&2
-            echo "or land a PR removing continue-on-error from the harness step." >&2
-            exit 1
-          fi
 
       - name: Upload contract artifacts
         if: always()
