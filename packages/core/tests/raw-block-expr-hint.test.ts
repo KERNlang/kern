@@ -10,9 +10,12 @@
 
 import { parseDocumentWithDiagnostics } from '../src/parser.js';
 
-const SRC = ['server name=X port=3000', '  route method=get path=/a', '    handler', '      return <<< res.json(x) >>>'].join(
-  '\n',
-);
+const SRC = [
+  'server name=X port=3000',
+  '  route method=get path=/a',
+  '    handler',
+  '      return <<< res.json(x) >>>',
+].join('\n');
 
 describe('raw <<< block inside an expression value yields an actionable hint', () => {
   test('the diagnostic names the raw-block cause and the lang= fix', () => {
