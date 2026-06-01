@@ -197,7 +197,13 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
   }
   lines.push('');
   lines.push(`const app = express();`);
-  lines.push(`const port = ${port};`);
+  // PORT from env (deployable on PaaS/containers) with the KERN literal as the
+  // fallback. Guard with Number.isInteger so unset/empty/garbage falls back
+  // while an explicit `PORT=0` (OS-assigned ephemeral port) is still honoured —
+  // `||` would wrongly treat 0 as falsy (all-engine review consensus).
+  lines.push(
+    `const port = Number.isInteger(Number(process.env.PORT)) && process.env.PORT !== '' ? Number(process.env.PORT) : ${port};`,
+  );
   lines.push(`const serverName = '${escapeSingleQuotes(serverName)}';`);
   lines.push('');
 
