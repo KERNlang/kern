@@ -1,5 +1,47 @@
 # @kernlang/review
 
+## 3.6.0
+
+### New analyzers — JSON / JSONC / Markdown
+
+Adds a parallel non-ts-morph analysis path for config files. Findings flow
+through the existing `ReviewFinding` pipeline so kern-sight (editor
+diagnostics) and kern-guard (PR Check annotations) consume them without
+API changes.
+
+- **JSON / JSONC** — parse errors with humanized messages, duplicate-key
+  detection at arbitrary nesting depth. Dialect detection: `.jsonc`,
+  `tsconfig.*`, `jsconfig.*`, and anything inside a `.vscode/` directory
+  parse as JSONC (comments + trailing commas allowed). Everything else
+  parses as strict JSON.
+- **Markdown** — skipped heading levels (h1 → h3, etc.), image missing
+  alt text. Also exports a separate `extractMarkdownOutline(source)`
+  API that returns a heading tree shaped for editor outline UIs; kept
+  off the engine's `ReviewReport` to keep kern-guard's worker surface
+  minimal.
+
+### Fingerprint stability (kern-guard dedup contract)
+
+All config-file fingerprints are line-independent so kern-guard's baseline
+dedup does not re-post the same finding as "new" on every PR that touched
+whitespace above it:
+
+- Duplicate-key fingerprints encode the structural key-path
+  (`json/duplicate-key:compilerOptions.strict`); 3rd+ occurrences append
+  `#N` to stay individually dedup-able.
+- Parse-error fingerprints encode `<ruleId>:<dialect>` and append `#N`
+  for additional occurrences of the same error kind in one file.
+- Skipped-heading fingerprints encode the ancestor heading path
+  (`md/skipped-heading-level:top/charlie/foxtrot`), built from a stack
+  that tracks `(level, slug)` tuples so renaming an upstream sibling does
+  not perturb a downstream finding's fingerprint.
+- Image-missing-alt fingerprints encode the image URL.
+
+### Dependencies
+
+- adds `jsonc-parser ^3.3.1`
+- adds `mdast-util-from-markdown ^2.0.2` (and `@types/mdast` devDep)
+
 ## 3.5.0
 
 ### Bug Fixes — false-positive carve-outs (RULE-FEEDBACK.md batch)

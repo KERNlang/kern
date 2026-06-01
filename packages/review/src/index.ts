@@ -41,6 +41,8 @@ import { buildCallGraph } from './call-graph.js';
 import { runConceptRules } from './concept-rules/index.js';
 import { isAuthEndpointTarget, isWorkerContextFile } from './concept-rules/unguarded-effect.js';
 import { isTransportPrimitiveCarveOut } from './concept-rules/unrecovered-effect.js';
+import { reviewJsonFile } from './config-files/json.js';
+import { reviewMarkdownFile } from './config-files/markdown.js';
 import { structuralDiff } from './differ.js';
 import { runTSCDiagnostics } from './external-tools.js';
 import { buildFileContextMap } from './file-context.js';
@@ -227,6 +229,7 @@ export {
   resolveBaseConfidence,
   serializeGraph,
 } from './confidence.js';
+export { extractMarkdownOutline, type MarkdownOutline, type MarkdownOutlineHeading } from './config-files/markdown.js';
 export { structuralDiff } from './differ.js';
 export {
   evaluateReviewReports,
@@ -580,7 +583,18 @@ const REVIEWABLE_EXTENSIONS = new Set([
   '.kern',
   '.py',
   '.vue',
+  // Config-file analyzers — parallel non-ts-morph path (config-files/*.ts).
+  // Findings flow through the same ReviewFinding pipeline so kern-sight and
+  // kern-guard consume them without API changes.
+  '.json',
+  '.jsonc',
+  '.md',
 ]);
+
+/** Files routed to the config-files analyzers, bypassing ts-morph entirely. */
+function isConfigFile(filePath: string): boolean {
+  return filePath.endsWith('.json') || filePath.endsWith('.jsonc') || filePath.endsWith('.md');
+}
 
 export function isReviewableFile(filePath: string): boolean {
   const dot = filePath.lastIndexOf('.');
@@ -639,9 +653,41 @@ function emptyReport(filePath: string): ReviewReport {
 }
 
 /**
+ * Build a ReviewReport for a config-file (.json / .jsonc) source. Bypasses
+ * ts-morph entirely — config analyzers emit ReviewFindings directly. Stats
+ * are minimal because IR/token reduction is meaningless for these files.
+ */
+function reviewConfigFileSource(source: string, filePath: string): ReviewReport {
+  let findings: ReviewFinding[] = [];
+  // Check `.jsonc` before `.json` — `.jsonc` also satisfies `endsWith('.json')`
+  // and we want the JSONC dispatch to be explicit rather than rely on the
+  // dialect-detection re-check inside `reviewJsonFile` to bail us out.
+  if (filePath.endsWith('.jsonc') || filePath.endsWith('.json')) {
+    findings = reviewJsonFile(source, filePath);
+  } else if (filePath.endsWith('.md')) {
+    findings = reviewMarkdownFile(source, filePath);
+  }
+  return {
+    filePath,
+    inferred: [],
+    templateMatches: [],
+    findings,
+    stats: {
+      totalLines: source.split('\n').length,
+      coveredLines: 0,
+      coveragePct: 0,
+      totalTsTokens: 0,
+      totalKernTokens: 0,
+      reductionPct: 0,
+      constructCount: 0,
+    },
+  };
+}
+
+/**
  * Review a single file. Auto-detects language from extension.
  * Uses a filesystem-backed ts-morph Project for type-aware analysis.
- * Supports: .ts, .tsx, .py, .kern
+ * Supports: .ts, .tsx, .py, .kern, .json, .jsonc
  */
 export function reviewFile(filePath: string, config?: ReviewConfig): ReviewReport {
   if (!isReviewableFile(filePath)) return emptyReport(filePath);
@@ -651,7 +697,7 @@ export function reviewFile(filePath: string, config?: ReviewConfig): ReviewRepor
   // same path. If we only discovered it later inside reviewSourceWithProject, adding or changing the
   // nearest tsconfig without editing the source would serve stale cached findings.
   const effectiveConfig: ReviewConfig | undefined =
-    config?.tsConfigFilePath || filePath.endsWith('.kern') || filePath.endsWith('.py')
+    config?.tsConfigFilePath || filePath.endsWith('.kern') || filePath.endsWith('.py') || isConfigFile(filePath)
       ? config
       : { ...(config ?? {}), tsConfigFilePath: findTsConfig(dirname(filePath)) };
 
@@ -663,7 +709,9 @@ export function reviewFile(filePath: string, config?: ReviewConfig): ReviewRepor
   }
 
   let report: ReviewReport;
-  if (filePath.endsWith('.kern')) {
+  if (isConfigFile(filePath)) {
+    report = reviewConfigFileSource(source, filePath);
+  } else if (filePath.endsWith('.kern')) {
     report = reviewKernSource(source, filePath, effectiveConfig);
   } else if (filePath.endsWith('.py')) {
     report = reviewPythonSource(source, filePath, effectiveConfig);
