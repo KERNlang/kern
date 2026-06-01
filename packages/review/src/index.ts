@@ -41,6 +41,7 @@ import { buildCallGraph } from './call-graph.js';
 import { runConceptRules } from './concept-rules/index.js';
 import { isAuthEndpointTarget, isWorkerContextFile } from './concept-rules/unguarded-effect.js';
 import { isTransportPrimitiveCarveOut } from './concept-rules/unrecovered-effect.js';
+import { isEnvFile, reviewEnvFile } from './config-files/env.js';
 import { reviewJsonFile } from './config-files/json.js';
 import { reviewMarkdownFile } from './config-files/markdown.js';
 import { structuralDiff } from './differ.js';
@@ -591,12 +592,17 @@ const REVIEWABLE_EXTENSIONS = new Set([
   '.md',
 ]);
 
-/** Files routed to the config-files analyzers, bypassing ts-morph entirely. */
+/** Files routed to the config-files analyzers, bypassing ts-morph entirely.
+ *  Includes extension-keyed analyzers (.json/.jsonc/.md) plus basename-keyed
+ *  analyzers (`.env`, `.env.local`, `.env.production`, …). */
 function isConfigFile(filePath: string): boolean {
-  return filePath.endsWith('.json') || filePath.endsWith('.jsonc') || filePath.endsWith('.md');
+  return filePath.endsWith('.json') || filePath.endsWith('.jsonc') || filePath.endsWith('.md') || isEnvFile(filePath);
 }
 
 export function isReviewableFile(filePath: string): boolean {
+  // Basename-keyed analyzers come first — `.env.local` would yield extension
+  // `.local` under the simple lastIndexOf shortcut and be misclassified.
+  if (isEnvFile(filePath)) return true;
   const dot = filePath.lastIndexOf('.');
   if (dot === -1) return false;
   const ext = filePath.slice(dot);
@@ -666,6 +672,8 @@ function reviewConfigFileSource(source: string, filePath: string): ReviewReport 
     findings = reviewJsonFile(source, filePath);
   } else if (filePath.endsWith('.md')) {
     findings = reviewMarkdownFile(source, filePath);
+  } else if (isEnvFile(filePath)) {
+    findings = reviewEnvFile(source, filePath);
   }
   return {
     filePath,

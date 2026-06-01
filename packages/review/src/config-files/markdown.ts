@@ -1,6 +1,30 @@
 /**
- * Markdown analyzer + outline extractor — parallel non-ts-morph analysis
- * path for `.md` files. Produces two outputs from a single parse:
+ * Markdown analyzer + outline extractor — self-contained line scanner.
+ *
+ * Replaces the previous `mdast-util-from-markdown` dependency (which pulled
+ * ~30 transitive `micromark-*` packages) with a focused state machine. The
+ * tradeoff is deliberate: this is NOT a CommonMark parser. It is a config /
+ * docs hygiene scanner that covers exactly what kern-sight and kern-guard
+ * need today —
+ *
+ *   • ATX headings (`#` through `######`) outside fenced code
+ *   • Image syntax `![alt](url)` on a non-code line
+ *   • Fenced-code awareness (backtick and tilde fences, length-matched)
+ *   • Outline tree built from heading levels + slugs
+ *
+ * What we deliberately do NOT handle, because feature surface stays small:
+ *
+ *   • Setext headings (`===` / `---` underlines) — uncommon in this codebase
+ *   • Inline HTML headings (`<h1>…</h1>`)
+ *   • Reference-style images (`![alt][label]` + `[label]: url`)
+ *   • Indented (4-space) code blocks
+ *   • Tab handling beyond the obvious cases
+ *
+ * If a doc uses those forms, findings on it are best-effort. The point is
+ * predictable diagnostics for the common 95% case, not full CommonMark
+ * fidelity, and to keep `@kernlang/review` trending toward zero dependencies.
+ *
+ * Two outputs from a single pass:
  *
  *   1. ReviewFinding[] — structural issues (skipped heading levels, missing
  *      image alt text). Flow through the engine's standard pipeline so both
@@ -12,17 +36,11 @@
  *      (only findings get posted to GitHub); keeping it off the engine's
  *      ReviewReport keeps the worker-side surface minimal.
  *
- * Broken-link / fs-existence checks are intentionally deferred. They need
- * project-root knowledge and edge-case handling for anchors / absolute /
- * external URLs — a Phase 2 follow-up where ProjectContext is threaded in.
- *
- * Fingerprint policy mirrors json.ts: structural keys (heading path,
- * image alt-text bucket), NEVER line numbers, so kern-guard's baseline
- * dedup does not re-post on whitespace edits.
+ * Fingerprint policy: structural keys (heading path, image alt-text URL),
+ * NEVER line numbers, so kern-guard's baseline dedup does not re-post on
+ * whitespace edits.
  */
 
-import type { Heading, Image, Root, RootContent } from 'mdast';
-import { fromMarkdown } from 'mdast-util-from-markdown';
 import type { ReviewFinding, SourceSpan } from '../types.js';
 
 /** A single heading in the outline tree, with nesting. */
@@ -43,19 +61,30 @@ export interface MarkdownOutline {
   tree: MarkdownOutlineHeading[];
 }
 
-/** Extract inline text from a heading node. mdast headings can contain
- *  inline code, emphasis, links — flatten to a plain string for the outline. */
-function inlineText(node: { children?: unknown[] }): string {
-  const parts: string[] = [];
-  function walk(n: { value?: unknown; children?: unknown[] }) {
-    if (typeof n.value === 'string') parts.push(n.value);
-    const kids = n.children;
-    if (Array.isArray(kids)) {
-      for (const k of kids) walk(k as { value?: unknown; children?: unknown[] });
-    }
-  }
-  walk(node);
-  return parts.join('').trim();
+// ── Internal: scan results ────────────────────────────────────────────────
+
+interface ScanHeading {
+  level: 1 | 2 | 3 | 4 | 5 | 6;
+  text: string;
+  slug: string;
+  line: number; // 1-based
+  /** Column where the heading marker starts (1-based). */
+  startCol: number;
+  /** Column at end of line + 1, for the heading's source span. */
+  endCol: number;
+}
+
+interface ScanImage {
+  /** Raw alt text as written (NOT trimmed). */
+  alt: string;
+  /** URL portion of `![alt](url)`. */
+  url: string;
+  /** 1-based source line where the `![…]` starts. */
+  line: number;
+  /** 1-based start column of the `!`. */
+  startCol: number;
+  /** 1-based column past the closing `)`. */
+  endCol: number;
 }
 
 /** GitHub-style heading slug — lowercase, strip non-letter / non-digit
@@ -63,11 +92,7 @@ function inlineText(node: { children?: unknown[] }): string {
  *  survive), then replace each whitespace char (not runs) with one hyphen.
  *  Per-char (not collapsed) replacement matches GitHub's behavior: "API &
  *  Usage" becomes "api--usage" because `&` is dropped while both
- *  surrounding spaces survive as separate hyphens.
- *
- *  The `/u` flag enables Unicode property escapes — without it, `\w`
- *  matches only `[A-Za-z0-9_]` and non-Latin letters are stripped,
- *  collapsing headings like `## 中文` to an empty slug. */
+ *  surrounding spaces survive as separate hyphens. */
 function slugify(text: string): string {
   return text
     .toLowerCase()
@@ -76,44 +101,103 @@ function slugify(text: string): string {
     .replace(/\s/g, '-');
 }
 
-/** Convert mdast point.line (already 1-based) safely. */
-function startLineOf(node: { position?: { start?: { line?: number } } }): number {
-  return node.position?.start?.line ?? 1;
-}
+// Image syntax: `![alt](url)`. Allowed: empty alt, alt with spaces and
+// most punctuation EXCEPT `]`, URL with most chars EXCEPT `)`. Reference-style
+// images (`![alt][label]`) are intentionally not matched — see header comment.
+const IMAGE_RE = /!\[([^\]\n]*)\]\(([^)\n]*)\)/g;
 
-function spanFromNode(
-  filePath: string,
-  node: { position?: { start?: { line?: number; column?: number }; end?: { line?: number; column?: number } } },
-): SourceSpan {
-  const sl = node.position?.start?.line ?? 1;
-  const sc = node.position?.start?.column ?? 1;
-  const el = node.position?.end?.line ?? sl;
-  const ec = node.position?.end?.column ?? sc + 1;
-  return { file: filePath, startLine: sl, startCol: sc, endLine: el, endCol: ec };
-}
+/**
+ * Single-pass scanner. Walks source line by line, tracks open fenced code
+ * blocks (backtick or tilde fences), collects ATX headings + image syntax
+ * from non-code lines.
+ */
+function scanMarkdown(source: string): { headings: ScanHeading[]; images: ScanImage[] } {
+  const headings: ScanHeading[] = [];
+  const images: ScanImage[] = [];
 
-/** Type guard for mdast parent-like nodes (those that may carry `children`).
- *  Used by `walkNodes` instead of bare `as RootContent` casts so a malformed
- *  AST (e.g. caller passing in something that isn't mdast) cannot silently
- *  invoke the visitor with a non-node value. */
-function isMdastNode(value: unknown): value is { type: string; children?: unknown[] } {
-  return typeof value === 'object' && value !== null && typeof (value as { type?: unknown }).type === 'string';
-}
+  // Fenced code state. When inside a fence, both heading and image
+  // detection are suppressed. The closing fence must match the opening
+  // character AND be at least as long as the opener (CommonMark §4.5).
+  let inFence = false;
+  let fenceChar: '`' | '~' | null = null;
+  let fenceLen = 0;
 
-/** Walk children of an mdast Root or Parent recursively. Visitor sees one
- *  call per descendant. Mixed-leaf nodes (text, code, image) without
- *  children short-circuit; the type guard prevents bogus visits. */
-function walkNodes(root: Root, visit: (node: RootContent) => void) {
-  function go(node: { children?: unknown[] }) {
-    const kids = node.children;
-    if (!Array.isArray(kids)) return;
-    for (const k of kids) {
-      if (!isMdastNode(k)) continue;
-      visit(k as RootContent);
-      go(k);
+  // Split keeping line numbers 1-based. \r\n is normalized to \n via split
+  // on /\r?\n/ so Windows line endings don't break anything.
+  const lines = source.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const lineNo = i + 1;
+
+    // Detect fence open/close. The CommonMark rule is up to 3 leading
+    // spaces of indent, then ≥3 of the same fence char. Keeping it simple:
+    // strip leading whitespace, check the run.
+    const stripped = line.replace(/^[ \t]+/, '');
+    const fenceMatch = stripped.match(/^(`{3,}|~{3,})/);
+
+    if (inFence) {
+      // Looking for a matching close fence — same char, ≥ open length.
+      if (fenceMatch) {
+        const ch = fenceMatch[1]!.charAt(0) as '`' | '~';
+        if (ch === fenceChar && fenceMatch[1]!.length >= fenceLen) {
+          inFence = false;
+          fenceChar = null;
+          fenceLen = 0;
+        }
+      }
+      // Either way: anything inside a fence is ignored for headings/images.
+      continue;
+    }
+
+    if (fenceMatch) {
+      // Open a new fence.
+      inFence = true;
+      fenceChar = fenceMatch[1]!.charAt(0) as '`' | '~';
+      fenceLen = fenceMatch[1]!.length;
+      continue;
+    }
+
+    // ATX heading: optional ≤3 spaces of indent, 1-6 `#`, REQUIRED space
+    // after (per CommonMark) unless the line is just `#` chars. We also
+    // strip optional trailing `# …` decoration.
+    const headingMatch = line.match(/^ {0,3}(#{1,6})(?:\s+(.*?))?(?:\s+#+\s*)?\s*$/);
+    if (headingMatch) {
+      const level = headingMatch[1]!.length as 1 | 2 | 3 | 4 | 5 | 6;
+      const rawText = (headingMatch[2] ?? '').trim();
+      const text = rawText.replace(/[`*_]/g, ''); // strip the trivial inline markers
+      const slug = slugify(text) || `heading-${lineNo}`;
+      // startCol = where the first `#` sits.
+      const startCol = line.length - line.replace(/^ */, '').length + 1;
+      headings.push({
+        level,
+        text,
+        slug,
+        line: lineNo,
+        startCol,
+        endCol: line.length + 1,
+      });
+      continue;
+    }
+
+    // Image syntax. matchAll gives us all occurrences on the line with
+    // their positions; we collect each as a ScanImage.
+    for (const m of line.matchAll(IMAGE_RE)) {
+      const idx = m.index ?? 0;
+      images.push({
+        alt: m[1] ?? '',
+        url: (m[2] ?? '').trim(),
+        line: lineNo,
+        startCol: idx + 1,
+        endCol: idx + m[0].length + 1,
+      });
     }
   }
-  go(root);
+
+  return { headings, images };
+}
+
+function makeSpan(filePath: string, line: number, startCol: number, endCol: number): SourceSpan {
+  return { file: filePath, startLine: line, startCol, endLine: line, endCol };
 }
 
 /**
@@ -121,14 +205,7 @@ function walkNodes(root: Root, visit: (node: RootContent) => void) {
  * entry points (`reviewMarkdownFile`, `extractMarkdownOutline`) share this.
  */
 function analyze(source: string, filePath: string): { findings: ReviewFinding[]; outline: MarkdownOutline } {
-  const tree = fromMarkdown(source);
-
-  const headings: Heading[] = [];
-  const images: Image[] = [];
-  walkNodes(tree, (n) => {
-    if (n.type === 'heading') headings.push(n);
-    else if (n.type === 'image') images.push(n);
-  });
+  const { headings, images } = scanMarkdown(source);
 
   const findings: ReviewFinding[] = [];
 
@@ -147,15 +224,12 @@ function analyze(source: string, filePath: string): { findings: ReviewFinding[];
   let prevLevel: number | null = null;
   const headingPath: Array<{ level: number; slug: string }> = [];
   for (const h of headings) {
-    const text = inlineText(h);
-    const slug = slugify(text) || `heading-${startLineOf(h)}`;
-
-    while (headingPath.length > 0 && headingPath[headingPath.length - 1]!.level >= h.depth) {
+    while (headingPath.length > 0 && headingPath[headingPath.length - 1]!.level >= h.level) {
       headingPath.pop();
     }
-    headingPath.push({ level: h.depth, slug });
+    headingPath.push({ level: h.level, slug: h.slug });
 
-    if (prevLevel !== null && h.depth > prevLevel + 1) {
+    if (prevLevel !== null && h.level > prevLevel + 1) {
       const ruleId = 'md/skipped-heading-level';
       const path = headingPath.map((p) => p.slug).join('/');
       findings.push({
@@ -163,46 +237,46 @@ function analyze(source: string, filePath: string): { findings: ReviewFinding[];
         ruleId,
         severity: 'warning',
         category: 'structure',
-        message: `Heading jumps from h${prevLevel} to h${h.depth} — skipping levels breaks document outline and assistive tech navigation.`,
-        primarySpan: spanFromNode(filePath, h),
+        message: `Heading jumps from h${prevLevel} to h${h.level} — skipping levels breaks document outline and assistive tech navigation.`,
+        primarySpan: makeSpan(filePath, h.line, h.startCol, h.endCol),
         confidence: 95,
         fingerprint: `${ruleId}:${path}`,
       });
     }
-    prevLevel = h.depth;
+    prevLevel = h.level;
   }
 
   // ── Images missing alt text ─────────────────────────────────────────
   // Empty alt text on an image is an a11y red flag. Decorative images
-  // should use alt="" intentionally; mdast can't distinguish, so we flag
-  // all empty-alt images and let the author confirm/suppress.
-  let imageIdx = 0;
-  for (const img of images) {
-    const alt = (img.alt ?? '').trim();
+  // should use alt="" intentionally; the scanner can't distinguish, so we
+  // flag all empty-alt images and let the author confirm/suppress.
+  for (let i = 0; i < images.length; i++) {
+    const img = images[i]!;
+    const alt = img.alt.trim();
     if (alt.length === 0) {
       const ruleId = 'md/image-missing-alt';
-      // Fingerprint by URL when present (stable across line shifts), index fallback otherwise.
-      const key = img.url || `idx-${imageIdx}`;
+      // Fingerprint by URL (stable across line shifts); falls back to a
+      // sequence-based key only if the image has no URL at all.
+      const key = img.url || `idx-${i}`;
       findings.push({
         source: 'kern',
         ruleId,
         severity: 'warning',
         category: 'structure',
         message: `Image is missing alt text${img.url ? ` (\`${img.url}\`)` : ''}. Provide a description, or use \`![](…)\` only for purely decorative images.`,
-        primarySpan: spanFromNode(filePath, img),
+        primarySpan: makeSpan(filePath, img.line, img.startCol, img.endCol),
         confidence: 90,
         fingerprint: `${ruleId}:${key}`,
       });
     }
-    imageIdx++;
   }
 
   // ── Build outline ───────────────────────────────────────────────────
   const flat: MarkdownOutlineHeading[] = headings.map((h) => ({
-    level: h.depth as MarkdownOutlineHeading['level'],
-    text: inlineText(h),
-    slug: slugify(inlineText(h)) || `heading-${startLineOf(h)}`,
-    line: startLineOf(h),
+    level: h.level,
+    text: h.text,
+    slug: h.slug,
+    line: h.line,
     children: [],
   }));
 

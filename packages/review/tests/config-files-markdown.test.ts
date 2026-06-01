@@ -112,6 +112,48 @@ describe('config-files/markdown', () => {
     });
   });
 
+  describe('fenced code awareness (self-contained scanner)', () => {
+    // The self-contained scanner replaced mdast-util-from-markdown. mdast
+    // would never see content inside fences as headings/images because of
+    // CommonMark precedence; our scanner needs an explicit fence state
+    // machine to match that. These tests lock the contract in.
+
+    it('ignores ATX headings inside backtick fences', () => {
+      const src = '# Real\n\n```\n# Inside fence — not a heading\n## Also not\n```\n\n## Real h2\n';
+      const findings = reviewMarkdownFile(src, '/r/x.md');
+      // h1 (Real) then h2 (Real h2) — no skip, no flags. If the scanner
+      // were treating the in-fence # as a heading at depth 1, the next
+      // real h2 would be normal too — but if it counted "## Also not" as
+      // h2, then "Real h2" wouldn't skip either. So this test mostly
+      // proves the outline doesn't include the fenced content.
+      expect(findings.filter((f) => f.ruleId === 'md/skipped-heading-level')).toEqual([]);
+      const { flat } = extractMarkdownOutline(src);
+      expect(flat.map((h) => h.text)).toEqual(['Real', 'Real h2']);
+    });
+
+    it('ignores image syntax inside fences', () => {
+      const src = '# T\n\n```\n![](broken.png)\n```\n\n![ok](good.png)\n';
+      const findings = reviewMarkdownFile(src, '/r/x.md');
+      // The in-fence `![](broken.png)` must NOT fire md/image-missing-alt.
+      // The out-of-fence `![ok](good.png)` has alt text, so no finding.
+      expect(findings.filter((f) => f.ruleId === 'md/image-missing-alt')).toEqual([]);
+    });
+
+    it('handles tilde fences identically to backtick fences', () => {
+      const src = '# T\n\n~~~\n# In tilde fence\n~~~\n\n## After\n';
+      const { flat } = extractMarkdownOutline(src);
+      expect(flat.map((h) => h.text)).toEqual(['T', 'After']);
+    });
+
+    it('matches close fence by character + length', () => {
+      // Open with ````, close needs at least 4 backticks. The ``` inside
+      // does NOT close it, so the # below the inner ``` is still in-fence.
+      const src = '# T\n\n````\n```\n# Still in fence\n```\n````\n\n## Real\n';
+      const { flat } = extractMarkdownOutline(src);
+      expect(flat.map((h) => h.text)).toEqual(['T', 'Real']);
+    });
+  });
+
   describe('heading path stack stability (Gemini blocking fix)', () => {
     // Pre-fix bug: the running stack used `length >= depth` to decide when
     // to pop, but length and depth aren't the same thing when levels are

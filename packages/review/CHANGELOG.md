@@ -2,12 +2,12 @@
 
 ## 3.6.0
 
-### New analyzers — JSON / JSONC / Markdown
+### New analyzers — JSON / JSONC / Markdown / `.env`
 
-Adds a parallel non-ts-morph analysis path for config files. Findings flow
-through the existing `ReviewFinding` pipeline so kern-sight (editor
-diagnostics) and kern-guard (PR Check annotations) consume them without
-API changes.
+Adds a parallel non-ts-morph analysis path for config files under
+`packages/review/src/config-files/`. Findings flow through the existing
+`ReviewFinding` pipeline so kern-sight (editor diagnostics) and kern-guard
+(PR Check annotations) consume them without API changes.
 
 - **JSON / JSONC** — parse errors with humanized messages, duplicate-key
   detection at arbitrary nesting depth. Dialect detection: `.jsonc`,
@@ -18,7 +18,16 @@ API changes.
   alt text. Also exports a separate `extractMarkdownOutline(source)`
   API that returns a heading tree shaped for editor outline UIs; kept
   off the engine's `ReviewReport` to keep kern-guard's worker surface
-  minimal.
+  minimal. Self-contained line scanner with fenced-code awareness — no
+  parser dep.
+- **`.env`** — `env/duplicate-key`, `env/malformed` (non-blank,
+  non-comment line that doesn't match `KEY=VALUE`), and a conservative
+  `env/possible-secret` heuristic. The secret rule fires when a key
+  matches `SECRET|TOKEN|API_KEY|PASSWORD|PRIVATE_KEY|ACCESS_KEY|
+  AUTH_KEY|CLIENT_SECRET` and the value is non-empty and not a
+  placeholder (`changeme`, `your_…_here`, `<…>`, `${…}`, `xxx`). It is
+  SUPPRESSED on `.env.example`, `.env.sample`, `.env.template`,
+  `.env.defaults`, `.env.dist` by convention.
 
 ### Fingerprint stability (kern-guard dedup contract)
 
@@ -36,11 +45,20 @@ whitespace above it:
   that tracks `(level, slug)` tuples so renaming an upstream sibling does
   not perturb a downstream finding's fingerprint.
 - Image-missing-alt fingerprints encode the image URL.
+- `.env` duplicate-key fingerprints encode the key name; `env/malformed`
+  fingerprints encode a content hash of the broken line so the same
+  garbage on a different line stays the same finding.
 
-### Dependencies
+### Dependencies — self-contained direction
 
-- adds `jsonc-parser ^3.3.1`
-- adds `mdast-util-from-markdown ^2.0.2` (and `@types/mdast` devDep)
+- adds `jsonc-parser ^3.3.1` (Microsoft, MIT, dep-free) — justified for
+  JSON correctness; small enough to keep alongside kern's goal of
+  trending toward zero deps.
+- `mdast-util-from-markdown` was prototyped and then DROPPED in favor of
+  a focused 200-line scanner under `config-files/markdown.ts`. The
+  scanner covers ATX headings, image syntax, and fenced-code state —
+  not full CommonMark. Drops ~30 transitive `micromark-*` packages.
+- `.env` analyzer is pure regex; zero deps.
 
 ## 3.5.0
 
