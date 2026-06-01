@@ -12,7 +12,7 @@ import { registerPostApiProvidersTestRoute } from './routes/post-api-providers-t
 import { registerGetHealthRoute } from './routes/get-health.js';
 
 const app = express();
-const port = 3002;
+const port = Number.isInteger(Number(process.env.PORT)) && process.env.PORT !== '' ? Number(process.env.PORT) : 3002;
 const serverName = 'ReviewAPI';
 
 app.disable('x-powered-by');
@@ -71,7 +71,7 @@ import { registerGetApiTracksIdRoute } from './routes/get-api-tracks-id.js';
 import { registerDeleteApiTracksIdRoute } from './routes/delete-api-tracks-id.js';
 
 const app = express();
-const port = 3001;
+const port = Number.isInteger(Number(process.env.PORT)) && process.env.PORT !== '' ? Number(process.env.PORT) : 3001;
 const serverName = 'MusicAPI';
 
 app.disable('x-powered-by');
