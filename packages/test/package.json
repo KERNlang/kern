@@ -1,6 +1,6 @@
 {
   "name": "@kernlang/test",
-  "version": "3.5.5",
+  "version": "3.5.7",
   "description": "Native KERN structural test runner",
   "type": "module",
   "main": "./dist/index.js",
