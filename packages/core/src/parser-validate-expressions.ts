@@ -24,11 +24,14 @@ function validateNode(state: ParseState, node: IRNode): void {
         parseExpression(val);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        const detail = val.includes('<<<')
+          ? `Raw code block delimiter '<<<' cannot appear inside an expression prop. Put raw code blocks on a statement-line handler body with lang=, for example: handler lang="ts" <<<...>>>. Parser error: ${msg}`
+          : msg;
         emitDiagnostic(
           state,
           'INVALID_EXPRESSION',
           'error',
-          `Invalid expression in '${propName}': ${msg}`,
+          `Invalid expression in '${propName}': ${detail}`,
           node.loc?.line ?? 0,
           node.loc?.col ?? 0,
           { endCol: (node.loc?.col ?? 0) + propName.length },
