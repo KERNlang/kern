@@ -145,5 +145,30 @@ describe('config-files/env', () => {
       const findings = reviewEnvFile('API_KEY=changeme # for prod replace this\n', '/r/.env');
       expect(findings.filter((f) => f.ruleId === 'env/possible-secret')).toEqual([]);
     });
+
+    it('does NOT fire on QUOTED placeholder with a trailing comment (codex+agy+kimi regression)', () => {
+      // Pre-fix bug: stripInlineComment bailed on leading quote, so
+      // `"changeme" # production` was passed through to unquote with the
+      // trailing comment still attached. unquote left it intact because the
+      // last char wasn't a quote. The placeholder check missed and the
+      // secret rule fired.
+      const cases = [
+        'API_KEY="changeme" # production',
+        "API_KEY='changeme' # production",
+        'SECRET_TOKEN="example"  # rotate in CI',
+        'API_KEY="${OTHER}" # references another env var',
+      ];
+      for (const src of cases) {
+        const findings = reviewEnvFile(`${src}\n`, '/r/.env');
+        expect(findings.filter((f) => f.ruleId === 'env/possible-secret')).toEqual([]);
+      }
+    });
+
+    it('STILL fires on a quoted real-looking value with a trailing comment', () => {
+      // Mirror of the above — the fix must not over-correct and silence
+      // genuine secrets that happen to have an inline comment.
+      const findings = reviewEnvFile('API_KEY="sk_live_abc123xyz789" # never log this\n', '/r/.env');
+      expect(findings.filter((f) => f.ruleId === 'env/possible-secret').length).toBeGreaterThan(0);
+    });
   });
 });

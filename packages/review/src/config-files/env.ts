@@ -67,20 +67,6 @@ const PLACEHOLDER_PATTERNS = [
   /^[*x]+(?:[-_][*x]+)*$/i, // `xxx-xxx-xxx`
 ];
 
-/** Strip an inline `# comment` from a value (best-effort, not quote-aware
- *  beyond a single non-escaped `#`). Used only for the secret-likeness
- *  check — duplicate detection compares full raw values to keep error
- *  reporting precise. */
-function stripInlineComment(raw: string): string {
-  // If value starts with a quote, trust that — do not strip a `#` inside.
-  const trimmed = raw.trim();
-  if (trimmed.startsWith('"') || trimmed.startsWith("'")) return trimmed;
-  // Strip a `#` preceded by whitespace.
-  const hashIdx = trimmed.indexOf(' #');
-  if (hashIdx === -1) return trimmed;
-  return trimmed.slice(0, hashIdx).trim();
-}
-
 /** Strip surrounding single/double quotes if balanced. */
 function unquote(s: string): string {
   if (s.length >= 2) {
@@ -91,6 +77,58 @@ function unquote(s: string): string {
     }
   }
   return s;
+}
+
+/** Produce the "value for secret-likeness check" from a raw post-`=` slice.
+ *  Order matters: a quoted value with a trailing inline comment looks like
+ *  `"changeme" # production`. Stripping the inline comment FIRST without
+ *  quote-awareness would either bail (old behavior — bug) or chop a `#`
+ *  inside the quotes. Walking forward through the string, tracking the
+ *  initial quote char if any, gives the right answer in one pass:
+ *
+ *    1. trim
+ *    2. if starts with `"` or `'`, find the matching closing quote and
+ *       drop everything from the FIRST whitespace+`#` AFTER it
+ *    3. otherwise, drop everything from the first whitespace+`#`
+ *    4. unquote whatever remains
+ *
+ *  Used only for the secret-likeness check; duplicate detection compares
+ *  full raw values to keep error spans precise. */
+function valueForSecretCheck(raw: string): string {
+  const trimmed = raw.trim();
+  if (trimmed === '') return '';
+
+  let body = trimmed;
+  const first = trimmed.charAt(0);
+  if (first === '"' || first === "'") {
+    // Find the matching unescaped closing quote.
+    let endIdx = -1;
+    for (let i = 1; i < trimmed.length; i++) {
+      const c = trimmed.charAt(i);
+      if (c === '\\') {
+        i++; // skip the escaped char
+        continue;
+      }
+      if (c === first) {
+        endIdx = i;
+        break;
+      }
+    }
+    if (endIdx !== -1) {
+      // Everything past the closing quote, after optional whitespace, may
+      // be an inline `# comment`. Take only the quoted portion (inclusive
+      // of the quotes — `unquote` strips them next).
+      body = trimmed.slice(0, endIdx + 1);
+    }
+    // If no closing quote was found, fall through and let the # stripper
+    // handle the malformed input.
+  } else {
+    // Unquoted value — strip a `# comment` preceded by whitespace.
+    const hashIdx = trimmed.indexOf(' #');
+    if (hashIdx !== -1) body = trimmed.slice(0, hashIdx);
+  }
+
+  return unquote(body.trim());
 }
 
 function isPlaceholder(value: string): boolean {
@@ -188,8 +226,7 @@ export function reviewEnvFile(source: string, filePath: string): ReviewFinding[]
 
     // ── Possible committed secret ──────────────────────────────────────
     if (!suppressSecretRule && SECRET_KEY_RE.test(key)) {
-      const valueNoComment = stripInlineComment(rawValue);
-      const valueUnquoted = unquote(valueNoComment);
+      const valueUnquoted = valueForSecretCheck(rawValue);
       if (valueUnquoted.length > 0 && !isPlaceholder(valueUnquoted)) {
         const ruleId = 'env/possible-secret';
         findings.push({

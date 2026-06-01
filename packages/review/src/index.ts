@@ -665,15 +665,18 @@ function emptyReport(filePath: string): ReviewReport {
  */
 function reviewConfigFileSource(source: string, filePath: string): ReviewReport {
   let findings: ReviewFinding[] = [];
-  // Check `.jsonc` before `.json` — `.jsonc` also satisfies `endsWith('.json')`
-  // and we want the JSONC dispatch to be explicit rather than rely on the
-  // dialect-detection re-check inside `reviewJsonFile` to bail us out.
-  if (filePath.endsWith('.jsonc') || filePath.endsWith('.json')) {
+  // Basename-keyed env check FIRST — `.env.md` / `.env.json` would otherwise
+  // route to the markdown/JSON analyzer because `endsWith` would match. This
+  // mirrors the basename-first ordering already used in `isReviewableFile`.
+  if (isEnvFile(filePath)) {
+    findings = reviewEnvFile(source, filePath);
+  } else if (filePath.endsWith('.jsonc') || filePath.endsWith('.json')) {
+    // Check `.jsonc` before `.json` — `.jsonc` also satisfies `endsWith('.json')`
+    // and we want the JSONC dispatch to be explicit rather than rely on the
+    // dialect-detection re-check inside `reviewJsonFile` to bail us out.
     findings = reviewJsonFile(source, filePath);
   } else if (filePath.endsWith('.md')) {
     findings = reviewMarkdownFile(source, filePath);
-  } else if (isEnvFile(filePath)) {
-    findings = reviewEnvFile(source, filePath);
   }
   return {
     filePath,

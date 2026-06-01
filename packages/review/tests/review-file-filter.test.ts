@@ -27,6 +27,11 @@ describe('Review engine file-type filter', () => {
     for (const path of ['patches/ink+5.2.1.patch', 'config.yaml', 'config.toml', 'README', 'image.png']) {
       expect(isReviewableFile(path)).toBe(false);
     }
+    // `.env` family is routed by basename, not extension (`.env.local` has
+    // extension `.local` under the simple lastIndexOf shortcut).
+    for (const path of ['.env', '.env.local', '.env.production', '.env.example']) {
+      expect(isReviewableFile(path)).toBe(true);
+    }
   });
 
   it('reviewFile yields zero findings on a clean .md (well-structured headings, no images)', () => {

@@ -19,6 +19,11 @@
  *   • Reference-style images (`![alt][label]` + `[label]: url`)
  *   • Indented (4-space) code blocks
  *   • Tab handling beyond the obvious cases
+ *   • Inline code spans (`` `![](url)` ``) — image syntax inside backtick
+ *     spans on an otherwise non-fenced line can trip the image-alt rule.
+ *     False positives here surface as `md/image-missing-alt` on the URL
+ *     inside the span. Acceptable for a hygiene scanner; if it becomes
+ *     a real noise source, suppress with `kern-ignore` directives.
  *
  * If a doc uses those forms, findings on it are best-effort. The point is
  * predictable diagnostics for the common 95% case, not full CommonMark
@@ -94,11 +99,15 @@ interface ScanImage {
  *  Usage" becomes "api--usage" because `&` is dropped while both
  *  surrounding spaces survive as separate hyphens. */
 function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s-]/gu, '')
-    .trim()
-    .replace(/\s/g, '-');
+  return (
+    text
+      .toLowerCase()
+      // Allow Unicode letters, digits, underscores (GitHub keeps `_` in slugs),
+      // whitespace (collapsed to hyphens below), and hyphens.
+      .replace(/[^\p{L}\p{N}_\s-]/gu, '')
+      .trim()
+      .replace(/\s/g, '-')
+  );
 }
 
 // Image syntax: `![alt](url)`. Allowed: empty alt, alt with spaces and
@@ -129,31 +138,38 @@ function scanMarkdown(source: string): { headings: ScanHeading[]; images: ScanIm
     const line = lines[i]!;
     const lineNo = i + 1;
 
-    // Detect fence open/close. The CommonMark rule is up to 3 leading
-    // spaces of indent, then ≥3 of the same fence char. Keeping it simple:
-    // strip leading whitespace, check the run.
-    const stripped = line.replace(/^[ \t]+/, '');
-    const fenceMatch = stripped.match(/^(`{3,}|~{3,})/);
+    // Fence detection per CommonMark §4.5:
+    //   - up to 3 spaces of leading indent (NOT arbitrary tabs/whitespace —
+    //     a 4-space-indented `` ``` `` is part of an indented code block, not
+    //     a fence, so it must NOT trigger fence state)
+    //   - opening fences may carry an info string after the marker run
+    //     (`` ```js ``); closing fences may have ONLY trailing whitespace.
+    //
+    // Match opening and closing with different regexes so a line like
+    // ` ```text ` while already in a fence doesn't bogusly close it. Both
+    // anchor on `^ {0,3}` so a 4-space indent is left to the
+    // indented-code-block class (which we don't model — those lines simply
+    // don't satisfy heading/image detection either, so they're safe).
+    const openFenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/);
+    const closeFenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})\s*$/);
 
     if (inFence) {
-      // Looking for a matching close fence — same char, ≥ open length.
-      if (fenceMatch) {
-        const ch = fenceMatch[1]!.charAt(0) as '`' | '~';
-        if (ch === fenceChar && fenceMatch[1]!.length >= fenceLen) {
+      if (closeFenceMatch) {
+        const ch = closeFenceMatch[1]!.charAt(0) as '`' | '~';
+        if (ch === fenceChar && closeFenceMatch[1]!.length >= fenceLen) {
           inFence = false;
           fenceChar = null;
           fenceLen = 0;
         }
       }
-      // Either way: anything inside a fence is ignored for headings/images.
+      // Anything else inside a fence is ignored for headings/images.
       continue;
     }
 
-    if (fenceMatch) {
-      // Open a new fence.
+    if (openFenceMatch) {
       inFence = true;
-      fenceChar = fenceMatch[1]!.charAt(0) as '`' | '~';
-      fenceLen = fenceMatch[1]!.length;
+      fenceChar = openFenceMatch[1]!.charAt(0) as '`' | '~';
+      fenceLen = openFenceMatch[1]!.length;
       continue;
     }
 
@@ -163,8 +179,15 @@ function scanMarkdown(source: string): { headings: ScanHeading[]; images: ScanIm
     const headingMatch = line.match(/^ {0,3}(#{1,6})(?:\s+(.*?))?(?:\s+#+\s*)?\s*$/);
     if (headingMatch) {
       const level = headingMatch[1]!.length as 1 | 2 | 3 | 4 | 5 | 6;
-      const rawText = (headingMatch[2] ?? '').trim();
-      const text = rawText.replace(/[`*_]/g, ''); // strip the trivial inline markers
+      // Use the raw heading text as-is — do NOT globally strip ``, *, _
+      // characters. That would turn `API_KEY` into `APIKEY` (breaking
+      // outline labels) and was a regression vs the prior mdast-backed
+      // implementation. A proper inline-span parser would distinguish
+      // paired delimiters from literal underscores; we accept that the
+      // outline shows raw markdown for headings with inline emphasis and
+      // leave true delimiter handling out of scope (matches the module's
+      // "hygiene scanner, not CommonMark" contract).
+      const text = (headingMatch[2] ?? '').trim();
       const slug = slugify(text) || `heading-${lineNo}`;
       // startCol = where the first `#` sits.
       const startCol = line.length - line.replace(/^ */, '').length + 1;

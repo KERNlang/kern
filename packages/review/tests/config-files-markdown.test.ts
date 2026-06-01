@@ -104,6 +104,15 @@ describe('config-files/markdown', () => {
       expect(flat[1]?.slug).toBe('api--usage');
     });
 
+    it('preserves underscores and other meaningful chars in heading text (codex regression)', () => {
+      // Pre-fix bug: heading text had /[`*_]/g globally stripped, so
+      // `## API_KEY` became `APIKEY` in the outline and in fingerprints,
+      // regressing vs the prior mdast implementation.
+      const { flat } = extractMarkdownOutline('# Title\n\n## API_KEY rotation\n');
+      expect(flat[1]?.text).toBe('API_KEY rotation');
+      expect(flat[1]?.slug).toBe('api_key-rotation');
+    });
+
     it('preserves non-Latin characters in slugs (Unicode-aware)', () => {
       const { flat } = extractMarkdownOutline('# Café\n\n## 中文 Section\n\n## Привет\n');
       expect(flat[0]?.slug).toBe('café');
@@ -151,6 +160,27 @@ describe('config-files/markdown', () => {
       const src = '# T\n\n````\n```\n# Still in fence\n```\n````\n\n## Real\n';
       const { flat } = extractMarkdownOutline(src);
       expect(flat.map((h) => h.text)).toEqual(['T', 'Real']);
+    });
+
+    it('does NOT close a fence when the marker has trailing non-whitespace (codex+kimi regression)', () => {
+      // Pre-fix bug: any line starting with the matching fence run closed
+      // the fence, even if followed by text. Per CommonMark §4.5, a
+      // closing fence may have ONLY whitespace after the marker — ```text
+      // does not close, it stays in-fence content.
+      const src = '# T\n\n```\n```text\n# Still in fence\n```\n\n## Real\n';
+      const findings = reviewMarkdownFile(src, '/r/x.md');
+      const { flat } = extractMarkdownOutline(src);
+      expect(flat.map((h) => h.text)).toEqual(['T', 'Real']);
+      expect(findings.filter((f) => f.ruleId === 'md/skipped-heading-level')).toEqual([]);
+    });
+
+    it('does NOT treat a 4-space-indented ``` as a fence (codex regression)', () => {
+      // Pre-fix bug: arbitrary leading whitespace was stripped before
+      // fence detection, so a 4-space-indented ``` was treated as a real
+      // fence. Per CommonMark, a fence opener allows ≤3 spaces of indent.
+      const src = '# Top\n\n    ```\n    not really a fence\n    ```\n\n## Real\n';
+      const { flat } = extractMarkdownOutline(src);
+      expect(flat.map((h) => h.text)).toEqual(['Top', 'Real']);
     });
   });
 
