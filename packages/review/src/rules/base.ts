@@ -1630,6 +1630,56 @@ function bareRethrow(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule: utc-date-split-local-day ──────────────────────────────────────
+// date.toISOString().split('T')[0] returns a UTC calendar date, not the
+// user's local day. Apps that store meal/log/calendar dates usually need a
+// local date formatter instead.
+
+function isToIsoStringSplitCall(node: Node | undefined): boolean {
+  if (!node || !Node.isCallExpression(node)) return false;
+  const splitCallee = node.getExpression();
+  if (!Node.isPropertyAccessExpression(splitCallee) || splitCallee.getName() !== 'split') return false;
+  const splitArg = node.getArguments()[0];
+  if (
+    !splitArg ||
+    (!Node.isStringLiteral(splitArg) && !Node.isNoSubstitutionTemplateLiteral(splitArg)) ||
+    splitArg.getLiteralText() !== 'T'
+  ) {
+    return false;
+  }
+  const receiver = splitCallee.getExpression();
+  if (!Node.isCallExpression(receiver)) return false;
+  const isoCallee = receiver.getExpression();
+  return Node.isPropertyAccessExpression(isoCallee) && isoCallee.getName() === 'toISOString';
+}
+
+function utcDateSplitLocalDay(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const access of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.ElementAccessExpression)) {
+    const arg = access.getArgumentExpression();
+    if (!arg || !Node.isNumericLiteral(arg) || arg.getLiteralText() !== '0') continue;
+    if (!isToIsoStringSplitCall(access.getExpression())) continue;
+
+    findings.push(
+      finding(
+        'utc-date-split-local-day',
+        'warning',
+        'bug',
+        'toISOString().split("T")[0] uses the UTC day — local calendar dates can shift near midnight or across time zones',
+        ctx.filePath,
+        access.getStartLineNumber(),
+        1,
+        {
+          suggestion: 'Use a local date formatter/helper when the value represents a user-visible calendar day.',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
 export const baseRules = [
   floatingPromise,
   stateMutation,
@@ -1647,4 +1697,5 @@ export const baseRules = [
   unhandledAsync,
   syncInAsync,
   bareRethrow,
+  utcDateSplitLocalDay,
 ];

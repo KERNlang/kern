@@ -107,6 +107,28 @@ export function Component({ el }: { el: Element }) {
     });
   });
 
+  describe('utc-date-split-local-day', () => {
+    it('flags UTC ISO split used as a local calendar date', () => {
+      const source = `
+export function todayKey(date = new Date()) {
+  return date.toISOString().split("T")[0];
+}
+`;
+      const report = reviewSource(source, 'src/utils/date.ts');
+      expect(report.findings.find((f) => f.ruleId === 'utc-date-split-local-day')).toBeDefined();
+    });
+
+    it('does not flag explicit local date formatting', () => {
+      const source = `
+export function todayKey(date = new Date()) {
+  return formatLocalDate(date);
+}
+`;
+      const report = reviewSource(source, 'src/utils/date.ts');
+      expect(report.findings.find((f) => f.ruleId === 'utc-date-split-local-day')).toBeUndefined();
+    });
+  });
+
   describe('event-listener-cleanup-mismatch', () => {
     it('flags inline add/remove listener functions that do not share identity', () => {
       const source = `
