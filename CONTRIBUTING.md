@@ -57,7 +57,7 @@ KERN is a pnpm monorepo. Key packages:
 |---------|---------|
 | `packages/core` | Parser, codegen, types, spec |
 | `packages/cli` | CLI commands (compile, review, evolve, dev) |
-| `packages/review` | Static analysis engine (233 rules, taint tracking) |
+| `packages/review` | Static analysis engine (240 rules, taint tracking) |
 | `packages/review-mcp` | MCP server security scanner |
 | `packages/react` | Next.js / React / Tailwind transpilers |
 | `packages/vue` | Vue 3 / Nuxt 3 transpilers |
