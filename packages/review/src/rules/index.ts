@@ -233,6 +233,14 @@ const REGISTRY: RuleInfo[] = [
     description: 'Synchronous blocking call inside async function',
   },
   {
+    id: 'utc-date-split-local-day',
+    layer: 'base',
+    severity: 'warning',
+    description: 'toISOString().split("T")[0] uses UTC day for a local calendar date',
+    precision: 'high',
+    rolloutPhase: 1,
+  },
+  {
     id: 'bare-rethrow',
     layer: 'base',
     severity: 'warning',
@@ -1068,6 +1076,14 @@ const REGISTRY: RuleInfo[] = [
     precision: 'high',
     rolloutPhase: 3,
   },
+  {
+    id: 'react-native-pressable-missing-a11y',
+    layer: 'a11y',
+    severity: 'warning',
+    description: 'React Native Pressable/Touchable with onPress lacks role, label, or state metadata',
+    precision: 'medium',
+    rolloutPhase: 3,
+  },
 
   // perf — Wave 3
   {
@@ -1543,7 +1559,7 @@ const REGISTRY: RuleInfo[] = [
     id: 'session-local-storage-outside-helper',
     layer: 'nextjs-app-router',
     severity: 'warning',
-    description: 'Sensitive auth/session localStorage write outside storage helper module',
+    description: 'Sensitive auth/session browser storage access outside storage helper module',
     precision: 'medium',
     rolloutPhase: 1,
   },
@@ -1629,6 +1645,38 @@ const REGISTRY: RuleInfo[] = [
     severity: 'warning',
     description: 'redirect() called with a non-3xx HTTP status',
     precision: 'high',
+    rolloutPhase: 1,
+  },
+  {
+    id: 'electron-open-external-unvalidated',
+    layer: 'security-v6',
+    severity: 'warning',
+    description: 'Electron shell.openExternal() receives a dynamic URL without host allowlist',
+    precision: 'medium',
+    rolloutPhase: 1,
+  },
+  {
+    id: 'electron-localhost-wildcard-cors',
+    layer: 'security-v6',
+    severity: 'warning',
+    description: 'Electron localhost server exposes mutating routes with wildcard CORS',
+    precision: 'medium',
+    rolloutPhase: 1,
+  },
+  {
+    id: 'inline-json-script-escape',
+    layer: 'security-v6',
+    severity: 'warning',
+    description: 'JSON.stringify() injected into executable inline <script> without escaping',
+    precision: 'high',
+    rolloutPhase: 1,
+  },
+  {
+    id: 'sensitive-console-log',
+    layer: 'security-v6',
+    severity: 'warning',
+    description: 'Runtime console log includes request/auth/body/PII-looking data',
+    precision: 'medium',
     rolloutPhase: 1,
   },
 
@@ -1718,6 +1766,12 @@ const REGISTRY: RuleInfo[] = [
     layer: 'fastapi',
     severity: 'warning',
     description: 'CORSMiddleware with allow_origins=["*"] — overly permissive',
+  },
+  {
+    id: 'fastapi-implicit-request-globals',
+    layer: 'fastapi',
+    severity: 'error',
+    description: 'Route references implicit req/body globals that FastAPI will not inject',
   },
 
   // Concept rules (always active, language-agnostic)

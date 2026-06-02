@@ -83,10 +83,10 @@ function run(source: string, nodes: ConceptNode[], file = 'app.py'): ReviewFindi
 
 describe('FastAPI Rules', () => {
   describe('registry', () => {
-    it('has 5 fastapi rules in REGISTRY', () => {
+    it('has 6 fastapi rules in REGISTRY', () => {
       const registry = getRuleRegistry('fastapi');
       const fastapiRules = registry.filter((r) => r.layer === 'fastapi');
-      expect(fastapiRules.length).toBe(5);
+      expect(fastapiRules.length).toBe(6);
     });
 
     it('getActiveRules returns empty array for fastapi (concept-only target)', () => {
@@ -496,6 +496,111 @@ app.add_middleware(CORSMiddleware, allow_origins=['*'])
       const findings = run(source, []);
       const f = findings.find((f) => f.ruleId === 'fastapi-broad-cors');
       expect(f).toBeDefined();
+    });
+  });
+
+  // ── fastapi-implicit-request-globals ───────────────────────────────────
+
+  describe('fastapi-implicit-request-globals', () => {
+    it('detects Express-style req and body references in FastAPI routes', () => {
+      const source = `
+@router.put("/api/users/me")
+async def update_me(user = Depends(auth_required)):
+    updated = await userService.updateProfile(req.user.id, body)
+    return updated
+`;
+      const findings = run(source, [makeRouteNode('app.py', 'update_me', 2, 5, '@router.put("/api/users/me")', 'PUT')]);
+
+      const hits = findings.filter((f) => f.ruleId === 'fastapi-implicit-request-globals');
+      expect(hits).toHaveLength(2);
+      expect(hits[0].severity).toBe('error');
+      expect(hits.map((f) => f.message).join('\n')).toContain("'req'");
+      expect(hits.map((f) => f.message).join('\n')).toContain("'body'");
+    });
+
+    it('does not flag explicitly declared request/body parameters', () => {
+      const source = `
+@router.put("/api/users/me")
+async def update_me(req: Request, body: UserUpdate, user = Depends(auth_required)):
+    updated = await userService.updateProfile(req.user.id, body)
+    return updated
+`;
+      const findings = run(source, [makeRouteNode('app.py', 'update_me', 2, 5, '@router.put("/api/users/me")', 'PUT')]);
+
+      expect(findings.find((f) => f.ruleId === 'fastapi-implicit-request-globals')).toBeUndefined();
+    });
+
+    it('does not flag parameters declared after parenthesized defaults in multiline signatures', () => {
+      const source = `
+@router.put("/api/users/me")
+async def update_me(
+    user = Depends(auth_required),
+    body: UserUpdate = Body(...),
+):
+    updated = await userService.updateProfile(body)
+    return updated
+`;
+      const findings = run(source, [makeRouteNode('app.py', 'update_me', 2, 8, '@router.put("/api/users/me")', 'PUT')]);
+
+      expect(findings.find((f) => f.ruleId === 'fastapi-implicit-request-globals')).toBeUndefined();
+    });
+
+    it('does not flag locally bound body variables', () => {
+      const source = `
+@router.post("/events")
+async def events(request: Request):
+    body = await request.json()
+    return {"ok": bool(body)}
+`;
+      const findings = run(source, [makeRouteNode('app.py', 'events', 2, 5, '@router.post("/events")', 'POST')]);
+
+      expect(findings.find((f) => f.ruleId === 'fastapi-implicit-request-globals')).toBeUndefined();
+    });
+
+    it('does not flag body mentions inside string literals', () => {
+      const source = `
+@router.post("/events")
+async def events():
+    return {"message": "body is optional"}
+`;
+      const findings = run(source, [makeRouteNode('app.py', 'events', 2, 5, '@router.post("/events")', 'POST')]);
+
+      expect(findings.find((f) => f.ruleId === 'fastapi-implicit-request-globals')).toBeUndefined();
+    });
+
+    it('does not treat request.body attribute access as an implicit body global', () => {
+      const source = `
+@router.post("/events")
+async def events(request: Request):
+    return {"length": len(request.body)}
+`;
+      const findings = run(source, [makeRouteNode('app.py', 'events', 2, 5, '@router.post("/events")', 'POST')]);
+
+      expect(findings.find((f) => f.ruleId === 'fastapi-implicit-request-globals')).toBeUndefined();
+    });
+
+    it('does not treat body keyword arguments as implicit globals', () => {
+      const source = `
+@router.post("/events")
+async def events():
+    return Response(body="ok")
+`;
+      const findings = run(source, [makeRouteNode('app.py', 'events', 2, 5, '@router.post("/events")', 'POST')]);
+
+      expect(findings.find((f) => f.ruleId === 'fastapi-implicit-request-globals')).toBeUndefined();
+    });
+
+    it('still flags undeclared body equality checks', () => {
+      const source = `
+@router.post("/events")
+async def events():
+    if body == None:
+        return {"ok": False}
+    return {"ok": True}
+`;
+      const findings = run(source, [makeRouteNode('app.py', 'events', 2, 7, '@router.post("/events")', 'POST')]);
+
+      expect(findings.find((f) => f.ruleId === 'fastapi-implicit-request-globals')).toBeDefined();
     });
   });
 });

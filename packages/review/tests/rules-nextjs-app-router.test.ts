@@ -1635,6 +1635,17 @@ export function LoginButton() {
       expect(r.findings.find((f) => f.ruleId === 'session-local-storage-outside-helper')).toBeDefined();
     });
 
+    it('flags sensitive localStorage reads outside storage helpers', () => {
+      const src = `
+export function LoginButton() {
+  const token = globalThis.window.localStorage.getItem('accessToken');
+  return token;
+}
+`;
+      const r = reviewSource(src, 'src/features/account/login-button.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'session-local-storage-outside-helper')).toBeDefined();
+    });
+
     it('does not flag sensitive localStorage writes inside auth helpers', () => {
       const src = `
 export function setSessionData(token: string) {

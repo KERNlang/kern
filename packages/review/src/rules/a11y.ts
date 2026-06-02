@@ -103,6 +103,12 @@ const INTERACTIVE_EVENTS = new Set([
 ]);
 
 const NON_INTERACTIVE_ELEMENTS = new Set(['div', 'span', 'section', 'article', 'li', 'p', 'td', 'th']);
+const REACT_NATIVE_INTERACTIVE_PRIMITIVES = new Set([
+  'Pressable',
+  'TouchableOpacity',
+  'TouchableHighlight',
+  'TouchableWithoutFeedback',
+]);
 
 type JsxElementLike = JsxOpeningElement | JsxSelfClosingElement;
 
@@ -125,6 +131,23 @@ function hasAttr(el: JsxElementLike, name: string): boolean {
 
 function hasAnyAttr(el: JsxElementLike, names: string[]): boolean {
   return names.some((n) => hasAttr(el, n));
+}
+
+function reactNativePrimitiveBindings(ctx: RuleContext): Set<string> {
+  const names = new Set<string>();
+  for (const imp of ctx.sourceFile.getImportDeclarations()) {
+    if (imp.getModuleSpecifierValue() !== 'react-native') continue;
+    for (const named of imp.getNamedImports()) {
+      if (REACT_NATIVE_INTERACTIVE_PRIMITIVES.has(named.getName())) {
+        names.add(named.getAliasNode()?.getText() ?? named.getNameNode().getText());
+      }
+    }
+    const namespace = imp.getNamespaceImport()?.getText();
+    if (namespace) {
+      for (const primitive of REACT_NATIVE_INTERACTIVE_PRIMITIVES) names.add(`${namespace}.${primitive}`);
+    }
+  }
+  return names;
 }
 
 function* iterJsxElements(ctx: RuleContext): Generator<JsxElementLike> {
@@ -373,6 +396,59 @@ function interactiveNonInteractive(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule: react-native-pressable-missing-a11y ───────────────────────────
+
+function reactNativePressableMissingA11y(ctx: RuleContext): ReviewFinding[] {
+  const nativeBindings = reactNativePrimitiveBindings(ctx);
+  if (nativeBindings.size === 0) return [];
+
+  const findings: ReviewFinding[] = [];
+  for (const el of iterJsxElements(ctx)) {
+    const tag = getTagName(el);
+    if (!nativeBindings.has(tag)) continue;
+    if (!hasAttr(el, 'onPress')) continue;
+
+    const hasRole = hasAnyAttr(el, ['accessibilityRole', 'role']);
+    const hasLabel = hasAnyAttr(el, [
+      'accessibilityLabel',
+      'aria-label',
+      'aria-labelledby',
+      'accessibilityLabelledBy',
+      'accessibilityLabeledBy',
+    ]);
+    const hasAriaState = hasAnyAttr(el, ['aria-selected', 'aria-checked', 'aria-disabled']);
+    const hasState = hasAttr(el, 'accessibilityState') || hasAriaState;
+    const hasStatefulProp = hasAnyAttr(el, [
+      'selected',
+      'isSelected',
+      'checked',
+      'disabled',
+      'aria-selected',
+      'aria-checked',
+      'aria-disabled',
+    ]);
+
+    if (hasRole && hasLabel && (!hasStatefulProp || hasState)) continue;
+
+    findings.push(
+      finding(
+        'react-native-pressable-missing-a11y',
+        'warning',
+        'bug',
+        `<${tag}> handles onPress without complete React Native accessibility metadata — screen readers may miss role, label, or state`,
+        ctx.filePath,
+        el.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'Add accessibilityRole, accessibilityLabel/accessibilityLabelledBy, and accessibilityState when selected/checked/disabled state is present.',
+        },
+      ),
+    );
+  }
+  return findings;
+}
+
 // ── Exported a11y rules ──────────────────────────────────────────────────
 
 export const a11yRules = [
@@ -381,4 +457,5 @@ export const a11yRules = [
   labelMissingFor,
   ariaInvalidRole,
   interactiveNonInteractive,
+  reactNativePressableMissingA11y,
 ];
