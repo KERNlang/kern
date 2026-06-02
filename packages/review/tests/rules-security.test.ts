@@ -1311,3 +1311,280 @@ export function update(machine: any): void {
     expect(f).toBeUndefined();
   });
 });
+
+// ── electron-open-external-unvalidated ─────────────────────────────────
+
+describe('electron-open-external-unvalidated', () => {
+  it('flags dynamic shell.openExternal without host allowlist', () => {
+    const source = `
+import { shell } from 'electron';
+export async function open(url: string) {
+  const parsed = new URL(url);
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new Error('bad protocol');
+  await shell.openExternal(url);
+}
+`;
+    const report = reviewSource(source, 'apps/electron/src/main/shell.ts');
+    expect(report.findings.find((f) => f.ruleId === 'electron-open-external-unvalidated')).toBeDefined();
+  });
+
+  it('does not flag dynamic shell.openExternal with host allowlist', () => {
+    const source = `
+import { shell } from 'electron';
+const allowedHosts = new Set(['audiofacets.com']);
+export async function open(url: string) {
+  const parsed = new URL(url);
+  if (!allowedHosts.has(parsed.hostname)) throw new Error('bad host');
+  await shell.openExternal(url);
+}
+`;
+    const report = reviewSource(source, 'apps/electron/src/main/shell.ts');
+    expect(report.findings.find((f) => f.ruleId === 'electron-open-external-unvalidated')).toBeUndefined();
+  });
+
+  it('still flags when allowlist check does not guard openExternal', () => {
+    const source = `
+import { shell } from 'electron';
+const allowedHosts = new Set(['audiofacets.com']);
+export async function open(url: string) {
+  const parsed = new URL(url);
+  if (allowedHosts.has(parsed.hostname)) console.log('known host');
+  await shell.openExternal(url);
+}
+`;
+    const report = reviewSource(source, 'apps/electron/src/main/shell.ts');
+    expect(report.findings.find((f) => f.ruleId === 'electron-open-external-unvalidated')).toBeDefined();
+  });
+
+  it('still flags when an allowlist variable exists but is not checked', () => {
+    const source = `
+import { shell } from 'electron';
+const allowedHosts = new Set(['audiofacets.com']);
+export async function open(url: string) {
+  const parsed = new URL(url);
+  if (parsed.protocol !== 'https:') throw new Error('bad protocol');
+  await shell.openExternal(url);
+}
+`;
+    const report = reviewSource(source, 'apps/electron/src/main/shell.ts');
+    expect(report.findings.find((f) => f.ruleId === 'electron-open-external-unvalidated')).toBeDefined();
+  });
+
+  it('flags aliased Electron shell.openExternal calls', () => {
+    const source = `
+import { shell as electronShell } from 'electron';
+export async function open(url: string) {
+  await electronShell.openExternal(url);
+}
+`;
+    const report = reviewSource(source, 'apps/electron/src/main/shell.ts');
+    expect(report.findings.find((f) => f.ruleId === 'electron-open-external-unvalidated')).toBeDefined();
+  });
+
+  it('does not treat unrelated local shell bindings as Electron shell', () => {
+    const source = `
+import { app } from 'electron';
+const shell = makeShell();
+export async function open(url: string) {
+  await shell.openExternal(url);
+}
+`;
+    const report = reviewSource(source, 'apps/electron/src/main/shell.ts');
+    expect(report.findings.find((f) => f.ruleId === 'electron-open-external-unvalidated')).toBeUndefined();
+  });
+});
+
+// ── electron-localhost-wildcard-cors ───────────────────────────────────
+
+describe('electron-localhost-wildcard-cors', () => {
+  it('flags wildcard CORS on localhost server with mutating route', () => {
+    const source = `
+const HOST = '127.0.0.1';
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  next();
+});
+app.post('/voice', async (req, res) => {
+  res.json({ ok: true });
+});
+server.listen(8787, HOST);
+`;
+    const report = reviewSource(source, 'apps/electron/src/main/renderer-http-server/server.ts');
+    expect(report.findings.find((f) => f.ruleId === 'electron-localhost-wildcard-cors')).toBeDefined();
+  });
+
+  it('does not flag when a nonce guard is present', () => {
+    const source = `
+const HOST = '127.0.0.1';
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  next();
+});
+app.post('/voice', requireNonce, async (req, res) => {
+  res.json({ ok: true });
+});
+server.listen(8787, HOST);
+`;
+    const report = reviewSource(source, 'apps/electron/src/main/renderer-http-server/server.ts');
+    expect(report.findings.find((f) => f.ruleId === 'electron-localhost-wildcard-cors')).toBeUndefined();
+  });
+
+  it('still flags when guard words only appear in comments', () => {
+    const source = `
+const HOST = '127.0.0.1';
+// TODO: add nonce later.
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  next();
+});
+app.post('/voice', async (req, res) => {
+  res.json({ ok: true });
+});
+server.listen(8787, HOST);
+`;
+    const report = reviewSource(source, 'apps/electron/src/main/renderer-http-server/server.ts');
+    expect(report.findings.find((f) => f.ruleId === 'electron-localhost-wildcard-cors')).toBeDefined();
+  });
+
+  it('still flags when route-local guard names only appear in comments', () => {
+    const source = `
+const HOST = '127.0.0.1';
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  next();
+});
+app.post('/voice', async (req, res) => {
+  // requireNonce will be added later.
+  res.json({ ok: true });
+});
+server.listen(8787, HOST);
+`;
+    const report = reviewSource(source, 'apps/electron/src/main/renderer-http-server/server.ts');
+    expect(report.findings.find((f) => f.ruleId === 'electron-localhost-wildcard-cors')).toBeDefined();
+  });
+
+  it('does not flag when shared auth middleware protects mutating routes', () => {
+    const source = `
+const HOST = '127.0.0.1';
+app.use(requireAuth);
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  next();
+});
+app.post('/voice', async (req, res) => {
+  res.json({ ok: true });
+});
+server.listen(8787, HOST);
+`;
+    const report = reviewSource(source, 'apps/electron/src/main/renderer-http-server/server.ts');
+    expect(report.findings.find((f) => f.ruleId === 'electron-localhost-wildcard-cors')).toBeUndefined();
+  });
+});
+
+// ── inline-json-script-escape ──────────────────────────────────────────
+
+describe('inline-json-script-escape', () => {
+  it('flags JSON.stringify inside executable inline script', () => {
+    const source = `
+export function render(data: unknown) {
+  return \`<script>window.__DATA__ = \${JSON.stringify(data)}</script>\`;
+}
+`;
+    const report = reviewSource(source, 'src/server/render.ts');
+    expect(report.findings.find((f) => f.ruleId === 'inline-json-script-escape')).toBeDefined();
+  });
+
+  it('does not flag application/json script blocks', () => {
+    const source = `
+export function render(data: unknown) {
+  return \`<script type="application/json">\${JSON.stringify(data)}</script>\`;
+}
+`;
+    const report = reviewSource(source, 'src/server/render.ts');
+    expect(report.findings.find((f) => f.ruleId === 'inline-json-script-escape')).toBeUndefined();
+  });
+
+  it('does not treat unrelated replace calls as JSON escaping', () => {
+    const source = `
+export function render(data: unknown, title: string) {
+  return \`<script>window.__TITLE__ = "\${title.replace(/</g, '')}"; window.__DATA__ = \${JSON.stringify(data)}</script>\`;
+}
+`;
+    const report = reviewSource(source, 'src/server/render.ts');
+    expect(report.findings.find((f) => f.ruleId === 'inline-json-script-escape')).toBeDefined();
+  });
+
+  it('flags JSON.stringify in inline script string concatenation', () => {
+    const source = `
+export function render(data: unknown) {
+  return '<script>window.__DATA__ = ' + JSON.stringify(data) + '</script>';
+}
+`;
+    const report = reviewSource(source, 'src/server/render.ts');
+    expect(report.findings.find((f) => f.ruleId === 'inline-json-script-escape')).toBeDefined();
+  });
+
+  it('does not treat ampersand escaping as script-breakout protection', () => {
+    const source = `
+export function render(data: unknown) {
+  return \`<script>window.__DATA__ = \${JSON.stringify(data).replace(/&/g, '&amp;')}</script>\`;
+}
+`;
+    const report = reviewSource(source, 'src/server/render.ts');
+    expect(report.findings.find((f) => f.ruleId === 'inline-json-script-escape')).toBeDefined();
+  });
+});
+
+// ── sensitive-console-log ──────────────────────────────────────────────
+
+describe('sensitive-console-log', () => {
+  it('flags runtime logs of request headers and body', () => {
+    const source = `
+export function logRequest(requestHeaders: Headers, body: unknown) {
+  console.log('request', requestHeaders, JSON.stringify(body));
+}
+`;
+    const report = reviewSource(source, 'src/api/client.ts');
+    expect(report.findings.find((f) => f.ruleId === 'sensitive-console-log')).toBeDefined();
+  });
+
+  it('does not flag logs that use an explicit redaction helper', () => {
+    const source = `
+export function logRequest(requestHeaders: Headers) {
+  console.log('request', redact(requestHeaders));
+}
+`;
+    const report = reviewSource(source, 'src/api/client.ts');
+    expect(report.findings.find((f) => f.ruleId === 'sensitive-console-log')).toBeUndefined();
+  });
+
+  it('does not flag generic health-check status logs', () => {
+    const source = `
+export function logHealth(status: string) {
+  console.log('health', status);
+}
+`;
+    const report = reviewSource(source, 'src/api/client.ts');
+    expect(report.findings.find((f) => f.ruleId === 'sensitive-console-log')).toBeUndefined();
+  });
+
+  it('does not flag sensitive words that only appear in a log message string', () => {
+    const source = `
+export function logProgress(status: string) {
+  console.log('processing request body', status);
+}
+`;
+    const report = reviewSource(source, 'src/api/client.ts');
+    expect(report.findings.find((f) => f.ruleId === 'sensitive-console-log')).toBeUndefined();
+  });
+
+  it('does not let unrelated redacted values hide raw sensitive arguments', () => {
+    const source = `
+export function logAuth(redactedCount: number, authorization: string) {
+  console.log(redactedCount, authorization);
+}
+`;
+    const report = reviewSource(source, 'src/api/client.ts');
+    expect(report.findings.find((f) => f.ruleId === 'sensitive-console-log')).toBeDefined();
+  });
+});

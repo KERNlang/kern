@@ -8,6 +8,10 @@
  *   S10 error-leak                 — caught exception leaked back to client
  *   S11 bearer-token-literal       — hardcoded `Authorization: Bearer …` value
  *   S12 redirect-non-3xx-status    — redirect helper called with non-redirect HTTP status
+ *   S13 electron-open-external-unvalidated — shell.openExternal() with dynamic URL and no host allowlist
+ *   S14 electron-localhost-wildcard-cors — localhost Electron server exposes mutating routes with wildcard CORS
+ *   S15 inline-json-script-escape   — JSON.stringify injected into executable inline <script>
+ *   S16 sensitive-console-log       — console logging request/auth/body data in runtime code
  */
 
 import { Node, SyntaxKind } from 'ts-morph';
@@ -436,6 +440,372 @@ function redirectNon3xxStatus(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule S13: electron-open-external-unvalidated ───────────────────────
+
+function enclosingFunctionLike(node: Node): Node | undefined {
+  let cur: Node | undefined = node.getParent();
+  while (cur) {
+    if (
+      Node.isFunctionDeclaration(cur) ||
+      Node.isFunctionExpression(cur) ||
+      Node.isArrowFunction(cur) ||
+      Node.isMethodDeclaration(cur)
+    ) {
+      return cur;
+    }
+    cur = cur.getParent();
+  }
+  return undefined;
+}
+
+function maskTsStringsAndComments(text: string): string {
+  let out = '';
+  let quote: string | undefined;
+  let templateDepth = 0;
+  let lineComment = false;
+  let blockComment = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    const next = text[i + 1];
+
+    if (lineComment) {
+      if (ch === '\n') {
+        out += '\n';
+        lineComment = false;
+      } else {
+        out += ' ';
+      }
+      continue;
+    }
+
+    if (blockComment) {
+      if (ch === '*' && next === '/') {
+        out += '  ';
+        i++;
+        blockComment = false;
+      } else {
+        out += ch === '\n' ? '\n' : ' ';
+      }
+      continue;
+    }
+
+    if (quote) {
+      if (quote === '`' && ch === '$' && next === '{') {
+        out += '${';
+        i++;
+        templateDepth++;
+        quote = undefined;
+        continue;
+      }
+      out += ch === '\n' ? '\n' : ' ';
+      if (ch === quote && text[i - 1] !== '\\') quote = undefined;
+      continue;
+    }
+
+    if (templateDepth > 0 && ch === '}') {
+      out += ch;
+      templateDepth--;
+      quote = '`';
+      continue;
+    }
+
+    if (ch === '/' && next === '/') {
+      out += '  ';
+      i++;
+      lineComment = true;
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      out += '  ';
+      i++;
+      blockComment = true;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      out += ' ';
+      continue;
+    }
+
+    out += ch;
+  }
+
+  return out;
+}
+
+function electronShellBindings(ctx: RuleContext): Set<string> {
+  const names = new Set<string>();
+
+  for (const imp of ctx.sourceFile.getImportDeclarations()) {
+    if (imp.getModuleSpecifierValue() !== 'electron') continue;
+    for (const named of imp.getNamedImports()) {
+      if (named.getName() === 'shell') {
+        names.add(named.getAliasNode()?.getText() ?? named.getNameNode().getText());
+      }
+    }
+    const namespace = imp.getNamespaceImport()?.getText();
+    if (namespace) names.add(`${namespace}.shell`);
+  }
+
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const initializer = decl.getInitializer();
+    if (!initializer || !/\brequire\s*\(\s*['"]electron['"]\s*\)/.test(initializer.getText())) continue;
+    const nameNode = decl.getNameNode();
+    if (Node.isObjectBindingPattern(nameNode)) {
+      for (const el of nameNode.getElements()) {
+        const property = el.getPropertyNameNode()?.getText() ?? el.getNameNode().getText();
+        if (property === 'shell') names.add(el.getNameNode().getText());
+      }
+    } else {
+      names.add(`${nameNode.getText()}.shell`);
+    }
+  }
+
+  return names;
+}
+
+function hasHostAllowlistNear(node: Node): boolean {
+  const fn = enclosingFunctionLike(node);
+  const container = fn ?? node.getSourceFile();
+  const text = maskTsStringsAndComments(container.getText());
+  const beforeCall = text.slice(0, Math.max(0, node.getStart() - container.getStart()));
+  const allowlistName = '(?:allowed|trusted|safe|approved|white|allow)[A-Za-z0-9_]*(?:Hosts|Origins|Urls|Domains|List)';
+  const hostExpr = String.raw`(?:[A-Za-z_$][\w$]*|new\s+URL\s*\([^)]*\))\.(?:hostname|host)`;
+  const allowlistCheck = String.raw`\b${allowlistName}\s*\.\s*(?:has|includes)\s*\(\s*${hostExpr}\s*\)`;
+  return (
+    new RegExp(String.raw`\bif\s*\(\s*!\s*${allowlistCheck}\s*\)\s*(?:\{[\s\S]{0,160})?\b(?:throw|return)\b`, 'i').test(
+      beforeCall,
+    ) || /\bswitch\s*\([^)]*\b(?:hostname|host)\b[^)]*\)/.test(beforeCall)
+  );
+}
+
+function isStaticHttpUrl(node: Node | undefined): boolean {
+  if (!node) return false;
+  if (!Node.isStringLiteral(node) && !Node.isNoSubstitutionTemplateLiteral(node)) return false;
+  return /^https?:\/\/[A-Za-z0-9.-]+(?:\/|$)/.test(node.getLiteralText());
+}
+
+function electronOpenExternalUnvalidated(ctx: RuleContext): ReviewFinding[] {
+  if (ctx.fileRole !== 'runtime') return [];
+  const text = ctx.sourceFile.getFullText();
+  if (!/\bfrom\s+['"]electron['"]|\brequire\s*\(\s*['"]electron['"]\s*\)/.test(text)) return [];
+  const shellBindings = electronShellBindings(ctx);
+
+  const findings: ReviewFinding[] = [];
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (!Node.isPropertyAccessExpression(callee)) continue;
+    if (callee.getName() !== 'openExternal') continue;
+    if (!shellBindings.has(callee.getExpression().getText())) continue;
+    const target = call.getArguments()[0];
+    if (isStaticHttpUrl(target)) continue;
+    if (hasHostAllowlistNear(call)) continue;
+
+    findings.push(
+      finding(
+        'electron-open-external-unvalidated',
+        'warning',
+        'bug',
+        'Electron shell.openExternal() receives a dynamic URL without an obvious host allowlist — renderer or backend data can open arbitrary sites',
+        ctx.filePath,
+        call.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'Parse the URL and allow only trusted hosts before calling shell.openExternal(); protocol-only checks are not enough.',
+        },
+      ),
+    );
+  }
+  return findings;
+}
+
+// ── Rule S14: electron-localhost-wildcard-cors ─────────────────────────
+
+function electronLocalhostWildcardCors(ctx: RuleContext): ReviewFinding[] {
+  if (ctx.fileRole !== 'runtime') return [];
+  const text = ctx.sourceFile.getFullText();
+  if (!/\b(?:127\.0\.0\.1|localhost)\b/.test(text)) return [];
+  if (
+    !/Access-Control-Allow-Origin['"`]?\s*,\s*['"`]\*['"`]|origin\s*:\s*['"`]\*['"`]|cors\s*\(\s*\{[^}]*origin\s*:\s*['"`]\*['"`]/s.test(
+      text,
+    )
+  ) {
+    return [];
+  }
+  if (
+    !/\.(?:post|put|patch|delete)\s*\(/.test(text) &&
+    !/\breq\.method\b[\s\S]{0,120}\b(?:POST|PUT|PATCH|DELETE)\b/.test(text)
+  ) {
+    return [];
+  }
+  if (hasLocalhostMutationGuard(text)) return [];
+
+  const line = text.split('\n').findIndex((l) => /Access-Control-Allow-Origin|cors\s*\(/.test(l)) + 1 || 1;
+  return [
+    finding(
+      'electron-localhost-wildcard-cors',
+      'warning',
+      'bug',
+      'Electron localhost server combines wildcard CORS with mutating endpoints — browser pages can drive local state-changing actions',
+      ctx.filePath,
+      line,
+      1,
+      {
+        suggestion:
+          'Require a per-session token/nonce or strict origin allowlist for mutating localhost endpoints, even when bound to 127.0.0.1.',
+      },
+    ),
+  ];
+}
+
+function hasLocalhostMutationGuard(text: string): boolean {
+  const searchable = maskTsStringsAndComments(text);
+  const guardName =
+    /\b(?:requireNonce|verifyNonce|nonceGuard|requireCsrf|verifyCsrf|csrfGuard|requireAuth|authToken|verifyOrigin|validateOrigin|originAllowlist|allowedOrigins|trustedOrigins)\b/i;
+  if (
+    /\.(?:use|all)\s*\([^)]*(?:requireNonce|verifyNonce|nonceGuard|requireCsrf|verifyCsrf|csrfGuard|requireAuth|authToken|verifyOrigin|validateOrigin|originAllowlist|allowedOrigins|trustedOrigins)[^)]*\)/i.test(
+      searchable,
+    )
+  ) {
+    return true;
+  }
+
+  const routeRe = /\.(?:post|put|patch|delete)\s*\(/g;
+  let match: RegExpExecArray | null;
+  while ((match = routeRe.exec(searchable)) !== null) {
+    const routeWindow = searchable.slice(match.index, match.index + 360);
+    if (guardName.test(routeWindow)) return true;
+  }
+
+  return false;
+}
+
+// ── Rule S15: inline-json-script-escape ────────────────────────────────
+
+function hasHtmlEscapingChain(node: Node): boolean {
+  let cur: Node | undefined = node;
+  while (cur) {
+    if (Node.isCallExpression(cur)) {
+      const callee = cur.getExpression();
+      if (Node.isPropertyAccessExpression(callee) && callee.getName() === 'replace') {
+        const receiver = callee.getExpression();
+        if (receiver.getStart() > node.getStart() || receiver.getEnd() < node.getEnd()) {
+          cur = cur.getParent();
+          continue;
+        }
+        const firstArg = cur.getArguments()[0]?.getText() ?? '';
+        if (/[<]|u003c/i.test(firstArg)) return true;
+      }
+    }
+    cur = cur.getParent();
+  }
+  return false;
+}
+
+function inlineJsonScriptEscape(ctx: RuleContext): ReviewFinding[] {
+  if (ctx.fileRole !== 'runtime') return [];
+  const findings: ReviewFinding[] = [];
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    if (call.getExpression().getText() !== 'JSON.stringify') continue;
+    const template = call.getFirstAncestorByKind(SyntaxKind.TemplateExpression);
+    const binary = call.getFirstAncestorByKind(SyntaxKind.BinaryExpression);
+    const templateText = template?.getText() ?? '';
+    const binaryText = binary?.getText() ?? '';
+    const containerText = templateText || binaryText;
+    if (!/<script[\s>]/i.test(containerText)) continue;
+    if (/type\s*=\s*(?:"application\/json"|'application\/json'|application\/json)/i.test(containerText)) continue;
+    if (hasHtmlEscapingChain(call)) continue;
+
+    findings.push(
+      finding(
+        'inline-json-script-escape',
+        'warning',
+        'bug',
+        'JSON.stringify() is injected into an executable inline <script> without escaping "<" — data containing </script> can break out',
+        ctx.filePath,
+        call.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'Escape at least "<" as "\\u003c" before injecting JSON into executable scripts, or put JSON in <script type="application/json">.',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+// ── Rule S16: sensitive-console-log ────────────────────────────────────
+
+const SENSITIVE_LOG_RE =
+  /\b(?:authorization|bearer|access[_-]?token|refresh[_-]?token|id[_-]?token|password|secret|headers?|requestHeaders?|body|email|patient(?:Id|Name|Email|Data|Record|Info)|health(?:Data|Record|Info|Profile))\b/i;
+const SENSITIVE_LITERAL_LABEL_RE =
+  /\b(?:authorization|bearer|access[_-]?token|refresh[_-]?token|id[_-]?token|password|secret|email|patient(?:Id|Name|Email|Data|Record|Info)|health(?:Data|Record|Info|Profile))\b/i;
+const REDACTION_RE = /\b(?:redact|sanitize|mask|safeLog|debugOnly|cleanHeaders|redacted)\b/i;
+
+function isStringLikeLiteral(node: Node): boolean {
+  return Node.isStringLiteral(node) || Node.isNoSubstitutionTemplateLiteral(node);
+}
+
+function sensitiveConsoleLog(ctx: RuleContext): ReviewFinding[] {
+  if (ctx.fileRole !== 'runtime') return [];
+  const findings: ReviewFinding[] = [];
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (!Node.isPropertyAccessExpression(callee)) continue;
+    if (callee.getExpression().getText() !== 'console') continue;
+    if (!['log', 'debug', 'info', 'warn', 'error'].includes(callee.getName())) continue;
+    const args = call.getArguments();
+    const valueArgs = args.filter((arg) => !isStringLikeLiteral(arg));
+    const valueArgsText = valueArgs.map((arg) => arg.getText()).join(' ');
+    const literalLabelText = args
+      .filter(isStringLikeLiteral)
+      .map((arg) =>
+        Node.isStringLiteral(arg) || Node.isNoSubstitutionTemplateLiteral(arg) ? arg.getLiteralText() : '',
+      )
+      .join(' ');
+    const argsText = `${valueArgsText} ${literalLabelText}`;
+    if (!SENSITIVE_LOG_RE.test(argsText)) continue;
+    const hasUnredactedSensitiveValue = valueArgs.some((arg) => {
+      const text = arg.getText();
+      return SENSITIVE_LOG_RE.test(text) && !REDACTION_RE.test(text);
+    });
+    const hasSensitiveLabelWithUnredactedValue =
+      SENSITIVE_LITERAL_LABEL_RE.test(literalLabelText) && valueArgs.some((arg) => !REDACTION_RE.test(arg.getText()));
+    if (!hasUnredactedSensitiveValue && !hasSensitiveLabelWithUnredactedValue) continue;
+
+    findings.push(
+      finding(
+        'sensitive-console-log',
+        'warning',
+        'bug',
+        'Runtime console log includes request/auth/body/PII-looking data — logs can leak credentials or personal data',
+        ctx.filePath,
+        call.getStartLineNumber(),
+        1,
+        {
+          suggestion: 'Log only non-sensitive metadata, or pass values through a redaction helper before logging.',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
 // ── Exported Security v6 Rules ───────────────────────────────────────────
 
-export const securityV6Rules = [errorLeak, bearerTokenLiteral, redirectNon3xxStatus];
+export const securityV6Rules = [
+  errorLeak,
+  bearerTokenLiteral,
+  redirectNon3xxStatus,
+  electronOpenExternalUnvalidated,
+  electronLocalhostWildcardCors,
+  inlineJsonScriptEscape,
+  sensitiveConsoleLog,
+];

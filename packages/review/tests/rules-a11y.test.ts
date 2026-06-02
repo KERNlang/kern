@@ -94,4 +94,77 @@ describe('a11y Rules', () => {
       expect(r.findings.find((f) => f.ruleId === 'interactive-noninteractive')).toBeUndefined();
     });
   });
+
+  describe('react-native-pressable-missing-a11y', () => {
+    const nativeCfg: ReviewConfig = { target: 'native' };
+
+    it('flags Pressable with onPress and no React Native accessibility metadata', () => {
+      const src = `
+import { Pressable, Text } from 'react-native';
+export function C() {
+  return <Pressable onPress={() => {}}><Text>Save</Text></Pressable>;
+}
+`;
+      const r = reviewSource(src, 'button.tsx', nativeCfg);
+      expect(r.findings.find((f) => f.ruleId === 'react-native-pressable-missing-a11y')).toBeDefined();
+    });
+
+    it('does not flag Pressable with role, label, and state metadata', () => {
+      const src = `
+import { Pressable } from 'react-native';
+export function C() {
+  return (
+    <Pressable
+      onPress={() => {}}
+      accessibilityRole="button"
+      accessibilityLabel="Save meal"
+      selected={true}
+      accessibilityState={{ selected: true }}
+    />
+  );
+}
+`;
+      const r = reviewSource(src, 'button.tsx', nativeCfg);
+      expect(r.findings.find((f) => f.ruleId === 'react-native-pressable-missing-a11y')).toBeUndefined();
+    });
+
+    it('accepts React Native ARIA label and state aliases', () => {
+      const src = `
+import { Pressable } from 'react-native';
+export function C() {
+  return (
+    <Pressable
+      onPress={() => {}}
+      accessibilityRole="button"
+      accessibilityLabeledBy="saveLabel"
+      aria-disabled={true}
+    />
+  );
+}
+`;
+      const r = reviewSource(src, 'button.tsx', nativeCfg);
+      expect(r.findings.find((f) => f.ruleId === 'react-native-pressable-missing-a11y')).toBeUndefined();
+    });
+
+    it('supports React Native namespace imports', () => {
+      const src = `
+import * as RN from 'react-native';
+export function C() {
+  return <RN.Pressable onPress={() => {}} />;
+}
+`;
+      const r = reviewSource(src, 'button.tsx', nativeCfg);
+      expect(r.findings.find((f) => f.ruleId === 'react-native-pressable-missing-a11y')).toBeDefined();
+    });
+
+    it('does not flag custom web components named Pressable', () => {
+      const src = `
+export function C() {
+  return <Pressable onPress={() => {}} />;
+}
+`;
+      const r = reviewSource(src, 'button.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'react-native-pressable-missing-a11y')).toBeUndefined();
+    });
+  });
 });

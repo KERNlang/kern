@@ -2237,7 +2237,7 @@ function objectHasPublicCacheControlHeader(obj: import('ts-morph').ObjectLiteral
   for (const element of headersInit.getElements()) {
     if (!Node.isObjectLiteralExpression(element)) continue;
     const key = getObjectLiteralStringProperty(element, 'key');
-    if (!key || key.toLowerCase() !== 'cache-control') continue;
+    if (key?.toLowerCase() !== 'cache-control') continue;
     const value = getObjectLiteralStringProperty(element, 'value') ?? '';
     if (/\b(?:public|s-maxage|stale-while-revalidate)\b/i.test(value)) return true;
   }
@@ -2420,7 +2420,7 @@ function swrCacheKeyShapeDrift(ctx: RuleContext): ReviewFinding[] {
 }
 
 // ── Rule: session-local-storage-outside-helper ──────────────────────────
-// Auth/session values in localStorage should go through centralized helpers
+// Auth/session values in browser storage should go through centralized helpers
 // so expiry, migration, and cleanup behavior stays consistent.
 
 const SENSITIVE_STORAGE_KEY_RE =
@@ -2444,13 +2444,17 @@ function sessionLocalStorageOutsideHelper(ctx: RuleContext): ReviewFinding[] {
   for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
     const callee = call.getExpression();
     if (!Node.isPropertyAccessExpression(callee)) continue;
-    if (callee.getName() !== 'setItem' && callee.getName() !== 'removeItem') continue;
+    if (callee.getName() !== 'setItem' && callee.getName() !== 'removeItem' && callee.getName() !== 'getItem') continue;
     const receiver = callee.getExpression().getText();
     if (
       receiver !== 'localStorage' &&
       receiver !== 'window.localStorage' &&
+      receiver !== 'globalThis.localStorage' &&
+      receiver !== 'globalThis.window.localStorage' &&
       receiver !== 'sessionStorage' &&
-      receiver !== 'window.sessionStorage'
+      receiver !== 'window.sessionStorage' &&
+      receiver !== 'globalThis.sessionStorage' &&
+      receiver !== 'globalThis.window.sessionStorage'
     )
       continue;
     const keyText = getLiteralLikeText(call.getArguments()[0]);
@@ -2461,13 +2465,13 @@ function sessionLocalStorageOutsideHelper(ctx: RuleContext): ReviewFinding[] {
         'session-local-storage-outside-helper',
         'warning',
         'bug',
-        `Sensitive localStorage key '${keyText}' is written outside a session/storage helper — auth state cleanup and expiry can drift`,
+        `Sensitive browser storage key '${keyText}' is accessed outside a session/storage helper — auth state cleanup and expiry can drift`,
         ctx.filePath,
         call.getStartLineNumber(),
         1,
         {
           suggestion:
-            'Route auth/session localStorage writes through the shared session/storage helper so login, logout, expiry, and migrations stay coherent.',
+            'Route auth/session browser storage access through the shared session/storage helper so login, logout, expiry, and migrations stay coherent.',
         },
       ),
     );
