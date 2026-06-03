@@ -681,6 +681,14 @@ const FIXTURES = [
   { name: 'op-extra: ?? keeps falsy 0 (null-only, not falsy)', expr: 'a ?? b', path: '/api/o', bindings: { locals: { a: 0, b: 5 } }, expected: 0 },
   { name: 'op-extra: ?? keeps empty string (null-only, not falsy)', expr: 'a ?? b', path: '/api/o', bindings: { locals: { a: '', b: 'x' } }, expected: '' },
   { name: 'op-extra: ?? with a string-literal operand containing stop chars', expr: 'a ?? "x:y?z"', path: '/api/o', bindings: { locals: { a: null } }, expected: 'x:y?z' },
+  // ── R1 probe (job-central residual): Set.has / Date.getTime / logical-not ──
+  // Probes whether dev's parity engine already covers these. Whatever is RED is
+  // the genuine net-new gap to implement (Math.round already lands on dev).
+  { name: 'R1 probe: Set dedup merge (mergeDefaults)', expr: '[...stored, ...defaults.filter((d) => !new Set(stored.map((s) => s.id)).has(d.id))]', path: '/api/r1m', bindings: { locals: { stored: [{ id: 'a' }, { id: 'b' }], defaults: [{ id: 'b' }, { id: 'c' }] } }, expected: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] },
+  { name: 'R1 probe: Set membership present/absent', expr: '[new Set(ids).has("b"), new Set(ids).has("z")]', path: '/api/r1s', bindings: { locals: { ids: ['a', 'b', 'c'] } }, expected: [true, false] },
+  { name: 'R1 probe: Date diff in days', expr: 'Math.round((new Date(target).getTime() - new Date(today).getTime()) / 86400000)', path: '/api/r1d', bindings: { locals: { target: '2026-06-10', today: '2026-06-03' } }, expected: 7 },
+  { name: 'R1 probe: Date from numeric epoch-ms', expr: 'new Date(ms).getTime()', path: '/api/r1n', bindings: { locals: { ms: 86400000 } }, expected: 86400000 },
+  { name: 'R1 probe: logical not and double-not', expr: '{ a: !flag, b: !!flag }', path: '/api/r1not', bindings: { locals: { flag: false } }, expected: { a: true, b: false } },
 ];
 
 // ── Value → literal emitters ────────────────────────────────────────────────
