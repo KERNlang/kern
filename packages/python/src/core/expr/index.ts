@@ -508,6 +508,176 @@ function splitTopLevelArgs(inner: string): string[] {
   return args;
 }
 
+// ── Host-builtin lowering: Set.has / Date.getTime / logical-not ─────────────
+// Portable-pure constructs lifted from the fitvt/job-central R1 audit. Math/
+// Number/String/Array builtins are handled by the lower*BuiltinCalls passes
+// above; these three were the residual gap (Set membership, epoch-ms dates,
+// `!`). Same balanced-scan approach as the sibling passes.
+
+function isCustomReceiverChar(c: string | undefined): boolean {
+  return !!c && /[\w.]/.test(c);
+}
+
+function lowerSetOperandMemberRead(expr: string): string {
+  const simple = expr.match(/^([A-Za-z_]\w*)\.([A-Za-z_]\w*)$/);
+  if (simple) {
+    const [, obj, field] = simple;
+    return `(${obj}.get("${field}") if isinstance(${obj}, dict) else ${obj}.${field})`;
+  }
+  const projection = expr.match(/^\[([A-Za-z_]\w*)\.([A-Za-z_]\w*) for \1 in ([\s\S]+)\]$/);
+  if (projection) {
+    const [, obj, field, source] = projection;
+    return `[${obj}.get("${field}") if isinstance(${obj}, dict) else ${obj}.${field} for ${obj} in ${source}]`;
+  }
+  return expr;
+}
+
+// new Set(arr).has(x) → (x) in set(arr). Runs AFTER array-method lowering so a
+// `.map(...)` arg is already a comprehension.
+function lowerSetHasCalls(expr: string): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+
+    const m = expr.slice(i).match(/^new\s+Set\s*\(/);
+    if (m && !isCustomReceiverChar(expr[i - 1])) {
+      const setOpen = i + m[0].length - 1;
+      const setClose = matchBalancedParen(expr, setOpen);
+      const afterSet = setClose === -1 ? '' : expr.slice(setClose + 1);
+      const hasMatch = afterSet.match(/^\s*\.has\s*\(/);
+      if (setClose !== -1 && hasMatch) {
+        const hasOpen = setClose + 1 + hasMatch[0].length - 1;
+        const hasClose = matchBalancedParen(expr, hasOpen);
+        if (hasClose !== -1) {
+          // Recurse so nested `new Set(...)` inside the args lowers too.
+          const setArg = lowerSetOperandMemberRead(lowerSetHasCalls(expr.slice(setOpen + 1, setClose).trim()));
+          const hasArg = lowerSetOperandMemberRead(lowerSetHasCalls(expr.slice(hasOpen + 1, hasClose).trim()));
+          out += `(${hasArg}) in set(${setArg})`;
+          i = hasClose + 1;
+          continue;
+        }
+      }
+    }
+
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
+// new Date(arg).getTime() → epoch milliseconds. Runs BEFORE Math builtins so a
+// surrounding Math.round sees an integer.
+function lowerDateGetTimeCalls(expr: string, imports?: Set<string>): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+
+    const m = expr.slice(i).match(/^new\s+Date\s*\(/);
+    if (m && !isCustomReceiverChar(expr[i - 1])) {
+      const openIdx = i + m[0].length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1 && expr.slice(closeIdx + 1).match(/^\s*\.getTime\s*\(\s*\)/)) {
+        const tail = expr.slice(closeIdx + 1).match(/^\s*\.getTime\s*\(\s*\)/)![0];
+        // Recurse so nested new Date(...).getTime() inside the arg lowers too.
+        const arg = lowerDateGetTimeCalls(expr.slice(openIdx + 1, closeIdx).trim(), imports);
+        imports?.add('from datetime import datetime, timezone');
+        // Branch on the runtime value: JS `new Date(n)` accepts epoch-ms numbers
+        // (getTime() returns n), else parse an ISO string. Case-insensitive Z.
+        // KNOWN LIMITATIONS (tracked follow-ups, beyond the R1 surface): a
+        // date-only string carrying a TZ offset ("2026-06-03Z") and non-ISO
+        // formats still raise in fromisoformat.
+        out +=
+          `(lambda __k_v: int(__k_v) if isinstance(__k_v, (int, float)) ` +
+          `else int((lambda __k_dt: (__k_dt if __k_dt.tzinfo is not None else __k_dt.replace(tzinfo=timezone.utc)).timestamp() * 1000)` +
+          `(datetime.fromisoformat(str(__k_v).replace("Z", "+00:00").replace("z", "+00:00")))))(${arg})`;
+        i = closeIdx + 1 + tail.length;
+        continue;
+      }
+    }
+
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
+// `!` → Python `not `. Skips `!=`/`!==`. Runs after the operator/Set passes.
+function lowerLogicalNot(expr: string): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    // KNOWN LIMITATION (tracked follow-up): `not` binds looser than comparison
+    // in Python, so `!a < b` (JS: `(!a) < b`) lowers to `not a < b` (Python:
+    // `not (a < b)`). Safe for the boolean-connective uses in the R1 surface.
+    if (c === '!' && expr[i + 1] !== '=') {
+      out += 'not ';
+      i += 1;
+      while (i < expr.length && /\s/.test(expr[i])) i += 1;
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
 // Lower JSON.stringify(...) / JSON.parse(...) to json.dumps/loads. Uses a
 // balanced, string-aware scan because the single argument can itself contain
 // commas, nested parens, brackets, braces, or string literals.
@@ -1778,11 +1948,14 @@ export function rewriteExpr(
 
   result = lowerPortableJsOperators(result, imports);
   result = lowerJsonBuiltinCalls(result, imports);
+  result = lowerDateGetTimeCalls(result, imports); // before Math: Math.round wraps date diffs
   result = lowerMathBuiltinCalls(result, imports);
   result = lowerNumberBuiltinCalls(result, imports);
   result = lowerStringBuiltinCalls(result);
   result = lowerStringArgMethods(result);
   result = lowerObjectArrayDateBuiltinCalls(result, imports);
+  result = lowerSetHasCalls(result); // after array methods: Set arg may be a .map() comprehension
+  result = lowerLogicalNot(result); // last: applies to the lowered membership/boolean
   result = quoteObjectKeysOutsideStrings(result);
 
   for (const replacement of replacements) {
