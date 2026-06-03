@@ -1,6 +1,7 @@
 /**
  * suggest-kern-primitive — migration rule that flags JS patterns where an
- * equivalent KERN primitive exists (array methods + fmt + conditional + async).
+ * equivalent KERN primitive exists (array methods + fmt + conditional + async)
+ * or where the expression is covered by the portable logic primitive registry.
  *
  * Fires as `info` / precision=`experimental` so kern-sight hides it by default.
  * Opt in with `--rule suggest-kern-primitive` for a one-shot migration scan.
@@ -26,7 +27,20 @@
  * migrating.
  */
 
-import type { ArrowFunction, CallExpression, FunctionDeclaration, FunctionExpression, Node as TsNode } from 'ts-morph';
+import {
+  type PortableLogicPrimitiveId,
+  type PortableLogicSupport,
+  type PortableLogicTarget,
+  portableLogicSupportForTarget,
+} from '@kernlang/core';
+import type {
+  ArrowFunction,
+  CallExpression,
+  FunctionDeclaration,
+  FunctionExpression,
+  NewExpression,
+  Node as TsNode,
+} from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, ReviewRule, RuleContext } from '../types.js';
 import { finding } from './utils.js';
@@ -71,6 +85,8 @@ const ARRAY_METHODS: Record<string, MethodSpec> = {
   sort: { kernNode: 'sort', shape: 'sort' },
   reverse: { kernNode: 'reverse', shape: 'reverse' },
 };
+
+const PORTABLE_LOGIC_TARGETS: readonly PortableLogicTarget[] = ['ts', 'python', 'go'];
 
 // Node kinds whose descendants should be skipped — don't flag opportunities
 // inside test files, type-only files, or generated code paths by path hint.
@@ -211,6 +227,72 @@ function isBareKernValue(s: string): boolean {
  */
 function toKernInValue(s: string): string {
   return isBareKernValue(s) ? s : `{{ ${s} }}`;
+}
+
+function nodeColumn(node: TsNode): number {
+  return node.getSourceFile().getLineAndColumnAtPos(node.getStart()).column;
+}
+
+function portableLogicSupportSummary(id: PortableLogicPrimitiveId): string {
+  const bySupport: Record<PortableLogicSupport, string[]> = {
+    preview: [],
+    stable: [],
+    unsupported: [],
+  };
+  for (const target of PORTABLE_LOGIC_TARGETS) {
+    const support = portableLogicSupportForTarget(id, target);
+    bySupport[support].push(target);
+  }
+
+  const parts: string[] = [];
+  for (const support of ['stable', 'preview', 'unsupported'] satisfies PortableLogicSupport[]) {
+    const targets = bySupport[support];
+    if (targets.length > 0) parts.push(`${support}: ${targets.join(', ')}`);
+  }
+  return parts.join('; ');
+}
+
+function portableLogicFinding(
+  ctx: RuleContext,
+  node: TsNode,
+  id: PortableLogicPrimitiveId,
+  label: string,
+): ReviewFinding {
+  return finding(
+    'suggest-kern-primitive',
+    'info',
+    'pattern',
+    `JS ${label} is covered by KERN portable logic primitive \`${id}\` (${portableLogicSupportSummary(id)})`,
+    ctx.filePath,
+    node.getStartLineNumber(),
+    nodeColumn(node),
+    { suggestion: `portable logic primitive ${id}: ${node.getText()}` },
+  );
+}
+
+function isNewExpressionFor(node: TsNode, constructorName: string): node is NewExpression {
+  return Node.isNewExpression(node) && node.getExpression().getText() === constructorName;
+}
+
+function unwrapParenthesized(node: TsNode): TsNode {
+  let current = node;
+  while (Node.isParenthesizedExpression(current)) {
+    current = current.getExpression();
+  }
+  return current;
+}
+
+function isSimpleExpressionPosition(node: TsNode): boolean {
+  let expr: TsNode = node;
+  let parent = expr.getParent();
+  while (parent && Node.isParenthesizedExpression(parent)) {
+    expr = parent;
+    parent = parent.getParent();
+  }
+
+  if (parent && Node.isVariableDeclaration(parent)) return parent.getInitializer() === expr;
+  if (parent && Node.isReturnStatement(parent)) return parent.getExpression() === expr;
+  return false;
 }
 
 /**
@@ -381,10 +463,27 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
     if (!Node.isPropertyAccessExpression(callee)) continue;
 
     const methodName = callee.getName();
+    const receiver = callee.getExpression();
+    const unwrappedReceiver = unwrapParenthesized(receiver);
+
+    if (methodName === 'has' && isNewExpressionFor(unwrappedReceiver, 'Set')) {
+      if (unwrappedReceiver.getArguments().length === 1 && call.getArguments().length === 1) {
+        findings.push(portableLogicFinding(ctx, call, 'collection.has', 'Set membership'));
+      }
+      continue;
+    }
+
+    if (methodName === 'getTime' && isNewExpressionFor(unwrappedReceiver, 'Date')) {
+      if (unwrappedReceiver.getArguments().length === 1 && call.getArguments().length === 0) {
+        findings.push(portableLogicFinding(ctx, call, 'time.epochMs', 'epoch-millisecond conversion'));
+      }
+      continue;
+    }
+
     const spec = ARRAY_METHODS[methodName];
     if (!spec) continue;
 
-    const collection = callee.getExpression().getText();
+    const collection = receiver.getText();
     const collectionIn = toKernInValue(collection);
 
     // `.filter(Boolean)`, `.filter(x => !!x)`, `.filter(x => Boolean(x))` →
@@ -459,6 +558,21 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
         { suggestion },
       ),
     );
+  }
+
+  for (const unary of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.PrefixUnaryExpression)) {
+    if (unary.getOperatorToken() !== SyntaxKind.ExclamationToken) continue;
+    const parent = unary.getParent();
+    if (parent && Node.isPrefixUnaryExpression(parent) && parent.getOperatorToken() === SyntaxKind.ExclamationToken) {
+      continue;
+    }
+    const operand = unary.getOperand();
+    if (Node.isPrefixUnaryExpression(operand) && operand.getOperatorToken() === SyntaxKind.ExclamationToken) {
+      continue;
+    }
+    if (!isSimpleExpressionPosition(unary)) continue;
+
+    findings.push(portableLogicFinding(ctx, unary, 'logic.not', 'boolean negation'));
   }
 
   // ── fmt detector ───────────────────────────────────────────────────────

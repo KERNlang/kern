@@ -167,6 +167,33 @@ describe('suggest-kern-primitive rule', () => {
     expect(uniqueFindings[0].suggestion).toBe('unique name=<name> in=items');
   });
 
+  it('reports registry-backed portable Set membership logic', () => {
+    const f = kernSuggestions('const hasSelected = (new Set(items)).has(target);');
+    const portable = f.filter((x) => x.suggestion?.startsWith('portable logic primitive collection.has'));
+    expect(portable).toHaveLength(1);
+    expect(portable[0].message).toContain('collection.has');
+    expect(portable[0].message).toContain('stable: ts, python');
+    expect(portable[0].message).toContain('unsupported: go');
+  });
+
+  it('reports registry-backed portable Date epoch conversion logic', () => {
+    const f = kernSuggestions('const ms = (new Date(input)).getTime();');
+    const portable = f.filter((x) => x.suggestion?.startsWith('portable logic primitive time.epochMs'));
+    expect(portable).toHaveLength(1);
+    expect(portable[0].message).toContain('time.epochMs');
+  });
+
+  it('reports simple registry-backed portable boolean negation without mislabeling double negation', () => {
+    const f = kernSuggestions(`
+      const hidden = !visible;
+      const truthy = !!value;
+      items.filter((x) => !!x);
+    `);
+    const portable = f.filter((x) => x.suggestion?.startsWith('portable logic primitive logic.not'));
+    expect(portable).toHaveLength(1);
+    expect(portable[0].suggestion).toBe('portable logic primitive logic.not: !visible');
+  });
+
   it('stacks compact + pluck for `.filter(Boolean).map(x => x.name)`', () => {
     const f = kernSuggestions('const names = items.filter(Boolean).map((i) => i.name);');
     const suggestions = f.map((x) => x.suggestion ?? '');
