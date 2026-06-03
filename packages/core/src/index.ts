@@ -23,6 +23,19 @@ export {
   lookupStdlib,
   suggestStdlibMethod,
 } from './codegen/kern-stdlib.js';
+export type {
+  PortableLogicPrimitive,
+  PortableLogicPrimitiveId,
+  PortableLogicPurity,
+  PortableLogicSupport,
+  PortableLogicTarget,
+} from './codegen/portable-logic-primitives.js';
+export {
+  lookupPortableLogicPrimitive,
+  PORTABLE_LOGIC_PRIMITIVE_IDS,
+  PORTABLE_LOGIC_PRIMITIVES,
+  portableLogicSupportForTarget,
+} from './codegen/portable-logic-primitives.js';
 export type { ReactHookDep } from './codegen/react-hook-imports.js';
 export { detectReactHookDeps, injectReactHookImports } from './codegen/react-hook-imports.js';
 export type { KernStdlibUsage } from './codegen/stdlib-preamble.js';
