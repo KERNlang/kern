@@ -2,7 +2,7 @@
  * Shared Python expression lowering — framework-agnostic.
  */
 
-import { lowerJsClosureBodyToPython } from '@kernlang/core';
+import { lowerJsClosureBodyToPython, PORTABLE_LOGIC_PRIMITIVES, type PortableLogicPrimitiveId } from '@kernlang/core';
 import { toSnakeCase } from '../../type-map.js';
 import { KERN_I32_HELPER_PY, KERN_JS_HELPER_PY, KERN_TMOD_HELPER_PY } from './helpers.js';
 
@@ -534,7 +534,7 @@ function lowerSetOperandMemberRead(expr: string): string {
 
 // new Set(arr).has(x) → (x) in set(arr). Runs AFTER array-method lowering so a
 // `.map(...)` arg is already a comprehension.
-function lowerSetHasCalls(expr: string): string {
+function lowerSetHasCalls(expr: string, _imports?: Set<string>): string {
   let out = '';
   let i = 0;
   let quote: string | null = null;
@@ -640,7 +640,7 @@ function lowerDateGetTimeCalls(expr: string, imports?: Set<string>): string {
 }
 
 // `!` → Python `not `. Skips `!=`/`!==`. Runs after the operator/Set passes.
-function lowerLogicalNot(expr: string): string {
+function lowerLogicalNot(expr: string, _imports?: Set<string>): string {
   let out = '';
   let i = 0;
   let quote: string | null = null;
@@ -676,6 +676,51 @@ function lowerLogicalNot(expr: string): string {
     i += 1;
   }
   return out;
+}
+
+type PythonPortableLogicPhase = 'beforeMath' | 'afterArrayMethods' | 'final';
+
+interface PythonPortableLogicLowering {
+  primitive: PortableLogicPrimitiveId;
+  phase: PythonPortableLogicPhase;
+  lower: (expr: string, imports?: Set<string>) => string;
+}
+
+const PYTHON_PORTABLE_LOGIC_LOWERINGS: readonly PythonPortableLogicLowering[] = [
+  {
+    primitive: 'time.epochMs',
+    phase: 'beforeMath',
+    lower: lowerDateGetTimeCalls,
+  },
+  {
+    primitive: 'collection.has',
+    phase: 'afterArrayMethods',
+    lower: lowerSetHasCalls,
+  },
+  {
+    primitive: 'logic.not',
+    phase: 'final',
+    lower: lowerLogicalNot,
+  },
+] as const;
+
+for (const entry of PYTHON_PORTABLE_LOGIC_LOWERINGS) {
+  if (PORTABLE_LOGIC_PRIMITIVES[entry.primitive].targets.python !== 'stable') {
+    throw new Error(`Portable logic primitive '${entry.primitive}' is not stable on the Python target.`);
+  }
+}
+
+function lowerPortableLogicPrimitives(
+  expr: string,
+  imports: Set<string> | undefined,
+  phase: PythonPortableLogicPhase,
+): string {
+  let result = expr;
+  for (const entry of PYTHON_PORTABLE_LOGIC_LOWERINGS) {
+    if (entry.phase !== phase) continue;
+    result = entry.lower(result, imports);
+  }
+  return result;
 }
 
 // Lower JSON.stringify(...) / JSON.parse(...) to json.dumps/loads. Uses a
@@ -1948,14 +1993,14 @@ export function rewriteExpr(
 
   result = lowerPortableJsOperators(result, imports);
   result = lowerJsonBuiltinCalls(result, imports);
-  result = lowerDateGetTimeCalls(result, imports); // before Math: Math.round wraps date diffs
+  result = lowerPortableLogicPrimitives(result, imports, 'beforeMath'); // before Math: Math.round wraps date diffs
   result = lowerMathBuiltinCalls(result, imports);
   result = lowerNumberBuiltinCalls(result, imports);
   result = lowerStringBuiltinCalls(result);
   result = lowerStringArgMethods(result);
   result = lowerObjectArrayDateBuiltinCalls(result, imports);
-  result = lowerSetHasCalls(result); // after array methods: Set arg may be a .map() comprehension
-  result = lowerLogicalNot(result); // last: applies to the lowered membership/boolean
+  result = lowerPortableLogicPrimitives(result, imports, 'afterArrayMethods'); // Set arg may be a .map() comprehension
+  result = lowerPortableLogicPrimitives(result, imports, 'final'); // applies to lowered membership/boolean
   result = quoteObjectKeysOutsideStrings(result);
 
   for (const replacement of replacements) {

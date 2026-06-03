@@ -395,4 +395,25 @@ describe('Host-builtin mapping (Python target)', () => {
     expect(code).not.toContain('Object.entries');
     expect(code).not.toContain('Date.now()');
   });
+
+  test('portable logic primitives lower through the shared primitive registry', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=get path=/api/portable-logic',
+      '    derive stored expr={{[{ id: "a" }, { id: "b" }]}}',
+      '    derive defaults expr={{[{ id: "b" }, { id: "c" }]}}',
+      '    derive merged expr={{[...stored, ...defaults.filter((d) => !new Set(stored.map((s) => s.id)).has(d.id))]}}',
+      '    derive days expr={{Math.round((new Date("2026-06-10").getTime() - new Date("2026-06-03").getTime()) / 86400000)}}',
+      '    derive bools expr={{ { a: !false, b: !!false } }}',
+      '    respond 200 json={{ {merged, days, bools} }}',
+    ]);
+    const code = routeContent(result, 'portable_logic');
+    expect(code).toContain('not (d["id"]) in set([s["id"] for s in stored])');
+    expect(code).toContain('datetime.fromisoformat(str(__k_v).replace("Z", "+00:00", 1).replace("z", "+00:00", 1))');
+    expect(code).toContain('"a": not False');
+    expect(code).toContain('"b": not not False');
+    expect(code).toContain('from datetime import datetime, timezone');
+    expect(code).not.toContain('new Set');
+    expect(code).not.toContain('new Date');
+  });
 });
