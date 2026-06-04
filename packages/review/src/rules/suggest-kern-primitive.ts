@@ -295,6 +295,186 @@ function isSimpleExpressionPosition(node: TsNode): boolean {
   return false;
 }
 
+function isRegexLiteral(node: TsNode | undefined): boolean {
+  return !!node && node.getKind() === SyntaxKind.RegularExpressionLiteral;
+}
+
+function isRegExpConstructorCall(node: TsNode): boolean {
+  const unwrapped = unwrapParenthesized(node);
+  if (Node.isNewExpression(unwrapped) || Node.isCallExpression(unwrapped)) {
+    // Text-based on purpose: shadowing global RegExp only suppresses a suggestion.
+    return unwrapped.getExpression().getText() === 'RegExp';
+  }
+  return false;
+}
+
+function identifierInitializer(node: TsNode, seen = new Set<string>()): TsNode | null {
+  const unwrapped = unwrapParenthesized(node);
+  if (!Node.isIdentifier(unwrapped)) return null;
+  const declarations = unwrapped.getSymbol()?.getDeclarations() ?? [];
+  const key = declarations.map((decl) => `${decl.getSourceFile().getFilePath()}:${decl.getStart()}`).join('|');
+  if (key) {
+    if (seen.has(key)) return null;
+    seen.add(key);
+  }
+  for (const decl of declarations) {
+    if (!Node.isVariableDeclaration(decl)) continue;
+    const init = decl.getInitializer();
+    if (!init) continue;
+    const unwrappedInit = unwrapParenthesized(init);
+    if (Node.isIdentifier(unwrappedInit)) return identifierInitializer(unwrappedInit, seen);
+    return unwrappedInit;
+  }
+  return null;
+}
+
+function isRegexSearchValue(node: TsNode | undefined): boolean {
+  if (!node) return false;
+  const unwrapped = unwrapParenthesized(node);
+  if (isRegexLiteral(unwrapped) || isRegExpConstructorCall(unwrapped)) return true;
+  const init = identifierInitializer(unwrapped);
+  return !!init && (isRegexLiteral(init) || isRegExpConstructorCall(init));
+}
+
+function isReplacementCallback(node: TsNode | undefined, seen = new Set<string>()): boolean {
+  if (!node) return false;
+  const unwrapped = unwrapParenthesized(node);
+  if (Node.isArrowFunction(unwrapped) || Node.isFunctionExpression(unwrapped)) return true;
+
+  if (!Node.isIdentifier(unwrapped)) return false;
+  const declarations = unwrapped.getSymbol()?.getDeclarations() ?? [];
+  const key = declarations.map((decl) => `${decl.getSourceFile().getFilePath()}:${decl.getStart()}`).join('|');
+  if (key) {
+    if (seen.has(key)) return false;
+    seen.add(key);
+  }
+  for (const decl of declarations) {
+    if (Node.isFunctionDeclaration(decl)) return true;
+    if (!Node.isVariableDeclaration(decl)) continue;
+    const init = decl.getInitializer();
+    if (init && isReplacementCallback(init, seen)) return true;
+  }
+  return false;
+}
+
+function stringLiteralText(node: TsNode): string | null {
+  const unwrapped = unwrapParenthesized(node);
+  if (Node.isStringLiteral(unwrapped) || Node.isNoSubstitutionTemplateLiteral(unwrapped)) {
+    return unwrapped.getLiteralText();
+  }
+  return null;
+}
+
+function sourceFileDeclaresBinding(ctx: RuleContext, name: string): boolean {
+  const isNamedIdentifier = (node: TsNode): boolean => Node.isIdentifier(node) && node.getText() === name;
+
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    if (isNamedIdentifier(decl.getNameNode())) return true;
+  }
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.Parameter)) {
+    if (isNamedIdentifier(decl.getNameNode())) return true;
+  }
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.BindingElement)) {
+    if (isNamedIdentifier(decl.getNameNode())) return true;
+  }
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.FunctionDeclaration)) {
+    if (decl.getName() === name) return true;
+  }
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.ClassDeclaration)) {
+    if (decl.getName() === name) return true;
+  }
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.ImportSpecifier)) {
+    const alias = decl.getAliasNode();
+    if (alias ? alias.getText() === name : decl.getName() === name) return true;
+  }
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.NamespaceImport)) {
+    if (decl.getName() === name) return true;
+  }
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.ImportClause)) {
+    if (decl.getDefaultImport()?.getText() === name) return true;
+  }
+  return false;
+}
+
+function knownStringLiteralText(node: TsNode | undefined, seen = new Set<string>()): string | null {
+  if (!node) return null;
+  const unwrapped = unwrapParenthesized(node);
+  const literal = stringLiteralText(unwrapped);
+  if (literal !== null) return literal;
+  if (Node.isIdentifier(unwrapped)) {
+    const declarations = unwrapped.getSymbol()?.getDeclarations() ?? [];
+    const key = declarations.map((decl) => `${decl.getSourceFile().getFilePath()}:${decl.getStart()}`).join('|');
+    if (key) {
+      if (seen.has(key)) return null;
+      seen.add(key);
+    }
+    const init = identifierInitializer(unwrapped);
+    return init ? knownStringLiteralText(init, seen) : null;
+  }
+  return null;
+}
+
+function isKnownStringSearchValue(node: TsNode | undefined): boolean {
+  const text = knownStringLiteralText(node);
+  return text !== null && text !== '';
+}
+
+function objectPortablePrimitiveFor(methodName: string): PortableLogicPrimitiveId | null {
+  switch (methodName) {
+    case 'keys':
+      return 'object.keys';
+    case 'values':
+      return 'object.values';
+    case 'entries':
+      return 'object.entries';
+    default:
+      return null;
+  }
+}
+
+function stringPortablePrimitiveFor(call: CallExpression, methodName: string): PortableLogicPrimitiveId | null {
+  const args = call.getArguments();
+  switch (methodName) {
+    case 'trim':
+      return args.length === 0 ? 'string.trim' : null;
+    case 'split':
+      if (args.length < 1 || args.length > 2) return null;
+      return isRegexSearchValue(args[0]) || !isKnownStringSearchValue(args[0]) ? null : 'string.split';
+    case 'replace': {
+      const replaceText = knownStringLiteralText(args[1]);
+      if (
+        args.length !== 2 ||
+        isRegexSearchValue(args[0]) ||
+        !isKnownStringSearchValue(args[0]) ||
+        isReplacementCallback(args[1]) ||
+        replaceText === null ||
+        // Intentionally conservative: any "$" could participate in JS replacement-pattern syntax.
+        replaceText.includes('$')
+      ) {
+        return null;
+      }
+      return 'string.replaceFirst';
+    }
+    case 'replaceAll': {
+      const replaceAllText = knownStringLiteralText(args[1]);
+      if (
+        args.length !== 2 ||
+        isRegexSearchValue(args[0]) ||
+        !isKnownStringSearchValue(args[0]) ||
+        isReplacementCallback(args[1]) ||
+        replaceAllText === null ||
+        // Intentionally conservative: any "$" could participate in JS replacement-pattern syntax.
+        replaceAllText.includes('$')
+      ) {
+        return null;
+      }
+      return 'string.replaceAll';
+    }
+    default:
+      return null;
+  }
+}
+
 /**
  * Build the KERN primitive suggestion string for a single JS call site.
  * Returns null when the call shape can't be cleanly migrated (e.g. block body,
@@ -431,6 +611,7 @@ function buildSuggestion(spec: MethodSpec, collection: string, call: CallExpress
 export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
   if (shouldSkipFile(ctx)) return [];
   const findings: ReviewFinding[] = [];
+  const shadowsGlobalObject = sourceFileDeclaresBinding(ctx, 'Object');
 
   // `[...new Set(coll)]` → route to the dedicated `unique` primitive.
   for (const arr of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.ArrayLiteralExpression)) {
@@ -477,6 +658,23 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
       if (unwrappedReceiver.getArguments().length === 1 && call.getArguments().length === 0) {
         findings.push(portableLogicFinding(ctx, call, 'time.epochMs', 'epoch-millisecond conversion'));
       }
+      continue;
+    }
+
+    if (Node.isIdentifier(unwrappedReceiver) && unwrappedReceiver.getText() === 'Object') {
+      const objectPrimitive = objectPortablePrimitiveFor(methodName);
+      if (objectPrimitive && call.getArguments().length === 1 && !shadowsGlobalObject) {
+        findings.push(portableLogicFinding(ctx, call, objectPrimitive, `Object.${methodName}`));
+      }
+      continue;
+    }
+
+    // Syntax-driven like the existing array-method suggestions: reviewSource
+    // has no reliable project type context, so custom same-named methods may
+    // produce advisory false positives.
+    const stringPrimitive = stringPortablePrimitiveFor(call, methodName);
+    if (stringPrimitive) {
+      findings.push(portableLogicFinding(ctx, call, stringPrimitive, `string.${methodName}`));
       continue;
     }
 

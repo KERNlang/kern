@@ -194,6 +194,182 @@ describe('suggest-kern-primitive rule', () => {
     expect(portable[0].suggestion).toBe('portable logic primitive logic.not: !visible');
   });
 
+  it('reports registry-backed portable Object data-shaping logic', () => {
+    const f = kernSuggestions(`
+      const keys = Object.keys(row);
+      const values = Object.values(row);
+      const entries = Object.entries(row);
+    `);
+    const suggestions = f.map((x) => x.suggestion ?? '');
+    expect(suggestions).toContain('portable logic primitive object.keys: Object.keys(row)');
+    expect(suggestions).toContain('portable logic primitive object.values: Object.values(row)');
+    expect(suggestions).toContain('portable logic primitive object.entries: Object.entries(row)');
+  });
+
+  it('reports registry-backed portable string data-shaping logic', () => {
+    const f = kernSuggestions(`
+      const clean = title.trim();
+      const parts = clean.split(",", 2);
+      const first = clean.replace("-", " ");
+      const all = clean.replaceAll("-", " ");
+    `);
+    const suggestions = f.map((x) => x.suggestion ?? '');
+    expect(suggestions).toContain('portable logic primitive string.trim: title.trim()');
+    expect(suggestions).toContain('portable logic primitive string.split: clean.split(",", 2)');
+    expect(suggestions).toContain('portable logic primitive string.replaceFirst: clean.replace("-", " ")');
+    expect(suggestions).toContain('portable logic primitive string.replaceAll: clean.replaceAll("-", " ")');
+  });
+
+  it('reports local string literal aliases for string search/replacement logic', () => {
+    const f = kernSuggestions(`
+      const comma = ",";
+      const dash = "-";
+      const space = " ";
+      const parts = clean.split(comma);
+      const first = clean.replace(dash, space);
+    `);
+    const suggestions = f.map((x) => x.suggestion ?? '');
+    expect(suggestions).toContain('portable logic primitive string.split: clean.split(comma)');
+    expect(suggestions).toContain('portable logic primitive string.replaceFirst: clean.replace(dash, space)');
+  });
+
+  it('does not report unresolved string search/replacement values as portable string primitives', () => {
+    const f = kernSuggestions(`
+      function parse(clean, sep, replacement) {
+        const parts = clean.split(sep);
+        const first = clean.replace("-", replacement);
+        return { parts, first };
+      }
+    `);
+    const portableString = f.filter((x) => x.suggestion?.includes('primitive string.'));
+    expect(portableString).toHaveLength(0);
+  });
+
+  it('does not report regex-backed string logic as portable string primitives', () => {
+    const f = kernSuggestions(`
+      const parts = clean.split(/,\\s*/);
+      const first = clean.replace(/-/g, " ");
+      const all = clean.replaceAll(/-/g, " ");
+    `);
+    const portableString = f.filter((x) => x.suggestion?.includes('primitive string.'));
+    expect(portableString).toHaveLength(0);
+  });
+
+  it('does not report RegExp constructor or regex variable string logic as portable string primitives', () => {
+    const f = kernSuggestions(`
+      const sep = new RegExp(",\\\\s*");
+      const dash = /-/g;
+      const colon = RegExp(":");
+      const sepAlias = sep;
+      const parts = clean.split(sep);
+      const aliasParts = clean.split(sepAlias);
+      const first = clean.replace(dash, " ");
+      const all = clean.replaceAll(colon, " ");
+      const grouped = clean.replace((/-/g), " ");
+    `);
+    const portableString = f.filter((x) => x.suggestion?.includes('primitive string.'));
+    expect(portableString).toHaveLength(0);
+  });
+
+  it('does not report replacement-callback string logic as portable string primitives', () => {
+    const f = kernSuggestions(`
+      function up(match) {
+        return match.toUpperCase();
+      }
+      const lower = (match) => match.toLowerCase();
+      const lowerAlias = lower;
+      const first = clean.replace("-", (match) => match.toUpperCase());
+      const namedFirst = clean.replace("-", up);
+      const groupedFirst = clean.replace("-", ((match) => match.toUpperCase()));
+      const all = clean.replaceAll("-", lowerAlias);
+    `);
+    const portableString = f.filter((x) => x.suggestion?.includes('primitive string.'));
+    expect(portableString).toHaveLength(0);
+  });
+
+  it('does not report replacement strings with JS substitution tokens as portable string primitives', () => {
+    const f = kernSuggestions(`
+      const first = clean.replace("-", "$&");
+      const all = clean.replaceAll("-", \`$$\`);
+    `);
+    const portableString = f.filter((x) => x.suggestion?.includes('primitive string.'));
+    expect(portableString).toHaveLength(0);
+  });
+
+  it('does not report string primitives for arities outside registry scope', () => {
+    const f = kernSuggestions(`
+      const a = title.trim("left");
+      const b = clean.split();
+      const c = clean.replace("x");
+      const d = clean.replaceAll("x");
+    `);
+    const portableString = f.filter((x) => x.suggestion?.includes('primitive string.'));
+    expect(portableString).toHaveLength(0);
+  });
+
+  it('does not report empty string search values as portable string primitives', () => {
+    const f = kernSuggestions(`
+      const empty = "";
+      const parts = clean.split("");
+      const aliasParts = clean.split(empty);
+      const first = clean.replace("", "x");
+      const all = clean.replaceAll(empty, "x");
+    `);
+    const portableString = f.filter((x) => x.suggestion?.includes('primitive string.'));
+    expect(portableString).toHaveLength(0);
+  });
+
+  it('does not recurse forever on cyclic string literal aliases', () => {
+    const f = kernSuggestions(`
+      const a = b;
+      const b = a;
+      const parts = clean.split(a);
+    `);
+    const portableString = f.filter((x) => x.suggestion?.includes('primitive string.'));
+    expect(portableString).toHaveLength(0);
+  });
+
+  it('does not report Object portable logic for non-registered methods or wrong arity', () => {
+    const f = kernSuggestions(`
+      const assigned = Object.assign({}, defaults);
+      const defined = Object.defineProperty({}, "x", {});
+      const empty = Object.keys();
+      const keys = Object.keys(assigned, defaults);
+    `);
+    const objectPortable = f.filter((x) => x.suggestion?.includes('primitive object.'));
+    expect(objectPortable).toHaveLength(0);
+  });
+
+  it('does not report Object portable logic when Object is locally shadowed', () => {
+    const f = kernSuggestions(`
+      const Object = { keys(value) { return value.customKeys; } };
+      const keys = Object.keys(row);
+    `);
+    const objectPortable = f.filter((x) => x.suggestion?.includes('primitive object.'));
+    expect(objectPortable).toHaveLength(0);
+  });
+
+  it('does not report Object portable logic when Object is imported or destructured', () => {
+    const imported = kernSuggestions(`
+      import Object from "./local-object";
+      const keys = Object.keys(row);
+    `);
+    expect(imported.filter((x) => x.suggestion?.includes('primitive object.'))).toHaveLength(0);
+
+    const destructured = kernSuggestions(`
+      const { Object } = env;
+      const keys = Object.keys(row);
+    `);
+    expect(destructured.filter((x) => x.suggestion?.includes('primitive object.'))).toHaveLength(0);
+  });
+
+  it('detects .split() with separator only as portable string.split', () => {
+    const f = kernSuggestions('const parts = line.split(",");');
+    const portableString = f.filter((x) => x.suggestion?.includes('primitive string.split'));
+    expect(portableString).toHaveLength(1);
+    expect(portableString[0].message).toContain('JS string.split is covered');
+  });
+
   it('stacks compact + pluck for `.filter(Boolean).map(x => x.name)`', () => {
     const f = kernSuggestions('const names = items.filter(Boolean).map((i) => i.name);');
     const suggestions = f.map((x) => x.suggestion ?? '');
