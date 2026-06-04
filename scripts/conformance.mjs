@@ -629,6 +629,8 @@ const FIXTURES = [
   { name: 'math-more: Math.sign(-5)', expr: 'Math.sign(x)', path: '/api/m', bindings: { locals: { x: -5 } }, expected: -1 },
   { name: 'math-more: Math.sign(0)', expr: 'Math.sign(x)', path: '/api/m', bindings: { locals: { x: 0 } }, expected: 0 },
   { name: 'math-more: Math.sign(3)', expr: 'Math.sign(x)', path: '/api/m', bindings: { locals: { x: 3 } }, expected: 1 },
+  { name: 'math-more: clamp via Math.max/min', expr: 'Math.max(lo, Math.min(hi, value))', path: '/api/m', bindings: { locals: { lo: 0, hi: 10, value: 42 } }, expected: 10 },
+  { name: 'math-more: clamp via Math.min/max inverted order', expr: 'Math.min(hi, Math.max(lo, value))', path: '/api/m', bindings: { locals: { lo: 0, hi: 10, value: -5 } }, expected: 0 },
 
   // ──────────────────────────────────────────────────────────────────────────
   // PARITY GOAL ORACLE — RUN 2 (-extra slices, 2026-05-27). Same differential

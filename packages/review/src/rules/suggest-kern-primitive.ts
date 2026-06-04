@@ -295,6 +295,103 @@ function isSimpleExpressionPosition(node: TsNode): boolean {
   return false;
 }
 
+type MathStaticMethod = 'min' | 'max';
+
+function mathStaticMethod(call: CallExpression): MathStaticMethod | null {
+  const callee = call.getExpression();
+  if (!Node.isPropertyAccessExpression(callee)) return null;
+  if (callee.getExpression().getText() !== 'Math') return null;
+  const name = callee.getName();
+  return name === 'min' || name === 'max' ? name : null;
+}
+
+function isMathStaticCall(call: CallExpression, methodName: MathStaticMethod): boolean {
+  return mathStaticMethod(call) === methodName;
+}
+
+function isSideEffectFreeClampExpression(node: TsNode, allowLiteral: boolean): boolean {
+  const unwrapped = unwrapParenthesized(node);
+  if (Node.isIdentifier(unwrapped)) {
+    return true;
+  }
+  if (allowLiteral && Node.isNumericLiteral(unwrapped)) {
+    return true;
+  }
+  if (Node.isPropertyAccessExpression(unwrapped)) {
+    return isSideEffectFreeClampExpression(unwrapped.getExpression(), true);
+  }
+  if (Node.isElementAccessExpression(unwrapped)) {
+    const arg = unwrapped.getArgumentExpression();
+    return (
+      isSideEffectFreeClampExpression(unwrapped.getExpression(), true) &&
+      !!arg &&
+      isSideEffectFreeClampExpression(arg, true)
+    );
+  }
+  if (Node.isPrefixUnaryExpression(unwrapped)) {
+    const op = unwrapped.getOperatorToken();
+    if (op === SyntaxKind.PlusPlusToken || op === SyntaxKind.MinusMinusToken) return false;
+    return allowLiteral && isSideEffectFreeClampExpression(unwrapped.getOperand(), true);
+  }
+  return false;
+}
+
+function isSideEffectFreeClampBound(node: TsNode): boolean {
+  return isSideEffectFreeClampExpression(node, true);
+}
+
+function isSideEffectFreeClampValue(node: TsNode): boolean {
+  return isSideEffectFreeClampExpression(node, false);
+}
+
+function numericLiteralValue(node: TsNode): number | null {
+  const unwrapped = unwrapParenthesized(node);
+  if (Node.isNumericLiteral(unwrapped)) return Number(unwrapped.getLiteralText());
+  if (Node.isPrefixUnaryExpression(unwrapped)) {
+    const op = unwrapped.getOperatorToken();
+    const operand = numericLiteralValue(unwrapped.getOperand());
+    if (operand === null) return null;
+    if (op === SyntaxKind.MinusToken) return -operand;
+    if (op === SyntaxKind.PlusToken) return operand;
+  }
+  return null;
+}
+
+function hasReversedLiteralClampBounds(outerMethod: MathStaticMethod, outerBound: TsNode, innerBound: TsNode): boolean {
+  const low = numericLiteralValue(outerMethod === 'max' ? outerBound : innerBound);
+  const high = numericLiteralValue(outerMethod === 'max' ? innerBound : outerBound);
+  return low !== null && high !== null && low > high;
+}
+
+function isPortableClampCall(call: CallExpression, shadowsGlobalMath: boolean): boolean {
+  if (shadowsGlobalMath) return false;
+  const outerMethod = mathStaticMethod(call);
+  if (!outerMethod) return false;
+  const outerArgs = call.getArguments();
+  if (outerArgs.length !== 2) return false;
+
+  const innerMethod: MathStaticMethod = outerMethod === 'max' ? 'min' : 'max';
+  for (const [innerIdx, candidate] of outerArgs.entries()) {
+    const inner = unwrapParenthesized(candidate);
+    if (!Node.isCallExpression(inner) || !isMathStaticCall(inner, innerMethod)) continue;
+    const outerBound = outerArgs[innerIdx === 0 ? 1 : 0];
+    if (!isSideEffectFreeClampBound(outerBound)) continue;
+
+    const innerArgs = inner.getArguments();
+    if (innerArgs.length !== 2) continue;
+    const matched = innerArgs.some((arg, valueIdx) => {
+      const innerBound = innerArgs[valueIdx === 0 ? 1 : 0];
+      return (
+        isSideEffectFreeClampValue(arg) &&
+        isSideEffectFreeClampBound(innerBound) &&
+        !hasReversedLiteralClampBounds(outerMethod, outerBound, innerBound)
+      );
+    });
+    if (matched) return true;
+  }
+  return false;
+}
+
 function isRegexLiteral(node: TsNode | undefined): boolean {
   return !!node && node.getKind() === SyntaxKind.RegularExpressionLiteral;
 }
@@ -612,6 +709,7 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
   if (shouldSkipFile(ctx)) return [];
   const findings: ReviewFinding[] = [];
   const shadowsGlobalObject = sourceFileDeclaresBinding(ctx, 'Object');
+  const shadowsGlobalMath = sourceFileDeclaresBinding(ctx, 'Math');
 
   // `[...new Set(coll)]` → route to the dedicated `unique` primitive.
   for (const arr of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.ArrayLiteralExpression)) {
@@ -646,6 +744,11 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
     const methodName = callee.getName();
     const receiver = callee.getExpression();
     const unwrappedReceiver = unwrapParenthesized(receiver);
+
+    if (isPortableClampCall(call, shadowsGlobalMath)) {
+      findings.push(portableLogicFinding(ctx, call, 'number.clamp', 'numeric clamp'));
+      continue;
+    }
 
     if (methodName === 'has' && isNewExpressionFor(unwrappedReceiver, 'Set')) {
       if (unwrappedReceiver.getArguments().length === 1 && call.getArguments().length === 1) {

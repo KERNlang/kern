@@ -24,6 +24,7 @@ export {
   suggestStdlibMethod,
 } from './codegen/kern-stdlib.js';
 export type {
+  PortableLogicIntent,
   PortableLogicPrimitive,
   PortableLogicPrimitiveId,
   PortableLogicPurity,
@@ -35,6 +36,7 @@ export {
   PORTABLE_LOGIC_PRIMITIVE_IDS,
   PORTABLE_LOGIC_PRIMITIVES,
   portableLogicSupportForTarget,
+  validatePortableLogicPrimitiveRegistry,
 } from './codegen/portable-logic-primitives.js';
 export type { ReactHookDep } from './codegen/react-hook-imports.js';
 export { detectReactHookDeps, injectReactHookImports } from './codegen/react-hook-imports.js';
