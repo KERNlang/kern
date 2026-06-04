@@ -726,6 +726,35 @@ export function generateAt(node: IRNode): string[] {
   return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = (${collection}).at(${index});`];
 }
 
+// ── Ground Layer: clamp ─────────────────────────────────────────────────
+// `clamp name=bounded value=score min=0 max=100`
+//   → const bounded = Math.max(0, Math.min(100, score));
+
+export function generateClamp(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'clamp'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'bounded', node);
+
+  const value = unwrapExpr(props.value);
+  if (value === undefined || value === '') throw new KernCodegenError("clamp node requires a 'value' prop", node);
+  const min = unwrapExpr(props.min);
+  if (min === undefined || min === '') throw new KernCodegenError("clamp node requires a 'min' prop", node);
+  const max = unwrapExpr(props.max);
+  if (max === undefined || max === '') throw new KernCodegenError("clamp node requires a 'max' prop", node);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}${typeAnnotation} = Math.max(${min}, Math.min(${max}, ${value}));`,
+  ];
+}
+
 // ── Ground Layer: join ───────────────────────────────────────────────────
 // `join name=csv in=fields separator=","` → const csv = (fields).join(',');
 // `separator` omitted → bare `.join()` (default "," per JS).

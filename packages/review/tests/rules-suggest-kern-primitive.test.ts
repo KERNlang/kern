@@ -199,10 +199,32 @@ describe('suggest-kern-primitive rule', () => {
       const bounded = Math.max(0, Math.min(100, score));
       const inverted = Math.min(config.max, Math.max(config.min, score));
     `);
-    const portable = f.filter((x) => x.suggestion?.startsWith('portable logic primitive number.clamp'));
+    const portable = f.filter((x) => x.message.includes('number.clamp'));
     expect(portable).toHaveLength(2);
+    expect(portable[0].suggestion).toBe('clamp name=bounded value={{ score }} min={{ 0 }} max={{ 100 }}');
+    expect(portable[1].suggestion).toBe(
+      'clamp name=inverted value={{ score }} min={{ config.min }} max={{ config.max }}',
+    );
     expect(portable[0].message).toContain('number.clamp');
     expect(portable[0].message).toContain('stable: ts, python');
+  });
+
+  it('keeps camelCase clamp bounds in the right suggestion positions', () => {
+    const f = kernSuggestions(`
+      const bounded = Math.min(maxValue, Math.max(minValue, score));
+    `);
+    const portable = f.filter((x) => x.message.includes('number.clamp'));
+    expect(portable).toHaveLength(1);
+    expect(portable[0].suggestion).toBe('clamp name=bounded value={{ score }} min={{ minValue }} max={{ maxValue }}');
+  });
+
+  it('falls back to generic clamp suggestion when value and bound are ambiguous', () => {
+    const f = kernSuggestions(`
+      const bounded = Math.max(a, Math.min(b, c));
+    `);
+    const portable = f.filter((x) => x.message.includes('number.clamp'));
+    expect(portable).toHaveLength(1);
+    expect(portable[0].suggestion).toBe('portable logic primitive number.clamp: Math.max(a, Math.min(b, c))');
   });
 
   it('does not report clamp logic when Math is shadowed or bounds can have side effects', () => {

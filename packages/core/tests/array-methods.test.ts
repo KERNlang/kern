@@ -14,6 +14,7 @@ import {
   generateAt,
   generateAvg,
   generateChunk,
+  generateClamp,
   generateCompact,
   generateConcat,
   generateCoreNode,
@@ -100,6 +101,25 @@ describe('Ground Layer: filter', () => {
     const node = mk('filter', { name: 'active', in: 'items' });
     expect(() => generateFilter(node)).toThrow(KernCodegenError);
     expect(() => generateFilter(node)).toThrow(/filter .* 'where' prop/);
+  });
+});
+
+describe('Ground Layer: clamp', () => {
+  it('emits a named-field numeric clamp binding', () => {
+    const node = mk('clamp', { name: 'bounded', value: 'score', min: '0', max: '100', type: 'number' });
+    expect(generateClamp(node).join('\n')).toBe('export const bounded: number = Math.max(0, Math.min(100, score));');
+  });
+
+  it('supports export prefix at top level', () => {
+    const node = mk('clamp', { name: 'bounded', value: 'score', min: 'lo', max: 'hi', export: 'true' });
+    expect(generateCoreNode(node).join('\n')).toBe('export const bounded = Math.max(lo, Math.min(hi, score));');
+  });
+
+  it('requires value/min/max props', () => {
+    expect(() => generateClamp(mk('clamp', { name: 'x', min: '0', max: '1' }))).toThrow(/value/);
+    expect(() => generateClamp(mk('clamp', { name: 'x', value: 'n', max: '1' }))).toThrow(/min/);
+    expect(() => generateClamp(mk('clamp', { name: 'x', value: 'n', min: '0' }))).toThrow(/max/);
+    expect(() => generateClamp(mk('clamp', { name: 'x', value: '', min: '0', max: '1' }))).toThrow(/value/);
   });
 });
 

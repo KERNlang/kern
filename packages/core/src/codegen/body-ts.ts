@@ -4,6 +4,7 @@
  *  body string. Recognized statements:
  *
  *    - `let name=X value="EXPR"` — `const X = EXPR;` (slice 1)
+ *    - `clamp name=X value=V min=LO max=HI` — `const X = Math.max(LO, Math.min(HI, V));`
  *    - `destructure source="EXPR"` — `const { X } = EXPR;` / `const [X] = EXPR;`
  *    - `return value="EXPR"` / bare `return` — `return EXPR;` (slice 1)
  *    - `if cond="EXPR"` / sibling `else` — `if (EXPR) { … } else { … }` (slice 2c)
@@ -46,7 +47,7 @@
 import { isPostfixMutationOperator, isSupportedAssignOperator } from '../assignment-operators.js';
 import { emitExpression } from '../codegen-expression.js';
 import { parseExpression } from '../parser-expression.js';
-import type { IRNode } from '../types.js';
+import type { ExprObject, IRNode } from '../types.js';
 import type { ValueIR } from '../value-ir.js';
 import { emitFmtTemplate, emitIdentifier, emitTypeAnnotation } from './emitters.js';
 
@@ -150,7 +151,7 @@ export function emitNativeKernBodyTSWithImports(handlerNode: IRNode, options?: B
  *  an inline same-line trailing comment (`stmt; // note`) captured by the
  *  migrator into a `trailingComment=` prop. Compound statements (if/while/for/
  *  try/each) emit multiple lines and never receive the slot. */
-const TRAILING_COMMENT_TYPES = new Set(['let', 'assign', 'fmt', 'return', 'throw', 'do', 'continue', 'break']);
+const TRAILING_COMMENT_TYPES = new Set(['let', 'assign', 'fmt', 'clamp', 'return', 'throw', 'do', 'continue', 'break']);
 
 function emitChildrenTS(
   children: IRNode[],
@@ -178,6 +179,8 @@ function emitChildrenTS(
         for (const line of emitDestructureTS(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'fmt') {
         for (const line of emitFmtTS(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'clamp') {
+        for (const line of emitClampTS(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'return') {
         for (const line of emitReturnTS(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'if') {
@@ -677,6 +680,42 @@ function emitLetTS(node: IRNode, ctx: BodyEmitContext): string[] {
     return lines;
   }
   const lines = [`${bindingKind} ${name}${typeAnn} = ${emitExpression(valueIR)};`];
+  if (ctx.traceHooks?.letAssign) lines.push(letAssignTraceTS(name));
+  return lines;
+}
+
+function unwrapBodyExpr(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === 'object' && (value as ExprObject).__expr) return (value as ExprObject).code;
+  return String(value);
+}
+
+function emitClampTS(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const name = String(props.name ?? '');
+  if (!name) throw new Error('body-statement `clamp` requires `name=`.');
+  declareLocalBinding(ctx, name, 'const');
+
+  const rawValue = unwrapBodyExpr(props.value);
+  if (rawValue === undefined || rawValue === '') throw new Error('body-statement `clamp` requires `value=`.');
+  const rawMin = unwrapBodyExpr(props.min);
+  if (rawMin === undefined || rawMin === '') throw new Error('body-statement `clamp` requires `min=`.');
+  const rawMax = unwrapBodyExpr(props.max);
+  if (rawMax === undefined || rawMax === '') throw new Error('body-statement `clamp` requires `max=`.');
+
+  const valueIR = parseExpression(rawValue);
+  const minIR = parseExpression(rawMin);
+  const maxIR = parseExpression(rawMax);
+  if (valueIR.kind === 'propagate' || minIR.kind === 'propagate' || maxIR.kind === 'propagate') {
+    throw new Error(
+      "Propagation '?' is not allowed in `clamp value=`/`min=`/`max=` — bind the value to a `let` first.",
+    );
+  }
+
+  const typeAnn = props.type ? `: ${emitTypeAnnotation(String(props.type), 'unknown', node)}` : '';
+  const lines = [
+    `const ${name}${typeAnn} = Math.max(${emitExpression(minIR)}, Math.min(${emitExpression(maxIR)}, ${emitExpression(valueIR)}));`,
+  ];
   if (ctx.traceHooks?.letAssign) lines.push(letAssignTraceTS(name));
   return lines;
 }

@@ -296,6 +296,11 @@ function isSimpleExpressionPosition(node: TsNode): boolean {
 }
 
 type MathStaticMethod = 'min' | 'max';
+interface ClampParts {
+  value: TsNode;
+  min: TsNode;
+  max: TsNode;
+}
 
 function mathStaticMethod(call: CallExpression): MathStaticMethod | null {
   const callee = call.getExpression();
@@ -363,12 +368,30 @@ function hasReversedLiteralClampBounds(outerMethod: MathStaticMethod, outerBound
   return low !== null && high !== null && low > high;
 }
 
-function isPortableClampCall(call: CallExpression, shadowsGlobalMath: boolean): boolean {
-  if (shadowsGlobalMath) return false;
+function clampBoundHint(node: TsNode, role: 'min' | 'max'): number {
+  if (numericLiteralValue(node) !== null) return 2;
+  const segments = unwrapParenthesized(node).getText().toLowerCase().split(/[._]/).filter(Boolean);
+  const hints = role === 'min' ? ['min', 'minimum', 'lo', 'low', 'lower'] : ['max', 'maximum', 'hi', 'high', 'upper'];
+  if (
+    segments.some((segment) =>
+      hints.some((hint) => segment === hint || segment.startsWith(hint) || segment.endsWith(hint)),
+    )
+  ) {
+    return 2;
+  }
+  return 0;
+}
+
+function portableClampParts(
+  call: CallExpression,
+  shadowsGlobalMath: boolean,
+  options: { allowAmbiguous?: boolean } = {},
+): ClampParts | null {
+  if (shadowsGlobalMath) return null;
   const outerMethod = mathStaticMethod(call);
-  if (!outerMethod) return false;
+  if (!outerMethod) return null;
   const outerArgs = call.getArguments();
-  if (outerArgs.length !== 2) return false;
+  if (outerArgs.length !== 2) return null;
 
   const innerMethod: MathStaticMethod = outerMethod === 'max' ? 'min' : 'max';
   for (const [innerIdx, candidate] of outerArgs.entries()) {
@@ -379,17 +402,61 @@ function isPortableClampCall(call: CallExpression, shadowsGlobalMath: boolean): 
 
     const innerArgs = inner.getArguments();
     if (innerArgs.length !== 2) continue;
-    const matched = innerArgs.some((arg, valueIdx) => {
+    const candidates: Array<{ value: TsNode; innerBound: TsNode; score: number }> = [];
+    for (const [valueIdx, arg] of innerArgs.entries()) {
       const innerBound = innerArgs[valueIdx === 0 ? 1 : 0];
-      return (
+      if (
         isSideEffectFreeClampValue(arg) &&
         isSideEffectFreeClampBound(innerBound) &&
         !hasReversedLiteralClampBounds(outerMethod, outerBound, innerBound)
-      );
-    });
-    if (matched) return true;
+      ) {
+        candidates.push({
+          value: arg,
+          innerBound,
+          score: clampBoundHint(innerBound, outerMethod === 'max' ? 'max' : 'min'),
+        });
+      }
+    }
+    candidates.sort((a, b) => b.score - a.score);
+    const best = candidates[0];
+    if (
+      best &&
+      options.allowAmbiguous !== true &&
+      best.score === 0 &&
+      candidates.length > 1 &&
+      candidates[1]?.score === 0
+    ) {
+      return null;
+    }
+    if (best) {
+      return outerMethod === 'max'
+        ? { value: best.value, min: outerBound, max: best.innerBound }
+        : { value: best.value, min: best.innerBound, max: outerBound };
+    }
   }
-  return false;
+  return null;
+}
+
+function isPortableClampCall(call: CallExpression, shadowsGlobalMath: boolean): boolean {
+  return portableClampParts(call, shadowsGlobalMath, { allowAmbiguous: true }) !== null;
+}
+
+function expressionBindingName(node: TsNode): string {
+  let expr: TsNode = node;
+  let parent = expr.getParent();
+  while (parent && Node.isParenthesizedExpression(parent)) {
+    expr = parent;
+    parent = parent.getParent();
+  }
+  if (parent && Node.isVariableDeclaration(parent) && parent.getInitializer() === expr) {
+    const nameNode = parent.getNameNode();
+    if (Node.isIdentifier(nameNode)) return nameNode.getText();
+  }
+  return '<name>';
+}
+
+function clampNodeSuggestion(call: CallExpression, parts: ClampParts): string {
+  return `clamp name=${expressionBindingName(call)} value={{ ${parts.value.getText()} }} min={{ ${parts.min.getText()} }} max={{ ${parts.max.getText()} }}`;
 }
 
 function isRegexLiteral(node: TsNode | undefined): boolean {
@@ -745,6 +812,14 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
     const receiver = callee.getExpression();
     const unwrappedReceiver = unwrapParenthesized(receiver);
 
+    const clampParts = portableClampParts(call, shadowsGlobalMath);
+    if (clampParts) {
+      findings.push({
+        ...portableLogicFinding(ctx, call, 'number.clamp', 'numeric clamp'),
+        suggestion: clampNodeSuggestion(call, clampParts),
+      });
+      continue;
+    }
     if (isPortableClampCall(call, shadowsGlobalMath)) {
       findings.push(portableLogicFinding(ctx, call, 'number.clamp', 'numeric clamp'));
       continue;

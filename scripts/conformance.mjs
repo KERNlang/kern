@@ -440,6 +440,18 @@ const FIXTURES = [
     params: [{ name: 'bad', type: 'string', value: '{' }, { name: 'min', type: 'number', value: 0 }],
     body: `let name=log value="''" kind=let\nlet name=tmp value="0" kind=let\ntry\n  assign target="log" value="log + 'a'"\n  assign target="tmp" value="JSON.parse(bad)"\n  assign target="log" value="log + 'b'"\n  catch name=err type=any\n    assign target="log" value="log + 'X'"\nreturn value="{ log: log }"`,
     expected: { log: 'aX' } },
+  { kind: 'stmt', name: 'stmt: clamp below min via KERN-owned body node',
+    params: [{ name: 'score', type: 'number', value: -5 }, { name: 'lo', type: 'number', value: 0 }, { name: 'hi', type: 'number', value: 100 }],
+    body: `clamp name=bounded value=score min=lo max=hi\nreturn value="{ bounded: bounded }"`,
+    expected: { bounded: 0 } },
+  { kind: 'stmt', name: 'stmt: clamp above max via KERN-owned body node',
+    params: [{ name: 'score', type: 'number', value: 125 }, { name: 'lo', type: 'number', value: 0 }, { name: 'hi', type: 'number', value: 100 }],
+    body: `clamp name=bounded value=score min=lo max=hi\nreturn value="{ bounded: bounded }"`,
+    expected: { bounded: 100 } },
+  { kind: 'stmt', name: 'stmt: clamp keeps in-range float via KERN-owned body node',
+    params: [{ name: 'score', type: 'number', value: 12.5 }, { name: 'lo', type: 'number', value: -10 }, { name: 'hi', type: 'number', value: 20 }],
+    body: `clamp name=bounded value=score min=lo max=hi\nreturn value="{ bounded: bounded }"`,
+    expected: { bounded: 12.5 } },
 
   // ── BLOCK SCOPE oracle (memory's #6 known divergence; deferred from #1 slice 1). ───
   // TS `let` is block-scoped, Python assignment is function-scoped. Discriminating fixtures:

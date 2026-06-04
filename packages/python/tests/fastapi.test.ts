@@ -694,6 +694,21 @@ describe('FastAPI Transpiler', () => {
       expect(unionOutput).toContain('Event = Union[');
     });
 
+    test('clamp dispatch unwraps expression-object props', async () => {
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+      const output = generatePythonCoreNode({
+        type: 'clamp',
+        props: {
+          name: 'bounded',
+          value: { __expr: true, code: 'score' },
+          min: { __expr: true, code: 'limits["minValue"]' },
+          max: { __expr: true, code: 'limits["maxValue"]' },
+        },
+        children: [],
+      }).join('\n');
+      expect(output).toBe('bounded = max(limits["minValue"], min(limits["maxValue"], score))');
+    });
+
     test('generates Python repository class', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { generatePythonCoreNode } = await import('../src/codegen-python.js');

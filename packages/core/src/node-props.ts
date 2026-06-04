@@ -329,6 +329,13 @@ export interface AtProps extends BaseProps {
   type?: string;
 }
 
+export interface ClampProps extends BaseProps {
+  value?: string | ExprObject;
+  min?: string | ExprObject;
+  max?: string | ExprObject;
+  type?: string;
+}
+
 export interface JoinProps extends BaseProps {
   in?: string | ExprObject;
   separator?: string | ExprObject;
@@ -831,6 +838,7 @@ export interface NodePropsMap {
   flat: FlatProps;
   slice: SliceProps;
   at: AtProps;
+  clamp: ClampProps;
   sort: SortProps;
   reverse: ReverseProps;
   join: JoinProps;

@@ -859,6 +859,7 @@ function isNativeBodyStatementChild(node: IRNode): boolean {
     case 'destructure':
     case 'do':
     case 'fmt':
+    case 'clamp':
     case 'return':
     case 'if':
     case 'else':
@@ -891,6 +892,7 @@ function isKernHandlerBodySignal(node: IRNode): boolean {
     case 'destructure':
     case 'do':
     case 'fmt':
+    case 'clamp':
     case 'return':
     case 'while':
     case 'for':

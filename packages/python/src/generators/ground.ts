@@ -3,7 +3,7 @@
  * derive, transform, action, guard, assume, invariant, each, collect, branch, resolve, expect, recover
  */
 
-import type { IRNode } from '@kernlang/core';
+import type { ExprObject, IRNode } from '@kernlang/core';
 import { handlerCode } from '@kernlang/core';
 import {
   buildPythonParamList,
@@ -28,6 +28,12 @@ function groundPreamble(node: IRNode) {
   return { annotations, todo, props, name };
 }
 
+function unwrapExpr(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === 'object' && (value as ExprObject).__expr) return (value as ExprObject).code;
+  return String(value);
+}
+
 // ── derive ──────────────────────────────────────────────────────────────
 
 export function generateDerive(node: IRNode): string[] {
@@ -36,6 +42,22 @@ export function generateDerive(node: IRNode): string[] {
   const constType = props.type as string | undefined;
   const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
   return [...todo, ...annotations, `${name}${typeAnnotation} = ${expr}`];
+}
+
+// ── clamp ───────────────────────────────────────────────────────────────
+
+export function generateClamp(node: IRNode): string[] {
+  const { annotations, todo, props, name } = groundPreamble(node);
+  const value = unwrapExpr(props.value);
+  const min = unwrapExpr(props.min);
+  const max = unwrapExpr(props.max);
+  if (value === undefined || value === '') throw new Error("clamp node requires a 'value' prop");
+  if (min === undefined || min === '') throw new Error("clamp node requires a 'min' prop");
+  if (max === undefined || max === '') throw new Error("clamp node requires a 'max' prop");
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
+  return [...todo, ...annotations, `${name}${typeAnnotation} = max(${min}, min(${max}, ${value}))`];
 }
 
 // ── transform ───────────────────────────────────────────────────────────

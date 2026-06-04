@@ -336,6 +336,48 @@ describe('emitNativeKernBodyPython — slice 1 statements', () => {
   });
 });
 
+describe('emitNativeKernBodyPython — clamp body statement', () => {
+  test('emits named-field clamp as a local binding', () => {
+    const handler = makeHandler([
+      { type: 'clamp', props: { name: 'bounded', value: 'score', min: '0', max: '100' } },
+      { type: 'return', props: { value: 'bounded' } },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toBe(['bounded = max(0, min(100, score))', 'return bounded'].join('\n'));
+  });
+
+  test('rejects propagation in clamp props', () => {
+    const handler = makeHandler([
+      { type: 'clamp', props: { name: 'bounded', value: 'loadScore()?', min: '0', max: '100' } },
+    ]);
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/[Pp]ropagation/);
+  });
+
+  test('emits assignment trace hook for clamp binding', () => {
+    const handler = makeHandler([{ type: 'clamp', props: { name: 'bounded', value: 'score', min: '0', max: '100' } }]);
+    expect(emitNativeKernBodyPython(handler, { traceHooks: { letAssign: true } })).toBe(
+      [
+        'bounded = max(0, min(100, score))',
+        '_kern_trace({"op": "assign", "target": "bounded", "value": bounded})',
+      ].join('\n'),
+    );
+  });
+
+  test('unwraps expression-object clamp props', () => {
+    const handler = makeHandler([
+      {
+        type: 'clamp',
+        props: {
+          name: 'bounded',
+          value: { __expr: true, code: 'score' },
+          min: { __expr: true, code: 'limits["min"]' },
+          max: { __expr: true, code: 'limits["max"]' },
+        },
+      },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toBe('bounded = max(limits["min"], min(limits["max"], score))');
+  });
+});
+
 describe('FastAPI fn handler lang=kern — Python codegen integration', () => {
   test('emits Python body for a native-KERN fn', () => {
     const source = [
