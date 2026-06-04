@@ -68,6 +68,7 @@ export {
   // delegate composed-mode (wrapper / each / conditional / local) emission
   // to a single source of truth instead of re-implementing it per target.
   emitRender,
+  emitStringKeyArray,
   emitStringLiteral,
   emitTemplateSafe,
   emitTypeAnnotation,
@@ -85,6 +86,7 @@ export {
   hasEvolvedGenerator,
   isCoreNode,
   mapSemanticType,
+  parseKeys,
   parseParamList,
   parseParamListFromChildren,
   // Evolved generators — prefer KernRuntime for new code

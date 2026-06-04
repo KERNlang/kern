@@ -37,6 +37,7 @@ export {
 export { generateEvent, generateOn, generateWebSocket } from './codegen/events.js';
 export { generateError, generateFunction } from './codegen/functions.js';
 export {
+  emitStringKeyArray,
   generateAction,
   generateActionRegistry,
   generateApply,
@@ -78,6 +79,8 @@ export {
   generateMin,
   generateMinBy,
   generateObjectMerge,
+  generateObjectOmit,
+  generateObjectPick,
   generatePartition,
   generatePattern,
   generatePluck,
@@ -97,6 +100,7 @@ export {
   generateUnique,
   generateUniqueBy,
   generateZip,
+  parseKeys,
 } from './codegen/ground-layer.js';
 export {
   capitalize,
@@ -199,6 +203,8 @@ import {
   generateMin,
   generateMinBy,
   generateObjectMerge,
+  generateObjectOmit,
+  generateObjectPick,
   generatePartition,
   generatePattern,
   generatePluck,
@@ -863,6 +869,10 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return generateClamp(node);
     case 'objectMerge':
       return generateObjectMerge(node);
+    case 'objectOmit':
+      return generateObjectOmit(node);
+    case 'objectPick':
+      return generateObjectPick(node);
     case 'sort':
       return generateSort(node);
     case 'reverse':

@@ -616,6 +616,49 @@ describe('suggest-kern-primitive rule', () => {
     });
   });
 
+  describe('objectPick/objectOmit detector', () => {
+    it('suggests objectOmit for object rest destructuring', () => {
+      const f = kernSuggestions('const { password, token, ...safeUser } = user;');
+      const omit = f.filter((x) => x.suggestion?.startsWith('objectOmit '));
+      expect(omit).toHaveLength(1);
+      expect(omit[0].suggestion).toBe(`objectOmit name=safeUser in=user keys="['password', 'token']"`);
+    });
+
+    it('suggests objectOmit for string-literal destructuring keys', () => {
+      const f = kernSuggestions(`const { 'api-key': apiKey, ...safeUser } = user;`);
+      const omit = f.filter((x) => x.suggestion?.startsWith('objectOmit '));
+      expect(omit).toHaveLength(1);
+      expect(omit[0].suggestion).toBe(`objectOmit name=safeUser in=user keys="['api-key']"`);
+    });
+
+    it('escapes objectOmit string-literal keys in suggestions', () => {
+      const f = kernSuggestions(`const { "can\\'t": cant, ...safeUser } = user;`);
+      const omit = f.filter((x) => x.suggestion?.startsWith('objectOmit '));
+      expect(omit).toHaveLength(1);
+      expect(omit[0].suggestion).toBe(`objectOmit name=safeUser in=user keys="['can\\'t']"`);
+    });
+
+    it('suggests objectPick for object literal direct property reads from one source', () => {
+      const f = kernSuggestions('const publicUser = { id: user.id, name: user.name };');
+      const pick = f.filter((x) => x.suggestion?.startsWith('objectPick '));
+      expect(pick).toHaveLength(1);
+      expect(pick[0].suggestion).toBe(`objectPick name=publicUser in=user keys="['id', 'name']"`);
+    });
+
+    it('does NOT suggest objectPick when properties come from mixed sources', () => {
+      const f = kernSuggestions('const mixed = { id: user.id, name: profile.name };');
+      const pick = f.filter((x) => x.suggestion?.startsWith('objectPick '));
+      expect(pick).toHaveLength(0);
+    });
+
+    it('wraps complex objectOmit sources in raw-expression form', () => {
+      const f = kernSuggestions('const { password, ...safeUser } = await loadUser();');
+      const omit = f.filter((x) => x.suggestion?.startsWith('objectOmit '));
+      expect(omit).toHaveLength(1);
+      expect(omit[0].suggestion).toBe(`objectOmit name=safeUser in={{ await loadUser() }} keys="['password']"`);
+    });
+  });
+
   // ── conditional JSX detector ────────────────────────────────────────
 
   describe('conditional JSX detector', () => {

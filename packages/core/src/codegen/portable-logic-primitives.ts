@@ -16,6 +16,8 @@ export type PortableLogicPrimitiveId =
   | 'object.values'
   | 'object.entries'
   | 'object.merge'
+  | 'object.omit'
+  | 'object.pick'
   | 'string.trim'
   | 'string.split'
   | 'string.replaceFirst'
@@ -109,6 +111,24 @@ export const PORTABLE_LOGIC_PRIMITIVES = {
     intent: 'semantic-gap',
     hostPatterns: ['Object.assign({}, a, b)', '{ ...a, ...b }'],
     portabilityNotes: ['Merge is shallow, non-mutating, left-to-right, and duplicate keys are last-write-wins.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'object.omit': {
+    id: 'object.omit',
+    description: 'Shallow own string-key record omission, e.g. JS destructuring assignment with rest parameters.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['const { a, b, ...rest } = obj'],
+    portabilityNotes: ['Omit is shallow, non-mutating, and preserves falsy values.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'object.pick': {
+    id: 'object.pick',
+    description: 'Shallow own string-key record selection, e.g. JS Object.fromEntries(keys.map(k => [k, obj[k]]))',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['Object.fromEntries(keys.map(k => [k, obj[k]]))'],
+    portabilityNotes: ['Pick preserves key order and includes missing keys as null (TS) or None (Python).'],
     targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
   },
   'string.trim': {

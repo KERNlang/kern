@@ -50,6 +50,7 @@ import { parseExpression } from '../parser-expression.js';
 import type { ExprObject, IRNode } from '../types.js';
 import type { ValueIR } from '../value-ir.js';
 import { emitFmtTemplate, emitIdentifier, emitTypeAnnotation } from './emitters.js';
+import { emitStringKeyArray, parseKeys } from './ground-layer.js';
 
 /** Slice 3e — caller-provided options, parity with the Python body emitter.
  *  `symbolMap` is currently unused on the TS target; reserved for future
@@ -157,6 +158,8 @@ const TRAILING_COMMENT_TYPES = new Set([
   'fmt',
   'clamp',
   'objectMerge',
+  'objectOmit',
+  'objectPick',
   'return',
   'throw',
   'do',
@@ -194,6 +197,10 @@ function emitChildrenTS(
         for (const line of emitClampTS(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'objectMerge') {
         for (const line of emitObjectMergeTS(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'objectOmit') {
+        for (const line of emitObjectOmitTS(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'objectPick') {
+        for (const line of emitObjectPickTS(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'return') {
         for (const line of emitReturnTS(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'if') {
@@ -796,6 +803,70 @@ function emitObjectMergeTS(node: IRNode, ctx: BodyEmitContext): string[] {
 
   const typeAnn = props.type ? `: ${emitTypeAnnotation(String(props.type), 'Record<string, unknown>', node)}` : '';
   const lines = [`const ${name}${typeAnn} = { ${emitted.join(', ')} };`];
+  if (ctx.traceHooks?.letAssign) lines.push(letAssignTraceTS(name));
+  return lines;
+}
+
+function emitObjectPickTS(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const name = String(props.name ?? '');
+  if (!name) throw new Error('body-statement `objectPick` requires `name=`.');
+  declareLocalBinding(ctx, name, 'const');
+
+  const rawIn = unwrapBodyExpr(props.in);
+  if (rawIn === undefined || rawIn === '') {
+    throw new Error('body-statement `objectPick` requires `in=`.');
+  }
+  const rawKeys = unwrapBodyExpr(props.keys);
+  if (rawKeys === undefined || rawKeys === '') {
+    throw new Error('body-statement `objectPick` requires `keys=`.');
+  }
+
+  const inIR = parseExpression(rawIn);
+  if (inIR.kind === 'propagate') {
+    throw new Error("Propagation '?' is not allowed in `objectPick in=` — bind the value to a `let` first.");
+  }
+  const inExpr = emitExpression(inIR);
+
+  const keysList = parseKeys(rawKeys, node, 'objectPick keys=');
+  const formattedKeys = emitStringKeyArray(keysList);
+
+  const typeAnn = props.type ? `: ${emitTypeAnnotation(String(props.type), 'Record<string, unknown>', node)}` : '';
+  const lines = [
+    `const ${name}${typeAnn} = ((__kernSource: any) => Object.fromEntries(${formattedKeys}.map((key) => [key, Object.prototype.hasOwnProperty.call(__kernSource, key) ? __kernSource[key] : null])))(${inExpr});`,
+  ];
+  if (ctx.traceHooks?.letAssign) lines.push(letAssignTraceTS(name));
+  return lines;
+}
+
+function emitObjectOmitTS(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const name = String(props.name ?? '');
+  if (!name) throw new Error('body-statement `objectOmit` requires `name=`.');
+  declareLocalBinding(ctx, name, 'const');
+
+  const rawIn = unwrapBodyExpr(props.in);
+  if (rawIn === undefined || rawIn === '') {
+    throw new Error('body-statement `objectOmit` requires `in=`.');
+  }
+  const rawKeys = unwrapBodyExpr(props.keys);
+  if (rawKeys === undefined || rawKeys === '') {
+    throw new Error('body-statement `objectOmit` requires `keys=`.');
+  }
+
+  const inIR = parseExpression(rawIn);
+  if (inIR.kind === 'propagate') {
+    throw new Error("Propagation '?' is not allowed in `objectOmit in=` — bind the value to a `let` first.");
+  }
+  const inExpr = emitExpression(inIR);
+
+  const keysList = parseKeys(rawKeys, node, 'objectOmit keys=');
+  const formattedKeys = emitStringKeyArray(keysList);
+
+  const typeAnn = props.type ? `: ${emitTypeAnnotation(String(props.type), 'Record<string, unknown>', node)}` : '';
+  const lines = [
+    `const ${name}${typeAnn} = Object.fromEntries(Object.entries(${inExpr}).filter(([key]) => !${formattedKeys}.includes(key)));`,
+  ];
   if (ctx.traceHooks?.letAssign) lines.push(letAssignTraceTS(name));
   return lines;
 }

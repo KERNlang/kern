@@ -603,6 +603,105 @@ function variableNameForInitializer(expr: TsNode): string | null {
   return Node.isIdentifier(nameNode) ? nameNode.getText() : null;
 }
 
+function formatKernStringListForQuotedProp(keys: string[]): string {
+  return `[${keys.map((key) => `'${escapeKernSingleQuotedStringForQuotedProp(key)}'`).join(', ')}]`;
+}
+
+function escapeKernSingleQuotedStringForQuotedProp(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t');
+}
+
+function objectPickFinding(
+  ctx: RuleContext,
+  node: TsNode,
+  name: string,
+  source: string,
+  keys: string[],
+): ReviewFinding {
+  const formattedKeys = formatKernStringListForQuotedProp(keys);
+  const sourceValue = toKernInValue(source);
+  return finding(
+    'suggest-kern-primitive',
+    'info',
+    'pattern',
+    'JS shallow object pick could migrate to KERN `objectPick` — shallow own string-key record selection',
+    ctx.filePath,
+    node.getStartLineNumber(),
+    nodeColumn(node),
+    { suggestion: `objectPick name=${name} in=${sourceValue} keys="${formattedKeys}"` },
+  );
+}
+
+function objectOmitFinding(
+  ctx: RuleContext,
+  node: TsNode,
+  name: string,
+  source: string,
+  keys: string[],
+): ReviewFinding {
+  const formattedKeys = formatKernStringListForQuotedProp(keys);
+  const sourceValue = toKernInValue(source);
+  return finding(
+    'suggest-kern-primitive',
+    'info',
+    'pattern',
+    'JS shallow object omit could migrate to KERN `objectOmit` — shallow own string-key record omission',
+    ctx.filePath,
+    node.getStartLineNumber(),
+    nodeColumn(node),
+    { suggestion: `objectOmit name=${name} in=${sourceValue} keys="${formattedKeys}"` },
+  );
+}
+
+function destructuredPropertyNameText(node: TsNode): string | null {
+  if (Node.isIdentifier(node)) return node.getText();
+  if (Node.isStringLiteral(node) || Node.isNumericLiteral(node)) return node.getLiteralText();
+  return null;
+}
+
+function objectLiteralPickSuggestion(expr: TsNode): { name: string; source: string; keys: string[] } | null {
+  if (!Node.isObjectLiteralExpression(expr)) return null;
+  const name = variableNameForInitializer(expr);
+  if (!name) return null;
+
+  const properties = expr.getProperties();
+  if (properties.length === 0) return null;
+
+  let commonReceiver: string | null = null;
+  const keys: string[] = [];
+
+  for (const prop of properties) {
+    if (!Node.isPropertyAssignment(prop)) return null;
+    const propKey = prop.getName();
+    const initializer = prop.getInitializer();
+    if (!initializer || !Node.isPropertyAccessExpression(initializer)) return null;
+
+    const receiver = initializer.getExpression();
+    if (!Node.isIdentifier(receiver)) return null;
+
+    const accessedProp = initializer.getName();
+    if (accessedProp !== propKey) return null;
+
+    const receiverText = receiver.getText();
+    if (commonReceiver === null) {
+      commonReceiver = receiverText;
+    } else if (commonReceiver !== receiverText) {
+      return null;
+    }
+
+    keys.push(propKey);
+  }
+
+  if (!commonReceiver) return null;
+  return { name, source: commonReceiver, keys };
+}
+
 function objectMergeFinding(ctx: RuleContext, node: TsNode, name: string, sources: string): ReviewFinding {
   return finding(
     'suggest-kern-primitive',
@@ -1020,13 +1119,61 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
     findings.push(portableLogicFinding(ctx, unary, 'logic.not', 'boolean negation'));
   }
 
-  // ── objectMerge detector ───────────────────────────────────────────────
-  // `const merged = { ...base, ...overrides, extra: 1 }`
-  //   → objectMerge name=merged sources="base, overrides, { extra: 1 }"
+  // ── objectMerge / objectPick detector ──────────────────────────────────
   for (const obj of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.ObjectLiteralExpression)) {
-    const suggestion = objectLiteralMergeSuggestion(obj);
-    if (!suggestion) continue;
-    findings.push(objectMergeFinding(ctx, obj, suggestion.name, suggestion.sources));
+    const mergeSuggestion = objectLiteralMergeSuggestion(obj);
+    if (mergeSuggestion) {
+      findings.push(objectMergeFinding(ctx, obj, mergeSuggestion.name, mergeSuggestion.sources));
+      continue;
+    }
+    const pickSuggestion = objectLiteralPickSuggestion(obj);
+    if (pickSuggestion) {
+      findings.push(objectPickFinding(ctx, obj, pickSuggestion.name, pickSuggestion.source, pickSuggestion.keys));
+    }
+  }
+
+  // ── objectOmit (destructuring) detector ────────────────────────────────
+  for (const varDecl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const nameNode = varDecl.getNameNode();
+    if (!Node.isObjectBindingPattern(nameNode)) continue;
+    const elements = nameNode.getElements();
+    if (elements.length === 0) continue;
+    const lastElement = elements[elements.length - 1];
+    if (!lastElement.getDotDotDotToken()) continue;
+
+    const targetName = lastElement.getName();
+    const initializer = varDecl.getInitializer();
+    if (!initializer) continue;
+    const sourceText = initializer.getText();
+
+    const omittedKeys: string[] = [];
+    let valid = true;
+    for (let i = 0; i < elements.length - 1; i++) {
+      const el = elements[i];
+      if (el.getDotDotDotToken()) {
+        valid = false;
+        break;
+      }
+      const elNameNode = el.getNameNode();
+      if (!Node.isIdentifier(elNameNode)) {
+        valid = false;
+        break;
+      }
+      const propNameNode = el.getPropertyNameNode();
+      if (propNameNode) {
+        const propName = destructuredPropertyNameText(propNameNode);
+        if (propName === null) {
+          valid = false;
+          break;
+        }
+        omittedKeys.push(propName);
+      } else {
+        omittedKeys.push(elNameNode.getText());
+      }
+    }
+    if (!valid || omittedKeys.length === 0) continue;
+
+    findings.push(objectOmitFinding(ctx, varDecl, targetName, sourceText, omittedKeys));
   }
 
   // ── fmt detector ───────────────────────────────────────────────────────

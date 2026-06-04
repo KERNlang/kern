@@ -835,6 +835,104 @@ export function generateObjectMerge(node: IRNode): string[] {
   return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = { ${spreadSources} };`];
 }
 
+export function parseKeys(raw: string, node: IRNode, propName: string): string[] {
+  const keyIR = parseExpression(raw);
+  if (keyIR.kind === 'propagate') {
+    throw new KernCodegenError(`Propagation '?' is not allowed in ${propName}`, node);
+  }
+  if (keyIR.kind !== 'arrayLit') {
+    throw new KernCodegenError(`${propName} must be a real array/list expression of non-empty string literals`, node);
+  }
+  if (keyIR.items.length === 0) {
+    throw new KernCodegenError(`${propName} must be a non-empty list of string literals`, node);
+  }
+
+  return keyIR.items.map((item) => {
+    if (item.kind !== 'strLit') {
+      throw new KernCodegenError(`${propName} must contain only string literals`, node);
+    }
+    return item.value;
+  });
+}
+
+export function emitStringKeyArray(keys: string[]): string {
+  return `[${keys.map((key) => JSON.stringify(key)).join(', ')}]`;
+}
+
+export function generateObjectPick(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'objectPick'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'picked', node);
+
+  const rawIn = unwrapExpr(props.in);
+  if (rawIn === undefined || rawIn === '') {
+    throw new KernCodegenError("objectPick node requires an 'in' prop", node);
+  }
+  const rawKeys = unwrapExpr(props.keys);
+  if (rawKeys === undefined || rawKeys === '') {
+    throw new KernCodegenError("objectPick node requires a 'keys' prop", node);
+  }
+
+  const inIR = parseExpression(rawIn);
+  if (inIR.kind === 'propagate') {
+    throw new KernCodegenError("Propagation '?' is not allowed in objectPick in=", node);
+  }
+  const inExpr = emitExpression(inIR);
+
+  const keysList = parseKeys(rawKeys, node, 'objectPick keys=');
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'Record<string, unknown>', node)}` : '';
+  const exp = exportPrefix(node);
+
+  const formattedKeys = emitStringKeyArray(keysList);
+
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}${typeAnnotation} = ((__kernSource: any) => Object.fromEntries(${formattedKeys}.map((key) => [key, Object.prototype.hasOwnProperty.call(__kernSource, key) ? __kernSource[key] : null])))(${inExpr});`,
+  ];
+}
+
+export function generateObjectOmit(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'objectOmit'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'omitted', node);
+
+  const rawIn = unwrapExpr(props.in);
+  if (rawIn === undefined || rawIn === '') {
+    throw new KernCodegenError("objectOmit node requires an 'in' prop", node);
+  }
+  const rawKeys = unwrapExpr(props.keys);
+  if (rawKeys === undefined || rawKeys === '') {
+    throw new KernCodegenError("objectOmit node requires a 'keys' prop", node);
+  }
+
+  const inIR = parseExpression(rawIn);
+  if (inIR.kind === 'propagate') {
+    throw new KernCodegenError("Propagation '?' is not allowed in objectOmit in=", node);
+  }
+  const inExpr = emitExpression(inIR);
+
+  const keysList = parseKeys(rawKeys, node, 'objectOmit keys=');
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'Record<string, unknown>', node)}` : '';
+  const exp = exportPrefix(node);
+
+  const formattedKeys = emitStringKeyArray(keysList);
+
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}${typeAnnotation} = Object.fromEntries(Object.entries(${inExpr}).filter(([key]) => !${formattedKeys}.includes(key)));`,
+  ];
+}
+
 // ── Ground Layer: join ───────────────────────────────────────────────────
 // `join name=csv in=fields separator=","` → const csv = (fields).join(',');
 // `separator` omitted → bare `.join()` (default "," per JS).

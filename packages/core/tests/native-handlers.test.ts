@@ -675,6 +675,47 @@ describe('emitNativeKernBodyTS — objectMerge body statement', () => {
   });
 });
 
+describe('emitNativeKernBodyTS — objectPick/objectOmit body statements', () => {
+  test('objectPick emits a shallow own-key binding and can return missing keys', () => {
+    const handler = makeHandler([
+      { type: 'objectPick', props: { name: 'picked', in: 'user', keys: "['id', 'missing']" } },
+      { type: 'return', props: { value: 'picked' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(
+      [
+        'const picked = ((__kernSource: any) => Object.fromEntries(["id", "missing"].map((key) => [key, Object.prototype.hasOwnProperty.call(__kernSource, key) ? __kernSource[key] : null])))(user);',
+        'return picked;',
+      ].join('\n'),
+    );
+  });
+
+  test('objectOmit emits an immutable shallow filter binding', () => {
+    const handler = makeHandler([
+      { type: 'objectOmit', props: { name: 'safe', in: 'user', keys: "['password']" } },
+      { type: 'return', props: { value: 'safe' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(
+      [
+        'const safe = Object.fromEntries(Object.entries(user).filter(([key]) => !["password"].includes(key)));',
+        'return safe;',
+      ].join('\n'),
+    );
+  });
+
+  test('infers kern handler language from objectPick child', () => {
+    const doc = parseDocument(
+      [
+        'fn name=publicUser returns=object',
+        '  handler',
+        `    objectPick name=publicUser in=user keys="['id', 'name']"`,
+        '    return value=publicUser',
+      ].join('\n'),
+    );
+    const handler = doc.children?.[0]?.children?.find((child) => child.type === 'handler');
+    expect(handler?.props?.lang).toBe('kern');
+  });
+});
+
 describe('emitNativeKernBodyTS — destructure body statement (trailing)', () => {
   test('rejects propagation source inside try with try-specific guidance', () => {
     const handler = makeHandler([

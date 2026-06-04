@@ -4,7 +4,7 @@
  */
 
 import type { ExprObject, IRNode } from '@kernlang/core';
-import { handlerCode, parseExpression } from '@kernlang/core';
+import { emitStringKeyArray, handlerCode, parseExpression, parseKeys } from '@kernlang/core';
 import { emitPyExpression } from '../codegen-body-python.js';
 import {
   buildPythonParamList,
@@ -120,6 +120,64 @@ export function generateObjectMerge(node: IRNode): string[] {
   const constType = props.type as string | undefined;
   const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
   return [...todo, ...annotations, `${name}${typeAnnotation} = {${emitted.join(', ')}}`];
+}
+
+export function generateObjectPick(node: IRNode): string[] {
+  const { annotations, todo, props, name } = groundPreamble(node);
+  if (props.in === undefined) {
+    throw new Error("objectPick node requires an 'in' prop");
+  }
+  const rawIn = unwrapExpr(props.in);
+  if (rawIn === undefined || rawIn === '') throw new Error("objectPick node requires an 'in' prop");
+  const rawKeys = unwrapExpr(props.keys);
+  if (rawKeys === undefined || rawKeys === '') throw new Error("objectPick node requires a 'keys' prop");
+
+  const inIR = parseExpression(rawIn);
+  if (inIR.kind === 'propagate') {
+    throw new Error("Propagation '?' is not allowed in objectPick in=");
+  }
+  const inExpr = emitPyExpression(inIR);
+
+  const keysList = parseKeys(rawKeys, node, 'objectPick keys=');
+  const formattedKeys = emitStringKeyArray(keysList);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
+
+  return [
+    ...todo,
+    ...annotations,
+    `${name}${typeAnnotation} = (lambda __kern_source: {key: (__kern_source[key] if key in __kern_source else None) for key in ${formattedKeys}})(${inExpr})`,
+  ];
+}
+
+export function generateObjectOmit(node: IRNode): string[] {
+  const { annotations, todo, props, name } = groundPreamble(node);
+  if (props.in === undefined) {
+    throw new Error("objectOmit node requires an 'in' prop");
+  }
+  const rawIn = unwrapExpr(props.in);
+  if (rawIn === undefined || rawIn === '') throw new Error("objectOmit node requires an 'in' prop");
+  const rawKeys = unwrapExpr(props.keys);
+  if (rawKeys === undefined || rawKeys === '') throw new Error("objectOmit node requires a 'keys' prop");
+
+  const inIR = parseExpression(rawIn);
+  if (inIR.kind === 'propagate') {
+    throw new Error("Propagation '?' is not allowed in objectOmit in=");
+  }
+  const inExpr = emitPyExpression(inIR);
+
+  const keysList = parseKeys(rawKeys, node, 'objectOmit keys=');
+  const formattedKeys = emitStringKeyArray(keysList);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
+
+  return [
+    ...todo,
+    ...annotations,
+    `${name}${typeAnnotation} = {key: value for key, value in ${inExpr}.items() if key not in ${formattedKeys}}`,
+  ];
 }
 
 // ── transform ───────────────────────────────────────────────────────────

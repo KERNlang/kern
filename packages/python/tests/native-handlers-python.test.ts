@@ -414,6 +414,36 @@ describe('emitNativeKernBodyPython — objectMerge body statement', () => {
   });
 });
 
+describe('emitNativeKernBodyPython — objectPick/objectOmit body statements', () => {
+  test('objectPick emits a shallow own-key dict binding and can return missing keys', () => {
+    const handler = makeHandler([
+      { type: 'objectPick', props: { name: 'picked', in: 'user', keys: "['id', 'missing']" } },
+      { type: 'return', props: { value: 'picked' } },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toBe(
+      [
+        'picked = (lambda __kern_source: {key: (__kern_source[key] if key in __kern_source else None) for key in ["id", "missing"]})(user)',
+        'return picked',
+      ].join('\n'),
+    );
+  });
+
+  test('objectOmit emits an immutable shallow dict filter binding', () => {
+    const handler = makeHandler([
+      { type: 'objectOmit', props: { name: 'safe', in: 'user', keys: "['password']" } },
+      { type: 'return', props: { value: 'safe' } },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toBe(
+      ['safe = {key: value for key, value in user.items() if key not in ["password"]}', 'return safe'].join('\n'),
+    );
+  });
+
+  test('rejects propagation in objectPick props', () => {
+    const handler = makeHandler([{ type: 'objectPick', props: { name: 'picked', in: 'loadUser()?', keys: "['id']" } }]);
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/Propagation/);
+  });
+});
+
 describe('FastAPI fn handler lang=kern — Python codegen integration', () => {
   test('emits Python body for a native-KERN fn', () => {
     const source = [

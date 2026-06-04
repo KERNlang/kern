@@ -46,6 +46,8 @@ import {
   generateGuard,
   generateInvariant,
   generateObjectMerge,
+  generateObjectOmit,
+  generateObjectPick,
   generateRecover,
   generateResolve,
   generateTransform,
@@ -96,6 +98,8 @@ export {
   generateGuard,
   generateInvariant,
   generateObjectMerge,
+  generateObjectOmit,
+  generateObjectPick,
   generateRecover,
   generateResolve,
   generateTransform,
@@ -174,6 +178,10 @@ export function generatePythonCoreNode(node: IRNode, options: PythonCodegenOptio
       return generateClamp(node);
     case 'objectMerge':
       return generateObjectMerge(node);
+    case 'objectOmit':
+      return generateObjectOmit(node);
+    case 'objectPick':
+      return generateObjectPick(node);
     case 'transform':
       return generateTransform(node);
     case 'action':

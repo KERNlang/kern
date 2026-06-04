@@ -17,6 +17,8 @@ describe('portable logic primitive registry', () => {
       'object.values',
       'object.entries',
       'object.merge',
+      'object.omit',
+      'object.pick',
       'string.trim',
       'string.split',
       'string.replaceFirst',
@@ -42,6 +44,8 @@ describe('portable logic primitive registry', () => {
       'object.values',
       'object.entries',
       'object.merge',
+      'object.omit',
+      'object.pick',
     ];
     for (const id of objectPrimitives) {
       expect(portableLogicSupportForTarget(id, 'ts')).toBe('stable');
