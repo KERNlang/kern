@@ -39,10 +39,12 @@ import {
   generateAssume,
   generateBranch,
   generateClamp,
+  generateCoalesce,
   generateCollect,
   generateDerive,
   generateEach,
   generateExpect,
+  generateFirstDefined,
   generateFirstTruthy,
   generateGuard,
   generateInvariant,
@@ -92,10 +94,12 @@ export {
   generateAssume,
   generateBranch,
   generateClamp,
+  generateCoalesce,
   generateCollect,
   generateDerive,
   generateEach,
   generateExpect,
+  generateFirstDefined,
   generateFirstTruthy,
   generateGuard,
   generateInvariant,
@@ -180,6 +184,10 @@ export function generatePythonCoreNode(node: IRNode, options: PythonCodegenOptio
       return generateClamp(node);
     case 'firstTruthy':
       return generateFirstTruthy(node);
+    case 'coalesce':
+      return generateCoalesce(node);
+    case 'firstDefined':
+      return generateFirstDefined(node);
     case 'objectMerge':
       return generateObjectMerge(node);
     case 'objectOmit':

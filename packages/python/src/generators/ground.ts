@@ -125,6 +125,54 @@ function emitFirstTruthyOperandPy(valueIR: ValueIR): string {
   return valueIR.kind === 'conditional' ? `(${emitted})` : emitted;
 }
 
+function buildNullishCoalesceIR(values: ValueIR[]): ValueIR {
+  if (values.length === 1) return values[0];
+  const [left, ...rest] = values;
+  return { kind: 'binary', op: '??', left, right: buildNullishCoalesceIR(rest) };
+}
+
+export function generateCoalesce(node: IRNode): string[] {
+  const { annotations, todo, props, name } = groundPreamble(node);
+  const rawValues = unwrapExpr(props.values);
+  if (rawValues === undefined || rawValues === '') throw new Error("coalesce node requires a 'values' prop");
+  const values = splitExpressionList(rawValues, 'coalesce values=');
+  if (values.length < 2) throw new Error('coalesce requires at least two value expressions');
+
+  const valueIRs = values.map((value) => {
+    const valueIR = parseExpression(value);
+    if (valueIR.kind === 'propagate') {
+      throw new Error("Propagation '?' is not allowed in `coalesce values=` — bind the value first.");
+    }
+    return valueIR;
+  });
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
+  const chain = emitPyExpression(buildNullishCoalesceIR(valueIRs));
+  return [...todo, ...annotations, `${name}${typeAnnotation} = ${chain}`];
+}
+
+export function generateFirstDefined(node: IRNode): string[] {
+  const { annotations, todo, props, name } = groundPreamble(node);
+  const rawValues = unwrapExpr(props.values);
+  if (rawValues === undefined || rawValues === '') throw new Error("firstDefined node requires a 'values' prop");
+  const values = splitExpressionList(rawValues, 'firstDefined values=');
+  if (values.length < 2) throw new Error('firstDefined requires at least two value expressions');
+
+  const valueIRs = values.map((value) => {
+    const valueIR = parseExpression(value);
+    if (valueIR.kind === 'propagate') {
+      throw new Error("Propagation '?' is not allowed in `firstDefined values=` — bind the value first.");
+    }
+    return valueIR;
+  });
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
+  const chain = emitPyExpression(buildNullishCoalesceIR(valueIRs));
+  return [...todo, ...annotations, `${name}${typeAnnotation} = ${chain}`];
+}
+
 // ── objectMerge ─────────────────────────────────────────────────────────
 
 export function generateObjectMerge(node: IRNode): string[] {

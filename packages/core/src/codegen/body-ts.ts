@@ -158,6 +158,8 @@ const TRAILING_COMMENT_TYPES = new Set([
   'fmt',
   'clamp',
   'firstTruthy',
+  'coalesce',
+  'firstDefined',
   'objectMerge',
   'objectOmit',
   'objectPick',
@@ -198,6 +200,8 @@ function emitChildrenTS(
         for (const line of emitClampTS(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'firstTruthy') {
         for (const line of emitFirstTruthyTS(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'coalesce' || child.type === 'firstDefined') {
+        for (const line of emitCoalesceTS(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'objectMerge') {
         for (const line of emitObjectMergeTS(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'objectOmit') {
@@ -805,6 +809,39 @@ function emitFirstTruthyTS(node: IRNode, ctx: BodyEmitContext): string[] {
   const lines = [`const ${name}${typeAnn} = ${emitted.join(' || ')};`];
   if (ctx.traceHooks?.letAssign) lines.push(letAssignTraceTS(name));
   return lines;
+}
+
+function emitCoalesceTS(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const name = String(props.name ?? '');
+  const type = node.type;
+  if (!name) throw new Error(`body-statement \`${type}\` requires \`name=\`.`);
+  declareLocalBinding(ctx, name, 'const');
+
+  const rawValues = unwrapBodyExpr(props.values);
+  if (rawValues === undefined || rawValues === '') {
+    throw new Error(`body-statement \`${type}\` requires \`values=\`.`);
+  }
+  const values = splitBodyExpressionList(rawValues, `${type} values=`);
+  if (values.length < 2) throw new Error(`body-statement \`${type}\` requires at least two value expressions.`);
+
+  const emitted = values.map((value) => {
+    const valueIR = parseExpression(value);
+    if (valueIR.kind === 'propagate') {
+      throw new Error(`Propagation '?' is not allowed in \`${type} values=\` — bind the value to a \`let\` first.`);
+    }
+    return emitCoalesceOperandTS(valueIR);
+  });
+
+  const typeAnn = props.type ? `: ${emitTypeAnnotation(String(props.type), 'unknown', node)}` : '';
+  const lines = [`const ${name}${typeAnn} = ${emitted.join(' ?? ')};`];
+  if (ctx.traceHooks?.letAssign) lines.push(letAssignTraceTS(name));
+  return lines;
+}
+
+function emitCoalesceOperandTS(valueIR: ValueIR): string {
+  const emitted = emitExpression(valueIR);
+  return valueIR.kind === 'conditional' || valueIR.kind === 'binary' ? `(${emitted})` : emitted;
 }
 
 function emitFirstTruthyOperandTS(valueIR: ValueIR): string {

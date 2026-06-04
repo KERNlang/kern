@@ -835,6 +835,70 @@ function emitFirstTruthyOperandTS(valueIR: ValueIR): string {
   return valueIR.kind === 'conditional' ? `(${emitted})` : emitted;
 }
 
+export function generateCoalesce(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'coalesce'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'coalesce', node);
+  const rawValues = unwrapExpr(props.values);
+  if (rawValues === undefined || rawValues === '') {
+    throw new KernCodegenError("coalesce node requires a 'values' prop", node);
+  }
+  const values = splitExpressionList(rawValues, node, 'coalesce values=');
+  if (values.length < 2) throw new KernCodegenError('coalesce requires at least two value expressions', node);
+
+  const emitted = values.map((value) => {
+    const valueIR = parseExpression(value);
+    if (valueIR.kind === 'propagate') {
+      throw new KernCodegenError("Propagation '?' is not allowed in `coalesce values=` — bind the value first.", node);
+    }
+    return emitCoalesceOperandTS(valueIR);
+  });
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = ${emitted.join(' ?? ')};`];
+}
+
+export function generateFirstDefined(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'firstDefined'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'firstDefined', node);
+  const rawValues = unwrapExpr(props.values);
+  if (rawValues === undefined || rawValues === '') {
+    throw new KernCodegenError("firstDefined node requires a 'values' prop", node);
+  }
+  const values = splitExpressionList(rawValues, node, 'firstDefined values=');
+  if (values.length < 2) throw new KernCodegenError('firstDefined requires at least two value expressions', node);
+
+  const emitted = values.map((value) => {
+    const valueIR = parseExpression(value);
+    if (valueIR.kind === 'propagate') {
+      throw new KernCodegenError(
+        "Propagation '?' is not allowed in `firstDefined values=` — bind the value first.",
+        node,
+      );
+    }
+    return emitCoalesceOperandTS(valueIR);
+  });
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = ${emitted.join(' ?? ')};`];
+}
+
+function emitCoalesceOperandTS(valueIR: ValueIR): string {
+  const emitted = emitExpression(valueIR);
+  return valueIR.kind === 'conditional' || valueIR.kind === 'binary' ? `(${emitted})` : emitted;
+}
+
 // ── Ground Layer: objectMerge ───────────────────────────────────────────
 // `objectMerge name=merged sources="base, overrides, { extra: 1 }"`
 //   → const merged = { ...(base), ...(overrides), ...({ extra: 1 }) };

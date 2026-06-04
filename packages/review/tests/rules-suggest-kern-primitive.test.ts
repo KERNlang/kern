@@ -681,6 +681,35 @@ describe('suggest-kern-primitive rule', () => {
     });
   });
 
+  describe('coalesce detector', () => {
+    it('suggests coalesce for named nullish chains', () => {
+      const f = kernSuggestions(`const label = preferred ?? nickname ?? 'Anonymous';`);
+      const c = f.filter((x) => x.suggestion?.startsWith('coalesce '));
+      expect(c).toHaveLength(1);
+      expect(c[0].suggestion).toBe(`coalesce name=label values="preferred, nickname, 'Anonymous'"`);
+    });
+
+    it('flattens parenthesized nullish chains', () => {
+      const f = kernSuggestions(`const label = (preferred ?? nickname) ?? 'Anonymous';`);
+      const c = f.filter((x) => x.suggestion?.startsWith('coalesce '));
+      expect(c).toHaveLength(1);
+      expect(c[0].suggestion).toBe(`coalesce name=label values="preferred, nickname, 'Anonymous'"`);
+    });
+
+    it('keeps nested function-call commas as one value', () => {
+      const f = kernSuggestions(`const label = getName(first, last) ?? 'Anonymous';`);
+      const c = f.filter((x) => x.suggestion?.startsWith('coalesce '));
+      expect(c).toHaveLength(1);
+      expect(c[0].suggestion).toBe(`coalesce name=label values="getName(first, last), 'Anonymous'"`);
+    });
+
+    it('does NOT suggest coalesce for truthy fallback chains', () => {
+      const f = kernSuggestions(`const label = preferred || nickname || 'Anonymous';`);
+      const c = f.filter((x) => x.suggestion?.startsWith('coalesce '));
+      expect(c).toHaveLength(0);
+    });
+  });
+
   // ── conditional JSX detector ────────────────────────────────────────
 
   describe('conditional JSX detector', () => {

@@ -257,6 +257,16 @@ export interface FirstTruthyProps extends BaseProps {
   type?: string;
 }
 
+export interface CoalesceProps extends BaseProps {
+  values?: string | ExprObject;
+  type?: string;
+}
+
+export interface FirstDefinedProps extends BaseProps {
+  values?: string | ExprObject;
+  type?: string;
+}
+
 export interface ObjectPickProps extends BaseProps {
   in?: string | ExprObject;
   keys?: string | ExprObject;
@@ -862,6 +872,8 @@ export interface NodePropsMap {
   at: AtProps;
   clamp: ClampProps;
   firstTruthy: FirstTruthyProps;
+  coalesce: CoalesceProps;
+  firstDefined: FirstDefinedProps;
   objectMerge: ObjectMergeProps;
   objectOmit: ObjectOmitProps;
   objectPick: ObjectPickProps;

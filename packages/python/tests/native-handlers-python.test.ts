@@ -471,6 +471,36 @@ describe('emitNativeKernBodyPython — firstTruthy body statement', () => {
   });
 });
 
+describe('emitNativeKernBodyPython — coalesce / firstDefined body statement', () => {
+  test('coalesce emits None-only fallback logic', () => {
+    const handler = makeHandler([
+      { type: 'coalesce', props: { name: 'winner', values: "count, flag, label, 'fallback'" } },
+      { type: 'return', props: { value: 'winner' } },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toBe(
+      [
+        'winner = (count if count is not None else (flag if flag is not None else (label if label is not None else "fallback")))',
+        'return winner',
+      ].join('\n'),
+    );
+  });
+
+  test('firstDefined aliases the same body emitter', () => {
+    const handler = makeHandler([
+      { type: 'firstDefined', props: { name: 'winner', values: 'primary, secondary' } },
+      { type: 'return', props: { value: 'winner' } },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toBe(
+      ['winner = (primary if primary is not None else secondary)', 'return winner'].join('\n'),
+    );
+  });
+
+  test('rejects propagation in coalesce values', () => {
+    const handler = makeHandler([{ type: 'coalesce', props: { name: 'winner', values: 'load()?, fallback' } }]);
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/Propagation/);
+  });
+});
+
 describe('FastAPI fn handler lang=kern — Python codegen integration', () => {
   test('emits Python body for a native-KERN fn', () => {
     const source = [

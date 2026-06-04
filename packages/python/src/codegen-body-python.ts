@@ -292,6 +292,8 @@ const TRAILING_COMMENT_TYPES = new Set([
   'fmt',
   'clamp',
   'firstTruthy',
+  'coalesce',
+  'firstDefined',
   'objectMerge',
   'objectOmit',
   'objectPick',
@@ -343,6 +345,8 @@ function emitChildrenPy(
         for (const line of emitClampPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'firstTruthy') {
         for (const line of emitFirstTruthyPy(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'coalesce' || child.type === 'firstDefined') {
+        for (const line of emitCoalescePy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'objectMerge') {
         for (const line of emitObjectMergePy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'objectOmit') {
@@ -1102,6 +1106,41 @@ function emitFirstTruthyPy(node: IRNode, ctx: BodyEmitContext): string[] {
   const lines = [`${name} = ${emitted.join(' or ')}`];
   if (ctx.traceHooks?.letAssign) lines.push(letAssignTracePy(name));
   return lines;
+}
+
+function emitCoalescePy(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const userName = String(props.name ?? '');
+  const type = node.type;
+  if (!userName) throw new Error(`body-statement \`${type}\` requires \`name=\`.`);
+  declareLocalBinding(ctx, userName, 'const');
+  const name = maybeRenameOnShadow(ctx, userName);
+
+  const rawValues = unwrapBodyExpr(props.values);
+  if (rawValues === undefined || rawValues === '') {
+    throw new Error(`body-statement \`${type}\` requires \`values=\`.`);
+  }
+  const values = splitBodyExpressionList(rawValues, `${type} values=`);
+  if (values.length < 2) throw new Error(`body-statement \`${type}\` requires at least two value expressions.`);
+
+  const valueIRs = values.map((value) => {
+    const valueIR = parseExpression(value);
+    if (valueIR.kind === 'propagate') {
+      throw new Error(`Propagation '?' is not allowed in \`${type} values=\` — bind the value to a \`let\` first.`);
+    }
+    return valueIR;
+  });
+
+  const chain = emitPyExprCtx(buildNullishCoalesceIR(valueIRs), ctx);
+  const lines = [`${name} = ${chain}`];
+  if (ctx.traceHooks?.letAssign) lines.push(letAssignTracePy(name));
+  return lines;
+}
+
+function buildNullishCoalesceIR(values: ValueIR[]): ValueIR {
+  if (values.length === 1) return values[0];
+  const [left, ...rest] = values;
+  return { kind: 'binary', op: '??', left, right: buildNullishCoalesceIR(rest) };
 }
 
 function emitFirstTruthyOperandPy(valueIR: ValueIR, ctx: BodyEmitContext): string {

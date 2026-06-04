@@ -47,6 +47,7 @@ export {
   generateAvg,
   generateChunk,
   generateClamp,
+  generateCoalesce,
   generateCollect,
   generateCompact,
   generateConcat,
@@ -60,6 +61,7 @@ export {
   generateFindIndex,
   generateFindLast,
   generateFindLastIndex,
+  generateFirstDefined,
   generateFirstTruthy,
   generateFlat,
   generateFlatMap,
@@ -172,6 +174,7 @@ import {
   generateAvg,
   generateChunk,
   generateClamp,
+  generateCoalesce,
   generateCollect,
   generateCompact,
   generateConcat,
@@ -185,6 +188,7 @@ import {
   generateFindIndex,
   generateFindLast,
   generateFindLastIndex,
+  generateFirstDefined,
   generateFirstTruthy,
   generateFlat,
   generateFlatMap,
@@ -871,6 +875,10 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return generateClamp(node);
     case 'firstTruthy':
       return generateFirstTruthy(node);
+    case 'coalesce':
+      return generateCoalesce(node);
+    case 'firstDefined':
+      return generateFirstDefined(node);
     case 'objectMerge':
       return generateObjectMerge(node);
     case 'objectOmit':

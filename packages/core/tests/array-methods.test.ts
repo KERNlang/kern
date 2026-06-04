@@ -15,6 +15,7 @@ import {
   generateAvg,
   generateChunk,
   generateClamp,
+  generateCoalesce,
   generateCompact,
   generateConcat,
   generateCoreNode,
@@ -26,6 +27,7 @@ import {
   generateFindIndex,
   generateFindLast,
   generateFindLastIndex,
+  generateFirstDefined,
   generateFirstTruthy,
   generateFlat,
   generateFlatMap,
@@ -160,6 +162,49 @@ describe('Ground Layer: firstTruthy', () => {
     expect(() => generateFirstTruthy(mk('firstTruthy', { name: 'x', values: 'load()?, fallback' }))).toThrow(
       /Propagation/,
     );
+  });
+});
+
+describe('Ground Layer: coalesce / firstDefined', () => {
+  it('emits a nullish fallback binding that preserves falsy values', () => {
+    const node = mk('coalesce', {
+      name: 'winner',
+      values: "count, flag, label, 'fallback'",
+      type: 'string | number | boolean',
+    });
+    expect(generateCoalesce(node).join('\n')).toBe(
+      "export const winner: string | number | boolean = count ?? flag ?? label ?? 'fallback';",
+    );
+  });
+
+  it('supports firstDefined as an alias-shaped node', () => {
+    const node = mk('firstDefined', { name: 'winner', values: 'primary, secondary', export: 'false' });
+    expect(generateFirstDefined(node).join('\n')).toBe('const winner = primary ?? secondary;');
+    expect(generateCoreNode(node).join('\n')).toBe('const winner = primary ?? secondary;');
+  });
+
+  it('parenthesizes conditional operands before joining nullish fallbacks', () => {
+    const node = mk('coalesce', {
+      name: 'label',
+      values: "ready ? preferred : nickname, 'Anonymous'",
+    });
+    expect(generateCoalesce(node).join('\n')).toBe(
+      "export const label = (ready ? preferred : nickname) ?? 'Anonymous';",
+    );
+  });
+
+  it('parenthesizes binary operands before joining nullish fallbacks', () => {
+    const node = mk('coalesce', {
+      name: 'label',
+      values: "preferred || nickname, 'Anonymous'",
+    });
+    expect(generateCoalesce(node).join('\n')).toBe("export const label = (preferred || nickname) ?? 'Anonymous';");
+  });
+
+  it('requires at least two value expressions and rejects propagation', () => {
+    expect(() => generateCoalesce(mk('coalesce', { name: 'x' }))).toThrow(/values/);
+    expect(() => generateCoalesce(mk('coalesce', { name: 'x', values: 'preferred' }))).toThrow(/at least two/);
+    expect(() => generateCoalesce(mk('coalesce', { name: 'x', values: 'load()?, fallback' }))).toThrow(/Propagation/);
   });
 });
 

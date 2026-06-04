@@ -705,6 +705,51 @@ function looksLikeBooleanPredicateName(value: string): boolean {
   return /^(?:is|has|can|should|did|will|ok|valid|enabled|ready|active)(?:[A-Z_]|$)/.test(value);
 }
 
+function coalesceSuggestion(expr: BinaryExpression): { name: string; values: string } | null {
+  if (expr.getOperatorToken().getKind() !== SyntaxKind.QuestionQuestionToken) return null;
+  const name = variableNameForInitializer(expr);
+  if (!name) return null;
+
+  const values = flattenQuestionQuestionChain(expr);
+  if (values.length < 2) return null;
+
+  return { name, values: values.map((value) => value.getText()).join(', ') };
+}
+
+function flattenQuestionQuestionChain(expr: BinaryExpression): TsNode[] {
+  const left = unwrapParenthesizedExpression(expr.getLeft());
+  const right = unwrapParenthesizedExpression(expr.getRight());
+  const out: TsNode[] = [];
+  if (Node.isBinaryExpression(left) && left.getOperatorToken().getKind() === SyntaxKind.QuestionQuestionToken) {
+    out.push(...flattenQuestionQuestionChain(left));
+  } else {
+    out.push(left);
+  }
+  if (Node.isBinaryExpression(right) && right.getOperatorToken().getKind() === SyntaxKind.QuestionQuestionToken) {
+    out.push(...flattenQuestionQuestionChain(right));
+  } else {
+    out.push(right);
+  }
+  return out;
+}
+
+function unwrapParenthesizedExpression(node: TsNode): TsNode {
+  return Node.isParenthesizedExpression(node) ? node.getExpression() : node;
+}
+
+function coalesceFinding(ctx: RuleContext, node: TsNode, name: string, values: string): ReviewFinding {
+  return finding(
+    'suggest-kern-primitive',
+    'info',
+    'pattern',
+    'JS nullish fallback chain could migrate to KERN `coalesce` — named portable fallback selection',
+    ctx.filePath,
+    node.getStartLineNumber(),
+    nodeColumn(node),
+    { suggestion: `coalesce name=${name} values="${escapeKernString(values)}"` },
+  );
+}
+
 function firstTruthyFinding(ctx: RuleContext, node: TsNode, name: string, values: string): ReviewFinding {
   return finding(
     'suggest-kern-primitive',
@@ -998,8 +1043,13 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
   //   → firstTruthy name=label values="preferred, nickname, 'Anonymous'"
   for (const binary of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
     const suggestion = firstTruthySuggestion(binary);
-    if (!suggestion) continue;
-    findings.push(firstTruthyFinding(ctx, binary, suggestion.name, suggestion.values));
+    if (suggestion) {
+      findings.push(firstTruthyFinding(ctx, binary, suggestion.name, suggestion.values));
+    }
+    const coalSuggest = coalesceSuggestion(binary);
+    if (coalSuggest) {
+      findings.push(coalesceFinding(ctx, binary, coalSuggest.name, coalSuggest.values));
+    }
   }
 
   // `[...new Set(coll)]` → route to the dedicated `unique` primitive.

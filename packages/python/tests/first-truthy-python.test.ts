@@ -1,5 +1,5 @@
 import type { IRNode } from '@kernlang/core';
-import { generateFirstTruthy } from '../src/codegen-python.js';
+import { generateCoalesce, generateFirstDefined, generateFirstTruthy } from '../src/codegen-python.js';
 
 function mk(type: string, props: Record<string, unknown> = {}, children: IRNode[] = []): IRNode {
   return { type, props, children };
@@ -21,6 +21,34 @@ describe('Python Ground Layer: firstTruthy', () => {
     expect(() => generateFirstTruthy(mk('firstTruthy', { name: 'x', values: 'preferred' }))).toThrow(/at least two/);
     expect(() => generateFirstTruthy(mk('firstTruthy', { name: 'x', values: 'load()?, fallback' }))).toThrow(
       /Propagation/,
+    );
+  });
+});
+
+describe('Python Ground Layer: coalesce / firstDefined', () => {
+  it('emits None-only fallback logic that preserves falsy values', () => {
+    const node = mk('coalesce', { name: 'winner', values: "count, flag, label, 'fallback'" });
+    expect(generateCoalesce(node).join('\n')).toBe(
+      'winner = (count if count is not None else (flag if flag is not None else (label if label is not None else "fallback")))',
+    );
+  });
+
+  it('supports firstDefined as an alias-shaped node', () => {
+    const node = mk('firstDefined', { name: 'winner', values: 'primary, secondary' });
+    expect(generateFirstDefined(node).join('\n')).toBe('winner = (primary if primary is not None else secondary)');
+  });
+
+  it('parenthesizes conditional operands before joining fallbacks', () => {
+    const node = mk('coalesce', { name: 'label', values: "ready ? preferred : nickname, 'Anonymous'" });
+    expect(generateCoalesce(node).join('\n')).toBe(
+      'label = (__k_nc1 if (__k_nc1 := preferred if ready else nickname) is not None else "Anonymous")',
+    );
+  });
+
+  it('uses a walrus temp so side-effecting operands are evaluated once', () => {
+    const node = mk('coalesce', { name: 'winner', values: "load(), 'fallback'" });
+    expect(generateCoalesce(node).join('\n')).toBe(
+      'winner = (__k_nc1 if (__k_nc1 := load()) is not None else "fallback")',
     );
   });
 });
