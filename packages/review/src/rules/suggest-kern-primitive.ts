@@ -295,6 +295,170 @@ function isSimpleExpressionPosition(node: TsNode): boolean {
   return false;
 }
 
+type MathStaticMethod = 'min' | 'max';
+interface ClampParts {
+  value: TsNode;
+  min: TsNode;
+  max: TsNode;
+}
+
+function mathStaticMethod(call: CallExpression): MathStaticMethod | null {
+  const callee = call.getExpression();
+  if (!Node.isPropertyAccessExpression(callee)) return null;
+  if (callee.getExpression().getText() !== 'Math') return null;
+  const name = callee.getName();
+  return name === 'min' || name === 'max' ? name : null;
+}
+
+function isMathStaticCall(call: CallExpression, methodName: MathStaticMethod): boolean {
+  return mathStaticMethod(call) === methodName;
+}
+
+function isSideEffectFreeClampExpression(node: TsNode, allowLiteral: boolean): boolean {
+  const unwrapped = unwrapParenthesized(node);
+  if (Node.isIdentifier(unwrapped)) {
+    return true;
+  }
+  if (allowLiteral && Node.isNumericLiteral(unwrapped)) {
+    return true;
+  }
+  if (Node.isPropertyAccessExpression(unwrapped)) {
+    return isSideEffectFreeClampExpression(unwrapped.getExpression(), true);
+  }
+  if (Node.isElementAccessExpression(unwrapped)) {
+    const arg = unwrapped.getArgumentExpression();
+    return (
+      isSideEffectFreeClampExpression(unwrapped.getExpression(), true) &&
+      !!arg &&
+      isSideEffectFreeClampExpression(arg, true)
+    );
+  }
+  if (Node.isPrefixUnaryExpression(unwrapped)) {
+    const op = unwrapped.getOperatorToken();
+    if (op === SyntaxKind.PlusPlusToken || op === SyntaxKind.MinusMinusToken) return false;
+    return allowLiteral && isSideEffectFreeClampExpression(unwrapped.getOperand(), true);
+  }
+  return false;
+}
+
+function isSideEffectFreeClampBound(node: TsNode): boolean {
+  return isSideEffectFreeClampExpression(node, true);
+}
+
+function isSideEffectFreeClampValue(node: TsNode): boolean {
+  return isSideEffectFreeClampExpression(node, false);
+}
+
+function numericLiteralValue(node: TsNode): number | null {
+  const unwrapped = unwrapParenthesized(node);
+  if (Node.isNumericLiteral(unwrapped)) return Number(unwrapped.getLiteralText());
+  if (Node.isPrefixUnaryExpression(unwrapped)) {
+    const op = unwrapped.getOperatorToken();
+    const operand = numericLiteralValue(unwrapped.getOperand());
+    if (operand === null) return null;
+    if (op === SyntaxKind.MinusToken) return -operand;
+    if (op === SyntaxKind.PlusToken) return operand;
+  }
+  return null;
+}
+
+function hasReversedLiteralClampBounds(outerMethod: MathStaticMethod, outerBound: TsNode, innerBound: TsNode): boolean {
+  const low = numericLiteralValue(outerMethod === 'max' ? outerBound : innerBound);
+  const high = numericLiteralValue(outerMethod === 'max' ? innerBound : outerBound);
+  return low !== null && high !== null && low > high;
+}
+
+function clampBoundHint(node: TsNode, role: 'min' | 'max'): number {
+  if (numericLiteralValue(node) !== null) return 2;
+  const segments = unwrapParenthesized(node).getText().toLowerCase().split(/[._]/).filter(Boolean);
+  const hints = role === 'min' ? ['min', 'minimum', 'lo', 'low', 'lower'] : ['max', 'maximum', 'hi', 'high', 'upper'];
+  if (
+    segments.some((segment) =>
+      hints.some((hint) => segment === hint || segment.startsWith(hint) || segment.endsWith(hint)),
+    )
+  ) {
+    return 2;
+  }
+  return 0;
+}
+
+function portableClampParts(
+  call: CallExpression,
+  shadowsGlobalMath: boolean,
+  options: { allowAmbiguous?: boolean } = {},
+): ClampParts | null {
+  if (shadowsGlobalMath) return null;
+  const outerMethod = mathStaticMethod(call);
+  if (!outerMethod) return null;
+  const outerArgs = call.getArguments();
+  if (outerArgs.length !== 2) return null;
+
+  const innerMethod: MathStaticMethod = outerMethod === 'max' ? 'min' : 'max';
+  for (const [innerIdx, candidate] of outerArgs.entries()) {
+    const inner = unwrapParenthesized(candidate);
+    if (!Node.isCallExpression(inner) || !isMathStaticCall(inner, innerMethod)) continue;
+    const outerBound = outerArgs[innerIdx === 0 ? 1 : 0];
+    if (!isSideEffectFreeClampBound(outerBound)) continue;
+
+    const innerArgs = inner.getArguments();
+    if (innerArgs.length !== 2) continue;
+    const candidates: Array<{ value: TsNode; innerBound: TsNode; score: number }> = [];
+    for (const [valueIdx, arg] of innerArgs.entries()) {
+      const innerBound = innerArgs[valueIdx === 0 ? 1 : 0];
+      if (
+        isSideEffectFreeClampValue(arg) &&
+        isSideEffectFreeClampBound(innerBound) &&
+        !hasReversedLiteralClampBounds(outerMethod, outerBound, innerBound)
+      ) {
+        candidates.push({
+          value: arg,
+          innerBound,
+          score: clampBoundHint(innerBound, outerMethod === 'max' ? 'max' : 'min'),
+        });
+      }
+    }
+    candidates.sort((a, b) => b.score - a.score);
+    const best = candidates[0];
+    if (
+      best &&
+      options.allowAmbiguous !== true &&
+      best.score === 0 &&
+      candidates.length > 1 &&
+      candidates[1]?.score === 0
+    ) {
+      return null;
+    }
+    if (best) {
+      return outerMethod === 'max'
+        ? { value: best.value, min: outerBound, max: best.innerBound }
+        : { value: best.value, min: best.innerBound, max: outerBound };
+    }
+  }
+  return null;
+}
+
+function isPortableClampCall(call: CallExpression, shadowsGlobalMath: boolean): boolean {
+  return portableClampParts(call, shadowsGlobalMath, { allowAmbiguous: true }) !== null;
+}
+
+function expressionBindingName(node: TsNode): string {
+  let expr: TsNode = node;
+  let parent = expr.getParent();
+  while (parent && Node.isParenthesizedExpression(parent)) {
+    expr = parent;
+    parent = parent.getParent();
+  }
+  if (parent && Node.isVariableDeclaration(parent) && parent.getInitializer() === expr) {
+    const nameNode = parent.getNameNode();
+    if (Node.isIdentifier(nameNode)) return nameNode.getText();
+  }
+  return '<name>';
+}
+
+function clampNodeSuggestion(call: CallExpression, parts: ClampParts): string {
+  return `clamp name=${expressionBindingName(call)} value={{ ${parts.value.getText()} }} min={{ ${parts.min.getText()} }} max={{ ${parts.max.getText()} }}`;
+}
+
 function isRegexLiteral(node: TsNode | undefined): boolean {
   return !!node && node.getKind() === SyntaxKind.RegularExpressionLiteral;
 }
@@ -430,6 +594,70 @@ function objectPortablePrimitiveFor(methodName: string): PortableLogicPrimitiveI
     default:
       return null;
   }
+}
+
+function variableNameForInitializer(expr: TsNode): string | null {
+  const parent = expr.getParent();
+  if (!parent || !Node.isVariableDeclaration(parent) || parent.getInitializer() !== expr) return null;
+  const nameNode = parent.getNameNode();
+  return Node.isIdentifier(nameNode) ? nameNode.getText() : null;
+}
+
+function objectMergeFinding(ctx: RuleContext, node: TsNode, name: string, sources: string): ReviewFinding {
+  return finding(
+    'suggest-kern-primitive',
+    'info',
+    'pattern',
+    'JS shallow object merge could migrate to KERN `objectMerge` — non-mutating, left-to-right, last-write-wins record merge',
+    ctx.filePath,
+    node.getStartLineNumber(),
+    nodeColumn(node),
+    { suggestion: `objectMerge name=${name} sources="${escapeKernString(sources)}"` },
+  );
+}
+
+function objectAssignMergeSuggestion(call: CallExpression): { name: string; sources: string } | null {
+  const name = variableNameForInitializer(call);
+  if (!name) return null;
+  const args = call.getArguments();
+  if (args.length < 3) return null;
+  const target = unwrapParenthesized(args[0]);
+  if (!Node.isObjectLiteralExpression(target) || target.getProperties().length !== 0) return null;
+  return {
+    name,
+    sources: args
+      .slice(1)
+      .map((arg) => arg.getText())
+      .join(', '),
+  };
+}
+
+function objectLiteralMergeSuggestion(expr: TsNode): { name: string; sources: string } | null {
+  if (!Node.isObjectLiteralExpression(expr)) return null;
+  const name = variableNameForInitializer(expr);
+  if (!name) return null;
+
+  const sources: string[] = [];
+  let literalProps: string[] = [];
+  const flushLiteral = () => {
+    if (literalProps.length > 0) {
+      sources.push(`{ ${literalProps.join(', ')} }`);
+      literalProps = [];
+    }
+  };
+
+  for (const prop of expr.getProperties()) {
+    if (Node.isSpreadAssignment(prop)) {
+      flushLiteral();
+      sources.push(prop.getExpression().getText());
+    } else {
+      literalProps.push(prop.getText());
+    }
+  }
+  flushLiteral();
+
+  const spreadCount = expr.getProperties().filter((prop) => Node.isSpreadAssignment(prop)).length;
+  return spreadCount > 0 && sources.length >= 2 ? { name, sources: sources.join(', ') } : null;
 }
 
 function stringPortablePrimitiveFor(call: CallExpression, methodName: string): PortableLogicPrimitiveId | null {
@@ -612,6 +840,7 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
   if (shouldSkipFile(ctx)) return [];
   const findings: ReviewFinding[] = [];
   const shadowsGlobalObject = sourceFileDeclaresBinding(ctx, 'Object');
+  const shadowsGlobalMath = sourceFileDeclaresBinding(ctx, 'Math');
 
   // `[...new Set(coll)]` → route to the dedicated `unique` primitive.
   for (const arr of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.ArrayLiteralExpression)) {
@@ -647,6 +876,19 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
     const receiver = callee.getExpression();
     const unwrappedReceiver = unwrapParenthesized(receiver);
 
+    const clampParts = portableClampParts(call, shadowsGlobalMath);
+    if (clampParts) {
+      findings.push({
+        ...portableLogicFinding(ctx, call, 'number.clamp', 'numeric clamp'),
+        suggestion: clampNodeSuggestion(call, clampParts),
+      });
+      continue;
+    }
+    if (isPortableClampCall(call, shadowsGlobalMath)) {
+      findings.push(portableLogicFinding(ctx, call, 'number.clamp', 'numeric clamp'));
+      continue;
+    }
+
     if (methodName === 'has' && isNewExpressionFor(unwrappedReceiver, 'Set')) {
       if (unwrappedReceiver.getArguments().length === 1 && call.getArguments().length === 1) {
         findings.push(portableLogicFinding(ctx, call, 'collection.has', 'Set membership'));
@@ -662,6 +904,11 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
     }
 
     if (Node.isIdentifier(unwrappedReceiver) && unwrappedReceiver.getText() === 'Object') {
+      if (methodName === 'assign' && !shadowsGlobalObject) {
+        const suggestion = objectAssignMergeSuggestion(call);
+        if (suggestion) findings.push(objectMergeFinding(ctx, call, suggestion.name, suggestion.sources));
+        continue;
+      }
       const objectPrimitive = objectPortablePrimitiveFor(methodName);
       if (objectPrimitive && call.getArguments().length === 1 && !shadowsGlobalObject) {
         findings.push(portableLogicFinding(ctx, call, objectPrimitive, `Object.${methodName}`));
@@ -771,6 +1018,15 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
     if (!isSimpleExpressionPosition(unary)) continue;
 
     findings.push(portableLogicFinding(ctx, unary, 'logic.not', 'boolean negation'));
+  }
+
+  // ── objectMerge detector ───────────────────────────────────────────────
+  // `const merged = { ...base, ...overrides, extra: 1 }`
+  //   → objectMerge name=merged sources="base, overrides, { extra: 1 }"
+  for (const obj of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.ObjectLiteralExpression)) {
+    const suggestion = objectLiteralMergeSuggestion(obj);
+    if (!suggestion) continue;
+    findings.push(objectMergeFinding(ctx, obj, suggestion.name, suggestion.sources));
   }
 
   // ── fmt detector ───────────────────────────────────────────────────────

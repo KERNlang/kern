@@ -276,9 +276,9 @@ describe('Host-builtin mapping (Python target)', () => {
       '    respond 200 json={{ {ks, vs, es, ok, t} }}',
     ]);
     const code = routeContent(result, 'objarrdate');
-    expect(code).toContain('list(json.loads(body.raw).keys())');
-    expect(code).toContain('list(json.loads(body.raw).values())');
-    expect(code).toContain('list(json.loads(body.raw).items())');
+    expect(code).toContain('_kern_js_object_keys(json.loads(body.raw))');
+    expect(code).toContain('_kern_js_object_values(json.loads(body.raw))');
+    expect(code).toContain('_kern_js_object_entries(json.loads(body.raw))');
     expect(code).toContain('isinstance(vs, list)');
     expect(code).toContain('int(datetime.now(timezone.utc).timestamp() * 1000)');
     expect(code).toContain('import json');
@@ -386,8 +386,8 @@ describe('Host-builtin mapping (Python target)', () => {
       '    respond 200 json={{ {ok, t} }}',
     ]);
     const code = routeContent(result, 'objarrdate_nested');
-    expect(code).toContain('isinstance(list(json.loads(body.raw).keys()), list)');
-    expect(code).toContain('list({"now": int(datetime.now(timezone.utc).timestamp() * 1000)}.items())');
+    expect(code).toContain('isinstance(_kern_js_object_keys(json.loads(body.raw)), list)');
+    expect(code).toContain('_kern_js_object_entries({"now": int(datetime.now(timezone.utc).timestamp() * 1000)})');
     expect(code).toContain('import json');
     expect(code).toContain('from datetime import datetime, timezone');
     expect(code).not.toContain('Array.isArray');

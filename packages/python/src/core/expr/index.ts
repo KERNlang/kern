@@ -4,12 +4,20 @@
 
 import { lowerJsClosureBodyToPython, PORTABLE_LOGIC_PRIMITIVES, type PortableLogicPrimitiveId } from '@kernlang/core';
 import { toSnakeCase } from '../../type-map.js';
-import { KERN_I32_HELPER_PY, KERN_JS_HELPER_PY, KERN_TMOD_HELPER_PY } from './helpers.js';
+import {
+  KERN_I32_HELPER_PY,
+  KERN_JS_HELPER_PY,
+  KERN_JS_OBJECT_HELPERS_PY,
+  KERN_JS_STRING_HELPERS_PY,
+  KERN_TMOD_HELPER_PY,
+} from './helpers.js';
 
 export {
   KERN_FMT_HELPER_PY,
   KERN_I32_HELPER_PY,
   KERN_JS_HELPER_PY,
+  KERN_JS_OBJECT_HELPERS_PY,
+  KERN_JS_STRING_HELPERS_PY,
   KERN_PAIR_HELPERS_PY,
   KERN_TMOD_HELPER_PY,
 } from './helpers.js';
@@ -1111,7 +1119,7 @@ function lowerStringBuiltinCalls(expr: string): string {
 }
 
 // Lower the argument-taking JS String methods.
-function lowerStringArgMethods(expr: string): string {
+function lowerStringArgMethods(expr: string, imports?: Set<string>): string {
   let out = '';
   let i = 0;
   let quote: string | null = null;
@@ -1140,9 +1148,17 @@ function lowerStringArgMethods(expr: string): string {
       if (closeIdx !== -1) {
         const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));
         if (args.length === 2 && !args[0].trim().startsWith('/')) {
-          const a0 = lowerStringArgMethods(args[0]).trim();
-          const a1 = lowerStringArgMethods(args[1]).trim();
-          out += `.replace(${a0}, ${a1})`;
+          const a0 = lowerStringArgMethods(args[0], imports).trim();
+          const a1 = lowerStringArgMethods(args[1], imports).trim();
+          const receiverStart = findReceiverStart(out);
+          if (receiverStart !== -1 && !isStringLiteralWithoutDollar(a1)) {
+            imports?.add(KERN_JS_STRING_HELPERS_PY);
+            const receiver = out.slice(receiverStart);
+            const pre = out.slice(0, receiverStart);
+            out = `${pre}_kern_js_replace(${receiver}, ${a0}, ${a1}, True)`;
+          } else {
+            out += `.replace(${a0}, ${a1})`;
+          }
           i = closeIdx + 1;
           continue;
         }
@@ -1154,9 +1170,17 @@ function lowerStringArgMethods(expr: string): string {
       if (closeIdx !== -1) {
         const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));
         if (args.length === 2 && !args[0].trim().startsWith('/')) {
-          const a0 = lowerStringArgMethods(args[0]).trim();
-          const a1 = lowerStringArgMethods(args[1]).trim();
-          out += `.replace(${a0}, ${a1}, 1)`;
+          const a0 = lowerStringArgMethods(args[0], imports).trim();
+          const a1 = lowerStringArgMethods(args[1], imports).trim();
+          const receiverStart = findReceiverStart(out);
+          if (receiverStart !== -1 && !isStringLiteralWithoutDollar(a1)) {
+            imports?.add(KERN_JS_STRING_HELPERS_PY);
+            const receiver = out.slice(receiverStart);
+            const pre = out.slice(0, receiverStart);
+            out = `${pre}_kern_js_replace(${receiver}, ${a0}, ${a1}, False)`;
+          } else {
+            out += `.replace(${a0}, ${a1}, 1)`;
+          }
           i = closeIdx + 1;
           continue;
         }
@@ -1221,7 +1245,9 @@ function lowerStringArgMethods(expr: string): string {
       const openIdx = i + '.repeat('.length - 1;
       const closeIdx = matchBalancedParen(expr, openIdx);
       if (closeIdx !== -1) {
-        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) => lowerStringArgMethods(a).trim());
+        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) =>
+          lowerStringArgMethods(a, imports).trim(),
+        );
         const n = args[0] ?? '0';
         const receiverStart = findReceiverStart(out);
         if (receiverStart !== -1) {
@@ -1237,9 +1263,21 @@ function lowerStringArgMethods(expr: string): string {
       const openIdx = i + '.split('.length - 1;
       const closeIdx = matchBalancedParen(expr, openIdx);
       if (closeIdx !== -1) {
-        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) => lowerStringArgMethods(a).trim());
+        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) =>
+          lowerStringArgMethods(a, imports).trim(),
+        );
+        if (args.length >= 1 && isEmptyStringLiteral(args[0])) {
+          const receiverStart = findReceiverStart(out);
+          if (receiverStart !== -1) {
+            const receiver = out.slice(receiverStart);
+            const pre = out.slice(0, receiverStart);
+            out = `${pre}list(${receiver})${args.length === 2 ? `[:${lowerSplitLimit(args[1], imports)}]` : ''}`;
+            i = closeIdx + 1;
+            continue;
+          }
+        }
         if (args.length === 2) {
-          out += `.split(${args[0]})[:${args[1]}]`;
+          out += `.split(${args[0]})[:${lowerSplitLimit(args[1], imports)}]`;
           i = closeIdx + 1;
           continue;
         }
@@ -1249,6 +1287,22 @@ function lowerStringArgMethods(expr: string): string {
     i += 1;
   }
   return out;
+}
+
+function isEmptyStringLiteral(expr: string): boolean {
+  const t = expr.trim();
+  return t === '""' || t === "''" || t === '``';
+}
+
+function isStringLiteralWithoutDollar(expr: string): boolean {
+  const t = expr.trim();
+  if (t.includes('$') || t.includes('\\')) return false;
+  return /^(?:"[^"]*"|'[^']*'|`[^`]*`)$/.test(t);
+}
+
+function lowerSplitLimit(limit: string, imports?: Set<string>): string {
+  imports?.add(KERN_JS_STRING_HELPERS_PY);
+  return `_kern_js_split_limit(${limit})`;
 }
 
 // Lower selected Object/Array/Date host builtins in portable expressions.
@@ -1316,10 +1370,16 @@ function lowerObjectArrayDateBuiltinCalls(expr: string, imports?: Set<string>): 
                 : `''.join(chr(__c) for __c in [${args.join(', ')}])`;
         } else {
           const arg = lowerObjectArrayDateBuiltinCalls(rawArgs, imports).trim();
-          if (method === 'Object.keys') out += `list(${arg}.keys())`;
-          else if (method === 'Object.values') out += `list(${arg}.values())`;
-          else if (method === 'Object.entries') out += `list(${arg}.items())`;
-          else out += `isinstance(${arg}, list)`;
+          if (method === 'Object.keys') {
+            imports?.add(KERN_JS_OBJECT_HELPERS_PY);
+            out += `_kern_js_object_keys(${arg})`;
+          } else if (method === 'Object.values') {
+            imports?.add(KERN_JS_OBJECT_HELPERS_PY);
+            out += `_kern_js_object_values(${arg})`;
+          } else if (method === 'Object.entries') {
+            imports?.add(KERN_JS_OBJECT_HELPERS_PY);
+            out += `_kern_js_object_entries(${arg})`;
+          } else out += `isinstance(${arg}, list)`;
         }
         i = closeIdx + 1;
         continue;
@@ -1997,7 +2057,7 @@ export function rewriteExpr(
   result = lowerMathBuiltinCalls(result, imports);
   result = lowerNumberBuiltinCalls(result, imports);
   result = lowerStringBuiltinCalls(result);
-  result = lowerStringArgMethods(result);
+  result = lowerStringArgMethods(result, imports);
   result = lowerObjectArrayDateBuiltinCalls(result, imports);
   result = lowerPortableLogicPrimitives(result, imports, 'afterArrayMethods'); // Set arg may be a .map() comprehension
   result = lowerPortableLogicPrimitives(result, imports, 'final'); // applies to lowered membership/boolean
@@ -2195,7 +2255,7 @@ function parseTokens(tokens: Token[]): ASTNode {
 
     while (true) {
       const next = peek();
-      if (!next || next.type !== 'OP') break;
+      if (next?.type !== 'OP') break;
 
       const opPrecedence = getPrecedence(next.value);
       if (opPrecedence < precedence) break;

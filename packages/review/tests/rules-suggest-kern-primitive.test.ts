@@ -194,6 +194,89 @@ describe('suggest-kern-primitive rule', () => {
     expect(portable[0].suggestion).toBe('portable logic primitive logic.not: !visible');
   });
 
+  it('reports registry-backed portable numeric clamp logic', () => {
+    const f = kernSuggestions(`
+      const bounded = Math.max(0, Math.min(100, score));
+      const inverted = Math.min(config.max, Math.max(config.min, score));
+    `);
+    const portable = f.filter((x) => x.message.includes('number.clamp'));
+    expect(portable).toHaveLength(2);
+    expect(portable[0].suggestion).toBe('clamp name=bounded value={{ score }} min={{ 0 }} max={{ 100 }}');
+    expect(portable[1].suggestion).toBe(
+      'clamp name=inverted value={{ score }} min={{ config.min }} max={{ config.max }}',
+    );
+    expect(portable[0].message).toContain('number.clamp');
+    expect(portable[0].message).toContain('stable: ts, python');
+  });
+
+  it('keeps camelCase clamp bounds in the right suggestion positions', () => {
+    const f = kernSuggestions(`
+      const bounded = Math.min(maxValue, Math.max(minValue, score));
+    `);
+    const portable = f.filter((x) => x.message.includes('number.clamp'));
+    expect(portable).toHaveLength(1);
+    expect(portable[0].suggestion).toBe('clamp name=bounded value={{ score }} min={{ minValue }} max={{ maxValue }}');
+  });
+
+  it('falls back to generic clamp suggestion when value and bound are ambiguous', () => {
+    const f = kernSuggestions(`
+      const bounded = Math.max(a, Math.min(b, c));
+    `);
+    const portable = f.filter((x) => x.message.includes('number.clamp'));
+    expect(portable).toHaveLength(1);
+    expect(portable[0].suggestion).toBe('portable logic primitive number.clamp: Math.max(a, Math.min(b, c))');
+  });
+
+  it('does not report clamp logic when Math is shadowed or bounds can have side effects', () => {
+    const shadowed = kernSuggestions(`
+      const Math = { max: (...xs) => xs[0], min: (...xs) => xs[0] };
+      const bounded = Math.max(0, Math.min(100, score));
+    `);
+    expect(shadowed.filter((x) => x.suggestion?.includes('primitive number.clamp'))).toHaveLength(0);
+
+    const sideEffecting = kernSuggestions(`
+      const bounded = Math.max(nextLow(), Math.min(100, score));
+      const alsoNo = Math.min(100, Math.max(nextLow(), score));
+    `);
+    expect(sideEffecting.filter((x) => x.suggestion?.includes('primitive number.clamp'))).toHaveLength(0);
+
+    const nestedSideEffecting = kernSuggestions(`
+      const a = Math.max(bounds[next()], Math.min(100, score));
+      const b = Math.max(arr[i++], Math.min(100, score));
+      const c = Math.max(getBounds().low, Math.min(100, score));
+      const d = Math.max(++lo, Math.min(100, score));
+    `);
+    expect(nestedSideEffecting.filter((x) => x.suggestion?.includes('primitive number.clamp'))).toHaveLength(0);
+  });
+
+  it('does not report nested Math min/max as clamp unless a clear value operand is present', () => {
+    const constantsOnly = kernSuggestions(`
+      const folded = Math.max(0, Math.min(100, 50));
+      const alsoFolded = Math.min(100, Math.max(0, -5));
+    `);
+    expect(constantsOnly.filter((x) => x.suggestion?.includes('primitive number.clamp'))).toHaveLength(0);
+
+    const computedValue = kernSuggestions('const bounded = Math.max(0, Math.min(100, score + bonus));');
+    expect(computedValue.filter((x) => x.suggestion?.includes('primitive number.clamp'))).toHaveLength(0);
+  });
+
+  it('does not report clamp when numeric literal bounds are reversed', () => {
+    const f = kernSuggestions(`
+      const a = Math.max(100, Math.min(0, score));
+      const b = Math.min(0, Math.max(100, score));
+      const c = Math.max(0, Math.min(-1, score));
+    `);
+    expect(f.filter((x) => x.suggestion?.includes('primitive number.clamp'))).toHaveLength(0);
+  });
+
+  it('does not report numeric clamp for non-numeric literal bounds', () => {
+    const f = kernSuggestions(`
+      const a = Math.max("a", Math.min("z", score));
+      const b = Math.max(null, Math.min(true, score));
+    `);
+    expect(f.filter((x) => x.suggestion?.includes('primitive number.clamp'))).toHaveLength(0);
+  });
+
   it('reports registry-backed portable Object data-shaping logic', () => {
     const f = kernSuggestions(`
       const keys = Object.keys(row);
@@ -498,6 +581,38 @@ describe('suggest-kern-primitive rule', () => {
       const f = kernSuggestions('log(`${x} items`);');
       const fmt = f.filter((x) => x.suggestion?.startsWith('fmt '));
       expect(fmt).toHaveLength(0);
+    });
+  });
+
+  // ── objectMerge detector ─────────────────────────────────────────────
+
+  describe('objectMerge detector', () => {
+    it('suggests `objectMerge` for non-mutating Object.assign({}, ...)', () => {
+      const f = kernSuggestions('const merged = Object.assign({}, base, overrides, { extra: 1 });');
+      const merge = f.filter((x) => x.suggestion?.startsWith('objectMerge '));
+      expect(merge).toHaveLength(1);
+      expect(merge[0].suggestion).toBe('objectMerge name=merged sources="base, overrides, { extra: 1 }"');
+    });
+
+    it('does NOT suggest `objectMerge` for mutating Object.assign(target, ...)', () => {
+      const f = kernSuggestions('const merged = Object.assign(base, overrides);');
+      const merge = f.filter((x) => x.suggestion?.startsWith('objectMerge '));
+      expect(merge).toHaveLength(0);
+    });
+
+    it('suggests `objectMerge` for object spread initializers', () => {
+      const f = kernSuggestions('const merged = { ...base, ...overrides, extra: 1, label: "a,b" };');
+      const merge = f.filter((x) => x.suggestion?.startsWith('objectMerge '));
+      expect(merge).toHaveLength(1);
+      expect(merge[0].suggestion).toBe(
+        'objectMerge name=merged sources="base, overrides, { extra: 1, label: \\"a,b\\" }"',
+      );
+    });
+
+    it('skips plain object literals without spreads', () => {
+      const f = kernSuggestions('const obj = { a: 1, b: 2 };');
+      const merge = f.filter((x) => x.suggestion?.startsWith('objectMerge '));
+      expect(merge).toHaveLength(0);
     });
   });
 

@@ -5,6 +5,8 @@
  *  body lines. Recognized statements:
  *
  *    - `let name=X value="EXPR"` — `X = EXPR` (slice 1)
+ *    - `clamp name=X value=V min=LO max=HI` — `X = max(LO, min(HI, V))`
+ *    - `objectMerge name=X sources="A, B"` — `X = {**A, **B}`
  *    - `return value="EXPR"` / bare `return` (slice 1)
  *    - `if cond="EXPR"` / sibling `else` — `if EXPR:\n    body\nelse:\n    body` (slice 2c).
  *    - `while cond="EXPR"` — `while EXPR:\n    body`
@@ -39,7 +41,7 @@
  *  relative indent on the `return __k_tN` line; the wrapper prepends the
  *  surrounding indent so the post-emit result nests correctly. */
 
-import type { IRNode, ValueIR } from '@kernlang/core';
+import type { ExprObject, IRNode, ValueIR } from '@kernlang/core';
 import {
   applyTemplate,
   isPostfixMutationOperator,
@@ -282,7 +284,18 @@ export function emitNativeKernBodyPythonWithImports(handlerNode: IRNode, options
 /** Body-statement node types that map to a SINGLE emitted line and may carry
  *  an inline same-line trailing comment captured by the migrator into a
  *  `trailingComment=` prop. Mirrors the TS emitter's set. */
-const TRAILING_COMMENT_TYPES = new Set(['let', 'assign', 'fmt', 'return', 'throw', 'do', 'continue', 'break']);
+const TRAILING_COMMENT_TYPES = new Set([
+  'let',
+  'assign',
+  'fmt',
+  'clamp',
+  'objectMerge',
+  'return',
+  'throw',
+  'do',
+  'continue',
+  'break',
+]);
 
 /** Convert a captured TS-form trailing comment (a line `// note` or a block
  *  comment) to an idiomatic Python inline comment (`# note`). Mirrors
@@ -321,6 +334,10 @@ function emitChildrenPy(
         for (const line of emitDestructurePy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'fmt') {
         for (const line of emitFmtPy(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'clamp') {
+        for (const line of emitClampPy(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'objectMerge') {
+        for (const line of emitObjectMergePy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'return') {
         for (const line of emitReturnPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'if') {
@@ -972,6 +989,109 @@ function emitLetPy(node: IRNode, ctx: BodyEmitContext): string[] {
     return lines;
   }
   const lines = [`${name} = ${emitPyExprCtx(valueIR, ctx)}`];
+  if (ctx.traceHooks?.letAssign) lines.push(letAssignTracePy(name));
+  return lines;
+}
+
+function unwrapBodyExpr(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === 'object' && (value as ExprObject).__expr) return (value as ExprObject).code;
+  return String(value);
+}
+
+function splitBodyExpressionList(raw: string, propName: string): string[] {
+  const out: string[] = [];
+  let current = '';
+  let depth = 0;
+  let quote: '"' | "'" | '`' | null = null;
+
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (quote !== null) {
+      current += ch;
+      if (ch === '\\' && i + 1 < raw.length) current += raw[++i];
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === '(' || ch === '[' || ch === '{') depth++;
+    else if (ch === ')' || ch === ']' || ch === '}') depth--;
+    if (depth < 0) throw new Error(`${propName} has unbalanced delimiters.`);
+    if (ch === ',' && depth === 0) {
+      const part = current.trim();
+      if (part.length === 0) throw new Error(`${propName} contains an empty expression.`);
+      out.push(part);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  if (quote !== null || depth !== 0) throw new Error(`${propName} has unbalanced delimiters.`);
+  const tail = current.trim();
+  if (tail.length > 0) out.push(tail);
+  return out;
+}
+
+function emitClampPy(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const userName = String(props.name ?? '');
+  if (!userName) throw new Error('body-statement `clamp` requires `name=`.');
+  declareLocalBinding(ctx, userName, 'const');
+  const name = maybeRenameOnShadow(ctx, userName);
+
+  const rawValue = unwrapBodyExpr(props.value);
+  if (rawValue === undefined || rawValue === '') throw new Error('body-statement `clamp` requires `value=`.');
+  const rawMin = unwrapBodyExpr(props.min);
+  if (rawMin === undefined || rawMin === '') throw new Error('body-statement `clamp` requires `min=`.');
+  const rawMax = unwrapBodyExpr(props.max);
+  if (rawMax === undefined || rawMax === '') throw new Error('body-statement `clamp` requires `max=`.');
+
+  const valueIR = parseExpression(rawValue);
+  const minIR = parseExpression(rawMin);
+  const maxIR = parseExpression(rawMax);
+  if (valueIR.kind === 'propagate' || minIR.kind === 'propagate' || maxIR.kind === 'propagate') {
+    throw new Error(
+      "Propagation '?' is not allowed in `clamp value=`/`min=`/`max=` — bind the value to a `let` first.",
+    );
+  }
+
+  const lines = [
+    `${name} = max(${emitPyExprCtx(minIR, ctx)}, min(${emitPyExprCtx(maxIR, ctx)}, ${emitPyExprCtx(valueIR, ctx)}))`,
+  ];
+  if (ctx.traceHooks?.letAssign) lines.push(letAssignTracePy(name));
+  return lines;
+}
+
+function emitObjectMergePy(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const userName = String(props.name ?? '');
+  if (!userName) throw new Error('body-statement `objectMerge` requires `name=`.');
+  declareLocalBinding(ctx, userName, 'const');
+  const name = maybeRenameOnShadow(ctx, userName);
+
+  const rawSources = unwrapBodyExpr(props.sources);
+  if (rawSources === undefined || rawSources === '') {
+    throw new Error('body-statement `objectMerge` requires `sources=`.');
+  }
+  const sources = splitBodyExpressionList(rawSources, 'objectMerge sources=');
+  if (sources.length < 2) throw new Error('body-statement `objectMerge` requires at least two source expressions.');
+  const emitted: string[] = [];
+  for (const source of sources) {
+    if (source.startsWith('...')) {
+      throw new Error('body-statement `objectMerge` sources imply spreading; omit leading `...`.');
+    }
+    const sourceIR = parseExpression(source);
+    if (sourceIR.kind === 'propagate') {
+      throw new Error("Propagation '?' is not allowed in `objectMerge sources=` — bind the value to a `let` first.");
+    }
+    emitted.push(`**(${emitPyExprCtx(sourceIR, ctx)})`);
+  }
+
+  const lines = [`${name} = {${emitted.join(', ')}}`];
   if (ctx.traceHooks?.letAssign) lines.push(letAssignTracePy(name));
   return lines;
 }

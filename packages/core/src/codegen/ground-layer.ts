@@ -8,8 +8,10 @@
  * Extracted from codegen-core.ts for modular codegen architecture.
  */
 
+import { emitExpression } from '../codegen-expression.js';
 import { KernCodegenError } from '../errors.js';
 import { propsOf } from '../node-props.js';
+import { parseExpression } from '../parser-expression.js';
 import { expandTemplateNode, isTemplateNode } from '../template-engine.js';
 import type { ExprObject, IRNode } from '../types.js';
 import { emitFmtTemplate, emitIdentifier, emitTypeAnnotation } from './emitters.js';
@@ -440,6 +442,43 @@ function unwrapExpr(raw: unknown): string | undefined {
   return typeof raw === 'string' ? raw : String(raw);
 }
 
+function splitExpressionList(raw: string, node: IRNode, propName: string): string[] {
+  const out: string[] = [];
+  let current = '';
+  let depth = 0;
+  let quote: '"' | "'" | '`' | null = null;
+
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (quote !== null) {
+      current += ch;
+      if (ch === '\\' && i + 1 < raw.length) current += raw[++i];
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === '(' || ch === '[' || ch === '{') depth++;
+    else if (ch === ')' || ch === ']' || ch === '}') depth--;
+    if (depth < 0) throw new KernCodegenError(`${propName} has unbalanced delimiters`, node);
+    if (ch === ',' && depth === 0) {
+      const part = current.trim();
+      if (part.length === 0) throw new KernCodegenError(`${propName} contains an empty expression`, node);
+      out.push(part);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  if (quote !== null || depth !== 0) throw new KernCodegenError(`${propName} has unbalanced delimiters`, node);
+  const tail = current.trim();
+  if (tail.length > 0) out.push(tail);
+  return out;
+}
+
 function generateArrayMethod(node: IRNode, method: 'filter' | 'find' | 'some' | 'every'): string[] {
   const annotations = emitReasonAnnotations(node);
   const props = propsOf<typeof method>(node);
@@ -724,6 +763,76 @@ export function generateAt(node: IRNode): string[] {
   const exp = exportPrefix(node);
 
   return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = (${collection}).at(${index});`];
+}
+
+// ── Ground Layer: clamp ─────────────────────────────────────────────────
+// `clamp name=bounded value=score min=0 max=100`
+//   → const bounded = Math.max(0, Math.min(100, score));
+
+export function generateClamp(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'clamp'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'bounded', node);
+
+  const value = unwrapExpr(props.value);
+  if (value === undefined || value === '') throw new KernCodegenError("clamp node requires a 'value' prop", node);
+  const min = unwrapExpr(props.min);
+  if (min === undefined || min === '') throw new KernCodegenError("clamp node requires a 'min' prop", node);
+  const max = unwrapExpr(props.max);
+  if (max === undefined || max === '') throw new KernCodegenError("clamp node requires a 'max' prop", node);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}${typeAnnotation} = Math.max(${min}, Math.min(${max}, ${value}));`,
+  ];
+}
+
+// ── Ground Layer: objectMerge ───────────────────────────────────────────
+// `objectMerge name=merged sources="base, overrides, { extra: 1 }"`
+//   → const merged = { ...(base), ...(overrides), ...({ extra: 1 }) };
+
+export function generateObjectMerge(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'objectMerge'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'merged', node);
+  const rawSources = unwrapExpr(props.sources);
+  if (rawSources === undefined || rawSources === '') {
+    throw new KernCodegenError("objectMerge node requires a 'sources' prop", node);
+  }
+  const sources = splitExpressionList(rawSources, node, 'objectMerge sources=');
+  if (sources.length < 2) throw new KernCodegenError('objectMerge requires at least two source expressions', node);
+  for (const source of sources) {
+    if (source.startsWith('...')) {
+      throw new KernCodegenError('objectMerge sources imply spreading; omit leading `...` in sources=', node);
+    }
+  }
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'Record<string, unknown>', node)}` : '';
+  const exp = exportPrefix(node);
+  const spreadSources = sources
+    .map((source) => {
+      const sourceIR = parseExpression(source);
+      if (sourceIR.kind === 'propagate') {
+        throw new KernCodegenError(
+          "Propagation '?' is not allowed in `objectMerge sources=` — bind the value first.",
+          node,
+        );
+      }
+      return `...(${emitExpression(sourceIR)})`;
+    })
+    .join(', ');
+
+  return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = { ${spreadSources} };`];
 }
 
 // ── Ground Layer: join ───────────────────────────────────────────────────

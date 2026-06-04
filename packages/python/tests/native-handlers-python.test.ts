@@ -336,6 +336,84 @@ describe('emitNativeKernBodyPython — slice 1 statements', () => {
   });
 });
 
+describe('emitNativeKernBodyPython — clamp body statement', () => {
+  test('emits named-field clamp as a local binding', () => {
+    const handler = makeHandler([
+      { type: 'clamp', props: { name: 'bounded', value: 'score', min: '0', max: '100' } },
+      { type: 'return', props: { value: 'bounded' } },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toBe(['bounded = max(0, min(100, score))', 'return bounded'].join('\n'));
+  });
+
+  test('rejects propagation in clamp props', () => {
+    const handler = makeHandler([
+      { type: 'clamp', props: { name: 'bounded', value: 'loadScore()?', min: '0', max: '100' } },
+    ]);
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/[Pp]ropagation/);
+  });
+
+  test('emits assignment trace hook for clamp binding', () => {
+    const handler = makeHandler([{ type: 'clamp', props: { name: 'bounded', value: 'score', min: '0', max: '100' } }]);
+    expect(emitNativeKernBodyPython(handler, { traceHooks: { letAssign: true } })).toBe(
+      [
+        'bounded = max(0, min(100, score))',
+        '_kern_trace({"op": "assign", "target": "bounded", "value": bounded})',
+      ].join('\n'),
+    );
+  });
+
+  test('unwraps expression-object clamp props', () => {
+    const handler = makeHandler([
+      {
+        type: 'clamp',
+        props: {
+          name: 'bounded',
+          value: { __expr: true, code: 'score' },
+          min: { __expr: true, code: 'limits["min"]' },
+          max: { __expr: true, code: 'limits["max"]' },
+        },
+      },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toBe('bounded = max(limits["min"], min(limits["max"], score))');
+  });
+});
+
+describe('emitNativeKernBodyPython — objectMerge body statement', () => {
+  test('emits a shallow dict unpack local binding', () => {
+    const handler = makeHandler([
+      { type: 'objectMerge', props: { name: 'merged', sources: 'base, overrides, { extra: 1, label: "a,b" }' } },
+      { type: 'return', props: { value: 'merged' } },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toBe(
+      ['merged = {**(base), **(overrides), **({"extra": 1, "label": "a,b"})}', 'return merged'].join('\n'),
+    );
+  });
+
+  test('rejects propagation in objectMerge sources', () => {
+    const handler = makeHandler([{ type: 'objectMerge', props: { name: 'merged', sources: 'load()?, overrides' } }]);
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/[Pp]ropagation/);
+  });
+
+  test('emits assignment trace hook for objectMerge binding', () => {
+    const handler = makeHandler([{ type: 'objectMerge', props: { name: 'merged', sources: 'base, overrides' } }]);
+    expect(emitNativeKernBodyPython(handler, { traceHooks: { letAssign: true } })).toBe(
+      ['merged = {**(base), **(overrides)}', '_kern_trace({"op": "assign", "target": "merged", "value": merged})'].join(
+        '\n',
+      ),
+    );
+  });
+
+  test('unwraps expression-object objectMerge sources', () => {
+    const handler = makeHandler([
+      {
+        type: 'objectMerge',
+        props: { name: 'merged', sources: { __expr: true, code: 'base, overrides' } },
+      },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toBe('merged = {**(base), **(overrides)}');
+  });
+});
+
 describe('FastAPI fn handler lang=kern — Python codegen integration', () => {
   test('emits Python body for a native-KERN fn', () => {
     const source = [
