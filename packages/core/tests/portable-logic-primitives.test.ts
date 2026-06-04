@@ -5,6 +5,8 @@ import {
   portableLogicSupportForTarget,
   validatePortableLogicPrimitiveRegistry,
 } from '../src/codegen/portable-logic-primitives.js';
+import { parseDocumentWithDiagnostics } from '../src/parser.js';
+import { validateSchema } from '../src/schema.js';
 
 describe('portable logic primitive registry', () => {
   test('registers the Job-central R1 primitive surface explicitly', () => {
@@ -65,6 +67,33 @@ describe('portable logic primitive registry', () => {
       expect(portableLogicSupportForTarget(id, 'python')).toBe('stable');
       expect(portableLogicSupportForTarget(id, 'go')).toBe('unsupported');
     }
+  });
+
+  test('keyed collection reshape nodes are admitted as direct route children only', () => {
+    const directRoute = [
+      'server name=API',
+      '  route method=post path=/api/t',
+      '    uniqueBy name=distinct in=users by="item.id"',
+      '    groupBy name=by_type in=users by="item.type"',
+      '    partition pass=active fail=inactive in=users where="item.active"',
+      '    indexBy name=by_id in=users by="item.id"',
+      '    countBy name=counts in=users by="item.type"',
+      '    respond 200 json=counts',
+    ].join('\n');
+    const direct = parseDocumentWithDiagnostics(directRoute);
+    expect(direct.diagnostics.filter((d) => d.severity === 'error')).toHaveLength(0);
+    expect(validateSchema(direct.root).filter((v) => /does not allow child type/.test(v.message))).toEqual([]);
+
+    const streamRoute = [
+      'server name=API',
+      '  route method=get path=/api/t',
+      '    stream',
+      '      uniqueBy name=distinct in=users by="item.id"',
+    ].join('\n');
+    const stream = parseDocumentWithDiagnostics(streamRoute);
+    expect(
+      validateSchema(stream.root).some((v) => /'stream' does not allow child type 'uniqueBy'/.test(v.message)),
+    ).toBe(true);
   });
 
   test('object parity slice has matching target support', () => {

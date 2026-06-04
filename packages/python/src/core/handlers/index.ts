@@ -114,6 +114,12 @@ function extractCodeOrString(val: unknown): string {
   return extractExprCode(val);
 }
 
+function unsupportedPureRouteNode(nodeType: string): never {
+  throw new Error(
+    `pure Python handlers do not yet support portable route \`${nodeType}\`; use FastAPI route emission or add pure-handler parity.`,
+  );
+}
+
 function mapJsDefaultToPython(def: string | undefined): string {
   if (def === undefined || def === null) return 'None';
   const s = String(def).trim();
@@ -357,6 +363,13 @@ function generatePurePythonStmt(
       }
       break;
     }
+    case 'uniqueBy':
+    case 'groupBy':
+    case 'partition':
+    case 'indexBy':
+    case 'countBy': {
+      return unsupportedPureRouteNode(child.type);
+    }
     case 'effect': {
       const effectName = toSnakeCase(String(p.name || 'effect'));
       const triggerNode = getFirstChild(child, 'trigger');
@@ -501,6 +514,11 @@ export function emitPureHandlers(serverNode: IRNode, imports: Set<string>, root?
       'each',
       'collect',
       'count',
+      'uniqueBy',
+      'groupBy',
+      'partition',
+      'indexBy',
+      'countBy',
       'effect',
       'assign',
       'do',

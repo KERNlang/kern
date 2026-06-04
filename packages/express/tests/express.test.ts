@@ -1134,4 +1134,46 @@ describe('Express Transpiler', () => {
       expect(route!.content).toContain("app.patch('/api/users/:id'");
     });
   });
+
+  describe('Portable keyed collection reshape operations', () => {
+    test('transpiles uniqueBy, groupBy, partition, indexBy, and countBy correctly', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/reshape',
+        '    uniqueBy name=distinct in=users by="item.id"',
+        '    groupBy name=by_type in=items by="item.type"',
+        '    partition pass=active fail=inactive in=users where="item.active"',
+        '    indexBy name=by_id in=users by="item.id"',
+        '    countBy name=counts in=items by="item.type"',
+        '    respond 200 json=counts',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('reshape') && a.path.endsWith('.ts'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+
+      expect(code).toContain('const __kernSeen_distinct = new Set();');
+      expect(code).toContain('const distinct = (users).filter((item) => {');
+      expect(code).toContain('const __kernKey_distinct = item.id;');
+      expect(code).toContain('__kernSeen_distinct.add(__kernKey_distinct);');
+
+      expect(code).toContain('const by_type = (items).reduce((acc, item) => {');
+      expect(code).toContain('const __kernKey_by_type = item.type;');
+      expect(code).toContain('(acc[__kernKey_by_type] ??= []).push(item);');
+
+      expect(code).toContain('const [active, inactive] = (users).reduce((acc, item) => {');
+      expect(code).toContain('(item.active ? acc[0] : acc[1]).push(item);');
+
+      expect(code).toContain('const by_id = (users).reduce((acc, item) => {');
+      expect(code).toContain('const __kernKey_by_id = item.id;');
+      expect(code).toContain('acc[__kernKey_by_id] = item;');
+      expect(code).toContain('}, Object.create(null));');
+
+      expect(code).toContain('const counts = (items).reduce((acc, item) => {');
+      expect(code).toContain('const __kernKey_counts = item.type;');
+      expect(code).toContain('acc[__kernKey_counts] = (acc[__kernKey_counts] ?? 0) + 1;');
+    });
+  });
 });

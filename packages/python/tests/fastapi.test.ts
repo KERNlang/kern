@@ -2952,5 +2952,55 @@ describe('FastAPI Transpiler', () => {
       const route = result.artifacts!.find((a: any) => a.path.includes('get_api_namespaced'));
       expect(route!.content).toContain('raise NotImplementedError');
     });
+
+    test('portable keyed collection reshape nodes lower to clean FastAPI Python code', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/reshape',
+        '    uniqueBy name=distinct in=users by="item.id"',
+        '    groupBy name=by_type in=items by="item.type"',
+        '    partition pass=active fail=inactive in=users where="item.active"',
+        '    indexBy name=by_id in=users by="item.id"',
+        '    countBy name=counts in=items by="item.type"',
+        '    respond 200 json=counts',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post_api_reshape'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+
+      expect(code).toContain('distinct = []');
+      expect(code).toContain('__kern_seen_distinct = set()');
+      expect(code).toContain('for item in users:');
+      expect(code).toContain('__kern_key_distinct = item.id');
+      expect(code).toContain('if __kern_key_distinct not in __kern_seen_distinct:');
+      expect(code).toContain('__kern_seen_distinct.add(__kern_key_distinct)');
+      expect(code).toContain('distinct.append(item)');
+
+      expect(code).toContain('by_type = {}');
+      expect(code).toContain('for item in items:');
+      expect(code).toContain('__kern_key_by_type = item.type');
+      expect(code).toContain('by_type.setdefault(__kern_key_by_type, []).append(item)');
+
+      expect(code).toContain('active = []');
+      expect(code).toContain('inactive = []');
+      expect(code).toContain('for item in users:');
+      expect(code).toContain('if item.active:');
+      expect(code).toContain('active.append(item)');
+      expect(code).toContain('else:');
+      expect(code).toContain('inactive.append(item)');
+
+      expect(code).toContain('by_id = {}');
+      expect(code).toContain('for item in users:');
+      expect(code).toContain('__kern_key_by_id = item.id');
+      expect(code).toContain('by_id[__kern_key_by_id] = item');
+
+      expect(code).toContain('counts = {}');
+      expect(code).toContain('for item in items:');
+      expect(code).toContain('__kern_key_counts = item.type');
+      expect(code).toContain('counts[__kern_key_counts] = counts.get(__kern_key_counts, 0) + 1');
+    });
   });
 });

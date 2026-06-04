@@ -66,6 +66,20 @@ export function extractExprCode(prop: unknown): string {
   return typeof prop === 'string' ? prop : '';
 }
 
+function portableExprProp(prop: unknown): string {
+  return extractExprCode(prop) || String(prop || '');
+}
+
+function requirePortableProp(nodeType: string, propName: string, value: string): string {
+  if (!value) throw new Error(`portable route \`${nodeType}\` requires \`${propName}=\`.`);
+  return value;
+}
+
+function portableTempSuffix(...parts: string[]): string {
+  const joined = parts.filter(Boolean).join('_') || 'reshape';
+  return joined.replace(/[^A-Za-z0-9_$]/g, '_');
+}
+
 export function generatePortableChildExpress(
   child: IRNode,
   indent: string,
@@ -256,6 +270,79 @@ export function generatePortableChildExpress(
       }
       break;
     }
+    case 'uniqueBy': {
+      const name = requirePortableProp('uniqueBy', 'name', String(p.name || ''));
+      const item = String(p.item || 'item');
+      const collection = rewriteExpressExpr(requirePortableProp('uniqueBy', 'in', portableExprProp(p.in)), path);
+      const by = rewriteExpressExpr(requirePortableProp('uniqueBy', 'by', portableExprProp(p.by)), path);
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      const suffix = portableTempSuffix(name);
+      lines.push(`${indent}const __kernSeen_${suffix} = new Set();`);
+      lines.push(`${indent}const ${name}${typeAnnotation} = (${collection}).filter((${item}) => {`);
+      lines.push(`${indent}  const __kernKey_${suffix} = ${by};`);
+      lines.push(`${indent}  if (__kernSeen_${suffix}.has(__kernKey_${suffix})) return false;`);
+      lines.push(`${indent}  __kernSeen_${suffix}.add(__kernKey_${suffix});`);
+      lines.push(`${indent}  return true;`);
+      lines.push(`${indent}});`);
+      break;
+    }
+    case 'groupBy': {
+      const name = requirePortableProp('groupBy', 'name', String(p.name || ''));
+      const item = String(p.item || 'item');
+      const collection = rewriteExpressExpr(requirePortableProp('groupBy', 'in', portableExprProp(p.in)), path);
+      const by = rewriteExpressExpr(requirePortableProp('groupBy', 'by', portableExprProp(p.by)), path);
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      const suffix = portableTempSuffix(name);
+      lines.push(`${indent}const ${name}${typeAnnotation} = (${collection}).reduce((acc, ${item}) => {`);
+      lines.push(`${indent}  const __kernKey_${suffix} = ${by};`);
+      lines.push(`${indent}  (acc[__kernKey_${suffix}] ??= []).push(${item});`);
+      lines.push(`${indent}  return acc;`);
+      lines.push(`${indent}}, Object.create(null));`);
+      break;
+    }
+    case 'partition': {
+      const passName = requirePortableProp('partition', 'pass', String(p.pass || ''));
+      const failName = requirePortableProp('partition', 'fail', String(p.fail || ''));
+      const item = String(p.item || 'item');
+      const collection = rewriteExpressExpr(requirePortableProp('partition', 'in', portableExprProp(p.in)), path);
+      const where = rewriteExpressExpr(requirePortableProp('partition', 'where', portableExprProp(p.where)), path);
+      const typeAnnotation = p.type ? `: [${String(p.type)}[], ${String(p.type)}[]]` : '';
+      lines.push(
+        `${indent}const [${passName}, ${failName}]${typeAnnotation} = (${collection}).reduce((acc, ${item}) => {`,
+      );
+      lines.push(`${indent}  (${where} ? acc[0] : acc[1]).push(${item});`);
+      lines.push(`${indent}  return acc;`);
+      lines.push(`${indent}}, [[], []]);`);
+      break;
+    }
+    case 'indexBy': {
+      const name = requirePortableProp('indexBy', 'name', String(p.name || ''));
+      const item = String(p.item || 'item');
+      const collection = rewriteExpressExpr(requirePortableProp('indexBy', 'in', portableExprProp(p.in)), path);
+      const by = rewriteExpressExpr(requirePortableProp('indexBy', 'by', portableExprProp(p.by)), path);
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      const suffix = portableTempSuffix(name);
+      lines.push(`${indent}const ${name}${typeAnnotation} = (${collection}).reduce((acc, ${item}) => {`);
+      lines.push(`${indent}  const __kernKey_${suffix} = ${by};`);
+      lines.push(`${indent}  acc[__kernKey_${suffix}] = ${item};`);
+      lines.push(`${indent}  return acc;`);
+      lines.push(`${indent}}, Object.create(null));`);
+      break;
+    }
+    case 'countBy': {
+      const name = requirePortableProp('countBy', 'name', String(p.name || ''));
+      const item = String(p.item || 'item');
+      const collection = rewriteExpressExpr(requirePortableProp('countBy', 'in', portableExprProp(p.in)), path);
+      const by = rewriteExpressExpr(requirePortableProp('countBy', 'by', portableExprProp(p.by)), path);
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      const suffix = portableTempSuffix(name);
+      lines.push(`${indent}const ${name}${typeAnnotation} = (${collection}).reduce((acc, ${item}) => {`);
+      lines.push(`${indent}  const __kernKey_${suffix} = ${by};`);
+      lines.push(`${indent}  acc[__kernKey_${suffix}] = (acc[__kernKey_${suffix}] ?? 0) + 1;`);
+      lines.push(`${indent}  return acc;`);
+      lines.push(`${indent}}, Object.create(null));`);
+      break;
+    }
     case 'effect': {
       const effectName = String(p.name || 'effect');
       const triggerNode = getFirstChild(child, 'trigger');
@@ -355,6 +442,11 @@ export function generatePortableHandlerExpress(
     'each',
     'collect',
     'count',
+    'uniqueBy',
+    'groupBy',
+    'partition',
+    'indexBy',
+    'countBy',
     'effect',
     'assign',
     'do',

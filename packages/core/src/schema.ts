@@ -2049,6 +2049,11 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'each',
       'collect',
       'count',
+      'uniqueBy',
+      'groupBy',
+      'partition',
+      'indexBy',
+      'countBy',
       'effect',
       // Portable side-effect statements — valid as direct route children
       // (alongside derive/guard/respond) for mutate-and-persist routes.

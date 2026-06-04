@@ -38,6 +38,79 @@ function extractCodeOrString(val: unknown): string {
   return '';
 }
 
+const PY_BUILTINS = new Set([
+  'sorted',
+  'list',
+  'dict',
+  'set',
+  'map',
+  'filter',
+  'type',
+  'id',
+  'input',
+  'print',
+  'range',
+  'len',
+  'min',
+  'max',
+  'sum',
+  'any',
+  'all',
+  'str',
+  'int',
+  'float',
+  'bool',
+  'tuple',
+  'zip',
+  'enumerate',
+  'object',
+  'None',
+  'True',
+  'False',
+  'and',
+  'as',
+  'assert',
+  'async',
+  'await',
+  'break',
+  'class',
+  'continue',
+  'def',
+  'del',
+  'elif',
+  'else',
+  'except',
+  'finally',
+  'for',
+  'from',
+  'global',
+  'if',
+  'import',
+  'in',
+  'is',
+  'lambda',
+  'nonlocal',
+  'not',
+  'or',
+  'pass',
+  'raise',
+  'return',
+  'try',
+  'while',
+  'with',
+  'yield',
+]);
+
+function safePythonBindingName(raw: string): string {
+  const name = toSnakeCase(raw);
+  return PY_BUILTINS.has(name) ? `${name}_result` : name;
+}
+
+function requirePortableProp(nodeType: string, propName: string, value: string): string {
+  if (!value) throw new Error(`portable route \`${nodeType}\` requires \`${propName}=\`.`);
+  return value;
+}
+
 // NOTE: the former `lowerPropToPython` helper was removed when native closure
 // hoisting landed (#5): every prop site now routes through `rewriteFastAPIStmtExpr`
 // so a closure inside a prop (`respond json={{ items.map(x => { … }) }}`) can flush
@@ -552,6 +625,169 @@ export function generatePortableChildFastAPI(
       }
       break;
     }
+    case 'uniqueBy': {
+      const name = safePythonBindingName(requirePortableProp('uniqueBy', 'name', String(p.name || '')));
+      const item = String(p.item || 'item');
+      const collection = rewriteFastAPIStmtExpr(
+        requirePortableProp('uniqueBy', 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      const by = rewriteFastAPIStmtExpr(
+        requirePortableProp('uniqueBy', 'by', extractCodeOrString(p.by).trim()),
+        `${indent}    `,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      const seenName = `__kern_seen_${name}`;
+      const keyName = `__kern_key_${name}`;
+      lines.push(...collection.hoists);
+      lines.push(`${indent}${name}${typeAnnotation} = []`);
+      lines.push(`${indent}${seenName} = set()`);
+      lines.push(`${indent}for ${item} in ${collection.expr}:`);
+      lines.push(...by.hoists);
+      lines.push(`${indent}    ${keyName} = ${by.expr}`);
+      lines.push(`${indent}    if ${keyName} not in ${seenName}:`);
+      lines.push(`${indent}        ${seenName}.add(${keyName})`);
+      lines.push(`${indent}        ${name}.append(${item})`);
+      break;
+    }
+    case 'groupBy': {
+      const name = safePythonBindingName(requirePortableProp('groupBy', 'name', String(p.name || '')));
+      const item = String(p.item || 'item');
+      const collection = rewriteFastAPIStmtExpr(
+        requirePortableProp('groupBy', 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      const by = rewriteFastAPIStmtExpr(
+        requirePortableProp('groupBy', 'by', extractCodeOrString(p.by).trim()),
+        `${indent}    `,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      const keyName = `__kern_key_${name}`;
+      lines.push(...collection.hoists);
+      lines.push(`${indent}${name}${typeAnnotation} = {}`);
+      lines.push(`${indent}for ${item} in ${collection.expr}:`);
+      lines.push(...by.hoists);
+      lines.push(`${indent}    ${keyName} = ${by.expr}`);
+      lines.push(`${indent}    ${name}.setdefault(${keyName}, []).append(${item})`);
+      break;
+    }
+    case 'partition': {
+      const passName = safePythonBindingName(requirePortableProp('partition', 'pass', String(p.pass || '')));
+      const failName = safePythonBindingName(requirePortableProp('partition', 'fail', String(p.fail || '')));
+      const item = String(p.item || 'item');
+      const collection = rewriteFastAPIStmtExpr(
+        requirePortableProp('partition', 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      const where = rewriteFastAPIStmtExpr(
+        requirePortableProp('partition', 'where', extractCodeOrString(p.where).trim()),
+        `${indent}    `,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      const elemType = p.type ? mapTsTypeToPython(String(p.type)) : undefined;
+      const typeAnnotation = elemType ? `: list[${elemType}]` : '';
+      lines.push(...collection.hoists);
+      lines.push(`${indent}${passName}${typeAnnotation} = []`);
+      lines.push(`${indent}${failName}${typeAnnotation} = []`);
+      lines.push(`${indent}for ${item} in ${collection.expr}:`);
+      lines.push(...where.hoists);
+      lines.push(`${indent}    if ${where.expr}:`);
+      lines.push(`${indent}        ${passName}.append(${item})`);
+      lines.push(`${indent}    else:`);
+      lines.push(`${indent}        ${failName}.append(${item})`);
+      break;
+    }
+    case 'indexBy': {
+      const name = safePythonBindingName(requirePortableProp('indexBy', 'name', String(p.name || '')));
+      const item = String(p.item || 'item');
+      const collection = rewriteFastAPIStmtExpr(
+        requirePortableProp('indexBy', 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      const by = rewriteFastAPIStmtExpr(
+        requirePortableProp('indexBy', 'by', extractCodeOrString(p.by).trim()),
+        `${indent}    `,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      const keyName = `__kern_key_${name}`;
+      lines.push(...collection.hoists);
+      lines.push(`${indent}${name}${typeAnnotation} = {}`);
+      lines.push(`${indent}for ${item} in ${collection.expr}:`);
+      lines.push(...by.hoists);
+      lines.push(`${indent}    ${keyName} = ${by.expr}`);
+      lines.push(`${indent}    ${name}[${keyName}] = ${item}`);
+      break;
+    }
+    case 'countBy': {
+      const name = safePythonBindingName(requirePortableProp('countBy', 'name', String(p.name || '')));
+      const item = String(p.item || 'item');
+      const collection = rewriteFastAPIStmtExpr(
+        requirePortableProp('countBy', 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      const by = rewriteFastAPIStmtExpr(
+        requirePortableProp('countBy', 'by', extractCodeOrString(p.by).trim()),
+        `${indent}    `,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      const keyName = `__kern_key_${name}`;
+      lines.push(...collection.hoists);
+      lines.push(`${indent}${name}${typeAnnotation} = {}`);
+      lines.push(`${indent}for ${item} in ${collection.expr}:`);
+      lines.push(...by.hoists);
+      lines.push(`${indent}    ${keyName} = ${by.expr}`);
+      lines.push(`${indent}    ${name}[${keyName}] = ${name}.get(${keyName}, 0) + 1`);
+      break;
+    }
     case 'effect': {
       const effectName = toSnakeCase(String(p.name || 'effect'));
       const triggerNode = getFirstChild(child, 'trigger');
@@ -654,6 +890,11 @@ export function generatePortableHandlerFastAPI(
     'each',
     'collect',
     'count',
+    'uniqueBy',
+    'groupBy',
+    'partition',
+    'indexBy',
+    'countBy',
     'effect',
     'assign',
     'do',
