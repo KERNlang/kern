@@ -572,6 +572,13 @@ export interface CollectProps extends BaseProps {
   order?: string;
 }
 
+export interface CountProps extends BaseProps {
+  in?: string | ExprObject;
+  where?: string | ExprObject;
+  item?: string;
+  type?: string;
+}
+
 export interface BranchProps extends BaseProps {
   on?: string;
 }
@@ -917,6 +924,7 @@ export interface NodePropsMap {
   each: EachProps;
   while: WhileProps;
   collect: CollectProps;
+  count: CountProps;
   branch: BranchProps;
   resolve: ResolveProps;
   expect: ExpectProps;

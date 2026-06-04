@@ -424,17 +424,35 @@ export function generateCollect(node: IRNode): string[] {
   const from = props.from as string;
   const where = props.where as string | undefined;
   const limit = props.limit as string | undefined;
+  const order = props.order as string | undefined;
 
-  if (where && limit) {
-    return [...todo, ...annotations, `${name} = [item for item in ${from} if ${where}][:${limit}]`];
-  }
-  if (where) {
-    return [...todo, ...annotations, `${name} = [item for item in ${from} if ${where}]`];
+  const lines: string[] = [...todo, ...annotations];
+  let expr = where ? `[item for item in ${from} if ${where}]` : `list(${from})`;
+  if (order) {
+    lines.push('from functools import cmp_to_key');
+    expr = `sorted(${expr}, key=cmp_to_key(lambda a, b: ${order}))`;
   }
   if (limit) {
-    return [...todo, ...annotations, `${name} = ${from}[:${limit}]`];
+    expr = `${expr}[:${limit}]`;
   }
-  return [...todo, ...annotations, `${name} = list(${from})`];
+  lines.push(`${name} = ${expr}`);
+  return lines;
+}
+
+// ── count ───────────────────────────────────────────────────────────────
+
+export function generateCount(node: IRNode): string[] {
+  const { annotations, todo, props, name } = groundPreamble(node);
+  const items = unwrapExpr(props.in);
+  if (items === undefined || items === '') throw new Error("count node requires an 'in' prop");
+  const where = unwrapExpr(props.where);
+  const item = (props.item as string) || 'item';
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
+
+  const rhs = where ? `sum(1 for ${item} in ${items} if ${where})` : `len(${items})`;
+
+  return [...todo, ...annotations, `${name}${typeAnnotation} = ${rhs}`];
 }
 
 // ── branch / path ───────────────────────────────────────────────────────

@@ -242,6 +242,20 @@ export function generatePortableChildExpress(
       if (name) lines.push(`${indent}const ${name} = ${chain};`);
       break;
     }
+    case 'count': {
+      const name = String(p.name || '');
+      const collection = rewriteExpressExpr(extractExprCode(p.in) || String(p.in || ''), path);
+      const item = String(p.item || 'item');
+      const where = p.where ? rewriteExpressExpr(extractExprCode(p.where) || String(p.where), path) : undefined;
+      if (name && collection) {
+        const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+        const expr = where
+          ? `(${collection}).reduce((count, ${item}) => (${where}) ? count + 1 : count, 0)`
+          : `(${collection}).length`;
+        lines.push(`${indent}const ${name}${typeAnnotation} = ${expr};`);
+      }
+      break;
+    }
     case 'effect': {
       const effectName = String(p.name || 'effect');
       const triggerNode = getFirstChild(child, 'trigger');
@@ -281,7 +295,18 @@ export function generatePortableChildExpress(
 
 // Portable SSE body node types (slice 4c) — the subset of route nodes that
 // composes inside a `stream`, plus the streaming primitives `fanout`/`emit`.
-const PORTABLE_STREAM_TYPES = new Set(['derive', 'let', 'each', 'fanout', 'emit', 'do', 'assign', 'branch', 'collect']);
+const PORTABLE_STREAM_TYPES = new Set([
+  'derive',
+  'let',
+  'each',
+  'fanout',
+  'emit',
+  'do',
+  'assign',
+  'branch',
+  'collect',
+  'count',
+]);
 
 export function hasPortableStreamBody(streamNode: IRNode): boolean {
   return (streamNode.children || []).some((c) => PORTABLE_STREAM_TYPES.has(c.type));
@@ -329,6 +354,7 @@ export function generatePortableHandlerExpress(
     'branch',
     'each',
     'collect',
+    'count',
     'effect',
     'assign',
     'do',

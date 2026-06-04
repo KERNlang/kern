@@ -51,6 +51,7 @@ export {
   generateCollect,
   generateCompact,
   generateConcat,
+  generateCount,
   generateCountBy,
   generateDerive,
   generateDrop,
@@ -178,6 +179,7 @@ import {
   generateCollect,
   generateCompact,
   generateConcat,
+  generateCount,
   generateCountBy,
   generateDerive,
   generateDrop,
@@ -678,6 +680,7 @@ export const CORE_NODE_TYPES = new Set([
   'groupBy',
   'partition',
   'indexBy',
+  'count',
   'countBy',
   'chunk',
   'zip',
@@ -972,6 +975,8 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return [];
     case 'collect':
       return generateCollect(node);
+    case 'count':
+      return generateCount(node);
     case 'branch':
       return generateBranch(node);
     case 'resolve':

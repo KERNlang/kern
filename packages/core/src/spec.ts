@@ -315,6 +315,7 @@ export const NODE_TYPES = [
   'candidate',
   'discriminator',
   'collect',
+  'count',
   // Portable SSE streaming primitives (slice 4c)
   'fanout',
   'emit',

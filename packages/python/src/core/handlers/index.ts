@@ -48,7 +48,7 @@ import type { IRNode } from '@kernlang/core';
 import { getChildren, getFirstChild, getProps } from '@kernlang/core';
 import { isUnsupportedJsHandlerBody, unsupportedRawHandlerBody } from '../../fastapi-raw-handler.js';
 import { derivePathParams, escapePyStr, indentHandler, slugify } from '../../fastapi-utils.js';
-import { toSnakeCase } from '../../type-map.js';
+import { mapTsTypeToPython, toSnakeCase } from '../../type-map.js';
 import { rewriteExpr } from '../expr/index.js';
 
 /** A single route lowered to a framework-agnostic Python function. */
@@ -340,6 +340,23 @@ function generatePurePythonStmt(
       }
       break;
     }
+    case 'count': {
+      const name = toSnakeCase(String(p.name || ''));
+      if (!name) break;
+      const collection = rewriteExprPure(extractCodeOrString(p.in).trim(), indent);
+      lines.push(...collection.hoists);
+      const item = String(p.item || 'item');
+      const where = p.where ? extractCodeOrString(p.where) : undefined;
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      if (where) {
+        const whereExpr = rewriteExprPure(where, indent);
+        lines.push(...whereExpr.hoists);
+        lines.push(`${indent}${name}${typeAnnotation} = sum(1 for ${item} in ${collection.expr} if ${whereExpr.expr})`);
+      } else {
+        lines.push(`${indent}${name}${typeAnnotation} = len(${collection.expr})`);
+      }
+      break;
+    }
     case 'effect': {
       const effectName = toSnakeCase(String(p.name || 'effect'));
       const triggerNode = getFirstChild(child, 'trigger');
@@ -483,6 +500,7 @@ export function emitPureHandlers(serverNode: IRNode, imports: Set<string>, root?
       'branch',
       'each',
       'collect',
+      'count',
       'effect',
       'assign',
       'do',

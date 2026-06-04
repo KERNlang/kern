@@ -41,6 +41,7 @@ import {
   generateClamp,
   generateCoalesce,
   generateCollect,
+  generateCount,
   generateDerive,
   generateEach,
   generateExpect,
@@ -96,6 +97,7 @@ export {
   generateClamp,
   generateCoalesce,
   generateCollect,
+  generateCount,
   generateDerive,
   generateEach,
   generateExpect,
@@ -208,6 +210,8 @@ export function generatePythonCoreNode(node: IRNode, options: PythonCodegenOptio
       return generateEach(node);
     case 'collect':
       return generateCollect(node);
+    case 'count':
+      return generateCount(node);
     case 'branch':
       return generateBranch(node);
     case 'resolve':

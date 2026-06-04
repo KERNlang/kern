@@ -9,6 +9,7 @@
 
 export type PortableLogicPrimitiveId =
   | 'collection.has'
+  | 'collection.count'
   | 'logic.firstTruthy'
   | 'time.epochMs'
   | 'logic.not'
@@ -47,6 +48,15 @@ export const PORTABLE_LOGIC_PRIMITIVES = {
     intent: 'semantic-gap',
     hostPatterns: ['new Set(xs).has(x)'],
     portabilityNotes: ['Membership intent is explicit; target helpers own Set/list membership mechanics.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.count': {
+    id: 'collection.count',
+    description: 'Collection cardinality, optionally after a predicate, e.g. JS xs.length or xs.filter(pred).length.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.length', 'xs.filter(x => pred).length', 'len(xs)'],
+    portabilityNotes: ['Count is non-mutating; filtered counts evaluate the predicate once per item in source order.'],
     targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
   },
   'logic.firstTruthy': {

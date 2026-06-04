@@ -10,6 +10,7 @@ describe('portable logic primitive registry', () => {
   test('registers the Job-central R1 primitive surface explicitly', () => {
     expect(PORTABLE_LOGIC_PRIMITIVE_IDS).toEqual([
       'collection.has',
+      'collection.count',
       'logic.firstTruthy',
       'time.epochMs',
       'logic.not',
@@ -29,6 +30,7 @@ describe('portable logic primitive registry', () => {
 
   test('reports per-target support for the current parity slice', () => {
     expect(portableLogicSupportForTarget('collection.has', 'python')).toBe('stable');
+    expect(portableLogicSupportForTarget('collection.count', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('logic.firstTruthy', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('time.epochMs', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('logic.not', 'python')).toBe('stable');
@@ -72,6 +74,7 @@ describe('portable logic primitive registry', () => {
 
   test('lookup returns null for unknown primitive ids', () => {
     expect(lookupPortableLogicPrimitive('collection.has')?.purity).toBe('pure');
+    expect(lookupPortableLogicPrimitive('collection.count')?.hostPatterns).toContain('xs.filter(x => pred).length');
     const firstTruthy = lookupPortableLogicPrimitive('logic.firstTruthy');
     expect(firstTruthy?.hostPatterns).toContain('a || b || c');
     expect(firstTruthy?.portabilityNotes.join(' ')).toContain('empty collections are target-specific');

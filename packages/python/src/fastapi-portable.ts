@@ -17,7 +17,7 @@ import { extractExprCode, rewriteExpr } from './core/expr/index.js';
 import { isUnsupportedJsHandlerBody, unsupportedRawHandlerBody } from './fastapi-raw-handler.js';
 import { addRespondImports, generateRespondFastAPI } from './fastapi-response.js';
 import { escapePyStr, indentHandler } from './fastapi-utils.js';
-import { toSnakeCase } from './type-map.js';
+import { mapTsTypeToPython, toSnakeCase } from './type-map.js';
 
 // Extract the code from a prop that may arrive as a `{{ ... }}` curly-
 // expression IR wrapper (`{ __expr: true, code: '...' }`), a plain string
@@ -527,6 +527,31 @@ export function generatePortableChildFastAPI(
       }
       break;
     }
+    case 'count': {
+      const name = toSnakeCase(String(p.name || ''));
+      if (!name) break;
+      const collection = rewriteFastAPIStmtExpr(
+        extractCodeOrString(p.in).trim(),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      lines.push(...collection.hoists);
+      const item = String(p.item || 'item');
+      const where = p.where ? extractCodeOrString(p.where) : undefined;
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      if (where) {
+        const whereExpr = rewriteFastAPIStmtExpr(where, indent, pathParams, bodyFields, authUser, imports, hoistCtx);
+        lines.push(...whereExpr.hoists);
+        lines.push(`${indent}${name}${typeAnnotation} = sum(1 for ${item} in ${collection.expr} if ${whereExpr.expr})`);
+      } else {
+        lines.push(`${indent}${name}${typeAnnotation} = len(${collection.expr})`);
+      }
+      break;
+    }
     case 'effect': {
       const effectName = toSnakeCase(String(p.name || 'effect'));
       const triggerNode = getFirstChild(child, 'trigger');
@@ -628,6 +653,7 @@ export function generatePortableHandlerFastAPI(
     'branch',
     'each',
     'collect',
+    'count',
     'effect',
     'assign',
     'do',
@@ -646,7 +672,18 @@ export function generatePortableHandlerFastAPI(
 
 // Portable SSE body node types (slice 4c) — the route-body subset that composes
 // inside a `stream`, plus the streaming primitives `fanout`/`emit`.
-const PORTABLE_STREAM_TYPES = new Set(['derive', 'let', 'each', 'fanout', 'emit', 'do', 'assign', 'branch', 'collect']);
+const PORTABLE_STREAM_TYPES = new Set([
+  'derive',
+  'let',
+  'each',
+  'fanout',
+  'emit',
+  'do',
+  'assign',
+  'branch',
+  'collect',
+  'count',
+]);
 
 export function hasPortableStreamBodyFastAPI(streamNode: IRNode): boolean {
   return (streamNode.children || []).some((c) => PORTABLE_STREAM_TYPES.has(c.type));

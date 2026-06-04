@@ -13,6 +13,13 @@ describe('suggest-kern-primitive rule', () => {
     expect(f[0].suggestion).toContain('filter name=<name> in=users item=u where="u.active"');
   });
 
+  it('suggests `count` for `.filter(x => pred).length`', () => {
+    const f = kernSuggestions('const activeCount = users.filter((u) => u.active).length;');
+    expect(f).toHaveLength(1);
+    expect(f[0].message).toContain('KERN `count`');
+    expect(f[0].suggestion).toBe('count name=<name> in=users item=u where="u.active"');
+  });
+
   it('defaults to the `item` binding name without an explicit item= prop', () => {
     const f = kernSuggestions('const active = users.filter((item) => item.active);');
     expect(f[0].suggestion).toBe('filter name=<name> in=users where="item.active"');

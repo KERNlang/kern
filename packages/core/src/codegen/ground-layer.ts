@@ -325,6 +325,27 @@ export function generateCollect(node: IRNode): string[] {
   return [...todo, ...annotations, `${exp}const ${name} = ${chain};`];
 }
 
+// ── Ground Layer: count ──────────────────────────────────────────────────
+
+export function generateCount(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'count'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'count', node);
+  const items = unwrapExpr(props.in);
+  if (items === undefined || items === '') throw new KernCodegenError("count node requires an 'in' prop", node);
+  const where = unwrapExpr(props.where);
+  const item = emitIdentifier((props.item as string) || 'item', 'item', node);
+  const type = props.type as string | undefined;
+  const exp = exportPrefix(node);
+
+  const typeAnn = type ? `: ${emitTypeAnnotation(type, 'number', node)}` : '';
+  const rhs = where ? `(${items}).reduce((count, ${item}) => (${where}) ? count + 1 : count, 0)` : `(${items}).length`;
+
+  return [...todo, ...annotations, `${exp}const ${name}${typeAnn} = ${rhs};`];
+}
+
 // ── Ground Layer: resolve / candidate / discriminator ────────────────────
 
 export function generateResolve(node: IRNode): string[] {

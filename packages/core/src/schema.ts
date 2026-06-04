@@ -1526,6 +1526,19 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       export: { kind: 'boolean' },
     },
   },
+  count: {
+    description:
+      'Declarative collection cardinality — `count name=total in=items` lowers to collection length; add `where=` to count only matching items without materializing a named filtered collection.',
+    example: 'count name=activeCount in=items where="item.active" type=number',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      where: { kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
   branch: {
     description:
       'Pattern-match/switch on an expression — contains `path` children. Top-level form (statement context) emits TS `switch` with `case` blocks. Body-statement form (child of `handler lang="kern"` / `try` / `catch`) emits the same TS `switch` plus a Python `if/elif/else` chain on the fastapi target. Each `path value=X` is a case; `path default=true` is the trailing default case (parallels JS `switch`/`default`). Identifier values like `path value=Status.Active` (unquoted) emit raw refs; quoted strings emit JSON-quoted literals.',
@@ -2035,6 +2048,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'branch',
       'each',
       'collect',
+      'count',
       'effect',
       // Portable side-effect statements — valid as direct route children
       // (alongside derive/guard/respond) for mutate-and-persist routes.
@@ -2142,6 +2156,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'branch',
       'each',
       'collect',
+      'count',
       'destructure',
       'partition',
     ],
@@ -2336,7 +2351,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       name: { required: true, kind: 'identifier' },
       in: { required: true, kind: 'rawExpr' },
     },
-    allowedChildren: ['derive', 'let', 'each', 'fanout', 'emit', 'do', 'assign', 'branch', 'collect'],
+    allowedChildren: ['derive', 'let', 'each', 'fanout', 'emit', 'do', 'assign', 'branch', 'collect', 'count'],
   },
   stream: {
     description:
@@ -2365,6 +2380,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'assign',
       'branch',
       'collect',
+      'count',
     ],
   },
   spawn: {

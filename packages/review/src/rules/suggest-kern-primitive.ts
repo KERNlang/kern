@@ -1033,6 +1033,24 @@ function buildSuggestion(spec: MethodSpec, collection: string, call: CallExpress
   }
 }
 
+function filterLengthCountSuggestion(collection: string, call: CallExpression): string | null {
+  const parent = call.getParent();
+  if (!Node.isPropertyAccessExpression(parent) || parent.getName() !== 'length') return null;
+
+  const args = call.getArguments();
+  if (args.length !== 1 || !isArrowLike(args[0])) return null;
+  const arrow = args[0];
+  if (arrow.getParameters().length !== 1) return null;
+
+  const item = paramName(arrow, 0);
+  if (!item) return null;
+  const body = extractSingleExprBody(arrow);
+  if (body === null) return null;
+
+  const itemProp = item === 'item' ? '' : ` item=${item}`;
+  return `count name=<name> in=${toKernInValue(collection)}${itemProp} where="${escapeKernString(body)}"`;
+}
+
 export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
   if (shouldSkipFile(ctx)) return [];
   const findings: ReviewFinding[] = [];
@@ -1145,6 +1163,23 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
     // route to the dedicated `compact` primitive. The three shapes are all
     // equivalent drop-falsy idioms; KERN prefers the named primitive.
     if (methodName === 'filter' && call.getArguments().length === 1) {
+      const countSuggestion = filterLengthCountSuggestion(collection, call);
+      if (countSuggestion) {
+        findings.push(
+          finding(
+            'suggest-kern-primitive',
+            'info',
+            'pattern',
+            'JS .filter(…).length could migrate to KERN `count` — named primitive for filtered cardinality',
+            ctx.filePath,
+            call.getStartLineNumber(),
+            1,
+            { suggestion: countSuggestion },
+          ),
+        );
+        continue;
+      }
+
       const arg = call.getArguments()[0];
       const isBooleanRef = Node.isIdentifier(arg) && arg.getText() === 'Boolean';
       const isCoercionArrow = isArrowLike(arg) && isBooleanCoercionOfFirstParam(arg);

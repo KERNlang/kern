@@ -574,6 +574,14 @@ const FIXTURES = [
     kern: `route method=post path=/api/t\n  collect name=top from=users where={{ item.active }} order={{ b.score - a.score }} limit=2\n  respond 200 json={{ {top: top} }}`,
     bindings: { locals: { users: [{ id: 'u1', active: true, score: 8 }, { id: 'u2', active: true, score: 9 }, { id: 'u3', active: false, score: 4 }, { id: 'u4', active: true, score: 6 }] } },
     expected: { status: 200, body: { top: [{ id: 'u2', active: true, score: 9 }, { id: 'u1', active: true, score: 8 }] } } },
+  { kind: 'route', name: 'route: count filtered collection parity',
+    kern: `route method=post path=/api/t\n  count name=active_count in=users where="item.active"\n  respond 200 json={{ {activeCount: active_count} }}`,
+    bindings: { locals: { users: [{ active: true }, { active: false }, { active: true }] } },
+    expected: { status: 200, body: { activeCount: 2 } } },
+  { kind: 'route', name: 'route: count whole collection parity',
+    kern: `route method=post path=/api/t\n  count name=user_count in=users\n  respond 200 json={{ {userCount: user_count} }}`,
+    bindings: { locals: { users: [{ id: 1 }, { id: 2 }, { id: 3 }] } },
+    expected: { status: 200, body: { userCount: 3 } } },
 
   // ──────────────────────────────────────────────────────────────────────────
   // route-pipeline: PURE-pipeline-ONLY fixtures (Wave 3 python-decouple parity, 2026-05-31).
