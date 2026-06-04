@@ -13,6 +13,12 @@ function mk(type: string, props: Record<string, unknown> = {}, children: IRNode[
 }
 
 describe('Python Ground Layer: collection reshape parity', () => {
+  it('rejects unsafe Python binding names', () => {
+    expect(() =>
+      generatePartition(mk('partition', { pass: 'for', fail: 'inactive', in: 'users', where: 'item.active' })),
+    ).toThrow(/unsafe Python binding name `for`/);
+  });
+
   it('emits uniqueBy first-wins python code', () => {
     const node = mk('uniqueBy', { name: 'distinct', in: 'users', by: 'item.id' });
     const code = generateUniqueBy(node).join('\n');
@@ -20,7 +26,19 @@ describe('Python Ground Layer: collection reshape parity', () => {
     expect(code).toContain('__kern_seen_distinct = set()');
     expect(code).toContain('for item in users:');
     expect(code).toContain('__kern_key_distinct = item.id');
-    expect(code).toContain('if __kern_key_distinct not in __kern_seen_distinct:');
+    expect(code).toContain('if __kern_key_distinct is None:');
+    expect(code).toContain('__kern_seen_key_distinct = ("null", None)');
+    expect(code).toContain('__kern_seen_key_distinct = ("boolean", __kern_key_distinct)');
+    expect(code).toContain('__kern_seen_key_distinct = ("number", "NaN")');
+    expect(code).toContain('__kern_seen_key_distinct = ("number", __kern_key_distinct)');
+    expect(code).toContain('__kern_seen_key_distinct = ("string", __kern_key_distinct)');
+    expect(code).toContain('__kern_seen_objects_distinct = []');
+    expect(code).toContain('for __kern_seen_object_distinct in __kern_seen_objects_distinct:');
+    expect(code).toContain('if __kern_key_distinct is __kern_seen_object_distinct:');
+    expect(code).toContain('__kern_seen_objects_distinct.append(__kern_key_distinct)');
+    expect(code).toContain('continue');
+    expect(code).toContain('if __kern_seen_key_distinct not in __kern_seen_distinct:');
+    expect(code).toContain('__kern_seen_distinct.add(__kern_seen_key_distinct)');
     expect(code).toContain('distinct.append(item)');
   });
 
@@ -30,6 +48,16 @@ describe('Python Ground Layer: collection reshape parity', () => {
     expect(code).toContain('by_type = {}');
     expect(code).toContain('for item in items:');
     expect(code).toContain('__kern_key_by_type = item.type');
+    expect(code).toContain('if __kern_key_by_type is None:');
+    expect(code).toContain('__kern_key_by_type = "null"');
+    expect(code).toContain('__kern_key_by_type = "true" if __kern_key_by_type else "false"');
+    expect(code).toContain('__kern_key_by_type = "NaN"');
+    expect(code).toContain('__kern_key_by_type = "Infinity"');
+    expect(code).toContain('__kern_key_by_type = "-Infinity"');
+    expect(code).toContain('elif isinstance(__kern_key_by_type, float):');
+    expect(code).toContain('elif __kern_key_by_type.is_integer():');
+    expect(code).toContain('__kern_key_by_type = str(int(__kern_key_by_type))');
+    expect(code).toContain('raise TypeError("keyed reshape selector must produce a scalar key")');
     expect(code).toContain('by_type.setdefault(__kern_key_by_type, []).append(item)');
   });
 
@@ -41,6 +69,7 @@ describe('Python Ground Layer: collection reshape parity', () => {
     expect(code).toContain('for item in users:');
     expect(code).toContain('if item.active:');
     expect(code).toContain('active.append(item)');
+    expect(code).toContain('else:');
     expect(code).toContain('inactive.append(item)');
   });
 
@@ -57,6 +86,14 @@ describe('Python Ground Layer: collection reshape parity', () => {
     expect(code).toContain('by_id = {}');
     expect(code).toContain('for item in users:');
     expect(code).toContain('__kern_key_by_id = item.id');
+    expect(code).toContain('if __kern_key_by_id is None:');
+    expect(code).toContain('__kern_key_by_id = "null"');
+    expect(code).toContain('__kern_key_by_id = "true" if __kern_key_by_id else "false"');
+    expect(code).toContain('__kern_key_by_id = "NaN"');
+    expect(code).toContain('elif isinstance(__kern_key_by_id, float):');
+    expect(code).toContain('elif __kern_key_by_id.is_integer():');
+    expect(code).toContain('__kern_key_by_id = str(int(__kern_key_by_id))');
+    expect(code).toContain('raise TypeError("keyed reshape selector must produce a scalar key")');
     expect(code).toContain('by_id[__kern_key_by_id] = item');
   });
 
@@ -66,6 +103,14 @@ describe('Python Ground Layer: collection reshape parity', () => {
     expect(code).toContain('counts = {}');
     expect(code).toContain('for item in items:');
     expect(code).toContain('__kern_key_counts = item.type');
+    expect(code).toContain('if __kern_key_counts is None:');
+    expect(code).toContain('__kern_key_counts = "null"');
+    expect(code).toContain('__kern_key_counts = "true" if __kern_key_counts else "false"');
+    expect(code).toContain('__kern_key_counts = "NaN"');
+    expect(code).toContain('elif isinstance(__kern_key_counts, float):');
+    expect(code).toContain('elif __kern_key_counts.is_integer():');
+    expect(code).toContain('__kern_key_counts = str(int(__kern_key_counts))');
+    expect(code).toContain('raise TypeError("keyed reshape selector must produce a scalar key")');
     expect(code).toContain('counts[__kern_key_counts] = counts.get(__kern_key_counts, 0) + 1');
   });
 

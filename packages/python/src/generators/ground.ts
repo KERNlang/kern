@@ -14,7 +14,7 @@ import {
   kids,
   p,
 } from '../codegen-helpers.js';
-import { mapTsTypeToPython, toSnakeCase } from '../type-map.js';
+import { mapTsTypeToPython, toPythonBindingName, toSnakeCase } from '../type-map.js';
 
 /**
  * Common preamble extracted from all ground layer generators.
@@ -33,6 +33,30 @@ function unwrapExpr(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value === 'object' && (value as ExprObject).__expr) return (value as ExprObject).code;
   return String(value);
+}
+
+function emitJsObjectKeyCoercion(keyName: string): string[] {
+  return [
+    `    if ${keyName} is None:`,
+    `        ${keyName} = "null"`,
+    `    elif isinstance(${keyName}, bool):`,
+    `        ${keyName} = "true" if ${keyName} else "false"`,
+    `    elif isinstance(${keyName}, float):`,
+    `        if ${keyName} != ${keyName}:`,
+    `            ${keyName} = "NaN"`,
+    `        elif ${keyName} == float("inf"):`,
+    `            ${keyName} = "Infinity"`,
+    `        elif ${keyName} == float("-inf"):`,
+    `            ${keyName} = "-Infinity"`,
+    `        elif ${keyName}.is_integer():`,
+    `            ${keyName} = str(int(${keyName}))`,
+    `        else:`,
+    `            ${keyName} = str(${keyName})`,
+    `    elif not isinstance(${keyName}, (str, int)):`,
+    `        raise TypeError("keyed reshape selector must produce a scalar key")`,
+    `    else:`,
+    `        ${keyName} = str(${keyName})`,
+  ];
 }
 
 function splitExpressionList(raw: string, propName: string): string[] {
@@ -619,14 +643,18 @@ export function generateRecover(node: IRNode): string[] {
 // ── Ground Layer: uniqueBy ───────────────────────────────────────────────
 
 export function generateUniqueBy(node: IRNode): string[] {
-  const { annotations, todo, props, name } = groundPreamble(node);
+  const { annotations, todo, props } = groundPreamble(node);
+  const name = toPythonBindingName(String(props.name || ''), 'uniqueBy');
   const item = (props.item as string) || 'item';
   const collection = unwrapExpr(props.in);
   if (!collection) throw new Error("uniqueBy node requires an 'in' prop");
   const by = unwrapExpr(props.by);
   if (!by) throw new Error("uniqueBy node requires a 'by' prop");
   const seenName = `__kern_seen_${name}`;
+  const seenObjectsName = `__kern_seen_objects_${name}`;
   const keyName = `__kern_key_${name}`;
+  const seenKeyName = `__kern_seen_key_${name}`;
+  const seenObjectName = `__kern_seen_object_${name}`;
 
   const constType = props.type as string | undefined;
   const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
@@ -636,10 +664,29 @@ export function generateUniqueBy(node: IRNode): string[] {
     ...annotations,
     `${name}${typeAnnotation} = []`,
     `${seenName} = set()`,
+    `${seenObjectsName} = []`,
     `for ${item} in ${collection}:`,
     `    ${keyName} = ${by}`,
-    `    if ${keyName} not in ${seenName}:`,
-    `        ${seenName}.add(${keyName})`,
+    `    if ${keyName} is None:`,
+    `        ${seenKeyName} = ("null", None)`,
+    `    elif isinstance(${keyName}, bool):`,
+    `        ${seenKeyName} = ("boolean", ${keyName})`,
+    `    elif isinstance(${keyName}, float) and ${keyName} != ${keyName}:`,
+    `        ${seenKeyName} = ("number", "NaN")`,
+    `    elif isinstance(${keyName}, (int, float)):`,
+    `        ${seenKeyName} = ("number", ${keyName})`,
+    `    elif isinstance(${keyName}, str):`,
+    `        ${seenKeyName} = ("string", ${keyName})`,
+    `    else:`,
+    `        for ${seenObjectName} in ${seenObjectsName}:`,
+    `            if ${keyName} is ${seenObjectName}:`,
+    `                break`,
+    `        else:`,
+    `            ${seenObjectsName}.append(${keyName})`,
+    `            ${name}.append(${item})`,
+    `        continue`,
+    `    if ${seenKeyName} not in ${seenName}:`,
+    `        ${seenName}.add(${seenKeyName})`,
     `        ${name}.append(${item})`,
   ];
 }
@@ -647,7 +694,8 @@ export function generateUniqueBy(node: IRNode): string[] {
 // ── Ground Layer: groupBy ────────────────────────────────────────────────
 
 export function generateGroupBy(node: IRNode): string[] {
-  const { annotations, todo, props, name } = groundPreamble(node);
+  const { annotations, todo, props } = groundPreamble(node);
+  const name = toPythonBindingName(String(props.name || ''), 'groupBy');
   const item = (props.item as string) || 'item';
   const collection = unwrapExpr(props.in);
   if (!collection) throw new Error("groupBy node requires an 'in' prop");
@@ -664,6 +712,7 @@ export function generateGroupBy(node: IRNode): string[] {
     `${name}${typeAnnotation} = {}`,
     `for ${item} in ${collection}:`,
     `    ${keyName} = ${by}`,
+    ...emitJsObjectKeyCoercion(keyName),
     `    ${name}.setdefault(${keyName}, []).append(${item})`,
   ];
 }
@@ -679,8 +728,8 @@ export function generatePartition(node: IRNode): string[] {
   if (!passRaw) throw new Error("partition node requires a 'pass' prop");
   const failRaw = props.fail as string | undefined;
   if (!failRaw) throw new Error("partition node requires a 'fail' prop");
-  const passName = toSnakeCase(passRaw);
-  const failName = toSnakeCase(failRaw);
+  const passName = toPythonBindingName(passRaw, 'partition');
+  const failName = toPythonBindingName(failRaw, 'partition');
   const item = (props.item as string) || 'item';
 
   const collection = unwrapExpr(props.in);
@@ -706,7 +755,8 @@ export function generatePartition(node: IRNode): string[] {
 // ── Ground Layer: indexBy ────────────────────────────────────────────────
 
 export function generateIndexBy(node: IRNode): string[] {
-  const { annotations, todo, props, name } = groundPreamble(node);
+  const { annotations, todo, props } = groundPreamble(node);
+  const name = toPythonBindingName(String(props.name || ''), 'indexBy');
   const item = (props.item as string) || 'item';
   const collection = unwrapExpr(props.in);
   if (!collection) throw new Error("indexBy node requires an 'in' prop");
@@ -723,6 +773,7 @@ export function generateIndexBy(node: IRNode): string[] {
     `${name}${typeAnnotation} = {}`,
     `for ${item} in ${collection}:`,
     `    ${keyName} = ${by}`,
+    ...emitJsObjectKeyCoercion(keyName),
     `    ${name}[${keyName}] = ${item}`,
   ];
 }
@@ -730,7 +781,8 @@ export function generateIndexBy(node: IRNode): string[] {
 // ── Ground Layer: countBy ────────────────────────────────────────────────
 
 export function generateCountBy(node: IRNode): string[] {
-  const { annotations, todo, props, name } = groundPreamble(node);
+  const { annotations, todo, props } = groundPreamble(node);
+  const name = toPythonBindingName(String(props.name || ''), 'countBy');
   const item = (props.item as string) || 'item';
   const collection = unwrapExpr(props.in);
   if (!collection) throw new Error("countBy node requires an 'in' prop");
@@ -747,6 +799,7 @@ export function generateCountBy(node: IRNode): string[] {
     `${name}${typeAnnotation} = {}`,
     `for ${item} in ${collection}:`,
     `    ${keyName} = ${by}`,
+    ...emitJsObjectKeyCoercion(keyName),
     `    ${name}[${keyName}] = ${name}.get(${keyName}, 0) + 1`,
   ];
 }

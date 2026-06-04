@@ -17,7 +17,7 @@ import { extractExprCode, rewriteExpr } from './core/expr/index.js';
 import { isUnsupportedJsHandlerBody, unsupportedRawHandlerBody } from './fastapi-raw-handler.js';
 import { addRespondImports, generateRespondFastAPI } from './fastapi-response.js';
 import { escapePyStr, indentHandler } from './fastapi-utils.js';
-import { mapTsTypeToPython, toSnakeCase } from './type-map.js';
+import { mapTsTypeToPython, toPythonBindingName, toSnakeCase } from './type-map.js';
 
 // Extract the code from a prop that may arrive as a `{{ ... }}` curly-
 // expression IR wrapper (`{ __expr: true, code: '...' }`), a plain string
@@ -38,77 +38,31 @@ function extractCodeOrString(val: unknown): string {
   return '';
 }
 
-const PY_BUILTINS = new Set([
-  'sorted',
-  'list',
-  'dict',
-  'set',
-  'map',
-  'filter',
-  'type',
-  'id',
-  'input',
-  'print',
-  'range',
-  'len',
-  'min',
-  'max',
-  'sum',
-  'any',
-  'all',
-  'str',
-  'int',
-  'float',
-  'bool',
-  'tuple',
-  'zip',
-  'enumerate',
-  'object',
-  'None',
-  'True',
-  'False',
-  'and',
-  'as',
-  'assert',
-  'async',
-  'await',
-  'break',
-  'class',
-  'continue',
-  'def',
-  'del',
-  'elif',
-  'else',
-  'except',
-  'finally',
-  'for',
-  'from',
-  'global',
-  'if',
-  'import',
-  'in',
-  'is',
-  'lambda',
-  'nonlocal',
-  'not',
-  'or',
-  'pass',
-  'raise',
-  'return',
-  'try',
-  'while',
-  'with',
-  'yield',
-]);
-
-function safePythonBindingName(raw: string): string {
-  const name = toSnakeCase(raw);
-  return PY_BUILTINS.has(name) ? `${name}_result` : name;
-}
-
 function requirePortableProp(nodeType: string, propName: string, value: string): string {
   if (!value) throw new Error(`portable route \`${nodeType}\` requires \`${propName}=\`.`);
   return value;
+}
+
+function pushJsObjectKeyCoercion(lines: string[], indent: string, keyName: string): void {
+  lines.push(`${indent}if ${keyName} is None:`);
+  lines.push(`${indent}    ${keyName} = "null"`);
+  lines.push(`${indent}elif isinstance(${keyName}, bool):`);
+  lines.push(`${indent}    ${keyName} = "true" if ${keyName} else "false"`);
+  lines.push(`${indent}elif isinstance(${keyName}, float):`);
+  lines.push(`${indent}    if ${keyName} != ${keyName}:`);
+  lines.push(`${indent}        ${keyName} = "NaN"`);
+  lines.push(`${indent}    elif ${keyName} == float("inf"):`);
+  lines.push(`${indent}        ${keyName} = "Infinity"`);
+  lines.push(`${indent}    elif ${keyName} == float("-inf"):`);
+  lines.push(`${indent}        ${keyName} = "-Infinity"`);
+  lines.push(`${indent}    elif ${keyName}.is_integer():`);
+  lines.push(`${indent}        ${keyName} = str(int(${keyName}))`);
+  lines.push(`${indent}    else:`);
+  lines.push(`${indent}        ${keyName} = str(${keyName})`);
+  lines.push(`${indent}elif not isinstance(${keyName}, (str, int)):`);
+  lines.push(`${indent}    raise TypeError("keyed reshape selector must produce a scalar key")`);
+  lines.push(`${indent}else:`);
+  lines.push(`${indent}    ${keyName} = str(${keyName})`);
 }
 
 // NOTE: the former `lowerPropToPython` helper was removed when native closure
@@ -626,7 +580,7 @@ export function generatePortableChildFastAPI(
       break;
     }
     case 'uniqueBy': {
-      const name = safePythonBindingName(requirePortableProp('uniqueBy', 'name', String(p.name || '')));
+      const name = toPythonBindingName(requirePortableProp('uniqueBy', 'name', String(p.name || '')), 'uniqueBy');
       const item = String(p.item || 'item');
       const collection = rewriteFastAPIStmtExpr(
         requirePortableProp('uniqueBy', 'in', extractCodeOrString(p.in).trim()),
@@ -648,20 +602,42 @@ export function generatePortableChildFastAPI(
       );
       const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
       const seenName = `__kern_seen_${name}`;
+      const seenObjectsName = `__kern_seen_objects_${name}`;
       const keyName = `__kern_key_${name}`;
+      const seenKeyName = `__kern_seen_key_${name}`;
+      const seenObjectName = `__kern_seen_object_${name}`;
       lines.push(...collection.hoists);
       lines.push(`${indent}${name}${typeAnnotation} = []`);
       lines.push(`${indent}${seenName} = set()`);
+      lines.push(`${indent}${seenObjectsName} = []`);
       lines.push(`${indent}for ${item} in ${collection.expr}:`);
       lines.push(...by.hoists);
       lines.push(`${indent}    ${keyName} = ${by.expr}`);
-      lines.push(`${indent}    if ${keyName} not in ${seenName}:`);
-      lines.push(`${indent}        ${seenName}.add(${keyName})`);
+      lines.push(`${indent}    if ${keyName} is None:`);
+      lines.push(`${indent}        ${seenKeyName} = ("null", None)`);
+      lines.push(`${indent}    elif isinstance(${keyName}, bool):`);
+      lines.push(`${indent}        ${seenKeyName} = ("boolean", ${keyName})`);
+      lines.push(`${indent}    elif isinstance(${keyName}, float) and ${keyName} != ${keyName}:`);
+      lines.push(`${indent}        ${seenKeyName} = ("number", "NaN")`);
+      lines.push(`${indent}    elif isinstance(${keyName}, (int, float)):`);
+      lines.push(`${indent}        ${seenKeyName} = ("number", ${keyName})`);
+      lines.push(`${indent}    elif isinstance(${keyName}, str):`);
+      lines.push(`${indent}        ${seenKeyName} = ("string", ${keyName})`);
+      lines.push(`${indent}    else:`);
+      lines.push(`${indent}        for ${seenObjectName} in ${seenObjectsName}:`);
+      lines.push(`${indent}            if ${keyName} is ${seenObjectName}:`);
+      lines.push(`${indent}                break`);
+      lines.push(`${indent}        else:`);
+      lines.push(`${indent}            ${seenObjectsName}.append(${keyName})`);
+      lines.push(`${indent}            ${name}.append(${item})`);
+      lines.push(`${indent}        continue`);
+      lines.push(`${indent}    if ${seenKeyName} not in ${seenName}:`);
+      lines.push(`${indent}        ${seenName}.add(${seenKeyName})`);
       lines.push(`${indent}        ${name}.append(${item})`);
       break;
     }
     case 'groupBy': {
-      const name = safePythonBindingName(requirePortableProp('groupBy', 'name', String(p.name || '')));
+      const name = toPythonBindingName(requirePortableProp('groupBy', 'name', String(p.name || '')), 'groupBy');
       const item = String(p.item || 'item');
       const collection = rewriteFastAPIStmtExpr(
         requirePortableProp('groupBy', 'in', extractCodeOrString(p.in).trim()),
@@ -688,12 +664,13 @@ export function generatePortableChildFastAPI(
       lines.push(`${indent}for ${item} in ${collection.expr}:`);
       lines.push(...by.hoists);
       lines.push(`${indent}    ${keyName} = ${by.expr}`);
+      pushJsObjectKeyCoercion(lines, `${indent}    `, keyName);
       lines.push(`${indent}    ${name}.setdefault(${keyName}, []).append(${item})`);
       break;
     }
     case 'partition': {
-      const passName = safePythonBindingName(requirePortableProp('partition', 'pass', String(p.pass || '')));
-      const failName = safePythonBindingName(requirePortableProp('partition', 'fail', String(p.fail || '')));
+      const passName = toPythonBindingName(requirePortableProp('partition', 'pass', String(p.pass || '')), 'partition');
+      const failName = toPythonBindingName(requirePortableProp('partition', 'fail', String(p.fail || '')), 'partition');
       const item = String(p.item || 'item');
       const collection = rewriteFastAPIStmtExpr(
         requirePortableProp('partition', 'in', extractCodeOrString(p.in).trim()),
@@ -727,7 +704,7 @@ export function generatePortableChildFastAPI(
       break;
     }
     case 'indexBy': {
-      const name = safePythonBindingName(requirePortableProp('indexBy', 'name', String(p.name || '')));
+      const name = toPythonBindingName(requirePortableProp('indexBy', 'name', String(p.name || '')), 'indexBy');
       const item = String(p.item || 'item');
       const collection = rewriteFastAPIStmtExpr(
         requirePortableProp('indexBy', 'in', extractCodeOrString(p.in).trim()),
@@ -754,11 +731,12 @@ export function generatePortableChildFastAPI(
       lines.push(`${indent}for ${item} in ${collection.expr}:`);
       lines.push(...by.hoists);
       lines.push(`${indent}    ${keyName} = ${by.expr}`);
+      pushJsObjectKeyCoercion(lines, `${indent}    `, keyName);
       lines.push(`${indent}    ${name}[${keyName}] = ${item}`);
       break;
     }
     case 'countBy': {
-      const name = safePythonBindingName(requirePortableProp('countBy', 'name', String(p.name || '')));
+      const name = toPythonBindingName(requirePortableProp('countBy', 'name', String(p.name || '')), 'countBy');
       const item = String(p.item || 'item');
       const collection = rewriteFastAPIStmtExpr(
         requirePortableProp('countBy', 'in', extractCodeOrString(p.in).trim()),
@@ -785,6 +763,7 @@ export function generatePortableChildFastAPI(
       lines.push(`${indent}for ${item} in ${collection.expr}:`);
       lines.push(...by.hoists);
       lines.push(`${indent}    ${keyName} = ${by.expr}`);
+      pushJsObjectKeyCoercion(lines, `${indent}    `, keyName);
       lines.push(`${indent}    ${name}[${keyName}] = ${name}.get(${keyName}, 0) + 1`);
       break;
     }

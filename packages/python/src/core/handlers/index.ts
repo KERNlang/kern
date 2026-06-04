@@ -48,7 +48,7 @@ import type { IRNode } from '@kernlang/core';
 import { getChildren, getFirstChild, getProps } from '@kernlang/core';
 import { isUnsupportedJsHandlerBody, unsupportedRawHandlerBody } from '../../fastapi-raw-handler.js';
 import { derivePathParams, escapePyStr, indentHandler, slugify } from '../../fastapi-utils.js';
-import { mapTsTypeToPython, toSnakeCase } from '../../type-map.js';
+import { mapTsTypeToPython, toPythonBindingName, toSnakeCase } from '../../type-map.js';
 import { rewriteExpr } from '../expr/index.js';
 
 /** A single route lowered to a framework-agnostic Python function. */
@@ -114,10 +114,26 @@ function extractCodeOrString(val: unknown): string {
   return extractExprCode(val);
 }
 
-function unsupportedPureRouteNode(nodeType: string): never {
-  throw new Error(
-    `pure Python handlers do not yet support portable route \`${nodeType}\`; use FastAPI route emission or add pure-handler parity.`,
-  );
+function pushJsObjectKeyCoercion(lines: string[], indent: string, keyName: string): void {
+  lines.push(`${indent}if ${keyName} is None:`);
+  lines.push(`${indent}    ${keyName} = "null"`);
+  lines.push(`${indent}elif isinstance(${keyName}, bool):`);
+  lines.push(`${indent}    ${keyName} = "true" if ${keyName} else "false"`);
+  lines.push(`${indent}elif isinstance(${keyName}, float):`);
+  lines.push(`${indent}    if ${keyName} != ${keyName}:`);
+  lines.push(`${indent}        ${keyName} = "NaN"`);
+  lines.push(`${indent}    elif ${keyName} == float("inf"):`);
+  lines.push(`${indent}        ${keyName} = "Infinity"`);
+  lines.push(`${indent}    elif ${keyName} == float("-inf"):`);
+  lines.push(`${indent}        ${keyName} = "-Infinity"`);
+  lines.push(`${indent}    elif ${keyName}.is_integer():`);
+  lines.push(`${indent}        ${keyName} = str(int(${keyName}))`);
+  lines.push(`${indent}    else:`);
+  lines.push(`${indent}        ${keyName} = str(${keyName})`);
+  lines.push(`${indent}elif not isinstance(${keyName}, (str, int)):`);
+  lines.push(`${indent}    raise TypeError("keyed reshape selector must produce a scalar key")`);
+  lines.push(`${indent}else:`);
+  lines.push(`${indent}    ${keyName} = str(${keyName})`);
 }
 
 function mapJsDefaultToPython(def: string | undefined): string {
@@ -347,7 +363,7 @@ function generatePurePythonStmt(
       break;
     }
     case 'count': {
-      const name = toSnakeCase(String(p.name || ''));
+      const name = toPythonBindingName(String(p.name || ''), 'uniqueBy');
       if (!name) break;
       const collection = rewriteExprPure(extractCodeOrString(p.in).trim(), indent);
       lines.push(...collection.hoists);
@@ -363,12 +379,148 @@ function generatePurePythonStmt(
       }
       break;
     }
-    case 'uniqueBy':
-    case 'groupBy':
-    case 'partition':
-    case 'indexBy':
+    case 'uniqueBy': {
+      const name = toPythonBindingName(String(p.name || ''), 'groupBy');
+      if (!name) throw new Error("uniqueBy node requires a 'name' prop");
+      const inVal = extractCodeOrString(p.in).trim();
+      if (!inVal) throw new Error("uniqueBy node requires an 'in' prop");
+      const byVal = extractCodeOrString(p.by).trim();
+      if (!byVal) throw new Error("uniqueBy node requires a 'by' prop");
+
+      const item = String(p.item || 'item');
+      const collection = rewriteExprPure(inVal, indent);
+      const by = rewriteExprPure(byVal, `${indent}    `);
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      const seenName = `__kern_seen_${name}`;
+      const seenObjectsName = `__kern_seen_objects_${name}`;
+      const keyName = `__kern_key_${name}`;
+      const seenKeyName = `__kern_seen_key_${name}`;
+      const seenObjectName = `__kern_seen_object_${name}`;
+
+      lines.push(...collection.hoists);
+      lines.push(`${indent}${name}${typeAnnotation} = []`);
+      lines.push(`${indent}${seenName} = set()`);
+      lines.push(`${indent}${seenObjectsName} = []`);
+      lines.push(`${indent}for ${item} in ${collection.expr}:`);
+      lines.push(...by.hoists);
+      lines.push(`${indent}    ${keyName} = ${by.expr}`);
+      lines.push(`${indent}    if ${keyName} is None:`);
+      lines.push(`${indent}        ${seenKeyName} = ("null", None)`);
+      lines.push(`${indent}    elif isinstance(${keyName}, bool):`);
+      lines.push(`${indent}        ${seenKeyName} = ("boolean", ${keyName})`);
+      lines.push(`${indent}    elif isinstance(${keyName}, float) and ${keyName} != ${keyName}:`);
+      lines.push(`${indent}        ${seenKeyName} = ("number", "NaN")`);
+      lines.push(`${indent}    elif isinstance(${keyName}, (int, float)):`);
+      lines.push(`${indent}        ${seenKeyName} = ("number", ${keyName})`);
+      lines.push(`${indent}    elif isinstance(${keyName}, str):`);
+      lines.push(`${indent}        ${seenKeyName} = ("string", ${keyName})`);
+      lines.push(`${indent}    else:`);
+      lines.push(`${indent}        for ${seenObjectName} in ${seenObjectsName}:`);
+      lines.push(`${indent}            if ${keyName} is ${seenObjectName}:`);
+      lines.push(`${indent}                break`);
+      lines.push(`${indent}        else:`);
+      lines.push(`${indent}            ${seenObjectsName}.append(${keyName})`);
+      lines.push(`${indent}            ${name}.append(${item})`);
+      lines.push(`${indent}        continue`);
+      lines.push(`${indent}    if ${seenKeyName} not in ${seenName}:`);
+      lines.push(`${indent}        ${seenName}.add(${seenKeyName})`);
+      lines.push(`${indent}        ${name}.append(${item})`);
+      break;
+    }
+    case 'groupBy': {
+      const name = toSnakeCase(String(p.name || ''));
+      if (!name) throw new Error("groupBy node requires a 'name' prop");
+      const inVal = extractCodeOrString(p.in).trim();
+      if (!inVal) throw new Error("groupBy node requires an 'in' prop");
+      const byVal = extractCodeOrString(p.by).trim();
+      if (!byVal) throw new Error("groupBy node requires a 'by' prop");
+
+      const item = String(p.item || 'item');
+      const collection = rewriteExprPure(inVal, indent);
+      const by = rewriteExprPure(byVal, `${indent}    `);
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      const keyName = `__kern_key_${name}`;
+
+      lines.push(...collection.hoists);
+      lines.push(`${indent}${name}${typeAnnotation} = {}`);
+      lines.push(`${indent}for ${item} in ${collection.expr}:`);
+      lines.push(...by.hoists);
+      lines.push(`${indent}    ${keyName} = ${by.expr}`);
+      pushJsObjectKeyCoercion(lines, `${indent}    `, keyName);
+      lines.push(`${indent}    ${name}.setdefault(${keyName}, []).append(${item})`);
+      break;
+    }
+    case 'partition': {
+      const passName = toPythonBindingName(String(p.pass || ''), 'partition');
+      const failName = toPythonBindingName(String(p.fail || ''), 'partition');
+      if (!passName || !failName) throw new Error("partition node requires 'pass' and 'fail' props");
+      const inVal = extractCodeOrString(p.in).trim();
+      if (!inVal) throw new Error("partition node requires an 'in' prop");
+      const whereVal = extractCodeOrString(p.where).trim();
+      if (!whereVal) throw new Error("partition node requires a 'where' prop");
+
+      const item = String(p.item || 'item');
+      const collection = rewriteExprPure(inVal, indent);
+      const where = rewriteExprPure(whereVal, `${indent}    `);
+      const elemType = p.type ? mapTsTypeToPython(String(p.type)) : undefined;
+      const typeAnnotation = elemType ? `: list[${elemType}]` : '';
+
+      lines.push(...collection.hoists);
+      lines.push(`${indent}${passName}${typeAnnotation} = []`);
+      lines.push(`${indent}${failName}${typeAnnotation} = []`);
+      lines.push(`${indent}for ${item} in ${collection.expr}:`);
+      lines.push(...where.hoists);
+      lines.push(`${indent}    if ${where.expr}:`);
+      lines.push(`${indent}        ${passName}.append(${item})`);
+      lines.push(`${indent}    else:`);
+      lines.push(`${indent}        ${failName}.append(${item})`);
+      break;
+    }
+    case 'indexBy': {
+      const name = toPythonBindingName(String(p.name || ''), 'indexBy');
+      if (!name) throw new Error("indexBy node requires a 'name' prop");
+      const inVal = extractCodeOrString(p.in).trim();
+      if (!inVal) throw new Error("indexBy node requires an 'in' prop");
+      const byVal = extractCodeOrString(p.by).trim();
+      if (!byVal) throw new Error("indexBy node requires a 'by' prop");
+
+      const item = String(p.item || 'item');
+      const collection = rewriteExprPure(inVal, indent);
+      const by = rewriteExprPure(byVal, `${indent}    `);
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      const keyName = `__kern_key_${name}`;
+
+      lines.push(...collection.hoists);
+      lines.push(`${indent}${name}${typeAnnotation} = {}`);
+      lines.push(`${indent}for ${item} in ${collection.expr}:`);
+      lines.push(...by.hoists);
+      lines.push(`${indent}    ${keyName} = ${by.expr}`);
+      pushJsObjectKeyCoercion(lines, `${indent}    `, keyName);
+      lines.push(`${indent}    ${name}[${keyName}] = ${item}`);
+      break;
+    }
     case 'countBy': {
-      return unsupportedPureRouteNode(child.type);
+      const name = toPythonBindingName(String(p.name || ''), 'countBy');
+      if (!name) throw new Error("countBy node requires a 'name' prop");
+      const inVal = extractCodeOrString(p.in).trim();
+      if (!inVal) throw new Error("countBy node requires an 'in' prop");
+      const byVal = extractCodeOrString(p.by).trim();
+      if (!byVal) throw new Error("countBy node requires a 'by' prop");
+
+      const item = String(p.item || 'item');
+      const collection = rewriteExprPure(inVal, indent);
+      const by = rewriteExprPure(byVal, `${indent}    `);
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      const keyName = `__kern_key_${name}`;
+
+      lines.push(...collection.hoists);
+      lines.push(`${indent}${name}${typeAnnotation} = {}`);
+      lines.push(`${indent}for ${item} in ${collection.expr}:`);
+      lines.push(...by.hoists);
+      lines.push(`${indent}    ${keyName} = ${by.expr}`);
+      pushJsObjectKeyCoercion(lines, `${indent}    `, keyName);
+      lines.push(`${indent}    ${name}[${keyName}] = ${name}.get(${keyName}, 0) + 1`);
+      break;
     }
     case 'effect': {
       const effectName = toSnakeCase(String(p.name || 'effect'));
