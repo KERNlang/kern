@@ -41,6 +41,7 @@ import {
   generateMaxBy,
   generateMin,
   generateMinBy,
+  generateObjectMerge,
   generatePartition,
   generatePluck,
   generateRange,
@@ -120,6 +121,38 @@ describe('Ground Layer: clamp', () => {
     expect(() => generateClamp(mk('clamp', { name: 'x', value: 'n', max: '1' }))).toThrow(/min/);
     expect(() => generateClamp(mk('clamp', { name: 'x', value: 'n', min: '0' }))).toThrow(/max/);
     expect(() => generateClamp(mk('clamp', { name: 'x', value: '', min: '0', max: '1' }))).toThrow(/value/);
+  });
+});
+
+describe('Ground Layer: objectMerge', () => {
+  it('emits a shallow non-mutating object spread binding', () => {
+    const node = mk('objectMerge', {
+      name: 'merged',
+      sources: 'base, overrides, { extra: 1, label: "a,b" }',
+      type: 'Record<string, unknown>',
+    });
+    expect(generateObjectMerge(node).join('\n')).toBe(
+      'export const merged: Record<string, unknown> = { ...(base), ...(overrides), ...({ extra: 1, label: "a,b" }) };',
+    );
+  });
+
+  it('dispatches through generateCoreNode and honours export=false', () => {
+    const node = mk('objectMerge', { name: 'merged', sources: 'base, overrides', export: 'false' });
+    expect(generateCoreNode(node).join('\n')).toBe('const merged = { ...(base), ...(overrides) };');
+  });
+
+  it('requires at least two non-spread source expressions', () => {
+    expect(() => generateObjectMerge(mk('objectMerge', { name: 'x' }))).toThrow(/sources/);
+    expect(() => generateObjectMerge(mk('objectMerge', { name: 'x', sources: 'base' }))).toThrow(/at least two/);
+    expect(() => generateObjectMerge(mk('objectMerge', { name: 'x', sources: '...base, overrides' }))).toThrow(
+      /omit leading/,
+    );
+  });
+
+  it('rejects propagation in top-level objectMerge sources', () => {
+    expect(() => generateObjectMerge(mk('objectMerge', { name: 'x', sources: 'load()?, overrides' }))).toThrow(
+      /Propagation/,
+    );
   });
 });
 

@@ -596,6 +596,70 @@ function objectPortablePrimitiveFor(methodName: string): PortableLogicPrimitiveI
   }
 }
 
+function variableNameForInitializer(expr: TsNode): string | null {
+  const parent = expr.getParent();
+  if (!parent || !Node.isVariableDeclaration(parent) || parent.getInitializer() !== expr) return null;
+  const nameNode = parent.getNameNode();
+  return Node.isIdentifier(nameNode) ? nameNode.getText() : null;
+}
+
+function objectMergeFinding(ctx: RuleContext, node: TsNode, name: string, sources: string): ReviewFinding {
+  return finding(
+    'suggest-kern-primitive',
+    'info',
+    'pattern',
+    'JS shallow object merge could migrate to KERN `objectMerge` — non-mutating, left-to-right, last-write-wins record merge',
+    ctx.filePath,
+    node.getStartLineNumber(),
+    nodeColumn(node),
+    { suggestion: `objectMerge name=${name} sources="${escapeKernString(sources)}"` },
+  );
+}
+
+function objectAssignMergeSuggestion(call: CallExpression): { name: string; sources: string } | null {
+  const name = variableNameForInitializer(call);
+  if (!name) return null;
+  const args = call.getArguments();
+  if (args.length < 3) return null;
+  const target = unwrapParenthesized(args[0]);
+  if (!Node.isObjectLiteralExpression(target) || target.getProperties().length !== 0) return null;
+  return {
+    name,
+    sources: args
+      .slice(1)
+      .map((arg) => arg.getText())
+      .join(', '),
+  };
+}
+
+function objectLiteralMergeSuggestion(expr: TsNode): { name: string; sources: string } | null {
+  if (!Node.isObjectLiteralExpression(expr)) return null;
+  const name = variableNameForInitializer(expr);
+  if (!name) return null;
+
+  const sources: string[] = [];
+  let literalProps: string[] = [];
+  const flushLiteral = () => {
+    if (literalProps.length > 0) {
+      sources.push(`{ ${literalProps.join(', ')} }`);
+      literalProps = [];
+    }
+  };
+
+  for (const prop of expr.getProperties()) {
+    if (Node.isSpreadAssignment(prop)) {
+      flushLiteral();
+      sources.push(prop.getExpression().getText());
+    } else {
+      literalProps.push(prop.getText());
+    }
+  }
+  flushLiteral();
+
+  const spreadCount = expr.getProperties().filter((prop) => Node.isSpreadAssignment(prop)).length;
+  return spreadCount > 0 && sources.length >= 2 ? { name, sources: sources.join(', ') } : null;
+}
+
 function stringPortablePrimitiveFor(call: CallExpression, methodName: string): PortableLogicPrimitiveId | null {
   const args = call.getArguments();
   switch (methodName) {
@@ -840,6 +904,11 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
     }
 
     if (Node.isIdentifier(unwrappedReceiver) && unwrappedReceiver.getText() === 'Object') {
+      if (methodName === 'assign' && !shadowsGlobalObject) {
+        const suggestion = objectAssignMergeSuggestion(call);
+        if (suggestion) findings.push(objectMergeFinding(ctx, call, suggestion.name, suggestion.sources));
+        continue;
+      }
       const objectPrimitive = objectPortablePrimitiveFor(methodName);
       if (objectPrimitive && call.getArguments().length === 1 && !shadowsGlobalObject) {
         findings.push(portableLogicFinding(ctx, call, objectPrimitive, `Object.${methodName}`));
@@ -949,6 +1018,15 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
     if (!isSimpleExpressionPosition(unary)) continue;
 
     findings.push(portableLogicFinding(ctx, unary, 'logic.not', 'boolean negation'));
+  }
+
+  // ── objectMerge detector ───────────────────────────────────────────────
+  // `const merged = { ...base, ...overrides, extra: 1 }`
+  //   → objectMerge name=merged sources="base, overrides, { extra: 1 }"
+  for (const obj of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.ObjectLiteralExpression)) {
+    const suggestion = objectLiteralMergeSuggestion(obj);
+    if (!suggestion) continue;
+    findings.push(objectMergeFinding(ctx, obj, suggestion.name, suggestion.sources));
   }
 
   // ── fmt detector ───────────────────────────────────────────────────────

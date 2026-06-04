@@ -151,7 +151,18 @@ export function emitNativeKernBodyTSWithImports(handlerNode: IRNode, options?: B
  *  an inline same-line trailing comment (`stmt; // note`) captured by the
  *  migrator into a `trailingComment=` prop. Compound statements (if/while/for/
  *  try/each) emit multiple lines and never receive the slot. */
-const TRAILING_COMMENT_TYPES = new Set(['let', 'assign', 'fmt', 'clamp', 'return', 'throw', 'do', 'continue', 'break']);
+const TRAILING_COMMENT_TYPES = new Set([
+  'let',
+  'assign',
+  'fmt',
+  'clamp',
+  'objectMerge',
+  'return',
+  'throw',
+  'do',
+  'continue',
+  'break',
+]);
 
 function emitChildrenTS(
   children: IRNode[],
@@ -181,6 +192,8 @@ function emitChildrenTS(
         for (const line of emitFmtTS(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'clamp') {
         for (const line of emitClampTS(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'objectMerge') {
+        for (const line of emitObjectMergeTS(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'return') {
         for (const line of emitReturnTS(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'if') {
@@ -690,6 +703,43 @@ function unwrapBodyExpr(value: unknown): string | undefined {
   return String(value);
 }
 
+function splitBodyExpressionList(raw: string, propName: string): string[] {
+  const out: string[] = [];
+  let current = '';
+  let depth = 0;
+  let quote: '"' | "'" | '`' | null = null;
+
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (quote !== null) {
+      current += ch;
+      if (ch === '\\' && i + 1 < raw.length) current += raw[++i];
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === '(' || ch === '[' || ch === '{') depth++;
+    else if (ch === ')' || ch === ']' || ch === '}') depth--;
+    if (depth < 0) throw new Error(`${propName} has unbalanced delimiters.`);
+    if (ch === ',' && depth === 0) {
+      const part = current.trim();
+      if (part.length === 0) throw new Error(`${propName} contains an empty expression.`);
+      out.push(part);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  if (quote !== null || depth !== 0) throw new Error(`${propName} has unbalanced delimiters.`);
+  const tail = current.trim();
+  if (tail.length > 0) out.push(tail);
+  return out;
+}
+
 function emitClampTS(node: IRNode, ctx: BodyEmitContext): string[] {
   const props = (node.props ?? {}) as Record<string, unknown>;
   const name = String(props.name ?? '');
@@ -716,6 +766,36 @@ function emitClampTS(node: IRNode, ctx: BodyEmitContext): string[] {
   const lines = [
     `const ${name}${typeAnn} = Math.max(${emitExpression(minIR)}, Math.min(${emitExpression(maxIR)}, ${emitExpression(valueIR)}));`,
   ];
+  if (ctx.traceHooks?.letAssign) lines.push(letAssignTraceTS(name));
+  return lines;
+}
+
+function emitObjectMergeTS(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const name = String(props.name ?? '');
+  if (!name) throw new Error('body-statement `objectMerge` requires `name=`.');
+  declareLocalBinding(ctx, name, 'const');
+
+  const rawSources = unwrapBodyExpr(props.sources);
+  if (rawSources === undefined || rawSources === '') {
+    throw new Error('body-statement `objectMerge` requires `sources=`.');
+  }
+  const sources = splitBodyExpressionList(rawSources, 'objectMerge sources=');
+  if (sources.length < 2) throw new Error('body-statement `objectMerge` requires at least two source expressions.');
+  const emitted: string[] = [];
+  for (const source of sources) {
+    if (source.startsWith('...')) {
+      throw new Error('body-statement `objectMerge` sources imply spreading; omit leading `...`.');
+    }
+    const sourceIR = parseExpression(source);
+    if (sourceIR.kind === 'propagate') {
+      throw new Error("Propagation '?' is not allowed in `objectMerge sources=` — bind the value to a `let` first.");
+    }
+    emitted.push(`...(${emitExpression(sourceIR)})`);
+  }
+
+  const typeAnn = props.type ? `: ${emitTypeAnnotation(String(props.type), 'Record<string, unknown>', node)}` : '';
+  const lines = [`const ${name}${typeAnn} = { ${emitted.join(', ')} };`];
   if (ctx.traceHooks?.letAssign) lines.push(letAssignTraceTS(name));
   return lines;
 }

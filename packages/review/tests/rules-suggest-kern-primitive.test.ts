@@ -584,6 +584,38 @@ describe('suggest-kern-primitive rule', () => {
     });
   });
 
+  // ── objectMerge detector ─────────────────────────────────────────────
+
+  describe('objectMerge detector', () => {
+    it('suggests `objectMerge` for non-mutating Object.assign({}, ...)', () => {
+      const f = kernSuggestions('const merged = Object.assign({}, base, overrides, { extra: 1 });');
+      const merge = f.filter((x) => x.suggestion?.startsWith('objectMerge '));
+      expect(merge).toHaveLength(1);
+      expect(merge[0].suggestion).toBe('objectMerge name=merged sources="base, overrides, { extra: 1 }"');
+    });
+
+    it('does NOT suggest `objectMerge` for mutating Object.assign(target, ...)', () => {
+      const f = kernSuggestions('const merged = Object.assign(base, overrides);');
+      const merge = f.filter((x) => x.suggestion?.startsWith('objectMerge '));
+      expect(merge).toHaveLength(0);
+    });
+
+    it('suggests `objectMerge` for object spread initializers', () => {
+      const f = kernSuggestions('const merged = { ...base, ...overrides, extra: 1, label: "a,b" };');
+      const merge = f.filter((x) => x.suggestion?.startsWith('objectMerge '));
+      expect(merge).toHaveLength(1);
+      expect(merge[0].suggestion).toBe(
+        'objectMerge name=merged sources="base, overrides, { extra: 1, label: \\"a,b\\" }"',
+      );
+    });
+
+    it('skips plain object literals without spreads', () => {
+      const f = kernSuggestions('const obj = { a: 1, b: 2 };');
+      const merge = f.filter((x) => x.suggestion?.startsWith('objectMerge '));
+      expect(merge).toHaveLength(0);
+    });
+  });
+
   // ── conditional JSX detector ────────────────────────────────────────
 
   describe('conditional JSX detector', () => {

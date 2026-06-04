@@ -15,6 +15,7 @@ export type PortableLogicPrimitiveId =
   | 'object.keys'
   | 'object.values'
   | 'object.entries'
+  | 'object.merge'
   | 'string.trim'
   | 'string.split'
   | 'string.replaceFirst'
@@ -99,6 +100,15 @@ export const PORTABLE_LOGIC_PRIMITIVES = {
     intent: 'host-pattern',
     hostPatterns: ['Object.entries(obj)'],
     portabilityNotes: ['Entries preserve JS key order and return array-like key/value pairs.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'object.merge': {
+    id: 'object.merge',
+    description: 'Shallow own-enumerable record merge, e.g. JS Object.assign({}, a, b) or { ...a, ...b }.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['Object.assign({}, a, b)', '{ ...a, ...b }'],
+    portabilityNotes: ['Merge is shallow, non-mutating, left-to-right, and duplicate keys are last-write-wins.'],
     targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
   },
   'string.trim': {

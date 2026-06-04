@@ -4,7 +4,8 @@
  */
 
 import type { ExprObject, IRNode } from '@kernlang/core';
-import { handlerCode } from '@kernlang/core';
+import { handlerCode, parseExpression } from '@kernlang/core';
+import { emitPyExpression } from '../codegen-body-python.js';
 import {
   buildPythonParamList,
   emitPyLowConfidenceTodo,
@@ -34,6 +35,43 @@ function unwrapExpr(value: unknown): string | undefined {
   return String(value);
 }
 
+function splitExpressionList(raw: string, propName: string): string[] {
+  const out: string[] = [];
+  let current = '';
+  let depth = 0;
+  let quote: '"' | "'" | '`' | null = null;
+
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (quote !== null) {
+      current += ch;
+      if (ch === '\\' && i + 1 < raw.length) current += raw[++i];
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === '(' || ch === '[' || ch === '{') depth++;
+    else if (ch === ')' || ch === ']' || ch === '}') depth--;
+    if (depth < 0) throw new Error(`${propName} has unbalanced delimiters.`);
+    if (ch === ',' && depth === 0) {
+      const part = current.trim();
+      if (part.length === 0) throw new Error(`${propName} contains an empty expression.`);
+      out.push(part);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  if (quote !== null || depth !== 0) throw new Error(`${propName} has unbalanced delimiters.`);
+  const tail = current.trim();
+  if (tail.length > 0) out.push(tail);
+  return out;
+}
+
 // ── derive ──────────────────────────────────────────────────────────────
 
 export function generateDerive(node: IRNode): string[] {
@@ -58,6 +96,30 @@ export function generateClamp(node: IRNode): string[] {
   const constType = props.type as string | undefined;
   const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
   return [...todo, ...annotations, `${name}${typeAnnotation} = max(${min}, min(${max}, ${value}))`];
+}
+
+// ── objectMerge ─────────────────────────────────────────────────────────
+
+export function generateObjectMerge(node: IRNode): string[] {
+  const { annotations, todo, props, name } = groundPreamble(node);
+  const rawSources = unwrapExpr(props.sources);
+  if (rawSources === undefined || rawSources === '') throw new Error("objectMerge node requires a 'sources' prop");
+  const sources = splitExpressionList(rawSources, 'objectMerge sources=');
+  if (sources.length < 2) throw new Error('objectMerge requires at least two source expressions');
+  const emitted: string[] = [];
+  for (const source of sources) {
+    if (source.startsWith('...'))
+      throw new Error('objectMerge sources imply spreading; omit leading `...` in sources=');
+    const sourceIR = parseExpression(source);
+    if (sourceIR.kind === 'propagate') {
+      throw new Error("Propagation '?' is not allowed in `objectMerge sources=` — bind the value first.");
+    }
+    emitted.push(`**(${emitPyExpression(sourceIR)})`);
+  }
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
+  return [...todo, ...annotations, `${name}${typeAnnotation} = {${emitted.join(', ')}}`];
 }
 
 // ── transform ───────────────────────────────────────────────────────────

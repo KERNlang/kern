@@ -45,6 +45,7 @@ import {
   generateExpect,
   generateGuard,
   generateInvariant,
+  generateObjectMerge,
   generateRecover,
   generateResolve,
   generateTransform,
@@ -94,6 +95,7 @@ export {
   generateExpect,
   generateGuard,
   generateInvariant,
+  generateObjectMerge,
   generateRecover,
   generateResolve,
   generateTransform,
@@ -170,6 +172,8 @@ export function generatePythonCoreNode(node: IRNode, options: PythonCodegenOptio
       return generateDerive(node);
     case 'clamp':
       return generateClamp(node);
+    case 'objectMerge':
+      return generateObjectMerge(node);
     case 'transform':
       return generateTransform(node);
     case 'action':

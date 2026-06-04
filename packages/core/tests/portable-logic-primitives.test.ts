@@ -16,6 +16,7 @@ describe('portable logic primitive registry', () => {
       'object.keys',
       'object.values',
       'object.entries',
+      'object.merge',
       'string.trim',
       'string.split',
       'string.replaceFirst',
@@ -36,7 +37,12 @@ describe('portable logic primitive registry', () => {
   });
 
   test('object parity slice has matching target support', () => {
-    const objectPrimitives: PortableLogicPrimitiveId[] = ['object.keys', 'object.values', 'object.entries'];
+    const objectPrimitives: PortableLogicPrimitiveId[] = [
+      'object.keys',
+      'object.values',
+      'object.entries',
+      'object.merge',
+    ];
     for (const id of objectPrimitives) {
       expect(portableLogicSupportForTarget(id, 'ts')).toBe('stable');
       expect(portableLogicSupportForTarget(id, 'python')).toBe('stable');
@@ -65,6 +71,7 @@ describe('portable logic primitive registry', () => {
     expect(lookupPortableLogicPrimitive('object.keys')?.hostPatterns).toContain('Object.keys(obj)');
     expect(lookupPortableLogicPrimitive('object.values')?.hostPatterns).toContain('Object.values(obj)');
     expect(lookupPortableLogicPrimitive('object.entries')?.hostPatterns).toContain('Object.entries(obj)');
+    expect(lookupPortableLogicPrimitive('object.merge')?.hostPatterns).toContain('Object.assign({}, a, b)');
     expect(lookupPortableLogicPrimitive('string.trim')?.hostPatterns).toContain('value.trim()');
     expect(lookupPortableLogicPrimitive('string.split')?.hostPatterns).toContain('value.split(separator)');
     expect(lookupPortableLogicPrimitive('string.split')?.hostPatterns).toContain('value.split(separator, limit)');

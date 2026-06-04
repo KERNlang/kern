@@ -378,6 +378,42 @@ describe('emitNativeKernBodyPython — clamp body statement', () => {
   });
 });
 
+describe('emitNativeKernBodyPython — objectMerge body statement', () => {
+  test('emits a shallow dict unpack local binding', () => {
+    const handler = makeHandler([
+      { type: 'objectMerge', props: { name: 'merged', sources: 'base, overrides, { extra: 1, label: "a,b" }' } },
+      { type: 'return', props: { value: 'merged' } },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toBe(
+      ['merged = {**(base), **(overrides), **({"extra": 1, "label": "a,b"})}', 'return merged'].join('\n'),
+    );
+  });
+
+  test('rejects propagation in objectMerge sources', () => {
+    const handler = makeHandler([{ type: 'objectMerge', props: { name: 'merged', sources: 'load()?, overrides' } }]);
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/[Pp]ropagation/);
+  });
+
+  test('emits assignment trace hook for objectMerge binding', () => {
+    const handler = makeHandler([{ type: 'objectMerge', props: { name: 'merged', sources: 'base, overrides' } }]);
+    expect(emitNativeKernBodyPython(handler, { traceHooks: { letAssign: true } })).toBe(
+      ['merged = {**(base), **(overrides)}', '_kern_trace({"op": "assign", "target": "merged", "value": merged})'].join(
+        '\n',
+      ),
+    );
+  });
+
+  test('unwraps expression-object objectMerge sources', () => {
+    const handler = makeHandler([
+      {
+        type: 'objectMerge',
+        props: { name: 'merged', sources: { __expr: true, code: 'base, overrides' } },
+      },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toBe('merged = {**(base), **(overrides)}');
+  });
+});
+
 describe('FastAPI fn handler lang=kern — Python codegen integration', () => {
   test('emits Python body for a native-KERN fn', () => {
     const source = [

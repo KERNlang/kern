@@ -645,6 +645,36 @@ describe('emitNativeKernBodyTS — clamp body statement', () => {
   });
 });
 
+describe('emitNativeKernBodyTS — objectMerge body statement', () => {
+  test('emits a shallow object spread local binding', () => {
+    const handler = makeHandler([
+      { type: 'objectMerge', props: { name: 'merged', sources: 'base, overrides, { extra: 1, label: "a,b" }' } },
+      { type: 'return', props: { value: 'merged' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(
+      ['const merged = { ...(base), ...(overrides), ...({ extra: 1, label: "a,b" }) };', 'return merged;'].join('\n'),
+    );
+  });
+
+  test('rejects propagation in objectMerge sources', () => {
+    const handler = makeHandler([{ type: 'objectMerge', props: { name: 'merged', sources: 'load()?, overrides' } }]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/[Pp]ropagation/);
+  });
+
+  test('infers kern handler language from objectMerge child', () => {
+    const doc = parseDocument(
+      [
+        'fn name=merge returns=object',
+        '  handler',
+        '    objectMerge name=merged sources="base, overrides"',
+        '    return value=merged',
+      ].join('\n'),
+    );
+    const handler = doc.children?.[0]?.children?.find((child) => child.type === 'handler');
+    expect(handler?.props?.lang).toBe('kern');
+  });
+});
+
 describe('emitNativeKernBodyTS — destructure body statement (trailing)', () => {
   test('rejects propagation source inside try with try-specific guidance', () => {
     const handler = makeHandler([

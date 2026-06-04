@@ -267,6 +267,7 @@ export const NODE_TYPES = [
   'slice',
   'at',
   'clamp',
+  'objectMerge',
   'sort',
   'reverse',
   'join',
