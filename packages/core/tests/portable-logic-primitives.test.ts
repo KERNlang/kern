@@ -11,6 +11,11 @@ describe('portable logic primitive registry', () => {
     expect(PORTABLE_LOGIC_PRIMITIVE_IDS).toEqual([
       'collection.has',
       'collection.count',
+      'collection.uniqueBy',
+      'collection.groupBy',
+      'collection.partition',
+      'collection.indexBy',
+      'collection.countBy',
       'logic.firstTruthy',
       'time.epochMs',
       'logic.not',
@@ -31,6 +36,11 @@ describe('portable logic primitive registry', () => {
   test('reports per-target support for the current parity slice', () => {
     expect(portableLogicSupportForTarget('collection.has', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.count', 'python')).toBe('stable');
+    expect(portableLogicSupportForTarget('collection.uniqueBy', 'python')).toBe('stable');
+    expect(portableLogicSupportForTarget('collection.groupBy', 'python')).toBe('stable');
+    expect(portableLogicSupportForTarget('collection.partition', 'python')).toBe('stable');
+    expect(portableLogicSupportForTarget('collection.indexBy', 'python')).toBe('stable');
+    expect(portableLogicSupportForTarget('collection.countBy', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('logic.firstTruthy', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('time.epochMs', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('logic.not', 'python')).toBe('stable');
@@ -40,6 +50,21 @@ describe('portable logic primitive registry', () => {
     expect(portableLogicSupportForTarget('string.replaceFirst', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('time.epochMs', 'go')).toBe('unsupported');
     expect(portableLogicSupportForTarget('string.replaceAll', 'go')).toBe('unsupported');
+  });
+
+  test('keyed collection reshape slice has matching target support', () => {
+    const keyedCollectionPrimitives: PortableLogicPrimitiveId[] = [
+      'collection.uniqueBy',
+      'collection.groupBy',
+      'collection.partition',
+      'collection.indexBy',
+      'collection.countBy',
+    ];
+    for (const id of keyedCollectionPrimitives) {
+      expect(portableLogicSupportForTarget(id, 'ts')).toBe('stable');
+      expect(portableLogicSupportForTarget(id, 'python')).toBe('stable');
+      expect(portableLogicSupportForTarget(id, 'go')).toBe('unsupported');
+    }
   });
 
   test('object parity slice has matching target support', () => {
@@ -75,6 +100,10 @@ describe('portable logic primitive registry', () => {
   test('lookup returns null for unknown primitive ids', () => {
     expect(lookupPortableLogicPrimitive('collection.has')?.purity).toBe('pure');
     expect(lookupPortableLogicPrimitive('collection.count')?.hostPatterns).toContain('xs.filter(x => pred).length');
+    expect(lookupPortableLogicPrimitive('collection.uniqueBy')?.portabilityNotes.join(' ')).toContain('first-wins');
+    expect(lookupPortableLogicPrimitive('collection.partition')?.portabilityNotes.join(' ')).toContain('predicate');
+    expect(lookupPortableLogicPrimitive('collection.indexBy')?.portabilityNotes.join(' ')).toContain('last-write-wins');
+    expect(lookupPortableLogicPrimitive('collection.countBy')?.portabilityNotes.join(' ')).toContain('integers');
     const firstTruthy = lookupPortableLogicPrimitive('logic.firstTruthy');
     expect(firstTruthy?.hostPatterns).toContain('a || b || c');
     expect(firstTruthy?.portabilityNotes.join(' ')).toContain('empty collections are target-specific');

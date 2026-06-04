@@ -615,3 +615,138 @@ export function generateRecover(node: IRNode): string[] {
   }
   return lines;
 }
+
+// ── Ground Layer: uniqueBy ───────────────────────────────────────────────
+
+export function generateUniqueBy(node: IRNode): string[] {
+  const { annotations, todo, props, name } = groundPreamble(node);
+  const item = (props.item as string) || 'item';
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new Error("uniqueBy node requires an 'in' prop");
+  const by = unwrapExpr(props.by);
+  if (!by) throw new Error("uniqueBy node requires a 'by' prop");
+  const seenName = `__kern_seen_${name}`;
+  const keyName = `__kern_key_${name}`;
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
+
+  return [
+    ...todo,
+    ...annotations,
+    `${name}${typeAnnotation} = []`,
+    `${seenName} = set()`,
+    `for ${item} in ${collection}:`,
+    `    ${keyName} = ${by}`,
+    `    if ${keyName} not in ${seenName}:`,
+    `        ${seenName}.add(${keyName})`,
+    `        ${name}.append(${item})`,
+  ];
+}
+
+// ── Ground Layer: groupBy ────────────────────────────────────────────────
+
+export function generateGroupBy(node: IRNode): string[] {
+  const { annotations, todo, props, name } = groundPreamble(node);
+  const item = (props.item as string) || 'item';
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new Error("groupBy node requires an 'in' prop");
+  const by = unwrapExpr(props.by);
+  if (!by) throw new Error("groupBy node requires a 'by' prop");
+  const keyName = `__kern_key_${name}`;
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
+
+  return [
+    ...todo,
+    ...annotations,
+    `${name}${typeAnnotation} = {}`,
+    `for ${item} in ${collection}:`,
+    `    ${keyName} = ${by}`,
+    `    ${name}.setdefault(${keyName}, []).append(${item})`,
+  ];
+}
+
+// ── Ground Layer: partition ──────────────────────────────────────────────
+
+export function generatePartition(node: IRNode): string[] {
+  const annotations = emitPyReasonAnnotations(node);
+  const conf = p(node).confidence as string | undefined;
+  const todo = emitPyLowConfidenceTodo(node, conf);
+  const props = p(node);
+  const passRaw = props.pass as string | undefined;
+  if (!passRaw) throw new Error("partition node requires a 'pass' prop");
+  const failRaw = props.fail as string | undefined;
+  if (!failRaw) throw new Error("partition node requires a 'fail' prop");
+  const passName = toSnakeCase(passRaw);
+  const failName = toSnakeCase(failRaw);
+  const item = (props.item as string) || 'item';
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new Error("partition node requires an 'in' prop");
+  const predicate = unwrapExpr(props.where);
+  if (!predicate) throw new Error("partition node requires a 'where' prop");
+  const elemType = props.type ? mapTsTypeToPython(props.type as string) : undefined;
+  const typeAnnotation = elemType ? `: list[${elemType}]` : '';
+
+  return [
+    ...todo,
+    ...annotations,
+    `${passName}${typeAnnotation} = []`,
+    `${failName}${typeAnnotation} = []`,
+    `for ${item} in ${collection}:`,
+    `    if ${predicate}:`,
+    `        ${passName}.append(${item})`,
+    `    else:`,
+    `        ${failName}.append(${item})`,
+  ];
+}
+
+// ── Ground Layer: indexBy ────────────────────────────────────────────────
+
+export function generateIndexBy(node: IRNode): string[] {
+  const { annotations, todo, props, name } = groundPreamble(node);
+  const item = (props.item as string) || 'item';
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new Error("indexBy node requires an 'in' prop");
+  const by = unwrapExpr(props.by);
+  if (!by) throw new Error("indexBy node requires a 'by' prop");
+  const keyName = `__kern_key_${name}`;
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
+
+  return [
+    ...todo,
+    ...annotations,
+    `${name}${typeAnnotation} = {}`,
+    `for ${item} in ${collection}:`,
+    `    ${keyName} = ${by}`,
+    `    ${name}[${keyName}] = ${item}`,
+  ];
+}
+
+// ── Ground Layer: countBy ────────────────────────────────────────────────
+
+export function generateCountBy(node: IRNode): string[] {
+  const { annotations, todo, props, name } = groundPreamble(node);
+  const item = (props.item as string) || 'item';
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new Error("countBy node requires an 'in' prop");
+  const by = unwrapExpr(props.by);
+  if (!by) throw new Error("countBy node requires a 'by' prop");
+  const keyName = `__kern_key_${name}`;
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
+
+  return [
+    ...todo,
+    ...annotations,
+    `${name}${typeAnnotation} = {}`,
+    `for ${item} in ${collection}:`,
+    `    ${keyName} = ${by}`,
+    `    ${name}[${keyName}] = ${name}.get(${keyName}, 0) + 1`,
+  ];
+}

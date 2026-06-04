@@ -10,6 +10,11 @@
 export type PortableLogicPrimitiveId =
   | 'collection.has'
   | 'collection.count'
+  | 'collection.uniqueBy'
+  | 'collection.groupBy'
+  | 'collection.partition'
+  | 'collection.indexBy'
+  | 'collection.countBy'
   | 'logic.firstTruthy'
   | 'time.epochMs'
   | 'logic.not'
@@ -57,6 +62,51 @@ export const PORTABLE_LOGIC_PRIMITIVES = {
     intent: 'semantic-gap',
     hostPatterns: ['xs.length', 'xs.filter(x => pred).length', 'len(xs)'],
     portabilityNotes: ['Count is non-mutating; filtered counts evaluate the predicate once per item in source order.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.uniqueBy': {
+    id: 'collection.uniqueBy',
+    description: 'Unique collection elements by a selector key.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.uniqueBy(x => x.id)'],
+    portabilityNotes: ['Evaluates a scalar/hashable selector once per item; first-wins semantics.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.groupBy': {
+    id: 'collection.groupBy',
+    description: 'Groups collection elements by a selector key.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.groupBy(x => x.type)'],
+    portabilityNotes: ['Groups items into source-order buckets by scalar/hashable selector key.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.partition': {
+    id: 'collection.partition',
+    description: 'Partitions collection elements into pass and fail arrays based on a predicate.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.partition(x => pred)'],
+    portabilityNotes: ['Splits items into two lists based on predicate evaluations; type= denotes the element type.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.indexBy': {
+    id: 'collection.indexBy',
+    description: 'Indexes collection elements by a selector key.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.indexBy(x => x.id)'],
+    portabilityNotes: ['Indexes items by scalar/hashable selector key with last-write-wins semantics.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.countBy': {
+    id: 'collection.countBy',
+    description: 'Counts collection elements by a selector key.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.countBy(x => x.type)'],
+    portabilityNotes: ['Counts occurrences of each scalar/hashable selector key as integers.'],
     targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
   },
   'logic.firstTruthy': {

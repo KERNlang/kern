@@ -1123,7 +1123,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   uniqueBy: {
     description:
-      'Key-based dedup (first-wins, matches Lodash uniqBy) — `uniqueBy name=distinct in=users by="item.id"` emits a Set+filter form.',
+      'Key-based dedup over scalar/hashable selector keys (first-wins, matches Lodash uniqBy) — `uniqueBy name=distinct in=users by="item.id"` emits a Set+filter form.',
     example: 'uniqueBy name=distinct in=users by="item.id"',
     props: {
       name: { required: true, kind: 'identifier' },
@@ -1136,7 +1136,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   groupBy: {
     description:
-      'Partition an array into buckets by a key selector. Emits a reduce-based form (compatible with ES2022) — does not depend on `Object.groupBy` (ES2024).',
+      'Partition an array into buckets by a scalar/hashable key selector. Emits a reduce-based form (compatible with ES2022) — does not depend on `Object.groupBy` (ES2024).',
     example: 'groupBy name=byType in=items by="item.type"',
     props: {
       name: { required: true, kind: 'identifier' },
@@ -1149,7 +1149,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   partition: {
     description:
-      'Split an array into two by a predicate — single-pass reduce. Emits `const [pass, fail] = ...`. Both `pass` and `fail` prop names are required.',
+      'Split an array into two by a predicate — single-pass reduce. Emits `const [pass, fail] = ...`. Both `pass` and `fail` prop names are required. `type=` denotes the element type for each output list.',
     example: 'partition pass=active fail=inactive in=users where="item.active"',
     props: {
       name: { kind: 'identifier' },
@@ -1164,7 +1164,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   indexBy: {
     description:
-      'Array → keyed record via selector. `indexBy name=byId in=users by="item.id"` lowers to `Object.fromEntries(users.map(...))`. Collisions are last-write-wins.',
+      'Array → keyed record via scalar/hashable selector. `indexBy name=byId in=users by="item.id"` lowers to `Object.fromEntries(users.map(...))`. Collisions are last-write-wins.',
     example: 'indexBy name=byId in=users by="item.id"',
     props: {
       name: { required: true, kind: 'identifier' },
@@ -1177,7 +1177,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   countBy: {
     description:
-      'Count occurrences by key. `countBy name=counts in=items by="item.type"` lowers to a reduce with `Object.create(null)` accumulator (prototype-pollution safe).',
+      'Count occurrences by scalar/hashable selector key. `countBy name=counts in=items by="item.type"` lowers to a reduce with `Object.create(null)` accumulator (prototype-pollution safe).',
     example: 'countBy name=counts in=items by="item.type"',
     props: {
       name: { required: true, kind: 'identifier' },
