@@ -43,6 +43,7 @@ import {
   generateDerive,
   generateEach,
   generateExpect,
+  generateFirstTruthy,
   generateGuard,
   generateInvariant,
   generateObjectMerge,
@@ -95,6 +96,7 @@ export {
   generateDerive,
   generateEach,
   generateExpect,
+  generateFirstTruthy,
   generateGuard,
   generateInvariant,
   generateObjectMerge,
@@ -176,6 +178,8 @@ export function generatePythonCoreNode(node: IRNode, options: PythonCodegenOptio
       return generateDerive(node);
     case 'clamp':
       return generateClamp(node);
+    case 'firstTruthy':
+      return generateFirstTruthy(node);
     case 'objectMerge':
       return generateObjectMerge(node);
     case 'objectOmit':

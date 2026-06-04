@@ -26,6 +26,7 @@ import {
   generateFindIndex,
   generateFindLast,
   generateFindLastIndex,
+  generateFirstTruthy,
   generateFlat,
   generateFlatMap,
   generateForEach,
@@ -123,6 +124,42 @@ describe('Ground Layer: clamp', () => {
     expect(() => generateClamp(mk('clamp', { name: 'x', value: 'n', max: '1' }))).toThrow(/min/);
     expect(() => generateClamp(mk('clamp', { name: 'x', value: 'n', min: '0' }))).toThrow(/max/);
     expect(() => generateClamp(mk('clamp', { name: 'x', value: '', min: '0', max: '1' }))).toThrow(/value/);
+  });
+});
+
+describe('Ground Layer: firstTruthy', () => {
+  it('emits a named first-truthy fallback binding', () => {
+    const node = mk('firstTruthy', {
+      name: 'label',
+      values: "preferred, nickname, 'Anonymous'",
+      type: 'string',
+    });
+    expect(generateFirstTruthy(node).join('\n')).toBe(
+      "export const label: string = preferred || nickname || 'Anonymous';",
+    );
+  });
+
+  it('parenthesizes conditional operands before joining fallbacks', () => {
+    const node = mk('firstTruthy', {
+      name: 'label',
+      values: "ready ? preferred : nickname, 'Anonymous'",
+    });
+    expect(generateFirstTruthy(node).join('\n')).toBe(
+      "export const label = (ready ? preferred : nickname) || 'Anonymous';",
+    );
+  });
+
+  it('dispatches through generateCoreNode and honours export=false', () => {
+    const node = mk('firstTruthy', { name: 'label', values: "preferred, 'Fallback'", export: 'false' });
+    expect(generateCoreNode(node).join('\n')).toBe("const label = preferred || 'Fallback';");
+  });
+
+  it('requires at least two value expressions and rejects propagation', () => {
+    expect(() => generateFirstTruthy(mk('firstTruthy', { name: 'x' }))).toThrow(/values/);
+    expect(() => generateFirstTruthy(mk('firstTruthy', { name: 'x', values: 'preferred' }))).toThrow(/at least two/);
+    expect(() => generateFirstTruthy(mk('firstTruthy', { name: 'x', values: 'load()?, fallback' }))).toThrow(
+      /Propagation/,
+    );
   });
 });
 

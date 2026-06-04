@@ -60,6 +60,7 @@ export {
   generateFindIndex,
   generateFindLast,
   generateFindLastIndex,
+  generateFirstTruthy,
   generateFlat,
   generateFlatMap,
   generateFmt,
@@ -184,6 +185,7 @@ import {
   generateFindIndex,
   generateFindLast,
   generateFindLastIndex,
+  generateFirstTruthy,
   generateFlat,
   generateFlatMap,
   generateFmt,
@@ -867,6 +869,8 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return generateAt(node);
     case 'clamp':
       return generateClamp(node);
+    case 'firstTruthy':
+      return generateFirstTruthy(node);
     case 'objectMerge':
       return generateObjectMerge(node);
     case 'objectOmit':

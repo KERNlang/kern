@@ -444,6 +444,33 @@ describe('emitNativeKernBodyPython — objectPick/objectOmit body statements', (
   });
 });
 
+describe('emitNativeKernBodyPython — firstTruthy body statement', () => {
+  test('firstTruthy emits an ordered short-circuit fallback binding', () => {
+    const handler = makeHandler([
+      { type: 'firstTruthy', props: { name: 'label', values: "preferred, nickname, 'Anonymous'" } },
+      { type: 'return', props: { value: 'label' } },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toBe(
+      ['label = preferred or nickname or "Anonymous"', 'return label'].join('\n'),
+    );
+  });
+
+  test('firstTruthy parenthesizes conditional operands before joining fallbacks', () => {
+    const handler = makeHandler([
+      { type: 'firstTruthy', props: { name: 'label', values: "ready ? preferred : nickname, 'Anonymous'" } },
+      { type: 'return', props: { value: 'label' } },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toBe(
+      ['label = (preferred if ready else nickname) or "Anonymous"', 'return label'].join('\n'),
+    );
+  });
+
+  test('rejects propagation in firstTruthy values', () => {
+    const handler = makeHandler([{ type: 'firstTruthy', props: { name: 'label', values: 'load()?, fallback' } }]);
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/Propagation/);
+  });
+});
+
 describe('FastAPI fn handler lang=kern — Python codegen integration', () => {
   test('emits Python body for a native-KERN fn', () => {
     const source = [

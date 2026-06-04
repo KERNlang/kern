@@ -659,6 +659,28 @@ describe('suggest-kern-primitive rule', () => {
     });
   });
 
+  describe('firstTruthy detector', () => {
+    it('suggests firstTruthy for named fallback chains', () => {
+      const f = kernSuggestions(`const label = preferred || nickname || 'Anonymous';`);
+      const first = f.filter((x) => x.suggestion?.startsWith('firstTruthy '));
+      expect(first).toHaveLength(1);
+      expect(first[0].suggestion).toBe(`firstTruthy name=label values="preferred, nickname, 'Anonymous'"`);
+    });
+
+    it('does NOT suggest firstTruthy for obvious boolean predicates', () => {
+      const f = kernSuggestions(`const ok = isReady || hasOverride;`);
+      const first = f.filter((x) => x.suggestion?.startsWith('firstTruthy '));
+      expect(first).toHaveLength(0);
+    });
+
+    it('still suggests firstTruthy for non-boolean names that only share a prefix', () => {
+      const f = kernSuggestions(`const issue = issuer || isomorphic || 'fallback';`);
+      const first = f.filter((x) => x.suggestion?.startsWith('firstTruthy '));
+      expect(first).toHaveLength(1);
+      expect(first[0].suggestion).toBe(`firstTruthy name=issue values="issuer, isomorphic, 'fallback'"`);
+    });
+  });
+
   // ── conditional JSX detector ────────────────────────────────────────
 
   describe('conditional JSX detector', () => {

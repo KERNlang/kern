@@ -9,6 +9,7 @@
 
 export type PortableLogicPrimitiveId =
   | 'collection.has'
+  | 'logic.firstTruthy'
   | 'time.epochMs'
   | 'logic.not'
   | 'number.clamp'
@@ -46,6 +47,18 @@ export const PORTABLE_LOGIC_PRIMITIVES = {
     intent: 'semantic-gap',
     hostPatterns: ['new Set(xs).has(x)'],
     portabilityNotes: ['Membership intent is explicit; target helpers own Set/list membership mechanics.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'logic.firstTruthy': {
+    id: 'logic.firstTruthy',
+    description: 'Ordered truthy fallback selection, e.g. JS a || b || c and Python a or b or c.',
+    purity: 'pure',
+    intent: 'language-operator',
+    hostPatterns: ['a || b || c', 'a or b or c'],
+    portabilityNotes: [
+      'Uses host truthiness: false, 0, empty string, null/None, and undefined fall through; empty collections are target-specific because [] and {} are truthy in JS while empty lists/dicts are falsy in Python.',
+    ],
+    operatorRationale: 'KERN firstTruthy names this common fallback operator chain as portable intent.',
     targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
   },
   'time.epochMs': {

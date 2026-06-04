@@ -860,6 +860,7 @@ function isNativeBodyStatementChild(node: IRNode): boolean {
     case 'do':
     case 'fmt':
     case 'clamp':
+    case 'firstTruthy':
     case 'objectMerge':
     case 'objectOmit':
     case 'objectPick':
@@ -896,6 +897,7 @@ function isKernHandlerBodySignal(node: IRNode): boolean {
     case 'do':
     case 'fmt':
     case 'clamp':
+    case 'firstTruthy':
     case 'objectMerge':
     case 'objectOmit':
     case 'objectPick':

@@ -14,6 +14,7 @@ import { propsOf } from '../node-props.js';
 import { parseExpression } from '../parser-expression.js';
 import { expandTemplateNode, isTemplateNode } from '../template-engine.js';
 import type { ExprObject, IRNode } from '../types.js';
+import type { ValueIR } from '../value-ir.js';
 import { emitFmtTemplate, emitIdentifier, emitTypeAnnotation } from './emitters.js';
 import {
   capitalize,
@@ -792,6 +793,46 @@ export function generateClamp(node: IRNode): string[] {
     ...annotations,
     `${exp}const ${name}${typeAnnotation} = Math.max(${min}, Math.min(${max}, ${value}));`,
   ];
+}
+
+// ── Ground Layer: firstTruthy ───────────────────────────────────────────
+// `firstTruthy name=label values="preferred, nickname, 'Anonymous'"`
+//   → const label = preferred || nickname || 'Anonymous';
+
+export function generateFirstTruthy(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'firstTruthy'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'firstTruthy', node);
+  const rawValues = unwrapExpr(props.values);
+  if (rawValues === undefined || rawValues === '') {
+    throw new KernCodegenError("firstTruthy node requires a 'values' prop", node);
+  }
+  const values = splitExpressionList(rawValues, node, 'firstTruthy values=');
+  if (values.length < 2) throw new KernCodegenError('firstTruthy requires at least two value expressions', node);
+
+  const emitted = values.map((value) => {
+    const valueIR = parseExpression(value);
+    if (valueIR.kind === 'propagate') {
+      throw new KernCodegenError(
+        "Propagation '?' is not allowed in `firstTruthy values=` — bind the value first.",
+        node,
+      );
+    }
+    return emitFirstTruthyOperandTS(valueIR);
+  });
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = ${emitted.join(' || ')};`];
+}
+
+function emitFirstTruthyOperandTS(valueIR: ValueIR): string {
+  const emitted = emitExpression(valueIR);
+  return valueIR.kind === 'conditional' ? `(${emitted})` : emitted;
 }
 
 // ── Ground Layer: objectMerge ───────────────────────────────────────────

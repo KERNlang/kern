@@ -3,7 +3,7 @@
  * derive, transform, action, guard, assume, invariant, each, collect, branch, resolve, expect, recover
  */
 
-import type { ExprObject, IRNode } from '@kernlang/core';
+import type { ExprObject, IRNode, ValueIR } from '@kernlang/core';
 import { emitStringKeyArray, handlerCode, parseExpression, parseKeys } from '@kernlang/core';
 import { emitPyExpression } from '../codegen-body-python.js';
 import {
@@ -96,6 +96,33 @@ export function generateClamp(node: IRNode): string[] {
   const constType = props.type as string | undefined;
   const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
   return [...todo, ...annotations, `${name}${typeAnnotation} = max(${min}, min(${max}, ${value}))`];
+}
+
+// ── firstTruthy ────────────────────────────────────────────────────────
+
+export function generateFirstTruthy(node: IRNode): string[] {
+  const { annotations, todo, props, name } = groundPreamble(node);
+  const rawValues = unwrapExpr(props.values);
+  if (rawValues === undefined || rawValues === '') throw new Error("firstTruthy node requires a 'values' prop");
+  const values = splitExpressionList(rawValues, 'firstTruthy values=');
+  if (values.length < 2) throw new Error('firstTruthy requires at least two value expressions');
+
+  const emitted = values.map((value) => {
+    const valueIR = parseExpression(value);
+    if (valueIR.kind === 'propagate') {
+      throw new Error("Propagation '?' is not allowed in `firstTruthy values=` — bind the value first.");
+    }
+    return emitFirstTruthyOperandPy(valueIR);
+  });
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
+  return [...todo, ...annotations, `${name}${typeAnnotation} = ${emitted.join(' or ')}`];
+}
+
+function emitFirstTruthyOperandPy(valueIR: ValueIR): string {
+  const emitted = emitPyExpression(valueIR);
+  return valueIR.kind === 'conditional' ? `(${emitted})` : emitted;
 }
 
 // ── objectMerge ─────────────────────────────────────────────────────────

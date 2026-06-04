@@ -35,6 +35,7 @@ import {
 } from '@kernlang/core';
 import type {
   ArrowFunction,
+  BinaryExpression,
   CallExpression,
   FunctionDeclaration,
   FunctionExpression,
@@ -665,6 +666,58 @@ function destructuredPropertyNameText(node: TsNode): string | null {
   return null;
 }
 
+function firstTruthySuggestion(expr: BinaryExpression): { name: string; values: string } | null {
+  if (expr.getOperatorToken().getKind() !== SyntaxKind.BarBarToken) return null;
+  const name = variableNameForInitializer(expr);
+  if (!name) return null;
+
+  const values = flattenOrChain(expr);
+  if (values.length < 2) return null;
+  if (isObviousBooleanPredicateFallback(name, values)) return null;
+
+  return { name, values: values.map((value) => value.getText()).join(', ') };
+}
+
+function flattenOrChain(expr: BinaryExpression): TsNode[] {
+  const left = expr.getLeft();
+  const right = expr.getRight();
+  const out: TsNode[] = [];
+  if (Node.isBinaryExpression(left) && left.getOperatorToken().getKind() === SyntaxKind.BarBarToken) {
+    out.push(...flattenOrChain(left));
+  } else {
+    out.push(left);
+  }
+  if (Node.isBinaryExpression(right) && right.getOperatorToken().getKind() === SyntaxKind.BarBarToken) {
+    out.push(...flattenOrChain(right));
+  } else {
+    out.push(right);
+  }
+  return out;
+}
+
+function isObviousBooleanPredicateFallback(name: string, values: TsNode[]): boolean {
+  if (values.length !== 2) return false;
+  const text = [name, ...values.map((value) => value.getText())];
+  return text.every(looksLikeBooleanPredicateName);
+}
+
+function looksLikeBooleanPredicateName(value: string): boolean {
+  return /^(?:is|has|can|should|did|will|ok|valid|enabled|ready|active)(?:[A-Z_]|$)/.test(value);
+}
+
+function firstTruthyFinding(ctx: RuleContext, node: TsNode, name: string, values: string): ReviewFinding {
+  return finding(
+    'suggest-kern-primitive',
+    'info',
+    'pattern',
+    'JS truthy fallback chain could migrate to KERN `firstTruthy` — named portable fallback selection',
+    ctx.filePath,
+    node.getStartLineNumber(),
+    nodeColumn(node),
+    { suggestion: `firstTruthy name=${name} values="${escapeKernString(values)}"` },
+  );
+}
+
 function objectLiteralPickSuggestion(expr: TsNode): { name: string; source: string; keys: string[] } | null {
   if (!Node.isObjectLiteralExpression(expr)) return null;
   const name = variableNameForInitializer(expr);
@@ -940,6 +993,14 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
   const shadowsGlobalObject = sourceFileDeclaresBinding(ctx, 'Object');
   const shadowsGlobalMath = sourceFileDeclaresBinding(ctx, 'Math');
+
+  // `const label = preferred || nickname || 'Anonymous'`
+  //   → firstTruthy name=label values="preferred, nickname, 'Anonymous'"
+  for (const binary of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
+    const suggestion = firstTruthySuggestion(binary);
+    if (!suggestion) continue;
+    findings.push(firstTruthyFinding(ctx, binary, suggestion.name, suggestion.values));
+  }
 
   // `[...new Set(coll)]` → route to the dedicated `unique` primitive.
   for (const arr of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.ArrayLiteralExpression)) {

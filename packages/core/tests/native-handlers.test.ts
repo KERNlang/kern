@@ -675,6 +675,46 @@ describe('emitNativeKernBodyTS — objectMerge body statement', () => {
   });
 });
 
+describe('emitNativeKernBodyTS — firstTruthy body statement', () => {
+  test('firstTruthy emits an ordered short-circuit fallback binding', () => {
+    const handler = makeHandler([
+      { type: 'firstTruthy', props: { name: 'label', values: "preferred, nickname, 'Anonymous'" } },
+      { type: 'return', props: { value: 'label' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(
+      ["const label = preferred || nickname || 'Anonymous';", 'return label;'].join('\n'),
+    );
+  });
+
+  test('firstTruthy parenthesizes conditional operands before joining fallbacks', () => {
+    const handler = makeHandler([
+      { type: 'firstTruthy', props: { name: 'label', values: "ready ? preferred : nickname, 'Anonymous'" } },
+      { type: 'return', props: { value: 'label' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(
+      ["const label = (ready ? preferred : nickname) || 'Anonymous';", 'return label;'].join('\n'),
+    );
+  });
+
+  test('rejects propagation in firstTruthy values', () => {
+    const handler = makeHandler([{ type: 'firstTruthy', props: { name: 'label', values: 'load()?, fallback' } }]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/Propagation/);
+  });
+
+  test('infers kern handler language from firstTruthy child', () => {
+    const doc = parseDocument(
+      [
+        'fn name=label returns=string',
+        '  handler',
+        `    firstTruthy name=label values="preferred, nickname, 'Anonymous'"`,
+        '    return value=label',
+      ].join('\n'),
+    );
+    const handler = doc.children?.[0]?.children?.find((child) => child.type === 'handler');
+    expect(handler?.props?.lang).toBe('kern');
+  });
+});
+
 describe('emitNativeKernBodyTS — objectPick/objectOmit body statements', () => {
   test('objectPick emits a shallow own-key binding and can return missing keys', () => {
     const handler = makeHandler([

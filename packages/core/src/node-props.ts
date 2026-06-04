@@ -252,6 +252,11 @@ export interface ObjectMergeProps extends BaseProps {
   type?: string;
 }
 
+export interface FirstTruthyProps extends BaseProps {
+  values?: string | ExprObject;
+  type?: string;
+}
+
 export interface ObjectPickProps extends BaseProps {
   in?: string | ExprObject;
   keys?: string | ExprObject;
@@ -856,6 +861,7 @@ export interface NodePropsMap {
   slice: SliceProps;
   at: AtProps;
   clamp: ClampProps;
+  firstTruthy: FirstTruthyProps;
   objectMerge: ObjectMergeProps;
   objectOmit: ObjectOmitProps;
   objectPick: ObjectPickProps;

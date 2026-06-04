@@ -10,6 +10,7 @@ describe('portable logic primitive registry', () => {
   test('registers the Job-central R1 primitive surface explicitly', () => {
     expect(PORTABLE_LOGIC_PRIMITIVE_IDS).toEqual([
       'collection.has',
+      'logic.firstTruthy',
       'time.epochMs',
       'logic.not',
       'number.clamp',
@@ -28,6 +29,7 @@ describe('portable logic primitive registry', () => {
 
   test('reports per-target support for the current parity slice', () => {
     expect(portableLogicSupportForTarget('collection.has', 'python')).toBe('stable');
+    expect(portableLogicSupportForTarget('logic.firstTruthy', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('time.epochMs', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('logic.not', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('number.clamp', 'python')).toBe('stable');
@@ -70,6 +72,9 @@ describe('portable logic primitive registry', () => {
 
   test('lookup returns null for unknown primitive ids', () => {
     expect(lookupPortableLogicPrimitive('collection.has')?.purity).toBe('pure');
+    const firstTruthy = lookupPortableLogicPrimitive('logic.firstTruthy');
+    expect(firstTruthy?.hostPatterns).toContain('a || b || c');
+    expect(firstTruthy?.portabilityNotes.join(' ')).toContain('empty collections are target-specific');
     expect(lookupPortableLogicPrimitive('number.clamp')?.hostPatterns).toContain('Math.max(lo, Math.min(hi, value))');
     expect(lookupPortableLogicPrimitive('number.clamp')?.intent).toBe('semantic-gap');
     expect(lookupPortableLogicPrimitive('object.keys')?.hostPatterns).toContain('Object.keys(obj)');
