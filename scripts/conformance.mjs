@@ -605,6 +605,26 @@ const FIXTURES = [
   { name: 'obj-more: Object.assign merges', expr: 'Object.assign({}, o1, o2)', path: '/api/o', bindings: { locals: { o1: { a: 1 }, o2: { b: 2 } } }, expected: { a: 1, b: 2 } },
   { name: 'obj-more: Object.fromEntries', expr: 'Object.fromEntries(pairs)', path: '/api/o', bindings: { locals: { pairs: [['a', 1], ['b', 2]] } }, expected: { a: 1, b: 2 } },
 
+  // ── portable-logic-matrix: object/text traps behind the registry contract ──
+  { name: 'portable-logic-matrix: Object.keys numeric-like order', expr: 'Object.keys({"2":"two","1":"one","x":"ex"})', path: '/api/pl', bindings: {}, expected: ['1', '2', 'x'] },
+  { name: 'portable-logic-matrix: Object.values numeric-like order', expr: 'Object.values({"2":"two","1":"one","x":"ex"})', path: '/api/pl', bindings: {}, expected: ['one', 'two', 'ex'] },
+  { name: 'portable-logic-matrix: Object.entries numeric-like order', expr: 'Object.entries({"2":"two","1":"one","x":"ex"})', path: '/api/pl', bindings: {}, expected: [['1', 'one'], ['2', 'two'], ['x', 'ex']] },
+  { name: 'portable-logic-matrix: Object.keys number primitive is empty', expr: 'Object.keys(42)', path: '/api/pl', bindings: {}, expected: [] },
+  { name: 'portable-logic-matrix: trim NBSP', expr: 's.trim()', path: '/api/pl', bindings: { locals: { s: '\u00a0hi\u00a0' } }, expected: 'hi' },
+  { name: 'portable-logic-matrix: split limit keeps first N only', expr: 's.split(",", 2)', path: '/api/pl', bindings: { locals: { s: 'a,b,c,d' } }, expected: ['a', 'b'] },
+  { name: 'portable-logic-matrix: split float limit truncates', expr: 's.split(",", 2.9)', path: '/api/pl', bindings: { locals: { s: 'a,b,c,d' } }, expected: ['a', 'b'] },
+  { name: 'portable-logic-matrix: split negative limit keeps all', expr: 's.split(",", -1)', path: '/api/pl', bindings: { locals: { s: 'a,b,c,d' } }, expected: ['a', 'b', 'c', 'd'] },
+  { name: 'portable-logic-matrix: split uint32 wrap to zero', expr: 's.split(",", 4294967296)', path: '/api/pl', bindings: { locals: { s: 'a,b,c,d' } }, expected: [] },
+  { name: 'portable-logic-matrix: split empty separator chars', expr: 's.split("")', path: '/api/pl', bindings: { locals: { s: 'abc' } }, expected: ['a', 'b', 'c'] },
+  { name: 'portable-logic-matrix: split empty separator limit', expr: 's.split("", 2)', path: '/api/pl', bindings: { locals: { s: 'abc' } }, expected: ['a', 'b'] },
+  { name: 'portable-logic-matrix: split empty separator negative limit', expr: 's.split("", -1)', path: '/api/pl', bindings: { locals: { s: 'abc' } }, expected: ['a', 'b', 'c'] },
+  { name: 'portable-logic-matrix: replace first occurrence only', expr: 's.replace("a", "X")', path: '/api/pl', bindings: { locals: { s: 'banana' } }, expected: 'bXnana' },
+  { name: 'portable-logic-matrix: replaceAll all occurrences', expr: 's.replaceAll("a", "X")', path: '/api/pl', bindings: { locals: { s: 'banana' } }, expected: 'bXnXnX' },
+  { name: 'portable-logic-matrix: replace replacement match token', expr: 's.replace("a", "$&")', path: '/api/pl', bindings: { locals: { s: 'banana' } }, expected: 'banana' },
+  { name: 'portable-logic-matrix: replace escaped dollar replacement token', expr: 's.replace("a", "\\u0024&")', path: '/api/pl', bindings: { locals: { s: 'banana' } }, expected: 'banana' },
+  { name: 'portable-logic-matrix: replace replacement prefix token', expr: 's.replace("n", "$`")', path: '/api/pl', bindings: { locals: { s: 'banana' } }, expected: 'babaana' },
+  { name: 'portable-logic-matrix: replaceAll escaped dollar token', expr: 's.replaceAll("a", "$$")', path: '/api/pl', bindings: { locals: { s: 'banana' } }, expected: 'b$n$n$' },
+
   // ── math-more: Math.sign not lowered → NameError on Python ──
   { name: 'math-more: Math.sign(-5)', expr: 'Math.sign(x)', path: '/api/m', bindings: { locals: { x: -5 } }, expected: -1 },
   { name: 'math-more: Math.sign(0)', expr: 'Math.sign(x)', path: '/api/m', bindings: { locals: { x: 0 } }, expected: 0 },

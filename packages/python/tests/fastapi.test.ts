@@ -2521,7 +2521,7 @@ describe('FastAPI Transpiler', () => {
       const { rewriteExpr } = await import('../src/core/expr/index.js');
       // JS keeps the FIRST `limit` parts; Python's 2nd arg is maxsplit (keeps
       // the remainder), so the only correct lowering truncates AFTER a full split.
-      expect(rewriteExpr('s.split(",", 2)', [])).toBe('s.split(",")[:2]');
+      expect(rewriteExpr('s.split(",", 2)', [])).toBe('s.split(",")[:_kern_js_split_limit(2)]');
       // Must NOT emit the maxsplit form `s.split(",", 2)`.
       expect(rewriteExpr('s.split(",", 2)', [])).not.toBe('s.split(",", 2)');
       // The existing no-limit form stays raw (Python str.split matches JS).
