@@ -1,6 +1,6 @@
 # @kernlang/mcp-server
 
-MCP server for KERN -- the LLM-native language that compiles to 12 targets. Give any AI agent the ability to write, compile, review, and self-correct `.kern` code.
+MCP server for KERN -- the backend structure and portable route-logic language. Give any AI agent the ability to write, compile, review, and self-correct `.kern` code.
 
 ```
 npx @kernlang/mcp-server
@@ -8,11 +8,11 @@ npx @kernlang/mcp-server
 
 ## What is this?
 
-KERN is a declarative DSL designed specifically for AI code generation. This MCP server exposes KERN's full compiler, reviewer, and schema to any MCP-compatible client (Claude Desktop, Cursor, Windsurf, VS Code, etc.).
+KERN is a declarative DSL for backend structure, portable route logic, and AI-assisted code generation. This MCP server exposes KERN's compiler, reviewer, and schema to any MCP-compatible client (Claude Desktop, Cursor, Windsurf, VS Code, etc.).
 
 An AI agent using this server can:
 1. **Ask what it can write** -- `schema` tool returns the full language spec as JSON
-2. **Compile .kern to any target** -- Next.js, React, Vue, Express, FastAPI, MCP servers, and more
+2. **Compile .kern to maintained targets** -- especially Express, FastAPI, MCP servers, and UI/runtime adapters where they fit
 3. **Self-correct from errors** -- `compile-json` returns structured diagnostics with line numbers and suggestions
 4. **Review code** -- 76+ static analysis rules with taint tracking and OWASP coverage
 
@@ -71,7 +71,7 @@ Add to your MCP settings:
 
 ### compile
 
-Compile `.kern` source to any target framework. Returns generated code.
+Compile `.kern` source to an available target framework. Returns generated code.
 
 ```
 source: ".kern source code"
@@ -117,7 +117,7 @@ Validate `.kern` syntax without compiling. Returns parse errors or success.
 
 ### list-targets
 
-List all 13 available compile targets plus React output structures.
+List available compile targets plus React output structures.
 
 ### list-nodes
 
