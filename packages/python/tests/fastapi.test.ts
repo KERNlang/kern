@@ -3117,6 +3117,65 @@ describe('FastAPI Transpiler', () => {
       expect(() => transpileFastAPI(parse(concatMany))).toThrow(/exactly one list-valued/);
     });
 
+    test('portable route string primitives lower to FastAPI Python code', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/string-shape',
+        '    trim name=clean in=raw',
+        '    split name=parts in=csv separator=","',
+        '    split name=first_two in=csv separator="," limit=2',
+        '    replaceFirst name=first_replaced in=phrase search="foo" replacement="$"',
+        '    replaceAll name=all_replaced in=phrase search="foo" replacement="$"',
+        '    replaceAll name=deleted in=letters search="a" replacement=""',
+        '    respond 200 json={{ {clean: clean, parts: parts, firstTwo: first_two, firstReplaced: first_replaced, allReplaced: all_replaced, deleted: deleted} }}',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post_api_string_shape'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+
+      expect(code).toContain('def __kern_string_clean(__kern_value):');
+      expect(code).toContain('def __kern_trim_clean(__kern_value):');
+      expect(code).toContain(
+        'clean = (lambda __kern_value: None if __kern_value is None else __kern_trim_clean(__kern_value))(raw)',
+      );
+      expect(code).toContain(
+        'parts = (lambda __kern_value: None if __kern_value is None else __kern_string_parts(__kern_value).split(","))(csv)',
+      );
+      expect(code).toContain(
+        'first_two = (lambda __kern_value: None if __kern_value is None else __kern_string_first_two(__kern_value).split(",")[:2])(csv)',
+      );
+      expect(code).toContain(
+        'first_replaced = (lambda __kern_value: None if __kern_value is None else __kern_string_first_replaced(__kern_value).replace("foo", "$", 1))(phrase)',
+      );
+      expect(code).toContain(
+        'all_replaced = (lambda __kern_value: None if __kern_value is None else __kern_string_all_replaced(__kern_value).replace("foo", "$"))(phrase)',
+      );
+      expect(code).toContain(
+        'deleted = (lambda __kern_value: None if __kern_value is None else __kern_string_deleted(__kern_value).replace("a", ""))(letters)',
+      );
+    });
+
+    test('portable route string primitives reject deferred shapes', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const emptySeparator = [
+        'server name=API',
+        '  route method=post path=/api/string-shape',
+        '    split name=parts in=csv separator=""',
+      ].join('\n');
+      expect(() => transpileFastAPI(parse(emptySeparator))).toThrow(/non-empty `separator=`/);
+
+      const emptySearch = [
+        'server name=API',
+        '  route method=post path=/api/string-shape',
+        '    replaceAll name=out in=phrase search="" replacement="x"',
+      ].join('\n');
+      expect(() => transpileFastAPI(parse(emptySearch))).toThrow(/non-empty `search=`/);
+    });
+
     test('portable sort nodes lower to immutable FastAPI Python sorting code', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');

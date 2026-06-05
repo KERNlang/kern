@@ -33,6 +33,18 @@ export function emitPythonRouteStringCoerceHelper(lines: string[], indent: strin
   emitPythonRouteSortKeyHelper(lines, indent, helperName);
 }
 
+export function emitPythonRouteTrimHelper(
+  lines: string[],
+  indent: string,
+  helperName: string,
+  stringCoerceName: string,
+): void {
+  lines.push(`${indent}def ${helperName}(__kern_value):`);
+  lines.push(
+    `${indent}    return ${stringCoerceName}(__kern_value).strip("\\u0009\\u000a\\u000b\\u000c\\u000d\\u0020\\u00a0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff")`,
+  );
+}
+
 export function emitPythonRouteJoinPartHelper(lines: string[], indent: string, helperName: string): void {
   lines.push(`${indent}def ${helperName}(__kern_value):`);
   lines.push(`${indent}    if __kern_value is None:`);

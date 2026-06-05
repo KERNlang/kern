@@ -311,6 +311,73 @@ describe('pure Python handlers: keyed reshape route scope', () => {
     expect(() => emitPureHandlers(concatMany, new Set(), concatMany)).toThrow(/exactly one list-valued/);
   });
 
+  test('lowers route string primitive nodes', () => {
+    const server = {
+      type: 'server',
+      props: { name: 'API' },
+      children: [
+        {
+          type: 'route',
+          props: { method: 'post', path: '/api/t' },
+          children: [
+            { type: 'trim', props: { name: 'clean', in: 'raw' } },
+            { type: 'split', props: { name: 'parts', in: 'csv', separator: ',' } },
+            { type: 'split', props: { name: 'first_two', in: 'csv', separator: ',', limit: '2' } },
+            { type: 'replaceFirst', props: { name: 'first_replaced', in: 'phrase', search: 'foo', replacement: '$' } },
+            { type: 'replaceAll', props: { name: 'all_replaced', in: 'phrase', search: 'foo', replacement: '$' } },
+            { type: 'replaceAll', props: { name: 'deleted', in: 'letters', search: 'a', replacement: '' } },
+            {
+              type: 'respond',
+              props: {
+                status: 200,
+                json: {
+                  __expr: true,
+                  code: '{ clean: clean, parts: parts, firstTwo: first_two, firstReplaced: first_replaced, allReplaced: all_replaced, deleted: deleted }',
+                },
+              },
+            },
+          ],
+        },
+      ],
+    } satisfies IRNode;
+    const handlers = emitPureHandlers(server, new Set(), server);
+    const body = handlers[0].bodyLines.join('\n');
+    expect(body).toContain('def __kern_string_clean(__kern_value):');
+    expect(body).toContain('def __kern_trim_clean(__kern_value):');
+    expect(body).toContain(
+      'clean = (lambda __kern_value: None if __kern_value is None else __kern_trim_clean(__kern_value))(raw)',
+    );
+    expect(body).toContain(
+      'parts = (lambda __kern_value: None if __kern_value is None else __kern_string_parts(__kern_value).split(","))(csv)',
+    );
+    expect(body).toContain(
+      'first_two = (lambda __kern_value: None if __kern_value is None else __kern_string_first_two(__kern_value).split(",")[:2])(csv)',
+    );
+    expect(body).toContain(
+      'first_replaced = (lambda __kern_value: None if __kern_value is None else __kern_string_first_replaced(__kern_value).replace("foo", "$", 1))(phrase)',
+    );
+    expect(body).toContain(
+      'all_replaced = (lambda __kern_value: None if __kern_value is None else __kern_string_all_replaced(__kern_value).replace("foo", "$"))(phrase)',
+    );
+    expect(body).toContain(
+      'deleted = (lambda __kern_value: None if __kern_value is None else __kern_string_deleted(__kern_value).replace("a", ""))(letters)',
+    );
+  });
+
+  test('rejects deferred route string primitive shapes', () => {
+    const emptySeparator = routeWith({
+      type: 'split',
+      props: { name: 'parts', in: 'csv', separator: '' },
+    });
+    expect(() => emitPureHandlers(emptySeparator, new Set(), emptySeparator)).toThrow(/non-empty `separator=`/);
+
+    const emptySearch = routeWith({
+      type: 'replaceAll',
+      props: { name: 'out', in: 'phrase', search: '', replacement: 'x' },
+    });
+    expect(() => emitPureHandlers(emptySearch, new Set(), emptySearch)).toThrow(/non-empty `search=`/);
+  });
+
   test('lowers route sort nodes', () => {
     const server = {
       type: 'server',

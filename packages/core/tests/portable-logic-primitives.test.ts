@@ -117,6 +117,10 @@ describe('portable logic primitive registry', () => {
       '    includes name=has_primary in=emails value="primary_email"',
       '    indexOf name=primary_idx in=emails value="primary_email"',
       '    lastIndexOf name=last_primary_idx in=emails value="primary_email"',
+      '    trim name=clean_name in=raw_name',
+      '    split name=name_parts in=clean_name separator=" " limit=2',
+      '    replaceFirst name=first_safe in=clean_name search=" " replacement="_"',
+      '    replaceAll name=all_safe in=clean_name search=" " replacement="_"',
       '    sort name=ranked in=users compare="b.score - a.score"',
       '    uniqueBy name=distinct in=users by="item.id"',
       '    groupBy name=by_type in=users by="item.type"',
@@ -139,10 +143,10 @@ describe('portable logic primitive registry', () => {
       'server name=API',
       '  route method=get path=/api/t',
       '    stream',
-      '      join name=csv in=users separator="|"',
+      '      trim name=clean_name in=raw_name',
     ].join('\n');
     const stream = parseDocumentWithDiagnostics(streamRoute);
-    expect(validateSchema(stream.root).some((v) => /'stream' does not allow child type 'join'/.test(v.message))).toBe(
+    expect(validateSchema(stream.root).some((v) => /'stream' does not allow child type 'trim'/.test(v.message))).toBe(
       true,
     );
   });

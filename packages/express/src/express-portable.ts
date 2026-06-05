@@ -93,6 +93,28 @@ function requirePortableProp(nodeType: string, propName: string, value: string):
   return value;
 }
 
+function portableLiteralStringProp(
+  nodeType: string,
+  propName: string,
+  prop: unknown,
+  options: { allowEmpty?: boolean } = {},
+): string {
+  if (prop === undefined || prop === null) {
+    throw new Error(`portable route \`${nodeType}\` requires \`${propName}=\`.`);
+  }
+  if (typeof prop === 'object' && (prop as any).__expr) {
+    throw new Error(`portable route \`${nodeType}\` requires literal \`${propName}=\`, not an expression.`);
+  }
+  if (typeof prop !== 'string') {
+    throw new Error(`portable route \`${nodeType}\` requires string literal \`${propName}=\`.`);
+  }
+  const value = String(prop);
+  if (!options.allowEmpty && value.length === 0) {
+    throw new Error(`portable route \`${nodeType}\` requires non-empty \`${propName}=\`.`);
+  }
+  return value;
+}
+
 function portableTempSuffix(...parts: string[]): string {
   const joined = parts.filter(Boolean).join('_') || 'reshape';
   return joined.replace(/[^A-Za-z0-9_$]/g, '_');
@@ -545,6 +567,49 @@ export function generatePortableChildExpress(
       }
       break;
     }
+    case 'trim': {
+      const name = emitIdentifier(requirePortableProp('trim', 'name', String(p.name || '')), 'trim', child);
+      const source = rewriteExpressExpr(requirePortableProp('trim', 'in', portableExprProp(p.in)), path);
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      lines.push(
+        `${indent}const ${name}${typeAnnotation} = ((__kernValue) => __kernValue == null ? null : String(__kernValue).trim())(${source});`,
+      );
+      break;
+    }
+    case 'split': {
+      const name = emitIdentifier(requirePortableProp('split', 'name', String(p.name || '')), 'split', child);
+      const source = rewriteExpressExpr(requirePortableProp('split', 'in', portableExprProp(p.in)), path);
+      const separator = JSON.stringify(portableLiteralStringProp('split', 'separator', p.separator));
+      const limitRaw = portableExprProp(p.limit).trim();
+      const limit = limitRaw ? parsePortableNonNegativeIntLiteral(limitRaw, child, 'limit') : undefined;
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      const slice = limit === undefined ? '' : `.slice(0, ${limit})`;
+      lines.push(
+        `${indent}const ${name}${typeAnnotation} = ((__kernValue) => __kernValue == null ? null : String(__kernValue).split(${separator})${slice})(${source});`,
+      );
+      break;
+    }
+    case 'replaceFirst':
+    case 'replaceAll': {
+      const kind = child.type;
+      const name = emitIdentifier(requirePortableProp(kind, 'name', String(p.name || '')), kind, child);
+      const source = rewriteExpressExpr(requirePortableProp(kind, 'in', portableExprProp(p.in)), path);
+      const search = JSON.stringify(portableLiteralStringProp(kind, 'search', p.search));
+      const replacement = JSON.stringify(
+        portableLiteralStringProp(kind, 'replacement', p.replacement, { allowEmpty: true }),
+      );
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      if (kind === 'replaceAll') {
+        lines.push(
+          `${indent}const ${name}${typeAnnotation} = ((__kernValue) => __kernValue == null ? null : String(__kernValue).split(${search}).join(${replacement}))(${source});`,
+        );
+      } else {
+        lines.push(
+          `${indent}const ${name}${typeAnnotation} = ((__kernValue) => { if (__kernValue == null) return null; const __kernSource = String(__kernValue); const __kernSearch = ${search}; const __kernIndex = __kernSource.indexOf(__kernSearch); return __kernIndex < 0 ? __kernSource : __kernSource.slice(0, __kernIndex) + ${replacement} + __kernSource.slice(__kernIndex + __kernSearch.length); })(${source});`,
+        );
+      }
+      break;
+    }
     case 'sort': {
       const name = emitIdentifier(requirePortableProp('sort', 'name', String(p.name || '')), 'sort', child);
       const collection = rewriteExpressExpr(requirePortableProp('sort', 'in', portableExprProp(p.in)), path);
@@ -798,6 +863,10 @@ export function generatePortableHandlerExpress(
     'includes',
     'indexOf',
     'lastIndexOf',
+    'trim',
+    'split',
+    'replaceFirst',
+    'replaceAll',
     'sort',
     'objectMerge',
     'objectOmit',

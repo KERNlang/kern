@@ -1437,6 +1437,63 @@ describe('Express Transpiler', () => {
       expect(() => transpileExpress(parse(concatMany))).toThrow(/exactly one list-valued/);
     });
 
+    test('transpiles route string primitives correctly', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/string-shape',
+        '    trim name=clean in=raw',
+        '    split name=parts in=csv separator=","',
+        '    split name=first_two in=csv separator="," limit=2',
+        '    replaceFirst name=first_replaced in=phrase search="foo" replacement="$"',
+        '    replaceAll name=all_replaced in=phrase search="foo" replacement="$"',
+        '    replaceAll name=deleted in=letters search="a" replacement=""',
+        '    respond 200 json={{ {clean: clean, parts: parts, firstTwo: first_two, firstReplaced: first_replaced, allReplaced: all_replaced, deleted: deleted} }}',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('string-shape') && a.path.endsWith('.ts'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+
+      expect(code).toContain(
+        'const clean = ((__kernValue) => __kernValue == null ? null : String(__kernValue).trim())(raw);',
+      );
+      expect(code).toContain(
+        'const parts = ((__kernValue) => __kernValue == null ? null : String(__kernValue).split(","))(csv);',
+      );
+      expect(code).toContain(
+        'const first_two = ((__kernValue) => __kernValue == null ? null : String(__kernValue).split(",").slice(0, 2))(csv);',
+      );
+      expect(code).toContain('const first_replaced = ((__kernValue) => {');
+      expect(code).toContain('const __kernSearch = "foo";');
+      expect(code).toContain('__kernSource.slice(0, __kernIndex) + "$" + __kernSource.slice');
+      expect(code).toContain(
+        'const all_replaced = ((__kernValue) => __kernValue == null ? null : String(__kernValue).split("foo").join("$"))(phrase);',
+      );
+      expect(code).toContain(
+        'const deleted = ((__kernValue) => __kernValue == null ? null : String(__kernValue).split("a").join(""))(letters);',
+      );
+    });
+
+    test('rejects deferred route string primitive shapes', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const emptySeparator = [
+        'server name=API',
+        '  route method=post path=/api/string-shape',
+        '    split name=parts in=csv separator=""',
+      ].join('\n');
+      expect(() => transpileExpress(parse(emptySeparator))).toThrow(/non-empty `separator=`/);
+
+      const emptySearch = [
+        'server name=API',
+        '  route method=post path=/api/string-shape',
+        '    replaceAll name=out in=phrase search="" replacement="x"',
+      ].join('\n');
+      expect(() => transpileExpress(parse(emptySearch))).toThrow(/non-empty `search=`/);
+    });
+
     test('transpiles route object merge, pick, and omit correctly', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');

@@ -58,6 +58,10 @@ export function buildRouteArtifact(
   const includesNodes = getChildren(routeNode, 'includes');
   const indexOfNodes = getChildren(routeNode, 'indexOf');
   const lastIndexOfNodes = getChildren(routeNode, 'lastIndexOf');
+  const trimNodes = getChildren(routeNode, 'trim');
+  const splitNodes = getChildren(routeNode, 'split');
+  const replaceFirstNodes = getChildren(routeNode, 'replaceFirst');
+  const replaceAllNodes = getChildren(routeNode, 'replaceAll');
   const sortNodes = getChildren(routeNode, 'sort');
   const objectMergeNodes = getChildren(routeNode, 'objectMerge');
   const objectOmitNodes = getChildren(routeNode, 'objectOmit');
@@ -97,6 +101,10 @@ export function buildRouteArtifact(
     includesNodes.length > 0 ||
     indexOfNodes.length > 0 ||
     lastIndexOfNodes.length > 0 ||
+    trimNodes.length > 0 ||
+    splitNodes.length > 0 ||
+    replaceFirstNodes.length > 0 ||
+    replaceAllNodes.length > 0 ||
     sortNodes.length > 0 ||
     objectMergeNodes.length > 0 ||
     objectOmitNodes.length > 0 ||

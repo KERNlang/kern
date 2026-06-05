@@ -30,6 +30,7 @@ import {
   emitPythonRouteScalarLookupHelpers,
   emitPythonRouteSortKeyHelper,
   emitPythonRouteStringCoerceHelper,
+  emitPythonRouteTrimHelper,
   pythonRouteCompactPredicate,
 } from './portable-collection-emitter.js';
 import { pythonRouteRecordExpr, pythonRouteRecordPickExpr } from './portable-object-emitter.js';
@@ -57,6 +58,28 @@ function extractCodeOrString(val: unknown): string {
 
 function requirePortableProp(nodeType: string, propName: string, value: string): string {
   if (!value) throw new Error(`portable route \`${nodeType}\` requires \`${propName}=\`.`);
+  return value;
+}
+
+function portableLiteralStringProp(
+  nodeType: string,
+  propName: string,
+  prop: unknown,
+  options: { allowEmpty?: boolean } = {},
+): string {
+  if (prop === undefined || prop === null) {
+    throw new Error(`portable route \`${nodeType}\` requires \`${propName}=\`.`);
+  }
+  if (typeof prop === 'object' && (prop as any).__expr) {
+    throw new Error(`portable route \`${nodeType}\` requires literal \`${propName}=\`, not an expression.`);
+  }
+  if (typeof prop !== 'string') {
+    throw new Error(`portable route \`${nodeType}\` requires string literal \`${propName}=\`.`);
+  }
+  const value = String(prop);
+  if (!options.allowEmpty && value.length === 0) {
+    throw new Error(`portable route \`${nodeType}\` requires non-empty \`${propName}=\`.`);
+  }
   return value;
 }
 
@@ -934,6 +957,79 @@ export function generatePortableChildFastAPI(
       }
       break;
     }
+    case 'trim': {
+      const name = toPythonBindingName(requirePortableProp('trim', 'name', String(p.name || '')), 'trim');
+      const source = rewriteFastAPIStmtExpr(
+        requirePortableProp('trim', 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      lines.push(...source.hoists);
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      const stringHelperName = `__kern_string_${name}`;
+      const trimHelperName = `__kern_trim_${name}`;
+      emitPythonRouteStringCoerceHelper(lines, indent, stringHelperName);
+      emitPythonRouteTrimHelper(lines, indent, trimHelperName, stringHelperName);
+      lines.push(
+        `${indent}${name}${typeAnnotation} = (lambda __kern_value: None if __kern_value is None else ${trimHelperName}(__kern_value))(${source.expr})`,
+      );
+      break;
+    }
+    case 'split': {
+      const name = toPythonBindingName(requirePortableProp('split', 'name', String(p.name || '')), 'split');
+      const source = rewriteFastAPIStmtExpr(
+        requirePortableProp('split', 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      lines.push(...source.hoists);
+      const separator = JSON.stringify(portableLiteralStringProp('split', 'separator', p.separator));
+      const limitRaw = extractCodeOrString(p.limit).trim();
+      const limit = limitRaw ? parsePortableNonNegativeIntLiteral(limitRaw, child, 'limit') : undefined;
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      const slice = limit === undefined ? '' : `[:${limit}]`;
+      const helperName = `__kern_string_${name}`;
+      emitPythonRouteStringCoerceHelper(lines, indent, helperName);
+      lines.push(
+        `${indent}${name}${typeAnnotation} = (lambda __kern_value: None if __kern_value is None else ${helperName}(__kern_value).split(${separator})${slice})(${source.expr})`,
+      );
+      break;
+    }
+    case 'replaceFirst':
+    case 'replaceAll': {
+      const kind = child.type;
+      const name = toPythonBindingName(requirePortableProp(kind, 'name', String(p.name || '')), kind);
+      const source = rewriteFastAPIStmtExpr(
+        requirePortableProp(kind, 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      lines.push(...source.hoists);
+      const search = JSON.stringify(portableLiteralStringProp(kind, 'search', p.search));
+      const replacement = JSON.stringify(
+        portableLiteralStringProp(kind, 'replacement', p.replacement, { allowEmpty: true }),
+      );
+      const countArg = kind === 'replaceFirst' ? ', 1' : '';
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      const helperName = `__kern_string_${name}`;
+      emitPythonRouteStringCoerceHelper(lines, indent, helperName);
+      lines.push(
+        `${indent}${name}${typeAnnotation} = (lambda __kern_value: None if __kern_value is None else ${helperName}(__kern_value).replace(${search}, ${replacement}${countArg}))(${source.expr})`,
+      );
+      break;
+    }
     case 'sort': {
       const name = toPythonBindingName(requirePortableProp('sort', 'name', String(p.name || '')), 'sort');
       const collection = rewriteFastAPIStmtExpr(
@@ -1374,6 +1470,10 @@ export function generatePortableHandlerFastAPI(
     'includes',
     'indexOf',
     'lastIndexOf',
+    'trim',
+    'split',
+    'replaceFirst',
+    'replaceAll',
     'sort',
     'objectMerge',
     'objectOmit',
