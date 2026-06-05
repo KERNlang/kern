@@ -5,6 +5,7 @@
  *     InferResult gains stable nodeId + promptAlias + sourceSpans.
  */
 
+import type { ProjectContextGraph } from '@kernlang/context';
 import type { IRNode } from '@kernlang/core';
 import type { CrossFileTaintResult } from './taint.js';
 
@@ -306,6 +307,13 @@ export interface ReviewHealth {
 export interface ReviewReport {
   /** File path that was reviewed */
   filePath: string;
+  /**
+   * Whole-project context artifact, attached by `reviewGraph` (same reference on
+   * every report). Consumers set it on `LLMGraphContext.artifact` to get the
+   * cross-file usage spine without rebuilding the call graph. Undefined for
+   * single-file reviews and when the graph call-graph build failed.
+   */
+  contextArtifact?: ProjectContextGraph;
   /** Inferred KERN constructs */
   inferred: InferResult[];
   /** Template pattern matches */

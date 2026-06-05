@@ -130,6 +130,8 @@ importers:
         specifier: workspace:*
         version: link:../vue
 
+  packages/context: {}
+
   packages/core:
     dependencies:
       typescript:
@@ -292,6 +294,9 @@ importers:
 
   packages/review:
     dependencies:
+      '@kernlang/context':
+        specifier: workspace:*
+        version: link:../context
       '@kernlang/core':
         specifier: workspace:*
         version: link:../core

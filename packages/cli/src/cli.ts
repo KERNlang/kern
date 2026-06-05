@@ -2,6 +2,7 @@
 import { runApply } from './commands/apply.js';
 import { runCompile } from './commands/compile.js';
 import { runConfidence } from './commands/confidence.js';
+import { runContext } from './commands/context.js';
 import { runDev } from './commands/dev.js';
 import { routeEvolve } from './commands/evolve/index.js';
 import { runGaps } from './commands/gaps.js';
@@ -32,6 +33,7 @@ const COMMANDS: Record<string, (args: string[]) => void | Promise<void>> = {
   import: runImport,
   migrate: runMigrate,
   review: runReview,
+  context: runContext,
   apply: runApply,
   confidence: runConfidence,
   schema: runSchema,
