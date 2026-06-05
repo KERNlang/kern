@@ -759,13 +759,14 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   filter: {
     description:
-      'Declarative `.filter` binding — `filter name=active in=items where="item.active"` lowers to `const active = items.filter(item => item.active);`. Use `item=x` to rename the per-item binding.',
-    example: 'filter name=active in=items where="item.active"',
+      'Declarative `.filter` binding — `filter name=active in=items where="item.active"` lowers to `const active = items.filter(item => item.active);`. Portable routes may use `predicate={{ {eq: ["active", true]} }}` for target-normalized logic. Use `item=x` to rename the per-item binding.',
+    example: 'filter name=active in=items predicate={{ {eq: ["active", true]} }}',
     props: {
       name: { required: true, kind: 'identifier' },
       in: { required: true, kind: 'rawExpr' },
       item: { kind: 'identifier' },
-      where: { required: true, kind: 'rawExpr' },
+      where: { kind: 'rawExpr' },
+      predicate: { kind: 'rawExpr' },
       type: { kind: 'typeAnnotation' },
       export: { kind: 'boolean' },
     },
@@ -2048,6 +2049,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'branch',
       'each',
       'collect',
+      'filter',
       'count',
       'uniqueBy',
       'groupBy',
@@ -3529,6 +3531,35 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[], parent?: I
       line: node.loc?.line,
       col: node.loc?.col,
     });
+  }
+  if (node.type === 'filter') {
+    const hasWhere = props.where !== undefined && props.where !== null && String(props.where).trim() !== '';
+    const hasPredicate =
+      props.predicate !== undefined && props.predicate !== null && String(props.predicate).trim() !== '';
+    if (hasPredicate && parent?.type !== 'route' && parent?.type !== 'path') {
+      violations.push({
+        nodeType: 'filter',
+        message: "'filter predicate={{...}}' is supported only as a portable route child",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (!hasWhere && !hasPredicate) {
+      violations.push({
+        nodeType: 'filter',
+        message: "'filter' requires either where= or predicate={{...}}",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasWhere && hasPredicate) {
+      violations.push({
+        nodeType: 'filter',
+        message: "'filter' cannot combine where= and predicate={{...}}",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
   }
   if (node.type === 'param') {
     // Slice 3c-extension #3: `param` requires `name=` UNLESS it carries

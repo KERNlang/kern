@@ -303,6 +303,7 @@ export interface ArrayMethodProps extends BaseProps {
   in?: string | ExprObject;
   item?: string;
   where?: string | ExprObject;
+  predicate?: string | ExprObject;
   type?: string;
 }
 

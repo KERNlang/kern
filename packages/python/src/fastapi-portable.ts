@@ -579,6 +579,134 @@ export function generatePortableChildFastAPI(
       }
       break;
     }
+    case 'filter': {
+      const name = toPythonBindingName(requirePortableProp('filter', 'name', String(p.name || '')), 'filter');
+      const item = String(p.item || 'item');
+      const inVal = extractCodeOrString(p.in).trim();
+      const collection = rewriteFastAPIStmtExpr(
+        requirePortableProp('filter', 'in', inVal),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      lines.push(...collection.hoists);
+
+      const where = p.where ? extractExprCode(p.where) : undefined;
+      const predicateStr = p.predicate ? extractExprCode(p.predicate) : undefined;
+
+      if (predicateStr && where) {
+        throw new Error("filter node cannot combine 'where' and 'predicate'");
+      }
+
+      if (predicateStr) {
+        const predicateExpr = rewriteFastAPIStmtExpr(
+          predicateStr,
+          indent,
+          pathParams,
+          bodyFields,
+          authUser,
+          imports,
+          hoistCtx,
+        );
+        lines.push(...predicateExpr.hoists);
+
+        const absentVar = `__KernAbsent_${name}`;
+        const getPathVar = `__kern_get_path_${name}`;
+        const equalVar = `__kern_equal_${name}`;
+        const evalPredVar = `__kern_eval_predicate_${name}`;
+        const predicateValueVar = `__kern_predicate_${name}`;
+
+        lines.push(`${indent}class ${absentVar}:`);
+        lines.push(`${indent}    pass`);
+        lines.push(`${indent}def ${getPathVar}(record, path):`);
+        lines.push(`${indent}    if record is None:`);
+        lines.push(`${indent}        return ${absentVar}`);
+        lines.push(`${indent}    parts = path.split('.')`);
+        lines.push(`${indent}    current = record`);
+        lines.push(`${indent}    for part in parts:`);
+        lines.push(`${indent}        if current is None:`);
+        lines.push(`${indent}            return ${absentVar}`);
+        lines.push(`${indent}        if hasattr(current, "model_dump") and callable(current.model_dump):`);
+        lines.push(`${indent}            current = current.model_dump()`);
+        lines.push(`${indent}        elif hasattr(current, "dict") and callable(current.dict):`);
+        lines.push(`${indent}            current = current.dict()`);
+        lines.push(`${indent}        elif hasattr(current, "_d") and isinstance(current._d, dict):`);
+        lines.push(`${indent}            current = current._d`);
+        lines.push(`${indent}        if isinstance(current, dict):`);
+        lines.push(`${indent}            if part in current:`);
+        lines.push(`${indent}                current = current[part]`);
+        lines.push(`${indent}            else:`);
+        lines.push(`${indent}                return ${absentVar}`);
+        lines.push(`${indent}        elif isinstance(current, (list, tuple)):`);
+        lines.push(`${indent}            if not (part == "0" or (part.isdecimal() and not part.startswith("0"))):`);
+        lines.push(`${indent}                return ${absentVar}`);
+        lines.push(`${indent}            index = int(part)`);
+        lines.push(`${indent}            if index >= len(current):`);
+        lines.push(`${indent}                return ${absentVar}`);
+        lines.push(`${indent}            current = current[index]`);
+        lines.push(`${indent}        else:`);
+        lines.push(`${indent}            return ${absentVar}`);
+        lines.push(`${indent}    return current`);
+
+        lines.push(`${indent}def ${equalVar}(actual, expected):`);
+        lines.push(`${indent}    if isinstance(actual, bool) or isinstance(expected, bool):`);
+        lines.push(
+          `${indent}        return isinstance(actual, bool) and isinstance(expected, bool) and actual == expected`,
+        );
+        lines.push(`${indent}    if isinstance(actual, (int, float)) and isinstance(expected, (int, float)):`);
+        lines.push(`${indent}        return actual == expected`);
+        lines.push(`${indent}    if isinstance(actual, str) or isinstance(expected, str):`);
+        lines.push(
+          `${indent}        return isinstance(actual, str) and isinstance(expected, str) and actual == expected`,
+        );
+        lines.push(`${indent}    return actual is None and expected is None`);
+        lines.push(`${indent}def ${evalPredVar}(predicate, record):`);
+        lines.push(`${indent}    if not isinstance(predicate, dict):`);
+        lines.push(`${indent}        raise ValueError("invalid KERN filter predicate")`);
+        lines.push(`${indent}    if "and" in predicate:`);
+        lines.push(`${indent}        if len(predicate) != 1 or not isinstance(predicate["and"], list):`);
+        lines.push(`${indent}            raise ValueError("invalid KERN filter predicate")`);
+        lines.push(`${indent}        return all(${evalPredVar}(p, record) for p in predicate["and"])`);
+        lines.push(
+          `${indent}    op = next((candidate for candidate in ("eq", "neq", "gt", "gte") if candidate in predicate), None)`,
+        );
+        lines.push(`${indent}    if op is None or len(predicate) != 1:`);
+        lines.push(`${indent}        raise ValueError("invalid KERN filter predicate")`);
+        lines.push(`${indent}    pair = predicate[op]`);
+        lines.push(`${indent}    if not isinstance(pair, list) or len(pair) != 2 or not isinstance(pair[0], str):`);
+        lines.push(`${indent}        raise ValueError("invalid KERN filter predicate")`);
+        lines.push(`${indent}    path, expected = pair`);
+        lines.push(`${indent}    actual = ${getPathVar}(record, path)`);
+        lines.push(`${indent}    if op == "eq":`);
+        lines.push(`${indent}        return actual is not ${absentVar} and ${equalVar}(actual, expected)`);
+        lines.push(`${indent}    if op == "neq":`);
+        lines.push(`${indent}        if actual is ${absentVar}:`);
+        lines.push(`${indent}            return expected is not None`);
+        lines.push(`${indent}        return not ${equalVar}(actual, expected)`);
+        lines.push(`${indent}    if op == "gt" or op == "gte":`);
+        lines.push(`${indent}        if not isinstance(actual, (int, float)) or isinstance(actual, bool):`);
+        lines.push(`${indent}            return False`);
+        lines.push(`${indent}        if not isinstance(expected, (int, float)) or isinstance(expected, bool):`);
+        lines.push(`${indent}            return False`);
+        lines.push(`${indent}        return actual > expected if op == "gt" else actual >= expected`);
+        lines.push(`${indent}    raise ValueError("invalid KERN filter predicate")`);
+
+        lines.push(`${indent}${predicateValueVar} = ${predicateExpr.expr}`);
+        lines.push(
+          `${indent}${name} = [${item} for ${item} in ${collection.expr} if ${evalPredVar}(${predicateValueVar}, ${item})]`,
+        );
+      } else if (where) {
+        const whereExpr = rewriteFastAPIStmtExpr(where, indent, pathParams, bodyFields, authUser, imports, hoistCtx);
+        lines.push(...whereExpr.hoists);
+        lines.push(`${indent}${name} = [${item} for ${item} in ${collection.expr} if ${whereExpr.expr}]`);
+      } else {
+        throw new Error("filter node requires a 'where' or 'predicate' prop");
+      }
+      break;
+    }
     case 'uniqueBy': {
       const name = toPythonBindingName(requirePortableProp('uniqueBy', 'name', String(p.name || '')), 'uniqueBy');
       const item = String(p.item || 'item');
@@ -863,6 +991,7 @@ export function generatePortableHandlerFastAPI(
   const PORTABLE_TYPES = new Set([
     'derive',
     'guard',
+    'filter',
     'handler',
     'respond',
     'branch',

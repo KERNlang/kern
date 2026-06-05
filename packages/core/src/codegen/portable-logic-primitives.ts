@@ -10,6 +10,7 @@
 export type PortableLogicPrimitiveId =
   | 'collection.has'
   | 'collection.count'
+  | 'collection.filter'
   | 'collection.uniqueBy'
   | 'collection.groupBy'
   | 'collection.partition'
@@ -62,6 +63,17 @@ export const PORTABLE_LOGIC_PRIMITIVES = {
     intent: 'semantic-gap',
     hostPatterns: ['xs.length', 'xs.filter(x => pred).length', 'len(xs)'],
     portabilityNotes: ['Count is non-mutating; filtered counts evaluate the predicate once per item in source order.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.filter': {
+    id: 'collection.filter',
+    description: 'Filters collection elements by a portable predicate while preserving source order.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.filter(x => pred)', '[x for x in xs if pred]'],
+    portabilityNotes: [
+      'Predicate v1 supports eq, neq, gt, gte, and over bool/number/string/null scalar values; object/list equality is intentionally outside v1. Missing paths and numeric comparison semantics are target-normalized.',
+    ],
     targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
   },
   'collection.uniqueBy': {

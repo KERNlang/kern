@@ -13,6 +13,7 @@ describe('portable logic primitive registry', () => {
     expect(PORTABLE_LOGIC_PRIMITIVE_IDS).toEqual([
       'collection.has',
       'collection.count',
+      'collection.filter',
       'collection.uniqueBy',
       'collection.groupBy',
       'collection.partition',
@@ -38,6 +39,7 @@ describe('portable logic primitive registry', () => {
   test('reports per-target support for the current parity slice', () => {
     expect(portableLogicSupportForTarget('collection.has', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.count', 'python')).toBe('stable');
+    expect(portableLogicSupportForTarget('collection.filter', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.uniqueBy', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.groupBy', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.partition', 'python')).toBe('stable');
@@ -73,6 +75,7 @@ describe('portable logic primitive registry', () => {
     const directRoute = [
       'server name=API',
       '  route method=post path=/api/t',
+      '    filter name=active_adults in=users predicate={{ {and: [{eq: ["active", true]}, {gte: ["age", 18]}]} }}',
       '    uniqueBy name=distinct in=users by="item.id"',
       '    groupBy name=by_type in=users by="item.type"',
       '    partition pass=active fail=inactive in=users where="item.active"',
@@ -94,6 +97,22 @@ describe('portable logic primitive registry', () => {
     expect(
       validateSchema(stream.root).some((v) => /'stream' does not allow child type 'uniqueBy'/.test(v.message)),
     ).toBe(true);
+  });
+
+  test('filter route child requires exactly one predicate form', () => {
+    const missing = parseDocumentWithDiagnostics(
+      ['server name=API', '  route method=post path=/api/t', '    filter name=active in=users'].join('\n'),
+    );
+    expect(validateSchema(missing.root).some((v) => /requires either where= or predicate/.test(v.message))).toBe(true);
+
+    const combined = parseDocumentWithDiagnostics(
+      [
+        'server name=API',
+        '  route method=post path=/api/t',
+        '    filter name=active in=users where="item.active" predicate={{ {eq: ["active", true]} }}',
+      ].join('\n'),
+    );
+    expect(validateSchema(combined.root).some((v) => /cannot combine where= and predicate/.test(v.message))).toBe(true);
   });
 
   test('object parity slice has matching target support', () => {
@@ -129,6 +148,7 @@ describe('portable logic primitive registry', () => {
   test('lookup returns null for unknown primitive ids', () => {
     expect(lookupPortableLogicPrimitive('collection.has')?.purity).toBe('pure');
     expect(lookupPortableLogicPrimitive('collection.count')?.hostPatterns).toContain('xs.filter(x => pred).length');
+    expect(lookupPortableLogicPrimitive('collection.filter')?.hostPatterns).toContain('xs.filter(x => pred)');
     expect(lookupPortableLogicPrimitive('collection.uniqueBy')?.portabilityNotes.join(' ')).toContain('first-wins');
     expect(lookupPortableLogicPrimitive('collection.partition')?.portabilityNotes.join(' ')).toContain('predicate');
     expect(lookupPortableLogicPrimitive('collection.indexBy')?.portabilityNotes.join(' ')).toContain('last-write-wins');

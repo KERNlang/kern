@@ -582,6 +582,18 @@ const FIXTURES = [
     kern: `route method=post path=/api/t\n  count name=user_count in=users\n  respond 200 json={{ {userCount: user_count} }}`,
     bindings: { locals: { users: [{ id: 1 }, { id: 2 }, { id: 3 }] } },
     expected: { status: 200, body: { userCount: 3 } } },
+  { kind: 'route', name: 'route: filter predicate AST parity',
+    kern: `route method=post path=/api/t\n  filter name=eligible in=users predicate={{ {and: [{eq: ["active", true]}, {gte: ["age", 18]}, {gt: ["score", 10]}, {neq: ["role", "banned"]}, {eq: ["profile.tags.0", "vip"]}]} }}\n  filter name=missing_ok in=users predicate={{ {neq: ["missing", "x"]} }}\n  filter name=missing_null in=users predicate={{ {eq: ["missing", null]} }}\n  count name=missing_ok_count in=missing_ok\n  count name=missing_null_count in=missing_null\n  respond 200 json={{ {ids: eligible.map((u) => u.id), missingOk: missing_ok_count, missingNull: missing_null_count} }}`,
+    bindings: { locals: { users: [
+      { id: 'u1', age: 17, active: true, score: 20, role: 'user', profile: { tags: ['vip'] } },
+      { id: 'u2', age: 21, active: true, score: 11, role: 'admin', profile: { tags: ['vip'] } },
+      { id: 'u3', age: 30, active: false, score: 99, role: 'user', profile: { tags: ['vip'] } },
+      { id: 'u4', age: 44, active: true, score: 10, role: 'user', profile: { tags: ['vip'] } },
+      { id: 'u5', age: 40, active: true, score: 20, role: 'banned', profile: { tags: ['vip'] } },
+      { id: 'u6', age: 25, active: true, score: 15, role: 'user', profile: { tags: ['vip', 'beta'] } },
+      { id: 'u7', age: 31, active: true, score: 19, role: 'user', profile: { tags: ['basic', 'vip'] } },
+    ] } },
+    expected: { status: 200, body: { ids: ['u2', 'u6'], missingOk: 7, missingNull: 0 } } },
   // Direct route keyed-reshape parity.
   { kind: 'route', name: 'route: uniqueBy first-wins keyed reshape parity',
     kern: `route method=post path=/api/t\n  uniqueBy name=distinct in=users by="item.id"\n  respond 200 json={{ {distinct: distinct} }}`,

@@ -813,6 +813,29 @@ describe('Express Transpiler', () => {
       expect(content).toContain('res.json(popular)');
     });
 
+    test('filter predicate generates helper-backed route logic', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/filter',
+        '    filter name=eligible in=users predicate={{ {and: [{eq: ["active", true]}, {gte: ["age", 18]}]} }}',
+        '    respond 200 json=eligible',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post-api-filter'));
+      expect(route).toBeDefined();
+      const content = route!.content;
+      expect(content).toContain('const __kernAbsent_eligible = Symbol');
+      expect(content).toContain('const __kernEvalPredicate_eligible = (predicate, record) =>');
+      expect(content).toContain(
+        'const __kernPredicate_eligible = {and: [{eq: ["active", true]}, {gte: ["age", 18]}]};',
+      );
+      expect(content).toContain(
+        'const eligible = (users).filter((item) => __kernEvalPredicate_eligible(__kernPredicate_eligible, item));',
+      );
+    });
+
     test('each generates for loop with children', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');

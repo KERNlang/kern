@@ -3051,5 +3051,26 @@ describe('FastAPI Transpiler', () => {
       ].join('\n');
       expect(() => transpileFastAPI(parse(source))).toThrow(/unsafe Python binding name `class`/);
     });
+
+    test('portable filter predicate node lowers to helper-backed FastAPI Python code', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/filter',
+        '    filter name=eligible in=users predicate={{ {and: [{eq: ["active", true]}, {gte: ["age", 18]}]} }}',
+        '    respond 200 json=eligible',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post_api_filter'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+      expect(code).toContain('def __kern_get_path_eligible(record, path):');
+      expect(code).toContain('def __kern_eval_predicate_eligible(predicate, record):');
+      expect(code).toContain('__kern_predicate_eligible = {"and": [{"eq": ["active", True]}, {"gte": ["age", 18]}]}');
+      expect(code).toContain(
+        'eligible = [item for item in users if __kern_eval_predicate_eligible(__kern_predicate_eligible, item)]',
+      );
+    });
   });
 });

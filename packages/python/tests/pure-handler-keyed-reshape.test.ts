@@ -22,6 +22,17 @@ function routeWith(child: IRNode): IRNode {
 }
 
 describe('pure Python handlers: keyed reshape route scope', () => {
+  test('uses the correct node label when rejecting unsafe count and uniqueBy names', () => {
+    const countServer = routeWith({ type: 'count', props: { name: 'class', in: 'users' } });
+    expect(() => emitPureHandlers(countServer, new Set(), countServer)).toThrow(
+      /count emits unsafe Python binding name `class`/,
+    );
+    const uniqueByServer = routeWith({ type: 'uniqueBy', props: { name: 'class', in: 'users', by: 'item.id' } });
+    expect(() => emitPureHandlers(uniqueByServer, new Set(), uniqueByServer)).toThrow(
+      /uniqueBy emits unsafe Python binding name `class`/,
+    );
+  });
+
   test('rejects unsafe Python binding names', () => {
     const server = routeWith({ type: 'countBy', props: { name: 'class', in: 'users', by: 'item.type' } });
     expect(() => emitPureHandlers(server, new Set(), server)).toThrow(/unsafe Python binding name `class`/);
@@ -50,6 +61,26 @@ describe('pure Python handlers: keyed reshape route scope', () => {
     expect(body).toContain('if __kern_seen_key_distinct not in __kern_seen_distinct:');
     expect(body).toContain('__kern_seen_distinct.add(__kern_seen_key_distinct)');
     expect(body).toContain('distinct.append(item)');
+  });
+
+  test('lowers filter predicate node with helper-backed evaluation', () => {
+    const server = routeWith({
+      type: 'filter',
+      props: {
+        name: 'eligible',
+        in: 'users',
+        predicate: { __expr: true, code: '{and: [{eq: ["active", true]}, {gte: ["age", 18]}]}' },
+      },
+    });
+    const handlers = emitPureHandlers(server, new Set(), server);
+    expect(handlers).toHaveLength(1);
+    const body = handlers[0].bodyLines.join('\n');
+    expect(body).toContain('def __kern_get_path_eligible(record, path):');
+    expect(body).toContain('def __kern_eval_predicate_eligible(predicate, record):');
+    expect(body).toContain('__kern_predicate_eligible = {"and": [{"eq": ["active", True]}, {"gte": ["age", 18]}]}');
+    expect(body).toContain(
+      'eligible = [item for item in users if __kern_eval_predicate_eligible(__kern_predicate_eligible, item)]',
+    );
   });
 
   test('lowers groupBy node correctly', () => {
