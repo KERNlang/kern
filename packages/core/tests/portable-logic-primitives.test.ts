@@ -6,6 +6,7 @@ import {
   validatePortableLogicPrimitiveRegistry,
 } from '../src/codegen/portable-logic-primitives.js';
 import { parseDocumentWithDiagnostics } from '../src/parser.js';
+import { parsePortablePredicateProp, validatePortablePredicateAST } from '../src/portable-predicate.js';
 import { validateSchema } from '../src/schema.js';
 
 describe('portable logic primitive registry', () => {
@@ -136,6 +137,30 @@ describe('portable logic primitive registry', () => {
     );
     expect(validateSchema(malformed.root).some((v) => /predicate must be a valid object literal/.test(v.message))).toBe(
       true,
+    );
+  });
+
+  test('route predicate parser accepts JS-like literal strings without regex corruption', () => {
+    const valid = parseDocumentWithDiagnostics(
+      [
+        'server name=API',
+        '  route method=post path=/api/t',
+        '    filter name=notes in=items predicate={{ {and: [{eq: ["note", "{bad: text}, [ok]"]}, {neq: [\'label\', \'value: still text\']},]} }}',
+        '    count name=note_count in=items predicate="{and: [{eq: [\\"note\\", \\"{bad: text}, [ok]\\"]},]}"',
+      ].join('\n'),
+    );
+    const messages = validateSchema(valid.root).map((v) => v.message);
+    expect(messages.filter((m) => /predicate/.test(m))).toEqual([]);
+  });
+
+  test('portable predicate parser handles escapes and rejects dynamic values', () => {
+    const parsed = parsePortablePredicateProp('{eq: ["note", "\\u0078"]}');
+    expect(parsed.ok).toBe(true);
+    expect(((parsed.value as any).eq as unknown[])[1]).toBe('x');
+
+    expect(parsePortablePredicateProp('{eq: ["age", minAge]}').ok).toBe(false);
+    expect(validatePortablePredicateAST({ gt: ['age', Number.POSITIVE_INFINITY] })).toContain(
+      'gt expects a non-boolean number',
     );
   });
 
