@@ -271,6 +271,78 @@ export function toSnakeCase(name: string): string {
     .toLowerCase();
 }
 
+const PY_RESERVED_BINDINGS = new Set([
+  'False',
+  'None',
+  'True',
+  'all',
+  'and',
+  'any',
+  'as',
+  'assert',
+  'async',
+  'await',
+  'bool',
+  'break',
+  'class',
+  'continue',
+  'def',
+  'del',
+  'dict',
+  'elif',
+  'else',
+  'enumerate',
+  'except',
+  'filter',
+  'finally',
+  'float',
+  'for',
+  'from',
+  'global',
+  'id',
+  'if',
+  'import',
+  'in',
+  'input',
+  'int',
+  'is',
+  'isinstance',
+  'lambda',
+  'len',
+  'list',
+  'map',
+  'max',
+  'min',
+  'nonlocal',
+  'not',
+  'object',
+  'or',
+  'pass',
+  'print',
+  'raise',
+  'range',
+  'return',
+  'set',
+  'sorted',
+  'str',
+  'sum',
+  'try',
+  'tuple',
+  'type',
+  'while',
+  'with',
+  'yield',
+  'zip',
+]);
+
+export function toPythonBindingName(raw: string, nodeType: string): string {
+  const name = toSnakeCase(raw);
+  if (!/^[a-z_][a-z0-9_]*$/.test(name) || PY_RESERVED_BINDINGS.has(name)) {
+    throw new Error(`${nodeType} emits unsafe Python binding name \`${raw}\`; choose a non-reserved identifier.`);
+  }
+  return name;
+}
+
 /** Convert a name to SCREAMING_SNAKE_CASE. */
 export function toScreamingSnake(name: string): string {
   return toSnakeCase(name).toUpperCase();

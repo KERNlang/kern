@@ -7,17 +7,30 @@
 
 import type { IRNode } from '@kernlang/core';
 import {
+  emitStringKeyArray,
   getChildren,
   getFirstChild,
   getProps,
   isPostfixMutationOperator,
   isSupportedAssignOperator,
+  parseKeys,
+  parsePortableNonNegativeIntLiteral,
+  parsePortablePathSegments,
+  splitPortableExpressionList,
 } from '@kernlang/core';
+import { KERN_JS_OBJECT_HELPERS_PY } from './core/expr/helpers.js';
 import { extractExprCode, rewriteExpr } from './core/expr/index.js';
 import { isUnsupportedJsHandlerBody, unsupportedRawHandlerBody } from './fastapi-raw-handler.js';
 import { addRespondImports, generateRespondFastAPI } from './fastapi-response.js';
 import { escapePyStr, indentHandler } from './fastapi-utils.js';
-import { toSnakeCase } from './type-map.js';
+import {
+  emitPythonRoutePluckHelper,
+  emitPythonRouteSortKeyHelper,
+  pythonRouteCompactPredicate,
+} from './portable-collection-emitter.js';
+import { pythonRouteRecordExpr, pythonRouteRecordPickExpr } from './portable-object-emitter.js';
+import { emitPythonPredicateHelpers } from './portable-predicate-emitter.js';
+import { mapTsTypeToPython, toPythonBindingName, toSnakeCase } from './type-map.js';
 
 // Extract the code from a prop that may arrive as a `{{ ... }}` curly-
 // expression IR wrapper (`{ __expr: true, code: '...' }`), a plain string
@@ -36,6 +49,33 @@ function extractCodeOrString(val: unknown): string {
   if (typeof val === 'string') return val;
   if (typeof val === 'number' || typeof val === 'boolean') return String(val);
   return '';
+}
+
+function requirePortableProp(nodeType: string, propName: string, value: string): string {
+  if (!value) throw new Error(`portable route \`${nodeType}\` requires \`${propName}=\`.`);
+  return value;
+}
+
+function pushJsObjectKeyCoercion(lines: string[], indent: string, keyName: string): void {
+  lines.push(`${indent}if ${keyName} is None:`);
+  lines.push(`${indent}    ${keyName} = "null"`);
+  lines.push(`${indent}elif isinstance(${keyName}, bool):`);
+  lines.push(`${indent}    ${keyName} = "true" if ${keyName} else "false"`);
+  lines.push(`${indent}elif isinstance(${keyName}, float):`);
+  lines.push(`${indent}    if ${keyName} != ${keyName}:`);
+  lines.push(`${indent}        ${keyName} = "NaN"`);
+  lines.push(`${indent}    elif ${keyName} == float("inf"):`);
+  lines.push(`${indent}        ${keyName} = "Infinity"`);
+  lines.push(`${indent}    elif ${keyName} == float("-inf"):`);
+  lines.push(`${indent}        ${keyName} = "-Infinity"`);
+  lines.push(`${indent}    elif ${keyName}.is_integer():`);
+  lines.push(`${indent}        ${keyName} = str(int(${keyName}))`);
+  lines.push(`${indent}    else:`);
+  lines.push(`${indent}        ${keyName} = str(${keyName})`);
+  lines.push(`${indent}elif not isinstance(${keyName}, (str, int)):`);
+  lines.push(`${indent}    raise TypeError("keyed reshape selector must produce a scalar key")`);
+  lines.push(`${indent}else:`);
+  lines.push(`${indent}    ${keyName} = str(${keyName})`);
 }
 
 // NOTE: the former `lowerPropToPython` helper was removed when native closure
@@ -527,6 +567,510 @@ export function generatePortableChildFastAPI(
       }
       break;
     }
+    case 'count': {
+      const name = toSnakeCase(String(p.name || ''));
+      if (!name) break;
+      const collection = rewriteFastAPIStmtExpr(
+        extractCodeOrString(p.in).trim(),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      lines.push(...collection.hoists);
+      const item = String(p.item || 'item');
+      const where = p.where ? extractCodeOrString(p.where) : undefined;
+      const predicateStr = p.predicate ? extractExprCode(p.predicate) || String(p.predicate) : undefined;
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+
+      if (predicateStr && where) {
+        throw new Error("count node cannot combine 'where' and 'predicate'");
+      }
+
+      if (predicateStr) {
+        const predicateExpr = rewriteFastAPIStmtExpr(
+          predicateStr,
+          indent,
+          pathParams,
+          bodyFields,
+          authUser,
+          imports,
+          hoistCtx,
+        );
+        lines.push(...predicateExpr.hoists);
+
+        const absentVar = `__KernAbsent_${name}`;
+        const getPathVar = `__kern_get_path_${name}`;
+        const equalVar = `__kern_equal_${name}`;
+        const evalPredVar = `__kern_eval_predicate_${name}`;
+        const predicateValueVar = `__kern_predicate_${name}`;
+
+        lines.push(...emitPythonPredicateHelpers(indent, absentVar, getPathVar, equalVar, evalPredVar));
+
+        lines.push(`${indent}${predicateValueVar} = ${predicateExpr.expr}`);
+        lines.push(
+          `${indent}${name}${typeAnnotation} = sum(1 for ${item} in ${collection.expr} if ${evalPredVar}(${predicateValueVar}, ${item}))`,
+        );
+      } else if (where) {
+        const whereExpr = rewriteFastAPIStmtExpr(where, indent, pathParams, bodyFields, authUser, imports, hoistCtx);
+        lines.push(...whereExpr.hoists);
+        lines.push(`${indent}${name}${typeAnnotation} = sum(1 for ${item} in ${collection.expr} if ${whereExpr.expr})`);
+      } else {
+        lines.push(`${indent}${name}${typeAnnotation} = len(${collection.expr})`);
+      }
+      break;
+    }
+    case 'filter': {
+      const name = toPythonBindingName(requirePortableProp('filter', 'name', String(p.name || '')), 'filter');
+      const item = String(p.item || 'item');
+      const inVal = extractCodeOrString(p.in).trim();
+      const collection = rewriteFastAPIStmtExpr(
+        requirePortableProp('filter', 'in', inVal),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      lines.push(...collection.hoists);
+
+      const where = p.where ? extractExprCode(p.where) : undefined;
+      const predicateStr = p.predicate ? extractExprCode(p.predicate) || String(p.predicate) : undefined;
+
+      if (predicateStr && where) {
+        throw new Error("filter node cannot combine 'where' and 'predicate'");
+      }
+
+      if (predicateStr) {
+        const predicateExpr = rewriteFastAPIStmtExpr(
+          predicateStr,
+          indent,
+          pathParams,
+          bodyFields,
+          authUser,
+          imports,
+          hoistCtx,
+        );
+        lines.push(...predicateExpr.hoists);
+
+        const absentVar = `__KernAbsent_${name}`;
+        const getPathVar = `__kern_get_path_${name}`;
+        const equalVar = `__kern_equal_${name}`;
+        const evalPredVar = `__kern_eval_predicate_${name}`;
+        const predicateValueVar = `__kern_predicate_${name}`;
+
+        lines.push(...emitPythonPredicateHelpers(indent, absentVar, getPathVar, equalVar, evalPredVar));
+
+        lines.push(`${indent}${predicateValueVar} = ${predicateExpr.expr}`);
+        lines.push(
+          `${indent}${name} = [${item} for ${item} in ${collection.expr} if ${evalPredVar}(${predicateValueVar}, ${item})]`,
+        );
+      } else if (where) {
+        const whereExpr = rewriteFastAPIStmtExpr(where, indent, pathParams, bodyFields, authUser, imports, hoistCtx);
+        lines.push(...whereExpr.hoists);
+        lines.push(`${indent}${name} = [${item} for ${item} in ${collection.expr} if ${whereExpr.expr}]`);
+      } else {
+        throw new Error("filter node requires a 'where' or 'predicate' prop");
+      }
+      break;
+    }
+    case 'compact': {
+      const name = toPythonBindingName(requirePortableProp('compact', 'name', String(p.name || '')), 'compact');
+      const item = 'item';
+      const collection = rewriteFastAPIStmtExpr(
+        requirePortableProp('compact', 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      lines.push(...collection.hoists);
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      lines.push(
+        `${indent}${name}${typeAnnotation} = [${item} for ${item} in ${collection.expr} if ${pythonRouteCompactPredicate(item)}]`,
+      );
+      break;
+    }
+    case 'pluck': {
+      const name = toPythonBindingName(requirePortableProp('pluck', 'name', String(p.name || '')), 'pluck');
+      const collection = rewriteFastAPIStmtExpr(
+        requirePortableProp('pluck', 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      lines.push(...collection.hoists);
+      const segments = parsePortablePathSegments(
+        requirePortableProp('pluck', 'prop', extractCodeOrString(p.prop).trim()),
+        child,
+        'prop',
+      );
+      const pathExpr = emitStringKeyArray(segments);
+      const helperName = `__kern_pluck_${name}`;
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      emitPythonRoutePluckHelper(lines, indent, helperName, pathExpr);
+      lines.push(
+        `${indent}${name}${typeAnnotation} = [${helperName}(__kern_item) for __kern_item in ${collection.expr}]`,
+      );
+      break;
+    }
+    case 'take':
+    case 'drop': {
+      const kind = child.type;
+      const name = toPythonBindingName(requirePortableProp(kind, 'name', String(p.name || '')), kind);
+      const collection = rewriteFastAPIStmtExpr(
+        requirePortableProp(kind, 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      lines.push(...collection.hoists);
+      const n = parsePortableNonNegativeIntLiteral(
+        requirePortableProp(kind, 'n', extractCodeOrString(p.n).trim()),
+        child,
+        'n',
+      );
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      const slice = kind === 'take' ? `[:${n}]` : `[${n}:]`;
+      lines.push(`${indent}${name}${typeAnnotation} = ${collection.expr}${slice}`);
+      break;
+    }
+    case 'sort': {
+      const name = toPythonBindingName(requirePortableProp('sort', 'name', String(p.name || '')), 'sort');
+      const collection = rewriteFastAPIStmtExpr(
+        requirePortableProp('sort', 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      lines.push(...collection.hoists);
+      const compareSource = extractCodeOrString(p.compare).trim();
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      if (compareSource) {
+        const a = toPythonBindingName(String(p.a || 'a'), 'sort a');
+        const b = toPythonBindingName(String(p.b || 'b'), 'sort b');
+        if (a === b) {
+          throw new Error('portable route `sort` comparator operands must use distinct `a=` and `b=` names.');
+        }
+        const compare = rewriteFastAPIStmtExpr(
+          compareSource,
+          indent,
+          pathParams,
+          bodyFields,
+          authUser,
+          imports,
+          hoistCtx,
+        );
+        if (compare.hoists.length > 0) {
+          throw new Error(
+            'portable route `sort compare=` cannot contain closures or expressions that need hoisted helpers.',
+          );
+        }
+        imports.add('from functools import cmp_to_key');
+        lines.push(
+          `${indent}${name}${typeAnnotation} = sorted(${collection.expr}, key=cmp_to_key(lambda ${a}, ${b}: ${compare.expr}))`,
+        );
+      } else {
+        const helperName = `__kern_sort_key_${name}`;
+        emitPythonRouteSortKeyHelper(lines, indent, helperName);
+        lines.push(`${indent}${name}${typeAnnotation} = sorted(${collection.expr}, key=${helperName})`);
+      }
+      break;
+    }
+    case 'objectMerge': {
+      const name = toPythonBindingName(requirePortableProp('objectMerge', 'name', String(p.name || '')), 'objectMerge');
+      const rawSources = requirePortableProp('objectMerge', 'sources', extractCodeOrString(p.sources).trim());
+      const sources = splitPortableExpressionList(rawSources, 'objectMerge sources=');
+      if (sources.length < 2) throw new Error('portable route `objectMerge` requires at least two source expressions.');
+      const emitted: string[] = [];
+      for (const source of sources) {
+        if (source.startsWith('...')) {
+          throw new Error('portable route `objectMerge` sources must not start with `...`; spreading is implicit.');
+        }
+        const rewritten = rewriteFastAPIStmtExpr(source, indent, pathParams, bodyFields, authUser, imports, hoistCtx);
+        lines.push(...rewritten.hoists);
+        emitted.push(`**${pythonRouteRecordExpr(rewritten.expr)}`);
+      }
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      lines.push(`${indent}${name}${typeAnnotation} = {${emitted.join(', ')}}`);
+      break;
+    }
+    case 'objectPick': {
+      const name = toPythonBindingName(requirePortableProp('objectPick', 'name', String(p.name || '')), 'objectPick');
+      const source = rewriteFastAPIStmtExpr(
+        requirePortableProp('objectPick', 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      lines.push(...source.hoists);
+      const keys = emitStringKeyArray(
+        parseKeys(
+          requirePortableProp('objectPick', 'keys', extractCodeOrString(p.keys).trim()),
+          child,
+          'objectPick keys=',
+        ),
+      );
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      lines.push(`${indent}${name}${typeAnnotation} = ${pythonRouteRecordPickExpr(source.expr, keys)}`);
+      break;
+    }
+    case 'objectOmit': {
+      const name = toPythonBindingName(requirePortableProp('objectOmit', 'name', String(p.name || '')), 'objectOmit');
+      const source = rewriteFastAPIStmtExpr(
+        requirePortableProp('objectOmit', 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      lines.push(...source.hoists);
+      const keys = emitStringKeyArray(
+        parseKeys(
+          requirePortableProp('objectOmit', 'keys', extractCodeOrString(p.keys).trim()),
+          child,
+          'objectOmit keys=',
+        ),
+      );
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      lines.push(
+        `${indent}${name}${typeAnnotation} = {key: value for key, value in ${pythonRouteRecordExpr(source.expr)}.items() if key not in ${keys}}`,
+      );
+      break;
+    }
+    case 'objectKeys':
+    case 'objectValues':
+    case 'objectEntries': {
+      const nodeType = child.type;
+      const name = toPythonBindingName(requirePortableProp(nodeType, 'name', String(p.name || '')), nodeType);
+      const source = rewriteFastAPIStmtExpr(
+        requirePortableProp(nodeType, 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      lines.push(...source.hoists);
+      imports.add(KERN_JS_OBJECT_HELPERS_PY);
+      const helper =
+        nodeType === 'objectKeys'
+          ? '_kern_js_object_keys'
+          : nodeType === 'objectValues'
+            ? '_kern_js_object_values'
+            : '_kern_js_object_entries';
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      lines.push(`${indent}${name}${typeAnnotation} = ${helper}(${pythonRouteRecordExpr(source.expr)})`);
+      break;
+    }
+    case 'uniqueBy': {
+      const name = toPythonBindingName(requirePortableProp('uniqueBy', 'name', String(p.name || '')), 'uniqueBy');
+      const item = String(p.item || 'item');
+      const collection = rewriteFastAPIStmtExpr(
+        requirePortableProp('uniqueBy', 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      const by = rewriteFastAPIStmtExpr(
+        requirePortableProp('uniqueBy', 'by', extractCodeOrString(p.by).trim()),
+        `${indent}    `,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      const seenName = `__kern_seen_${name}`;
+      const seenObjectsName = `__kern_seen_objects_${name}`;
+      const keyName = `__kern_key_${name}`;
+      const seenKeyName = `__kern_seen_key_${name}`;
+      const seenObjectName = `__kern_seen_object_${name}`;
+      lines.push(...collection.hoists);
+      lines.push(`${indent}${name}${typeAnnotation} = []`);
+      lines.push(`${indent}${seenName} = set()`);
+      lines.push(`${indent}${seenObjectsName} = []`);
+      lines.push(`${indent}for ${item} in ${collection.expr}:`);
+      lines.push(...by.hoists);
+      lines.push(`${indent}    ${keyName} = ${by.expr}`);
+      lines.push(`${indent}    if ${keyName} is None:`);
+      lines.push(`${indent}        ${seenKeyName} = ("null", None)`);
+      lines.push(`${indent}    elif isinstance(${keyName}, bool):`);
+      lines.push(`${indent}        ${seenKeyName} = ("boolean", ${keyName})`);
+      lines.push(`${indent}    elif isinstance(${keyName}, float) and ${keyName} != ${keyName}:`);
+      lines.push(`${indent}        ${seenKeyName} = ("number", "NaN")`);
+      lines.push(`${indent}    elif isinstance(${keyName}, (int, float)):`);
+      lines.push(`${indent}        ${seenKeyName} = ("number", ${keyName})`);
+      lines.push(`${indent}    elif isinstance(${keyName}, str):`);
+      lines.push(`${indent}        ${seenKeyName} = ("string", ${keyName})`);
+      lines.push(`${indent}    else:`);
+      lines.push(`${indent}        for ${seenObjectName} in ${seenObjectsName}:`);
+      lines.push(`${indent}            if ${keyName} is ${seenObjectName}:`);
+      lines.push(`${indent}                break`);
+      lines.push(`${indent}        else:`);
+      lines.push(`${indent}            ${seenObjectsName}.append(${keyName})`);
+      lines.push(`${indent}            ${name}.append(${item})`);
+      lines.push(`${indent}        continue`);
+      lines.push(`${indent}    if ${seenKeyName} not in ${seenName}:`);
+      lines.push(`${indent}        ${seenName}.add(${seenKeyName})`);
+      lines.push(`${indent}        ${name}.append(${item})`);
+      break;
+    }
+    case 'groupBy': {
+      const name = toPythonBindingName(requirePortableProp('groupBy', 'name', String(p.name || '')), 'groupBy');
+      const item = String(p.item || 'item');
+      const collection = rewriteFastAPIStmtExpr(
+        requirePortableProp('groupBy', 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      const by = rewriteFastAPIStmtExpr(
+        requirePortableProp('groupBy', 'by', extractCodeOrString(p.by).trim()),
+        `${indent}    `,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      const keyName = `__kern_key_${name}`;
+      lines.push(...collection.hoists);
+      lines.push(`${indent}${name}${typeAnnotation} = {}`);
+      lines.push(`${indent}for ${item} in ${collection.expr}:`);
+      lines.push(...by.hoists);
+      lines.push(`${indent}    ${keyName} = ${by.expr}`);
+      pushJsObjectKeyCoercion(lines, `${indent}    `, keyName);
+      lines.push(`${indent}    ${name}.setdefault(${keyName}, []).append(${item})`);
+      break;
+    }
+    case 'partition': {
+      const passName = toPythonBindingName(requirePortableProp('partition', 'pass', String(p.pass || '')), 'partition');
+      const failName = toPythonBindingName(requirePortableProp('partition', 'fail', String(p.fail || '')), 'partition');
+      const item = String(p.item || 'item');
+      const collection = rewriteFastAPIStmtExpr(
+        requirePortableProp('partition', 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      const where = rewriteFastAPIStmtExpr(
+        requirePortableProp('partition', 'where', extractCodeOrString(p.where).trim()),
+        `${indent}    `,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      const elemType = p.type ? mapTsTypeToPython(String(p.type)) : undefined;
+      const typeAnnotation = elemType ? `: list[${elemType}]` : '';
+      lines.push(...collection.hoists);
+      lines.push(`${indent}${passName}${typeAnnotation} = []`);
+      lines.push(`${indent}${failName}${typeAnnotation} = []`);
+      lines.push(`${indent}for ${item} in ${collection.expr}:`);
+      lines.push(...where.hoists);
+      lines.push(`${indent}    if ${where.expr}:`);
+      lines.push(`${indent}        ${passName}.append(${item})`);
+      lines.push(`${indent}    else:`);
+      lines.push(`${indent}        ${failName}.append(${item})`);
+      break;
+    }
+    case 'indexBy': {
+      const name = toPythonBindingName(requirePortableProp('indexBy', 'name', String(p.name || '')), 'indexBy');
+      const item = String(p.item || 'item');
+      const collection = rewriteFastAPIStmtExpr(
+        requirePortableProp('indexBy', 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      const by = rewriteFastAPIStmtExpr(
+        requirePortableProp('indexBy', 'by', extractCodeOrString(p.by).trim()),
+        `${indent}    `,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      const keyName = `__kern_key_${name}`;
+      lines.push(...collection.hoists);
+      lines.push(`${indent}${name}${typeAnnotation} = {}`);
+      lines.push(`${indent}for ${item} in ${collection.expr}:`);
+      lines.push(...by.hoists);
+      lines.push(`${indent}    ${keyName} = ${by.expr}`);
+      pushJsObjectKeyCoercion(lines, `${indent}    `, keyName);
+      lines.push(`${indent}    ${name}[${keyName}] = ${item}`);
+      break;
+    }
+    case 'countBy': {
+      const name = toPythonBindingName(requirePortableProp('countBy', 'name', String(p.name || '')), 'countBy');
+      const item = String(p.item || 'item');
+      const collection = rewriteFastAPIStmtExpr(
+        requirePortableProp('countBy', 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      const by = rewriteFastAPIStmtExpr(
+        requirePortableProp('countBy', 'by', extractCodeOrString(p.by).trim()),
+        `${indent}    `,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      const keyName = `__kern_key_${name}`;
+      lines.push(...collection.hoists);
+      lines.push(`${indent}${name}${typeAnnotation} = {}`);
+      lines.push(`${indent}for ${item} in ${collection.expr}:`);
+      lines.push(...by.hoists);
+      lines.push(`${indent}    ${keyName} = ${by.expr}`);
+      pushJsObjectKeyCoercion(lines, `${indent}    `, keyName);
+      lines.push(`${indent}    ${name}[${keyName}] = ${name}.get(${keyName}, 0) + 1`);
+      break;
+    }
     case 'effect': {
       const effectName = toSnakeCase(String(p.name || 'effect'));
       const triggerNode = getFirstChild(child, 'trigger');
@@ -623,11 +1167,29 @@ export function generatePortableHandlerFastAPI(
   const PORTABLE_TYPES = new Set([
     'derive',
     'guard',
+    'filter',
     'handler',
     'respond',
     'branch',
     'each',
     'collect',
+    'count',
+    'compact',
+    'pluck',
+    'take',
+    'drop',
+    'sort',
+    'objectMerge',
+    'objectOmit',
+    'objectPick',
+    'objectKeys',
+    'objectValues',
+    'objectEntries',
+    'uniqueBy',
+    'groupBy',
+    'partition',
+    'indexBy',
+    'countBy',
     'effect',
     'assign',
     'do',
@@ -646,7 +1208,18 @@ export function generatePortableHandlerFastAPI(
 
 // Portable SSE body node types (slice 4c) — the route-body subset that composes
 // inside a `stream`, plus the streaming primitives `fanout`/`emit`.
-const PORTABLE_STREAM_TYPES = new Set(['derive', 'let', 'each', 'fanout', 'emit', 'do', 'assign', 'branch', 'collect']);
+const PORTABLE_STREAM_TYPES = new Set([
+  'derive',
+  'let',
+  'each',
+  'fanout',
+  'emit',
+  'do',
+  'assign',
+  'branch',
+  'collect',
+  'count',
+]);
 
 export function hasPortableStreamBodyFastAPI(streamNode: IRNode): boolean {
   return (streamNode.children || []).some((c) => PORTABLE_STREAM_TYPES.has(c.type));

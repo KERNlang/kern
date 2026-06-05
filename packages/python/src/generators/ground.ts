@@ -3,8 +3,8 @@
  * derive, transform, action, guard, assume, invariant, each, collect, branch, resolve, expect, recover
  */
 
-import type { ExprObject, IRNode } from '@kernlang/core';
-import { handlerCode, parseExpression } from '@kernlang/core';
+import type { ExprObject, IRNode, ValueIR } from '@kernlang/core';
+import { emitStringKeyArray, handlerCode, parseExpression, parseKeys } from '@kernlang/core';
 import { emitPyExpression } from '../codegen-body-python.js';
 import {
   buildPythonParamList,
@@ -14,7 +14,7 @@ import {
   kids,
   p,
 } from '../codegen-helpers.js';
-import { mapTsTypeToPython, toSnakeCase } from '../type-map.js';
+import { mapTsTypeToPython, toPythonBindingName, toSnakeCase } from '../type-map.js';
 
 /**
  * Common preamble extracted from all ground layer generators.
@@ -33,6 +33,30 @@ function unwrapExpr(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value === 'object' && (value as ExprObject).__expr) return (value as ExprObject).code;
   return String(value);
+}
+
+function emitJsObjectKeyCoercion(keyName: string): string[] {
+  return [
+    `    if ${keyName} is None:`,
+    `        ${keyName} = "null"`,
+    `    elif isinstance(${keyName}, bool):`,
+    `        ${keyName} = "true" if ${keyName} else "false"`,
+    `    elif isinstance(${keyName}, float):`,
+    `        if ${keyName} != ${keyName}:`,
+    `            ${keyName} = "NaN"`,
+    `        elif ${keyName} == float("inf"):`,
+    `            ${keyName} = "Infinity"`,
+    `        elif ${keyName} == float("-inf"):`,
+    `            ${keyName} = "-Infinity"`,
+    `        elif ${keyName}.is_integer():`,
+    `            ${keyName} = str(int(${keyName}))`,
+    `        else:`,
+    `            ${keyName} = str(${keyName})`,
+    `    elif not isinstance(${keyName}, (str, int)):`,
+    `        raise TypeError("keyed reshape selector must produce a scalar key")`,
+    `    else:`,
+    `        ${keyName} = str(${keyName})`,
+  ];
 }
 
 function splitExpressionList(raw: string, propName: string): string[] {
@@ -98,6 +122,81 @@ export function generateClamp(node: IRNode): string[] {
   return [...todo, ...annotations, `${name}${typeAnnotation} = max(${min}, min(${max}, ${value}))`];
 }
 
+// ── firstTruthy ────────────────────────────────────────────────────────
+
+export function generateFirstTruthy(node: IRNode): string[] {
+  const { annotations, todo, props, name } = groundPreamble(node);
+  const rawValues = unwrapExpr(props.values);
+  if (rawValues === undefined || rawValues === '') throw new Error("firstTruthy node requires a 'values' prop");
+  const values = splitExpressionList(rawValues, 'firstTruthy values=');
+  if (values.length < 2) throw new Error('firstTruthy requires at least two value expressions');
+
+  const emitted = values.map((value) => {
+    const valueIR = parseExpression(value);
+    if (valueIR.kind === 'propagate') {
+      throw new Error("Propagation '?' is not allowed in `firstTruthy values=` — bind the value first.");
+    }
+    return emitFirstTruthyOperandPy(valueIR);
+  });
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
+  return [...todo, ...annotations, `${name}${typeAnnotation} = ${emitted.join(' or ')}`];
+}
+
+function emitFirstTruthyOperandPy(valueIR: ValueIR): string {
+  const emitted = emitPyExpression(valueIR);
+  return valueIR.kind === 'conditional' ? `(${emitted})` : emitted;
+}
+
+function buildNullishCoalesceIR(values: ValueIR[]): ValueIR {
+  if (values.length === 1) return values[0];
+  const [left, ...rest] = values;
+  return { kind: 'binary', op: '??', left, right: buildNullishCoalesceIR(rest) };
+}
+
+export function generateCoalesce(node: IRNode): string[] {
+  const { annotations, todo, props, name } = groundPreamble(node);
+  const rawValues = unwrapExpr(props.values);
+  if (rawValues === undefined || rawValues === '') throw new Error("coalesce node requires a 'values' prop");
+  const values = splitExpressionList(rawValues, 'coalesce values=');
+  if (values.length < 2) throw new Error('coalesce requires at least two value expressions');
+
+  const valueIRs = values.map((value) => {
+    const valueIR = parseExpression(value);
+    if (valueIR.kind === 'propagate') {
+      throw new Error("Propagation '?' is not allowed in `coalesce values=` — bind the value first.");
+    }
+    return valueIR;
+  });
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
+  const chain = emitPyExpression(buildNullishCoalesceIR(valueIRs));
+  return [...todo, ...annotations, `${name}${typeAnnotation} = ${chain}`];
+}
+
+export function generateFirstDefined(node: IRNode): string[] {
+  const { annotations, todo, props, name } = groundPreamble(node);
+  const rawValues = unwrapExpr(props.values);
+  if (rawValues === undefined || rawValues === '') throw new Error("firstDefined node requires a 'values' prop");
+  const values = splitExpressionList(rawValues, 'firstDefined values=');
+  if (values.length < 2) throw new Error('firstDefined requires at least two value expressions');
+
+  const valueIRs = values.map((value) => {
+    const valueIR = parseExpression(value);
+    if (valueIR.kind === 'propagate') {
+      throw new Error("Propagation '?' is not allowed in `firstDefined values=` — bind the value first.");
+    }
+    return valueIR;
+  });
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
+  const chain = emitPyExpression(buildNullishCoalesceIR(valueIRs));
+  return [...todo, ...annotations, `${name}${typeAnnotation} = ${chain}`];
+}
+
 // ── objectMerge ─────────────────────────────────────────────────────────
 
 export function generateObjectMerge(node: IRNode): string[] {
@@ -120,6 +219,64 @@ export function generateObjectMerge(node: IRNode): string[] {
   const constType = props.type as string | undefined;
   const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
   return [...todo, ...annotations, `${name}${typeAnnotation} = {${emitted.join(', ')}}`];
+}
+
+export function generateObjectPick(node: IRNode): string[] {
+  const { annotations, todo, props, name } = groundPreamble(node);
+  if (props.in === undefined) {
+    throw new Error("objectPick node requires an 'in' prop");
+  }
+  const rawIn = unwrapExpr(props.in);
+  if (rawIn === undefined || rawIn === '') throw new Error("objectPick node requires an 'in' prop");
+  const rawKeys = unwrapExpr(props.keys);
+  if (rawKeys === undefined || rawKeys === '') throw new Error("objectPick node requires a 'keys' prop");
+
+  const inIR = parseExpression(rawIn);
+  if (inIR.kind === 'propagate') {
+    throw new Error("Propagation '?' is not allowed in objectPick in=");
+  }
+  const inExpr = emitPyExpression(inIR);
+
+  const keysList = parseKeys(rawKeys, node, 'objectPick keys=');
+  const formattedKeys = emitStringKeyArray(keysList);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
+
+  return [
+    ...todo,
+    ...annotations,
+    `${name}${typeAnnotation} = (lambda __kern_source: {key: (__kern_source[key] if key in __kern_source else None) for key in ${formattedKeys}})(${inExpr})`,
+  ];
+}
+
+export function generateObjectOmit(node: IRNode): string[] {
+  const { annotations, todo, props, name } = groundPreamble(node);
+  if (props.in === undefined) {
+    throw new Error("objectOmit node requires an 'in' prop");
+  }
+  const rawIn = unwrapExpr(props.in);
+  if (rawIn === undefined || rawIn === '') throw new Error("objectOmit node requires an 'in' prop");
+  const rawKeys = unwrapExpr(props.keys);
+  if (rawKeys === undefined || rawKeys === '') throw new Error("objectOmit node requires a 'keys' prop");
+
+  const inIR = parseExpression(rawIn);
+  if (inIR.kind === 'propagate') {
+    throw new Error("Propagation '?' is not allowed in objectOmit in=");
+  }
+  const inExpr = emitPyExpression(inIR);
+
+  const keysList = parseKeys(rawKeys, node, 'objectOmit keys=');
+  const formattedKeys = emitStringKeyArray(keysList);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
+
+  return [
+    ...todo,
+    ...annotations,
+    `${name}${typeAnnotation} = {key: value for key, value in ${inExpr}.items() if key not in ${formattedKeys}}`,
+  ];
 }
 
 // ── transform ───────────────────────────────────────────────────────────
@@ -291,17 +448,35 @@ export function generateCollect(node: IRNode): string[] {
   const from = props.from as string;
   const where = props.where as string | undefined;
   const limit = props.limit as string | undefined;
+  const order = props.order as string | undefined;
 
-  if (where && limit) {
-    return [...todo, ...annotations, `${name} = [item for item in ${from} if ${where}][:${limit}]`];
-  }
-  if (where) {
-    return [...todo, ...annotations, `${name} = [item for item in ${from} if ${where}]`];
+  const lines: string[] = [...todo, ...annotations];
+  let expr = where ? `[item for item in ${from} if ${where}]` : `list(${from})`;
+  if (order) {
+    lines.push('from functools import cmp_to_key');
+    expr = `sorted(${expr}, key=cmp_to_key(lambda a, b: ${order}))`;
   }
   if (limit) {
-    return [...todo, ...annotations, `${name} = ${from}[:${limit}]`];
+    expr = `${expr}[:${limit}]`;
   }
-  return [...todo, ...annotations, `${name} = list(${from})`];
+  lines.push(`${name} = ${expr}`);
+  return lines;
+}
+
+// ── count ───────────────────────────────────────────────────────────────
+
+export function generateCount(node: IRNode): string[] {
+  const { annotations, todo, props, name } = groundPreamble(node);
+  const items = unwrapExpr(props.in);
+  if (items === undefined || items === '') throw new Error("count node requires an 'in' prop");
+  const where = unwrapExpr(props.where);
+  const item = (props.item as string) || 'item';
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
+
+  const rhs = where ? `sum(1 for ${item} in ${items} if ${where})` : `len(${items})`;
+
+  return [...todo, ...annotations, `${name}${typeAnnotation} = ${rhs}`];
 }
 
 // ── branch / path ───────────────────────────────────────────────────────
@@ -463,4 +638,168 @@ export function generateRecover(node: IRNode): string[] {
     }
   }
   return lines;
+}
+
+// ── Ground Layer: uniqueBy ───────────────────────────────────────────────
+
+export function generateUniqueBy(node: IRNode): string[] {
+  const { annotations, todo, props } = groundPreamble(node);
+  const name = toPythonBindingName(String(props.name || ''), 'uniqueBy');
+  const item = (props.item as string) || 'item';
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new Error("uniqueBy node requires an 'in' prop");
+  const by = unwrapExpr(props.by);
+  if (!by) throw new Error("uniqueBy node requires a 'by' prop");
+  const seenName = `__kern_seen_${name}`;
+  const seenObjectsName = `__kern_seen_objects_${name}`;
+  const keyName = `__kern_key_${name}`;
+  const seenKeyName = `__kern_seen_key_${name}`;
+  const seenObjectName = `__kern_seen_object_${name}`;
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
+
+  return [
+    ...todo,
+    ...annotations,
+    `${name}${typeAnnotation} = []`,
+    `${seenName} = set()`,
+    `${seenObjectsName} = []`,
+    `for ${item} in ${collection}:`,
+    `    ${keyName} = ${by}`,
+    `    if ${keyName} is None:`,
+    `        ${seenKeyName} = ("null", None)`,
+    `    elif isinstance(${keyName}, bool):`,
+    `        ${seenKeyName} = ("boolean", ${keyName})`,
+    `    elif isinstance(${keyName}, float) and ${keyName} != ${keyName}:`,
+    `        ${seenKeyName} = ("number", "NaN")`,
+    `    elif isinstance(${keyName}, (int, float)):`,
+    `        ${seenKeyName} = ("number", ${keyName})`,
+    `    elif isinstance(${keyName}, str):`,
+    `        ${seenKeyName} = ("string", ${keyName})`,
+    `    else:`,
+    `        for ${seenObjectName} in ${seenObjectsName}:`,
+    `            if ${keyName} is ${seenObjectName}:`,
+    `                break`,
+    `        else:`,
+    `            ${seenObjectsName}.append(${keyName})`,
+    `            ${name}.append(${item})`,
+    `        continue`,
+    `    if ${seenKeyName} not in ${seenName}:`,
+    `        ${seenName}.add(${seenKeyName})`,
+    `        ${name}.append(${item})`,
+  ];
+}
+
+// ── Ground Layer: groupBy ────────────────────────────────────────────────
+
+export function generateGroupBy(node: IRNode): string[] {
+  const { annotations, todo, props } = groundPreamble(node);
+  const name = toPythonBindingName(String(props.name || ''), 'groupBy');
+  const item = (props.item as string) || 'item';
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new Error("groupBy node requires an 'in' prop");
+  const by = unwrapExpr(props.by);
+  if (!by) throw new Error("groupBy node requires a 'by' prop");
+  const keyName = `__kern_key_${name}`;
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
+
+  return [
+    ...todo,
+    ...annotations,
+    `${name}${typeAnnotation} = {}`,
+    `for ${item} in ${collection}:`,
+    `    ${keyName} = ${by}`,
+    ...emitJsObjectKeyCoercion(keyName),
+    `    ${name}.setdefault(${keyName}, []).append(${item})`,
+  ];
+}
+
+// ── Ground Layer: partition ──────────────────────────────────────────────
+
+export function generatePartition(node: IRNode): string[] {
+  const annotations = emitPyReasonAnnotations(node);
+  const conf = p(node).confidence as string | undefined;
+  const todo = emitPyLowConfidenceTodo(node, conf);
+  const props = p(node);
+  const passRaw = props.pass as string | undefined;
+  if (!passRaw) throw new Error("partition node requires a 'pass' prop");
+  const failRaw = props.fail as string | undefined;
+  if (!failRaw) throw new Error("partition node requires a 'fail' prop");
+  const passName = toPythonBindingName(passRaw, 'partition');
+  const failName = toPythonBindingName(failRaw, 'partition');
+  const item = (props.item as string) || 'item';
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new Error("partition node requires an 'in' prop");
+  const predicate = unwrapExpr(props.where);
+  if (!predicate) throw new Error("partition node requires a 'where' prop");
+  const elemType = props.type ? mapTsTypeToPython(props.type as string) : undefined;
+  const typeAnnotation = elemType ? `: list[${elemType}]` : '';
+
+  return [
+    ...todo,
+    ...annotations,
+    `${passName}${typeAnnotation} = []`,
+    `${failName}${typeAnnotation} = []`,
+    `for ${item} in ${collection}:`,
+    `    if ${predicate}:`,
+    `        ${passName}.append(${item})`,
+    `    else:`,
+    `        ${failName}.append(${item})`,
+  ];
+}
+
+// ── Ground Layer: indexBy ────────────────────────────────────────────────
+
+export function generateIndexBy(node: IRNode): string[] {
+  const { annotations, todo, props } = groundPreamble(node);
+  const name = toPythonBindingName(String(props.name || ''), 'indexBy');
+  const item = (props.item as string) || 'item';
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new Error("indexBy node requires an 'in' prop");
+  const by = unwrapExpr(props.by);
+  if (!by) throw new Error("indexBy node requires a 'by' prop");
+  const keyName = `__kern_key_${name}`;
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
+
+  return [
+    ...todo,
+    ...annotations,
+    `${name}${typeAnnotation} = {}`,
+    `for ${item} in ${collection}:`,
+    `    ${keyName} = ${by}`,
+    ...emitJsObjectKeyCoercion(keyName),
+    `    ${name}[${keyName}] = ${item}`,
+  ];
+}
+
+// ── Ground Layer: countBy ────────────────────────────────────────────────
+
+export function generateCountBy(node: IRNode): string[] {
+  const { annotations, todo, props } = groundPreamble(node);
+  const name = toPythonBindingName(String(props.name || ''), 'countBy');
+  const item = (props.item as string) || 'item';
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new Error("countBy node requires an 'in' prop");
+  const by = unwrapExpr(props.by);
+  if (!by) throw new Error("countBy node requires a 'by' prop");
+  const keyName = `__kern_key_${name}`;
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
+
+  return [
+    ...todo,
+    ...annotations,
+    `${name}${typeAnnotation} = {}`,
+    `for ${item} in ${collection}:`,
+    `    ${keyName} = ${by}`,
+    ...emitJsObjectKeyCoercion(keyName),
+    `    ${name}[${keyName}] = ${name}.get(${keyName}, 0) + 1`,
+  ];
 }

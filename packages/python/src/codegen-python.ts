@@ -39,16 +39,27 @@ import {
   generateAssume,
   generateBranch,
   generateClamp,
+  generateCoalesce,
   generateCollect,
+  generateCount,
+  generateCountBy,
   generateDerive,
   generateEach,
   generateExpect,
+  generateFirstDefined,
+  generateFirstTruthy,
+  generateGroupBy,
   generateGuard,
+  generateIndexBy,
   generateInvariant,
   generateObjectMerge,
+  generateObjectOmit,
+  generateObjectPick,
+  generatePartition,
   generateRecover,
   generateResolve,
   generateTransform,
+  generateUniqueBy,
   setDispatcher,
 } from './generators/ground.js';
 
@@ -89,16 +100,27 @@ export {
   generateAssume,
   generateBranch,
   generateClamp,
+  generateCoalesce,
   generateCollect,
+  generateCount,
+  generateCountBy,
   generateDerive,
   generateEach,
   generateExpect,
+  generateFirstDefined,
+  generateFirstTruthy,
+  generateGroupBy,
   generateGuard,
+  generateIndexBy,
   generateInvariant,
   generateObjectMerge,
+  generateObjectOmit,
+  generateObjectPick,
+  generatePartition,
   generateRecover,
   generateResolve,
   generateTransform,
+  generateUniqueBy,
 } from './generators/ground.js';
 
 export {
@@ -172,8 +194,18 @@ export function generatePythonCoreNode(node: IRNode, options: PythonCodegenOptio
       return generateDerive(node);
     case 'clamp':
       return generateClamp(node);
+    case 'firstTruthy':
+      return generateFirstTruthy(node);
+    case 'coalesce':
+      return generateCoalesce(node);
+    case 'firstDefined':
+      return generateFirstDefined(node);
     case 'objectMerge':
       return generateObjectMerge(node);
+    case 'objectOmit':
+      return generateObjectOmit(node);
+    case 'objectPick':
+      return generateObjectPick(node);
     case 'transform':
       return generateTransform(node);
     case 'action':
@@ -188,6 +220,18 @@ export function generatePythonCoreNode(node: IRNode, options: PythonCodegenOptio
       return generateEach(node);
     case 'collect':
       return generateCollect(node);
+    case 'count':
+      return generateCount(node);
+    case 'countBy':
+      return generateCountBy(node);
+    case 'uniqueBy':
+      return generateUniqueBy(node);
+    case 'groupBy':
+      return generateGroupBy(node);
+    case 'partition':
+      return generatePartition(node);
+    case 'indexBy':
+      return generateIndexBy(node);
     case 'branch':
       return generateBranch(node);
     case 'resolve':
