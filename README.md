@@ -215,13 +215,14 @@ Templates: `file-tools`, `api-gateway`, `database-tools`
 Give an LLM or agent **instant whole-project context** — not just for review. `kern context` walks your project's import graph and call graph and emits a compact, token-budgeted map of how the codebase fits together: which symbols exist, **who calls/uses each one** (cross-file blast radius), imports, and taint flows.
 
 ```bash
-kern context src/                       # write kern-context.json
-kern context src/ --stdout              # print to stdout (pipe into an agent)
-kern context src/ --out ctx.json        # custom output path
+kern context src/                       # write kern-context.json (full artifact)
+kern context src/ --stdout              # print the JSON to stdout
+kern context src/ --spine --stdout      # compact <kern-map> spine, ready to drop in a prompt
+kern context src/ --spine --spine-budget 3000   # cap the spine at ~3000 tokens
 kern context src/ --max-depth=2         # limit import-graph depth
 ```
 
-The output is the same `<kern-map>` "spine" that `kern review --llm` injects into the reviewer's prompt, exposed standalone. Feed it to a coding agent and it starts the task already knowing the project's structure — "`validateSession` → used by 6 files" — instead of cold-reading every file to map dependencies. It's **deterministic and cacheable**: regenerate after each change and the context stays fresh.
+Two forms: the full **`kern-context.json`** artifact (default), and — with `--spine` — the compact **`<kern-map>`** spine, the same prompt-ready form `kern review --llm` injects per batch. Feed the spine to a coding agent and it starts the task already knowing the project's structure — "`validateSession` → used by 6 files" — instead of cold-reading every file to map dependencies. `--spine-budget` fits it to a token budget, degrading gracefully on large projects. It's **deterministic and cacheable**: regenerate after each change and the context stays fresh.
 
 Paths are relative by default (`--absolute` for absolute, `--base=<dir>` to rebase). Analyzes TypeScript sources (`.ts`, `.tsx`, `.mts`, `.cts`); for a `.kern` project, point it at the compiled TypeScript output.
 
