@@ -508,6 +508,48 @@ function generatePurePythonStmt(
       lines.push(`${indent}${name}${typeAnnotation} = ${collection.expr}${slice}`);
       break;
     }
+    case 'slice': {
+      const name = toPythonBindingName(String(p.name || ''), 'slice');
+      if (!name) throw new Error("slice node requires a 'name' prop");
+      const inVal = extractCodeOrString(p.in).trim();
+      if (!inVal) throw new Error("slice node requires an 'in' prop");
+      const collection = rewriteExprPure(inVal, indent);
+      lines.push(...collection.hoists);
+      const startRaw = extractCodeOrString(p.start).trim();
+      const endRaw = extractCodeOrString(p.end).trim();
+      const start = startRaw ? parsePortableNonNegativeIntLiteral(startRaw, child, 'start') : '';
+      const end = endRaw ? parsePortableNonNegativeIntLiteral(endRaw, child, 'end') : '';
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      lines.push(`${indent}${name}${typeAnnotation} = ${collection.expr}[${start}:${end}]`);
+      break;
+    }
+    case 'reverse': {
+      const name = toPythonBindingName(String(p.name || ''), 'reverse');
+      if (!name) throw new Error("reverse node requires a 'name' prop");
+      const inVal = extractCodeOrString(p.in).trim();
+      if (!inVal) throw new Error("reverse node requires an 'in' prop");
+      const collection = rewriteExprPure(inVal, indent);
+      lines.push(...collection.hoists);
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      lines.push(`${indent}${name}${typeAnnotation} = ${collection.expr}[::-1]`);
+      break;
+    }
+    case 'at': {
+      const name = toPythonBindingName(String(p.name || ''), 'at');
+      if (!name) throw new Error("at node requires a 'name' prop");
+      const inVal = extractCodeOrString(p.in).trim();
+      if (!inVal) throw new Error("at node requires an 'in' prop");
+      const indexVal = extractCodeOrString(p.index).trim();
+      if (!indexVal) throw new Error("at node requires an 'index' prop");
+      const collection = rewriteExprPure(inVal, indent);
+      lines.push(...collection.hoists);
+      const index = parsePortableNonNegativeIntLiteral(indexVal, child, 'index');
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      lines.push(
+        `${indent}${name}${typeAnnotation} = (lambda __kern_source: __kern_source[${index}] if ${index} < len(__kern_source) else None)(${collection.expr})`,
+      );
+      break;
+    }
     case 'sort': {
       const name = toPythonBindingName(String(p.name || ''), 'sort');
       if (!name) throw new Error("sort node requires a 'name' prop");
@@ -903,6 +945,9 @@ export function emitPureHandlers(serverNode: IRNode, imports: Set<string>, root?
       'pluck',
       'take',
       'drop',
+      'slice',
+      'reverse',
+      'at',
       'sort',
       'objectMerge',
       'objectOmit',

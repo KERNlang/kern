@@ -21,6 +21,9 @@ describe('portable logic primitive registry', () => {
       'collection.pluck',
       'collection.take',
       'collection.drop',
+      'collection.slice',
+      'collection.reverse',
+      'collection.at',
       'collection.sort',
       'collection.uniqueBy',
       'collection.groupBy',
@@ -52,6 +55,9 @@ describe('portable logic primitive registry', () => {
     expect(portableLogicSupportForTarget('collection.pluck', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.take', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.drop', 'python')).toBe('stable');
+    expect(portableLogicSupportForTarget('collection.slice', 'python')).toBe('stable');
+    expect(portableLogicSupportForTarget('collection.reverse', 'python')).toBe('stable');
+    expect(portableLogicSupportForTarget('collection.at', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.sort', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.uniqueBy', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.groupBy', 'python')).toBe('stable');
@@ -93,6 +99,9 @@ describe('portable logic primitive registry', () => {
       '    pluck name=emails in=users prop=profile.email',
       '    take name=first_two in=emails n=2',
       '    drop name=after_one in=emails n=1',
+      '    slice name=middle in=emails start=1 end=3',
+      '    reverse name=reversed in=emails',
+      '    at name=first_email in=emails index=0',
       '    sort name=ranked in=users compare="b.score - a.score"',
       '    uniqueBy name=distinct in=users by="item.id"',
       '    groupBy name=by_type in=users by="item.type"',
@@ -121,6 +130,16 @@ describe('portable logic primitive registry', () => {
     expect(
       validateSchema(stream.root).some((v) => /'stream' does not allow child type 'uniqueBy'/.test(v.message)),
     ).toBe(true);
+
+    const deferredJoinRoute = [
+      'server name=API',
+      '  route method=post path=/api/t',
+      '    join name=csv in=items separator="|"',
+    ].join('\n');
+    const deferredJoin = parseDocumentWithDiagnostics(deferredJoinRoute);
+    expect(
+      validateSchema(deferredJoin.root).some((v) => /'route' does not allow child type 'join'/.test(v.message)),
+    ).toBe(true);
   });
 
   test('portable expression list splitter rejects empty source expressions', () => {
@@ -136,6 +155,7 @@ describe('portable logic primitive registry', () => {
   test('route collection helper parsers reject non-portable path and count shapes', () => {
     const pluckNode = { type: 'pluck', props: { prop: 'profile.email' } };
     const takeNode = { type: 'take', props: { n: '2' } };
+    const atNode = { type: 'at', props: { index: '0' } };
     expect(parsePortablePathSegments('profile.email', pluckNode, 'prop')).toEqual(['profile', 'email']);
     expect(parsePortablePathSegments('profile.tags.0', pluckNode, 'prop')).toEqual(['profile', 'tags', '0']);
     expect(() => parsePortablePathSegments('profile..email', pluckNode, 'prop')).toThrow(/empty path segments/);
@@ -145,6 +165,8 @@ describe('portable logic primitive registry', () => {
     expect(() => parsePortableNonNegativeIntLiteral('-1', takeNode, 'n')).toThrow(/non-negative integer literal/);
     expect(() => parsePortableNonNegativeIntLiteral('1.5', takeNode, 'n')).toThrow(/non-negative integer literal/);
     expect(() => parsePortableNonNegativeIntLiteral('limit', takeNode, 'n')).toThrow(/non-negative integer literal/);
+    expect(parsePortableNonNegativeIntLiteral('0', atNode, 'index')).toBe('0');
+    expect(() => parsePortableNonNegativeIntLiteral('-1', atNode, 'index')).toThrow(/non-negative integer literal/);
   });
 
   test('filter route child requires exactly one predicate form', () => {
@@ -347,6 +369,11 @@ describe('portable logic primitive registry', () => {
     expect(lookupPortableLogicPrimitive('collection.partition')?.portabilityNotes.join(' ')).toContain('predicate');
     expect(lookupPortableLogicPrimitive('collection.indexBy')?.portabilityNotes.join(' ')).toContain('last-write-wins');
     expect(lookupPortableLogicPrimitive('collection.countBy')?.portabilityNotes.join(' ')).toContain('integers');
+    expect(lookupPortableLogicPrimitive('collection.slice')?.portabilityNotes.join(' ')).toContain(
+      'non-negative integer literal',
+    );
+    expect(lookupPortableLogicPrimitive('collection.reverse')?.portabilityNotes.join(' ')).toContain('copied');
+    expect(lookupPortableLogicPrimitive('collection.at')?.portabilityNotes.join(' ')).toContain('negative indexing');
     const firstTruthy = lookupPortableLogicPrimitive('logic.firstTruthy');
     expect(firstTruthy?.hostPatterns).toContain('a || b || c');
     expect(firstTruthy?.portabilityNotes.join(' ')).toContain('empty collections are target-specific');

@@ -1302,7 +1302,7 @@ describe('Express Transpiler', () => {
       expect(code).toContain('acc[__kernKey_counts] = (acc[__kernKey_counts] ?? 0) + 1;');
     });
 
-    test('transpiles compact, pluck, take, and drop route collection shaping correctly', async () => {
+    test('transpiles route collection shaping primitives correctly', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');
       const source = [
@@ -1312,7 +1312,11 @@ describe('Express Transpiler', () => {
         '    pluck name=emails in=users prop=profile.email',
         '    take name=first_two in=emails n=2',
         '    drop name=after_one in=emails n=1',
-        '    respond 200 json={{ {truthy: truthy, emails: emails, firstTwo: first_two, afterOne: after_one} }}',
+        '    slice name=middle in=emails start=1 end=3',
+        '    reverse name=reversed in=emails',
+        '    at name=first_email in=emails index=0',
+        '    at name=missing_email in=emails index=99',
+        '    respond 200 json={{ {truthy: truthy, emails: emails, firstTwo: first_two, afterOne: after_one, middle: middle, reversed: reversed, firstEmail: first_email, missingEmail: missing_email} }}',
       ].join('\n');
       const result = transpileExpress(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('list-shape') && a.path.endsWith('.ts'));
@@ -1328,6 +1332,14 @@ describe('Express Transpiler', () => {
       expect(code).toContain('const emails = (users).map(__kernPluck_emails);');
       expect(code).toContain('const first_two = (emails).slice(0, 2);');
       expect(code).toContain('const after_one = (emails).slice(1);');
+      expect(code).toContain('const middle = (emails).slice(1, 3);');
+      expect(code).toContain('const reversed = [...(emails)].reverse();');
+      expect(code).toContain(
+        'const first_email = ((__kernSource) => 0 < __kernSource.length ? __kernSource[0] : null)(emails);',
+      );
+      expect(code).toContain(
+        'const missing_email = ((__kernSource) => 99 < __kernSource.length ? __kernSource[99] : null)(emails);',
+      );
     });
 
     test('transpiles route sort shaping without mutating the source collection', async () => {
@@ -1369,6 +1381,19 @@ describe('Express Transpiler', () => {
         '    respond 200 json=ranked',
       ].join('\n');
       expect(() => transpileExpress(parse(unsafeName))).toThrow(/Invalid identifier/);
+    });
+
+    test('rejects unsafe route slice, reverse, and at bindings', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      for (const node of [
+        'slice name=bad-name in=items start=0 end=1',
+        'reverse name=bad-name in=items',
+        'at name=bad-name in=items index=0',
+      ]) {
+        const source = ['server name=API', '  route method=post path=/api/list-shape', `    ${node}`].join('\n');
+        expect(() => transpileExpress(parse(source))).toThrow(/Invalid identifier/);
+      }
     });
 
     test('transpiles route object merge, pick, and omit correctly', async () => {

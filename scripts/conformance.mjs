@@ -723,6 +723,20 @@ const FIXTURES = [
       firstTwo: ['a@example.com', null],
       afterOne: [null, null, ''],
     } } },
+  { kind: 'route', name: 'route: slice/reverse/at list primitive parity',
+    kern: `route method=post path=/api/t\n  slice name=middle in=items start=1 end=3\n  slice name=empty_range in=items start=3 end=1\n  slice name=copy_all in=items\n  reverse name=backward in=items\n  at name=first in=items index=0\n  at name=missing in=items index=99\n  respond 200 json={{ {middle: middle, emptyRange: empty_range, copyAll: copy_all, backward: backward, first: first, missing: missing, original: items} }}`,
+    bindings: { locals: {
+      items: ['a', 'b', 'c', 'd'],
+    } },
+    expected: { status: 200, body: {
+      middle: ['b', 'c'],
+      emptyRange: [],
+      copyAll: ['a', 'b', 'c', 'd'],
+      backward: ['d', 'c', 'b', 'a'],
+      first: 'a',
+      missing: null,
+      original: ['a', 'b', 'c', 'd'],
+    } } },
   { kind: 'route', name: 'route: sort comparator/default immutability parity',
     kern: `route method=post path=/api/t\n  sort name=ranked in=users compare="b.score - a.score"\n  sort name=lexicographic in=nums\n  sort name=mixed_sorted in=mixed\n  sort name=renamed in=users a=left b=right compare="right.score - left.score"\n  take name=top_two in=ranked n=2\n  respond 200 json={{ {ranked: ranked, topTwo: top_two, lexicographic: lexicographic, mixedSorted: mixed_sorted, renamed: renamed, original: users} }}`,
     bindings: { locals: {
