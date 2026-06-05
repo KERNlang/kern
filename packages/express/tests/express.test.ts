@@ -1316,7 +1316,12 @@ describe('Express Transpiler', () => {
         '    reverse name=reversed in=emails',
         '    at name=first_email in=emails index=0',
         '    at name=missing_email in=emails index=99',
-        '    respond 200 json={{ {truthy: truthy, emails: emails, firstTwo: first_two, afterOne: after_one, middle: middle, reversed: reversed, firstEmail: first_email, missingEmail: missing_email} }}',
+        '    join name=csv in=emails separator="|"',
+        '    concat name=all_emails in=emails with=more_emails',
+        '    includes name=has_email in=emails value="\'b@example.com\'"',
+        '    indexOf name=email_idx in=emails value="\'b@example.com\'"',
+        '    lastIndexOf name=last_email_idx in=emails value="\'b@example.com\'"',
+        '    respond 200 json={{ {truthy: truthy, emails: emails, firstTwo: first_two, afterOne: after_one, middle: middle, reversed: reversed, firstEmail: first_email, missingEmail: missing_email, csv: csv, allEmails: all_emails, hasEmail: has_email, emailIdx: email_idx, lastEmailIdx: last_email_idx} }}',
       ].join('\n');
       const result = transpileExpress(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('list-shape') && a.path.endsWith('.ts'));
@@ -1340,6 +1345,24 @@ describe('Express Transpiler', () => {
       expect(code).toContain(
         'const missing_email = ((__kernSource) => 99 < __kernSource.length ? __kernSource[99] : null)(emails);',
       );
+      expect(code).toContain('const __kernJoinPart_csv = (__kernValue) => {');
+      expect(code).toContain('const csv = (emails).map(__kernJoinPart_csv).join(String("|"));');
+      expect(code).toContain('const all_emails = ((__kernLeft, __kernRight) => {');
+      expect(code).toContain('return [...__kernLeft, ...__kernRight]; })(emails, more_emails);');
+      expect(code).toContain('const __kernSameValueZero_has_email = (__kernLeft, __kernRight) => {');
+      expect(code).toContain(
+        'const __kernNeedle_has_email = __kernAssertScalar_has_email(\'b@example.com\', "includes");',
+      );
+      expect(code).toContain(
+        'const has_email = (emails).some((__kernItem) => __kernSameValueZero_has_email(__kernItem, __kernNeedle_has_email));',
+      );
+      expect(code).toContain(
+        'const __kernNeedle_email_idx = __kernAssertScalar_email_idx(\'b@example.com\', "indexOf");',
+      );
+      expect(code).toContain(
+        'const email_idx = (emails).findIndex((__kernItem) => __kernStrictScalarEqual_email_idx(__kernItem, __kernNeedle_email_idx));',
+      );
+      expect(code).toContain('let last_email_idx = -1;');
     });
 
     test('transpiles route sort shaping without mutating the source collection', async () => {
@@ -1394,6 +1417,24 @@ describe('Express Transpiler', () => {
         const source = ['server name=API', '  route method=post path=/api/list-shape', `    ${node}`].join('\n');
         expect(() => transpileExpress(parse(source))).toThrow(/Invalid identifier/);
       }
+    });
+
+    test('rejects deferred direct route lookup and concat overloads', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const withFrom = [
+        'server name=API',
+        '  route method=post path=/api/list-shape',
+        '    includes name=has_email in=emails value="\'a@example.com\'" from=1',
+      ].join('\n');
+      expect(() => transpileExpress(parse(withFrom))).toThrow(/defers `from=`/);
+
+      const concatMany = [
+        'server name=API',
+        '  route method=post path=/api/list-shape',
+        '    concat name=all_emails in=emails with="more_emails, fallback_emails"',
+      ].join('\n');
+      expect(() => transpileExpress(parse(concatMany))).toThrow(/exactly one list-valued/);
     });
 
     test('transpiles route object merge, pick, and omit correctly', async () => {

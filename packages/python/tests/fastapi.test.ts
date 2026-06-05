@@ -3054,7 +3054,12 @@ describe('FastAPI Transpiler', () => {
         '    reverse name=reversed in=emails',
         '    at name=first_email in=emails index=0',
         '    at name=missing_email in=emails index=99',
-        '    respond 200 json={{ {truthy: truthy, emails: emails, firstTwo: first_two, afterOne: after_one, middle: middle, reversed: reversed, firstEmail: first_email, missingEmail: missing_email} }}',
+        '    join name=csv in=emails separator="|"',
+        '    concat name=all_emails in=emails with=more_emails',
+        '    includes name=has_email in=emails value="\'b@example.com\'"',
+        '    indexOf name=email_idx in=emails value="\'b@example.com\'"',
+        '    lastIndexOf name=last_email_idx in=emails value="\'b@example.com\'"',
+        '    respond 200 json={{ {truthy: truthy, emails: emails, firstTwo: first_two, afterOne: after_one, middle: middle, reversed: reversed, firstEmail: first_email, missingEmail: missing_email, csv: csv, allEmails: all_emails, hasEmail: has_email, emailIdx: email_idx, lastEmailIdx: last_email_idx} }}',
       ].join('\n');
       const result = transpileFastAPI(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('post_api_list_shape'));
@@ -3077,6 +3082,39 @@ describe('FastAPI Transpiler', () => {
       expect(code).toContain(
         'missing_email = (lambda __kern_source: __kern_source[99] if 99 < len(__kern_source) else None)(emails)',
       );
+      expect(code).toContain('def __kern_join_part_csv(__kern_value):');
+      expect(code).toContain('csv = "|".join(__kern_join_part_csv(__kern_item) for __kern_item in emails)');
+      expect(code).toContain('def __kern_concat_all_emails(__kern_left, __kern_right):');
+      expect(code).toContain('all_emails = __kern_concat_all_emails(emails, more_emails)');
+      expect(code).toContain('def __kern_same_value_zero_has_email(__kern_left, __kern_right):');
+      expect(code).toContain('__kern_needle_has_email = __kern_assert_scalar_has_email(\'b@example.com\', "includes")');
+      expect(code).toContain(
+        'has_email = any(__kern_same_value_zero_has_email(__kern_item, __kern_needle_has_email) for __kern_item in emails)',
+      );
+      expect(code).toContain(
+        'email_idx = next((__kern_index for __kern_index, __kern_item in enumerate(emails) if __kern_strict_scalar_equal_email_idx(__kern_item, __kern_needle_email_idx)), -1)',
+      );
+      expect(code).toContain(
+        'last_email_idx = next((__kern_index for __kern_index in range(len(emails) - 1, -1, -1) if __kern_strict_scalar_equal_last_email_idx(emails[__kern_index], __kern_needle_last_email_idx)), -1)',
+      );
+    });
+
+    test('portable route collection lookup and concat reject deferred overloads', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const withFrom = [
+        'server name=API',
+        '  route method=post path=/api/list-shape',
+        '    includes name=has_email in=emails value="\'a@example.com\'" from=1',
+      ].join('\n');
+      expect(() => transpileFastAPI(parse(withFrom))).toThrow(/defers `from=`/);
+
+      const concatMany = [
+        'server name=API',
+        '  route method=post path=/api/list-shape',
+        '    concat name=all_emails in=emails with="more_emails, fallback_emails"',
+      ].join('\n');
+      expect(() => transpileFastAPI(parse(concatMany))).toThrow(/exactly one list-valued/);
     });
 
     test('portable sort nodes lower to immutable FastAPI Python sorting code', async () => {

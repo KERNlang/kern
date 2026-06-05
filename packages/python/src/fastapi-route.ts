@@ -461,6 +461,11 @@ export function buildRouteArtifact(
   const sliceNodes = getChildren(routeNode, 'slice');
   const reverseNodes = getChildren(routeNode, 'reverse');
   const atNodes = getChildren(routeNode, 'at');
+  const joinNodes = getChildren(routeNode, 'join');
+  const concatNodes = getChildren(routeNode, 'concat');
+  const includesNodes = getChildren(routeNode, 'includes');
+  const indexOfNodes = getChildren(routeNode, 'indexOf');
+  const lastIndexOfNodes = getChildren(routeNode, 'lastIndexOf');
   const sortNodes = getChildren(routeNode, 'sort');
   const objectMergeNodes = getChildren(routeNode, 'objectMerge');
   const objectOmitNodes = getChildren(routeNode, 'objectOmit');
@@ -495,6 +500,11 @@ export function buildRouteArtifact(
     sliceNodes.length > 0 ||
     reverseNodes.length > 0 ||
     atNodes.length > 0 ||
+    joinNodes.length > 0 ||
+    concatNodes.length > 0 ||
+    includesNodes.length > 0 ||
+    indexOfNodes.length > 0 ||
+    lastIndexOfNodes.length > 0 ||
     sortNodes.length > 0 ||
     objectMergeNodes.length > 0 ||
     objectOmitNodes.length > 0 ||

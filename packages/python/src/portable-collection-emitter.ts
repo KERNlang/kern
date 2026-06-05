@@ -29,6 +29,97 @@ export function emitPythonRouteSortKeyHelper(lines: string[], indent: string, he
   lines.push(`${indent}    return "[object Object]"`);
 }
 
+export function emitPythonRouteStringCoerceHelper(lines: string[], indent: string, helperName: string): void {
+  emitPythonRouteSortKeyHelper(lines, indent, helperName);
+}
+
+export function emitPythonRouteJoinPartHelper(lines: string[], indent: string, helperName: string): void {
+  lines.push(`${indent}def ${helperName}(__kern_value):`);
+  lines.push(`${indent}    if __kern_value is None:`);
+  lines.push(`${indent}        return ""`);
+  lines.push(`${indent}    if isinstance(__kern_value, bool):`);
+  lines.push(`${indent}        return "true" if __kern_value else "false"`);
+  lines.push(`${indent}    if isinstance(__kern_value, float):`);
+  lines.push(`${indent}        if __kern_value != __kern_value:`);
+  lines.push(`${indent}            return "NaN"`);
+  lines.push(`${indent}        if __kern_value == float("inf"):`);
+  lines.push(`${indent}            return "Infinity"`);
+  lines.push(`${indent}        if __kern_value == float("-inf"):`);
+  lines.push(`${indent}            return "-Infinity"`);
+  lines.push(`${indent}        if __kern_value.is_integer():`);
+  lines.push(`${indent}            return str(int(__kern_value))`);
+  lines.push(`${indent}        return str(__kern_value)`);
+  lines.push(`${indent}    if isinstance(__kern_value, int):`);
+  lines.push(`${indent}        return str(__kern_value)`);
+  lines.push(`${indent}    if isinstance(__kern_value, str):`);
+  lines.push(`${indent}        return __kern_value`);
+  lines.push(`${indent}    raise TypeError("portable route \`join\` supports only scalar/null list elements")`);
+}
+
+export function emitPythonRouteConcatHelper(lines: string[], indent: string, helperName: string): void {
+  lines.push(`${indent}def ${helperName}(__kern_left, __kern_right):`);
+  lines.push(`${indent}    if not isinstance(__kern_left, list) or not isinstance(__kern_right, list):`);
+  lines.push(
+    `${indent}        raise TypeError("portable route \`concat\` supports exactly one list-valued with= operand")`,
+  );
+  lines.push(`${indent}    return list(__kern_left) + list(__kern_right)`);
+}
+
+export function emitPythonRouteScalarLookupHelpers(
+  lines: string[],
+  indent: string,
+  assertScalarName: string,
+  sameValueZeroName: string,
+  strictEqualName: string,
+): void {
+  lines.push(`${indent}def ${assertScalarName}(__kern_value, __kern_node):`);
+  lines.push(`${indent}    if __kern_value is None:`);
+  lines.push(`${indent}        return __kern_value`);
+  lines.push(`${indent}    if isinstance(__kern_value, bool):`);
+  lines.push(`${indent}        return __kern_value`);
+  lines.push(`${indent}    if isinstance(__kern_value, (str, int, float)):`);
+  lines.push(`${indent}        return __kern_value`);
+  lines.push(
+    `${indent}    raise TypeError("portable route \`" + __kern_node + "\` supports only scalar/null search values")`,
+  );
+  lines.push(`${indent}def ${sameValueZeroName}(__kern_left, __kern_right):`);
+  lines.push(`${indent}    if isinstance(__kern_left, bool) or isinstance(__kern_right, bool):`);
+  lines.push(
+    `${indent}        return isinstance(__kern_left, bool) and isinstance(__kern_right, bool) and __kern_left == __kern_right`,
+  );
+  lines.push(`${indent}    if isinstance(__kern_left, (int, float)) and isinstance(__kern_right, (int, float)):`);
+  lines.push(
+    `${indent}        if isinstance(__kern_left, float) and __kern_left != __kern_left and isinstance(__kern_right, float) and __kern_right != __kern_right:`,
+  );
+  lines.push(`${indent}            return True`);
+  lines.push(`${indent}        return __kern_left == __kern_right`);
+  lines.push(`${indent}    if __kern_left is None or __kern_right is None:`);
+  lines.push(`${indent}        return __kern_left is None and __kern_right is None`);
+  lines.push(`${indent}    if isinstance(__kern_left, str) or isinstance(__kern_right, str):`);
+  lines.push(
+    `${indent}        return isinstance(__kern_left, str) and isinstance(__kern_right, str) and __kern_left == __kern_right`,
+  );
+  lines.push(`${indent}    return False`);
+  lines.push(`${indent}def ${strictEqualName}(__kern_left, __kern_right):`);
+  lines.push(`${indent}    if isinstance(__kern_left, bool) or isinstance(__kern_right, bool):`);
+  lines.push(
+    `${indent}        return isinstance(__kern_left, bool) and isinstance(__kern_right, bool) and __kern_left == __kern_right`,
+  );
+  lines.push(`${indent}    if isinstance(__kern_left, (int, float)) and isinstance(__kern_right, (int, float)):`);
+  lines.push(`${indent}        if isinstance(__kern_left, float) and __kern_left != __kern_left:`);
+  lines.push(`${indent}            return False`);
+  lines.push(`${indent}        if isinstance(__kern_right, float) and __kern_right != __kern_right:`);
+  lines.push(`${indent}            return False`);
+  lines.push(`${indent}        return __kern_left == __kern_right`);
+  lines.push(`${indent}    if __kern_left is None or __kern_right is None:`);
+  lines.push(`${indent}        return __kern_left is None and __kern_right is None`);
+  lines.push(`${indent}    if isinstance(__kern_left, str) or isinstance(__kern_right, str):`);
+  lines.push(
+    `${indent}        return isinstance(__kern_left, str) and isinstance(__kern_right, str) and __kern_left == __kern_right`,
+  );
+  lines.push(`${indent}    return False`);
+}
+
 export function emitPythonRoutePluckHelper(
   lines: string[],
   indent: string,

@@ -24,6 +24,11 @@ describe('portable logic primitive registry', () => {
       'collection.slice',
       'collection.reverse',
       'collection.at',
+      'collection.join',
+      'collection.concat',
+      'collection.includes',
+      'collection.indexOf',
+      'collection.lastIndexOf',
       'collection.sort',
       'collection.uniqueBy',
       'collection.groupBy',
@@ -58,6 +63,11 @@ describe('portable logic primitive registry', () => {
     expect(portableLogicSupportForTarget('collection.slice', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.reverse', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.at', 'python')).toBe('stable');
+    expect(portableLogicSupportForTarget('collection.join', 'python')).toBe('stable');
+    expect(portableLogicSupportForTarget('collection.concat', 'python')).toBe('stable');
+    expect(portableLogicSupportForTarget('collection.includes', 'python')).toBe('stable');
+    expect(portableLogicSupportForTarget('collection.indexOf', 'python')).toBe('stable');
+    expect(portableLogicSupportForTarget('collection.lastIndexOf', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.sort', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.uniqueBy', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.groupBy', 'python')).toBe('stable');
@@ -102,6 +112,11 @@ describe('portable logic primitive registry', () => {
       '    slice name=middle in=emails start=1 end=3',
       '    reverse name=reversed in=emails',
       '    at name=first_email in=emails index=0',
+      '    join name=csv in=emails separator="|"',
+      '    concat name=all_emails in=emails with=more_emails',
+      '    includes name=has_primary in=emails value="primary_email"',
+      '    indexOf name=primary_idx in=emails value="primary_email"',
+      '    lastIndexOf name=last_primary_idx in=emails value="primary_email"',
       '    sort name=ranked in=users compare="b.score - a.score"',
       '    uniqueBy name=distinct in=users by="item.id"',
       '    groupBy name=by_type in=users by="item.type"',
@@ -124,22 +139,12 @@ describe('portable logic primitive registry', () => {
       'server name=API',
       '  route method=get path=/api/t',
       '    stream',
-      '      uniqueBy name=distinct in=users by="item.id"',
+      '      join name=csv in=users separator="|"',
     ].join('\n');
     const stream = parseDocumentWithDiagnostics(streamRoute);
-    expect(
-      validateSchema(stream.root).some((v) => /'stream' does not allow child type 'uniqueBy'/.test(v.message)),
-    ).toBe(true);
-
-    const deferredJoinRoute = [
-      'server name=API',
-      '  route method=post path=/api/t',
-      '    join name=csv in=items separator="|"',
-    ].join('\n');
-    const deferredJoin = parseDocumentWithDiagnostics(deferredJoinRoute);
-    expect(
-      validateSchema(deferredJoin.root).some((v) => /'route' does not allow child type 'join'/.test(v.message)),
-    ).toBe(true);
+    expect(validateSchema(stream.root).some((v) => /'stream' does not allow child type 'join'/.test(v.message))).toBe(
+      true,
+    );
   });
 
   test('portable expression list splitter rejects empty source expressions', () => {

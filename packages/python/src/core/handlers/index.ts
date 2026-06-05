@@ -58,8 +58,12 @@ import {
 import { isUnsupportedJsHandlerBody, unsupportedRawHandlerBody } from '../../fastapi-raw-handler.js';
 import { derivePathParams, escapePyStr, indentHandler, slugify } from '../../fastapi-utils.js';
 import {
+  emitPythonRouteConcatHelper,
+  emitPythonRouteJoinPartHelper,
   emitPythonRoutePluckHelper,
+  emitPythonRouteScalarLookupHelpers,
   emitPythonRouteSortKeyHelper,
+  emitPythonRouteStringCoerceHelper,
   pythonRouteCompactPredicate,
 } from '../../portable-collection-emitter.js';
 import { pythonRouteRecordExpr, pythonRouteRecordPickExpr } from '../../portable-object-emitter.js';
@@ -129,6 +133,15 @@ function extractExprCode(val: unknown): string {
 
 function extractCodeOrString(val: unknown): string {
   return extractExprCode(val);
+}
+
+function portableValueSource(val: unknown): string {
+  if (val === null) return 'null';
+  return extractCodeOrString(val).trim();
+}
+
+function portableHasPresentProp(val: unknown): boolean {
+  return val !== undefined && val !== null && extractCodeOrString(val).trim() !== '';
 }
 
 function pushJsObjectKeyCoercion(lines: string[], indent: string, keyName: string): void {
@@ -550,6 +563,92 @@ function generatePurePythonStmt(
       );
       break;
     }
+    case 'join': {
+      const name = toPythonBindingName(String(p.name || ''), 'join');
+      if (!name) throw new Error("join node requires a 'name' prop");
+      const inVal = extractCodeOrString(p.in).trim();
+      if (!inVal) throw new Error("join node requires an 'in' prop");
+      const collection = rewriteExprPure(inVal, indent);
+      lines.push(...collection.hoists);
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      const helperName = `__kern_join_part_${name}`;
+      emitPythonRouteJoinPartHelper(lines, indent, helperName);
+      let separator = '","';
+      if (p.separator !== undefined && p.separator !== null) {
+        if (typeof p.separator === 'object' && (p.separator as any).__expr) {
+          const separatorExpr = rewriteExprPure((p.separator as any).code, indent);
+          lines.push(...separatorExpr.hoists);
+          const separatorHelperName = `__kern_join_separator_${name}`;
+          emitPythonRouteStringCoerceHelper(lines, indent, separatorHelperName);
+          separator = `${separatorHelperName}(${separatorExpr.expr})`;
+        } else {
+          separator = JSON.stringify(String(p.separator));
+        }
+      }
+      lines.push(
+        `${indent}${name}${typeAnnotation} = ${separator}.join(${helperName}(__kern_item) for __kern_item in ${collection.expr})`,
+      );
+      break;
+    }
+    case 'concat': {
+      const name = toPythonBindingName(String(p.name || ''), 'concat');
+      if (!name) throw new Error("concat node requires a 'name' prop");
+      const inVal = extractCodeOrString(p.in).trim();
+      if (!inVal) throw new Error("concat node requires an 'in' prop");
+      const rawWith = extractCodeOrString(p.with).trim();
+      if (!rawWith) throw new Error("concat node requires a 'with' prop");
+      const operands = splitPortableExpressionList(rawWith, 'concat with=');
+      if (operands.length !== 1) {
+        throw new Error('portable route `concat` supports exactly one list-valued `with=` operand.');
+      }
+      const collection = rewriteExprPure(inVal, indent);
+      const right = rewriteExprPure(operands[0], indent);
+      lines.push(...collection.hoists, ...right.hoists);
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      const helperName = `__kern_concat_${name}`;
+      emitPythonRouteConcatHelper(lines, indent, helperName);
+      lines.push(`${indent}${name}${typeAnnotation} = ${helperName}(${collection.expr}, ${right.expr})`);
+      break;
+    }
+    case 'includes':
+    case 'indexOf':
+    case 'lastIndexOf': {
+      const kind = child.type;
+      const name = toPythonBindingName(String(p.name || ''), kind);
+      if (!name) throw new Error(`${kind} node requires a 'name' prop`);
+      const inVal = extractCodeOrString(p.in).trim();
+      if (!inVal) throw new Error(`${kind} node requires an 'in' prop`);
+      if (portableHasPresentProp(p.from)) {
+        throw new Error(`portable route \`${kind}\` defers \`from=\`; omit it for cross-target parity.`);
+      }
+      const valueSource = portableValueSource(p.value);
+      if (!valueSource) throw new Error(`${kind} node requires a 'value' prop`);
+      const collection = rewriteExprPure(inVal, indent);
+      const value = rewriteExprPure(valueSource, indent);
+      lines.push(...collection.hoists, ...value.hoists);
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      const assertScalarName = `__kern_assert_scalar_${name}`;
+      const sameValueZeroName = `__kern_same_value_zero_${name}`;
+      const strictEqualName = `__kern_strict_scalar_equal_${name}`;
+      emitPythonRouteScalarLookupHelpers(lines, indent, assertScalarName, sameValueZeroName, strictEqualName);
+      const needleName = `__kern_needle_${name}`;
+      lines.push(`${indent}${needleName} = ${assertScalarName}(${value.expr}, ${JSON.stringify(kind)})`);
+      const equality = kind === 'includes' ? sameValueZeroName : strictEqualName;
+      if (kind === 'includes') {
+        lines.push(
+          `${indent}${name}${typeAnnotation} = any(${equality}(__kern_item, ${needleName}) for __kern_item in ${collection.expr})`,
+        );
+      } else if (kind === 'indexOf') {
+        lines.push(
+          `${indent}${name}${typeAnnotation} = next((__kern_index for __kern_index, __kern_item in enumerate(${collection.expr}) if ${equality}(__kern_item, ${needleName})), -1)`,
+        );
+      } else {
+        lines.push(
+          `${indent}${name}${typeAnnotation} = next((__kern_index for __kern_index in range(len(${collection.expr}) - 1, -1, -1) if ${equality}(${collection.expr}[__kern_index], ${needleName})), -1)`,
+        );
+      }
+      break;
+    }
     case 'sort': {
       const name = toPythonBindingName(String(p.name || ''), 'sort');
       if (!name) throw new Error("sort node requires a 'name' prop");
@@ -948,6 +1047,11 @@ export function emitPureHandlers(serverNode: IRNode, imports: Set<string>, root?
       'slice',
       'reverse',
       'at',
+      'join',
+      'concat',
+      'includes',
+      'indexOf',
+      'lastIndexOf',
       'sort',
       'objectMerge',
       'objectOmit',
