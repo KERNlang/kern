@@ -3073,6 +3073,28 @@ describe('FastAPI Transpiler', () => {
       );
     });
 
+    test('portable filter predicate node lowers or/not composition to FastAPI Python code', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/filter',
+        '    filter name=eligible in=users predicate={{ {and: [{or: [{eq: ["role", "admin"]}, {eq: ["role", "staff"]}]}, {not: {eq: ["status", "banned"]} }]} }}',
+        '    respond 200 json=eligible',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post_api_filter'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+      expect(code).toContain('if "or" in predicate:');
+      expect(code).toContain('return any(__kern_eval_predicate_eligible(p, record) for p in predicate["or"])');
+      expect(code).toContain('if "not" in predicate:');
+      expect(code).toContain('return not __kern_eval_predicate_eligible(predicate["not"], record)');
+      expect(code).toContain(
+        '__kern_predicate_eligible = {"and": [{"or": [{"eq": ["role", "admin"]}, {"eq": ["role", "staff"]}]}, {"not": {"eq": ["status", "banned"]}}]}',
+      );
+    });
+
     test('portable count predicate node lowers to helper-backed FastAPI Python code', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');

@@ -610,6 +610,21 @@ const FIXTURES = [
       { id: 'u7', age: 20, score: 8, role: 'user', profile: { tags: ['vip'] } },
     ] } },
     expected: { status: 200, body: { ids: ['u1', 'u2', 'u7'], eligibleCount: 3, missingOk: 7, missingNull: 0 } } },
+  // Intentional absent-path divergence: `eq` on an absent path is false, so
+  // `not(eq(missing, null))` is true for absent paths. `neq(missing, null)` is
+  // false for absent paths because the leaf operator preserves the existing
+  // "absent means not unequal to null" contract.
+  { kind: 'route', name: 'route: predicate or/not AST parity',
+    kern: `route method=post path=/api/t\n  filter name=eligible in=users predicate={{ {and: [{or: [{eq: ["role", "admin"]}, {eq: ["role", "staff"]}]}, {not: {eq: ["status", "banned"]} }, {not: {eq: ["missing", null]} }]} }}\n  count name=eligible_count in=users predicate={{ {and: [{or: [{eq: ["role", "admin"]}, {eq: ["role", "staff"]}]}, {not: {eq: ["status", "banned"]} }, {not: {eq: ["missing", null]} }]} }}\n  count name=not_missing_null_count in=users predicate={{ {not: {eq: ["missing", null]} } }}\n  count name=neq_missing_null_count in=users predicate={{ {neq: ["missing", null]} }}\n  respond 200 json={{ {ids: eligible.map((u) => u.id), eligibleCount: eligible_count, notMissingNull: not_missing_null_count, neqMissingNull: neq_missing_null_count} }}`,
+    bindings: { locals: { users: [
+      { id: 'u1', role: 'admin', status: 'active' },
+      { id: 'u2', role: 'staff', status: 'active' },
+      { id: 'u3', role: 'user', status: 'active' },
+      { id: 'u4', role: 'admin', status: 'banned' },
+      { id: 'u5', role: 'staff', status: 'active', missing: null },
+      { id: 'u6', role: 'admin', status: 'active', missing: 'x' },
+    ] } },
+    expected: { status: 200, body: { ids: ['u1', 'u2', 'u6'], eligibleCount: 3, notMissingNull: 5, neqMissingNull: 1 } } },
   { kind: 'route', name: 'route: count string predicate parity',
     kern: `route method=post path=/api/t\n  count name=young_count in=users predicate="{and: [{lt: [\\"age\\", 30]}]}"\n  respond 200 json={{ {youngCount: young_count} }}`,
     bindings: { locals: { users: [{ age: 17 }, { age: 30 }, { age: 29 }] } },

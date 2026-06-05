@@ -50,9 +50,21 @@ export function emitPythonPredicateHelpers(
   lines.push(`${indent}    if not isinstance(predicate, dict):`);
   lines.push(`${indent}        raise ValueError("invalid KERN filter predicate")`);
   lines.push(`${indent}    if "and" in predicate:`);
-  lines.push(`${indent}        if len(predicate) != 1 or not isinstance(predicate["and"], list):`);
+  lines.push(
+    `${indent}        if len(predicate) != 1 or not isinstance(predicate["and"], list) or len(predicate["and"]) == 0:`,
+  );
   lines.push(`${indent}            raise ValueError("invalid KERN filter predicate")`);
   lines.push(`${indent}        return all(${evalPredVar}(p, record) for p in predicate["and"])`);
+  lines.push(`${indent}    if "or" in predicate:`);
+  lines.push(
+    `${indent}        if len(predicate) != 1 or not isinstance(predicate["or"], list) or len(predicate["or"]) == 0:`,
+  );
+  lines.push(`${indent}            raise ValueError("invalid KERN filter predicate")`);
+  lines.push(`${indent}        return any(${evalPredVar}(p, record) for p in predicate["or"])`);
+  lines.push(`${indent}    if "not" in predicate:`);
+  lines.push(`${indent}        if len(predicate) != 1 or not isinstance(predicate["not"], dict):`);
+  lines.push(`${indent}            raise ValueError("invalid KERN filter predicate")`);
+  lines.push(`${indent}        return not ${evalPredVar}(predicate["not"], record)`);
   lines.push(
     `${indent}    op = next((candidate for candidate in ("eq", "neq", "gt", "gte", "lt", "lte") if candidate in predicate), None)`,
   );

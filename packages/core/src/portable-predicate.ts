@@ -1,4 +1,6 @@
 export type PortablePredicateCompareOp = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte';
+export type PortablePredicateArrayOp = 'and' | 'or';
+export type PortablePredicateUnaryOp = 'not';
 
 export const PORTABLE_PREDICATE_COMPARE_OPS: readonly PortablePredicateCompareOp[] = [
   'eq',
@@ -8,6 +10,8 @@ export const PORTABLE_PREDICATE_COMPARE_OPS: readonly PortablePredicateCompareOp
   'lt',
   'lte',
 ];
+export const PORTABLE_PREDICATE_ARRAY_OPS: readonly PortablePredicateArrayOp[] = ['and', 'or'];
+export const PORTABLE_PREDICATE_UNARY_OPS: readonly PortablePredicateUnaryOp[] = ['not'];
 
 export interface PortablePredicateParseResult {
   ok: boolean;
@@ -243,15 +247,22 @@ function validatePredicateAST(pred: unknown, messages: string[]): void {
   }
 
   for (const key of keys) {
-    if (key === 'and') {
+    if ((PORTABLE_PREDICATE_ARRAY_OPS as readonly string[]).includes(key)) {
       const val = record[key];
       if (!Array.isArray(val) || val.length === 0) {
-        messages.push('and expects a non-empty predicate array');
+        messages.push(`${key} expects a non-empty predicate array`);
         return;
       }
       for (const sub of val) {
         validatePredicateAST(sub, messages);
       }
+    } else if ((PORTABLE_PREDICATE_UNARY_OPS as readonly string[]).includes(key)) {
+      const val = record[key];
+      if (typeof val !== 'object' || val === null || Array.isArray(val)) {
+        messages.push('not expects a predicate object');
+        return;
+      }
+      validatePredicateAST(val, messages);
     } else if ((PORTABLE_PREDICATE_COMPARE_OPS as readonly string[]).includes(key)) {
       const val = record[key];
       if (!Array.isArray(val) || val.length !== 2) {

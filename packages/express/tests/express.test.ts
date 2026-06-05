@@ -836,6 +836,28 @@ describe('Express Transpiler', () => {
       );
     });
 
+    test('filter predicate supports or/not helper branches', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/filter',
+        '    filter name=eligible in=users predicate={{ {and: [{or: [{eq: ["role", "admin"]}, {eq: ["role", "staff"]}]}, {not: {eq: ["status", "banned"]} }]} }}',
+        '    respond 200 json=eligible',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post-api-filter'));
+      expect(route).toBeDefined();
+      const content = route!.content;
+      expect(content).toContain("if (Object.prototype.hasOwnProperty.call(predicate, 'or'))");
+      expect(content).toContain('return predicate.or.some((p) => __kernEvalPredicate_eligible(p, record));');
+      expect(content).toContain("if (Object.prototype.hasOwnProperty.call(predicate, 'not'))");
+      expect(content).toContain('return !__kernEvalPredicate_eligible(predicate.not, record);');
+      expect(content).toContain(
+        'const __kernPredicate_eligible = {and: [{or: [{eq: ["role", "admin"]}, {eq: ["role", "staff"]}]}, {not: {eq: ["status", "banned"]} }]};',
+      );
+    });
+
     test('count predicate generates helper-backed route logic', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');

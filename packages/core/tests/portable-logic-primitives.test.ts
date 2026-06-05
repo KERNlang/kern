@@ -153,6 +153,39 @@ describe('portable logic primitive registry', () => {
     expect(messages.filter((m) => /predicate/.test(m))).toEqual([]);
   });
 
+  test('route predicate parser accepts or/not boolean composition', () => {
+    const valid = parseDocumentWithDiagnostics(
+      [
+        'server name=API',
+        '  route method=post path=/api/t',
+        '    filter name=eligible in=users predicate={{ {and: [{or: [{eq: ["role", "admin"]}, {eq: ["role", "staff"]}]}, {not: {eq: ["status", "banned"]} }]} }}',
+        '    count name=eligible_count in=users predicate="{or: [{not: {eq: [\\"missing\\", null]}}, {eq: [\\"role\\", \\"admin\\"]}]}"',
+        '    respond 200 json=eligible_count',
+      ].join('\n'),
+    );
+    const messages = validateSchema(valid.root).map((v) => v.message);
+    expect(messages.filter((m) => /predicate/.test(m))).toEqual([]);
+  });
+
+  test('route predicate parser rejects malformed or/not composition', () => {
+    expect(validatePortablePredicateAST({ or: [] })).toContain('or expects a non-empty predicate array');
+    expect(validatePortablePredicateAST({ not: [{ eq: ['active', true] }] })).toContain(
+      'not expects a predicate object',
+    );
+    expect(validatePortablePredicateAST({ not: {} })).toContain('predicate objects must contain exactly one operator');
+
+    const invalid = parseDocumentWithDiagnostics(
+      [
+        'server name=API',
+        '  route method=post path=/api/t',
+        '    filter name=bad in=users predicate={{ {and: [{or: []}, {not: [{eq: ["active", true]}]}]} }}',
+      ].join('\n'),
+    );
+    const messages = validateSchema(invalid.root).map((v) => v.message);
+    expect(messages.some((m) => /or expects a non-empty predicate array/.test(m))).toBe(true);
+    expect(messages.some((m) => /not expects a predicate object/.test(m))).toBe(true);
+  });
+
   test('portable predicate parser handles escapes and rejects dynamic values', () => {
     const parsed = parsePortablePredicateProp('{eq: ["note", "\\u0078"]}');
     expect(parsed.ok).toBe(true);

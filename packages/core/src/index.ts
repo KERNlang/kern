@@ -337,9 +337,16 @@ export { parseExpression } from './parser-expression.js';
 export { collectNativeEligibleHints, validateNativeEligible } from './parser-validate-native-eligible.js';
 // Slice 7 v2 — cross-module recognition surface for `?`/`!` propagation.
 export type { ImportResolver, ModuleExportSymbol, ModuleExports } from './parser-validate-propagation.js';
-export type { PortablePredicateCompareOp, PortablePredicateParseResult } from './portable-predicate.js';
+export type {
+  PortablePredicateArrayOp,
+  PortablePredicateCompareOp,
+  PortablePredicateParseResult,
+  PortablePredicateUnaryOp,
+} from './portable-predicate.js';
 export {
+  PORTABLE_PREDICATE_ARRAY_OPS,
   PORTABLE_PREDICATE_COMPARE_OPS,
+  PORTABLE_PREDICATE_UNARY_OPS,
   parsePortablePredicateProp,
   validatePortablePredicateAST,
 } from './portable-predicate.js';

@@ -31,10 +31,28 @@ export function emitExpressPredicateHelpers(
   lines.push(`${indent}    throw new Error('invalid KERN filter predicate');`);
   lines.push(`${indent}  }`);
   lines.push(`${indent}  if (Object.prototype.hasOwnProperty.call(predicate, 'and')) {`);
-  lines.push(`${indent}    if (Object.keys(predicate).length !== 1 || !Array.isArray(predicate.and)) {`);
+  lines.push(
+    `${indent}    if (Object.keys(predicate).length !== 1 || !Array.isArray(predicate.and) || predicate.and.length === 0) {`,
+  );
   lines.push(`${indent}      throw new Error('invalid KERN filter predicate');`);
   lines.push(`${indent}    }`);
   lines.push(`${indent}    return predicate.and.every((p) => ${evalPredVar}(p, record));`);
+  lines.push(`${indent}  }`);
+  lines.push(`${indent}  if (Object.prototype.hasOwnProperty.call(predicate, 'or')) {`);
+  lines.push(
+    `${indent}    if (Object.keys(predicate).length !== 1 || !Array.isArray(predicate.or) || predicate.or.length === 0) {`,
+  );
+  lines.push(`${indent}      throw new Error('invalid KERN filter predicate');`);
+  lines.push(`${indent}    }`);
+  lines.push(`${indent}    return predicate.or.some((p) => ${evalPredVar}(p, record));`);
+  lines.push(`${indent}  }`);
+  lines.push(`${indent}  if (Object.prototype.hasOwnProperty.call(predicate, 'not')) {`);
+  lines.push(
+    `${indent}    if (Object.keys(predicate).length !== 1 || predicate.not === null || typeof predicate.not !== 'object' || Array.isArray(predicate.not)) {`,
+  );
+  lines.push(`${indent}      throw new Error('invalid KERN filter predicate');`);
+  lines.push(`${indent}    }`);
+  lines.push(`${indent}    return !${evalPredVar}(predicate.not, record);`);
   lines.push(`${indent}  }`);
   lines.push(
     `${indent}  const op = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte'].find((candidate) => Object.prototype.hasOwnProperty.call(predicate, candidate));`,

@@ -83,6 +83,30 @@ describe('pure Python handlers: keyed reshape route scope', () => {
     );
   });
 
+  test('lowers filter predicate node with or/not composition', () => {
+    const server = routeWith({
+      type: 'filter',
+      props: {
+        name: 'eligible',
+        in: 'users',
+        predicate: {
+          __expr: true,
+          code: '{and: [{or: [{eq: ["role", "admin"]}, {eq: ["role", "staff"]}]}, {not: {eq: ["status", "banned"]}}]}',
+        },
+      },
+    });
+    const handlers = emitPureHandlers(server, new Set(), server);
+    expect(handlers).toHaveLength(1);
+    const body = handlers[0].bodyLines.join('\n');
+    expect(body).toContain('if "or" in predicate:');
+    expect(body).toContain('return any(__kern_eval_predicate_eligible(p, record) for p in predicate["or"])');
+    expect(body).toContain('if "not" in predicate:');
+    expect(body).toContain('return not __kern_eval_predicate_eligible(predicate["not"], record)');
+    expect(body).toContain(
+      '__kern_predicate_eligible = {"and": [{"or": [{"eq": ["role", "admin"]}, {"eq": ["role", "staff"]}]}, {"not": {"eq": ["status", "banned"]}}]}',
+    );
+  });
+
   test('lowers count predicate node with helper-backed evaluation', () => {
     const server = routeWith({
       type: 'count',
