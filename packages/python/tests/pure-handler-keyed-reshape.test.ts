@@ -219,7 +219,8 @@ describe('pure Python handlers: keyed reshape route scope', () => {
     const handlers = emitPureHandlers(server, imports, server);
     expect(handlers).toHaveLength(1);
     const body = handlers[0].bodyLines.join('\n');
-    expect(imports).toContain('def _kern_js_object_keys(__k_obj):');
+    const importText = [...imports].join('\n');
+    expect(importText).toContain('def _kern_js_object_keys(__k_obj):');
     expect(body).toContain('keys = _kern_js_object_keys((lambda __k_src:');
     expect(body).toContain('values = _kern_js_object_values((lambda __k_src:');
     expect(body).toContain('entries = _kern_js_object_entries((lambda __k_src:');

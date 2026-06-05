@@ -55,7 +55,6 @@ import {
   parsePortablePathSegments,
   splitPortableExpressionList,
 } from '@kernlang/core';
-import { KERN_JS_OBJECT_HELPERS_PY } from '../expr/helpers.js';
 import { isUnsupportedJsHandlerBody, unsupportedRawHandlerBody } from '../../fastapi-raw-handler.js';
 import { derivePathParams, escapePyStr, indentHandler, slugify } from '../../fastapi-utils.js';
 import {
@@ -66,6 +65,7 @@ import {
 import { pythonRouteRecordExpr, pythonRouteRecordPickExpr } from '../../portable-object-emitter.js';
 import { emitPythonPredicateHelpers } from '../../portable-predicate-emitter.js';
 import { mapTsTypeToPython, toPythonBindingName, toSnakeCase } from '../../type-map.js';
+import { KERN_JS_OBJECT_HELPERS_PY } from '../expr/helpers.js';
 import { rewriteExpr } from '../expr/index.js';
 
 /** A single route lowered to a framework-agnostic Python function. */
