@@ -989,6 +989,39 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       export: { kind: 'boolean' },
     },
   },
+  objectKeys: {
+    description:
+      'Declarative own-key extraction — `objectKeys name=keys in=user` lowers to Object.keys-style key ordering over a safe record view. Null and primitive inputs produce an empty list in route lowering.',
+    example: 'objectKeys name=keys in=user',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  objectValues: {
+    description:
+      'Declarative own-value extraction — `objectValues name=values in=user` follows the same key order as objectKeys. Null and primitive inputs produce an empty list in route lowering.',
+    example: 'objectValues name=values in=user',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  objectEntries: {
+    description:
+      'Declarative own-entry extraction — `objectEntries name=entries in=user` returns two-item [key, value] pairs in Object.entries-style order. Null and primitive inputs produce an empty list in route lowering.',
+    example: 'objectEntries name=entries in=user',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
   sort: {
     description:
       'Declarative immutable sort — `sort name=sorted in=items compare="a.age - b.age"` lowers to `const sorted = [...items].sort((a, b) => a.age - b.age);`. Source collection is never mutated. Omit `compare` for lexicographic sort. Rename bindings with `a=` / `b=`.',
@@ -2061,6 +2094,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'objectMerge',
       'objectOmit',
       'objectPick',
+      'objectKeys',
+      'objectValues',
+      'objectEntries',
       'uniqueBy',
       'groupBy',
       'partition',

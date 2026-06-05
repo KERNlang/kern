@@ -102,6 +102,9 @@ describe('portable logic primitive registry', () => {
       '    objectMerge name=merged sources="body.user, body.override"',
       `    objectPick name=public_user in=merged keys="['id', 'missing']"`,
       `    objectOmit name=safe_user in=merged keys="['password']"`,
+      '    objectKeys name=public_keys in=public_user',
+      '    objectValues name=public_values in=public_user',
+      '    objectEntries name=public_entries in=public_user',
       '    respond 200 json=counts',
     ].join('\n');
     const direct = parseDocumentWithDiagnostics(directRoute);

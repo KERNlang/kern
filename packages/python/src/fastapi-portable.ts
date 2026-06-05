@@ -18,6 +18,7 @@ import {
   parsePortablePathSegments,
   splitPortableExpressionList,
 } from '@kernlang/core';
+import { KERN_JS_OBJECT_HELPERS_PY } from './core/expr/helpers.js';
 import { extractExprCode, rewriteExpr } from './core/expr/index.js';
 import { isUnsupportedJsHandlerBody, unsupportedRawHandlerBody } from './fastapi-raw-handler.js';
 import { addRespondImports, generateRespondFastAPI } from './fastapi-response.js';
@@ -856,6 +857,32 @@ export function generatePortableChildFastAPI(
       );
       break;
     }
+    case 'objectKeys':
+    case 'objectValues':
+    case 'objectEntries': {
+      const nodeType = child.type;
+      const name = toPythonBindingName(requirePortableProp(nodeType, 'name', String(p.name || '')), nodeType);
+      const source = rewriteFastAPIStmtExpr(
+        requirePortableProp(nodeType, 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      lines.push(...source.hoists);
+      imports.add(KERN_JS_OBJECT_HELPERS_PY);
+      const helper =
+        nodeType === 'objectKeys'
+          ? '_kern_js_object_keys'
+          : nodeType === 'objectValues'
+            ? '_kern_js_object_values'
+            : '_kern_js_object_entries';
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      lines.push(`${indent}${name}${typeAnnotation} = ${helper}(${pythonRouteRecordExpr(source.expr)})`);
+      break;
+    }
     case 'uniqueBy': {
       const name = toPythonBindingName(requirePortableProp('uniqueBy', 'name', String(p.name || '')), 'uniqueBy');
       const item = String(p.item || 'item');
@@ -1155,6 +1182,9 @@ export function generatePortableHandlerFastAPI(
     'objectMerge',
     'objectOmit',
     'objectPick',
+    'objectKeys',
+    'objectValues',
+    'objectEntries',
     'uniqueBy',
     'groupBy',
     'partition',

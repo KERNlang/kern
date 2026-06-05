@@ -449,6 +449,20 @@ export function generatePortableChildExpress(
       );
       break;
     }
+    case 'objectKeys':
+    case 'objectValues':
+    case 'objectEntries': {
+      const nodeType = child.type;
+      const name = emitIdentifier(requirePortableProp(nodeType, 'name', String(p.name || '')), nodeType, child);
+      const source = rewriteExpressExpr(requirePortableProp(nodeType, 'in', portableExprProp(p.in)), path);
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      const method =
+        nodeType === 'objectKeys' ? 'Object.keys' : nodeType === 'objectValues' ? 'Object.values' : 'Object.entries';
+      lines.push(
+        `${indent}const ${name}${typeAnnotation} = ((__kernSource) => ${method}(__kernSource !== null && typeof __kernSource === 'object' && !Array.isArray(__kernSource) ? __kernSource : {}))(${source});`,
+      );
+      break;
+    }
     case 'uniqueBy': {
       const name = requirePortableProp('uniqueBy', 'name', String(p.name || ''));
       const item = String(p.item || 'item');
@@ -630,6 +644,9 @@ export function generatePortableHandlerExpress(
     'objectMerge',
     'objectOmit',
     'objectPick',
+    'objectKeys',
+    'objectValues',
+    'objectEntries',
     'uniqueBy',
     'groupBy',
     'partition',

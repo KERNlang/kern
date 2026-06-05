@@ -54,6 +54,9 @@ export function buildRouteArtifact(
   const objectMergeNodes = getChildren(routeNode, 'objectMerge');
   const objectOmitNodes = getChildren(routeNode, 'objectOmit');
   const objectPickNodes = getChildren(routeNode, 'objectPick');
+  const objectKeysNodes = getChildren(routeNode, 'objectKeys');
+  const objectValuesNodes = getChildren(routeNode, 'objectValues');
+  const objectEntriesNodes = getChildren(routeNode, 'objectEntries');
   const uniqueByNodes = getChildren(routeNode, 'uniqueBy');
   const groupByNodes = getChildren(routeNode, 'groupBy');
   const partitionNodes = getChildren(routeNode, 'partition');
@@ -82,6 +85,9 @@ export function buildRouteArtifact(
     objectMergeNodes.length > 0 ||
     objectOmitNodes.length > 0 ||
     objectPickNodes.length > 0 ||
+    objectKeysNodes.length > 0 ||
+    objectValuesNodes.length > 0 ||
+    objectEntriesNodes.length > 0 ||
     uniqueByNodes.length > 0 ||
     groupByNodes.length > 0 ||
     partitionNodes.length > 0 ||
