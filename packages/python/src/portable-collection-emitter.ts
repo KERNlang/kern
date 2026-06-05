@@ -2,6 +2,33 @@ export function pythonRouteCompactPredicate(item: string): string {
   return `${item} is not None and ${item} is not False and ${item} != "" and not (isinstance(${item}, (int, float)) and not isinstance(${item}, bool) and (${item} == 0 or (isinstance(${item}, float) and ${item} != ${item})))`;
 }
 
+export function emitPythonRouteSortKeyHelper(lines: string[], indent: string, helperName: string): void {
+  lines.push(`${indent}def ${helperName}(__kern_value):`);
+  lines.push(`${indent}    if __kern_value is None:`);
+  lines.push(`${indent}        return "null"`);
+  lines.push(`${indent}    if isinstance(__kern_value, bool):`);
+  lines.push(`${indent}        return "true" if __kern_value else "false"`);
+  lines.push(`${indent}    if isinstance(__kern_value, float):`);
+  lines.push(`${indent}        if __kern_value != __kern_value:`);
+  lines.push(`${indent}            return "NaN"`);
+  lines.push(`${indent}        if __kern_value == float("inf"):`);
+  lines.push(`${indent}            return "Infinity"`);
+  lines.push(`${indent}        if __kern_value == float("-inf"):`);
+  lines.push(`${indent}            return "-Infinity"`);
+  lines.push(`${indent}        if __kern_value.is_integer():`);
+  lines.push(`${indent}            return str(int(__kern_value))`);
+  lines.push(`${indent}        return str(__kern_value)`);
+  lines.push(`${indent}    if isinstance(__kern_value, int):`);
+  lines.push(`${indent}        return str(__kern_value)`);
+  lines.push(`${indent}    if isinstance(__kern_value, str):`);
+  lines.push(`${indent}        return __kern_value`);
+  lines.push(`${indent}    if isinstance(__kern_value, list):`);
+  lines.push(
+    `${indent}        return ",".join("" if __kern_item is None else ${helperName}(__kern_item) for __kern_item in __kern_value)`,
+  );
+  lines.push(`${indent}    return "[object Object]"`);
+}
+
 export function emitPythonRoutePluckHelper(
   lines: string[],
   indent: string,

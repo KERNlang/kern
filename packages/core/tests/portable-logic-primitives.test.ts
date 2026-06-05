@@ -21,6 +21,7 @@ describe('portable logic primitive registry', () => {
       'collection.pluck',
       'collection.take',
       'collection.drop',
+      'collection.sort',
       'collection.uniqueBy',
       'collection.groupBy',
       'collection.partition',
@@ -51,6 +52,7 @@ describe('portable logic primitive registry', () => {
     expect(portableLogicSupportForTarget('collection.pluck', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.take', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.drop', 'python')).toBe('stable');
+    expect(portableLogicSupportForTarget('collection.sort', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.uniqueBy', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.groupBy', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.partition', 'python')).toBe('stable');
@@ -91,6 +93,7 @@ describe('portable logic primitive registry', () => {
       '    pluck name=emails in=users prop=profile.email',
       '    take name=first_two in=emails n=2',
       '    drop name=after_one in=emails n=1',
+      '    sort name=ranked in=users compare="b.score - a.score"',
       '    uniqueBy name=distinct in=users by="item.id"',
       '    groupBy name=by_type in=users by="item.type"',
       '    partition pass=active fail=inactive in=users where="item.active"',

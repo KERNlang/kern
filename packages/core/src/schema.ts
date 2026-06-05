@@ -2057,6 +2057,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'pluck',
       'take',
       'drop',
+      'sort',
       'objectMerge',
       'objectOmit',
       'objectPick',

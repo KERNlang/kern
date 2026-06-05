@@ -3067,6 +3067,29 @@ describe('FastAPI Transpiler', () => {
       expect(code).toContain('after_one = emails[1:]');
     });
 
+    test('portable sort nodes lower to immutable FastAPI Python sorting code', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/sort-shape',
+        '    sort name=ranked in=users compare="b.score - a.score"',
+        '    sort name=lexicographic in=nums',
+        '    sort name=renamed in=users a=left b=right compare="right.score - left.score"',
+        '    respond 200 json={{ {ranked: ranked, lexicographic: lexicographic, renamed: renamed, original: users} }}',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post_api_sort_shape'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+
+      expect(code).toContain('from functools import cmp_to_key');
+      expect(code).toContain('ranked = sorted(users, key=cmp_to_key(lambda a, b: b.score - a.score))');
+      expect(code).toContain('def __kern_sort_key_lexicographic(__kern_value):');
+      expect(code).toContain('lexicographic = sorted(nums, key=__kern_sort_key_lexicographic)');
+      expect(code).toContain('renamed = sorted(users, key=cmp_to_key(lambda left, right: right.score - left.score))');
+    });
+
     test('portable keyed collection reshape nodes reject unsafe Python binding names', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');

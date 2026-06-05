@@ -226,6 +226,63 @@ describe('pure Python handlers: keyed reshape route scope', () => {
     expect(body).toContain('after_one = emails[1:]');
   });
 
+  test('lowers route sort nodes', () => {
+    const server = {
+      type: 'server',
+      props: { name: 'API' },
+      children: [
+        {
+          type: 'route',
+          props: { method: 'post', path: '/api/t' },
+          children: [
+            { type: 'sort', props: { name: 'ranked', in: 'users', compare: 'b.score - a.score' } },
+            { type: 'sort', props: { name: 'lexicographic', in: 'nums' } },
+            {
+              type: 'sort',
+              props: { name: 'renamed', in: 'users', a: 'left', b: 'right', compare: 'right.score - left.score' },
+            },
+            {
+              type: 'respond',
+              props: {
+                status: 200,
+                json: { __expr: true, code: '{ ranked: ranked, lexicographic: lexicographic, renamed: renamed }' },
+              },
+            },
+          ],
+        },
+      ],
+    } satisfies IRNode;
+    const imports = new Set<string>();
+    const handlers = emitPureHandlers(server, imports, server);
+    expect(handlers).toHaveLength(1);
+    const body = handlers[0].bodyLines.join('\n');
+    expect(imports).toContain('import functools');
+    expect(body).toContain('ranked = sorted(users, key=functools.cmp_to_key(lambda a, b: b.score - a.score))');
+    expect(body).toContain('def __kern_sort_key_lexicographic(__kern_value):');
+    expect(body).toContain('lexicographic = sorted(nums, key=__kern_sort_key_lexicographic)');
+    expect(body).toContain(
+      'renamed = sorted(users, key=functools.cmp_to_key(lambda left, right: right.score - left.score))',
+    );
+  });
+
+  test('rejects unsafe route sort comparator aliases', () => {
+    const unsafeAlias = routeWith({
+      type: 'sort',
+      props: { name: 'ranked', in: 'users', a: 'class', compare: 'a.score - b.score' },
+    });
+    expect(() => emitPureHandlers(unsafeAlias, new Set(), unsafeAlias)).toThrow(
+      /sort a emits unsafe Python binding name/,
+    );
+
+    const duplicateAlias = routeWith({
+      type: 'sort',
+      props: { name: 'ranked', in: 'users', a: 'item', b: 'item', compare: 'item.score' },
+    });
+    expect(() => emitPureHandlers(duplicateAlias, new Set(), duplicateAlias)).toThrow(
+      /comparator operands must use distinct/,
+    );
+  });
+
   test('lowers groupBy node correctly', () => {
     const server = routeWith({ type: 'groupBy', props: { name: 'by_type', in: 'users', by: 'item.type' } });
     const handlers = emitPureHandlers(server, new Set(), server);

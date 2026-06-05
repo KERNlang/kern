@@ -1330,6 +1330,47 @@ describe('Express Transpiler', () => {
       expect(code).toContain('const after_one = (emails).slice(1);');
     });
 
+    test('transpiles route sort shaping without mutating the source collection', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/sort-shape',
+        '    sort name=ranked in=users compare="b.score - a.score"',
+        '    sort name=lexicographic in=nums',
+        '    sort name=renamed in=users a=left b=right compare="right.score - left.score"',
+        '    respond 200 json={{ {ranked: ranked, lexicographic: lexicographic, renamed: renamed, original: users} }}',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('sort-shape') && a.path.endsWith('.ts'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+
+      expect(code).toContain('const ranked = [...(users)].sort((a, b) => b.score - a.score);');
+      expect(code).toContain('const lexicographic = [...(nums)].sort();');
+      expect(code).toContain('const renamed = [...(users)].sort((left, right) => right.score - left.score);');
+    });
+
+    test('rejects unsafe route sort bindings', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const duplicateOperands = [
+        'server name=API',
+        '  route method=post path=/api/sort-shape',
+        '    sort name=ranked in=users a=item b=item compare="item.score"',
+        '    respond 200 json=ranked',
+      ].join('\n');
+      expect(() => transpileExpress(parse(duplicateOperands))).toThrow(/comparator operands must use distinct/);
+
+      const unsafeName = [
+        'server name=API',
+        '  route method=post path=/api/sort-shape',
+        '    sort name=ranked-value in=users compare="b.score - a.score"',
+        '    respond 200 json=ranked',
+      ].join('\n');
+      expect(() => transpileExpress(parse(unsafeName))).toThrow(/Invalid identifier/);
+    });
+
     test('transpiles route object merge, pick, and omit correctly', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');

@@ -1,5 +1,6 @@
 import type { IRNode } from '@kernlang/core';
 import {
+  emitIdentifier,
   emitStringKeyArray,
   getChildren,
   getFirstChild,
@@ -394,6 +395,21 @@ export function generatePortableChildExpress(
       lines.push(`${indent}const ${name}${typeAnnotation} = (${collection}).slice(${sliceArgs});`);
       break;
     }
+    case 'sort': {
+      const name = emitIdentifier(requirePortableProp('sort', 'name', String(p.name || '')), 'sort', child);
+      const collection = rewriteExpressExpr(requirePortableProp('sort', 'in', portableExprProp(p.in)), path);
+      const compareSource = portableExprProp(p.compare).trim();
+      const compare = compareSource ? rewriteExpressExpr(compareSource, path) : '';
+      const a = emitIdentifier(String(p.a || 'a'), 'a', child);
+      const b = emitIdentifier(String(p.b || 'b'), 'b', child);
+      if (a === b) {
+        throw new Error('portable route `sort` comparator operands must use distinct `a=` and `b=` names.');
+      }
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      const sortCall = compare ? `sort((${a}, ${b}) => ${compare})` : 'sort()';
+      lines.push(`${indent}const ${name}${typeAnnotation} = [...(${collection})].${sortCall};`);
+      break;
+    }
     case 'objectMerge': {
       const name = requirePortableProp('objectMerge', 'name', String(p.name || ''));
       const rawSources = requirePortableProp('objectMerge', 'sources', portableExprProp(p.sources));
@@ -610,6 +626,7 @@ export function generatePortableHandlerExpress(
     'pluck',
     'take',
     'drop',
+    'sort',
     'objectMerge',
     'objectOmit',
     'objectPick',

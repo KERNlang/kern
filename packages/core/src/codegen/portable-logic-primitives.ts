@@ -15,6 +15,7 @@ export type PortableLogicPrimitiveId =
   | 'collection.pluck'
   | 'collection.take'
   | 'collection.drop'
+  | 'collection.sort'
   | 'collection.uniqueBy'
   | 'collection.groupBy'
   | 'collection.partition'
@@ -116,6 +117,17 @@ export const PORTABLE_LOGIC_PRIMITIVES = {
     intent: 'semantic-gap',
     hostPatterns: ['xs.slice(n)', 'xs[n:]'],
     portabilityNotes: ['Route lowering requires a non-negative integer literal to avoid target slicing divergence.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.sort': {
+    id: 'collection.sort',
+    description: 'Immutable collection sort with optional comparator.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['[...xs].sort()', '[...xs].sort((a, b) => compare)', 'sorted(xs)'],
+    portabilityNotes: [
+      'Default sort follows JS lexicographic string ordering; comparator sort uses the declared two-item comparison expression.',
+    ],
     targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
   },
   'collection.uniqueBy': {

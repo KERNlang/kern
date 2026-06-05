@@ -57,7 +57,11 @@ import {
 } from '@kernlang/core';
 import { isUnsupportedJsHandlerBody, unsupportedRawHandlerBody } from '../../fastapi-raw-handler.js';
 import { derivePathParams, escapePyStr, indentHandler, slugify } from '../../fastapi-utils.js';
-import { emitPythonRoutePluckHelper, pythonRouteCompactPredicate } from '../../portable-collection-emitter.js';
+import {
+  emitPythonRoutePluckHelper,
+  emitPythonRouteSortKeyHelper,
+  pythonRouteCompactPredicate,
+} from '../../portable-collection-emitter.js';
 import { pythonRouteRecordExpr, pythonRouteRecordPickExpr } from '../../portable-object-emitter.js';
 import { emitPythonPredicateHelpers } from '../../portable-predicate-emitter.js';
 import { mapTsTypeToPython, toPythonBindingName, toSnakeCase } from '../../type-map.js';
@@ -503,6 +507,38 @@ function generatePurePythonStmt(
       lines.push(`${indent}${name}${typeAnnotation} = ${collection.expr}${slice}`);
       break;
     }
+    case 'sort': {
+      const name = toPythonBindingName(String(p.name || ''), 'sort');
+      if (!name) throw new Error("sort node requires a 'name' prop");
+      const inVal = extractCodeOrString(p.in).trim();
+      if (!inVal) throw new Error("sort node requires an 'in' prop");
+      const collection = rewriteExprPure(inVal, indent);
+      lines.push(...collection.hoists);
+      const compareSource = extractCodeOrString(p.compare).trim();
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      if (compareSource) {
+        const a = toPythonBindingName(String(p.a || 'a'), 'sort a');
+        const b = toPythonBindingName(String(p.b || 'b'), 'sort b');
+        if (a === b) {
+          throw new Error('portable route `sort` comparator operands must use distinct `a=` and `b=` names.');
+        }
+        const compare = rewriteExprPure(compareSource, indent);
+        if (compare.hoists.length > 0) {
+          throw new Error(
+            'portable route `sort compare=` cannot contain closures or expressions that need hoisted helpers.',
+          );
+        }
+        imports.add('import functools');
+        lines.push(
+          `${indent}${name}${typeAnnotation} = sorted(${collection.expr}, key=functools.cmp_to_key(lambda ${a}, ${b}: ${compare.expr}))`,
+        );
+      } else {
+        const helperName = `__kern_sort_key_${name}`;
+        emitPythonRouteSortKeyHelper(lines, indent, helperName);
+        lines.push(`${indent}${name}${typeAnnotation} = sorted(${collection.expr}, key=${helperName})`);
+      }
+      break;
+    }
     case 'objectMerge': {
       const name = toPythonBindingName(String(p.name || ''), 'objectMerge');
       if (!name) throw new Error("objectMerge node requires a 'name' prop");
@@ -845,6 +881,7 @@ export function emitPureHandlers(serverNode: IRNode, imports: Set<string>, root?
       'pluck',
       'take',
       'drop',
+      'sort',
       'objectMerge',
       'objectOmit',
       'objectPick',

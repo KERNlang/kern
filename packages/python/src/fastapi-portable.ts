@@ -22,7 +22,11 @@ import { extractExprCode, rewriteExpr } from './core/expr/index.js';
 import { isUnsupportedJsHandlerBody, unsupportedRawHandlerBody } from './fastapi-raw-handler.js';
 import { addRespondImports, generateRespondFastAPI } from './fastapi-response.js';
 import { escapePyStr, indentHandler } from './fastapi-utils.js';
-import { emitPythonRoutePluckHelper, pythonRouteCompactPredicate } from './portable-collection-emitter.js';
+import {
+  emitPythonRoutePluckHelper,
+  emitPythonRouteSortKeyHelper,
+  pythonRouteCompactPredicate,
+} from './portable-collection-emitter.js';
 import { pythonRouteRecordExpr, pythonRouteRecordPickExpr } from './portable-object-emitter.js';
 import { emitPythonPredicateHelpers } from './portable-predicate-emitter.js';
 import { mapTsTypeToPython, toPythonBindingName, toSnakeCase } from './type-map.js';
@@ -741,6 +745,51 @@ export function generatePortableChildFastAPI(
       lines.push(`${indent}${name}${typeAnnotation} = ${collection.expr}${slice}`);
       break;
     }
+    case 'sort': {
+      const name = toPythonBindingName(requirePortableProp('sort', 'name', String(p.name || '')), 'sort');
+      const collection = rewriteFastAPIStmtExpr(
+        requirePortableProp('sort', 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      lines.push(...collection.hoists);
+      const compareSource = extractCodeOrString(p.compare).trim();
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      if (compareSource) {
+        const a = toPythonBindingName(String(p.a || 'a'), 'sort a');
+        const b = toPythonBindingName(String(p.b || 'b'), 'sort b');
+        if (a === b) {
+          throw new Error('portable route `sort` comparator operands must use distinct `a=` and `b=` names.');
+        }
+        const compare = rewriteFastAPIStmtExpr(
+          compareSource,
+          indent,
+          pathParams,
+          bodyFields,
+          authUser,
+          imports,
+          hoistCtx,
+        );
+        if (compare.hoists.length > 0) {
+          throw new Error(
+            'portable route `sort compare=` cannot contain closures or expressions that need hoisted helpers.',
+          );
+        }
+        imports.add('from functools import cmp_to_key');
+        lines.push(
+          `${indent}${name}${typeAnnotation} = sorted(${collection.expr}, key=cmp_to_key(lambda ${a}, ${b}: ${compare.expr}))`,
+        );
+      } else {
+        const helperName = `__kern_sort_key_${name}`;
+        emitPythonRouteSortKeyHelper(lines, indent, helperName);
+        lines.push(`${indent}${name}${typeAnnotation} = sorted(${collection.expr}, key=${helperName})`);
+      }
+      break;
+    }
     case 'objectMerge': {
       const name = toPythonBindingName(requirePortableProp('objectMerge', 'name', String(p.name || '')), 'objectMerge');
       const rawSources = requirePortableProp('objectMerge', 'sources', extractCodeOrString(p.sources).trim());
@@ -1102,6 +1151,7 @@ export function generatePortableHandlerFastAPI(
     'pluck',
     'take',
     'drop',
+    'sort',
     'objectMerge',
     'objectOmit',
     'objectPick',
