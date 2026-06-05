@@ -478,7 +478,11 @@ async function runReviewPipeline(
           for (const ep of entryFilePaths) {
             fileDistances.set(ep, 0);
           }
-          return { fileDistances };
+          // Cross-file usage spine: reviewGraph already built the context
+          // artifact once (shared reference on every report) — just read it,
+          // no second call-graph build.
+          const artifact = reports.find((r) => r.contextArtifact)?.contextArtifact;
+          return { fileDistances, artifact };
         })()
       : undefined;
 
