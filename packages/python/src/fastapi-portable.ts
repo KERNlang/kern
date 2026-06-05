@@ -14,12 +14,15 @@ import {
   isPostfixMutationOperator,
   isSupportedAssignOperator,
   parseKeys,
+  parsePortableNonNegativeIntLiteral,
+  parsePortablePathSegments,
   splitPortableExpressionList,
 } from '@kernlang/core';
 import { extractExprCode, rewriteExpr } from './core/expr/index.js';
 import { isUnsupportedJsHandlerBody, unsupportedRawHandlerBody } from './fastapi-raw-handler.js';
 import { addRespondImports, generateRespondFastAPI } from './fastapi-response.js';
 import { escapePyStr, indentHandler } from './fastapi-utils.js';
+import { emitPythonRoutePluckHelper, pythonRouteCompactPredicate } from './portable-collection-emitter.js';
 import { pythonRouteRecordExpr, pythonRouteRecordPickExpr } from './portable-object-emitter.js';
 import { emitPythonPredicateHelpers } from './portable-predicate-emitter.js';
 import { mapTsTypeToPython, toPythonBindingName, toSnakeCase } from './type-map.js';
@@ -669,6 +672,75 @@ export function generatePortableChildFastAPI(
       }
       break;
     }
+    case 'compact': {
+      const name = toPythonBindingName(requirePortableProp('compact', 'name', String(p.name || '')), 'compact');
+      const item = 'item';
+      const collection = rewriteFastAPIStmtExpr(
+        requirePortableProp('compact', 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      lines.push(...collection.hoists);
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      lines.push(
+        `${indent}${name}${typeAnnotation} = [${item} for ${item} in ${collection.expr} if ${pythonRouteCompactPredicate(item)}]`,
+      );
+      break;
+    }
+    case 'pluck': {
+      const name = toPythonBindingName(requirePortableProp('pluck', 'name', String(p.name || '')), 'pluck');
+      const collection = rewriteFastAPIStmtExpr(
+        requirePortableProp('pluck', 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      lines.push(...collection.hoists);
+      const segments = parsePortablePathSegments(
+        requirePortableProp('pluck', 'prop', extractCodeOrString(p.prop).trim()),
+        child,
+        'prop',
+      );
+      const pathExpr = emitStringKeyArray(segments);
+      const helperName = `__kern_pluck_${name}`;
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      emitPythonRoutePluckHelper(lines, indent, helperName, pathExpr);
+      lines.push(
+        `${indent}${name}${typeAnnotation} = [${helperName}(__kern_item) for __kern_item in ${collection.expr}]`,
+      );
+      break;
+    }
+    case 'take':
+    case 'drop': {
+      const kind = child.type;
+      const name = toPythonBindingName(requirePortableProp(kind, 'name', String(p.name || '')), kind);
+      const collection = rewriteFastAPIStmtExpr(
+        requirePortableProp(kind, 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      lines.push(...collection.hoists);
+      const n = parsePortableNonNegativeIntLiteral(
+        requirePortableProp(kind, 'n', extractCodeOrString(p.n).trim()),
+        child,
+        'n',
+      );
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      const slice = kind === 'take' ? `[:${n}]` : `[${n}:]`;
+      lines.push(`${indent}${name}${typeAnnotation} = ${collection.expr}${slice}`);
+      break;
+    }
     case 'objectMerge': {
       const name = toPythonBindingName(requirePortableProp('objectMerge', 'name', String(p.name || '')), 'objectMerge');
       const rawSources = requirePortableProp('objectMerge', 'sources', extractCodeOrString(p.sources).trim());
@@ -1026,6 +1098,10 @@ export function generatePortableHandlerFastAPI(
     'each',
     'collect',
     'count',
+    'compact',
+    'pluck',
+    'take',
+    'drop',
     'objectMerge',
     'objectOmit',
     'objectPick',

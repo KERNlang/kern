@@ -8,6 +8,7 @@ import {
 import { parseDocumentWithDiagnostics } from '../src/parser.js';
 import { splitPortableExpressionList } from '../src/portable-expression-list.js';
 import { parsePortablePredicateProp, validatePortablePredicateAST } from '../src/portable-predicate.js';
+import { parsePortableNonNegativeIntLiteral, parsePortablePathSegments } from '../src/portable-route-collection.js';
 import { validateSchema } from '../src/schema.js';
 
 describe('portable logic primitive registry', () => {
@@ -16,6 +17,10 @@ describe('portable logic primitive registry', () => {
       'collection.has',
       'collection.count',
       'collection.filter',
+      'collection.compact',
+      'collection.pluck',
+      'collection.take',
+      'collection.drop',
       'collection.uniqueBy',
       'collection.groupBy',
       'collection.partition',
@@ -42,6 +47,10 @@ describe('portable logic primitive registry', () => {
     expect(portableLogicSupportForTarget('collection.has', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.count', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.filter', 'python')).toBe('stable');
+    expect(portableLogicSupportForTarget('collection.compact', 'python')).toBe('stable');
+    expect(portableLogicSupportForTarget('collection.pluck', 'python')).toBe('stable');
+    expect(portableLogicSupportForTarget('collection.take', 'python')).toBe('stable');
+    expect(portableLogicSupportForTarget('collection.drop', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.uniqueBy', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.groupBy', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.partition', 'python')).toBe('stable');
@@ -78,6 +87,10 @@ describe('portable logic primitive registry', () => {
       'server name=API',
       '  route method=post path=/api/t',
       '    filter name=active_adults in=users predicate={{ {and: [{eq: ["active", true]}, {gte: ["age", 18]}]} }}',
+      '    compact name=truthy in=values',
+      '    pluck name=emails in=users prop=profile.email',
+      '    take name=first_two in=emails n=2',
+      '    drop name=after_one in=emails n=1',
       '    uniqueBy name=distinct in=users by="item.id"',
       '    groupBy name=by_type in=users by="item.type"',
       '    partition pass=active fail=inactive in=users where="item.active"',
@@ -112,6 +125,20 @@ describe('portable logic primitive registry', () => {
       "{ label: 'a,b' }",
       'overrides',
     ]);
+  });
+
+  test('route collection helper parsers reject non-portable path and count shapes', () => {
+    const pluckNode = { type: 'pluck', props: { prop: 'profile.email' } };
+    const takeNode = { type: 'take', props: { n: '2' } };
+    expect(parsePortablePathSegments('profile.email', pluckNode, 'prop')).toEqual(['profile', 'email']);
+    expect(parsePortablePathSegments('profile.tags.0', pluckNode, 'prop')).toEqual(['profile', 'tags', '0']);
+    expect(() => parsePortablePathSegments('profile..email', pluckNode, 'prop')).toThrow(/empty path segments/);
+    expect(() => parsePortablePathSegments('profile[email]', pluckNode, 'prop')).toThrow(/unsupported path segment/);
+    expect(parsePortableNonNegativeIntLiteral('0', takeNode, 'n')).toBe('0');
+    expect(parsePortableNonNegativeIntLiteral('12', takeNode, 'n')).toBe('12');
+    expect(() => parsePortableNonNegativeIntLiteral('-1', takeNode, 'n')).toThrow(/non-negative integer literal/);
+    expect(() => parsePortableNonNegativeIntLiteral('1.5', takeNode, 'n')).toThrow(/non-negative integer literal/);
+    expect(() => parsePortableNonNegativeIntLiteral('limit', takeNode, 'n')).toThrow(/non-negative integer literal/);
   });
 
   test('filter route child requires exactly one predicate form', () => {

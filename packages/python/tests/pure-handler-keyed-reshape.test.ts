@@ -191,6 +191,41 @@ describe('pure Python handlers: keyed reshape route scope', () => {
     expect(body).toContain('safe_user = {key: value for key, value in (lambda __k_src:');
   });
 
+  test('lowers route compact, pluck, take, and drop nodes', () => {
+    const server = {
+      type: 'server',
+      props: { name: 'API' },
+      children: [
+        {
+          type: 'route',
+          props: { method: 'post', path: '/api/t' },
+          children: [
+            { type: 'compact', props: { name: 'truthy', in: 'values' } },
+            { type: 'pluck', props: { name: 'emails', in: 'users', prop: 'profile.email' } },
+            { type: 'take', props: { name: 'first_two', in: 'emails', n: '2' } },
+            { type: 'drop', props: { name: 'after_one', in: 'emails', n: '1' } },
+            {
+              type: 'respond',
+              props: {
+                status: 200,
+                json: { __expr: true, code: '{ truthy: truthy, emails: emails, firstTwo: first_two }' },
+              },
+            },
+          ],
+        },
+      ],
+    } satisfies IRNode;
+    const handlers = emitPureHandlers(server, new Set(), server);
+    expect(handlers).toHaveLength(1);
+    const body = handlers[0].bodyLines.join('\n');
+    expect(body).toContain('truthy = [item for item in values if item is not None');
+    expect(body).toContain('def __kern_pluck_emails(__kern_item):');
+    expect(body).toContain('for __kern_key in ["profile", "email"]:');
+    expect(body).toContain('emails = [__kern_pluck_emails(__kern_item) for __kern_item in users]');
+    expect(body).toContain('first_two = emails[:2]');
+    expect(body).toContain('after_one = emails[1:]');
+  });
+
   test('lowers groupBy node correctly', () => {
     const server = routeWith({ type: 'groupBy', props: { name: 'by_type', in: 'users', by: 'item.type' } });
     const handlers = emitPureHandlers(server, new Set(), server);

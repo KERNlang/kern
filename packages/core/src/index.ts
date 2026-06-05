@@ -357,6 +357,7 @@ export {
   parsePortablePredicateProp,
   validatePortablePredicateAST,
 } from './portable-predicate.js';
+export { parsePortableNonNegativeIntLiteral, parsePortablePathSegments } from './portable-route-collection.js';
 export type { ParserHintsConfig } from './runtime.js';
 // Runtime (instance-based state)
 export { defaultRuntime, KernRuntime } from './runtime.js';

@@ -6,6 +6,8 @@ import {
   getProps,
   isPostfixMutationOperator,
   parseKeys,
+  parsePortableNonNegativeIntLiteral,
+  parsePortablePathSegments,
   splitPortableExpressionList,
 } from '@kernlang/core';
 import { derivePathParams, escapeSingleQuotes, generateRespondExpress, indentBlock } from './express-utils.js';
@@ -87,6 +89,31 @@ function requirePortableProp(nodeType: string, propName: string, value: string):
 function portableTempSuffix(...parts: string[]): string {
   const joined = parts.filter(Boolean).join('_') || 'reshape';
   return joined.replace(/[^A-Za-z0-9_$]/g, '_');
+}
+
+function emitExpressCompactPredicate(item: string): string {
+  return `${item} !== null && ${item} !== undefined && ${item} !== false && ${item} !== 0 && ${item} !== 0n && ${item} !== '' && !(typeof ${item} === 'number' && Number.isNaN(${item}))`;
+}
+
+function emitExpressPluckHelper(lines: string[], indent: string, helperName: string, pathSegments: string[]): void {
+  lines.push(`${indent}const ${helperName} = (__kernItem) => {`);
+  lines.push(`${indent}  let __kernValue = __kernItem;`);
+  lines.push(`${indent}  for (const __kernKey of ${JSON.stringify(pathSegments)}) {`);
+  lines.push(`${indent}    if (__kernValue === null || __kernValue === undefined) return null;`);
+  lines.push(`${indent}    if (Array.isArray(__kernValue)) {`);
+  lines.push(`${indent}      if (!/^(?:0|[1-9]\\d*)$/.test(__kernKey)) return null;`);
+  lines.push(`${indent}      const __kernIndex = Number(__kernKey);`);
+  lines.push(`${indent}      __kernValue = __kernIndex < __kernValue.length ? __kernValue[__kernIndex] : null;`);
+  lines.push(
+    `${indent}    } else if (__kernValue !== null && typeof __kernValue === 'object' && Object.prototype.hasOwnProperty.call(__kernValue, __kernKey)) {`,
+  );
+  lines.push(`${indent}      __kernValue = __kernValue[__kernKey];`);
+  lines.push(`${indent}    } else {`);
+  lines.push(`${indent}      return null;`);
+  lines.push(`${indent}    }`);
+  lines.push(`${indent}  }`);
+  lines.push(`${indent}  return __kernValue ?? null;`);
+  lines.push(`${indent}};`);
 }
 
 export function generatePortableChildExpress(
@@ -335,6 +362,38 @@ export function generatePortableChildExpress(
       }
       break;
     }
+    case 'compact': {
+      const name = requirePortableProp('compact', 'name', String(p.name || ''));
+      const item = 'item';
+      const collection = rewriteExpressExpr(requirePortableProp('compact', 'in', portableExprProp(p.in)), path);
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      lines.push(
+        `${indent}const ${name}${typeAnnotation} = (${collection}).filter((${item}) => ${emitExpressCompactPredicate(item)});`,
+      );
+      break;
+    }
+    case 'pluck': {
+      const name = requirePortableProp('pluck', 'name', String(p.name || ''));
+      const collection = rewriteExpressExpr(requirePortableProp('pluck', 'in', portableExprProp(p.in)), path);
+      const prop = requirePortableProp('pluck', 'prop', portableExprProp(p.prop));
+      const segments = parsePortablePathSegments(prop, child, 'prop');
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      const helperName = `__kernPluck_${portableTempSuffix(name)}`;
+      emitExpressPluckHelper(lines, indent, helperName, segments);
+      lines.push(`${indent}const ${name}${typeAnnotation} = (${collection}).map(${helperName});`);
+      break;
+    }
+    case 'take':
+    case 'drop': {
+      const kind = child.type;
+      const name = requirePortableProp(kind, 'name', String(p.name || ''));
+      const collection = rewriteExpressExpr(requirePortableProp(kind, 'in', portableExprProp(p.in)), path);
+      const n = parsePortableNonNegativeIntLiteral(requirePortableProp(kind, 'n', portableExprProp(p.n)), child, 'n');
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      const sliceArgs = kind === 'take' ? `0, ${n}` : n;
+      lines.push(`${indent}const ${name}${typeAnnotation} = (${collection}).slice(${sliceArgs});`);
+      break;
+    }
     case 'objectMerge': {
       const name = requirePortableProp('objectMerge', 'name', String(p.name || ''));
       const rawSources = requirePortableProp('objectMerge', 'sources', portableExprProp(p.sources));
@@ -547,6 +606,10 @@ export function generatePortableHandlerExpress(
     'each',
     'collect',
     'count',
+    'compact',
+    'pluck',
+    'take',
+    'drop',
     'objectMerge',
     'objectOmit',
     'objectPick',

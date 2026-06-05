@@ -51,10 +51,13 @@ import {
   getFirstChild,
   getProps,
   parseKeys,
+  parsePortableNonNegativeIntLiteral,
+  parsePortablePathSegments,
   splitPortableExpressionList,
 } from '@kernlang/core';
 import { isUnsupportedJsHandlerBody, unsupportedRawHandlerBody } from '../../fastapi-raw-handler.js';
 import { derivePathParams, escapePyStr, indentHandler, slugify } from '../../fastapi-utils.js';
+import { emitPythonRoutePluckHelper, pythonRouteCompactPredicate } from '../../portable-collection-emitter.js';
 import { pythonRouteRecordExpr, pythonRouteRecordPickExpr } from '../../portable-object-emitter.js';
 import { emitPythonPredicateHelpers } from '../../portable-predicate-emitter.js';
 import { mapTsTypeToPython, toPythonBindingName, toSnakeCase } from '../../type-map.js';
@@ -450,6 +453,56 @@ function generatePurePythonStmt(
       }
       break;
     }
+    case 'compact': {
+      const name = toPythonBindingName(String(p.name || ''), 'compact');
+      if (!name) throw new Error("compact node requires a 'name' prop");
+      const inVal = extractCodeOrString(p.in).trim();
+      if (!inVal) throw new Error("compact node requires an 'in' prop");
+      const item = 'item';
+      const collection = rewriteExprPure(inVal, indent);
+      lines.push(...collection.hoists);
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      lines.push(
+        `${indent}${name}${typeAnnotation} = [${item} for ${item} in ${collection.expr} if ${pythonRouteCompactPredicate(item)}]`,
+      );
+      break;
+    }
+    case 'pluck': {
+      const name = toPythonBindingName(String(p.name || ''), 'pluck');
+      if (!name) throw new Error("pluck node requires a 'name' prop");
+      const inVal = extractCodeOrString(p.in).trim();
+      if (!inVal) throw new Error("pluck node requires an 'in' prop");
+      const propVal = extractCodeOrString(p.prop).trim();
+      if (!propVal) throw new Error("pluck node requires a 'prop' prop");
+      const collection = rewriteExprPure(inVal, indent);
+      lines.push(...collection.hoists);
+      const segments = parsePortablePathSegments(propVal, child, 'prop');
+      const pathExpr = emitStringKeyArray(segments);
+      const helperName = `__kern_pluck_${name}`;
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      emitPythonRoutePluckHelper(lines, indent, helperName, pathExpr);
+      lines.push(
+        `${indent}${name}${typeAnnotation} = [${helperName}(__kern_item) for __kern_item in ${collection.expr}]`,
+      );
+      break;
+    }
+    case 'take':
+    case 'drop': {
+      const kind = child.type;
+      const name = toPythonBindingName(String(p.name || ''), kind);
+      if (!name) throw new Error(`${kind} node requires a 'name' prop`);
+      const inVal = extractCodeOrString(p.in).trim();
+      if (!inVal) throw new Error(`${kind} node requires an 'in' prop`);
+      const nVal = extractCodeOrString(p.n).trim();
+      if (!nVal) throw new Error(`${kind} node requires an 'n' prop`);
+      const collection = rewriteExprPure(inVal, indent);
+      lines.push(...collection.hoists);
+      const n = parsePortableNonNegativeIntLiteral(nVal, child, 'n');
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      const slice = kind === 'take' ? `[:${n}]` : `[${n}:]`;
+      lines.push(`${indent}${name}${typeAnnotation} = ${collection.expr}${slice}`);
+      break;
+    }
     case 'objectMerge': {
       const name = toPythonBindingName(String(p.name || ''), 'objectMerge');
       if (!name) throw new Error("objectMerge node requires a 'name' prop");
@@ -788,6 +841,10 @@ export function emitPureHandlers(serverNode: IRNode, imports: Set<string>, root?
       'each',
       'collect',
       'count',
+      'compact',
+      'pluck',
+      'take',
+      'drop',
       'objectMerge',
       'objectOmit',
       'objectPick',

@@ -1302,6 +1302,34 @@ describe('Express Transpiler', () => {
       expect(code).toContain('acc[__kernKey_counts] = (acc[__kernKey_counts] ?? 0) + 1;');
     });
 
+    test('transpiles compact, pluck, take, and drop route collection shaping correctly', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/list-shape',
+        '    compact name=truthy in=values',
+        '    pluck name=emails in=users prop=profile.email',
+        '    take name=first_two in=emails n=2',
+        '    drop name=after_one in=emails n=1',
+        '    respond 200 json={{ {truthy: truthy, emails: emails, firstTwo: first_two, afterOne: after_one} }}',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('list-shape') && a.path.endsWith('.ts'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+
+      expect(code).toContain(
+        "const truthy = (values).filter((item) => item !== null && item !== undefined && item !== false && item !== 0 && item !== 0n && item !== '' && !(typeof item === 'number' && Number.isNaN(item)));",
+      );
+      expect(code).toContain('const __kernPluck_emails = (__kernItem) => {');
+      expect(code).toContain('for (const __kernKey of ["profile","email"])');
+      expect(code).toContain('Object.prototype.hasOwnProperty.call(__kernValue, __kernKey)');
+      expect(code).toContain('const emails = (users).map(__kernPluck_emails);');
+      expect(code).toContain('const first_two = (emails).slice(0, 2);');
+      expect(code).toContain('const after_one = (emails).slice(1);');
+    });
+
     test('transpiles route object merge, pick, and omit correctly', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');

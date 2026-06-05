@@ -3040,6 +3040,33 @@ describe('FastAPI Transpiler', () => {
       expect(code).toContain('counts[__kern_key_counts] = counts.get(__kern_key_counts, 0) + 1');
     });
 
+    test('portable compact, pluck, take, and drop nodes lower to FastAPI Python code', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/list-shape',
+        '    compact name=truthy in=values',
+        '    pluck name=emails in=users prop=profile.email',
+        '    take name=first_two in=emails n=2',
+        '    drop name=after_one in=emails n=1',
+        '    respond 200 json={{ {truthy: truthy, emails: emails, firstTwo: first_two, afterOne: after_one} }}',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post_api_list_shape'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+
+      expect(code).toContain('truthy = [item for item in values if item is not None');
+      expect(code).toContain('not isinstance(item, bool)');
+      expect(code).toContain('def __kern_pluck_emails(__kern_item):');
+      expect(code).toContain('for __kern_key in ["profile", "email"]:');
+      expect(code).toContain('hasattr(__kern_value, "_d")');
+      expect(code).toContain('emails = [__kern_pluck_emails(__kern_item) for __kern_item in users]');
+      expect(code).toContain('first_two = emails[:2]');
+      expect(code).toContain('after_one = emails[1:]');
+    });
+
     test('portable keyed collection reshape nodes reject unsafe Python binding names', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');

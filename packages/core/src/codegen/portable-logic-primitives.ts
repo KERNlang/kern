@@ -11,6 +11,10 @@ export type PortableLogicPrimitiveId =
   | 'collection.has'
   | 'collection.count'
   | 'collection.filter'
+  | 'collection.compact'
+  | 'collection.pluck'
+  | 'collection.take'
+  | 'collection.drop'
   | 'collection.uniqueBy'
   | 'collection.groupBy'
   | 'collection.partition'
@@ -74,6 +78,44 @@ export const PORTABLE_LOGIC_PRIMITIVES = {
     portabilityNotes: [
       'Predicate v1 supports eq, neq, gt, gte, and over bool/number/string/null scalar values; object/list equality is intentionally outside v1. Missing paths and numeric comparison semantics are target-normalized.',
     ],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.compact': {
+    id: 'collection.compact',
+    description: 'Filters a collection by KERN portable truthiness while preserving source order.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.filter(Boolean)'],
+    portabilityNotes: [
+      'Drops null/None/undefined, false, numeric zero, NaN, and empty string; keeps arrays and objects as truthy.',
+    ],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.pluck': {
+    id: 'collection.pluck',
+    description: 'Projects a dotted element path from each collection item.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.map(x => x.path)', '[x.path for x in xs]'],
+    portabilityNotes: ['Route lowering uses safe dotted lookup and returns null/None for missing path segments.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.take': {
+    id: 'collection.take',
+    description: 'Takes the first N collection elements.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.slice(0, n)', 'xs[:n]'],
+    portabilityNotes: ['Route lowering requires a non-negative integer literal to avoid target slicing divergence.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.drop': {
+    id: 'collection.drop',
+    description: 'Drops the first N collection elements.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.slice(n)', 'xs[n:]'],
+    portabilityNotes: ['Route lowering requires a non-negative integer literal to avoid target slicing divergence.'],
     targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
   },
   'collection.uniqueBy': {
