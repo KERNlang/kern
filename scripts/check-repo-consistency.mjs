@@ -31,10 +31,12 @@ function checkReadme() {
     }
   }
 
-  const { targetCount, ruleCount, mcpToolCount, mcpResourceCount, mcpPromptCount } = collectRepoFacts();
+  const { ruleCount, mcpToolCount, mcpResourceCount, mcpPromptCount } = collectRepoFacts();
   const expectedPhrases = [
-    `${targetCount} compile targets`,
-    `compile to ${targetCount} targets`,
+    'One backend spec. Real TypeScript and Python output.',
+    'backend structure and portable route-logic language',
+    'Primary backend parity path',
+    'generated Express and FastAPI structure that stays aligned',
     `${ruleCount} review rules`,
     `${ruleCount} AST-based rules`,
     `**${ruleCount} rules**`,

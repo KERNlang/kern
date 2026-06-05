@@ -1395,5 +1395,44 @@ describe('Express Transpiler', () => {
         'const safe_user = Object.fromEntries(Object.entries(merged || {}).filter(([key]) => !["password", "token"].includes(key)));',
       );
     });
+
+    test('transpiles route object keys, values, and entries correctly', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/object-introspect',
+        '    objectKeys name=keys in=user',
+        '    objectValues name=values in=user',
+        '    objectEntries name=entries in=user',
+        '    objectKeys name=null_keys in=empty',
+        '    objectValues name=primitive_values in=primitive',
+        '    objectEntries name=array_entries in=items',
+        '    respond 200 json={{ {keys: keys, values: values, entries: entries, nullKeys: null_keys} }}',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('object-introspect') && a.path.endsWith('.ts'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+
+      expect(code).toContain(
+        "const keys = ((__kernSource) => Object.keys(__kernSource !== null && typeof __kernSource === 'object' && !Array.isArray(__kernSource) ? __kernSource : {}))(user);",
+      );
+      expect(code).toContain(
+        "const values = ((__kernSource) => Object.values(__kernSource !== null && typeof __kernSource === 'object' && !Array.isArray(__kernSource) ? __kernSource : {}))(user);",
+      );
+      expect(code).toContain(
+        "const entries = ((__kernSource) => Object.entries(__kernSource !== null && typeof __kernSource === 'object' && !Array.isArray(__kernSource) ? __kernSource : {}))(user);",
+      );
+      expect(code).toContain(
+        "const null_keys = ((__kernSource) => Object.keys(__kernSource !== null && typeof __kernSource === 'object' && !Array.isArray(__kernSource) ? __kernSource : {}))(empty);",
+      );
+      expect(code).toContain(
+        "const primitive_values = ((__kernSource) => Object.values(__kernSource !== null && typeof __kernSource === 'object' && !Array.isArray(__kernSource) ? __kernSource : {}))(primitive);",
+      );
+      expect(code).toContain(
+        "const array_entries = ((__kernSource) => Object.entries(__kernSource !== null && typeof __kernSource === 'object' && !Array.isArray(__kernSource) ? __kernSource : {}))(items);",
+      );
+    });
   });
 });

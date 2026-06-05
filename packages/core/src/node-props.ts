@@ -279,6 +279,21 @@ export interface ObjectOmitProps extends BaseProps {
   type?: string;
 }
 
+export interface ObjectKeysProps extends BaseProps {
+  in?: string | ExprObject;
+  type?: string;
+}
+
+export interface ObjectValuesProps extends BaseProps {
+  in?: string | ExprObject;
+  type?: string;
+}
+
+export interface ObjectEntriesProps extends BaseProps {
+  in?: string | ExprObject;
+  type?: string;
+}
+
 export interface SetProps extends BaseProps {
   to?: string | ExprObject;
 }
@@ -886,6 +901,9 @@ export interface NodePropsMap {
   objectMerge: ObjectMergeProps;
   objectOmit: ObjectOmitProps;
   objectPick: ObjectPickProps;
+  objectKeys: ObjectKeysProps;
+  objectValues: ObjectValuesProps;
+  objectEntries: ObjectEntriesProps;
   sort: SortProps;
   reverse: ReverseProps;
   join: JoinProps;

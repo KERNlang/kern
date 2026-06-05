@@ -65,6 +65,7 @@ import {
 import { pythonRouteRecordExpr, pythonRouteRecordPickExpr } from '../../portable-object-emitter.js';
 import { emitPythonPredicateHelpers } from '../../portable-predicate-emitter.js';
 import { mapTsTypeToPython, toPythonBindingName, toSnakeCase } from '../../type-map.js';
+import { KERN_JS_OBJECT_HELPERS_PY } from '../expr/helpers.js';
 import { rewriteExpr } from '../expr/index.js';
 
 /** A single route lowered to a framework-agnostic Python function. */
@@ -589,6 +590,27 @@ function generatePurePythonStmt(
       );
       break;
     }
+    case 'objectKeys':
+    case 'objectValues':
+    case 'objectEntries': {
+      const nodeType = child.type;
+      const name = toPythonBindingName(String(p.name || ''), nodeType);
+      if (!name) throw new Error(`${nodeType} node requires a 'name' prop`);
+      const inVal = extractCodeOrString(p.in).trim();
+      if (!inVal) throw new Error(`${nodeType} node requires an 'in' prop`);
+      const source = rewriteExprPure(inVal, indent);
+      lines.push(...source.hoists);
+      imports.add(KERN_JS_OBJECT_HELPERS_PY);
+      const helper =
+        nodeType === 'objectKeys'
+          ? '_kern_js_object_keys'
+          : nodeType === 'objectValues'
+            ? '_kern_js_object_values'
+            : '_kern_js_object_entries';
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      lines.push(`${indent}${name}${typeAnnotation} = ${helper}(${pythonRouteRecordExpr(source.expr)})`);
+      break;
+    }
     case 'uniqueBy': {
       const name = toPythonBindingName(String(p.name || ''), 'uniqueBy');
       if (!name) throw new Error("uniqueBy node requires a 'name' prop");
@@ -885,6 +907,9 @@ export function emitPureHandlers(serverNode: IRNode, imports: Set<string>, root?
       'objectMerge',
       'objectOmit',
       'objectPick',
+      'objectKeys',
+      'objectValues',
+      'objectEntries',
       'uniqueBy',
       'groupBy',
       'partition',

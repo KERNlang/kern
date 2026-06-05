@@ -191,6 +191,42 @@ describe('pure Python handlers: keyed reshape route scope', () => {
     expect(body).toContain('safe_user = {key: value for key, value in (lambda __k_src:');
   });
 
+  test('lowers route object keys, values, and entries nodes', () => {
+    const server = {
+      type: 'server',
+      props: { name: 'API' },
+      children: [
+        {
+          type: 'route',
+          props: { method: 'post', path: '/api/t' },
+          children: [
+            { type: 'objectKeys', props: { name: 'keys', in: 'user' } },
+            { type: 'objectValues', props: { name: 'values', in: 'user' } },
+            { type: 'objectEntries', props: { name: 'entries', in: 'user' } },
+            { type: 'objectKeys', props: { name: 'null_keys', in: 'empty' } },
+            {
+              type: 'respond',
+              props: {
+                status: 200,
+                json: { __expr: true, code: '{ keys: keys, values: values, entries: entries, nullKeys: null_keys }' },
+              },
+            },
+          ],
+        },
+      ],
+    } satisfies IRNode;
+    const imports = new Set<string>();
+    const handlers = emitPureHandlers(server, imports, server);
+    expect(handlers).toHaveLength(1);
+    const body = handlers[0].bodyLines.join('\n');
+    const importText = [...imports].join('\n');
+    expect(importText).toContain('def _kern_js_object_keys(__k_obj):');
+    expect(body).toContain('keys = _kern_js_object_keys((lambda __k_src:');
+    expect(body).toContain('values = _kern_js_object_values((lambda __k_src:');
+    expect(body).toContain('entries = _kern_js_object_entries((lambda __k_src:');
+    expect(body).toContain('null_keys = _kern_js_object_keys((lambda __k_src:');
+  });
+
   test('lowers route compact, pluck, take, and drop nodes', () => {
     const server = {
       type: 'server',

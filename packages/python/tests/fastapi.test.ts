@@ -3126,6 +3126,30 @@ describe('FastAPI Transpiler', () => {
       expect(code).toContain('safe_user = {key: value for key, value in (lambda __k_src:');
     });
 
+    test('portable route object keys, values, and entries nodes lower to FastAPI Python code', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/object-introspect',
+        '    objectKeys name=keys in=user',
+        '    objectValues name=values in=user',
+        '    objectEntries name=entries in=user',
+        '    objectKeys name=null_keys in=empty',
+        '    respond 200 json={{ {keys: keys, values: values, entries: entries, nullKeys: null_keys} }}',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post_api_object_introspect'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+
+      expect(code).toContain('def _kern_js_object_keys(__k_obj):');
+      expect(code).toContain('keys = _kern_js_object_keys((lambda __k_src:');
+      expect(code).toContain('values = _kern_js_object_values((lambda __k_src:');
+      expect(code).toContain('entries = _kern_js_object_entries((lambda __k_src:');
+      expect(code).toContain('null_keys = _kern_js_object_keys((lambda __k_src:');
+    });
+
     test('portable filter predicate node lowers to helper-backed FastAPI Python code', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
@@ -3211,6 +3235,26 @@ describe('FastAPI Transpiler', () => {
       expect(code).toContain(
         'eligible_count = sum(1 for item in users if __kern_eval_predicate_eligible_count(__kern_predicate_eligible_count, item))',
       );
+    });
+
+    test('portable route object introspection nodes support type annotations and route detector', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/introspect-types',
+        '    objectKeys name=keys_typed in=user type="string[]"',
+        '    objectValues name=values_typed in=user type="any[]"',
+        '    objectEntries name=entries_typed in=user type="any[]"',
+        '    respond 200 json={{ {keys: keys_typed, values: values_typed, entries: entries_typed} }}',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post_api_introspect_types'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+      expect(code).toContain('keys_typed: list[str] = _kern_js_object_keys(');
+      expect(code).toContain('values_typed: list[Any] = _kern_js_object_values(');
+      expect(code).toContain('entries_typed: list[Any] = _kern_js_object_entries(');
     });
   });
 });
