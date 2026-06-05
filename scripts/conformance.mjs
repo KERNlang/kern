@@ -625,6 +625,19 @@ const FIXTURES = [
       { id: 'u6', role: 'admin', status: 'active', missing: 'x' },
     ] } },
     expected: { status: 200, body: { ids: ['u1', 'u2', 'u6'], eligibleCount: 3, notMissingNull: 5, neqMissingNull: 1 } } },
+  // Richer leaf predicate parity. `nin` mirrors `neq` for absent paths:
+  // absent is not in any concrete list, while `in` on absent remains false.
+  { kind: 'route', name: 'route: predicate membership/string AST parity',
+    kern: `route method=post path=/api/t\n  filter name=eligible in=users predicate={{ {and: [{exists: "profile.tags.0"}, {in: ["role", ["admin", "staff"]]}, {nin: ["status", ["banned"]]}, {contains: ["profile.tags", "vip"]}, {contains: ["name", "A"]}, {startsWith: ["email", "a"]}, {endsWith: ["email", ".com"]}]} }}\n  count name=eligible_count in=users predicate={{ {and: [{exists: "profile.tags.0"}, {in: ["role", ["admin", "staff"]]}, {nin: ["status", ["banned"]]}, {contains: ["profile.tags", "vip"]}, {contains: ["name", "A"]}, {startsWith: ["email", "a"]}, {endsWith: ["email", ".com"]}]} }}\n  count name=nin_missing_count in=users predicate={{ {nin: ["missing", ["x"]]} }}\n  count name=in_missing_count in=users predicate={{ {in: ["missing", ["x"]]} }}\n  count name=bool_is_number_count in=users predicate={{ {in: ["flag", [1]]} }}\n  count name=contains_number_one_count in=users predicate={{ {contains: ["flags", 1]} }}\n  count name=contains_bool_true_count in=users predicate={{ {contains: ["flags", true]} }}\n  count name=empty_prefix_count in=users predicate={{ {startsWith: ["email", ""]} }}\n  respond 200 json={{ {ids: eligible.map((u) => u.id), eligibleCount: eligible_count, ninMissing: nin_missing_count, inMissing: in_missing_count, boolIsNumber: bool_is_number_count, containsNumberOne: contains_number_one_count, containsBoolTrue: contains_bool_true_count, emptyPrefix: empty_prefix_count} }}`,
+    bindings: { locals: { users: [
+      { id: 'u1', name: 'Ada', role: 'admin', status: 'active', email: 'ada@example.com', flag: true, flags: [true], profile: { tags: ['vip', 'beta'] } },
+      { id: 'u2', name: 'Grace', role: 'staff', status: 'pending', email: 'grace@example.org', flag: 1, flags: [1], profile: { tags: ['basic'] } },
+      { id: 'u3', name: 'Bo', role: 'user', status: 'active', email: 'bo@example.com', flag: false, flags: [false], profile: { tags: ['vip'] } },
+      { id: 'u4', name: 'Axel', role: 'admin', status: 'banned', email: 'axel@example.com', flag: 2, flags: [2], profile: { tags: ['vip'] } },
+      { id: 'u5', name: 'Ann', role: 'staff', status: 'active', email: 'ann@example.com', flag: 1, flags: [1, true], profile: { tags: ['vip'] } },
+      { id: 'u6', name: 'Ari', role: 'admin', status: 'active', email: 'ari@example.com', flag: 0, flags: [0], profile: { tags: [] } },
+    ] } },
+    expected: { status: 200, body: { ids: ['u1', 'u5'], eligibleCount: 2, ninMissing: 6, inMissing: 0, boolIsNumber: 2, containsNumberOne: 2, containsBoolTrue: 2, emptyPrefix: 6 } } },
   { kind: 'route', name: 'route: count string predicate parity',
     kern: `route method=post path=/api/t\n  count name=young_count in=users predicate="{and: [{lt: [\\"age\\", 30]}]}"\n  respond 200 json={{ {youngCount: young_count} }}`,
     bindings: { locals: { users: [{ age: 17 }, { age: 30 }, { age: 29 }] } },

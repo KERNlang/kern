@@ -3095,6 +3095,28 @@ describe('FastAPI Transpiler', () => {
       );
     });
 
+    test('portable filter predicate node lowers richer leaf predicates to FastAPI Python code', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/filter',
+        '    filter name=eligible in=users predicate={{ {and: [{exists: "profile.tags.0"}, {in: ["role", ["admin", "staff"]]}, {nin: ["status", ["banned"]]}, {contains: ["profile.tags", "vip"]}, {startsWith: ["email", "a"]}, {endsWith: ["email", ".com"]}]} }}',
+        '    respond 200 json=eligible',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post_api_filter'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+      expect(code).toContain('if "exists" in predicate:');
+      expect(code).toContain('if op in ("in", "nin"):');
+      expect(code).toContain('if op == "contains":');
+      expect(code).toContain('if op in ("startsWith", "endsWith"):');
+      expect(code).toContain(
+        '__kern_predicate_eligible = {"and": [{"exists": "profile.tags.0"}, {"in": ["role", ["admin", "staff"]]}, {"nin": ["status", ["banned"]]}, {"contains": ["profile.tags", "vip"]}, {"startsWith": ["email", "a"]}, {"endsWith": ["email", ".com"]}]}',
+      );
+    });
+
     test('portable count predicate node lowers to helper-backed FastAPI Python code', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');

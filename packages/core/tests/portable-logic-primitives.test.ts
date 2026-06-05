@@ -121,12 +121,12 @@ describe('portable logic primitive registry', () => {
       [
         'server name=API',
         '  route method=post path=/api/t',
-        '    filter name=bad in=users predicate={{ {and: [{lt: ["age", "18"]}, {contains: ["role", "admin"]}, {eq: ["profile..name", "x"]}, {eq: ["items.01.name", "x"]}]} }}',
+        '    filter name=bad in=users predicate={{ {and: [{lt: ["age", "18"]}, {matches: ["role", "admin"]}, {eq: ["profile..name", "x"]}, {eq: ["items.01.name", "x"]}]} }}',
       ].join('\n'),
     );
     const messages = validateSchema(invalid.root).map((v) => v.message);
     expect(messages.some((m) => /lt expects a non-boolean number/.test(m))).toBe(true);
-    expect(messages.some((m) => /unsupported operator 'contains'/.test(m))).toBe(true);
+    expect(messages.some((m) => /unsupported operator 'matches'/.test(m))).toBe(true);
     expect(messages.some((m) => /must not contain empty segments/.test(m))).toBe(true);
     expect(messages.some((m) => /must use canonical decimal indexes/.test(m))).toBe(true);
 
@@ -184,6 +184,39 @@ describe('portable logic primitive registry', () => {
     const messages = validateSchema(invalid.root).map((v) => v.message);
     expect(messages.some((m) => /or expects a non-empty predicate array/.test(m))).toBe(true);
     expect(messages.some((m) => /not expects a predicate object/.test(m))).toBe(true);
+  });
+
+  test('route predicate parser accepts richer leaf predicates', () => {
+    const valid = parseDocumentWithDiagnostics(
+      [
+        'server name=API',
+        '  route method=post path=/api/t',
+        '    filter name=eligible in=users predicate={{ {and: [{exists: "profile.tags.0"}, {in: ["role", ["admin", "staff"]]}, {nin: ["status", ["banned"]]}, {contains: ["profile.tags", "vip"]}, {contains: ["name", "A"]}, {startsWith: ["email", "a"]}, {endsWith: ["email", ".com"]}]} }}',
+        '    respond 200 json=eligible',
+      ].join('\n'),
+    );
+    const messages = validateSchema(valid.root).map((v) => v.message);
+    expect(messages.filter((m) => /predicate/.test(m))).toEqual([]);
+  });
+
+  test('route predicate parser rejects malformed richer leaf predicates', () => {
+    expect(validatePortablePredicateAST({ exists: 'profile.email' })).toEqual([]);
+    expect(validatePortablePredicateAST({ exists: ['profile.email'] })).toContain(
+      'exists expects a predicate path string',
+    );
+    expect(validatePortablePredicateAST({ in: ['role', []] })).toContain('in expects [path, non-empty scalar array]');
+    expect(validatePortablePredicateAST({ nin: ['role', [{}]] })).toContain(
+      'nin expects [path, non-empty scalar array]',
+    );
+    expect(validatePortablePredicateAST({ contains: ['tags', {}] })).toContain(
+      'contains expects [path, scalar expected]',
+    );
+    expect(validatePortablePredicateAST({ startsWith: ['email', 1] })).toContain(
+      'startsWith expects [path, string expected]',
+    );
+    expect(validatePortablePredicateAST({ endsWith: ['email', null] })).toContain(
+      'endsWith expects [path, string expected]',
+    );
   });
 
   test('portable predicate parser handles escapes and rejects dynamic values', () => {

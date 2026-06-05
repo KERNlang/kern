@@ -65,8 +65,12 @@ export function emitPythonPredicateHelpers(
   lines.push(`${indent}        if len(predicate) != 1 or not isinstance(predicate["not"], dict):`);
   lines.push(`${indent}            raise ValueError("invalid KERN filter predicate")`);
   lines.push(`${indent}        return not ${evalPredVar}(predicate["not"], record)`);
+  lines.push(`${indent}    if "exists" in predicate:`);
+  lines.push(`${indent}        if len(predicate) != 1 or not isinstance(predicate["exists"], str):`);
+  lines.push(`${indent}            raise ValueError("invalid KERN filter predicate")`);
+  lines.push(`${indent}        return ${getPathVar}(record, predicate["exists"]) is not ${absentVar}`);
   lines.push(
-    `${indent}    op = next((candidate for candidate in ("eq", "neq", "gt", "gte", "lt", "lte") if candidate in predicate), None)`,
+    `${indent}    op = next((candidate for candidate in ("eq", "neq", "gt", "gte", "lt", "lte", "in", "nin", "contains", "startsWith", "endsWith") if candidate in predicate), None)`,
   );
   lines.push(`${indent}    if op is None or len(predicate) != 1:`);
   lines.push(`${indent}        raise ValueError("invalid KERN filter predicate")`);
@@ -81,6 +85,27 @@ export function emitPythonPredicateHelpers(
   lines.push(`${indent}        if actual is ${absentVar}:`);
   lines.push(`${indent}            return expected is not None`);
   lines.push(`${indent}        return not ${equalVar}(actual, expected)`);
+  lines.push(`${indent}    if op in ("in", "nin"):`);
+  lines.push(`${indent}        if not isinstance(expected, list) or len(expected) == 0:`);
+  lines.push(`${indent}            raise ValueError("invalid KERN filter predicate")`);
+  lines.push(`${indent}        if actual is ${absentVar}:`);
+  lines.push(`${indent}            return op == "nin"`);
+  lines.push(`${indent}        matches = any(${equalVar}(actual, value) for value in expected)`);
+  lines.push(`${indent}        return matches if op == "in" else not matches`);
+  lines.push(`${indent}    if op == "contains":`);
+  lines.push(`${indent}        if actual is ${absentVar}:`);
+  lines.push(`${indent}            return False`);
+  lines.push(`${indent}        if isinstance(actual, str):`);
+  lines.push(`${indent}            return isinstance(expected, str) and expected in actual`);
+  lines.push(`${indent}        if isinstance(actual, (list, tuple)):`);
+  lines.push(`${indent}            return any(${equalVar}(value, expected) for value in actual)`);
+  lines.push(`${indent}        return False`);
+  lines.push(`${indent}    if op in ("startsWith", "endsWith"):`);
+  lines.push(`${indent}        if not isinstance(expected, str) or not isinstance(actual, str):`);
+  lines.push(`${indent}            return False`);
+  lines.push(
+    `${indent}        return actual.startswith(expected) if op == "startsWith" else actual.endswith(expected)`,
+  );
   lines.push(`${indent}    if op in ("gt", "gte", "lt", "lte"):`);
   lines.push(`${indent}        if not isinstance(actual, (int, float)) or isinstance(actual, bool):`);
   lines.push(`${indent}            return False`);

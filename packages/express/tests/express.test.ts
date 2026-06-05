@@ -858,6 +858,28 @@ describe('Express Transpiler', () => {
       );
     });
 
+    test('filter predicate supports richer leaf helper branches', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/filter',
+        '    filter name=eligible in=users predicate={{ {and: [{exists: "profile.tags.0"}, {in: ["role", ["admin", "staff"]]}, {nin: ["status", ["banned"]]}, {contains: ["profile.tags", "vip"]}, {startsWith: ["email", "a"]}, {endsWith: ["email", ".com"]}]} }}',
+        '    respond 200 json=eligible',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post-api-filter'));
+      expect(route).toBeDefined();
+      const content = route!.content;
+      expect(content).toContain("if (Object.prototype.hasOwnProperty.call(predicate, 'exists'))");
+      expect(content).toContain("if (op === 'in' || op === 'nin')");
+      expect(content).toContain("if (op === 'contains')");
+      expect(content).toContain("if (op === 'startsWith' || op === 'endsWith')");
+      expect(content).toContain(
+        'const __kernPredicate_eligible = {and: [{exists: "profile.tags.0"}, {in: ["role", ["admin", "staff"]]}, {nin: ["status", ["banned"]]}, {contains: ["profile.tags", "vip"]}, {startsWith: ["email", "a"]}, {endsWith: ["email", ".com"]}]};',
+      );
+    });
+
     test('count predicate generates helper-backed route logic', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');

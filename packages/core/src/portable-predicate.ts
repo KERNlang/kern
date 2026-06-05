@@ -1,4 +1,7 @@
 export type PortablePredicateCompareOp = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte';
+export type PortablePredicateMembershipOp = 'in' | 'nin';
+export type PortablePredicateStringOp = 'contains' | 'startsWith' | 'endsWith';
+export type PortablePredicateExistsOp = 'exists';
 export type PortablePredicateArrayOp = 'and' | 'or';
 export type PortablePredicateUnaryOp = 'not';
 
@@ -12,6 +15,13 @@ export const PORTABLE_PREDICATE_COMPARE_OPS: readonly PortablePredicateCompareOp
 ];
 export const PORTABLE_PREDICATE_ARRAY_OPS: readonly PortablePredicateArrayOp[] = ['and', 'or'];
 export const PORTABLE_PREDICATE_UNARY_OPS: readonly PortablePredicateUnaryOp[] = ['not'];
+export const PORTABLE_PREDICATE_EXISTS_OPS: readonly PortablePredicateExistsOp[] = ['exists'];
+export const PORTABLE_PREDICATE_MEMBERSHIP_OPS: readonly PortablePredicateMembershipOp[] = ['in', 'nin'];
+export const PORTABLE_PREDICATE_STRING_OPS: readonly PortablePredicateStringOp[] = [
+  'contains',
+  'startsWith',
+  'endsWith',
+];
 
 export interface PortablePredicateParseResult {
   ok: boolean;
@@ -263,6 +273,41 @@ function validatePredicateAST(pred: unknown, messages: string[]): void {
         return;
       }
       validatePredicateAST(val, messages);
+    } else if ((PORTABLE_PREDICATE_EXISTS_OPS as readonly string[]).includes(key)) {
+      validatePredicatePath(record[key], messages, 'exists expects a predicate path string');
+    } else if ((PORTABLE_PREDICATE_MEMBERSHIP_OPS as readonly string[]).includes(key)) {
+      const val = record[key];
+      if (!Array.isArray(val) || val.length !== 2 || !Array.isArray(val[1]) || val[1].length === 0) {
+        messages.push(`${key} expects [path, non-empty scalar array]`);
+        return;
+      }
+      const [path, expectedValues] = val;
+      validatePredicatePath(path, messages);
+      if (!(expectedValues as unknown[]).every(isPredicateScalar)) {
+        messages.push(`${key} expects [path, non-empty scalar array]`);
+      }
+    } else if (key === 'contains') {
+      const val = record[key];
+      if (!Array.isArray(val) || val.length !== 2) {
+        messages.push('contains expects [path, scalar expected]');
+        return;
+      }
+      const [path, expected] = val;
+      validatePredicatePath(path, messages);
+      if (!isPredicateScalar(expected)) {
+        messages.push('contains expects [path, scalar expected]');
+      }
+    } else if (key === 'startsWith' || key === 'endsWith') {
+      const val = record[key];
+      if (!Array.isArray(val) || val.length !== 2) {
+        messages.push(`${key} expects [path, string expected]`);
+        return;
+      }
+      const [path, expected] = val;
+      validatePredicatePath(path, messages);
+      if (typeof expected !== 'string') {
+        messages.push(`${key} expects [path, string expected]`);
+      }
     } else if ((PORTABLE_PREDICATE_COMPARE_OPS as readonly string[]).includes(key)) {
       const val = record[key];
       if (!Array.isArray(val) || val.length !== 2) {
@@ -283,9 +328,13 @@ function validatePredicateAST(pred: unknown, messages: string[]): void {
   }
 }
 
-function validatePredicatePath(path: unknown, messages: string[]): void {
+function validatePredicatePath(
+  path: unknown,
+  messages: string[],
+  typeMessage = 'predicate path must be a non-empty string',
+): void {
   if (typeof path !== 'string' || path.trim() === '') {
-    messages.push('predicate path must be a non-empty string');
+    messages.push(typeMessage);
     return;
   }
   const segments = path.split('.');

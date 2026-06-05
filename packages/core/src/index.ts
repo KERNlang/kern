@@ -340,12 +340,18 @@ export type { ImportResolver, ModuleExportSymbol, ModuleExports } from './parser
 export type {
   PortablePredicateArrayOp,
   PortablePredicateCompareOp,
+  PortablePredicateExistsOp,
+  PortablePredicateMembershipOp,
   PortablePredicateParseResult,
+  PortablePredicateStringOp,
   PortablePredicateUnaryOp,
 } from './portable-predicate.js';
 export {
   PORTABLE_PREDICATE_ARRAY_OPS,
   PORTABLE_PREDICATE_COMPARE_OPS,
+  PORTABLE_PREDICATE_EXISTS_OPS,
+  PORTABLE_PREDICATE_MEMBERSHIP_OPS,
+  PORTABLE_PREDICATE_STRING_OPS,
   PORTABLE_PREDICATE_UNARY_OPS,
   parsePortablePredicateProp,
   validatePortablePredicateAST,

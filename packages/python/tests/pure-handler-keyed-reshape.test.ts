@@ -107,6 +107,30 @@ describe('pure Python handlers: keyed reshape route scope', () => {
     );
   });
 
+  test('lowers filter predicate node with richer leaf predicates', () => {
+    const server = routeWith({
+      type: 'filter',
+      props: {
+        name: 'eligible',
+        in: 'users',
+        predicate: {
+          __expr: true,
+          code: '{and: [{exists: "profile.tags.0"}, {in: ["role", ["admin", "staff"]]}, {nin: ["status", ["banned"]]}, {contains: ["profile.tags", "vip"]}, {startsWith: ["email", "a"]}, {endsWith: ["email", ".com"]}]}',
+        },
+      },
+    });
+    const handlers = emitPureHandlers(server, new Set(), server);
+    expect(handlers).toHaveLength(1);
+    const body = handlers[0].bodyLines.join('\n');
+    expect(body).toContain('if "exists" in predicate:');
+    expect(body).toContain('if op in ("in", "nin"):');
+    expect(body).toContain('if op == "contains":');
+    expect(body).toContain('if op in ("startsWith", "endsWith"):');
+    expect(body).toContain(
+      '__kern_predicate_eligible = {"and": [{"exists": "profile.tags.0"}, {"in": ["role", ["admin", "staff"]]}, {"nin": ["status", ["banned"]]}, {"contains": ["profile.tags", "vip"]}, {"startsWith": ["email", "a"]}, {"endsWith": ["email", ".com"]}]}',
+    );
+  });
+
   test('lowers count predicate node with helper-backed evaluation', () => {
     const server = routeWith({
       type: 'count',
