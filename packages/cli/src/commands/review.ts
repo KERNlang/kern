@@ -11,8 +11,6 @@ import type {
 import {
   analyzeTaint,
   applyReviewPolicyDefaults,
-  buildCallGraph,
-  buildContextArtifact,
   buildLLMPrompt,
   buildReviewInstructions,
   checkEnforcement,
@@ -33,7 +31,6 @@ import {
   isLLMAvailable,
   linkToNodes,
   normalizeReviewEvalManifest,
-  type ProjectContextGraph,
   ReviewHealthBuilder,
   readReviewTelemetrySnapshots,
   resolveImportGraph,
@@ -205,14 +202,10 @@ async function runReviewPipeline(
   } = modes;
 
   let reports: ReviewReport[] = [];
-  // Hoisted so the LLM block below can build the cross-file context spine from
-  // the same resolved graph (it is declared inside the graph-mode branch).
-  let graphForContext: ReturnType<typeof resolveImportGraph> | undefined;
 
   if (graphMode && entryFilePaths.length > 0) {
     const graphOpts = { maxDepth, tsConfigFilePath: tsconfigPath };
     const graph = resolveImportGraph(entryFilePaths, graphOpts);
-    graphForContext = graph;
     console.log(`  Graph: ${graph.totalFiles} files resolved (${graph.skipped} skipped, depth ${maxDepth})`);
     reports = reviewGraph(entryFilePaths, reviewConfig, { ...graphOpts, precomputedGraph: graph });
   } else if (batchMode && entryFilePaths.length > batchSize) {
@@ -485,17 +478,10 @@ async function runReviewPipeline(
           for (const ep of entryFilePaths) {
             fileDistances.set(ep, 0);
           }
-          // Cross-file usage spine: surface who-calls-what to the reviewer.
-          // Best-effort + additive — a failure here must never break the review.
-          let artifact: ProjectContextGraph | undefined;
-          const g = graphForContext;
-          if (g?.project) {
-            try {
-              artifact = buildContextArtifact(g, buildCallGraph(g, g.project));
-            } catch {
-              artifact = undefined;
-            }
-          }
+          // Cross-file usage spine: reviewGraph already built the context
+          // artifact once (shared reference on every report) — just read it,
+          // no second call-graph build.
+          const artifact = reports.find((r) => r.contextArtifact)?.contextArtifact;
           return { fileDistances, artifact };
         })()
       : undefined;

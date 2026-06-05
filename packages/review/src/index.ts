@@ -10,11 +10,13 @@
  */
 
 import { createRequire } from 'node:module';
+import type { ProjectContextGraph } from '@kernlang/context';
 import type { ConceptMap, IRNode, ParseDiagnostic } from '@kernlang/core';
 import { countTokens, parseWithDiagnostics, serializeIR } from '@kernlang/core';
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { dirname, join, relative, sep } from 'path';
 import { Project, type SourceFile } from 'ts-morph';
+import { buildContextArtifact } from './context-artifact.js';
 
 // This module compiles to ESM (`type: "module"`), so the runtime has no `require`.
 // `@kernlang/review-python` is an optional peer — we load it on demand with a
@@ -1570,6 +1572,9 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
   // Hoisted so the cross-file ProvenanceChain pass below the try block can
   // reuse the same ts-morph Project the call graph already loaded.
   let cgProject: Project | undefined = graphOptions?.project;
+  // The whole-project context artifact, built once from the call graph below and
+  // attached to every report on return (best-effort — stays undefined on failure).
+  let contextArtifact: ProjectContextGraph | undefined;
   try {
     if (!cgProject) {
       // Fall back to discovering from the first graph file when the caller didn't supply a tsconfig.
@@ -1608,6 +1613,17 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
     }
 
     const callGraph = buildCallGraph(graph, cgProject);
+    // Build the portable context artifact ONCE here (reusing this call graph),
+    // and attach it to every report below so consumers — the CLI, and after an
+    // npm bump, Sight + Guard — get the cross-file usage spine without rebuilding
+    // the call graph themselves. Its OWN try/catch: the spine is optional, so a
+    // failure here must NOT skip the dead-export / async rules that follow in
+    // this same outer try.
+    try {
+      contextArtifact = buildContextArtifact(graph, callGraph);
+    } catch {
+      contextArtifact = undefined;
+    }
 
     // Build the public-API map once per run — package.json walk is the heavy bit.
     // Then propagate through re-export chains so curated barrels (Agon-style:
@@ -1836,6 +1852,11 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
     }
   }
 
+  // The artifact is shared by reference across every report, so freeze it to
+  // make the read-only contract enforced — a stray consumer mutation would
+  // otherwise leak across all reports.
+  if (contextArtifact) Object.freeze(contextArtifact);
+
   // Merge graph-level health into every report. Each report may already carry per-file health
   // (e.g. fs-project fallback); fold those entries into the graph builder so every report sees
   // the complete, deduped picture before we emit.
@@ -1844,6 +1865,9 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
     for (const e of report.health?.entries ?? []) merged.note(e);
     for (const e of graphHealth.build()?.entries ?? []) merged.note(e);
     report.health = merged.build();
+    // Same shared (frozen) artifact reference on every report — consumers read
+    // it from any report to build the LLMGraphContext spine (no recompute).
+    report.contextArtifact = contextArtifact;
   }
 
   return reports;

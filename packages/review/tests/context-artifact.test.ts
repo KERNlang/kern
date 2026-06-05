@@ -1,6 +1,10 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { ProjectContextGraph } from '@kernlang/context';
 import type { CallGraph, FunctionNode } from '../src/call-graph.js';
 import { buildContextArtifact } from '../src/context-artifact.js';
+import { reviewGraph } from '../src/index.js';
 import { inferFromSource } from '../src/inferrer.js';
 import { buildLLMPrompt } from '../src/llm-review.js';
 import type { GraphFile, GraphResult, InferResult } from '../src/types.js';
@@ -125,6 +129,67 @@ describe('buildContextArtifact', () => {
       functions: new Map([['/canon/orphan.ts#ghost', fn({ name: 'ghost', filePath: '/canon/orphan.ts' })]]),
     };
     expect(buildContextArtifact(graph, cg).symbols).toHaveLength(0);
+  });
+});
+
+describe('reviewGraph context artifact (★1 auto-populate + #2 wider symbols)', () => {
+  let dir: string;
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), 'kern-ctxg-'));
+    writeFileSync(
+      join(dir, 'models.ts'),
+      'export const SECRET_KEY = "x";\nexport class Session { t = ""; }\nexport type Status = "on" | "off";\n',
+    );
+    writeFileSync(
+      join(dir, 'app.ts'),
+      'import { SECRET_KEY, Session } from "./models.js";\n' +
+        'export function boot() { return new Session().t + SECRET_KEY; }\n' +
+        'export function run() { return boot(); }\n',
+    );
+  });
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  test('★1: attaches the same artifact reference to every report', () => {
+    const reports = reviewGraph([join(dir, 'app.ts'), join(dir, 'models.ts')]);
+    const art = reports.find((r) => r.contextArtifact)?.contextArtifact;
+    expect(art).toBeDefined();
+    expect(reports.every((r) => r.contextArtifact === art)).toBe(true);
+  });
+
+  test('#2: includes class/const/type symbols with import-derived usage', () => {
+    const reports = reviewGraph([join(dir, 'app.ts'), join(dir, 'models.ts')]);
+    const art = reports.find((r) => r.contextArtifact)?.contextArtifact;
+    const byName = (n: string) => art?.symbols.find((s) => s.name === n);
+    expect(byName('Session')?.kind).toBe('class');
+    expect(byName('SECRET_KEY')?.kind).toBe('const');
+    expect(byName('Status')?.kind).toBe('type');
+    // Session + SECRET_KEY are value-imported by app.ts → used in ≥1 file.
+    expect(art?.usage[byName('Session')!.id].totalCount).toBeGreaterThanOrEqual(1);
+    expect(art?.usage[byName('SECRET_KEY')!.id].totalCount).toBeGreaterThanOrEqual(1);
+    // boot() is called by run() → function usage still comes from the call graph.
+    expect(art?.usage[byName('boot')!.id].totalCount).toBeGreaterThanOrEqual(1);
+  });
+
+  test('value+type same name coexist; arrow-fn const dedups against the call graph', () => {
+    const d = mkdtempSync(join(tmpdir(), 'kern-ns-'));
+    writeFileSync(
+      join(d, 'm.ts'),
+      'export function Foo() { return 1; }\nexport type Foo = string;\nexport const bar = () => 2;\n',
+    );
+    try {
+      const art = reviewGraph([join(d, 'm.ts')]).find((r) => r.contextArtifact)?.contextArtifact;
+      const foos = art?.symbols.filter((s) => s.name === 'Foo').map((s) => s.kind);
+      expect(foos?.sort()).toEqual(['function', 'type']); // both namespaces kept
+      const bars = art?.symbols.filter((s) => s.name === 'bar') ?? [];
+      expect(bars).toHaveLength(1); // not double-counted as function + const
+    } finally {
+      rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  test('the shared artifact is frozen (read-only across reports)', () => {
+    const art = reviewGraph([join(dir, 'models.ts')]).find((r) => r.contextArtifact)?.contextArtifact;
+    expect(Object.isFrozen(art)).toBe(true);
   });
 });
 
