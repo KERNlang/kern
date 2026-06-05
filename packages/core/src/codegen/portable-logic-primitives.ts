@@ -15,6 +15,9 @@ export type PortableLogicPrimitiveId =
   | 'collection.pluck'
   | 'collection.take'
   | 'collection.drop'
+  | 'collection.slice'
+  | 'collection.reverse'
+  | 'collection.at'
   | 'collection.sort'
   | 'collection.uniqueBy'
   | 'collection.groupBy'
@@ -117,6 +120,33 @@ export const PORTABLE_LOGIC_PRIMITIVES = {
     intent: 'semantic-gap',
     hostPatterns: ['xs.slice(n)', 'xs[n:]'],
     portabilityNotes: ['Route lowering requires a non-negative integer literal to avoid target slicing divergence.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.slice': {
+    id: 'collection.slice',
+    description: 'Copies a half-open collection range without mutating the source.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.slice(start, end)', 'xs[start:end]'],
+    portabilityNotes: ['Route lowering requires non-negative integer literal bounds and clamps out-of-range values.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.reverse': {
+    id: 'collection.reverse',
+    description: 'Returns collection elements in reverse order without mutating the source.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['[...xs].reverse()', 'xs[::-1]'],
+    portabilityNotes: ['Source collections are copied before reversal so route logic cannot mutate request data.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.at': {
+    id: 'collection.at',
+    description: 'Reads an element by zero-based index and returns null/None when out of range.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['index < xs.length ? xs[index] : null', 'xs[index] if index < len(xs) else None'],
+    portabilityNotes: ['Route lowering requires a non-negative integer literal index; negative indexing is deferred.'],
     targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
   },
   'collection.sort': {

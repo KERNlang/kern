@@ -227,7 +227,7 @@ describe('pure Python handlers: keyed reshape route scope', () => {
     expect(body).toContain('null_keys = _kern_js_object_keys((lambda __k_src:');
   });
 
-  test('lowers route compact, pluck, take, and drop nodes', () => {
+  test('lowers route collection shaping nodes', () => {
     const server = {
       type: 'server',
       props: { name: 'API' },
@@ -240,11 +240,18 @@ describe('pure Python handlers: keyed reshape route scope', () => {
             { type: 'pluck', props: { name: 'emails', in: 'users', prop: 'profile.email' } },
             { type: 'take', props: { name: 'first_two', in: 'emails', n: '2' } },
             { type: 'drop', props: { name: 'after_one', in: 'emails', n: '1' } },
+            { type: 'slice', props: { name: 'middle', in: 'emails', start: '1', end: '3' } },
+            { type: 'reverse', props: { name: 'reversed', in: 'emails' } },
+            { type: 'at', props: { name: 'first_email', in: 'emails', index: '0' } },
+            { type: 'at', props: { name: 'missing_email', in: 'emails', index: '99' } },
             {
               type: 'respond',
               props: {
                 status: 200,
-                json: { __expr: true, code: '{ truthy: truthy, emails: emails, firstTwo: first_two }' },
+                json: {
+                  __expr: true,
+                  code: '{ truthy: truthy, emails: emails, firstTwo: first_two, middle: middle, reversed: reversed, firstEmail: first_email, missingEmail: missing_email }',
+                },
               },
             },
           ],
@@ -260,6 +267,14 @@ describe('pure Python handlers: keyed reshape route scope', () => {
     expect(body).toContain('emails = [__kern_pluck_emails(__kern_item) for __kern_item in users]');
     expect(body).toContain('first_two = emails[:2]');
     expect(body).toContain('after_one = emails[1:]');
+    expect(body).toContain('middle = emails[1:3]');
+    expect(body).toContain('reversed = emails[::-1]');
+    expect(body).toContain(
+      'first_email = (lambda __kern_source: __kern_source[0] if 0 < len(__kern_source) else None)(emails)',
+    );
+    expect(body).toContain(
+      'missing_email = (lambda __kern_source: __kern_source[99] if 99 < len(__kern_source) else None)(emails)',
+    );
   });
 
   test('lowers route sort nodes', () => {

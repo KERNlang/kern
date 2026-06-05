@@ -746,6 +746,65 @@ export function generatePortableChildFastAPI(
       lines.push(`${indent}${name}${typeAnnotation} = ${collection.expr}${slice}`);
       break;
     }
+    case 'slice': {
+      const name = toPythonBindingName(requirePortableProp('slice', 'name', String(p.name || '')), 'slice');
+      const collection = rewriteFastAPIStmtExpr(
+        requirePortableProp('slice', 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      lines.push(...collection.hoists);
+      const startRaw = extractCodeOrString(p.start).trim();
+      const endRaw = extractCodeOrString(p.end).trim();
+      const start = startRaw ? parsePortableNonNegativeIntLiteral(startRaw, child, 'start') : '';
+      const end = endRaw ? parsePortableNonNegativeIntLiteral(endRaw, child, 'end') : '';
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      lines.push(`${indent}${name}${typeAnnotation} = ${collection.expr}[${start}:${end}]`);
+      break;
+    }
+    case 'reverse': {
+      const name = toPythonBindingName(requirePortableProp('reverse', 'name', String(p.name || '')), 'reverse');
+      const collection = rewriteFastAPIStmtExpr(
+        requirePortableProp('reverse', 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      lines.push(...collection.hoists);
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      lines.push(`${indent}${name}${typeAnnotation} = ${collection.expr}[::-1]`);
+      break;
+    }
+    case 'at': {
+      const name = toPythonBindingName(requirePortableProp('at', 'name', String(p.name || '')), 'at');
+      const collection = rewriteFastAPIStmtExpr(
+        requirePortableProp('at', 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      lines.push(...collection.hoists);
+      const index = parsePortableNonNegativeIntLiteral(
+        requirePortableProp('at', 'index', extractCodeOrString(p.index).trim()),
+        child,
+        'index',
+      );
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      lines.push(
+        `${indent}${name}${typeAnnotation} = (lambda __kern_source: __kern_source[${index}] if ${index} < len(__kern_source) else None)(${collection.expr})`,
+      );
+      break;
+    }
     case 'sort': {
       const name = toPythonBindingName(requirePortableProp('sort', 'name', String(p.name || '')), 'sort');
       const collection = rewriteFastAPIStmtExpr(
@@ -1178,6 +1237,9 @@ export function generatePortableHandlerFastAPI(
     'pluck',
     'take',
     'drop',
+    'slice',
+    'reverse',
+    'at',
     'sort',
     'objectMerge',
     'objectOmit',

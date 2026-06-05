@@ -3040,7 +3040,7 @@ describe('FastAPI Transpiler', () => {
       expect(code).toContain('counts[__kern_key_counts] = counts.get(__kern_key_counts, 0) + 1');
     });
 
-    test('portable compact, pluck, take, and drop nodes lower to FastAPI Python code', async () => {
+    test('portable route collection shaping nodes lower to FastAPI Python code', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
       const source = [
@@ -3050,7 +3050,11 @@ describe('FastAPI Transpiler', () => {
         '    pluck name=emails in=users prop=profile.email',
         '    take name=first_two in=emails n=2',
         '    drop name=after_one in=emails n=1',
-        '    respond 200 json={{ {truthy: truthy, emails: emails, firstTwo: first_two, afterOne: after_one} }}',
+        '    slice name=middle in=emails start=1 end=3',
+        '    reverse name=reversed in=emails',
+        '    at name=first_email in=emails index=0',
+        '    at name=missing_email in=emails index=99',
+        '    respond 200 json={{ {truthy: truthy, emails: emails, firstTwo: first_two, afterOne: after_one, middle: middle, reversed: reversed, firstEmail: first_email, missingEmail: missing_email} }}',
       ].join('\n');
       const result = transpileFastAPI(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('post_api_list_shape'));
@@ -3065,6 +3069,14 @@ describe('FastAPI Transpiler', () => {
       expect(code).toContain('emails = [__kern_pluck_emails(__kern_item) for __kern_item in users]');
       expect(code).toContain('first_two = emails[:2]');
       expect(code).toContain('after_one = emails[1:]');
+      expect(code).toContain('middle = emails[1:3]');
+      expect(code).toContain('reversed = emails[::-1]');
+      expect(code).toContain(
+        'first_email = (lambda __kern_source: __kern_source[0] if 0 < len(__kern_source) else None)(emails)',
+      );
+      expect(code).toContain(
+        'missing_email = (lambda __kern_source: __kern_source[99] if 99 < len(__kern_source) else None)(emails)',
+      );
     });
 
     test('portable sort nodes lower to immutable FastAPI Python sorting code', async () => {

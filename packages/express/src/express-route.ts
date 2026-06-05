@@ -50,6 +50,9 @@ export function buildRouteArtifact(
   const pluckNodes = getChildren(routeNode, 'pluck');
   const takeNodes = getChildren(routeNode, 'take');
   const dropNodes = getChildren(routeNode, 'drop');
+  const sliceNodes = getChildren(routeNode, 'slice');
+  const reverseNodes = getChildren(routeNode, 'reverse');
+  const atNodes = getChildren(routeNode, 'at');
   const sortNodes = getChildren(routeNode, 'sort');
   const objectMergeNodes = getChildren(routeNode, 'objectMerge');
   const objectOmitNodes = getChildren(routeNode, 'objectOmit');
@@ -81,6 +84,9 @@ export function buildRouteArtifact(
     pluckNodes.length > 0 ||
     takeNodes.length > 0 ||
     dropNodes.length > 0 ||
+    sliceNodes.length > 0 ||
+    reverseNodes.length > 0 ||
+    atNodes.length > 0 ||
     sortNodes.length > 0 ||
     objectMergeNodes.length > 0 ||
     objectOmitNodes.length > 0 ||

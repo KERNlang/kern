@@ -395,6 +395,39 @@ export function generatePortableChildExpress(
       lines.push(`${indent}const ${name}${typeAnnotation} = (${collection}).slice(${sliceArgs});`);
       break;
     }
+    case 'slice': {
+      const name = emitIdentifier(requirePortableProp('slice', 'name', String(p.name || '')), 'slice', child);
+      const collection = rewriteExpressExpr(requirePortableProp('slice', 'in', portableExprProp(p.in)), path);
+      const startRaw = portableExprProp(p.start).trim();
+      const endRaw = portableExprProp(p.end).trim();
+      const start = startRaw ? parsePortableNonNegativeIntLiteral(startRaw, child, 'start') : undefined;
+      const end = endRaw ? parsePortableNonNegativeIntLiteral(endRaw, child, 'end') : undefined;
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      const args = start !== undefined || end !== undefined ? [start ?? '0', end].filter((v) => v !== undefined) : [];
+      lines.push(`${indent}const ${name}${typeAnnotation} = (${collection}).slice(${args.join(', ')});`);
+      break;
+    }
+    case 'reverse': {
+      const name = emitIdentifier(requirePortableProp('reverse', 'name', String(p.name || '')), 'reverse', child);
+      const collection = rewriteExpressExpr(requirePortableProp('reverse', 'in', portableExprProp(p.in)), path);
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      lines.push(`${indent}const ${name}${typeAnnotation} = [...(${collection})].reverse();`);
+      break;
+    }
+    case 'at': {
+      const name = emitIdentifier(requirePortableProp('at', 'name', String(p.name || '')), 'at', child);
+      const collection = rewriteExpressExpr(requirePortableProp('at', 'in', portableExprProp(p.in)), path);
+      const index = parsePortableNonNegativeIntLiteral(
+        requirePortableProp('at', 'index', portableExprProp(p.index)),
+        child,
+        'index',
+      );
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      lines.push(
+        `${indent}const ${name}${typeAnnotation} = ((__kernSource) => ${index} < __kernSource.length ? __kernSource[${index}] : null)(${collection});`,
+      );
+      break;
+    }
     case 'sort': {
       const name = emitIdentifier(requirePortableProp('sort', 'name', String(p.name || '')), 'sort', child);
       const collection = rewriteExpressExpr(requirePortableProp('sort', 'in', portableExprProp(p.in)), path);
@@ -640,6 +673,9 @@ export function generatePortableHandlerExpress(
     'pluck',
     'take',
     'drop',
+    'slice',
+    'reverse',
+    'at',
     'sort',
     'objectMerge',
     'objectOmit',
