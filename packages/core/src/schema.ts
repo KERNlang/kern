@@ -23,6 +23,7 @@ import {
 } from './assignment-operators.js';
 import { type KernTarget, VALID_TARGETS } from './config.js';
 import { validateCapabilityMetadata, validateImportMetadata } from './import-metadata.js';
+import { parsePortablePredicateProp, validatePortablePredicateAST } from './portable-predicate.js';
 import { defaultRuntime, type KernRuntime } from './runtime.js';
 import { KERN_VERSION, NODE_TYPES, STYLE_SHORTHANDS, VALUE_SHORTHANDS } from './spec.js';
 import type { IRNode } from './types.js';
@@ -659,7 +660,12 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'do',
       'fmt',
       'clamp',
+      'firstTruthy',
+      'coalesce',
+      'firstDefined',
       'objectMerge',
+      'objectOmit',
+      'objectPick',
       'return',
       'if',
       'else',
@@ -701,7 +707,12 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'do',
       'fmt',
       'clamp',
+      'firstTruthy',
+      'coalesce',
+      'firstDefined',
       'objectMerge',
+      'objectOmit',
+      'objectPick',
       'return',
       'if',
       'else',
@@ -728,7 +739,12 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'do',
       'fmt',
       'clamp',
+      'firstTruthy',
+      'coalesce',
+      'firstDefined',
       'objectMerge',
+      'objectOmit',
+      'objectPick',
       'return',
       'if',
       'else',
@@ -744,13 +760,14 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   filter: {
     description:
-      'Declarative `.filter` binding — `filter name=active in=items where="item.active"` lowers to `const active = items.filter(item => item.active);`. Use `item=x` to rename the per-item binding.',
-    example: 'filter name=active in=items where="item.active"',
+      'Declarative `.filter` binding — `filter name=active in=items where="item.active"` lowers to `const active = items.filter(item => item.active);`. Portable routes may use `predicate={{ {eq: ["active", true]} }}` for target-normalized logic. Use `item=x` to rename the per-item binding.',
+    example: 'filter name=active in=items predicate={{ {eq: ["active", true]} }}',
     props: {
       name: { required: true, kind: 'identifier' },
       in: { required: true, kind: 'rawExpr' },
       item: { kind: 'identifier' },
-      where: { required: true, kind: 'rawExpr' },
+      where: { kind: 'rawExpr' },
+      predicate: { kind: 'rawExpr' },
       type: { kind: 'typeAnnotation' },
       export: { kind: 'boolean' },
     },
@@ -899,6 +916,41 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       export: { kind: 'boolean' },
     },
   },
+  firstTruthy: {
+    description:
+      'Declarative ordered truthy fallback binding — `firstTruthy name=label values="preferred, nickname, \'Anonymous\'"` lowers to the first truthy value using TS `||` and Python `or`. Empty string, zero, false, null/None, and undefined all fall through.',
+    example: 'firstTruthy name=label values="preferred, nickname, \'Anonymous\'"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      values: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      trailingComment: { kind: 'string' },
+      export: { kind: 'boolean' },
+    },
+  },
+  coalesce: {
+    description:
+      'Declarative ordered nullish fallback binding — `coalesce name=label values="preferred, nickname, \'Anonymous\'"` lowers to the first defined value using TS `??` and Python None-only fallback logic. Preserves falsy values like empty string, zero, and false.',
+    example: 'coalesce name=label values="preferred, nickname, \'Anonymous\'"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      values: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      trailingComment: { kind: 'string' },
+      export: { kind: 'boolean' },
+    },
+  },
+  firstDefined: {
+    description: 'Alias for coalesce — declarative ordered nullish fallback binding.',
+    example: 'firstDefined name=label values="preferred, nickname, \'Anonymous\'"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      values: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      trailingComment: { kind: 'string' },
+      export: { kind: 'boolean' },
+    },
+  },
   objectMerge: {
     description:
       'Declarative shallow record merge binding — `objectMerge name=merged sources="base, overrides, { extra: 1 }"` lowers to a new object/dict. Sources are evaluated left-to-right, duplicate keys are last-write-wins, and source records are not mutated.',
@@ -906,6 +958,32 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       name: { required: true, kind: 'identifier' },
       sources: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      trailingComment: { kind: 'string' },
+      export: { kind: 'boolean' },
+    },
+  },
+  objectPick: {
+    description:
+      "Declarative shallow record key selection — `objectPick name=picked in=user keys=\"['id', 'name']\"` lowers to a new object/dict containing the picked keys in order; missing keys are materialized as null/None for cross-target parity.",
+    example: "objectPick name=picked in=user keys=\"['id', 'name']\"",
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      keys: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      trailingComment: { kind: 'string' },
+      export: { kind: 'boolean' },
+    },
+  },
+  objectOmit: {
+    description:
+      'Declarative shallow record key omission — `objectOmit name=omitted in=user keys="[\'password\']"` lowers to a new object/dict omitting the specified keys.',
+    example: 'objectOmit name=omitted in=user keys="[\'password\']"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      keys: { required: true, kind: 'rawExpr' },
       type: { kind: 'typeAnnotation' },
       trailingComment: { kind: 'string' },
       export: { kind: 'boolean' },
@@ -1047,7 +1125,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   uniqueBy: {
     description:
-      'Key-based dedup (first-wins, matches Lodash uniqBy) — `uniqueBy name=distinct in=users by="item.id"` emits a Set+filter form.',
+      'Key-based dedup over scalar/hashable selector keys (first-wins, matches Lodash uniqBy) — `uniqueBy name=distinct in=users by="item.id"` emits a Set+filter form.',
     example: 'uniqueBy name=distinct in=users by="item.id"',
     props: {
       name: { required: true, kind: 'identifier' },
@@ -1060,7 +1138,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   groupBy: {
     description:
-      'Partition an array into buckets by a key selector. Emits a reduce-based form (compatible with ES2022) — does not depend on `Object.groupBy` (ES2024).',
+      'Partition an array into buckets by a scalar/hashable key selector. Emits a reduce-based form (compatible with ES2022) — does not depend on `Object.groupBy` (ES2024).',
     example: 'groupBy name=byType in=items by="item.type"',
     props: {
       name: { required: true, kind: 'identifier' },
@@ -1073,7 +1151,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   partition: {
     description:
-      'Split an array into two by a predicate — single-pass reduce. Emits `const [pass, fail] = ...`. Both `pass` and `fail` prop names are required.',
+      'Split an array into two by a predicate — single-pass reduce. Emits `const [pass, fail] = ...`. Both `pass` and `fail` prop names are required. `type=` denotes the element type for each output list.',
     example: 'partition pass=active fail=inactive in=users where="item.active"',
     props: {
       name: { kind: 'identifier' },
@@ -1088,7 +1166,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   indexBy: {
     description:
-      'Array → keyed record via selector. `indexBy name=byId in=users by="item.id"` lowers to `Object.fromEntries(users.map(...))`. Collisions are last-write-wins.',
+      'Array → keyed record via scalar/hashable selector. `indexBy name=byId in=users by="item.id"` lowers to `Object.fromEntries(users.map(...))`. Collisions are last-write-wins.',
     example: 'indexBy name=byId in=users by="item.id"',
     props: {
       name: { required: true, kind: 'identifier' },
@@ -1101,7 +1179,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   countBy: {
     description:
-      'Count occurrences by key. `countBy name=counts in=items by="item.type"` lowers to a reduce with `Object.create(null)` accumulator (prototype-pollution safe).',
+      'Count occurrences by scalar/hashable selector key. `countBy name=counts in=items by="item.type"` lowers to a reduce with `Object.create(null)` accumulator (prototype-pollution safe).',
     example: 'countBy name=counts in=items by="item.type"',
     props: {
       name: { required: true, kind: 'identifier' },
@@ -1450,6 +1528,20 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       export: { kind: 'boolean' },
     },
   },
+  count: {
+    description:
+      'Declarative collection cardinality — `count name=total in=items` lowers to collection length; add `where=` to count only matching items without materializing a named filtered collection.',
+    example: 'count name=activeCount in=items where="item.active" type=number',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      where: { kind: 'rawExpr' },
+      predicate: { kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
   branch: {
     description:
       'Pattern-match/switch on an expression — contains `path` children. Top-level form (statement context) emits TS `switch` with `case` blocks. Body-statement form (child of `handler lang="kern"` / `try` / `catch`) emits the same TS `switch` plus a Python `if/elif/else` chain on the fastapi target. Each `path value=X` is a case; `path default=true` is the trailing default case (parallels JS `switch`/`default`). Identifier values like `path value=Status.Active` (unquoted) emit raw refs; quoted strings emit JSON-quoted literals.',
@@ -1699,7 +1791,12 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'do',
       'fmt',
       'clamp',
+      'firstTruthy',
+      'coalesce',
+      'firstDefined',
       'objectMerge',
+      'objectOmit',
+      'objectPick',
       'return',
       'if',
       'else',
@@ -1794,7 +1891,12 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'do',
       'fmt',
       'clamp',
+      'firstTruthy',
+      'coalesce',
+      'firstDefined',
       'objectMerge',
+      'objectOmit',
+      'objectPick',
       'return',
       'if',
       'else',
@@ -1828,7 +1930,12 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'do',
       'fmt',
       'clamp',
+      'firstTruthy',
+      'coalesce',
+      'firstDefined',
       'objectMerge',
+      'objectOmit',
+      'objectPick',
       'return',
       'if',
       'else',
@@ -1864,7 +1971,12 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'do',
       'fmt',
       'clamp',
+      'firstTruthy',
+      'coalesce',
+      'firstDefined',
       'objectMerge',
+      'objectOmit',
+      'objectPick',
       'return',
       'if',
       'else',
@@ -1939,6 +2051,21 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'branch',
       'each',
       'collect',
+      'filter',
+      'count',
+      'compact',
+      'pluck',
+      'take',
+      'drop',
+      'sort',
+      'objectMerge',
+      'objectOmit',
+      'objectPick',
+      'uniqueBy',
+      'groupBy',
+      'partition',
+      'indexBy',
+      'countBy',
       'effect',
       // Portable side-effect statements — valid as direct route children
       // (alongside derive/guard/respond) for mutate-and-persist routes.
@@ -2046,6 +2173,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'branch',
       'each',
       'collect',
+      'count',
       'destructure',
       'partition',
     ],
@@ -2240,7 +2368,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       name: { required: true, kind: 'identifier' },
       in: { required: true, kind: 'rawExpr' },
     },
-    allowedChildren: ['derive', 'let', 'each', 'fanout', 'emit', 'do', 'assign', 'branch', 'collect'],
+    allowedChildren: ['derive', 'let', 'each', 'fanout', 'emit', 'do', 'assign', 'branch', 'collect', 'count'],
   },
   stream: {
     description:
@@ -2269,6 +2397,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'assign',
       'branch',
       'collect',
+      'count',
     ],
   },
   spawn: {
@@ -3413,6 +3542,62 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[], parent?: I
       col: node.loc?.col,
     });
   }
+  if (node.type === 'filter') {
+    const hasWhere = props.where !== undefined && props.where !== null && String(props.where).trim() !== '';
+    const hasPredicate =
+      props.predicate !== undefined && props.predicate !== null && String(props.predicate).trim() !== '';
+    if (hasPredicate && parent?.type !== 'route' && parent?.type !== 'path') {
+      violations.push({
+        nodeType: 'filter',
+        message: "'filter predicate={{...}}' is supported only as a portable route child",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (!hasWhere && !hasPredicate) {
+      violations.push({
+        nodeType: 'filter',
+        message: "'filter' requires either where= or predicate={{...}}",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasWhere && hasPredicate) {
+      violations.push({
+        nodeType: 'filter',
+        message: "'filter' cannot combine where= and predicate={{...}}",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasPredicate) {
+      validatePredicateProp(node, violations, props.predicate);
+    }
+  }
+  if (node.type === 'count') {
+    const hasWhere = props.where !== undefined && props.where !== null && String(props.where).trim() !== '';
+    const hasPredicate =
+      props.predicate !== undefined && props.predicate !== null && String(props.predicate).trim() !== '';
+    if (hasPredicate && parent?.type !== 'route' && parent?.type !== 'path') {
+      violations.push({
+        nodeType: 'count',
+        message: "'count predicate={{...}}' is supported only as a portable route child",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasWhere && hasPredicate) {
+      violations.push({
+        nodeType: 'count',
+        message: "'count' cannot combine where= and predicate={{...}}",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasPredicate) {
+      validatePredicateProp(node, violations, props.predicate);
+    }
+  }
   if (node.type === 'param') {
     // Slice 3c-extension #3: `param` requires `name=` UNLESS it carries
     // `binding`/`element` destructure children — destructured params encode
@@ -3805,6 +3990,26 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[], parent?: I
     // Pair-mode relaxes `name` requirement — handled by checkRequiredProps
     // (suppresses the `name`-required violation when pairKey+pairValue are
     // both present).
+  }
+}
+
+function pushPredicateViolation(node: IRNode, violations: SchemaViolation[], message: string): void {
+  violations.push({
+    nodeType: node.type,
+    message,
+    line: node.loc?.line,
+    col: node.loc?.col,
+  });
+}
+
+function validatePredicateProp(node: IRNode, violations: SchemaViolation[], predicateProp: unknown): void {
+  const parsed = parsePortablePredicateProp(predicateProp);
+  if (!parsed.ok) {
+    pushPredicateViolation(node, violations, 'predicate must be a valid object literal');
+    return;
+  }
+  for (const message of validatePortablePredicateAST(parsed.value)) {
+    pushPredicateViolation(node, violations, message);
   }
 }
 

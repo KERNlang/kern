@@ -813,6 +813,132 @@ describe('Express Transpiler', () => {
       expect(content).toContain('res.json(popular)');
     });
 
+    test('filter predicate generates helper-backed route logic', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/filter',
+        '    filter name=eligible in=users predicate={{ {and: [{eq: ["active", true]}, {gte: ["age", 18]}]} }}',
+        '    respond 200 json=eligible',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post-api-filter'));
+      expect(route).toBeDefined();
+      const content = route!.content;
+      expect(content).toContain('const __kernAbsent_eligible = Symbol');
+      expect(content).toContain('const __kernEvalPredicate_eligible = (predicate, record) =>');
+      expect(content).toContain(
+        'const __kernPredicate_eligible = {and: [{eq: ["active", true]}, {gte: ["age", 18]}]};',
+      );
+      expect(content).toContain(
+        'const eligible = (users).filter((item) => __kernEvalPredicate_eligible(__kernPredicate_eligible, item));',
+      );
+    });
+
+    test('filter predicate supports or/not helper branches', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/filter',
+        '    filter name=eligible in=users predicate={{ {and: [{or: [{eq: ["role", "admin"]}, {eq: ["role", "staff"]}]}, {not: {eq: ["status", "banned"]} }]} }}',
+        '    respond 200 json=eligible',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post-api-filter'));
+      expect(route).toBeDefined();
+      const content = route!.content;
+      expect(content).toContain("if (Object.prototype.hasOwnProperty.call(predicate, 'or'))");
+      expect(content).toContain('return predicate.or.some((p) => __kernEvalPredicate_eligible(p, record));');
+      expect(content).toContain("if (Object.prototype.hasOwnProperty.call(predicate, 'not'))");
+      expect(content).toContain('return !__kernEvalPredicate_eligible(predicate.not, record);');
+      expect(content).toContain(
+        'const __kernPredicate_eligible = {and: [{or: [{eq: ["role", "admin"]}, {eq: ["role", "staff"]}]}, {not: {eq: ["status", "banned"]} }]};',
+      );
+    });
+
+    test('filter predicate supports richer leaf helper branches', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/filter',
+        '    filter name=eligible in=users predicate={{ {and: [{exists: "profile.tags.0"}, {in: ["role", ["admin", "staff"]]}, {nin: ["status", ["banned"]]}, {contains: ["profile.tags", "vip"]}, {startsWith: ["email", "a"]}, {endsWith: ["email", ".com"]}]} }}',
+        '    respond 200 json=eligible',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post-api-filter'));
+      expect(route).toBeDefined();
+      const content = route!.content;
+      expect(content).toContain("if (Object.prototype.hasOwnProperty.call(predicate, 'exists'))");
+      expect(content).toContain("if (op === 'in' || op === 'nin')");
+      expect(content).toContain("if (op === 'contains')");
+      expect(content).toContain("if (op === 'startsWith' || op === 'endsWith')");
+      expect(content).toContain(
+        'const __kernPredicate_eligible = {and: [{exists: "profile.tags.0"}, {in: ["role", ["admin", "staff"]]}, {nin: ["status", ["banned"]]}, {contains: ["profile.tags", "vip"]}, {startsWith: ["email", "a"]}, {endsWith: ["email", ".com"]}]};',
+      );
+    });
+
+    test('count predicate generates helper-backed route logic', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/count',
+        '    count name=eligible_count in=users predicate={{ {and: [{lt: ["age", 30]}, {lte: ["score", 10]}]} }}',
+        '    respond 200 json=eligible_count',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post-api-count'));
+      expect(route).toBeDefined();
+      const content = route!.content;
+      expect(content).toContain('const __kernEvalPredicate_eligible_count = (predicate, record) =>');
+      expect(content).toContain(
+        'const __kernPredicate_eligible_count = {and: [{lt: ["age", 30]}, {lte: ["score", 10]}]};',
+      );
+      expect(content).toContain(
+        'const eligible_count = (users).reduce((count, item) => __kernEvalPredicate_eligible_count(__kernPredicate_eligible_count, item) ? count + 1 : count, 0);',
+      );
+    });
+
+    test('count predicate accepts string literal predicate code', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/count',
+        '    count name=young_count in=users predicate="{and: [{lt: [\\"age\\", 30]}]}"',
+        '    respond 200 json=young_count',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post-api-count'));
+      expect(route).toBeDefined();
+      const content = route!.content;
+      expect(content).toContain('const __kernPredicate_young_count = {and: [{lt: ["age", 30]}]};');
+      expect(content).toContain(
+        'const young_count = (users).reduce((count, item) => __kernEvalPredicate_young_count(__kernPredicate_young_count, item) ? count + 1 : count, 0);',
+      );
+    });
+
+    test('count where rewrites request-scoped route expressions', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/count',
+        '    count name=matching_count in=users where={{ item.score >= body.minScore }}',
+        '    respond 200 json=matching_count',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post-api-count'));
+      expect(route).toBeDefined();
+      const content = route!.content;
+      expect(content).toContain(
+        'const matching_count = (users).reduce((count, item) => (item.score >= req.body.minScore) ? count + 1 : count, 0);',
+      );
+    });
+
     test('each generates for loop with children', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');
@@ -1132,6 +1258,142 @@ describe('Express Transpiler', () => {
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
       expect(route).toBeDefined();
       expect(route!.content).toContain("app.patch('/api/users/:id'");
+    });
+  });
+
+  describe('Portable keyed collection reshape operations', () => {
+    test('transpiles uniqueBy, groupBy, partition, indexBy, and countBy correctly', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/reshape',
+        '    uniqueBy name=distinct in=users by="item.id"',
+        '    groupBy name=by_type in=items by="item.type"',
+        '    partition pass=active fail=inactive in=users where="item.active"',
+        '    indexBy name=by_id in=users by="item.id"',
+        '    countBy name=counts in=items by="item.type"',
+        '    respond 200 json=counts',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('reshape') && a.path.endsWith('.ts'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+
+      expect(code).toContain('const __kernSeen_distinct = new Set();');
+      expect(code).toContain('const distinct = (users).filter((item) => {');
+      expect(code).toContain('const __kernKey_distinct = item.id;');
+      expect(code).toContain('__kernSeen_distinct.add(__kernKey_distinct);');
+
+      expect(code).toContain('const by_type = (items).reduce((acc, item) => {');
+      expect(code).toContain('const __kernKey_by_type = item.type;');
+      expect(code).toContain('(acc[__kernKey_by_type] ??= []).push(item);');
+
+      expect(code).toContain('const [active, inactive] = (users).reduce((acc, item) => {');
+      expect(code).toContain('(item.active ? acc[0] : acc[1]).push(item);');
+
+      expect(code).toContain('const by_id = (users).reduce((acc, item) => {');
+      expect(code).toContain('const __kernKey_by_id = item.id;');
+      expect(code).toContain('acc[__kernKey_by_id] = item;');
+      expect(code).toContain('}, Object.create(null));');
+
+      expect(code).toContain('const counts = (items).reduce((acc, item) => {');
+      expect(code).toContain('const __kernKey_counts = item.type;');
+      expect(code).toContain('acc[__kernKey_counts] = (acc[__kernKey_counts] ?? 0) + 1;');
+    });
+
+    test('transpiles compact, pluck, take, and drop route collection shaping correctly', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/list-shape',
+        '    compact name=truthy in=values',
+        '    pluck name=emails in=users prop=profile.email',
+        '    take name=first_two in=emails n=2',
+        '    drop name=after_one in=emails n=1',
+        '    respond 200 json={{ {truthy: truthy, emails: emails, firstTwo: first_two, afterOne: after_one} }}',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('list-shape') && a.path.endsWith('.ts'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+
+      expect(code).toContain(
+        "const truthy = (values).filter((item) => item !== null && item !== undefined && item !== false && item !== 0 && item !== 0n && item !== '' && !(typeof item === 'number' && Number.isNaN(item)));",
+      );
+      expect(code).toContain('const __kernPluck_emails = (__kernItem) => {');
+      expect(code).toContain('for (const __kernKey of ["profile","email"])');
+      expect(code).toContain('Object.prototype.hasOwnProperty.call(__kernValue, __kernKey)');
+      expect(code).toContain('const emails = (users).map(__kernPluck_emails);');
+      expect(code).toContain('const first_two = (emails).slice(0, 2);');
+      expect(code).toContain('const after_one = (emails).slice(1);');
+    });
+
+    test('transpiles route sort shaping without mutating the source collection', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/sort-shape',
+        '    sort name=ranked in=users compare="b.score - a.score"',
+        '    sort name=lexicographic in=nums',
+        '    sort name=renamed in=users a=left b=right compare="right.score - left.score"',
+        '    respond 200 json={{ {ranked: ranked, lexicographic: lexicographic, renamed: renamed, original: users} }}',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('sort-shape') && a.path.endsWith('.ts'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+
+      expect(code).toContain('const ranked = [...(users)].sort((a, b) => b.score - a.score);');
+      expect(code).toContain('const lexicographic = [...(nums)].sort();');
+      expect(code).toContain('const renamed = [...(users)].sort((left, right) => right.score - left.score);');
+    });
+
+    test('rejects unsafe route sort bindings', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const duplicateOperands = [
+        'server name=API',
+        '  route method=post path=/api/sort-shape',
+        '    sort name=ranked in=users a=item b=item compare="item.score"',
+        '    respond 200 json=ranked',
+      ].join('\n');
+      expect(() => transpileExpress(parse(duplicateOperands))).toThrow(/comparator operands must use distinct/);
+
+      const unsafeName = [
+        'server name=API',
+        '  route method=post path=/api/sort-shape',
+        '    sort name=ranked-value in=users compare="b.score - a.score"',
+        '    respond 200 json=ranked',
+      ].join('\n');
+      expect(() => transpileExpress(parse(unsafeName))).toThrow(/Invalid identifier/);
+    });
+
+    test('transpiles route object merge, pick, and omit correctly', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/object-shape',
+        '    objectMerge name=merged sources="body.user, body.override, { role: \\"member\\" }"',
+        `    objectPick name=public_user in=merged keys="['id', 'missing', 'count', 'enabled', 'role']"`,
+        `    objectOmit name=safe_user in=merged keys="['password', 'token']"`,
+        '    respond 200 json={{ {publicUser: public_user, safeUser: safe_user} }}',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('object-shape') && a.path.endsWith('.ts'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+
+      expect(code).toContain('const merged = { ...(req.body.user), ...(req.body.override), ...({ role: "member" }) };');
+      expect(code).toContain(
+        'const public_user = ((__kernSource) => Object.fromEntries(["id", "missing", "count", "enabled", "role"].map((key) => [key, (__kernSource && Object.prototype.hasOwnProperty.call(__kernSource, key)) ? __kernSource[key] : null])))',
+      );
+      expect(code).toContain(
+        'const safe_user = Object.fromEntries(Object.entries(merged || {}).filter(([key]) => !["password", "token"].includes(key)));',
+      );
     });
   });
 });

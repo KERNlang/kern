@@ -13,6 +13,13 @@ describe('suggest-kern-primitive rule', () => {
     expect(f[0].suggestion).toContain('filter name=<name> in=users item=u where="u.active"');
   });
 
+  it('suggests `count` for `.filter(x => pred).length`', () => {
+    const f = kernSuggestions('const activeCount = users.filter((u) => u.active).length;');
+    expect(f).toHaveLength(1);
+    expect(f[0].message).toContain('KERN `count`');
+    expect(f[0].suggestion).toBe('count name=<name> in=users item=u where="u.active"');
+  });
+
   it('defaults to the `item` binding name without an explicit item= prop', () => {
     const f = kernSuggestions('const active = users.filter((item) => item.active);');
     expect(f[0].suggestion).toBe('filter name=<name> in=users where="item.active"');
@@ -613,6 +620,100 @@ describe('suggest-kern-primitive rule', () => {
       const f = kernSuggestions('const obj = { a: 1, b: 2 };');
       const merge = f.filter((x) => x.suggestion?.startsWith('objectMerge '));
       expect(merge).toHaveLength(0);
+    });
+  });
+
+  describe('objectPick/objectOmit detector', () => {
+    it('suggests objectOmit for object rest destructuring', () => {
+      const f = kernSuggestions('const { password, token, ...safeUser } = user;');
+      const omit = f.filter((x) => x.suggestion?.startsWith('objectOmit '));
+      expect(omit).toHaveLength(1);
+      expect(omit[0].suggestion).toBe(`objectOmit name=safeUser in=user keys="['password', 'token']"`);
+    });
+
+    it('suggests objectOmit for string-literal destructuring keys', () => {
+      const f = kernSuggestions(`const { 'api-key': apiKey, ...safeUser } = user;`);
+      const omit = f.filter((x) => x.suggestion?.startsWith('objectOmit '));
+      expect(omit).toHaveLength(1);
+      expect(omit[0].suggestion).toBe(`objectOmit name=safeUser in=user keys="['api-key']"`);
+    });
+
+    it('escapes objectOmit string-literal keys in suggestions', () => {
+      const f = kernSuggestions(`const { "can\\'t": cant, ...safeUser } = user;`);
+      const omit = f.filter((x) => x.suggestion?.startsWith('objectOmit '));
+      expect(omit).toHaveLength(1);
+      expect(omit[0].suggestion).toBe(`objectOmit name=safeUser in=user keys="['can\\'t']"`);
+    });
+
+    it('suggests objectPick for object literal direct property reads from one source', () => {
+      const f = kernSuggestions('const publicUser = { id: user.id, name: user.name };');
+      const pick = f.filter((x) => x.suggestion?.startsWith('objectPick '));
+      expect(pick).toHaveLength(1);
+      expect(pick[0].suggestion).toBe(`objectPick name=publicUser in=user keys="['id', 'name']"`);
+    });
+
+    it('does NOT suggest objectPick when properties come from mixed sources', () => {
+      const f = kernSuggestions('const mixed = { id: user.id, name: profile.name };');
+      const pick = f.filter((x) => x.suggestion?.startsWith('objectPick '));
+      expect(pick).toHaveLength(0);
+    });
+
+    it('wraps complex objectOmit sources in raw-expression form', () => {
+      const f = kernSuggestions('const { password, ...safeUser } = await loadUser();');
+      const omit = f.filter((x) => x.suggestion?.startsWith('objectOmit '));
+      expect(omit).toHaveLength(1);
+      expect(omit[0].suggestion).toBe(`objectOmit name=safeUser in={{ await loadUser() }} keys="['password']"`);
+    });
+  });
+
+  describe('firstTruthy detector', () => {
+    it('suggests firstTruthy for named fallback chains', () => {
+      const f = kernSuggestions(`const label = preferred || nickname || 'Anonymous';`);
+      const first = f.filter((x) => x.suggestion?.startsWith('firstTruthy '));
+      expect(first).toHaveLength(1);
+      expect(first[0].suggestion).toBe(`firstTruthy name=label values="preferred, nickname, 'Anonymous'"`);
+    });
+
+    it('does NOT suggest firstTruthy for obvious boolean predicates', () => {
+      const f = kernSuggestions(`const ok = isReady || hasOverride;`);
+      const first = f.filter((x) => x.suggestion?.startsWith('firstTruthy '));
+      expect(first).toHaveLength(0);
+    });
+
+    it('still suggests firstTruthy for non-boolean names that only share a prefix', () => {
+      const f = kernSuggestions(`const issue = issuer || isomorphic || 'fallback';`);
+      const first = f.filter((x) => x.suggestion?.startsWith('firstTruthy '));
+      expect(first).toHaveLength(1);
+      expect(first[0].suggestion).toBe(`firstTruthy name=issue values="issuer, isomorphic, 'fallback'"`);
+    });
+  });
+
+  describe('coalesce detector', () => {
+    it('suggests coalesce for named nullish chains', () => {
+      const f = kernSuggestions(`const label = preferred ?? nickname ?? 'Anonymous';`);
+      const c = f.filter((x) => x.suggestion?.startsWith('coalesce '));
+      expect(c).toHaveLength(1);
+      expect(c[0].suggestion).toBe(`coalesce name=label values="preferred, nickname, 'Anonymous'"`);
+    });
+
+    it('flattens parenthesized nullish chains', () => {
+      const f = kernSuggestions(`const label = (preferred ?? nickname) ?? 'Anonymous';`);
+      const c = f.filter((x) => x.suggestion?.startsWith('coalesce '));
+      expect(c).toHaveLength(1);
+      expect(c[0].suggestion).toBe(`coalesce name=label values="preferred, nickname, 'Anonymous'"`);
+    });
+
+    it('keeps nested function-call commas as one value', () => {
+      const f = kernSuggestions(`const label = getName(first, last) ?? 'Anonymous';`);
+      const c = f.filter((x) => x.suggestion?.startsWith('coalesce '));
+      expect(c).toHaveLength(1);
+      expect(c[0].suggestion).toBe(`coalesce name=label values="getName(first, last), 'Anonymous'"`);
+    });
+
+    it('does NOT suggest coalesce for truthy fallback chains', () => {
+      const f = kernSuggestions(`const label = preferred || nickname || 'Anonymous';`);
+      const c = f.filter((x) => x.suggestion?.startsWith('coalesce '));
+      expect(c).toHaveLength(0);
     });
   });
 

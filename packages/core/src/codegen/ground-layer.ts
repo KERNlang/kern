@@ -14,6 +14,7 @@ import { propsOf } from '../node-props.js';
 import { parseExpression } from '../parser-expression.js';
 import { expandTemplateNode, isTemplateNode } from '../template-engine.js';
 import type { ExprObject, IRNode } from '../types.js';
+import type { ValueIR } from '../value-ir.js';
 import { emitFmtTemplate, emitIdentifier, emitTypeAnnotation } from './emitters.js';
 import {
   capitalize,
@@ -322,6 +323,27 @@ export function generateCollect(node: IRNode): string[] {
   if (limit) chain += `.slice(0, ${limit})`;
 
   return [...todo, ...annotations, `${exp}const ${name} = ${chain};`];
+}
+
+// ── Ground Layer: count ──────────────────────────────────────────────────
+
+export function generateCount(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'count'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'count', node);
+  const items = unwrapExpr(props.in);
+  if (items === undefined || items === '') throw new KernCodegenError("count node requires an 'in' prop", node);
+  const where = unwrapExpr(props.where);
+  const item = emitIdentifier((props.item as string) || 'item', 'item', node);
+  const type = props.type as string | undefined;
+  const exp = exportPrefix(node);
+
+  const typeAnn = type ? `: ${emitTypeAnnotation(type, 'number', node)}` : '';
+  const rhs = where ? `(${items}).reduce((count, ${item}) => (${where}) ? count + 1 : count, 0)` : `(${items}).length`;
+
+  return [...todo, ...annotations, `${exp}const ${name}${typeAnn} = ${rhs};`];
 }
 
 // ── Ground Layer: resolve / candidate / discriminator ────────────────────
@@ -794,6 +816,110 @@ export function generateClamp(node: IRNode): string[] {
   ];
 }
 
+// ── Ground Layer: firstTruthy ───────────────────────────────────────────
+// `firstTruthy name=label values="preferred, nickname, 'Anonymous'"`
+//   → const label = preferred || nickname || 'Anonymous';
+
+export function generateFirstTruthy(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'firstTruthy'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'firstTruthy', node);
+  const rawValues = unwrapExpr(props.values);
+  if (rawValues === undefined || rawValues === '') {
+    throw new KernCodegenError("firstTruthy node requires a 'values' prop", node);
+  }
+  const values = splitExpressionList(rawValues, node, 'firstTruthy values=');
+  if (values.length < 2) throw new KernCodegenError('firstTruthy requires at least two value expressions', node);
+
+  const emitted = values.map((value) => {
+    const valueIR = parseExpression(value);
+    if (valueIR.kind === 'propagate') {
+      throw new KernCodegenError(
+        "Propagation '?' is not allowed in `firstTruthy values=` — bind the value first.",
+        node,
+      );
+    }
+    return emitFirstTruthyOperandTS(valueIR);
+  });
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = ${emitted.join(' || ')};`];
+}
+
+function emitFirstTruthyOperandTS(valueIR: ValueIR): string {
+  const emitted = emitExpression(valueIR);
+  return valueIR.kind === 'conditional' ? `(${emitted})` : emitted;
+}
+
+export function generateCoalesce(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'coalesce'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'coalesce', node);
+  const rawValues = unwrapExpr(props.values);
+  if (rawValues === undefined || rawValues === '') {
+    throw new KernCodegenError("coalesce node requires a 'values' prop", node);
+  }
+  const values = splitExpressionList(rawValues, node, 'coalesce values=');
+  if (values.length < 2) throw new KernCodegenError('coalesce requires at least two value expressions', node);
+
+  const emitted = values.map((value) => {
+    const valueIR = parseExpression(value);
+    if (valueIR.kind === 'propagate') {
+      throw new KernCodegenError("Propagation '?' is not allowed in `coalesce values=` — bind the value first.", node);
+    }
+    return emitCoalesceOperandTS(valueIR);
+  });
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = ${emitted.join(' ?? ')};`];
+}
+
+export function generateFirstDefined(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'firstDefined'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'firstDefined', node);
+  const rawValues = unwrapExpr(props.values);
+  if (rawValues === undefined || rawValues === '') {
+    throw new KernCodegenError("firstDefined node requires a 'values' prop", node);
+  }
+  const values = splitExpressionList(rawValues, node, 'firstDefined values=');
+  if (values.length < 2) throw new KernCodegenError('firstDefined requires at least two value expressions', node);
+
+  const emitted = values.map((value) => {
+    const valueIR = parseExpression(value);
+    if (valueIR.kind === 'propagate') {
+      throw new KernCodegenError(
+        "Propagation '?' is not allowed in `firstDefined values=` — bind the value first.",
+        node,
+      );
+    }
+    return emitCoalesceOperandTS(valueIR);
+  });
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = ${emitted.join(' ?? ')};`];
+}
+
+function emitCoalesceOperandTS(valueIR: ValueIR): string {
+  const emitted = emitExpression(valueIR);
+  return valueIR.kind === 'conditional' || valueIR.kind === 'binary' ? `(${emitted})` : emitted;
+}
+
 // ── Ground Layer: objectMerge ───────────────────────────────────────────
 // `objectMerge name=merged sources="base, overrides, { extra: 1 }"`
 //   → const merged = { ...(base), ...(overrides), ...({ extra: 1 }) };
@@ -833,6 +959,104 @@ export function generateObjectMerge(node: IRNode): string[] {
     .join(', ');
 
   return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = { ${spreadSources} };`];
+}
+
+export function parseKeys(raw: string, node: IRNode, propName: string): string[] {
+  const keyIR = parseExpression(raw);
+  if (keyIR.kind === 'propagate') {
+    throw new KernCodegenError(`Propagation '?' is not allowed in ${propName}`, node);
+  }
+  if (keyIR.kind !== 'arrayLit') {
+    throw new KernCodegenError(`${propName} must be a real array/list expression of non-empty string literals`, node);
+  }
+  if (keyIR.items.length === 0) {
+    throw new KernCodegenError(`${propName} must be a non-empty list of string literals`, node);
+  }
+
+  return keyIR.items.map((item) => {
+    if (item.kind !== 'strLit') {
+      throw new KernCodegenError(`${propName} must contain only string literals`, node);
+    }
+    return item.value;
+  });
+}
+
+export function emitStringKeyArray(keys: string[]): string {
+  return `[${keys.map((key) => JSON.stringify(key)).join(', ')}]`;
+}
+
+export function generateObjectPick(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'objectPick'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'picked', node);
+
+  const rawIn = unwrapExpr(props.in);
+  if (rawIn === undefined || rawIn === '') {
+    throw new KernCodegenError("objectPick node requires an 'in' prop", node);
+  }
+  const rawKeys = unwrapExpr(props.keys);
+  if (rawKeys === undefined || rawKeys === '') {
+    throw new KernCodegenError("objectPick node requires a 'keys' prop", node);
+  }
+
+  const inIR = parseExpression(rawIn);
+  if (inIR.kind === 'propagate') {
+    throw new KernCodegenError("Propagation '?' is not allowed in objectPick in=", node);
+  }
+  const inExpr = emitExpression(inIR);
+
+  const keysList = parseKeys(rawKeys, node, 'objectPick keys=');
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'Record<string, unknown>', node)}` : '';
+  const exp = exportPrefix(node);
+
+  const formattedKeys = emitStringKeyArray(keysList);
+
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}${typeAnnotation} = ((__kernSource: any) => Object.fromEntries(${formattedKeys}.map((key) => [key, Object.prototype.hasOwnProperty.call(__kernSource, key) ? __kernSource[key] : null])))(${inExpr});`,
+  ];
+}
+
+export function generateObjectOmit(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'objectOmit'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'omitted', node);
+
+  const rawIn = unwrapExpr(props.in);
+  if (rawIn === undefined || rawIn === '') {
+    throw new KernCodegenError("objectOmit node requires an 'in' prop", node);
+  }
+  const rawKeys = unwrapExpr(props.keys);
+  if (rawKeys === undefined || rawKeys === '') {
+    throw new KernCodegenError("objectOmit node requires a 'keys' prop", node);
+  }
+
+  const inIR = parseExpression(rawIn);
+  if (inIR.kind === 'propagate') {
+    throw new KernCodegenError("Propagation '?' is not allowed in objectOmit in=", node);
+  }
+  const inExpr = emitExpression(inIR);
+
+  const keysList = parseKeys(rawKeys, node, 'objectOmit keys=');
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'Record<string, unknown>', node)}` : '';
+  const exp = exportPrefix(node);
+
+  const formattedKeys = emitStringKeyArray(keysList);
+
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}${typeAnnotation} = Object.fromEntries(Object.entries(${inExpr}).filter(([key]) => !${formattedKeys}.includes(key)));`,
+  ];
 }
 
 // ── Ground Layer: join ───────────────────────────────────────────────────

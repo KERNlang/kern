@@ -1,6 +1,18 @@
 import type { IRNode } from '@kernlang/core';
-import { getChildren, getFirstChild, getProps, isPostfixMutationOperator } from '@kernlang/core';
+import {
+  emitIdentifier,
+  emitStringKeyArray,
+  getChildren,
+  getFirstChild,
+  getProps,
+  isPostfixMutationOperator,
+  parseKeys,
+  parsePortableNonNegativeIntLiteral,
+  parsePortablePathSegments,
+  splitPortableExpressionList,
+} from '@kernlang/core';
 import { derivePathParams, escapeSingleQuotes, generateRespondExpress, indentBlock } from './express-utils.js';
+import { emitExpressPredicateHelpers } from './portable-predicate-emitter.js';
 
 // ── Portable request reference rewriting ──────────────────────────────────
 
@@ -64,6 +76,45 @@ export interface PortableExpressOptions {
 export function extractExprCode(prop: unknown): string {
   if (typeof prop === 'object' && prop !== null && (prop as any).__expr) return (prop as any).code;
   return typeof prop === 'string' ? prop : '';
+}
+
+function portableExprProp(prop: unknown): string {
+  return extractExprCode(prop) || String(prop || '');
+}
+
+function requirePortableProp(nodeType: string, propName: string, value: string): string {
+  if (!value) throw new Error(`portable route \`${nodeType}\` requires \`${propName}=\`.`);
+  return value;
+}
+
+function portableTempSuffix(...parts: string[]): string {
+  const joined = parts.filter(Boolean).join('_') || 'reshape';
+  return joined.replace(/[^A-Za-z0-9_$]/g, '_');
+}
+
+function emitExpressCompactPredicate(item: string): string {
+  return `${item} !== null && ${item} !== undefined && ${item} !== false && ${item} !== 0 && ${item} !== 0n && ${item} !== '' && !(typeof ${item} === 'number' && Number.isNaN(${item}))`;
+}
+
+function emitExpressPluckHelper(lines: string[], indent: string, helperName: string, pathSegments: string[]): void {
+  lines.push(`${indent}const ${helperName} = (__kernItem) => {`);
+  lines.push(`${indent}  let __kernValue = __kernItem;`);
+  lines.push(`${indent}  for (const __kernKey of ${JSON.stringify(pathSegments)}) {`);
+  lines.push(`${indent}    if (__kernValue === null || __kernValue === undefined) return null;`);
+  lines.push(`${indent}    if (Array.isArray(__kernValue)) {`);
+  lines.push(`${indent}      if (!/^(?:0|[1-9]\\d*)$/.test(__kernKey)) return null;`);
+  lines.push(`${indent}      const __kernIndex = Number(__kernKey);`);
+  lines.push(`${indent}      __kernValue = __kernIndex < __kernValue.length ? __kernValue[__kernIndex] : null;`);
+  lines.push(
+    `${indent}    } else if (__kernValue !== null && typeof __kernValue === 'object' && Object.prototype.hasOwnProperty.call(__kernValue, __kernKey)) {`,
+  );
+  lines.push(`${indent}      __kernValue = __kernValue[__kernKey];`);
+  lines.push(`${indent}    } else {`);
+  lines.push(`${indent}      return null;`);
+  lines.push(`${indent}    }`);
+  lines.push(`${indent}  }`);
+  lines.push(`${indent}  return __kernValue ?? null;`);
+  lines.push(`${indent}};`);
 }
 
 export function generatePortableChildExpress(
@@ -242,6 +293,235 @@ export function generatePortableChildExpress(
       if (name) lines.push(`${indent}const ${name} = ${chain};`);
       break;
     }
+    case 'filter': {
+      const name = requirePortableProp('filter', 'name', String(p.name || ''));
+      const item = String(p.item || 'item');
+      const collection = rewriteExpressExpr(requirePortableProp('filter', 'in', portableExprProp(p.in)), path);
+      const typeAnnotation = p.type ? `: ${String(p.type)}[]` : '';
+
+      const where = p.where ? extractExprCode(p.where) : undefined;
+      const predicateStr = p.predicate ? extractExprCode(p.predicate) || String(p.predicate) : undefined;
+      const predicateExpr = predicateStr ? rewriteExpressExpr(predicateStr, path) : undefined;
+
+      if (predicateStr && where) {
+        throw new Error("filter node cannot combine 'where' and 'predicate'");
+      }
+
+      if (predicateExpr) {
+        const absentVar = `__kernAbsent_${name}`;
+        const evalPredVar = `__kernEvalPredicate_${name}`;
+        const getPathVar = `__kernGetPath_${name}`;
+        const predicateValueVar = `__kernPredicate_${portableTempSuffix(name)}`;
+
+        lines.push(...emitExpressPredicateHelpers(indent, absentVar, getPathVar, evalPredVar));
+
+        lines.push(`${indent}const ${predicateValueVar} = ${predicateExpr};`);
+        lines.push(
+          `${indent}const ${name}${typeAnnotation} = (${collection}).filter((${item}) => ${evalPredVar}(${predicateValueVar}, ${item}));`,
+        );
+      } else if (where) {
+        lines.push(
+          `${indent}const ${name}${typeAnnotation} = (${collection}).filter((${item}) => ${rewriteExpressExpr(where, path)});`,
+        );
+      } else {
+        throw new Error("filter node requires a 'where' or 'predicate' prop");
+      }
+      break;
+    }
+    case 'count': {
+      const name = String(p.name || '');
+      const collection = rewriteExpressExpr(extractExprCode(p.in) || String(p.in || ''), path);
+      const item = String(p.item || 'item');
+      const whereCode = p.where ? extractExprCode(p.where) || String(p.where) : undefined;
+      const where = whereCode ? rewriteExpressExpr(whereCode, path) : undefined;
+      const predicateStr = p.predicate ? extractExprCode(p.predicate) || String(p.predicate) : undefined;
+      const predicateExpr = predicateStr ? rewriteExpressExpr(predicateStr, path) : undefined;
+
+      if (predicateStr && whereCode) {
+        throw new Error("count node cannot combine 'where' and 'predicate'");
+      }
+
+      if (name && collection) {
+        const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+        if (predicateExpr) {
+          const absentVar = `__kernAbsent_${name}`;
+          const evalPredVar = `__kernEvalPredicate_${name}`;
+          const getPathVar = `__kernGetPath_${name}`;
+          const predicateValueVar = `__kernPredicate_${name}`;
+
+          lines.push(...emitExpressPredicateHelpers(indent, absentVar, getPathVar, evalPredVar));
+
+          lines.push(`${indent}const ${predicateValueVar} = ${predicateExpr};`);
+          const expr = `(${collection}).reduce((count, ${item}) => ${evalPredVar}(${predicateValueVar}, ${item}) ? count + 1 : count, 0)`;
+          lines.push(`${indent}const ${name}${typeAnnotation} = ${expr};`);
+        } else if (where) {
+          const expr = `(${collection}).reduce((count, ${item}) => (${where}) ? count + 1 : count, 0)`;
+          lines.push(`${indent}const ${name}${typeAnnotation} = ${expr};`);
+        } else {
+          lines.push(`${indent}const ${name}${typeAnnotation} = (${collection}).length;`);
+        }
+      }
+      break;
+    }
+    case 'compact': {
+      const name = requirePortableProp('compact', 'name', String(p.name || ''));
+      const item = 'item';
+      const collection = rewriteExpressExpr(requirePortableProp('compact', 'in', portableExprProp(p.in)), path);
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      lines.push(
+        `${indent}const ${name}${typeAnnotation} = (${collection}).filter((${item}) => ${emitExpressCompactPredicate(item)});`,
+      );
+      break;
+    }
+    case 'pluck': {
+      const name = requirePortableProp('pluck', 'name', String(p.name || ''));
+      const collection = rewriteExpressExpr(requirePortableProp('pluck', 'in', portableExprProp(p.in)), path);
+      const prop = requirePortableProp('pluck', 'prop', portableExprProp(p.prop));
+      const segments = parsePortablePathSegments(prop, child, 'prop');
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      const helperName = `__kernPluck_${portableTempSuffix(name)}`;
+      emitExpressPluckHelper(lines, indent, helperName, segments);
+      lines.push(`${indent}const ${name}${typeAnnotation} = (${collection}).map(${helperName});`);
+      break;
+    }
+    case 'take':
+    case 'drop': {
+      const kind = child.type;
+      const name = requirePortableProp(kind, 'name', String(p.name || ''));
+      const collection = rewriteExpressExpr(requirePortableProp(kind, 'in', portableExprProp(p.in)), path);
+      const n = parsePortableNonNegativeIntLiteral(requirePortableProp(kind, 'n', portableExprProp(p.n)), child, 'n');
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      const sliceArgs = kind === 'take' ? `0, ${n}` : n;
+      lines.push(`${indent}const ${name}${typeAnnotation} = (${collection}).slice(${sliceArgs});`);
+      break;
+    }
+    case 'sort': {
+      const name = emitIdentifier(requirePortableProp('sort', 'name', String(p.name || '')), 'sort', child);
+      const collection = rewriteExpressExpr(requirePortableProp('sort', 'in', portableExprProp(p.in)), path);
+      const compareSource = portableExprProp(p.compare).trim();
+      const compare = compareSource ? rewriteExpressExpr(compareSource, path) : '';
+      const a = emitIdentifier(String(p.a || 'a'), 'a', child);
+      const b = emitIdentifier(String(p.b || 'b'), 'b', child);
+      if (a === b) {
+        throw new Error('portable route `sort` comparator operands must use distinct `a=` and `b=` names.');
+      }
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      const sortCall = compare ? `sort((${a}, ${b}) => ${compare})` : 'sort()';
+      lines.push(`${indent}const ${name}${typeAnnotation} = [...(${collection})].${sortCall};`);
+      break;
+    }
+    case 'objectMerge': {
+      const name = requirePortableProp('objectMerge', 'name', String(p.name || ''));
+      const rawSources = requirePortableProp('objectMerge', 'sources', portableExprProp(p.sources));
+      const sources = splitPortableExpressionList(rawSources, 'objectMerge sources=');
+      if (sources.length < 2) throw new Error('portable route `objectMerge` requires at least two source expressions.');
+      const spreadSources = sources.map((source) => {
+        if (source.startsWith('...')) {
+          throw new Error('portable route `objectMerge` sources must not start with `...`; spreading is implicit.');
+        }
+        return `...(${rewriteExpressExpr(source, path)})`;
+      });
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      lines.push(`${indent}const ${name}${typeAnnotation} = { ${spreadSources.join(', ')} };`);
+      break;
+    }
+    case 'objectPick': {
+      const name = requirePortableProp('objectPick', 'name', String(p.name || ''));
+      const source = rewriteExpressExpr(requirePortableProp('objectPick', 'in', portableExprProp(p.in)), path);
+      const keys = emitStringKeyArray(
+        parseKeys(requirePortableProp('objectPick', 'keys', portableExprProp(p.keys)), child, 'objectPick keys='),
+      );
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      lines.push(
+        `${indent}const ${name}${typeAnnotation} = ((__kernSource) => Object.fromEntries(${keys}.map((key) => [key, (__kernSource && Object.prototype.hasOwnProperty.call(__kernSource, key)) ? __kernSource[key] : null])))(${source});`,
+      );
+      break;
+    }
+    case 'objectOmit': {
+      const name = requirePortableProp('objectOmit', 'name', String(p.name || ''));
+      const source = rewriteExpressExpr(requirePortableProp('objectOmit', 'in', portableExprProp(p.in)), path);
+      const keys = emitStringKeyArray(
+        parseKeys(requirePortableProp('objectOmit', 'keys', portableExprProp(p.keys)), child, 'objectOmit keys='),
+      );
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      lines.push(
+        `${indent}const ${name}${typeAnnotation} = Object.fromEntries(Object.entries(${source} || {}).filter(([key]) => !${keys}.includes(key)));`,
+      );
+      break;
+    }
+    case 'uniqueBy': {
+      const name = requirePortableProp('uniqueBy', 'name', String(p.name || ''));
+      const item = String(p.item || 'item');
+      const collection = rewriteExpressExpr(requirePortableProp('uniqueBy', 'in', portableExprProp(p.in)), path);
+      const by = rewriteExpressExpr(requirePortableProp('uniqueBy', 'by', portableExprProp(p.by)), path);
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      const suffix = portableTempSuffix(name);
+      lines.push(`${indent}const __kernSeen_${suffix} = new Set();`);
+      lines.push(`${indent}const ${name}${typeAnnotation} = (${collection}).filter((${item}) => {`);
+      lines.push(`${indent}  const __kernKey_${suffix} = ${by};`);
+      lines.push(`${indent}  if (__kernSeen_${suffix}.has(__kernKey_${suffix})) return false;`);
+      lines.push(`${indent}  __kernSeen_${suffix}.add(__kernKey_${suffix});`);
+      lines.push(`${indent}  return true;`);
+      lines.push(`${indent}});`);
+      break;
+    }
+    case 'groupBy': {
+      const name = requirePortableProp('groupBy', 'name', String(p.name || ''));
+      const item = String(p.item || 'item');
+      const collection = rewriteExpressExpr(requirePortableProp('groupBy', 'in', portableExprProp(p.in)), path);
+      const by = rewriteExpressExpr(requirePortableProp('groupBy', 'by', portableExprProp(p.by)), path);
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      const suffix = portableTempSuffix(name);
+      lines.push(`${indent}const ${name}${typeAnnotation} = (${collection}).reduce((acc, ${item}) => {`);
+      lines.push(`${indent}  const __kernKey_${suffix} = ${by};`);
+      lines.push(`${indent}  (acc[__kernKey_${suffix}] ??= []).push(${item});`);
+      lines.push(`${indent}  return acc;`);
+      lines.push(`${indent}}, Object.create(null));`);
+      break;
+    }
+    case 'partition': {
+      const passName = requirePortableProp('partition', 'pass', String(p.pass || ''));
+      const failName = requirePortableProp('partition', 'fail', String(p.fail || ''));
+      const item = String(p.item || 'item');
+      const collection = rewriteExpressExpr(requirePortableProp('partition', 'in', portableExprProp(p.in)), path);
+      const where = rewriteExpressExpr(requirePortableProp('partition', 'where', portableExprProp(p.where)), path);
+      const typeAnnotation = p.type ? `: [${String(p.type)}[], ${String(p.type)}[]]` : '';
+      lines.push(
+        `${indent}const [${passName}, ${failName}]${typeAnnotation} = (${collection}).reduce((acc, ${item}) => {`,
+      );
+      lines.push(`${indent}  (${where} ? acc[0] : acc[1]).push(${item});`);
+      lines.push(`${indent}  return acc;`);
+      lines.push(`${indent}}, [[], []]);`);
+      break;
+    }
+    case 'indexBy': {
+      const name = requirePortableProp('indexBy', 'name', String(p.name || ''));
+      const item = String(p.item || 'item');
+      const collection = rewriteExpressExpr(requirePortableProp('indexBy', 'in', portableExprProp(p.in)), path);
+      const by = rewriteExpressExpr(requirePortableProp('indexBy', 'by', portableExprProp(p.by)), path);
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      const suffix = portableTempSuffix(name);
+      lines.push(`${indent}const ${name}${typeAnnotation} = (${collection}).reduce((acc, ${item}) => {`);
+      lines.push(`${indent}  const __kernKey_${suffix} = ${by};`);
+      lines.push(`${indent}  acc[__kernKey_${suffix}] = ${item};`);
+      lines.push(`${indent}  return acc;`);
+      lines.push(`${indent}}, Object.create(null));`);
+      break;
+    }
+    case 'countBy': {
+      const name = requirePortableProp('countBy', 'name', String(p.name || ''));
+      const item = String(p.item || 'item');
+      const collection = rewriteExpressExpr(requirePortableProp('countBy', 'in', portableExprProp(p.in)), path);
+      const by = rewriteExpressExpr(requirePortableProp('countBy', 'by', portableExprProp(p.by)), path);
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      const suffix = portableTempSuffix(name);
+      lines.push(`${indent}const ${name}${typeAnnotation} = (${collection}).reduce((acc, ${item}) => {`);
+      lines.push(`${indent}  const __kernKey_${suffix} = ${by};`);
+      lines.push(`${indent}  acc[__kernKey_${suffix}] = (acc[__kernKey_${suffix}] ?? 0) + 1;`);
+      lines.push(`${indent}  return acc;`);
+      lines.push(`${indent}}, Object.create(null));`);
+      break;
+    }
     case 'effect': {
       const effectName = String(p.name || 'effect');
       const triggerNode = getFirstChild(child, 'trigger');
@@ -281,7 +561,18 @@ export function generatePortableChildExpress(
 
 // Portable SSE body node types (slice 4c) — the subset of route nodes that
 // composes inside a `stream`, plus the streaming primitives `fanout`/`emit`.
-const PORTABLE_STREAM_TYPES = new Set(['derive', 'let', 'each', 'fanout', 'emit', 'do', 'assign', 'branch', 'collect']);
+const PORTABLE_STREAM_TYPES = new Set([
+  'derive',
+  'let',
+  'each',
+  'fanout',
+  'emit',
+  'do',
+  'assign',
+  'branch',
+  'collect',
+  'count',
+]);
 
 export function hasPortableStreamBody(streamNode: IRNode): boolean {
   return (streamNode.children || []).some((c) => PORTABLE_STREAM_TYPES.has(c.type));
@@ -324,11 +615,26 @@ export function generatePortableHandlerExpress(
   const PORTABLE_TYPES = new Set([
     'derive',
     'guard',
+    'filter',
     'handler',
     'respond',
     'branch',
     'each',
     'collect',
+    'count',
+    'compact',
+    'pluck',
+    'take',
+    'drop',
+    'sort',
+    'objectMerge',
+    'objectOmit',
+    'objectPick',
+    'uniqueBy',
+    'groupBy',
+    'partition',
+    'indexBy',
+    'countBy',
     'effect',
     'assign',
     'do',

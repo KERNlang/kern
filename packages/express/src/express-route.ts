@@ -44,6 +44,21 @@ export function buildRouteArtifact(
   const branchNodes = getChildren(routeNode, 'branch');
   const eachNodes = getChildren(routeNode, 'each');
   const collectNodes = getChildren(routeNode, 'collect');
+  const filterNodes = getChildren(routeNode, 'filter');
+  const countNodes = getChildren(routeNode, 'count');
+  const compactNodes = getChildren(routeNode, 'compact');
+  const pluckNodes = getChildren(routeNode, 'pluck');
+  const takeNodes = getChildren(routeNode, 'take');
+  const dropNodes = getChildren(routeNode, 'drop');
+  const sortNodes = getChildren(routeNode, 'sort');
+  const objectMergeNodes = getChildren(routeNode, 'objectMerge');
+  const objectOmitNodes = getChildren(routeNode, 'objectOmit');
+  const objectPickNodes = getChildren(routeNode, 'objectPick');
+  const uniqueByNodes = getChildren(routeNode, 'uniqueBy');
+  const groupByNodes = getChildren(routeNode, 'groupBy');
+  const partitionNodes = getChildren(routeNode, 'partition');
+  const indexByNodes = getChildren(routeNode, 'indexBy');
+  const countByNodes = getChildren(routeNode, 'countBy');
   const effectNodes = getChildren(routeNode, 'effect');
   // Only DIRECT assign/do children are counted; a nested one (inside a portable
   // branch/each) is covered transitively because its enclosing portable node
@@ -57,6 +72,21 @@ export function buildRouteArtifact(
     branchNodes.length > 0 ||
     eachNodes.length > 0 ||
     collectNodes.length > 0 ||
+    filterNodes.length > 0 ||
+    countNodes.length > 0 ||
+    compactNodes.length > 0 ||
+    pluckNodes.length > 0 ||
+    takeNodes.length > 0 ||
+    dropNodes.length > 0 ||
+    sortNodes.length > 0 ||
+    objectMergeNodes.length > 0 ||
+    objectOmitNodes.length > 0 ||
+    objectPickNodes.length > 0 ||
+    uniqueByNodes.length > 0 ||
+    groupByNodes.length > 0 ||
+    partitionNodes.length > 0 ||
+    indexByNodes.length > 0 ||
+    countByNodes.length > 0 ||
     effectNodes.length > 0 ||
     assignNodes.length > 0 ||
     doNodes.length > 0;

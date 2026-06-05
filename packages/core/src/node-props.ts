@@ -252,6 +252,33 @@ export interface ObjectMergeProps extends BaseProps {
   type?: string;
 }
 
+export interface FirstTruthyProps extends BaseProps {
+  values?: string | ExprObject;
+  type?: string;
+}
+
+export interface CoalesceProps extends BaseProps {
+  values?: string | ExprObject;
+  type?: string;
+}
+
+export interface FirstDefinedProps extends BaseProps {
+  values?: string | ExprObject;
+  type?: string;
+}
+
+export interface ObjectPickProps extends BaseProps {
+  in?: string | ExprObject;
+  keys?: string | ExprObject;
+  type?: string;
+}
+
+export interface ObjectOmitProps extends BaseProps {
+  in?: string | ExprObject;
+  keys?: string | ExprObject;
+  type?: string;
+}
+
 export interface SetProps extends BaseProps {
   to?: string | ExprObject;
 }
@@ -276,6 +303,7 @@ export interface ArrayMethodProps extends BaseProps {
   in?: string | ExprObject;
   item?: string;
   where?: string | ExprObject;
+  predicate?: string | ExprObject;
   type?: string;
 }
 
@@ -543,6 +571,14 @@ export interface CollectProps extends BaseProps {
   where?: string;
   limit?: string;
   order?: string;
+}
+
+export interface CountProps extends BaseProps {
+  in?: string | ExprObject;
+  where?: string | ExprObject;
+  predicate?: string | ExprObject;
+  item?: string;
+  type?: string;
 }
 
 export interface BranchProps extends BaseProps {
@@ -844,7 +880,12 @@ export interface NodePropsMap {
   slice: SliceProps;
   at: AtProps;
   clamp: ClampProps;
+  firstTruthy: FirstTruthyProps;
+  coalesce: CoalesceProps;
+  firstDefined: FirstDefinedProps;
   objectMerge: ObjectMergeProps;
+  objectOmit: ObjectOmitProps;
+  objectPick: ObjectPickProps;
   sort: SortProps;
   reverse: ReverseProps;
   join: JoinProps;
@@ -885,6 +926,7 @@ export interface NodePropsMap {
   each: EachProps;
   while: WhileProps;
   collect: CollectProps;
+  count: CountProps;
   branch: BranchProps;
   resolve: ResolveProps;
   expect: ExpectProps;

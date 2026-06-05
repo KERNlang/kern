@@ -2952,5 +2952,265 @@ describe('FastAPI Transpiler', () => {
       const route = result.artifacts!.find((a: any) => a.path.includes('get_api_namespaced'));
       expect(route!.content).toContain('raise NotImplementedError');
     });
+
+    test('portable keyed collection reshape nodes lower to clean FastAPI Python code', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/reshape',
+        '    uniqueBy name=distinct in=users by="item.id"',
+        '    groupBy name=by_type in=items by="item.type"',
+        '    partition pass=active fail=inactive in=users where="item.active"',
+        '    indexBy name=by_id in=users by="item.id"',
+        '    countBy name=counts in=items by="item.type"',
+        '    respond 200 json=counts',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post_api_reshape'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+
+      expect(code).toContain('distinct = []');
+      expect(code).toContain('__kern_seen_distinct = set()');
+      expect(code).toContain('for item in users:');
+      expect(code).toContain('__kern_key_distinct = item.id');
+      expect(code).toContain('if __kern_key_distinct is None:');
+      expect(code).toContain('__kern_seen_key_distinct = ("null", None)');
+      expect(code).toContain('__kern_seen_key_distinct = ("boolean", __kern_key_distinct)');
+      expect(code).toContain('__kern_seen_key_distinct = ("number", "NaN")');
+      expect(code).toContain('__kern_seen_key_distinct = ("number", __kern_key_distinct)');
+      expect(code).toContain('__kern_seen_key_distinct = ("string", __kern_key_distinct)');
+      expect(code).toContain('__kern_seen_objects_distinct = []');
+      expect(code).toContain('for __kern_seen_object_distinct in __kern_seen_objects_distinct:');
+      expect(code).toContain('if __kern_key_distinct is __kern_seen_object_distinct:');
+      expect(code).toContain('__kern_seen_objects_distinct.append(__kern_key_distinct)');
+      expect(code).toContain('continue');
+      expect(code).toContain('if __kern_seen_key_distinct not in __kern_seen_distinct:');
+      expect(code).toContain('__kern_seen_distinct.add(__kern_seen_key_distinct)');
+      expect(code).toContain('distinct.append(item)');
+
+      expect(code).toContain('by_type = {}');
+      expect(code).toContain('for item in items:');
+      expect(code).toContain('__kern_key_by_type = item.type');
+      expect(code).toContain('if __kern_key_by_type is None:');
+      expect(code).toContain('__kern_key_by_type = "null"');
+      expect(code).toContain('__kern_key_by_type = "true" if __kern_key_by_type else "false"');
+      expect(code).toContain('__kern_key_by_type = "NaN"');
+      expect(code).toContain('__kern_key_by_type = "Infinity"');
+      expect(code).toContain('__kern_key_by_type = "-Infinity"');
+      expect(code).toContain('elif isinstance(__kern_key_by_type, float):');
+      expect(code).toContain('elif __kern_key_by_type.is_integer():');
+      expect(code).toContain('__kern_key_by_type = str(int(__kern_key_by_type))');
+      expect(code).toContain('raise TypeError("keyed reshape selector must produce a scalar key")');
+      expect(code).toContain('by_type.setdefault(__kern_key_by_type, []).append(item)');
+
+      expect(code).toContain('active = []');
+      expect(code).toContain('inactive = []');
+      expect(code).toContain('for item in users:');
+      expect(code).toContain('if item.active:');
+      expect(code).toContain('active.append(item)');
+      expect(code).toContain('else:');
+      expect(code).toContain('inactive.append(item)');
+
+      expect(code).toContain('by_id = {}');
+      expect(code).toContain('for item in users:');
+      expect(code).toContain('__kern_key_by_id = item.id');
+      expect(code).toContain('if __kern_key_by_id is None:');
+      expect(code).toContain('__kern_key_by_id = "null"');
+      expect(code).toContain('__kern_key_by_id = "true" if __kern_key_by_id else "false"');
+      expect(code).toContain('__kern_key_by_id = "NaN"');
+      expect(code).toContain('elif isinstance(__kern_key_by_id, float):');
+      expect(code).toContain('elif __kern_key_by_id.is_integer():');
+      expect(code).toContain('__kern_key_by_id = str(int(__kern_key_by_id))');
+      expect(code).toContain('raise TypeError("keyed reshape selector must produce a scalar key")');
+      expect(code).toContain('by_id[__kern_key_by_id] = item');
+
+      expect(code).toContain('counts = {}');
+      expect(code).toContain('for item in items:');
+      expect(code).toContain('__kern_key_counts = item.type');
+      expect(code).toContain('if __kern_key_counts is None:');
+      expect(code).toContain('__kern_key_counts = "null"');
+      expect(code).toContain('__kern_key_counts = "true" if __kern_key_counts else "false"');
+      expect(code).toContain('__kern_key_counts = "NaN"');
+      expect(code).toContain('elif isinstance(__kern_key_counts, float):');
+      expect(code).toContain('elif __kern_key_counts.is_integer():');
+      expect(code).toContain('__kern_key_counts = str(int(__kern_key_counts))');
+      expect(code).toContain('raise TypeError("keyed reshape selector must produce a scalar key")');
+      expect(code).toContain('counts[__kern_key_counts] = counts.get(__kern_key_counts, 0) + 1');
+    });
+
+    test('portable compact, pluck, take, and drop nodes lower to FastAPI Python code', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/list-shape',
+        '    compact name=truthy in=values',
+        '    pluck name=emails in=users prop=profile.email',
+        '    take name=first_two in=emails n=2',
+        '    drop name=after_one in=emails n=1',
+        '    respond 200 json={{ {truthy: truthy, emails: emails, firstTwo: first_two, afterOne: after_one} }}',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post_api_list_shape'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+
+      expect(code).toContain('truthy = [item for item in values if item is not None');
+      expect(code).toContain('not isinstance(item, bool)');
+      expect(code).toContain('def __kern_pluck_emails(__kern_item):');
+      expect(code).toContain('for __kern_key in ["profile", "email"]:');
+      expect(code).toContain('hasattr(__kern_value, "_d")');
+      expect(code).toContain('emails = [__kern_pluck_emails(__kern_item) for __kern_item in users]');
+      expect(code).toContain('first_two = emails[:2]');
+      expect(code).toContain('after_one = emails[1:]');
+    });
+
+    test('portable sort nodes lower to immutable FastAPI Python sorting code', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/sort-shape',
+        '    sort name=ranked in=users compare="b.score - a.score"',
+        '    sort name=lexicographic in=nums',
+        '    sort name=renamed in=users a=left b=right compare="right.score - left.score"',
+        '    respond 200 json={{ {ranked: ranked, lexicographic: lexicographic, renamed: renamed, original: users} }}',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post_api_sort_shape'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+
+      expect(code).toContain('from functools import cmp_to_key');
+      expect(code).toContain('ranked = sorted(users, key=cmp_to_key(lambda a, b: b.score - a.score))');
+      expect(code).toContain('def __kern_sort_key_lexicographic(__kern_value):');
+      expect(code).toContain('lexicographic = sorted(nums, key=__kern_sort_key_lexicographic)');
+      expect(code).toContain('renamed = sorted(users, key=cmp_to_key(lambda left, right: right.score - left.score))');
+    });
+
+    test('portable keyed collection reshape nodes reject unsafe Python binding names', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/reshape',
+        '    countBy name=class in=items by="item.type"',
+        '    respond 200 json={{ {counts: class} }}',
+      ].join('\n');
+      expect(() => transpileFastAPI(parse(source))).toThrow(/unsafe Python binding name `class`/);
+    });
+
+    test('portable route object merge, pick, and omit nodes lower to FastAPI Python code', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/object-shape',
+        '    objectMerge name=merged sources="body.user, body.override, { role: \\"member\\" }"',
+        `    objectPick name=public_user in=merged keys="['id', 'missing', 'count', 'enabled', 'role']"`,
+        `    objectOmit name=safe_user in=merged keys="['password', 'token']"`,
+        '    respond 200 json={{ {publicUser: public_user, safeUser: safe_user} }}',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post_api_object_shape'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+      expect(code).toContain('merged = {**(lambda __k_src:');
+      expect(code).toContain('body.user');
+      expect(code).toContain('body.override');
+      expect(code).toContain('public_user = (lambda __k_dict, __k_keys:');
+      expect(code).toContain('for key in __k_keys');
+      expect(code).toContain('["id", "missing", "count", "enabled", "role"]');
+      expect(code).toContain('safe_user = {key: value for key, value in (lambda __k_src:');
+    });
+
+    test('portable filter predicate node lowers to helper-backed FastAPI Python code', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/filter',
+        '    filter name=eligible in=users predicate={{ {and: [{eq: ["active", true]}, {gte: ["age", 18]}]} }}',
+        '    respond 200 json=eligible',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post_api_filter'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+      expect(code).toContain('def __kern_get_path_eligible(record, path):');
+      expect(code).toContain('def __kern_eval_predicate_eligible(predicate, record):');
+      expect(code).toContain('__kern_predicate_eligible = {"and": [{"eq": ["active", True]}, {"gte": ["age", 18]}]}');
+      expect(code).toContain(
+        'eligible = [item for item in users if __kern_eval_predicate_eligible(__kern_predicate_eligible, item)]',
+      );
+    });
+
+    test('portable filter predicate node lowers or/not composition to FastAPI Python code', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/filter',
+        '    filter name=eligible in=users predicate={{ {and: [{or: [{eq: ["role", "admin"]}, {eq: ["role", "staff"]}]}, {not: {eq: ["status", "banned"]} }]} }}',
+        '    respond 200 json=eligible',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post_api_filter'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+      expect(code).toContain('if "or" in predicate:');
+      expect(code).toContain('return any(__kern_eval_predicate_eligible(p, record) for p in predicate["or"])');
+      expect(code).toContain('if "not" in predicate:');
+      expect(code).toContain('return not __kern_eval_predicate_eligible(predicate["not"], record)');
+      expect(code).toContain(
+        '__kern_predicate_eligible = {"and": [{"or": [{"eq": ["role", "admin"]}, {"eq": ["role", "staff"]}]}, {"not": {"eq": ["status", "banned"]}}]}',
+      );
+    });
+
+    test('portable filter predicate node lowers richer leaf predicates to FastAPI Python code', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/filter',
+        '    filter name=eligible in=users predicate={{ {and: [{exists: "profile.tags.0"}, {in: ["role", ["admin", "staff"]]}, {nin: ["status", ["banned"]]}, {contains: ["profile.tags", "vip"]}, {startsWith: ["email", "a"]}, {endsWith: ["email", ".com"]}]} }}',
+        '    respond 200 json=eligible',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post_api_filter'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+      expect(code).toContain('if "exists" in predicate:');
+      expect(code).toContain('if op in ("in", "nin"):');
+      expect(code).toContain('if op == "contains":');
+      expect(code).toContain('if op in ("startsWith", "endsWith"):');
+      expect(code).toContain(
+        '__kern_predicate_eligible = {"and": [{"exists": "profile.tags.0"}, {"in": ["role", ["admin", "staff"]]}, {"nin": ["status", ["banned"]]}, {"contains": ["profile.tags", "vip"]}, {"startsWith": ["email", "a"]}, {"endsWith": ["email", ".com"]}]}',
+      );
+    });
+
+    test('portable count predicate node lowers to helper-backed FastAPI Python code', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/count',
+        '    count name=eligible_count in=users predicate={{ {and: [{lt: ["age", 30]}, {lte: ["score", 10]}]} }}',
+        '    respond 200 json=eligible_count',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post_api_count'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+      expect(code).toContain('def __kern_eval_predicate_eligible_count(predicate, record):');
+      expect(code).toContain(
+        '__kern_predicate_eligible_count = {"and": [{"lt": ["age", 30]}, {"lte": ["score", 10]}]}',
+      );
+      expect(code).toContain(
+        'eligible_count = sum(1 for item in users if __kern_eval_predicate_eligible_count(__kern_predicate_eligible_count, item))',
+      );
+    });
   });
 });

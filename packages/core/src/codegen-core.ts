@@ -37,6 +37,7 @@ export {
 export { generateEvent, generateOn, generateWebSocket } from './codegen/events.js';
 export { generateError, generateFunction } from './codegen/functions.js';
 export {
+  emitStringKeyArray,
   generateAction,
   generateActionRegistry,
   generateApply,
@@ -46,9 +47,11 @@ export {
   generateAvg,
   generateChunk,
   generateClamp,
+  generateCoalesce,
   generateCollect,
   generateCompact,
   generateConcat,
+  generateCount,
   generateCountBy,
   generateDerive,
   generateDrop,
@@ -59,6 +62,8 @@ export {
   generateFindIndex,
   generateFindLast,
   generateFindLastIndex,
+  generateFirstDefined,
+  generateFirstTruthy,
   generateFlat,
   generateFlatMap,
   generateFmt,
@@ -78,6 +83,8 @@ export {
   generateMin,
   generateMinBy,
   generateObjectMerge,
+  generateObjectOmit,
+  generateObjectPick,
   generatePartition,
   generatePattern,
   generatePluck,
@@ -97,6 +104,7 @@ export {
   generateUnique,
   generateUniqueBy,
   generateZip,
+  parseKeys,
 } from './codegen/ground-layer.js';
 export {
   capitalize,
@@ -167,9 +175,11 @@ import {
   generateAvg,
   generateChunk,
   generateClamp,
+  generateCoalesce,
   generateCollect,
   generateCompact,
   generateConcat,
+  generateCount,
   generateCountBy,
   generateDerive,
   generateDrop,
@@ -180,6 +190,8 @@ import {
   generateFindIndex,
   generateFindLast,
   generateFindLastIndex,
+  generateFirstDefined,
+  generateFirstTruthy,
   generateFlat,
   generateFlatMap,
   generateFmt,
@@ -199,6 +211,8 @@ import {
   generateMin,
   generateMinBy,
   generateObjectMerge,
+  generateObjectOmit,
+  generateObjectPick,
   generatePartition,
   generatePattern,
   generatePluck,
@@ -666,6 +680,7 @@ export const CORE_NODE_TYPES = new Set([
   'groupBy',
   'partition',
   'indexBy',
+  'count',
   'countBy',
   'chunk',
   'zip',
@@ -861,8 +876,18 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return generateAt(node);
     case 'clamp':
       return generateClamp(node);
+    case 'firstTruthy':
+      return generateFirstTruthy(node);
+    case 'coalesce':
+      return generateCoalesce(node);
+    case 'firstDefined':
+      return generateFirstDefined(node);
     case 'objectMerge':
       return generateObjectMerge(node);
+    case 'objectOmit':
+      return generateObjectOmit(node);
+    case 'objectPick':
+      return generateObjectPick(node);
     case 'sort':
       return generateSort(node);
     case 'reverse':
@@ -950,6 +975,8 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return [];
     case 'collect':
       return generateCollect(node);
+    case 'count':
+      return generateCount(node);
     case 'branch':
       return generateBranch(node);
     case 'resolve':

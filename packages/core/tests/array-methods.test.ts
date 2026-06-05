@@ -15,6 +15,7 @@ import {
   generateAvg,
   generateChunk,
   generateClamp,
+  generateCoalesce,
   generateCompact,
   generateConcat,
   generateCoreNode,
@@ -26,6 +27,8 @@ import {
   generateFindIndex,
   generateFindLast,
   generateFindLastIndex,
+  generateFirstDefined,
+  generateFirstTruthy,
   generateFlat,
   generateFlatMap,
   generateForEach,
@@ -42,6 +45,8 @@ import {
   generateMin,
   generateMinBy,
   generateObjectMerge,
+  generateObjectOmit,
+  generateObjectPick,
   generatePartition,
   generatePluck,
   generateRange,
@@ -124,6 +129,85 @@ describe('Ground Layer: clamp', () => {
   });
 });
 
+describe('Ground Layer: firstTruthy', () => {
+  it('emits a named first-truthy fallback binding', () => {
+    const node = mk('firstTruthy', {
+      name: 'label',
+      values: "preferred, nickname, 'Anonymous'",
+      type: 'string',
+    });
+    expect(generateFirstTruthy(node).join('\n')).toBe(
+      "export const label: string = preferred || nickname || 'Anonymous';",
+    );
+  });
+
+  it('parenthesizes conditional operands before joining fallbacks', () => {
+    const node = mk('firstTruthy', {
+      name: 'label',
+      values: "ready ? preferred : nickname, 'Anonymous'",
+    });
+    expect(generateFirstTruthy(node).join('\n')).toBe(
+      "export const label = (ready ? preferred : nickname) || 'Anonymous';",
+    );
+  });
+
+  it('dispatches through generateCoreNode and honours export=false', () => {
+    const node = mk('firstTruthy', { name: 'label', values: "preferred, 'Fallback'", export: 'false' });
+    expect(generateCoreNode(node).join('\n')).toBe("const label = preferred || 'Fallback';");
+  });
+
+  it('requires at least two value expressions and rejects propagation', () => {
+    expect(() => generateFirstTruthy(mk('firstTruthy', { name: 'x' }))).toThrow(/values/);
+    expect(() => generateFirstTruthy(mk('firstTruthy', { name: 'x', values: 'preferred' }))).toThrow(/at least two/);
+    expect(() => generateFirstTruthy(mk('firstTruthy', { name: 'x', values: 'load()?, fallback' }))).toThrow(
+      /Propagation/,
+    );
+  });
+});
+
+describe('Ground Layer: coalesce / firstDefined', () => {
+  it('emits a nullish fallback binding that preserves falsy values', () => {
+    const node = mk('coalesce', {
+      name: 'winner',
+      values: "count, flag, label, 'fallback'",
+      type: 'string | number | boolean',
+    });
+    expect(generateCoalesce(node).join('\n')).toBe(
+      "export const winner: string | number | boolean = count ?? flag ?? label ?? 'fallback';",
+    );
+  });
+
+  it('supports firstDefined as an alias-shaped node', () => {
+    const node = mk('firstDefined', { name: 'winner', values: 'primary, secondary', export: 'false' });
+    expect(generateFirstDefined(node).join('\n')).toBe('const winner = primary ?? secondary;');
+    expect(generateCoreNode(node).join('\n')).toBe('const winner = primary ?? secondary;');
+  });
+
+  it('parenthesizes conditional operands before joining nullish fallbacks', () => {
+    const node = mk('coalesce', {
+      name: 'label',
+      values: "ready ? preferred : nickname, 'Anonymous'",
+    });
+    expect(generateCoalesce(node).join('\n')).toBe(
+      "export const label = (ready ? preferred : nickname) ?? 'Anonymous';",
+    );
+  });
+
+  it('parenthesizes binary operands before joining nullish fallbacks', () => {
+    const node = mk('coalesce', {
+      name: 'label',
+      values: "preferred || nickname, 'Anonymous'",
+    });
+    expect(generateCoalesce(node).join('\n')).toBe("export const label = (preferred || nickname) ?? 'Anonymous';");
+  });
+
+  it('requires at least two value expressions and rejects propagation', () => {
+    expect(() => generateCoalesce(mk('coalesce', { name: 'x' }))).toThrow(/values/);
+    expect(() => generateCoalesce(mk('coalesce', { name: 'x', values: 'preferred' }))).toThrow(/at least two/);
+    expect(() => generateCoalesce(mk('coalesce', { name: 'x', values: 'load()?, fallback' }))).toThrow(/Propagation/);
+  });
+});
+
 describe('Ground Layer: objectMerge', () => {
   it('emits a shallow non-mutating object spread binding', () => {
     const node = mk('objectMerge', {
@@ -151,6 +235,44 @@ describe('Ground Layer: objectMerge', () => {
 
   it('rejects propagation in top-level objectMerge sources', () => {
     expect(() => generateObjectMerge(mk('objectMerge', { name: 'x', sources: 'load()?, overrides' }))).toThrow(
+      /Propagation/,
+    );
+  });
+});
+
+describe('Ground Layer: objectPick / objectOmit', () => {
+  it('emits shallow own-key objectPick with a real keys list expression', () => {
+    const node = mk('objectPick', { name: 'publicUser', in: 'user', keys: "['id', 'name']", type: 'PublicUser' });
+    expect(generateObjectPick(node).join('\n')).toBe(
+      'export const publicUser: PublicUser = ((__kernSource: any) => Object.fromEntries(["id", "name"].map((key) => [key, Object.prototype.hasOwnProperty.call(__kernSource, key) ? __kernSource[key] : null])))(user);',
+    );
+  });
+
+  it('evaluates complex objectPick source expressions once', () => {
+    const node = mk('objectPick', { name: 'publicUser', in: 'loadUser()', keys: "['id']" });
+    expect(generateObjectPick(node).join('\n')).toBe(
+      'export const publicUser = ((__kernSource: any) => Object.fromEntries(["id"].map((key) => [key, Object.prototype.hasOwnProperty.call(__kernSource, key) ? __kernSource[key] : null])))(loadUser());',
+    );
+  });
+
+  it('emits shallow immutable objectOmit', () => {
+    const node = mk('objectOmit', { name: 'safeUser', in: 'user', keys: "['password', 'token']", export: 'false' });
+    expect(generateObjectOmit(node).join('\n')).toBe(
+      'const safeUser = Object.fromEntries(Object.entries(user).filter(([key]) => !["password", "token"].includes(key)));',
+    );
+  });
+
+  it('requires source and non-empty string-literal keys', () => {
+    expect(() => generateObjectPick(mk('objectPick', { name: 'x', keys: "['id']" }))).toThrow(/'in'/);
+    expect(() => generateObjectPick(mk('objectPick', { name: 'x', in: 'user', keys: '[]' }))).toThrow(/non-empty/);
+    expect(() => generateObjectPick(mk('objectPick', { name: 'x', in: 'user', keys: '[id]' }))).toThrow(/string/);
+  });
+
+  it('rejects propagation in source and keys', () => {
+    expect(() => generateObjectPick(mk('objectPick', { name: 'x', in: 'load()?', keys: "['id']" }))).toThrow(
+      /Propagation/,
+    );
+    expect(() => generateObjectOmit(mk('objectOmit', { name: 'x', in: 'user', keys: 'loadKeys()?' }))).toThrow(
       /Propagation/,
     );
   });

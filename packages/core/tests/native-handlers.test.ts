@@ -675,6 +675,157 @@ describe('emitNativeKernBodyTS — objectMerge body statement', () => {
   });
 });
 
+describe('emitNativeKernBodyTS — firstTruthy body statement', () => {
+  test('firstTruthy emits an ordered short-circuit fallback binding', () => {
+    const handler = makeHandler([
+      { type: 'firstTruthy', props: { name: 'label', values: "preferred, nickname, 'Anonymous'" } },
+      { type: 'return', props: { value: 'label' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(
+      ["const label = preferred || nickname || 'Anonymous';", 'return label;'].join('\n'),
+    );
+  });
+
+  test('firstTruthy parenthesizes conditional operands before joining fallbacks', () => {
+    const handler = makeHandler([
+      { type: 'firstTruthy', props: { name: 'label', values: "ready ? preferred : nickname, 'Anonymous'" } },
+      { type: 'return', props: { value: 'label' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(
+      ["const label = (ready ? preferred : nickname) || 'Anonymous';", 'return label;'].join('\n'),
+    );
+  });
+
+  test('rejects propagation in firstTruthy values', () => {
+    const handler = makeHandler([{ type: 'firstTruthy', props: { name: 'label', values: 'load()?, fallback' } }]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/Propagation/);
+  });
+
+  test('infers kern handler language from firstTruthy child', () => {
+    const doc = parseDocument(
+      [
+        'fn name=label returns=string',
+        '  handler',
+        `    firstTruthy name=label values="preferred, nickname, 'Anonymous'"`,
+        '    return value=label',
+      ].join('\n'),
+    );
+    const handler = doc.children?.[0]?.children?.find((child) => child.type === 'handler');
+    expect(handler?.props?.lang).toBe('kern');
+  });
+});
+
+describe('emitNativeKernBodyTS — coalesce / firstDefined body statement', () => {
+  test('coalesce emits an ordered nullish fallback binding', () => {
+    const handler = makeHandler([
+      { type: 'coalesce', props: { name: 'winner', values: "count, flag, label, 'fallback'", type: 'unknown' } },
+      { type: 'return', props: { value: 'winner' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(
+      ["const winner: unknown = count ?? flag ?? label ?? 'fallback';", 'return winner;'].join('\n'),
+    );
+  });
+
+  test('firstDefined aliases the same body emitter', () => {
+    const handler = makeHandler([
+      { type: 'firstDefined', props: { name: 'winner', values: 'primary, secondary' } },
+      { type: 'return', props: { value: 'winner' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(['const winner = primary ?? secondary;', 'return winner;'].join('\n'));
+  });
+
+  test('coalesce parenthesizes conditional operands before joining fallbacks', () => {
+    const handler = makeHandler([
+      { type: 'coalesce', props: { name: 'label', values: "ready ? preferred : nickname, 'Anonymous'" } },
+      { type: 'return', props: { value: 'label' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(
+      ["const label = (ready ? preferred : nickname) ?? 'Anonymous';", 'return label;'].join('\n'),
+    );
+  });
+
+  test('coalesce parenthesizes binary operands before joining fallbacks', () => {
+    const handler = makeHandler([
+      { type: 'coalesce', props: { name: 'label', values: "preferred || nickname, 'Anonymous'" } },
+      { type: 'return', props: { value: 'label' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(
+      ["const label = (preferred || nickname) ?? 'Anonymous';", 'return label;'].join('\n'),
+    );
+  });
+
+  test('firstDefined parenthesizes conditional operands before joining fallbacks', () => {
+    const handler = makeHandler([
+      { type: 'firstDefined', props: { name: 'label', values: "ready ? preferred : nickname, 'Anonymous'" } },
+      { type: 'return', props: { value: 'label' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(
+      ["const label = (ready ? preferred : nickname) ?? 'Anonymous';", 'return label;'].join('\n'),
+    );
+  });
+
+  test('rejects propagation in coalesce values', () => {
+    const handler = makeHandler([{ type: 'coalesce', props: { name: 'winner', values: 'load()?, fallback' } }]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/Propagation/);
+  });
+
+  test('infers kern handler language from coalesce and firstDefined children', () => {
+    for (const type of ['coalesce', 'firstDefined']) {
+      const doc = parseDocument(
+        [
+          'fn name=pick returns=string',
+          '  handler',
+          `    ${type} name=winner values="primary, 'fallback'"`,
+          '    return value=winner',
+        ].join('\n'),
+      );
+      const handler = doc.children?.[0]?.children?.find((child) => child.type === 'handler');
+      expect(handler?.props?.lang).toBe('kern');
+    }
+  });
+});
+
+describe('emitNativeKernBodyTS — objectPick/objectOmit body statements', () => {
+  test('objectPick emits a shallow own-key binding and can return missing keys', () => {
+    const handler = makeHandler([
+      { type: 'objectPick', props: { name: 'picked', in: 'user', keys: "['id', 'missing']" } },
+      { type: 'return', props: { value: 'picked' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(
+      [
+        'const picked = ((__kernSource: any) => Object.fromEntries(["id", "missing"].map((key) => [key, Object.prototype.hasOwnProperty.call(__kernSource, key) ? __kernSource[key] : null])))(user);',
+        'return picked;',
+      ].join('\n'),
+    );
+  });
+
+  test('objectOmit emits an immutable shallow filter binding', () => {
+    const handler = makeHandler([
+      { type: 'objectOmit', props: { name: 'safe', in: 'user', keys: "['password']" } },
+      { type: 'return', props: { value: 'safe' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(
+      [
+        'const safe = Object.fromEntries(Object.entries(user).filter(([key]) => !["password"].includes(key)));',
+        'return safe;',
+      ].join('\n'),
+    );
+  });
+
+  test('infers kern handler language from objectPick child', () => {
+    const doc = parseDocument(
+      [
+        'fn name=publicUser returns=object',
+        '  handler',
+        `    objectPick name=publicUser in=user keys="['id', 'name']"`,
+        '    return value=publicUser',
+      ].join('\n'),
+    );
+    const handler = doc.children?.[0]?.children?.find((child) => child.type === 'handler');
+    expect(handler?.props?.lang).toBe('kern');
+  });
+});
+
 describe('emitNativeKernBodyTS — destructure body statement (trailing)', () => {
   test('rejects propagation source inside try with try-specific guidance', () => {
     const handler = makeHandler([
