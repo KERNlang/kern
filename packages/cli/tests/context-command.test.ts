@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildContextJson, collectSourceFiles } from '../src/commands/context.js';
+import { buildContextJson, buildContextSpine, collectSourceFiles } from '../src/commands/context.js';
 
 describe('kern context — collectSourceFiles', () => {
   let dir: string;
@@ -64,5 +64,39 @@ describe('kern context — buildContextJson (end-to-end)', () => {
     for (const u of Object.values(artifact.usage)) {
       for (const c of u.callers) expect(c.path.startsWith('/')).toBe(false);
     }
+  });
+});
+
+describe('kern context — buildContextSpine (--spine)', () => {
+  let dir: string;
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), 'kern-ctx-spine-'));
+    writeFileSync(join(dir, 'db.ts'), 'export function query(s) { return s; }');
+    writeFileSync(
+      join(dir, 'auth.ts'),
+      "import { query } from './db.js';\n" +
+        'export function login(id) { return query(id); }\n' +
+        'export function logout() { return login(0); }\n',
+    );
+  });
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  test('renders a compact <kern-map> spine scoped to the whole project', () => {
+    const spine = buildContextSpine([dir], { base: dir });
+    expect(spine).toContain('<kern-map');
+    expect(spine).toContain('</kern-map>');
+    // whole-project: symbols from across files surface in the spine
+    expect(spine).toContain('login');
+    expect(spine).toContain('query');
+    // it is compact — the spine is far smaller than the full JSON artifact
+    const json = JSON.stringify(buildContextJson([dir], { base: dir }));
+    expect(spine.length).toBeLessThan(json.length);
+  });
+
+  test('respects a tiny spine budget without exceeding it (degrades/clips)', () => {
+    const tiny = buildContextSpine([dir], { base: dir, spineBudget: 30 });
+    // ~4 chars/token estimate → stay within a small multiple of the budget, never the full map
+    const full = buildContextSpine([dir], { base: dir });
+    expect(tiny.length).toBeLessThanOrEqual(full.length);
   });
 });
