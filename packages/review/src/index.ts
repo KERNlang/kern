@@ -206,6 +206,7 @@ function extractConceptsFromSource(
   return undefined;
 }
 
+export type { ProjectContextGraph } from '@kernlang/context';
 export type { CallGraph, CallSite, FunctionNode } from './call-graph.js';
 export { buildCallGraph } from './call-graph.js';
 export type { ConceptRule, ConceptRuleContext } from './concept-rules/index.js';
@@ -231,6 +232,7 @@ export {
   serializeGraph,
 } from './confidence.js';
 export { extractMarkdownOutline, type MarkdownOutline, type MarkdownOutlineHeading } from './config-files/markdown.js';
+export { buildContextArtifact } from './context-artifact.js';
 export { structuralDiff } from './differ.js';
 export {
   evaluateReviewReports,

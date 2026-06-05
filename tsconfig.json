@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/core" },
     { "path": "packages/protocol" },
+    { "path": "packages/context" },
     { "path": "packages/react" },
     { "path": "packages/native" },
     { "path": "packages/express" },
