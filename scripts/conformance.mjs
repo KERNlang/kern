@@ -663,6 +663,27 @@ const FIXTURES = [
     kern: `route method=post path=/api/t\n  countBy name=counts in=items by="item.type"\n  respond 200 json={{ {counts: counts} }}`,
     bindings: { locals: { items: [{ type: 'book' }, { type: 'tool' }, { type: 'book' }, { type: 'book' }] } },
     expected: { status: 200, body: { counts: { book: 3, tool: 1 } } } },
+  { kind: 'route', name: 'route: object merge/pick/omit shape parity',
+    kern: `route method=post path=/api/t\n  objectMerge name=merged sources="user, override, { role: 'member', nested: { keep: true } }"\n  objectPick name=public_user in=merged keys="['id', 'missing', 'count', 'enabled', 'role', 'get']"\n  objectOmit name=safe_user in=merged keys="['password', 'token']"\n  respond 200 json={{ {publicUser: public_user, safeUser: safe_user, original: user} }}`,
+    bindings: { locals: {
+      user: { id: 'u1', password: 'secret', token: 't1', count: 0, enabled: false, role: 'guest' },
+      override: { token: 't2', role: 'admin' },
+    } },
+    expected: { status: 200, body: {
+      publicUser: { id: 'u1', missing: null, count: 0, enabled: false, role: 'member', get: null },
+      safeUser: { id: 'u1', count: 0, enabled: false, role: 'member', nested: { keep: true } },
+      original: { id: 'u1', password: 'secret', token: 't1', count: 0, enabled: false, role: 'guest' },
+    } } },
+  { kind: 'route', name: 'route: object merge/pick/omit safe null/primitive parity',
+    kern: `route method=post path=/api/t\n  objectMerge name=merged sources="empty, { val: 42 }"\n  objectPick name=picked in=empty keys="['a', 'b']"\n  objectOmit name=omitted in=empty keys="['a', 'b']"\n  respond 200 json={{ {merged: merged, picked: picked, omitted: omitted} }}`,
+    bindings: { locals: {
+      empty: null,
+    } },
+    expected: { status: 200, body: {
+      merged: { val: 42 },
+      picked: { a: null, b: null },
+      omitted: {},
+    } } },
   { kind: 'route', name: 'route: keyed reshape empty collections parity',
     kern: `route method=post path=/api/t\n  uniqueBy name=distinct in=items by="item.type"\n  groupBy name=by_type in=items by="item.type"\n  partition pass=active fail=inactive in=items where="item.active"\n  indexBy name=by_id in=items by="item.id"\n  countBy name=counts in=items by="item.type"\n  respond 200 json={{ {distinct: distinct, byType: by_type, active: active, inactive: inactive, byId: by_id, counts: counts} }}`,
     bindings: { locals: { items: [] } },

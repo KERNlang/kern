@@ -45,9 +45,17 @@
  */
 
 import type { IRNode } from '@kernlang/core';
-import { getChildren, getFirstChild, getProps } from '@kernlang/core';
+import {
+  emitStringKeyArray,
+  getChildren,
+  getFirstChild,
+  getProps,
+  parseKeys,
+  splitPortableExpressionList,
+} from '@kernlang/core';
 import { isUnsupportedJsHandlerBody, unsupportedRawHandlerBody } from '../../fastapi-raw-handler.js';
 import { derivePathParams, escapePyStr, indentHandler, slugify } from '../../fastapi-utils.js';
+import { pythonRouteRecordExpr, pythonRouteRecordPickExpr } from '../../portable-object-emitter.js';
 import { emitPythonPredicateHelpers } from '../../portable-predicate-emitter.js';
 import { mapTsTypeToPython, toPythonBindingName, toSnakeCase } from '../../type-map.js';
 import { rewriteExpr } from '../expr/index.js';
@@ -442,6 +450,56 @@ function generatePurePythonStmt(
       }
       break;
     }
+    case 'objectMerge': {
+      const name = toPythonBindingName(String(p.name || ''), 'objectMerge');
+      if (!name) throw new Error("objectMerge node requires a 'name' prop");
+      const rawSources = extractCodeOrString(p.sources).trim();
+      if (!rawSources) throw new Error("objectMerge node requires a 'sources' prop");
+      const sources = splitPortableExpressionList(rawSources, 'objectMerge sources=');
+      if (sources.length < 2) throw new Error('portable route `objectMerge` requires at least two source expressions.');
+      const emitted: string[] = [];
+      for (const source of sources) {
+        if (source.startsWith('...')) {
+          throw new Error('portable route `objectMerge` sources must not start with `...`; spreading is implicit.');
+        }
+        const rewritten = rewriteExprPure(source, indent);
+        lines.push(...rewritten.hoists);
+        emitted.push(`**${pythonRouteRecordExpr(rewritten.expr)}`);
+      }
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      lines.push(`${indent}${name}${typeAnnotation} = {${emitted.join(', ')}}`);
+      break;
+    }
+    case 'objectPick': {
+      const name = toPythonBindingName(String(p.name || ''), 'objectPick');
+      if (!name) throw new Error("objectPick node requires a 'name' prop");
+      const inVal = extractCodeOrString(p.in).trim();
+      if (!inVal) throw new Error("objectPick node requires an 'in' prop");
+      const rawKeys = extractCodeOrString(p.keys).trim();
+      if (!rawKeys) throw new Error("objectPick node requires a 'keys' prop");
+      const source = rewriteExprPure(inVal, indent);
+      lines.push(...source.hoists);
+      const keys = emitStringKeyArray(parseKeys(rawKeys, child, 'objectPick keys='));
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      lines.push(`${indent}${name}${typeAnnotation} = ${pythonRouteRecordPickExpr(source.expr, keys)}`);
+      break;
+    }
+    case 'objectOmit': {
+      const name = toPythonBindingName(String(p.name || ''), 'objectOmit');
+      if (!name) throw new Error("objectOmit node requires a 'name' prop");
+      const inVal = extractCodeOrString(p.in).trim();
+      if (!inVal) throw new Error("objectOmit node requires an 'in' prop");
+      const rawKeys = extractCodeOrString(p.keys).trim();
+      if (!rawKeys) throw new Error("objectOmit node requires a 'keys' prop");
+      const source = rewriteExprPure(inVal, indent);
+      lines.push(...source.hoists);
+      const keys = emitStringKeyArray(parseKeys(rawKeys, child, 'objectOmit keys='));
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      lines.push(
+        `${indent}${name}${typeAnnotation} = {key: value for key, value in ${pythonRouteRecordExpr(source.expr)}.items() if key not in ${keys}}`,
+      );
+      break;
+    }
     case 'uniqueBy': {
       const name = toPythonBindingName(String(p.name || ''), 'uniqueBy');
       if (!name) throw new Error("uniqueBy node requires a 'name' prop");
@@ -730,6 +788,9 @@ export function emitPureHandlers(serverNode: IRNode, imports: Set<string>, root?
       'each',
       'collect',
       'count',
+      'objectMerge',
+      'objectOmit',
+      'objectPick',
       'uniqueBy',
       'groupBy',
       'partition',

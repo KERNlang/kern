@@ -7,16 +7,20 @@
 
 import type { IRNode } from '@kernlang/core';
 import {
+  emitStringKeyArray,
   getChildren,
   getFirstChild,
   getProps,
   isPostfixMutationOperator,
   isSupportedAssignOperator,
+  parseKeys,
+  splitPortableExpressionList,
 } from '@kernlang/core';
 import { extractExprCode, rewriteExpr } from './core/expr/index.js';
 import { isUnsupportedJsHandlerBody, unsupportedRawHandlerBody } from './fastapi-raw-handler.js';
 import { addRespondImports, generateRespondFastAPI } from './fastapi-response.js';
 import { escapePyStr, indentHandler } from './fastapi-utils.js';
+import { pythonRouteRecordExpr, pythonRouteRecordPickExpr } from './portable-object-emitter.js';
 import { emitPythonPredicateHelpers } from './portable-predicate-emitter.js';
 import { mapTsTypeToPython, toPythonBindingName, toSnakeCase } from './type-map.js';
 
@@ -665,6 +669,72 @@ export function generatePortableChildFastAPI(
       }
       break;
     }
+    case 'objectMerge': {
+      const name = toPythonBindingName(requirePortableProp('objectMerge', 'name', String(p.name || '')), 'objectMerge');
+      const rawSources = requirePortableProp('objectMerge', 'sources', extractCodeOrString(p.sources).trim());
+      const sources = splitPortableExpressionList(rawSources, 'objectMerge sources=');
+      if (sources.length < 2) throw new Error('portable route `objectMerge` requires at least two source expressions.');
+      const emitted: string[] = [];
+      for (const source of sources) {
+        if (source.startsWith('...')) {
+          throw new Error('portable route `objectMerge` sources must not start with `...`; spreading is implicit.');
+        }
+        const rewritten = rewriteFastAPIStmtExpr(source, indent, pathParams, bodyFields, authUser, imports, hoistCtx);
+        lines.push(...rewritten.hoists);
+        emitted.push(`**${pythonRouteRecordExpr(rewritten.expr)}`);
+      }
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      lines.push(`${indent}${name}${typeAnnotation} = {${emitted.join(', ')}}`);
+      break;
+    }
+    case 'objectPick': {
+      const name = toPythonBindingName(requirePortableProp('objectPick', 'name', String(p.name || '')), 'objectPick');
+      const source = rewriteFastAPIStmtExpr(
+        requirePortableProp('objectPick', 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      lines.push(...source.hoists);
+      const keys = emitStringKeyArray(
+        parseKeys(
+          requirePortableProp('objectPick', 'keys', extractCodeOrString(p.keys).trim()),
+          child,
+          'objectPick keys=',
+        ),
+      );
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      lines.push(`${indent}${name}${typeAnnotation} = ${pythonRouteRecordPickExpr(source.expr, keys)}`);
+      break;
+    }
+    case 'objectOmit': {
+      const name = toPythonBindingName(requirePortableProp('objectOmit', 'name', String(p.name || '')), 'objectOmit');
+      const source = rewriteFastAPIStmtExpr(
+        requirePortableProp('objectOmit', 'in', extractCodeOrString(p.in).trim()),
+        indent,
+        pathParams,
+        bodyFields,
+        authUser,
+        imports,
+        hoistCtx,
+      );
+      lines.push(...source.hoists);
+      const keys = emitStringKeyArray(
+        parseKeys(
+          requirePortableProp('objectOmit', 'keys', extractCodeOrString(p.keys).trim()),
+          child,
+          'objectOmit keys=',
+        ),
+      );
+      const typeAnnotation = p.type ? `: ${mapTsTypeToPython(String(p.type))}` : '';
+      lines.push(
+        `${indent}${name}${typeAnnotation} = {key: value for key, value in ${pythonRouteRecordExpr(source.expr)}.items() if key not in ${keys}}`,
+      );
+      break;
+    }
     case 'uniqueBy': {
       const name = toPythonBindingName(requirePortableProp('uniqueBy', 'name', String(p.name || '')), 'uniqueBy');
       const item = String(p.item || 'item');
@@ -956,6 +1026,9 @@ export function generatePortableHandlerFastAPI(
     'each',
     'collect',
     'count',
+    'objectMerge',
+    'objectOmit',
+    'objectPick',
     'uniqueBy',
     'groupBy',
     'partition',

@@ -3052,6 +3052,30 @@ describe('FastAPI Transpiler', () => {
       expect(() => transpileFastAPI(parse(source))).toThrow(/unsafe Python binding name `class`/);
     });
 
+    test('portable route object merge, pick, and omit nodes lower to FastAPI Python code', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/object-shape',
+        '    objectMerge name=merged sources="body.user, body.override, { role: \\"member\\" }"',
+        `    objectPick name=public_user in=merged keys="['id', 'missing', 'count', 'enabled', 'role']"`,
+        `    objectOmit name=safe_user in=merged keys="['password', 'token']"`,
+        '    respond 200 json={{ {publicUser: public_user, safeUser: safe_user} }}',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post_api_object_shape'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+      expect(code).toContain('merged = {**(lambda __k_src:');
+      expect(code).toContain('body.user');
+      expect(code).toContain('body.override');
+      expect(code).toContain('public_user = (lambda __k_dict, __k_keys:');
+      expect(code).toContain('for key in __k_keys');
+      expect(code).toContain('["id", "missing", "count", "enabled", "role"]');
+      expect(code).toContain('safe_user = {key: value for key, value in (lambda __k_src:');
+    });
+
     test('portable filter predicate node lowers to helper-backed FastAPI Python code', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');

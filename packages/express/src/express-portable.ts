@@ -1,5 +1,13 @@
 import type { IRNode } from '@kernlang/core';
-import { getChildren, getFirstChild, getProps, isPostfixMutationOperator } from '@kernlang/core';
+import {
+  emitStringKeyArray,
+  getChildren,
+  getFirstChild,
+  getProps,
+  isPostfixMutationOperator,
+  parseKeys,
+  splitPortableExpressionList,
+} from '@kernlang/core';
 import { derivePathParams, escapeSingleQuotes, generateRespondExpress, indentBlock } from './express-utils.js';
 import { emitExpressPredicateHelpers } from './portable-predicate-emitter.js';
 
@@ -327,6 +335,45 @@ export function generatePortableChildExpress(
       }
       break;
     }
+    case 'objectMerge': {
+      const name = requirePortableProp('objectMerge', 'name', String(p.name || ''));
+      const rawSources = requirePortableProp('objectMerge', 'sources', portableExprProp(p.sources));
+      const sources = splitPortableExpressionList(rawSources, 'objectMerge sources=');
+      if (sources.length < 2) throw new Error('portable route `objectMerge` requires at least two source expressions.');
+      const spreadSources = sources.map((source) => {
+        if (source.startsWith('...')) {
+          throw new Error('portable route `objectMerge` sources must not start with `...`; spreading is implicit.');
+        }
+        return `...(${rewriteExpressExpr(source, path)})`;
+      });
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      lines.push(`${indent}const ${name}${typeAnnotation} = { ${spreadSources.join(', ')} };`);
+      break;
+    }
+    case 'objectPick': {
+      const name = requirePortableProp('objectPick', 'name', String(p.name || ''));
+      const source = rewriteExpressExpr(requirePortableProp('objectPick', 'in', portableExprProp(p.in)), path);
+      const keys = emitStringKeyArray(
+        parseKeys(requirePortableProp('objectPick', 'keys', portableExprProp(p.keys)), child, 'objectPick keys='),
+      );
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      lines.push(
+        `${indent}const ${name}${typeAnnotation} = ((__kernSource) => Object.fromEntries(${keys}.map((key) => [key, (__kernSource && Object.prototype.hasOwnProperty.call(__kernSource, key)) ? __kernSource[key] : null])))(${source});`,
+      );
+      break;
+    }
+    case 'objectOmit': {
+      const name = requirePortableProp('objectOmit', 'name', String(p.name || ''));
+      const source = rewriteExpressExpr(requirePortableProp('objectOmit', 'in', portableExprProp(p.in)), path);
+      const keys = emitStringKeyArray(
+        parseKeys(requirePortableProp('objectOmit', 'keys', portableExprProp(p.keys)), child, 'objectOmit keys='),
+      );
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      lines.push(
+        `${indent}const ${name}${typeAnnotation} = Object.fromEntries(Object.entries(${source} || {}).filter(([key]) => !${keys}.includes(key)));`,
+      );
+      break;
+    }
     case 'uniqueBy': {
       const name = requirePortableProp('uniqueBy', 'name', String(p.name || ''));
       const item = String(p.item || 'item');
@@ -500,6 +547,9 @@ export function generatePortableHandlerExpress(
     'each',
     'collect',
     'count',
+    'objectMerge',
+    'objectOmit',
+    'objectPick',
     'uniqueBy',
     'groupBy',
     'partition',

@@ -1301,5 +1301,30 @@ describe('Express Transpiler', () => {
       expect(code).toContain('const __kernKey_counts = item.type;');
       expect(code).toContain('acc[__kernKey_counts] = (acc[__kernKey_counts] ?? 0) + 1;');
     });
+
+    test('transpiles route object merge, pick, and omit correctly', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/object-shape',
+        '    objectMerge name=merged sources="body.user, body.override, { role: \\"member\\" }"',
+        `    objectPick name=public_user in=merged keys="['id', 'missing', 'count', 'enabled', 'role']"`,
+        `    objectOmit name=safe_user in=merged keys="['password', 'token']"`,
+        '    respond 200 json={{ {publicUser: public_user, safeUser: safe_user} }}',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('object-shape') && a.path.endsWith('.ts'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+
+      expect(code).toContain('const merged = { ...(req.body.user), ...(req.body.override), ...({ role: "member" }) };');
+      expect(code).toContain(
+        'const public_user = ((__kernSource) => Object.fromEntries(["id", "missing", "count", "enabled", "role"].map((key) => [key, (__kernSource && Object.prototype.hasOwnProperty.call(__kernSource, key)) ? __kernSource[key] : null])))',
+      );
+      expect(code).toContain(
+        'const safe_user = Object.fromEntries(Object.entries(merged || {}).filter(([key]) => !["password", "token"].includes(key)));',
+      );
+    });
   });
 });

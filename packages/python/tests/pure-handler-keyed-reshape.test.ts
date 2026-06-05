@@ -150,6 +150,47 @@ describe('pure Python handlers: keyed reshape route scope', () => {
     );
   });
 
+  test('lowers route object merge, pick, and omit nodes', () => {
+    const server = {
+      type: 'server',
+      props: { name: 'API' },
+      children: [
+        {
+          type: 'route',
+          props: { method: 'post', path: '/api/t' },
+          children: [
+            {
+              type: 'objectMerge',
+              props: { name: 'merged', sources: 'body.user, body.override, { "role": "member" }' },
+            },
+            {
+              type: 'objectPick',
+              props: { name: 'public_user', in: 'merged', keys: "['id', 'missing', 'count', 'enabled', 'role']" },
+            },
+            {
+              type: 'objectOmit',
+              props: { name: 'safe_user', in: 'merged', keys: "['password', 'token']" },
+            },
+            {
+              type: 'respond',
+              props: { status: 200, json: { __expr: true, code: '{ publicUser: public_user, safeUser: safe_user }' } },
+            },
+          ],
+        },
+      ],
+    } satisfies IRNode;
+    const handlers = emitPureHandlers(server, new Set(), server);
+    expect(handlers).toHaveLength(1);
+    const body = handlers[0].bodyLines.join('\n');
+    expect(body).toContain('merged = {**(lambda __k_src:');
+    expect(body).toContain('body.user');
+    expect(body).toContain('body.override');
+    expect(body).toContain('public_user = (lambda __k_dict, __k_keys:');
+    expect(body).toContain('for key in __k_keys');
+    expect(body).toContain('["id", "missing", "count", "enabled", "role"]');
+    expect(body).toContain('safe_user = {key: value for key, value in (lambda __k_src:');
+  });
+
   test('lowers groupBy node correctly', () => {
     const server = routeWith({ type: 'groupBy', props: { name: 'by_type', in: 'users', by: 'item.type' } });
     const handlers = emitPureHandlers(server, new Set(), server);

@@ -6,6 +6,7 @@ import {
   validatePortableLogicPrimitiveRegistry,
 } from '../src/codegen/portable-logic-primitives.js';
 import { parseDocumentWithDiagnostics } from '../src/parser.js';
+import { splitPortableExpressionList } from '../src/portable-expression-list.js';
 import { parsePortablePredicateProp, validatePortablePredicateAST } from '../src/portable-predicate.js';
 import { validateSchema } from '../src/schema.js';
 
@@ -82,6 +83,9 @@ describe('portable logic primitive registry', () => {
       '    partition pass=active fail=inactive in=users where="item.active"',
       '    indexBy name=by_id in=users by="item.id"',
       '    countBy name=counts in=users by="item.type"',
+      '    objectMerge name=merged sources="body.user, body.override"',
+      `    objectPick name=public_user in=merged keys="['id', 'missing']"`,
+      `    objectOmit name=safe_user in=merged keys="['password']"`,
       '    respond 200 json=counts',
     ].join('\n');
     const direct = parseDocumentWithDiagnostics(directRoute);
@@ -98,6 +102,16 @@ describe('portable logic primitive registry', () => {
     expect(
       validateSchema(stream.root).some((v) => /'stream' does not allow child type 'uniqueBy'/.test(v.message)),
     ).toBe(true);
+  });
+
+  test('portable expression list splitter rejects empty source expressions', () => {
+    expect(() => splitPortableExpressionList('base,,overrides', 'objectMerge sources=')).toThrow(/empty expression/);
+    expect(() => splitPortableExpressionList('base, overrides,', 'objectMerge sources=')).toThrow(/empty expression/);
+    expect(splitPortableExpressionList("base, { label: 'a,b' }, overrides", 'objectMerge sources=')).toEqual([
+      'base',
+      "{ label: 'a,b' }",
+      'overrides',
+    ]);
   });
 
   test('filter route child requires exactly one predicate form', () => {
