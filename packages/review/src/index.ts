@@ -208,7 +208,8 @@ function extractConceptsFromSource(
   return undefined;
 }
 
-export type { ProjectContextGraph } from '@kernlang/context';
+export type { ProjectContextGraph, SpineOptions } from '@kernlang/context';
+export { buildSpine } from '@kernlang/context';
 export type { CallGraph, CallSite, FunctionNode } from './call-graph.js';
 export { buildCallGraph } from './call-graph.js';
 export type { ConceptRule, ConceptRuleContext } from './concept-rules/index.js';

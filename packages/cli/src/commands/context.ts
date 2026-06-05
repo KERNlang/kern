@@ -13,12 +13,15 @@
  *   kern context src/ --out map.json
  *   kern context src/ --stdout     # print JSON to stdout instead of a file
  *   kern context src/ --max-depth 12
+ *   kern context src/ --spine --stdout            # compact <kern-map> for a prompt
+ *   kern context src/ --spine --spine-budget 3000 # cap the spine at 3000 tokens
  */
 import { existsSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
 import {
   buildCallGraph,
   buildContextArtifact,
+  buildSpine,
   type CallGraph,
   type ProjectContextGraph,
   resolveImportGraph,
@@ -39,7 +42,7 @@ const SKIP_DIRS = new Set([
 const SOURCE_EXTS = ['.ts', '.tsx', '.mts', '.cts'];
 
 /** Flags that consume the following token as their value (so it isn't a path). */
-const VALUE_FLAGS = new Set(['--out', '--max-depth', '--base']);
+const VALUE_FLAGS = new Set(['--out', '--max-depth', '--base', '--spine-budget']);
 
 /** Recursively collect source files under the given paths (files pass through). */
 export function collectSourceFiles(paths: string[]): string[] {
@@ -91,6 +94,21 @@ export function buildContextJson(paths: string[], opts: ContextOptions = {}): Pr
   return opts.base ? relativizeArtifact(artifact, opts.base) : artifact;
 }
 
+/**
+ * Build the compact, prompt-ready `<kern-map>` spine for a set of entry paths —
+ * the whole-project context an LLM/agent drops straight into a prompt. Scopes to
+ * every file in the artifact (the whole project) and fits `spineBudget` tokens
+ * (default {@link DEFAULT_SPINE_TOKENS}), degrading through tiers when the
+ * project is large. Returns '' when there are no exported symbols to surface.
+ */
+export function buildContextSpine(paths: string[], opts: ContextOptions & { spineBudget?: number } = {}): string {
+  const artifact = buildContextJson(paths, opts);
+  return buildSpine(artifact, {
+    batchFiles: artifact.files.map((f) => f.path),
+    tokenBudget: opts.spineBudget,
+  });
+}
+
 /** Rewrite all paths (files, imports, use-sites) relative to `base`. */
 function relativizeArtifact(a: ProjectContextGraph, base: string): ProjectContextGraph {
   const rel = (p: string): string => relative(base, p) || '.';
@@ -126,10 +144,26 @@ export function runContext(args: string[]): void {
   const maxDepth = Number(parseFlagOrNext(rest, '--max-depth') ?? 8);
   // Portable (relative) paths by default; --absolute keeps machine paths.
   const base = hasFlag(rest, '--absolute') ? undefined : (parseFlagOrNext(rest, '--base') ?? process.cwd());
-  const artifact = buildContextJson(paths, {
-    maxDepth: Number.isFinite(maxDepth) ? maxDepth : 8,
-    base,
-  });
+  const ctxOpts: ContextOptions = { maxDepth: Number.isFinite(maxDepth) ? maxDepth : 8, base };
+
+  // --spine: emit the compact, prompt-ready <kern-map> spine instead of the JSON
+  // artifact — the form an LLM/agent drops straight into a prompt. --spine-budget
+  // caps it (tokens); default DEFAULT_SPINE_TOKENS, degrading through tiers.
+  if (hasFlag(rest, '--spine')) {
+    const budgetArg = parseFlagOrNext(rest, '--spine-budget');
+    const spineBudget = budgetArg !== undefined && Number.isFinite(Number(budgetArg)) ? Number(budgetArg) : undefined;
+    const spine = buildContextSpine(paths, { ...ctxOpts, spineBudget });
+    if (hasFlag(rest, '--stdout')) {
+      console.log(spine);
+      return;
+    }
+    const spineOut = parseFlagOrNext(rest, '--out') ?? 'kern-context.spine.txt';
+    writeFileSync(spineOut, spine);
+    console.log(`kern context: <kern-map> spine (${spine.length} chars) → ${spineOut}`);
+    return;
+  }
+
+  const artifact = buildContextJson(paths, ctxOpts);
   const json = JSON.stringify(artifact, null, 2);
 
   if (hasFlag(rest, '--stdout')) {
