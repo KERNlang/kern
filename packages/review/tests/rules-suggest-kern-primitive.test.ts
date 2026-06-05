@@ -167,6 +167,292 @@ describe('suggest-kern-primitive rule', () => {
     expect(uniqueFindings[0].suggestion).toBe('unique name=<name> in=items');
   });
 
+  it('reports registry-backed portable Set membership logic', () => {
+    const f = kernSuggestions('const hasSelected = (new Set(items)).has(target);');
+    const portable = f.filter((x) => x.suggestion?.startsWith('portable logic primitive collection.has'));
+    expect(portable).toHaveLength(1);
+    expect(portable[0].message).toContain('collection.has');
+    expect(portable[0].message).toContain('stable: ts, python');
+    expect(portable[0].message).toContain('unsupported: go');
+  });
+
+  it('reports registry-backed portable Date epoch conversion logic', () => {
+    const f = kernSuggestions('const ms = (new Date(input)).getTime();');
+    const portable = f.filter((x) => x.suggestion?.startsWith('portable logic primitive time.epochMs'));
+    expect(portable).toHaveLength(1);
+    expect(portable[0].message).toContain('time.epochMs');
+  });
+
+  it('reports simple registry-backed portable boolean negation without mislabeling double negation', () => {
+    const f = kernSuggestions(`
+      const hidden = !visible;
+      const truthy = !!value;
+      items.filter((x) => !!x);
+    `);
+    const portable = f.filter((x) => x.suggestion?.startsWith('portable logic primitive logic.not'));
+    expect(portable).toHaveLength(1);
+    expect(portable[0].suggestion).toBe('portable logic primitive logic.not: !visible');
+  });
+
+  it('reports registry-backed portable numeric clamp logic', () => {
+    const f = kernSuggestions(`
+      const bounded = Math.max(0, Math.min(100, score));
+      const inverted = Math.min(config.max, Math.max(config.min, score));
+    `);
+    const portable = f.filter((x) => x.message.includes('number.clamp'));
+    expect(portable).toHaveLength(2);
+    expect(portable[0].suggestion).toBe('clamp name=bounded value={{ score }} min={{ 0 }} max={{ 100 }}');
+    expect(portable[1].suggestion).toBe(
+      'clamp name=inverted value={{ score }} min={{ config.min }} max={{ config.max }}',
+    );
+    expect(portable[0].message).toContain('number.clamp');
+    expect(portable[0].message).toContain('stable: ts, python');
+  });
+
+  it('keeps camelCase clamp bounds in the right suggestion positions', () => {
+    const f = kernSuggestions(`
+      const bounded = Math.min(maxValue, Math.max(minValue, score));
+    `);
+    const portable = f.filter((x) => x.message.includes('number.clamp'));
+    expect(portable).toHaveLength(1);
+    expect(portable[0].suggestion).toBe('clamp name=bounded value={{ score }} min={{ minValue }} max={{ maxValue }}');
+  });
+
+  it('falls back to generic clamp suggestion when value and bound are ambiguous', () => {
+    const f = kernSuggestions(`
+      const bounded = Math.max(a, Math.min(b, c));
+    `);
+    const portable = f.filter((x) => x.message.includes('number.clamp'));
+    expect(portable).toHaveLength(1);
+    expect(portable[0].suggestion).toBe('portable logic primitive number.clamp: Math.max(a, Math.min(b, c))');
+  });
+
+  it('does not report clamp logic when Math is shadowed or bounds can have side effects', () => {
+    const shadowed = kernSuggestions(`
+      const Math = { max: (...xs) => xs[0], min: (...xs) => xs[0] };
+      const bounded = Math.max(0, Math.min(100, score));
+    `);
+    expect(shadowed.filter((x) => x.suggestion?.includes('primitive number.clamp'))).toHaveLength(0);
+
+    const sideEffecting = kernSuggestions(`
+      const bounded = Math.max(nextLow(), Math.min(100, score));
+      const alsoNo = Math.min(100, Math.max(nextLow(), score));
+    `);
+    expect(sideEffecting.filter((x) => x.suggestion?.includes('primitive number.clamp'))).toHaveLength(0);
+
+    const nestedSideEffecting = kernSuggestions(`
+      const a = Math.max(bounds[next()], Math.min(100, score));
+      const b = Math.max(arr[i++], Math.min(100, score));
+      const c = Math.max(getBounds().low, Math.min(100, score));
+      const d = Math.max(++lo, Math.min(100, score));
+    `);
+    expect(nestedSideEffecting.filter((x) => x.suggestion?.includes('primitive number.clamp'))).toHaveLength(0);
+  });
+
+  it('does not report nested Math min/max as clamp unless a clear value operand is present', () => {
+    const constantsOnly = kernSuggestions(`
+      const folded = Math.max(0, Math.min(100, 50));
+      const alsoFolded = Math.min(100, Math.max(0, -5));
+    `);
+    expect(constantsOnly.filter((x) => x.suggestion?.includes('primitive number.clamp'))).toHaveLength(0);
+
+    const computedValue = kernSuggestions('const bounded = Math.max(0, Math.min(100, score + bonus));');
+    expect(computedValue.filter((x) => x.suggestion?.includes('primitive number.clamp'))).toHaveLength(0);
+  });
+
+  it('does not report clamp when numeric literal bounds are reversed', () => {
+    const f = kernSuggestions(`
+      const a = Math.max(100, Math.min(0, score));
+      const b = Math.min(0, Math.max(100, score));
+      const c = Math.max(0, Math.min(-1, score));
+    `);
+    expect(f.filter((x) => x.suggestion?.includes('primitive number.clamp'))).toHaveLength(0);
+  });
+
+  it('does not report numeric clamp for non-numeric literal bounds', () => {
+    const f = kernSuggestions(`
+      const a = Math.max("a", Math.min("z", score));
+      const b = Math.max(null, Math.min(true, score));
+    `);
+    expect(f.filter((x) => x.suggestion?.includes('primitive number.clamp'))).toHaveLength(0);
+  });
+
+  it('reports registry-backed portable Object data-shaping logic', () => {
+    const f = kernSuggestions(`
+      const keys = Object.keys(row);
+      const values = Object.values(row);
+      const entries = Object.entries(row);
+    `);
+    const suggestions = f.map((x) => x.suggestion ?? '');
+    expect(suggestions).toContain('portable logic primitive object.keys: Object.keys(row)');
+    expect(suggestions).toContain('portable logic primitive object.values: Object.values(row)');
+    expect(suggestions).toContain('portable logic primitive object.entries: Object.entries(row)');
+  });
+
+  it('reports registry-backed portable string data-shaping logic', () => {
+    const f = kernSuggestions(`
+      const clean = title.trim();
+      const parts = clean.split(",", 2);
+      const first = clean.replace("-", " ");
+      const all = clean.replaceAll("-", " ");
+    `);
+    const suggestions = f.map((x) => x.suggestion ?? '');
+    expect(suggestions).toContain('portable logic primitive string.trim: title.trim()');
+    expect(suggestions).toContain('portable logic primitive string.split: clean.split(",", 2)');
+    expect(suggestions).toContain('portable logic primitive string.replaceFirst: clean.replace("-", " ")');
+    expect(suggestions).toContain('portable logic primitive string.replaceAll: clean.replaceAll("-", " ")');
+  });
+
+  it('reports local string literal aliases for string search/replacement logic', () => {
+    const f = kernSuggestions(`
+      const comma = ",";
+      const dash = "-";
+      const space = " ";
+      const parts = clean.split(comma);
+      const first = clean.replace(dash, space);
+    `);
+    const suggestions = f.map((x) => x.suggestion ?? '');
+    expect(suggestions).toContain('portable logic primitive string.split: clean.split(comma)');
+    expect(suggestions).toContain('portable logic primitive string.replaceFirst: clean.replace(dash, space)');
+  });
+
+  it('does not report unresolved string search/replacement values as portable string primitives', () => {
+    const f = kernSuggestions(`
+      function parse(clean, sep, replacement) {
+        const parts = clean.split(sep);
+        const first = clean.replace("-", replacement);
+        return { parts, first };
+      }
+    `);
+    const portableString = f.filter((x) => x.suggestion?.includes('primitive string.'));
+    expect(portableString).toHaveLength(0);
+  });
+
+  it('does not report regex-backed string logic as portable string primitives', () => {
+    const f = kernSuggestions(`
+      const parts = clean.split(/,\\s*/);
+      const first = clean.replace(/-/g, " ");
+      const all = clean.replaceAll(/-/g, " ");
+    `);
+    const portableString = f.filter((x) => x.suggestion?.includes('primitive string.'));
+    expect(portableString).toHaveLength(0);
+  });
+
+  it('does not report RegExp constructor or regex variable string logic as portable string primitives', () => {
+    const f = kernSuggestions(`
+      const sep = new RegExp(",\\\\s*");
+      const dash = /-/g;
+      const colon = RegExp(":");
+      const sepAlias = sep;
+      const parts = clean.split(sep);
+      const aliasParts = clean.split(sepAlias);
+      const first = clean.replace(dash, " ");
+      const all = clean.replaceAll(colon, " ");
+      const grouped = clean.replace((/-/g), " ");
+    `);
+    const portableString = f.filter((x) => x.suggestion?.includes('primitive string.'));
+    expect(portableString).toHaveLength(0);
+  });
+
+  it('does not report replacement-callback string logic as portable string primitives', () => {
+    const f = kernSuggestions(`
+      function up(match) {
+        return match.toUpperCase();
+      }
+      const lower = (match) => match.toLowerCase();
+      const lowerAlias = lower;
+      const first = clean.replace("-", (match) => match.toUpperCase());
+      const namedFirst = clean.replace("-", up);
+      const groupedFirst = clean.replace("-", ((match) => match.toUpperCase()));
+      const all = clean.replaceAll("-", lowerAlias);
+    `);
+    const portableString = f.filter((x) => x.suggestion?.includes('primitive string.'));
+    expect(portableString).toHaveLength(0);
+  });
+
+  it('does not report replacement strings with JS substitution tokens as portable string primitives', () => {
+    const f = kernSuggestions(`
+      const first = clean.replace("-", "$&");
+      const all = clean.replaceAll("-", \`$$\`);
+    `);
+    const portableString = f.filter((x) => x.suggestion?.includes('primitive string.'));
+    expect(portableString).toHaveLength(0);
+  });
+
+  it('does not report string primitives for arities outside registry scope', () => {
+    const f = kernSuggestions(`
+      const a = title.trim("left");
+      const b = clean.split();
+      const c = clean.replace("x");
+      const d = clean.replaceAll("x");
+    `);
+    const portableString = f.filter((x) => x.suggestion?.includes('primitive string.'));
+    expect(portableString).toHaveLength(0);
+  });
+
+  it('does not report empty string search values as portable string primitives', () => {
+    const f = kernSuggestions(`
+      const empty = "";
+      const parts = clean.split("");
+      const aliasParts = clean.split(empty);
+      const first = clean.replace("", "x");
+      const all = clean.replaceAll(empty, "x");
+    `);
+    const portableString = f.filter((x) => x.suggestion?.includes('primitive string.'));
+    expect(portableString).toHaveLength(0);
+  });
+
+  it('does not recurse forever on cyclic string literal aliases', () => {
+    const f = kernSuggestions(`
+      const a = b;
+      const b = a;
+      const parts = clean.split(a);
+    `);
+    const portableString = f.filter((x) => x.suggestion?.includes('primitive string.'));
+    expect(portableString).toHaveLength(0);
+  });
+
+  it('does not report Object portable logic for non-registered methods or wrong arity', () => {
+    const f = kernSuggestions(`
+      const assigned = Object.assign({}, defaults);
+      const defined = Object.defineProperty({}, "x", {});
+      const empty = Object.keys();
+      const keys = Object.keys(assigned, defaults);
+    `);
+    const objectPortable = f.filter((x) => x.suggestion?.includes('primitive object.'));
+    expect(objectPortable).toHaveLength(0);
+  });
+
+  it('does not report Object portable logic when Object is locally shadowed', () => {
+    const f = kernSuggestions(`
+      const Object = { keys(value) { return value.customKeys; } };
+      const keys = Object.keys(row);
+    `);
+    const objectPortable = f.filter((x) => x.suggestion?.includes('primitive object.'));
+    expect(objectPortable).toHaveLength(0);
+  });
+
+  it('does not report Object portable logic when Object is imported or destructured', () => {
+    const imported = kernSuggestions(`
+      import Object from "./local-object";
+      const keys = Object.keys(row);
+    `);
+    expect(imported.filter((x) => x.suggestion?.includes('primitive object.'))).toHaveLength(0);
+
+    const destructured = kernSuggestions(`
+      const { Object } = env;
+      const keys = Object.keys(row);
+    `);
+    expect(destructured.filter((x) => x.suggestion?.includes('primitive object.'))).toHaveLength(0);
+  });
+
+  it('detects .split() with separator only as portable string.split', () => {
+    const f = kernSuggestions('const parts = line.split(",");');
+    const portableString = f.filter((x) => x.suggestion?.includes('primitive string.split'));
+    expect(portableString).toHaveLength(1);
+    expect(portableString[0].message).toContain('JS string.split is covered');
+  });
+
   it('stacks compact + pluck for `.filter(Boolean).map(x => x.name)`', () => {
     const f = kernSuggestions('const names = items.filter(Boolean).map((i) => i.name);');
     const suggestions = f.map((x) => x.suggestion ?? '');
@@ -295,6 +581,38 @@ describe('suggest-kern-primitive rule', () => {
       const f = kernSuggestions('log(`${x} items`);');
       const fmt = f.filter((x) => x.suggestion?.startsWith('fmt '));
       expect(fmt).toHaveLength(0);
+    });
+  });
+
+  // ── objectMerge detector ─────────────────────────────────────────────
+
+  describe('objectMerge detector', () => {
+    it('suggests `objectMerge` for non-mutating Object.assign({}, ...)', () => {
+      const f = kernSuggestions('const merged = Object.assign({}, base, overrides, { extra: 1 });');
+      const merge = f.filter((x) => x.suggestion?.startsWith('objectMerge '));
+      expect(merge).toHaveLength(1);
+      expect(merge[0].suggestion).toBe('objectMerge name=merged sources="base, overrides, { extra: 1 }"');
+    });
+
+    it('does NOT suggest `objectMerge` for mutating Object.assign(target, ...)', () => {
+      const f = kernSuggestions('const merged = Object.assign(base, overrides);');
+      const merge = f.filter((x) => x.suggestion?.startsWith('objectMerge '));
+      expect(merge).toHaveLength(0);
+    });
+
+    it('suggests `objectMerge` for object spread initializers', () => {
+      const f = kernSuggestions('const merged = { ...base, ...overrides, extra: 1, label: "a,b" };');
+      const merge = f.filter((x) => x.suggestion?.startsWith('objectMerge '));
+      expect(merge).toHaveLength(1);
+      expect(merge[0].suggestion).toBe(
+        'objectMerge name=merged sources="base, overrides, { extra: 1, label: \\"a,b\\" }"',
+      );
+    });
+
+    it('skips plain object literals without spreads', () => {
+      const f = kernSuggestions('const obj = { a: 1, b: 2 };');
+      const merge = f.filter((x) => x.suggestion?.startsWith('objectMerge '));
+      expect(merge).toHaveLength(0);
     });
   });
 

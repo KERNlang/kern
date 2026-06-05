@@ -247,6 +247,11 @@ export interface FmtProps extends BaseProps {
   return?: string | boolean;
 }
 
+export interface ObjectMergeProps extends BaseProps {
+  sources?: string | ExprObject;
+  type?: string;
+}
+
 export interface SetProps extends BaseProps {
   to?: string | ExprObject;
 }
@@ -326,6 +331,13 @@ export interface FlatProps extends BaseProps {
 export interface AtProps extends BaseProps {
   in?: string | ExprObject;
   index?: string | ExprObject;
+  type?: string;
+}
+
+export interface ClampProps extends BaseProps {
+  value?: string | ExprObject;
+  min?: string | ExprObject;
+  max?: string | ExprObject;
   type?: string;
 }
 
@@ -831,6 +843,8 @@ export interface NodePropsMap {
   flat: FlatProps;
   slice: SliceProps;
   at: AtProps;
+  clamp: ClampProps;
+  objectMerge: ObjectMergeProps;
   sort: SortProps;
   reverse: ReverseProps;
   join: JoinProps;

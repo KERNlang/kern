@@ -588,6 +588,93 @@ describe('emitNativeKernBodyTS — fmt body statement', () => {
   });
 });
 
+describe('emitNativeKernBodyTS — clamp body statement', () => {
+  test('emits named-field clamp as an immutable binding', () => {
+    const handler = makeHandler([
+      { type: 'clamp', props: { name: 'bounded', value: 'score', min: '0', max: '100', type: 'number' } },
+      { type: 'return', props: { value: 'bounded' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(
+      ['const bounded: number = Math.max(0, Math.min(100, score));', 'return bounded;'].join('\n'),
+    );
+  });
+
+  test('rejects propagation in clamp props', () => {
+    const handler = makeHandler([
+      { type: 'clamp', props: { name: 'bounded', value: 'loadScore()?', min: '0', max: '100' } },
+    ]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/[Pp]ropagation/);
+  });
+
+  test('emits assignment trace hook for clamp binding', () => {
+    const handler = makeHandler([{ type: 'clamp', props: { name: 'bounded', value: 'score', min: '0', max: '100' } }]);
+    expect(emitNativeKernBodyTS(handler, { traceHooks: { letAssign: true } })).toBe(
+      [
+        'const bounded = Math.max(0, Math.min(100, score));',
+        '__kernTrace({ op: "assign", target: "bounded", value: bounded });',
+      ].join('\n'),
+    );
+  });
+
+  test('unwraps expression-object clamp props', () => {
+    const handler = makeHandler([
+      {
+        type: 'clamp',
+        props: {
+          name: 'bounded',
+          value: { __expr: true, code: 'score' },
+          min: { __expr: true, code: 'limits.min' },
+          max: { __expr: true, code: 'limits.max' },
+        },
+      },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe('const bounded = Math.max(limits.min, Math.min(limits.max, score));');
+  });
+
+  test('infers kern handler language from clamp child', () => {
+    const doc = parseDocument(
+      [
+        'fn name=bounded returns=number',
+        '  handler',
+        '    clamp name=bounded value=score min=0 max=100',
+        '    return value=bounded',
+      ].join('\n'),
+    );
+    const handler = doc.children?.[0]?.children?.find((child) => child.type === 'handler');
+    expect(handler?.props?.lang).toBe('kern');
+  });
+});
+
+describe('emitNativeKernBodyTS — objectMerge body statement', () => {
+  test('emits a shallow object spread local binding', () => {
+    const handler = makeHandler([
+      { type: 'objectMerge', props: { name: 'merged', sources: 'base, overrides, { extra: 1, label: "a,b" }' } },
+      { type: 'return', props: { value: 'merged' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(
+      ['const merged = { ...(base), ...(overrides), ...({ extra: 1, label: "a,b" }) };', 'return merged;'].join('\n'),
+    );
+  });
+
+  test('rejects propagation in objectMerge sources', () => {
+    const handler = makeHandler([{ type: 'objectMerge', props: { name: 'merged', sources: 'load()?, overrides' } }]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/[Pp]ropagation/);
+  });
+
+  test('infers kern handler language from objectMerge child', () => {
+    const doc = parseDocument(
+      [
+        'fn name=merge returns=object',
+        '  handler',
+        '    objectMerge name=merged sources="base, overrides"',
+        '    return value=merged',
+      ].join('\n'),
+    );
+    const handler = doc.children?.[0]?.children?.find((child) => child.type === 'handler');
+    expect(handler?.props?.lang).toBe('kern');
+  });
+});
+
 describe('emitNativeKernBodyTS — destructure body statement (trailing)', () => {
   test('rejects propagation source inside try with try-specific guidance', () => {
     const handler = makeHandler([

@@ -276,9 +276,9 @@ describe('Host-builtin mapping (Python target)', () => {
       '    respond 200 json={{ {ks, vs, es, ok, t} }}',
     ]);
     const code = routeContent(result, 'objarrdate');
-    expect(code).toContain('list(json.loads(body.raw).keys())');
-    expect(code).toContain('list(json.loads(body.raw).values())');
-    expect(code).toContain('list(json.loads(body.raw).items())');
+    expect(code).toContain('_kern_js_object_keys(json.loads(body.raw))');
+    expect(code).toContain('_kern_js_object_values(json.loads(body.raw))');
+    expect(code).toContain('_kern_js_object_entries(json.loads(body.raw))');
     expect(code).toContain('isinstance(vs, list)');
     expect(code).toContain('int(datetime.now(timezone.utc).timestamp() * 1000)');
     expect(code).toContain('import json');
@@ -386,13 +386,34 @@ describe('Host-builtin mapping (Python target)', () => {
       '    respond 200 json={{ {ok, t} }}',
     ]);
     const code = routeContent(result, 'objarrdate_nested');
-    expect(code).toContain('isinstance(list(json.loads(body.raw).keys()), list)');
-    expect(code).toContain('list({"now": int(datetime.now(timezone.utc).timestamp() * 1000)}.items())');
+    expect(code).toContain('isinstance(_kern_js_object_keys(json.loads(body.raw)), list)');
+    expect(code).toContain('_kern_js_object_entries({"now": int(datetime.now(timezone.utc).timestamp() * 1000)})');
     expect(code).toContain('import json');
     expect(code).toContain('from datetime import datetime, timezone');
     expect(code).not.toContain('Array.isArray');
     expect(code).not.toContain('Object.keys');
     expect(code).not.toContain('Object.entries');
     expect(code).not.toContain('Date.now()');
+  });
+
+  test('portable logic primitives lower through the shared primitive registry', async () => {
+    const result = await transpile([
+      'server name=API port=8000',
+      '  route method=get path=/api/portable-logic',
+      '    derive stored expr={{[{ id: "a" }, { id: "b" }]}}',
+      '    derive defaults expr={{[{ id: "b" }, { id: "c" }]}}',
+      '    derive merged expr={{[...stored, ...defaults.filter((d) => !new Set(stored.map((s) => s.id)).has(d.id))]}}',
+      '    derive days expr={{Math.round((new Date("2026-06-10").getTime() - new Date("2026-06-03").getTime()) / 86400000)}}',
+      '    derive bools expr={{ { a: !false, b: !!false } }}',
+      '    respond 200 json={{ {merged, days, bools} }}',
+    ]);
+    const code = routeContent(result, 'portable_logic');
+    expect(code).toContain('not (d["id"]) in set([s["id"] for s in stored])');
+    expect(code).toContain('datetime.fromisoformat(str(__k_v).replace("Z", "+00:00", 1).replace("z", "+00:00", 1))');
+    expect(code).toContain('"a": not False');
+    expect(code).toContain('"b": not not False');
+    expect(code).toContain('from datetime import datetime, timezone');
+    expect(code).not.toContain('new Set');
+    expect(code).not.toContain('new Date');
   });
 });

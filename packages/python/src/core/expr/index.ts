@@ -2,14 +2,22 @@
  * Shared Python expression lowering — framework-agnostic.
  */
 
-import { lowerJsClosureBodyToPython } from '@kernlang/core';
+import { lowerJsClosureBodyToPython, PORTABLE_LOGIC_PRIMITIVES, type PortableLogicPrimitiveId } from '@kernlang/core';
 import { toSnakeCase } from '../../type-map.js';
-import { KERN_I32_HELPER_PY, KERN_JS_HELPER_PY, KERN_TMOD_HELPER_PY } from './helpers.js';
+import {
+  KERN_I32_HELPER_PY,
+  KERN_JS_HELPER_PY,
+  KERN_JS_OBJECT_HELPERS_PY,
+  KERN_JS_STRING_HELPERS_PY,
+  KERN_TMOD_HELPER_PY,
+} from './helpers.js';
 
 export {
   KERN_FMT_HELPER_PY,
   KERN_I32_HELPER_PY,
   KERN_JS_HELPER_PY,
+  KERN_JS_OBJECT_HELPERS_PY,
+  KERN_JS_STRING_HELPERS_PY,
   KERN_PAIR_HELPERS_PY,
   KERN_TMOD_HELPER_PY,
 } from './helpers.js';
@@ -508,6 +516,221 @@ function splitTopLevelArgs(inner: string): string[] {
   return args;
 }
 
+// ── Host-builtin lowering: Set.has / Date.getTime / logical-not ─────────────
+// Portable-pure constructs lifted from the fitvt/job-central R1 audit. Math/
+// Number/String/Array builtins are handled by the lower*BuiltinCalls passes
+// above; these three were the residual gap (Set membership, epoch-ms dates,
+// `!`). Same balanced-scan approach as the sibling passes.
+
+function isCustomReceiverChar(c: string | undefined): boolean {
+  return !!c && /[\w.]/.test(c);
+}
+
+function lowerSetOperandMemberRead(expr: string): string {
+  const simple = expr.match(/^([A-Za-z_]\w*)\.([A-Za-z_]\w*)$/);
+  if (simple) {
+    const [, obj, field] = simple;
+    return `(${obj}.get("${field}") if isinstance(${obj}, dict) else ${obj}.${field})`;
+  }
+  const projection = expr.match(/^\[([A-Za-z_]\w*)\.([A-Za-z_]\w*) for \1 in ([\s\S]+)\]$/);
+  if (projection) {
+    const [, obj, field, source] = projection;
+    return `[${obj}.get("${field}") if isinstance(${obj}, dict) else ${obj}.${field} for ${obj} in ${source}]`;
+  }
+  return expr;
+}
+
+// new Set(arr).has(x) → (x) in set(arr). Runs AFTER array-method lowering so a
+// `.map(...)` arg is already a comprehension.
+function lowerSetHasCalls(expr: string, _imports?: Set<string>): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+
+    const m = expr.slice(i).match(/^new\s+Set\s*\(/);
+    if (m && !isCustomReceiverChar(expr[i - 1])) {
+      const setOpen = i + m[0].length - 1;
+      const setClose = matchBalancedParen(expr, setOpen);
+      const afterSet = setClose === -1 ? '' : expr.slice(setClose + 1);
+      const hasMatch = afterSet.match(/^\s*\.has\s*\(/);
+      if (setClose !== -1 && hasMatch) {
+        const hasOpen = setClose + 1 + hasMatch[0].length - 1;
+        const hasClose = matchBalancedParen(expr, hasOpen);
+        if (hasClose !== -1) {
+          // Recurse so nested `new Set(...)` inside the args lowers too.
+          const setArg = lowerSetOperandMemberRead(lowerSetHasCalls(expr.slice(setOpen + 1, setClose).trim()));
+          const hasArg = lowerSetOperandMemberRead(lowerSetHasCalls(expr.slice(hasOpen + 1, hasClose).trim()));
+          out += `(${hasArg}) in set(${setArg})`;
+          i = hasClose + 1;
+          continue;
+        }
+      }
+    }
+
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
+// new Date(arg).getTime() → epoch milliseconds. Runs BEFORE Math builtins so a
+// surrounding Math.round sees an integer.
+function lowerDateGetTimeCalls(expr: string, imports?: Set<string>): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+
+    const m = expr.slice(i).match(/^new\s+Date\s*\(/);
+    if (m && !isCustomReceiverChar(expr[i - 1])) {
+      const openIdx = i + m[0].length - 1;
+      const closeIdx = matchBalancedParen(expr, openIdx);
+      if (closeIdx !== -1 && expr.slice(closeIdx + 1).match(/^\s*\.getTime\s*\(\s*\)/)) {
+        const tail = expr.slice(closeIdx + 1).match(/^\s*\.getTime\s*\(\s*\)/)![0];
+        // Recurse so nested new Date(...).getTime() inside the arg lowers too.
+        const arg = lowerDateGetTimeCalls(expr.slice(openIdx + 1, closeIdx).trim(), imports);
+        imports?.add('from datetime import datetime, timezone');
+        // Branch on the runtime value: JS `new Date(n)` accepts epoch-ms numbers
+        // (getTime() returns n), else parse an ISO string. Case-insensitive Z.
+        // KNOWN LIMITATIONS (tracked follow-ups, beyond the R1 surface): a
+        // date-only string carrying a TZ offset ("2026-06-03Z") and non-ISO
+        // formats still raise in fromisoformat.
+        out +=
+          `(lambda __k_v: int(__k_v) if isinstance(__k_v, (int, float)) ` +
+          `else int((lambda __k_dt: (__k_dt if __k_dt.tzinfo is not None else __k_dt.replace(tzinfo=timezone.utc)).timestamp() * 1000)` +
+          `(datetime.fromisoformat(str(__k_v).replace("Z", "+00:00").replace("z", "+00:00")))))(${arg})`;
+        i = closeIdx + 1 + tail.length;
+        continue;
+      }
+    }
+
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
+// `!` → Python `not `. Skips `!=`/`!==`. Runs after the operator/Set passes.
+function lowerLogicalNot(expr: string, _imports?: Set<string>): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    // KNOWN LIMITATION (tracked follow-up): `not` binds looser than comparison
+    // in Python, so `!a < b` (JS: `(!a) < b`) lowers to `not a < b` (Python:
+    // `not (a < b)`). Safe for the boolean-connective uses in the R1 surface.
+    if (c === '!' && expr[i + 1] !== '=') {
+      out += 'not ';
+      i += 1;
+      while (i < expr.length && /\s/.test(expr[i])) i += 1;
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
+type PythonPortableLogicPhase = 'beforeMath' | 'afterArrayMethods' | 'final';
+
+interface PythonPortableLogicLowering {
+  primitive: PortableLogicPrimitiveId;
+  phase: PythonPortableLogicPhase;
+  lower: (expr: string, imports?: Set<string>) => string;
+}
+
+const PYTHON_PORTABLE_LOGIC_LOWERINGS: readonly PythonPortableLogicLowering[] = [
+  {
+    primitive: 'time.epochMs',
+    phase: 'beforeMath',
+    lower: lowerDateGetTimeCalls,
+  },
+  {
+    primitive: 'collection.has',
+    phase: 'afterArrayMethods',
+    lower: lowerSetHasCalls,
+  },
+  {
+    primitive: 'logic.not',
+    phase: 'final',
+    lower: lowerLogicalNot,
+  },
+] as const;
+
+for (const entry of PYTHON_PORTABLE_LOGIC_LOWERINGS) {
+  if (PORTABLE_LOGIC_PRIMITIVES[entry.primitive].targets.python !== 'stable') {
+    throw new Error(`Portable logic primitive '${entry.primitive}' is not stable on the Python target.`);
+  }
+}
+
+function lowerPortableLogicPrimitives(
+  expr: string,
+  imports: Set<string> | undefined,
+  phase: PythonPortableLogicPhase,
+): string {
+  let result = expr;
+  for (const entry of PYTHON_PORTABLE_LOGIC_LOWERINGS) {
+    if (entry.phase !== phase) continue;
+    result = entry.lower(result, imports);
+  }
+  return result;
+}
+
 // Lower JSON.stringify(...) / JSON.parse(...) to json.dumps/loads. Uses a
 // balanced, string-aware scan because the single argument can itself contain
 // commas, nested parens, brackets, braces, or string literals.
@@ -896,7 +1119,7 @@ function lowerStringBuiltinCalls(expr: string): string {
 }
 
 // Lower the argument-taking JS String methods.
-function lowerStringArgMethods(expr: string): string {
+function lowerStringArgMethods(expr: string, imports?: Set<string>): string {
   let out = '';
   let i = 0;
   let quote: string | null = null;
@@ -925,9 +1148,17 @@ function lowerStringArgMethods(expr: string): string {
       if (closeIdx !== -1) {
         const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));
         if (args.length === 2 && !args[0].trim().startsWith('/')) {
-          const a0 = lowerStringArgMethods(args[0]).trim();
-          const a1 = lowerStringArgMethods(args[1]).trim();
-          out += `.replace(${a0}, ${a1})`;
+          const a0 = lowerStringArgMethods(args[0], imports).trim();
+          const a1 = lowerStringArgMethods(args[1], imports).trim();
+          const receiverStart = findReceiverStart(out);
+          if (receiverStart !== -1 && !isStringLiteralWithoutDollar(a1)) {
+            imports?.add(KERN_JS_STRING_HELPERS_PY);
+            const receiver = out.slice(receiverStart);
+            const pre = out.slice(0, receiverStart);
+            out = `${pre}_kern_js_replace(${receiver}, ${a0}, ${a1}, True)`;
+          } else {
+            out += `.replace(${a0}, ${a1})`;
+          }
           i = closeIdx + 1;
           continue;
         }
@@ -939,9 +1170,17 @@ function lowerStringArgMethods(expr: string): string {
       if (closeIdx !== -1) {
         const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));
         if (args.length === 2 && !args[0].trim().startsWith('/')) {
-          const a0 = lowerStringArgMethods(args[0]).trim();
-          const a1 = lowerStringArgMethods(args[1]).trim();
-          out += `.replace(${a0}, ${a1}, 1)`;
+          const a0 = lowerStringArgMethods(args[0], imports).trim();
+          const a1 = lowerStringArgMethods(args[1], imports).trim();
+          const receiverStart = findReceiverStart(out);
+          if (receiverStart !== -1 && !isStringLiteralWithoutDollar(a1)) {
+            imports?.add(KERN_JS_STRING_HELPERS_PY);
+            const receiver = out.slice(receiverStart);
+            const pre = out.slice(0, receiverStart);
+            out = `${pre}_kern_js_replace(${receiver}, ${a0}, ${a1}, False)`;
+          } else {
+            out += `.replace(${a0}, ${a1}, 1)`;
+          }
           i = closeIdx + 1;
           continue;
         }
@@ -1006,7 +1245,9 @@ function lowerStringArgMethods(expr: string): string {
       const openIdx = i + '.repeat('.length - 1;
       const closeIdx = matchBalancedParen(expr, openIdx);
       if (closeIdx !== -1) {
-        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) => lowerStringArgMethods(a).trim());
+        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) =>
+          lowerStringArgMethods(a, imports).trim(),
+        );
         const n = args[0] ?? '0';
         const receiverStart = findReceiverStart(out);
         if (receiverStart !== -1) {
@@ -1022,9 +1263,21 @@ function lowerStringArgMethods(expr: string): string {
       const openIdx = i + '.split('.length - 1;
       const closeIdx = matchBalancedParen(expr, openIdx);
       if (closeIdx !== -1) {
-        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) => lowerStringArgMethods(a).trim());
+        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) =>
+          lowerStringArgMethods(a, imports).trim(),
+        );
+        if (args.length >= 1 && isEmptyStringLiteral(args[0])) {
+          const receiverStart = findReceiverStart(out);
+          if (receiverStart !== -1) {
+            const receiver = out.slice(receiverStart);
+            const pre = out.slice(0, receiverStart);
+            out = `${pre}list(${receiver})${args.length === 2 ? `[:${lowerSplitLimit(args[1], imports)}]` : ''}`;
+            i = closeIdx + 1;
+            continue;
+          }
+        }
         if (args.length === 2) {
-          out += `.split(${args[0]})[:${args[1]}]`;
+          out += `.split(${args[0]})[:${lowerSplitLimit(args[1], imports)}]`;
           i = closeIdx + 1;
           continue;
         }
@@ -1034,6 +1287,22 @@ function lowerStringArgMethods(expr: string): string {
     i += 1;
   }
   return out;
+}
+
+function isEmptyStringLiteral(expr: string): boolean {
+  const t = expr.trim();
+  return t === '""' || t === "''" || t === '``';
+}
+
+function isStringLiteralWithoutDollar(expr: string): boolean {
+  const t = expr.trim();
+  if (t.includes('$') || t.includes('\\')) return false;
+  return /^(?:"[^"]*"|'[^']*'|`[^`]*`)$/.test(t);
+}
+
+function lowerSplitLimit(limit: string, imports?: Set<string>): string {
+  imports?.add(KERN_JS_STRING_HELPERS_PY);
+  return `_kern_js_split_limit(${limit})`;
 }
 
 // Lower selected Object/Array/Date host builtins in portable expressions.
@@ -1101,10 +1370,16 @@ function lowerObjectArrayDateBuiltinCalls(expr: string, imports?: Set<string>): 
                 : `''.join(chr(__c) for __c in [${args.join(', ')}])`;
         } else {
           const arg = lowerObjectArrayDateBuiltinCalls(rawArgs, imports).trim();
-          if (method === 'Object.keys') out += `list(${arg}.keys())`;
-          else if (method === 'Object.values') out += `list(${arg}.values())`;
-          else if (method === 'Object.entries') out += `list(${arg}.items())`;
-          else out += `isinstance(${arg}, list)`;
+          if (method === 'Object.keys') {
+            imports?.add(KERN_JS_OBJECT_HELPERS_PY);
+            out += `_kern_js_object_keys(${arg})`;
+          } else if (method === 'Object.values') {
+            imports?.add(KERN_JS_OBJECT_HELPERS_PY);
+            out += `_kern_js_object_values(${arg})`;
+          } else if (method === 'Object.entries') {
+            imports?.add(KERN_JS_OBJECT_HELPERS_PY);
+            out += `_kern_js_object_entries(${arg})`;
+          } else out += `isinstance(${arg}, list)`;
         }
         i = closeIdx + 1;
         continue;
@@ -1778,11 +2053,14 @@ export function rewriteExpr(
 
   result = lowerPortableJsOperators(result, imports);
   result = lowerJsonBuiltinCalls(result, imports);
+  result = lowerPortableLogicPrimitives(result, imports, 'beforeMath'); // before Math: Math.round wraps date diffs
   result = lowerMathBuiltinCalls(result, imports);
   result = lowerNumberBuiltinCalls(result, imports);
   result = lowerStringBuiltinCalls(result);
-  result = lowerStringArgMethods(result);
+  result = lowerStringArgMethods(result, imports);
   result = lowerObjectArrayDateBuiltinCalls(result, imports);
+  result = lowerPortableLogicPrimitives(result, imports, 'afterArrayMethods'); // Set arg may be a .map() comprehension
+  result = lowerPortableLogicPrimitives(result, imports, 'final'); // applies to lowered membership/boolean
   result = quoteObjectKeysOutsideStrings(result);
 
   for (const replacement of replacements) {
@@ -1977,7 +2255,7 @@ function parseTokens(tokens: Token[]): ASTNode {
 
     while (true) {
       const next = peek();
-      if (!next || next.type !== 'OP') break;
+      if (next?.type !== 'OP') break;
 
       const opPrecedence = getPrecedence(next.value);
       if (opPrecedence < precedence) break;

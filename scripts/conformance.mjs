@@ -420,6 +420,18 @@ const FIXTURES = [
     params: [{ name: 'n', type: 'number', value: 3 }, { name: 'min', type: 'number', value: 10 }],
     body: `let name=v value="n * 2"\nif cond="v > min"\n  return value="{ big: true, v: v }"\nelse\n  return value="{ big: false, v: v }"`,
     expected: { big: false, v: 6 } },
+  { kind: 'stmt', name: 'stmt: objectMerge shallow last-write-wins',
+    params: [{ name: 'base', type: 'object', value: { a: 1, b: 2 } }, { name: 'overrides', type: 'object', value: { b: 9, c: 3 } }],
+    body: `objectMerge name=merged sources="base, overrides, { d: 4 }"\nreturn value="merged"`,
+    expected: { a: 1, b: 9, c: 3, d: 4 } },
+  { kind: 'stmt', name: 'stmt: objectMerge preserves falsy override values',
+    params: [{ name: 'base', type: 'object', value: { count: 5, label: 'x', enabled: true } }, { name: 'overrides', type: 'object', value: { count: 0, label: '', enabled: false } }],
+    body: `objectMerge name=merged sources="base, overrides"\nreturn value="merged"`,
+    expected: { count: 0, label: '', enabled: false } },
+  { kind: 'stmt', name: 'stmt: objectMerge parses nested literal commas',
+    params: [{ name: 'base', type: 'object', value: { a: 1 } }],
+    body: `objectMerge name=merged sources="base, { nested: { text: 'a,b', list: [1, 2] } }"\nreturn value="merged"`,
+    expected: { a: 1, nested: { text: 'a,b', list: [1, 2] } } },
   { kind: 'stmt', name: 'stmt: while loop accumulates (mutable kind=let)',
     params: [{ name: 'n', type: 'number', value: 5 }, { name: 'min', type: 'number', value: 0 }],
     body: `let name=total value="0" kind=let\nlet name=i value="0" kind=let\nwhile cond="i < n"\n  assign target="total" value="total + i"\n  assign target="i" value="i + 1"\nreturn value="{ total: total }"`,
@@ -440,6 +452,18 @@ const FIXTURES = [
     params: [{ name: 'bad', type: 'string', value: '{' }, { name: 'min', type: 'number', value: 0 }],
     body: `let name=log value="''" kind=let\nlet name=tmp value="0" kind=let\ntry\n  assign target="log" value="log + 'a'"\n  assign target="tmp" value="JSON.parse(bad)"\n  assign target="log" value="log + 'b'"\n  catch name=err type=any\n    assign target="log" value="log + 'X'"\nreturn value="{ log: log }"`,
     expected: { log: 'aX' } },
+  { kind: 'stmt', name: 'stmt: clamp below min via KERN-owned body node',
+    params: [{ name: 'score', type: 'number', value: -5 }, { name: 'lo', type: 'number', value: 0 }, { name: 'hi', type: 'number', value: 100 }],
+    body: `clamp name=bounded value=score min=lo max=hi\nreturn value="{ bounded: bounded }"`,
+    expected: { bounded: 0 } },
+  { kind: 'stmt', name: 'stmt: clamp above max via KERN-owned body node',
+    params: [{ name: 'score', type: 'number', value: 125 }, { name: 'lo', type: 'number', value: 0 }, { name: 'hi', type: 'number', value: 100 }],
+    body: `clamp name=bounded value=score min=lo max=hi\nreturn value="{ bounded: bounded }"`,
+    expected: { bounded: 100 } },
+  { kind: 'stmt', name: 'stmt: clamp keeps in-range float via KERN-owned body node',
+    params: [{ name: 'score', type: 'number', value: 12.5 }, { name: 'lo', type: 'number', value: -10 }, { name: 'hi', type: 'number', value: 20 }],
+    body: `clamp name=bounded value=score min=lo max=hi\nreturn value="{ bounded: bounded }"`,
+    expected: { bounded: 12.5 } },
 
   // ── BLOCK SCOPE oracle (memory's #6 known divergence; deferred from #1 slice 1). ───
   // TS `let` is block-scoped, Python assignment is function-scoped. Discriminating fixtures:
@@ -605,10 +629,32 @@ const FIXTURES = [
   { name: 'obj-more: Object.assign merges', expr: 'Object.assign({}, o1, o2)', path: '/api/o', bindings: { locals: { o1: { a: 1 }, o2: { b: 2 } } }, expected: { a: 1, b: 2 } },
   { name: 'obj-more: Object.fromEntries', expr: 'Object.fromEntries(pairs)', path: '/api/o', bindings: { locals: { pairs: [['a', 1], ['b', 2]] } }, expected: { a: 1, b: 2 } },
 
+  // ── portable-logic-matrix: object/text traps behind the registry contract ──
+  { name: 'portable-logic-matrix: Object.keys numeric-like order', expr: 'Object.keys({"2":"two","1":"one","x":"ex"})', path: '/api/pl', bindings: {}, expected: ['1', '2', 'x'] },
+  { name: 'portable-logic-matrix: Object.values numeric-like order', expr: 'Object.values({"2":"two","1":"one","x":"ex"})', path: '/api/pl', bindings: {}, expected: ['one', 'two', 'ex'] },
+  { name: 'portable-logic-matrix: Object.entries numeric-like order', expr: 'Object.entries({"2":"two","1":"one","x":"ex"})', path: '/api/pl', bindings: {}, expected: [['1', 'one'], ['2', 'two'], ['x', 'ex']] },
+  { name: 'portable-logic-matrix: Object.keys number primitive is empty', expr: 'Object.keys(42)', path: '/api/pl', bindings: {}, expected: [] },
+  { name: 'portable-logic-matrix: trim NBSP', expr: 's.trim()', path: '/api/pl', bindings: { locals: { s: '\u00a0hi\u00a0' } }, expected: 'hi' },
+  { name: 'portable-logic-matrix: split limit keeps first N only', expr: 's.split(",", 2)', path: '/api/pl', bindings: { locals: { s: 'a,b,c,d' } }, expected: ['a', 'b'] },
+  { name: 'portable-logic-matrix: split float limit truncates', expr: 's.split(",", 2.9)', path: '/api/pl', bindings: { locals: { s: 'a,b,c,d' } }, expected: ['a', 'b'] },
+  { name: 'portable-logic-matrix: split negative limit keeps all', expr: 's.split(",", -1)', path: '/api/pl', bindings: { locals: { s: 'a,b,c,d' } }, expected: ['a', 'b', 'c', 'd'] },
+  { name: 'portable-logic-matrix: split uint32 wrap to zero', expr: 's.split(",", 4294967296)', path: '/api/pl', bindings: { locals: { s: 'a,b,c,d' } }, expected: [] },
+  { name: 'portable-logic-matrix: split empty separator chars', expr: 's.split("")', path: '/api/pl', bindings: { locals: { s: 'abc' } }, expected: ['a', 'b', 'c'] },
+  { name: 'portable-logic-matrix: split empty separator limit', expr: 's.split("", 2)', path: '/api/pl', bindings: { locals: { s: 'abc' } }, expected: ['a', 'b'] },
+  { name: 'portable-logic-matrix: split empty separator negative limit', expr: 's.split("", -1)', path: '/api/pl', bindings: { locals: { s: 'abc' } }, expected: ['a', 'b', 'c'] },
+  { name: 'portable-logic-matrix: replace first occurrence only', expr: 's.replace("a", "X")', path: '/api/pl', bindings: { locals: { s: 'banana' } }, expected: 'bXnana' },
+  { name: 'portable-logic-matrix: replaceAll all occurrences', expr: 's.replaceAll("a", "X")', path: '/api/pl', bindings: { locals: { s: 'banana' } }, expected: 'bXnXnX' },
+  { name: 'portable-logic-matrix: replace replacement match token', expr: 's.replace("a", "$&")', path: '/api/pl', bindings: { locals: { s: 'banana' } }, expected: 'banana' },
+  { name: 'portable-logic-matrix: replace escaped dollar replacement token', expr: 's.replace("a", "\\u0024&")', path: '/api/pl', bindings: { locals: { s: 'banana' } }, expected: 'banana' },
+  { name: 'portable-logic-matrix: replace replacement prefix token', expr: 's.replace("n", "$`")', path: '/api/pl', bindings: { locals: { s: 'banana' } }, expected: 'babaana' },
+  { name: 'portable-logic-matrix: replaceAll escaped dollar token', expr: 's.replaceAll("a", "$$")', path: '/api/pl', bindings: { locals: { s: 'banana' } }, expected: 'b$n$n$' },
+
   // ── math-more: Math.sign not lowered → NameError on Python ──
   { name: 'math-more: Math.sign(-5)', expr: 'Math.sign(x)', path: '/api/m', bindings: { locals: { x: -5 } }, expected: -1 },
   { name: 'math-more: Math.sign(0)', expr: 'Math.sign(x)', path: '/api/m', bindings: { locals: { x: 0 } }, expected: 0 },
   { name: 'math-more: Math.sign(3)', expr: 'Math.sign(x)', path: '/api/m', bindings: { locals: { x: 3 } }, expected: 1 },
+  { name: 'math-more: clamp via Math.max/min', expr: 'Math.max(lo, Math.min(hi, value))', path: '/api/m', bindings: { locals: { lo: 0, hi: 10, value: 42 } }, expected: 10 },
+  { name: 'math-more: clamp via Math.min/max inverted order', expr: 'Math.min(hi, Math.max(lo, value))', path: '/api/m', bindings: { locals: { lo: 0, hi: 10, value: -5 } }, expected: 0 },
 
   // ──────────────────────────────────────────────────────────────────────────
   // PARITY GOAL ORACLE — RUN 2 (-extra slices, 2026-05-27). Same differential
@@ -681,6 +727,14 @@ const FIXTURES = [
   { name: 'op-extra: ?? keeps falsy 0 (null-only, not falsy)', expr: 'a ?? b', path: '/api/o', bindings: { locals: { a: 0, b: 5 } }, expected: 0 },
   { name: 'op-extra: ?? keeps empty string (null-only, not falsy)', expr: 'a ?? b', path: '/api/o', bindings: { locals: { a: '', b: 'x' } }, expected: '' },
   { name: 'op-extra: ?? with a string-literal operand containing stop chars', expr: 'a ?? "x:y?z"', path: '/api/o', bindings: { locals: { a: null } }, expected: 'x:y?z' },
+  // ── R1 probe (job-central residual): Set.has / Date.getTime / logical-not ──
+  // Probes whether dev's parity engine already covers these. Whatever is RED is
+  // the genuine net-new gap to implement (Math.round already lands on dev).
+  { name: 'R1 probe: Set dedup merge (mergeDefaults)', expr: '[...stored, ...defaults.filter((d) => !new Set(stored.map((s) => s.id)).has(d.id))]', path: '/api/r1m', bindings: { locals: { stored: [{ id: 'a' }, { id: 'b' }], defaults: [{ id: 'b' }, { id: 'c' }] } }, expected: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] },
+  { name: 'R1 probe: Set membership present/absent', expr: '[new Set(ids).has("b"), new Set(ids).has("z")]', path: '/api/r1s', bindings: { locals: { ids: ['a', 'b', 'c'] } }, expected: [true, false] },
+  { name: 'R1 probe: Date diff in days', expr: 'Math.round((new Date(target).getTime() - new Date(today).getTime()) / 86400000)', path: '/api/r1d', bindings: { locals: { target: '2026-06-10', today: '2026-06-03' } }, expected: 7 },
+  { name: 'R1 probe: Date from numeric epoch-ms', expr: 'new Date(ms).getTime()', path: '/api/r1n', bindings: { locals: { ms: 86400000 } }, expected: 86400000 },
+  { name: 'R1 probe: logical not and double-not', expr: '{ a: !flag, b: !!flag }', path: '/api/r1not', bindings: { locals: { flag: false } }, expected: { a: true, b: false } },
 ];
 
 // ── Value → literal emitters ────────────────────────────────────────────────

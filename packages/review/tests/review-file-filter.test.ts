@@ -12,37 +12,54 @@ describe('Review engine file-type filter', () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  it('isReviewableFile matches supported extensions and rejects docs/config/binary files', () => {
+  it('isReviewableFile matches code, kern, and config-file extensions; rejects binary/unsupported', () => {
+    // Code + script + kern + python all reviewable as before.
     for (const ext of ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.kern', '.py']) {
       expect(isReviewableFile(`a${ext}`)).toBe(true);
     }
-    for (const path of [
-      'AGON.md',
-      'package.json',
-      'tsconfig.json',
-      'patches/ink+5.2.1.patch',
-      'config.yaml',
-      'README',
-      'image.png',
-    ]) {
+    // Config-file analyzers in 3.6.0 — JSON/JSONC/Markdown now flow through
+    // the same review pipeline (parallel non-ts-morph path under
+    // src/config-files/). They emit focused structural findings only.
+    for (const path of ['AGON.md', 'README.md', 'package.json', 'tsconfig.json', 'settings.jsonc']) {
+      expect(isReviewableFile(path)).toBe(true);
+    }
+    // Still unreviewable — no analyzer for these.
+    for (const path of ['patches/ink+5.2.1.patch', 'config.yaml', 'config.toml', 'README', 'image.png']) {
       expect(isReviewableFile(path)).toBe(false);
+    }
+    // `.env` family is routed by basename, not extension (`.env.local` has
+    // extension `.local` under the simple lastIndexOf shortcut).
+    for (const path of ['.env', '.env.local', '.env.production', '.env.example']) {
+      expect(isReviewableFile(path)).toBe(true);
     }
   });
 
-  it('reviewFile returns an empty report for .md files (no extra-code noise on docs)', () => {
+  it('reviewFile yields zero findings on a clean .md (well-structured headings, no images)', () => {
     const md = join(tmp, 'README.md');
-    writeFileSync(md, '# Project\n\nSome prose with many lines.\n\n## Section\n\nMore text.\n');
+    const source = '# Project\n\nSome prose with many lines.\n\n## Section\n\nMore text.\n';
+    writeFileSync(md, source);
     const report = reviewFile(md);
+    // Clean markdown — no skipped heading levels (h1 → h2 is fine), no images.
     expect(report.findings).toEqual([]);
     expect(report.inferred).toEqual([]);
-    expect(report.stats.totalLines).toBe(0);
+    // Stats reflect the real file size now that .md is analyzed.
+    expect(report.stats.totalLines).toBe(source.split('\n').length);
   });
 
-  it('reviewFile returns an empty report for package.json', () => {
+  it('reviewFile yields zero findings on a clean package.json (no duplicate keys, parses cleanly)', () => {
     const pkg = join(tmp, 'package.json');
     writeFileSync(pkg, JSON.stringify({ name: 'x', version: '1.0.0', scripts: { test: 'echo' } }, null, 2));
     const report = reviewFile(pkg);
     expect(report.findings).toEqual([]);
+  });
+
+  it('reviewFile surfaces a parse error on malformed JSON (proves the config path actually runs)', () => {
+    const pkg = join(tmp, 'broken.json');
+    writeFileSync(pkg, '{"name": "x"');
+    const report = reviewFile(pkg);
+    const parseErrs = report.findings.filter((f) => f.ruleId.startsWith('json/parse/'));
+    expect(parseErrs.length).toBeGreaterThan(0);
+    expect(parseErrs[0]?.severity).toBe('error');
   });
 
   it('reviewFile returns an empty report for .patch files', () => {

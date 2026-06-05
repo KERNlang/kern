@@ -38,12 +38,14 @@ import {
   generateAction,
   generateAssume,
   generateBranch,
+  generateClamp,
   generateCollect,
   generateDerive,
   generateEach,
   generateExpect,
   generateGuard,
   generateInvariant,
+  generateObjectMerge,
   generateRecover,
   generateResolve,
   generateTransform,
@@ -86,12 +88,14 @@ export {
   generateAction,
   generateAssume,
   generateBranch,
+  generateClamp,
   generateCollect,
   generateDerive,
   generateEach,
   generateExpect,
   generateGuard,
   generateInvariant,
+  generateObjectMerge,
   generateRecover,
   generateResolve,
   generateTransform,
@@ -166,6 +170,10 @@ export function generatePythonCoreNode(node: IRNode, options: PythonCodegenOptio
     // Ground layer
     case 'derive':
       return generateDerive(node);
+    case 'clamp':
+      return generateClamp(node);
+    case 'objectMerge':
+      return generateObjectMerge(node);
     case 'transform':
       return generateTransform(node);
     case 'action':

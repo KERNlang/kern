@@ -45,6 +45,7 @@ export {
   generateAt,
   generateAvg,
   generateChunk,
+  generateClamp,
   generateCollect,
   generateCompact,
   generateConcat,
@@ -76,6 +77,7 @@ export {
   generateMaxBy,
   generateMin,
   generateMinBy,
+  generateObjectMerge,
   generatePartition,
   generatePattern,
   generatePluck,
@@ -164,6 +166,7 @@ import {
   generateAt,
   generateAvg,
   generateChunk,
+  generateClamp,
   generateCollect,
   generateCompact,
   generateConcat,
@@ -195,6 +198,7 @@ import {
   generateMaxBy,
   generateMin,
   generateMinBy,
+  generateObjectMerge,
   generatePartition,
   generatePattern,
   generatePluck,
@@ -645,6 +649,8 @@ export const CORE_NODE_TYPES = new Set([
   'flat',
   'slice',
   'at',
+  'clamp',
+  'objectMerge',
   'sort',
   'reverse',
   'join',
@@ -853,6 +859,10 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return generateSlice(node);
     case 'at':
       return generateAt(node);
+    case 'clamp':
+      return generateClamp(node);
+    case 'objectMerge':
+      return generateObjectMerge(node);
     case 'sort':
       return generateSort(node);
     case 'reverse':
