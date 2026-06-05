@@ -10,19 +10,7 @@ describe('RESERVED_FUTURE_NAMES', () => {
   });
 
   test('expected names are reserved', () => {
-    for (const name of [
-      'Result',
-      'Option',
-      'loop',
-      'match',
-      'coalesce',
-      'pipe',
-      'enum',
-      'generator',
-      'yield',
-      'use',
-      'from',
-    ]) {
+    for (const name of ['Result', 'Option', 'loop', 'match', 'pipe', 'enum', 'generator', 'yield', 'use', 'from']) {
       expect(KERN_RESERVED.has(name)).toBe(true);
     }
   });
@@ -36,6 +24,8 @@ describe('RESERVED_FUTURE_NAMES', () => {
 
   test('registerEvolvedType throws on a core node type', () => {
     expect(() => registerEvolvedType('button')).toThrow(/reserved/);
+    expect(() => registerEvolvedType('coalesce')).toThrow(/reserved/);
+    expect(() => registerEvolvedType('firstDefined')).toThrow(/reserved/);
   });
 
   test('registerEvolvedType still accepts non-reserved names', () => {

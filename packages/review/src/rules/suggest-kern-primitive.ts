@@ -35,6 +35,7 @@ import {
 } from '@kernlang/core';
 import type {
   ArrowFunction,
+  BinaryExpression,
   CallExpression,
   FunctionDeclaration,
   FunctionExpression,
@@ -603,6 +604,202 @@ function variableNameForInitializer(expr: TsNode): string | null {
   return Node.isIdentifier(nameNode) ? nameNode.getText() : null;
 }
 
+function formatKernStringListForQuotedProp(keys: string[]): string {
+  return `[${keys.map((key) => `'${escapeKernSingleQuotedStringForQuotedProp(key)}'`).join(', ')}]`;
+}
+
+function escapeKernSingleQuotedStringForQuotedProp(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t');
+}
+
+function objectPickFinding(
+  ctx: RuleContext,
+  node: TsNode,
+  name: string,
+  source: string,
+  keys: string[],
+): ReviewFinding {
+  const formattedKeys = formatKernStringListForQuotedProp(keys);
+  const sourceValue = toKernInValue(source);
+  return finding(
+    'suggest-kern-primitive',
+    'info',
+    'pattern',
+    'JS shallow object pick could migrate to KERN `objectPick` — shallow own string-key record selection',
+    ctx.filePath,
+    node.getStartLineNumber(),
+    nodeColumn(node),
+    { suggestion: `objectPick name=${name} in=${sourceValue} keys="${formattedKeys}"` },
+  );
+}
+
+function objectOmitFinding(
+  ctx: RuleContext,
+  node: TsNode,
+  name: string,
+  source: string,
+  keys: string[],
+): ReviewFinding {
+  const formattedKeys = formatKernStringListForQuotedProp(keys);
+  const sourceValue = toKernInValue(source);
+  return finding(
+    'suggest-kern-primitive',
+    'info',
+    'pattern',
+    'JS shallow object omit could migrate to KERN `objectOmit` — shallow own string-key record omission',
+    ctx.filePath,
+    node.getStartLineNumber(),
+    nodeColumn(node),
+    { suggestion: `objectOmit name=${name} in=${sourceValue} keys="${formattedKeys}"` },
+  );
+}
+
+function destructuredPropertyNameText(node: TsNode): string | null {
+  if (Node.isIdentifier(node)) return node.getText();
+  if (Node.isStringLiteral(node) || Node.isNumericLiteral(node)) return node.getLiteralText();
+  return null;
+}
+
+function firstTruthySuggestion(expr: BinaryExpression): { name: string; values: string } | null {
+  if (expr.getOperatorToken().getKind() !== SyntaxKind.BarBarToken) return null;
+  const name = variableNameForInitializer(expr);
+  if (!name) return null;
+
+  const values = flattenOrChain(expr);
+  if (values.length < 2) return null;
+  if (isObviousBooleanPredicateFallback(name, values)) return null;
+
+  return { name, values: values.map((value) => value.getText()).join(', ') };
+}
+
+function flattenOrChain(expr: BinaryExpression): TsNode[] {
+  const left = expr.getLeft();
+  const right = expr.getRight();
+  const out: TsNode[] = [];
+  if (Node.isBinaryExpression(left) && left.getOperatorToken().getKind() === SyntaxKind.BarBarToken) {
+    out.push(...flattenOrChain(left));
+  } else {
+    out.push(left);
+  }
+  if (Node.isBinaryExpression(right) && right.getOperatorToken().getKind() === SyntaxKind.BarBarToken) {
+    out.push(...flattenOrChain(right));
+  } else {
+    out.push(right);
+  }
+  return out;
+}
+
+function isObviousBooleanPredicateFallback(name: string, values: TsNode[]): boolean {
+  if (values.length !== 2) return false;
+  const text = [name, ...values.map((value) => value.getText())];
+  return text.every(looksLikeBooleanPredicateName);
+}
+
+function looksLikeBooleanPredicateName(value: string): boolean {
+  return /^(?:is|has|can|should|did|will|ok|valid|enabled|ready|active)(?:[A-Z_]|$)/.test(value);
+}
+
+function coalesceSuggestion(expr: BinaryExpression): { name: string; values: string } | null {
+  if (expr.getOperatorToken().getKind() !== SyntaxKind.QuestionQuestionToken) return null;
+  const name = variableNameForInitializer(expr);
+  if (!name) return null;
+
+  const values = flattenQuestionQuestionChain(expr);
+  if (values.length < 2) return null;
+
+  return { name, values: values.map((value) => value.getText()).join(', ') };
+}
+
+function flattenQuestionQuestionChain(expr: BinaryExpression): TsNode[] {
+  const left = unwrapParenthesizedExpression(expr.getLeft());
+  const right = unwrapParenthesizedExpression(expr.getRight());
+  const out: TsNode[] = [];
+  if (Node.isBinaryExpression(left) && left.getOperatorToken().getKind() === SyntaxKind.QuestionQuestionToken) {
+    out.push(...flattenQuestionQuestionChain(left));
+  } else {
+    out.push(left);
+  }
+  if (Node.isBinaryExpression(right) && right.getOperatorToken().getKind() === SyntaxKind.QuestionQuestionToken) {
+    out.push(...flattenQuestionQuestionChain(right));
+  } else {
+    out.push(right);
+  }
+  return out;
+}
+
+function unwrapParenthesizedExpression(node: TsNode): TsNode {
+  return Node.isParenthesizedExpression(node) ? node.getExpression() : node;
+}
+
+function coalesceFinding(ctx: RuleContext, node: TsNode, name: string, values: string): ReviewFinding {
+  return finding(
+    'suggest-kern-primitive',
+    'info',
+    'pattern',
+    'JS nullish fallback chain could migrate to KERN `coalesce` — named portable fallback selection',
+    ctx.filePath,
+    node.getStartLineNumber(),
+    nodeColumn(node),
+    { suggestion: `coalesce name=${name} values="${escapeKernString(values)}"` },
+  );
+}
+
+function firstTruthyFinding(ctx: RuleContext, node: TsNode, name: string, values: string): ReviewFinding {
+  return finding(
+    'suggest-kern-primitive',
+    'info',
+    'pattern',
+    'JS truthy fallback chain could migrate to KERN `firstTruthy` — named portable fallback selection',
+    ctx.filePath,
+    node.getStartLineNumber(),
+    nodeColumn(node),
+    { suggestion: `firstTruthy name=${name} values="${escapeKernString(values)}"` },
+  );
+}
+
+function objectLiteralPickSuggestion(expr: TsNode): { name: string; source: string; keys: string[] } | null {
+  if (!Node.isObjectLiteralExpression(expr)) return null;
+  const name = variableNameForInitializer(expr);
+  if (!name) return null;
+
+  const properties = expr.getProperties();
+  if (properties.length === 0) return null;
+
+  let commonReceiver: string | null = null;
+  const keys: string[] = [];
+
+  for (const prop of properties) {
+    if (!Node.isPropertyAssignment(prop)) return null;
+    const propKey = prop.getName();
+    const initializer = prop.getInitializer();
+    if (!initializer || !Node.isPropertyAccessExpression(initializer)) return null;
+
+    const receiver = initializer.getExpression();
+    if (!Node.isIdentifier(receiver)) return null;
+
+    const accessedProp = initializer.getName();
+    if (accessedProp !== propKey) return null;
+
+    const receiverText = receiver.getText();
+    if (commonReceiver === null) {
+      commonReceiver = receiverText;
+    } else if (commonReceiver !== receiverText) {
+      return null;
+    }
+
+    keys.push(propKey);
+  }
+
+  if (!commonReceiver) return null;
+  return { name, source: commonReceiver, keys };
+}
+
 function objectMergeFinding(ctx: RuleContext, node: TsNode, name: string, sources: string): ReviewFinding {
   return finding(
     'suggest-kern-primitive',
@@ -836,11 +1033,42 @@ function buildSuggestion(spec: MethodSpec, collection: string, call: CallExpress
   }
 }
 
+function filterLengthCountSuggestion(collection: string, call: CallExpression): string | null {
+  const parent = call.getParent();
+  if (!Node.isPropertyAccessExpression(parent) || parent.getName() !== 'length') return null;
+
+  const args = call.getArguments();
+  if (args.length !== 1 || !isArrowLike(args[0])) return null;
+  const arrow = args[0];
+  if (arrow.getParameters().length !== 1) return null;
+
+  const item = paramName(arrow, 0);
+  if (!item) return null;
+  const body = extractSingleExprBody(arrow);
+  if (body === null) return null;
+
+  const itemProp = item === 'item' ? '' : ` item=${item}`;
+  return `count name=<name> in=${toKernInValue(collection)}${itemProp} where="${escapeKernString(body)}"`;
+}
+
 export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
   if (shouldSkipFile(ctx)) return [];
   const findings: ReviewFinding[] = [];
   const shadowsGlobalObject = sourceFileDeclaresBinding(ctx, 'Object');
   const shadowsGlobalMath = sourceFileDeclaresBinding(ctx, 'Math');
+
+  // `const label = preferred || nickname || 'Anonymous'`
+  //   → firstTruthy name=label values="preferred, nickname, 'Anonymous'"
+  for (const binary of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
+    const suggestion = firstTruthySuggestion(binary);
+    if (suggestion) {
+      findings.push(firstTruthyFinding(ctx, binary, suggestion.name, suggestion.values));
+    }
+    const coalSuggest = coalesceSuggestion(binary);
+    if (coalSuggest) {
+      findings.push(coalesceFinding(ctx, binary, coalSuggest.name, coalSuggest.values));
+    }
+  }
 
   // `[...new Set(coll)]` → route to the dedicated `unique` primitive.
   for (const arr of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.ArrayLiteralExpression)) {
@@ -935,6 +1163,23 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
     // route to the dedicated `compact` primitive. The three shapes are all
     // equivalent drop-falsy idioms; KERN prefers the named primitive.
     if (methodName === 'filter' && call.getArguments().length === 1) {
+      const countSuggestion = filterLengthCountSuggestion(collection, call);
+      if (countSuggestion) {
+        findings.push(
+          finding(
+            'suggest-kern-primitive',
+            'info',
+            'pattern',
+            'JS .filter(…).length could migrate to KERN `count` — named primitive for filtered cardinality',
+            ctx.filePath,
+            call.getStartLineNumber(),
+            1,
+            { suggestion: countSuggestion },
+          ),
+        );
+        continue;
+      }
+
       const arg = call.getArguments()[0];
       const isBooleanRef = Node.isIdentifier(arg) && arg.getText() === 'Boolean';
       const isCoercionArrow = isArrowLike(arg) && isBooleanCoercionOfFirstParam(arg);
@@ -1020,13 +1265,61 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
     findings.push(portableLogicFinding(ctx, unary, 'logic.not', 'boolean negation'));
   }
 
-  // ── objectMerge detector ───────────────────────────────────────────────
-  // `const merged = { ...base, ...overrides, extra: 1 }`
-  //   → objectMerge name=merged sources="base, overrides, { extra: 1 }"
+  // ── objectMerge / objectPick detector ──────────────────────────────────
   for (const obj of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.ObjectLiteralExpression)) {
-    const suggestion = objectLiteralMergeSuggestion(obj);
-    if (!suggestion) continue;
-    findings.push(objectMergeFinding(ctx, obj, suggestion.name, suggestion.sources));
+    const mergeSuggestion = objectLiteralMergeSuggestion(obj);
+    if (mergeSuggestion) {
+      findings.push(objectMergeFinding(ctx, obj, mergeSuggestion.name, mergeSuggestion.sources));
+      continue;
+    }
+    const pickSuggestion = objectLiteralPickSuggestion(obj);
+    if (pickSuggestion) {
+      findings.push(objectPickFinding(ctx, obj, pickSuggestion.name, pickSuggestion.source, pickSuggestion.keys));
+    }
+  }
+
+  // ── objectOmit (destructuring) detector ────────────────────────────────
+  for (const varDecl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const nameNode = varDecl.getNameNode();
+    if (!Node.isObjectBindingPattern(nameNode)) continue;
+    const elements = nameNode.getElements();
+    if (elements.length === 0) continue;
+    const lastElement = elements[elements.length - 1];
+    if (!lastElement.getDotDotDotToken()) continue;
+
+    const targetName = lastElement.getName();
+    const initializer = varDecl.getInitializer();
+    if (!initializer) continue;
+    const sourceText = initializer.getText();
+
+    const omittedKeys: string[] = [];
+    let valid = true;
+    for (let i = 0; i < elements.length - 1; i++) {
+      const el = elements[i];
+      if (el.getDotDotDotToken()) {
+        valid = false;
+        break;
+      }
+      const elNameNode = el.getNameNode();
+      if (!Node.isIdentifier(elNameNode)) {
+        valid = false;
+        break;
+      }
+      const propNameNode = el.getPropertyNameNode();
+      if (propNameNode) {
+        const propName = destructuredPropertyNameText(propNameNode);
+        if (propName === null) {
+          valid = false;
+          break;
+        }
+        omittedKeys.push(propName);
+      } else {
+        omittedKeys.push(elNameNode.getText());
+      }
+    }
+    if (!valid || omittedKeys.length === 0) continue;
+
+    findings.push(objectOmitFinding(ctx, varDecl, targetName, sourceText, omittedKeys));
   }
 
   // ── fmt detector ───────────────────────────────────────────────────────

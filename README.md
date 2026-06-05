@@ -10,7 +10,7 @@
 
   <br>
 
-  **Built for humans and AI.** 192-line spec. 15 compile targets. 240 review rules.<br>
+  **One backend spec. Real TypeScript and Python output.** 240 review rules.<br>
   <sub>LLMs write .kern in up to 85% fewer tokens. 7 LLMs verified.</sub>
 
   <br>
@@ -29,7 +29,8 @@ npm install -g @kernlang/cli
 ```
 
 ```bash
-kern compile src/ --target=nextjs --watch --facades --index   # One command — compile, watch, facades, barrel
+kern compile api.kern --target=express                        # Generate an Express backend
+kern compile api.kern --target=fastapi                        # Generate a FastAPI backend
 kern review src/ --recursive                                  # Static analysis (240 rules, taint tracking)
 kern init --template=fullstack my-app                          # Scaffold fullstack app (Next.js + Express + MCP)
 kern init --mcp                                               # Scaffold an MCP server with security guards
@@ -41,17 +42,31 @@ kern schema --json                                            # Full schema for 
 
 ## What is KERN?
 
-**KERN is a structural language with five capabilities: Compile, Review, Evolve, Infer, and MCP Security.**
+**KERN is a backend structure and portable route-logic language.**
 
-Write `.kern` once, compile to 15 targets. Or skip `.kern` entirely and use `kern review` to scan your existing TypeScript and Python for security bugs, unguarded effects, flaky tests, and prompt injection — 240 AST-based rules that catch what ESLint misses.
+Define routes, schemas, handlers, API shape, validation, and small portable logic once, then emit real TypeScript/Express and Python/FastAPI code. Keep complex business logic in TypeScript or Python; move shared structure and parity-safe operations into KERN.
 
-### Compilation Targets
+KERN also includes four supporting capabilities: **Review**, **Infer**, **MCP Security**, and **Evolve**. You can skip `.kern` entirely and run `kern review` against existing TypeScript and Python for security bugs, unguarded effects, flaky tests, and prompt injection — 240 AST-based rules that catch what ESLint misses.
+
+### Backend Parity First
+
+KERN should own the repeatable parts of backend work:
+
+- route declarations and HTTP shape
+- request and response schemas
+- validation and status responses
+- small portable route logic
+- generated Express and FastAPI structure that stays aligned
+
+Host-language code should still own application-specific business logic, data access, and framework-specific integration. The goal is not to hide TypeScript or Python; it is to stop rewriting the same route/schema/controller structure twice.
+
+### Compile Target Status
 
 | Tier | Targets | Status |
 |:-----|:--------|:-------|
-| **Tier 1** (supported) | Next.js, Web (React), Tailwind, Express, MCP, CLI, Ink | Full schemas, deterministic output, golden examples |
-| **Tier 2** (stable) | Vue, Nuxt, FastAPI | Working, tested, production-ready |
-| **Tier 3** (experimental) | React Native, Terminal | Functional, limited test coverage |
+| **Primary backend parity path** | Express, FastAPI | Maintained path for TypeScript/Python backend structure and portable route logic |
+| **Supported product/runtime targets** | MCP, CLI, Ink, Next.js, Web (React), Tailwind | Useful targets with schemas, deterministic output, and examples |
+| **Additional adapters** | Vue, Nuxt, React Native, Terminal | Available adapters; verify fit before making them your main production path |
 
 Tiers are tracked per compile target, not per npm package. For example, `@kernlang/terminal` contains two separate targets: `--target=terminal` (pure ANSI/Node.js output) and `--target=ink` (React + Ink TSX output).
 

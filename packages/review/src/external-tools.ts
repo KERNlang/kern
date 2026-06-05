@@ -153,6 +153,18 @@ export interface RunTSCDiagnosticsOptions {
   downgradeProjectLoadingErrors?: boolean;
 }
 
+// TS diagnostic codes in the "type erosion" family — the downstream cascade
+// that fires when an import is unresolved. An unresolved import degrades its
+// type to `any`, and derived values then fall to `unknown` (e.g.
+// `Object.entries(anyValue)` yields `[string, unknown][]` because the generic
+// `T` defaults to `unknown` when uninferable). These are suppressed in review
+// mode ONLY inside a file that already has a suppressed module miss — see the
+// gate in runTSCDiagnostics for the full rationale.
+//   18046 — "'x' is of type 'unknown'."
+//   2571  — "Object is of type 'unknown'." (object-expression variant)
+//   2698  — "Spread types may only be created from object types."
+const UNRESOLVED_IMPORT_EROSION_CODES = new Set<number>([18046, 2571, 2698]);
+
 /**
  * Run TypeScript compiler diagnostics using ts-morph's existing Project.
  * Reuses the Project already created by the inferrer — no extra compilation.
@@ -166,9 +178,9 @@ export function runTSCDiagnostics(
 
   try {
     const diagnostics = project.getPreEmitDiagnostics();
-    const suppressedModuleMisses = options.downgradeProjectLoadingErrors
+    const { keys: suppressedModuleMisses, files: filesWithSuppressedModuleMiss } = options.downgradeProjectLoadingErrors
       ? collectReviewModeSuppressedModuleMisses(diagnostics)
-      : new Set<string>();
+      : { keys: new Set<string>(), files: new Set<string>() };
     // File-level pre-pass: which files have a broken JSX global namespace?
     // When @types/react is unreachable (kern-guard's sparse clone, no
     // node_modules), `JSX.IntrinsicElements` and `JSX.ElementChildrenAttribute`
@@ -275,6 +287,19 @@ export function runTSCDiagnostics(
       // repo genuinely lacking the JSX runtime is reported. See
       // isBrokenJsxRuntimeDiagnostic for why the message gate is safe.
       const isBrokenJsxRuntimeNoise = code === 2875 && isBrokenJsxRuntimeDiagnostic(messageStr);
+      // TS18046 / TS2698 / TS2571 — the type-erosion cascade of a suppressed
+      // module miss. An unresolved import (TS2307, downgraded above) degrades
+      // its type to `any`; `Object.entries(anyValue)` then yields
+      // `[string, unknown][]`, so any downstream `u.x` trips TS18046 and
+      // `{ ...u }` trips TS2698 (TS2571 is the object-expression variant). All
+      // vanish once the package resolves — a full `tsc -b` with deps built is
+      // clean (proven). kern-guard PR #376 surfaced these on a brand-new
+      // workspace package consumed in the same PR. Gated per-file exactly like
+      // the TS2741 JSX-children cascade: suppress these codes ONLY in a file
+      // that already lost an import to a noise-downgraded miss, so a genuine
+      // `unknown`-handling bug in a cleanly-resolved file still surfaces.
+      const isUnresolvedImportErosionCascade =
+        UNRESOLVED_IMPORT_EROSION_CODES.has(code) && filesWithSuppressedModuleMiss.has(filePath);
       if (
         options.downgradeProjectLoadingErrors &&
         (isLoadingNoise ||
@@ -282,6 +307,7 @@ export function runTSCDiagnostics(
           isNodeGlobalUnresolved ||
           isJsxChildrenInferenceNoise ||
           isBrokenJsxRuntimeNoise ||
+          isUnresolvedImportErosionCascade ||
           isReviewModeModuleResolutionNoise(code, messageStr, filePath) ||
           isReviewModeGeneratedFacadeExportCascade(sourceFile, code, messageStr, suppressedModuleMisses))
       ) {
@@ -314,10 +340,15 @@ export function runTSCDiagnostics(
   return findings;
 }
 
-function collectReviewModeSuppressedModuleMisses(
-  diagnostics: ReturnType<Project['getPreEmitDiagnostics']>,
-): Set<string> {
-  const misses = new Set<string>();
+function collectReviewModeSuppressedModuleMisses(diagnostics: ReturnType<Project['getPreEmitDiagnostics']>): {
+  keys: Set<string>;
+  files: Set<string>;
+} {
+  // `keys` (file\0specifier) drives the TS2305 facade cascade; `files` drives
+  // the TS18046/TS2698/TS2571 type-erosion cascade (suppress those codes only
+  // in a file that already lost an import to a noise-downgraded module miss).
+  const keys = new Set<string>();
+  const files = new Set<string>();
   for (const diag of diagnostics) {
     if (diag.getCode() !== 2307) continue;
     const sourceFile = diag.getSourceFile();
@@ -327,10 +358,11 @@ function collectReviewModeSuppressedModuleMisses(
     const specifier = extractMissingModuleSpecifier(messageStr);
     if (!specifier) continue;
     if (isReviewModeModuleResolutionNoise(2307, messageStr, sourceFile.getFilePath())) {
-      misses.add(moduleMissKey(sourceFile.getFilePath(), specifier));
+      keys.add(moduleMissKey(sourceFile.getFilePath(), specifier));
+      files.add(sourceFile.getFilePath());
     }
   }
-  return misses;
+  return { keys, files };
 }
 
 // Files where TS reports the JSX global namespace is broken — `@types/react`

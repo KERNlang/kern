@@ -414,6 +414,93 @@ describe('emitNativeKernBodyPython — objectMerge body statement', () => {
   });
 });
 
+describe('emitNativeKernBodyPython — objectPick/objectOmit body statements', () => {
+  test('objectPick emits a shallow own-key dict binding and can return missing keys', () => {
+    const handler = makeHandler([
+      { type: 'objectPick', props: { name: 'picked', in: 'user', keys: "['id', 'missing']" } },
+      { type: 'return', props: { value: 'picked' } },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toBe(
+      [
+        'picked = (lambda __kern_source: {key: (__kern_source[key] if key in __kern_source else None) for key in ["id", "missing"]})(user)',
+        'return picked',
+      ].join('\n'),
+    );
+  });
+
+  test('objectOmit emits an immutable shallow dict filter binding', () => {
+    const handler = makeHandler([
+      { type: 'objectOmit', props: { name: 'safe', in: 'user', keys: "['password']" } },
+      { type: 'return', props: { value: 'safe' } },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toBe(
+      ['safe = {key: value for key, value in user.items() if key not in ["password"]}', 'return safe'].join('\n'),
+    );
+  });
+
+  test('rejects propagation in objectPick props', () => {
+    const handler = makeHandler([{ type: 'objectPick', props: { name: 'picked', in: 'loadUser()?', keys: "['id']" } }]);
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/Propagation/);
+  });
+});
+
+describe('emitNativeKernBodyPython — firstTruthy body statement', () => {
+  test('firstTruthy emits an ordered short-circuit fallback binding', () => {
+    const handler = makeHandler([
+      { type: 'firstTruthy', props: { name: 'label', values: "preferred, nickname, 'Anonymous'" } },
+      { type: 'return', props: { value: 'label' } },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toBe(
+      ['label = preferred or nickname or "Anonymous"', 'return label'].join('\n'),
+    );
+  });
+
+  test('firstTruthy parenthesizes conditional operands before joining fallbacks', () => {
+    const handler = makeHandler([
+      { type: 'firstTruthy', props: { name: 'label', values: "ready ? preferred : nickname, 'Anonymous'" } },
+      { type: 'return', props: { value: 'label' } },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toBe(
+      ['label = (preferred if ready else nickname) or "Anonymous"', 'return label'].join('\n'),
+    );
+  });
+
+  test('rejects propagation in firstTruthy values', () => {
+    const handler = makeHandler([{ type: 'firstTruthy', props: { name: 'label', values: 'load()?, fallback' } }]);
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/Propagation/);
+  });
+});
+
+describe('emitNativeKernBodyPython — coalesce / firstDefined body statement', () => {
+  test('coalesce emits None-only fallback logic', () => {
+    const handler = makeHandler([
+      { type: 'coalesce', props: { name: 'winner', values: "count, flag, label, 'fallback'" } },
+      { type: 'return', props: { value: 'winner' } },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toBe(
+      [
+        'winner = (count if count is not None else (flag if flag is not None else (label if label is not None else "fallback")))',
+        'return winner',
+      ].join('\n'),
+    );
+  });
+
+  test('firstDefined aliases the same body emitter', () => {
+    const handler = makeHandler([
+      { type: 'firstDefined', props: { name: 'winner', values: 'primary, secondary' } },
+      { type: 'return', props: { value: 'winner' } },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toBe(
+      ['winner = (primary if primary is not None else secondary)', 'return winner'].join('\n'),
+    );
+  });
+
+  test('rejects propagation in coalesce values', () => {
+    const handler = makeHandler([{ type: 'coalesce', props: { name: 'winner', values: 'load()?, fallback' } }]);
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/Propagation/);
+  });
+});
+
 describe('FastAPI fn handler lang=kern — Python codegen integration', () => {
   test('emits Python body for a native-KERN fn', () => {
     const source = [

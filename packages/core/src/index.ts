@@ -68,6 +68,7 @@ export {
   // delegate composed-mode (wrapper / each / conditional / local) emission
   // to a single source of truth instead of re-implementing it per target.
   emitRender,
+  emitStringKeyArray,
   emitStringLiteral,
   emitTemplateSafe,
   emitTypeAnnotation,
@@ -85,6 +86,7 @@ export {
   hasEvolvedGenerator,
   isCoreNode,
   mapSemanticType,
+  parseKeys,
   parseParamList,
   parseParamListFromChildren,
   // Evolved generators — prefer KernRuntime for new code
@@ -335,6 +337,27 @@ export { parseExpression } from './parser-expression.js';
 export { collectNativeEligibleHints, validateNativeEligible } from './parser-validate-native-eligible.js';
 // Slice 7 v2 — cross-module recognition surface for `?`/`!` propagation.
 export type { ImportResolver, ModuleExportSymbol, ModuleExports } from './parser-validate-propagation.js';
+export { splitPortableExpressionList } from './portable-expression-list.js';
+export type {
+  PortablePredicateArrayOp,
+  PortablePredicateCompareOp,
+  PortablePredicateExistsOp,
+  PortablePredicateMembershipOp,
+  PortablePredicateParseResult,
+  PortablePredicateStringOp,
+  PortablePredicateUnaryOp,
+} from './portable-predicate.js';
+export {
+  PORTABLE_PREDICATE_ARRAY_OPS,
+  PORTABLE_PREDICATE_COMPARE_OPS,
+  PORTABLE_PREDICATE_EXISTS_OPS,
+  PORTABLE_PREDICATE_MEMBERSHIP_OPS,
+  PORTABLE_PREDICATE_STRING_OPS,
+  PORTABLE_PREDICATE_UNARY_OPS,
+  parsePortablePredicateProp,
+  validatePortablePredicateAST,
+} from './portable-predicate.js';
+export { parsePortableNonNegativeIntLiteral, parsePortablePathSegments } from './portable-route-collection.js';
 export type { ParserHintsConfig } from './runtime.js';
 // Runtime (instance-based state)
 export { defaultRuntime, KernRuntime } from './runtime.js';

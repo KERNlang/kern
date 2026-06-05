@@ -9,6 +9,19 @@
 
 export type PortableLogicPrimitiveId =
   | 'collection.has'
+  | 'collection.count'
+  | 'collection.filter'
+  | 'collection.compact'
+  | 'collection.pluck'
+  | 'collection.take'
+  | 'collection.drop'
+  | 'collection.sort'
+  | 'collection.uniqueBy'
+  | 'collection.groupBy'
+  | 'collection.partition'
+  | 'collection.indexBy'
+  | 'collection.countBy'
+  | 'logic.firstTruthy'
   | 'time.epochMs'
   | 'logic.not'
   | 'number.clamp'
@@ -16,6 +29,8 @@ export type PortableLogicPrimitiveId =
   | 'object.values'
   | 'object.entries'
   | 'object.merge'
+  | 'object.omit'
+  | 'object.pick'
   | 'string.trim'
   | 'string.split'
   | 'string.replaceFirst'
@@ -44,6 +59,132 @@ export const PORTABLE_LOGIC_PRIMITIVES = {
     intent: 'semantic-gap',
     hostPatterns: ['new Set(xs).has(x)'],
     portabilityNotes: ['Membership intent is explicit; target helpers own Set/list membership mechanics.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.count': {
+    id: 'collection.count',
+    description: 'Collection cardinality, optionally after a predicate, e.g. JS xs.length or xs.filter(pred).length.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.length', 'xs.filter(x => pred).length', 'len(xs)'],
+    portabilityNotes: ['Count is non-mutating; filtered counts evaluate the predicate once per item in source order.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.filter': {
+    id: 'collection.filter',
+    description: 'Filters collection elements by a portable predicate while preserving source order.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.filter(x => pred)', '[x for x in xs if pred]'],
+    portabilityNotes: [
+      'Predicate v1 supports eq, neq, gt, gte, and over bool/number/string/null scalar values; object/list equality is intentionally outside v1. Missing paths and numeric comparison semantics are target-normalized.',
+    ],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.compact': {
+    id: 'collection.compact',
+    description: 'Filters a collection by KERN portable truthiness while preserving source order.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.filter(Boolean)'],
+    portabilityNotes: [
+      'Drops null/None/undefined, false, numeric zero, NaN, and empty string; keeps arrays and objects as truthy.',
+    ],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.pluck': {
+    id: 'collection.pluck',
+    description: 'Projects a dotted element path from each collection item.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.map(x => x.path)', '[x.path for x in xs]'],
+    portabilityNotes: ['Route lowering uses safe dotted lookup and returns null/None for missing path segments.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.take': {
+    id: 'collection.take',
+    description: 'Takes the first N collection elements.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.slice(0, n)', 'xs[:n]'],
+    portabilityNotes: ['Route lowering requires a non-negative integer literal to avoid target slicing divergence.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.drop': {
+    id: 'collection.drop',
+    description: 'Drops the first N collection elements.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.slice(n)', 'xs[n:]'],
+    portabilityNotes: ['Route lowering requires a non-negative integer literal to avoid target slicing divergence.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.sort': {
+    id: 'collection.sort',
+    description: 'Immutable collection sort with optional comparator.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['[...xs].sort()', '[...xs].sort((a, b) => compare)', 'sorted(xs)'],
+    portabilityNotes: [
+      'Default sort follows JS lexicographic string ordering; comparator sort uses the declared two-item comparison expression.',
+    ],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.uniqueBy': {
+    id: 'collection.uniqueBy',
+    description: 'Unique collection elements by a selector key.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.uniqueBy(x => x.id)'],
+    portabilityNotes: ['Evaluates a scalar/hashable selector once per item; first-wins semantics.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.groupBy': {
+    id: 'collection.groupBy',
+    description: 'Groups collection elements by a selector key.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.groupBy(x => x.type)'],
+    portabilityNotes: ['Groups items into source-order buckets by scalar/hashable selector key.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.partition': {
+    id: 'collection.partition',
+    description: 'Partitions collection elements into pass and fail arrays based on a predicate.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.partition(x => pred)'],
+    portabilityNotes: ['Splits items into two lists based on predicate evaluations; type= denotes the element type.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.indexBy': {
+    id: 'collection.indexBy',
+    description: 'Indexes collection elements by a selector key.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.indexBy(x => x.id)'],
+    portabilityNotes: ['Indexes items by scalar/hashable selector key with last-write-wins semantics.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.countBy': {
+    id: 'collection.countBy',
+    description: 'Counts collection elements by a selector key.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.countBy(x => x.type)'],
+    portabilityNotes: ['Counts occurrences of each scalar/hashable selector key as integers.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'logic.firstTruthy': {
+    id: 'logic.firstTruthy',
+    description: 'Ordered truthy fallback selection, e.g. JS a || b || c and Python a or b or c.',
+    purity: 'pure',
+    intent: 'language-operator',
+    hostPatterns: ['a || b || c', 'a or b or c'],
+    portabilityNotes: [
+      'Uses host truthiness: false, 0, empty string, null/None, and undefined fall through; empty collections are target-specific because [] and {} are truthy in JS while empty lists/dicts are falsy in Python.',
+    ],
+    operatorRationale: 'KERN firstTruthy names this common fallback operator chain as portable intent.',
     targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
   },
   'time.epochMs': {
@@ -109,6 +250,24 @@ export const PORTABLE_LOGIC_PRIMITIVES = {
     intent: 'semantic-gap',
     hostPatterns: ['Object.assign({}, a, b)', '{ ...a, ...b }'],
     portabilityNotes: ['Merge is shallow, non-mutating, left-to-right, and duplicate keys are last-write-wins.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'object.omit': {
+    id: 'object.omit',
+    description: 'Shallow own string-key record omission, e.g. JS destructuring assignment with rest parameters.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['const { a, b, ...rest } = obj'],
+    portabilityNotes: ['Omit is shallow, non-mutating, and preserves falsy values.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'object.pick': {
+    id: 'object.pick',
+    description: 'Shallow own string-key record selection, e.g. JS Object.fromEntries(keys.map(k => [k, obj[k]]))',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['Object.fromEntries(keys.map(k => [k, obj[k]]))'],
+    portabilityNotes: ['Pick preserves key order and includes missing keys as null (TS) or None (Python).'],
     targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
   },
   'string.trim': {

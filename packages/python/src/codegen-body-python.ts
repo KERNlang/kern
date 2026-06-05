@@ -44,6 +44,7 @@
 import type { ExprObject, IRNode, ValueIR } from '@kernlang/core';
 import {
   applyTemplate,
+  emitStringKeyArray,
   isPostfixMutationOperator,
   isSupportedAssignOperator,
   KERN_STDLIB_MODULES,
@@ -51,6 +52,7 @@ import {
   needsArgParens,
   needsBinaryParens,
   parseExpression,
+  parseKeys,
   suggestStdlibMethod,
 } from '@kernlang/core';
 import {
@@ -289,7 +291,12 @@ const TRAILING_COMMENT_TYPES = new Set([
   'assign',
   'fmt',
   'clamp',
+  'firstTruthy',
+  'coalesce',
+  'firstDefined',
   'objectMerge',
+  'objectOmit',
+  'objectPick',
   'return',
   'throw',
   'do',
@@ -336,8 +343,16 @@ function emitChildrenPy(
         for (const line of emitFmtPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'clamp') {
         for (const line of emitClampPy(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'firstTruthy') {
+        for (const line of emitFirstTruthyPy(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'coalesce' || child.type === 'firstDefined') {
+        for (const line of emitCoalescePy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'objectMerge') {
         for (const line of emitObjectMergePy(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'objectOmit') {
+        for (const line of emitObjectOmitPy(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'objectPick') {
+        for (const line of emitObjectPickPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'return') {
         for (const line of emitReturnPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'if') {
@@ -1066,6 +1081,73 @@ function emitClampPy(node: IRNode, ctx: BodyEmitContext): string[] {
   return lines;
 }
 
+function emitFirstTruthyPy(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const userName = String(props.name ?? '');
+  if (!userName) throw new Error('body-statement `firstTruthy` requires `name=`.');
+  declareLocalBinding(ctx, userName, 'const');
+  const name = maybeRenameOnShadow(ctx, userName);
+
+  const rawValues = unwrapBodyExpr(props.values);
+  if (rawValues === undefined || rawValues === '') {
+    throw new Error('body-statement `firstTruthy` requires `values=`.');
+  }
+  const values = splitBodyExpressionList(rawValues, 'firstTruthy values=');
+  if (values.length < 2) throw new Error('body-statement `firstTruthy` requires at least two value expressions.');
+
+  const emitted = values.map((value) => {
+    const valueIR = parseExpression(value);
+    if (valueIR.kind === 'propagate') {
+      throw new Error("Propagation '?' is not allowed in `firstTruthy values=` — bind the value to a `let` first.");
+    }
+    return emitFirstTruthyOperandPy(valueIR, ctx);
+  });
+
+  const lines = [`${name} = ${emitted.join(' or ')}`];
+  if (ctx.traceHooks?.letAssign) lines.push(letAssignTracePy(name));
+  return lines;
+}
+
+function emitCoalescePy(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const userName = String(props.name ?? '');
+  const type = node.type;
+  if (!userName) throw new Error(`body-statement \`${type}\` requires \`name=\`.`);
+  declareLocalBinding(ctx, userName, 'const');
+  const name = maybeRenameOnShadow(ctx, userName);
+
+  const rawValues = unwrapBodyExpr(props.values);
+  if (rawValues === undefined || rawValues === '') {
+    throw new Error(`body-statement \`${type}\` requires \`values=\`.`);
+  }
+  const values = splitBodyExpressionList(rawValues, `${type} values=`);
+  if (values.length < 2) throw new Error(`body-statement \`${type}\` requires at least two value expressions.`);
+
+  const valueIRs = values.map((value) => {
+    const valueIR = parseExpression(value);
+    if (valueIR.kind === 'propagate') {
+      throw new Error(`Propagation '?' is not allowed in \`${type} values=\` — bind the value to a \`let\` first.`);
+    }
+    return valueIR;
+  });
+
+  const chain = emitPyExprCtx(buildNullishCoalesceIR(valueIRs), ctx);
+  const lines = [`${name} = ${chain}`];
+  if (ctx.traceHooks?.letAssign) lines.push(letAssignTracePy(name));
+  return lines;
+}
+
+function buildNullishCoalesceIR(values: ValueIR[]): ValueIR {
+  if (values.length === 1) return values[0];
+  const [left, ...rest] = values;
+  return { kind: 'binary', op: '??', left, right: buildNullishCoalesceIR(rest) };
+}
+
+function emitFirstTruthyOperandPy(valueIR: ValueIR, ctx: BodyEmitContext): string {
+  const emitted = emitPyExprCtx(valueIR, ctx);
+  return valueIR.kind === 'conditional' ? `(${emitted})` : emitted;
+}
+
 function emitObjectMergePy(node: IRNode, ctx: BodyEmitContext): string[] {
   const props = (node.props ?? {}) as Record<string, unknown>;
   const userName = String(props.name ?? '');
@@ -1092,6 +1174,68 @@ function emitObjectMergePy(node: IRNode, ctx: BodyEmitContext): string[] {
   }
 
   const lines = [`${name} = {${emitted.join(', ')}}`];
+  if (ctx.traceHooks?.letAssign) lines.push(letAssignTracePy(name));
+  return lines;
+}
+
+function emitObjectPickPy(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const userName = String(props.name ?? '');
+  if (!userName) throw new Error('body-statement `objectPick` requires `name=`.');
+  declareLocalBinding(ctx, userName, 'const');
+  const name = maybeRenameOnShadow(ctx, userName);
+
+  const rawIn = unwrapBodyExpr(props.in);
+  if (rawIn === undefined || rawIn === '') {
+    throw new Error('body-statement `objectPick` requires `in=`.');
+  }
+  const rawKeys = unwrapBodyExpr(props.keys);
+  if (rawKeys === undefined || rawKeys === '') {
+    throw new Error('body-statement `objectPick` requires `keys=`.');
+  }
+
+  const inIR = parseExpression(rawIn);
+  if (inIR.kind === 'propagate') {
+    throw new Error("Propagation '?' is not allowed in `objectPick in=` — bind the value to a `let` first.");
+  }
+  const inExpr = emitPyExprCtx(inIR, ctx);
+
+  const keysList = parseKeys(rawKeys, node, 'objectPick keys=');
+  const formattedKeys = emitStringKeyArray(keysList);
+
+  const lines = [
+    `${name} = (lambda __kern_source: {key: (__kern_source[key] if key in __kern_source else None) for key in ${formattedKeys}})(${inExpr})`,
+  ];
+  if (ctx.traceHooks?.letAssign) lines.push(letAssignTracePy(name));
+  return lines;
+}
+
+function emitObjectOmitPy(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const userName = String(props.name ?? '');
+  if (!userName) throw new Error('body-statement `objectOmit` requires `name=`.');
+  declareLocalBinding(ctx, userName, 'const');
+  const name = maybeRenameOnShadow(ctx, userName);
+
+  const rawIn = unwrapBodyExpr(props.in);
+  if (rawIn === undefined || rawIn === '') {
+    throw new Error('body-statement `objectOmit` requires `in=`.');
+  }
+  const rawKeys = unwrapBodyExpr(props.keys);
+  if (rawKeys === undefined || rawKeys === '') {
+    throw new Error('body-statement `objectOmit` requires `keys=`.');
+  }
+
+  const inIR = parseExpression(rawIn);
+  if (inIR.kind === 'propagate') {
+    throw new Error("Propagation '?' is not allowed in `objectOmit in=` — bind the value to a `let` first.");
+  }
+  const inExpr = emitPyExprCtx(inIR, ctx);
+
+  const keysList = parseKeys(rawKeys, node, 'objectOmit keys=');
+  const formattedKeys = emitStringKeyArray(keysList);
+
+  const lines = [`${name} = {key: value for key, value in ${inExpr}.items() if key not in ${formattedKeys}}`];
   if (ctx.traceHooks?.letAssign) lines.push(letAssignTracePy(name));
   return lines;
 }

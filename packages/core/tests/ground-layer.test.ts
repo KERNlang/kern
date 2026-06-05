@@ -7,6 +7,7 @@ import {
   generateBranch,
   generateCollect,
   generateCoreNode,
+  generateCount,
   generateDerive,
   generateEach,
   generateExpect,
@@ -272,6 +273,28 @@ describe('Ground Layer: collect', () => {
     const node = makeNode('collect', { name: 'sorted', from: 'items', order: 'a.score - b.score' });
     const code = generateCollect(node).join('\n');
     expect(code).toContain('.sort((a, b) => a.score - b.score)');
+  });
+});
+
+describe('Ground Layer: count', () => {
+  it('generates basic count length', () => {
+    const node = makeNode('count', { name: 'totalCount', in: 'items' });
+    const code = generateCount(node).join('\n');
+    expect(code).toContain('const totalCount = (items).length;');
+  });
+
+  it('generates count with where predicate', () => {
+    const node = makeNode('count', { name: 'activeCount', in: 'items', where: 'item.active', type: 'number' });
+    const code = generateCount(node).join('\n');
+    expect(code).toContain(
+      'const activeCount: number = (items).reduce((count, item) => (item.active) ? count + 1 : count, 0);',
+    );
+  });
+
+  it('generates count with custom item name', () => {
+    const node = makeNode('count', { name: 'customCount', in: 'items', where: 'x.val > 2', item: 'x' });
+    const code = generateCount(node).join('\n');
+    expect(code).toContain('const customCount = (items).reduce((count, x) => (x.val > 2) ? count + 1 : count, 0);');
   });
 });
 
@@ -680,6 +703,40 @@ describe('Python Ground Layer', () => {
     });
     const code = pyGen.generateCollect(node).join('\n');
     expect(code).toContain('[item for item in stems if item.loudness > 0.5][:10]');
+  });
+
+  it('collect generates with order parity', () => {
+    const node = makeNode('collect', {
+      name: 'sorted',
+      from: 'items',
+      where: 'item.active',
+      order: 'b.score - a.score',
+      limit: '2',
+    });
+    const code = pyGen.generateCollect(node).join('\n');
+    expect(code).toContain('from functools import cmp_to_key');
+    expect(code).toContain('cmp_to_key(lambda a, b: b.score - a.score)');
+    expect(code).toContain('if item.active');
+    expect(code).toContain('[:2]');
+  });
+
+  it('python count generates count correctly', () => {
+    const node = makeNode('count', {
+      name: 'activeCount',
+      in: 'items',
+      where: 'item.active',
+    });
+    const code = pyGen.generateCount(node).join('\n');
+    expect(code).toContain('active_count = sum(1 for item in items if item.active)');
+  });
+
+  it('python count generates count without where clause correctly', () => {
+    const node = makeNode('count', {
+      name: 'totalCount',
+      in: 'items',
+    });
+    const code = pyGen.generateCount(node).join('\n');
+    expect(code).toContain('total_count = len(items)');
   });
 
   it('branch generates match statement', () => {
