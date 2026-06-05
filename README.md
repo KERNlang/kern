@@ -32,6 +32,7 @@ npm install -g @kernlang/cli
 kern compile api.kern --target=express                        # Generate an Express backend
 kern compile api.kern --target=fastapi                        # Generate a FastAPI backend
 kern review src/ --recursive                                  # Static analysis (240 rules, taint tracking)
+kern context src/ --stdout                                    # Whole-project context map for an LLM/agent
 kern init --template=fullstack my-app                          # Scaffold fullstack app (Next.js + Express + MCP)
 kern init --mcp                                               # Scaffold an MCP server with security guards
 kern import src/ --outdir=kern/                               # TypeScript → .kern
@@ -206,6 +207,23 @@ kern compile server.kern --target=mcp --watch      # Compile + hot reload
 ```
 
 Templates: `file-tools`, `api-gateway`, `database-tools`
+
+---
+
+## kern context
+
+Give an LLM or agent **instant whole-project context** — not just for review. `kern context` walks your project's import graph and call graph and emits a compact, token-budgeted map of how the codebase fits together: which symbols exist, **who calls/uses each one** (cross-file blast radius), imports, and taint flows.
+
+```bash
+kern context src/                       # write kern-context.json
+kern context src/ --stdout              # print to stdout (pipe into an agent)
+kern context src/ --out ctx.json        # custom output path
+kern context src/ --max-depth=2         # limit import-graph depth
+```
+
+The output is the same `<kern-map>` "spine" that `kern review --llm` injects into the reviewer's prompt, exposed standalone. Feed it to a coding agent and it starts the task already knowing the project's structure — "`validateSession` → used by 6 files" — instead of cold-reading every file to map dependencies. It's **deterministic and cacheable**: regenerate after each change and the context stays fresh.
+
+Paths are relative by default (`--absolute` for absolute, `--base=<dir>` to rebase). Analyzes TypeScript sources (`.ts`, `.tsx`, `.mts`, `.cts`); for a `.kern` project, point it at the compiled TypeScript output.
 
 ---
 
@@ -428,7 +446,7 @@ Contributor architecture guide: [docs/architecture.md](docs/architecture.md)
 
 | Package | What it does |
 |:--------|:-------------|
-| **[@kernlang/cli](https://www.npmjs.com/package/@kernlang/cli)** | CLI — compile, review, evolve, dev |
+| **[@kernlang/cli](https://www.npmjs.com/package/@kernlang/cli)** | CLI — compile, review, context, evolve, dev |
 | **[@kernlang/core](https://www.npmjs.com/package/@kernlang/core)** | Parser, codegen, types — the compiler engine |
 | **[@kernlang/test](https://www.npmjs.com/package/@kernlang/test)** | Native KERN structural test runner |
 | **[@kernlang/review](https://www.npmjs.com/package/@kernlang/review)** | 240 rules, taint tracking, OWASP LLM01, concept model |
