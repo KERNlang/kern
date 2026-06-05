@@ -83,6 +83,25 @@ describe('pure Python handlers: keyed reshape route scope', () => {
     );
   });
 
+  test('lowers count predicate node with helper-backed evaluation', () => {
+    const server = routeWith({
+      type: 'count',
+      props: {
+        name: 'eligible_count',
+        in: 'users',
+        predicate: { __expr: true, code: '{and: [{lt: ["age", 30]}, {lte: ["score", 10]}]}' },
+      },
+    });
+    const handlers = emitPureHandlers(server, new Set(), server);
+    expect(handlers).toHaveLength(1);
+    const body = handlers[0].bodyLines.join('\n');
+    expect(body).toContain('def __kern_eval_predicate_eligible_count(predicate, record):');
+    expect(body).toContain('__kern_predicate_eligible_count = {"and": [{"lt": ["age", 30]}, {"lte": ["score", 10]}]}');
+    expect(body).toContain(
+      'eligible_count = sum(1 for item in users if __kern_eval_predicate_eligible_count(__kern_predicate_eligible_count, item))',
+    );
+  });
+
   test('lowers groupBy node correctly', () => {
     const server = routeWith({ type: 'groupBy', props: { name: 'by_type', in: 'users', by: 'item.type' } });
     const handlers = emitPureHandlers(server, new Set(), server);

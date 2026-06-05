@@ -3072,5 +3072,27 @@ describe('FastAPI Transpiler', () => {
         'eligible = [item for item in users if __kern_eval_predicate_eligible(__kern_predicate_eligible, item)]',
       );
     });
+
+    test('portable count predicate node lowers to helper-backed FastAPI Python code', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/count',
+        '    count name=eligible_count in=users predicate={{ {and: [{lt: ["age", 30]}, {lte: ["score", 10]}]} }}',
+        '    respond 200 json=eligible_count',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post_api_count'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+      expect(code).toContain('def __kern_eval_predicate_eligible_count(predicate, record):');
+      expect(code).toContain(
+        '__kern_predicate_eligible_count = {"and": [{"lt": ["age", 30]}, {"lte": ["score", 10]}]}',
+      );
+      expect(code).toContain(
+        'eligible_count = sum(1 for item in users if __kern_eval_predicate_eligible_count(__kern_predicate_eligible_count, item))',
+      );
+    });
   });
 });

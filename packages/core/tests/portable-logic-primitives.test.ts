@@ -115,6 +115,62 @@ describe('portable logic primitive registry', () => {
     expect(validateSchema(combined.root).some((v) => /cannot combine where= and predicate/.test(v.message))).toBe(true);
   });
 
+  test('route predicate literals are validated at schema time', () => {
+    const invalid = parseDocumentWithDiagnostics(
+      [
+        'server name=API',
+        '  route method=post path=/api/t',
+        '    filter name=bad in=users predicate={{ {and: [{lt: ["age", "18"]}, {contains: ["role", "admin"]}, {eq: ["profile..name", "x"]}, {eq: ["items.01.name", "x"]}]} }}',
+      ].join('\n'),
+    );
+    const messages = validateSchema(invalid.root).map((v) => v.message);
+    expect(messages.some((m) => /lt expects a non-boolean number/.test(m))).toBe(true);
+    expect(messages.some((m) => /unsupported operator 'contains'/.test(m))).toBe(true);
+    expect(messages.some((m) => /must not contain empty segments/.test(m))).toBe(true);
+    expect(messages.some((m) => /must use canonical decimal indexes/.test(m))).toBe(true);
+
+    const malformed = parseDocumentWithDiagnostics(
+      ['server name=API', '  route method=post path=/api/t', '    filter name=bad in=users predicate={{ "bad" }}'].join(
+        '\n',
+      ),
+    );
+    expect(validateSchema(malformed.root).some((v) => /predicate must be a valid object literal/.test(v.message))).toBe(
+      true,
+    );
+  });
+
+  test('count route child accepts predicate but not where plus predicate', () => {
+    const valid = parseDocumentWithDiagnostics(
+      [
+        'server name=API',
+        '  route method=post path=/api/t',
+        '    count name=eligible_count in=users predicate={{ {and: [{lt: ["age", 30]}, {lte: ["score", 10]}]} }}',
+        '    respond 200 json=eligible_count',
+      ].join('\n'),
+    );
+    expect(validateSchema(valid.root).filter((v) => v.nodeType === 'count')).toEqual([]);
+
+    const combined = parseDocumentWithDiagnostics(
+      [
+        'server name=API',
+        '  route method=post path=/api/t',
+        '    count name=eligible_count in=users where="item.active" predicate={{ {eq: ["active", true]} }}',
+      ].join('\n'),
+    );
+    expect(
+      validateSchema(combined.root).some((v) => /'count' cannot combine where= and predicate/.test(v.message)),
+    ).toBe(true);
+
+    const outsideRoute = parseDocumentWithDiagnostics(
+      ['server name=API', '  count name=eligible_count in=users predicate={{ {eq: ["active", true]} }}'].join('\n'),
+    );
+    expect(
+      validateSchema(outsideRoute.root).some((v) =>
+        /'count predicate=\{\{\.\.\.\}\}' is supported only/.test(v.message),
+      ),
+    ).toBe(true);
+  });
+
   test('object parity slice has matching target support', () => {
     const objectPrimitives: PortableLogicPrimitiveId[] = [
       'object.keys',

@@ -576,6 +576,7 @@ export interface CollectProps extends BaseProps {
 export interface CountProps extends BaseProps {
   in?: string | ExprObject;
   where?: string | ExprObject;
+  predicate?: string | ExprObject;
   item?: string;
   type?: string;
 }

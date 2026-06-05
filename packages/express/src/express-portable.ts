@@ -263,7 +263,7 @@ export function generatePortableChildExpress(
       const typeAnnotation = p.type ? `: ${String(p.type)}[]` : '';
 
       const where = p.where ? extractExprCode(p.where) : undefined;
-      const predicateStr = p.predicate ? extractExprCode(p.predicate) : undefined;
+      const predicateStr = p.predicate ? extractExprCode(p.predicate) || String(p.predicate) : undefined;
       const predicateExpr = predicateStr ? rewriteExpressExpr(predicateStr, path) : undefined;
 
       if (predicateStr && where) {
@@ -308,7 +308,7 @@ export function generatePortableChildExpress(
         lines.push(`${indent}    return predicate.and.every((p) => ${evalPredVar}(p, record));`);
         lines.push(`${indent}  }`);
         lines.push(
-          `${indent}  const op = ['eq', 'neq', 'gt', 'gte'].find((candidate) => Object.prototype.hasOwnProperty.call(predicate, candidate));`,
+          `${indent}  const op = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte'].find((candidate) => Object.prototype.hasOwnProperty.call(predicate, candidate));`,
         );
         lines.push(`${indent}  if (!op || Object.keys(predicate).length !== 1) {`);
         lines.push(`${indent}    throw new Error('invalid KERN filter predicate');`);
@@ -326,9 +326,12 @@ export function generatePortableChildExpress(
         lines.push(`${indent}    if (actual === ${absentVar}) return expected !== null;`);
         lines.push(`${indent}    return actual !== expected;`);
         lines.push(`${indent}  }`);
-        lines.push(`${indent}  if (op === 'gt' || op === 'gte') {`);
+        lines.push(`${indent}  if (op === 'gt' || op === 'gte' || op === 'lt' || op === 'lte') {`);
         lines.push(`${indent}    if (typeof actual !== 'number' || typeof expected !== 'number') return false;`);
-        lines.push(`${indent}    return op === 'gt' ? actual > expected : actual >= expected;`);
+        lines.push(`${indent}    if (op === 'gt') return actual > expected;`);
+        lines.push(`${indent}    if (op === 'gte') return actual >= expected;`);
+        lines.push(`${indent}    if (op === 'lt') return actual < expected;`);
+        lines.push(`${indent}    return actual <= expected;`);
         lines.push(`${indent}  }`);
         lines.push(`${indent}  throw new Error('invalid KERN filter predicate');`);
         lines.push(`${indent}};`);
@@ -350,13 +353,92 @@ export function generatePortableChildExpress(
       const name = String(p.name || '');
       const collection = rewriteExpressExpr(extractExprCode(p.in) || String(p.in || ''), path);
       const item = String(p.item || 'item');
-      const where = p.where ? rewriteExpressExpr(extractExprCode(p.where) || String(p.where), path) : undefined;
+      const whereCode = p.where ? extractExprCode(p.where) || String(p.where) : undefined;
+      const where = whereCode ? rewriteExpressExpr(whereCode, path) : undefined;
+      const predicateStr = p.predicate ? extractExprCode(p.predicate) || String(p.predicate) : undefined;
+      const predicateExpr = predicateStr ? rewriteExpressExpr(predicateStr, path) : undefined;
+
+      if (predicateStr && whereCode) {
+        throw new Error("count node cannot combine 'where' and 'predicate'");
+      }
+
       if (name && collection) {
         const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
-        const expr = where
-          ? `(${collection}).reduce((count, ${item}) => (${where}) ? count + 1 : count, 0)`
-          : `(${collection}).length`;
-        lines.push(`${indent}const ${name}${typeAnnotation} = ${expr};`);
+        if (predicateExpr) {
+          const absentVar = `__kernAbsent_${name}`;
+          const evalPredVar = `__kernEvalPredicate_${name}`;
+          const getPathVar = `__kernGetPath_${name}`;
+          const predicateValueVar = `__kernPredicate_${name}`;
+
+          lines.push(`${indent}const ${absentVar} = Symbol('absent');`);
+          lines.push(`${indent}const ${getPathVar} = (record, path) => {`);
+          lines.push(`${indent}  if (record === null || record === undefined) return ${absentVar};`);
+          lines.push(`${indent}  const parts = path.split('.');`);
+          lines.push(`${indent}  let current = record;`);
+          lines.push(`${indent}  for (const part of parts) {`);
+          lines.push(`${indent}    if (current === null || current === undefined) return ${absentVar};`);
+          lines.push(`${indent}    if (Array.isArray(current)) {`);
+          lines.push(`${indent}      if (!/^(0|[1-9]\\d*)$/.test(part)) return ${absentVar};`);
+          lines.push(`${indent}      const index = Number(part);`);
+          lines.push(`${indent}      if (index >= current.length) return ${absentVar};`);
+          lines.push(`${indent}      current = current[index];`);
+          lines.push(`${indent}      continue;`);
+          lines.push(`${indent}    }`);
+          lines.push(`${indent}    if (typeof current !== 'object') return ${absentVar};`);
+          lines.push(`${indent}    if (!Object.prototype.hasOwnProperty.call(current, part)) return ${absentVar};`);
+          lines.push(`${indent}    current = current[part];`);
+          lines.push(`${indent}  }`);
+          lines.push(`${indent}  return current;`);
+          lines.push(`${indent}};`);
+
+          lines.push(`${indent}const ${evalPredVar} = (predicate, record) => {`);
+          lines.push(`${indent}  if (!predicate || typeof predicate !== 'object' || Array.isArray(predicate)) {`);
+          lines.push(`${indent}    throw new Error('invalid KERN filter predicate');`);
+          lines.push(`${indent}  }`);
+          lines.push(`${indent}  if (Object.prototype.hasOwnProperty.call(predicate, 'and')) {`);
+          lines.push(`${indent}    if (Object.keys(predicate).length !== 1 || !Array.isArray(predicate.and)) {`);
+          lines.push(`${indent}      throw new Error('invalid KERN filter predicate');`);
+          lines.push(`${indent}    }`);
+          lines.push(`${indent}    return predicate.and.every((p) => ${evalPredVar}(p, record));`);
+          lines.push(`${indent}  }`);
+          lines.push(
+            `${indent}  const op = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte'].find((candidate) => Object.prototype.hasOwnProperty.call(predicate, candidate));`,
+          );
+          lines.push(`${indent}  if (!op || Object.keys(predicate).length !== 1) {`);
+          lines.push(`${indent}    throw new Error('invalid KERN filter predicate');`);
+          lines.push(`${indent}  }`);
+          lines.push(`${indent}  const pair = predicate[op];`);
+          lines.push(`${indent}  if (!Array.isArray(pair) || pair.length !== 2 || typeof pair[0] !== 'string') {`);
+          lines.push(`${indent}    throw new Error('invalid KERN filter predicate');`);
+          lines.push(`${indent}  }`);
+          lines.push(`${indent}  const [path, expected] = pair;`);
+          lines.push(`${indent}  const actual = ${getPathVar}(record, path);`);
+          lines.push(`${indent}  if (op === 'eq') {`);
+          lines.push(`${indent}    return actual !== ${absentVar} && actual === expected;`);
+          lines.push(`${indent}  }`);
+          lines.push(`${indent}  if (op === 'neq') {`);
+          lines.push(`${indent}    if (actual === ${absentVar}) return expected !== null;`);
+          lines.push(`${indent}    return actual !== expected;`);
+          lines.push(`${indent}  }`);
+          lines.push(`${indent}  if (op === 'gt' || op === 'gte' || op === 'lt' || op === 'lte') {`);
+          lines.push(`${indent}    if (typeof actual !== 'number' || typeof expected !== 'number') return false;`);
+          lines.push(`${indent}    if (op === 'gt') return actual > expected;`);
+          lines.push(`${indent}    if (op === 'gte') return actual >= expected;`);
+          lines.push(`${indent}    if (op === 'lt') return actual < expected;`);
+          lines.push(`${indent}    return actual <= expected;`);
+          lines.push(`${indent}  }`);
+          lines.push(`${indent}  throw new Error('invalid KERN filter predicate');`);
+          lines.push(`${indent}};`);
+
+          lines.push(`${indent}const ${predicateValueVar} = ${predicateExpr};`);
+          const expr = `(${collection}).reduce((count, ${item}) => ${evalPredVar}(${predicateValueVar}, ${item}) ? count + 1 : count, 0)`;
+          lines.push(`${indent}const ${name}${typeAnnotation} = ${expr};`);
+        } else if (where) {
+          const expr = `(${collection}).reduce((count, ${item}) => (${where}) ? count + 1 : count, 0)`;
+          lines.push(`${indent}const ${name}${typeAnnotation} = ${expr};`);
+        } else {
+          lines.push(`${indent}const ${name}${typeAnnotation} = (${collection}).length;`);
+        }
       }
       break;
     }

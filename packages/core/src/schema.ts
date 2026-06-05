@@ -1535,6 +1535,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       name: { required: true, kind: 'identifier' },
       in: { required: true, kind: 'rawExpr' },
       where: { kind: 'rawExpr' },
+      predicate: { kind: 'rawExpr' },
       item: { kind: 'identifier' },
       type: { kind: 'typeAnnotation' },
       export: { kind: 'boolean' },
@@ -3560,6 +3561,43 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[], parent?: I
         col: node.loc?.col,
       });
     }
+    if (hasPredicate) {
+      const ast = parsePredicate(props.predicate);
+      if (ast) {
+        validatePredicateAST(ast, violations, node);
+      } else {
+        pushPredicateViolation(node, violations, 'predicate must be a valid object literal');
+      }
+    }
+  }
+  if (node.type === 'count') {
+    const hasWhere = props.where !== undefined && props.where !== null && String(props.where).trim() !== '';
+    const hasPredicate =
+      props.predicate !== undefined && props.predicate !== null && String(props.predicate).trim() !== '';
+    if (hasPredicate && parent?.type !== 'route' && parent?.type !== 'path') {
+      violations.push({
+        nodeType: 'count',
+        message: "'count predicate={{...}}' is supported only as a portable route child",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasWhere && hasPredicate) {
+      violations.push({
+        nodeType: 'count',
+        message: "'count' cannot combine where= and predicate={{...}}",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasPredicate) {
+      const ast = parsePredicate(props.predicate);
+      if (ast) {
+        validatePredicateAST(ast, violations, node);
+      } else {
+        pushPredicateViolation(node, violations, 'predicate must be a valid object literal');
+      }
+    }
   }
   if (node.type === 'param') {
     // Slice 3c-extension #3: `param` requires `name=` UNLESS it carries
@@ -3953,6 +3991,95 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[], parent?: I
     // Pair-mode relaxes `name` requirement — handled by checkRequiredProps
     // (suppresses the `name`-required violation when pairKey+pairValue are
     // both present).
+  }
+}
+
+function parsePredicate(predicateProp: unknown): unknown {
+  if (!predicateProp) return null;
+  let code = '';
+  if (typeof predicateProp === 'object' && predicateProp !== null && (predicateProp as any).__expr) {
+    code = (predicateProp as any).code;
+  } else if (typeof predicateProp === 'string') {
+    code = predicateProp;
+  }
+  code = code.trim();
+  if (!code) return null;
+  if (!code.startsWith('{')) return null;
+  try {
+    const jsonish = code.replace(/([{,]\s*)([A-Za-z_]\w*)\s*:/g, '$1"$2":');
+    return JSON.parse(jsonish);
+  } catch {
+    return null;
+  }
+}
+
+function pushPredicateViolation(node: IRNode, violations: SchemaViolation[], message: string): void {
+  violations.push({
+    nodeType: node.type,
+    message,
+    line: node.loc?.line,
+    col: node.loc?.col,
+  });
+}
+
+function validatePredicatePath(path: unknown, violations: SchemaViolation[], node: IRNode): void {
+  if (typeof path !== 'string' || path.trim() === '') {
+    pushPredicateViolation(node, violations, 'predicate path must be a non-empty string');
+    return;
+  }
+  const segments = path.split('.');
+  if (segments.some((seg) => seg === '')) {
+    pushPredicateViolation(node, violations, `predicate path '${path}' must not contain empty segments`);
+  }
+  for (const seg of segments) {
+    if (/^\d+$/.test(seg) && !/^(0|[1-9]\d*)$/.test(seg)) {
+      pushPredicateViolation(node, violations, `predicate path '${path}' must use canonical decimal indexes`);
+    }
+  }
+}
+
+function isPredicateScalar(value: unknown): boolean {
+  return value === null || ['string', 'number', 'boolean'].includes(typeof value);
+}
+
+function validatePredicateAST(pred: unknown, violations: SchemaViolation[], node: IRNode): void {
+  if (typeof pred !== 'object' || pred === null || Array.isArray(pred)) {
+    pushPredicateViolation(node, violations, 'predicate must be an object');
+    return;
+  }
+  const record = pred as Record<string, unknown>;
+  const keys = Object.keys(record);
+  if (keys.length !== 1) {
+    pushPredicateViolation(node, violations, 'predicate objects must contain exactly one operator');
+    return;
+  }
+  for (const key of keys) {
+    if (key === 'and') {
+      const val = record[key];
+      if (!Array.isArray(val) || val.length === 0) {
+        pushPredicateViolation(node, violations, 'and expects a non-empty predicate array');
+        return;
+      }
+      for (const sub of val) {
+        validatePredicateAST(sub, violations, node);
+      }
+    } else if (['eq', 'neq', 'gt', 'gte', 'lt', 'lte'].includes(key)) {
+      const val = record[key];
+      if (!Array.isArray(val) || val.length !== 2) {
+        pushPredicateViolation(node, violations, `${key} expects [path, expected]`);
+        return;
+      }
+      const [path, expected] = val;
+      validatePredicatePath(path, violations, node);
+      if (!isPredicateScalar(expected)) {
+        pushPredicateViolation(node, violations, `${key} expects a scalar expected value`);
+      }
+      if (['lt', 'lte', 'gt', 'gte'].includes(key) && typeof expected !== 'number') {
+        pushPredicateViolation(node, violations, `${key} expects a non-boolean number`);
+      }
+    } else {
+      pushPredicateViolation(node, violations, `unsupported operator '${key}'`);
+    }
   }
 }
 

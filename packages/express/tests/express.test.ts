@@ -836,6 +836,65 @@ describe('Express Transpiler', () => {
       );
     });
 
+    test('count predicate generates helper-backed route logic', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/count',
+        '    count name=eligible_count in=users predicate={{ {and: [{lt: ["age", 30]}, {lte: ["score", 10]}]} }}',
+        '    respond 200 json=eligible_count',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post-api-count'));
+      expect(route).toBeDefined();
+      const content = route!.content;
+      expect(content).toContain('const __kernEvalPredicate_eligible_count = (predicate, record) =>');
+      expect(content).toContain(
+        'const __kernPredicate_eligible_count = {and: [{lt: ["age", 30]}, {lte: ["score", 10]}]};',
+      );
+      expect(content).toContain(
+        'const eligible_count = (users).reduce((count, item) => __kernEvalPredicate_eligible_count(__kernPredicate_eligible_count, item) ? count + 1 : count, 0);',
+      );
+    });
+
+    test('count predicate accepts string literal predicate code', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/count',
+        '    count name=young_count in=users predicate="{and: [{lt: [\\"age\\", 30]}]}"',
+        '    respond 200 json=young_count',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post-api-count'));
+      expect(route).toBeDefined();
+      const content = route!.content;
+      expect(content).toContain('const __kernPredicate_young_count = {and: [{lt: ["age", 30]}]};');
+      expect(content).toContain(
+        'const young_count = (users).reduce((count, item) => __kernEvalPredicate_young_count(__kernPredicate_young_count, item) ? count + 1 : count, 0);',
+      );
+    });
+
+    test('count where rewrites request-scoped route expressions', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/count',
+        '    count name=matching_count in=users where={{ item.score >= body.minScore }}',
+        '    respond 200 json=matching_count',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post-api-count'));
+      expect(route).toBeDefined();
+      const content = route!.content;
+      expect(content).toContain(
+        'const matching_count = (users).reduce((count, item) => (item.score >= req.body.minScore) ? count + 1 : count, 0);',
+      );
+    });
+
     test('each generates for loop with children', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');
