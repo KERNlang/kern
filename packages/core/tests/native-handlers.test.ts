@@ -376,6 +376,107 @@ describe('emitNativeKernBodyTS — slice 1 statements', () => {
   });
 });
 
+describe('emitNativeKernBodyTS — expression-v1 and nested fn statements', () => {
+  test('expression-v1 emits a typed scalar binding', () => {
+    const handler = makeHandler([
+      { type: 'expression-v1', props: { name: 'label', type: 'string', expr: 'String(value)' } },
+      { type: 'return', props: { value: 'label' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(
+      ['const label: string = String(value);', 'return label;'].join('\n'),
+    );
+  });
+
+  test('expression-v1 accepts ExprObject expr props', () => {
+    const handler = makeHandler([
+      { type: 'expression-v1', props: { name: 'total', expr: { __expr: true, code: 'amount + 1' } } },
+      { type: 'return', props: { value: 'total' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(['const total = amount + 1;', 'return total;'].join('\n'));
+  });
+
+  test('infers kern handler language from expression-v1 child', () => {
+    const doc = parseDocument(
+      [
+        'fn name=label returns=string',
+        '  handler',
+        '    expression-v1 name=label expr="String(value)"',
+        '    return value=label',
+      ].join('\n'),
+    );
+    const handler = doc.children?.[0]?.children?.find((child) => child.type === 'handler');
+    expect(handler?.props?.lang).toBe('kern');
+  });
+
+  test('nested fn supports legacy params and returns inside body emit', () => {
+    const handler = makeHandler([
+      {
+        type: 'fn',
+        props: { name: 'add', params: 'a:number,b:number', returns: 'number' },
+        children: [{ type: 'handler', props: { lang: 'kern' }, children: [{ type: 'return', props: { value: 'a + b' } }] }],
+      },
+      { type: 'return', props: { value: 'add(2, 3)' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(
+      ['function add(a: number, b: number): number {', '  return a + b;', '}', 'return add(2, 3);'].join('\n'),
+    );
+  });
+
+  test('nested fn supports structured param children', () => {
+    const handler = makeHandler([
+      {
+        type: 'fn',
+        props: { name: 'add', returns: 'number' },
+        children: [
+          { type: 'param', props: { name: 'a', type: 'number' } },
+          { type: 'param', props: { name: 'b', type: 'number' } },
+          { type: 'handler', props: { lang: 'kern' }, children: [{ type: 'return', props: { value: 'a + b' } }] },
+        ],
+      },
+      { type: 'return', props: { value: 'add(2, 3)' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toContain('function add(a: number, b: number): number {');
+  });
+
+  test('nested async fn preserves await expressions in body emit', () => {
+    const handler = makeHandler([
+      {
+        type: 'fn',
+        props: { name: 'loadTotal', params: 'amount:number', returns: 'number', async: 'true' },
+        children: [
+          {
+            type: 'handler',
+            props: { lang: 'kern' },
+            children: [
+              { type: 'let', props: { name: 'loaded', value: 'await load(amount)' } },
+              { type: 'return', props: { value: 'loaded + 5' } },
+            ],
+          },
+        ],
+      },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toBe(
+      ['async function loadTotal(amount: number): Promise<number> {', '  const loaded = await load(amount);', '  return loaded + 5;', '}'].join(
+        '\n',
+      ),
+    );
+  });
+
+  test('nested fn rejects mixed legacy and structured params', () => {
+    const handler = makeHandler([
+      {
+        type: 'fn',
+        props: { name: 'mixed', params: 'a:number' },
+        children: [
+          { type: 'param', props: { name: 'b', type: 'number' } },
+          { type: 'handler', props: { lang: 'kern' }, children: [] },
+        ],
+      },
+    ]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/cannot mix legacy `params=`/);
+  });
+});
+
 describe('emitNativeKernBodyTS — destructure body statement', () => {
   test('emits object destructuring inside native body', () => {
     const handler = makeHandler([

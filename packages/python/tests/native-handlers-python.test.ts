@@ -117,6 +117,117 @@ describe('emitPyExpression — slice 1 lowering rules', () => {
   });
 });
 
+describe('emitNativeKernBodyPython — expression-v1 and nested fn statements', () => {
+  test('expression-v1 emits a scalar binding through Python expression lowering', () => {
+    const handler = makeHandler([
+      { type: 'expression-v1', props: { name: 'label', expr: 'String(value)' } },
+      { type: 'return', props: { value: 'label' } },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toBe(
+      [
+        'def _kern_fmt(__k_v):',
+        '    if isinstance(__k_v, bool):',
+        "        return 'true' if __k_v else 'false'",
+        '    if __k_v is None:',
+        "        return 'null'",
+        '    if isinstance(__k_v, float) and __k_v.is_integer():',
+        '        return str(int(__k_v))',
+        '    return str(__k_v)',
+        '',
+        'label = _kern_fmt(value)',
+        'return label',
+      ].join('\n'),
+    );
+  });
+
+  test('nested fn supports legacy params and returns inside body emit', () => {
+    const handler = makeHandler([
+      {
+        type: 'fn',
+        props: { name: 'add', params: 'a:number,b:number', returns: 'number' },
+        children: [{ type: 'handler', props: { lang: 'kern' }, children: [{ type: 'return', props: { value: 'a + b' } }] }],
+      },
+      { type: 'return', props: { value: 'add(2, 3)' } },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toBe(
+      ['def add(a: float, b: float) -> float:', '    return a + b', 'return add(2, 3)'].join('\n'),
+    );
+  });
+
+  test('nested fn supports structured param children', () => {
+    const handler = makeHandler([
+      {
+        type: 'fn',
+        props: { name: 'add', returns: 'number' },
+        children: [
+          { type: 'param', props: { name: 'a', type: 'number' } },
+          { type: 'param', props: { name: 'b', type: 'number' } },
+          { type: 'handler', props: { lang: 'kern' }, children: [{ type: 'return', props: { value: 'a + b' } }] },
+        ],
+      },
+      { type: 'return', props: { value: 'add(2, 3)' } },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toContain('def add(a: float, b: float) -> float:');
+  });
+
+  test('nested async fn preserves await expressions in body emit', () => {
+    const handler = makeHandler([
+      {
+        type: 'fn',
+        props: { name: 'loadTotal', params: 'amount:number', returns: 'number', async: 'true' },
+        children: [
+          {
+            type: 'handler',
+            props: { lang: 'kern' },
+            children: [
+              { type: 'let', props: { name: 'loaded', value: 'await load(amount)' } },
+              { type: 'return', props: { value: 'loaded + 5' } },
+            ],
+          },
+        ],
+      },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toBe(
+      ['async def loadTotal(amount: float) -> float:', '    loaded = await load(amount)', '    return loaded + 5'].join(
+        '\n',
+      ),
+    );
+  });
+
+  test('String() portable coercion requires exactly one arg', () => {
+    expect(() => emitPyExpression(parseExpression('String()'))).toThrow(/expects exactly one argument/);
+    expect(() => emitPyExpression(parseExpression('String(a, b)'))).toThrow(/expects exactly one argument/);
+  });
+
+  test('standalone String(value) lowering is self-contained', () => {
+    expect(emitPyExpression(parseExpression('String(value)'))).toBe(
+      "(lambda __k_v: ('true' if __k_v else 'false') if isinstance(__k_v, bool) else 'null' if __k_v is None else str(int(__k_v)) if isinstance(__k_v, float) and __k_v.is_integer() else str(__k_v))(value)",
+    );
+  });
+
+  test('expression-v1 accepts ExprObject expr props', () => {
+    const handler = makeHandler([
+      { type: 'expression-v1', props: { name: 'total', expr: { __expr: true, code: 'amount + 1' } } },
+      { type: 'return', props: { value: 'total' } },
+    ]);
+    expect(emitNativeKernBodyPython(handler)).toBe(['total = amount + 1', 'return total'].join('\n'));
+  });
+
+  test('nested fn rejects mixed legacy and structured params', () => {
+    const handler = makeHandler([
+      {
+        type: 'fn',
+        props: { name: 'mixed', params: 'a:number' },
+        children: [
+          { type: 'param', props: { name: 'b', type: 'number' } },
+          { type: 'handler', props: { lang: 'kern' }, children: [] },
+        ],
+      },
+    ]);
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/cannot mix legacy `params=`/);
+  });
+});
+
 describe('emitNativeKernBodyPython — slice 1 statements', () => {
   test('let with simple call', () => {
     const h = makeHandler([{ type: 'let', props: { name: 'x', value: 'foo()' } }]);

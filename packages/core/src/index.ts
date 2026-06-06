@@ -203,6 +203,10 @@ export type { ImportResult } from './importer.js';
 export { escapeKernString, importTypeScript } from './importer.js';
 export type { LowerTarget } from './ir/semantics/fixture-lowering.js';
 export { lowerFixtureForTarget, serializeValue } from './ir/semantics/fixture-lowering.js';
+export {
+  expressionV1Contract,
+  registerExpressionV1Contract,
+} from './ir/semantics/expression-v1.js';
 // IR runtime semantics — executable contracts + differential harness.
 export type {
   CanonicalError,

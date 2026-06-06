@@ -854,7 +854,9 @@ function isNativeBodyStatementChild(node: IRNode): boolean {
     case 'cell':
     case 'set':
     case 'comment':
+    case 'fn':
     case 'let':
+    case 'expression-v1':
     case 'assign':
     case 'destructure':
     case 'do':
@@ -893,7 +895,9 @@ function isNativeBodyStatementChild(node: IRNode): boolean {
 function isKernHandlerBodySignal(node: IRNode): boolean {
   switch (node.type) {
     case 'cell':
+    case 'fn':
     case 'let':
+    case 'expression-v1':
     case 'assign':
     case 'destructure':
     case 'do':

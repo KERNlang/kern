@@ -24,6 +24,7 @@ import { registerLetContract } from './let.js';
 import { registerPrimitives } from './primitives.js';
 import { registerTryContract } from './try.js';
 import { registerWhileContract } from './while.js';
+import { registerExpressionV1Contract } from './expression-v1.js';
 
 export function registerAllContracts(): void {
   registerPrimitives();
@@ -37,4 +38,5 @@ export function registerAllContracts(): void {
   registerFmtContract();
   registerWhileContract();
   registerTryContract();
+  registerExpressionV1Contract();
 }

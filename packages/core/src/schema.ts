@@ -601,6 +601,15 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       effects: { kind: 'string' },
     },
   },
+  'expression-v1': {
+    description: 'Expression v1 evaluation node for TS/Python parity',
+    example: 'expression-v1 name=res expr="a === b"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      expr: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+    },
+  },
   fmt: {
     description:
       'Formatted string — declarative template literal. The `template` body is emitted verbatim between backticks, so `${expr}` placeholders interpolate normally. Three positional modes: (1) binding form `fmt name=X template=...` emits `const X = \\`...\\`;` at the current scope; (2) return form `fmt return=true template=...` emits `return \\`...\\`;` inside a `fn` body (name must be omitted); (3) inline-JSX form `fmt template=...` (no name, no return=true) appears as a direct child of `render`/`group` and emits `{\\`...\\`}` as a JSX expression — use this to replace handler-wrapped `{\\`${x} files\\`}` text inside composed renders.',
@@ -654,7 +663,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'catch',
       'finally',
       'comment',
+      'fn',
       'let',
+      'expression-v1',
       'assign',
       'destructure',
       'do',
@@ -701,7 +712,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: [
       'handler',
       'comment',
+      'fn',
       'let',
+      'expression-v1',
       'assign',
       'destructure',
       'do',
@@ -734,7 +747,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {},
     allowedChildren: [
       'comment',
+      'fn',
       'let',
+      'expression-v1',
       'assign',
       'do',
       'fmt',
@@ -1868,7 +1883,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'cell',
       'set',
       'comment',
+      'fn',
       'let',
+      'expression-v1',
       'assign',
       'destructure',
       'do',
@@ -1968,7 +1985,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
     allowedChildren: [
       'comment',
+      'fn',
       'let',
+      'expression-v1',
       'assign',
       'destructure',
       'do',
@@ -2007,7 +2026,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
     allowedChildren: [
       'comment',
+      'fn',
       'let',
+      'expression-v1',
       'assign',
       'destructure',
       'do',
@@ -2048,7 +2069,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
     allowedChildren: [
       'comment',
+      'fn',
       'let',
+      'expression-v1',
       'assign',
       'destructure',
       'do',

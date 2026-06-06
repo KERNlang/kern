@@ -344,6 +344,7 @@ export const NODE_TYPES = [
   'description',
   'sampling',
   'elicitation',
+  'expression-v1',
 ] as const;
 
 export type IRNodeType = (typeof NODE_TYPES)[number];
