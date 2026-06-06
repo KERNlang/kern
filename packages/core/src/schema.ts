@@ -1110,6 +1110,56 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       export: { kind: 'boolean' },
     },
   },
+  trim: {
+    description:
+      'Declarative string trim binding — `trim name=clean in=raw` lowers to a null-preserving boundary-whitespace trim.',
+    example: 'trim name=clean in=raw',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  split: {
+    description:
+      'Declarative string split binding — `split name=parts in=raw separator="," limit=2` splits by a non-empty literal separator. `limit=` is optional and follows JS first-N result semantics.',
+    example: 'split name=parts in=raw separator="," limit=2',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      separator: { required: true, kind: 'string' },
+      limit: { kind: 'number' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  replaceFirst: {
+    description:
+      'Declarative first string replacement binding — `replaceFirst name=out in=text search="foo" replacement="bar"` replaces the first literal search occurrence without regex or replacement-token semantics.',
+    example: 'replaceFirst name=out in=text search="foo" replacement="bar"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      search: { required: true, kind: 'string' },
+      replacement: { required: true, kind: 'string' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  replaceAll: {
+    description:
+      'Declarative all string replacement binding — `replaceAll name=out in=text search="foo" replacement="bar"` replaces every literal search occurrence without regex or replacement-token semantics.',
+    example: 'replaceAll name=out in=text search="foo" replacement="bar"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      search: { required: true, kind: 'string' },
+      replacement: { required: true, kind: 'string' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
   forEach: {
     description:
       'Declarative `.forEach` statement — `forEach in=items` with a `handler <<<>>>` child lowers to `items.forEach((item) => { handler-body });`. No binding (no `name`, no `const`). Distinct from `each` (JSX composition) and `map` (value binding). Use `item=` / `index=` to rename the parameters.',
@@ -2090,6 +2140,18 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'pluck',
       'take',
       'drop',
+      'slice',
+      'reverse',
+      'at',
+      'join',
+      'concat',
+      'includes',
+      'indexOf',
+      'lastIndexOf',
+      'trim',
+      'split',
+      'replaceFirst',
+      'replaceAll',
       'sort',
       'objectMerge',
       'objectOmit',

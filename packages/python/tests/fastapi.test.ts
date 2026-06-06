@@ -3040,7 +3040,7 @@ describe('FastAPI Transpiler', () => {
       expect(code).toContain('counts[__kern_key_counts] = counts.get(__kern_key_counts, 0) + 1');
     });
 
-    test('portable compact, pluck, take, and drop nodes lower to FastAPI Python code', async () => {
+    test('portable route collection shaping nodes lower to FastAPI Python code', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
       const source = [
@@ -3050,7 +3050,16 @@ describe('FastAPI Transpiler', () => {
         '    pluck name=emails in=users prop=profile.email',
         '    take name=first_two in=emails n=2',
         '    drop name=after_one in=emails n=1',
-        '    respond 200 json={{ {truthy: truthy, emails: emails, firstTwo: first_two, afterOne: after_one} }}',
+        '    slice name=middle in=emails start=1 end=3',
+        '    reverse name=reversed in=emails',
+        '    at name=first_email in=emails index=0',
+        '    at name=missing_email in=emails index=99',
+        '    join name=csv in=emails separator="|"',
+        '    concat name=all_emails in=emails with=more_emails',
+        '    includes name=has_email in=emails value="\'b@example.com\'"',
+        '    indexOf name=email_idx in=emails value="\'b@example.com\'"',
+        '    lastIndexOf name=last_email_idx in=emails value="\'b@example.com\'"',
+        '    respond 200 json={{ {truthy: truthy, emails: emails, firstTwo: first_two, afterOne: after_one, middle: middle, reversed: reversed, firstEmail: first_email, missingEmail: missing_email, csv: csv, allEmails: all_emails, hasEmail: has_email, emailIdx: email_idx, lastEmailIdx: last_email_idx} }}',
       ].join('\n');
       const result = transpileFastAPI(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('post_api_list_shape'));
@@ -3065,6 +3074,106 @@ describe('FastAPI Transpiler', () => {
       expect(code).toContain('emails = [__kern_pluck_emails(__kern_item) for __kern_item in users]');
       expect(code).toContain('first_two = emails[:2]');
       expect(code).toContain('after_one = emails[1:]');
+      expect(code).toContain('middle = emails[1:3]');
+      expect(code).toContain('reversed = emails[::-1]');
+      expect(code).toContain(
+        'first_email = (lambda __kern_source: __kern_source[0] if 0 < len(__kern_source) else None)(emails)',
+      );
+      expect(code).toContain(
+        'missing_email = (lambda __kern_source: __kern_source[99] if 99 < len(__kern_source) else None)(emails)',
+      );
+      expect(code).toContain('def __kern_join_part_csv(__kern_value):');
+      expect(code).toContain('csv = "|".join(__kern_join_part_csv(__kern_item) for __kern_item in emails)');
+      expect(code).toContain('def __kern_concat_all_emails(__kern_left, __kern_right):');
+      expect(code).toContain('all_emails = __kern_concat_all_emails(emails, more_emails)');
+      expect(code).toContain('def __kern_same_value_zero_has_email(__kern_left, __kern_right):');
+      expect(code).toContain('__kern_needle_has_email = __kern_assert_scalar_has_email(\'b@example.com\', "includes")');
+      expect(code).toContain(
+        'has_email = any(__kern_same_value_zero_has_email(__kern_item, __kern_needle_has_email) for __kern_item in emails)',
+      );
+      expect(code).toContain(
+        'email_idx = next((__kern_index for __kern_index, __kern_item in enumerate(emails) if __kern_strict_scalar_equal_email_idx(__kern_item, __kern_needle_email_idx)), -1)',
+      );
+      expect(code).toContain(
+        'last_email_idx = next((__kern_index for __kern_index in range(len(emails) - 1, -1, -1) if __kern_strict_scalar_equal_last_email_idx(emails[__kern_index], __kern_needle_last_email_idx)), -1)',
+      );
+    });
+
+    test('portable route collection lookup and concat reject deferred overloads', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const withFrom = [
+        'server name=API',
+        '  route method=post path=/api/list-shape',
+        '    includes name=has_email in=emails value="\'a@example.com\'" from=1',
+      ].join('\n');
+      expect(() => transpileFastAPI(parse(withFrom))).toThrow(/defers `from=`/);
+
+      const concatMany = [
+        'server name=API',
+        '  route method=post path=/api/list-shape',
+        '    concat name=all_emails in=emails with="more_emails, fallback_emails"',
+      ].join('\n');
+      expect(() => transpileFastAPI(parse(concatMany))).toThrow(/exactly one list-valued/);
+    });
+
+    test('portable route string primitives lower to FastAPI Python code', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=API',
+        '  route method=post path=/api/string-shape',
+        '    trim name=clean in=raw',
+        '    split name=parts in=csv separator=","',
+        '    split name=first_two in=csv separator="," limit=2',
+        '    replaceFirst name=first_replaced in=phrase search="foo" replacement="$"',
+        '    replaceAll name=all_replaced in=phrase search="foo" replacement="$"',
+        '    replaceAll name=deleted in=letters search="a" replacement=""',
+        '    respond 200 json={{ {clean: clean, parts: parts, firstTwo: first_two, firstReplaced: first_replaced, allReplaced: all_replaced, deleted: deleted} }}',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('post_api_string_shape'));
+      expect(route).toBeDefined();
+      const code = route!.content;
+
+      expect(code).toContain('def __kern_string_clean(__kern_value):');
+      expect(code).toContain('def __kern_trim_clean(__kern_value):');
+      expect(code).toContain(
+        'clean = (lambda __kern_value: None if __kern_value is None else __kern_trim_clean(__kern_value))(raw)',
+      );
+      expect(code).toContain(
+        'parts = (lambda __kern_value: None if __kern_value is None else __kern_string_parts(__kern_value).split(","))(csv)',
+      );
+      expect(code).toContain(
+        'first_two = (lambda __kern_value: None if __kern_value is None else __kern_string_first_two(__kern_value).split(",")[:2])(csv)',
+      );
+      expect(code).toContain(
+        'first_replaced = (lambda __kern_value: None if __kern_value is None else __kern_string_first_replaced(__kern_value).replace("foo", "$", 1))(phrase)',
+      );
+      expect(code).toContain(
+        'all_replaced = (lambda __kern_value: None if __kern_value is None else __kern_string_all_replaced(__kern_value).replace("foo", "$"))(phrase)',
+      );
+      expect(code).toContain(
+        'deleted = (lambda __kern_value: None if __kern_value is None else __kern_string_deleted(__kern_value).replace("a", ""))(letters)',
+      );
+    });
+
+    test('portable route string primitives reject deferred shapes', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const emptySeparator = [
+        'server name=API',
+        '  route method=post path=/api/string-shape',
+        '    split name=parts in=csv separator=""',
+      ].join('\n');
+      expect(() => transpileFastAPI(parse(emptySeparator))).toThrow(/non-empty `separator=`/);
+
+      const emptySearch = [
+        'server name=API',
+        '  route method=post path=/api/string-shape',
+        '    replaceAll name=out in=phrase search="" replacement="x"',
+      ].join('\n');
+      expect(() => transpileFastAPI(parse(emptySearch))).toThrow(/non-empty `search=`/);
     });
 
     test('portable sort nodes lower to immutable FastAPI Python sorting code', async () => {

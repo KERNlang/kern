@@ -458,6 +458,18 @@ export function buildRouteArtifact(
   const pluckNodes = getChildren(routeNode, 'pluck');
   const takeNodes = getChildren(routeNode, 'take');
   const dropNodes = getChildren(routeNode, 'drop');
+  const sliceNodes = getChildren(routeNode, 'slice');
+  const reverseNodes = getChildren(routeNode, 'reverse');
+  const atNodes = getChildren(routeNode, 'at');
+  const joinNodes = getChildren(routeNode, 'join');
+  const concatNodes = getChildren(routeNode, 'concat');
+  const includesNodes = getChildren(routeNode, 'includes');
+  const indexOfNodes = getChildren(routeNode, 'indexOf');
+  const lastIndexOfNodes = getChildren(routeNode, 'lastIndexOf');
+  const trimNodes = getChildren(routeNode, 'trim');
+  const splitNodes = getChildren(routeNode, 'split');
+  const replaceFirstNodes = getChildren(routeNode, 'replaceFirst');
+  const replaceAllNodes = getChildren(routeNode, 'replaceAll');
   const sortNodes = getChildren(routeNode, 'sort');
   const objectMergeNodes = getChildren(routeNode, 'objectMerge');
   const objectOmitNodes = getChildren(routeNode, 'objectOmit');
@@ -489,6 +501,18 @@ export function buildRouteArtifact(
     pluckNodes.length > 0 ||
     takeNodes.length > 0 ||
     dropNodes.length > 0 ||
+    sliceNodes.length > 0 ||
+    reverseNodes.length > 0 ||
+    atNodes.length > 0 ||
+    joinNodes.length > 0 ||
+    concatNodes.length > 0 ||
+    includesNodes.length > 0 ||
+    indexOfNodes.length > 0 ||
+    lastIndexOfNodes.length > 0 ||
+    trimNodes.length > 0 ||
+    splitNodes.length > 0 ||
+    replaceFirstNodes.length > 0 ||
+    replaceAllNodes.length > 0 ||
     sortNodes.length > 0 ||
     objectMergeNodes.length > 0 ||
     objectOmitNodes.length > 0 ||

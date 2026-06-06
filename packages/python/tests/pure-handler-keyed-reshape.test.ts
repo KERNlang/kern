@@ -227,7 +227,7 @@ describe('pure Python handlers: keyed reshape route scope', () => {
     expect(body).toContain('null_keys = _kern_js_object_keys((lambda __k_src:');
   });
 
-  test('lowers route compact, pluck, take, and drop nodes', () => {
+  test('lowers route collection shaping nodes', () => {
     const server = {
       type: 'server',
       props: { name: 'API' },
@@ -240,11 +240,23 @@ describe('pure Python handlers: keyed reshape route scope', () => {
             { type: 'pluck', props: { name: 'emails', in: 'users', prop: 'profile.email' } },
             { type: 'take', props: { name: 'first_two', in: 'emails', n: '2' } },
             { type: 'drop', props: { name: 'after_one', in: 'emails', n: '1' } },
+            { type: 'slice', props: { name: 'middle', in: 'emails', start: '1', end: '3' } },
+            { type: 'reverse', props: { name: 'reversed', in: 'emails' } },
+            { type: 'at', props: { name: 'first_email', in: 'emails', index: '0' } },
+            { type: 'at', props: { name: 'missing_email', in: 'emails', index: '99' } },
+            { type: 'join', props: { name: 'csv', in: 'emails', separator: '|' } },
+            { type: 'concat', props: { name: 'all_emails', in: 'emails', with: 'more_emails' } },
+            { type: 'includes', props: { name: 'has_email', in: 'emails', value: '"b@example.com"' } },
+            { type: 'indexOf', props: { name: 'email_idx', in: 'emails', value: '"b@example.com"' } },
+            { type: 'lastIndexOf', props: { name: 'last_email_idx', in: 'emails', value: '"b@example.com"' } },
             {
               type: 'respond',
               props: {
                 status: 200,
-                json: { __expr: true, code: '{ truthy: truthy, emails: emails, firstTwo: first_two }' },
+                json: {
+                  __expr: true,
+                  code: '{ truthy: truthy, emails: emails, firstTwo: first_two, middle: middle, reversed: reversed, firstEmail: first_email, missingEmail: missing_email, csv: csv, allEmails: all_emails, hasEmail: has_email, emailIdx: email_idx, lastEmailIdx: last_email_idx }',
+                },
               },
             },
           ],
@@ -260,6 +272,110 @@ describe('pure Python handlers: keyed reshape route scope', () => {
     expect(body).toContain('emails = [__kern_pluck_emails(__kern_item) for __kern_item in users]');
     expect(body).toContain('first_two = emails[:2]');
     expect(body).toContain('after_one = emails[1:]');
+    expect(body).toContain('middle = emails[1:3]');
+    expect(body).toContain('reversed = emails[::-1]');
+    expect(body).toContain(
+      'first_email = (lambda __kern_source: __kern_source[0] if 0 < len(__kern_source) else None)(emails)',
+    );
+    expect(body).toContain(
+      'missing_email = (lambda __kern_source: __kern_source[99] if 99 < len(__kern_source) else None)(emails)',
+    );
+    expect(body).toContain('def __kern_join_part_csv(__kern_value):');
+    expect(body).toContain('csv = "|".join(__kern_join_part_csv(__kern_item) for __kern_item in emails)');
+    expect(body).toContain('def __kern_concat_all_emails(__kern_left, __kern_right):');
+    expect(body).toContain('all_emails = __kern_concat_all_emails(emails, more_emails)');
+    expect(body).toContain('def __kern_same_value_zero_has_email(__kern_left, __kern_right):');
+    expect(body).toContain('__kern_needle_has_email = __kern_assert_scalar_has_email("b@example.com", "includes")');
+    expect(body).toContain(
+      'has_email = any(__kern_same_value_zero_has_email(__kern_item, __kern_needle_has_email) for __kern_item in emails)',
+    );
+    expect(body).toContain(
+      'email_idx = next((__kern_index for __kern_index, __kern_item in enumerate(emails) if __kern_strict_scalar_equal_email_idx(__kern_item, __kern_needle_email_idx)), -1)',
+    );
+    expect(body).toContain(
+      'last_email_idx = next((__kern_index for __kern_index in range(len(emails) - 1, -1, -1) if __kern_strict_scalar_equal_last_email_idx(emails[__kern_index], __kern_needle_last_email_idx)), -1)',
+    );
+  });
+
+  test('rejects deferred route lookup and concat overloads', () => {
+    const withFrom = routeWith({
+      type: 'includes',
+      props: { name: 'has_email', in: 'emails', value: '"a@example.com"', from: '1' },
+    });
+    expect(() => emitPureHandlers(withFrom, new Set(), withFrom)).toThrow(/defers `from=`/);
+
+    const concatMany = routeWith({
+      type: 'concat',
+      props: { name: 'all_emails', in: 'emails', with: 'more_emails, fallback_emails' },
+    });
+    expect(() => emitPureHandlers(concatMany, new Set(), concatMany)).toThrow(/exactly one list-valued/);
+  });
+
+  test('lowers route string primitive nodes', () => {
+    const server = {
+      type: 'server',
+      props: { name: 'API' },
+      children: [
+        {
+          type: 'route',
+          props: { method: 'post', path: '/api/t' },
+          children: [
+            { type: 'trim', props: { name: 'clean', in: 'raw' } },
+            { type: 'split', props: { name: 'parts', in: 'csv', separator: ',' } },
+            { type: 'split', props: { name: 'first_two', in: 'csv', separator: ',', limit: '2' } },
+            { type: 'replaceFirst', props: { name: 'first_replaced', in: 'phrase', search: 'foo', replacement: '$' } },
+            { type: 'replaceAll', props: { name: 'all_replaced', in: 'phrase', search: 'foo', replacement: '$' } },
+            { type: 'replaceAll', props: { name: 'deleted', in: 'letters', search: 'a', replacement: '' } },
+            {
+              type: 'respond',
+              props: {
+                status: 200,
+                json: {
+                  __expr: true,
+                  code: '{ clean: clean, parts: parts, firstTwo: first_two, firstReplaced: first_replaced, allReplaced: all_replaced, deleted: deleted }',
+                },
+              },
+            },
+          ],
+        },
+      ],
+    } satisfies IRNode;
+    const handlers = emitPureHandlers(server, new Set(), server);
+    const body = handlers[0].bodyLines.join('\n');
+    expect(body).toContain('def __kern_string_clean(__kern_value):');
+    expect(body).toContain('def __kern_trim_clean(__kern_value):');
+    expect(body).toContain(
+      'clean = (lambda __kern_value: None if __kern_value is None else __kern_trim_clean(__kern_value))(raw)',
+    );
+    expect(body).toContain(
+      'parts = (lambda __kern_value: None if __kern_value is None else __kern_string_parts(__kern_value).split(","))(csv)',
+    );
+    expect(body).toContain(
+      'first_two = (lambda __kern_value: None if __kern_value is None else __kern_string_first_two(__kern_value).split(",")[:2])(csv)',
+    );
+    expect(body).toContain(
+      'first_replaced = (lambda __kern_value: None if __kern_value is None else __kern_string_first_replaced(__kern_value).replace("foo", "$", 1))(phrase)',
+    );
+    expect(body).toContain(
+      'all_replaced = (lambda __kern_value: None if __kern_value is None else __kern_string_all_replaced(__kern_value).replace("foo", "$"))(phrase)',
+    );
+    expect(body).toContain(
+      'deleted = (lambda __kern_value: None if __kern_value is None else __kern_string_deleted(__kern_value).replace("a", ""))(letters)',
+    );
+  });
+
+  test('rejects deferred route string primitive shapes', () => {
+    const emptySeparator = routeWith({
+      type: 'split',
+      props: { name: 'parts', in: 'csv', separator: '' },
+    });
+    expect(() => emitPureHandlers(emptySeparator, new Set(), emptySeparator)).toThrow(/non-empty `separator=`/);
+
+    const emptySearch = routeWith({
+      type: 'replaceAll',
+      props: { name: 'out', in: 'phrase', search: '', replacement: 'x' },
+    });
+    expect(() => emitPureHandlers(emptySearch, new Set(), emptySearch)).toThrow(/non-empty `search=`/);
   });
 
   test('lowers route sort nodes', () => {

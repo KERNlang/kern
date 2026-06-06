@@ -15,6 +15,14 @@ export type PortableLogicPrimitiveId =
   | 'collection.pluck'
   | 'collection.take'
   | 'collection.drop'
+  | 'collection.slice'
+  | 'collection.reverse'
+  | 'collection.at'
+  | 'collection.join'
+  | 'collection.concat'
+  | 'collection.includes'
+  | 'collection.indexOf'
+  | 'collection.lastIndexOf'
   | 'collection.sort'
   | 'collection.uniqueBy'
   | 'collection.groupBy'
@@ -117,6 +125,88 @@ export const PORTABLE_LOGIC_PRIMITIVES = {
     intent: 'semantic-gap',
     hostPatterns: ['xs.slice(n)', 'xs[n:]'],
     portabilityNotes: ['Route lowering requires a non-negative integer literal to avoid target slicing divergence.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.slice': {
+    id: 'collection.slice',
+    description: 'Copies a half-open collection range without mutating the source.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.slice(start, end)', 'xs[start:end]'],
+    portabilityNotes: ['Route lowering requires non-negative integer literal bounds and clamps out-of-range values.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.reverse': {
+    id: 'collection.reverse',
+    description: 'Returns collection elements in reverse order without mutating the source.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['[...xs].reverse()', 'xs[::-1]'],
+    portabilityNotes: ['Source collections are copied before reversal so route logic cannot mutate request data.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.at': {
+    id: 'collection.at',
+    description: 'Reads an element by zero-based index and returns null/None when out of range.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['index < xs.length ? xs[index] : null', 'xs[index] if index < len(xs) else None'],
+    portabilityNotes: ['Route lowering requires a non-negative integer literal index; negative indexing is deferred.'],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.join': {
+    id: 'collection.join',
+    description: 'Joins scalar/null collection elements into a string with a separator.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.join(separator)', 'separator.join(str(x) for x in xs)'],
+    portabilityNotes: [
+      'Route lowering supports list receivers with scalar/null elements only; null slots become empty strings and booleans use JS lowercase spelling.',
+    ],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.concat': {
+    id: 'collection.concat',
+    description: 'Concatenates two lists without mutating either source list.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.concat(ys)', '[...xs, ...ys]', 'list(xs) + list(ys)'],
+    portabilityNotes: [
+      'Route lowering supports exactly one list-valued with= operand; scalar concat and varargs are deferred.',
+    ],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.includes': {
+    id: 'collection.includes',
+    description: 'Tests whether a list contains a JSON scalar/null value using JS SameValueZero equality.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.includes(value)'],
+    portabilityNotes: [
+      'Route lowering supports scalar/null search values only, with type-sensitive bool/number/string/null comparison and NaN matching NaN.',
+    ],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.indexOf': {
+    id: 'collection.indexOf',
+    description: 'Returns the first index of a JSON scalar/null value or -1 when absent.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.indexOf(value)'],
+    portabilityNotes: [
+      'Route lowering supports scalar/null search values only and mirrors JS strict equality; NaN never matches.',
+    ],
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'collection.lastIndexOf': {
+    id: 'collection.lastIndexOf',
+    description: 'Returns the last index of a JSON scalar/null value or -1 when absent.',
+    purity: 'pure',
+    intent: 'semantic-gap',
+    hostPatterns: ['xs.lastIndexOf(value)'],
+    portabilityNotes: [
+      'Route lowering supports scalar/null search values only and mirrors JS strict equality; from= remains deferred.',
+    ],
     targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
   },
   'collection.sort': {
