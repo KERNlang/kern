@@ -16,6 +16,7 @@
 import { registerAssignContract } from './assign.js';
 import { registerBranchContract } from './branch.js';
 import { registerEachContract } from './each.js';
+import { registerExpressionV1Contract } from './expression-v1.js';
 import { registerFmtContract } from './fmt.js';
 import { registerForContract } from './for.js';
 import { registerIfContract } from './if.js';
@@ -24,7 +25,6 @@ import { registerLetContract } from './let.js';
 import { registerPrimitives } from './primitives.js';
 import { registerTryContract } from './try.js';
 import { registerWhileContract } from './while.js';
-import { registerExpressionV1Contract } from './expression-v1.js';
 
 export function registerAllContracts(): void {
   registerPrimitives();

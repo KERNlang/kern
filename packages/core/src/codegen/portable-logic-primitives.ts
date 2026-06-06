@@ -433,8 +433,11 @@ export const PORTABLE_LOGIC_PRIMITIVES = {
     purity: 'pure',
     intent: 'language-operator',
     hostPatterns: ['String(value)', '_kern_fmt(value)'],
-    portabilityNotes: ['Null becomes "null", booleans use lowercase spelling, strings pass through, and numbers use JS decimal text.'],
-    operatorRationale: 'String coercion is a host operator in TS/Python; KERN documents the expression-v1 subset explicitly.',
+    portabilityNotes: [
+      'Null becomes "null", booleans use lowercase spelling, strings pass through, and numbers use JS decimal text.',
+    ],
+    operatorRationale:
+      'String coercion is a host operator in TS/Python; KERN documents the expression-v1 subset explicitly.',
     targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
   },
 } as const satisfies Record<PortableLogicPrimitiveId, PortableLogicPrimitive>;

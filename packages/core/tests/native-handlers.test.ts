@@ -382,9 +382,7 @@ describe('emitNativeKernBodyTS — expression-v1 and nested fn statements', () =
       { type: 'expression-v1', props: { name: 'label', type: 'string', expr: 'String(value)' } },
       { type: 'return', props: { value: 'label' } },
     ]);
-    expect(emitNativeKernBodyTS(handler)).toBe(
-      ['const label: string = String(value);', 'return label;'].join('\n'),
-    );
+    expect(emitNativeKernBodyTS(handler)).toBe(['const label: string = String(value);', 'return label;'].join('\n'));
   });
 
   test('expression-v1 accepts ExprObject expr props', () => {
@@ -413,7 +411,9 @@ describe('emitNativeKernBodyTS — expression-v1 and nested fn statements', () =
       {
         type: 'fn',
         props: { name: 'add', params: 'a:number,b:number', returns: 'number' },
-        children: [{ type: 'handler', props: { lang: 'kern' }, children: [{ type: 'return', props: { value: 'a + b' } }] }],
+        children: [
+          { type: 'handler', props: { lang: 'kern' }, children: [{ type: 'return', props: { value: 'a + b' } }] },
+        ],
       },
       { type: 'return', props: { value: 'add(2, 3)' } },
     ]);
@@ -456,9 +456,12 @@ describe('emitNativeKernBodyTS — expression-v1 and nested fn statements', () =
       },
     ]);
     expect(emitNativeKernBodyTS(handler)).toBe(
-      ['async function loadTotal(amount: number): Promise<number> {', '  const loaded = await load(amount);', '  return loaded + 5;', '}'].join(
-        '\n',
-      ),
+      [
+        'async function loadTotal(amount: number): Promise<number> {',
+        '  const loaded = await load(amount);',
+        '  return loaded + 5;',
+        '}',
+      ].join('\n'),
     );
   });
 

@@ -1369,7 +1369,15 @@ function emitFnTS(node: IRNode, ctx: BodyEmitContext, indent: string): string[] 
 function paramBindingsFromSignature(paramList: string): Array<[string, 'const']> {
   if (!paramList.trim()) return [];
   return splitBodyExpressionList(paramList, 'fn params=')
-    .map((part) => part.split('=')[0]?.split(':')[0]?.trim().replace(/^\.\.\./, '').replace(/\?$/, '') ?? '')
+    .map(
+      (part) =>
+        part
+          .split('=')[0]
+          ?.split(':')[0]
+          ?.trim()
+          .replace(/^\.\.\./, '')
+          .replace(/\?$/, '') ?? '',
+    )
     .filter((name) => /^[A-Za-z_$][\w$]*$/.test(name))
     .map((name) => [name, 'const']);
 }

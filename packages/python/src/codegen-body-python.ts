@@ -55,13 +55,13 @@ import {
   parseKeys,
   suggestStdlibMethod,
 } from '@kernlang/core';
+import { buildPythonParamList } from './codegen-helpers.js';
 import {
   KERN_FMT_HELPER_PY,
   KERN_I32_HELPER_PY,
   KERN_PAIR_HELPERS_PY,
   KERN_TMOD_HELPER_PY,
 } from './core/expr/index.js';
-import { buildPythonParamList } from './codegen-helpers.js';
 import { mapTsTypeToPython } from './type-map.js';
 
 /** Slice 3e — caller-provided options for the Python body emitter.

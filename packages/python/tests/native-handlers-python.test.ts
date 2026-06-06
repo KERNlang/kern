@@ -145,7 +145,9 @@ describe('emitNativeKernBodyPython — expression-v1 and nested fn statements', 
       {
         type: 'fn',
         props: { name: 'add', params: 'a:number,b:number', returns: 'number' },
-        children: [{ type: 'handler', props: { lang: 'kern' }, children: [{ type: 'return', props: { value: 'a + b' } }] }],
+        children: [
+          { type: 'handler', props: { lang: 'kern' }, children: [{ type: 'return', props: { value: 'a + b' } }] },
+        ],
       },
       { type: 'return', props: { value: 'add(2, 3)' } },
     ]);
