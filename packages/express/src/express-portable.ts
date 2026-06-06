@@ -79,11 +79,39 @@ export function extractExprCode(prop: unknown): string {
 }
 
 function portableExprProp(prop: unknown): string {
+  if (typeof prop === 'number' || typeof prop === 'boolean') return String(prop);
   return extractExprCode(prop) || String(prop || '');
+}
+
+function portableValueExprProp(prop: unknown): string {
+  if (prop === null) return 'null';
+  return portableExprProp(prop);
 }
 
 function requirePortableProp(nodeType: string, propName: string, value: string): string {
   if (!value) throw new Error(`portable route \`${nodeType}\` requires \`${propName}=\`.`);
+  return value;
+}
+
+function portableLiteralStringProp(
+  nodeType: string,
+  propName: string,
+  prop: unknown,
+  options: { allowEmpty?: boolean } = {},
+): string {
+  if (prop === undefined || prop === null) {
+    throw new Error(`portable route \`${nodeType}\` requires \`${propName}=\`.`);
+  }
+  if (typeof prop === 'object' && (prop as any).__expr) {
+    throw new Error(`portable route \`${nodeType}\` requires literal \`${propName}=\`, not an expression.`);
+  }
+  if (typeof prop !== 'string') {
+    throw new Error(`portable route \`${nodeType}\` requires string literal \`${propName}=\`.`);
+  }
+  const value = String(prop);
+  if (!options.allowEmpty && value.length === 0) {
+    throw new Error(`portable route \`${nodeType}\` requires non-empty \`${propName}=\`.`);
+  }
   return value;
 }
 
@@ -114,6 +142,47 @@ function emitExpressPluckHelper(lines: string[], indent: string, helperName: str
   lines.push(`${indent}    }`);
   lines.push(`${indent}  }`);
   lines.push(`${indent}  return __kernValue ?? null;`);
+  lines.push(`${indent}};`);
+}
+
+function emitExpressJoinPartHelper(lines: string[], indent: string, helperName: string): void {
+  lines.push(`${indent}const ${helperName} = (__kernValue) => {`);
+  lines.push(`${indent}  if (__kernValue === null || __kernValue === undefined) return '';`);
+  lines.push(`${indent}  if (typeof __kernValue === 'string') return __kernValue;`);
+  lines.push(`${indent}  if (typeof __kernValue === 'boolean') return __kernValue ? 'true' : 'false';`);
+  lines.push(`${indent}  if (typeof __kernValue === 'number') return String(__kernValue);`);
+  lines.push(`${indent}  throw new TypeError('portable route \`join\` supports only scalar/null list elements');`);
+  lines.push(`${indent}};`);
+}
+
+function emitExpressScalarLookupHelpers(
+  lines: string[],
+  indent: string,
+  assertScalarName: string,
+  sameValueZeroName: string,
+  strictEqualName: string,
+): void {
+  lines.push(`${indent}const ${assertScalarName} = (__kernValue, __kernNode) => {`);
+  lines.push(
+    `${indent}  if (__kernValue === null || ['string', 'boolean', 'number'].includes(typeof __kernValue)) return __kernValue;`,
+  );
+  lines.push(
+    `${indent}  throw new TypeError(\`portable route \\\`${'${__kernNode}'}\\\` supports only scalar/null search values\`);`,
+  );
+  lines.push(`${indent}};`);
+  lines.push(`${indent}const ${sameValueZeroName} = (__kernLeft, __kernRight) => {`);
+  lines.push(`${indent}  if (typeof __kernLeft !== typeof __kernRight) return false;`);
+  lines.push(
+    `${indent}  if (typeof __kernLeft === 'number') return Object.is(__kernLeft, NaN) && Object.is(__kernRight, NaN) ? true : __kernLeft === __kernRight;`,
+  );
+  lines.push(`${indent}  return __kernLeft === __kernRight;`);
+  lines.push(`${indent}};`);
+  lines.push(`${indent}const ${strictEqualName} = (__kernLeft, __kernRight) => {`);
+  lines.push(`${indent}  if (typeof __kernLeft !== typeof __kernRight) return false;`);
+  lines.push(
+    `${indent}  if (typeof __kernLeft === 'number' && (Number.isNaN(__kernLeft) || Number.isNaN(__kernRight))) return false;`,
+  );
+  lines.push(`${indent}  return __kernLeft === __kernRight;`);
   lines.push(`${indent}};`);
 }
 
@@ -428,6 +497,119 @@ export function generatePortableChildExpress(
       );
       break;
     }
+    case 'join': {
+      const name = emitIdentifier(requirePortableProp('join', 'name', String(p.name || '')), 'join', child);
+      const collection = rewriteExpressExpr(requirePortableProp('join', 'in', portableExprProp(p.in)), path);
+      const separator =
+        p.separator === undefined || p.separator === null
+          ? "','"
+          : typeof p.separator === 'object' && (p.separator as any).__expr
+            ? rewriteExpressExpr((p.separator as any).code, path)
+            : JSON.stringify(String(p.separator));
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      const suffix = portableTempSuffix(name);
+      const helperName = `__kernJoinPart_${suffix}`;
+      emitExpressJoinPartHelper(lines, indent, helperName);
+      lines.push(
+        `${indent}const ${name}${typeAnnotation} = (${collection}).map(${helperName}).join(String(${separator}));`,
+      );
+      break;
+    }
+    case 'concat': {
+      const name = emitIdentifier(requirePortableProp('concat', 'name', String(p.name || '')), 'concat', child);
+      const collection = rewriteExpressExpr(requirePortableProp('concat', 'in', portableExprProp(p.in)), path);
+      const rawWith = requirePortableProp('concat', 'with', portableExprProp(p.with));
+      const operands = splitPortableExpressionList(rawWith, 'concat with=');
+      if (operands.length !== 1) {
+        throw new Error('portable route `concat` supports exactly one list-valued `with=` operand.');
+      }
+      const right = rewriteExpressExpr(operands[0], path);
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      lines.push(
+        `${indent}const ${name}${typeAnnotation} = ((__kernLeft, __kernRight) => { if (!Array.isArray(__kernLeft) || !Array.isArray(__kernRight)) throw new TypeError('portable route \`concat\` supports exactly one list-valued \`with=\` operand'); return [...__kernLeft, ...__kernRight]; })(${collection}, ${right});`,
+      );
+      break;
+    }
+    case 'includes':
+    case 'indexOf':
+    case 'lastIndexOf': {
+      const kind = child.type;
+      const name = emitIdentifier(requirePortableProp(kind, 'name', String(p.name || '')), kind, child);
+      const collection = rewriteExpressExpr(requirePortableProp(kind, 'in', portableExprProp(p.in)), path);
+      if (p.from !== undefined && p.from !== null && portableExprProp(p.from).trim()) {
+        throw new Error(`portable route \`${kind}\` defers \`from=\`; omit it for cross-target parity.`);
+      }
+      const value = rewriteExpressExpr(requirePortableProp(kind, 'value', portableValueExprProp(p.value)), path);
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      const suffix = portableTempSuffix(name);
+      const assertScalarName = `__kernAssertScalar_${suffix}`;
+      const sameValueZeroName = `__kernSameValueZero_${suffix}`;
+      const strictEqualName = `__kernStrictScalarEqual_${suffix}`;
+      const needleName = `__kernNeedle_${suffix}`;
+      emitExpressScalarLookupHelpers(lines, indent, assertScalarName, sameValueZeroName, strictEqualName);
+      lines.push(`${indent}const ${needleName} = ${assertScalarName}(${value}, ${JSON.stringify(kind)});`);
+      const equality = kind === 'includes' ? sameValueZeroName : strictEqualName;
+      if (kind === 'includes') {
+        lines.push(
+          `${indent}const ${name}${typeAnnotation} = (${collection}).some((__kernItem) => ${equality}(__kernItem, ${needleName}));`,
+        );
+      } else if (kind === 'indexOf') {
+        lines.push(
+          `${indent}const ${name}${typeAnnotation} = (${collection}).findIndex((__kernItem) => ${equality}(__kernItem, ${needleName}));`,
+        );
+      } else {
+        lines.push(`${indent}let ${name}${typeAnnotation} = -1;`);
+        lines.push(`${indent}for (let __kernIndex = (${collection}).length - 1; __kernIndex >= 0; __kernIndex--) {`);
+        lines.push(
+          `${indent}  if (${equality}((${collection})[__kernIndex], ${needleName})) { ${name} = __kernIndex; break; }`,
+        );
+        lines.push(`${indent}}`);
+      }
+      break;
+    }
+    case 'trim': {
+      const name = emitIdentifier(requirePortableProp('trim', 'name', String(p.name || '')), 'trim', child);
+      const source = rewriteExpressExpr(requirePortableProp('trim', 'in', portableExprProp(p.in)), path);
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      lines.push(
+        `${indent}const ${name}${typeAnnotation} = ((__kernValue) => __kernValue == null ? null : String(__kernValue).trim())(${source});`,
+      );
+      break;
+    }
+    case 'split': {
+      const name = emitIdentifier(requirePortableProp('split', 'name', String(p.name || '')), 'split', child);
+      const source = rewriteExpressExpr(requirePortableProp('split', 'in', portableExprProp(p.in)), path);
+      const separator = JSON.stringify(portableLiteralStringProp('split', 'separator', p.separator));
+      const limitRaw = portableExprProp(p.limit).trim();
+      const limit = limitRaw ? parsePortableNonNegativeIntLiteral(limitRaw, child, 'limit') : undefined;
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      const slice = limit === undefined ? '' : `.slice(0, ${limit})`;
+      lines.push(
+        `${indent}const ${name}${typeAnnotation} = ((__kernValue) => __kernValue == null ? null : String(__kernValue).split(${separator})${slice})(${source});`,
+      );
+      break;
+    }
+    case 'replaceFirst':
+    case 'replaceAll': {
+      const kind = child.type;
+      const name = emitIdentifier(requirePortableProp(kind, 'name', String(p.name || '')), kind, child);
+      const source = rewriteExpressExpr(requirePortableProp(kind, 'in', portableExprProp(p.in)), path);
+      const search = JSON.stringify(portableLiteralStringProp(kind, 'search', p.search));
+      const replacement = JSON.stringify(
+        portableLiteralStringProp(kind, 'replacement', p.replacement, { allowEmpty: true }),
+      );
+      const typeAnnotation = p.type ? `: ${String(p.type)}` : '';
+      if (kind === 'replaceAll') {
+        lines.push(
+          `${indent}const ${name}${typeAnnotation} = ((__kernValue) => __kernValue == null ? null : String(__kernValue).split(${search}).join(${replacement}))(${source});`,
+        );
+      } else {
+        lines.push(
+          `${indent}const ${name}${typeAnnotation} = ((__kernValue) => { if (__kernValue == null) return null; const __kernSource = String(__kernValue); const __kernSearch = ${search}; const __kernIndex = __kernSource.indexOf(__kernSearch); return __kernIndex < 0 ? __kernSource : __kernSource.slice(0, __kernIndex) + ${replacement} + __kernSource.slice(__kernIndex + __kernSearch.length); })(${source});`,
+        );
+      }
+      break;
+    }
     case 'sort': {
       const name = emitIdentifier(requirePortableProp('sort', 'name', String(p.name || '')), 'sort', child);
       const collection = rewriteExpressExpr(requirePortableProp('sort', 'in', portableExprProp(p.in)), path);
@@ -676,6 +858,15 @@ export function generatePortableHandlerExpress(
     'slice',
     'reverse',
     'at',
+    'join',
+    'concat',
+    'includes',
+    'indexOf',
+    'lastIndexOf',
+    'trim',
+    'split',
+    'replaceFirst',
+    'replaceAll',
     'sort',
     'objectMerge',
     'objectOmit',
