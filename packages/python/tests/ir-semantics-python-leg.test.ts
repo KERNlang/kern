@@ -25,6 +25,11 @@ import {
   registerBranchContract,
 } from '../../core/src/ir/semantics/branch.js';
 import { _resetEachContractForTest, eachContract, registerEachContract } from '../../core/src/ir/semantics/each.js';
+import {
+  _resetExpressionV1ContractForTest,
+  expressionV1Contract,
+  registerExpressionV1Contract,
+} from '../../core/src/ir/semantics/expression-v1.js';
 import { _resetFmtContractForTest, fmtContract, registerFmtContract } from '../../core/src/ir/semantics/fmt.js';
 import { _resetForContractForTest, forContract, registerForContract } from '../../core/src/ir/semantics/for.js';
 import { _resetIfContractForTest, ifContract, registerIfContract } from '../../core/src/ir/semantics/if.js';
@@ -54,6 +59,7 @@ beforeEach(() => {
   CONTRACT_REGISTRY.clear();
   _resetBranchContractForTest();
   _resetEachContractForTest();
+  _resetExpressionV1ContractForTest();
   _resetIfContractForTest();
   _resetForContractForTest();
   _resetLambdaContractForTest();
@@ -65,6 +71,7 @@ beforeEach(() => {
   _resetPrimitivesForTest();
   registerPrimitives();
   registerEachContract();
+  registerExpressionV1Contract();
   registerBranchContract();
   registerIfContract();
   registerForContract();
@@ -80,6 +87,7 @@ afterEach(() => {
   CONTRACT_REGISTRY.clear();
   _resetBranchContractForTest();
   _resetEachContractForTest();
+  _resetExpressionV1ContractForTest();
   _resetIfContractForTest();
   _resetForContractForTest();
   _resetLambdaContractForTest();
@@ -89,6 +97,27 @@ afterEach(() => {
   _resetWhileContractForTest();
   _resetTryContractForTest();
   _resetPrimitivesForTest();
+});
+
+describeIfPython('Python emitter leg — expression-v1 fixtures (three-way differential)', () => {
+  it.each(expressionV1Contract.fixtures.map((f) => [f.description, f] as const))(
+    'fixture: %s',
+    async (_desc, fixture) => {
+      const result = await runDifferential(fixture, { pythonLeg: runPythonEmitterLeg });
+      if (result.verdict !== 'pass') {
+        throw new Error(
+          `verdict=${result.verdict}\n` +
+            `fixture=${fixture.description}\n` +
+            `reference=${JSON.stringify(result.reference, null, 2)}\n` +
+            `ts=${JSON.stringify(result.ts, null, 2)}\n` +
+            `python=${JSON.stringify(result.python, null, 2)}\n` +
+            `legError=${JSON.stringify(result.legError, null, 2)}`,
+        );
+      }
+      expect(result.verdict).toBe<Verdict>('pass');
+    },
+    15_000,
+  );
 });
 
 /**

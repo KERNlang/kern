@@ -55,12 +55,14 @@ import {
   parseKeys,
   suggestStdlibMethod,
 } from '@kernlang/core';
+import { buildPythonParamList } from './codegen-helpers.js';
 import {
   KERN_FMT_HELPER_PY,
   KERN_I32_HELPER_PY,
   KERN_PAIR_HELPERS_PY,
   KERN_TMOD_HELPER_PY,
 } from './core/expr/index.js';
+import { mapTsTypeToPython } from './type-map.js';
 
 /** Slice 3e — caller-provided options for the Python body emitter.
  *  Currently only `symbolMap`; future slices may add diagnostics, source-map
@@ -158,6 +160,7 @@ interface BodyEmitContext {
   /** Depth of nested `finally` blocks. Propagation from finally would
    *  override pending control flow, so it gets a finally-specific error. */
   finallyDepth: number;
+  standaloneExpression: boolean;
 }
 
 const INDENT_STEP = '    ';
@@ -176,6 +179,7 @@ function freshCtx(options?: BodyEmitOptions): BodyEmitContext {
     usedPropagation: false,
     tryDepth: 0,
     finallyDepth: 0,
+    standaloneExpression: false,
     traceHooks: options?.traceHooks,
   };
 }
@@ -288,6 +292,7 @@ export function emitNativeKernBodyPythonWithImports(handlerNode: IRNode, options
  *  `trailingComment=` prop. Mirrors the TS emitter's set. */
 const TRAILING_COMMENT_TYPES = new Set([
   'let',
+  'expression-v1',
   'assign',
   'fmt',
   'clamp',
@@ -335,6 +340,10 @@ function emitChildrenPy(
         for (const line of emitSetPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'let') {
         for (const line of emitLetPy(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'expression-v1') {
+        for (const line of emitExpressionV1Py(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'fn') {
+        for (const line of emitFnPy(child, ctx, indent)) lines.push(line);
       } else if (child.type === 'assign') {
         for (const line of emitAssignPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'destructure') {
@@ -1646,7 +1655,9 @@ const NON_EXCEPTION_LITERAL_KINDS: ReadonlySet<string> = new Set([
  *  `emitPyExprCtx` which threads the live ctx (and therefore the live
  *  imports set) end-to-end. */
 export function emitPyExpression(node: ValueIR, options?: BodyEmitOptions): string {
-  return emitPyExprCtx(node, freshCtx(options));
+  const ctx = freshCtx(options);
+  ctx.standaloneExpression = true;
+  return emitPyExprCtx(node, ctx);
 }
 
 function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
@@ -2089,6 +2100,15 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   if (regex !== null) return { guard: null, expr: regex };
   const stdlib = applyStdlibLoweringPython(node, ctx);
   if (stdlib !== null) return { guard: null, expr: stdlib };
+  if (node.callee.kind === 'ident' && node.callee.name === 'String') {
+    if (node.args.length !== 1) {
+      throw new Error('String() portable coercion expects exactly one argument on Python target.');
+    }
+    const arg = emitPyExprCtx(node.args[0], ctx);
+    if (ctx.standaloneExpression) return { guard: null, expr: inlineKernFmtPy(arg) };
+    ctx.helpers.add(KERN_FMT_HELPER_PY);
+    return { guard: null, expr: `_kern_fmt(${arg})` };
+  }
   const callee = node.callee;
   const inner: GuardedExpr =
     callee.kind === 'member' || callee.kind === 'call' || callee.kind === 'index'
@@ -2500,4 +2520,76 @@ export function registerHelpers(node: ValueIR, ctx: BodyEmitContext) {
       registerHelpers(node.alternate, ctx);
       break;
   }
+}
+
+function emitExpressionV1Py(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const userName = String(props.name ?? '');
+  if (!userName) throw new Error('body-statement `expression-v1` requires `name=`.');
+  const rawExpr = props.expr;
+  const exprSource = unwrapBodyExpr(rawExpr);
+  if (exprSource === undefined || exprSource === '') {
+    throw new Error('body-statement `expression-v1` requires `expr=`.');
+  }
+  const exprIR = parseExpression(exprSource);
+  declareLocalBinding(ctx, userName, 'const');
+  const name = maybeRenameOnShadow(ctx, userName);
+  setRegexBinding(ctx, userName, exprIR.kind === 'regexLit' ? exprIR : null);
+  const lines = [`${name} = ${emitPyExprCtx(exprIR, ctx)}`];
+  if (ctx.traceHooks?.letAssign) lines.push(letAssignTracePy(name));
+  return lines;
+}
+
+function emitFnPy(node: IRNode, ctx: BodyEmitContext, indent: string): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const userName = String(props.name ?? '');
+  if (!userName) throw new Error('body-statement `fn` requires `name=`.');
+  declareLocalBinding(ctx, userName, 'const');
+  const name = maybeRenameOnShadow(ctx, userName);
+
+  const isAsync = props.async === 'true' || props.async === true;
+  const asyncKw = isAsync ? 'async ' : '';
+  if (props.params && node.children?.some((c) => c.type === 'param')) {
+    throw new Error('body-statement `fn` cannot mix legacy `params=` with structured `param` children.');
+  }
+  const paramList = buildPythonParamList(node);
+
+  const returns = props.returns ? String(props.returns) : '';
+  const retClause = returns ? ` -> ${mapTsTypeToPython(returns)}` : '';
+
+  const lines: string[] = [];
+  lines.push(`${indent}${asyncKw}def ${name}(${paramList})${retClause}:`);
+
+  const handlerNode = node.children?.find((c) => c.type === 'handler');
+  const bodyNodes = handlerNode ? (handlerNode.children ?? []) : (node.children ?? []);
+  const stmtNodes = bodyNodes.filter((c) => c.type !== 'param' && c.type !== 'decorator');
+
+  const inner = emitChildrenPy(stmtNodes, ctx, indent + INDENT_STEP, paramBindingsFromPythonSignature(paramList));
+  if (inner.length === 0) {
+    lines.push(`${indent}${INDENT_STEP}pass`);
+  } else {
+    for (const sl of inner) {
+      lines.push(sl);
+    }
+  }
+  return lines;
+}
+
+function paramBindingsFromPythonSignature(paramList: string): Array<[string, 'const']> {
+  if (!paramList.trim()) return [];
+  return splitBodyExpressionList(paramList, 'fn params=')
+    .map((part) => part.split('=')[0]?.split(':')[0]?.trim().replace(/^\*+/, '') ?? '')
+    .filter((name) => /^[A-Za-z_]\w*$/.test(name))
+    .map((name) => [name, 'const']);
+}
+
+function inlineKernFmtPy(expr: string): string {
+  return [
+    '(lambda __k_v: ',
+    "('true' if __k_v else 'false') if isinstance(__k_v, bool) else ",
+    "'null' if __k_v is None else ",
+    'str(int(__k_v)) if isinstance(__k_v, float) and __k_v.is_integer() else ',
+    'str(__k_v))',
+    `(${expr})`,
+  ].join('');
 }

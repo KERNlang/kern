@@ -36,6 +36,7 @@ describe('portable logic primitive registry', () => {
       'collection.indexBy',
       'collection.countBy',
       'logic.firstTruthy',
+      'logic.coalesce',
       'time.epochMs',
       'logic.not',
       'number.clamp',
@@ -49,6 +50,8 @@ describe('portable logic primitive registry', () => {
       'string.split',
       'string.replaceFirst',
       'string.replaceAll',
+      'logic.firstDefined',
+      'string.coerce',
     ]);
   });
 
@@ -75,6 +78,7 @@ describe('portable logic primitive registry', () => {
     expect(portableLogicSupportForTarget('collection.indexBy', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('collection.countBy', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('logic.firstTruthy', 'python')).toBe('stable');
+    expect(portableLogicSupportForTarget('logic.coalesce', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('time.epochMs', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('logic.not', 'python')).toBe('stable');
     expect(portableLogicSupportForTarget('number.clamp', 'python')).toBe('stable');
@@ -358,6 +362,7 @@ describe('portable logic primitive registry', () => {
 
   test('string parity slice has matching target support', () => {
     const stringPrimitives: PortableLogicPrimitiveId[] = [
+      'string.coerce',
       'string.trim',
       'string.split',
       'string.replaceFirst',
@@ -386,6 +391,8 @@ describe('portable logic primitive registry', () => {
     const firstTruthy = lookupPortableLogicPrimitive('logic.firstTruthy');
     expect(firstTruthy?.hostPatterns).toContain('a || b || c');
     expect(firstTruthy?.portabilityNotes.join(' ')).toContain('empty collections are target-specific');
+    expect(lookupPortableLogicPrimitive('logic.coalesce')?.hostPatterns).toContain('a ?? b ?? c');
+    expect(lookupPortableLogicPrimitive('logic.coalesce')?.portabilityNotes.join(' ')).toContain('null/None-only');
     expect(lookupPortableLogicPrimitive('number.clamp')?.hostPatterns).toContain('Math.max(lo, Math.min(hi, value))');
     expect(lookupPortableLogicPrimitive('number.clamp')?.intent).toBe('semantic-gap');
     expect(lookupPortableLogicPrimitive('object.keys')?.hostPatterns).toContain('Object.keys(obj)');
@@ -401,6 +408,7 @@ describe('portable logic primitive registry', () => {
     expect(lookupPortableLogicPrimitive('string.replaceAll')?.hostPatterns).toContain(
       'value.replaceAll(search, replacement)',
     );
+    expect(lookupPortableLogicPrimitive('string.coerce')?.hostPatterns).toContain('String(value)');
     expect(lookupPortableLogicPrimitive('host.randomThing')).toBeNull();
   });
 
@@ -439,17 +447,17 @@ describe('portable logic primitive registry', () => {
 
     expect(() =>
       validatePortableLogicPrimitiveRegistry({
-        'string.coalesceAtStart': {
+        'string.coalesce': {
           ...valid!,
-          id: 'string.coalesceAtStart' as PortableLogicPrimitiveId,
+          id: 'string.coalesce' as PortableLogicPrimitiveId,
         },
       }),
-    ).not.toThrow();
+    ).toThrow(/duplicates existing language nullish\/coalesce syntax/);
   });
 
-  test('does not register a named nullish/coalesce primitive', () => {
-    // The language already has `??`; this guards against adding a duplicate registry API by accident.
-    expect(PORTABLE_LOGIC_PRIMITIVE_IDS.some((id) => id.includes('nullish') || id.includes('coalesce'))).toBe(false);
+  test('registers exactly the portable coalesce primitive, not stray nullish aliases', () => {
+    expect(PORTABLE_LOGIC_PRIMITIVE_IDS.filter((id) => id.includes('coalesce'))).toEqual(['logic.coalesce']);
     expect(lookupPortableLogicPrimitive('logic.nullishCoalesce')).toBeNull();
+    expect(lookupPortableLogicPrimitive('logic.coalesce')).not.toBeNull();
   });
 });

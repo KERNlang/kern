@@ -128,9 +128,35 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
     case 'typeAssert':
     case 'nonNull':
       return evalPortableValue(node.expression, env);
+    case 'tmplLit': {
+      let result = '';
+      for (let i = 0; i < node.quasis.length; i++) {
+        result += node.quasis[i];
+        if (i < node.expressions.length) {
+          const val = evalPortableValue(node.expressions[i], env);
+          result += coerceToString(val);
+        }
+      }
+      return result;
+    }
+    case 'call': {
+      if (node.callee.kind === 'ident' && node.callee.name === 'String') {
+        if (node.args.length !== 1) {
+          throw new Error('portable: String() expects exactly 1 argument');
+        }
+        const val = evalPortableValue(node.args[0], env);
+        return coerceToString(val);
+      }
+      throw new Error(`portable: unsupported call to "${node.callee.kind === 'ident' ? node.callee.name : 'unknown'}"`);
+    }
     default:
       throw new Error(`portable: expression kind "${node.kind}" is outside the portable scalar domain`);
   }
+}
+
+export function coerceToString(val: PortableScalar): string {
+  if (val === null) return 'null';
+  return String(val);
 }
 
 export function evalPortableBinary(node: Extract<ValueIR, { kind: 'binary' }>, env: SemanticEnv): PortableScalar {

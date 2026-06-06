@@ -1,6 +1,6 @@
 /** @internal Native KERN body-statement context validator — slice 5b-pre.
  *
- *  Body-statement nodes (`assign`, `return`, `throw`, `do`, `continue`, `break`, `while`, `for`, `with`,
+ *  Body-statement nodes (`expression-v1`, `assign`, `return`, `throw`, `do`, `continue`, `break`, `while`, `for`, `with`,
  *  body-form `if`/`else`, body-form `try`) are valid only inside a
  *  `handler lang="kern"` scope (or nested inside another body-statement
  *  under such a handler). Without this rule, the parser silently accepts
@@ -213,6 +213,7 @@ function isBodyStatementMisplaced(node: IRNode, ctx: WalkContext): boolean {
       // lower recursively. Every other non-native context stays rejected.
       return !ctx.inPortableRoute;
     case 'cell':
+    case 'expression-v1':
     case 'return':
     case 'throw':
     case 'continue':

@@ -105,7 +105,7 @@ describe('emitPyExpression — arithmetic + comparison + unary', () => {
     expect(emitPyExpression(parseExpression('a instanceof B && c'))).toBe('isinstance(a, B) and c');
     // The dominant idiom — mirrors the TS-side round-trip in core/expression.test.ts.
     expect(emitPyExpression(parseExpression('err instanceof Error ? err.message : String(err)'))).toBe(
-      'err.message if (isinstance(err, Error)) else String(err)',
+      "err.message if (isinstance(err, Error)) else (lambda __k_v: ('true' if __k_v else 'false') if isinstance(__k_v, bool) else 'null' if __k_v is None else str(int(__k_v)) if isinstance(__k_v, float) and __k_v.is_integer() else str(__k_v))(err)",
     );
   });
 

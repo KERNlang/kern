@@ -17,6 +17,8 @@ export const KERN_FMT_HELPER_PY = [
   "        return 'true' if __k_v else 'false'",
   '    if __k_v is None:',
   "        return 'null'",
+  '    if isinstance(__k_v, float) and __k_v.is_integer():',
+  '        return str(int(__k_v))',
   '    return str(__k_v)',
 ].join('\n');
 

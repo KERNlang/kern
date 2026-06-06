@@ -101,6 +101,23 @@
       ]
     },
     {
+      "nodeType": "expression-v1",
+      "forbiddenRewrites": [],
+      "fixtureCount": 11,
+      "fixtureSamples": [
+        {
+          "description": "expression-v1: number scalar",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 1
+        },
+        {
+          "description": "expression-v1: truthiness basic",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 1
+        }
+      ]
+    },
+    {
       "nodeType": "fmt",
       "forbiddenRewrites": [
         "use raw Python str()/f-string coercion for bool/null without canonicalization",

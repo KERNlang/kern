@@ -175,17 +175,20 @@ export async function runTsEmitterLeg(fixture: FixtureForLeg, env: SemanticEnv):
 }
 
 function shouldTraceLetAssign(ir: IRNode): boolean {
-  // `let` (declaration), `assign` (reassignment), and `fmt` (formatted binding)
-  // observe their binding write through the same `{op:"assign"}` trace hook.
+  // `let` (declaration), `expression-v1`, `assign` (reassignment), and `fmt`
+  // (formatted binding) observe their binding write through the same
+  // `{op:"assign"}` trace hook.
   // `while` fixtures opt in too: their counter setup/advance (let + assign in
   // body) must emit the same assign events the reference produces.
   const contract = ir.props?.__semanticContract;
   const t = ir.type;
   return (
     t === 'let' ||
+    t === 'expression-v1' ||
     t === 'assign' ||
     t === 'fmt' ||
     contract === 'let' ||
+    contract === 'expression-v1' ||
     contract === 'assign' ||
     contract === 'fmt' ||
     contract === 'while'
