@@ -30,6 +30,7 @@ export type PortableLogicPrimitiveId =
   | 'collection.indexBy'
   | 'collection.countBy'
   | 'logic.firstTruthy'
+  | 'logic.coalesce'
   | 'time.epochMs'
   | 'logic.not'
   | 'number.clamp'
@@ -42,9 +43,12 @@ export type PortableLogicPrimitiveId =
   | 'string.trim'
   | 'string.split'
   | 'string.replaceFirst'
-  | 'string.replaceAll';
+  | 'string.replaceAll'
+  | 'logic.firstDefined'
+  | 'string.coerce';
 export type PortableLogicTarget = 'ts' | 'python' | 'go';
 export type PortableLogicSupport = 'stable' | 'preview' | 'unsupported';
+export type GoPortableLogicSupport = 'preview' | 'unsupported';
 export type PortableLogicPurity = 'pure' | 'reads-time';
 export type PortableLogicIntent = 'semantic-gap' | 'host-pattern' | 'language-operator';
 
@@ -56,7 +60,11 @@ export interface PortableLogicPrimitive {
   hostPatterns: readonly string[];
   portabilityNotes: readonly string[];
   operatorRationale?: string;
-  targets: Record<PortableLogicTarget, PortableLogicSupport>;
+  targets: {
+    ts: PortableLogicSupport;
+    python: PortableLogicSupport;
+    go: GoPortableLogicSupport;
+  };
 }
 
 export const PORTABLE_LOGIC_PRIMITIVES = {
@@ -277,6 +285,16 @@ export const PORTABLE_LOGIC_PRIMITIVES = {
     operatorRationale: 'KERN firstTruthy names this common fallback operator chain as portable intent.',
     targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
   },
+  'logic.coalesce': {
+    id: 'logic.coalesce',
+    description: 'Ordered nullish fallback selection that preserves false, zero, and empty string.',
+    purity: 'pure',
+    intent: 'language-operator',
+    hostPatterns: ['a ?? b ?? c'],
+    portabilityNotes: ['Uses null/None-only fallback; undefined is normalized to null only at target boundaries.'],
+    operatorRationale: 'KERN coalesce names the portable nullish fallback operator chain for body and route lowering.',
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
   'time.epochMs': {
     id: 'time.epochMs',
     description: 'Epoch-milliseconds extraction from a date/time value, e.g. JS new Date(x).getTime().',
@@ -399,6 +417,29 @@ export const PORTABLE_LOGIC_PRIMITIVES = {
     portabilityNotes: ['Replacement callbacks, regex searches, and substitution-token replacements are excluded.'],
     targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
   },
+  'logic.firstDefined': {
+    id: 'logic.firstDefined',
+    description: 'First defined (non-null/non-undefined) value selection.',
+    purity: 'pure',
+    intent: 'language-operator',
+    hostPatterns: ['a ?? b'],
+    portabilityNotes: ['Returns the first value that is not null or undefined.'],
+    operatorRationale: 'Names the nullish coalescing fallback intent.',
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
+  'string.coerce': {
+    id: 'string.coerce',
+    description: 'Portable scalar-to-string coercion for null, booleans, strings, and numbers.',
+    purity: 'pure',
+    intent: 'language-operator',
+    hostPatterns: ['String(value)', '_kern_fmt(value)'],
+    portabilityNotes: [
+      'Null becomes "null", booleans use lowercase spelling, strings pass through, and numbers use JS decimal text.',
+    ],
+    operatorRationale:
+      'String coercion is a host operator in TS/Python; KERN documents the expression-v1 subset explicitly.',
+    targets: { ts: 'stable', python: 'stable', go: 'unsupported' },
+  },
 } as const satisfies Record<PortableLogicPrimitiveId, PortableLogicPrimitive>;
 
 export function validatePortableLogicPrimitiveRegistry(
@@ -410,6 +451,7 @@ export function validatePortableLogicPrimitiveRegistry(
     }
     const idSegments = id.split('.').map((segment) => segment.toLowerCase());
     if (
+      id !== 'logic.coalesce' &&
       idSegments.some((segment) => segment === 'nullish' || segment === 'coalesce' || segment === 'nullishcoalesce')
     ) {
       throw new Error(`Portable logic primitive '${id}' duplicates existing language nullish/coalesce syntax.`);

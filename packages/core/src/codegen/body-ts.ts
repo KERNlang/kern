@@ -51,6 +51,7 @@ import type { ExprObject, IRNode } from '../types.js';
 import type { ValueIR } from '../value-ir.js';
 import { emitFmtTemplate, emitIdentifier, emitTypeAnnotation } from './emitters.js';
 import { emitStringKeyArray, parseKeys } from './ground-layer.js';
+import { emitParamList } from './type-system.js';
 
 /** Slice 3e — caller-provided options, parity with the Python body emitter.
  *  `symbolMap` is currently unused on the TS target; reserved for future
@@ -154,6 +155,7 @@ export function emitNativeKernBodyTSWithImports(handlerNode: IRNode, options?: B
  *  try/each) emit multiple lines and never receive the slot. */
 const TRAILING_COMMENT_TYPES = new Set([
   'let',
+  'expression-v1',
   'assign',
   'fmt',
   'clamp',
@@ -190,6 +192,10 @@ function emitChildrenTS(
         for (const line of emitSetTS(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'let') {
         for (const line of emitLetTS(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'expression-v1') {
+        for (const line of emitExpressionV1TS(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'fn') {
+        for (const line of emitFnTS(child, ctx, indent)) lines.push(line);
       } else if (child.type === 'assign') {
         for (const line of emitAssignTS(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'destructure') {
@@ -1311,4 +1317,67 @@ function emitFmtTS(node: IRNode, ctx: BodyEmitContext): string[] {
   // {op:assign} event let/assign emit. Production callers set no traceHooks.
   if (ctx.traceHooks?.letAssign) lines.push(letAssignTraceTS(name));
   return lines;
+}
+
+function emitExpressionV1TS(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const name = String(props.name ?? '');
+  if (!name) throw new Error('body-statement `expression-v1` requires `name=`.');
+  const typeAnn = props.type ? `: ${emitTypeAnnotation(String(props.type), 'unknown', node)}` : '';
+  const rawExpr = props.expr;
+  const exprSource = unwrapBodyExpr(rawExpr);
+  if (exprSource === undefined || exprSource === '') {
+    throw new Error('body-statement `expression-v1` requires `expr=`.');
+  }
+  const exprIR = parseExpression(exprSource);
+  declareLocalBinding(ctx, name, 'const');
+  const lines = [`const ${name}${typeAnn} = ${emitExpression(exprIR)};`];
+  if (ctx.traceHooks?.letAssign) lines.push(letAssignTraceTS(name));
+  return lines;
+}
+
+function emitFnTS(node: IRNode, ctx: BodyEmitContext, indent: string): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const name = String(props.name ?? '');
+  if (!name) throw new Error('body-statement `fn` requires `name=`.');
+  declareLocalBinding(ctx, name, 'const');
+
+  const isAsync = props.async === 'true' || props.async === true;
+  const asyncKw = isAsync ? 'async ' : '';
+  const returns = props.returns ? emitTypeAnnotation(String(props.returns), 'unknown', node) : '';
+  const returnType = returns && isAsync && !/^Promise\s*</.test(returns) ? `Promise<${returns}>` : returns;
+  const retClause = returnType ? `: ${returnType}` : '';
+  if (props.params && node.children?.some((c) => c.type === 'param')) {
+    throw new Error('body-statement `fn` cannot mix legacy `params=` with structured `param` children.');
+  }
+  const paramList = emitParamList(node);
+
+  const lines: string[] = [];
+  lines.push(`${indent}${asyncKw}function ${name}(${paramList})${retClause} {`);
+
+  const handlerNode = node.children?.find((c) => c.type === 'handler');
+  const bodyNodes = handlerNode ? (handlerNode.children ?? []) : (node.children ?? []);
+  const stmtNodes = bodyNodes.filter((c) => c.type !== 'param' && c.type !== 'decorator');
+
+  for (const sl of emitChildrenTS(stmtNodes, ctx, indent + INDENT_STEP, paramBindingsFromSignature(paramList))) {
+    lines.push(sl);
+  }
+  lines.push(`${indent}}`);
+  return lines;
+}
+
+function paramBindingsFromSignature(paramList: string): Array<[string, 'const']> {
+  if (!paramList.trim()) return [];
+  return splitBodyExpressionList(paramList, 'fn params=')
+    .map(
+      (part) =>
+        part
+          .split('=')[0]
+          ?.split(':')[0]
+          ?.trim()
+          .replace(/^\.\.\./, '')
+          .replace(/\?$/, '') ?? '',
+    )
+    .filter((name) => /^[A-Za-z_$][\w$]*$/.test(name))
+    .map((name) => [name, 'const']);
 }

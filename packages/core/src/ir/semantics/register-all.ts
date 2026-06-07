@@ -16,6 +16,7 @@
 import { registerAssignContract } from './assign.js';
 import { registerBranchContract } from './branch.js';
 import { registerEachContract } from './each.js';
+import { registerExpressionV1Contract } from './expression-v1.js';
 import { registerFmtContract } from './fmt.js';
 import { registerForContract } from './for.js';
 import { registerIfContract } from './if.js';
@@ -37,4 +38,5 @@ export function registerAllContracts(): void {
   registerFmtContract();
   registerWhileContract();
   registerTryContract();
+  registerExpressionV1Contract();
 }

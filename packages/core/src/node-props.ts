@@ -72,6 +72,11 @@ export interface LetProps extends BaseProps {
   kind?: string;
 }
 
+export interface ExpressionV1Props extends BaseProps {
+  expr?: string | ExprObject;
+  type?: string;
+}
+
 export interface IndexerProps extends BaseProps {
   keyName?: string;
   keyType?: string;
@@ -850,6 +855,7 @@ export interface NodePropsMap {
   use: UseProps;
   from: FromProps;
   let: LetProps;
+  'expression-v1': ExpressionV1Props;
   indexer: IndexerProps;
   overload: OverloadProps;
   service: ServiceProps;

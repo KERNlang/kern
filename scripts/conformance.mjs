@@ -479,6 +479,20 @@ const FIXTURES = [
     ],
     body: `firstDefined name=winner values="missingA, missingB, 'fallback'"\nreturn value="winner"`,
     expected: 'fallback' },
+  { kind: 'stmt', name: 'stmt: expression-v1 string coercion canonicalizes bool and null',
+    params: [
+      { name: 'flag', type: 'boolean', value: false },
+      { name: 'missing', type: 'any', value: null },
+    ],
+    body: `expression-v1 name=flagText expr="String(flag)"\nexpression-v1 name=nullText expr="String(missing)"\nreturn value="{ flagText: flagText, nullText: nullText }"`,
+    expected: { flagText: 'false', nullText: 'null' } },
+  { kind: 'stmt', name: 'stmt: nested fn with let and return executes inside body',
+    params: [
+      { name: 'left', type: 'number', value: 2 },
+      { name: 'right', type: 'number', value: 3 },
+    ],
+    body: `fn name=add params="a:number,b:number" returns=number\n  handler\n    let name=sum value="a + b"\n    return value="sum"\nreturn value="add(left, right)"`,
+    expected: 5 },
   { kind: 'stmt', name: 'stmt: while loop accumulates (mutable kind=let)',
     params: [{ name: 'n', type: 'number', value: 5 }, { name: 'min', type: 'number', value: 0 }],
     body: `let name=total value="0" kind=let\nlet name=i value="0" kind=let\nwhile cond="i < n"\n  assign target="total" value="total + i"\n  assign target="i" value="i + 1"\nreturn value="{ total: total }"`,
@@ -1394,7 +1408,8 @@ for (const fx of FIXTURES) {
           compilerOptions: { module: tsCompiler.ModuleKind.ESNext, target: tsCompiler.ScriptTarget.ES2022 },
         }).outputText,
       );
-      writeFileSync(pyFile, `import json\n${[...(pyEmit.imports ?? [])].join('\n')}\ndef __h(${names.join(', ')}):\n${pyEmit.code.split('\n').map((l) => `    ${l}`).join('\n')}\nprint(json.dumps(__h(${fx.params.map((p) => pyVal(p.value)).join(', ')}), default=str, allow_nan=False))`);
+      const pyHelpers = [...(pyEmit.helpers ?? [])].join('\n\n');
+      writeFileSync(pyFile, `import json\n${[...(pyEmit.imports ?? [])].join('\n')}\n${pyHelpers}\ndef __h(${names.join(', ')}):\n${pyEmit.code.split('\n').map((l) => `    ${l}`).join('\n')}\nprint(json.dumps(__h(${fx.params.map((p) => pyVal(p.value)).join(', ')}), default=str, allow_nan=False))`);
       const stmtOpts = { encoding: 'utf8', timeout: 10_000 };
       const tsOut = execFileSync('node', [tsFile], stmtOpts).trim();
       const pyOut = execFileSync('python3', [pyFile], stmtOpts).trim();
