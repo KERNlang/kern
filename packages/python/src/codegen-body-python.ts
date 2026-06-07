@@ -1877,6 +1877,7 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
           `Mid-expression \`${node.op}\` is rejected — bind the call to a \`let\` first, then use the bound name.`,
       );
   }
+  throw new Error(`emitPyExpression: unsupported expression kind '${(node as { kind?: string }).kind ?? 'unknown'}'.`);
 }
 
 function emitPyTypeof(argument: ValueIR, ctx: BodyEmitContext): string {

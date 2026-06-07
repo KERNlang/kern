@@ -3,7 +3,7 @@
  */
 
 import { parseExpression } from '../../parser-expression.js';
-import { type IRNode, isExprObject } from '../../types.js';
+import type { IRNode } from '../../types.js';
 import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
 import { evalPortableValue, isPortableBindingName } from './portable-scalar.js';
 import type { Trace } from './trace.js';
@@ -17,9 +17,18 @@ function asExpressionV1Props(ir: IRNode): ExpressionV1Props {
   return (ir.props ?? {}) as ExpressionV1Props;
 }
 
+function hasExpressionCode(expr: unknown): expr is { __expr: true; code: string } {
+  return (
+    typeof expr === 'object' &&
+    expr !== null &&
+    (expr as { __expr?: unknown }).__expr === true &&
+    typeof (expr as { code?: unknown }).code === 'string'
+  );
+}
+
 function expressionSource(expr: unknown): string | undefined {
   if (expr === undefined || expr === null) return undefined;
-  if (isExprObject(expr)) return expr.code;
+  if (hasExpressionCode(expr)) return expr.code;
   return String(expr);
 }
 
