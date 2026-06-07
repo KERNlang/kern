@@ -124,19 +124,7 @@ export function buildKernSemanticSubstrate(options: BuildKernSemanticSubstrateOp
         support: { ...primitive.targets },
       };
     }),
-    stdlibOperations: Object.entries(KERN_STDLIB).flatMap(([module, entries]) =>
-      Object.entries(entries).map(([method, entry]) => ({
-        id: `stdlib.${module}.${method}`,
-        module,
-        method,
-        arity: entry.arity,
-        support: {
-          ts: entry.ts ? 'stable' : 'unsupported',
-          python: entry.py ? 'stable' : 'unsupported',
-          go: 'unsupported',
-        },
-      })),
-    ),
+    stdlibOperations: stdlibOperationSummaries(),
     irContracts: options.irContracts
       ? snapshotRegistry(options.irContracts).contracts.map((contract) => ({
           nodeType: contract.nodeType,
@@ -168,7 +156,7 @@ export function semanticPrimitiveSupportSummary(
     unsupported: [],
   };
   for (const target of targets) {
-    bySupport[primitive.support[target] ?? 'unsupported'].push(target);
+    bySupport[semanticSupportForTarget(primitive.support, target)].push(target);
   }
 
   const parts: string[] = [];
@@ -179,11 +167,45 @@ export function semanticPrimitiveSupportSummary(
   return parts.join('; ');
 }
 
+function semanticSupportForTarget(
+  support: KernSemanticSupport,
+  target: KernSemanticSubstrateTarget,
+): PortableLogicSupport {
+  switch (target) {
+    case 'ts':
+      return support.ts;
+    case 'python':
+      return support.python;
+    case 'go':
+      return support.go;
+  }
+}
+
+function stdlibOperationSummaries(): KernSemanticStdlibOperation[] {
+  return typedEntries(KERN_STDLIB).flatMap(([module, entries]) =>
+    typedEntries(entries).map(([method, entry]) => ({
+      id: `stdlib.${module}.${method}`,
+      module,
+      method,
+      arity: entry.arity,
+      support: {
+        ts: entry.ts ? 'stable' : 'unsupported',
+        python: entry.py ? 'stable' : 'unsupported',
+        go: 'unsupported',
+      },
+    })),
+  );
+}
+
+function typedEntries<T>(record: Record<string, T>): Array<[string, T]> {
+  return Object.entries(record) as Array<[string, T]>;
+}
+
 function normalizeReturns(returns: CoreOperationReturns): readonly string[] {
   return typeof returns === 'string' ? [returns] : [...returns];
 }
 
-const KERN_PRIMITIVE_NAMES = {
+const KERN_PRIMITIVE_NAMES: Record<PortableLogicPrimitiveId, string> = {
   'collection.has': 'includes',
   'collection.count': 'count',
   'collection.filter': 'filter',
@@ -222,7 +244,7 @@ const KERN_PRIMITIVE_NAMES = {
   'string.replaceAll': 'replaceAll',
   'logic.firstDefined': 'firstDefined',
   'string.coerce': 'string',
-} as const satisfies Record<PortableLogicPrimitiveId, string>;
+};
 
 function kernPrimitiveName(id: PortableLogicPrimitiveId): string {
   const name = KERN_PRIMITIVE_NAMES[id];
