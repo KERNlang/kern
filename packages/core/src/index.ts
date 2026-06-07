@@ -140,6 +140,31 @@ export {
   VALID_STRUCTURES,
   VALID_TARGETS,
 } from './config.js';
+export type {
+  CoreCompletion,
+  CoreRuntimeResult,
+  CreateCoreRuntimeEnvOptions,
+  KernBuiltinValue,
+  KernFunctionValue,
+  KernValue,
+  RuntimeParam,
+} from './core-runtime/index.js';
+// KERN Core Runtime
+export {
+  CoreRuntimeEnv,
+  callCoreFunction,
+  createCoreRuntimeEnv,
+  evalCoreExpression,
+  fromHostValue,
+  kBoolean,
+  kernTruthy,
+  kNull,
+  kNumber,
+  kString,
+  kUndefined,
+  runCoreRuntime,
+  toHostValue,
+} from './core-runtime/index.js';
 export type { CoverageGap } from './coverage-gap.js';
 // Coverage gap emitter (v3)
 export { collectCoverageGaps, readCoverageGaps, writeCoverageGaps } from './coverage-gap.js';
