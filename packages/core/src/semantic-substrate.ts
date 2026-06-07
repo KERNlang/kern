@@ -1,4 +1,4 @@
-import { KERN_STDLIB } from './codegen/kern-stdlib.js';
+import { KERN_STDLIB, type StdlibEntry } from './codegen/kern-stdlib.js';
 import {
   PORTABLE_LOGIC_PRIMITIVE_IDS,
   PORTABLE_LOGIC_PRIMITIVES,
@@ -182,23 +182,30 @@ function semanticSupportForTarget(
 }
 
 function stdlibOperationSummaries(): KernSemanticStdlibOperation[] {
-  return typedEntries(KERN_STDLIB).flatMap(([module, entries]) =>
-    typedEntries(entries).map(([method, entry]) => ({
-      id: `stdlib.${module}.${method}`,
-      module,
-      method,
-      arity: entry.arity,
-      support: {
-        ts: entry.ts ? 'stable' : 'unsupported',
-        python: entry.py ? 'stable' : 'unsupported',
-        go: 'unsupported',
-      },
-    })),
-  );
-}
+  const stdlib: Record<string, Record<string, StdlibEntry>> = KERN_STDLIB;
+  const operations: KernSemanticStdlibOperation[] = [];
 
-function typedEntries<T>(record: Record<string, T>): Array<[string, T]> {
-  return Object.entries(record) as Array<[string, T]>;
+  for (const module of Object.keys(stdlib)) {
+    const entries = stdlib[module];
+    if (!entries) continue;
+    for (const method of Object.keys(entries)) {
+      const entry = entries[method];
+      if (!entry) continue;
+      operations.push({
+        id: `stdlib.${module}.${method}`,
+        module,
+        method,
+        arity: entry.arity,
+        support: {
+          ts: entry.ts ? 'stable' : 'unsupported',
+          python: entry.py ? 'stable' : 'unsupported',
+          go: 'unsupported',
+        },
+      });
+    }
+  }
+
+  return operations;
 }
 
 function normalizeReturns(returns: CoreOperationReturns): readonly string[] {
