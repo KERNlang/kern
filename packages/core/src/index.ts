@@ -141,6 +141,46 @@ export {
   VALID_TARGETS,
 } from './config.js';
 export type {
+  CoreFixture,
+  CoreFixtureError,
+  CoreFixtureValue,
+  CoreGraphEdge,
+  CoreLowerings,
+  CoreOperation,
+  CoreOperationKind,
+  CoreOperationReturns,
+  CoreTypeContract,
+  CoreTypeContractRegistry,
+  CoreTypeKind,
+  CoreTypeName,
+} from './core-contracts/index.js';
+export {
+  BOOLEAN_CONTRACT,
+  CORE_FIXTURE_FUNCTION,
+  CORE_FIXTURE_UNDEFINED,
+  CORE_TYPE_CONTRACTS,
+  CORE_TYPE_NAMES,
+  CoreContractEvaluationError,
+  contractToGraphEdges,
+  coreFixtureValueType,
+  evaluateCoreContractOperation,
+  FUNCTION_CONTRACT,
+  isCoreFixtureFunction,
+  isCoreFixtureUndefined,
+  LIST_CONTRACT,
+  NULL_CONTRACT,
+  NUMBER_CONTRACT,
+  RECORD_CONTRACT,
+  STRING_CONTRACT,
+  UNDEFINED_CONTRACT,
+} from './core-contracts/index.js';
+export {
+  CoreRuntimeContractAdapterError,
+  coreFixtureValueToKernValue,
+  kernValueToCoreFixtureValue,
+  roundTripKernContractDataValue,
+} from './core-runtime/contract-adapter.js';
+export type {
   CoreCompletion,
   CoreRuntimeResult,
   CreateCoreRuntimeEnvOptions,

@@ -30,6 +30,10 @@
       "types": "./dist/config.d.ts",
       "default": "./dist/config.js"
     },
+    "./core-contracts": {
+      "types": "./dist/core-contracts/index.d.ts",
+      "default": "./dist/core-contracts/index.js"
+    },
     "./parser": {
       "types": "./dist/parser.d.ts",
       "default": "./dist/parser.js"

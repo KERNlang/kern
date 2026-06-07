@@ -1,9 +1,20 @@
+import {
+  CORE_TYPE_CONTRACTS,
+  CoreContractEvaluationError,
+  type CoreFixtureValue,
+  evaluateCoreContractOperation,
+} from '../core-contracts/index.js';
 import { parseExpression } from '../parser-expression.js';
 import { splitPortableExpressionList } from '../portable-expression-list.js';
 import type { IRNode } from '../types.js';
 import type { ValueIR } from '../value-ir.js';
+import {
+  CoreRuntimeContractAdapterError,
+  coreFixtureValueToKernValue,
+  kernValueToCoreFixtureValue,
+} from './contract-adapter.js';
+import { brandValue, KERN_VALUE_BRAND } from './value-brand.js';
 
-const KERN_VALUE_BRAND: unique symbol = Symbol('KERN core runtime value');
 const INTEGER_INDEX_RE = /^(0|[1-9]\d*)$/;
 
 export type KernValue =
@@ -15,7 +26,11 @@ export type KernValue =
   | { kind: 'array'; items: KernValue[] }
   | { kind: 'record'; entries: Record<string, KernValue> }
   | KernFunctionValue
-  | KernBuiltinValue;
+  | KernBuiltinValue
+  | KernClassValue
+  | KernInstanceValue
+  | KernBoundMethodValue
+  | KernSuperValue;
 
 export interface KernFunctionValue {
   kind: 'function';
@@ -29,6 +44,35 @@ export interface KernBuiltinValue {
   kind: 'builtin';
   name: string;
   call: (args: KernValue[]) => KernValue;
+}
+
+export interface KernClassValue {
+  kind: 'class';
+  name: string;
+  node: IRNode;
+  env: CoreRuntimeEnv;
+}
+
+export interface KernInstanceValue {
+  kind: 'instance';
+  classValue: KernClassValue;
+  fields: Record<string, KernValue>;
+  initializedClasses: Set<string>;
+}
+
+export interface KernBoundMethodValue {
+  kind: 'bound-method';
+  name: string;
+  receiver: KernInstanceValue;
+  methodNode: IRNode;
+  ownerClass: KernClassValue;
+}
+
+export interface KernSuperValue {
+  kind: 'super';
+  receiver: KernInstanceValue;
+  ownerClass: KernClassValue;
+  mode: 'constructor' | 'method';
 }
 
 export interface RuntimeParam {
@@ -58,6 +102,15 @@ export class CoreRuntimeEnv {
     if (this.bindings.has(name)) throw new Error(`KERN core runtime binding already defined: ${name}`);
     this.bindings.set(name, value);
     return value;
+  }
+
+  assign(name: string, value: KernValue): KernValue {
+    if (this.bindings.has(name)) {
+      this.bindings.set(name, value);
+      return value;
+    }
+    if (this.parent) return this.parent.assign(name, value);
+    throw new Error(`KERN core runtime binding not found: ${name}`);
   }
 
   lookup(name: string): KernValue {
@@ -140,9 +193,15 @@ export function toHostValue(value: KernValue | undefined): unknown {
       return value.items.map(toHostValue);
     case 'record':
       return Object.fromEntries(Object.entries(value.entries).map(([key, entry]) => [key, toHostValue(entry)]));
+    case 'instance':
+      return Object.fromEntries(Object.entries(value.fields).map(([key, entry]) => [key, toHostValue(entry)]));
     case 'function':
     case 'builtin':
+    case 'class':
+    case 'bound-method':
       return `[KERN ${value.kind}${value.name ? ` ${value.name}` : ''}]`;
+    case 'super':
+      return `[KERN super ${value.ownerClass.name}]`;
   }
 }
 
@@ -161,6 +220,10 @@ export function kernTruthy(value: KernValue): boolean {
     case 'record':
     case 'function':
     case 'builtin':
+    case 'class':
+    case 'instance':
+    case 'bound-method':
+    case 'super':
       return true;
   }
 }
@@ -226,6 +289,18 @@ function executeNode(node: IRNode, env: CoreRuntimeEnv): CoreCompletion {
     case 'fn': {
       const fn = makeFunction(node, env);
       env.define(requiredString(node.props?.name, 'fn name='), fn);
+      return { kind: 'normal', value: kUndefined() };
+    }
+    case 'class': {
+      const klass = makeClass(node, env);
+      env.define(klass.name, klass);
+      return { kind: 'normal', value: kUndefined() };
+    }
+    case 'assign':
+      executeAssign(node, env);
+      return { kind: 'normal', value: kUndefined() };
+    case 'do': {
+      evalCoreExpression(unwrapExpr(node.props?.value, 'do value='), env);
       return { kind: 'normal', value: kUndefined() };
     }
     case 'coalesce':
@@ -329,6 +404,8 @@ function evalValueIR(node: ValueIR, env: CoreRuntimeEnv): KernValue {
       return evalCall(node, env);
     case 'lambda':
       throw new Error('KERN core runtime lambda expressions are not supported in the first runtime slice.');
+    case 'new':
+      return evalNew(node, env);
     default:
       throw new Error(`KERN core runtime unsupported expression kind: ${node.kind}`);
   }
@@ -350,10 +427,13 @@ function evalObjectLiteral(node: Extract<ValueIR, { kind: 'objectLit' }>, env: C
 
 function evalUnary(node: Extract<ValueIR, { kind: 'unary' }>, env: CoreRuntimeEnv): KernValue {
   const arg = evalValueIR(node.argument, env);
-  if (node.op === '!') return kBoolean(!kernTruthy(arg));
+  if (node.op === '!') {
+    if (arg.kind !== 'boolean') throw new Error('KERN core runtime unary ! requires a boolean.');
+    return dispatchCoreContractOperation('Boolean.not', [arg.value]);
+  }
   if (node.op === '-' || node.op === '+') {
     if (arg.kind !== 'number') throw new Error(`KERN core runtime unary ${node.op} requires a number.`);
-    return kNumber(node.op === '-' ? -arg.value : arg.value);
+    return node.op === '-' ? dispatchCoreContractOperation('Number.negate', [arg.value]) : arg;
   }
   throw new Error(`KERN core runtime unsupported unary operator: ${node.op}`);
 }
@@ -376,8 +456,12 @@ function evalBinary(node: Extract<ValueIR, { kind: 'binary' }>, env: CoreRuntime
   const right = evalValueIR(node.right, env);
   switch (node.op) {
     case '+':
-      if (left.kind === 'number' && right.kind === 'number') return kNumber(left.value + right.value);
-      if (left.kind === 'string' && right.kind === 'string') return kString(left.value + right.value);
+      if (left.kind === 'number' && right.kind === 'number') {
+        return dispatchCoreContractOperation('Number.add', [left.value, right.value]);
+      }
+      if (left.kind === 'string' && right.kind === 'string') {
+        return dispatchCoreContractOperation('String.concat', [left.value, right.value]);
+      }
       throw new Error('KERN core runtime + requires two numbers or two strings.');
     case '-':
     case '*':
@@ -404,21 +488,34 @@ function evalNumberBinary(op: string, left: KernValue, right: KernValue): KernVa
   if (left.kind !== 'number' || right.kind !== 'number') {
     throw new Error(`KERN core runtime ${op} requires two numbers.`);
   }
-  if (op === '-') return kNumber(left.value - right.value);
-  if (op === '*') return kNumber(left.value * right.value);
-  if (right.value === 0 && (op === '/' || op === '%')) throw new Error(`KERN core runtime ${op} division by zero.`);
-  if (op === '/') return kNumber(left.value / right.value);
-  return kNumber(left.value % right.value);
+  switch (op) {
+    case '-':
+      return dispatchCoreContractOperation('Number.subtract', [left.value, right.value]);
+    case '*':
+      return dispatchCoreContractOperation('Number.multiply', [left.value, right.value]);
+    case '/':
+      return dispatchCoreContractOperation('Number.divide', [left.value, right.value]);
+    case '%':
+      return dispatchCoreContractOperation('Number.remainder', [left.value, right.value]);
+    default:
+      throw new Error(`KERN core runtime unsupported numeric operator: ${op}`);
+  }
 }
 
 function evalOrderedComparison(op: string, left: KernValue, right: KernValue): KernValue {
   if (!((left.kind === 'number' && right.kind === 'number') || (left.kind === 'string' && right.kind === 'string'))) {
     throw new Error(`KERN core runtime ${op} requires same-kind number or string operands.`);
   }
-  if (op === '<') return kBoolean(left.value < right.value);
-  if (op === '<=') return kBoolean(left.value <= right.value);
-  if (op === '>') return kBoolean(left.value > right.value);
-  return kBoolean(left.value >= right.value);
+  if (left.kind === 'number' && right.kind === 'number') {
+    if (op === '<') return dispatchCoreContractOperation('Number.lessThan', [left.value, right.value]);
+    if (op === '<=') return dispatchCoreContractOperation('Number.lessThanOrEqual', [left.value, right.value]);
+    if (op === '>') return dispatchCoreContractOperation('Number.greaterThan', [left.value, right.value]);
+    return dispatchCoreContractOperation('Number.greaterThanOrEqual', [left.value, right.value]);
+  }
+  if (op === '<') return dispatchCoreContractOperation('String.lessThan', [left.value, right.value]);
+  if (op === '<=') return dispatchCoreContractOperation('String.lessThanOrEqual', [left.value, right.value]);
+  if (op === '>') return dispatchCoreContractOperation('String.greaterThan', [left.value, right.value]);
+  return dispatchCoreContractOperation('String.greaterThanOrEqual', [left.value, right.value]);
 }
 
 function evalMember(node: Extract<ValueIR, { kind: 'member' }>, env: CoreRuntimeEnv): KernValue {
@@ -428,10 +525,16 @@ function evalMember(node: Extract<ValueIR, { kind: 'member' }>, env: CoreRuntime
     throw new Error(`KERN core runtime cannot read .${node.property} from ${object.kind}.`);
   }
   if (object.kind === 'record') {
-    return Object.hasOwn(object.entries, node.property) ? object.entries[node.property] : kUndefined();
+    return evalRecordGet(object, node.property);
   }
-  if (object.kind === 'array' && node.property === 'length') return kNumber(object.items.length);
-  if (object.kind === 'string' && node.property === 'length') return kNumber(object.value.length);
+  if (object.kind === 'instance') return evalInstanceMember(object, node.property);
+  if (object.kind === 'super') return evalSuperMember(object, node.property);
+  if (object.kind === 'class') return evalClassMember(object, node.property);
+  if (object.kind === 'array' && node.property === 'length') {
+    return kNumber(object.items.length);
+  }
+  if (object.kind === 'string') return evalStringMember(object, node.property);
+  if (object.kind === 'boolean') return evalBooleanMember(object, node.property);
   return kUndefined();
 }
 
@@ -444,21 +547,113 @@ function evalIndex(node: Extract<ValueIR, { kind: 'index' }>, env: CoreRuntimeEn
   const index = evalValueIR(node.index, env);
   if (object.kind === 'array') {
     if (index.kind !== 'number') throw new Error('KERN core runtime array index must be a number.');
-    return object.items[index.value] ?? kUndefined();
+    return evalListIndex(object, index.value);
   }
   if (object.kind === 'record' || object.kind === 'string') {
     if (index.kind !== 'string' && index.kind !== 'number') {
       throw new Error('KERN core runtime record/string index must be a string or number.');
     }
     const key = String(index.value);
-    if (object.kind === 'record') return Object.hasOwn(object.entries, key) ? object.entries[key] : kUndefined();
+    if (object.kind === 'record') return evalRecordGet(object, key);
     const charIndex =
       index.kind === 'number' ? index.value : INTEGER_INDEX_RE.test(index.value) ? Number(index.value) : NaN;
-    return Number.isInteger(charIndex) && charIndex >= 0 && charIndex < object.value.length
-      ? kString(object.value[charIndex] ?? '')
-      : kUndefined();
+    if (!Number.isFinite(charIndex) && index.kind !== 'number') return kUndefined();
+    return dispatchCoreContractOperation('String.index', [object.value, charIndex]);
   }
   return kUndefined();
+}
+
+function evalStringMember(object: Extract<KernValue, { kind: 'string' }>, property: string): KernValue {
+  if (property === 'length') return dispatchCoreContractOperation('String.length', [object.value]);
+  const operation = stringMemberOperation(property);
+  if (!operation) return kUndefined();
+  return boundCoreContractOperation(`String.${operation}`, [object.value]);
+}
+
+function evalBooleanMember(object: Extract<KernValue, { kind: 'boolean' }>, property: string): KernValue {
+  const operation = booleanMemberOperation(property);
+  if (!operation) return kUndefined();
+  return boundCoreContractOperation(`Boolean.${operation}`, [object.value]);
+}
+
+function stringMemberOperation(property: string): string | undefined {
+  switch (property) {
+    case 'includes':
+    case 'index':
+    case 'startsWith':
+    case 'endsWith':
+    case 'slice':
+    case 'trim':
+    case 'lower':
+    case 'upper':
+    case 'concat':
+    case 'equals':
+    case 'toString':
+      return property;
+    default:
+      return undefined;
+  }
+}
+
+function booleanMemberOperation(property: string): string | undefined {
+  switch (property) {
+    case 'not':
+    case 'and':
+    case 'or':
+    case 'equals':
+    case 'toString':
+      return property;
+    default:
+      return undefined;
+  }
+}
+
+function boundCoreContractOperation(operationId: string, receiverArgs: readonly CoreFixtureValue[]): KernValue {
+  return brandValue({
+    kind: 'builtin',
+    name: operationId,
+    call: (args: KernValue[]) => {
+      try {
+        return dispatchCoreContractOperation(operationId, [...receiverArgs, ...args.map(kernValueToCoreFixtureValue)]);
+      } catch (error) {
+        if (error instanceof CoreRuntimeContractAdapterError) {
+          throw new CoreContractEvaluationError('strict-type', coreOperationStrictTypeMessage(operationId));
+        }
+        throw error;
+      }
+    },
+  });
+}
+
+function dispatchCoreContractOperation(operationId: string, args: readonly CoreFixtureValue[]): KernValue {
+  return coreFixtureValueToKernValue(evaluateCoreContractOperation(operationId, args));
+}
+
+function evalListIndex(object: Extract<KernValue, { kind: 'array' }>, index: number): KernValue {
+  if (!Number.isFinite(index) || !Number.isInteger(index) || index < 0 || index >= object.items.length) {
+    return kUndefined();
+  }
+  return object.items[index] ?? kUndefined();
+}
+
+function evalRecordGet(object: Extract<KernValue, { kind: 'record' }>, key: string): KernValue {
+  if (!Object.hasOwn(object.entries, key))
+    return dispatchCoreContractOperation('Record.get', [recordShapeFixture(object), key]);
+  return object.entries[key] ?? kUndefined();
+}
+
+function recordShapeFixture(object: Extract<KernValue, { kind: 'record' }>): Record<string, CoreFixtureValue> {
+  const shape = Object.create(null) as Record<string, CoreFixtureValue>;
+  for (const key of Object.keys(object.entries)) shape[key] = null;
+  return shape;
+}
+
+function coreOperationStrictTypeMessage(operationId: string): string {
+  for (const contract of Object.values(CORE_TYPE_CONTRACTS.types)) {
+    const operation = contract.operations.find((operation) => operation.id === operationId);
+    if (operation) return `${operationId} expects ${operation.args.join(', ')}.`;
+  }
+  return `${operationId} received an unsupported runtime value.`;
 }
 
 function evalCall(node: Extract<ValueIR, { kind: 'call' }>, env: CoreRuntimeEnv): KernValue {
@@ -470,7 +665,248 @@ function evalCall(node: Extract<ValueIR, { kind: 'call' }>, env: CoreRuntimeEnv)
   const args = node.args.map((arg) => evalValueIR(arg, env));
   if (callee.kind === 'builtin') return callee.call(args);
   if (callee.kind === 'function') return callFunctionValue(callee, args).value;
+  if (callee.kind === 'class') return constructClassValue(callee, args);
+  if (callee.kind === 'bound-method') return callBoundMethodValue(callee, args).value;
+  if (callee.kind === 'super') return callSuperConstructor(callee, args);
   throw new Error(`KERN core runtime cannot call ${callee.kind}.`);
+}
+
+function evalNew(node: Extract<ValueIR, { kind: 'new' }>, env: CoreRuntimeEnv): KernValue {
+  if (node.argument.kind === 'member') {
+    return evalValueIR({ ...node.argument, object: { kind: 'new', argument: node.argument.object } as ValueIR }, env);
+  }
+  if (node.argument.kind === 'index') {
+    return evalValueIR({ ...node.argument, object: { kind: 'new', argument: node.argument.object } as ValueIR }, env);
+  }
+  if (
+    node.argument.kind === 'call' &&
+    (node.argument.callee.kind === 'member' || node.argument.callee.kind === 'index')
+  ) {
+    return evalValueIR(
+      {
+        ...node.argument,
+        callee: {
+          ...node.argument.callee,
+          object: { kind: 'new', argument: node.argument.callee.object } as ValueIR,
+        },
+      },
+      env,
+    );
+  }
+  if (node.argument.kind !== 'call') throw new Error('KERN core runtime new expects a constructor call.');
+  const callee = evalValueIR(node.argument.callee, env);
+  if (callee.kind !== 'class') throw new Error('KERN core runtime new expects a class value.');
+  return constructClassValue(
+    callee,
+    node.argument.args.map((arg) => evalValueIR(arg, env)),
+  );
+}
+
+function makeClass(node: IRNode, env: CoreRuntimeEnv): KernClassValue {
+  if (node.type !== 'class') throw new Error('KERN core runtime makeClass expects a class node.');
+  return brandValue({
+    kind: 'class',
+    name: requiredString(node.props?.name, 'class name='),
+    node,
+    env,
+  });
+}
+
+function constructClassValue(klass: KernClassValue, args: readonly KernValue[]): KernInstanceValue {
+  const instance = brandValue({
+    kind: 'instance' as const,
+    classValue: klass,
+    fields: createRecordEntries(),
+    initializedClasses: new Set<string>(),
+  });
+  initializeClassLayer(instance, klass, args, true);
+  return instance;
+}
+
+function initializeClassLayer(
+  instance: KernInstanceValue,
+  klass: KernClassValue,
+  args: readonly KernValue[],
+  receivesConstructorArgs: boolean,
+): void {
+  if (instance.initializedClasses.has(klass.name)) {
+    throw new Error(`KERN core runtime class already initialized: ${klass.name}`);
+  }
+  const base = resolveBaseClass(klass);
+  const ctor = firstRuntimeChild(klass.node, 'constructor');
+  const ctorCallsSuper = Boolean(base && ctor && constructorCallsSuper(ctor));
+  if (base && !ctorCallsSuper) initializeClassLayer(instance, base, [], false);
+  if (!ctorCallsSuper) initializeClassFields(instance, klass);
+  if (!ctor) {
+    if (receivesConstructorArgs && args.length > 0) {
+      throw new Error(`KERN core runtime class ${klass.name} has no constructor.`);
+    }
+    instance.initializedClasses.add(klass.name);
+    return;
+  }
+  callClassMemberBody(ctor, klass, instance, receivesConstructorArgs ? args : []).value;
+  if (base && ctorCallsSuper && !instance.initializedClasses.has(base.name)) {
+    throw new Error(`KERN core runtime constructor ${klass.name} must call super(...).`);
+  }
+  instance.initializedClasses.add(klass.name);
+}
+
+function initializeClassFields(instance: KernInstanceValue, klass: KernClassValue): void {
+  for (const field of runtimeChildNodes(klass.node, 'field')) {
+    const name = requiredString(field.props?.name, 'field name=');
+    if (field.props?.static === true || field.props?.static === 'true') continue;
+    const value =
+      Object.hasOwn(field.props ?? {}, 'value') || Object.hasOwn(field.props ?? {}, 'default')
+        ? evalCoreExpression(runtimeFieldInitializerExpr(field), classThisEnv(klass, instance))
+        : kUndefined();
+    instance.fields[name] = value;
+  }
+}
+
+function runtimeFieldInitializerExpr(node: IRNode): string {
+  const propName = Object.hasOwn(node.props ?? {}, 'value') ? 'value' : 'default';
+  const rawValue = propName === 'value' ? node.props?.value : node.props?.default;
+  if (typeof rawValue === 'string' && (node.__quotedProps ?? []).includes(propName)) return JSON.stringify(rawValue);
+  return unwrapExpr(rawValue, 'field value=');
+}
+
+function evalInstanceMember(object: KernInstanceValue, property: string): KernValue {
+  if (Object.hasOwn(object.fields, property)) return object.fields[property] ?? kUndefined();
+  const getter = findClassMember(object.classValue, 'getter', property);
+  if (getter) return callClassMemberBody(getter.node, getter.owner, object, []).value;
+  const method = findClassMember(object.classValue, 'method', property);
+  if (method) {
+    return brandValue({
+      kind: 'bound-method',
+      name: `${object.classValue.name}.${property}`,
+      receiver: object,
+      methodNode: method.node,
+      ownerClass: method.owner,
+    });
+  }
+  return kUndefined();
+}
+
+function evalSuperMember(object: KernSuperValue, property: string): KernValue {
+  const base = resolveBaseClass(object.ownerClass);
+  if (!base) return kUndefined();
+  const getter = findClassMember(base, 'getter', property);
+  if (getter) return callClassMemberBody(getter.node, getter.owner, object.receiver, []).value;
+  const method = findClassMember(base, 'method', property);
+  if (method) {
+    return brandValue({
+      kind: 'bound-method',
+      name: `${base.name}.${property}`,
+      receiver: object.receiver,
+      methodNode: method.node,
+      ownerClass: method.owner,
+    });
+  }
+  if (Object.hasOwn(object.receiver.fields, property)) return object.receiver.fields[property] ?? kUndefined();
+  return kUndefined();
+}
+
+function evalClassMember(object: KernClassValue, property: string): KernValue {
+  const method = findClassMember(object, 'method', property, true);
+  if (method) {
+    return brandValue({
+      kind: 'builtin',
+      name: `${object.name}.${property}`,
+      call: (args) => callClassMemberBody(method.node, method.owner, undefined, args).value,
+    });
+  }
+  return kUndefined();
+}
+
+function callBoundMethodValue(
+  method: KernBoundMethodValue,
+  args: readonly KernValue[],
+): { value: KernValue; env: CoreRuntimeEnv } {
+  return callClassMemberBody(method.methodNode, method.ownerClass, method.receiver, args);
+}
+
+function callSuperConstructor(value: KernSuperValue, args: readonly KernValue[]): KernValue {
+  if (value.mode !== 'constructor') {
+    throw new Error('KERN core runtime super(...) is only valid inside a constructor.');
+  }
+  const base = resolveBaseClass(value.ownerClass);
+  if (!base) throw new Error(`KERN core runtime class ${value.ownerClass.name} has no base class.`);
+  initializeClassLayer(value.receiver, base, args, true);
+  initializeClassFields(value.receiver, value.ownerClass);
+  return value.receiver;
+}
+
+function callClassMemberBody(
+  memberNode: IRNode,
+  ownerClass: KernClassValue,
+  receiver: KernInstanceValue | undefined,
+  args: readonly KernValue[],
+): { value: KernValue; env: CoreRuntimeEnv } {
+  const callEnv = ownerClass.env.child();
+  if (receiver) {
+    callEnv.define('this', receiver);
+    if (resolveBaseClass(ownerClass)) {
+      callEnv.define(
+        'super',
+        brandValue({
+          kind: 'super',
+          receiver,
+          ownerClass,
+          mode: memberNode.type === 'constructor' ? 'constructor' : 'method',
+        }),
+      );
+    }
+  }
+  const params = runtimeParams(memberNode);
+  validateRuntimeArgs(`${ownerClass.name}.${memberNode.type}`, params, args);
+  params.forEach((param, index) => {
+    const provided = args[index];
+    const value =
+      provided === undefined || (provided.kind === 'undefined' && param.defaultExpr)
+        ? param.defaultExpr
+          ? evalCoreExpression(param.defaultExpr, callEnv)
+          : kUndefined()
+        : provided;
+    callEnv.define(param.name, value);
+  });
+  const completion = executeSequence(runtimeFunctionBody(memberNode), callEnv);
+  return { value: completion.value, env: callEnv };
+}
+
+function findClassMember(
+  klass: KernClassValue,
+  type: 'method' | 'getter',
+  name: string,
+  staticOnly = false,
+): { node: IRNode; owner: KernClassValue } | undefined {
+  for (const child of klass.node.children ?? []) {
+    if (child.type !== type || child.props?.name !== name) continue;
+    const isStatic = child.props?.static === true || child.props?.static === 'true';
+    if (staticOnly !== isStatic) continue;
+    return { node: child, owner: klass };
+  }
+  const base = resolveBaseClass(klass);
+  return base ? findClassMember(base, type, name, staticOnly) : undefined;
+}
+
+function resolveBaseClass(klass: KernClassValue): KernClassValue | undefined {
+  const baseName = classBaseName(klass.node.props?.extends);
+  if (!baseName) return undefined;
+  const base = klass.env.lookup(baseName);
+  if (base.kind !== 'class') throw new Error(`KERN core runtime base class is not a class: ${baseName}`);
+  return base;
+}
+
+function classBaseName(value: unknown): string | undefined {
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  const match = /^([A-Za-z_$][\w$]*)/.exec(value.trim());
+  return match?.[1];
+}
+
+function classThisEnv(klass: KernClassValue, receiver: KernInstanceValue): CoreRuntimeEnv {
+  const env = klass.env.child();
+  env.define('this', receiver);
+  return env;
 }
 
 function makeFunction(node: IRNode, env: CoreRuntimeEnv): KernFunctionValue {
@@ -488,6 +924,7 @@ function callFunctionValue(
   args: readonly KernValue[],
 ): { value: KernValue; env: CoreRuntimeEnv } {
   const callEnv = fn.env.child();
+  validateRuntimeArgs(fn.name ?? 'anonymous function', fn.params, args);
   fn.params.forEach((param, index) => {
     const provided = args[index];
     const value =
@@ -502,14 +939,144 @@ function callFunctionValue(
   return { value: completion.value, env: callEnv };
 }
 
+function validateRuntimeArgs(label: string, params: readonly RuntimeParam[], args: readonly KernValue[]): void {
+  if (args.length > params.length) {
+    throw new Error(`KERN core runtime ${label} received too many arguments.`);
+  }
+  params.forEach((param, index) => {
+    if (index >= args.length && !param.defaultExpr) {
+      throw new Error(`KERN core runtime ${label} missing required argument: ${param.name}.`);
+    }
+  });
+}
+
+function executeAssign(node: IRNode, env: CoreRuntimeEnv): void {
+  const target = requiredString(node.props?.target, 'assign target=');
+  if (Object.hasOwn(node.props ?? {}, 'op') && node.props?.op !== '=') {
+    throw new Error('KERN core runtime assign supports only direct assignment in this slice.');
+  }
+  const value = evalCoreExpression(unwrapExpr(node.props?.value, 'assign value='), env);
+  assignRuntimeTarget(target, value, env);
+}
+
+function assignRuntimeTarget(target: string, value: KernValue, env: CoreRuntimeEnv): void {
+  const parsed = parseExpression(target);
+  if (parsed.kind === 'ident') {
+    env.assign(parsed.name, value);
+    return;
+  }
+  if (parsed.kind === 'member') {
+    const object = evalValueIR(parsed.object, env);
+    if (object.kind === 'instance') {
+      object.fields[parsed.property] = value;
+      return;
+    }
+    if (object.kind === 'record') {
+      object.entries[parsed.property] = value;
+      return;
+    }
+    throw new Error(`KERN core runtime cannot assign member on ${object.kind}.`);
+  }
+  if (parsed.kind === 'index') {
+    const object = evalValueIR(parsed.object, env);
+    const index = evalValueIR(parsed.index, env);
+    if (object.kind === 'array') {
+      if (index.kind !== 'number' || !Number.isInteger(index.value) || index.value < 0) {
+        throw new Error('KERN core runtime array assignment index must be a non-negative integer.');
+      }
+      object.items[index.value] = value;
+      return;
+    }
+    if (object.kind === 'record') {
+      if (index.kind !== 'string') throw new Error('KERN core runtime record assignment key must be a string.');
+      object.entries[index.value] = value;
+      return;
+    }
+    throw new Error(`KERN core runtime cannot assign index on ${object.kind}.`);
+  }
+  throw new Error('KERN core runtime assign target must be an identifier, member, or index expression.');
+}
+
 function runtimeFunctionBody(node: IRNode): IRNode[] {
   const handler = node.children?.find((child) => child.type === 'handler');
   const body = handler ? (handler.children ?? []) : (node.children ?? []);
   return body.filter((child) => child.type !== 'param' && child.type !== 'decorator');
 }
 
+function firstRuntimeChild(node: IRNode, type: string): IRNode | undefined {
+  return node.children?.find((child) => child.type === type);
+}
+
+function runtimeChildNodes(node: IRNode, type: string): IRNode[] {
+  return node.children?.filter((child) => child.type === type) ?? [];
+}
+
+function constructorCallsSuper(node: IRNode): boolean {
+  return runtimeFunctionBody(node).some(statementCallsSuper);
+}
+
+function statementCallsSuper(node: IRNode): boolean {
+  const rawValue = node.type === 'do' ? node.props?.value : undefined;
+  if (rawValue !== undefined && expressionCallsSuper(rawValue)) return true;
+  return (node.children ?? []).some(statementCallsSuper);
+}
+
+function expressionCallsSuper(value: unknown): boolean {
+  try {
+    return valueIRCallsSuper(parseExpression(unwrapExpr(value, 'super expression')));
+  } catch {
+    return false;
+  }
+}
+
+function valueIRCallsSuper(value: ValueIR): boolean {
+  switch (value.kind) {
+    case 'call':
+      return (
+        (value.callee.kind === 'ident' && value.callee.name === 'super') ||
+        valueIRCallsSuper(value.callee) ||
+        value.args.some(valueIRCallsSuper)
+      );
+    case 'member':
+      return valueIRCallsSuper(value.object);
+    case 'index':
+      return valueIRCallsSuper(value.object) || valueIRCallsSuper(value.index);
+    case 'tmplLit':
+      return value.expressions.some(valueIRCallsSuper);
+    case 'arrayLit':
+      return value.items.some(valueIRCallsSuper);
+    case 'objectLit':
+      return value.entries.some((entry) =>
+        'kind' in entry ? valueIRCallsSuper(entry.argument) : valueIRCallsSuper(entry.value),
+      );
+    case 'unary':
+    case 'await':
+    case 'new':
+    case 'spread':
+    case 'propagate':
+      return valueIRCallsSuper(value.argument);
+    case 'typeAssert':
+    case 'nonNull':
+      return valueIRCallsSuper(value.expression);
+    case 'binary':
+      return valueIRCallsSuper(value.left) || valueIRCallsSuper(value.right);
+    case 'conditional':
+      return valueIRCallsSuper(value.test) || valueIRCallsSuper(value.consequent) || valueIRCallsSuper(value.alternate);
+    case 'lambda':
+      return valueIRCallsSuper(value.body);
+    case 'numLit':
+    case 'strLit':
+    case 'boolLit':
+    case 'nullLit':
+    case 'undefLit':
+    case 'regexLit':
+    case 'ident':
+      return false;
+  }
+}
+
 function runtimeChildren(node: IRNode): IRNode[] {
-  if (node.type === 'handler' || node.type === '__block') return node.children ?? [];
+  if (node.type === 'document' || node.type === 'handler' || node.type === '__block') return node.children ?? [];
   return [node];
 }
 
@@ -603,6 +1170,10 @@ function kernEquals(left: KernValue, right: KernValue): boolean {
     }
     case 'function':
     case 'builtin':
+    case 'class':
+    case 'instance':
+    case 'bound-method':
+    case 'super':
       return left === right;
   }
 }
@@ -656,14 +1227,44 @@ function isKernValue(value: unknown): value is KernValue {
         typeof value.name === 'string' &&
         typeof value.call === 'function'
       );
+    case 'class':
+      return (
+        hasOnlyKeys(value, ['kind', 'name', 'node', 'env']) &&
+        typeof value.name === 'string' &&
+        isPlainRecord(value.node) &&
+        value.env instanceof CoreRuntimeEnv
+      );
+    case 'instance':
+      return (
+        hasOnlyKeys(value, ['kind', 'classValue', 'fields', 'initializedClasses']) &&
+        isKernValue(value.classValue) &&
+        value.classValue.kind === 'class' &&
+        isPlainRecord(value.fields) &&
+        Object.values(value.fields).every(isKernValue) &&
+        value.initializedClasses instanceof Set
+      );
+    case 'bound-method':
+      return (
+        hasOnlyKeys(value, ['kind', 'name', 'receiver', 'methodNode', 'ownerClass']) &&
+        typeof value.name === 'string' &&
+        isKernValue(value.receiver) &&
+        value.receiver.kind === 'instance' &&
+        isPlainRecord(value.methodNode) &&
+        isKernValue(value.ownerClass) &&
+        value.ownerClass.kind === 'class'
+      );
+    case 'super':
+      return (
+        hasOnlyKeys(value, ['kind', 'receiver', 'ownerClass', 'mode']) &&
+        isKernValue(value.receiver) &&
+        value.receiver.kind === 'instance' &&
+        isKernValue(value.ownerClass) &&
+        value.ownerClass.kind === 'class' &&
+        (value.mode === 'constructor' || value.mode === 'method')
+      );
     default:
       return false;
   }
-}
-
-function brandValue<T extends KernValue>(value: T): T {
-  Object.defineProperty(value, KERN_VALUE_BRAND, { value: true });
-  return value;
 }
 
 function hasArrayHoles(value: readonly unknown[]): boolean {
