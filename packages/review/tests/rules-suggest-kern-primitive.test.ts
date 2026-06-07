@@ -213,6 +213,7 @@ describe('suggest-kern-primitive rule', () => {
       'clamp name=inverted value={{ score }} min={{ config.min }} max={{ config.max }}',
     );
     expect(portable[0].message).toContain('number.clamp');
+    expect(portable[0].message).toContain('`clamp`');
     expect(portable[0].message).toContain('stable: ts, python');
   });
 

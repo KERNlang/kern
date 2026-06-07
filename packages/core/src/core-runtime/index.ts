@@ -1073,6 +1073,7 @@ function valueIRCallsSuper(value: ValueIR): boolean {
     case 'ident':
       return false;
   }
+  return false;
 }
 
 function runtimeChildren(node: IRNode): IRNode[] {

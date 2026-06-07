@@ -436,6 +436,23 @@ export { formatScanSummary, generateConfigSource, scanProject } from './scanner.
 export type { KernSchemaJSON, NodeSchema, PropKind, PropSchema, SchemaViolation } from './schema.js';
 // Schema validation + export
 export { exportSchemaJSON, NODE_SCHEMAS, validateSchema } from './schema.js';
+export type {
+  BuildKernSemanticSubstrateOptions,
+  KernSemanticCoreOperation,
+  KernSemanticCoreType,
+  KernSemanticIrContract,
+  KernSemanticPrimitive,
+  KernSemanticStdlibOperation,
+  KernSemanticSubstrate,
+  KernSemanticSubstrateSource,
+  KernSemanticSubstrateTarget,
+  KernSemanticSupport,
+} from './semantic-substrate.js';
+export {
+  buildKernSemanticSubstrate,
+  lookupSemanticPrimitive,
+  semanticPrimitiveSupportSummary,
+} from './semantic-substrate.js';
 // Semantic validation
 export type { SemanticViolation } from './semantic-validator.js';
 export { validateSemantics } from './semantic-validator.js';

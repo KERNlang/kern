@@ -28,10 +28,11 @@
  */
 
 import {
+  buildKernSemanticSubstrate,
+  lookupSemanticPrimitive,
   type PortableLogicPrimitiveId,
-  type PortableLogicSupport,
   type PortableLogicTarget,
-  portableLogicSupportForTarget,
+  semanticPrimitiveSupportSummary,
 } from '@kernlang/core';
 import type {
   ArrowFunction,
@@ -88,6 +89,7 @@ const ARRAY_METHODS: Record<string, MethodSpec> = {
 };
 
 const PORTABLE_LOGIC_TARGETS: readonly PortableLogicTarget[] = ['ts', 'python', 'go'];
+const KERN_SEMANTIC_SUBSTRATE = buildKernSemanticSubstrate();
 
 // Node kinds whose descendants should be skipped — don't flag opportunities
 // inside test files, type-only files, or generated code paths by path hint.
@@ -235,22 +237,7 @@ function nodeColumn(node: TsNode): number {
 }
 
 function portableLogicSupportSummary(id: PortableLogicPrimitiveId): string {
-  const bySupport: Record<PortableLogicSupport, string[]> = {
-    preview: [],
-    stable: [],
-    unsupported: [],
-  };
-  for (const target of PORTABLE_LOGIC_TARGETS) {
-    const support = portableLogicSupportForTarget(id, target);
-    bySupport[support].push(target);
-  }
-
-  const parts: string[] = [];
-  for (const support of ['stable', 'preview', 'unsupported'] satisfies PortableLogicSupport[]) {
-    const targets = bySupport[support];
-    if (targets.length > 0) parts.push(`${support}: ${targets.join(', ')}`);
-  }
-  return parts.join('; ');
+  return semanticPrimitiveSupportSummary(lookupSemanticPrimitive(KERN_SEMANTIC_SUBSTRATE, id), PORTABLE_LOGIC_TARGETS);
 }
 
 function portableLogicFinding(
@@ -259,11 +246,12 @@ function portableLogicFinding(
   id: PortableLogicPrimitiveId,
   label: string,
 ): ReviewFinding {
+  const primitive = lookupSemanticPrimitive(KERN_SEMANTIC_SUBSTRATE, id);
   return finding(
     'suggest-kern-primitive',
     'info',
     'pattern',
-    `JS ${label} is covered by KERN portable logic primitive \`${id}\` (${portableLogicSupportSummary(id)})`,
+    `JS ${label} is covered by KERN portable logic primitive \`${id}\` / \`${primitive.kernName}\` (${portableLogicSupportSummary(id)})`,
     ctx.filePath,
     node.getStartLineNumber(),
     nodeColumn(node),
