@@ -1,0 +1,635 @@
+import {
+  CORE_FIXTURE_FUNCTION,
+  CORE_FIXTURE_UNDEFINED,
+  CoreRuntimeContractAdapterError,
+  CoreRuntimeEnv,
+  callCoreFunction,
+  coreFixtureValueToKernValue,
+  createCoreRuntimeEnv,
+  evalCoreExpression,
+  fromHostValue,
+  kBoolean,
+  kernTruthy,
+  kernValueToCoreFixtureValue,
+  kNull,
+  kNumber,
+  kString,
+  kUndefined,
+  roundTripKernContractDataValue,
+  runCoreRuntime,
+  toHostValue,
+} from '../src/index.js';
+import { parse } from '../src/parser.js';
+import type { IRNode } from '../src/types.js';
+
+function handler(children: IRNode[]): IRNode {
+  return { type: 'handler', props: { lang: 'kern' }, children };
+}
+
+describe('KERN core runtime values and expressions', () => {
+  test('truthiness is owned by KERN values', () => {
+    expect(kernTruthy(kNull())).toBe(false);
+    expect(kernTruthy(kUndefined())).toBe(false);
+    expect(kernTruthy(kBoolean(false))).toBe(false);
+    expect(kernTruthy(kNumber(0))).toBe(false);
+    expect(kernTruthy(kString(''))).toBe(false);
+    expect(kernTruthy(kString('x'))).toBe(true);
+  });
+
+  test('String(value) uses KERN coercion, not host spelling', () => {
+    const env = createCoreRuntimeEnv({
+      globals: {
+        n: 12,
+        none: null,
+        yes: true,
+        no: false,
+      },
+    });
+    expect(toHostValue(evalCoreExpression('String(n)', env))).toBe('12');
+    expect(toHostValue(evalCoreExpression('String(none)', env))).toBe('null');
+    expect(toHostValue(evalCoreExpression('String(yes)', env))).toBe('true');
+    expect(toHostValue(evalCoreExpression('String(no)', env))).toBe('false');
+  });
+
+  test('null and undefined are distinct but both nullish', () => {
+    expect(toHostValue(kNull())).toBeNull();
+    expect(toHostValue(kUndefined())).toBeUndefined();
+    const env = createCoreRuntimeEnv({ globals: { a: undefined, b: null, c: 5 } });
+    expect(toHostValue(evalCoreExpression('a ?? c', env))).toBe(5);
+    expect(toHostValue(evalCoreExpression('b ?? c', env))).toBe(5);
+  });
+
+  test('plain host records with kind fields are not mistaken for KERN values', () => {
+    const value = fromHostValue({ kind: 'trap', label: 'Trap' });
+    expect(toHostValue(value)).toEqual({ kind: 'trap', label: 'Trap' });
+    expect(toHostValue(fromHostValue({ kind: 'null', label: 'Trap' }))).toEqual({ kind: 'null', label: 'Trap' });
+    expect(toHostValue(fromHostValue({ kind: 'string', value: 'x', label: 'Trap' }))).toEqual({
+      kind: 'string',
+      label: 'Trap',
+      value: 'x',
+    });
+    expect(toHostValue(fromHostValue({ kind: 'string', value: 'door' }))).toEqual({ kind: 'string', value: 'door' });
+  });
+
+  test('record maps use own properties only', () => {
+    const value = fromHostValue({ a: 1 });
+    if (value.kind !== 'record') throw new Error('expected record value');
+    expect(Object.getPrototypeOf(value.entries)).toBeNull();
+    const env = createCoreRuntimeEnv({ globals: { record: value } });
+    expect(toHostValue(evalCoreExpression('record.a', env))).toBe(1);
+    expect(toHostValue(evalCoreExpression('record.toString', env))).toBeUndefined();
+  });
+
+  test('sparse host arrays become dense KERN arrays with undefined entries', () => {
+    const host = [] as unknown[];
+    host[1] = 'set';
+    expect(toHostValue(fromHostValue(host))).toEqual([undefined, 'set']);
+  });
+
+  test('caller-created envs still get portable builtins for expression evaluation', () => {
+    const env = new CoreRuntimeEnv();
+    env.define('flag', kBoolean(false));
+    expect(toHostValue(evalCoreExpression('String(flag)', env))).toBe('false');
+  });
+
+  test('structural equality preserves undefined/null distinctions in arrays and records', () => {
+    const env = createCoreRuntimeEnv({
+      globals: {
+        xs: [undefined],
+        ys: [null],
+        a: { value: undefined },
+        b: {},
+      },
+    });
+    expect(toHostValue(evalCoreExpression('xs === ys', env))).toBe(false);
+    expect(toHostValue(evalCoreExpression('a === b', env))).toBe(false);
+  });
+
+  test('string index misses return KERN undefined', () => {
+    const env = createCoreRuntimeEnv({ globals: { label: 'ab' } });
+    expect(toHostValue(evalCoreExpression('label[1]', env))).toBe('b');
+    expect(toHostValue(evalCoreExpression('label["1"]', env))).toBe('b');
+    expect(toHostValue(evalCoreExpression('label[4]', env))).toBeUndefined();
+    expect(toHostValue(evalCoreExpression('label[""]', env))).toBeUndefined();
+    expect(toHostValue(evalCoreExpression('label["1.0"]', env))).toBeUndefined();
+  });
+
+  test('string length and index use KERN code-point semantics in the VM', () => {
+    const env = createCoreRuntimeEnv({ globals: { label: 'a𐐷b', combo: 'e\u0301x' } });
+    expect(toHostValue(evalCoreExpression('label.length', env))).toBe(3);
+    expect(toHostValue(evalCoreExpression('label[1]', env))).toBe('𐐷');
+    expect(toHostValue(evalCoreExpression('combo.length', env))).toBe(3);
+    expect(toHostValue(evalCoreExpression('combo[1]', env))).toBe('\u0301');
+  });
+
+  test('string methods dispatch through KERN core contracts in the VM', () => {
+    const env = createCoreRuntimeEnv({ globals: { label: 'a𐐷b', word: '  KERN  ' } });
+    expect(toHostValue(evalCoreExpression('label.slice(1, 2)', env))).toBe('𐐷');
+    expect(toHostValue(evalCoreExpression('label.index(1)', env))).toBe('𐐷');
+    expect(toHostValue(evalCoreExpression('label.index(3)', env))).toBeUndefined();
+    expect(() => evalCoreExpression('label.slice(1)', env)).toThrow('String.slice expects String, Number, Number.');
+    expect(toHostValue(evalCoreExpression('label.includes("𐐷")', env))).toBe(true);
+    expect(toHostValue(evalCoreExpression('label.startsWith("a")', env))).toBe(true);
+    expect(toHostValue(evalCoreExpression('label.endsWith("b")', env))).toBe(true);
+    expect(toHostValue(evalCoreExpression('word.trim().lower()', env))).toBe('kern');
+    expect(toHostValue(evalCoreExpression('word.trim().upper()', env))).toBe('KERN');
+    expect(toHostValue(evalCoreExpression('label.concat("!")', env))).toBe('a𐐷b!');
+    expect(toHostValue(evalCoreExpression('label.equals("a𐐷b")', env))).toBe(true);
+  });
+
+  test('string and boolean contract methods reject cross-type operands in the VM', () => {
+    const env = createCoreRuntimeEnv({ globals: { label: 'count:', flag: true } });
+    expect(() => evalCoreExpression('label.concat(2)', env)).toThrow('String.concat expects String, String.');
+    expect(() => evalCoreExpression('label.concat(String)', env)).toThrow('String.concat expects String, String.');
+    expect(() => evalCoreExpression('label.equals(true)', env)).toThrow('String.equals expects String, String.');
+    expect(() => evalCoreExpression('flag.and("true")', env)).toThrow('Boolean.and expects Boolean, Boolean.');
+    expect(() => evalCoreExpression('flag.equals(1)', env)).toThrow('Boolean.equals expects Boolean, Boolean.');
+    expect(toHostValue(evalCoreExpression('flag.not()', env))).toBe(false);
+    expect(toHostValue(evalCoreExpression('flag.and(false)', env))).toBe(false);
+    expect(toHostValue(evalCoreExpression('flag.or(false)', env))).toBe(true);
+    expect(toHostValue(evalCoreExpression('flag.toString()', env))).toBe('true');
+  });
+
+  test('number operators dispatch through KERN core contracts in the VM', () => {
+    const env = createCoreRuntimeEnv();
+    expect(toHostValue(evalCoreExpression('2 + 3', env))).toBe(5);
+    expect(toHostValue(evalCoreExpression('5 - 3', env))).toBe(2);
+    expect(toHostValue(evalCoreExpression('3 * 4', env))).toBe(12);
+    expect(toHostValue(evalCoreExpression('5 / 2', env))).toBe(2.5);
+    expect(toHostValue(evalCoreExpression('-3', env))).toBe(-3);
+    expect(toHostValue(evalCoreExpression('-5 % 2', env))).toBe(-1);
+    expect(toHostValue(evalCoreExpression('5 % -2', env))).toBe(1);
+    expect(toHostValue(evalCoreExpression('2 < 3', env))).toBe(true);
+    expect(toHostValue(evalCoreExpression('3 <= 2', env))).toBe(false);
+    expect(toHostValue(evalCoreExpression('3 > 2', env))).toBe(true);
+    expect(toHostValue(evalCoreExpression('2 >= 3', env))).toBe(false);
+    expect(() => evalCoreExpression('1 / 0', env)).toThrow('Number.divide division by zero.');
+    expect(() => evalCoreExpression('1 % 0', env)).toThrow('Number.remainder division by zero.');
+  });
+
+  test('string ordered comparisons dispatch through KERN core contracts in the VM', () => {
+    const env = createCoreRuntimeEnv();
+    expect(toHostValue(evalCoreExpression('"abc" < "abd"', env))).toBe(true);
+    expect(toHostValue(evalCoreExpression('"abc" <= "abc"', env))).toBe(true);
+    expect(toHostValue(evalCoreExpression('"abd" > "abc"', env))).toBe(true);
+    expect(toHostValue(evalCoreExpression('"abc" >= "abd"', env))).toBe(false);
+    expect(toHostValue(evalCoreExpression('"𐐷" > "z"', env))).toBe(true);
+  });
+
+  test('unary boolean not dispatches through KERN core contracts in the VM', () => {
+    const env = createCoreRuntimeEnv();
+    expect(toHostValue(evalCoreExpression('!true', env))).toBe(false);
+    expect(toHostValue(evalCoreExpression('!false', env))).toBe(true);
+    expect(() => evalCoreExpression('!5', env)).toThrow('KERN core runtime unary ! requires a boolean.');
+  });
+
+  test('list and record reads dispatch through KERN core contracts in the VM', () => {
+    const env = createCoreRuntimeEnv({
+      globals: { xs: [10, undefined, 30], user: { name: 'Ada' }, sentinel: { __kernFixture: 'Undefined' } },
+    });
+    expect(toHostValue(evalCoreExpression('xs.length', env))).toBe(3);
+    expect(toHostValue(evalCoreExpression('xs[0]', env))).toBe(10);
+    expect(toHostValue(evalCoreExpression('xs[1]', env))).toBeUndefined();
+    expect(toHostValue(evalCoreExpression('xs[-1]', env))).toBeUndefined();
+    expect(toHostValue(evalCoreExpression('xs[1.5]', env))).toBeUndefined();
+    expect(toHostValue(evalCoreExpression('user.name', env))).toBe('Ada');
+    expect(toHostValue(evalCoreExpression('user["missing"]', env))).toBeUndefined();
+    expect(toHostValue(evalCoreExpression('user.toString', env))).toBeUndefined();
+    expect(toHostValue(evalCoreExpression('sentinel.__kernFixture', env))).toBe('Undefined');
+    expect(toHostValue(evalCoreExpression('[String].length', env))).toBe(1);
+    expect(toHostValue(evalCoreExpression('[String][0]', env))).toBe('[KERN builtin String]');
+  });
+
+  test('optional index skips unresolved index expressions for nullish objects', () => {
+    const env = createCoreRuntimeEnv({ globals: { maybe: null } });
+    expect(toHostValue(evalCoreExpression('maybe?.[missingName]', env))).toBeUndefined();
+  });
+
+  test('optional calls skip unresolved argument expressions for nullish callees', () => {
+    const env = createCoreRuntimeEnv({ globals: { maybeFn: null } });
+    expect(toHostValue(evalCoreExpression('maybeFn?.(missingName)', env))).toBeUndefined();
+  });
+
+  test('division by zero fails with a KERN runtime diagnostic', () => {
+    const env = createCoreRuntimeEnv();
+    expect(() => evalCoreExpression('4 / 0', env)).toThrow(/division by zero/);
+    expect(() => evalCoreExpression('4 % 0', env)).toThrow(/division by zero/);
+  });
+});
+
+describe('KERN core runtime contract adapter', () => {
+  test('round-trips supported KERN values through core contract fixture values', () => {
+    const value = fromHostValue({
+      text: 'a𐐷b',
+      flag: true,
+      count: 3,
+      none: null,
+      missing: undefined,
+      list: [false, 'x'],
+      sentinelLikeRecord: { kind: 'Undefined' },
+    });
+
+    const roundTripped = toHostValue(roundTripKernContractDataValue(value)) as Record<string, unknown>;
+    const { missing: roundTrippedMissing, ...roundTrippedWithoutMissing } = roundTripped;
+    expect(roundTrippedWithoutMissing).toEqual({
+      text: 'a𐐷b',
+      flag: true,
+      count: 3,
+      none: null,
+      list: [false, 'x'],
+      sentinelLikeRecord: { kind: 'Undefined' },
+    });
+    expect(Object.hasOwn(roundTripped, 'missing')).toBe(true);
+    expect(roundTrippedMissing).toBeUndefined();
+  });
+
+  test('keeps Undefined fixture encoding stable across JSON round trips', () => {
+    const encoded = kernValueToCoreFixtureValue(kUndefined());
+    expect(encoded).toEqual(CORE_FIXTURE_UNDEFINED);
+    expect(toHostValue(coreFixtureValueToKernValue(JSON.parse(JSON.stringify(encoded))))).toBeUndefined();
+  });
+
+  test('rejects runtime records that use the reserved Undefined fixture sentinel shape', () => {
+    expect(() => kernValueToCoreFixtureValue(fromHostValue({ __kernFixture: 'Undefined' }))).toThrow(
+      'reserved core fixture sentinel shape',
+    );
+  });
+
+  test('rejects runtime instances that use reserved fixture sentinel field shape', () => {
+    const root = parse(['class name=Trap', '  field name=__kernFixture type=string value="Function"'].join('\n'));
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => kernValueToCoreFixtureValue(evalCoreExpression('new Trap()', env))).toThrow(
+      'reserved core fixture sentinel shape',
+    );
+  });
+
+  test('represents runtime-only callable values as opaque Function fixture references', () => {
+    const env = createCoreRuntimeEnv();
+    expect(kernValueToCoreFixtureValue(env.lookup('String'))).toEqual(CORE_FIXTURE_FUNCTION);
+    expect(() => coreFixtureValueToKernValue(CORE_FIXTURE_FUNCTION)).toThrow(CoreRuntimeContractAdapterError);
+  });
+});
+
+describe('KERN core runtime statements', () => {
+  test('runs let, expression-v1, and return', () => {
+    const result = runCoreRuntime(
+      handler([
+        { type: 'let', props: { name: 'count', value: '41' } },
+        { type: 'expression-v1', props: { name: 'label', expr: '`n=${count + 1}`' } },
+        { type: 'return', props: { value: 'label' } },
+      ]),
+    );
+    expect(result.completion.kind).toBe('return');
+    expect(toHostValue(result.completion.value)).toBe('n=42');
+  });
+
+  test('if/else executes only the selected branch and block-local lets do not leak', () => {
+    const result = runCoreRuntime(
+      handler([
+        { type: 'let', props: { name: 'x', value: '1' } },
+        { type: 'if', props: { cond: 'false' }, children: [{ type: 'let', props: { name: 'x', value: '2' } }] },
+        { type: 'else', children: [{ type: 'let', props: { name: 'y', value: '3' } }] },
+        { type: 'return', props: { value: 'x' } },
+      ]),
+    );
+    expect(toHostValue(result.completion.value)).toBe(1);
+    expect(() => result.env.lookup('y')).toThrow(/not found/);
+  });
+
+  test('coalesce and firstDefined preserve falsy defined values', () => {
+    const result = runCoreRuntime(
+      handler([
+        { type: 'let', props: { name: 'missing', value: 'undefined' } },
+        { type: 'let', props: { name: 'zero', value: '0' } },
+        { type: 'let', props: { name: 'flag', value: 'false' } },
+        { type: 'let', props: { name: 'empty', value: '""' } },
+        { type: 'coalesce', props: { name: 'a', values: "missing, zero, 'fallback'" } },
+        { type: 'firstDefined', props: { name: 'b', values: "missing, flag, 'fallback'" } },
+        { type: 'coalesce', props: { name: 'c', values: "missing, empty, 'fallback'" } },
+        { type: 'return', props: { value: '{ a: a, b: b, c: c }' } },
+      ]),
+    );
+    expect(toHostValue(result.completion.value)).toEqual({ a: 0, b: false, c: '' });
+  });
+
+  test('coalesce and firstTruthy short-circuit later expressions', () => {
+    const result = runCoreRuntime(
+      handler([
+        { type: 'let', props: { name: 'present', value: '"ok"' } },
+        { type: 'coalesce', props: { name: 'a', values: 'present, missingName' } },
+        { type: 'firstTruthy', props: { name: 'b', values: 'present, alsoMissing' } },
+        { type: 'return', props: { value: '{ a: a, b: b }' } },
+      ]),
+    );
+    expect(toHostValue(result.completion.value)).toEqual({ a: 'ok', b: 'ok' });
+  });
+
+  test('executes user-defined classes with fields constructors methods and getters', () => {
+    const root = parse(
+      [
+        'class name=Counter',
+        '  field name=count type=number value={{ 0 }}',
+        '  constructor',
+        '    param name=initial type=number value={{ 0 }}',
+        '    handler',
+        '      assign target="this.count" value="initial"',
+        '  method name=inc returns=number',
+        '    param name=step type=number value={{ 1 }}',
+        '    handler',
+        '      assign target="this.count" value="this.count + step"',
+        '      return value="this.count"',
+        '  getter name=label returns=string',
+        '    handler',
+        '      return value="`count=${this.count}`"',
+        'fn name=make returns=number',
+        '  handler',
+        '    let name=c value="new Counter(4)"',
+        '    do value="c.inc(2)"',
+        '    return value="c.count"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new Counter(3).count', env))).toBe(3);
+    expect(toHostValue(evalCoreExpression('new Counter(3).inc()', env))).toBe(4);
+    expect(toHostValue(evalCoreExpression('new Counter(3).label', env))).toBe('count=3');
+    expect(toHostValue(evalCoreExpression('make()', env))).toBe(6);
+  });
+
+  test('executes inherited fields getters methods and overrides', () => {
+    const root = parse(
+      [
+        'class name=Entity',
+        '  field name=id type=string value="base"',
+        '  method name=kind returns=string',
+        '    handler',
+        '      return value="\'entity\'"',
+        '  getter name=summary returns=string',
+        '    handler',
+        '      return value="`${this.kind()}:${this.id}`"',
+        'class name=User extends=Entity',
+        '  field name=name type=string value="Ada"',
+        '  method name=kind returns=string',
+        '    handler',
+        '      return value="`user/${super.kind()}`"',
+        '  method name=label returns=string',
+        '    handler',
+        '      return value="`${this.summary}:${this.name}`"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new User().id', env))).toBe('base');
+    expect(toHostValue(evalCoreExpression('new User().kind()', env))).toBe('user/entity');
+    expect(toHostValue(evalCoreExpression('new User().summary', env))).toBe('user/entity:base');
+    expect(toHostValue(evalCoreExpression('new User().label()', env))).toBe('user/entity:base:Ada');
+  });
+
+  test('executes derived constructors with super constructor arguments', () => {
+    const root = parse(
+      [
+        'class name=Entity',
+        '  field name=id type=string value="unset"',
+        '  constructor',
+        '    param name=id type=string',
+        '    handler',
+        '      assign target="this.id" value="id"',
+        'class name=User extends=Entity',
+        '  field name=name type=string value="unset"',
+        '  constructor',
+        '    param name=id type=string',
+        '    param name=name type=string',
+        '    handler',
+        '      do value="super(id)"',
+        '      assign target="this.name" value="name"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new User("u1", "Ada").id', env))).toBe('u1');
+    expect(toHostValue(evalCoreExpression('new User("u1", "Ada").name', env))).toBe('Ada');
+  });
+
+  test('initializes derived fields after super constructor state', () => {
+    const root = parse(
+      [
+        'class name=Entity',
+        '  field name=id type=string value="unset"',
+        '  constructor',
+        '    param name=id type=string',
+        '    handler',
+        '      assign target="this.id" value="id"',
+        'class name=User extends=Entity',
+        '  field name=copy type=string value={{ this.id }}',
+        '  constructor',
+        '    param name=id type=string',
+        '    handler',
+        '      do value="super(id)"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new User("u1").copy', env))).toBe('u1');
+  });
+
+  test('rejects missing and extra runtime arguments strictly', () => {
+    const root = parse(
+      [
+        'class name=Box',
+        '  constructor',
+        '    param name=value type=number',
+        '    handler',
+        '      assign target="this.value" value="value"',
+        'fn name=need returns=number',
+        '  param name=value type=number',
+        '  handler',
+        '    return value="value"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('need()', env)).toThrow('missing required argument: value');
+    expect(() => evalCoreExpression('need(1, 2)', env)).toThrow('received too many arguments');
+    expect(() => evalCoreExpression('new Box()', env)).toThrow('missing required argument: value');
+    expect(() => evalCoreExpression('new Box(1, 2)', env)).toThrow('received too many arguments');
+  });
+
+  test('detects nested constructor super calls structurally', () => {
+    const root = parse(
+      [
+        'class name=Entity',
+        '  field name=id type=string value="unset"',
+        '  constructor',
+        '    param name=id type=string',
+        '    handler',
+        '      assign target="this.id" value="id"',
+        'class name=User extends=Entity',
+        '  constructor',
+        '    param name=id type=string',
+        '    handler',
+        '      if cond=true',
+        '        do value="super(id)"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new User("u1").id', env))).toBe('u1');
+  });
+});
+
+describe('KERN core runtime functions', () => {
+  test('nested fn captures the lexical environment and returns through its own frame', () => {
+    const result = runCoreRuntime(
+      handler([
+        { type: 'let', props: { name: 'base', value: '10' } },
+        {
+          type: 'fn',
+          props: { name: 'addBase', params: 'amount:number', returns: 'number' },
+          children: [
+            {
+              type: 'handler',
+              props: { lang: 'kern' },
+              children: [{ type: 'return', props: { value: 'amount + base' } }],
+            },
+          ],
+        },
+        { type: 'let', props: { name: 'total', value: 'addBase(5)' } },
+        { type: 'return', props: { value: 'total' } },
+      ]),
+    );
+    expect(toHostValue(result.completion.value)).toBe(15);
+  });
+
+  test('function params shadow outer bindings without mutating them', () => {
+    const result = runCoreRuntime(
+      handler([
+        { type: 'let', props: { name: 'x', value: '1' } },
+        {
+          type: 'fn',
+          props: { name: 'echo', params: 'x:number', returns: 'number' },
+          children: [
+            {
+              type: 'handler',
+              props: { lang: 'kern' },
+              children: [{ type: 'return', props: { value: 'x' } }],
+            },
+          ],
+        },
+        { type: 'let', props: { name: 'inner', value: 'echo(7)' } },
+        { type: 'return', props: { value: '{ outer: x, inner: inner }' } },
+      ]),
+    );
+    expect(toHostValue(result.completion.value)).toEqual({ outer: 1, inner: 7 });
+  });
+
+  test('function parameter defaults evaluate in the call frame', () => {
+    const result = runCoreRuntime(
+      handler([
+        { type: 'let', props: { name: 'base', value: '5' } },
+        {
+          type: 'fn',
+          props: { name: 'fill', params: 'x:number=base + 2,y:number=x + 3', returns: 'number' },
+          children: [
+            {
+              type: 'handler',
+              props: { lang: 'kern' },
+              children: [{ type: 'return', props: { value: 'y' } }],
+            },
+          ],
+        },
+        { type: 'return', props: { value: 'fill()' } },
+      ]),
+    );
+    expect(toHostValue(result.completion.value)).toBe(10);
+  });
+
+  test('explicit KERN undefined triggers function parameter defaults', () => {
+    const fnNode: IRNode = {
+      type: 'fn',
+      props: { name: 'fallback', params: 'value:number=3', returns: 'number' },
+      children: [
+        {
+          type: 'handler',
+          props: { lang: 'kern' },
+          children: [{ type: 'return', props: { value: 'value' } }],
+        },
+      ],
+    };
+    const result = callCoreFunction(fnNode, [kUndefined()]);
+    expect(toHostValue(result.value)).toBe(3);
+  });
+
+  test('legacy parameter parsing preserves colons inside type text', () => {
+    const fnNode: IRNode = {
+      type: 'fn',
+      props: { name: 'readA', params: 'obj:{a:number,b:string}={ a: 1, b: "x" }', returns: 'number' },
+      children: [
+        {
+          type: 'handler',
+          props: { lang: 'kern' },
+          children: [{ type: 'return', props: { value: 'obj.a' } }],
+        },
+      ],
+    };
+    const result = callCoreFunction(fnNode, []);
+    expect(toHostValue(result.value)).toBe(1);
+  });
+
+  test('structured param child defaults are supported', () => {
+    const fnNode: IRNode = {
+      type: 'fn',
+      props: { name: 'greet', returns: 'string' },
+      children: [
+        { type: 'param', props: { name: 'name', type: 'string', value: 'world' }, __quotedProps: ['value'] },
+        {
+          type: 'handler',
+          props: { lang: 'kern' },
+          children: [{ type: 'return', props: { value: '`hi ${name}`' } }],
+        },
+      ],
+    };
+    const result = callCoreFunction(fnNode, []);
+    expect(toHostValue(result.value)).toBe('hi world');
+  });
+
+  test('structured default prop quoting is supported', () => {
+    const fnNode: IRNode = {
+      type: 'fn',
+      props: { name: 'greet', returns: 'string' },
+      children: [
+        { type: 'param', props: { name: 'name', type: 'string', default: 'world' }, __quotedProps: ['default'] },
+        {
+          type: 'handler',
+          props: { lang: 'kern' },
+          children: [{ type: 'return', props: { value: '`hi ${name}`' } }],
+        },
+      ],
+    };
+    const result = callCoreFunction(fnNode, []);
+    expect(toHostValue(result.value)).toBe('hi world');
+  });
+
+  test('callCoreFunction executes a top-level fn with host args', () => {
+    const fnNode: IRNode = {
+      type: 'fn',
+      props: { name: 'label', params: 'value:number', returns: 'string' },
+      children: [
+        {
+          type: 'handler',
+          props: { lang: 'kern' },
+          children: [{ type: 'return', props: { value: '`v=${value}`' } }],
+        },
+      ],
+    };
+    const result = callCoreFunction(fnNode, [fromHostValue(9)]);
+    expect(toHostValue(result.value)).toBe('v=9');
+  });
+});

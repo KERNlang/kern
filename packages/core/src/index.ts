@@ -140,6 +140,71 @@ export {
   VALID_STRUCTURES,
   VALID_TARGETS,
 } from './config.js';
+export type {
+  CoreFixture,
+  CoreFixtureError,
+  CoreFixtureValue,
+  CoreGraphEdge,
+  CoreLowerings,
+  CoreOperation,
+  CoreOperationKind,
+  CoreOperationReturns,
+  CoreTypeContract,
+  CoreTypeContractRegistry,
+  CoreTypeKind,
+  CoreTypeName,
+} from './core-contracts/index.js';
+export {
+  BOOLEAN_CONTRACT,
+  CORE_FIXTURE_FUNCTION,
+  CORE_FIXTURE_UNDEFINED,
+  CORE_TYPE_CONTRACTS,
+  CORE_TYPE_NAMES,
+  CoreContractEvaluationError,
+  contractToGraphEdges,
+  coreFixtureValueType,
+  evaluateCoreContractOperation,
+  FUNCTION_CONTRACT,
+  isCoreFixtureFunction,
+  isCoreFixtureUndefined,
+  LIST_CONTRACT,
+  NULL_CONTRACT,
+  NUMBER_CONTRACT,
+  RECORD_CONTRACT,
+  STRING_CONTRACT,
+  UNDEFINED_CONTRACT,
+} from './core-contracts/index.js';
+export {
+  CoreRuntimeContractAdapterError,
+  coreFixtureValueToKernValue,
+  kernValueToCoreFixtureValue,
+  roundTripKernContractDataValue,
+} from './core-runtime/contract-adapter.js';
+export type {
+  CoreCompletion,
+  CoreRuntimeResult,
+  CreateCoreRuntimeEnvOptions,
+  KernBuiltinValue,
+  KernFunctionValue,
+  KernValue,
+  RuntimeParam,
+} from './core-runtime/index.js';
+// KERN Core Runtime
+export {
+  CoreRuntimeEnv,
+  callCoreFunction,
+  createCoreRuntimeEnv,
+  evalCoreExpression,
+  fromHostValue,
+  kBoolean,
+  kernTruthy,
+  kNull,
+  kNumber,
+  kString,
+  kUndefined,
+  runCoreRuntime,
+  toHostValue,
+} from './core-runtime/index.js';
 export type { CoverageGap } from './coverage-gap.js';
 // Coverage gap emitter (v3)
 export { collectCoverageGaps, readCoverageGaps, writeCoverageGaps } from './coverage-gap.js';
@@ -371,6 +436,23 @@ export { formatScanSummary, generateConfigSource, scanProject } from './scanner.
 export type { KernSchemaJSON, NodeSchema, PropKind, PropSchema, SchemaViolation } from './schema.js';
 // Schema validation + export
 export { exportSchemaJSON, NODE_SCHEMAS, validateSchema } from './schema.js';
+export type {
+  BuildKernSemanticSubstrateOptions,
+  KernSemanticCoreOperation,
+  KernSemanticCoreType,
+  KernSemanticIrContract,
+  KernSemanticPrimitive,
+  KernSemanticStdlibOperation,
+  KernSemanticSubstrate,
+  KernSemanticSubstrateSource,
+  KernSemanticSubstrateTarget,
+  KernSemanticSupport,
+} from './semantic-substrate.js';
+export {
+  buildKernSemanticSubstrate,
+  lookupSemanticPrimitive,
+  semanticPrimitiveSupportSummary,
+} from './semantic-substrate.js';
 // Semantic validation
 export type { SemanticViolation } from './semantic-validator.js';
 export { validateSemantics } from './semantic-validator.js';
