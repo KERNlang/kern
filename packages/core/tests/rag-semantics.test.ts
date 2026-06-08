@@ -13,7 +13,18 @@ function rulesFor(source: string): string[] {
 
 describe('RAG language semantics', () => {
   test('registers RAG declarations as core language nodes', () => {
-    for (const type of ['corpus', 'source', 'chunking', 'embed', 'retriever', 'rag', 'grounding', 'ragEval']) {
+    for (const type of [
+      'corpus',
+      'source',
+      'chunking',
+      'embed',
+      'retriever',
+      'rag',
+      'grounding',
+      'ragEval',
+      'ragCase',
+      'ragAssert',
+    ]) {
       expect(isCoreNode(type)).toBe(true);
       expect(generateCoreNode({ type, props: {} })).toEqual([]);
     }
@@ -119,6 +130,123 @@ describe('RAG language semantics', () => {
             threshold: 0.85,
           }),
         ],
+      }),
+    ]);
+  });
+
+  test('collects RAG eval case and assertion contracts as semantic facts', () => {
+    const facts = collectRagSemanticFacts(
+      parseRoot(
+        [
+          'corpus name=Docs',
+          '  source name=manuals uri="./docs/**/*.md"',
+          'retriever name=DocsSearch corpus=Docs',
+          'rag name=AnswerDocs retriever=DocsSearch citations=true',
+          '  grounding requireCitations=true',
+          '  ragEval name=SupportEval metric=faithfulness threshold=0.85 mode=contract',
+          '    ragCase name=refunds query="How do refunds work?" tags="smoke,policy" topK=4 minScore=0.72 chunkCount=2 sources="docs/refunds.md,docs/policies.md"',
+          '      ragAssert kind=scoreGte threshold=0.72 required=true',
+          '      ragAssert kind=sourceGlob value="docs/refunds.md" required=true',
+          '      ragAssert kind=uniqueSourcesGte count=2',
+          '      ragAssert kind=latencyLte valueMs=250',
+          '      ragAssert kind=citesRequired',
+        ].join('\n'),
+      ),
+    );
+
+    expect(facts.pipelines[0]?.evals).toEqual([
+      expect.objectContaining({
+        name: 'SupportEval',
+        ragName: 'AnswerDocs',
+        metric: 'faithfulness',
+        threshold: 0.85,
+        mode: 'contract',
+        caseCount: 1,
+        assertCount: 5,
+        cases: [
+          expect.objectContaining({
+            name: 'refunds',
+            ragName: 'AnswerDocs',
+            evalName: 'SupportEval',
+            query: 'How do refunds work?',
+            tags: ['smoke', 'policy'],
+            expected: {
+              topK: 4,
+              minScore: 0.72,
+              chunkCount: 2,
+              sources: ['docs/refunds.md', 'docs/policies.md'],
+            },
+            asserts: [
+              expect.objectContaining({
+                kind: 'scoreGte',
+                target: 'retrieved-chunk',
+                op: 'gte',
+                value: 0.72,
+                required: true,
+              }),
+              expect.objectContaining({
+                kind: 'sourceGlob',
+                target: 'retrieved-chunk',
+                op: 'glob',
+                value: 'docs/refunds.md',
+                required: true,
+              }),
+              expect.objectContaining({
+                kind: 'uniqueSourcesGte',
+                target: 'retrieved-chunks',
+                op: 'gte',
+                value: 2,
+                required: false,
+              }),
+              expect.objectContaining({
+                kind: 'latencyLte',
+                target: 'latency',
+                op: 'lte',
+                value: 250,
+                required: false,
+              }),
+              expect.objectContaining({
+                kind: 'citesRequired',
+                target: 'grounding',
+                op: 'present',
+                value: true,
+                required: false,
+              }),
+            ],
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  test('keeps RAG eval case facts scoped to their parent eval node', () => {
+    const facts = collectRagSemanticFacts(
+      parseRoot(
+        [
+          'corpus name=Docs',
+          'retriever name=DocsSearch corpus=Docs',
+          'rag name=AnswerDocs retriever=DocsSearch citations=true',
+          '  grounding requireCitations=true',
+          '  ragEval name=SupportEval metric=faithfulness threshold=0.85 mode=contract',
+          '    ragCase name=nested query="nested case"',
+          '      ragAssert kind=contains value="nested"',
+          'ragEval rag=AnswerDocs name=SupportEval metric=faithfulness threshold=0.85 mode=contract',
+          '  ragCase name=topLevel query="top-level case"',
+          '    ragAssert kind=contains value="top-level"',
+        ].join('\n'),
+      ),
+    );
+
+    expect(facts.pipelines[0]?.evals).toEqual([
+      expect.objectContaining({
+        caseCount: 1,
+        assertCount: 1,
+        cases: [expect.objectContaining({ name: 'nested', query: 'nested case' })],
+      }),
+      expect.objectContaining({
+        caseCount: 1,
+        assertCount: 1,
+        cases: [expect.objectContaining({ name: 'topLevel', query: 'top-level case' })],
       }),
     ]);
   });
@@ -292,6 +420,48 @@ describe('RAG language semantics', () => {
         'rag-grounding-max-context-invalid',
         'rag-eval-unknown-rag',
         'rag-eval-threshold-invalid',
+      ]),
+    );
+  });
+
+  test('reports invalid RAG eval case and assertion contracts', () => {
+    const source = [
+      'corpus name=Docs',
+      'retriever name=DocsSearch corpus=Docs',
+      'rag name=AnswerDocs retriever=DocsSearch',
+      '  ragEval metric=faithfulness threshold=0.85',
+      '    ragCase name=missingMode query="What changed?" sources="docs/refunds.md" topK=0 minScore=1.2 chunkCount=-1',
+      '      ragAssert kind=unknownKind',
+      '      ragAssert kind=scoreGte threshold=1.5',
+      '      ragAssert kind=scoreLte',
+      '      ragAssert kind=chunkHash value=not-a-hash',
+      '      ragAssert kind=chunkCountEq count=-1',
+      '      ragAssert kind=latencyLte valueMs=-1',
+      '      ragAssert kind=sourceEq',
+      '      ragAssert kind=citesRequired',
+      'ragCase name=loose query="outside eval"',
+      'ragAssert kind=citesRequired',
+    ].join('\n');
+
+    expect(rulesFor(source)).toEqual(
+      expect.arrayContaining([
+        'rag-eval-name-required',
+        'rag-eval-mode-required',
+        'rag-case-topk-invalid',
+        'rag-case-minscore-invalid',
+        'rag-case-chunk-count-invalid',
+        'rag-case-sources-require-citations',
+        'rag-case-missing-eval',
+        'rag-assert-kind-invalid',
+        'rag-assert-threshold-required',
+        'rag-assert-threshold-invalid',
+        'rag-assert-chunk-hash-invalid',
+        'rag-assert-count-invalid',
+        'rag-assert-value-ms-invalid',
+        'rag-assert-value-required',
+        'rag-assert-citations-require-grounding',
+        'rag-assert-missing-eval',
+        'rag-assert-missing-case',
       ]),
     );
   });

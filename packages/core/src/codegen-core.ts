@@ -730,6 +730,8 @@ export const CORE_NODE_TYPES = new Set([
   'rag',
   'grounding',
   'ragEval',
+  'ragCase',
+  'ragAssert',
   // Backend data layer (graduated nodes)
   'model',
   'column',
@@ -1030,6 +1032,8 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
     case 'rag':
     case 'grounding':
     case 'ragEval':
+    case 'ragCase':
+    case 'ragAssert':
       return [];
     // Graduated nodes — backend data layer
     case 'model':

@@ -10,3 +10,5 @@ test name="RAG language conformance" target="./conformance-rag.kern" coverage=fa
     expect node=retriever name=DocsSearch prop=topK is=8
     expect node=rag name=AnswerDocs child=grounding childName=StrictGrounding
     expect node=rag name=AnswerDocs child=ragEval childName=Faithfulness
+    expect node=ragEval name=Faithfulness child=ragCase childName=refunds
+    expect node=ragAssert count=3

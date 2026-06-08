@@ -161,6 +161,38 @@ export interface RagSemanticEvalFact {
   readonly ragName?: string;
   readonly metric?: string;
   readonly threshold?: number;
+  readonly mode?: string;
+  readonly caseCount?: number;
+  readonly assertCount?: number;
+  readonly cases?: readonly RagSemanticEvalCaseFact[];
+  readonly loc?: RagSemanticLocation;
+}
+
+export interface RagSemanticEvalCaseFact {
+  readonly name: string;
+  readonly ragName?: string;
+  readonly evalName?: string;
+  readonly query: string;
+  readonly tags: readonly string[];
+  readonly expected: {
+    readonly topK?: number;
+    readonly minScore?: number;
+    readonly chunkCount?: number;
+    readonly sources?: readonly string[];
+  };
+  readonly asserts: readonly RagSemanticEvalAssertFact[];
+  readonly loc?: RagSemanticLocation;
+}
+
+export interface RagSemanticEvalAssertFact {
+  readonly ragName?: string;
+  readonly evalName?: string;
+  readonly caseName?: string;
+  readonly kind: string;
+  readonly target: 'retrieved-chunk' | 'retrieved-chunks' | 'grounding' | 'latency';
+  readonly op: 'eq' | 'gte' | 'lte' | 'contains' | 'glob' | 'present';
+  readonly value?: string | number | boolean;
+  readonly required: boolean;
   readonly loc?: RagSemanticLocation;
 }
 
@@ -701,6 +733,29 @@ interface RagEvalInfo {
   ragName?: string;
 }
 
+interface RagCaseInfo {
+  node: IRNode;
+  rootIndex: number;
+  name?: string;
+  query?: string;
+  ragName?: string;
+  evalName?: string;
+  evalNode?: IRNode;
+  evalBound: boolean;
+}
+
+interface RagAssertInfo {
+  node: IRNode;
+  rootIndex: number;
+  ragName?: string;
+  evalName?: string;
+  caseName?: string;
+  evalNode?: IRNode;
+  caseNode?: IRNode;
+  evalBound: boolean;
+  caseBound: boolean;
+}
+
 interface RagMcpContainerInfo {
   node: IRNode;
   rootIndex: number;
@@ -731,6 +786,8 @@ interface RagInfos {
   pipelines: RagPipelineInfo[];
   groundings: RagGroundingInfo[];
   evals: RagEvalInfo[];
+  cases: RagCaseInfo[];
+  asserts: RagAssertInfo[];
   mcpRetrievals: RagMcpRetrievalInfo[];
   mcpResources: RagMcpSymbolInfo[];
   mcpTools: RagMcpSymbolInfo[];
@@ -752,6 +809,8 @@ function validateRagGraphRoots(roots: readonly IRNode[], violations: SemanticVio
     infos.pipelines.length === 0 &&
     infos.groundings.length === 0 &&
     infos.evals.length === 0 &&
+    infos.cases.length === 0 &&
+    infos.asserts.length === 0 &&
     infos.mcpRetrievals.length === 0 &&
     infos.mcpResources.length === 0 &&
     infos.mcpTools.length === 0 &&
@@ -796,6 +855,12 @@ function validateRagGraphRoots(roots: readonly IRNode[], violations: SemanticVio
   for (const evaluation of infos.evals) {
     validateRagEval(evaluation, ragByName, violations);
   }
+  for (const evaluationCase of infos.cases) {
+    validateRagCase(evaluationCase, citationRequiredRagNames, violations);
+  }
+  for (const assertion of infos.asserts) {
+    validateRagAssert(assertion, citationRequiredRagNames, violations);
+  }
   validateRagMcpRetrievalDuplicates(infos.mcpRetrievals, violations);
   for (const retrieval of infos.mcpRetrievals) {
     validateRagMcpRetrieval(retrieval, retrieverByName, ragByName, citationRequiredRagNames, violations);
@@ -812,6 +877,8 @@ function collectRagInfosForRoots(roots: readonly IRNode[]): RagInfos {
     pipelines: [],
     groundings: [],
     evals: [],
+    cases: [],
+    asserts: [],
     mcpRetrievals: [],
     mcpResources: [],
     mcpTools: [],
@@ -828,11 +895,28 @@ function collectRagInfos(root: IRNode, rootIndex: number, out: RagInfos): void {
     node: IRNode,
     nearestCorpusName?: string,
     nearestRagName?: string,
+    nearestRagEvalName?: string,
+    nearestRagCaseName?: string,
+    nearestRagEvalBound = false,
+    nearestRagCaseBound = false,
+    nearestRagEvalNode?: IRNode,
+    nearestRagCaseNode?: IRNode,
     nearestMcpContainer?: RagMcpContainerInfo,
     nearestMcpName?: string,
   ): void {
     const nextCorpusName = node.type === 'corpus' ? stringProp(node, 'name') || nearestCorpusName : nearestCorpusName;
-    const nextRagName = node.type === 'rag' ? stringProp(node, 'name') || nearestRagName : nearestRagName;
+    const nextRagName =
+      node.type === 'rag'
+        ? stringProp(node, 'name') || nearestRagName
+        : node.type === 'ragEval'
+          ? stringProp(node, 'rag') || nearestRagName
+          : nearestRagName;
+    const nextRagEvalName = node.type === 'ragEval' ? stringProp(node, 'name') : nearestRagEvalName;
+    const nextRagCaseName = node.type === 'ragCase' ? stringProp(node, 'name') : nearestRagCaseName;
+    const nextRagEvalBound = node.type === 'ragEval' || nearestRagEvalBound;
+    const nextRagCaseBound = node.type === 'ragCase' || nearestRagCaseBound;
+    const nextRagEvalNode = node.type === 'ragEval' ? node : nearestRagEvalNode;
+    const nextRagCaseNode = node.type === 'ragCase' ? node : nearestRagCaseNode;
     const nextMcpName = node.type === 'mcp' ? stringProp(node, 'name') || '' : nearestMcpName;
     const nextMcpContainer =
       node.type === 'tool' || node.type === 'prompt'
@@ -870,6 +954,29 @@ function collectRagInfos(root: IRNode, rootIndex: number, out: RagInfos): void {
       out.groundings.push({ node, rootIndex, ragName: stringProp(node, 'rag') || nearestRagName });
     } else if (node.type === 'ragEval') {
       out.evals.push({ node, rootIndex, ragName: stringProp(node, 'rag') || nearestRagName });
+    } else if (node.type === 'ragCase') {
+      out.cases.push({
+        node,
+        rootIndex,
+        name: stringProp(node, 'name'),
+        query: stringProp(node, 'query'),
+        ragName: nearestRagName,
+        evalName: nearestRagEvalName,
+        evalNode: nearestRagEvalNode,
+        evalBound: nearestRagEvalBound,
+      });
+    } else if (node.type === 'ragAssert') {
+      out.asserts.push({
+        node,
+        rootIndex,
+        ragName: nearestRagName,
+        evalName: nearestRagEvalName,
+        caseName: nearestRagCaseName,
+        evalNode: nearestRagEvalNode,
+        caseNode: nearestRagCaseNode,
+        evalBound: nearestRagEvalBound,
+        caseBound: nearestRagCaseBound,
+      });
     } else if (node.type === 'retrieve') {
       out.mcpRetrievals.push({ node, rootIndex, container: nearestMcpContainer });
     } else if (
@@ -886,7 +993,20 @@ function collectRagInfos(root: IRNode, rootIndex: number, out: RagInfos): void {
       }
     }
 
-    for (const child of node.children ?? []) visit(child, nextCorpusName, nextRagName, nextMcpContainer, nextMcpName);
+    for (const child of node.children ?? [])
+      visit(
+        child,
+        nextCorpusName,
+        nextRagName,
+        nextRagEvalName,
+        nextRagCaseName,
+        nextRagEvalBound,
+        nextRagCaseBound,
+        nextRagEvalNode,
+        nextRagCaseNode,
+        nextMcpContainer,
+        nextMcpName,
+      );
   }
   visit(root);
 }
@@ -1287,6 +1407,222 @@ function validateRagEval(
       'RAG eval threshold must be between 0 and 1.',
     );
   }
+
+  const mode = stringProp(evaluation.node, 'mode');
+  const hasCases = (evaluation.node.children ?? []).some((child) => child.type === 'ragCase');
+  if (hasCases && !stringProp(evaluation.node, 'name')) {
+    pushRagViolation(
+      violations,
+      'rag-eval-name-required',
+      evaluation.node,
+      'RAG eval with ragCase children must declare name=<id> for stable eval facts.',
+    );
+  }
+  if (hasCases && !mode) {
+    pushRagViolation(
+      violations,
+      'rag-eval-mode-required',
+      evaluation.node,
+      'RAG eval with ragCase children must declare mode=contract.',
+    );
+  }
+  if (mode && mode !== 'contract') {
+    pushRagViolation(
+      violations,
+      'rag-eval-mode-invalid',
+      evaluation.node,
+      "RAG eval mode only supports 'contract' in this slice.",
+    );
+  }
+}
+
+function validateRagCase(
+  evaluationCase: RagCaseInfo,
+  citationRequiredRagNames: ReadonlySet<string>,
+  violations: SemanticViolation[],
+): void {
+  if (!evaluationCase.evalBound) {
+    pushRagViolation(
+      violations,
+      'rag-case-missing-eval',
+      evaluationCase.node,
+      'RAG eval case must be nested under ragEval.',
+    );
+  }
+  if (!evaluationCase.name) {
+    pushRagViolation(violations, 'rag-case-name-required', evaluationCase.node, 'RAG eval case requires name=<id>.');
+  }
+  if (!evaluationCase.query) {
+    pushRagViolation(
+      violations,
+      'rag-case-query-required',
+      evaluationCase.node,
+      'RAG eval case requires query=<text>.',
+    );
+  }
+
+  const topK = numberProp(evaluationCase.node, 'topK');
+  if (
+    invalidNumberProp(evaluationCase.node, 'topK') ||
+    (topK !== undefined && (!Number.isInteger(topK) || topK <= 0))
+  ) {
+    pushRagViolation(
+      violations,
+      'rag-case-topk-invalid',
+      evaluationCase.node,
+      'RAG eval case topK must be a positive integer.',
+    );
+  }
+
+  const minScore = numberProp(evaluationCase.node, 'minScore');
+  if (
+    invalidNumberProp(evaluationCase.node, 'minScore') ||
+    (minScore !== undefined && (minScore < 0 || minScore > 1))
+  ) {
+    pushRagViolation(
+      violations,
+      'rag-case-minscore-invalid',
+      evaluationCase.node,
+      'RAG eval case minScore must be between 0 and 1.',
+    );
+  }
+
+  const chunkCount = numberProp(evaluationCase.node, 'chunkCount');
+  if (
+    invalidNumberProp(evaluationCase.node, 'chunkCount') ||
+    (chunkCount !== undefined && (!Number.isInteger(chunkCount) || chunkCount < 0))
+  ) {
+    pushRagViolation(
+      violations,
+      'rag-case-chunk-count-invalid',
+      evaluationCase.node,
+      'RAG eval case chunkCount must be a non-negative integer.',
+    );
+  }
+
+  if (
+    stringProp(evaluationCase.node, 'sources') &&
+    (!evaluationCase.ragName || !citationRequiredRagNames.has(evaluationCase.ragName))
+  ) {
+    pushRagViolation(
+      violations,
+      'rag-case-sources-require-citations',
+      evaluationCase.node,
+      'RAG eval case sources=<...> requires a citation-grounded rag.',
+    );
+  }
+}
+
+function validateRagAssert(
+  assertion: RagAssertInfo,
+  citationRequiredRagNames: ReadonlySet<string>,
+  violations: SemanticViolation[],
+): void {
+  if (!assertion.evalBound) {
+    pushRagViolation(violations, 'rag-assert-missing-eval', assertion.node, 'RAG assert must be nested under ragEval.');
+  }
+  if (!assertion.caseBound) {
+    pushRagViolation(violations, 'rag-assert-missing-case', assertion.node, 'RAG assert must be nested under ragCase.');
+  }
+
+  const kind = stringProp(assertion.node, 'kind');
+  if (!kind || !RAG_ASSERT_KINDS.has(kind)) {
+    pushRagViolation(
+      violations,
+      'rag-assert-kind-invalid',
+      assertion.node,
+      `RAG assert kind must be one of ${[...RAG_ASSERT_KINDS].join(', ')}.`,
+    );
+    return;
+  }
+
+  if (
+    ['factId', 'chunkHash', 'contains', 'sourceEq', 'sourceGlob'].includes(kind) &&
+    !stringProp(assertion.node, 'value')
+  ) {
+    pushRagViolation(
+      violations,
+      'rag-assert-value-required',
+      assertion.node,
+      `RAG assert kind=${kind} requires value=<text>.`,
+    );
+  }
+
+  const chunkHash = kind === 'chunkHash' ? stringProp(assertion.node, 'value') : undefined;
+  if (chunkHash && !/^[a-fA-F0-9]{32,128}$/.test(chunkHash)) {
+    pushRagViolation(
+      violations,
+      'rag-assert-chunk-hash-invalid',
+      assertion.node,
+      'RAG assert kind=chunkHash value must be a 32-128 character hex hash.',
+    );
+  }
+
+  if (kind === 'scoreGte' || kind === 'scoreLte') {
+    const threshold = numberProp(assertion.node, 'threshold');
+    if (threshold === undefined && !invalidNumberProp(assertion.node, 'threshold')) {
+      pushRagViolation(
+        violations,
+        'rag-assert-threshold-required',
+        assertion.node,
+        `RAG assert kind=${kind} requires threshold=<number>.`,
+      );
+    } else if (
+      invalidNumberProp(assertion.node, 'threshold') ||
+      threshold === undefined ||
+      threshold < 0 ||
+      threshold > 1
+    ) {
+      pushRagViolation(
+        violations,
+        'rag-assert-threshold-invalid',
+        assertion.node,
+        `RAG assert kind=${kind} threshold must be between 0 and 1.`,
+      );
+    }
+  }
+
+  if (
+    kind === 'citesRequired' &&
+    assertion.caseBound &&
+    (!assertion.ragName || !citationRequiredRagNames.has(assertion.ragName))
+  ) {
+    pushRagViolation(
+      violations,
+      'rag-assert-citations-require-grounding',
+      assertion.node,
+      'RAG assert kind=citesRequired requires a citation-grounded rag.',
+    );
+  }
+
+  if (kind === 'uniqueSourcesGte' || kind === 'chunkCountEq') {
+    const count = numberProp(assertion.node, 'count');
+    if (invalidNumberProp(assertion.node, 'count') || count === undefined || !Number.isInteger(count) || count < 0) {
+      pushRagViolation(
+        violations,
+        'rag-assert-count-invalid',
+        assertion.node,
+        `RAG assert kind=${kind} requires a non-negative integer count.`,
+      );
+    }
+  }
+
+  if (kind === 'latencyLte') {
+    const valueMs = numberProp(assertion.node, 'valueMs');
+    if (
+      invalidNumberProp(assertion.node, 'valueMs') ||
+      valueMs === undefined ||
+      !Number.isInteger(valueMs) ||
+      valueMs < 0
+    ) {
+      pushRagViolation(
+        violations,
+        'rag-assert-value-ms-invalid',
+        assertion.node,
+        'RAG assert kind=latencyLte requires a non-negative integer valueMs.',
+      );
+    }
+  }
 }
 
 function validateRagMcpRetrievalDuplicates(
@@ -1540,7 +1876,9 @@ export function collectRagSemanticFacts(root: IRNode | readonly IRNode[]): RagSe
   return {
     corpora: infos.corpora.map((info) => ragCorpusFact(info, infos)),
     retrievers: infos.retrievers.map(ragRetrieverFact),
-    pipelines: infos.pipelines.map((info) => ragPipelineFact(info, infos.groundings, infos.evals)),
+    pipelines: infos.pipelines.map((info) =>
+      ragPipelineFact(info, infos.groundings, infos.evals, infos.cases, infos.asserts),
+    ),
     mcpRetrievals: infos.mcpRetrievals.map((info) => ragMcpRetrievalFact(info, citationRequiredRagNames)),
     resourceFeedsCorpora: infos.sources
       .filter(
@@ -1668,6 +2006,8 @@ function ragPipelineFact(
   info: RagPipelineInfo,
   groundings: readonly RagGroundingInfo[],
   evals: readonly RagEvalInfo[],
+  cases: readonly RagCaseInfo[],
+  asserts: readonly RagAssertInfo[],
 ): RagSemanticPipelineFact {
   return {
     name: info.name,
@@ -1676,7 +2016,9 @@ function ragPipelineFact(
     ...optionalStringFact(info.node, 'answer', 'answer'),
     citations: ragBooleanProp(info.node, 'citations'),
     groundings: groundings.filter((grounding) => grounding.ragName === info.name).map(ragGroundingFact),
-    evals: evals.filter((evaluation) => evaluation.ragName === info.name).map(ragEvalFact),
+    evals: evals
+      .filter((evaluation) => evaluation.ragName === info.name)
+      .map((evaluation) => ragEvalFact(evaluation, cases, asserts)),
     ...(info.node.loc ? { loc: ragLocation(info.node) } : {}),
   };
 }
@@ -1692,14 +2034,109 @@ function ragGroundingFact(info: RagGroundingInfo): RagSemanticGroundingFact {
   };
 }
 
-function ragEvalFact(info: RagEvalInfo): RagSemanticEvalFact {
+function ragEvalFact(
+  info: RagEvalInfo,
+  cases: readonly RagCaseInfo[],
+  asserts: readonly RagAssertInfo[],
+): RagSemanticEvalFact {
+  const evalCases = cases.filter((evaluationCase) => evaluationCase.evalNode === info.node);
+  const caseFacts = evalCases.map((evaluationCase) => ragEvalCaseFact(evaluationCase, asserts));
   return {
     ...optionalStringFact(info.node, 'name', 'name'),
     ...optionalStringValue('ragName', info.ragName),
     ...optionalStringFact(info.node, 'metric', 'metric'),
     ...optionalNumberFact(info.node, 'threshold', 'threshold'),
+    ...optionalStringFact(info.node, 'mode', 'mode'),
+    caseCount: caseFacts.length,
+    assertCount: caseFacts.reduce((count, evaluationCase) => count + evaluationCase.asserts.length, 0),
+    cases: caseFacts,
     ...(info.node.loc ? { loc: ragLocation(info.node) } : {}),
   };
+}
+
+function ragEvalCaseFact(info: RagCaseInfo, asserts: readonly RagAssertInfo[]): RagSemanticEvalCaseFact {
+  const caseAsserts = asserts.filter((assertion) => assertion.caseNode === info.node);
+  return {
+    name: info.name ?? '',
+    ...optionalStringValue('ragName', info.ragName),
+    ...optionalStringValue('evalName', info.evalName),
+    query: info.query ?? '',
+    tags: splitRagList(stringProp(info.node, 'tags')),
+    expected: {
+      ...optionalNumberFact(info.node, 'topK', 'topK'),
+      ...optionalNumberFact(info.node, 'minScore', 'minScore'),
+      ...optionalNumberFact(info.node, 'chunkCount', 'chunkCount'),
+      ...(stringProp(info.node, 'sources') ? { sources: splitRagList(stringProp(info.node, 'sources')) } : {}),
+    },
+    asserts: caseAsserts.map(ragEvalAssertFact),
+    ...(info.node.loc ? { loc: ragLocation(info.node) } : {}),
+  };
+}
+
+function ragEvalAssertFact(info: RagAssertInfo): RagSemanticEvalAssertFact {
+  const kind = stringProp(info.node, 'kind') ?? '';
+  return {
+    ...optionalStringValue('ragName', info.ragName),
+    ...optionalStringValue('evalName', info.evalName),
+    ...optionalStringValue('caseName', info.caseName),
+    kind,
+    target: ragAssertTarget(kind),
+    op: ragAssertOp(kind),
+    ...ragAssertValueFact(info.node, kind),
+    required: ragBooleanProp(info.node, 'required'),
+    ...(info.node.loc ? { loc: ragLocation(info.node) } : {}),
+  };
+}
+
+function ragAssertTarget(kind: string): RagSemanticEvalAssertFact['target'] {
+  if (kind === 'uniqueSourcesGte' || kind === 'chunkCountEq') return 'retrieved-chunks';
+  if (kind === 'latencyLte') return 'latency';
+  if (kind === 'citesRequired') return 'grounding';
+  return 'retrieved-chunk';
+}
+
+function ragAssertOp(kind: string): RagSemanticEvalAssertFact['op'] {
+  switch (kind) {
+    case 'scoreGte':
+    case 'uniqueSourcesGte':
+      return 'gte';
+    case 'scoreLte':
+    case 'latencyLte':
+      return 'lte';
+    case 'contains':
+      return 'contains';
+    case 'sourceGlob':
+      return 'glob';
+    case 'citesRequired':
+      return 'present';
+    default:
+      return 'eq';
+  }
+}
+
+function ragAssertValueFact(node: IRNode, kind: string): Record<string, string | number | boolean> {
+  if (kind === 'scoreGte' || kind === 'scoreLte') {
+    const threshold = numberProp(node, 'threshold');
+    return threshold === undefined ? {} : { value: threshold };
+  }
+  if (kind === 'uniqueSourcesGte' || kind === 'chunkCountEq') {
+    const count = numberProp(node, 'count');
+    return count === undefined ? {} : { value: count };
+  }
+  if (kind === 'latencyLte') {
+    const valueMs = numberProp(node, 'valueMs');
+    return valueMs === undefined ? {} : { value: valueMs };
+  }
+  if (kind === 'citesRequired') return { value: true };
+  return optionalStringFact(node, 'value', 'value');
+}
+
+function splitRagList(value: string | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
 }
 
 function ragMcpRetrievalFact(
@@ -1841,6 +2278,19 @@ interface ClassMemberInfo {
 const BUILTIN_CLASS_BASES = new Set(['Error']);
 const RAG_MCP_RETRIEVE_OUTPUT_SHAPE = 'RetrievedChunk[]';
 const RAG_MCP_RETRIEVE_OUTPUT_ITEM_SHAPE = 'RetrievedChunk';
+const RAG_ASSERT_KINDS = new Set([
+  'factId',
+  'chunkHash',
+  'scoreGte',
+  'scoreLte',
+  'contains',
+  'sourceEq',
+  'sourceGlob',
+  'uniqueSourcesGte',
+  'chunkCountEq',
+  'latencyLte',
+  'citesRequired',
+]);
 const BODY_EXPRESSION_PROPS = [
   'value',
   'expr',

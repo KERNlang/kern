@@ -8,4 +8,8 @@ retriever name=DocsSearch corpus=Docs embed=DocsEmbedding mode=hybrid topK=8 min
 
 rag name=AnswerDocs retriever=DocsSearch prompt="./answer.md" citations=true
   grounding name=StrictGrounding requireCitations=true policy=strict maxContext=6000
-  ragEval name=Faithfulness metric=faithfulness threshold=0.85
+  ragEval name=Faithfulness metric=faithfulness threshold=0.85 mode=contract
+    ragCase name=refunds query="How do refunds work?" tags="smoke,policy" topK=4 minScore=0.72 sources="docs/refunds.md"
+      ragAssert kind=scoreGte threshold=0.72 required=true
+      ragAssert kind=sourceGlob value="docs/refunds.md" required=true
+      ragAssert kind=citesRequired

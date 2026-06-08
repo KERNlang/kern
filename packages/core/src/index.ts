@@ -467,6 +467,8 @@ export type {
   RagSemanticChunkingFact,
   RagSemanticCorpusFact,
   RagSemanticEmbedFact,
+  RagSemanticEvalAssertFact,
+  RagSemanticEvalCaseFact,
   RagSemanticEvalFact,
   RagSemanticFacts,
   RagSemanticGroundingFact,

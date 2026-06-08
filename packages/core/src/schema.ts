@@ -2504,13 +2504,43 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: [],
   },
   ragEval: {
-    description: 'RAG evaluation contract — declares a metric threshold for a RAG pipeline.',
-    example: 'ragEval rag=AnswerDocs metric=faithfulness threshold=0.85',
+    description: 'RAG evaluation contract — declares metric thresholds and static eval cases for a RAG pipeline.',
+    example:
+      'ragEval rag=AnswerDocs metric=faithfulness threshold=0.85 mode=contract\n  ragCase name=refunds query="How do refunds work?"\n    ragAssert kind=sourceGlob value="docs/refunds.md" required=true',
     props: {
       name: { kind: 'identifier' },
       rag: { kind: 'identifier' },
       metric: { kind: 'identifier' },
       threshold: { kind: 'number' },
+      mode: { kind: 'identifier' },
+    },
+    allowedChildren: ['ragCase'],
+  },
+  ragCase: {
+    description: 'RAG evaluation case — declares a single query and expected retrieval contract facts.',
+    example:
+      'ragCase name=refunds query="How do refunds work?" tags=smoke minScore=0.72\n  ragAssert kind=sourceGlob value="docs/refunds.md" required=true',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      query: { required: true, kind: 'string' },
+      tags: { kind: 'string' },
+      topK: { kind: 'number' },
+      minScore: { kind: 'number' },
+      chunkCount: { kind: 'number' },
+      sources: { kind: 'string' },
+    },
+    allowedChildren: ['ragAssert'],
+  },
+  ragAssert: {
+    description: 'RAG evaluation assertion — declares a closed static check over retrieved chunks or grounding.',
+    example: 'ragAssert kind=scoreGte threshold=0.72 required=true',
+    props: {
+      kind: { required: true, kind: 'identifier' },
+      value: { kind: 'string' },
+      threshold: { kind: 'number' },
+      count: { kind: 'number' },
+      valueMs: { kind: 'number' },
+      required: { kind: 'boolean' },
     },
     allowedChildren: [],
   },
