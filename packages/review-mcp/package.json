@@ -1,6 +1,15 @@
 {
   "name": "@kernlang/review-mcp",
   "version": "3.5.8",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KERNlang/kern.git",
+    "directory": "packages/review-mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/KERNlang/kern/issues"
+  },
+  "homepage": "https://github.com/KERNlang/kern/tree/main/packages/review-mcp#readme",
   "description": "MCP server security scanner — static analysis for Model Context Protocol implementations",
   "type": "module",
   "main": "dist/index.js",
