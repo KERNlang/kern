@@ -93,6 +93,7 @@ export interface KernSemanticRagAnswerReviewFact {
   readonly groundingCount: number;
   readonly evalCount: number;
   readonly evalCaseCount: number;
+  readonly answerContractCount: number;
   readonly mcpRetrievalCount: number;
   readonly compatibleMcpRetrievalCount: number;
   readonly provenanceRequired: boolean;
@@ -294,12 +295,14 @@ function buildRagAnswerReviewFacts(facts: RagSemanticFacts): KernSemanticRagAnsw
       isRagAnswerCompatibleMcpRetrieval(retrieval, citationsRequired),
     );
     const evalCaseCount = pipeline.evals.reduce((count, evaluation) => count + (evaluation.caseCount ?? 0), 0);
+    const answerContractCount = pipeline.answerContracts.length;
     const issues = ragAnswerReviewIssues(
       facts,
       pipeline.name,
       pipeline.retrieverName,
       pipeline.prompt,
       pipeline.answer,
+      answerContractCount,
       citationsRequired,
       pipeline.groundings.length,
       pipeline.groundings.some((grounding) => grounding.requireCitations),
@@ -318,6 +321,7 @@ function buildRagAnswerReviewFacts(facts: RagSemanticFacts): KernSemanticRagAnsw
       groundingCount: pipeline.groundings.length,
       evalCount: pipeline.evals.length,
       evalCaseCount,
+      answerContractCount,
       mcpRetrievalCount: mcpRetrievals.length,
       compatibleMcpRetrievalCount: compatibleMcpRetrievals.length,
       provenanceRequired: citationsRequired || mcpRetrievals.some((retrieval) => retrieval.requireGrounding),
@@ -334,6 +338,7 @@ function ragAnswerReviewIssues(
   retrieverName: string,
   prompt: string | undefined,
   answer: string | undefined,
+  answerContractCount: number,
   citationsRequired: boolean,
   groundingCount: number,
   hasCitationGrounding: boolean,
@@ -345,7 +350,7 @@ function ragAnswerReviewIssues(
 ): string[] {
   const issues: string[] = [];
   if (unresolvedRetriever) issues.push(`unresolved-retriever:${retrieverName}`);
-  if (!prompt && !answer) issues.push('missing-answer-surface');
+  if (!prompt && !answer && answerContractCount === 0) issues.push('missing-answer-surface');
   if (citationsRequired && groundingCount === 0) issues.push('missing-grounding');
   if (citationsRequired && !hasCitationGrounding) issues.push('missing-citation-grounding');
   if (evalCount === 0) issues.push('missing-eval');

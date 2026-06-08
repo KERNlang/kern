@@ -356,6 +356,8 @@ export const NODE_TYPES = [
   'ragEval',
   'ragCase',
   'ragAssert',
+  'ragAnswerContract',
+  'answerSpan',
   'expression-v1',
 ] as const;
 

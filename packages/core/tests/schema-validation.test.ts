@@ -108,6 +108,8 @@ describe('Schema Validation', () => {
           '  ragEval name=Faithfulness metric=faithfulness threshold=0.85 mode=contract',
           '    ragCase name=refunds query="How do refunds work?"',
           '      ragAssert kind=scoreGte threshold=0.72',
+          '  ragAnswerContract name=RefundAnswer query="How do refunds work?" answer="Refunds follow policy." minGroundingCoverage=0.8',
+          '    answerSpan start=0 end=22 chunks=refunds required=true',
         ].join('\n'),
       );
       expect(valid).toHaveLength(0);
@@ -119,6 +121,8 @@ describe('Schema Validation', () => {
           'embed name=NoCorpus',
           'retriever name=NoCorpus',
           'rag name=NoRetriever',
+          'ragAnswerContract query="q"',
+          'answerSpan start=0 end=1',
         ].join('\n'),
       );
       expect(missing.some((violation) => violation.message.includes("'corpus' requires prop 'name'"))).toBe(true);
@@ -126,6 +130,13 @@ describe('Schema Validation', () => {
       expect(missing.some((violation) => violation.message.includes("'embed' requires prop 'corpus'"))).toBe(true);
       expect(missing.some((violation) => violation.message.includes("'retriever' requires prop 'corpus'"))).toBe(true);
       expect(missing.some((violation) => violation.message.includes("'rag' requires prop 'retriever'"))).toBe(true);
+      expect(missing.some((violation) => violation.message.includes("'ragAnswerContract' requires prop 'name'"))).toBe(
+        true,
+      );
+      expect(
+        missing.some((violation) => violation.message.includes("'ragAnswerContract' requires prop 'answer'")),
+      ).toBe(true);
+      expect(missing.some((violation) => violation.message.includes("'answerSpan' requires prop 'chunks'"))).toBe(true);
 
       const misplaced = validate(
         ['retriever name=DocsSearch corpus=Docs', '  grounding requireCitations=true'].join('\n'),

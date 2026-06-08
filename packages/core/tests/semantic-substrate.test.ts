@@ -250,6 +250,8 @@ describe('KERN semantic substrate', () => {
         '  grounding requireCitations=true policy=strict maxContext=6000',
         '  ragEval name=Faithfulness metric=faithfulness threshold=0.85 mode=contract',
         '    ragCase name=refunds query="refund policy"',
+        '  ragAnswerContract name=RefundAnswer query="refund policy" answer="Refunds are policy-backed." requireCitations=true minGroundingCoverage=0.8',
+        '    answerSpan start=0 end=26 chunks=refunds required=true',
         'mcp name=Support',
         '  resource name=DocsResource uri="docs://manuals"',
         '  tool name=answerQuestion',
@@ -292,6 +294,13 @@ describe('KERN semantic substrate', () => {
         citations: true,
         groundings: [expect.objectContaining({ requireCitations: true, policy: 'strict' })],
         evals: [expect.objectContaining({ metric: 'faithfulness', threshold: 0.85 })],
+        answerContracts: [
+          expect.objectContaining({
+            name: 'RefundAnswer',
+            query: 'refund policy',
+            spans: [expect.objectContaining({ chunkIds: ['refunds'] })],
+          }),
+        ],
       }),
     ]);
     expect(substrate.ragFacts?.mcpRetrievals).toEqual([
@@ -331,6 +340,7 @@ describe('KERN semantic substrate', () => {
         groundingCount: 1,
         evalCount: 1,
         evalCaseCount: 1,
+        answerContractCount: 1,
         mcpRetrievalCount: 1,
         compatibleMcpRetrievalCount: 1,
         provenanceRequired: true,

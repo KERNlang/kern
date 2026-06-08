@@ -24,10 +24,26 @@ describe('RAG language semantics', () => {
       'ragEval',
       'ragCase',
       'ragAssert',
+      'ragAnswerContract',
+      'answerSpan',
     ]) {
       expect(isCoreNode(type)).toBe(true);
       expect(generateCoreNode({ type, props: {} })).toEqual([]);
     }
+  });
+
+  test('parses RAG answer contract nodes without unknown-node diagnostics', () => {
+    const diagnostics = parseDocumentWithDiagnostics(
+      [
+        'corpus name=Docs',
+        'retriever name=DocsSearch corpus=Docs',
+        'rag name=AnswerDocs retriever=DocsSearch',
+        '  ragAnswerContract name=RefundAnswer query="q" answer="a"',
+        '    answerSpan start=0 end=1 chunks=refunds',
+      ].join('\n'),
+    ).diagnostics;
+
+    expect(diagnostics.filter((diagnostic) => diagnostic.code === 'UNKNOWN_NODE_TYPE')).toEqual([]);
   });
 
   test('accepts a minimal grounded RAG declaration graph', () => {
@@ -217,6 +233,73 @@ describe('RAG language semantics', () => {
         ],
       }),
     ]);
+  });
+
+  test('collects RAG answer contracts as semantic facts', () => {
+    const facts = collectRagSemanticFacts(
+      parseRoot(
+        [
+          'corpus name=Docs',
+          'retriever name=DocsSearch corpus=Docs',
+          'rag name=AnswerDocs retriever=DocsSearch citations=true',
+          '  grounding requireCitations=true',
+          '  ragAnswerContract name=RefundAnswer query="How do refunds work?" answer="Refunds follow the refund policy." prompt="./answer.md" requireCitations=true minGroundingCoverage=0.8',
+          '    answerSpan start=0 end=33 chunks="refunds,policy" required=true',
+        ].join('\n'),
+      ),
+    );
+
+    expect(facts.pipelines[0]?.answerContracts).toEqual([
+      expect.objectContaining({
+        name: 'RefundAnswer',
+        ragName: 'AnswerDocs',
+        query: 'How do refunds work?',
+        answer: 'Refunds follow the refund policy.',
+        prompt: './answer.md',
+        requireCitations: true,
+        minGroundingCoverage: 0.8,
+        spans: [
+          expect.objectContaining({
+            start: 0,
+            end: 33,
+            chunkIds: ['refunds', 'policy'],
+            required: true,
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  test('reports invalid RAG answer contract declarations', () => {
+    const rules = rulesFor(
+      [
+        'corpus name=Docs',
+        'retriever name=DocsSearch corpus=Docs',
+        'rag name=AnswerDocs retriever=DocsSearch',
+        '  ragAnswerContract name=Bad query="" answer="" requireCitations=true minGroundingCoverage=1.5',
+        '    answerSpan start=4 end=4 chunks=""',
+        '  ragAnswerContract name=LowCoverage query="q" answer="abcd" minGroundingCoverage=1',
+        '    answerSpan start=0 end=2 chunks=half',
+        '  ragAnswerContract name=LongSpan query="q" answer="abcd"',
+        '    answerSpan start=0 end=10 chunks=tooLong',
+        'ragAnswerContract name=Detached rag=Missing query="q" answer="a"',
+        'answerSpan start=0 end=1 chunks=orphan',
+      ].join('\n'),
+    );
+
+    expect(rules).toEqual(
+      expect.arrayContaining([
+        'rag-answer-contract-query-required',
+        'rag-answer-contract-answer-required',
+        'rag-answer-contract-min-grounding-coverage-invalid',
+        'rag-answer-contract-citations-require-grounding',
+        'rag-answer-span-range-invalid',
+        'rag-answer-span-chunks-required',
+        'rag-answer-contract-grounding-coverage-insufficient',
+        'rag-answer-contract-unknown-rag',
+        'rag-answer-span-missing-contract',
+      ]),
+    );
   });
 
   test('keeps RAG eval case facts scoped to their parent eval node', () => {

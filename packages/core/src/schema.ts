@@ -2491,7 +2491,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       answer: { kind: 'string' },
       citations: { kind: 'boolean' },
     },
-    allowedChildren: ['grounding', 'ragEval'],
+    allowedChildren: ['grounding', 'ragEval', 'ragAnswerContract'],
   },
   grounding: {
     description: 'RAG grounding policy — declares citation and context constraints for a RAG pipeline.',
@@ -2542,6 +2542,33 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       threshold: { kind: 'number' },
       count: { kind: 'number' },
       valueMs: { kind: 'number' },
+      required: { kind: 'boolean' },
+    },
+    allowedChildren: [],
+  },
+  ragAnswerContract: {
+    description:
+      'RAG answer contract — declares the provider-free answer grounding shape evaluated by the core RAG runtime.',
+    example:
+      'ragAnswerContract name=RefundAnswer query="How do refunds work?" answer="Refunds follow the refund policy." requireCitations=true minGroundingCoverage=0.8\n  answerSpan start=0 end=34 chunks=refunds required=true',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      rag: { kind: 'identifier' },
+      query: { required: true, kind: 'string' },
+      answer: { required: true, kind: 'string' },
+      prompt: { kind: 'string' },
+      requireCitations: { kind: 'boolean' },
+      minGroundingCoverage: { kind: 'number' },
+    },
+    allowedChildren: ['answerSpan'],
+  },
+  answerSpan: {
+    description: 'RAG answer grounding span — maps answer text character ranges to retrieved chunk ids.',
+    example: 'answerSpan start=0 end=34 chunks="refunds,policy" required=true',
+    props: {
+      start: { required: true, kind: 'number' },
+      end: { required: true, kind: 'number' },
+      chunks: { required: true, kind: 'string' },
       required: { kind: 'boolean' },
     },
     allowedChildren: [],

@@ -106,6 +106,23 @@ export function decompile(root: IRNode): DecompileResult {
       renderIndexer(node, indent);
       return;
     }
+    if (
+      node.type === 'corpus' ||
+      node.type === 'source' ||
+      node.type === 'chunking' ||
+      node.type === 'embed' ||
+      node.type === 'retriever' ||
+      node.type === 'rag' ||
+      node.type === 'grounding' ||
+      node.type === 'ragEval' ||
+      node.type === 'ragCase' ||
+      node.type === 'ragAssert' ||
+      node.type === 'ragAnswerContract' ||
+      node.type === 'answerSpan'
+    ) {
+      renderRagNode(node, indent);
+      return;
+    }
     if (node.type === 'handler') {
       pushHandler(node, indent);
       return;
@@ -357,6 +374,31 @@ export function decompile(root: IRNode): DecompileResult {
     if (props.type !== undefined) parts.push(renderScalarProp('type', props.type, quoted));
     if (props.readonly === true || props.readonly === 'true') parts.push('readonly=true');
     lines.push(`${indent}${parts.join(' ')}`);
+  }
+
+  function renderRagNode(node: IRNode, indent: string): void {
+    const propOrderByType: Record<string, string[]> = {
+      corpus: ['name', 'title', 'tenant', 'refresh'],
+      source: ['name', 'kind', 'uri', 'resource', 'media', 'acl'],
+      chunking: ['name', 'corpus', 'source', 'strategy', 'maxTokens', 'overlap', 'unit'],
+      embed: ['name', 'corpus', 'model', 'dims', 'metric'],
+      retriever: ['name', 'corpus', 'embed', 'mode', 'topK', 'minScore', 'rerank'],
+      rag: ['name', 'retriever', 'prompt', 'answer', 'citations'],
+      grounding: ['name', 'rag', 'requireCitations', 'policy', 'maxContext'],
+      ragEval: ['name', 'rag', 'metric', 'threshold', 'mode'],
+      ragCase: ['name', 'query', 'tags', 'topK', 'minScore', 'chunkCount', 'sources'],
+      ragAssert: ['kind', 'value', 'threshold', 'count', 'valueMs', 'required'],
+      ragAnswerContract: ['name', 'rag', 'query', 'answer', 'prompt', 'requireCitations', 'minGroundingCoverage'],
+      answerSpan: ['start', 'end', 'chunks', 'required'],
+    };
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    const parts = [node.type];
+    for (const propName of propOrderByType[node.type] ?? []) {
+      if (props[propName] !== undefined) parts.push(renderScalarProp(propName, props[propName], quoted));
+    }
+    lines.push(`${indent}${parts.join(' ')}`);
+    for (const child of node.children || []) render(child, `${indent}  `);
   }
 
   function renderClassLike(node: IRNode, indent: string): void {

@@ -1,0 +1,10 @@
+test name="KERNlang RAG contract surface parity" target="./kernlang-rag-contracts.kern" coverage=false
+  it name="RAG contracts stay valid and roundtrip through native decompile"
+    expect no=schemaViolations
+    expect no=semanticViolations
+    expect decompile contains="corpus name=Docs title=\"Support docs\""
+    expect decompile contains="retriever name=DocsSearch corpus=Docs"
+    expect decompile contains="rag name=AnswerDocs retriever=DocsSearch"
+    expect decompile contains="ragAnswerContract name=RefundAnswer"
+    expect decompile contains="answerSpan start=0 end=33 chunks=refunds required=true"
+    expect roundtrip=true

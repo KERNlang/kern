@@ -1,12 +1,14 @@
-import type { RagSemanticEvalFact } from '../src/index.js';
+import type { RagSemanticAnswerContractFact, RagSemanticEvalFact } from '../src/index.js';
 import {
   createInMemoryRetriever,
   createRagRuntimeProvenance,
   evaluateRagAnswerContract,
   evaluateRagEvalContract,
+  evaluateRagSemanticAnswerContract,
   hashRetrievedChunkText,
   InMemoryRagCorpus,
   MAX_IN_MEMORY_RAG_TOP_K,
+  ragAnswerContractFromSemanticFact,
   ragMcpRetrieveProvenanceMapping,
   retrieveFromInMemoryCorpus,
   tokenizeForRetrieval,
@@ -686,6 +688,55 @@ describe('RAG answer runtime contracts', () => {
       }),
     );
     expect(JSON.parse(JSON.stringify(result))).toEqual(result);
+  });
+
+  test('evaluates semantic answer contract facts through the runtime contract engine', () => {
+    const answer = 'Refunds follow the refund policy.';
+    const fact: RagSemanticAnswerContractFact = {
+      name: 'RefundAnswer',
+      ragName: 'AnswerDocs',
+      query: 'refund policy',
+      answer,
+      prompt: './answer.md',
+      requireCitations: true,
+      minGroundingCoverage: 1,
+      spans: [{ start: 0, end: answer.length, chunkIds: ['refunds'], required: true }],
+    };
+    const retrieval = {
+      query: 'refund policy',
+      chunks: [
+        {
+          id: 'refunds',
+          text: 'Refunds follow the refund policy.',
+          score: 1,
+          source: 'docs/refunds.md',
+          citation: { uri: 'docs/refunds.md' },
+        },
+      ],
+    };
+
+    const contract = ragAnswerContractFromSemanticFact(fact, retrieval);
+    const result = evaluateRagSemanticAnswerContract(fact, retrieval);
+
+    expect(contract).toEqual(
+      expect.objectContaining({
+        id: 'RefundAnswer',
+        ragName: 'AnswerDocs',
+        prompt: './answer.md',
+        requireCitations: true,
+        minGroundingCoverage: 1,
+      }),
+    );
+    expect(contract.groundingSpans).toEqual([{ start: 0, end: answer.length, chunkIds: ['refunds'], required: true }]);
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: 'RefundAnswer',
+        passed: true,
+        status: 'grounded',
+        citedChunkIds: ['refunds'],
+        sources: ['docs/refunds.md'],
+      }),
+    );
   });
 
   test('reports partial and ungrounded answer contract failures', () => {

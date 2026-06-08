@@ -197,6 +197,26 @@ export interface RagSemanticEvalAssertFact {
   readonly loc?: RagSemanticLocation;
 }
 
+export interface RagSemanticAnswerSpanFact {
+  readonly start: number;
+  readonly end: number;
+  readonly chunkIds: readonly string[];
+  readonly required: boolean;
+  readonly loc?: RagSemanticLocation;
+}
+
+export interface RagSemanticAnswerContractFact {
+  readonly name: string;
+  readonly ragName?: string;
+  readonly query: string;
+  readonly answer: string;
+  readonly prompt?: string;
+  readonly requireCitations: boolean;
+  readonly minGroundingCoverage?: number;
+  readonly spans: readonly RagSemanticAnswerSpanFact[];
+  readonly loc?: RagSemanticLocation;
+}
+
 export interface RagSemanticPipelineFact {
   readonly name: string;
   readonly retrieverName: string;
@@ -205,6 +225,7 @@ export interface RagSemanticPipelineFact {
   readonly citations: boolean;
   readonly groundings: readonly RagSemanticGroundingFact[];
   readonly evals: readonly RagSemanticEvalFact[];
+  readonly answerContracts: readonly RagSemanticAnswerContractFact[];
   readonly loc?: RagSemanticLocation;
 }
 
@@ -757,6 +778,21 @@ interface RagAssertInfo {
   caseBound: boolean;
 }
 
+interface RagAnswerContractInfo {
+  node: IRNode;
+  rootIndex: number;
+  name?: string;
+  ragName?: string;
+}
+
+interface RagAnswerSpanInfo {
+  node: IRNode;
+  rootIndex: number;
+  contractName?: string;
+  contractNode?: IRNode;
+  contractBound: boolean;
+}
+
 interface RagMcpContainerInfo {
   node: IRNode;
   rootIndex: number;
@@ -789,6 +825,8 @@ interface RagInfos {
   evals: RagEvalInfo[];
   cases: RagCaseInfo[];
   asserts: RagAssertInfo[];
+  answerContracts: RagAnswerContractInfo[];
+  answerSpans: RagAnswerSpanInfo[];
   mcpRetrievals: RagMcpRetrievalInfo[];
   mcpResources: RagMcpSymbolInfo[];
   mcpTools: RagMcpSymbolInfo[];
@@ -812,6 +850,8 @@ function validateRagGraphRoots(roots: readonly IRNode[], violations: SemanticVio
     infos.evals.length === 0 &&
     infos.cases.length === 0 &&
     infos.asserts.length === 0 &&
+    infos.answerContracts.length === 0 &&
+    infos.answerSpans.length === 0 &&
     infos.mcpRetrievals.length === 0 &&
     infos.mcpResources.length === 0 &&
     infos.mcpTools.length === 0 &&
@@ -862,6 +902,12 @@ function validateRagGraphRoots(roots: readonly IRNode[], violations: SemanticVio
   for (const assertion of infos.asserts) {
     validateRagAssert(assertion, citationRequiredRagNames, violations);
   }
+  for (const contract of infos.answerContracts) {
+    validateRagAnswerContract(contract, infos.answerSpans, ragByName, citationRequiredRagNames, violations);
+  }
+  for (const span of infos.answerSpans) {
+    validateRagAnswerSpan(span, violations);
+  }
   validateRagMcpRetrievalDuplicates(infos.mcpRetrievals, violations);
   for (const retrieval of infos.mcpRetrievals) {
     validateRagMcpRetrieval(retrieval, retrieverByName, ragByName, citationRequiredRagNames, violations);
@@ -880,6 +926,8 @@ function collectRagInfosForRoots(roots: readonly IRNode[]): RagInfos {
     evals: [],
     cases: [],
     asserts: [],
+    answerContracts: [],
+    answerSpans: [],
     mcpRetrievals: [],
     mcpResources: [],
     mcpTools: [],
@@ -902,6 +950,9 @@ function collectRagInfos(root: IRNode, rootIndex: number, out: RagInfos): void {
     nearestRagCaseBound = false,
     nearestRagEvalNode?: IRNode,
     nearestRagCaseNode?: IRNode,
+    nearestRagAnswerContractName?: string,
+    nearestRagAnswerContractNode?: IRNode,
+    nearestRagAnswerContractBound = false,
     nearestMcpContainer?: RagMcpContainerInfo,
     nearestMcpName?: string,
   ): void {
@@ -918,6 +969,10 @@ function collectRagInfos(root: IRNode, rootIndex: number, out: RagInfos): void {
     const nextRagCaseBound = node.type === 'ragCase' || nearestRagCaseBound;
     const nextRagEvalNode = node.type === 'ragEval' ? node : nearestRagEvalNode;
     const nextRagCaseNode = node.type === 'ragCase' ? node : nearestRagCaseNode;
+    const nextRagAnswerContractName =
+      node.type === 'ragAnswerContract' ? stringProp(node, 'name') : nearestRagAnswerContractName;
+    const nextRagAnswerContractNode = node.type === 'ragAnswerContract' ? node : nearestRagAnswerContractNode;
+    const nextRagAnswerContractBound = node.type === 'ragAnswerContract' || nearestRagAnswerContractBound;
     const nextMcpName = node.type === 'mcp' ? stringProp(node, 'name') || '' : nearestMcpName;
     const nextMcpContainer =
       node.type === 'tool' || node.type === 'prompt'
@@ -978,6 +1033,21 @@ function collectRagInfos(root: IRNode, rootIndex: number, out: RagInfos): void {
         evalBound: nearestRagEvalBound,
         caseBound: nearestRagCaseBound,
       });
+    } else if (node.type === 'ragAnswerContract') {
+      out.answerContracts.push({
+        node,
+        rootIndex,
+        name: stringProp(node, 'name'),
+        ragName: stringProp(node, 'rag') || nearestRagName,
+      });
+    } else if (node.type === 'answerSpan') {
+      out.answerSpans.push({
+        node,
+        rootIndex,
+        contractName: nearestRagAnswerContractName,
+        contractNode: nearestRagAnswerContractNode,
+        contractBound: nearestRagAnswerContractBound,
+      });
     } else if (node.type === 'retrieve') {
       out.mcpRetrievals.push({ node, rootIndex, container: nearestMcpContainer });
     } else if (
@@ -1005,6 +1075,9 @@ function collectRagInfos(root: IRNode, rootIndex: number, out: RagInfos): void {
         nextRagCaseBound,
         nextRagEvalNode,
         nextRagCaseNode,
+        nextRagAnswerContractName,
+        nextRagAnswerContractNode,
+        nextRagAnswerContractBound,
         nextMcpContainer,
         nextMcpName,
       );
@@ -1052,6 +1125,7 @@ function validateRagUniqueNames(infos: RagInfos, violations: SemanticViolation[]
   validateRagUniqueNameSet('rag', infos.pipelines, violations);
   validateRagUniqueEvalNames(infos.evals, violations);
   validateRagUniqueCaseNames(infos.cases, violations);
+  validateRagUniqueAnswerContractNames(infos.answerContracts, violations);
 }
 
 function validateRagUniqueNameSet(
@@ -1130,6 +1204,28 @@ function validateRagUniqueCaseNames(cases: readonly RagCaseInfo[], violations: S
     } else {
       evalCases.set(evaluationCase.name, evaluationCase.node);
       seen.set(evaluationCase.evalNode, evalCases);
+    }
+  }
+}
+
+function validateRagUniqueAnswerContractNames(
+  contracts: readonly RagAnswerContractInfo[],
+  violations: SemanticViolation[],
+): void {
+  const seen = new Map<string, IRNode>();
+  for (const contract of contracts) {
+    if (!contract.name || !contract.ragName) continue;
+    const key = `${contract.ragName}:${contract.name}`;
+    const prev = seen.get(key);
+    if (prev) {
+      pushRagViolation(
+        violations,
+        'rag-duplicate-answer-contract-name',
+        contract.node,
+        `Duplicate RAG answer contract named '${contract.name}' in rag '${contract.ragName}' — first defined at line ${prev.loc?.line ?? '?'}.`,
+      );
+    } else {
+      seen.set(key, contract.node);
     }
   }
 }
@@ -1668,6 +1764,170 @@ function validateRagAssert(
   }
 }
 
+function validateRagAnswerContract(
+  contract: RagAnswerContractInfo,
+  spans: readonly RagAnswerSpanInfo[],
+  ragByName: ReadonlyMap<string, RagPipelineInfo>,
+  citationRequiredRagNames: ReadonlySet<string>,
+  violations: SemanticViolation[],
+): void {
+  if (!contract.ragName) {
+    pushRagViolation(
+      violations,
+      'rag-answer-contract-missing-rag',
+      contract.node,
+      'RAG answer contract must be nested under a rag pipeline or declare rag=<name>.',
+    );
+  } else if (!ragByName.has(contract.ragName)) {
+    pushRagViolation(
+      violations,
+      'rag-answer-contract-unknown-rag',
+      contract.node,
+      `RAG answer contract references unknown rag '${contract.ragName}'.`,
+    );
+  }
+
+  if (!contract.name) {
+    pushRagViolation(
+      violations,
+      'rag-answer-contract-name-required',
+      contract.node,
+      'RAG answer contract requires name=<id>.',
+    );
+  }
+  if (!stringProp(contract.node, 'query')) {
+    pushRagViolation(
+      violations,
+      'rag-answer-contract-query-required',
+      contract.node,
+      'RAG answer contract requires query=<text>.',
+    );
+  }
+  if (!stringProp(contract.node, 'answer')) {
+    pushRagViolation(
+      violations,
+      'rag-answer-contract-answer-required',
+      contract.node,
+      'RAG answer contract requires answer=<text>.',
+    );
+  }
+
+  const minGroundingCoverage = numberProp(contract.node, 'minGroundingCoverage');
+  if (
+    invalidNumberProp(contract.node, 'minGroundingCoverage') ||
+    (minGroundingCoverage !== undefined && (minGroundingCoverage < 0 || minGroundingCoverage > 1))
+  ) {
+    pushRagViolation(
+      violations,
+      'rag-answer-contract-min-grounding-coverage-invalid',
+      contract.node,
+      'RAG answer contract minGroundingCoverage must be between 0 and 1.',
+    );
+  }
+
+  validateRagAnswerContractCoverage(contract, spans, minGroundingCoverage, violations);
+
+  if (
+    ragBooleanProp(contract.node, 'requireCitations') &&
+    (!contract.ragName || !citationRequiredRagNames.has(contract.ragName))
+  ) {
+    pushRagViolation(
+      violations,
+      'rag-answer-contract-citations-require-grounding',
+      contract.node,
+      'RAG answer contract requireCitations=true requires a citation-grounded rag.',
+    );
+  }
+}
+
+function validateRagAnswerContractCoverage(
+  contract: RagAnswerContractInfo,
+  spans: readonly RagAnswerSpanInfo[],
+  minGroundingCoverage: number | undefined,
+  violations: SemanticViolation[],
+): void {
+  const answer = stringProp(contract.node, 'answer');
+  if (!answer) return;
+
+  const contractSpans = spans.filter((span) => span.contractNode === contract.node);
+  const grounded = new Array(answer.length).fill(false) as boolean[];
+  for (const span of contractSpans) {
+    const start = numberProp(span.node, 'start');
+    const end = numberProp(span.node, 'end');
+    if (
+      start !== undefined &&
+      end !== undefined &&
+      Number.isInteger(start) &&
+      Number.isInteger(end) &&
+      start >= 0 &&
+      end > start &&
+      end <= answer.length
+    ) {
+      for (let index = start; index < end; index += 1) grounded[index] = true;
+    } else if (end !== undefined && end > answer.length) {
+      pushRagViolation(
+        violations,
+        'rag-answer-span-range-invalid',
+        span.node,
+        'RAG answer span end must not exceed the parent answer length.',
+      );
+    }
+  }
+
+  if (minGroundingCoverage === undefined || minGroundingCoverage < 0 || minGroundingCoverage > 1) return;
+  const answerChars = countRagAnswerChars(answer);
+  const groundedChars = countRagGroundedAnswerChars(answer, grounded);
+  const coverage = answerChars === 0 ? 0 : groundedChars / answerChars;
+  if (answerChars > 0 && coverage < minGroundingCoverage) {
+    pushRagViolation(
+      violations,
+      'rag-answer-contract-grounding-coverage-insufficient',
+      contract.node,
+      `RAG answer contract grounding coverage ${coverage.toFixed(3)} is below minGroundingCoverage ${minGroundingCoverage.toFixed(3)}.`,
+    );
+  }
+}
+
+function validateRagAnswerSpan(span: RagAnswerSpanInfo, violations: SemanticViolation[]): void {
+  if (!span.contractBound) {
+    pushRagViolation(
+      violations,
+      'rag-answer-span-missing-contract',
+      span.node,
+      'RAG answer span must be nested under ragAnswerContract.',
+    );
+  }
+
+  const start = numberProp(span.node, 'start');
+  const end = numberProp(span.node, 'end');
+  if (
+    invalidNumberProp(span.node, 'start') ||
+    invalidNumberProp(span.node, 'end') ||
+    start === undefined ||
+    end === undefined ||
+    !Number.isInteger(start) ||
+    !Number.isInteger(end) ||
+    start < 0 ||
+    end <= start
+  ) {
+    pushRagViolation(
+      violations,
+      'rag-answer-span-range-invalid',
+      span.node,
+      'RAG answer span start/end must be non-negative integers with start < end.',
+    );
+  }
+
+  if (splitRagList(stringProp(span.node, 'chunks')).length === 0) {
+    pushRagViolation(
+      violations,
+      'rag-answer-span-chunks-required',
+      span.node,
+      'RAG answer span requires chunks=<chunk-id[,chunk-id...]>.',
+    );
+  }
+}
+
 function validateRagMcpRetrievalDuplicates(
   retrievals: readonly RagMcpRetrievalInfo[],
   violations: SemanticViolation[],
@@ -1920,7 +2180,15 @@ export function collectRagSemanticFacts(root: IRNode | readonly IRNode[]): RagSe
     corpora: infos.corpora.map((info) => ragCorpusFact(info, infos)),
     retrievers: infos.retrievers.map(ragRetrieverFact),
     pipelines: infos.pipelines.map((info) =>
-      ragPipelineFact(info, infos.groundings, infos.evals, infos.cases, infos.asserts),
+      ragPipelineFact(
+        info,
+        infos.groundings,
+        infos.evals,
+        infos.cases,
+        infos.asserts,
+        infos.answerContracts,
+        infos.answerSpans,
+      ),
     ),
     mcpRetrievals: infos.mcpRetrievals.map((info) => ragMcpRetrievalFact(info, citationRequiredRagNames)),
     resourceFeedsCorpora: infos.sources
@@ -1950,6 +2218,7 @@ export function collectRagSemanticFacts(root: IRNode | readonly IRNode[]): RagSe
       [
         ...infos.groundings.map((info) => info.ragName),
         ...infos.evals.map((info) => info.ragName),
+        ...infos.answerContracts.map((info) => info.ragName),
         ...infos.mcpRetrievals.map((info) => stringProp(info.node, 'rag')),
       ].filter((name): name is string => !!name && !ragNames.has(name)),
     ),
@@ -2051,6 +2320,8 @@ function ragPipelineFact(
   evals: readonly RagEvalInfo[],
   cases: readonly RagCaseInfo[],
   asserts: readonly RagAssertInfo[],
+  answerContracts: readonly RagAnswerContractInfo[],
+  answerSpans: readonly RagAnswerSpanInfo[],
 ): RagSemanticPipelineFact {
   return {
     name: info.name,
@@ -2062,6 +2333,9 @@ function ragPipelineFact(
     evals: evals
       .filter((evaluation) => evaluation.ragName === info.name)
       .map((evaluation) => ragEvalFact(evaluation, cases, asserts)),
+    answerContracts: answerContracts
+      .filter((contract) => contract.ragName === info.name)
+      .map((contract) => ragAnswerContractFact(contract, answerSpans)),
     ...(info.node.loc ? { loc: ragLocation(info.node) } : {}),
   };
 }
@@ -2131,6 +2405,34 @@ function ragEvalAssertFact(info: RagAssertInfo): RagSemanticEvalAssertFact {
   };
 }
 
+function ragAnswerContractFact(
+  info: RagAnswerContractInfo,
+  spans: readonly RagAnswerSpanInfo[],
+): RagSemanticAnswerContractFact {
+  const contractSpans = spans.filter((span) => span.contractNode === info.node);
+  return {
+    name: info.name ?? '',
+    ...optionalStringValue('ragName', info.ragName),
+    query: stringProp(info.node, 'query') ?? '',
+    answer: stringProp(info.node, 'answer') ?? '',
+    ...optionalStringFact(info.node, 'prompt', 'prompt'),
+    requireCitations: ragBooleanProp(info.node, 'requireCitations'),
+    ...optionalNumberFact(info.node, 'minGroundingCoverage', 'minGroundingCoverage'),
+    spans: contractSpans.map(ragAnswerSpanFact),
+    ...(info.node.loc ? { loc: ragLocation(info.node) } : {}),
+  };
+}
+
+function ragAnswerSpanFact(info: RagAnswerSpanInfo): RagSemanticAnswerSpanFact {
+  return {
+    start: numberProp(info.node, 'start') ?? 0,
+    end: numberProp(info.node, 'end') ?? 0,
+    chunkIds: splitRagList(stringProp(info.node, 'chunks')),
+    required: ragBooleanProp(info.node, 'required'),
+    ...(info.node.loc ? { loc: ragLocation(info.node) } : {}),
+  };
+}
+
 function ragAssertTarget(kind: string): RagSemanticEvalAssertFact['target'] {
   if (kind === 'uniqueSourcesGte' || kind === 'chunkCountEq') return 'retrieved-chunks';
   if (kind === 'latencyLte') return 'latency';
@@ -2180,6 +2482,22 @@ function splitRagList(value: string | undefined): string[] {
     .split(',')
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
+}
+
+function countRagAnswerChars(answer: string): number {
+  let count = 0;
+  for (let index = 0; index < answer.length; index += 1) {
+    if (!/\s/u.test(answer[index] ?? '')) count += 1;
+  }
+  return count;
+}
+
+function countRagGroundedAnswerChars(answer: string, grounded: readonly boolean[]): number {
+  let count = 0;
+  for (let index = 0; index < answer.length; index += 1) {
+    if (grounded[index] && !/\s/u.test(answer[index] ?? '')) count += 1;
+  }
+  return count;
 }
 
 function ragMcpRetrievalFact(

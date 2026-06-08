@@ -1,4 +1,5 @@
 import type {
+  RagSemanticAnswerContractFact,
   RagSemanticEvalAssertFact,
   RagSemanticEvalCaseFact,
   RagSemanticEvalFact,
@@ -186,6 +187,10 @@ export interface RagEvalContractResult {
   readonly passedAssertionCount: number;
   readonly durationMs: number;
   readonly cases: readonly RagEvalCaseResult[];
+}
+
+export interface RagSemanticAnswerContractOptions {
+  readonly provenance?: RagRuntimeProvenance;
 }
 
 interface StoredRagChunk {
@@ -488,6 +493,38 @@ export function evaluateRagAnswerContract(contract: RagAnswerContract): RagAnswe
     ...(provenance ? { provenance } : {}),
     diagnostics,
   };
+}
+
+export function ragAnswerContractFromSemanticFact(
+  fact: RagSemanticAnswerContractFact,
+  retrieval: RetrieveResult | ProvenancedRetrieveResult,
+  options: RagSemanticAnswerContractOptions = {},
+): RagAnswerContract {
+  return {
+    id: fact.name,
+    ...optionalStringValue('ragName', fact.ragName),
+    ...optionalStringValue('prompt', fact.prompt),
+    query: fact.query,
+    answer: fact.answer,
+    retrieval,
+    ...(options.provenance ? { provenance: options.provenance } : {}),
+    groundingSpans: fact.spans.map((span) => ({
+      start: span.start,
+      end: span.end,
+      chunkIds: [...span.chunkIds],
+      ...(span.required ? { required: true } : {}),
+    })),
+    requireCitations: fact.requireCitations,
+    ...optionalNumberValue('minGroundingCoverage', fact.minGroundingCoverage),
+  };
+}
+
+export function evaluateRagSemanticAnswerContract(
+  fact: RagSemanticAnswerContractFact,
+  retrieval: RetrieveResult | ProvenancedRetrieveResult,
+  options: RagSemanticAnswerContractOptions = {},
+): RagAnswerContractResult {
+  return evaluateRagAnswerContract(ragAnswerContractFromSemanticFact(fact, retrieval, options));
 }
 
 export function evaluateRagEvalContract(
