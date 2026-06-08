@@ -4,3 +4,4 @@ test name="MCP RAG conformance" target="./conformance-mcp-rag.kern" coverage=fal
     expect no=semanticViolations
     expect node=source count=2
     expect node=retrieve count=2
+    expect node=retrieve prop=output is="RetrievedChunk[]"

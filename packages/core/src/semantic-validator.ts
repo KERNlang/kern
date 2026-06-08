@@ -187,6 +187,15 @@ export interface RagSemanticMcpRetrievalFact {
   readonly topK?: number;
   readonly minScore?: number;
   readonly requireGrounding: boolean;
+  readonly outputShape?: string;
+  readonly outputItemShape?: string;
+  readonly requireCitations?: boolean;
+  readonly effectiveRequiresCitations: boolean;
+  readonly provenance?: string;
+  readonly citationField?: string;
+  readonly sourceField?: string;
+  readonly scoreField?: string;
+  readonly contractStatus: 'absent' | 'valid' | 'invalid';
   readonly loc?: RagSemanticLocation;
 }
 
@@ -760,6 +769,7 @@ function validateRagGraphRoots(roots: readonly IRNode[], violations: SemanticVio
     ...infos.mcpTools.map((info) => [info.name, info] as const),
     ...infos.mcpPrompts.map((info) => [info.name, info] as const),
   ]);
+  const citationRequiredRagNames = collectRagCitationRequiredNames(infos.pipelines, infos.groundings);
   const sourceNamesByCorpus = collectRagSourceNamesByCorpus(infos.sources);
   const globalSourceNames = new Set(infos.sources.map((info) => info.name).filter((name): name is string => !!name));
 
@@ -788,7 +798,7 @@ function validateRagGraphRoots(roots: readonly IRNode[], violations: SemanticVio
   }
   validateRagMcpRetrievalDuplicates(infos.mcpRetrievals, violations);
   for (const retrieval of infos.mcpRetrievals) {
-    validateRagMcpRetrieval(retrieval, retrieverByName, ragByName, violations);
+    validateRagMcpRetrieval(retrieval, retrieverByName, ragByName, citationRequiredRagNames, violations);
   }
 }
 
@@ -1305,6 +1315,7 @@ function validateRagMcpRetrieval(
   retrieval: RagMcpRetrievalInfo,
   retrieverByName: ReadonlyMap<string, RagRetrieverInfo>,
   ragByName: ReadonlyMap<string, RagPipelineInfo>,
+  citationRequiredRagNames: ReadonlySet<string>,
   violations: SemanticViolation[],
 ): void {
   if (!retrieval.container) {
@@ -1399,8 +1410,7 @@ function validateRagMcpRetrieval(
   }
 
   if (ragName && ragBooleanPropIsFalse(retrieval.node, 'requireGrounding')) {
-    const pipeline = ragByName.get(ragName);
-    const requiresCitations = pipeline && ragBooleanProp(pipeline.node, 'citations');
+    const requiresCitations = citationRequiredRagNames.has(ragName);
     if (requiresCitations) {
       pushRagViolation(
         violations,
@@ -1410,6 +1420,101 @@ function validateRagMcpRetrieval(
       );
     }
   }
+
+  validateRagMcpRetrievalOutput(retrieval, ragName, citationRequiredRagNames, violations);
+}
+
+function validateRagMcpRetrievalOutput(
+  retrieval: RagMcpRetrievalInfo,
+  ragName: string | undefined,
+  citationRequiredRagNames: ReadonlySet<string>,
+  violations: SemanticViolation[],
+): void {
+  const outputShape = stringProp(retrieval.node, 'output');
+  const provenance = stringProp(retrieval.node, 'provenance');
+  const citationField = stringProp(retrieval.node, 'citationField');
+  const sourceField = stringProp(retrieval.node, 'sourceField');
+  const scoreField = stringProp(retrieval.node, 'scoreField');
+  const hasRequireCitations = Object.hasOwn(retrieval.node.props ?? {}, 'requireCitations');
+  const hasOutputField = Boolean(provenance || citationField || sourceField || scoreField);
+
+  if (outputShape === RAG_MCP_RETRIEVE_OUTPUT_ITEM_SHAPE) {
+    pushRagViolation(
+      violations,
+      'mcp-retrieve-output-array-required',
+      retrieval.node,
+      'MCP retrieve output must be RetrievedChunk[] because retrieval bindings expose ranked context sets.',
+    );
+  } else if (outputShape && outputShape !== RAG_MCP_RETRIEVE_OUTPUT_SHAPE) {
+    pushRagViolation(
+      violations,
+      'mcp-retrieve-output-unknown',
+      retrieval.node,
+      `MCP retrieve output '${outputShape}' is not supported; use RetrievedChunk[] for this slice.`,
+    );
+  }
+
+  if (!outputShape && hasOutputField) {
+    pushRagViolation(
+      violations,
+      'mcp-retrieve-output-field-without-output',
+      retrieval.node,
+      'MCP retrieve output fields require output=RetrievedChunk[].',
+    );
+  }
+  if (!outputShape && hasRequireCitations) {
+    pushRagViolation(
+      violations,
+      'mcp-retrieve-output-required',
+      retrieval.node,
+      'MCP retrieve requireCitations=<bool> requires output=RetrievedChunk[].',
+    );
+  }
+
+  const targetRequiresCitations = ragName ? citationRequiredRagNames.has(ragName) : false;
+  if (ragBooleanPropIsFalse(retrieval.node, 'requireCitations') && targetRequiresCitations) {
+    pushRagViolation(
+      violations,
+      'mcp-retrieve-output-citations-cannot-weaken-rag',
+      retrieval.node,
+      `MCP retrieve references citation-grounded rag '${ragName}' but sets requireCitations=false.`,
+    );
+  }
+
+  if (outputShape !== RAG_MCP_RETRIEVE_OUTPUT_SHAPE) return;
+
+  const explicitRequiresCitations = ragBooleanProp(retrieval.node, 'requireCitations');
+  const effectiveRequiresCitations = explicitRequiresCitations || targetRequiresCitations;
+  if (effectiveRequiresCitations && !citationField) {
+    pushRagViolation(
+      violations,
+      'mcp-retrieve-output-citation-field-required',
+      retrieval.node,
+      'MCP retrieve output requires citationField=<field> when citations are required.',
+    );
+  }
+  if (effectiveRequiresCitations && !sourceField && provenance !== 'source') {
+    pushRagViolation(
+      violations,
+      'mcp-retrieve-output-source-required',
+      retrieval.node,
+      'MCP retrieve output requires sourceField=<field> or provenance=source when citations are required.',
+    );
+  }
+}
+
+function collectRagCitationRequiredNames(
+  pipelines: readonly RagPipelineInfo[],
+  groundings: readonly RagGroundingInfo[],
+): ReadonlySet<string> {
+  const out = new Set<string>();
+  for (const pipeline of pipelines) {
+    if (ragBooleanProp(pipeline.node, 'citations')) out.add(pipeline.name);
+  }
+  for (const grounding of groundings) {
+    if (grounding.ragName && ragBooleanProp(grounding.node, 'requireCitations')) out.add(grounding.ragName);
+  }
+  return out;
 }
 
 function pushRagViolation(violations: SemanticViolation[], rule: string, node: IRNode, message: string): void {
@@ -1423,7 +1528,7 @@ export function collectRagSemanticFacts(root: IRNode | readonly IRNode[]): RagSe
   const embedNames = new Set(infos.embeds.map((info) => info.name));
   const retrieverNames = new Set(infos.retrievers.map((info) => info.name));
   const ragNames = new Set(infos.pipelines.map((info) => info.name));
-  const ragByName = new Map(infos.pipelines.map((info) => [info.name, info]));
+  const citationRequiredRagNames = collectRagCitationRequiredNames(infos.pipelines, infos.groundings);
   const mcpResourcesByName = collectRagMcpSymbolsByName(infos.mcpResources);
   const mcpCallableNames = new Set([
     ...infos.mcpTools.map((info) => info.name),
@@ -1436,7 +1541,7 @@ export function collectRagSemanticFacts(root: IRNode | readonly IRNode[]): RagSe
     corpora: infos.corpora.map((info) => ragCorpusFact(info, infos)),
     retrievers: infos.retrievers.map(ragRetrieverFact),
     pipelines: infos.pipelines.map((info) => ragPipelineFact(info, infos.groundings, infos.evals)),
-    mcpRetrievals: infos.mcpRetrievals.map((info) => ragMcpRetrievalFact(info, ragByName)),
+    mcpRetrievals: infos.mcpRetrievals.map((info) => ragMcpRetrievalFact(info, citationRequiredRagNames)),
     resourceFeedsCorpora: infos.sources
       .filter(
         (info) =>
@@ -1599,12 +1704,15 @@ function ragEvalFact(info: RagEvalInfo): RagSemanticEvalFact {
 
 function ragMcpRetrievalFact(
   info: RagMcpRetrievalInfo,
-  ragByName: ReadonlyMap<string, RagPipelineInfo>,
+  citationRequiredRagNames: ReadonlySet<string>,
 ): RagSemanticMcpRetrievalFact {
   const ragName = stringProp(info.node, 'rag');
   const retrieverName = stringProp(info.node, 'retriever');
   const targetKind = ragName ? 'rag' : 'retriever';
   const targetName = ragName || retrieverName || '';
+  const outputShape = stringProp(info.node, 'output');
+  const targetRequiresCitations = ragName ? citationRequiredRagNames.has(ragName) : false;
+  const explicitRequiresCitations = ragBooleanProp(info.node, 'requireCitations');
   return {
     ...(info.container ? { containerKind: info.container.kind, containerName: info.container.name ?? '' } : {}),
     targetKind,
@@ -1615,20 +1723,52 @@ function ragMcpRetrievalFact(
     ...optionalStringFact(info.node, 'as', 'as'),
     ...optionalNumberFact(info.node, 'topK', 'topK'),
     ...optionalNumberFact(info.node, 'minScore', 'minScore'),
-    requireGrounding: ragMcpRetrieveRequiresGrounding(info.node, ragName, ragByName),
+    requireGrounding: ragMcpRetrieveRequiresGrounding(info.node, ragName, citationRequiredRagNames),
+    ...optionalStringValue('outputShape', outputShape),
+    ...(outputShape === RAG_MCP_RETRIEVE_OUTPUT_SHAPE ? { outputItemShape: RAG_MCP_RETRIEVE_OUTPUT_ITEM_SHAPE } : {}),
+    ...(Object.hasOwn(info.node.props ?? {}, 'requireCitations')
+      ? { requireCitations: explicitRequiresCitations }
+      : {}),
+    effectiveRequiresCitations: explicitRequiresCitations || targetRequiresCitations,
+    ...optionalStringFact(info.node, 'provenance', 'provenance'),
+    ...optionalStringFact(info.node, 'citationField', 'citationField'),
+    ...optionalStringFact(info.node, 'sourceField', 'sourceField'),
+    ...optionalStringFact(info.node, 'scoreField', 'scoreField'),
+    contractStatus: ragMcpRetrieveContractStatus(info.node, targetRequiresCitations),
     ...(info.node.loc ? { loc: ragLocation(info.node) } : {}),
   };
+}
+
+function ragMcpRetrieveContractStatus(
+  node: IRNode,
+  targetRequiresCitations: boolean,
+): RagSemanticMcpRetrievalFact['contractStatus'] {
+  const outputShape = stringProp(node, 'output');
+  const hasRequireCitations = Object.hasOwn(node.props ?? {}, 'requireCitations');
+  const hasOutputField = ['provenance', 'citationField', 'sourceField', 'scoreField'].some((prop) =>
+    Boolean(stringProp(node, prop)),
+  );
+  if (!outputShape) return hasOutputField || hasRequireCitations ? 'invalid' : 'absent';
+  if (outputShape !== RAG_MCP_RETRIEVE_OUTPUT_SHAPE) return 'invalid';
+  if (ragBooleanPropIsFalse(node, 'requireCitations') && targetRequiresCitations) return 'invalid';
+  if (ragBooleanProp(node, 'requireCitations') || targetRequiresCitations) {
+    const citationField = stringProp(node, 'citationField');
+    const sourceField = stringProp(node, 'sourceField');
+    const provenance = stringProp(node, 'provenance');
+    if (!citationField) return 'invalid';
+    if (!sourceField && provenance !== 'source') return 'invalid';
+  }
+  return 'valid';
 }
 
 function ragMcpRetrieveRequiresGrounding(
   node: IRNode,
   ragName: string | undefined,
-  ragByName: ReadonlyMap<string, RagPipelineInfo>,
+  citationRequiredRagNames: ReadonlySet<string>,
 ): boolean {
   if (ragBooleanPropIsFalse(node, 'requireGrounding')) return false;
   if (ragBooleanProp(node, 'requireGrounding')) return true;
-  const pipeline = ragName ? ragByName.get(ragName) : undefined;
-  return pipeline ? ragBooleanProp(pipeline.node, 'citations') : false;
+  return ragName ? citationRequiredRagNames.has(ragName) : false;
 }
 
 function ragLocation(node: IRNode): RagSemanticLocation | undefined {
@@ -1699,6 +1839,8 @@ interface ClassMemberInfo {
 }
 
 const BUILTIN_CLASS_BASES = new Set(['Error']);
+const RAG_MCP_RETRIEVE_OUTPUT_SHAPE = 'RetrievedChunk[]';
+const RAG_MCP_RETRIEVE_OUTPUT_ITEM_SHAPE = 'RetrievedChunk';
 const BODY_EXPRESSION_PROPS = [
   'value',
   'expr',

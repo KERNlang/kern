@@ -2361,7 +2361,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   retrieve: {
     description:
       'MCP retrieval intent — declaratively binds a tool or prompt to a RAG retriever or pipeline without executing provider retrieval in core.',
-    example: 'retrieve rag=AnswerDocs queryParam=question as=context requireGrounding=true topK=4',
+    example:
+      'retrieve rag=AnswerDocs queryParam=question as=context output="RetrievedChunk[]" requireCitations=true provenance=source citationField=citation sourceField=uri scoreField=score',
     props: {
       name: { kind: 'identifier' },
       retriever: { kind: 'identifier' },
@@ -2372,6 +2373,12 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       topK: { kind: 'number' },
       minScore: { kind: 'number' },
       requireGrounding: { kind: 'boolean' },
+      output: { kind: 'typeAnnotation' },
+      requireCitations: { kind: 'boolean' },
+      provenance: { kind: 'identifier' },
+      citationField: { kind: 'identifier' },
+      sourceField: { kind: 'identifier' },
+      scoreField: { kind: 'identifier' },
     },
     allowedChildren: [],
   },

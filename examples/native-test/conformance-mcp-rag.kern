@@ -14,8 +14,8 @@ mcp name=Support
 
   tool name=answerQuestion
     param name=question type=string required=true
-    retrieve rag=AnswerDocs queryParam=question as=context topK=4
+    retrieve rag=AnswerDocs queryParam=question as=context topK=4 output="RetrievedChunk[]" requireCitations=true provenance=source citationField=citation sourceField=uri scoreField=score
 
   prompt name=summarizeDocs
     param name=question type=string required=true
-    retrieve retriever=DocsSearch queryParam=question as=chunks
+    retrieve retriever=DocsSearch queryParam=question as=chunks output="RetrievedChunk[]" scoreField=score

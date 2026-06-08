@@ -252,7 +252,7 @@ describe('KERN semantic substrate', () => {
         '  resource name=DocsResource uri="docs://manuals"',
         '  tool name=answerQuestion',
         '    param name=question type=string required=true',
-        '    retrieve rag=AnswerDocs queryParam=question as=context',
+        '    retrieve rag=AnswerDocs queryParam=question as=context output="RetrievedChunk[]" requireCitations=true provenance=source citationField=citation sourceField=uri scoreField=score',
       ].join('\n'),
     );
 
@@ -299,6 +299,15 @@ describe('KERN semantic substrate', () => {
         queryParam: 'question',
         as: 'context',
         requireGrounding: true,
+        outputShape: 'RetrievedChunk[]',
+        outputItemShape: 'RetrievedChunk',
+        requireCitations: true,
+        effectiveRequiresCitations: true,
+        provenance: 'source',
+        citationField: 'citation',
+        sourceField: 'uri',
+        scoreField: 'score',
+        contractStatus: 'valid',
       }),
     ]);
     expect(substrate.ragFacts?.resourceFeedsCorpora).toEqual([

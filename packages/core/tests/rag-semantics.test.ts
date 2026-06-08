@@ -168,10 +168,10 @@ describe('RAG language semantics', () => {
       'mcp name=Support',
       '  tool name=answerQuestion',
       '    param name=question type=string required=true',
-      '    retrieve rag=AnswerDocs queryParam=question as=context topK=4 minScore=0.8',
+      '    retrieve rag=AnswerDocs queryParam=question as=context topK=4 minScore=0.8 output="RetrievedChunk[]" requireCitations=true provenance=source citationField=citation sourceField=uri scoreField=score',
       '  prompt name=summarizeDocs',
       '    param name=question type=string required=true',
-      '    retrieve retriever=DocsSearch queryParam=question as=chunks requireGrounding=true',
+      '    retrieve retriever=DocsSearch queryParam=question as=chunks requireGrounding=true output="RetrievedChunk[]" scoreField=score',
     ].join('\n');
 
     expect(validateSchema(parseRoot(source))).toEqual([]);
@@ -190,10 +190,10 @@ describe('RAG language semantics', () => {
           'mcp name=Support',
           '  tool name=answerQuestion',
           '    param name=question type=string required=true',
-          '    retrieve name=answerDocs rag=AnswerDocs queryParam=question as=context topK=4 minScore=0.8',
+          '    retrieve name=answerDocs rag=AnswerDocs queryParam=question as=context topK=4 minScore=0.8 output="RetrievedChunk[]" requireCitations=true provenance=source citationField=citation sourceField=uri scoreField=score',
           '  prompt name=summarizeDocs',
           '    param name=question type=string required=true',
-          '    retrieve retriever=DocsSearch queryParam=question as=chunks requireGrounding=true',
+          '    retrieve retriever=DocsSearch queryParam=question as=chunks requireGrounding=true output="RetrievedChunk[]" scoreField=score',
         ].join('\n'),
       ),
     );
@@ -212,6 +212,15 @@ describe('RAG language semantics', () => {
         topK: 4,
         minScore: 0.8,
         requireGrounding: true,
+        outputShape: 'RetrievedChunk[]',
+        outputItemShape: 'RetrievedChunk',
+        requireCitations: true,
+        effectiveRequiresCitations: true,
+        provenance: 'source',
+        citationField: 'citation',
+        sourceField: 'uri',
+        scoreField: 'score',
+        contractStatus: 'valid',
       }),
       expect.objectContaining({
         containerKind: 'prompt',
@@ -221,6 +230,11 @@ describe('RAG language semantics', () => {
         queryParam: 'question',
         as: 'chunks',
         requireGrounding: true,
+        outputShape: 'RetrievedChunk[]',
+        outputItemShape: 'RetrievedChunk',
+        effectiveRequiresCitations: false,
+        scoreField: 'score',
+        contractStatus: 'valid',
       }),
     ]);
   });
@@ -314,6 +328,61 @@ describe('RAG language semantics', () => {
     const facts = collectRagSemanticFacts(parseRoot(source));
     expect(facts.unresolvedRetrieverRefs).toEqual(['AlsoMissing', 'MissingRetriever']);
     expect(facts.unresolvedRagRefs).toEqual(['MissingRag']);
+  });
+
+  test('reports invalid MCP retrieval output contracts', () => {
+    const source = [
+      'corpus name=Docs',
+      'retriever name=DocsSearch corpus=Docs',
+      'rag name=AnswerDocs retriever=DocsSearch citations=true',
+      '  grounding requireCitations=true',
+      'rag name=PlainAnswer retriever=DocsSearch',
+      'mcp name=Support',
+      '  tool name=badOutput',
+      '    param name=question type=string required=true',
+      '    retrieve retriever=DocsSearch queryParam=question output="Foo[]"',
+      '  tool name=scalarOutput',
+      '    param name=question type=string required=true',
+      '    retrieve retriever=DocsSearch queryParam=question output=RetrievedChunk',
+      '  tool name=fieldWithoutOutput',
+      '    param name=question type=string required=true',
+      '    retrieve retriever=DocsSearch queryParam=question citationField=citation',
+      '  tool name=requireCitationsWithoutOutput',
+      '    param name=question type=string required=true',
+      '    retrieve retriever=DocsSearch queryParam=question requireCitations=true',
+      '  tool name=missingCitationField',
+      '    param name=question type=string required=true',
+      '    retrieve rag=PlainAnswer queryParam=question output="RetrievedChunk[]" requireCitations=true provenance=source',
+      '  tool name=missingSourceField',
+      '    param name=question type=string required=true',
+      '    retrieve rag=PlainAnswer queryParam=question output="RetrievedChunk[]" requireCitations=true citationField=citation',
+      '  tool name=weakensCitations',
+      '    param name=question type=string required=true',
+      '    retrieve rag=AnswerDocs queryParam=question output="RetrievedChunk[]" requireCitations=false',
+    ].join('\n');
+
+    expect(rulesFor(source)).toEqual(
+      expect.arrayContaining([
+        'mcp-retrieve-output-unknown',
+        'mcp-retrieve-output-array-required',
+        'mcp-retrieve-output-field-without-output',
+        'mcp-retrieve-output-required',
+        'mcp-retrieve-output-citation-field-required',
+        'mcp-retrieve-output-source-required',
+        'mcp-retrieve-output-citations-cannot-weaken-rag',
+      ]),
+    );
+
+    const facts = collectRagSemanticFacts(parseRoot(source));
+    expect(facts.mcpRetrievals.map((fact) => fact.contractStatus)).toEqual([
+      'invalid',
+      'invalid',
+      'invalid',
+      'invalid',
+      'invalid',
+      'invalid',
+      'invalid',
+    ]);
   });
 
   test('reports invalid MCP resource-backed corpus source bindings', () => {

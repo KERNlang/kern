@@ -15,6 +15,34 @@ mcp name=Support
   prompt name=badPrompt
     retrieve retriever=DocsSearch
 
+  tool name=badOutput
+    param name=question type=string required=true
+    retrieve retriever=DocsSearch queryParam=question output="Foo[]"
+
+  tool name=scalarOutput
+    param name=question type=string required=true
+    retrieve retriever=DocsSearch queryParam=question output=RetrievedChunk
+
+  tool name=fieldWithoutOutput
+    param name=question type=string required=true
+    retrieve retriever=DocsSearch queryParam=question citationField=citation
+
+  tool name=requireCitationsWithoutOutput
+    param name=question type=string required=true
+    retrieve retriever=DocsSearch queryParam=question requireCitations=true
+
+  tool name=missingOutputCitation
+    param name=question type=string required=true
+    retrieve retriever=DocsSearch queryParam=question output="RetrievedChunk[]" requireCitations=true provenance=source
+
+  tool name=missingOutputSource
+    param name=question type=string required=true
+    retrieve retriever=DocsSearch queryParam=question output="RetrievedChunk[]" requireCitations=true citationField=citation
+
+  tool name=weakensRagCitations
+    param name=question type=string required=true
+    retrieve rag=AnswerDocs queryParam=question output="RetrievedChunk[]" requireCitations=false
+
 mcp name=OtherSupport
   resource name=DocsResource uri="docs://other-manuals"
 
