@@ -871,8 +871,7 @@ function valueIRChildren(value: ValueIR): ValueIR[] {
     case 'ident':
       return [];
   }
-  const exhaustive: never = value;
-  return exhaustive;
+  return [];
 }
 
 function classBaseName(value: unknown): string | undefined {
