@@ -1,0 +1,14 @@
+corpus name=Docs
+  source name=manuals kind=local uri="./docs/**/*.md" media=markdown
+
+retriever name=DocsSearch corpus=Docs topK=2
+
+rag name=AnswerDocs retriever=DocsSearch answer="grounded" citations=true
+  grounding requireCitations=true policy=strict
+  ragEval name=Faithfulness metric=faithfulness threshold=0.85 mode=contract
+    ragCase name=refunds query="refund policy" chunkCount=2 sources="docs/refunds.md,docs/policies.md"
+      ragAssert kind=uniqueSourcesGte count=2
+      ragAssert kind=citesRequired
+  ragAnswerContract name=MultiSpanAnswer query="refund policy" answer="Refunds follow policy. Shipping is separate." requireCitations=true minGroundingCoverage=1
+    answerSpan start=0 end=22 chunks=refunds required=true
+    answerSpan start=23 end=44 chunks=shipping required=true

@@ -1,0 +1,14 @@
+corpus name=Docs
+  source name=manuals kind=local uri="./docs/**/*.md" media=markdown
+  chunking source=manuals strategy=semantic maxTokens=600 overlap=80
+
+retriever name=DocsSearch corpus=Docs mode=hybrid topK=2 minScore=0.5
+
+rag name=AnswerDocs retriever=DocsSearch prompt="./answer.md" citations=true
+  grounding requireCitations=true policy=strict maxContext=6000
+  ragEval name=Faithfulness metric=faithfulness threshold=0.85 mode=contract
+    ragCase name=refunds query="refund policy" topK=2 minScore=0.5 chunkCount=1 sources="docs/refunds.md"
+      ragAssert kind=sourceGlob value="docs/refunds.md" required=true
+      ragAssert kind=citesRequired
+  ragAnswerContract name=RefundAnswer query="refund policy" answer="Refunds follow the refund policy." requireCitations=true minGroundingCoverage=1
+    answerSpan start=0 end=33 chunks=refunds required=true

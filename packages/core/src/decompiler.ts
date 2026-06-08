@@ -64,6 +64,11 @@ export function decompile(root: IRNode): DecompileResult {
     }
     const props = node.props || {};
 
+    if (node.type === 'document') {
+      for (const child of node.children || []) render(child, indent);
+      return;
+    }
+
     // Canonical-grammar cases — emit re-parseable KERN. Other node types
     // still fall through to the debug-shape serializer below; make them
     // canonical in a follow-up PR.
