@@ -2421,6 +2421,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       name: { kind: 'identifier' },
       kind: { kind: 'identifier' },
       uri: { required: true, kind: 'string' },
+      resource: { kind: 'identifier' },
       media: { kind: 'identifier' },
       acl: { kind: 'identifier' },
     },

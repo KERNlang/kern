@@ -99,6 +99,7 @@ export interface RagSemanticSourceFact {
   readonly corpusName?: string;
   readonly kind?: string;
   readonly uri: string;
+  readonly resourceName?: string;
   readonly media?: string;
   readonly acl?: string;
   readonly loc?: RagSemanticLocation;
@@ -189,16 +190,26 @@ export interface RagSemanticMcpRetrievalFact {
   readonly loc?: RagSemanticLocation;
 }
 
+export interface RagSemanticResourceFeedFact {
+  readonly corpusName?: string;
+  readonly sourceName?: string;
+  readonly resourceName: string;
+  readonly uri: string;
+  readonly loc?: RagSemanticLocation;
+}
+
 export interface RagSemanticFacts {
   readonly corpora: readonly RagSemanticCorpusFact[];
   readonly retrievers: readonly RagSemanticRetrieverFact[];
   readonly pipelines: readonly RagSemanticPipelineFact[];
   readonly mcpRetrievals: readonly RagSemanticMcpRetrievalFact[];
+  readonly resourceFeedsCorpora: readonly RagSemanticResourceFeedFact[];
   readonly unresolvedCorpusRefs: readonly string[];
   readonly unresolvedRetrieverRefs: readonly string[];
   readonly unresolvedEmbedRefs: readonly string[];
   readonly unresolvedRagRefs: readonly string[];
   readonly unresolvedSourceRefs: readonly string[];
+  readonly unresolvedResourceRefs: readonly string[];
 }
 
 /**
@@ -695,6 +706,13 @@ interface RagMcpRetrievalInfo {
   container?: RagMcpContainerInfo;
 }
 
+interface RagMcpSymbolInfo {
+  node: IRNode;
+  rootIndex: number;
+  kind: 'resource' | 'tool' | 'prompt';
+  name: string;
+}
+
 interface RagInfos {
   corpora: RagCorpusInfo[];
   sources: RagSourceInfo[];
@@ -705,6 +723,9 @@ interface RagInfos {
   groundings: RagGroundingInfo[];
   evals: RagEvalInfo[];
   mcpRetrievals: RagMcpRetrievalInfo[];
+  mcpResources: RagMcpSymbolInfo[];
+  mcpTools: RagMcpSymbolInfo[];
+  mcpPrompts: RagMcpSymbolInfo[];
 }
 
 function validateRagGraph(root: IRNode, violations: SemanticViolation[]): void {
@@ -722,7 +743,10 @@ function validateRagGraphRoots(roots: readonly IRNode[], violations: SemanticVio
     infos.pipelines.length === 0 &&
     infos.groundings.length === 0 &&
     infos.evals.length === 0 &&
-    infos.mcpRetrievals.length === 0
+    infos.mcpRetrievals.length === 0 &&
+    infos.mcpResources.length === 0 &&
+    infos.mcpTools.length === 0 &&
+    infos.mcpPrompts.length === 0
   ) {
     return;
   }
@@ -731,13 +755,18 @@ function validateRagGraphRoots(roots: readonly IRNode[], violations: SemanticVio
   const embedByName = new Map(infos.embeds.map((info) => [info.name, info]));
   const retrieverByName = new Map(infos.retrievers.map((info) => [info.name, info]));
   const ragByName = new Map(infos.pipelines.map((info) => [info.name, info]));
+  const mcpResourcesByName = collectRagMcpSymbolsByName(infos.mcpResources);
+  const mcpCallableByName = new Map([
+    ...infos.mcpTools.map((info) => [info.name, info] as const),
+    ...infos.mcpPrompts.map((info) => [info.name, info] as const),
+  ]);
   const sourceNamesByCorpus = collectRagSourceNamesByCorpus(infos.sources);
   const globalSourceNames = new Set(infos.sources.map((info) => info.name).filter((name): name is string => !!name));
 
   validateRagUniqueNames(infos, violations);
 
   for (const source of infos.sources) {
-    validateRagSource(source, violations);
+    validateRagSource(source, mcpResourcesByName, mcpCallableByName, violations);
   }
   for (const chunking of infos.chunking) {
     validateRagChunking(chunking, corpusByName, sourceNamesByCorpus, globalSourceNames, violations);
@@ -774,6 +803,9 @@ function collectRagInfosForRoots(roots: readonly IRNode[]): RagInfos {
     groundings: [],
     evals: [],
     mcpRetrievals: [],
+    mcpResources: [],
+    mcpTools: [],
+    mcpPrompts: [],
   };
   for (const [rootIndex, root] of roots.entries()) {
     collectRagInfos(root, rootIndex, out);
@@ -787,9 +819,11 @@ function collectRagInfos(root: IRNode, rootIndex: number, out: RagInfos): void {
     nearestCorpusName?: string,
     nearestRagName?: string,
     nearestMcpContainer?: RagMcpContainerInfo,
+    nearestMcpName?: string,
   ): void {
     const nextCorpusName = node.type === 'corpus' ? stringProp(node, 'name') || nearestCorpusName : nearestCorpusName;
     const nextRagName = node.type === 'rag' ? stringProp(node, 'name') || nearestRagName : nearestRagName;
+    const nextMcpName = node.type === 'mcp' ? stringProp(node, 'name') || '' : nearestMcpName;
     const nextMcpContainer =
       node.type === 'tool' || node.type === 'prompt'
         ? ragMcpContainerInfo(node, rootIndex, node.type === 'tool' ? 'tool' : 'prompt')
@@ -828,9 +862,21 @@ function collectRagInfos(root: IRNode, rootIndex: number, out: RagInfos): void {
       out.evals.push({ node, rootIndex, ragName: stringProp(node, 'rag') || nearestRagName });
     } else if (node.type === 'retrieve') {
       out.mcpRetrievals.push({ node, rootIndex, container: nearestMcpContainer });
+    } else if (
+      nextMcpName !== undefined &&
+      (node.type === 'resource' || node.type === 'tool' || node.type === 'prompt')
+    ) {
+      const name = stringProp(node, 'name');
+      if (name) {
+        const kind = node.type === 'resource' ? 'resource' : node.type === 'tool' ? 'tool' : 'prompt';
+        const info: RagMcpSymbolInfo = { node, rootIndex, kind, name };
+        if (node.type === 'resource') out.mcpResources.push(info);
+        else if (node.type === 'tool') out.mcpTools.push(info);
+        else out.mcpPrompts.push(info);
+      }
     }
 
-    for (const child of node.children ?? []) visit(child, nextCorpusName, nextRagName, nextMcpContainer);
+    for (const child of node.children ?? []) visit(child, nextCorpusName, nextRagName, nextMcpContainer, nextMcpName);
   }
   visit(root);
 }
@@ -853,6 +899,16 @@ function collectRagSourceNamesByCorpus(sources: readonly RagSourceInfo[]): Map<s
     const names = out.get(source.corpusName) ?? new Set<string>();
     names.add(source.name);
     out.set(source.corpusName, names);
+  }
+  return out;
+}
+
+function collectRagMcpSymbolsByName(symbols: readonly RagMcpSymbolInfo[]): Map<string, RagMcpSymbolInfo[]> {
+  const out = new Map<string, RagMcpSymbolInfo[]>();
+  for (const symbol of symbols) {
+    const matches = out.get(symbol.name) ?? [];
+    matches.push(symbol);
+    out.set(symbol.name, matches);
   }
   return out;
 }
@@ -905,9 +961,61 @@ function validateRagUniqueSourceNames(sources: readonly RagSourceInfo[], violati
   }
 }
 
-function validateRagSource(source: RagSourceInfo, violations: SemanticViolation[]): void {
+function validateRagSource(
+  source: RagSourceInfo,
+  mcpResourcesByName: ReadonlyMap<string, readonly RagMcpSymbolInfo[]>,
+  mcpCallableByName: ReadonlyMap<string, RagMcpSymbolInfo>,
+  violations: SemanticViolation[],
+): void {
   if (!source.corpusName) {
     pushRagViolation(violations, 'rag-source-missing-corpus', source.node, 'RAG source must be nested under a corpus.');
+  }
+
+  const kind = stringProp(source.node, 'kind');
+  const resourceName = stringProp(source.node, 'resource');
+  if (kind === 'mcp') {
+    if (!resourceName) {
+      pushRagViolation(
+        violations,
+        'rag-source-mcp-resource-required',
+        source.node,
+        'RAG source kind=mcp requires resource=<mcp resource name>.',
+      );
+    } else {
+      const resources = mcpResourcesByName.get(resourceName) ?? [];
+      if (resources.length > 1) {
+        pushRagViolation(
+          violations,
+          'rag-source-mcp-resource-ambiguous',
+          source.node,
+          `RAG source resource '${resourceName}' is ambiguous because multiple MCP resources use that name.`,
+        );
+      } else if (resources.length === 0) {
+        const callable = mcpCallableByName.get(resourceName);
+        if (callable) {
+          pushRagViolation(
+            violations,
+            'rag-source-mcp-resource-kind',
+            source.node,
+            `RAG source resource '${resourceName}' resolves to MCP ${callable.kind}, expected MCP resource.`,
+          );
+        } else {
+          pushRagViolation(
+            violations,
+            'rag-source-mcp-resource-unknown',
+            source.node,
+            `RAG source references unknown MCP resource '${resourceName}'.`,
+          );
+        }
+      }
+    }
+  } else if (resourceName) {
+    pushRagViolation(
+      violations,
+      'rag-source-resource-requires-mcp-kind',
+      source.node,
+      'RAG source resource=<name> is only valid with kind=mcp.',
+    );
   }
 
   const uri = stringProp(source.node, 'uri');
@@ -1316,6 +1424,11 @@ export function collectRagSemanticFacts(root: IRNode | readonly IRNode[]): RagSe
   const retrieverNames = new Set(infos.retrievers.map((info) => info.name));
   const ragNames = new Set(infos.pipelines.map((info) => info.name));
   const ragByName = new Map(infos.pipelines.map((info) => [info.name, info]));
+  const mcpResourcesByName = collectRagMcpSymbolsByName(infos.mcpResources);
+  const mcpCallableNames = new Set([
+    ...infos.mcpTools.map((info) => info.name),
+    ...infos.mcpPrompts.map((info) => info.name),
+  ]);
   const sourceNamesByCorpus = collectRagSourceNamesByCorpus(infos.sources);
   const globalSourceNames = new Set(infos.sources.map((info) => info.name).filter((name): name is string => !!name));
 
@@ -1324,6 +1437,13 @@ export function collectRagSemanticFacts(root: IRNode | readonly IRNode[]): RagSe
     retrievers: infos.retrievers.map(ragRetrieverFact),
     pipelines: infos.pipelines.map((info) => ragPipelineFact(info, infos.groundings, infos.evals)),
     mcpRetrievals: infos.mcpRetrievals.map((info) => ragMcpRetrievalFact(info, ragByName)),
+    resourceFeedsCorpora: infos.sources
+      .filter(
+        (info) =>
+          stringProp(info.node, 'kind') === 'mcp' &&
+          (mcpResourcesByName.get(stringProp(info.node, 'resource') ?? '')?.length ?? 0) === 1,
+      )
+      .map(ragResourceFeedFact),
     unresolvedCorpusRefs: sortedUnique([
       ...infos.chunking
         .map((info) => info.corpusName)
@@ -1357,6 +1477,12 @@ export function collectRagSemanticFacts(root: IRNode | readonly IRNode[]): RagSe
         .map((info) => info.sourceName)
         .filter((name): name is string => !!name),
     ),
+    unresolvedResourceRefs: sortedUnique(
+      infos.sources
+        .filter((info) => stringProp(info.node, 'kind') === 'mcp')
+        .map((info) => stringProp(info.node, 'resource'))
+        .filter((name): name is string => !!name && !mcpResourcesByName.has(name) && !mcpCallableNames.has(name)),
+    ),
   };
 }
 
@@ -1379,8 +1505,19 @@ function ragSourceFact(info: RagSourceInfo): RagSemanticSourceFact {
     ...optionalStringValue('corpusName', info.corpusName),
     ...optionalStringFact(info.node, 'kind', 'kind'),
     uri: stringProp(info.node, 'uri') ?? '',
+    ...optionalStringFact(info.node, 'resource', 'resourceName'),
     ...optionalStringFact(info.node, 'media', 'media'),
     ...optionalStringFact(info.node, 'acl', 'acl'),
+    ...(info.node.loc ? { loc: ragLocation(info.node) } : {}),
+  };
+}
+
+function ragResourceFeedFact(info: RagSourceInfo): RagSemanticResourceFeedFact {
+  return {
+    ...optionalStringValue('corpusName', info.corpusName),
+    ...optionalStringValue('sourceName', info.name),
+    resourceName: stringProp(info.node, 'resource') ?? '',
+    uri: stringProp(info.node, 'uri') ?? '',
     ...(info.node.loc ? { loc: ragLocation(info.node) } : {}),
   };
 }

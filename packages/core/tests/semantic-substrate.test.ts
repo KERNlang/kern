@@ -241,6 +241,7 @@ describe('KERN semantic substrate', () => {
       [
         'corpus name=Docs title="Support docs"',
         '  source name=manuals kind=local uri="./docs/**/*.md"',
+        '  source name=mcpManuals kind=mcp resource=DocsResource uri="mcp://DocsResource"',
         '  chunking source=manuals strategy=semantic maxTokens=600 overlap=80',
         'embed name=DocsEmbedding corpus=Docs model=text-embedding-3-small dims=1536 metric=cosine',
         'retriever name=DocsSearch corpus=Docs embed=DocsEmbedding mode=hybrid topK=8 minScore=0.72',
@@ -248,6 +249,7 @@ describe('KERN semantic substrate', () => {
         '  grounding requireCitations=true policy=strict maxContext=6000',
         '  ragEval metric=faithfulness threshold=0.85',
         'mcp name=Support',
+        '  resource name=DocsResource uri="docs://manuals"',
         '  tool name=answerQuestion',
         '    param name=question type=string required=true',
         '    retrieve rag=AnswerDocs queryParam=question as=context',
@@ -263,7 +265,10 @@ describe('KERN semantic substrate', () => {
     expect(substrate.ragFacts?.corpora).toEqual([
       expect.objectContaining({
         name: 'Docs',
-        sources: [expect.objectContaining({ name: 'manuals', uri: './docs/**/*.md' })],
+        sources: [
+          expect.objectContaining({ name: 'manuals', uri: './docs/**/*.md' }),
+          expect.objectContaining({ name: 'mcpManuals', resourceName: 'DocsResource', uri: 'mcp://DocsResource' }),
+        ],
         embeds: [expect.objectContaining({ name: 'DocsEmbedding', corpusName: 'Docs' })],
       }),
     ]);
@@ -294,6 +299,13 @@ describe('KERN semantic substrate', () => {
         queryParam: 'question',
         as: 'context',
         requireGrounding: true,
+      }),
+    ]);
+    expect(substrate.ragFacts?.resourceFeedsCorpora).toEqual([
+      expect.objectContaining({
+        corpusName: 'Docs',
+        sourceName: 'mcpManuals',
+        resourceName: 'DocsResource',
       }),
     ]);
 

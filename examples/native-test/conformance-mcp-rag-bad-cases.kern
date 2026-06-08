@@ -5,6 +5,8 @@ rag name=AnswerDocs retriever=DocsSearch citations=true
   grounding requireCitations=true
 
 mcp name=Support
+  resource name=DocsResource uri="docs://manuals"
+
   tool name=badTool
     param name=question type=string required=true
     retrieve rag=AnswerDocs retriever=MissingRetriever queryParam=missing query={{question}} topK=0 minScore=1.2 requireGrounding=false
@@ -12,5 +14,16 @@ mcp name=Support
 
   prompt name=badPrompt
     retrieve retriever=DocsSearch
+
+mcp name=OtherSupport
+  resource name=DocsResource uri="docs://other-manuals"
+
+corpus name=BadIngress
+  source name=missingResource kind=mcp uri="mcp://MissingResource"
+  source name=unknownResource kind=mcp resource=MissingResource uri="mcp://MissingResource"
+  source name=toolResource kind=mcp resource=badTool uri="mcp://badTool"
+  source name=promptResource kind=mcp resource=badPrompt uri="mcp://badPrompt"
+  source name=ambiguousResource kind=mcp resource=DocsResource uri="mcp://DocsResource"
+  source name=fileResource kind=local resource=DocsResource uri="./docs/**/*.md"
 
 retrieve rag=MissingRag

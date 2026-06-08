@@ -123,6 +123,40 @@ describe('RAG language semantics', () => {
     ]);
   });
 
+  test('accepts MCP resource-backed corpus sources as static ingress contracts', () => {
+    const source = [
+      'mcp name=Support',
+      '  resource name=DocsResource uri="docs://manuals"',
+      'corpus name=Docs',
+      '  source name=manuals kind=mcp resource=DocsResource uri="mcp://DocsResource" media=markdown',
+      '  chunking source=manuals strategy=semantic maxTokens=600 overlap=80',
+      'retriever name=DocsSearch corpus=Docs',
+    ].join('\n');
+
+    expect(validateSchema(parseRoot(source))).toEqual([]);
+    expect(validateSemantics(parseRoot(source))).toEqual([]);
+
+    const facts = collectRagSemanticFacts(parseRoot(source));
+    expect(facts.unresolvedResourceRefs).toEqual([]);
+    expect(facts.corpora[0]?.sources).toEqual([
+      expect.objectContaining({
+        name: 'manuals',
+        corpusName: 'Docs',
+        kind: 'mcp',
+        uri: 'mcp://DocsResource',
+        resourceName: 'DocsResource',
+      }),
+    ]);
+    expect(facts.resourceFeedsCorpora).toEqual([
+      expect.objectContaining({
+        corpusName: 'Docs',
+        sourceName: 'manuals',
+        resourceName: 'DocsResource',
+        uri: 'mcp://DocsResource',
+      }),
+    ]);
+  });
+
   test('accepts MCP tool and prompt retrieval intents against RAG contracts', () => {
     const source = [
       'corpus name=Docs',
@@ -280,6 +314,45 @@ describe('RAG language semantics', () => {
     const facts = collectRagSemanticFacts(parseRoot(source));
     expect(facts.unresolvedRetrieverRefs).toEqual(['AlsoMissing', 'MissingRetriever']);
     expect(facts.unresolvedRagRefs).toEqual(['MissingRag']);
+  });
+
+  test('reports invalid MCP resource-backed corpus source bindings', () => {
+    const source = [
+      'mcp name=Support',
+      '  tool name=DocsTool',
+      '  prompt name=DocsPrompt',
+      '  resource name=DocsResource uri="docs://manuals"',
+      '  resource name=UniqueResource uri="docs://unique"',
+      'mcp name=OtherSupport',
+      '  resource name=DocsResource uri="docs://other-manuals"',
+      'corpus name=Docs',
+      '  source name=missingResource kind=mcp uri="mcp://MissingResource"',
+      '  source name=unknownResource kind=mcp resource=MissingResource uri="mcp://MissingResource"',
+      '  source name=toolResource kind=mcp resource=DocsTool uri="mcp://DocsTool"',
+      '  source name=promptResource kind=mcp resource=DocsPrompt uri="mcp://DocsPrompt"',
+      '  source name=ambiguousMcp kind=mcp resource=DocsResource uri="mcp://DocsResource"',
+      '  source name=validMcp kind=mcp resource=UniqueResource uri="mcp://UniqueResource"',
+      '  source name=fileResource kind=local resource=DocsResource uri="./docs/**/*.md"',
+    ].join('\n');
+
+    expect(rulesFor(source)).toEqual(
+      expect.arrayContaining([
+        'rag-source-mcp-resource-required',
+        'rag-source-mcp-resource-unknown',
+        'rag-source-mcp-resource-kind',
+        'rag-source-mcp-resource-ambiguous',
+        'rag-source-resource-requires-mcp-kind',
+      ]),
+    );
+
+    const facts = collectRagSemanticFacts(parseRoot(source));
+    expect(facts.resourceFeedsCorpora).toEqual([
+      expect.objectContaining({
+        sourceName: 'validMcp',
+        resourceName: 'UniqueResource',
+      }),
+    ]);
+    expect(facts.unresolvedResourceRefs).toEqual(['MissingResource']);
   });
 
   test('reports MCP retrieval declarations without a target', () => {
