@@ -429,6 +429,21 @@ export {
 export { parsePortableNonNegativeIntLiteral, parsePortablePathSegments } from './portable-route-collection.js';
 export type { RagAssertionKind } from './rag-assertions.js';
 export { RAG_ASSERTION_KIND_SET, RAG_ASSERTION_KINDS } from './rag-assertions.js';
+export type {
+  InMemoryRagRetriever,
+  RagChunkInput,
+  RagCitation,
+  RetrievedChunk,
+  RetrieveOptions,
+  RetrieveResult,
+} from './rag-runtime.js';
+export {
+  createInMemoryRetriever,
+  InMemoryRagCorpus,
+  MAX_IN_MEMORY_RAG_TOP_K,
+  retrieveFromInMemoryCorpus,
+  tokenizeForRetrieval,
+} from './rag-runtime.js';
 export type { ParserHintsConfig } from './runtime.js';
 // Runtime (instance-based state)
 export { defaultRuntime, KernRuntime } from './runtime.js';
