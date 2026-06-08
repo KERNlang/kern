@@ -123,6 +123,74 @@ describe('RAG language semantics', () => {
     ]);
   });
 
+  test('accepts MCP tool and prompt retrieval intents against RAG contracts', () => {
+    const source = [
+      'corpus name=Docs',
+      '  source name=manuals uri="./docs/**/*.md"',
+      'embed name=DocsEmbedding corpus=Docs',
+      'retriever name=DocsSearch corpus=Docs embed=DocsEmbedding topK=8 minScore=0.72',
+      'rag name=AnswerDocs retriever=DocsSearch citations=true',
+      '  grounding requireCitations=true policy=strict',
+      'mcp name=Support',
+      '  tool name=answerQuestion',
+      '    param name=question type=string required=true',
+      '    retrieve rag=AnswerDocs queryParam=question as=context topK=4 minScore=0.8',
+      '  prompt name=summarizeDocs',
+      '    param name=question type=string required=true',
+      '    retrieve retriever=DocsSearch queryParam=question as=chunks requireGrounding=true',
+    ].join('\n');
+
+    expect(validateSchema(parseRoot(source))).toEqual([]);
+    expect(validateSemantics(parseRoot(source))).toEqual([]);
+  });
+
+  test('collects MCP retrieval intent facts from tools and prompts', () => {
+    const facts = collectRagSemanticFacts(
+      parseRoot(
+        [
+          'corpus name=Docs',
+          '  source name=manuals uri="./docs/**/*.md"',
+          'retriever name=DocsSearch corpus=Docs',
+          'rag name=AnswerDocs retriever=DocsSearch citations=true',
+          '  grounding requireCitations=true',
+          'mcp name=Support',
+          '  tool name=answerQuestion',
+          '    param name=question type=string required=true',
+          '    retrieve name=answerDocs rag=AnswerDocs queryParam=question as=context topK=4 minScore=0.8',
+          '  prompt name=summarizeDocs',
+          '    param name=question type=string required=true',
+          '    retrieve retriever=DocsSearch queryParam=question as=chunks requireGrounding=true',
+        ].join('\n'),
+      ),
+    );
+
+    expect(facts.unresolvedRetrieverRefs).toEqual([]);
+    expect(facts.unresolvedRagRefs).toEqual([]);
+    expect(facts.mcpRetrievals).toEqual([
+      expect.objectContaining({
+        containerKind: 'tool',
+        containerName: 'answerQuestion',
+        targetKind: 'rag',
+        targetName: 'AnswerDocs',
+        name: 'answerDocs',
+        queryParam: 'question',
+        as: 'context',
+        topK: 4,
+        minScore: 0.8,
+        requireGrounding: true,
+      }),
+      expect.objectContaining({
+        containerKind: 'prompt',
+        containerName: 'summarizeDocs',
+        targetKind: 'retriever',
+        targetName: 'DocsSearch',
+        queryParam: 'question',
+        as: 'chunks',
+        requireGrounding: true,
+      }),
+    ]);
+  });
+
   test('treats explicit false RAG booleans as false', () => {
     const root = parseRoot(
       [
@@ -178,6 +246,60 @@ describe('RAG language semantics', () => {
         'rag-eval-threshold-invalid',
       ]),
     );
+  });
+
+  test('reports invalid MCP retrieval bindings into RAG contracts', () => {
+    const source = [
+      'corpus name=Docs',
+      'retriever name=DocsSearch corpus=Docs',
+      'rag name=AnswerDocs retriever=DocsSearch citations=true',
+      '  grounding requireCitations=true',
+      'mcp name=Support',
+      '  tool name=badTool',
+      '    param name=question type=string required=true',
+      '    retrieve rag=AnswerDocs retriever=MissingRetriever queryParam=missing query={{question}} topK=0 minScore=1.2 requireGrounding=false',
+      '    retrieve retriever=AlsoMissing queryParam=question',
+      'retrieve rag=MissingRag',
+    ].join('\n');
+
+    expect(rulesFor(source)).toEqual(
+      expect.arrayContaining([
+        'mcp-retrieve-target-exclusive',
+        'mcp-retrieve-unknown-retriever',
+        'mcp-retrieve-query-param-unknown',
+        'mcp-retrieve-query-exclusive',
+        'mcp-retrieve-topk-invalid',
+        'mcp-retrieve-minscore-invalid',
+        'mcp-retrieve-citations-require-grounding',
+        'mcp-retrieve-duplicate',
+        'mcp-retrieve-missing-container',
+        'mcp-retrieve-unknown-rag',
+      ]),
+    );
+
+    const facts = collectRagSemanticFacts(parseRoot(source));
+    expect(facts.unresolvedRetrieverRefs).toEqual(['AlsoMissing', 'MissingRetriever']);
+    expect(facts.unresolvedRagRefs).toEqual(['MissingRag']);
+  });
+
+  test('reports MCP retrieval declarations without a target', () => {
+    expect(
+      rulesFor(['mcp name=Support', '  tool name=badTool', '    retrieve queryParam=question'].join('\n')),
+    ).toContain('mcp-retrieve-target-required');
+  });
+
+  test('reports MCP retrieval declarations without a query source', () => {
+    expect(
+      rulesFor(
+        [
+          'corpus name=Docs',
+          'retriever name=DocsSearch corpus=Docs',
+          'mcp name=Support',
+          '  tool name=badTool',
+          '    retrieve retriever=DocsSearch',
+        ].join('\n'),
+      ),
+    ).toContain('mcp-retrieve-query-required');
   });
 
   test('reports disconnected and duplicate RAG declarations', () => {

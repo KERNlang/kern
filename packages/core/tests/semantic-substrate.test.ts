@@ -247,6 +247,10 @@ describe('KERN semantic substrate', () => {
         'rag name=AnswerDocs retriever=DocsSearch citations=true',
         '  grounding requireCitations=true policy=strict maxContext=6000',
         '  ragEval metric=faithfulness threshold=0.85',
+        'mcp name=Support',
+        '  tool name=answerQuestion',
+        '    param name=question type=string required=true',
+        '    retrieve rag=AnswerDocs queryParam=question as=context',
       ].join('\n'),
     );
 
@@ -279,6 +283,17 @@ describe('KERN semantic substrate', () => {
         citations: true,
         groundings: [expect.objectContaining({ requireCitations: true, policy: 'strict' })],
         evals: [expect.objectContaining({ metric: 'faithfulness', threshold: 0.85 })],
+      }),
+    ]);
+    expect(substrate.ragFacts?.mcpRetrievals).toEqual([
+      expect.objectContaining({
+        containerKind: 'tool',
+        containerName: 'answerQuestion',
+        targetKind: 'rag',
+        targetName: 'AnswerDocs',
+        queryParam: 'question',
+        as: 'context',
+        requireGrounding: true,
       }),
     ]);
 

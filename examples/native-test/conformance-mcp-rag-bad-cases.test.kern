@@ -1,0 +1,13 @@
+test name="Bad MCP RAG conformance" target="./conformance-mcp-rag-bad-cases.kern" coverage=false
+  it name="mcp rag semantic assertions prove detector coverage"
+    expect has=semanticViolations matches="MCP retrieve cannot combine retriever=<name> and rag=<name>"
+    expect has=semanticViolations matches="MCP retrieve references unknown retriever 'MissingRetriever'"
+    expect has=semanticViolations matches="MCP retrieve queryParam 'missing' is not declared on tool 'badTool'"
+    expect has=semanticViolations matches="MCP retrieve cannot combine queryParam=<param> and query="
+    expect has=semanticViolations matches="MCP retrieve must declare queryParam=<param> or query="
+    expect has=semanticViolations matches="MCP retrieve topK must be a positive integer"
+    expect has=semanticViolations matches="MCP retrieve minScore must be between 0 and 1"
+    expect has=semanticViolations matches="MCP retrieve references citation-grounded rag 'AnswerDocs' but sets requireGrounding=false"
+    expect has=semanticViolations matches="MCP tool 'badTool' cannot declare more than one retrieve binding"
+    expect has=semanticViolations matches="MCP retrieve must be nested under a tool or prompt"
+    expect has=semanticViolations matches="MCP retrieve references unknown rag 'MissingRag'"

@@ -174,10 +174,26 @@ export interface RagSemanticPipelineFact {
   readonly loc?: RagSemanticLocation;
 }
 
+export interface RagSemanticMcpRetrievalFact {
+  readonly containerKind?: 'tool' | 'prompt';
+  readonly containerName?: string;
+  readonly targetKind: 'retriever' | 'rag';
+  readonly targetName: string;
+  readonly name?: string;
+  readonly queryParam?: string;
+  readonly query?: string;
+  readonly as?: string;
+  readonly topK?: number;
+  readonly minScore?: number;
+  readonly requireGrounding: boolean;
+  readonly loc?: RagSemanticLocation;
+}
+
 export interface RagSemanticFacts {
   readonly corpora: readonly RagSemanticCorpusFact[];
   readonly retrievers: readonly RagSemanticRetrieverFact[];
   readonly pipelines: readonly RagSemanticPipelineFact[];
+  readonly mcpRetrievals: readonly RagSemanticMcpRetrievalFact[];
   readonly unresolvedCorpusRefs: readonly string[];
   readonly unresolvedRetrieverRefs: readonly string[];
   readonly unresolvedEmbedRefs: readonly string[];
@@ -665,6 +681,20 @@ interface RagEvalInfo {
   ragName?: string;
 }
 
+interface RagMcpContainerInfo {
+  node: IRNode;
+  rootIndex: number;
+  kind: 'tool' | 'prompt';
+  name?: string;
+  paramNames: ReadonlySet<string>;
+}
+
+interface RagMcpRetrievalInfo {
+  node: IRNode;
+  rootIndex: number;
+  container?: RagMcpContainerInfo;
+}
+
 interface RagInfos {
   corpora: RagCorpusInfo[];
   sources: RagSourceInfo[];
@@ -674,6 +704,7 @@ interface RagInfos {
   pipelines: RagPipelineInfo[];
   groundings: RagGroundingInfo[];
   evals: RagEvalInfo[];
+  mcpRetrievals: RagMcpRetrievalInfo[];
 }
 
 function validateRagGraph(root: IRNode, violations: SemanticViolation[]): void {
@@ -690,7 +721,8 @@ function validateRagGraphRoots(roots: readonly IRNode[], violations: SemanticVio
     infos.retrievers.length === 0 &&
     infos.pipelines.length === 0 &&
     infos.groundings.length === 0 &&
-    infos.evals.length === 0
+    infos.evals.length === 0 &&
+    infos.mcpRetrievals.length === 0
   ) {
     return;
   }
@@ -725,6 +757,10 @@ function validateRagGraphRoots(roots: readonly IRNode[], violations: SemanticVio
   for (const evaluation of infos.evals) {
     validateRagEval(evaluation, ragByName, violations);
   }
+  validateRagMcpRetrievalDuplicates(infos.mcpRetrievals, violations);
+  for (const retrieval of infos.mcpRetrievals) {
+    validateRagMcpRetrieval(retrieval, retrieverByName, ragByName, violations);
+  }
 }
 
 function collectRagInfosForRoots(roots: readonly IRNode[]): RagInfos {
@@ -737,6 +773,7 @@ function collectRagInfosForRoots(roots: readonly IRNode[]): RagInfos {
     pipelines: [],
     groundings: [],
     evals: [],
+    mcpRetrievals: [],
   };
   for (const [rootIndex, root] of roots.entries()) {
     collectRagInfos(root, rootIndex, out);
@@ -745,9 +782,18 @@ function collectRagInfosForRoots(roots: readonly IRNode[]): RagInfos {
 }
 
 function collectRagInfos(root: IRNode, rootIndex: number, out: RagInfos): void {
-  function visit(node: IRNode, nearestCorpusName?: string, nearestRagName?: string): void {
+  function visit(
+    node: IRNode,
+    nearestCorpusName?: string,
+    nearestRagName?: string,
+    nearestMcpContainer?: RagMcpContainerInfo,
+  ): void {
     const nextCorpusName = node.type === 'corpus' ? stringProp(node, 'name') || nearestCorpusName : nearestCorpusName;
     const nextRagName = node.type === 'rag' ? stringProp(node, 'name') || nearestRagName : nearestRagName;
+    const nextMcpContainer =
+      node.type === 'tool' || node.type === 'prompt'
+        ? ragMcpContainerInfo(node, rootIndex, node.type === 'tool' ? 'tool' : 'prompt')
+        : nearestMcpContainer;
 
     if (node.type === 'corpus') {
       const name = stringProp(node, 'name');
@@ -780,11 +826,24 @@ function collectRagInfos(root: IRNode, rootIndex: number, out: RagInfos): void {
       out.groundings.push({ node, rootIndex, ragName: stringProp(node, 'rag') || nearestRagName });
     } else if (node.type === 'ragEval') {
       out.evals.push({ node, rootIndex, ragName: stringProp(node, 'rag') || nearestRagName });
+    } else if (node.type === 'retrieve') {
+      out.mcpRetrievals.push({ node, rootIndex, container: nearestMcpContainer });
     }
 
-    for (const child of node.children ?? []) visit(child, nextCorpusName, nextRagName);
+    for (const child of node.children ?? []) visit(child, nextCorpusName, nextRagName, nextMcpContainer);
   }
   visit(root);
+}
+
+function ragMcpContainerInfo(node: IRNode, rootIndex: number, kind: 'tool' | 'prompt'): RagMcpContainerInfo {
+  const name = stringProp(node, 'name');
+  const paramNames = new Set<string>();
+  for (const child of node.children ?? []) {
+    if (child.type !== 'param') continue;
+    const paramName = stringProp(child, 'name');
+    if (paramName) paramNames.add(paramName);
+  }
+  return { node, rootIndex, kind, ...optionalStringValue('name', name), paramNames };
 }
 
 function collectRagSourceNamesByCorpus(sources: readonly RagSourceInfo[]): Map<string, Set<string>> {
@@ -1112,6 +1171,139 @@ function validateRagEval(
   }
 }
 
+function validateRagMcpRetrievalDuplicates(
+  retrievals: readonly RagMcpRetrievalInfo[],
+  violations: SemanticViolation[],
+): void {
+  const seen = new Map<IRNode, IRNode>();
+  for (const retrieval of retrievals) {
+    const containerNode = retrieval.container?.node;
+    if (!containerNode) continue;
+    const prev = seen.get(containerNode);
+    if (prev) {
+      pushRagViolation(
+        violations,
+        'mcp-retrieve-duplicate',
+        retrieval.node,
+        `MCP ${retrieval.container?.kind} '${retrieval.container?.name ?? '<unnamed>'}' cannot declare more than one retrieve binding — first defined at line ${prev.loc?.line ?? '?'}.`,
+      );
+    } else {
+      seen.set(containerNode, retrieval.node);
+    }
+  }
+}
+
+function validateRagMcpRetrieval(
+  retrieval: RagMcpRetrievalInfo,
+  retrieverByName: ReadonlyMap<string, RagRetrieverInfo>,
+  ragByName: ReadonlyMap<string, RagPipelineInfo>,
+  violations: SemanticViolation[],
+): void {
+  if (!retrieval.container) {
+    pushRagViolation(
+      violations,
+      'mcp-retrieve-missing-container',
+      retrieval.node,
+      'MCP retrieve must be nested under a tool or prompt.',
+    );
+  }
+
+  const retrieverName = stringProp(retrieval.node, 'retriever');
+  const ragName = stringProp(retrieval.node, 'rag');
+  if (!retrieverName && !ragName) {
+    pushRagViolation(
+      violations,
+      'mcp-retrieve-target-required',
+      retrieval.node,
+      'MCP retrieve must declare retriever=<name> or rag=<name>.',
+    );
+  }
+  if (retrieverName && ragName) {
+    pushRagViolation(
+      violations,
+      'mcp-retrieve-target-exclusive',
+      retrieval.node,
+      'MCP retrieve cannot combine retriever=<name> and rag=<name>.',
+    );
+  }
+  if (retrieverName && !retrieverByName.has(retrieverName)) {
+    pushRagViolation(
+      violations,
+      'mcp-retrieve-unknown-retriever',
+      retrieval.node,
+      `MCP retrieve references unknown retriever '${retrieverName}'.`,
+    );
+  }
+  if (ragName && !ragByName.has(ragName)) {
+    pushRagViolation(
+      violations,
+      'mcp-retrieve-unknown-rag',
+      retrieval.node,
+      `MCP retrieve references unknown rag '${ragName}'.`,
+    );
+  }
+
+  const queryParam = stringProp(retrieval.node, 'queryParam');
+  const query = expressionPropText(retrieval.node.props?.query);
+  if (!queryParam && !query) {
+    pushRagViolation(
+      violations,
+      'mcp-retrieve-query-required',
+      retrieval.node,
+      'MCP retrieve must declare queryParam=<param> or query={{...}}.',
+    );
+  }
+  if (queryParam && query) {
+    pushRagViolation(
+      violations,
+      'mcp-retrieve-query-exclusive',
+      retrieval.node,
+      'MCP retrieve cannot combine queryParam=<param> and query={{...}}.',
+    );
+  }
+  if (queryParam && retrieval.container && !retrieval.container.paramNames.has(queryParam)) {
+    pushRagViolation(
+      violations,
+      'mcp-retrieve-query-param-unknown',
+      retrieval.node,
+      `MCP retrieve queryParam '${queryParam}' is not declared on ${retrieval.container.kind} '${retrieval.container.name ?? '<unnamed>'}'.`,
+    );
+  }
+
+  const topK = numberProp(retrieval.node, 'topK');
+  if (invalidNumberProp(retrieval.node, 'topK') || (topK !== undefined && (!Number.isInteger(topK) || topK <= 0))) {
+    pushRagViolation(
+      violations,
+      'mcp-retrieve-topk-invalid',
+      retrieval.node,
+      'MCP retrieve topK must be a positive integer.',
+    );
+  }
+
+  const minScore = numberProp(retrieval.node, 'minScore');
+  if (invalidNumberProp(retrieval.node, 'minScore') || (minScore !== undefined && (minScore < 0 || minScore > 1))) {
+    pushRagViolation(
+      violations,
+      'mcp-retrieve-minscore-invalid',
+      retrieval.node,
+      'MCP retrieve minScore must be between 0 and 1.',
+    );
+  }
+
+  if (ragName && ragBooleanPropIsFalse(retrieval.node, 'requireGrounding')) {
+    const pipeline = ragByName.get(ragName);
+    const requiresCitations = pipeline && ragBooleanProp(pipeline.node, 'citations');
+    if (requiresCitations) {
+      pushRagViolation(
+        violations,
+        'mcp-retrieve-citations-require-grounding',
+        retrieval.node,
+        `MCP retrieve references citation-grounded rag '${ragName}' but sets requireGrounding=false.`,
+      );
+    }
+  }
+}
+
 function pushRagViolation(violations: SemanticViolation[], rule: string, node: IRNode, message: string): void {
   violations.push({ rule, nodeType: node.type, message, line: node.loc?.line, col: node.loc?.col });
 }
@@ -1123,6 +1315,7 @@ export function collectRagSemanticFacts(root: IRNode | readonly IRNode[]): RagSe
   const embedNames = new Set(infos.embeds.map((info) => info.name));
   const retrieverNames = new Set(infos.retrievers.map((info) => info.name));
   const ragNames = new Set(infos.pipelines.map((info) => info.name));
+  const ragByName = new Map(infos.pipelines.map((info) => [info.name, info]));
   const sourceNamesByCorpus = collectRagSourceNamesByCorpus(infos.sources);
   const globalSourceNames = new Set(infos.sources.map((info) => info.name).filter((name): name is string => !!name));
 
@@ -1130,6 +1323,7 @@ export function collectRagSemanticFacts(root: IRNode | readonly IRNode[]): RagSe
     corpora: infos.corpora.map((info) => ragCorpusFact(info, infos)),
     retrievers: infos.retrievers.map(ragRetrieverFact),
     pipelines: infos.pipelines.map((info) => ragPipelineFact(info, infos.groundings, infos.evals)),
+    mcpRetrievals: infos.mcpRetrievals.map((info) => ragMcpRetrievalFact(info, ragByName)),
     unresolvedCorpusRefs: sortedUnique([
       ...infos.chunking
         .map((info) => info.corpusName)
@@ -1138,15 +1332,20 @@ export function collectRagSemanticFacts(root: IRNode | readonly IRNode[]): RagSe
       ...infos.retrievers.map((info) => info.corpusName).filter((name) => !corpusNames.has(name)),
     ]),
     unresolvedRetrieverRefs: sortedUnique(
-      infos.pipelines.map((info) => info.retrieverName).filter((name) => !retrieverNames.has(name)),
+      [
+        ...infos.pipelines.map((info) => info.retrieverName),
+        ...infos.mcpRetrievals.map((info) => stringProp(info.node, 'retriever')),
+      ].filter((name): name is string => !!name && !retrieverNames.has(name)),
     ),
     unresolvedEmbedRefs: sortedUnique(
       infos.retrievers.map((info) => info.embedName).filter((name): name is string => !!name && !embedNames.has(name)),
     ),
     unresolvedRagRefs: sortedUnique(
-      [...infos.groundings.map((info) => info.ragName), ...infos.evals.map((info) => info.ragName)].filter(
-        (name): name is string => !!name && !ragNames.has(name),
-      ),
+      [
+        ...infos.groundings.map((info) => info.ragName),
+        ...infos.evals.map((info) => info.ragName),
+        ...infos.mcpRetrievals.map((info) => stringProp(info.node, 'rag')),
+      ].filter((name): name is string => !!name && !ragNames.has(name)),
     ),
     unresolvedSourceRefs: sortedUnique(
       infos.chunking
@@ -1261,6 +1460,40 @@ function ragEvalFact(info: RagEvalInfo): RagSemanticEvalFact {
   };
 }
 
+function ragMcpRetrievalFact(
+  info: RagMcpRetrievalInfo,
+  ragByName: ReadonlyMap<string, RagPipelineInfo>,
+): RagSemanticMcpRetrievalFact {
+  const ragName = stringProp(info.node, 'rag');
+  const retrieverName = stringProp(info.node, 'retriever');
+  const targetKind = ragName ? 'rag' : 'retriever';
+  const targetName = ragName || retrieverName || '';
+  return {
+    ...(info.container ? { containerKind: info.container.kind, containerName: info.container.name ?? '' } : {}),
+    targetKind,
+    targetName,
+    ...optionalStringFact(info.node, 'name', 'name'),
+    ...optionalStringFact(info.node, 'queryParam', 'queryParam'),
+    ...optionalStringValue('query', expressionPropText(info.node.props?.query)),
+    ...optionalStringFact(info.node, 'as', 'as'),
+    ...optionalNumberFact(info.node, 'topK', 'topK'),
+    ...optionalNumberFact(info.node, 'minScore', 'minScore'),
+    requireGrounding: ragMcpRetrieveRequiresGrounding(info.node, ragName, ragByName),
+    ...(info.node.loc ? { loc: ragLocation(info.node) } : {}),
+  };
+}
+
+function ragMcpRetrieveRequiresGrounding(
+  node: IRNode,
+  ragName: string | undefined,
+  ragByName: ReadonlyMap<string, RagPipelineInfo>,
+): boolean {
+  if (ragBooleanPropIsFalse(node, 'requireGrounding')) return false;
+  if (ragBooleanProp(node, 'requireGrounding')) return true;
+  const pipeline = ragName ? ragByName.get(ragName) : undefined;
+  return pipeline ? ragBooleanProp(pipeline.node, 'citations') : false;
+}
+
 function ragLocation(node: IRNode): RagSemanticLocation | undefined {
   return node.loc ? { line: node.loc.line, col: node.loc.col } : undefined;
 }
@@ -1297,6 +1530,11 @@ function invalidNumberProp(node: IRNode, prop: string): boolean {
 function ragBooleanProp(node: IRNode, prop: string): boolean {
   const raw = node.props?.[prop];
   return raw === true || (typeof raw === 'string' && raw.trim().toLowerCase() === 'true');
+}
+
+function ragBooleanPropIsFalse(node: IRNode, prop: string): boolean {
+  const raw = node.props?.[prop];
+  return raw === false || (typeof raw === 'string' && raw.trim().toLowerCase() === 'false');
 }
 
 function sortedUnique(values: readonly string[]): string[] {

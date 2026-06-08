@@ -344,6 +344,7 @@ export const NODE_TYPES = [
   'description',
   'sampling',
   'elicitation',
+  'retrieve',
   // RAG — retrieval, grounding, and evaluation contracts
   'corpus',
   'source',

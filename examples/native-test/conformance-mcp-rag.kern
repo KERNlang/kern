@@ -1,0 +1,17 @@
+corpus name=Docs
+  source name=manuals uri="./docs/**/*.md"
+  chunking source=manuals strategy=semantic maxTokens=600 overlap=80
+
+retriever name=DocsSearch corpus=Docs mode=hybrid topK=8 minScore=0.72
+
+rag name=AnswerDocs retriever=DocsSearch citations=true
+  grounding requireCitations=true policy=strict
+
+mcp name=Support
+  tool name=answerQuestion
+    param name=question type=string required=true
+    retrieve rag=AnswerDocs queryParam=question as=context topK=4
+
+  prompt name=summarizeDocs
+    param name=question type=string required=true
+    retrieve retriever=DocsSearch queryParam=question as=chunks

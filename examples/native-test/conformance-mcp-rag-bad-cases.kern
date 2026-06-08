@@ -1,0 +1,16 @@
+corpus name=Docs
+retriever name=DocsSearch corpus=Docs
+
+rag name=AnswerDocs retriever=DocsSearch citations=true
+  grounding requireCitations=true
+
+mcp name=Support
+  tool name=badTool
+    param name=question type=string required=true
+    retrieve rag=AnswerDocs retriever=MissingRetriever queryParam=missing query={{question}} topK=0 minScore=1.2 requireGrounding=false
+    retrieve retriever=AlsoMissing queryParam=question
+
+  prompt name=badPrompt
+    retrieve retriever=DocsSearch
+
+retrieve rag=MissingRag

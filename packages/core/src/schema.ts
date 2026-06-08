@@ -2288,6 +2288,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'guard',
       'sampling',
       'elicitation',
+      'retrieve',
       'derive',
       'effect',
       'respond',
@@ -2355,7 +2356,24 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       name: { required: true, kind: 'identifier' },
     },
-    allowedChildren: ['param', 'handler', 'description'],
+    allowedChildren: ['param', 'handler', 'description', 'retrieve'],
+  },
+  retrieve: {
+    description:
+      'MCP retrieval intent — declaratively binds a tool or prompt to a RAG retriever or pipeline without executing provider retrieval in core.',
+    example: 'retrieve rag=AnswerDocs queryParam=question as=context requireGrounding=true topK=4',
+    props: {
+      name: { kind: 'identifier' },
+      retriever: { kind: 'identifier' },
+      rag: { kind: 'identifier' },
+      queryParam: { kind: 'identifier' },
+      query: { kind: 'expression' },
+      as: { kind: 'identifier' },
+      topK: { kind: 'number' },
+      minScore: { kind: 'number' },
+      requireGrounding: { kind: 'boolean' },
+    },
+    allowedChildren: [],
   },
   description: {
     description: 'Documentation text for a tool, resource, or prompt',
