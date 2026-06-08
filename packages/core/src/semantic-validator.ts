@@ -2319,8 +2319,8 @@ interface ClassMemberInfo {
 }
 
 const BUILTIN_CLASS_BASES = new Set(['Error']);
-const RAG_MCP_RETRIEVE_OUTPUT_SHAPE = 'RetrievedChunk[]';
-const RAG_MCP_RETRIEVE_OUTPUT_ITEM_SHAPE = 'RetrievedChunk';
+export const RAG_MCP_RETRIEVE_OUTPUT_SHAPE = 'RetrievedChunk[]';
+export const RAG_MCP_RETRIEVE_OUTPUT_ITEM_SHAPE = 'RetrievedChunk';
 const BODY_EXPRESSION_PROPS = [
   'value',
   'expr',

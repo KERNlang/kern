@@ -1,12 +1,15 @@
 import type { RagSemanticEvalFact } from '../src/index.js';
 import {
   createInMemoryRetriever,
+  createRagRuntimeProvenance,
   evaluateRagEvalContract,
   hashRetrievedChunkText,
   InMemoryRagCorpus,
   MAX_IN_MEMORY_RAG_TOP_K,
+  ragMcpRetrieveProvenanceMapping,
   retrieveFromInMemoryCorpus,
   tokenizeForRetrieval,
+  withRagRuntimeProvenance,
 } from '../src/index.js';
 
 describe('RAG in-memory runtime retrieval', () => {
@@ -379,6 +382,253 @@ describe('RAG eval runtime contracts', () => {
         expect.objectContaining({ kind: 'sourceEq', required: true, passed: false, code: 'ASSERTION_FAIL' }),
       ]),
     );
+  });
+});
+
+describe('RAG runtime provenance envelopes', () => {
+  test('creates deterministic provenance for retrieved chunks', () => {
+    const corpus = new InMemoryRagCorpus([
+      { id: 'refunds', text: 'refund policy', source: 'docs/refunds.md', citation: { uri: 'docs/refunds.md' } },
+      { id: 'shipping', text: 'refund shipping', source: 'docs/refunds.md', citation: { uri: 'docs/refunds.md' } },
+      { id: 'policy', text: 'refund terms', source: 'docs/policies.md', citation: { uri: 'docs/policies.md' } },
+    ]);
+    const result = retrieveFromInMemoryCorpus(corpus, 'refund', { topK: 3, minScore: 0.25 });
+    const firstChunk = result.chunks[0];
+    if (!firstChunk) throw new Error('missing provenance fixture chunk');
+
+    const provenance = createRagRuntimeProvenance(result, {
+      retrieverName: 'DocsSearch',
+      targetKind: 'rag',
+      targetName: 'AnswerDocs',
+      retrieveOptions: { minScore: 0.25, topK: 3 },
+      citationsRequired: true,
+      startedAtMs: 100,
+      durationMs: 7,
+    });
+    const sameProvenance = createRagRuntimeProvenance(result, {
+      targetName: 'AnswerDocs',
+      targetKind: 'rag',
+      retrieverName: 'DocsSearch',
+      retrieveOptions: { topK: 3, minScore: 0.25 },
+      citationsRequired: true,
+      startedAtMs: 999,
+      durationMs: 1,
+    });
+    const differentQuery = createRagRuntimeProvenance(
+      { query: 'shipping', chunks: result.chunks },
+      { retrieverName: 'DocsSearch', targetKind: 'rag', targetName: 'AnswerDocs' },
+    );
+    const differentSource = createRagRuntimeProvenance(
+      {
+        query: 'refund',
+        chunks: [
+          {
+            ...firstChunk,
+            id: 'mirror',
+            source: 'docs/mirror.md',
+            citation: { uri: 'docs/mirror.md' },
+          },
+        ],
+      },
+      {
+        retrieverName: 'DocsSearch',
+        targetKind: 'rag',
+        targetName: 'AnswerDocs',
+        retrieveOptions: { topK: 3, minScore: 0.25 },
+      },
+    );
+    const citationUriThenLocator = createRagRuntimeProvenance(
+      {
+        query: 'refund',
+        chunks: [
+          {
+            ...firstChunk,
+            citation: { uri: 'docs/refunds.md', locator: 'L1' },
+          },
+        ],
+      },
+      { retrieverName: 'DocsSearch', targetKind: 'rag', targetName: 'AnswerDocs' },
+    );
+    const citationLocatorThenUri = createRagRuntimeProvenance(
+      {
+        query: 'refund',
+        chunks: [
+          {
+            ...firstChunk,
+            citation: { locator: 'L1', uri: 'docs/refunds.md' },
+          },
+        ],
+      },
+      { retrieverName: 'DocsSearch', targetKind: 'rag', targetName: 'AnswerDocs' },
+    );
+
+    expect(provenance).toEqual(
+      expect.objectContaining({
+        retrieverName: 'DocsSearch',
+        targetKind: 'rag',
+        targetName: 'AnswerDocs',
+        query: 'refund',
+        retrieveOptions: { topK: 3, minScore: 0.25 },
+        citationsRequired: true,
+        startedAtMs: 100,
+        durationMs: 7,
+        chunkCount: 3,
+        sources: ['docs/policies.md', 'docs/refunds.md'],
+        contractStatus: 'success',
+      }),
+    );
+    expect(provenance.runId).toMatch(/^[a-f0-9]{32}$/);
+    expect(sameProvenance.runId).toBe(provenance.runId);
+    expect(differentQuery.runId).not.toBe(provenance.runId);
+    expect(differentSource.runId).not.toBe(provenance.runId);
+    expect(citationUriThenLocator.runId).toBe(citationLocatorThenUri.runId);
+    expect(provenance.chunkHashes).toHaveLength(result.chunks.length);
+    expect(JSON.parse(JSON.stringify(provenance))).toEqual(provenance);
+  });
+
+  test('records only retrieve options supplied for provenance', () => {
+    const result = {
+      query: 'refund',
+      chunks: [
+        {
+          id: 'refunds',
+          text: 'refund policy',
+          score: 0.9,
+          source: 'docs/refunds.md',
+          citation: { uri: 'docs/refunds.md' },
+        },
+      ],
+    };
+
+    expect(createRagRuntimeProvenance(result).retrieveOptions).toEqual({});
+    expect(createRagRuntimeProvenance(result, { retrieveOptions: { topK: 1 } }).retrieveOptions).toEqual({ topK: 1 });
+  });
+
+  test('wraps retrieval results with provenance without mutating chunks', () => {
+    const result = {
+      query: 'refund',
+      chunks: [
+        {
+          id: 'refunds',
+          text: 'refund policy',
+          score: 0.9,
+          source: 'docs/refunds.md',
+          citation: { uri: 'docs/refunds.md', locator: 'L1' },
+          metadata: { section: 'policy' },
+        },
+      ],
+    };
+
+    const wrapped = withRagRuntimeProvenance(result, {
+      retrieverName: 'DocsSearch',
+      targetKind: 'retriever',
+      targetName: 'DocsSearch',
+      retrieveOptions: { topK: 1 },
+    });
+    (wrapped.chunks[0]?.metadata as Record<string, unknown>).section = 'mutated';
+    (wrapped.chunks[0]?.citation as Record<string, unknown>).uri = 'mutated';
+
+    expect(result.chunks[0]?.metadata).toEqual({ section: 'policy' });
+    expect(result.chunks[0]?.citation).toEqual({ uri: 'docs/refunds.md', locator: 'L1' });
+    expect(wrapped.provenance).toEqual(
+      expect.objectContaining({
+        targetKind: 'retriever',
+        targetName: 'DocsSearch',
+        chunkCount: 1,
+        sources: ['docs/refunds.md'],
+      }),
+    );
+  });
+
+  test('validates malformed retrieval results before provenance creation', () => {
+    expect(() =>
+      createRagRuntimeProvenance({
+        query: 1 as unknown as string,
+        chunks: [],
+      }),
+    ).toThrow('query string');
+    expect(() =>
+      createRagRuntimeProvenance({
+        query: 'refund',
+        chunks: [
+          {
+            id: 'bad',
+            text: 'bad',
+            score: 1.5,
+            source: 'docs/bad.md',
+            citation: { uri: 'docs/bad.md' },
+          },
+        ],
+      }),
+    ).toThrow('score');
+    expect(() => createRagRuntimeProvenance({ query: 'refund', chunks: [] }, { retrieveOptions: { topK: 0 } })).toThrow(
+      'topK',
+    );
+    expect(() =>
+      createRagRuntimeProvenance(
+        { query: 'refund', chunks: [] },
+        { retrieveOptions: { topK: MAX_IN_MEMORY_RAG_TOP_K + 1 } },
+      ),
+    ).toThrow('topK');
+    expect(() =>
+      createRagRuntimeProvenance({ query: 'refund', chunks: [] }, { retrieveOptions: { minScore: Number.NaN } }),
+    ).toThrow('minScore');
+  });
+
+  test('maps MCP retrieve facts to provenance-compatible output contracts', () => {
+    expect(
+      ragMcpRetrieveProvenanceMapping({
+        targetKind: 'rag',
+        targetName: 'AnswerDocs',
+        outputShape: 'RetrievedChunk[]',
+        outputItemShape: 'RetrievedChunk',
+        citationField: 'citation',
+        sourceField: 'uri',
+        scoreField: 'score',
+        provenance: 'source',
+        requireGrounding: true,
+        effectiveRequiresCitations: true,
+        contractStatus: 'valid',
+      }),
+    ).toEqual({
+      outputShape: 'RetrievedChunk[]',
+      outputItemShape: 'RetrievedChunk',
+      citationField: 'citation',
+      sourceField: 'uri',
+      scoreField: 'score',
+      provenance: 'source',
+      citationsRequired: true,
+      contractStatus: 'valid',
+      compatible: true,
+    });
+    expect(
+      ragMcpRetrieveProvenanceMapping({
+        targetKind: 'retriever',
+        targetName: 'DocsSearch',
+        requireGrounding: false,
+        effectiveRequiresCitations: false,
+        contractStatus: 'absent',
+      }),
+    ).toEqual({ citationsRequired: false, contractStatus: 'absent', compatible: false });
+    expect(
+      ragMcpRetrieveProvenanceMapping({
+        targetKind: 'retriever',
+        targetName: 'DocsSearch',
+        outputShape: 'RetrievedChunk[]',
+        outputItemShape: 'OtherChunk',
+        requireGrounding: false,
+        effectiveRequiresCitations: false,
+        contractStatus: 'valid',
+      }),
+    ).toEqual({
+      outputShape: 'RetrievedChunk[]',
+      outputItemShape: 'OtherChunk',
+      citationsRequired: false,
+      contractStatus: 'valid',
+      compatible: false,
+    });
+    expect(() => ragMcpRetrieveProvenanceMapping(undefined)).toThrow('retrieval fact');
+    expect(() => ragMcpRetrieveProvenanceMapping(null)).toThrow('retrieval fact');
   });
 });
 

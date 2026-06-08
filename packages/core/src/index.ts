@@ -431,6 +431,7 @@ export type { RagAssertionKind } from './rag-assertions.js';
 export { RAG_ASSERTION_KIND_SET, RAG_ASSERTION_KINDS } from './rag-assertions.js';
 export type {
   InMemoryRagRetriever,
+  ProvenancedRetrieveResult,
   RagChunkInput,
   RagCitation,
   RagContractRetriever,
@@ -439,18 +440,25 @@ export type {
   RagEvalCaseResult,
   RagEvalContractOptions,
   RagEvalContractResult,
+  RagMcpRetrieveProvenanceMapping,
+  RagRuntimeProvenance,
+  RagRuntimeProvenanceOptions,
+  RagRuntimeProvenanceStatus,
   RetrievedChunk,
   RetrieveOptions,
   RetrieveResult,
 } from './rag-runtime.js';
 export {
   createInMemoryRetriever,
+  createRagRuntimeProvenance,
   evaluateRagEvalContract,
   hashRetrievedChunkText,
   InMemoryRagCorpus,
   MAX_IN_MEMORY_RAG_TOP_K,
+  ragMcpRetrieveProvenanceMapping,
   retrieveFromInMemoryCorpus,
   tokenizeForRetrieval,
+  withRagRuntimeProvenance,
 } from './rag-runtime.js';
 export type { ParserHintsConfig } from './runtime.js';
 // Runtime (instance-based state)
@@ -498,6 +506,7 @@ export type {
   RagSemanticFacts,
   RagSemanticGroundingFact,
   RagSemanticLocation,
+  RagSemanticMcpRetrievalFact,
   RagSemanticPipelineFact,
   RagSemanticRetrieverFact,
   RagSemanticSourceFact,
@@ -506,6 +515,8 @@ export type {
 export {
   collectClassSemanticFacts,
   collectRagSemanticFacts,
+  RAG_MCP_RETRIEVE_OUTPUT_ITEM_SHAPE,
+  RAG_MCP_RETRIEVE_OUTPUT_SHAPE,
   validateClassSemantics,
   validateRagSemantics,
   validateSemantics,

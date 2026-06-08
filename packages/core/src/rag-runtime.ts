@@ -1,4 +1,10 @@
-import type { RagSemanticEvalAssertFact, RagSemanticEvalCaseFact, RagSemanticEvalFact } from './semantic-validator.js';
+import type {
+  RagSemanticEvalAssertFact,
+  RagSemanticEvalCaseFact,
+  RagSemanticEvalFact,
+  RagSemanticMcpRetrievalFact,
+} from './semantic-validator.js';
+import { RAG_MCP_RETRIEVE_OUTPUT_ITEM_SHAPE, RAG_MCP_RETRIEVE_OUTPUT_SHAPE } from './semantic-validator.js';
 
 export interface RagCitation {
   readonly uri?: string;
@@ -29,13 +35,59 @@ export interface RetrieveOptions {
 
 export interface RetrieveResult {
   readonly query: string;
-  readonly chunks: RetrievedChunk[];
+  readonly chunks: readonly RetrievedChunk[];
 }
 
 export type InMemoryRagRetriever = (query: string, options?: RetrieveOptions) => RetrieveResult;
 export type RagContractRetriever = (query: string, options?: RetrieveOptions) => RetrieveResult;
 
 export const MAX_IN_MEMORY_RAG_TOP_K = 1000;
+
+export type RagRuntimeProvenanceStatus = 'success' | 'retriever_error' | 'eval_failed';
+
+export interface RagRuntimeProvenance {
+  readonly runId: string;
+  readonly retrieverName?: string;
+  readonly targetKind?: 'retriever' | 'rag';
+  readonly targetName?: string;
+  readonly query: string;
+  readonly retrieveOptions: RetrieveOptions;
+  readonly citationsRequired: boolean;
+  readonly startedAtMs: number;
+  readonly durationMs: number;
+  readonly chunkCount: number;
+  readonly chunkHashes: readonly string[];
+  readonly sources: readonly string[];
+  readonly contractStatus: RagRuntimeProvenanceStatus;
+}
+
+export interface RagRuntimeProvenanceOptions {
+  readonly runId?: string;
+  readonly retrieverName?: string;
+  readonly targetKind?: 'retriever' | 'rag';
+  readonly targetName?: string;
+  readonly retrieveOptions?: RetrieveOptions;
+  readonly citationsRequired?: boolean;
+  readonly startedAtMs?: number;
+  readonly durationMs?: number;
+  readonly contractStatus?: RagRuntimeProvenanceStatus;
+}
+
+export interface ProvenancedRetrieveResult extends RetrieveResult {
+  readonly provenance: RagRuntimeProvenance;
+}
+
+export interface RagMcpRetrieveProvenanceMapping {
+  readonly outputShape?: string;
+  readonly outputItemShape?: string;
+  readonly citationField?: string;
+  readonly sourceField?: string;
+  readonly scoreField?: string;
+  readonly provenance?: string;
+  readonly citationsRequired: boolean;
+  readonly contractStatus: RagSemanticMcpRetrievalFact['contractStatus'];
+  readonly compatible: boolean;
+}
 
 export type RagEvalAssertionCode =
   | 'PASS'
@@ -151,6 +203,87 @@ export function retrieveFromInMemoryCorpus(
   options: RetrieveOptions = {},
 ): RetrieveResult {
   return corpus.retrieve(query, options);
+}
+
+export function createRagRuntimeProvenance(
+  result: RetrieveResult,
+  options: RagRuntimeProvenanceOptions = {},
+): RagRuntimeProvenance {
+  const validResult = validateRetrieveResult(result);
+  const retrieveOptions = normalizeProvenanceRetrieveOptions(options.retrieveOptions);
+  const chunkHashes = validResult.chunks.map((chunk) => hashRetrievedChunkText(chunk.text));
+  const chunkProvenance = validResult.chunks.map((chunk, index) => ({
+    index,
+    id: chunk.id,
+    source: chunk.source,
+    score: chunk.score,
+    citation: { ...chunk.citation },
+    textHash: chunkHashes[index],
+  }));
+  const sources = uniqueOrdered(validResult.chunks.map((chunk) => chunk.source));
+  const startedAtMs = options.startedAtMs ?? Date.now();
+  const durationMs = options.durationMs ?? 0;
+  const contractStatus = options.contractStatus ?? 'success';
+  return {
+    runId:
+      options.runId ??
+      hashRetrievedChunkText(
+        stableStringify({
+          retrieverName: options.retrieverName,
+          targetKind: options.targetKind,
+          targetName: options.targetName,
+          query: validResult.query,
+          retrieveOptions,
+          citationsRequired: options.citationsRequired ?? false,
+          chunks: chunkProvenance,
+          contractStatus,
+        }),
+      ),
+    ...optionalStringValue('retrieverName', options.retrieverName),
+    ...(options.targetKind ? { targetKind: options.targetKind } : {}),
+    ...optionalStringValue('targetName', options.targetName),
+    query: validResult.query,
+    retrieveOptions,
+    citationsRequired: options.citationsRequired ?? false,
+    startedAtMs,
+    durationMs,
+    chunkCount: validResult.chunks.length,
+    chunkHashes,
+    sources,
+    contractStatus,
+  };
+}
+
+export function withRagRuntimeProvenance(
+  result: RetrieveResult,
+  options: RagRuntimeProvenanceOptions = {},
+): ProvenancedRetrieveResult {
+  const validResult = validateRetrieveResult(result);
+  return {
+    query: validResult.query,
+    chunks: validResult.chunks.map(cloneRetrievedChunk),
+    provenance: createRagRuntimeProvenance(validResult, options),
+  };
+}
+
+export function ragMcpRetrieveProvenanceMapping(
+  retrieval: RagSemanticMcpRetrievalFact | null | undefined,
+): RagMcpRetrieveProvenanceMapping {
+  if (!retrieval) throw new Error('KERN RAG MCP provenance mapping requires a retrieval fact.');
+  return {
+    ...optionalStringValue('outputShape', retrieval.outputShape),
+    ...optionalStringValue('outputItemShape', retrieval.outputItemShape),
+    ...optionalStringValue('citationField', retrieval.citationField),
+    ...optionalStringValue('sourceField', retrieval.sourceField),
+    ...optionalStringValue('scoreField', retrieval.scoreField),
+    ...optionalStringValue('provenance', retrieval.provenance),
+    citationsRequired: retrieval.effectiveRequiresCitations,
+    contractStatus: retrieval.contractStatus,
+    compatible:
+      retrieval.contractStatus === 'valid' &&
+      retrieval.outputShape === RAG_MCP_RETRIEVE_OUTPUT_SHAPE &&
+      (retrieval.outputItemShape === undefined || retrieval.outputItemShape === RAG_MCP_RETRIEVE_OUTPUT_ITEM_SHAPE),
+  };
 }
 
 export function evaluateRagEvalContract(
@@ -580,9 +713,92 @@ function optionalAssertionValue(key: 'expected' | 'actual', value: unknown): Rec
   return value === undefined ? {} : { [key]: value };
 }
 
+function normalizeProvenanceRetrieveOptions(options: RetrieveOptions | undefined): RetrieveOptions {
+  if (options === undefined) return {};
+  const out: { topK?: number; minScore?: number } = {};
+  if (options.topK !== undefined) {
+    if (!Number.isInteger(options.topK) || options.topK <= 0 || options.topK > MAX_IN_MEMORY_RAG_TOP_K) {
+      throw new Error(`KERN RAG runtime topK must be a positive integer up to ${MAX_IN_MEMORY_RAG_TOP_K}.`);
+    }
+    out.topK = options.topK;
+  }
+  if (options.minScore !== undefined) {
+    if (!Number.isFinite(options.minScore) || options.minScore < 0 || options.minScore > 1) {
+      throw new Error('KERN RAG runtime minScore must be between 0 and 1.');
+    }
+    out.minScore = options.minScore;
+  }
+  return out;
+}
+
+function uniqueOrdered(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    if (seen.has(value)) continue;
+    seen.add(value);
+    out.push(value);
+  }
+  return out;
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(stableJsonValue(value, new WeakSet<object>()));
+}
+
+function stableJsonValue(value: unknown, seen: WeakSet<object>): unknown {
+  if (typeof value === 'bigint') return value.toString();
+  if (typeof value === 'symbol') return value.description ?? value.toString();
+  if (typeof value === 'function') return `[Function:${value.name || 'anonymous'}]`;
+  if (value === null || typeof value !== 'object') return value;
+  if (seen.has(value)) return '[Circular]';
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) return value.map((item) => stableJsonValue(item, seen));
+    if (value instanceof Date) return value.toISOString();
+    if (value instanceof RegExp) return value.toString();
+    if (value instanceof Map) {
+      return Array.from(value.entries())
+        .map(([key, entry]) => [stableJsonValue(key, seen), stableJsonValue(entry, seen)] as const)
+        .sort(([left], [right]) => stableStringCompare(left, right));
+    }
+    if (value instanceof Set) {
+      return Array.from(value.values())
+        .map((entry) => stableJsonValue(entry, seen))
+        .sort(stableStringCompare);
+    }
+    if (isPlainMetadataObject(value)) {
+      const out: Record<string, unknown> = {};
+      for (const key of Object.keys(value).sort()) {
+        const entry = value[key];
+        if (entry !== undefined) out[key] = stableJsonValue(entry, seen);
+      }
+      return out;
+    }
+    return String(value);
+  } finally {
+    seen.delete(value);
+  }
+}
+
+function stableStringCompare(left: unknown, right: unknown): number {
+  const leftText = String(left);
+  const rightText = String(right);
+  return leftText < rightText ? -1 : leftText > rightText ? 1 : 0;
+}
+
 function validateRetrieveResult(result: RetrieveResult): RetrieveResult {
-  if (!result || !Array.isArray(result.chunks)) throw new Error('retriever result must include chunks array.');
+  if (!result || typeof result.query !== 'string' || !Array.isArray(result.chunks)) {
+    throw new Error('retriever result must include query string and chunks array.');
+  }
   for (const [index, chunk] of result.chunks.entries()) {
+    if (
+      chunk &&
+      typeof chunk.score === 'number' &&
+      (!Number.isFinite(chunk.score) || chunk.score < 0 || chunk.score > 1)
+    ) {
+      throw new Error(`retriever chunk at index ${index} score must be between 0 and 1.`);
+    }
     if (
       !chunk ||
       typeof chunk.id !== 'string' ||
@@ -635,6 +851,14 @@ function retrievedChunk(chunk: RagChunkInput, score: number): RetrievedChunk {
     score,
     source: chunk.source,
     citation: chunk.citation ? { ...chunk.citation } : { uri: chunk.source },
+    ...(chunk.metadata ? { metadata: cloneMetadata(chunk.metadata) } : {}),
+  };
+}
+
+function cloneRetrievedChunk(chunk: RetrievedChunk): RetrievedChunk {
+  return {
+    ...chunk,
+    citation: { ...chunk.citation },
     ...(chunk.metadata ? { metadata: cloneMetadata(chunk.metadata) } : {}),
   };
 }
