@@ -223,6 +223,7 @@ describe('semantic-validator — class object model', () => {
       [
         'class name=Entity',
         'class name=User extends=Entity',
+        '  field name=name type=string',
         '  constructor',
         '    param name=ready type=boolean',
         '    handler lang=kern',
@@ -300,6 +301,68 @@ describe('semantic-validator — class object model', () => {
     expect(rules).not.toContain('class-constructor-conditional-super');
     expect(rules).not.toContain('class-constructor-this-before-super');
     expect(rules).not.toContain('class-constructor-missing-super');
+  });
+
+  test('reports undeclared this and super class-shape member access', () => {
+    const rules = rulesFor(
+      [
+        'class name=Base',
+        '  field name=known type=number',
+        'class name=User extends=Base',
+        '  field name=own type=number',
+        '  method name=readMissing returns=number',
+        '    handler lang=kern',
+        '      return value="this.missing"',
+        '  method name=writeMissing returns=void',
+        '    handler lang=kern',
+        '      assign target="this.missing" value=1',
+        '  method name=readMissingSuper returns=number',
+        '    handler lang=kern',
+        '      return value="super.missing"',
+      ].join('\n'),
+    );
+
+    expect(rules.filter((rule) => rule === 'class-member-undeclared')).toHaveLength(3);
+  });
+
+  test('reports static and instance shape mismatches for this access', () => {
+    const rules = rulesFor(
+      [
+        'class name=Shape',
+        '  field name=instanceOnly type=number',
+        '  field name=staticOnly type=number static=true',
+        '  method name=badInstance returns=number',
+        '    handler lang=kern',
+        '      return value="this.staticOnly"',
+        '  method name=badStatic static=true returns=number',
+        '    handler lang=kern',
+        '      return value="this.instanceOnly"',
+      ].join('\n'),
+    );
+
+    expect(rules.filter((rule) => rule === 'class-member-undeclared')).toHaveLength(2);
+  });
+
+  test('reports non-readable and non-writable class-shape members', () => {
+    const rules = rulesFor(
+      [
+        'class name=Access',
+        '  setter name=writeOnly',
+        '    param name=value type=number',
+        '    handler lang=kern',
+        '      do value=value',
+        '  getter name=readOnly returns=number',
+        '    handler lang=kern',
+        '      return value=1',
+        '  method name=run returns=number',
+        '    handler lang=kern',
+        '      assign target="this.readOnly" value=2',
+        '      return value="this.writeOnly"',
+      ].join('\n'),
+    );
+
+    expect(rules).toContain('class-member-read-not-readable');
+    expect(rules).toContain('class-member-write-not-writable');
   });
 
   test('reports constructor this usage in conditions before super', () => {

@@ -803,20 +803,24 @@ function runtimeFieldInitializerExpr(node: IRNode): string {
 
 function evalInstanceMember(object: KernInstanceValue, property: string): KernValue {
   guardConstructedInstanceAccess(object);
-  if (Object.hasOwn(object.fields, property)) return object.fields[property] ?? kUndefined();
-  const getter = findClassMember(object.classValue, 'getter', property);
-  if (getter) return callClassMemberBody(getter.node, getter.owner, object, []).value;
-  const method = findClassMember(object.classValue, 'method', property);
-  if (method) {
-    return brandValue({
-      kind: 'bound-method',
-      name: `${object.classValue.name}.${property}`,
-      receiver: object,
-      methodNode: method.node,
-      ownerClass: method.owner,
-    });
+  const member = findReadableClassShapeMember(object.classValue, property, false);
+  if (!member) throw new Error(`KERN core runtime unknown instance property: ${object.classValue.name}.${property}.`);
+  switch (member.kind) {
+    case 'field':
+      return object.fields[property] ?? kUndefined();
+    case 'getter':
+      return callClassMemberBody(member.node, member.owner, object, []).value;
+    case 'method':
+      return brandValue({
+        kind: 'bound-method',
+        name: `${object.classValue.name}.${property}`,
+        receiver: object,
+        methodNode: member.node,
+        ownerClass: member.owner,
+      });
+    case 'setter':
+      throw new Error(`KERN core runtime cannot read setter-only property: ${property}.`);
   }
-  return kUndefined();
 }
 
 function evalSuperMember(object: KernSuperValue, property: string): KernValue {
@@ -824,20 +828,24 @@ function evalSuperMember(object: KernSuperValue, property: string): KernValue {
   if (!base) return kUndefined();
   if (object.receiver.kind === 'class') return evalClassMemberFrom(base, property, object.receiver);
   guardConstructedSuperAccess(object.receiver);
-  const getter = findClassMember(base, 'getter', property);
-  if (getter) return callClassMemberBody(getter.node, getter.owner, object.receiver, []).value;
-  const method = findClassMember(base, 'method', property);
-  if (method) {
-    return brandValue({
-      kind: 'bound-method',
-      name: `${base.name}.${property}`,
-      receiver: object.receiver,
-      methodNode: method.node,
-      ownerClass: method.owner,
-    });
+  const member = findReadableClassShapeMember(base, property, false);
+  if (!member) throw new Error(`KERN core runtime unknown super property: ${object.ownerClass.name}.${property}.`);
+  switch (member.kind) {
+    case 'field':
+      return object.receiver.fields[property] ?? kUndefined();
+    case 'getter':
+      return callClassMemberBody(member.node, member.owner, object.receiver, []).value;
+    case 'method':
+      return brandValue({
+        kind: 'bound-method',
+        name: `${base.name}.${property}`,
+        receiver: object.receiver,
+        methodNode: member.node,
+        ownerClass: member.owner,
+      });
+    case 'setter':
+      throw new Error(`KERN core runtime cannot read setter-only super property: ${property}.`);
   }
-  if (Object.hasOwn(object.receiver.fields, property)) return object.receiver.fields[property] ?? kUndefined();
-  return kUndefined();
 }
 
 function evalClassMember(object: KernClassValue, property: string): KernValue {
@@ -845,32 +853,42 @@ function evalClassMember(object: KernClassValue, property: string): KernValue {
 }
 
 function evalClassMemberFrom(owner: KernClassValue, property: string, receiver: KernClassValue): KernValue {
-  if (Object.hasOwn(owner.staticFields, property)) return owner.staticFields[property] ?? kUndefined();
-  const getter = findOwnClassMember(owner, 'getter', property, true);
-  if (getter) return callStaticClassMemberBody(getter.node, getter.owner, receiver, []).value;
-  const method = findOwnClassMember(owner, 'method', property, true);
-  if (method) {
-    return brandValue({
-      kind: 'builtin' as const,
-      name: `${receiver.name}.${property}`,
-      call: (args) => callStaticClassMemberBody(method.node, method.owner, receiver, args).value,
-    });
+  const member = findReadableClassShapeMember(owner, property, true);
+  if (!member) throw new Error(`KERN core runtime unknown static property: ${receiver.name}.${property}.`);
+  switch (member.kind) {
+    case 'field':
+      return member.owner === receiver
+        ? (receiver.staticFields[property] ?? kUndefined())
+        : evalClassStaticField(member.owner, receiver, property);
+    case 'getter':
+      return callStaticClassMemberBody(member.node, member.owner, receiver, []).value;
+    case 'method':
+      return brandValue({
+        kind: 'builtin' as const,
+        name: `${receiver.name}.${property}`,
+        call: (args) => callStaticClassMemberBody(member.node, member.owner, receiver, args).value,
+      });
+    case 'setter':
+      throw new Error(`KERN core runtime cannot read setter-only static property: ${property}.`);
   }
-  const base = resolveBaseClass(owner);
-  return base ? evalClassMemberFrom(base, property, receiver) : kUndefined();
 }
 
 function assignInstanceMember(object: KernInstanceValue, property: string, value: KernValue): void {
   guardConstructedInstanceAccess(object);
-  const setter = findClassMember(object.classValue, 'setter', property);
-  if (setter) {
-    callSetterBody(object, setter.node, setter.owner, property, value);
-    return;
+  const member = findWritableClassShapeMember(object.classValue, property, false);
+  if (!member) throw new Error(`KERN core runtime cannot assign undeclared instance property: ${property}.`);
+  switch (member.kind) {
+    case 'field':
+      object.fields[property] = value;
+      return;
+    case 'setter':
+      callSetterBody(object, member.node, member.owner, property, value);
+      return;
+    case 'getter':
+      throw new Error(`KERN core runtime cannot assign getter-only property: ${property}.`);
+    case 'method':
+      throw new Error(`KERN core runtime cannot assign method property: ${property}.`);
   }
-  if (findClassMember(object.classValue, 'getter', property)) {
-    throw new Error(`KERN core runtime cannot assign getter-only property: ${property}.`);
-  }
-  object.fields[property] = value;
 }
 
 function assignSuperMember(object: KernSuperValue, property: string, value: KernValue): void {
@@ -881,15 +899,20 @@ function assignSuperMember(object: KernSuperValue, property: string, value: Kern
     return;
   }
   guardConstructedSuperAccess(object.receiver);
-  const setter = findClassMember(base, 'setter', property);
-  if (setter) {
-    callSetterBody(object.receiver, setter.node, setter.owner, property, value);
-    return;
+  const member = findWritableClassShapeMember(base, property, false);
+  if (!member) throw new Error(`KERN core runtime cannot assign undeclared super property: ${property}.`);
+  switch (member.kind) {
+    case 'field':
+      object.receiver.fields[property] = value;
+      return;
+    case 'setter':
+      callSetterBody(object.receiver, member.node, member.owner, property, value);
+      return;
+    case 'getter':
+      throw new Error(`KERN core runtime cannot assign getter-only property: ${property}.`);
+    case 'method':
+      throw new Error(`KERN core runtime cannot assign method property: ${property}.`);
   }
-  if (findClassMember(base, 'getter', property)) {
-    throw new Error(`KERN core runtime cannot assign getter-only property: ${property}.`);
-  }
-  object.receiver.fields[property] = value;
 }
 
 function assignClassMember(object: KernClassValue, property: string, value: KernValue): void {
@@ -902,24 +925,20 @@ function assignClassMemberFrom(
   property: string,
   value: KernValue,
 ): void {
-  if (Object.hasOwn(owner.staticFields, property)) {
-    receiver.staticFields[property] = value;
-    return;
+  const member = findWritableClassShapeMember(owner, property, true);
+  if (!member) throw new Error(`KERN core runtime cannot assign undeclared static property: ${property}.`);
+  switch (member.kind) {
+    case 'field':
+      receiver.staticFields[property] = value;
+      return;
+    case 'setter':
+      callStaticSetterBody(receiver, member.node, member.owner, property, value);
+      return;
+    case 'getter':
+      throw new Error(`KERN core runtime cannot assign getter-only static property: ${property}.`);
+    case 'method':
+      throw new Error(`KERN core runtime cannot assign static method property: ${property}.`);
   }
-  const setter = findOwnClassMember(owner, 'setter', property, true);
-  if (setter) {
-    callStaticSetterBody(receiver, setter.node, setter.owner, property, value);
-    return;
-  }
-  if (findOwnClassMember(owner, 'getter', property, true)) {
-    throw new Error(`KERN core runtime cannot assign getter-only static property: ${property}.`);
-  }
-  const base = resolveBaseClass(owner);
-  if (base) {
-    assignClassMemberFrom(base, receiver, property, value);
-    return;
-  }
-  receiver.staticFields[property] = value;
 }
 
 function callSetterBody(
@@ -1114,20 +1133,74 @@ function findOwnClassMember(
   return undefined;
 }
 
-function findClassMember(
+type RuntimeClassShapeKind = 'field' | 'getter' | 'setter' | 'method';
+
+interface RuntimeClassShapeMember {
+  kind: RuntimeClassShapeKind;
+  node: IRNode;
+  owner: KernClassValue;
+}
+
+function findReadableClassShapeMember(
   klass: KernClassValue,
-  type: 'method' | 'getter' | 'setter',
   name: string,
-  staticOnly = false,
-): { node: IRNode; owner: KernClassValue } | undefined {
-  for (const child of klass.node.children ?? []) {
-    if (child.type !== type || child.props?.name !== name) continue;
-    const isStatic = child.props?.static === true || child.props?.static === 'true';
-    if (staticOnly !== isStatic) continue;
-    return { node: child, owner: klass };
+  staticOnly: boolean,
+): RuntimeClassShapeMember | undefined {
+  return findClassShapeMember(klass, name, staticOnly, ['field', 'getter', 'method', 'setter']);
+}
+
+function findWritableClassShapeMember(
+  klass: KernClassValue,
+  name: string,
+  staticOnly: boolean,
+): RuntimeClassShapeMember | undefined {
+  return findClassShapeMember(klass, name, staticOnly, ['field', 'setter', 'getter', 'method']);
+}
+
+function findClassShapeMember(
+  klass: KernClassValue,
+  name: string,
+  staticOnly: boolean,
+  precedence: readonly RuntimeClassShapeKind[],
+): RuntimeClassShapeMember | undefined {
+  for (const kind of precedence) {
+    const member =
+      kind === 'field'
+        ? findOwnClassField(klass, name, staticOnly)
+        : findOwnClassMethodShapeMember(klass, kind, name, staticOnly);
+    if (member) return member;
   }
   const base = resolveBaseClass(klass);
-  return base ? findClassMember(base, type, name, staticOnly) : undefined;
+  return base ? findClassShapeMember(base, name, staticOnly, precedence) : undefined;
+}
+
+function findOwnClassMethodShapeMember(
+  klass: KernClassValue,
+  kind: 'getter' | 'setter' | 'method',
+  name: string,
+  staticOnly: boolean,
+): RuntimeClassShapeMember | undefined {
+  const member = findOwnClassMember(klass, kind, name, staticOnly);
+  return member ? { kind, node: member.node, owner: member.owner } : undefined;
+}
+
+function findOwnClassField(
+  klass: KernClassValue,
+  name: string,
+  staticOnly: boolean,
+): RuntimeClassShapeMember | undefined {
+  for (const child of klass.node.children ?? []) {
+    if (child.type !== 'field' || child.props?.name !== name) continue;
+    const isStatic = child.props?.static === true || child.props?.static === 'true';
+    if (staticOnly !== isStatic) continue;
+    return { kind: 'field', node: child, owner: klass };
+  }
+  return undefined;
+}
+
+function evalClassStaticField(owner: KernClassValue, receiver: KernClassValue, property: string): KernValue {
+  if (Object.hasOwn(receiver.staticFields, property)) return receiver.staticFields[property] ?? kUndefined();
+  return owner.staticFields[property] ?? kUndefined();
 }
 
 function resolveBaseClass(klass: KernClassValue): KernClassValue | undefined {

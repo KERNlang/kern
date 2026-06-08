@@ -501,6 +501,7 @@ function validateClassGraph(root: IRNode, violations: SemanticViolation[]): void
 
   validateClassInheritanceCycles(classes, classByName, violations);
   validateClassOverrides(classes, classByName, violations);
+  validateClassShapeUsage(classes, classByName, violations);
 }
 
 function collectClassInfos(root: IRNode): ClassInfo[] {
@@ -886,6 +887,178 @@ function validateClassOverrides(
       }
     }
   }
+}
+
+type ClassShapeAccessKind = 'read' | 'write';
+
+function validateClassShapeUsage(
+  classes: readonly ClassInfo[],
+  classByName: ReadonlyMap<string, ClassInfo>,
+  violations: SemanticViolation[],
+): void {
+  for (const info of classes) {
+    for (const ctor of info.constructors) validateClassShapeNode(info, ctor, false, classByName, violations);
+    for (const member of info.members)
+      validateClassShapeNode(info, member.node, member.static, classByName, violations);
+  }
+}
+
+function validateClassShapeNode(
+  info: ClassInfo,
+  node: IRNode,
+  staticContext: boolean,
+  classByName: ReadonlyMap<string, ClassInfo>,
+  violations: SemanticViolation[],
+): void {
+  walkSemanticTreeUntil(node, (candidate) => {
+    if (candidate !== node && candidate.type === 'class') return 'stop';
+    if (candidate.type === 'assign') {
+      const target = expressionPropText(candidate.props?.target);
+      if (target && validateClassShapeTarget(info, candidate, target, staticContext, classByName, violations)) {
+        const value = expressionPropText(candidate.props?.value);
+        if (value) validateClassShapeExpression(info, candidate, value, staticContext, classByName, violations);
+        return 'continue';
+      }
+    }
+    for (const prop of BODY_EXPRESSION_PROPS) {
+      const text = expressionPropText(candidate.props?.[prop]);
+      if (!text) continue;
+      validateClassShapeExpression(info, candidate, text, staticContext, classByName, violations);
+    }
+    return 'continue';
+  });
+}
+
+function validateClassShapeTarget(
+  info: ClassInfo,
+  node: IRNode,
+  text: string,
+  staticContext: boolean,
+  classByName: ReadonlyMap<string, ClassInfo>,
+  violations: SemanticViolation[],
+): boolean {
+  try {
+    const value = parseExpression(text);
+    if (value.kind !== 'member') return false;
+    if (value.object.kind !== 'ident' || (value.object.name !== 'this' && value.object.name !== 'super')) return false;
+    validateClassShapeAccess(
+      info,
+      node,
+      value.object.name,
+      value.property,
+      'write',
+      staticContext,
+      classByName,
+      violations,
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function validateClassShapeExpression(
+  info: ClassInfo,
+  node: IRNode,
+  text: string,
+  staticContext: boolean,
+  classByName: ReadonlyMap<string, ClassInfo>,
+  violations: SemanticViolation[],
+): void {
+  try {
+    validateClassShapeValueIR(info, node, parseExpression(text), staticContext, classByName, violations);
+  } catch {
+    return;
+  }
+}
+
+function validateClassShapeValueIR(
+  info: ClassInfo,
+  node: IRNode,
+  value: ValueIR,
+  staticContext: boolean,
+  classByName: ReadonlyMap<string, ClassInfo>,
+  violations: SemanticViolation[],
+): void {
+  if (value.kind === 'member' && value.object.kind === 'ident') {
+    if (value.object.name === 'this' || value.object.name === 'super') {
+      validateClassShapeAccess(
+        info,
+        node,
+        value.object.name,
+        value.property,
+        'read',
+        staticContext,
+        classByName,
+        violations,
+      );
+    }
+  }
+  for (const child of valueIRChildren(value)) {
+    validateClassShapeValueIR(info, node, child, staticContext, classByName, violations);
+  }
+}
+
+function validateClassShapeAccess(
+  info: ClassInfo,
+  node: IRNode,
+  receiver: 'this' | 'super',
+  property: string,
+  accessKind: ClassShapeAccessKind,
+  staticContext: boolean,
+  classByName: ReadonlyMap<string, ClassInfo>,
+  violations: SemanticViolation[],
+): void {
+  const start = receiver === 'super' ? (info.baseName ? classByName.get(info.baseName) : undefined) : info;
+  if (!start) return;
+  const member = findClassShapeMember(start, property, staticContext, classByName, accessKind);
+  if (!member) {
+    violations.push({
+      rule: 'class-member-undeclared',
+      nodeType: node.type,
+      message: `Class '${info.name}' ${receiver}.${property} is not declared on the ${staticContext ? 'static' : 'instance'} class shape.`,
+      line: node.loc?.line,
+      col: node.loc?.col,
+    });
+    return;
+  }
+  if (accessKind === 'read' && member.kind === 'setter') {
+    violations.push({
+      rule: 'class-member-read-not-readable',
+      nodeType: node.type,
+      message: `Class '${info.name}' reads setter-only ${receiver}.${property}. Add a getter or read a declared field.`,
+      line: node.loc?.line,
+      col: node.loc?.col,
+    });
+  }
+  if (accessKind === 'write' && (member.kind === 'getter' || member.kind === 'method')) {
+    violations.push({
+      rule: 'class-member-write-not-writable',
+      nodeType: node.type,
+      message: `Class '${info.name}' writes non-writable ${receiver}.${property}. Declare a field or setter for writes.`,
+      line: node.loc?.line,
+      col: node.loc?.col,
+    });
+  }
+}
+
+function findClassShapeMember(
+  info: ClassInfo,
+  property: string,
+  staticContext: boolean,
+  classByName: ReadonlyMap<string, ClassInfo>,
+  accessKind: ClassShapeAccessKind,
+): ClassMemberInfo | undefined {
+  const precedence: readonly ClassMemberKind[] =
+    accessKind === 'read' ? ['field', 'getter', 'method', 'setter'] : ['field', 'setter', 'getter', 'method'];
+  for (const kind of precedence) {
+    const found = info.members.find(
+      (member) => member.name === property && member.static === staticContext && member.kind === kind,
+    );
+    if (found) return found;
+  }
+  const base = info.baseName ? classByName.get(info.baseName) : undefined;
+  return base ? findClassShapeMember(base, property, staticContext, classByName, accessKind) : undefined;
 }
 
 function normalizedCycleKey(cycleNames: readonly string[]): string {

@@ -772,6 +772,69 @@ describe('KERN core runtime statements', () => {
     expect(() => evalCoreExpression('setReadOnly()', env)).toThrow('cannot assign getter-only property: value');
   });
 
+  test('rejects undeclared instance and super property reads and writes', () => {
+    const root = parse(
+      [
+        'class name=Base',
+        '  field name=known type=number value={{ 1 }}',
+        'class name=Derived extends=Base',
+        '  method name=readMissingSuper returns=number',
+        '    handler',
+        '      return value="super.missing"',
+        '  method name=writeMissingSuper returns=number',
+        '    handler',
+        '      assign target="super.missing" value="2"',
+        '      return value="this.known"',
+        'fn name=readMissing returns=number',
+        '  handler',
+        '    let name=d value="new Derived()"',
+        '    return value="d.missing"',
+        'fn name=writeMissing returns=number',
+        '  handler',
+        '    let name=d value="new Derived()"',
+        '    assign target="d.missing" value="2"',
+        '    return value="d.known"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('readMissing()', env)).toThrow('unknown instance property');
+    expect(() => evalCoreExpression('writeMissing()', env)).toThrow('undeclared instance property');
+    expect(() => evalCoreExpression('new Derived().readMissingSuper()', env)).toThrow('unknown super property');
+    expect(() => evalCoreExpression('new Derived().writeMissingSuper()', env)).toThrow('undeclared super property');
+  });
+
+  test('rejects undeclared static property reads and writes', () => {
+    const root = parse(
+      [
+        'class name=Closed',
+        '  field name=known type=number static=true value={{ 1 }}',
+        'fn name=writeMissingStatic returns=number',
+        '  handler',
+        '    assign target="Closed.missing" value="2"',
+        '    return value="Closed.known"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('Closed.missing', env)).toThrow('unknown static property');
+    expect(() => evalCoreExpression('writeMissingStatic()', env)).toThrow('undeclared static property');
+  });
+
+  test('keeps records open while class instances are shape-checked', () => {
+    const result = runCoreRuntime(
+      handler([
+        { type: 'let', props: { name: 'r', value: '{ a: 1 }' } },
+        { type: 'assign', props: { target: 'r.b', value: '2' } },
+        { type: 'return', props: { value: 'r.b' } },
+      ]),
+    );
+
+    expect(toHostValue(result.completion.value)).toBe(2);
+  });
+
   test('rejects recursive setter assignment', () => {
     const root = parse(
       [
