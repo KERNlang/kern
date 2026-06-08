@@ -17,7 +17,10 @@
 
 import { collectExternalImportSymbols, type ExternalImportSymbolTable } from './external-symbols.js';
 import { importRegistryOf } from './import-metadata.js';
+import { parseExpression } from './parser-expression.js';
+import { splitPortableExpressionList } from './portable-expression-list.js';
 import type { IRNode } from './types.js';
+import type { ValueIR } from './value-ir.js';
 
 export interface SemanticViolation {
   rule: string;
@@ -33,6 +36,7 @@ export interface SemanticViolation {
  */
 export function validateSemantics(root: IRNode): SemanticViolation[] {
   const violations: SemanticViolation[] = [];
+  validateClassGraph(root, violations);
   validateNode(root, violations, [], []);
   return violations;
 }
@@ -436,6 +440,471 @@ function validateNode(
       validateNode(child, violations, nextAncestry, nextAncestorNodes);
     }
   }
+}
+
+type ClassMemberKind = 'field' | 'method' | 'getter' | 'setter';
+
+interface ClassInfo {
+  node: IRNode;
+  name: string;
+  baseName?: string;
+  members: ClassMemberInfo[];
+  constructors: IRNode[];
+}
+
+interface ClassMemberInfo {
+  node: IRNode;
+  name: string;
+  kind: ClassMemberKind;
+  static: boolean;
+  arity: number;
+}
+
+const BUILTIN_CLASS_BASES = new Set(['Error']);
+const BODY_EXPRESSION_PROPS = [
+  'value',
+  'expr',
+  'target',
+  'cond',
+  'on',
+  'in',
+  'from',
+  'to',
+  'initial',
+  'source',
+  'sources',
+  'cleanup',
+  'min',
+  'max',
+] as const;
+
+function validateClassGraph(root: IRNode, violations: SemanticViolation[]): void {
+  const classes = collectClassInfos(root);
+  if (classes.length === 0) return;
+
+  const classByName = new Map<string, ClassInfo>();
+  const visibleNames = collectVisibleClassBaseNames(root);
+  for (const info of classes) {
+    const prev = classByName.get(info.name);
+    if (!prev) {
+      classByName.set(info.name, info);
+    }
+    visibleNames.add(info.name);
+  }
+
+  for (const info of classes) {
+    validateClassBaseReference(info, visibleNames, violations);
+    validateClassConstructors(info, violations);
+    validateClassMemberConflicts(info, violations);
+    validateClassSuperUsage(info, violations);
+  }
+
+  validateClassInheritanceCycles(classes, classByName, violations);
+  validateClassOverrides(classes, classByName, violations);
+}
+
+function collectClassInfos(root: IRNode): ClassInfo[] {
+  const out: ClassInfo[] = [];
+  walkSemanticTree(root, (node) => {
+    if (node.type !== 'class') return;
+    const name = stringProp(node, 'name');
+    if (!name) return;
+    out.push({
+      node,
+      name,
+      baseName: classBaseName(node.props?.extends),
+      members: collectClassMembers(node),
+      constructors: (node.children ?? []).filter((child) => child.type === 'constructor'),
+    });
+  });
+  return out;
+}
+
+function collectClassMembers(node: IRNode): ClassMemberInfo[] {
+  const members: ClassMemberInfo[] = [];
+  for (const child of node.children ?? []) {
+    if (!isClassMemberNode(child)) continue;
+    const name = stringProp(child, 'name');
+    if (!name) continue;
+    members.push({
+      node: child,
+      name,
+      kind: child.type,
+      static: isTrueFlag(child.props?.static),
+      arity: memberArity(child),
+    });
+  }
+  return members;
+}
+
+function isClassMemberNode(node: IRNode): node is IRNode & { type: ClassMemberKind } {
+  return node.type === 'field' || node.type === 'method' || node.type === 'getter' || node.type === 'setter';
+}
+
+function validateClassBaseReference(
+  info: ClassInfo,
+  visibleNames: ReadonlySet<string>,
+  violations: SemanticViolation[],
+): void {
+  if (!info.baseName) return;
+  if (visibleNames.has(info.baseName) || BUILTIN_CLASS_BASES.has(info.baseName)) return;
+  violations.push({
+    rule: 'class-extends-unknown',
+    nodeType: 'class',
+    message: `Class '${info.name}' extends unknown base '${info.baseName}'. Declare or import the base class before extending it.`,
+    line: info.node.loc?.line,
+    col: info.node.loc?.col,
+  });
+}
+
+function validateClassConstructors(info: ClassInfo, violations: SemanticViolation[]): void {
+  if (info.constructors.length <= 1) return;
+  for (const extra of info.constructors.slice(1)) {
+    violations.push({
+      rule: 'class-single-constructor-only',
+      nodeType: 'constructor',
+      message: `Class '${info.name}' declares more than one constructor. KERN classes have exactly one construction path.`,
+      line: extra.loc?.line,
+      col: extra.loc?.col,
+    });
+  }
+}
+
+function validateClassMemberConflicts(info: ClassInfo, violations: SemanticViolation[]): void {
+  const seen = new Map<string, ClassMemberInfo[]>();
+  for (const member of info.members) {
+    const key = `${member.static ? 'static' : 'instance'}:${member.name}`;
+    const prev = seen.get(key) ?? [];
+    const next = [...prev, member];
+    if (isAllowedMemberGroup(next)) {
+      seen.set(key, next);
+      continue;
+    }
+    const first = prev[0] ?? member;
+    violations.push({
+      rule: 'class-member-conflict',
+      nodeType: member.node.type,
+      message: `Class '${info.name}' has conflicting ${member.static ? 'static' : 'instance'} member '${member.name}' (${first.kind} and ${member.kind}). Use one field/method/accessor surface per name.`,
+      line: member.node.loc?.line,
+      col: member.node.loc?.col,
+    });
+    seen.set(key, next);
+  }
+}
+
+function validateClassSuperUsage(info: ClassInfo, violations: SemanticViolation[]): void {
+  const hasBase = Boolean(info.baseName);
+  for (const ctor of info.constructors) {
+    const callsSuper = nodeBodyCallsSuperConstructor(ctor);
+    if (hasBase && !callsSuper) {
+      violations.push({
+        rule: 'class-constructor-missing-super',
+        nodeType: 'constructor',
+        message: `Class '${info.name}' extends '${info.baseName}' but its constructor does not call \`super(...)\`. Derived constructors must initialize the base class explicitly.`,
+        line: ctor.loc?.line,
+        col: ctor.loc?.col,
+      });
+    }
+    if (!hasBase && nodeBodyUsesSuper(ctor)) {
+      violations.push({
+        rule: 'class-super-without-base',
+        nodeType: 'constructor',
+        message: `Class '${info.name}' uses \`super\` but does not extend a base class.`,
+        line: ctor.loc?.line,
+        col: ctor.loc?.col,
+      });
+    }
+  }
+
+  if (!hasBase) {
+    for (const member of info.members) {
+      if (!nodeBodyUsesSuper(member.node)) continue;
+      violations.push({
+        rule: 'class-super-without-base',
+        nodeType: member.node.type,
+        message: `Class '${info.name}' member '${member.name}' uses \`super\` but the class does not extend a base class.`,
+        line: member.node.loc?.line,
+        col: member.node.loc?.col,
+      });
+    }
+  }
+}
+
+function validateClassInheritanceCycles(
+  classes: readonly ClassInfo[],
+  classByName: ReadonlyMap<string, ClassInfo>,
+  violations: SemanticViolation[],
+): void {
+  const emitted = new Set<string>();
+  for (const info of classes) {
+    const path: string[] = [];
+    const seen = new Set<string>();
+    let current: ClassInfo | undefined = info;
+    while (current) {
+      if (seen.has(current.name)) {
+        const cycleStart = path.indexOf(current.name);
+        const cycleNames = path.slice(cycleStart);
+        const cycleKey = normalizedCycleKey(cycleNames);
+        const cycle = [...cycleNames, current.name].join(' -> ');
+        if (!emitted.has(cycleKey)) {
+          emitted.add(cycleKey);
+          violations.push({
+            rule: 'class-inheritance-cycle',
+            nodeType: 'class',
+            message: `Class inheritance cycle detected: ${cycle}.`,
+            line: current.node.loc?.line,
+            col: current.node.loc?.col,
+          });
+        }
+        break;
+      }
+      seen.add(current.name);
+      path.push(current.name);
+      current = current.baseName ? classByName.get(current.baseName) : undefined;
+    }
+  }
+}
+
+function validateClassOverrides(
+  classes: readonly ClassInfo[],
+  classByName: ReadonlyMap<string, ClassInfo>,
+  violations: SemanticViolation[],
+): void {
+  for (const info of classes) {
+    for (const member of info.members) {
+      const baseMember = findBaseMember(info, member, classByName);
+      if (!baseMember) continue;
+      if (!sameOverrideKind(member, baseMember)) {
+        violations.push({
+          rule: 'class-override-kind-mismatch',
+          nodeType: member.node.type,
+          message: `Class '${info.name}' member '${member.name}' overrides base ${baseMember.kind} with ${member.kind}. Overrides must preserve field/method/accessor kind.`,
+          line: member.node.loc?.line,
+          col: member.node.loc?.col,
+        });
+        continue;
+      }
+      if (member.kind === 'method' && baseMember.kind === 'method' && member.arity !== baseMember.arity) {
+        violations.push({
+          rule: 'class-override-arity-mismatch',
+          nodeType: member.node.type,
+          message: `Class '${info.name}' method '${member.name}' overrides a base method with ${baseMember.arity} parameter(s), but declares ${member.arity}.`,
+          line: member.node.loc?.line,
+          col: member.node.loc?.col,
+        });
+      }
+    }
+  }
+}
+
+function normalizedCycleKey(cycleNames: readonly string[]): string {
+  if (cycleNames.length === 0) return '';
+  let best = cycleNames.join('\0');
+  for (let index = 1; index < cycleNames.length; index++) {
+    const rotated = [...cycleNames.slice(index), ...cycleNames.slice(0, index)].join('\0');
+    if (rotated < best) best = rotated;
+  }
+  return best;
+}
+
+function findBaseMember(
+  info: ClassInfo,
+  member: ClassMemberInfo,
+  classByName: ReadonlyMap<string, ClassInfo>,
+): ClassMemberInfo | undefined {
+  let current = info.baseName ? classByName.get(info.baseName) : undefined;
+  const visited = new Set<string>();
+  while (current) {
+    if (visited.has(current.name)) return undefined;
+    visited.add(current.name);
+    const found = current.members.find(
+      (candidate) => candidate.name === member.name && candidate.static === member.static,
+    );
+    if (found) return found;
+    current = current.baseName ? classByName.get(current.baseName) : undefined;
+  }
+  return undefined;
+}
+
+function sameOverrideKind(member: ClassMemberInfo, baseMember: ClassMemberInfo): boolean {
+  if (isAccessorPair(member, baseMember)) return true;
+  return member.kind === baseMember.kind;
+}
+
+function isAccessorPair(a: ClassMemberInfo, b: ClassMemberInfo): boolean {
+  return (a.kind === 'getter' && b.kind === 'setter') || (a.kind === 'setter' && b.kind === 'getter');
+}
+
+function isAllowedMemberGroup(members: readonly ClassMemberInfo[]): boolean {
+  if (members.length <= 1) return true;
+  if (members.length > 2) return false;
+  if (!members.every((member) => member.kind === 'getter' || member.kind === 'setter')) return false;
+  return isAccessorPair(members[0], members[1]);
+}
+
+function collectVisibleClassBaseNames(root: IRNode): Set<string> {
+  const names = new Set<string>(BUILTIN_CLASS_BASES);
+  walkSemanticTree(root, (node) => {
+    const name = stringProp(node, 'name');
+    if (name && isVisibleClassBaseDeclaration(node.type)) names.add(name);
+    if (node.type === 'import') {
+      for (const binding of importLocalBindings(node)) names.add(binding.name);
+    }
+    if (node.type === 'use') {
+      for (const child of node.children ?? []) {
+        if (child.type !== 'from') continue;
+        if (!isUseClassBaseBinding(child)) continue;
+        const localName = stringProp(child, 'as') ?? stringProp(child, 'name');
+        if (localName) names.add(localName);
+      }
+    }
+  });
+  return names;
+}
+
+function isVisibleClassBaseDeclaration(nodeType: string): boolean {
+  return nodeType === 'class' || nodeType === 'error';
+}
+
+function isUseClassBaseBinding(node: IRNode): boolean {
+  const kind = stringProp(node, 'kind');
+  return !kind || kind === 'class' || kind === 'error';
+}
+
+function memberArity(node: IRNode): number {
+  const childParams = node.children?.filter((child) => child.type === 'param').length ?? 0;
+  if (childParams > 0) return childParams;
+  const params = node.props?.params;
+  if (typeof params !== 'string' || !params.trim()) return 0;
+  try {
+    return splitPortableExpressionList(params, `${node.type} params=`).length;
+  } catch {
+    return 0;
+  }
+}
+
+function nodeBodyCallsSuperConstructor(node: IRNode): boolean {
+  return nodeBodyExpressions(node).some((expr) => {
+    try {
+      return valueIRCallsSuperConstructor(parseExpression(expr));
+    } catch {
+      return false;
+    }
+  });
+}
+
+function nodeBodyUsesSuper(node: IRNode): boolean {
+  return nodeBodyExpressions(node).some((expr) => {
+    try {
+      return valueIRUsesSuper(parseExpression(expr));
+    } catch {
+      return false;
+    }
+  });
+}
+
+function nodeBodyExpressions(node: IRNode): string[] {
+  const out: string[] = [];
+  walkSemanticTreeUntil(node, (candidate) => {
+    for (const prop of BODY_EXPRESSION_PROPS) {
+      const text = expressionPropText(candidate.props?.[prop]);
+      if (text) out.push(text);
+    }
+    return candidate !== node && candidate.type === 'class' ? 'stop' : 'continue';
+  });
+  return out;
+}
+
+function expressionPropText(value: unknown): string | undefined {
+  if (typeof value === 'string') return value;
+  if (isExpressionObject(value)) return value.code;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return undefined;
+}
+
+function valueIRCallsSuperConstructor(value: ValueIR): boolean {
+  if (value.kind === 'call' && value.callee.kind === 'ident' && value.callee.name === 'super') return true;
+  if (value.kind === 'lambda') return false;
+  return valueIRChildren(value).some(valueIRCallsSuperConstructor);
+}
+
+function valueIRUsesSuper(value: ValueIR): boolean {
+  if (value.kind === 'ident' && value.name === 'super') return true;
+  return valueIRChildren(value).some(valueIRUsesSuper);
+}
+
+function valueIRChildren(value: ValueIR): ValueIR[] {
+  switch (value.kind) {
+    case 'call':
+      return [value.callee, ...value.args];
+    case 'member':
+      return [value.object];
+    case 'index':
+      return [value.object, value.index];
+    case 'tmplLit':
+      return [...value.expressions];
+    case 'arrayLit':
+      return [...value.items];
+    case 'objectLit':
+      return value.entries.map((entry) => ('kind' in entry ? entry.argument : entry.value));
+    case 'unary':
+    case 'await':
+    case 'new':
+    case 'spread':
+    case 'propagate':
+      return [value.argument];
+    case 'typeAssert':
+    case 'nonNull':
+      return [value.expression];
+    case 'binary':
+      return [value.left, value.right];
+    case 'conditional':
+      return [value.test, value.consequent, value.alternate];
+    case 'lambda':
+      return [value.body];
+    case 'numLit':
+    case 'strLit':
+    case 'boolLit':
+    case 'nullLit':
+    case 'undefLit':
+    case 'regexLit':
+    case 'ident':
+      return [];
+  }
+  return [];
+}
+
+function classBaseName(value: unknown): string | undefined {
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  const match = /^([A-Za-z_$][\w$]*)/.exec(value.trim());
+  return match?.[1];
+}
+
+function stringProp(node: IRNode, prop: string): string | undefined;
+function stringProp(props: IRNode['props'] | undefined, prop: string): string | undefined;
+function stringProp(nodeOrProps: IRNode | IRNode['props'] | undefined, prop: string): string | undefined {
+  const props = nodeOrProps && 'type' in nodeOrProps ? nodeOrProps.props : nodeOrProps;
+  const value = props ? (props as Record<string, unknown>)[prop] : undefined;
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function walkSemanticTree(node: IRNode, visit: (node: IRNode) => void): void {
+  visit(node);
+  for (const child of node.children ?? []) walkSemanticTree(child, visit);
+}
+
+function walkSemanticTreeUntil(node: IRNode, visit: (node: IRNode) => 'continue' | 'stop'): void {
+  if (visit(node) === 'stop') return;
+  for (const child of node.children ?? []) walkSemanticTreeUntil(child, visit);
+}
+
+function isExpressionObject(value: unknown): value is { code: string } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { readonly __expr?: unknown }).__expr === true &&
+    typeof (value as { readonly code?: unknown }).code === 'string'
+  );
 }
 
 interface ExportBinding {
