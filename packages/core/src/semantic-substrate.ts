@@ -9,6 +9,13 @@ import {
 import { CORE_TYPE_CONTRACTS, type CoreOperationReturns, contractToGraphEdges } from './core-contracts/index.js';
 import type { NodeContract } from './ir/semantics/index.js';
 import { snapshotRegistry } from './ir/semantics/index.js';
+import {
+  type ClassSemanticFacts,
+  collectClassSemanticFacts,
+  type SemanticViolation,
+  validateClassSemantics,
+} from './semantic-validator.js';
+import type { IRNode } from './types.js';
 
 export type KernSemanticSubstrateSource = 'codegen-from-ts' | 'native-kern';
 export type KernSemanticSubstrateTarget = PortableLogicTarget;
@@ -64,6 +71,11 @@ export interface KernSemanticIrContract {
   readonly fixtureCount: number;
 }
 
+export interface KernSemanticValidationSummary {
+  readonly total: number;
+  readonly byRule: Readonly<Record<string, number>>;
+}
+
 export interface KernSemanticSubstrate {
   readonly schemaVersion: 1;
   readonly generatedBy: 'kern-semantic-substrate';
@@ -79,11 +91,15 @@ export interface KernSemanticSubstrate {
   readonly portablePrimitives: readonly KernSemanticPrimitive[];
   readonly stdlibOperations: readonly KernSemanticStdlibOperation[];
   readonly irContracts: readonly KernSemanticIrContract[];
+  readonly classFacts?: ClassSemanticFacts;
+  readonly classValidationSummary?: KernSemanticValidationSummary;
 }
 
 export interface BuildKernSemanticSubstrateOptions {
   readonly source?: KernSemanticSubstrateSource;
   readonly irContracts?: ReadonlyMap<string, NodeContract>;
+  readonly documentClasses?: IRNode | readonly IRNode[];
+  readonly includeClassValidationSummary?: boolean;
 }
 
 export function buildKernSemanticSubstrate(options: BuildKernSemanticSubstrateOptions = {}): KernSemanticSubstrate {
@@ -132,6 +148,10 @@ export function buildKernSemanticSubstrate(options: BuildKernSemanticSubstrateOp
           fixtureCount: contract.fixtureCount,
         }))
       : [],
+    ...(options.documentClasses ? { classFacts: collectClassSemanticFacts(options.documentClasses) } : {}),
+    ...(options.documentClasses && options.includeClassValidationSummary
+      ? { classValidationSummary: semanticValidationSummary(options.documentClasses) }
+      : {}),
   };
 }
 
@@ -210,6 +230,18 @@ function stdlibOperationSummaries(): KernSemanticStdlibOperation[] {
 
 function normalizeReturns(returns: CoreOperationReturns): readonly string[] {
   return typeof returns === 'string' ? [returns] : [...returns];
+}
+
+function semanticValidationSummary(root: IRNode | readonly IRNode[]): KernSemanticValidationSummary {
+  return summarizeSemanticViolations(validateClassSemantics(root));
+}
+
+function summarizeSemanticViolations(violations: readonly SemanticViolation[]): KernSemanticValidationSummary {
+  const byRule: Record<string, number> = {};
+  for (const violation of violations) {
+    byRule[violation.rule] = (byRule[violation.rule] ?? 0) + 1;
+  }
+  return { total: violations.length, byRule };
 }
 
 const KERN_PRIMITIVE_NAMES: Record<PortableLogicPrimitiveId, string> = {

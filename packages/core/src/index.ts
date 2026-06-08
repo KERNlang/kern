@@ -447,6 +447,7 @@ export type {
   KernSemanticSubstrateSource,
   KernSemanticSubstrateTarget,
   KernSemanticSupport,
+  KernSemanticValidationSummary,
 } from './semantic-substrate.js';
 export {
   buildKernSemanticSubstrate,
@@ -454,8 +455,18 @@ export {
   semanticPrimitiveSupportSummary,
 } from './semantic-substrate.js';
 // Semantic validation
-export type { SemanticViolation } from './semantic-validator.js';
-export { validateSemantics } from './semantic-validator.js';
+export type {
+  ClassSemanticClassFact,
+  ClassSemanticFacts,
+  ClassSemanticInheritanceEdge,
+  ClassSemanticLocation,
+  ClassSemanticMemberFact,
+  ClassSemanticMemberKind,
+  ClassSemanticOverrideFact,
+  ClassSemanticOverrideStatus,
+  SemanticViolation,
+} from './semantic-validator.js';
+export { collectClassSemanticFacts, validateClassSemantics, validateSemantics } from './semantic-validator.js';
 export type { ShadowAnalyzeOptions, ShadowDiagnostic } from './shadow-analyzer.js';
 export { analyzeShadow } from './shadow-analyzer.js';
 export type { SourceMapV3 } from './source-map.js';

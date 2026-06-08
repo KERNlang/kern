@@ -30,6 +30,65 @@ export interface SemanticViolation {
   col?: number;
 }
 
+export type ClassSemanticMemberKind = 'field' | 'method' | 'getter' | 'setter';
+
+export type ClassSemanticOverrideStatus = 'compatible' | 'kind-mismatch' | 'arity-mismatch';
+
+export interface ClassSemanticLocation {
+  readonly line: number;
+  readonly col: number;
+}
+
+export interface ClassSemanticMemberFact {
+  readonly className: string;
+  readonly owner: string;
+  readonly name: string;
+  readonly kind: ClassSemanticMemberKind;
+  readonly static: boolean;
+  readonly arity: number;
+  readonly readable: boolean;
+  readonly writable: boolean;
+  readonly loc?: ClassSemanticLocation;
+}
+
+export interface ClassSemanticClassFact {
+  readonly name: string;
+  readonly baseName?: string;
+  readonly hasConstructor: boolean;
+  readonly constructorCount: number;
+  readonly members: readonly ClassSemanticMemberFact[];
+  readonly loc?: ClassSemanticLocation;
+}
+
+export interface ClassSemanticInheritanceEdge {
+  readonly from: string;
+  readonly to: string;
+  readonly relation: 'extends';
+  readonly resolved: boolean;
+  readonly builtin: boolean;
+}
+
+export interface ClassSemanticOverrideFact {
+  readonly className: string;
+  readonly memberName: string;
+  readonly static: boolean;
+  readonly kind: ClassSemanticMemberKind;
+  readonly arity: number;
+  readonly baseClassName: string;
+  readonly baseKind: ClassSemanticMemberKind;
+  readonly baseArity: number;
+  readonly status: ClassSemanticOverrideStatus;
+  readonly loc?: ClassSemanticLocation;
+}
+
+export interface ClassSemanticFacts {
+  readonly classes: readonly ClassSemanticClassFact[];
+  readonly inheritanceEdges: readonly ClassSemanticInheritanceEdge[];
+  readonly overrides: readonly ClassSemanticOverrideFact[];
+  readonly unresolvedBases: readonly string[];
+  readonly cycles: readonly (readonly string[])[];
+}
+
 /**
  * Run semantic validation on an IR tree.
  * Returns an empty array when the tree is valid.
@@ -38,6 +97,12 @@ export function validateSemantics(root: IRNode): SemanticViolation[] {
   const violations: SemanticViolation[] = [];
   validateClassGraph(root, violations);
   validateNode(root, violations, [], []);
+  return violations;
+}
+
+export function validateClassSemantics(root: IRNode | readonly IRNode[]): SemanticViolation[] {
+  const violations: SemanticViolation[] = [];
+  validateClassGraphRoots(Array.isArray(root) ? root : [root], violations);
   return violations;
 }
 
@@ -446,6 +511,7 @@ type ClassMemberKind = 'field' | 'method' | 'getter' | 'setter';
 
 interface ClassInfo {
   node: IRNode;
+  rootIndex: number;
   name: string;
   baseName?: string;
   members: ClassMemberInfo[];
@@ -454,6 +520,7 @@ interface ClassInfo {
 
 interface ClassMemberInfo {
   node: IRNode;
+  owner: string;
   name: string;
   kind: ClassMemberKind;
   static: boolean;
@@ -479,21 +546,31 @@ const BODY_EXPRESSION_PROPS = [
 ] as const;
 
 function validateClassGraph(root: IRNode, violations: SemanticViolation[]): void {
-  const classes = collectClassInfos(root);
+  validateClassGraphRoots([root], violations);
+}
+
+function validateClassGraphRoots(roots: readonly IRNode[], violations: SemanticViolation[]): void {
+  const classesByRoot = roots.map((root, rootIndex) => collectClassInfos(root, rootIndex));
+  const classes = classesByRoot.flat();
   if (classes.length === 0) return;
 
   const classByName = new Map<string, ClassInfo>();
-  const visibleNames = collectVisibleClassBaseNames(root);
+  const declaredClassNames = new Set<string>();
   for (const info of classes) {
     const prev = classByName.get(info.name);
     if (!prev) {
       classByName.set(info.name, info);
     }
-    visibleNames.add(info.name);
+    declaredClassNames.add(info.name);
   }
+  const visibleNamesByRoot = roots.map((root) => {
+    const visibleNames = collectVisibleClassBaseNames(root);
+    for (const className of declaredClassNames) visibleNames.add(className);
+    return visibleNames;
+  });
 
   for (const info of classes) {
-    validateClassBaseReference(info, visibleNames, violations);
+    validateClassBaseReference(info, visibleNamesByRoot[info.rootIndex] ?? declaredClassNames, violations);
     validateClassConstructors(info, violations);
     validateClassMemberConflicts(info, violations);
     validateClassSuperUsage(info, violations);
@@ -504,7 +581,7 @@ function validateClassGraph(root: IRNode, violations: SemanticViolation[]): void
   validateClassShapeUsage(classes, classByName, violations);
 }
 
-function collectClassInfos(root: IRNode): ClassInfo[] {
+function collectClassInfos(root: IRNode, rootIndex = 0): ClassInfo[] {
   const out: ClassInfo[] = [];
   walkSemanticTree(root, (node) => {
     if (node.type !== 'class') return;
@@ -512,16 +589,17 @@ function collectClassInfos(root: IRNode): ClassInfo[] {
     if (!name) return;
     out.push({
       node,
+      rootIndex,
       name,
       baseName: classBaseName(node.props?.extends),
-      members: collectClassMembers(node),
+      members: collectClassMembers(node, name),
       constructors: (node.children ?? []).filter((child) => child.type === 'constructor'),
     });
   });
   return out;
 }
 
-function collectClassMembers(node: IRNode): ClassMemberInfo[] {
+function collectClassMembers(node: IRNode, owner: string): ClassMemberInfo[] {
   const members: ClassMemberInfo[] = [];
   for (const child of node.children ?? []) {
     if (!isClassMemberNode(child)) continue;
@@ -529,6 +607,7 @@ function collectClassMembers(node: IRNode): ClassMemberInfo[] {
     if (!name) continue;
     members.push({
       node: child,
+      owner,
       name,
       kind: child.type,
       static: isTrueFlag(child.props?.static),
@@ -536,6 +615,133 @@ function collectClassMembers(node: IRNode): ClassMemberInfo[] {
     });
   }
   return members;
+}
+
+export function collectClassSemanticFacts(root: IRNode | readonly IRNode[]): ClassSemanticFacts {
+  const roots = Array.isArray(root) ? root : [root];
+  const classes = roots.flatMap((candidate, rootIndex) => collectClassInfos(candidate, rootIndex));
+  const classByName = new Map<string, ClassInfo>();
+  for (const info of classes) {
+    if (!classByName.has(info.name)) classByName.set(info.name, info);
+  }
+  const visibleNamesByRoot = roots.map((candidate) => collectVisibleClassBaseNames(candidate));
+
+  const inheritanceEdges: ClassSemanticInheritanceEdge[] = [];
+  const unresolvedBases = new Set<string>();
+  for (const info of classes) {
+    if (!info.baseName) continue;
+    const resolved =
+      classByName.has(info.baseName) || (visibleNamesByRoot[info.rootIndex] ?? BUILTIN_CLASS_BASES).has(info.baseName);
+    const builtin = BUILTIN_CLASS_BASES.has(info.baseName);
+    inheritanceEdges.push({
+      from: info.name,
+      to: info.baseName,
+      relation: 'extends',
+      resolved,
+      builtin,
+    });
+    if (!resolved) unresolvedBases.add(info.baseName);
+  }
+
+  return {
+    classes: classes.map(classSemanticFact),
+    inheritanceEdges,
+    overrides: collectClassOverrideFacts(classes, classByName),
+    unresolvedBases: [...unresolvedBases].sort(),
+    cycles: collectClassCycleFacts(classes, classByName),
+  };
+}
+
+function classSemanticFact(info: ClassInfo): ClassSemanticClassFact {
+  return {
+    name: info.name,
+    ...(info.baseName ? { baseName: info.baseName } : {}),
+    hasConstructor: info.constructors.length > 0,
+    constructorCount: info.constructors.length,
+    members: info.members.map(classMemberSemanticFact),
+    ...(info.node.loc ? { loc: semanticLocation(info.node) } : {}),
+  };
+}
+
+function classMemberSemanticFact(member: ClassMemberInfo): ClassSemanticMemberFact {
+  return {
+    className: member.owner,
+    owner: member.owner,
+    name: member.name,
+    kind: member.kind,
+    static: member.static,
+    arity: member.arity,
+    readable: member.kind === 'field' || member.kind === 'getter' || member.kind === 'method',
+    writable: member.kind === 'field' || member.kind === 'setter',
+    ...(member.node.loc ? { loc: semanticLocation(member.node) } : {}),
+  };
+}
+
+function collectClassOverrideFacts(
+  classes: readonly ClassInfo[],
+  classByName: ReadonlyMap<string, ClassInfo>,
+): ClassSemanticOverrideFact[] {
+  const overrides: ClassSemanticOverrideFact[] = [];
+  for (const info of classes) {
+    for (const member of info.members) {
+      const baseMember = findBaseMember(info, member, classByName);
+      if (!baseMember) continue;
+      overrides.push({
+        className: info.name,
+        memberName: member.name,
+        static: member.static,
+        kind: member.kind,
+        arity: member.arity,
+        baseClassName: baseMember.owner,
+        baseKind: baseMember.kind,
+        baseArity: baseMember.arity,
+        status: classOverrideStatus(member, baseMember),
+        ...(member.node.loc ? { loc: semanticLocation(member.node) } : {}),
+      });
+    }
+  }
+  return overrides;
+}
+
+function classOverrideStatus(member: ClassMemberInfo, baseMember: ClassMemberInfo): ClassSemanticOverrideStatus {
+  if (!sameOverrideKind(member, baseMember)) return 'kind-mismatch';
+  if (member.kind === 'method' && baseMember.kind === 'method' && member.arity !== baseMember.arity) {
+    return 'arity-mismatch';
+  }
+  return 'compatible';
+}
+
+function collectClassCycleFacts(
+  classes: readonly ClassInfo[],
+  classByName: ReadonlyMap<string, ClassInfo>,
+): readonly (readonly string[])[] {
+  const cycles: string[][] = [];
+  const emitted = new Set<string>();
+  for (const info of classes) {
+    const path: string[] = [];
+    const seen = new Set<string>();
+    let current: ClassInfo | undefined = info;
+    while (current) {
+      if (seen.has(current.name)) {
+        const cycleStart = path.indexOf(current.name);
+        const cycleNames = path.slice(cycleStart);
+        const cycleKey = normalizedCycleKey(cycleNames);
+        if (!emitted.has(cycleKey)) {
+          emitted.add(cycleKey);
+          cycles.push([...cycleNames, current.name]);
+        }
+        break;
+      }
+      seen.add(current.name);
+      path.push(current.name);
+      current = current.baseName ? classByName.get(current.baseName) : undefined;
+    }
+  }
+  return cycles;
+}
+
+function semanticLocation(node: IRNode): ClassSemanticLocation | undefined {
+  return node.loc ? { line: node.loc.line, col: node.loc.col } : undefined;
 }
 
 function isClassMemberNode(node: IRNode): node is IRNode & { type: ClassMemberKind } {
