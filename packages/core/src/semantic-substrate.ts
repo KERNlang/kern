@@ -12,8 +12,11 @@ import { snapshotRegistry } from './ir/semantics/index.js';
 import {
   type ClassSemanticFacts,
   collectClassSemanticFacts,
+  collectRagSemanticFacts,
+  type RagSemanticFacts,
   type SemanticViolation,
   validateClassSemantics,
+  validateRagSemantics,
 } from './semantic-validator.js';
 import type { IRNode } from './types.js';
 
@@ -93,6 +96,8 @@ export interface KernSemanticSubstrate {
   readonly irContracts: readonly KernSemanticIrContract[];
   readonly classFacts?: ClassSemanticFacts;
   readonly classValidationSummary?: KernSemanticValidationSummary;
+  readonly ragFacts?: RagSemanticFacts;
+  readonly ragValidationSummary?: KernSemanticValidationSummary;
 }
 
 export interface BuildKernSemanticSubstrateOptions {
@@ -100,6 +105,8 @@ export interface BuildKernSemanticSubstrateOptions {
   readonly irContracts?: ReadonlyMap<string, NodeContract>;
   readonly documentClasses?: IRNode | readonly IRNode[];
   readonly includeClassValidationSummary?: boolean;
+  readonly documentRag?: IRNode | readonly IRNode[];
+  readonly includeRagValidationSummary?: boolean;
 }
 
 export function buildKernSemanticSubstrate(options: BuildKernSemanticSubstrateOptions = {}): KernSemanticSubstrate {
@@ -151,6 +158,10 @@ export function buildKernSemanticSubstrate(options: BuildKernSemanticSubstrateOp
     ...(options.documentClasses ? { classFacts: collectClassSemanticFacts(options.documentClasses) } : {}),
     ...(options.documentClasses && options.includeClassValidationSummary
       ? { classValidationSummary: semanticValidationSummary(options.documentClasses) }
+      : {}),
+    ...(options.documentRag ? { ragFacts: collectRagSemanticFacts(options.documentRag) } : {}),
+    ...(options.documentRag && options.includeRagValidationSummary
+      ? { ragValidationSummary: ragValidationSummary(options.documentRag) }
       : {}),
   };
 }
@@ -234,6 +245,10 @@ function normalizeReturns(returns: CoreOperationReturns): readonly string[] {
 
 function semanticValidationSummary(root: IRNode | readonly IRNode[]): KernSemanticValidationSummary {
   return summarizeSemanticViolations(validateClassSemantics(root));
+}
+
+function ragValidationSummary(root: IRNode | readonly IRNode[]): KernSemanticValidationSummary {
+  return summarizeSemanticViolations(validateRagSemantics(root));
 }
 
 function summarizeSemanticViolations(violations: readonly SemanticViolation[]): KernSemanticValidationSummary {

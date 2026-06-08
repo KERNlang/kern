@@ -2381,6 +2381,114 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
   },
 
+  // ── RAG (retrieval-augmented generation) contract nodes ─────────────
+
+  corpus: {
+    description:
+      'RAG corpus declaration — names a document collection and its source/chunking contract without binding to a provider runtime.',
+    example:
+      'corpus name=Docs title="Support docs"\n  source name=manuals kind=local uri="./docs/**/*.md"\n  chunking strategy=semantic maxTokens=600 overlap=80',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      title: { kind: 'string' },
+      tenant: { kind: 'identifier' },
+      refresh: { kind: 'string' },
+    },
+    allowedChildren: ['source', 'chunking'],
+  },
+  source: {
+    description: 'RAG corpus source — a raw document location such as local files, S3, HTTP, or an MCP resource.',
+    example: 'source name=manuals kind=local uri="./docs/**/*.md" media=markdown',
+    props: {
+      name: { kind: 'identifier' },
+      kind: { kind: 'identifier' },
+      uri: { required: true, kind: 'string' },
+      media: { kind: 'identifier' },
+      acl: { kind: 'identifier' },
+    },
+    allowedChildren: [],
+  },
+  chunking: {
+    description:
+      'RAG chunking policy — describes document segmentation. Named `chunking` to avoid colliding with the collection `chunk` primitive.',
+    example: 'chunking corpus=Docs source=manuals strategy=semantic maxTokens=600 overlap=80 unit=tokens',
+    props: {
+      name: { kind: 'identifier' },
+      corpus: { kind: 'identifier' },
+      source: { kind: 'identifier' },
+      strategy: { kind: 'identifier' },
+      maxTokens: { kind: 'number' },
+      overlap: { kind: 'number' },
+      unit: { kind: 'identifier' },
+    },
+    allowedChildren: [],
+  },
+  embed: {
+    description:
+      'RAG embedding contract — names the embedding model/dimension contract for a corpus. Provider execution is adapter-owned.',
+    example: 'embed name=DocsEmbedding corpus=Docs model=text-embedding-3-small dims=1536 metric=cosine',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      corpus: { required: true, kind: 'identifier' },
+      model: { kind: 'string' },
+      dims: { kind: 'number' },
+      metric: { kind: 'identifier' },
+    },
+    allowedChildren: [],
+  },
+  retriever: {
+    description:
+      'RAG retriever declaration — binds a corpus and optional embedding contract to search policy such as topK/minScore.',
+    example: 'retriever name=DocsSearch corpus=Docs embed=DocsEmbedding mode=hybrid topK=8 minScore=0.72',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      corpus: { required: true, kind: 'identifier' },
+      embed: { kind: 'identifier' },
+      mode: { kind: 'identifier' },
+      topK: { kind: 'number' },
+      minScore: { kind: 'number' },
+      rerank: { kind: 'string' },
+    },
+    allowedChildren: [],
+  },
+  rag: {
+    description:
+      'RAG pipeline declaration — connects a query/answer flow to a retriever and grounding/evaluation requirements.',
+    example:
+      'rag name=AnswerDocs retriever=DocsSearch prompt="./answer.md" citations=true\n  grounding requireCitations=true policy=strict\n  ragEval metric=faithfulness threshold=0.85',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      retriever: { required: true, kind: 'identifier' },
+      prompt: { kind: 'string' },
+      answer: { kind: 'string' },
+      citations: { kind: 'boolean' },
+    },
+    allowedChildren: ['grounding', 'ragEval'],
+  },
+  grounding: {
+    description: 'RAG grounding policy — declares citation and context constraints for a RAG pipeline.',
+    example: 'grounding rag=AnswerDocs requireCitations=true policy=strict maxContext=6000',
+    props: {
+      name: { kind: 'identifier' },
+      rag: { kind: 'identifier' },
+      requireCitations: { kind: 'boolean' },
+      policy: { kind: 'identifier' },
+      maxContext: { kind: 'number' },
+    },
+    allowedChildren: [],
+  },
+  ragEval: {
+    description: 'RAG evaluation contract — declares a metric threshold for a RAG pipeline.',
+    example: 'ragEval rag=AnswerDocs metric=faithfulness threshold=0.85',
+    props: {
+      name: { kind: 'identifier' },
+      rag: { kind: 'identifier' },
+      metric: { kind: 'identifier' },
+      threshold: { kind: 'number' },
+    },
+    allowedChildren: [],
+  },
+
   // ── React / UI element nodes ──────────────────────────────────────────
 
   screen: {

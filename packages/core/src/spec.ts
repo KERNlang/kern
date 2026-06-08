@@ -344,6 +344,15 @@ export const NODE_TYPES = [
   'description',
   'sampling',
   'elicitation',
+  // RAG — retrieval, grounding, and evaluation contracts
+  'corpus',
+  'source',
+  'chunking',
+  'embed',
+  'retriever',
+  'rag',
+  'grounding',
+  'ragEval',
   'expression-v1',
 ] as const;
 

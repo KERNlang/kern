@@ -464,9 +464,25 @@ export type {
   ClassSemanticMemberKind,
   ClassSemanticOverrideFact,
   ClassSemanticOverrideStatus,
+  RagSemanticChunkingFact,
+  RagSemanticCorpusFact,
+  RagSemanticEmbedFact,
+  RagSemanticEvalFact,
+  RagSemanticFacts,
+  RagSemanticGroundingFact,
+  RagSemanticLocation,
+  RagSemanticPipelineFact,
+  RagSemanticRetrieverFact,
+  RagSemanticSourceFact,
   SemanticViolation,
 } from './semantic-validator.js';
-export { collectClassSemanticFacts, validateClassSemantics, validateSemantics } from './semantic-validator.js';
+export {
+  collectClassSemanticFacts,
+  collectRagSemanticFacts,
+  validateClassSemantics,
+  validateRagSemantics,
+  validateSemantics,
+} from './semantic-validator.js';
 export type { ShadowAnalyzeOptions, ShadowDiagnostic } from './shadow-analyzer.js';
 export { analyzeShadow } from './shadow-analyzer.js';
 export type { SourceMapV3 } from './source-map.js';

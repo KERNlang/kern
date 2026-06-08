@@ -95,6 +95,49 @@ describe('Schema Validation', () => {
       expect(v).toHaveLength(0);
     });
 
+    it('passes valid RAG declarations and flags missing required graph props', () => {
+      const valid = validate(
+        [
+          'corpus name=Docs',
+          '  source name=manuals uri="./docs/**/*.md"',
+          '  chunking source=manuals strategy=semantic maxTokens=600 overlap=80',
+          'embed name=DocsEmbedding corpus=Docs',
+          'retriever name=DocsSearch corpus=Docs embed=DocsEmbedding topK=8 minScore=0.72',
+          'rag name=AnswerDocs retriever=DocsSearch',
+          '  grounding requireCitations=true maxContext=6000',
+          '  ragEval metric=faithfulness threshold=0.85',
+        ].join('\n'),
+      );
+      expect(valid).toHaveLength(0);
+
+      const missing = validate(
+        [
+          'corpus',
+          'source name=missingUri',
+          'embed name=NoCorpus',
+          'retriever name=NoCorpus',
+          'rag name=NoRetriever',
+        ].join('\n'),
+      );
+      expect(missing.some((violation) => violation.message.includes("'corpus' requires prop 'name'"))).toBe(true);
+      expect(missing.some((violation) => violation.message.includes("'source' requires prop 'uri'"))).toBe(true);
+      expect(missing.some((violation) => violation.message.includes("'embed' requires prop 'corpus'"))).toBe(true);
+      expect(missing.some((violation) => violation.message.includes("'retriever' requires prop 'corpus'"))).toBe(true);
+      expect(missing.some((violation) => violation.message.includes("'rag' requires prop 'retriever'"))).toBe(true);
+
+      const misplaced = validate(
+        ['retriever name=DocsSearch corpus=Docs', '  grounding requireCitations=true'].join('\n'),
+      );
+      expect(
+        misplaced.some((violation) => violation.message.includes("'retriever' does not allow child type 'grounding'")),
+      ).toBe(true);
+
+      const nestedEmbed = validate(['corpus name=Docs', '  embed name=DocsEmbedding corpus=Docs'].join('\n'));
+      expect(
+        nestedEmbed.some((violation) => violation.message.includes("'corpus' does not allow child type 'embed'")),
+      ).toBe(true);
+    });
+
     it('passes explicit foreign handler metadata', () => {
       const v = validate(
         [

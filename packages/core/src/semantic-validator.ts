@@ -89,6 +89,102 @@ export interface ClassSemanticFacts {
   readonly cycles: readonly (readonly string[])[];
 }
 
+export interface RagSemanticLocation {
+  readonly line: number;
+  readonly col: number;
+}
+
+export interface RagSemanticSourceFact {
+  readonly name?: string;
+  readonly corpusName?: string;
+  readonly kind?: string;
+  readonly uri: string;
+  readonly media?: string;
+  readonly acl?: string;
+  readonly loc?: RagSemanticLocation;
+}
+
+export interface RagSemanticChunkingFact {
+  readonly name?: string;
+  readonly corpusName?: string;
+  readonly sourceName?: string;
+  readonly strategy?: string;
+  readonly maxTokens?: number;
+  readonly overlap?: number;
+  readonly unit?: string;
+  readonly loc?: RagSemanticLocation;
+}
+
+export interface RagSemanticEmbedFact {
+  readonly name: string;
+  readonly corpusName: string;
+  readonly model?: string;
+  readonly dims?: number;
+  readonly metric?: string;
+  readonly loc?: RagSemanticLocation;
+}
+
+export interface RagSemanticCorpusFact {
+  readonly name: string;
+  readonly title?: string;
+  readonly tenant?: string;
+  readonly refresh?: string;
+  readonly sources: readonly RagSemanticSourceFact[];
+  readonly chunking: readonly RagSemanticChunkingFact[];
+  readonly embeds: readonly RagSemanticEmbedFact[];
+  readonly loc?: RagSemanticLocation;
+}
+
+export interface RagSemanticRetrieverFact {
+  readonly name: string;
+  readonly corpusName: string;
+  readonly embedName?: string;
+  readonly mode?: string;
+  readonly topK?: number;
+  readonly minScore?: number;
+  readonly rerank?: string;
+  readonly loc?: RagSemanticLocation;
+}
+
+export interface RagSemanticGroundingFact {
+  readonly name?: string;
+  readonly ragName?: string;
+  readonly requireCitations: boolean;
+  readonly policy?: string;
+  readonly maxContext?: number;
+  readonly loc?: RagSemanticLocation;
+}
+
+export interface RagSemanticEvalFact {
+  readonly name?: string;
+  readonly ragName?: string;
+  readonly metric?: string;
+  readonly threshold?: number;
+  readonly loc?: RagSemanticLocation;
+}
+
+export interface RagSemanticPipelineFact {
+  readonly name: string;
+  readonly retrieverName: string;
+  readonly prompt?: string;
+  readonly answer?: string;
+  readonly citations: boolean;
+  readonly groundings: readonly RagSemanticGroundingFact[];
+  readonly evals: readonly RagSemanticEvalFact[];
+  readonly loc?: RagSemanticLocation;
+}
+
+export interface RagSemanticFacts {
+  readonly corpora: readonly RagSemanticCorpusFact[];
+  readonly retrievers: readonly RagSemanticRetrieverFact[];
+  readonly pipelines: readonly RagSemanticPipelineFact[];
+  readonly unresolvedCorpusRefs: readonly string[];
+  readonly unresolvedRetrieverRefs: readonly string[];
+  readonly unresolvedEmbedRefs: readonly string[];
+  readonly unresolvedRagRefs: readonly string[];
+  readonly unresolvedSourceRefs: readonly string[];
+}
+
 /**
  * Run semantic validation on an IR tree.
  * Returns an empty array when the tree is valid.
@@ -96,6 +192,7 @@ export interface ClassSemanticFacts {
 export function validateSemantics(root: IRNode): SemanticViolation[] {
   const violations: SemanticViolation[] = [];
   validateClassGraph(root, violations);
+  validateRagGraph(root, violations);
   validateNode(root, violations, [], []);
   return violations;
 }
@@ -103,6 +200,12 @@ export function validateSemantics(root: IRNode): SemanticViolation[] {
 export function validateClassSemantics(root: IRNode | readonly IRNode[]): SemanticViolation[] {
   const violations: SemanticViolation[] = [];
   validateClassGraphRoots(Array.isArray(root) ? root : [root], violations);
+  return violations;
+}
+
+export function validateRagSemantics(root: IRNode | readonly IRNode[]): SemanticViolation[] {
+  const violations: SemanticViolation[] = [];
+  validateRagGraphRoots(Array.isArray(root) ? root : [root], violations);
   return violations;
 }
 
@@ -505,6 +608,699 @@ function validateNode(
       validateNode(child, violations, nextAncestry, nextAncestorNodes);
     }
   }
+}
+
+interface RagCorpusInfo {
+  node: IRNode;
+  rootIndex: number;
+  name: string;
+}
+
+interface RagSourceInfo {
+  node: IRNode;
+  rootIndex: number;
+  name?: string;
+  corpusName?: string;
+}
+
+interface RagChunkingInfo {
+  node: IRNode;
+  rootIndex: number;
+  name?: string;
+  corpusName?: string;
+  sourceName?: string;
+}
+
+interface RagEmbedInfo {
+  node: IRNode;
+  rootIndex: number;
+  name: string;
+  corpusName: string;
+}
+
+interface RagRetrieverInfo {
+  node: IRNode;
+  rootIndex: number;
+  name: string;
+  corpusName: string;
+  embedName?: string;
+}
+
+interface RagPipelineInfo {
+  node: IRNode;
+  rootIndex: number;
+  name: string;
+  retrieverName: string;
+}
+
+interface RagGroundingInfo {
+  node: IRNode;
+  rootIndex: number;
+  ragName?: string;
+}
+
+interface RagEvalInfo {
+  node: IRNode;
+  rootIndex: number;
+  ragName?: string;
+}
+
+interface RagInfos {
+  corpora: RagCorpusInfo[];
+  sources: RagSourceInfo[];
+  chunking: RagChunkingInfo[];
+  embeds: RagEmbedInfo[];
+  retrievers: RagRetrieverInfo[];
+  pipelines: RagPipelineInfo[];
+  groundings: RagGroundingInfo[];
+  evals: RagEvalInfo[];
+}
+
+function validateRagGraph(root: IRNode, violations: SemanticViolation[]): void {
+  validateRagGraphRoots([root], violations);
+}
+
+function validateRagGraphRoots(roots: readonly IRNode[], violations: SemanticViolation[]): void {
+  const infos = collectRagInfosForRoots(roots);
+  if (
+    infos.corpora.length === 0 &&
+    infos.sources.length === 0 &&
+    infos.chunking.length === 0 &&
+    infos.embeds.length === 0 &&
+    infos.retrievers.length === 0 &&
+    infos.pipelines.length === 0 &&
+    infos.groundings.length === 0 &&
+    infos.evals.length === 0
+  ) {
+    return;
+  }
+
+  const corpusByName = new Map(infos.corpora.map((info) => [info.name, info]));
+  const embedByName = new Map(infos.embeds.map((info) => [info.name, info]));
+  const retrieverByName = new Map(infos.retrievers.map((info) => [info.name, info]));
+  const ragByName = new Map(infos.pipelines.map((info) => [info.name, info]));
+  const sourceNamesByCorpus = collectRagSourceNamesByCorpus(infos.sources);
+  const globalSourceNames = new Set(infos.sources.map((info) => info.name).filter((name): name is string => !!name));
+
+  validateRagUniqueNames(infos, violations);
+
+  for (const source of infos.sources) {
+    validateRagSource(source, violations);
+  }
+  for (const chunking of infos.chunking) {
+    validateRagChunking(chunking, corpusByName, sourceNamesByCorpus, globalSourceNames, violations);
+  }
+  for (const embed of infos.embeds) {
+    validateRagEmbed(embed, corpusByName, violations);
+  }
+  for (const retriever of infos.retrievers) {
+    validateRagRetriever(retriever, corpusByName, embedByName, violations);
+  }
+  for (const pipeline of infos.pipelines) {
+    validateRagPipeline(pipeline, retrieverByName, infos.groundings, violations);
+  }
+  for (const grounding of infos.groundings) {
+    validateRagGrounding(grounding, ragByName, violations);
+  }
+  for (const evaluation of infos.evals) {
+    validateRagEval(evaluation, ragByName, violations);
+  }
+}
+
+function collectRagInfosForRoots(roots: readonly IRNode[]): RagInfos {
+  const out: RagInfos = {
+    corpora: [],
+    sources: [],
+    chunking: [],
+    embeds: [],
+    retrievers: [],
+    pipelines: [],
+    groundings: [],
+    evals: [],
+  };
+  for (const [rootIndex, root] of roots.entries()) {
+    collectRagInfos(root, rootIndex, out);
+  }
+  return out;
+}
+
+function collectRagInfos(root: IRNode, rootIndex: number, out: RagInfos): void {
+  function visit(node: IRNode, nearestCorpusName?: string, nearestRagName?: string): void {
+    const nextCorpusName = node.type === 'corpus' ? stringProp(node, 'name') || nearestCorpusName : nearestCorpusName;
+    const nextRagName = node.type === 'rag' ? stringProp(node, 'name') || nearestRagName : nearestRagName;
+
+    if (node.type === 'corpus') {
+      const name = stringProp(node, 'name');
+      if (name) out.corpora.push({ node, rootIndex, name });
+    } else if (node.type === 'source') {
+      out.sources.push({ node, rootIndex, name: stringProp(node, 'name'), corpusName: nearestCorpusName });
+    } else if (node.type === 'chunking') {
+      out.chunking.push({
+        node,
+        rootIndex,
+        name: stringProp(node, 'name'),
+        corpusName: stringProp(node, 'corpus') || nearestCorpusName,
+        sourceName: stringProp(node, 'source'),
+      });
+    } else if (node.type === 'embed') {
+      const name = stringProp(node, 'name');
+      const corpusName = stringProp(node, 'corpus') || nearestCorpusName;
+      if (name && corpusName) out.embeds.push({ node, rootIndex, name, corpusName });
+    } else if (node.type === 'retriever') {
+      const name = stringProp(node, 'name');
+      const corpusName = stringProp(node, 'corpus');
+      if (name && corpusName) {
+        out.retrievers.push({ node, rootIndex, name, corpusName, embedName: stringProp(node, 'embed') });
+      }
+    } else if (node.type === 'rag') {
+      const name = stringProp(node, 'name');
+      const retrieverName = stringProp(node, 'retriever');
+      if (name && retrieverName) out.pipelines.push({ node, rootIndex, name, retrieverName });
+    } else if (node.type === 'grounding') {
+      out.groundings.push({ node, rootIndex, ragName: stringProp(node, 'rag') || nearestRagName });
+    } else if (node.type === 'ragEval') {
+      out.evals.push({ node, rootIndex, ragName: stringProp(node, 'rag') || nearestRagName });
+    }
+
+    for (const child of node.children ?? []) visit(child, nextCorpusName, nextRagName);
+  }
+  visit(root);
+}
+
+function collectRagSourceNamesByCorpus(sources: readonly RagSourceInfo[]): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  for (const source of sources) {
+    if (!source.corpusName || !source.name) continue;
+    const names = out.get(source.corpusName) ?? new Set<string>();
+    names.add(source.name);
+    out.set(source.corpusName, names);
+  }
+  return out;
+}
+
+function validateRagUniqueNames(infos: RagInfos, violations: SemanticViolation[]): void {
+  validateRagUniqueNameSet('corpus', infos.corpora, violations);
+  validateRagUniqueSourceNames(infos.sources, violations);
+  validateRagUniqueNameSet('embed', infos.embeds, violations);
+  validateRagUniqueNameSet('retriever', infos.retrievers, violations);
+  validateRagUniqueNameSet('rag', infos.pipelines, violations);
+}
+
+function validateRagUniqueNameSet(
+  kind: string,
+  infos: readonly { name: string; node: IRNode }[],
+  violations: SemanticViolation[],
+): void {
+  const seen = new Map<string, IRNode>();
+  for (const info of infos) {
+    const prev = seen.get(info.name);
+    if (prev) {
+      pushRagViolation(
+        violations,
+        `rag-duplicate-${kind}-name`,
+        info.node,
+        `Duplicate RAG ${kind} named '${info.name}' — first defined at line ${prev.loc?.line ?? '?'}.`,
+      );
+    } else {
+      seen.set(info.name, info.node);
+    }
+  }
+}
+
+function validateRagUniqueSourceNames(sources: readonly RagSourceInfo[], violations: SemanticViolation[]): void {
+  const seen = new Map<string, IRNode>();
+  for (const source of sources) {
+    if (!source.name || !source.corpusName) continue;
+    const key = `${source.corpusName}:${source.name}`;
+    const prev = seen.get(key);
+    if (prev) {
+      pushRagViolation(
+        violations,
+        'rag-duplicate-source-name',
+        source.node,
+        `Duplicate RAG source named '${source.name}' in corpus '${source.corpusName}' — first defined at line ${prev.loc?.line ?? '?'}.`,
+      );
+    } else {
+      seen.set(key, source.node);
+    }
+  }
+}
+
+function validateRagSource(source: RagSourceInfo, violations: SemanticViolation[]): void {
+  if (!source.corpusName) {
+    pushRagViolation(violations, 'rag-source-missing-corpus', source.node, 'RAG source must be nested under a corpus.');
+  }
+
+  const uri = stringProp(source.node, 'uri');
+  if (uri !== undefined && uri.trim() === '') {
+    pushRagViolation(
+      violations,
+      'rag-source-uri-empty',
+      source.node,
+      "RAG source 'uri=' must be a non-empty document location.",
+    );
+  }
+}
+
+function validateRagChunking(
+  chunking: RagChunkingInfo,
+  corpusByName: ReadonlyMap<string, RagCorpusInfo>,
+  sourceNamesByCorpus: ReadonlyMap<string, ReadonlySet<string>>,
+  globalSourceNames: ReadonlySet<string>,
+  violations: SemanticViolation[],
+): void {
+  if (!chunking.corpusName) {
+    pushRagViolation(
+      violations,
+      'rag-chunking-missing-corpus',
+      chunking.node,
+      'RAG chunking must be nested under a corpus or declare corpus=<name>.',
+    );
+  }
+  if (chunking.corpusName && !corpusByName.has(chunking.corpusName)) {
+    pushRagViolation(
+      violations,
+      'rag-chunking-unknown-corpus',
+      chunking.node,
+      `RAG chunking references unknown corpus '${chunking.corpusName}'. Declare a corpus before chunking it.`,
+    );
+  }
+
+  if (chunking.sourceName) {
+    const sourceNames = chunking.corpusName ? sourceNamesByCorpus.get(chunking.corpusName) : undefined;
+    const sourceKnown = chunking.corpusName
+      ? Boolean(sourceNames?.has(chunking.sourceName))
+      : globalSourceNames.has(chunking.sourceName);
+    if (!sourceKnown) {
+      pushRagViolation(
+        violations,
+        'rag-chunking-unknown-source',
+        chunking.node,
+        `RAG chunking references unknown source '${chunking.sourceName}'. Declare a named source in the same corpus.`,
+      );
+    }
+  }
+
+  const maxTokens = numberProp(chunking.node, 'maxTokens');
+  if (
+    invalidNumberProp(chunking.node, 'maxTokens') ||
+    (maxTokens !== undefined && (!Number.isInteger(maxTokens) || maxTokens <= 0))
+  ) {
+    pushRagViolation(
+      violations,
+      'rag-chunking-max-tokens-invalid',
+      chunking.node,
+      'RAG chunking maxTokens must be a positive integer.',
+    );
+  }
+
+  const overlap = numberProp(chunking.node, 'overlap');
+  if (
+    invalidNumberProp(chunking.node, 'overlap') ||
+    (overlap !== undefined && (!Number.isInteger(overlap) || overlap < 0))
+  ) {
+    pushRagViolation(
+      violations,
+      'rag-chunking-overlap-invalid',
+      chunking.node,
+      'RAG chunking overlap must be a non-negative integer.',
+    );
+  } else if (overlap !== undefined && maxTokens !== undefined && overlap >= maxTokens) {
+    pushRagViolation(
+      violations,
+      'rag-chunking-overlap-invalid',
+      chunking.node,
+      'RAG chunking overlap must be smaller than maxTokens.',
+    );
+  }
+}
+
+function validateRagEmbed(
+  embed: RagEmbedInfo,
+  corpusByName: ReadonlyMap<string, RagCorpusInfo>,
+  violations: SemanticViolation[],
+): void {
+  if (!corpusByName.has(embed.corpusName)) {
+    pushRagViolation(
+      violations,
+      'rag-embed-unknown-corpus',
+      embed.node,
+      `RAG embed '${embed.name}' references unknown corpus '${embed.corpusName}'.`,
+    );
+  }
+
+  const dims = numberProp(embed.node, 'dims');
+  if (invalidNumberProp(embed.node, 'dims') || (dims !== undefined && (!Number.isInteger(dims) || dims <= 0))) {
+    pushRagViolation(violations, 'rag-embed-dims-invalid', embed.node, 'RAG embed dims must be a positive integer.');
+  }
+}
+
+function validateRagRetriever(
+  retriever: RagRetrieverInfo,
+  corpusByName: ReadonlyMap<string, RagCorpusInfo>,
+  embedByName: ReadonlyMap<string, RagEmbedInfo>,
+  violations: SemanticViolation[],
+): void {
+  if (!corpusByName.has(retriever.corpusName)) {
+    pushRagViolation(
+      violations,
+      'rag-retriever-unknown-corpus',
+      retriever.node,
+      `RAG retriever '${retriever.name}' references unknown corpus '${retriever.corpusName}'.`,
+    );
+  }
+
+  if (retriever.embedName) {
+    const embed = embedByName.get(retriever.embedName);
+    if (!embed) {
+      pushRagViolation(
+        violations,
+        'rag-retriever-unknown-embed',
+        retriever.node,
+        `RAG retriever '${retriever.name}' references unknown embed '${retriever.embedName}'.`,
+      );
+    } else if (embed.corpusName !== retriever.corpusName) {
+      pushRagViolation(
+        violations,
+        'rag-retriever-embed-corpus-mismatch',
+        retriever.node,
+        `RAG retriever '${retriever.name}' uses embed '${retriever.embedName}' for corpus '${embed.corpusName}', not '${retriever.corpusName}'.`,
+      );
+    }
+  }
+
+  const topK = numberProp(retriever.node, 'topK');
+  if (invalidNumberProp(retriever.node, 'topK') || (topK !== undefined && (!Number.isInteger(topK) || topK <= 0))) {
+    pushRagViolation(
+      violations,
+      'rag-retriever-topk-invalid',
+      retriever.node,
+      'RAG retriever topK must be a positive integer.',
+    );
+  }
+
+  const minScore = numberProp(retriever.node, 'minScore');
+  if (invalidNumberProp(retriever.node, 'minScore') || (minScore !== undefined && (minScore < 0 || minScore > 1))) {
+    pushRagViolation(
+      violations,
+      'rag-retriever-minscore-invalid',
+      retriever.node,
+      'RAG retriever minScore must be between 0 and 1.',
+    );
+  }
+}
+
+function validateRagPipeline(
+  pipeline: RagPipelineInfo,
+  retrieverByName: ReadonlyMap<string, RagRetrieverInfo>,
+  groundings: readonly RagGroundingInfo[],
+  violations: SemanticViolation[],
+): void {
+  if (!retrieverByName.has(pipeline.retrieverName)) {
+    pushRagViolation(
+      violations,
+      'rag-unknown-retriever',
+      pipeline.node,
+      `RAG pipeline '${pipeline.name}' references unknown retriever '${pipeline.retrieverName}'.`,
+    );
+  }
+
+  if (ragBooleanProp(pipeline.node, 'citations')) {
+    const hasCitationGrounding = groundings.some(
+      (grounding) => grounding.ragName === pipeline.name && ragBooleanProp(grounding.node, 'requireCitations'),
+    );
+    if (!hasCitationGrounding) {
+      pushRagViolation(
+        violations,
+        'rag-citations-require-grounding',
+        pipeline.node,
+        `RAG pipeline '${pipeline.name}' requires citations but has no grounding requireCitations=true policy.`,
+      );
+    }
+  }
+}
+
+function validateRagGrounding(
+  grounding: RagGroundingInfo,
+  ragByName: ReadonlyMap<string, RagPipelineInfo>,
+  violations: SemanticViolation[],
+): void {
+  if (!grounding.ragName) {
+    pushRagViolation(
+      violations,
+      'rag-grounding-missing-rag',
+      grounding.node,
+      'RAG grounding must be nested under a rag pipeline or declare rag=<name>.',
+    );
+  }
+  if (grounding.ragName && !ragByName.has(grounding.ragName)) {
+    pushRagViolation(
+      violations,
+      'rag-grounding-unknown-rag',
+      grounding.node,
+      `RAG grounding references unknown rag '${grounding.ragName}'.`,
+    );
+  }
+
+  const maxContext = numberProp(grounding.node, 'maxContext');
+  if (
+    invalidNumberProp(grounding.node, 'maxContext') ||
+    (maxContext !== undefined && (!Number.isInteger(maxContext) || maxContext <= 0))
+  ) {
+    pushRagViolation(
+      violations,
+      'rag-grounding-max-context-invalid',
+      grounding.node,
+      'RAG grounding maxContext must be a positive integer.',
+    );
+  }
+}
+
+function validateRagEval(
+  evaluation: RagEvalInfo,
+  ragByName: ReadonlyMap<string, RagPipelineInfo>,
+  violations: SemanticViolation[],
+): void {
+  if (!evaluation.ragName) {
+    pushRagViolation(
+      violations,
+      'rag-eval-missing-rag',
+      evaluation.node,
+      'RAG eval must be nested under a rag pipeline or declare rag=<name>.',
+    );
+  }
+  if (evaluation.ragName && !ragByName.has(evaluation.ragName)) {
+    pushRagViolation(
+      violations,
+      'rag-eval-unknown-rag',
+      evaluation.node,
+      `RAG eval references unknown rag '${evaluation.ragName}'.`,
+    );
+  }
+
+  const threshold = numberProp(evaluation.node, 'threshold');
+  if (
+    invalidNumberProp(evaluation.node, 'threshold') ||
+    (threshold !== undefined && (threshold < 0 || threshold > 1))
+  ) {
+    pushRagViolation(
+      violations,
+      'rag-eval-threshold-invalid',
+      evaluation.node,
+      'RAG eval threshold must be between 0 and 1.',
+    );
+  }
+}
+
+function pushRagViolation(violations: SemanticViolation[], rule: string, node: IRNode, message: string): void {
+  violations.push({ rule, nodeType: node.type, message, line: node.loc?.line, col: node.loc?.col });
+}
+
+export function collectRagSemanticFacts(root: IRNode | readonly IRNode[]): RagSemanticFacts {
+  const roots = Array.isArray(root) ? root : [root];
+  const infos = collectRagInfosForRoots(roots);
+  const corpusNames = new Set(infos.corpora.map((info) => info.name));
+  const embedNames = new Set(infos.embeds.map((info) => info.name));
+  const retrieverNames = new Set(infos.retrievers.map((info) => info.name));
+  const ragNames = new Set(infos.pipelines.map((info) => info.name));
+  const sourceNamesByCorpus = collectRagSourceNamesByCorpus(infos.sources);
+  const globalSourceNames = new Set(infos.sources.map((info) => info.name).filter((name): name is string => !!name));
+
+  return {
+    corpora: infos.corpora.map((info) => ragCorpusFact(info, infos)),
+    retrievers: infos.retrievers.map(ragRetrieverFact),
+    pipelines: infos.pipelines.map((info) => ragPipelineFact(info, infos.groundings, infos.evals)),
+    unresolvedCorpusRefs: sortedUnique([
+      ...infos.chunking
+        .map((info) => info.corpusName)
+        .filter((name): name is string => !!name && !corpusNames.has(name)),
+      ...infos.embeds.map((info) => info.corpusName).filter((name) => !corpusNames.has(name)),
+      ...infos.retrievers.map((info) => info.corpusName).filter((name) => !corpusNames.has(name)),
+    ]),
+    unresolvedRetrieverRefs: sortedUnique(
+      infos.pipelines.map((info) => info.retrieverName).filter((name) => !retrieverNames.has(name)),
+    ),
+    unresolvedEmbedRefs: sortedUnique(
+      infos.retrievers.map((info) => info.embedName).filter((name): name is string => !!name && !embedNames.has(name)),
+    ),
+    unresolvedRagRefs: sortedUnique(
+      [...infos.groundings.map((info) => info.ragName), ...infos.evals.map((info) => info.ragName)].filter(
+        (name): name is string => !!name && !ragNames.has(name),
+      ),
+    ),
+    unresolvedSourceRefs: sortedUnique(
+      infos.chunking
+        .filter((info) => {
+          if (!info.sourceName) return false;
+          const sourceNames = info.corpusName ? sourceNamesByCorpus.get(info.corpusName) : undefined;
+          return info.corpusName ? !sourceNames?.has(info.sourceName) : !globalSourceNames.has(info.sourceName);
+        })
+        .map((info) => info.sourceName)
+        .filter((name): name is string => !!name),
+    ),
+  };
+}
+
+function ragCorpusFact(info: RagCorpusInfo, all: RagInfos): RagSemanticCorpusFact {
+  return {
+    name: info.name,
+    ...optionalStringFact(info.node, 'title', 'title'),
+    ...optionalStringFact(info.node, 'tenant', 'tenant'),
+    ...optionalStringFact(info.node, 'refresh', 'refresh'),
+    sources: all.sources.filter((source) => source.corpusName === info.name).map(ragSourceFact),
+    chunking: all.chunking.filter((chunking) => chunking.corpusName === info.name).map(ragChunkingFact),
+    embeds: all.embeds.filter((embed) => embed.corpusName === info.name).map(ragEmbedFact),
+    ...(info.node.loc ? { loc: ragLocation(info.node) } : {}),
+  };
+}
+
+function ragSourceFact(info: RagSourceInfo): RagSemanticSourceFact {
+  return {
+    ...optionalStringValue('name', info.name),
+    ...optionalStringValue('corpusName', info.corpusName),
+    ...optionalStringFact(info.node, 'kind', 'kind'),
+    uri: stringProp(info.node, 'uri') ?? '',
+    ...optionalStringFact(info.node, 'media', 'media'),
+    ...optionalStringFact(info.node, 'acl', 'acl'),
+    ...(info.node.loc ? { loc: ragLocation(info.node) } : {}),
+  };
+}
+
+function ragChunkingFact(info: RagChunkingInfo): RagSemanticChunkingFact {
+  return {
+    ...optionalStringValue('name', info.name),
+    ...optionalStringValue('corpusName', info.corpusName),
+    ...optionalStringValue('sourceName', info.sourceName),
+    ...optionalStringFact(info.node, 'strategy', 'strategy'),
+    ...optionalNumberFact(info.node, 'maxTokens', 'maxTokens'),
+    ...optionalNumberFact(info.node, 'overlap', 'overlap'),
+    ...optionalStringFact(info.node, 'unit', 'unit'),
+    ...(info.node.loc ? { loc: ragLocation(info.node) } : {}),
+  };
+}
+
+function ragEmbedFact(info: RagEmbedInfo): RagSemanticEmbedFact {
+  return {
+    name: info.name,
+    corpusName: info.corpusName,
+    ...optionalStringFact(info.node, 'model', 'model'),
+    ...optionalNumberFact(info.node, 'dims', 'dims'),
+    ...optionalStringFact(info.node, 'metric', 'metric'),
+    ...(info.node.loc ? { loc: ragLocation(info.node) } : {}),
+  };
+}
+
+function ragRetrieverFact(info: RagRetrieverInfo): RagSemanticRetrieverFact {
+  return {
+    name: info.name,
+    corpusName: info.corpusName,
+    ...optionalStringValue('embedName', info.embedName),
+    ...optionalStringFact(info.node, 'mode', 'mode'),
+    ...optionalNumberFact(info.node, 'topK', 'topK'),
+    ...optionalNumberFact(info.node, 'minScore', 'minScore'),
+    ...optionalStringFact(info.node, 'rerank', 'rerank'),
+    ...(info.node.loc ? { loc: ragLocation(info.node) } : {}),
+  };
+}
+
+function ragPipelineFact(
+  info: RagPipelineInfo,
+  groundings: readonly RagGroundingInfo[],
+  evals: readonly RagEvalInfo[],
+): RagSemanticPipelineFact {
+  return {
+    name: info.name,
+    retrieverName: info.retrieverName,
+    ...optionalStringFact(info.node, 'prompt', 'prompt'),
+    ...optionalStringFact(info.node, 'answer', 'answer'),
+    citations: ragBooleanProp(info.node, 'citations'),
+    groundings: groundings.filter((grounding) => grounding.ragName === info.name).map(ragGroundingFact),
+    evals: evals.filter((evaluation) => evaluation.ragName === info.name).map(ragEvalFact),
+    ...(info.node.loc ? { loc: ragLocation(info.node) } : {}),
+  };
+}
+
+function ragGroundingFact(info: RagGroundingInfo): RagSemanticGroundingFact {
+  return {
+    ...optionalStringFact(info.node, 'name', 'name'),
+    ...optionalStringValue('ragName', info.ragName),
+    requireCitations: ragBooleanProp(info.node, 'requireCitations'),
+    ...optionalStringFact(info.node, 'policy', 'policy'),
+    ...optionalNumberFact(info.node, 'maxContext', 'maxContext'),
+    ...(info.node.loc ? { loc: ragLocation(info.node) } : {}),
+  };
+}
+
+function ragEvalFact(info: RagEvalInfo): RagSemanticEvalFact {
+  return {
+    ...optionalStringFact(info.node, 'name', 'name'),
+    ...optionalStringValue('ragName', info.ragName),
+    ...optionalStringFact(info.node, 'metric', 'metric'),
+    ...optionalNumberFact(info.node, 'threshold', 'threshold'),
+    ...(info.node.loc ? { loc: ragLocation(info.node) } : {}),
+  };
+}
+
+function ragLocation(node: IRNode): RagSemanticLocation | undefined {
+  return node.loc ? { line: node.loc.line, col: node.loc.col } : undefined;
+}
+
+function optionalStringFact(node: IRNode, prop: string, factName: string): Record<string, string> {
+  return optionalStringValue(factName, stringProp(node, prop));
+}
+
+function optionalStringValue(factName: string, value: string | undefined): Record<string, string> {
+  return value ? { [factName]: value } : {};
+}
+
+function optionalNumberFact(node: IRNode, prop: string, factName: string): Record<string, number> {
+  const value = numberProp(node, prop);
+  return value === undefined ? {} : { [factName]: value };
+}
+
+function numberProp(node: IRNode, prop: string): number | undefined {
+  const raw = node.props?.[prop];
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : undefined;
+  if (typeof raw !== 'string' || raw.trim() === '') return undefined;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function invalidNumberProp(node: IRNode, prop: string): boolean {
+  const raw = node.props?.[prop];
+  if (raw === undefined || raw === null || raw === '') return false;
+  if (typeof raw === 'number') return !Number.isFinite(raw);
+  if (typeof raw === 'string') return raw.trim() !== '' && !Number.isFinite(Number(raw));
+  return true;
+}
+
+function ragBooleanProp(node: IRNode, prop: string): boolean {
+  const raw = node.props?.[prop];
+  return raw === true || (typeof raw === 'string' && raw.trim().toLowerCase() === 'true');
+}
+
+function sortedUnique(values: readonly string[]): string[] {
+  return [...new Set(values)].sort();
 }
 
 type ClassMemberKind = 'field' | 'method' | 'getter' | 'setter';

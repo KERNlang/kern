@@ -63,6 +63,8 @@ describe('KERN semantic substrate', () => {
     ]);
     expect(Object.hasOwn(substrate, 'classFacts')).toBe(false);
     expect(Object.hasOwn(substrate, 'classValidationSummary')).toBe(false);
+    expect(Object.hasOwn(substrate, 'ragFacts')).toBe(false);
+    expect(Object.hasOwn(substrate, 'ragValidationSummary')).toBe(false);
   });
 
   test('exports document class member inheritance and override facts when requested', () => {
@@ -232,6 +234,59 @@ describe('KERN semantic substrate', () => {
       }),
     );
     expect(substrate.classValidationSummary?.byRule['machine-transition-from']).toBeUndefined();
+  });
+
+  test('exports document RAG facts and validation summaries when requested', () => {
+    const root = parseRoot(
+      [
+        'corpus name=Docs title="Support docs"',
+        '  source name=manuals kind=local uri="./docs/**/*.md"',
+        '  chunking source=manuals strategy=semantic maxTokens=600 overlap=80',
+        'embed name=DocsEmbedding corpus=Docs model=text-embedding-3-small dims=1536 metric=cosine',
+        'retriever name=DocsSearch corpus=Docs embed=DocsEmbedding mode=hybrid topK=8 minScore=0.72',
+        'rag name=AnswerDocs retriever=DocsSearch citations=true',
+        '  grounding requireCitations=true policy=strict maxContext=6000',
+        '  ragEval metric=faithfulness threshold=0.85',
+      ].join('\n'),
+    );
+
+    const substrate = buildKernSemanticSubstrate({
+      documentRag: root,
+      includeRagValidationSummary: true,
+    });
+
+    expect(substrate.ragValidationSummary).toEqual({ total: 0, byRule: {} });
+    expect(substrate.ragFacts?.corpora).toEqual([
+      expect.objectContaining({
+        name: 'Docs',
+        sources: [expect.objectContaining({ name: 'manuals', uri: './docs/**/*.md' })],
+        embeds: [expect.objectContaining({ name: 'DocsEmbedding', corpusName: 'Docs' })],
+      }),
+    ]);
+    expect(substrate.ragFacts?.retrievers).toEqual([
+      expect.objectContaining({
+        name: 'DocsSearch',
+        corpusName: 'Docs',
+        embedName: 'DocsEmbedding',
+        topK: 8,
+        minScore: 0.72,
+      }),
+    ]);
+    expect(substrate.ragFacts?.pipelines).toEqual([
+      expect.objectContaining({
+        name: 'AnswerDocs',
+        retrieverName: 'DocsSearch',
+        citations: true,
+        groundings: [expect.objectContaining({ requireCitations: true, policy: 'strict' })],
+        evals: [expect.objectContaining({ metric: 'faithfulness', threshold: 0.85 })],
+      }),
+    ]);
+
+    const invalidSubstrate = buildKernSemanticSubstrate({
+      documentRag: parseRoot('rag name=Broken retriever=Missing'),
+      includeRagValidationSummary: true,
+    });
+    expect(invalidSubstrate.ragValidationSummary?.byRule['rag-unknown-retriever']).toBe(1);
   });
 
   test('exports portable review primitives as stable query objects', () => {

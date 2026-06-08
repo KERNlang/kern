@@ -1,0 +1,16 @@
+corpus name=Docs
+  source name=manuals uri="./docs/**/*.md"
+  chunking source=missing strategy=semantic maxTokens=64 overlap=64
+
+embed name=BadEmbedding corpus=Missing dims=0
+embed name=OtherEmbedding corpus=Docs
+
+corpus name=OtherDocs
+
+retriever name=BadRetriever corpus=Missing embed=MissingEmbed topK=0 minScore=1.1
+retriever name=MismatchRetriever corpus=OtherDocs embed=OtherEmbedding
+
+rag name=BadRag retriever=MissingRetriever citations=true
+
+grounding rag=MissingRag maxContext=0
+ragEval rag=MissingRag threshold=1.1
