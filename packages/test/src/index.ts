@@ -6111,6 +6111,28 @@ function nativeInvariantFindings(
   return { message: `Unsupported native invariant: ${propName}=${str(props.has) || str(props.no)}` };
 }
 
+function evaluateFindingsMatch(
+  invariant: string,
+  pattern: string,
+  findings: readonly string[],
+): { passed: boolean; message?: string } {
+  const message = findings.join('; ');
+  try {
+    const regex = new RegExp(pattern);
+    return findings.some((finding) => regex.test(finding))
+      ? { passed: true }
+      : {
+          passed: false,
+          message: `Expected ${invariant || '<missing>'} findings to match /${pattern}/, got: ${message || '<none>'}`,
+        };
+  } catch (error) {
+    return {
+      passed: false,
+      message: `Native has assertion has invalid matches regex: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
 function evaluateHasInvariant(
   node: IRNode,
   target: LoadedKernDocument,
@@ -6143,21 +6165,7 @@ function evaluateHasInvariant(
 
     if ('matches' in props) {
       const pattern = runtimePatternValue(node, 'matches') || '';
-      const message = findings.join('; ');
-      try {
-        const regex = new RegExp(pattern);
-        return regex.test(message)
-          ? { passed: true }
-          : {
-              passed: false,
-              message: `Expected ${invariant || '<missing>'} findings to match /${pattern}/, got: ${message || '<none>'}`,
-            };
-      } catch (error) {
-        return {
-          passed: false,
-          message: `Native has assertion has invalid matches regex: ${error instanceof Error ? error.message : String(error)}`,
-        };
-      }
+      return evaluateFindingsMatch(invariant, pattern, findings);
     }
 
     return { passed: true };
@@ -6167,6 +6175,23 @@ function evaluateHasInvariant(
     const blocking = targetBlockingMessage(target);
     if (blocking) return { passed: false, message: blocking };
   }
+
+  if ('matches' in props) {
+    const collected = nativeInvariantFindings(node, target, context);
+    if (collected.message) return { passed: false, message: collected.message };
+
+    const findings = collected.findings || [];
+    if (findings.length === 0) {
+      return {
+        passed: false,
+        message: `Expected target to have ${invariant || '<missing>'}, but none was found`,
+      };
+    }
+
+    const pattern = runtimePatternValue(node, 'matches') || '';
+    return evaluateFindingsMatch(invariant, pattern, findings);
+  }
+
   const evaluated = evaluateNoInvariant(nodeWithProps(node, { ...props, no: invariant }), target, context);
 
   if (isAssertionConfigurationFailure(evaluated.message)) {
@@ -6178,24 +6203,6 @@ function evaluateHasInvariant(
       passed: false,
       message: `Expected target to have ${invariant || '<missing>'}, but none was found`,
     };
-  }
-
-  if ('matches' in props) {
-    const pattern = runtimePatternValue(node, 'matches') || '';
-    try {
-      const regex = new RegExp(pattern);
-      return regex.test(evaluated.message || '')
-        ? { passed: true }
-        : {
-            passed: false,
-            message: `Expected ${invariant || '<missing>'} message to match /${pattern}/, got: ${evaluated.message || '<none>'}`,
-          };
-    } catch (error) {
-      return {
-        passed: false,
-        message: `Native has assertion has invalid matches regex: ${error instanceof Error ? error.message : String(error)}`,
-      };
-    }
   }
 
   return { passed: true };

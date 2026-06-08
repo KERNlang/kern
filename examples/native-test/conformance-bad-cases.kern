@@ -61,3 +61,108 @@ fn name=loadRemote
   handler <<<
     return fetch(url);
   >>>
+
+class name=UnknownBase extends=MissingProtocolBase
+
+class name=CycleA extends=CycleB
+class name=CycleB extends=CycleA
+
+class name=MultiCtor
+  constructor
+    handler
+      do value="1"
+  constructor
+    handler
+      do value="2"
+
+class name=MemberConflict
+  field name=value type=number
+  method name=value returns=number
+    handler
+      return value=1
+
+class name=PlainSuper
+  method name=kind returns=string
+    handler
+      return value="super.kind()"
+
+class name=ProtocolBase
+  field name=id type=string
+  method name=load returns=string
+    param name=id type=string
+    handler
+      return value=id
+  field name=status type=string
+
+class name=MissingSuper extends=ProtocolBase
+  constructor
+    handler
+      do value=1
+
+class name=ThisBeforeSuper extends=ProtocolBase
+  field name=label type=string
+  constructor
+    handler
+      assign target="this.label" value="'early'"
+      do value="super('u1')"
+
+class name=DoubleSuper extends=ProtocolBase
+  constructor
+    handler
+      do value="super('u1')"
+      do value="super('u2')"
+
+class name=ConditionalSuper extends=ProtocolBase
+  constructor
+    param name=ready type=boolean
+    handler
+      if cond=ready
+        do value="super('u1')"
+
+class name=ClosedShape
+  field name=known type=number
+  method name=readMissing returns=number
+    handler
+      return value="this.missing"
+  method name=writeMissing returns=void
+    handler
+      assign target="this.missing" value=2
+
+class name=ShapeBase
+  field name=known type=number
+
+class name=ShapeChild extends=ShapeBase
+  method name=readMissingSuper returns=number
+    handler
+      return value="super.missing"
+
+class name=StaticShape
+  field name=instanceOnly type=number
+  field name=staticOnly type=number static=true
+  method name=badInstance returns=number
+    handler
+      return value="this.staticOnly"
+  method name=badStatic returns=number static=true
+    handler
+      return value="this.instanceOnly"
+
+class name=AccessShape
+  setter name=writeOnly
+    param name=next type=number
+    handler
+      do value=next
+  getter name=readOnly returns=number
+    handler
+      return value=1
+  method name=misuseAccessors returns=number
+    handler
+      assign target="this.readOnly" value=2
+      return value="this.writeOnly"
+
+class name=OverrideShape extends=ProtocolBase
+  method name=load returns=string
+    handler
+      return value="'missing id'"
+  method name=status returns=string
+    handler
+      return value="'ok'"
