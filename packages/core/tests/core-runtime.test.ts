@@ -483,6 +483,165 @@ describe('KERN core runtime statements', () => {
 
     expect(toHostValue(evalCoreExpression('new User("u1").id', env))).toBe('u1');
   });
+
+  test('dispatches instance assignment through setters', () => {
+    const root = parse(
+      [
+        'class name=Gauge',
+        '  field name=_value type=number value={{ 0 }}',
+        '  setter name=value',
+        '    param name=next type=number',
+        '    handler',
+        '      assign target="this._value" value="next * 2"',
+        '  getter name=value returns=number',
+        '    handler',
+        '      return value="this._value"',
+        'fn name=setGauge returns=number',
+        '  handler',
+        '    let name=g value="new Gauge()"',
+        '    assign target="g.value" value="7"',
+        '    return value="g.value"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('setGauge()', env))).toBe(14);
+  });
+
+  test('dispatches inherited and super assignment through setters', () => {
+    const root = parse(
+      [
+        'class name=Base',
+        '  field name=_value type=number value={{ 0 }}',
+        '  setter name=value',
+        '    param name=next type=number',
+        '    handler',
+        '      assign target="this._value" value="next + 1"',
+        '  getter name=value returns=number',
+        '    handler',
+        '      return value="this._value"',
+        'class name=Derived extends=Base',
+        '  method name=setViaSuper returns=number',
+        '    param name=next type=number',
+        '    handler',
+        '      assign target="super.value" value="next"',
+        '      return value="this.value"',
+        'fn name=setDerived returns=number',
+        '  handler',
+        '    let name=d value="new Derived()"',
+        '    assign target="d.value" value="4"',
+        '    return value="d.setViaSuper(9) + d.value"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('setDerived()', env))).toBe(20);
+  });
+
+  test('supports setter-only properties and rejects getter-only assignment', () => {
+    const root = parse(
+      [
+        'class name=WriteOnly',
+        '  field name=stored type=number value={{ 0 }}',
+        '  setter name=value',
+        '    param name=next type=number',
+        '    handler',
+        '      assign target="this.stored" value="next"',
+        'class name=ReadOnly',
+        '  getter name=value returns=number',
+        '    handler',
+        '      return value="1"',
+        'fn name=setWriteOnly returns=number',
+        '  handler',
+        '    let name=w value="new WriteOnly()"',
+        '    assign target="w.value" value="5"',
+        '    return value="w.stored"',
+        'fn name=setReadOnly returns=number',
+        '  handler',
+        '    let name=r value="new ReadOnly()"',
+        '    assign target="r.value" value="5"',
+        '    return value="r.value"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('setWriteOnly()', env))).toBe(5);
+    expect(() => evalCoreExpression('setReadOnly()', env)).toThrow('cannot assign getter-only property: value');
+  });
+
+  test('rejects recursive setter assignment', () => {
+    const root = parse(
+      [
+        'class name=Loop',
+        '  setter name=value',
+        '    param name=next type=number',
+        '    handler',
+        '      assign target="this.value" value="next"',
+        'fn name=setLoop returns=number',
+        '  handler',
+        '    let name=loop value="new Loop()"',
+        '    assign target="loop.value" value="5"',
+        '    return value="0"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('setLoop()', env)).toThrow('recursive setter assignment: Loop.value');
+  });
+
+  test('allows chained setters for different properties', () => {
+    const root = parse(
+      [
+        'class name=Chain',
+        '  field name=_b type=number value={{ 0 }}',
+        '  setter name=a',
+        '    param name=next type=number',
+        '    handler',
+        '      assign target="this.b" value="next + 1"',
+        '  setter name=b',
+        '    param name=next type=number',
+        '    handler',
+        '      assign target="this._b" value="next * 2"',
+        '  getter name=b returns=number',
+        '    handler',
+        '      return value="this._b"',
+        'fn name=setChain returns=number',
+        '  handler',
+        '    let name=chain value="new Chain()"',
+        '    assign target="chain.a" value="4"',
+        '    return value="chain.b"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('setChain()', env))).toBe(10);
+  });
+
+  test('does not count delayed lambda super calls as constructor initialization', () => {
+    const root = parse(
+      [
+        'class name=Entity',
+        '  constructor',
+        '    param name=id type=string',
+        '    handler',
+        '      assign target="this.id" value="id"',
+        'class name=User extends=Entity',
+        '  constructor',
+        '    param name=id type=string',
+        '    handler',
+        '      do value="(() => super(id))"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new User("u1")', env)).toThrow('missing required argument: id');
+  });
 });
 
 describe('KERN core runtime functions', () => {

@@ -16,6 +16,7 @@ import {
 import { brandValue, KERN_VALUE_BRAND } from './value-brand.js';
 
 const INTEGER_INDEX_RE = /^(0|[1-9]\d*)$/;
+const ACTIVE_INSTANCE_SETTERS = new WeakMap<KernInstanceValue, Set<string>>();
 
 export type KernValue =
   | { kind: 'null' }
@@ -818,6 +819,54 @@ function evalClassMember(object: KernClassValue, property: string): KernValue {
   return kUndefined();
 }
 
+function assignInstanceMember(object: KernInstanceValue, property: string, value: KernValue): void {
+  const setter = findClassMember(object.classValue, 'setter', property);
+  if (setter) {
+    callSetterBody(object, setter.node, setter.owner, property, value);
+    return;
+  }
+  if (findClassMember(object.classValue, 'getter', property)) {
+    throw new Error(`KERN core runtime cannot assign getter-only property: ${property}.`);
+  }
+  object.fields[property] = value;
+}
+
+function assignSuperMember(object: KernSuperValue, property: string, value: KernValue): void {
+  const base = resolveBaseClass(object.ownerClass);
+  if (!base) throw new Error(`KERN core runtime class ${object.ownerClass.name} has no base class.`);
+  const setter = findClassMember(base, 'setter', property);
+  if (setter) {
+    callSetterBody(object.receiver, setter.node, setter.owner, property, value);
+    return;
+  }
+  if (findClassMember(base, 'getter', property)) {
+    throw new Error(`KERN core runtime cannot assign getter-only property: ${property}.`);
+  }
+  object.receiver.fields[property] = value;
+}
+
+function callSetterBody(
+  receiver: KernInstanceValue,
+  setterNode: IRNode,
+  ownerClass: KernClassValue,
+  property: string,
+  value: KernValue,
+): void {
+  const key = `${ownerClass.name}.${property}`;
+  const activeSetters = ACTIVE_INSTANCE_SETTERS.get(receiver) ?? new Set<string>();
+  if (activeSetters.has(key)) {
+    throw new Error(`KERN core runtime recursive setter assignment: ${key}.`);
+  }
+  activeSetters.add(key);
+  ACTIVE_INSTANCE_SETTERS.set(receiver, activeSetters);
+  try {
+    callClassMemberBody(setterNode, ownerClass, receiver, [value]);
+  } finally {
+    activeSetters.delete(key);
+    if (activeSetters.size === 0) ACTIVE_INSTANCE_SETTERS.delete(receiver);
+  }
+}
+
 function callBoundMethodValue(
   method: KernBoundMethodValue,
   args: readonly KernValue[],
@@ -875,7 +924,7 @@ function callClassMemberBody(
 
 function findClassMember(
   klass: KernClassValue,
-  type: 'method' | 'getter',
+  type: 'method' | 'getter' | 'setter',
   name: string,
   staticOnly = false,
 ): { node: IRNode; owner: KernClassValue } | undefined {
@@ -968,7 +1017,11 @@ function assignRuntimeTarget(target: string, value: KernValue, env: CoreRuntimeE
   if (parsed.kind === 'member') {
     const object = evalValueIR(parsed.object, env);
     if (object.kind === 'instance') {
-      object.fields[parsed.property] = value;
+      assignInstanceMember(object, parsed.property, value);
+      return;
+    }
+    if (object.kind === 'super') {
+      assignSuperMember(object, parsed.property, value);
       return;
     }
     if (object.kind === 'record') {
@@ -1063,7 +1116,7 @@ function valueIRCallsSuper(value: ValueIR): boolean {
     case 'conditional':
       return valueIRCallsSuper(value.test) || valueIRCallsSuper(value.consequent) || valueIRCallsSuper(value.alternate);
     case 'lambda':
-      return valueIRCallsSuper(value.body);
+      return false;
     case 'numLit':
     case 'strLit':
     case 'boolLit':
