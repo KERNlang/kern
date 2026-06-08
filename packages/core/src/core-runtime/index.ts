@@ -18,6 +18,7 @@ import { brandValue, KERN_VALUE_BRAND } from './value-brand.js';
 const INTEGER_INDEX_RE = /^(0|[1-9]\d*)$/;
 const ACTIVE_INSTANCE_SETTERS = new WeakMap<KernInstanceValue, Set<string>>();
 const ACTIVE_CLASS_SETTERS = new WeakMap<KernClassValue, Set<string>>();
+const ACTIVE_CONSTRUCTORS = new WeakMap<KernInstanceValue, RuntimeConstructionFrame[]>();
 
 export type KernValue =
   | { kind: 'null' }
@@ -82,6 +83,11 @@ export interface RuntimeParam {
   name: string;
   type?: string;
   defaultExpr?: string;
+}
+
+interface RuntimeConstructionFrame {
+  ownerClass: KernClassValue;
+  superCalled: boolean;
 }
 
 export type CoreCompletion = { kind: 'normal'; value: KernValue } | { kind: 'return'; value: KernValue };
@@ -375,8 +381,11 @@ function evalValueIR(node: ValueIR, env: CoreRuntimeEnv): KernValue {
       return kNull();
     case 'undefLit':
       return kUndefined();
-    case 'ident':
-      return env.lookup(node.name);
+    case 'ident': {
+      const value = env.lookup(node.name);
+      if (node.name === 'this' && value.kind === 'instance') guardConstructedInstanceAccess(value);
+      return value;
+    }
     case 'tmplLit':
       return kString(
         node.quasis.reduce((out, quasi, index) => {
@@ -751,9 +760,8 @@ function initializeClassLayer(
   }
   const base = resolveBaseClass(klass);
   const ctor = firstRuntimeChild(klass.node, 'constructor');
-  const ctorCallsSuper = Boolean(base && ctor && constructorCallsSuper(ctor));
-  if (base && !ctorCallsSuper) initializeClassLayer(instance, base, [], false);
-  if (!ctorCallsSuper) initializeClassFields(instance, klass);
+  if (base && !ctor) initializeClassLayer(instance, base, [], false);
+  if (!base || !ctor) initializeClassFields(instance, klass);
   if (!ctor) {
     if (receivesConstructorArgs && args.length > 0) {
       throw new Error(`KERN core runtime class ${klass.name} has no constructor.`);
@@ -761,8 +769,14 @@ function initializeClassLayer(
     instance.initializedClasses.add(klass.name);
     return;
   }
-  callClassMemberBody(ctor, klass, instance, receivesConstructorArgs ? args : []).value;
-  if (base && ctorCallsSuper && !instance.initializedClasses.has(base.name)) {
+  if (base) {
+    withConstructionFrame(instance, klass, () => {
+      callClassMemberBody(ctor, klass, instance, receivesConstructorArgs ? args : []).value;
+    });
+  } else {
+    callClassMemberBody(ctor, klass, instance, receivesConstructorArgs ? args : []).value;
+  }
+  if (base && !instance.initializedClasses.has(base.name)) {
     throw new Error(`KERN core runtime constructor ${klass.name} must call super(...).`);
   }
   instance.initializedClasses.add(klass.name);
@@ -788,6 +802,7 @@ function runtimeFieldInitializerExpr(node: IRNode): string {
 }
 
 function evalInstanceMember(object: KernInstanceValue, property: string): KernValue {
+  guardConstructedInstanceAccess(object);
   if (Object.hasOwn(object.fields, property)) return object.fields[property] ?? kUndefined();
   const getter = findClassMember(object.classValue, 'getter', property);
   if (getter) return callClassMemberBody(getter.node, getter.owner, object, []).value;
@@ -808,6 +823,7 @@ function evalSuperMember(object: KernSuperValue, property: string): KernValue {
   const base = resolveBaseClass(object.ownerClass);
   if (!base) return kUndefined();
   if (object.receiver.kind === 'class') return evalClassMemberFrom(base, property, object.receiver);
+  guardConstructedSuperAccess(object.receiver);
   const getter = findClassMember(base, 'getter', property);
   if (getter) return callClassMemberBody(getter.node, getter.owner, object.receiver, []).value;
   const method = findClassMember(base, 'method', property);
@@ -845,6 +861,7 @@ function evalClassMemberFrom(owner: KernClassValue, property: string, receiver: 
 }
 
 function assignInstanceMember(object: KernInstanceValue, property: string, value: KernValue): void {
+  guardConstructedInstanceAccess(object);
   const setter = findClassMember(object.classValue, 'setter', property);
   if (setter) {
     callSetterBody(object, setter.node, setter.owner, property, value);
@@ -863,6 +880,7 @@ function assignSuperMember(object: KernSuperValue, property: string, value: Kern
     assignClassMemberFrom(base, object.receiver, property, value);
     return;
   }
+  guardConstructedSuperAccess(object.receiver);
   const setter = findClassMember(base, 'setter', property);
   if (setter) {
     callSetterBody(object.receiver, setter.node, setter.owner, property, value);
@@ -964,9 +982,49 @@ function callSuperConstructor(value: KernSuperValue, args: readonly KernValue[])
   }
   const base = resolveBaseClass(value.ownerClass);
   if (!base) throw new Error(`KERN core runtime class ${value.ownerClass.name} has no base class.`);
+  const frame = activeConstructionFrame(value.receiver);
+  if (!frame || frame.ownerClass !== value.ownerClass) {
+    throw new Error(`KERN core runtime super(...) is not active for constructor ${value.ownerClass.name}.`);
+  }
+  if (frame.superCalled || value.receiver.initializedClasses.has(base.name)) {
+    throw new Error(`KERN core runtime constructor ${value.ownerClass.name} called super(...) more than once.`);
+  }
+  frame.superCalled = true;
   initializeClassLayer(value.receiver, base, args, true);
   initializeClassFields(value.receiver, value.ownerClass);
   return value.receiver;
+}
+
+function withConstructionFrame(instance: KernInstanceValue, ownerClass: KernClassValue, run: () => void): void {
+  const stack = ACTIVE_CONSTRUCTORS.get(instance) ?? [];
+  const frame: RuntimeConstructionFrame = { ownerClass, superCalled: false };
+  stack.push(frame);
+  ACTIVE_CONSTRUCTORS.set(instance, stack);
+  try {
+    run();
+  } finally {
+    stack.pop();
+    if (stack.length === 0) ACTIVE_CONSTRUCTORS.delete(instance);
+  }
+}
+
+function activeConstructionFrame(instance: KernInstanceValue): RuntimeConstructionFrame | undefined {
+  const stack = ACTIVE_CONSTRUCTORS.get(instance);
+  return stack?.[stack.length - 1];
+}
+
+function guardConstructedInstanceAccess(instance: KernInstanceValue): void {
+  const frame = activeConstructionFrame(instance);
+  if (!frame || frame.superCalled) return;
+  if (!resolveBaseClass(frame.ownerClass)) return;
+  throw new Error(`KERN core runtime cannot access this before super(...) in ${frame.ownerClass.name}.`);
+}
+
+function guardConstructedSuperAccess(instance: KernInstanceValue): void {
+  const frame = activeConstructionFrame(instance);
+  if (!frame || frame.superCalled) return;
+  if (!resolveBaseClass(frame.ownerClass)) return;
+  throw new Error(`KERN core runtime cannot access super members before super(...) in ${frame.ownerClass.name}.`);
 }
 
 function callClassMemberBody(
@@ -1217,71 +1275,6 @@ function firstRuntimeChild(node: IRNode, type: string): IRNode | undefined {
 
 function runtimeChildNodes(node: IRNode, type: string): IRNode[] {
   return node.children?.filter((child) => child.type === type) ?? [];
-}
-
-function constructorCallsSuper(node: IRNode): boolean {
-  return runtimeFunctionBody(node).some(statementCallsSuper);
-}
-
-function statementCallsSuper(node: IRNode): boolean {
-  const rawValue = node.type === 'do' ? node.props?.value : undefined;
-  if (rawValue !== undefined && expressionCallsSuper(rawValue)) return true;
-  return (node.children ?? []).some(statementCallsSuper);
-}
-
-function expressionCallsSuper(value: unknown): boolean {
-  try {
-    return valueIRCallsSuper(parseExpression(unwrapExpr(value, 'super expression')));
-  } catch {
-    return false;
-  }
-}
-
-function valueIRCallsSuper(value: ValueIR): boolean {
-  switch (value.kind) {
-    case 'call':
-      return (
-        (value.callee.kind === 'ident' && value.callee.name === 'super') ||
-        valueIRCallsSuper(value.callee) ||
-        value.args.some(valueIRCallsSuper)
-      );
-    case 'member':
-      return valueIRCallsSuper(value.object);
-    case 'index':
-      return valueIRCallsSuper(value.object) || valueIRCallsSuper(value.index);
-    case 'tmplLit':
-      return value.expressions.some(valueIRCallsSuper);
-    case 'arrayLit':
-      return value.items.some(valueIRCallsSuper);
-    case 'objectLit':
-      return value.entries.some((entry) =>
-        'kind' in entry ? valueIRCallsSuper(entry.argument) : valueIRCallsSuper(entry.value),
-      );
-    case 'unary':
-    case 'await':
-    case 'new':
-    case 'spread':
-    case 'propagate':
-      return valueIRCallsSuper(value.argument);
-    case 'typeAssert':
-    case 'nonNull':
-      return valueIRCallsSuper(value.expression);
-    case 'binary':
-      return valueIRCallsSuper(value.left) || valueIRCallsSuper(value.right);
-    case 'conditional':
-      return valueIRCallsSuper(value.test) || valueIRCallsSuper(value.consequent) || valueIRCallsSuper(value.alternate);
-    case 'lambda':
-      return false;
-    case 'numLit':
-    case 'strLit':
-    case 'boolLit':
-    case 'nullLit':
-    case 'undefLit':
-    case 'regexLit':
-    case 'ident':
-      return false;
-  }
-  return false;
 }
 
 function runtimeChildren(node: IRNode): IRNode[] {

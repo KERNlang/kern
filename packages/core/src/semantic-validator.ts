@@ -595,15 +595,8 @@ function validateClassMemberConflicts(info: ClassInfo, violations: SemanticViola
 function validateClassSuperUsage(info: ClassInfo, violations: SemanticViolation[]): void {
   const hasBase = Boolean(info.baseName);
   for (const ctor of info.constructors) {
-    const callsSuper = nodeBodyCallsSuperConstructor(ctor);
-    if (hasBase && !callsSuper) {
-      violations.push({
-        rule: 'class-constructor-missing-super',
-        nodeType: 'constructor',
-        message: `Class '${info.name}' extends '${info.baseName}' but its constructor does not call \`super(...)\`. Derived constructors must initialize the base class explicitly.`,
-        line: ctor.loc?.line,
-        col: ctor.loc?.col,
-      });
+    if (hasBase) {
+      validateDerivedConstructorDiscipline(info, ctor, violations);
     }
     if (!hasBase && nodeBodyUsesSuper(ctor)) {
       violations.push({
@@ -628,6 +621,204 @@ function validateClassSuperUsage(info: ClassInfo, violations: SemanticViolation[
       });
     }
   }
+}
+
+type ConstructorSuperState = 'uninit' | 'init' | 'maybe';
+
+interface ConstructorDisciplineContext {
+  info: ClassInfo;
+  violations: SemanticViolation[];
+  sawSuper: boolean;
+  emittedConditionalSuper: boolean;
+}
+
+interface ConstructorAnalysis {
+  state: ConstructorSuperState;
+  sawSuper: boolean;
+}
+
+function validateDerivedConstructorDiscipline(info: ClassInfo, ctor: IRNode, violations: SemanticViolation[]): void {
+  const ctx: ConstructorDisciplineContext = {
+    info,
+    violations,
+    sawSuper: false,
+    emittedConditionalSuper: false,
+  };
+  const analysis = analyzeConstructorStatements(constructorBodyStatements(ctor), 'uninit', ctx);
+  if (analysis.state !== 'init') {
+    if (ctx.sawSuper) {
+      emitConstructorConditionalSuper(ctx, ctor);
+    } else {
+      violations.push({
+        rule: 'class-constructor-missing-super',
+        nodeType: 'constructor',
+        message: `Class '${info.name}' extends '${info.baseName}' but its constructor does not call \`super(...)\`. Derived constructors must initialize the base class explicitly.`,
+        line: ctor.loc?.line,
+        col: ctor.loc?.col,
+      });
+    }
+  }
+}
+
+function analyzeConstructorStatements(
+  statements: readonly IRNode[],
+  initialState: ConstructorSuperState,
+  ctx: ConstructorDisciplineContext,
+): ConstructorAnalysis {
+  let state = initialState;
+  let sawSuper = false;
+  for (let index = 0; index < statements.length; index += 1) {
+    const statement = statements[index];
+    if (statement.type === 'else') continue;
+    const maybeElse =
+      statement.type === 'if' && statements[index + 1]?.type === 'else' ? statements[index + 1] : undefined;
+    const result = analyzeConstructorStatement(statement, maybeElse, state, ctx);
+    state = result.state;
+    sawSuper = sawSuper || result.sawSuper;
+    if (maybeElse) index += 1;
+  }
+  return { state, sawSuper };
+}
+
+function analyzeConstructorStatement(
+  statement: IRNode,
+  maybeElse: IRNode | undefined,
+  state: ConstructorSuperState,
+  ctx: ConstructorDisciplineContext,
+): ConstructorAnalysis {
+  if (statement.type === 'class') return { state, sawSuper: false };
+  const directSuper = directSuperConstructorCall(statement);
+  if (directSuper) {
+    scanValueIRForPreSuperAccess(directSuper, state, ctx, statement);
+    ctx.sawSuper = true;
+    if (state === 'init' || state === 'maybe' || directSuper.args.some(valueIRCallsSuperConstructor)) {
+      emitConstructorDoubleSuper(ctx, statement);
+    }
+    if (state === 'maybe') emitConstructorConditionalSuper(ctx, statement);
+    return { state: 'init', sawSuper: true };
+  }
+  if (statement.type === 'if') return analyzeConstructorIf(statement, maybeElse, state, ctx);
+
+  const sawSuper = scanConstructorStatementExpressions(statement, state, ctx);
+  if (sawSuper && state === 'init') emitConstructorDoubleSuper(ctx, statement);
+  if (sawSuper && state !== 'init') emitConstructorConditionalSuper(ctx, statement);
+  return { state, sawSuper };
+}
+
+function analyzeConstructorIf(
+  statement: IRNode,
+  maybeElse: IRNode | undefined,
+  state: ConstructorSuperState,
+  ctx: ConstructorDisciplineContext,
+): ConstructorAnalysis {
+  const cond = expressionPropText(statement.props?.cond);
+  if (cond) scanExpressionForConstructorEffects(cond, state, ctx, statement);
+  const thenResult = analyzeConstructorStatements(statement.children ?? [], state, ctx);
+  const elseResult = maybeElse
+    ? analyzeConstructorStatements(maybeElse.children ?? [], state, ctx)
+    : { state, sawSuper: false };
+  const merged = mergeConstructorStates(thenResult.state, elseResult.state);
+  const sawSuper = thenResult.sawSuper || elseResult.sawSuper;
+  if (sawSuper && merged !== 'init') emitConstructorConditionalSuper(ctx, statement);
+  return { state: merged, sawSuper };
+}
+
+function mergeConstructorStates(left: ConstructorSuperState, right: ConstructorSuperState): ConstructorSuperState {
+  if (left === 'init' && right === 'init') return 'init';
+  if (left === 'uninit' && right === 'uninit') return 'uninit';
+  return 'maybe';
+}
+
+function constructorBodyStatements(node: IRNode): IRNode[] {
+  const handler = node.children?.find((child) => child.type === 'handler');
+  const body = handler ? (handler.children ?? []) : (node.children ?? []);
+  return body.filter((child) => child.type !== 'param' && child.type !== 'decorator');
+}
+
+function directSuperConstructorCall(node: IRNode): Extract<ValueIR, { kind: 'call' }> | undefined {
+  if (node.type !== 'do') return undefined;
+  const text = expressionPropText(node.props?.value);
+  if (!text) return undefined;
+  try {
+    const value = parseExpression(text);
+    return value.kind === 'call' && value.callee.kind === 'ident' && value.callee.name === 'super' ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function scanConstructorStatementExpressions(
+  node: IRNode,
+  state: ConstructorSuperState,
+  ctx: ConstructorDisciplineContext,
+): boolean {
+  let sawSuper = false;
+  walkSemanticTreeUntil(node, (candidate) => {
+    if (candidate !== node && candidate.type === 'class') return 'stop';
+    for (const prop of BODY_EXPRESSION_PROPS) {
+      const text = expressionPropText(candidate.props?.[prop]);
+      if (!text) continue;
+      sawSuper = scanExpressionForConstructorEffects(text, state, ctx, candidate) || sawSuper;
+    }
+    return 'continue';
+  });
+  return sawSuper;
+}
+
+function scanExpressionForConstructorEffects(
+  text: string,
+  state: ConstructorSuperState,
+  ctx: ConstructorDisciplineContext,
+  node: IRNode,
+): boolean {
+  try {
+    const value = parseExpression(text);
+    scanValueIRForPreSuperAccess(value, state, ctx, node);
+    const sawSuper = valueIRCallsSuperConstructor(value);
+    if (sawSuper) ctx.sawSuper = true;
+    return sawSuper;
+  } catch {
+    return false;
+  }
+}
+
+function scanValueIRForPreSuperAccess(
+  value: ValueIR,
+  state: ConstructorSuperState,
+  ctx: ConstructorDisciplineContext,
+  node: IRNode,
+): void {
+  if (state === 'init') return;
+  if (!valueIRUsesThisOrSuperMember(value)) return;
+  ctx.violations.push({
+    rule: 'class-constructor-this-before-super',
+    nodeType: node.type,
+    message: `Class '${ctx.info.name}' constructor uses \`this\` or \`super\` member access before \`super(...)\`. Derived constructors must initialize the base class first.`,
+    line: node.loc?.line,
+    col: node.loc?.col,
+  });
+}
+
+function emitConstructorDoubleSuper(ctx: ConstructorDisciplineContext, node: IRNode): void {
+  ctx.violations.push({
+    rule: 'class-constructor-double-super',
+    nodeType: node.type,
+    message: `Class '${ctx.info.name}' constructor calls \`super(...)\` more than once. Derived constructors may initialize the base class once.`,
+    line: node.loc?.line,
+    col: node.loc?.col,
+  });
+}
+
+function emitConstructorConditionalSuper(ctx: ConstructorDisciplineContext, node: IRNode): void {
+  if (ctx.emittedConditionalSuper) return;
+  ctx.emittedConditionalSuper = true;
+  ctx.violations.push({
+    rule: 'class-constructor-conditional-super',
+    nodeType: node.type,
+    message: `Class '${ctx.info.name}' constructor must call \`super(...)\` definitely on every path before using derived state. Move \`super(...)\` to a straight-line statement or cover every branch.`,
+    line: node.loc?.line,
+    col: node.loc?.col,
+  });
 }
 
 function validateClassInheritanceCycles(
@@ -783,16 +974,6 @@ function memberArity(node: IRNode): number {
   }
 }
 
-function nodeBodyCallsSuperConstructor(node: IRNode): boolean {
-  return nodeBodyExpressions(node).some((expr) => {
-    try {
-      return valueIRCallsSuperConstructor(parseExpression(expr));
-    } catch {
-      return false;
-    }
-  });
-}
-
 function nodeBodyUsesSuper(node: IRNode): boolean {
   return nodeBodyExpressions(node).some((expr) => {
     try {
@@ -831,6 +1012,19 @@ function valueIRCallsSuperConstructor(value: ValueIR): boolean {
 function valueIRUsesSuper(value: ValueIR): boolean {
   if (value.kind === 'ident' && value.name === 'super') return true;
   return valueIRChildren(value).some(valueIRUsesSuper);
+}
+
+function valueIRUsesThisOrSuperMember(value: ValueIR): boolean {
+  if (value.kind === 'ident' && value.name === 'this') return true;
+  if (
+    (value.kind === 'member' || value.kind === 'index') &&
+    value.object.kind === 'ident' &&
+    value.object.name === 'super'
+  ) {
+    return true;
+  }
+  if (value.kind === 'lambda') return false;
+  return valueIRChildren(value).some(valueIRUsesThisOrSuperMember);
 }
 
 function valueIRChildren(value: ValueIR): ValueIR[] {

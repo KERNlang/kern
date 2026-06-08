@@ -181,6 +181,144 @@ describe('semantic-validator — class object model', () => {
     expect(violations.map((violation) => violation.rule)).toContain('class-constructor-missing-super');
   });
 
+  test('reports this and super member access before constructor super', () => {
+    const rules = rulesFor(
+      [
+        'class name=Entity',
+        '  method name=kind returns=string',
+        '    handler lang=kern',
+        '      return value="\'entity\'"',
+        'class name=User extends=Entity',
+        '  constructor',
+        '    handler lang=kern',
+        '      assign target="this.name" value="\'Ada\'"',
+        '      do value="super()"',
+        'class name=Admin extends=Entity',
+        '  constructor',
+        '    handler lang=kern',
+        '      return value="super.kind()"',
+      ].join('\n'),
+    );
+
+    expect(rules.filter((rule) => rule === 'class-constructor-this-before-super')).toHaveLength(2);
+  });
+
+  test('reports double constructor super calls', () => {
+    const rules = rulesFor(
+      [
+        'class name=Entity',
+        'class name=User extends=Entity',
+        '  constructor',
+        '    handler lang=kern',
+        '      do value="super()"',
+        '      do value="super()"',
+      ].join('\n'),
+    );
+
+    expect(rules).toContain('class-constructor-double-super');
+  });
+
+  test('reports direct constructor super after maybe-initialized state', () => {
+    const rules = rulesFor(
+      [
+        'class name=Entity',
+        'class name=User extends=Entity',
+        '  constructor',
+        '    param name=ready type=boolean',
+        '    handler lang=kern',
+        '      if cond=ready',
+        '        do value="super()"',
+        '      do value="super()"',
+      ].join('\n'),
+    );
+
+    expect(rules).toContain('class-constructor-double-super');
+    expect(rules).toContain('class-constructor-conditional-super');
+  });
+
+  test('reports nested constructor super inside super arguments as double super', () => {
+    const rules = rulesFor(
+      [
+        'class name=Entity',
+        'class name=User extends=Entity',
+        '  constructor',
+        '    handler lang=kern',
+        '      do value="super(super())"',
+      ].join('\n'),
+    );
+
+    expect(rules).toContain('class-constructor-double-super');
+  });
+
+  test('reports non-direct constructor super after initialization as double super', () => {
+    const rules = rulesFor(
+      [
+        'class name=Entity',
+        'class name=User extends=Entity',
+        '  constructor',
+        '    handler lang=kern',
+        '      do value="super()"',
+        '      return value="super()"',
+      ].join('\n'),
+    );
+
+    expect(rules).toContain('class-constructor-double-super');
+  });
+
+  test('reports conditional constructor super when not every path initializes', () => {
+    const rules = rulesFor(
+      [
+        'class name=Entity',
+        'class name=User extends=Entity',
+        '  constructor',
+        '    param name=ready type=boolean',
+        '    handler lang=kern',
+        '      if cond=ready',
+        '        do value="super()"',
+      ].join('\n'),
+    );
+
+    expect(rules).toContain('class-constructor-conditional-super');
+  });
+
+  test('accepts branch-complete constructor super before derived this usage', () => {
+    const rules = rulesFor(
+      [
+        'class name=Entity',
+        'class name=User extends=Entity',
+        '  constructor',
+        '    param name=ready type=boolean',
+        '    handler lang=kern',
+        '      if cond=ready',
+        '        do value="super()"',
+        '      else',
+        '        do value="super()"',
+        '      assign target="this.name" value="\'Ada\'"',
+      ].join('\n'),
+    );
+
+    expect(rules).not.toContain('class-constructor-conditional-super');
+    expect(rules).not.toContain('class-constructor-this-before-super');
+    expect(rules).not.toContain('class-constructor-missing-super');
+  });
+
+  test('reports constructor this usage in conditions before super', () => {
+    const rules = rulesFor(
+      [
+        'class name=Entity',
+        'class name=User extends=Entity',
+        '  constructor',
+        '    handler lang=kern',
+        '      if cond="this.ready"',
+        '        do value="super()"',
+        '      else',
+        '        do value="super()"',
+      ].join('\n'),
+    );
+
+    expect(rules).toContain('class-constructor-this-before-super');
+  });
+
   test('reports super usage in classes without a base', () => {
     const violations = violationsFor(
       [

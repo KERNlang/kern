@@ -538,6 +538,22 @@ describe('KERN core runtime statements', () => {
     expect(toHostValue(evalCoreExpression('new User("u1", "Ada").name', env))).toBe('Ada');
   });
 
+  test('initializes fields before running a base-less constructor body', () => {
+    const root = parse(
+      [
+        'class name=Plain',
+        '  field name=count type=number value={{ 2 }}',
+        '  constructor',
+        '    handler',
+        '      assign target="this.count" value="this.count + 3"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new Plain().count', env))).toBe(5);
+  });
+
   test('initializes derived fields after super constructor state', () => {
     const root = parse(
       [
@@ -584,7 +600,66 @@ describe('KERN core runtime statements', () => {
     expect(() => evalCoreExpression('new Box(1, 2)', env)).toThrow('received too many arguments');
   });
 
-  test('detects nested constructor super calls structurally', () => {
+  test('requires explicit super before this access in derived constructors', () => {
+    const root = parse(
+      [
+        'class name=Entity',
+        '  constructor',
+        '    param name=id type=string',
+        '    handler',
+        '      assign target="this.id" value="id"',
+        'class name=User extends=Entity',
+        '  constructor',
+        '    param name=id type=string',
+        '    handler',
+        '      assign target="this.id" value="id"',
+        '      do value="super(id)"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new User("u1")', env)).toThrow('cannot access this before super(...)');
+  });
+
+  test('allows reading a separate initialized instance before constructor super', () => {
+    const root = parse(
+      [
+        'class name=Entity',
+        '  field name=id type=string value="base"',
+        'class name=User extends=Entity',
+        '  constructor',
+        '    param name=other type=Entity',
+        '    handler',
+        '      let name=otherId value="other.id"',
+        '      do value="super()"',
+        '      assign target="this.id" value="otherId"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new User(new Entity()).id', env))).toBe('base');
+  });
+
+  test('rejects double super calls in derived constructors', () => {
+    const root = parse(
+      [
+        'class name=Entity',
+        'class name=User extends=Entity',
+        '  constructor',
+        '    handler',
+        '      do value="super()"',
+        '      do value="super()"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new User()', env)).toThrow('called super(...) more than once');
+  });
+
+  test('missing runtime super path fails instead of auto-initializing the base', () => {
     const root = parse(
       [
         'class name=Entity',
@@ -596,15 +671,17 @@ describe('KERN core runtime statements', () => {
         'class name=User extends=Entity',
         '  constructor',
         '    param name=id type=string',
+        '    param name=ready type=boolean',
         '    handler',
-        '      if cond=true',
+        '      if cond=ready',
         '        do value="super(id)"',
       ].join('\n'),
     );
     const env = createCoreRuntimeEnv();
     runCoreRuntime(root, env);
 
-    expect(toHostValue(evalCoreExpression('new User("u1").id', env))).toBe('u1');
+    expect(toHostValue(evalCoreExpression('new User("u1", true).id', env))).toBe('u1');
+    expect(() => evalCoreExpression('new User("u2", false)', env)).toThrow('must call super(...)');
   });
 
   test('dispatches instance assignment through setters', () => {
@@ -763,7 +840,7 @@ describe('KERN core runtime statements', () => {
     const env = createCoreRuntimeEnv();
     runCoreRuntime(root, env);
 
-    expect(() => evalCoreExpression('new User("u1")', env)).toThrow('missing required argument: id');
+    expect(() => evalCoreExpression('new User("u1")', env)).toThrow('lambda expressions are not supported');
   });
 });
 
