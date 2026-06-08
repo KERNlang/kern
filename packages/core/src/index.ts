@@ -427,6 +427,8 @@ export {
   validatePortablePredicateAST,
 } from './portable-predicate.js';
 export { parsePortableNonNegativeIntLiteral, parsePortablePathSegments } from './portable-route-collection.js';
+export type { RagAssertionKind } from './rag-assertions.js';
+export { RAG_ASSERTION_KIND_SET, RAG_ASSERTION_KINDS } from './rag-assertions.js';
 export type { ParserHintsConfig } from './runtime.js';
 // Runtime (instance-based state)
 export { defaultRuntime, KernRuntime } from './runtime.js';

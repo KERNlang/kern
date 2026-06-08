@@ -19,6 +19,7 @@ import { collectExternalImportSymbols, type ExternalImportSymbolTable } from './
 import { importRegistryOf } from './import-metadata.js';
 import { parseExpression } from './parser-expression.js';
 import { splitPortableExpressionList } from './portable-expression-list.js';
+import { RAG_ASSERTION_KIND_SET, RAG_ASSERTION_KINDS } from './rag-assertions.js';
 import type { IRNode } from './types.js';
 import type { ValueIR } from './value-ir.js';
 
@@ -1049,6 +1050,8 @@ function validateRagUniqueNames(infos: RagInfos, violations: SemanticViolation[]
   validateRagUniqueNameSet('embed', infos.embeds, violations);
   validateRagUniqueNameSet('retriever', infos.retrievers, violations);
   validateRagUniqueNameSet('rag', infos.pipelines, violations);
+  validateRagUniqueEvalNames(infos.evals, violations);
+  validateRagUniqueCaseNames(infos.cases, violations);
 }
 
 function validateRagUniqueNameSet(
@@ -1087,6 +1090,46 @@ function validateRagUniqueSourceNames(sources: readonly RagSourceInfo[], violati
       );
     } else {
       seen.set(key, source.node);
+    }
+  }
+}
+
+function validateRagUniqueEvalNames(evals: readonly RagEvalInfo[], violations: SemanticViolation[]): void {
+  const seen = new Map<string, IRNode>();
+  for (const evaluation of evals) {
+    const name = stringProp(evaluation.node, 'name');
+    if (!name || !evaluation.ragName) continue;
+    const key = `${evaluation.ragName}:${name}`;
+    const prev = seen.get(key);
+    if (prev) {
+      pushRagViolation(
+        violations,
+        'rag-duplicate-eval-name',
+        evaluation.node,
+        `Duplicate RAG eval named '${name}' in rag '${evaluation.ragName}' — first defined at line ${prev.loc?.line ?? '?'}.`,
+      );
+    } else {
+      seen.set(key, evaluation.node);
+    }
+  }
+}
+
+function validateRagUniqueCaseNames(cases: readonly RagCaseInfo[], violations: SemanticViolation[]): void {
+  const seen = new Map<IRNode, Map<string, IRNode>>();
+  for (const evaluationCase of cases) {
+    if (!evaluationCase.name || !evaluationCase.evalNode) continue;
+    const evalCases = seen.get(evaluationCase.evalNode) ?? new Map<string, IRNode>();
+    const prev = evalCases.get(evaluationCase.name);
+    if (prev) {
+      pushRagViolation(
+        violations,
+        'rag-duplicate-case-name',
+        evaluationCase.node,
+        `Duplicate RAG eval case named '${evaluationCase.name}' in eval '${evaluationCase.evalName ?? '?'}' — first defined at line ${prev.loc?.line ?? '?'}.`,
+      );
+    } else {
+      evalCases.set(evaluationCase.name, evaluationCase.node);
+      seen.set(evaluationCase.evalNode, evalCases);
     }
   }
 }
@@ -1526,12 +1569,12 @@ function validateRagAssert(
   }
 
   const kind = stringProp(assertion.node, 'kind');
-  if (!kind || !RAG_ASSERT_KINDS.has(kind)) {
+  if (!kind || !RAG_ASSERTION_KIND_SET.has(kind)) {
     pushRagViolation(
       violations,
       'rag-assert-kind-invalid',
       assertion.node,
-      `RAG assert kind must be one of ${[...RAG_ASSERT_KINDS].join(', ')}.`,
+      `RAG assert kind must be one of ${RAG_ASSERTION_KINDS.join(', ')}.`,
     );
     return;
   }
@@ -2278,19 +2321,6 @@ interface ClassMemberInfo {
 const BUILTIN_CLASS_BASES = new Set(['Error']);
 const RAG_MCP_RETRIEVE_OUTPUT_SHAPE = 'RetrievedChunk[]';
 const RAG_MCP_RETRIEVE_OUTPUT_ITEM_SHAPE = 'RetrievedChunk';
-const RAG_ASSERT_KINDS = new Set([
-  'factId',
-  'chunkHash',
-  'scoreGte',
-  'scoreLte',
-  'contains',
-  'sourceEq',
-  'sourceGlob',
-  'uniqueSourcesGte',
-  'chunkCountEq',
-  'latencyLte',
-  'citesRequired',
-]);
 const BODY_EXPRESSION_PROPS = [
   'value',
   'expr',

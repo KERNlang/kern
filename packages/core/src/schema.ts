@@ -24,6 +24,7 @@ import {
 import { type KernTarget, VALID_TARGETS } from './config.js';
 import { validateCapabilityMetadata, validateImportMetadata } from './import-metadata.js';
 import { parsePortablePredicateProp, validatePortablePredicateAST } from './portable-predicate.js';
+import { RAG_ASSERTION_KINDS } from './rag-assertions.js';
 import { defaultRuntime, type KernRuntime } from './runtime.js';
 import { KERN_VERSION, NODE_TYPES, STYLE_SHORTHANDS, VALUE_SHORTHANDS } from './spec.js';
 import type { IRNode } from './types.js';
@@ -43,6 +44,7 @@ export type PropKind =
 export interface PropSchema {
   required?: boolean;
   kind: PropKind;
+  values?: readonly string[];
 }
 
 export interface NodeSchema {
@@ -2535,7 +2537,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     description: 'RAG evaluation assertion — declares a closed static check over retrieved chunks or grounding.',
     example: 'ragAssert kind=scoreGte threshold=0.72 required=true',
     props: {
-      kind: { required: true, kind: 'identifier' },
+      kind: { required: true, kind: 'identifier', values: RAG_ASSERTION_KINDS },
       value: { kind: 'string' },
       threshold: { kind: 'number' },
       count: { kind: 'number' },
@@ -4316,11 +4318,28 @@ function checkAllowedChildren(node: IRNode, schema: NodeSchema, violations: Sche
   }
 }
 
+function checkAllowedPropValues(node: IRNode, schema: NodeSchema, violations: SchemaViolation[]): void {
+  const props = node.props || {};
+  for (const [propName, propSchema] of Object.entries(schema.props)) {
+    if (!propSchema.values || !(propName in props)) continue;
+    const value = props[propName];
+    if (typeof value !== 'string' || !propSchema.values.includes(value)) {
+      violations.push({
+        nodeType: node.type,
+        message: `'${node.type}' prop '${propName}' must be one of ${propSchema.values.join(', ')}`,
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+  }
+}
+
 function validateNode(node: IRNode, violations: SchemaViolation[], parent?: IRNode): void {
   const schema = Object.hasOwn(NODE_SCHEMAS, node.type) ? NODE_SCHEMAS[node.type] : undefined;
   if (schema) {
     checkRequiredProps(node, schema, violations, parent);
     checkCrossProps(node, violations, parent);
+    checkAllowedPropValues(node, schema, violations);
     checkAllowedChildren(node, schema, violations);
   }
   if (node.children) {

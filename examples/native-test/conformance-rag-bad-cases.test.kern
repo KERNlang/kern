@@ -11,6 +11,8 @@ test name="Bad RAG conformance" target="./conformance-rag-bad-cases.kern" covera
     expect has=semanticViolations matches="RAG retriever 'MismatchRetriever' uses embed 'OtherEmbedding'"
     expect has=semanticViolations matches="RAG pipeline 'BadRag' references unknown retriever 'MissingRetriever'"
     expect has=semanticViolations matches="RAG pipeline 'BadRag' requires citations"
+    expect has=semanticViolations matches="Duplicate RAG eval named 'PlainEval'"
+    expect has=semanticViolations matches="Duplicate RAG eval case named 'needsCitations'"
     expect has=semanticViolations matches="RAG grounding references unknown rag 'MissingRag'"
     expect has=semanticViolations matches="RAG grounding maxContext must be a positive integer"
     expect has=semanticViolations matches="RAG eval references unknown rag 'MissingRag'"

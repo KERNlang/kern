@@ -105,7 +105,9 @@ describe('Schema Validation', () => {
           'retriever name=DocsSearch corpus=Docs embed=DocsEmbedding topK=8 minScore=0.72',
           'rag name=AnswerDocs retriever=DocsSearch',
           '  grounding requireCitations=true maxContext=6000',
-          '  ragEval metric=faithfulness threshold=0.85',
+          '  ragEval name=Faithfulness metric=faithfulness threshold=0.85 mode=contract',
+          '    ragCase name=refunds query="How do refunds work?"',
+          '      ragAssert kind=scoreGte threshold=0.72',
         ].join('\n'),
       );
       expect(valid).toHaveLength(0);
@@ -135,6 +137,20 @@ describe('Schema Validation', () => {
       const nestedEmbed = validate(['corpus name=Docs', '  embed name=DocsEmbedding corpus=Docs'].join('\n'));
       expect(
         nestedEmbed.some((violation) => violation.message.includes("'corpus' does not allow child type 'embed'")),
+      ).toBe(true);
+
+      const invalidAssertKind = validate(
+        [
+          'corpus name=Docs',
+          'retriever name=DocsSearch corpus=Docs',
+          'rag name=AnswerDocs retriever=DocsSearch',
+          '  ragEval name=Faithfulness metric=faithfulness threshold=0.85 mode=contract',
+          '    ragCase name=refunds query="How do refunds work?"',
+          '      ragAssert kind=unsupported',
+        ].join('\n'),
+      );
+      expect(
+        invalidAssertKind.some((violation) => violation.message.includes("'ragAssert' prop 'kind' must be one of")),
       ).toBe(true);
     });
 

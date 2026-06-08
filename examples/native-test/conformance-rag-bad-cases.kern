@@ -25,6 +25,10 @@ rag name=PlainRag retriever=MismatchRetriever
   ragEval name=PlainEval metric=faithfulness threshold=0.85 mode=contract
     ragCase name=needsCitations query="needs cite" sources="docs/refunds.md"
       ragAssert kind=citesRequired
+    ragCase name=needsCitations query="duplicate case"
+
+ragEval rag=PlainRag name=PlainEval metric=faithfulness threshold=0.85 mode=contract
+  ragCase name=outside query="duplicate eval"
 
 grounding rag=MissingRag maxContext=0
 ragEval rag=MissingRag threshold=1.1

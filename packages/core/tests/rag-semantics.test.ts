@@ -651,6 +651,38 @@ describe('RAG language semantics', () => {
     );
   });
 
+  test('reports duplicate RAG eval and case names in their contract namespaces', () => {
+    const source = [
+      'corpus name=Docs',
+      'retriever name=DocsSearch corpus=Docs',
+      'rag name=AnswerDocs retriever=DocsSearch',
+      '  ragEval name=Faithfulness metric=faithfulness threshold=0.85 mode=contract',
+      '    ragCase name=refunds query="first"',
+      '    ragCase name=refunds query="duplicate"',
+      'ragEval rag=AnswerDocs name=Faithfulness metric=faithfulness threshold=0.9 mode=contract',
+      '  ragCase name=external query="duplicate eval"',
+    ].join('\n');
+
+    expect(rulesFor(source)).toEqual(expect.arrayContaining(['rag-duplicate-eval-name', 'rag-duplicate-case-name']));
+  });
+
+  test('allows RAG eval and case name reuse across separate namespaces', () => {
+    const source = [
+      'corpus name=Docs',
+      'retriever name=DocsSearch corpus=Docs',
+      'rag name=AnswerDocs retriever=DocsSearch',
+      '  ragEval name=Faithfulness metric=faithfulness threshold=0.85 mode=contract',
+      '    ragCase name=refunds query="answer docs"',
+      'rag name=AuditDocs retriever=DocsSearch',
+      '  ragEval name=Faithfulness metric=faithfulness threshold=0.85 mode=contract',
+      '    ragCase name=refunds query="audit docs"',
+      'ragEval rag=AnswerDocs name=Relevance metric=relevance threshold=0.85 mode=contract',
+      '  ragCase name=refunds query="same case name, different eval"',
+    ].join('\n');
+
+    expect(validateSemantics(parseRoot(source))).toEqual([]);
+  });
+
   test('requires chunking source refs to resolve inside the referenced corpus', () => {
     const source = [
       'corpus name=Docs',
