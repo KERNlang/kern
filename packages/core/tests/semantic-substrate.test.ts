@@ -65,6 +65,7 @@ describe('KERN semantic substrate', () => {
     expect(Object.hasOwn(substrate, 'classValidationSummary')).toBe(false);
     expect(Object.hasOwn(substrate, 'ragFacts')).toBe(false);
     expect(Object.hasOwn(substrate, 'ragValidationSummary')).toBe(false);
+    expect(Object.hasOwn(substrate, 'ragAnswerReviewFacts')).toBe(false);
   });
 
   test('exports document class member inheritance and override facts when requested', () => {
@@ -245,9 +246,10 @@ describe('KERN semantic substrate', () => {
         '  chunking source=manuals strategy=semantic maxTokens=600 overlap=80',
         'embed name=DocsEmbedding corpus=Docs model=text-embedding-3-small dims=1536 metric=cosine',
         'retriever name=DocsSearch corpus=Docs embed=DocsEmbedding mode=hybrid topK=8 minScore=0.72',
-        'rag name=AnswerDocs retriever=DocsSearch citations=true',
+        'rag name=AnswerDocs retriever=DocsSearch prompt="./answer.md" answer="grounded" citations=true',
         '  grounding requireCitations=true policy=strict maxContext=6000',
-        '  ragEval metric=faithfulness threshold=0.85',
+        '  ragEval name=Faithfulness metric=faithfulness threshold=0.85 mode=contract',
+        '    ragCase name=refunds query="refund policy"',
         'mcp name=Support',
         '  resource name=DocsResource uri="docs://manuals"',
         '  tool name=answerQuestion',
@@ -285,6 +287,8 @@ describe('KERN semantic substrate', () => {
       expect.objectContaining({
         name: 'AnswerDocs',
         retrieverName: 'DocsSearch',
+        prompt: './answer.md',
+        answer: 'grounded',
         citations: true,
         groundings: [expect.objectContaining({ requireCitations: true, policy: 'strict' })],
         evals: [expect.objectContaining({ metric: 'faithfulness', threshold: 0.85 })],
@@ -317,12 +321,38 @@ describe('KERN semantic substrate', () => {
         resourceName: 'DocsResource',
       }),
     ]);
+    expect(substrate.ragAnswerReviewFacts).toEqual([
+      {
+        pipelineName: 'AnswerDocs',
+        retrieverName: 'DocsSearch',
+        prompt: './answer.md',
+        answer: 'grounded',
+        citationsRequired: true,
+        groundingCount: 1,
+        evalCount: 1,
+        evalCaseCount: 1,
+        mcpRetrievalCount: 1,
+        compatibleMcpRetrievalCount: 1,
+        provenanceRequired: true,
+        provenanceComplete: true,
+        validationStatus: 'ready',
+        issues: [],
+      },
+    ]);
 
     const invalidSubstrate = buildKernSemanticSubstrate({
       documentRag: parseRoot('rag name=Broken retriever=Missing'),
       includeRagValidationSummary: true,
     });
     expect(invalidSubstrate.ragValidationSummary?.byRule['rag-unknown-retriever']).toBe(1);
+    expect(invalidSubstrate.ragAnswerReviewFacts).toEqual([
+      expect.objectContaining({
+        pipelineName: 'Broken',
+        retrieverName: 'Missing',
+        validationStatus: 'invalid',
+        issues: expect.arrayContaining(['unresolved-retriever:Missing', 'missing-answer-surface', 'missing-eval']),
+      }),
+    ]);
   });
 
   test('exports portable review primitives as stable query objects', () => {

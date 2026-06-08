@@ -13,7 +13,10 @@ import {
   type ClassSemanticFacts,
   collectClassSemanticFacts,
   collectRagSemanticFacts,
+  RAG_MCP_RETRIEVE_OUTPUT_ITEM_SHAPE,
+  RAG_MCP_RETRIEVE_OUTPUT_SHAPE,
   type RagSemanticFacts,
+  type RagSemanticMcpRetrievalFact,
   type SemanticViolation,
   validateClassSemantics,
   validateRagSemantics,
@@ -79,6 +82,25 @@ export interface KernSemanticValidationSummary {
   readonly byRule: Readonly<Record<string, number>>;
 }
 
+export type KernSemanticRagAnswerReviewStatus = 'ready' | 'incomplete' | 'invalid';
+
+export interface KernSemanticRagAnswerReviewFact {
+  readonly pipelineName: string;
+  readonly retrieverName: string;
+  readonly prompt?: string;
+  readonly answer?: string;
+  readonly citationsRequired: boolean;
+  readonly groundingCount: number;
+  readonly evalCount: number;
+  readonly evalCaseCount: number;
+  readonly mcpRetrievalCount: number;
+  readonly compatibleMcpRetrievalCount: number;
+  readonly provenanceRequired: boolean;
+  readonly provenanceComplete: boolean;
+  readonly validationStatus: KernSemanticRagAnswerReviewStatus;
+  readonly issues: readonly string[];
+}
+
 export interface KernSemanticSubstrate {
   readonly schemaVersion: 1;
   readonly generatedBy: 'kern-semantic-substrate';
@@ -98,6 +120,7 @@ export interface KernSemanticSubstrate {
   readonly classValidationSummary?: KernSemanticValidationSummary;
   readonly ragFacts?: RagSemanticFacts;
   readonly ragValidationSummary?: KernSemanticValidationSummary;
+  readonly ragAnswerReviewFacts?: readonly KernSemanticRagAnswerReviewFact[];
 }
 
 export interface BuildKernSemanticSubstrateOptions {
@@ -110,6 +133,7 @@ export interface BuildKernSemanticSubstrateOptions {
 }
 
 export function buildKernSemanticSubstrate(options: BuildKernSemanticSubstrateOptions = {}): KernSemanticSubstrate {
+  const ragFacts = options.documentRag ? collectRagSemanticFacts(options.documentRag) : undefined;
   const coreTypes = Object.values(CORE_TYPE_CONTRACTS.types).map((contract) => ({
     id: `core.type.${contract.name}`,
     name: contract.name,
@@ -159,7 +183,7 @@ export function buildKernSemanticSubstrate(options: BuildKernSemanticSubstrateOp
     ...(options.documentClasses && options.includeClassValidationSummary
       ? { classValidationSummary: semanticValidationSummary(options.documentClasses) }
       : {}),
-    ...(options.documentRag ? { ragFacts: collectRagSemanticFacts(options.documentRag) } : {}),
+    ...(ragFacts ? { ragFacts, ragAnswerReviewFacts: buildRagAnswerReviewFacts(ragFacts) } : {}),
     ...(options.documentRag && options.includeRagValidationSummary
       ? { ragValidationSummary: ragValidationSummary(options.documentRag) }
       : {}),
@@ -258,6 +282,116 @@ function summarizeSemanticViolations(violations: readonly SemanticViolation[]): 
   }
   return { total: violations.length, byRule };
 }
+
+function buildRagAnswerReviewFacts(facts: RagSemanticFacts): KernSemanticRagAnswerReviewFact[] {
+  const unresolvedRetrievers = new Set(facts.unresolvedRetrieverRefs);
+  return facts.pipelines.map((pipeline) => {
+    const citationsRequired = pipeline.citations || pipeline.groundings.some((grounding) => grounding.requireCitations);
+    const mcpRetrievals = facts.mcpRetrievals.filter(
+      (retrieval) => retrieval.targetKind === 'rag' && retrieval.targetName === pipeline.name,
+    );
+    const compatibleMcpRetrievals = mcpRetrievals.filter((retrieval) =>
+      isRagAnswerCompatibleMcpRetrieval(retrieval, citationsRequired),
+    );
+    const evalCaseCount = pipeline.evals.reduce((count, evaluation) => count + (evaluation.caseCount ?? 0), 0);
+    const issues = ragAnswerReviewIssues(
+      facts,
+      pipeline.name,
+      pipeline.retrieverName,
+      pipeline.prompt,
+      pipeline.answer,
+      citationsRequired,
+      pipeline.groundings.length,
+      pipeline.groundings.some((grounding) => grounding.requireCitations),
+      pipeline.evals.length,
+      evalCaseCount,
+      mcpRetrievals.length,
+      compatibleMcpRetrievals.length,
+      unresolvedRetrievers.has(pipeline.retrieverName),
+    );
+    return {
+      pipelineName: pipeline.name,
+      retrieverName: pipeline.retrieverName,
+      ...optionalStringValue('prompt', pipeline.prompt),
+      ...optionalStringValue('answer', pipeline.answer),
+      citationsRequired,
+      groundingCount: pipeline.groundings.length,
+      evalCount: pipeline.evals.length,
+      evalCaseCount,
+      mcpRetrievalCount: mcpRetrievals.length,
+      compatibleMcpRetrievalCount: compatibleMcpRetrievals.length,
+      provenanceRequired: citationsRequired || mcpRetrievals.some((retrieval) => retrieval.requireGrounding),
+      provenanceComplete: mcpRetrievals.length === 0 || compatibleMcpRetrievals.length === mcpRetrievals.length,
+      validationStatus: ragAnswerReviewStatus(issues),
+      issues,
+    };
+  });
+}
+
+function ragAnswerReviewIssues(
+  facts: RagSemanticFacts,
+  pipelineName: string,
+  retrieverName: string,
+  prompt: string | undefined,
+  answer: string | undefined,
+  citationsRequired: boolean,
+  groundingCount: number,
+  hasCitationGrounding: boolean,
+  evalCount: number,
+  evalCaseCount: number,
+  mcpRetrievalCount: number,
+  compatibleMcpRetrievalCount: number,
+  unresolvedRetriever: boolean,
+): string[] {
+  const issues: string[] = [];
+  if (unresolvedRetriever) issues.push(`unresolved-retriever:${retrieverName}`);
+  if (!prompt && !answer) issues.push('missing-answer-surface');
+  if (citationsRequired && groundingCount === 0) issues.push('missing-grounding');
+  if (citationsRequired && !hasCitationGrounding) issues.push('missing-citation-grounding');
+  if (evalCount === 0) issues.push('missing-eval');
+  if (evalCount > 0 && evalCaseCount === 0) issues.push('missing-eval-case');
+  if (
+    facts.mcpRetrievals.some(
+      (retrieval) =>
+        retrieval.targetKind === 'rag' &&
+        retrieval.targetName === pipelineName &&
+        retrieval.contractStatus === 'invalid',
+    )
+  ) {
+    issues.push('invalid-mcp-retrieve-contract');
+  }
+  if (mcpRetrievalCount > 0 && compatibleMcpRetrievalCount === 0) issues.push('missing-compatible-mcp-retrieve');
+  return issues;
+}
+
+function ragAnswerReviewStatus(issues: readonly string[]): KernSemanticRagAnswerReviewStatus {
+  if (issues.some((issue) => INVALID_RAG_ANSWER_REVIEW_ISSUES.has(issue.split(':', 1)[0] ?? ''))) return 'invalid';
+  return issues.length === 0 ? 'ready' : 'incomplete';
+}
+
+function isRagAnswerCompatibleMcpRetrieval(
+  retrieval: RagSemanticMcpRetrievalFact,
+  citationsRequired: boolean,
+): boolean {
+  if (retrieval.contractStatus !== 'valid') return false;
+  if (retrieval.outputShape !== RAG_MCP_RETRIEVE_OUTPUT_SHAPE) return false;
+  if (retrieval.outputItemShape !== undefined && retrieval.outputItemShape !== RAG_MCP_RETRIEVE_OUTPUT_ITEM_SHAPE) {
+    return false;
+  }
+  if (citationsRequired || retrieval.effectiveRequiresCitations) {
+    return (
+      !!retrieval.citationField &&
+      (!!retrieval.sourceField || retrieval.provenance === 'source' || retrieval.provenance === 'citation')
+    );
+  }
+  return true;
+}
+
+function optionalStringValue(key: string, value: string | undefined): Record<string, string> {
+  return value === undefined ? {} : { [key]: value };
+}
+
+const INVALID_RAG_ANSWER_REVIEW_ISSUES = new Set(['unresolved-retriever', 'invalid-mcp-retrieve-contract']);
 
 const KERN_PRIMITIVE_NAMES: Record<PortableLogicPrimitiveId, string> = {
   'collection.has': 'includes',

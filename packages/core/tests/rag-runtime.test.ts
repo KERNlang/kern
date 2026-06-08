@@ -2,6 +2,7 @@ import type { RagSemanticEvalFact } from '../src/index.js';
 import {
   createInMemoryRetriever,
   createRagRuntimeProvenance,
+  evaluateRagAnswerContract,
   evaluateRagEvalContract,
   hashRetrievedChunkText,
   InMemoryRagCorpus,
@@ -629,6 +630,240 @@ describe('RAG runtime provenance envelopes', () => {
     });
     expect(() => ragMcpRetrieveProvenanceMapping(undefined)).toThrow('retrieval fact');
     expect(() => ragMcpRetrieveProvenanceMapping(null)).toThrow('retrieval fact');
+  });
+});
+
+describe('RAG answer runtime contracts', () => {
+  test('validates a grounded answer against retrieved chunks and provenance', () => {
+    const retrieval = withRagRuntimeProvenance(
+      {
+        query: 'refund policy',
+        chunks: [
+          {
+            id: 'refunds',
+            text: 'Refunds are allowed for thirty days.',
+            score: 0.95,
+            source: 'docs/refunds.md',
+            citation: { uri: 'docs/refunds.md', locator: 'L1-L2' },
+          },
+        ],
+      },
+      {
+        retrieverName: 'DocsSearch',
+        targetKind: 'rag',
+        targetName: 'AnswerDocs',
+        retrieveOptions: { topK: 1, minScore: 0.8 },
+        citationsRequired: true,
+        startedAtMs: 100,
+      },
+    );
+    const answer = 'Refunds are allowed for thirty days.';
+
+    const result = evaluateRagAnswerContract({
+      id: 'AnswerDocs:refunds',
+      ragName: 'AnswerDocs',
+      prompt: './answer.md',
+      query: retrieval.query,
+      answer,
+      retrieval,
+      requireCitations: true,
+      minGroundingCoverage: 1,
+      groundingSpans: [{ start: 0, end: answer.length, chunkIds: ['refunds'], required: true }],
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: 'AnswerDocs:refunds',
+        ragName: 'AnswerDocs',
+        query: 'refund policy',
+        passed: true,
+        status: 'grounded',
+        groundingCoverage: 1,
+        citedChunkIds: ['refunds'],
+        sources: ['docs/refunds.md'],
+        provenance: retrieval.provenance,
+        diagnostics: [],
+      }),
+    );
+    expect(JSON.parse(JSON.stringify(result))).toEqual(result);
+  });
+
+  test('reports partial and ungrounded answer contract failures', () => {
+    const retrieval = {
+      query: 'refund policy',
+      chunks: [
+        {
+          id: 'refunds',
+          text: 'Refunds are allowed.',
+          score: 0.9,
+          source: 'docs/refunds.md',
+          citation: { uri: 'docs/refunds.md' },
+        },
+      ],
+    };
+    const answer = 'Refunds are allowed. Shipping is separate.';
+    const partial = evaluateRagAnswerContract({
+      query: retrieval.query,
+      answer,
+      retrieval,
+      minGroundingCoverage: 0.9,
+      groundingSpans: [{ start: 0, end: 'Refunds are allowed.'.length, chunkIds: ['refunds'] }],
+    });
+    const ungrounded = evaluateRagAnswerContract({
+      query: retrieval.query,
+      answer,
+      retrieval,
+      requireCitations: true,
+      groundingSpans: [],
+    });
+
+    expect(partial.passed).toBe(false);
+    expect(partial.status).toBe('partially_grounded');
+    expect(partial.diagnostics).toEqual([expect.objectContaining({ code: 'GROUNDING_BELOW_THRESHOLD' })]);
+    expect(ungrounded.passed).toBe(false);
+    expect(ungrounded.status).toBe('invalid');
+    expect(ungrounded.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'CITATION_REQUIRED' }),
+        expect.objectContaining({ code: 'GROUNDING_BELOW_THRESHOLD' }),
+      ]),
+    );
+  });
+
+  test('reports invalid answer contracts for bad spans chunk refs and provenance mismatches', () => {
+    const retrieval = withRagRuntimeProvenance(
+      {
+        query: 'refund policy',
+        chunks: [
+          {
+            id: 'refunds',
+            text: 'Refunds are allowed.',
+            score: 0.9,
+            source: 'docs/refunds.md',
+            citation: { uri: 'docs/refunds.md' },
+          },
+        ],
+      },
+      { targetKind: 'rag', targetName: 'AnswerDocs' },
+    );
+    const answer = 'Refunds are allowed.';
+    const staleChunk = retrieval.chunks[0];
+    if (!staleChunk) throw new Error('missing answer contract fixture chunk');
+
+    const invalid = evaluateRagAnswerContract({
+      query: retrieval.query,
+      answer,
+      retrieval,
+      provenance: { ...retrieval.provenance, query: 'other query' },
+      groundingSpans: [
+        { start: 0, end: answer.length + 1, chunkIds: ['refunds'] },
+        { start: 0, end: answer.length, chunkIds: ['missing'], required: true },
+      ],
+    });
+    const queryMismatch = evaluateRagAnswerContract({
+      query: 'shipping policy',
+      answer,
+      retrieval,
+      groundingSpans: [{ start: 0, end: answer.length, chunkIds: ['refunds'] }],
+    });
+    const staleProvenance = evaluateRagAnswerContract({
+      query: retrieval.query,
+      answer,
+      retrieval: {
+        ...retrieval,
+        chunks: [{ ...staleChunk, text: 'Different retrieved text.' }],
+      },
+      groundingSpans: [{ start: 0, end: answer.length, chunkIds: ['refunds'] }],
+    });
+    const badAnswer = evaluateRagAnswerContract({
+      query: retrieval.query,
+      answer: undefined as unknown as string,
+      retrieval,
+    });
+    const badGroundingSpans = evaluateRagAnswerContract({
+      query: retrieval.query,
+      answer,
+      retrieval,
+      groundingSpans: {} as unknown as [],
+    });
+    const emptyCitation = evaluateRagAnswerContract({
+      query: retrieval.query,
+      answer,
+      retrieval: {
+        ...retrieval,
+        chunks: [{ ...staleChunk, citation: { uri: '' } }],
+      },
+      requireCitations: true,
+      groundingSpans: [{ start: 0, end: answer.length, chunkIds: ['refunds'] }],
+    });
+    const nonStringChunkRef = evaluateRagAnswerContract({
+      query: retrieval.query,
+      answer,
+      retrieval,
+      groundingSpans: [{ start: 0, end: answer.length, chunkIds: [1 as unknown as string] }],
+    });
+
+    expect(invalid.passed).toBe(false);
+    expect(invalid.status).toBe('invalid');
+    expect(invalid.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
+      expect.arrayContaining([
+        'PROVENANCE_MISMATCH',
+        'SPAN_INVALID',
+        'CHUNK_REF_UNKNOWN',
+        'CITATION_REQUIRED',
+        'GROUNDING_BELOW_THRESHOLD',
+      ]),
+    );
+    expect(queryMismatch.diagnostics).toEqual([expect.objectContaining({ code: 'QUERY_MISMATCH' })]);
+    expect(staleProvenance.diagnostics).toEqual([expect.objectContaining({ code: 'PROVENANCE_MISMATCH' })]);
+    expect(badAnswer.diagnostics).toEqual([expect.objectContaining({ code: 'ANSWER_EMPTY' })]);
+    expect(badGroundingSpans.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'SPAN_INVALID' }),
+        expect.objectContaining({ code: 'GROUNDING_BELOW_THRESHOLD' }),
+      ]),
+    );
+    expect(emptyCitation.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'CITATION_REQUIRED' }),
+        expect.objectContaining({ code: 'GROUNDING_BELOW_THRESHOLD' }),
+      ]),
+    );
+    expect(nonStringChunkRef.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'SPAN_INVALID' }),
+        expect.objectContaining({ code: 'GROUNDING_BELOW_THRESHOLD' }),
+      ]),
+    );
+    expect(() =>
+      evaluateRagAnswerContract({
+        query: retrieval.query,
+        answer,
+        retrieval,
+        minGroundingCoverage: 1.1,
+      }),
+    ).toThrow('minGroundingCoverage');
+    expect(() =>
+      createRagRuntimeProvenance({
+        query: 'refund',
+        chunks: [
+          {
+            id: 'dupe',
+            text: 'one',
+            score: 0.5,
+            source: 'docs/one.md',
+            citation: { uri: 'docs/one.md' },
+          },
+          {
+            id: 'dupe',
+            text: 'two',
+            score: 0.5,
+            source: 'docs/two.md',
+            citation: { uri: 'docs/two.md' },
+          },
+        ],
+      }),
+    ).toThrow('duplicates chunk id');
   });
 });
 

@@ -89,6 +89,61 @@ export interface RagMcpRetrieveProvenanceMapping {
   readonly compatible: boolean;
 }
 
+export type RagAnswerContractStatus = 'grounded' | 'partially_grounded' | 'ungrounded' | 'invalid';
+
+export type RagAnswerContractDiagnosticCode =
+  | 'ANSWER_EMPTY'
+  | 'QUERY_MISMATCH'
+  | 'RETRIEVER_ERROR'
+  | 'PROVENANCE_MISMATCH'
+  | 'SPAN_INVALID'
+  | 'SPAN_UNGROUNDED'
+  | 'CHUNK_REF_UNKNOWN'
+  | 'CITATION_REQUIRED'
+  | 'GROUNDING_BELOW_THRESHOLD';
+
+export interface RagAnswerGroundingSpan {
+  readonly start: number;
+  readonly end: number;
+  readonly chunkIds: readonly string[];
+  readonly required?: boolean;
+}
+
+export interface RagAnswerContract {
+  readonly id?: string;
+  readonly ragName?: string;
+  readonly prompt?: string;
+  readonly query: string;
+  readonly answer: string;
+  readonly retrieval: RetrieveResult | ProvenancedRetrieveResult;
+  readonly provenance?: RagRuntimeProvenance;
+  readonly groundingSpans?: readonly RagAnswerGroundingSpan[];
+  readonly requireCitations?: boolean;
+  readonly minGroundingCoverage?: number;
+}
+
+export interface RagAnswerContractDiagnostic {
+  readonly code: RagAnswerContractDiagnosticCode;
+  readonly message: string;
+  readonly spanIndex?: number;
+  readonly chunkId?: string;
+}
+
+export interface RagAnswerContractResult {
+  readonly id?: string;
+  readonly ragName?: string;
+  readonly query: string;
+  readonly passed: boolean;
+  readonly status: RagAnswerContractStatus;
+  readonly groundingCoverage: number;
+  readonly groundedChars: number;
+  readonly answerChars: number;
+  readonly citedChunkIds: readonly string[];
+  readonly sources: readonly string[];
+  readonly provenance?: RagRuntimeProvenance;
+  readonly diagnostics: readonly RagAnswerContractDiagnostic[];
+}
+
 export type RagEvalAssertionCode =
   | 'PASS'
   | 'ASSERTION_FAIL'
@@ -286,6 +341,155 @@ export function ragMcpRetrieveProvenanceMapping(
   };
 }
 
+export function evaluateRagAnswerContract(contract: RagAnswerContract): RagAnswerContractResult {
+  const base = {
+    ...optionalStringValue('id', contract.id),
+    ...optionalStringValue('ragName', contract.ragName),
+    query: typeof contract.query === 'string' ? contract.query : '',
+  };
+  let retrieval: RetrieveResult;
+  try {
+    retrieval = validateRetrieveResult(contract.retrieval);
+  } catch (error) {
+    return {
+      ...base,
+      passed: false,
+      status: 'invalid',
+      groundingCoverage: 0,
+      groundedChars: 0,
+      answerChars: 0,
+      citedChunkIds: [],
+      sources: [],
+      ...(contract.provenance ? { provenance: contract.provenance } : {}),
+      diagnostics: [
+        {
+          code: 'RETRIEVER_ERROR',
+          message: `RAG answer contract retrieval failed: ${error instanceof Error ? error.message : String(error)}.`,
+        },
+      ],
+    };
+  }
+
+  const answer = typeof contract.answer === 'string' ? contract.answer : '';
+  const answerChars = countAnswerChars(answer);
+  const diagnostics: RagAnswerContractDiagnostic[] = [];
+  if (typeof contract.answer !== 'string' || answerChars === 0) {
+    diagnostics.push({ code: 'ANSWER_EMPTY', message: 'RAG answer contract answer must be a non-empty string.' });
+  }
+
+  const minGroundingCoverage = normalizeGroundingCoverageThreshold(contract.minGroundingCoverage);
+  const provenance = contract.provenance ?? retrieveResultProvenance(contract.retrieval);
+  if (contract.query !== retrieval.query) {
+    diagnostics.push({
+      code: 'QUERY_MISMATCH',
+      message: 'RAG answer contract query does not match the retrieval result query.',
+    });
+  }
+  if (provenance && !provenanceMatchesRetrieval(provenance, retrieval)) {
+    diagnostics.push({
+      code: 'PROVENANCE_MISMATCH',
+      message: 'RAG answer contract provenance does not match the retrieval result.',
+    });
+  }
+
+  const chunkById = new Map(retrieval.chunks.map((chunk) => [chunk.id, chunk]));
+  const grounded = new Array(answer.length).fill(false) as boolean[];
+  const citedChunkIds = new Set<string>();
+  const citationBearingChunkIds = new Set<string>();
+  const groundingSpans = Array.isArray(contract.groundingSpans) ? contract.groundingSpans : [];
+  if (contract.groundingSpans !== undefined && !Array.isArray(contract.groundingSpans)) {
+    diagnostics.push({
+      code: 'SPAN_INVALID',
+      message: 'RAG answer contract groundingSpans must be an array.',
+    });
+  }
+
+  for (const [spanIndex, span] of groundingSpans.entries()) {
+    if (!isValidGroundingSpan(span, answer.length)) {
+      diagnostics.push({
+        code: 'SPAN_INVALID',
+        spanIndex,
+        message: `RAG answer grounding span at index ${spanIndex} is invalid or outside the answer text.`,
+      });
+      continue;
+    }
+
+    const validChunkIds: string[] = [];
+    let spanHasCitation = false;
+    for (const chunkId of span.chunkIds) {
+      if (chunkById.has(chunkId)) {
+        validChunkIds.push(chunkId);
+        citedChunkIds.add(chunkId);
+        if (chunkHasCitation(chunkById.get(chunkId))) {
+          spanHasCitation = true;
+          citationBearingChunkIds.add(chunkId);
+        }
+      } else {
+        diagnostics.push({
+          code: 'CHUNK_REF_UNKNOWN',
+          spanIndex,
+          chunkId,
+          message: `RAG answer grounding span at index ${spanIndex} references unknown chunk '${chunkId}'.`,
+        });
+      }
+    }
+
+    if (validChunkIds.length === 0) {
+      diagnostics.push({
+        code: span.required ? 'CITATION_REQUIRED' : 'SPAN_UNGROUNDED',
+        spanIndex,
+        message: `RAG answer grounding span at index ${spanIndex} has no valid retrieved chunk citation.`,
+      });
+      continue;
+    }
+
+    if (contract.requireCitations && !spanHasCitation) {
+      diagnostics.push({
+        code: 'CITATION_REQUIRED',
+        spanIndex,
+        message: `RAG answer grounding span at index ${spanIndex} requires a non-empty retrieved chunk citation.`,
+      });
+      continue;
+    }
+
+    for (let index = span.start; index < span.end; index += 1) grounded[index] = true;
+  }
+
+  const groundedChars = countGroundedAnswerChars(answer, grounded);
+  const groundingCoverage = answerChars === 0 ? 0 : groundedChars / answerChars;
+  if (
+    answerChars > 0 &&
+    contract.requireCitations &&
+    citationBearingChunkIds.size === 0 &&
+    groundingSpans.length === 0
+  ) {
+    diagnostics.push({
+      code: 'CITATION_REQUIRED',
+      message: 'RAG answer contract requires citations but no retrieved chunks were cited.',
+    });
+  }
+  if (answerChars > 0 && groundingCoverage < minGroundingCoverage) {
+    diagnostics.push({
+      code: 'GROUNDING_BELOW_THRESHOLD',
+      message: `RAG answer grounding coverage ${groundingCoverage.toFixed(3)} is below required threshold ${minGroundingCoverage.toFixed(3)}.`,
+    });
+  }
+
+  const passed = diagnostics.length === 0;
+  return {
+    ...base,
+    passed,
+    status: passed ? 'grounded' : ragAnswerStatus(diagnostics, groundingCoverage),
+    groundingCoverage,
+    groundedChars,
+    answerChars,
+    citedChunkIds: [...citedChunkIds].sort(stableStringCompare),
+    sources: uniqueOrdered([...citedChunkIds].map((chunkId) => chunkById.get(chunkId)?.source).filter(isString)),
+    ...(provenance ? { provenance } : {}),
+    diagnostics,
+  };
+}
+
 export function evaluateRagEvalContract(
   evaluation: RagSemanticEvalFact,
   retriever: RagContractRetriever,
@@ -337,6 +541,101 @@ function normalizeRetrieveOptions(options: RetrieveOptions): Required<RetrieveOp
     throw new Error('KERN RAG runtime minScore must be between 0 and 1.');
   }
   return { topK, minScore };
+}
+
+function normalizeGroundingCoverageThreshold(value: number | undefined): number {
+  if (value === undefined) return 1;
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error('KERN RAG answer contract minGroundingCoverage must be between 0 and 1.');
+  }
+  return value;
+}
+
+function retrieveResultProvenance(
+  result: RetrieveResult | ProvenancedRetrieveResult,
+): RagRuntimeProvenance | undefined {
+  return result && typeof result === 'object' && 'provenance' in result ? result.provenance : undefined;
+}
+
+function provenanceMatchesRetrieval(provenance: RagRuntimeProvenance, retrieval: RetrieveResult): boolean {
+  if (
+    !provenance ||
+    typeof provenance.query !== 'string' ||
+    typeof provenance.chunkCount !== 'number' ||
+    !Array.isArray(provenance.chunkHashes) ||
+    !Array.isArray(provenance.sources)
+  ) {
+    return false;
+  }
+  const chunkHashes = retrieval.chunks.map((chunk) => hashRetrievedChunkText(chunk.text));
+  const sources = uniqueOrdered(retrieval.chunks.map((chunk) => chunk.source));
+  return (
+    provenance.query === retrieval.query &&
+    provenance.chunkCount === retrieval.chunks.length &&
+    arraysEqual(provenance.chunkHashes, chunkHashes) &&
+    arraysEqual(provenance.sources, sources)
+  );
+}
+
+function chunkHasCitation(chunk: RetrievedChunk | undefined): boolean {
+  return (
+    !!chunk &&
+    ((typeof chunk.citation.uri === 'string' && chunk.citation.uri.trim().length > 0) ||
+      (typeof chunk.citation.locator === 'string' && chunk.citation.locator.trim().length > 0))
+  );
+}
+
+function isValidGroundingSpan(span: RagAnswerGroundingSpan, answerLength: number): boolean {
+  return (
+    !!span &&
+    Number.isInteger(span.start) &&
+    Number.isInteger(span.end) &&
+    span.start >= 0 &&
+    span.end > span.start &&
+    span.end <= answerLength &&
+    Array.isArray(span.chunkIds) &&
+    span.chunkIds.every(isString)
+  );
+}
+
+function countAnswerChars(answer: string): number {
+  if (typeof answer !== 'string') return 0;
+  let count = 0;
+  for (let index = 0; index < answer.length; index += 1) {
+    if (!/\s/u.test(answer[index] ?? '')) count += 1;
+  }
+  return count;
+}
+
+function countGroundedAnswerChars(answer: string, grounded: readonly boolean[]): number {
+  let count = 0;
+  for (let index = 0; index < answer.length; index += 1) {
+    if (grounded[index] && !/\s/u.test(answer[index] ?? '')) count += 1;
+  }
+  return count;
+}
+
+function ragAnswerStatus(
+  diagnostics: readonly RagAnswerContractDiagnostic[],
+  groundingCoverage: number,
+): RagAnswerContractStatus {
+  if (
+    diagnostics.some((diagnostic) =>
+      [
+        'ANSWER_EMPTY',
+        'CITATION_REQUIRED',
+        'QUERY_MISMATCH',
+        'RETRIEVER_ERROR',
+        'PROVENANCE_MISMATCH',
+        'SPAN_INVALID',
+        'CHUNK_REF_UNKNOWN',
+      ].includes(diagnostic.code),
+    )
+  ) {
+    return 'invalid';
+  }
+  if (groundingCoverage === 0) return 'ungrounded';
+  return 'partially_grounded';
 }
 
 function evaluateRagCase(
@@ -787,6 +1086,10 @@ function stableStringCompare(left: unknown, right: unknown): number {
   return leftText < rightText ? -1 : leftText > rightText ? 1 : 0;
 }
 
+function arraysEqual(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
 function validateRetrieveResult(result: RetrieveResult): RetrieveResult {
   if (!result || typeof result.query !== 'string' || !Array.isArray(result.chunks)) {
     throw new Error('retriever result must include query string and chunks array.');
@@ -813,6 +1116,13 @@ function validateRetrieveResult(result: RetrieveResult): RetrieveResult {
       throw new Error(`retriever chunk at index ${index} is not a RetrievedChunk.`);
     }
   }
+  const chunkIds = new Set<string>();
+  for (const [index, chunk] of result.chunks.entries()) {
+    if (chunkIds.has(chunk.id)) {
+      throw new Error(`retriever chunk at index ${index} duplicates chunk id '${chunk.id}'.`);
+    }
+    chunkIds.add(chunk.id);
+  }
   return result;
 }
 
@@ -823,6 +1133,10 @@ function isValidCitation(value: unknown): value is RagCitation {
     (citation.uri === undefined || typeof citation.uri === 'string') &&
     (citation.locator === undefined || typeof citation.locator === 'string')
   );
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === 'string';
 }
 
 export function tokenizeForRetrieval(value: string): ReadonlySet<string> {
