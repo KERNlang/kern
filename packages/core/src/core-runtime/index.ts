@@ -17,6 +17,7 @@ import { brandValue, KERN_VALUE_BRAND } from './value-brand.js';
 
 const INTEGER_INDEX_RE = /^(0|[1-9]\d*)$/;
 const ACTIVE_INSTANCE_SETTERS = new WeakMap<KernInstanceValue, Set<string>>();
+const ACTIVE_CLASS_SETTERS = new WeakMap<KernClassValue, Set<string>>();
 
 export type KernValue =
   | { kind: 'null' }
@@ -52,6 +53,7 @@ export interface KernClassValue {
   name: string;
   node: IRNode;
   env: CoreRuntimeEnv;
+  staticFields: Record<string, KernValue>;
 }
 
 export interface KernInstanceValue {
@@ -71,9 +73,9 @@ export interface KernBoundMethodValue {
 
 export interface KernSuperValue {
   kind: 'super';
-  receiver: KernInstanceValue;
+  receiver: KernInstanceValue | KernClassValue;
   ownerClass: KernClassValue;
-  mode: 'constructor' | 'method';
+  mode: 'constructor' | 'method' | 'static';
 }
 
 export interface RuntimeParam {
@@ -295,6 +297,7 @@ function executeNode(node: IRNode, env: CoreRuntimeEnv): CoreCompletion {
     case 'class': {
       const klass = makeClass(node, env);
       env.define(klass.name, klass);
+      initializeClassStaticFields(klass);
       return { kind: 'normal', value: kUndefined() };
     }
     case 'assign':
@@ -710,7 +713,20 @@ function makeClass(node: IRNode, env: CoreRuntimeEnv): KernClassValue {
     name: requiredString(node.props?.name, 'class name='),
     node,
     env,
+    staticFields: createRecordEntries(),
   });
+}
+
+function initializeClassStaticFields(klass: KernClassValue): void {
+  for (const field of runtimeChildNodes(klass.node, 'field')) {
+    if (field.props?.static !== true && field.props?.static !== 'true') continue;
+    const name = requiredString(field.props?.name, 'field name=');
+    const value =
+      Object.hasOwn(field.props ?? {}, 'value') || Object.hasOwn(field.props ?? {}, 'default')
+        ? evalCoreExpression(runtimeFieldInitializerExpr(field), classStaticEnv(klass))
+        : kUndefined();
+    klass.staticFields[name] = value;
+  }
 }
 
 function constructClassValue(klass: KernClassValue, args: readonly KernValue[]): KernInstanceValue {
@@ -791,6 +807,7 @@ function evalInstanceMember(object: KernInstanceValue, property: string): KernVa
 function evalSuperMember(object: KernSuperValue, property: string): KernValue {
   const base = resolveBaseClass(object.ownerClass);
   if (!base) return kUndefined();
+  if (object.receiver.kind === 'class') return evalClassMemberFrom(base, property, object.receiver);
   const getter = findClassMember(base, 'getter', property);
   if (getter) return callClassMemberBody(getter.node, getter.owner, object.receiver, []).value;
   const method = findClassMember(base, 'method', property);
@@ -808,15 +825,23 @@ function evalSuperMember(object: KernSuperValue, property: string): KernValue {
 }
 
 function evalClassMember(object: KernClassValue, property: string): KernValue {
-  const method = findClassMember(object, 'method', property, true);
+  return evalClassMemberFrom(object, property, object);
+}
+
+function evalClassMemberFrom(owner: KernClassValue, property: string, receiver: KernClassValue): KernValue {
+  if (Object.hasOwn(owner.staticFields, property)) return owner.staticFields[property] ?? kUndefined();
+  const getter = findOwnClassMember(owner, 'getter', property, true);
+  if (getter) return callStaticClassMemberBody(getter.node, getter.owner, receiver, []).value;
+  const method = findOwnClassMember(owner, 'method', property, true);
   if (method) {
     return brandValue({
-      kind: 'builtin',
-      name: `${object.name}.${property}`,
-      call: (args) => callClassMemberBody(method.node, method.owner, undefined, args).value,
+      kind: 'builtin' as const,
+      name: `${receiver.name}.${property}`,
+      call: (args) => callStaticClassMemberBody(method.node, method.owner, receiver, args).value,
     });
   }
-  return kUndefined();
+  const base = resolveBaseClass(owner);
+  return base ? evalClassMemberFrom(base, property, receiver) : kUndefined();
 }
 
 function assignInstanceMember(object: KernInstanceValue, property: string, value: KernValue): void {
@@ -834,6 +859,10 @@ function assignInstanceMember(object: KernInstanceValue, property: string, value
 function assignSuperMember(object: KernSuperValue, property: string, value: KernValue): void {
   const base = resolveBaseClass(object.ownerClass);
   if (!base) throw new Error(`KERN core runtime class ${object.ownerClass.name} has no base class.`);
+  if (object.receiver.kind === 'class') {
+    assignClassMemberFrom(base, object.receiver, property, value);
+    return;
+  }
   const setter = findClassMember(base, 'setter', property);
   if (setter) {
     callSetterBody(object.receiver, setter.node, setter.owner, property, value);
@@ -843,6 +872,36 @@ function assignSuperMember(object: KernSuperValue, property: string, value: Kern
     throw new Error(`KERN core runtime cannot assign getter-only property: ${property}.`);
   }
   object.receiver.fields[property] = value;
+}
+
+function assignClassMember(object: KernClassValue, property: string, value: KernValue): void {
+  assignClassMemberFrom(object, object, property, value);
+}
+
+function assignClassMemberFrom(
+  owner: KernClassValue,
+  receiver: KernClassValue,
+  property: string,
+  value: KernValue,
+): void {
+  if (Object.hasOwn(owner.staticFields, property)) {
+    receiver.staticFields[property] = value;
+    return;
+  }
+  const setter = findOwnClassMember(owner, 'setter', property, true);
+  if (setter) {
+    callStaticSetterBody(receiver, setter.node, setter.owner, property, value);
+    return;
+  }
+  if (findOwnClassMember(owner, 'getter', property, true)) {
+    throw new Error(`KERN core runtime cannot assign getter-only static property: ${property}.`);
+  }
+  const base = resolveBaseClass(owner);
+  if (base) {
+    assignClassMemberFrom(base, receiver, property, value);
+    return;
+  }
+  receiver.staticFields[property] = value;
 }
 
 function callSetterBody(
@@ -867,6 +926,28 @@ function callSetterBody(
   }
 }
 
+function callStaticSetterBody(
+  receiver: KernClassValue,
+  setterNode: IRNode,
+  ownerClass: KernClassValue,
+  property: string,
+  value: KernValue,
+): void {
+  const key = `${ownerClass.name}.${property}`;
+  const activeSetters = ACTIVE_CLASS_SETTERS.get(receiver) ?? new Set<string>();
+  if (activeSetters.has(key)) {
+    throw new Error(`KERN core runtime recursive static setter assignment: ${key}.`);
+  }
+  activeSetters.add(key);
+  ACTIVE_CLASS_SETTERS.set(receiver, activeSetters);
+  try {
+    callStaticClassMemberBody(setterNode, ownerClass, receiver, [value]);
+  } finally {
+    activeSetters.delete(key);
+    if (activeSetters.size === 0) ACTIVE_CLASS_SETTERS.delete(receiver);
+  }
+}
+
 function callBoundMethodValue(
   method: KernBoundMethodValue,
   args: readonly KernValue[],
@@ -877,6 +958,9 @@ function callBoundMethodValue(
 function callSuperConstructor(value: KernSuperValue, args: readonly KernValue[]): KernValue {
   if (value.mode !== 'constructor') {
     throw new Error('KERN core runtime super(...) is only valid inside a constructor.');
+  }
+  if (value.receiver.kind !== 'instance') {
+    throw new Error('KERN core runtime super(...) requires an instance receiver.');
   }
   const base = resolveBaseClass(value.ownerClass);
   if (!base) throw new Error(`KERN core runtime class ${value.ownerClass.name} has no base class.`);
@@ -922,6 +1006,56 @@ function callClassMemberBody(
   return { value: completion.value, env: callEnv };
 }
 
+function callStaticClassMemberBody(
+  memberNode: IRNode,
+  ownerClass: KernClassValue,
+  receiver: KernClassValue,
+  args: readonly KernValue[],
+): { value: KernValue; env: CoreRuntimeEnv } {
+  const callEnv = ownerClass.env.child();
+  callEnv.define('this', receiver);
+  if (resolveBaseClass(ownerClass)) {
+    callEnv.define(
+      'super',
+      brandValue({
+        kind: 'super',
+        receiver,
+        ownerClass,
+        mode: 'static',
+      }),
+    );
+  }
+  const params = runtimeParams(memberNode);
+  validateRuntimeArgs(`${ownerClass.name}.${memberNode.type}`, params, args);
+  params.forEach((param, index) => {
+    const provided = args[index];
+    const value =
+      provided === undefined || (provided.kind === 'undefined' && param.defaultExpr)
+        ? param.defaultExpr
+          ? evalCoreExpression(param.defaultExpr, callEnv)
+          : kUndefined()
+        : provided;
+    callEnv.define(param.name, value);
+  });
+  const completion = executeSequence(runtimeFunctionBody(memberNode), callEnv);
+  return { value: completion.value, env: callEnv };
+}
+
+function findOwnClassMember(
+  klass: KernClassValue,
+  type: 'method' | 'getter' | 'setter',
+  name: string,
+  staticOnly = false,
+): { node: IRNode; owner: KernClassValue } | undefined {
+  for (const child of klass.node.children ?? []) {
+    if (child.type !== type || child.props?.name !== name) continue;
+    const isStatic = child.props?.static === true || child.props?.static === 'true';
+    if (staticOnly !== isStatic) continue;
+    return { node: child, owner: klass };
+  }
+  return undefined;
+}
+
 function findClassMember(
   klass: KernClassValue,
   type: 'method' | 'getter' | 'setter',
@@ -955,6 +1089,23 @@ function classBaseName(value: unknown): string | undefined {
 function classThisEnv(klass: KernClassValue, receiver: KernInstanceValue): CoreRuntimeEnv {
   const env = klass.env.child();
   env.define('this', receiver);
+  return env;
+}
+
+function classStaticEnv(klass: KernClassValue): CoreRuntimeEnv {
+  const env = klass.env.child();
+  env.define('this', klass);
+  if (resolveBaseClass(klass)) {
+    env.define(
+      'super',
+      brandValue({
+        kind: 'super',
+        receiver: klass,
+        ownerClass: klass,
+        mode: 'static',
+      }),
+    );
+  }
   return env;
 }
 
@@ -1026,6 +1177,10 @@ function assignRuntimeTarget(target: string, value: KernValue, env: CoreRuntimeE
     }
     if (object.kind === 'record') {
       object.entries[parsed.property] = value;
+      return;
+    }
+    if (object.kind === 'class') {
+      assignClassMember(object, parsed.property, value);
       return;
     }
     throw new Error(`KERN core runtime cannot assign member on ${object.kind}.`);
@@ -1237,6 +1392,10 @@ function isNullish(value: KernValue): boolean {
 }
 
 function isKernValue(value: unknown): value is KernValue {
+  return isKernValueShape(value, new WeakSet<object>());
+}
+
+function isKernValueShape(value: unknown, seen: WeakSet<object>): value is KernValue {
   if (
     !isPlainRecord(value) ||
     (value as { [KERN_VALUE_BRAND]?: true })[KERN_VALUE_BRAND] !== true ||
@@ -1244,6 +1403,8 @@ function isKernValue(value: unknown): value is KernValue {
   ) {
     return false;
   }
+  if (seen.has(value)) return true;
+  seen.add(value);
   switch (value.kind) {
     case 'null':
     case 'undefined':
@@ -1259,13 +1420,13 @@ function isKernValue(value: unknown): value is KernValue {
         hasOnlyKeys(value, ['kind', 'items']) &&
         Array.isArray(value.items) &&
         !hasArrayHoles(value.items) &&
-        value.items.every(isKernValue)
+        value.items.every((item) => isKernValueShape(item, seen))
       );
     case 'record':
       return (
         hasOnlyKeys(value, ['kind', 'entries']) &&
         isPlainRecord(value.entries) &&
-        Object.values(value.entries).every(isKernValue)
+        Object.values(value.entries).every((entry) => isKernValueShape(entry, seen))
       );
     case 'function':
       return (
@@ -1283,38 +1444,40 @@ function isKernValue(value: unknown): value is KernValue {
       );
     case 'class':
       return (
-        hasOnlyKeys(value, ['kind', 'name', 'node', 'env']) &&
+        hasOnlyKeys(value, ['kind', 'name', 'node', 'env', 'staticFields']) &&
         typeof value.name === 'string' &&
         isPlainRecord(value.node) &&
-        value.env instanceof CoreRuntimeEnv
+        value.env instanceof CoreRuntimeEnv &&
+        isPlainRecord(value.staticFields) &&
+        Object.values(value.staticFields).every((entry) => isKernValueShape(entry, seen))
       );
     case 'instance':
       return (
         hasOnlyKeys(value, ['kind', 'classValue', 'fields', 'initializedClasses']) &&
-        isKernValue(value.classValue) &&
+        isKernValueShape(value.classValue, seen) &&
         value.classValue.kind === 'class' &&
         isPlainRecord(value.fields) &&
-        Object.values(value.fields).every(isKernValue) &&
+        Object.values(value.fields).every((entry) => isKernValueShape(entry, seen)) &&
         value.initializedClasses instanceof Set
       );
     case 'bound-method':
       return (
         hasOnlyKeys(value, ['kind', 'name', 'receiver', 'methodNode', 'ownerClass']) &&
         typeof value.name === 'string' &&
-        isKernValue(value.receiver) &&
+        isKernValueShape(value.receiver, seen) &&
         value.receiver.kind === 'instance' &&
         isPlainRecord(value.methodNode) &&
-        isKernValue(value.ownerClass) &&
+        isKernValueShape(value.ownerClass, seen) &&
         value.ownerClass.kind === 'class'
       );
     case 'super':
       return (
         hasOnlyKeys(value, ['kind', 'receiver', 'ownerClass', 'mode']) &&
-        isKernValue(value.receiver) &&
-        value.receiver.kind === 'instance' &&
-        isKernValue(value.ownerClass) &&
+        isKernValueShape(value.receiver, seen) &&
+        (value.receiver.kind === 'instance' || value.receiver.kind === 'class') &&
+        isKernValueShape(value.ownerClass, seen) &&
         value.ownerClass.kind === 'class' &&
-        (value.mode === 'constructor' || value.mode === 'method')
+        (value.mode === 'constructor' || value.mode === 'method' || value.mode === 'static')
       );
     default:
       return false;

@@ -389,6 +389,129 @@ describe('KERN core runtime statements', () => {
     expect(toHostValue(evalCoreExpression('new User().label()', env))).toBe('user/entity:base:Ada');
   });
 
+  test('executes static fields getters methods and inherited static receiver dispatch', () => {
+    const root = parse(
+      [
+        'class name=Base',
+        '  field name=count type=number static=true value={{ 1 }}',
+        '  field name=seed type=number static=true value={{ 2 }}',
+        '  getter name=label static=true returns=string',
+        '    handler',
+        '      return value="`count=${this.count}`"',
+        '  method name=bump static=true returns=number',
+        '    param name=step type=number value={{ 1 }}',
+        '    handler',
+        '      assign target="this.count" value="this.count + step"',
+        '      return value="this.count"',
+        '  method name=tag static=true returns=string',
+        '    handler',
+        '      return value="\'base\'"',
+        'class name=Derived extends=Base',
+        '  field name=own type=number static=true value={{ this.count + 9 }}',
+        '  field name=fromBase type=number static=true value={{ super.seed + this.count }}',
+        '  method name=tag static=true returns=string',
+        '    handler',
+        '      return value="`derived/${super.tag()}/${this.own}`"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('Base.count', env))).toBe(1);
+    expect(toHostValue(evalCoreExpression('Derived.count', env))).toBe(1);
+    expect(toHostValue(evalCoreExpression('Derived.own', env))).toBe(10);
+    expect(toHostValue(evalCoreExpression('Derived.fromBase', env))).toBe(3);
+    expect(toHostValue(evalCoreExpression('Derived.label', env))).toBe('count=1');
+    expect(toHostValue(evalCoreExpression('Derived.tag()', env))).toBe('derived/base/10');
+    expect(toHostValue(evalCoreExpression('Derived.bump(4)', env))).toBe(5);
+    expect(toHostValue(evalCoreExpression('Derived.count', env))).toBe(5);
+    expect(toHostValue(evalCoreExpression('Base.count', env))).toBe(1);
+  });
+
+  test('dispatches static assignment through setters and rejects getter-only static assignment', () => {
+    const root = parse(
+      [
+        'class name=Gauge',
+        '  field name=_value type=number static=true value={{ 0 }}',
+        '  setter name=value static=true',
+        '    param name=next type=number',
+        '    handler',
+        '      assign target="this._value" value="next * 3"',
+        '  getter name=value static=true returns=number',
+        '    handler',
+        '      return value="this._value"',
+        'class name=ReadOnly',
+        '  getter name=value static=true returns=number',
+        '    handler',
+        '      return value="1"',
+        'class name=Dual',
+        '  field name=value type=number value={{ 2 }}',
+        '  field name=value type=number static=true value={{ 1 }}',
+        'class name=ParentReadOnly',
+        '  getter name=value static=true returns=number',
+        '    handler',
+        '      return value="1"',
+        'class name=ChildShadow extends=ParentReadOnly',
+        '  field name=value type=number static=true value={{ 2 }}',
+        'fn name=setGaugeStatic returns=number',
+        '  handler',
+        '    assign target="Gauge.value" value="7"',
+        '    return value="Gauge.value"',
+        'fn name=setReadOnlyStatic returns=number',
+        '  handler',
+        '    assign target="ReadOnly.value" value="7"',
+        '    return value="ReadOnly.value"',
+        'fn name=setDualStatic returns=number',
+        '  handler',
+        '    assign target="Dual.value" value="8"',
+        '    return value="new Dual().value"',
+        'fn name=setChildShadowStatic returns=number',
+        '  handler',
+        '    assign target="ChildShadow.value" value="3"',
+        '    return value="ChildShadow.value"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('setGaugeStatic()', env))).toBe(21);
+    expect(toHostValue(evalCoreExpression('setDualStatic()', env))).toBe(2);
+    expect(toHostValue(evalCoreExpression('Dual.value', env))).toBe(8);
+    expect(toHostValue(evalCoreExpression('setChildShadowStatic()', env))).toBe(3);
+    expect(toHostValue(evalCoreExpression('ParentReadOnly.value', env))).toBe(1);
+    expect(() => evalCoreExpression('setReadOnlyStatic()', env)).toThrow(
+      'cannot assign getter-only static property: value',
+    );
+  });
+
+  test('rejects recursive static setter assignment', () => {
+    const root = parse(
+      [
+        'class name=Loop',
+        '  setter name=value static=true',
+        '    param name=next type=number',
+        '    handler',
+        '      assign target="this.value" value="next"',
+        'fn name=setLoopStatic returns=number',
+        '  handler',
+        '    assign target="Loop.value" value="5"',
+        '    return value="0"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('setLoopStatic()', env)).toThrow('recursive static setter assignment: Loop.value');
+  });
+
+  test('accepts self-referential static fields as branded KERN values', () => {
+    const root = parse(['class name=SelfRef', '  field name=self static=true value={{ this }}'].join('\n'));
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(fromHostValue(env.lookup('SelfRef'))).toBe(env.lookup('SelfRef'));
+  });
+
   test('executes derived constructors with super constructor arguments', () => {
     const root = parse(
       [
