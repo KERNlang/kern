@@ -71,6 +71,7 @@ fn name=assertUser params="x:unknown" returns="asserts x is User"
       throw value="new Error(\"not a user\")"
 
 class name=Account
+  field name=role type=string
   method name=isAdmin returns="this is AdminUser"
     handler
       return value="this.role === \"admin\""

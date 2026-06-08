@@ -1,5 +1,8 @@
+import type { RagSemanticEvalFact } from '../src/index.js';
 import {
   createInMemoryRetriever,
+  evaluateRagEvalContract,
+  hashRetrievedChunkText,
   InMemoryRagCorpus,
   MAX_IN_MEMORY_RAG_TOP_K,
   retrieveFromInMemoryCorpus,
@@ -161,7 +164,256 @@ describe('RAG in-memory runtime retrieval', () => {
     ]);
 
     expect([...tokenizeForRetrieval('résumé 日本語')]).toEqual(['résumé', '日本語']);
+    expect([...tokenizeForRetrieval('résumé')]).toEqual(['résumé']);
     expect(retrieveFromInMemoryCorpus(corpus, 'résumé').chunks[0]?.id).toBe('resume');
+    expect(retrieveFromInMemoryCorpus(corpus, 'résumé').chunks[0]?.id).toBe('resume');
     expect(retrieveFromInMemoryCorpus(corpus, '日本語').chunks[0]?.id).toBe('jp');
   });
 });
+
+describe('RAG eval runtime contracts', () => {
+  test('evaluates passing RAG eval cases against retrieved chunks', () => {
+    const corpus = new InMemoryRagCorpus([
+      {
+        id: 'refunds',
+        text: 'refund policy',
+        source: 'docs/refunds.md',
+        citation: { uri: 'docs/refunds.md', locator: 'L1-L2' },
+        metadata: { section: 'policy' },
+      },
+      {
+        id: 'policy',
+        text: 'policy details',
+        source: 'docs/policies.md',
+        citation: { uri: 'docs/policies.md' },
+      },
+    ]);
+    const refundHash = hashRetrievedChunkText('refund policy');
+    expect(refundHash).toMatch(/^[a-f0-9]{32}$/);
+    const evalFact: RagSemanticEvalFact = {
+      name: 'Faithfulness',
+      ragName: 'AnswerDocs',
+      mode: 'contract',
+      cases: [
+        {
+          name: 'refunds',
+          ragName: 'AnswerDocs',
+          evalName: 'Faithfulness',
+          query: 'refund policy',
+          tags: ['smoke'],
+          expected: { topK: 1, minScore: 0.25, sources: ['docs/refunds.md'] },
+          asserts: [
+            assertFact('scoreGte', 0.25),
+            assertFact('sourceGlob', 'docs/*.md'),
+            assertFact('contains', 'refund'),
+            assertFact('uniqueSourcesGte', 1),
+            assertFact('chunkCountEq', 1),
+            assertFact('citesRequired', true),
+            assertFact('factId', 'AnswerDocs:Faithfulness:refunds'),
+            assertFact('chunkHash', refundHash),
+            assertFact('latencyLte', 1),
+          ],
+        },
+      ],
+    };
+    let now = 10;
+
+    const result = evaluateRagEvalContract(evalFact, createInMemoryRetriever(corpus), {
+      now: () => now++,
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.caseCount).toBe(1);
+    expect(result.passedAssertionCount).toBe(result.assertionCount);
+    expect(result.cases[0]?.retrieveOptions).toEqual({ topK: 1, minScore: 0.25 });
+    expect(result.cases[0]?.assertions.map((assertion) => assertion.code)).toEqual(
+      new Array(result.cases[0]?.assertions.length).fill('PASS'),
+    );
+    expect(JSON.parse(JSON.stringify(result))).toEqual(result);
+  });
+
+  test('reports failing RAG eval contracts and retriever errors as structured diagnostics', () => {
+    const corpus = new InMemoryRagCorpus([
+      { id: 'shipping', text: 'shipping details', source: 'docs/shipping.md', citation: { uri: 'docs/shipping.md' } },
+    ]);
+    const evalFact: RagSemanticEvalFact = {
+      name: 'Faithfulness',
+      ragName: 'AnswerDocs',
+      mode: 'contract',
+      cases: [
+        {
+          name: 'refunds',
+          query: 'refund policy',
+          tags: [],
+          expected: { chunkCount: 1, sources: ['docs/refunds.md'] },
+          asserts: [
+            assertFact('scoreGte', 0.5),
+            assertFact('sourceEq', 'docs/refunds.md'),
+            assertFact('scoreLte', 0.1),
+            { ...assertFact('contains', ''), value: '' },
+            { ...assertFact('unknownKind', 'x'), kind: 'unknownKind' },
+          ],
+        },
+      ],
+    };
+
+    const result = evaluateRagEvalContract(evalFact, createInMemoryRetriever(corpus));
+    const errorResult = evaluateRagEvalContract(evalFact, () => {
+      throw new Error('offline');
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.cases[0]?.assertions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'expected.chunkCount', passed: false, code: 'ASSERTION_FAIL' }),
+        expect.objectContaining({ kind: 'expected.sources', passed: false, code: 'ASSERTION_FAIL' }),
+        expect.objectContaining({ kind: 'contains', required: false, passed: false, code: 'INVALID_ASSERTION' }),
+        expect.objectContaining({ kind: 'unknownKind', required: false, passed: false, code: 'UNSUPPORTED_ASSERTION' }),
+      ]),
+    );
+    expect(errorResult.cases[0]?.assertions).toEqual([
+      expect.objectContaining({ kind: 'retriever', passed: false, code: 'RETRIEVER_ERROR' }),
+    ]);
+    const missingChunksResult = evaluateRagEvalContract(
+      evalFact,
+      () =>
+        ({
+          query: 'refund policy',
+        }) as unknown as ReturnType<ReturnType<typeof createInMemoryRetriever>>,
+    );
+    const malformedChunkResult = evaluateRagEvalContract(
+      evalFact,
+      () =>
+        ({
+          query: 'refund policy',
+          chunks: [{ id: 'bad' }],
+        }) as unknown as ReturnType<ReturnType<typeof createInMemoryRetriever>>,
+    );
+    const invalidScoreAndCitationResult = evaluateRagEvalContract(
+      evalFact,
+      () =>
+        ({
+          query: 'refund policy',
+          chunks: [{ id: 'bad', text: 'bad', score: Number.NaN, source: 'docs/bad.md', citation: { uri: 1 } }],
+        }) as unknown as ReturnType<ReturnType<typeof createInMemoryRetriever>>,
+    );
+
+    for (const invalidResult of [missingChunksResult, malformedChunkResult, invalidScoreAndCitationResult]) {
+      expect(invalidResult).toEqual(expect.objectContaining({ passed: false }));
+      expect(invalidResult.cases[0]?.assertions).toEqual([
+        expect.objectContaining({ kind: 'retriever', passed: false, code: 'RETRIEVER_ERROR' }),
+      ]);
+    }
+  });
+
+  test('handles empty and assertion-less eval facts without crashing', () => {
+    const corpus = new InMemoryRagCorpus([{ id: 'refunds', text: 'refund policy', source: 'docs/refunds.md' }]);
+
+    expect(evaluateRagEvalContract({ name: 'Empty', cases: [] }, createInMemoryRetriever(corpus))).toEqual(
+      expect.objectContaining({ passed: false, caseCount: 0 }),
+    );
+    expect(
+      evaluateRagEvalContract(
+        {
+          name: 'NoAsserts',
+          cases: [
+            {
+              name: 'refunds',
+              query: 'refund policy',
+              tags: [],
+              expected: {},
+            } as unknown as NonNullable<RagSemanticEvalFact['cases']>[number],
+          ],
+        },
+        createInMemoryRetriever(corpus),
+      ),
+    ).toEqual(expect.objectContaining({ passed: true, caseCount: 1 }));
+  });
+
+  test('treats non-required assertion failures as advisory diagnostics', () => {
+    const corpus = new InMemoryRagCorpus([
+      { id: 'refunds', text: 'refund policy', source: 'docs/refunds.md', citation: { uri: 'docs/refunds.md' } },
+    ]);
+    const optionalFailure = evaluateRagEvalContract(
+      {
+        name: 'Advisory',
+        ragName: 'AnswerDocs',
+        cases: [
+          {
+            name: 'refunds',
+            query: 'refund policy',
+            tags: [],
+            expected: { chunkCount: 1 },
+            asserts: [assertFact('sourceEq', 'docs/missing.md')],
+          },
+        ],
+      },
+      createInMemoryRetriever(corpus),
+    );
+    const requiredFailure = evaluateRagEvalContract(
+      {
+        name: 'Required',
+        ragName: 'AnswerDocs',
+        cases: [
+          {
+            name: 'refunds',
+            query: 'refund policy',
+            tags: [],
+            expected: { chunkCount: 1 },
+            asserts: [{ ...assertFact('sourceEq', 'docs/missing.md'), required: true }],
+          },
+        ],
+      },
+      createInMemoryRetriever(corpus),
+    );
+
+    expect(optionalFailure).toEqual(expect.objectContaining({ passed: true, passedCaseCount: 1 }));
+    expect(optionalFailure.cases[0]?.assertions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'sourceEq', required: false, passed: false, code: 'ASSERTION_FAIL' }),
+      ]),
+    );
+    expect(requiredFailure).toEqual(expect.objectContaining({ passed: false, passedCaseCount: 0 }));
+    expect(requiredFailure.cases[0]?.assertions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'sourceEq', required: true, passed: false, code: 'ASSERTION_FAIL' }),
+      ]),
+    );
+  });
+});
+
+function assertFact(kind: string, value: string | number | boolean) {
+  return {
+    kind,
+    target: ragAssertTarget(kind),
+    op: ragAssertOp(kind),
+    value,
+    required: false,
+  };
+}
+
+function ragAssertTarget(kind: string) {
+  if (kind === 'uniqueSourcesGte' || kind === 'chunkCountEq') return 'retrieved-chunks' as const;
+  if (kind === 'latencyLte') return 'latency' as const;
+  if (kind === 'citesRequired') return 'grounding' as const;
+  return 'retrieved-chunk' as const;
+}
+
+function ragAssertOp(kind: string) {
+  switch (kind) {
+    case 'scoreGte':
+    case 'uniqueSourcesGte':
+      return 'gte' as const;
+    case 'scoreLte':
+    case 'latencyLte':
+      return 'lte' as const;
+    case 'contains':
+      return 'contains' as const;
+    case 'sourceGlob':
+      return 'glob' as const;
+    case 'citesRequired':
+      return 'present' as const;
+    default:
+      return 'eq' as const;
+  }
+}
