@@ -2977,15 +2977,16 @@ function runtimeHandlerLines(node: IRNode, spaces = 4): string[] {
   return code.split('\n').map((line) => `${prefix}${line}`);
 }
 
-function runtimeClassFieldInitializers(node: IRNode): string[] {
+function runtimeClassFieldLines(node: IRNode): string[] | undefined {
   const lines: string[] = [];
   for (const field of getChildren(node, 'field')) {
     const props = getProps(field);
-    if (isTruthy(props.static)) continue;
     const name = str(props.name);
-    if (!isRuntimeBindingName(name)) return [];
+    if (!isRuntimeBindingName(name)) return undefined;
     const value = exprPropToRuntimeSource(field, 'value') || rawPropToRuntimeSource(field, 'default');
-    if (value) lines.push(`    this.${name} = (${value});`);
+    if (!value) continue;
+    const staticKw = isTruthy(props.static) ? 'static ' : '';
+    lines.push(`  ${staticKw}${name} = (${value});`);
   }
   return lines;
 }
@@ -3034,17 +3035,20 @@ function runtimeClassSetterLines(node: IRNode): string[] | undefined {
 function runtimeClassExpr(node: IRNode): string {
   const name = str(getProps(node).name);
   if (!isRuntimeBindingName(name)) return '';
+  const baseName = str(getProps(node).extends);
+  if (baseName && !isRuntimeBindingName(baseName)) return '';
 
   const ctorNode = getChildren(node, 'constructor')[0];
   const ctorParams = ctorNode ? runtimeParamNames(ctorNode) : [];
   if (!ctorParams.every(isRuntimeBindingName)) return '';
 
-  const fieldInitializers = runtimeClassFieldInitializers(node);
-  const lines = ['(class {'];
-  if (ctorNode || fieldInitializers.length > 0) {
+  const fieldLines = runtimeClassFieldLines(node);
+  if (!fieldLines) return '';
+  const lines = [`(class ${name}${baseName ? ` extends ${baseName}` : ''} {`];
+  lines.push(...fieldLines);
+  if (ctorNode) {
     lines.push(`  constructor(${ctorParams.join(', ')}) {`);
-    lines.push(...fieldInitializers);
-    if (ctorNode) lines.push(...runtimeHandlerLines(ctorNode));
+    lines.push(...runtimeHandlerLines(ctorNode));
     lines.push('  }');
   }
 
@@ -4429,7 +4433,7 @@ function orderRuntimeBindings(bindings: RuntimeBinding[], entryExpr: string): Ru
     visiting.add(name);
     stack.push(name);
     for (const dep of depsIn(binding.expr)) {
-      if (dep === name && binding.kind === 'fn') continue;
+      if (dep === name && (binding.kind === 'fn' || binding.kind === 'class')) continue;
       const error = visit(dep);
       if (error) return error;
     }

@@ -1,9 +1,16 @@
 class name=UserDirectory export=true
   field name=items type="object[]" private=true value={{ [] }}
+  field name=kind type=string static=true value={{ "directory" }}
+  field name=labelStore type=string static=true value={{ "UserDirectory" }}
+  field name=empty type=object static=true value={{ new UserDirectory([]) }}
   constructor
     param name=initial type="object[]" value={{ [] }}
     handler
       assign target="this.items" value="initial"
+  method name=make static=true returns=object
+    param name=users type="object[]"
+    handler
+      return value="new UserDirectory(users)"
   method name=list returns="object[]"
     handler
       return value="this.items"
@@ -16,6 +23,41 @@ class name=UserDirectory export=true
   getter name=count returns=number
     handler
       return value="this.items.length"
+  getter name=label static=true returns=string
+    handler
+      return value="this.labelStore"
+  setter name=label static=true
+    param name=next type=string
+    handler
+      assign target="this.labelStore" value="next"
+  setter name=users
+    param name=next type="object[]"
+    handler
+      assign target="this.items" value="next"
+
+class name=AuditedDirectory extends=UserDirectory export=true
+  field name=audit type=string value={{ "" }}
+  field name=kind type=string static=true value={{ "audited" }}
+  constructor
+    param name=initial type="object[]" value={{ [] }}
+    param name=audit type=string value={{ "sync" }}
+    handler
+      do value="super(initial)"
+      assign target="this.audit" value="audit"
+  method name=describe returns=string
+    handler
+      return value="`${this.audit}:${super.active().length}:${this.count}`"
+  getter name=summary returns=object
+    handler
+      return value="{ total: this.count, active: super.active().length, audit: this.audit }"
+  getter name=label static=true returns=string
+    handler
+      return value="`audited:${super.label}`"
+  method name=makeAudited static=true returns=object
+    param name=users type="object[]"
+    param name=audit type=string value={{ "sync" }}
+    handler
+      return value="new AuditedDirectory(users, audit)"
 
 fn name=makeDirectory returns=object
   param name=users type="object[]"
@@ -28,4 +70,25 @@ fn name=activeNames returns="string[]"
     let name=directory value="makeDirectory(users)"
     return value="directory.names()"
 
+fn name=setDirectoryLabel returns=string
+  param name=label type=string
+  handler
+    assign target="UserDirectory.label" value="label"
+    return value="UserDirectory.label"
+
+fn name=auditedDescription returns=string
+  param name=users type="object[]"
+  param name=audit type=string
+  handler
+    return value="AuditedDirectory.makeAudited(users, audit).describe()"
+
+fn name=resetAuditedCount returns=number
+  param name=users type="object[]"
+  param name=next type="object[]"
+  handler
+    let name=directory value="new AuditedDirectory(users, 'reset')"
+    assign target="directory.users" value="next"
+    return value="directory.count"
+
 derive name=emptyDirectoryCount expr={{new UserDirectory([]).count}}
+derive name=emptyAuditedSummary expr={{new AuditedDirectory([], "empty").summary}}

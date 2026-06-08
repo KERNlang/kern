@@ -1,5 +1,6 @@
 test name="Class and function conformance" target="./conformance-classes.kern"
   fixture name=sampleUsers value={{[{ id: "u1", name: "Ada", active: true }, { id: "u2", name: "Grace", active: false }, { id: "u3", name: "Lin", active: true }]}}
+  fixture name=nextUsers value={{[{ id: "u4", name: "Katherine", active: true }]}}
 
   it name="class target stays schema and semantic valid"
     expect no=schemaViolations
@@ -10,17 +11,35 @@ test name="Class and function conformance" target="./conformance-classes.kern"
     expect node=class name=UserDirectory child=constructor
     expect node=class name=UserDirectory child=method childName=active
     expect node=class name=UserDirectory child=getter childName=count
+    expect node=class name=UserDirectory child=field childName=kind
+    expect node=class name=AuditedDirectory child=method childName=describe
+    expect node=class name=AuditedDirectory child=getter childName=summary
     expect node=fn name=activeNames child=param count=1
 
   it name="classes execute before codegen"
     expect expr={{new UserDirectory(sampleUsers).count}} equals=3
     expect expr={{new UserDirectory(sampleUsers).active().map((user) => user.id)}} equals={{["u1", "u3"]}}
     expect expr={{new UserDirectory(sampleUsers).names()}} equals={{["Ada", "Lin"]}}
+    expect expr={{new AuditedDirectory(sampleUsers, "sync").summary}} equals={{({ total: 3, active: 2, audit: "sync" })}}
+    expect expr={{new AuditedDirectory(sampleUsers, "sync").describe()}} equals={{"sync:2:3"}}
+
+  it name="static members and inherited dispatch execute before codegen"
+    expect expr={{UserDirectory.kind}} equals={{"directory"}}
+    expect expr={{UserDirectory.label}} equals={{"UserDirectory"}}
+    expect expr={{UserDirectory.empty.count}} equals=0
+    expect expr={{UserDirectory.make(sampleUsers).count}} equals=3
+    expect expr={{AuditedDirectory.kind}} equals={{"audited"}}
+    expect expr={{AuditedDirectory.label}} equals={{"audited:UserDirectory"}}
+    expect expr={{AuditedDirectory.makeAudited(sampleUsers, "sync").describe()}} equals={{"sync:2:3"}}
 
   it name="functions compose class behavior"
     expect fn=makeDirectory with=sampleUsers equals={{new UserDirectory(sampleUsers)}}
     expect fn=activeNames with=sampleUsers equals={{["Ada", "Lin"]}}
+    expect fn=setDirectoryLabel with={{"Directory"}} equals={{"Directory"}}
+    expect fn=auditedDescription args={{[sampleUsers, "sync"]}} equals={{"sync:2:3"}}
+    expect fn=resetAuditedCount args={{[sampleUsers, nextUsers]}} equals=1
     expect derive=emptyDirectoryCount equals=0
+    expect derive=emptyAuditedSummary equals={{({ total: 0, active: 0, audit: "empty" })}}
 
   it name="classes and functions reach core codegen"
     expect no=codegenErrors
