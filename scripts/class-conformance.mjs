@@ -258,6 +258,30 @@ fn name=probe returns=string
     // or where the chained metaclass drops the override.
     expected: 'impl',
   },
+  {
+    name: 'derived constructor without super(): implicit base-init injected',
+    kern: `class name=Base export=true
+  field name=tag type=number value={{ 1 }}
+class name=Box extends=Base export=true
+  field name=x type=number value={{ 0 }}
+  constructor
+    param name=v type=number
+    handler
+      assign target="this.x" value="v"
+  method name=get returns=number
+    handler
+      return value="this.x + this.tag"
+fn name=probe returns=number
+  handler
+    return value="new Box(7).get()"`,
+    // Box's constructor touches `this.x` but never calls super(). KERN injects an
+    // implicit super() FIRST on both targets, so (a) TS doesn't crash with "must
+    // call super before this", and (b) the base's `tag=1` default runs via that
+    // super, giving get() = 7 + 1. Kills: no super injected (TS crash); super
+    // injected AFTER this.x (TS crash); base init skipped (this.tag undefined ->
+    // NaN on TS / AttributeError on Python); field defaults before super.
+    expected: 8,
+  },
 ];
 
 const canon = (v) => JSON.stringify(v);

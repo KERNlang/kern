@@ -323,4 +323,46 @@ describe('Python class codegen (single-source class slice)', () => {
     expect(code).not.toContain('.append(9)'); // shim NOT applied to the impure receiver
     expect(code).toContain('self.fresh().push(9)'); // receiver named exactly once
   });
+
+  test('derived constructor omitting super() gets an implicit super().__init__() first', () => {
+    const box: IRNode = {
+      type: 'class',
+      props: { name: 'Box', extends: 'Base' },
+      children: [
+        { type: 'field', props: { name: 'x', type: 'number', value: { __expr: true, code: '0' } }, children: [] },
+        {
+          type: 'constructor',
+          props: {},
+          children: [
+            param('v', 'number'),
+            handler([{ type: 'assign', props: { target: 'this.x', value: 'v' }, children: [] }]),
+          ],
+        },
+      ],
+    };
+    const code = generatePythonClass(box).join('\n');
+    expect(code).toContain('super().__init__()');
+    // Order must be: implicit super -> field default -> constructor body.
+    expect(code.indexOf('super().__init__()')).toBeLessThan(code.indexOf('self.x = 0'));
+    expect(code.indexOf('self.x = 0')).toBeLessThan(code.lastIndexOf('self.x = v'));
+  });
+
+  test('non-derived constructor gets NO implicit super (only derived classes base-init)', () => {
+    const box: IRNode = {
+      type: 'class',
+      props: { name: 'Box' },
+      children: [
+        {
+          type: 'constructor',
+          props: {},
+          children: [
+            param('v', 'number'),
+            handler([{ type: 'assign', props: { target: 'this.x', value: 'v' }, children: [] }]),
+          ],
+        },
+      ],
+    };
+    const code = generatePythonClass(box).join('\n');
+    expect(code).not.toContain('super().__init__');
+  });
 });
