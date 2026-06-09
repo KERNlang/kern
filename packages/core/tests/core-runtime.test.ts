@@ -1529,7 +1529,12 @@ describe('KERN core runtime statements', () => {
     expect(toHostValue(evalCoreExpression('setChain()', env))).toBe(10);
   });
 
-  test('does not count delayed lambda super calls as constructor initialization', () => {
+  test('a lambda-only super is not effective: implicit base init runs and fails an arg-requiring base', () => {
+    // The only super(id) sits inside a lambda, so it never runs at construction.
+    // Under Option C the derived constructor is in implicit mode: KERN attempts a
+    // no-arg base init FIRST, which fails because Entity's constructor requires
+    // `id`. The 'missing required argument: id' error (not a lambda error) proves
+    // the lambda super was NOT counted AND implicit base init was attempted.
     const root = parse(
       [
         'class name=Entity',
@@ -1547,7 +1552,34 @@ describe('KERN core runtime statements', () => {
     const env = createCoreRuntimeEnv();
     runCoreRuntime(root, env);
 
-    expect(() => evalCoreExpression('new User("u1")', env)).toThrow('lambda expressions are not supported');
+    expect(() => evalCoreExpression('new User("u1")', env)).toThrow('missing required argument: id');
+  });
+
+  test('derived constructor that omits super gets implicit base init (Option C, parity with codegen)', () => {
+    // Mirrors the class-conformance Box/Base fixture inside the interpreter: Box's
+    // constructor touches this.x but never calls super(). KERN injects base init
+    // FIRST (so Base.tag=1 default is present), then derived field defaults, then
+    // the body — get() = x(7) + tag(1) = 8. Proves the runtime now agrees with
+    // generated TS/Python instead of throwing "must call super(...)".
+    const root = parse(
+      [
+        'class name=Base',
+        '  field name=tag type=number value={{ 1 }}',
+        'class name=Box extends=Base',
+        '  field name=x type=number value={{ 0 }}',
+        '  constructor',
+        '    param name=v type=number',
+        '    handler',
+        '      assign target="this.x" value="v"',
+        '  method name=get returns=number',
+        '    handler',
+        '      return value="this.x + this.tag"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new Box(7).get()', env))).toBe(8);
   });
 });
 

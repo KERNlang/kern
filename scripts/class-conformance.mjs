@@ -9,9 +9,11 @@
  * targets BY CONSTRUCTION (both derive from one definition), not by hand-diffing
  * two emitters.
  *
- * Scope: portable probes only (number/string ops). List mutation needs a
- * portable list-append lowering and is exercised separately (unit tests prove
- * the instance-field-default isolation directly).
+ * Scope: portable probes (number/string ops) plus portable list mutation —
+ * `arr.push(x)` lowers identically in class methods and route handlers via the
+ * shared `core/expr/list-ops` module, so per-instance list isolation is proven
+ * differentially here (not only in unit tests). Other list ops (`.length`,
+ * `.slice`, …) are a tracked follow-up; `.map`/`.filter` stay per-path.
  *
  * Run:  node scripts/class-conformance.mjs   (or via `pnpm check:class-conformance`)
  */
@@ -148,6 +150,27 @@ fn name=probe returns=number
     expected: 10,
   },
   {
+    name: 'portable list mutation: per-instance isolation + push return parity',
+    kern: `class name=Bag export=true
+  field name=items type=number[] value={{ [] }}
+  method name=add returns=number
+    param name=x type=number
+    handler
+      return value="this.items.push(x)"
+fn name=probe returns=number
+  handler
+    let name=a value="new Bag()"
+    let name=b value="new Bag()"
+    do value="a.add(10)"
+    do value="a.add(20)"
+    return value="b.add(99)"`,
+    // Discriminating: b is a SEPARATE instance, so b.add returns 1 — not 3.
+    // Kills (a) shared-mutable-default (items aliased -> b.add returns 3),
+    // (b) push not lowered (Python `list.push` -> AttributeError, ts != py),
+    // (c) push without JS return parity (`append` returns None -> b.add != 1).
+    expected: 1,
+  },
+  {
     name: 'inherited + overridden static accessor (metaclass chaining)',
     kern: `class name=Base export=true
   field name=_val type=number static=true value={{ 0 }}
@@ -171,6 +194,93 @@ fn name=probe returns=number
     assign target="Derived.val" value="5"
     return value="Derived.val"`,
     expected: 12,
+  },
+  {
+    name: 'abstract class: erased at codegen, polymorphic dispatch to override',
+    kern: `class name=Shape abstract=true export=true
+  method name=area returns=number
+class name=Square extends=Shape export=true
+  field name=side type=number value={{ 3 }}
+  method name=area returns=number
+    handler
+      return value="this.side * this.side"
+fn name=measure returns=number
+  param name=shape type=Shape
+  handler
+    return value="shape.area()"
+fn name=probe returns=number
+  handler
+    return value="measure(new Square())"`,
+    // `abstract` is erased on both targets (plain instantiable class), so a
+    // Shape-typed reference dispatches to Square.area on TS AND Python.
+    // Kills: Python dropping the override (AttributeError), the abstract base
+    // stub running instead of the override (NotImplementedError != 9), and any
+    // ABC/metaclass lowering that would make `new Square()` diverge.
+    expected: 9,
+  },
+  {
+    name: 'abstract method: template method calls override + inherited field default',
+    kern: `class name=Formatter abstract=true export=true
+  field name=prefix type=string value={{ "[" }}
+  method name=suffix returns=string
+  method name=format returns=string
+    param name=input type=string
+    handler
+      return value="\`\${this.prefix}\${input}\${this.suffix()}\`"
+class name=BracketFormatter extends=Formatter export=true
+  method name=suffix returns=string
+    handler
+      return value="\\"]\\""
+fn name=probe returns=string
+  handler
+    return value="new BracketFormatter().format(\\"test\\")"`,
+    // The concrete `format` (inherited) reads the inherited field default
+    // `prefix` and calls the abstract `suffix`, which dispatches to the override.
+    // Kills: dropped inherited field default, dropped inherited concrete method,
+    // and the abstract stub running instead of the BracketFormatter override.
+    expected: '[test]',
+  },
+  {
+    name: 'abstract static accessor: override dispatches through chained metaclass',
+    kern: `class name=Base abstract=true export=true
+  getter name=tag static=true returns=string
+class name=Impl extends=Base export=true
+  getter name=tag static=true returns=string
+    handler
+      return value="\\"impl\\""
+fn name=probe returns=string
+  handler
+    return value="Impl.tag"`,
+    // Abstract static getter on Base (fail-fast raise stub) + override on Impl,
+    // dispatched through the chained metaclass _ImplMeta(type(Base)). Reading
+    // Impl.tag resolves to the override on BOTH targets. Kills a Python lowering
+    // where the abstract static stub is `pass` (returns None) instead of a raise,
+    // or where the chained metaclass drops the override.
+    expected: 'impl',
+  },
+  {
+    name: 'derived constructor without super(): implicit base-init injected',
+    kern: `class name=Base export=true
+  field name=tag type=number value={{ 1 }}
+class name=Box extends=Base export=true
+  field name=x type=number value={{ 0 }}
+  constructor
+    param name=v type=number
+    handler
+      assign target="this.x" value="v"
+  method name=get returns=number
+    handler
+      return value="this.x + this.tag"
+fn name=probe returns=number
+  handler
+    return value="new Box(7).get()"`,
+    // Box's constructor touches `this.x` but never calls super(). KERN injects an
+    // implicit super() FIRST on both targets, so (a) TS doesn't crash with "must
+    // call super before this", and (b) the base's `tag=1` default runs via that
+    // super, giving get() = 7 + 1. Kills: no super injected (TS crash); super
+    // injected AFTER this.x (TS crash); base init skipped (this.tag undefined ->
+    // NaN on TS / AttributeError on Python); field defaults before super.
+    expected: 8,
   },
 ];
 

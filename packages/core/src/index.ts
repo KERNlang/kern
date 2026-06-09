@@ -140,6 +140,9 @@ export {
   VALID_STRUCTURES,
   VALID_TARGETS,
 } from './config.js';
+// Canonical constructor-super predicate — single source of truth shared by the
+// validator, runtime, and both codegen targets (TS here + Python via this export).
+export { hasDirectSuperCtorCall } from './constructor-super.js';
 export type {
   CoreFixture,
   CoreFixtureError,

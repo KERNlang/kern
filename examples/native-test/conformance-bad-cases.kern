@@ -88,6 +88,10 @@ class name=PlainSuper
 
 class name=ProtocolBase
   field name=id type=string
+  constructor
+    param name=id type=string
+    handler
+      assign target="this.id" value="id"
   method name=load returns=string
     param name=id type=string
     handler

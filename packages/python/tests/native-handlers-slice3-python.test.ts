@@ -32,6 +32,7 @@ import {
   emitNativeKernBodyPythonWithImports,
   emitPyExpression,
 } from '../src/codegen-body-python.js';
+import { KERN_FMT_HELPER_PY } from '../src/core/expr/helpers.js';
 import { generateFunction } from '../src/generators/core.js';
 
 function makeHandler(children: IRNode[]): IRNode {
@@ -45,6 +46,10 @@ function makeFn(props: Record<string, unknown>, handlerChildren: IRNode[], param
     children: [...paramChildren, makeHandler(handlerChildren)],
   };
 }
+
+// JS value→string coercion runtime prelude (sentinel + _kern_fmt + __kern_add),
+// prepended whenever a body lowers a `+` to __kern_add (string-coercion guard).
+const PY_PRELUDE = `${KERN_FMT_HELPER_PY}\n\n`;
 
 // ── 3a: symbol map (snake_case rename) ────────────────────────────────────
 
@@ -67,7 +72,7 @@ describe('slice 3a — Python symbol-map for snake_case params', () => {
   test('identifiers absent from symbolMap pass through unchanged', () => {
     const handler = makeHandler([{ type: 'return', props: { value: 'localVar + helperFn(x)' } }]);
     const out = emitNativeKernBodyPython(handler, { symbolMap: { onlyThisOne: 'only_this_one' } });
-    expect(out).toBe('return localVar + helperFn(x)');
+    expect(out).toBe(`${PY_PRELUDE}return __kern_add(localVar, helperFn(x))`);
   });
 
   test('without symbolMap (legacy slice 1/2 callers) bodies emit unchanged', () => {

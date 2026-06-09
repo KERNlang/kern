@@ -9,6 +9,7 @@
 
 import type { IRNode } from '@kernlang/core';
 import { emitNativeKernBodyPython } from '../src/codegen-body-python.js';
+import { KERN_FMT_HELPER_PY } from '../src/core/expr/helpers.js';
 
 function makeHandler(children: Array<{ type: string; props?: Record<string, unknown> }>): IRNode {
   return {
@@ -17,6 +18,10 @@ function makeHandler(children: Array<{ type: string; props?: Record<string, unkn
     children: children.map((c) => ({ ...c, props: c.props ?? {} })),
   };
 }
+
+// JS value→string coercion runtime prelude (sentinel + _kern_fmt + __kern_add),
+// prepended whenever a body lowers a `+` to __kern_add (string-coercion guard).
+const PY_PRELUDE = `${KERN_FMT_HELPER_PY}\n\n`;
 
 describe('cell body-statement — Python codegen', () => {
   test('lowers to plain assignment', () => {
@@ -39,7 +44,9 @@ describe('cell body-statement — Python codegen', () => {
       { type: 'cell', props: { name: 'count', initial: '0' } },
       { type: 'set', props: { name: 'count', to: 'count + 1' } },
     ]);
-    expect(emitNativeKernBodyPython(handler)).toBe(['count = 0', 'count = count + 1'].join('\n'));
+    expect(emitNativeKernBodyPython(handler)).toBe(
+      PY_PRELUDE + ['count = 0', 'count = __kern_add(count, 1)'].join('\n'),
+    );
   });
 
   test('throws on missing name', () => {
