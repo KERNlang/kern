@@ -22,7 +22,10 @@ import { mapTsTypeToPython, toSnakeCase } from '../type-map.js';
  *
  *  When the handler is legacy raw, returns `{ code: handlerCode(method),
  *  imports: empty }`. */
-function methodBodyCodePython(method: IRNode): { code: string; imports: Set<string>; helpers: Set<string> } {
+function methodBodyCodePython(
+  method: IRNode,
+  opts?: { classBody?: boolean; isConstructor?: boolean },
+): { code: string; imports: Set<string>; helpers: Set<string> } {
   const handler = getFirstChild(method, 'handler');
   if (!handler || getProps(handler).lang !== 'kern') {
     return { code: handlerCode(method), imports: new Set(), helpers: new Set() };
@@ -54,7 +57,14 @@ function methodBodyCodePython(method: IRNode): { code: string; imports: Set<stri
       for (const part of parseLegacyParamParts(rawParams)) recordParam(part.name);
     }
   }
-  const { code, imports, helpers } = emitNativeKernBodyPythonWithImports(handler, { symbolMap });
+  // Class member bodies: `this` resolves to `self`, and `super(...)`/`super.x`
+  // lower to `super().__init__(...)`/`super().x` via the inClassBody flag.
+  if (opts?.classBody) symbolMap.this = 'self';
+  const { code, imports, helpers } = emitNativeKernBodyPythonWithImports(handler, {
+    symbolMap,
+    inClassBody: opts?.classBody ?? false,
+    inConstructor: opts?.isConstructor ?? false,
+  });
   return { code, imports, helpers };
 }
 
@@ -64,8 +74,8 @@ function methodBodyCodePython(method: IRNode): { code: string; imports: Set<stri
  *  scope absorbs them, and Python caches modules after first import.
  *  Returns the indented lines (4-space prefix) ready to push into the
  *  enclosing class definition. Empty body yields a single `pass`. */
-function methodBodyLinesPython(method: IRNode): string[] {
-  const { code, imports, helpers } = methodBodyCodePython(method);
+function methodBodyLinesPython(method: IRNode, opts?: { classBody?: boolean; isConstructor?: boolean }): string[] {
+  const { code, imports, helpers } = methodBodyCodePython(method, opts);
   const lines: string[] = [];
   for (const mod of [...imports].sort()) {
     lines.push(`        import ${mod} as __k_${mod}`);
@@ -453,6 +463,114 @@ export function generatePythonService(node: IRNode): string[] {
   }
 
   return lines;
+}
+
+// ── Class (single-source class slice, Python target) ────────────────────
+// Phase 1: structural shell parity with the TS `emitClassBody`. Emits the
+// class header + `extends` base, static fields as class attributes, the
+// constructor as `__init__`, instance/static methods, and getters/setters via
+// `@property`. Method/ctor bodies route through the shared
+// `methodBodyLinesPython`; full class-body symbol translation
+// (`this`->`self`, `super.m()`->`super().m()`, `new X()`->`X()`) is the next
+// sub-problem the differential class fixtures will drive.
+export function generatePythonClass(node: IRNode): string[] {
+  const props = p(node);
+  const name = emitIdentifier(props.name as string, 'UnknownClass', node);
+  const baseRaw = typeof props.extends === 'string' ? (props.extends as string) : '';
+  const base = baseRaw ? emitIdentifier(baseRaw, 'object', node) : '';
+  const header = base ? `class ${name}(${base}):` : `class ${name}:`;
+
+  const isStatic = (n: IRNode): boolean => {
+    const np = p(n);
+    return np.static === 'true' || np.static === true;
+  };
+
+  const fields = kids(node, 'field');
+  const staticFields = fields.filter(isStatic);
+  const methods = kids(node, 'method');
+  const getters = kids(node, 'getter');
+  const setters = kids(node, 'setter');
+  const ctor = firstChild(node, 'constructor');
+
+  const body: string[] = [];
+
+  // Static fields -> class-level attributes.
+  for (const f of staticFields) {
+    const fp = p(f);
+    const fname = toSnakeCase((fp.name as string) || 'field');
+    const ftype = fp.type ? mapTsTypeToPython(fp.type as string) : 'Any';
+    const raw = typeof fp.value === 'string' ? (fp.value as string).replace(/\bnew\s+/g, '') : undefined;
+    const value = raw !== undefined ? formatPythonDefault(raw, (fp.type as string) || '') : 'None';
+    body.push(`    ${fname}: ${ftype} = ${value}`);
+  }
+  if (staticFields.length > 0) body.push('');
+
+  // Constructor -> __init__.
+  if (ctor) {
+    body.push(`    def __init__(${buildPythonParamList(ctor, { selfPrefix: true })}):`);
+    body.push(...methodBodyLinesPython(ctor, { classBody: true, isConstructor: true }));
+    body.push('');
+  }
+
+  // Methods (instance + static).
+  for (const m of methods) {
+    const mp = p(m);
+    const mname = toSnakeCase((mp.name as string) || 'method');
+    const asyncKw = mp.async === 'true' || mp.async === true ? 'async ' : '';
+    const returns = mp.returns ? ` -> ${mapTsTypeToPython(mp.returns as string)}` : '';
+    if (isStatic(m)) {
+      body.push('    @staticmethod');
+      body.push(`    ${asyncKw}def ${mname}(${buildPythonParamList(m, { selfPrefix: false })})${returns}:`);
+    } else {
+      body.push(`    ${asyncKw}def ${mname}(${buildPythonParamList(m, { selfPrefix: true })})${returns}:`);
+    }
+    body.push(...methodBodyLinesPython(m, { classBody: !isStatic(m) }));
+    body.push('');
+  }
+
+  // Getters -> @property. Static accessors need a metaclass/classmethod-property
+  // and are a follow-up; skip them with a marker rather than emit broken code.
+  const instanceGetterNames = new Set<string>();
+  for (const g of getters) {
+    const gp = p(g);
+    const gname = toSnakeCase((gp.name as string) || 'prop');
+    if (isStatic(g)) {
+      body.push(`    # static getter '${gname}' is not yet supported on the Python target`);
+      continue;
+    }
+    instanceGetterNames.add(gname);
+    const returns = gp.returns ? ` -> ${mapTsTypeToPython(gp.returns as string)}` : '';
+    body.push('    @property');
+    body.push(`    def ${gname}(self)${returns}:`);
+    body.push(...methodBodyLinesPython(g, { classBody: true }));
+    body.push('');
+  }
+  // Setters -> @<name>.setter. Python requires a property to exist before its
+  // `.setter`; KERN allows setter-only properties, so synthesize a getter when
+  // none was declared (write-only -> returns None, matching a TS getter-less read).
+  for (const s of setters) {
+    const sp = p(s);
+    const sname = toSnakeCase((sp.name as string) || 'prop');
+    if (isStatic(s)) {
+      body.push(`    # static setter '${sname}' is not yet supported on the Python target`);
+      continue;
+    }
+    if (!instanceGetterNames.has(sname)) {
+      body.push('    @property');
+      body.push(`    def ${sname}(self):  # write-only property (no getter declared in KERN)`);
+      body.push('        return None');
+      body.push('');
+      instanceGetterNames.add(sname);
+    }
+    body.push(`    @${sname}.setter`);
+    body.push(`    def ${sname}(${buildPythonParamList(s, { selfPrefix: true })}):`);
+    body.push(...methodBodyLinesPython(s, { classBody: true }));
+    body.push('');
+  }
+
+  if (body.length === 0) body.push('    pass');
+
+  return [header, ...body];
 }
 
 // ── Union (Pydantic Discriminated Union) ────────────────────────────────

@@ -74,6 +74,15 @@ export interface BodyEmitOptions {
    *  the KERN-form `userId` resolves to the snake_cased Python parameter.
    *  Identifiers not in the map pass through unchanged. */
   symbolMap?: Record<string, string>;
+  /** When true, the handler is a class member body: identifier `super`
+   *  lowers to Python `super()` (so `super.m()` -> `super().m()`) and a
+   *  direct `super(...)` call lowers to `super().__init__(...)`. Paired with
+   *  a `symbolMap` entry `this -> self` by the class generator. */
+  inClassBody?: boolean;
+  /** When true, the handler is specifically a constructor body, so a direct
+   *  `super(...)` call lowers to `super().__init__(...)`. Outside a constructor
+   *  `super(...)` is not a parent-constructor call and is left untouched. */
+  inConstructor?: boolean;
   /** Slice 4a review fix (Gemini #5) — how to lower the `?` propagation
    *  hoist's err-branch return:
    *    - 'value' (default for `fn`): `return __k_tN` so the caller sees
@@ -137,6 +146,8 @@ interface BodyEmitContext {
    *  `each` pair-mode). Consumer emits each entry at module scope. */
   helpers: Set<string>;
   symbolMap: Record<string, string>;
+  inClassBody: boolean;
+  inConstructor: boolean;
   shadowedSymbols: Set<string>;
   localScopes: Array<Map<string, 'const' | 'let' | 'cell'>>;
   regexScopes: Array<Map<string, Extract<ValueIR, { kind: 'regexLit' }> | null>>;
@@ -171,6 +182,8 @@ function freshCtx(options?: BodyEmitOptions): BodyEmitContext {
     imports: new Set<string>(),
     helpers: new Set<string>(),
     symbolMap: options?.symbolMap ?? {},
+    inClassBody: options?.inClassBody ?? false,
+    inConstructor: options?.inConstructor ?? false,
     shadowedSymbols: new Set<string>(),
     localScopes: [],
     regexScopes: [],
@@ -1695,6 +1708,7 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       // Python-form `user_id`. Identifiers not in the map (locals, globals,
       // module names) pass through unchanged.
       if (ctx.shadowedSymbols.has(node.name)) return node.name;
+      if (ctx.inClassBody && node.name === 'super') return 'super()';
       return ctx.symbolMap[node.name] ?? node.name;
     }
     case 'member':
@@ -2101,6 +2115,10 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   if (regex !== null) return { guard: null, expr: regex };
   const stdlib = applyStdlibLoweringPython(node, ctx);
   if (stdlib !== null) return { guard: null, expr: stdlib };
+  if (ctx.inConstructor && node.callee.kind === 'ident' && node.callee.name === 'super') {
+    const superArgs = node.args.map((arg) => emitPyExprCtx(arg, ctx)).join(', ');
+    return { guard: null, expr: `super().__init__(${superArgs})` };
+  }
   if (node.callee.kind === 'ident' && node.callee.name === 'String') {
     if (node.args.length !== 1) {
       throw new Error('String() portable coercion expects exactly one argument on Python target.');

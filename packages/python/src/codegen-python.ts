@@ -27,6 +27,7 @@ import {
 // Data layer generators (model, repository, cache, dependency, service, union)
 import {
   generatePythonCache,
+  generatePythonClass,
   generatePythonDependency,
   generatePythonModel,
   generatePythonRepository,
@@ -180,6 +181,8 @@ export function generatePythonCoreNode(node: IRNode, options: PythonCodegenOptio
       return generatePythonDependency(node);
     case 'service':
       return generatePythonService(node);
+    case 'class':
+      return generatePythonClass(node);
     case 'union':
       return generatePythonUnion(node);
     // Backend infrastructure
