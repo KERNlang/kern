@@ -205,6 +205,16 @@ export {
   runCoreRuntime,
   toHostValue,
 } from './core-runtime/index.js';
+export type {
+  CoreShapeDiagnostic,
+  CoreShapeDiagnosticCode,
+  CoreShapeFacts,
+  CoreShapeFieldFact,
+  CoreShapeIndexerFact,
+  CoreShapeInterfaceFact,
+  CoreShapeValidationResult,
+} from './core-runtime/shape-validator.js';
+export { assertCoreShape, collectCoreShapeFacts, validateCoreShape } from './core-runtime/shape-validator.js';
 export type { CoverageGap } from './coverage-gap.js';
 // Coverage gap emitter (v3)
 export { collectCoverageGaps, readCoverageGaps, writeCoverageGaps } from './coverage-gap.js';

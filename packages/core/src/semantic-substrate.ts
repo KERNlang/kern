@@ -7,6 +7,7 @@ import {
   type PortableLogicTarget,
 } from './codegen/portable-logic-primitives.js';
 import { CORE_TYPE_CONTRACTS, type CoreOperationReturns, contractToGraphEdges } from './core-contracts/index.js';
+import { type CoreShapeFacts, collectCoreShapeFacts } from './core-runtime/shape-validator.js';
 import type { NodeContract } from './ir/semantics/index.js';
 import { snapshotRegistry } from './ir/semantics/index.js';
 import {
@@ -122,6 +123,7 @@ export interface KernSemanticSubstrate {
   readonly ragFacts?: RagSemanticFacts;
   readonly ragValidationSummary?: KernSemanticValidationSummary;
   readonly ragAnswerReviewFacts?: readonly KernSemanticRagAnswerReviewFact[];
+  readonly coreShapeFacts?: CoreShapeFacts;
 }
 
 export interface BuildKernSemanticSubstrateOptions {
@@ -131,6 +133,7 @@ export interface BuildKernSemanticSubstrateOptions {
   readonly includeClassValidationSummary?: boolean;
   readonly documentRag?: IRNode | readonly IRNode[];
   readonly includeRagValidationSummary?: boolean;
+  readonly documentShapes?: IRNode | readonly IRNode[];
 }
 
 export function buildKernSemanticSubstrate(options: BuildKernSemanticSubstrateOptions = {}): KernSemanticSubstrate {
@@ -188,6 +191,7 @@ export function buildKernSemanticSubstrate(options: BuildKernSemanticSubstrateOp
     ...(options.documentRag && options.includeRagValidationSummary
       ? { ragValidationSummary: ragValidationSummary(options.documentRag) }
       : {}),
+    ...(options.documentShapes ? { coreShapeFacts: collectCoreShapeFacts(options.documentShapes) } : {}),
   };
 }
 

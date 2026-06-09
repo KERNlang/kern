@@ -66,6 +66,7 @@ describe('KERN semantic substrate', () => {
     expect(Object.hasOwn(substrate, 'ragFacts')).toBe(false);
     expect(Object.hasOwn(substrate, 'ragValidationSummary')).toBe(false);
     expect(Object.hasOwn(substrate, 'ragAnswerReviewFacts')).toBe(false);
+    expect(Object.hasOwn(substrate, 'coreShapeFacts')).toBe(false);
   });
 
   test('exports document class member inheritance and override facts when requested', () => {
@@ -363,6 +364,45 @@ describe('KERN semantic substrate', () => {
         issues: expect.arrayContaining(['unresolved-retriever:Missing', 'missing-answer-surface', 'missing-eval']),
       }),
     ]);
+  });
+
+  test('exports declared interface shape facts when requested', () => {
+    const root = parseRoot(
+      [
+        'interface name=Entity',
+        '  field name=id type=string',
+        'interface name=User extends=Entity',
+        '  field name=name type=string optional=true',
+        '  indexer keyType=string type=unknown',
+        'interface name=Box generics="<T>"',
+        '  field name=value type=T',
+      ].join('\n'),
+    );
+
+    const substrate = buildKernSemanticSubstrate({ documentShapes: root });
+
+    expect(substrate.coreShapeFacts?.extendsEdges).toEqual([{ from: 'User', to: 'Entity', resolved: true }]);
+    expect(substrate.coreShapeFacts?.interfaces).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'User',
+          extends: ['Entity'],
+          generic: false,
+          validatorAvailable: true,
+          fields: expect.arrayContaining([
+            expect.objectContaining({ name: 'id', type: 'string', inheritedFrom: 'Entity' }),
+            expect.objectContaining({ name: 'name', type: 'string', optional: true }),
+          ]),
+          indexers: [expect.objectContaining({ keyType: 'string', type: 'unknown' })],
+        }),
+        expect.objectContaining({
+          name: 'Box',
+          generic: true,
+          validatorAvailable: false,
+          unsupportedReasons: expect.arrayContaining(['generic-interface', 'unknown-type:T']),
+        }),
+      ]),
+    );
   });
 
   test('exports portable review primitives as stable query objects', () => {
