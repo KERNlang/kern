@@ -4,7 +4,15 @@
  */
 
 import type { IRNode } from '@kernlang/core';
-import { emitIdentifier, getFirstChild, getProps, handlerCode, mapSemanticType, propsOf } from '@kernlang/core';
+import {
+  emitIdentifier,
+  getFirstChild,
+  getProps,
+  handlerCode,
+  hasDirectSuperCtorCall,
+  mapSemanticType,
+  propsOf,
+} from '@kernlang/core';
 import { emitNativeKernBodyPythonWithImports } from '../codegen-body-python.js';
 import { buildPythonParamList, firstChild, kids, p, parseLegacyParamParts } from '../codegen-helpers.js';
 import { mapTsTypeToPython, toSnakeCase } from '../type-map.js';
@@ -618,19 +626,26 @@ export function generatePythonClass(node: IRNode): string[] {
   if (ctor) {
     body.push(`    def __init__(${buildPythonParamList(ctor, { selfPrefix: true })}):`);
     const ctorLines = methodBodyLinesPython(ctor, { classBody: true, isConstructor: true });
-    // Field initializers run AFTER super().__init__() (TS field-init-after-super
-    // order), so inject defaults right after the super call when present, else at
-    // the top of the constructor body.
-    const superIdx = ctorLines.findIndex((line) => line.includes('super().__init__'));
-    if (superIdx >= 0) {
-      body.push(...ctorLines.slice(0, superIdx + 1), ...defaultLines, ...ctorLines.slice(superIdx + 1));
+    // Whether the constructor already calls super(...) is decided by the canonical
+    // structural predicate (shared with the validator, runtime, and TS target) —
+    // NEVER by scanning emitted text, so a `super().__init__` substring inside a
+    // string literal or comment can't change codegen. Field initializers run AFTER
+    // super (TS field-init-after-super order).
+    if (hasDirectSuperCtorCall(ctor)) {
+      // Explicit-super mode: position the field defaults right after the emitted
+      // super line. The predicate already proved a direct super exists, so this
+      // locates the real call (a native super(...) lowers to `super().__init__(...)`);
+      // the index is used only for placement, not the inject decision.
+      const superIdx = ctorLines.findIndex((line) => line.includes('super().__init__'));
+      const splice = superIdx >= 0 ? superIdx + 1 : 0;
+      body.push(...ctorLines.slice(0, splice), ...defaultLines, ...ctorLines.slice(splice));
     } else if (base) {
-      // KERN constructor semantic: a DERIVED constructor that omits super()
-      // gets an implicit no-arg base-init injected FIRST, then field defaults,
-      // then the body — so `this`/field access is always legal (TS requires
-      // super-before-this; Python is lax, but we emit identically for parity).
-      // The author writes explicit `super(args)` only to pass args up; when the
-      // base constructor REQUIRES args, that's a validator concern (a follow-up).
+      // Implicit-super mode (KERN Option C): a DERIVED constructor that omits
+      // super() gets an implicit no-arg base-init injected FIRST, then field
+      // defaults, then the body — so `this`/field access is always legal (TS
+      // requires super-before-this; Python is lax, but we emit identically for
+      // parity). The author writes explicit `super(args)` only to pass args up;
+      // when the base constructor REQUIRES args, the validator flags it.
       body.push('        super().__init__()', ...defaultLines, ...ctorLines);
     } else {
       body.push(...defaultLines, ...ctorLines);

@@ -5,6 +5,7 @@
  */
 
 import { emitExpression } from '../codegen-expression.js';
+import { hasDirectSuperCtorCall } from '../constructor-super.js';
 import { propsOf } from '../node-props.js';
 import { parseExpression } from '../parser-expression.js';
 import { type IRNode, isExprObject } from '../types.js';
@@ -299,13 +300,17 @@ function emitClassBody(node: IRNode, lines: string[]): void {
     const ctorCode = classMemberBodyCode(ctorNode);
     lines.push('');
     lines.push(`  constructor${generics}(${ctorParams}) {`);
-    // KERN constructor semantic: a DERIVED constructor that omits super() gets an
-    // implicit no-arg super() injected FIRST, so `this`/field access is legal (JS
-    // forbids touching `this` before super in a derived ctor). Mirrors the Python
-    // side's injected base-init; class-field initializers then run after super per
-    // JS semantics. The author writes explicit `super(args)` only to pass args up.
+    // KERN constructor semantic: a DERIVED constructor that omits a direct
+    // super(...) call gets an implicit no-arg super() injected FIRST, so
+    // `this`/field access is legal (JS forbids touching `this` before super in a
+    // derived ctor). Mirrors the Python side's injected base-init; class-field
+    // initializers then run after super per JS semantics. The author writes
+    // explicit `super(args)` only to pass args up. The inject decision uses the
+    // canonical structural predicate (shared with the validator, runtime, and
+    // Python target) rather than scanning emitted text — a `super(` inside a
+    // string literal or comment no longer suppresses injection.
     const isDerived = typeof p(node).extends === 'string' && p(node).extends !== '';
-    if (isDerived && !/\bsuper\s*\(/.test(ctorCode)) {
+    if (isDerived && !hasDirectSuperCtorCall(ctorNode)) {
       lines.push('    super();');
     }
     if (ctorCode) {

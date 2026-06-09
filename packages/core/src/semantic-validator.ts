@@ -15,6 +15,7 @@
  *      symbols that the resolver proved exist.
  */
 
+import { hasDirectSuperCtorCall } from './constructor-super.js';
 import {
   type CoreShapeDiagnostic,
   type CoreShapeInterfaceFact,
@@ -2820,7 +2821,7 @@ function validateClassGraphRoots(roots: readonly IRNode[], violations: SemanticV
     );
     validateClassConstructors(info, violations);
     validateClassMemberConflicts(info, violations);
-    validateClassSuperUsage(info, violations);
+    validateClassSuperUsage(info, classByName, violations);
   }
 
   validateClassInheritanceCycles(classes, classByName, violations);
@@ -3817,11 +3818,16 @@ function validateClassMemberConflicts(info: ClassInfo, violations: SemanticViola
   }
 }
 
-function validateClassSuperUsage(info: ClassInfo, violations: SemanticViolation[]): void {
+function validateClassSuperUsage(
+  info: ClassInfo,
+  classByName: ReadonlyMap<string, ClassInfo>,
+  violations: SemanticViolation[],
+): void {
   const hasBase = Boolean(info.baseName);
+  const baseRequiresArgs = hasBase && baseConstructorRequiresArgs(info, classByName);
   for (const ctor of info.constructors) {
     if (hasBase) {
-      validateDerivedConstructorDiscipline(info, ctor, violations);
+      validateDerivedConstructorSuper(info, ctor, baseRequiresArgs, violations);
     }
     if (!hasBase && nodeBodyUsesSuper(ctor)) {
       violations.push({
@@ -3862,6 +3868,12 @@ interface ConstructorAnalysis {
   sawSuper: boolean;
 }
 
+// DESCRIPTIVE analyzer — feeds the `superStatus` substrate fact (via
+// `constructorSuperDiagnostics`), NOT user-facing violations. It still classifies
+// an omitted super as `missing` and a pre-super `this` access as `this-before-super`
+// so the FACT keeps describing the constructor's structure faithfully. The
+// user-facing legality judgment lives in `validateDerivedConstructorSuper`, which
+// applies KERN's Option-C semantics on top of this description.
 function validateDerivedConstructorDiscipline(info: ClassInfo, ctor: IRNode, violations: SemanticViolation[]): void {
   const ctx: ConstructorDisciplineContext = {
     info,
@@ -3883,6 +3895,75 @@ function validateDerivedConstructorDiscipline(info: ClassInfo, ctor: IRNode, vio
       });
     }
   }
+}
+
+/**
+ * User-facing derived-constructor validation under KERN's Option-C super
+ * semantics. The mode is decided by the canonical `hasDirectSuperCtorCall`
+ * predicate — shared verbatim with the runtime and both codegen targets so all
+ * four layers agree on whether a constructor opted into explicit-super mode:
+ *
+ *  - No direct `super(...)` call (implicit mode): KERN injects base init at
+ *    constructor entry, so omitting super is LEGAL and `this`/super-member access
+ *    is always safe. The only error is when the base constructor REQUIRES
+ *    arguments — an arg-less implicit super cannot satisfy it.
+ *  - A direct `super(...)` call exists (explicit mode): the author owns its
+ *    placement, so the full discipline applies — reject double-super,
+ *    conditional-super (not on every path), and `this`/super before super.
+ *
+ * `class-constructor-missing-super` is intentionally unreachable here: an omitted
+ * super is no longer an error, and an explicit super means a direct call exists.
+ */
+function validateDerivedConstructorSuper(
+  info: ClassInfo,
+  ctor: IRNode,
+  baseRequiresArgs: boolean,
+  violations: SemanticViolation[],
+): void {
+  if (!hasDirectSuperCtorCall(ctor)) {
+    if (baseRequiresArgs) {
+      violations.push({
+        rule: 'class-constructor-implicit-super-needs-args',
+        nodeType: 'constructor',
+        message: `Class '${info.name}' omits \`super(...)\` but base class '${info.baseName}' has a constructor that requires arguments. Call \`super(...)\` explicitly to pass them.`,
+        line: ctor.loc?.line,
+        col: ctor.loc?.col,
+      });
+    }
+    return;
+  }
+  // Explicit-super mode: replay the discipline analysis. Its walk emits
+  // double-super / this-before-super as side effects; the tail covers "super
+  // present but not on every path" (conditional-super).
+  const ctx: ConstructorDisciplineContext = {
+    info,
+    violations,
+    sawSuper: false,
+    emittedConditionalSuper: false,
+  };
+  const analysis = analyzeConstructorStatements(constructorBodyStatements(ctor), 'uninit', ctx);
+  if (analysis.state !== 'init') emitConstructorConditionalSuper(ctx, ctor);
+}
+
+/**
+ * True when the base class's own constructor declares at least one required
+ * (no-default) parameter — i.e. an implicit no-arg `super()` would fail at
+ * runtime. Mirrors the runtime's required-arg rule (a param is required unless it
+ * carries a `value`/`default`). A base with no own constructor, or an unresolved
+ * base, is treated as requiring no args (the implicit super forwards safely);
+ * required args inherited transitively through a constructor-less base are a
+ * deliberate follow-up, not caught here.
+ */
+function baseConstructorRequiresArgs(info: ClassInfo, classByName: ReadonlyMap<string, ClassInfo>): boolean {
+  const base = info.baseName ? classByName.get(info.baseName) : undefined;
+  const baseCtor = base?.constructors[0];
+  if (!baseCtor) return false;
+  return (baseCtor.children ?? []).some(
+    (child) =>
+      child.type === 'param' &&
+      !Object.hasOwn(child.props ?? {}, 'value') &&
+      !Object.hasOwn(child.props ?? {}, 'default'),
+  );
 }
 
 function analyzeConstructorStatements(
