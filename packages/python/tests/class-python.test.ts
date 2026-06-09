@@ -102,7 +102,7 @@ describe('Python class codegen (single-source class slice)', () => {
     expect(code).toContain('@items.setter');
   });
 
-  test('static accessors are skipped (not emitted as broken instance @property)', () => {
+  test('static accessors lower to a per-class metaclass property (this -> cls)', () => {
     const reg: IRNode = {
       type: 'class',
       props: { name: 'Reg' },
@@ -110,13 +110,25 @@ describe('Python class codegen (single-source class slice)', () => {
         {
           type: 'getter',
           props: { name: 'label', static: 'true', returns: 'string' },
-          children: [handler([{ type: 'return', props: { value: '"x"' }, children: [] }])],
+          children: [handler([{ type: 'return', props: { value: 'this.store' }, children: [] }])],
+        },
+        {
+          type: 'setter',
+          props: { name: 'label', static: 'true' },
+          children: [
+            param('v', 'string'),
+            handler([{ type: 'assign', props: { target: 'this.store', value: 'v' }, children: [] }]),
+          ],
         },
       ],
     };
     const code = generatePythonClass(reg).join('\n');
+    expect(code).toContain('class _RegMeta(type):');
+    expect(code).toContain('class Reg(metaclass=_RegMeta):');
+    expect(code).toContain('def label(cls) -> str:');
+    expect(code).toContain('return cls.store'); // this -> cls inside a static accessor
+    expect(code).toContain('@label.setter');
     expect(code).not.toContain('def label(self)');
-    expect(code).toContain("static getter 'label'");
   });
 
   test('instance-field defaults emit in __init__, never as a shared class attr', () => {

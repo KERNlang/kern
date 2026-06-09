@@ -129,6 +129,49 @@ fn name=probe returns=number
     return value="c.value"`,
     expected: 9,
   },
+  {
+    name: 'static accessor read + write round-trip',
+    kern: `class name=Counter export=true
+  field name=_count type=number static=true value={{ 0 }}
+  getter name=count static=true returns=number
+    handler
+      return value="this._count"
+  setter name=count static=true
+    param name=v type=number
+    handler
+      assign target="this._count" value="v"
+fn name=probe returns=number
+  handler
+    assign target="Counter.count" value="Counter.count + 5"
+    assign target="Counter.count" value="Counter.count + 5"
+    return value="Counter.count"`,
+    expected: 10,
+  },
+  {
+    name: 'inherited + overridden static accessor (metaclass chaining)',
+    kern: `class name=Base export=true
+  field name=_val type=number static=true value={{ 0 }}
+  getter name=val static=true returns=number
+    handler
+      return value="this._val"
+  setter name=val static=true
+    param name=v type=number
+    handler
+      assign target="this._val" value="v"
+class name=Derived extends=Base export=true
+  getter name=val static=true returns=number
+    handler
+      return value="this._val * 2"
+  setter name=val static=true
+    param name=v type=number
+    handler
+      assign target="this._val" value="v + 1"
+fn name=probe returns=number
+  handler
+    assign target="Derived.val" value="5"
+    return value="Derived.val"`,
+    expected: 12,
+  },
 ];
 
 const canon = (v) => JSON.stringify(v);
