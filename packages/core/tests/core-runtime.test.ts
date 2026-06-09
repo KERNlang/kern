@@ -359,6 +359,279 @@ describe('KERN core runtime statements', () => {
     expect(toHostValue(evalCoreExpression('make()', env))).toBe(6);
   });
 
+  test('enforces implemented interface fields after class construction', () => {
+    const root = parse(
+      [
+        'interface name=Named',
+        '  field name=id type=string',
+        'class name=User implements=Named',
+        '  field name=id type=string value="unset"',
+        '  field name=name type=string value="Ada"',
+        '  constructor',
+        '    param name=id type=string',
+        '    handler',
+        '      assign target="this.id" value="id"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new User("u1").id', env))).toBe('u1');
+    expect(toHostValue(evalCoreExpression('new User("u1").name', env))).toBe('Ada');
+  });
+
+  test('rejects constructed classes that miss implemented interface fields', () => {
+    const root = parse(
+      [
+        'interface name=Named',
+        '  field name=name type=string',
+        'class name=User implements=Named',
+        '  constructor',
+        '    handler',
+        '      do value="1"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new User()', env)).toThrow("class 'User' violates implemented interface 'Named'");
+    expect(() => evalCoreExpression('new User()', env)).toThrow('missing required field Named.name');
+  });
+
+  test('rejects constructed classes with wrong implemented interface field types', () => {
+    const root = parse(
+      [
+        'interface name=Named',
+        '  field name=id type=string',
+        'class name=User implements=Named',
+        '  field name=id type=number value={{ 1 }}',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new User()', env)).toThrow('expected Named.id to be string, got number');
+  });
+
+  test('enforces inherited interface fields for implemented protocols', () => {
+    const root = parse(
+      [
+        'interface name=Entity',
+        '  field name=id type=string',
+        'interface name=Named extends=Entity',
+        '  field name=name type=string',
+        'class name=User implements=Named',
+        '  field name=id type=string value="u1"',
+        '  field name=name type=string value="Ada"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new User().id', env))).toBe('u1');
+    expect(toHostValue(evalCoreExpression('new User().name', env))).toBe('Ada');
+  });
+
+  test('rejects classes missing inherited implemented interface fields', () => {
+    const root = parse(
+      [
+        'interface name=Entity',
+        '  field name=id type=string',
+        'interface name=Named extends=Entity',
+        '  field name=name type=string',
+        'class name=User implements=Named',
+        '  field name=name type=string value="Ada"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new User()', env)).toThrow('missing required field Named.id');
+  });
+
+  test('validates getter-backed implemented interface fields', () => {
+    const root = parse(
+      [
+        'interface name=Named',
+        '  field name=name type=string',
+        'class name=User implements=Named',
+        '  field name=first type=string value="Ada"',
+        '  getter name=name returns=string',
+        '    handler',
+        '      return value="this.first"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new User().name', env))).toBe('Ada');
+  });
+
+  test('enforces base class implemented protocols on derived instances', () => {
+    const root = parse(
+      [
+        'interface name=EntityLike',
+        '  field name=id type=string',
+        'class name=Entity implements=EntityLike',
+        '  field name=id type=string value="base"',
+        'class name=User extends=Entity',
+        '  field name=name type=string value="Ada"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new User().id', env))).toBe('base');
+    expect(toHostValue(evalCoreExpression('new User().name', env))).toBe('Ada');
+  });
+
+  test('rejects derived instances when a base implemented protocol is unsatisfied', () => {
+    const root = parse(
+      [
+        'interface name=EntityLike',
+        '  field name=id type=string',
+        'class name=Entity implements=EntityLike',
+        'class name=User extends=Entity',
+        '  field name=name type=string value="Ada"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new User()', env)).toThrow(
+      "class 'User' violates implemented interface 'EntityLike'",
+    );
+  });
+
+  test('class implements validation uses the declaration root context', () => {
+    const firstRoot = parse(
+      [
+        'interface name=Named',
+        '  field name=id type=string',
+        'class name=User implements=Named',
+        '  field name=id type=string value="u1"',
+      ].join('\n'),
+    );
+    const secondRoot = parse(['interface name=Named', '  field name=id type=number'].join('\n'));
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(firstRoot, env);
+    runCoreRuntime(secondRoot, env);
+
+    expect(toHostValue(evalCoreExpression('new User().id', env))).toBe('u1');
+  });
+
+  test('base implemented protocols use the base declaration root context', () => {
+    const firstRoot = parse(
+      [
+        'interface name=EntityLike',
+        '  field name=id type=string',
+        'class name=Entity implements=EntityLike',
+        '  field name=id type=string value="base"',
+      ].join('\n'),
+    );
+    const secondRoot = parse(
+      [
+        'interface name=EntityLike',
+        '  field name=id type=number',
+        'class name=User extends=Entity',
+        '  field name=name type=string value="Ada"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(firstRoot, env);
+    runCoreRuntime(secondRoot, env);
+
+    expect(toHostValue(evalCoreExpression('new User().id', env))).toBe('base');
+  });
+
+  test('runtime class protocols reject unsupported indexer interfaces', () => {
+    const root = parse(
+      [
+        'interface name=Dictionary',
+        '  indexer keyType=string type=string',
+        'class name=User implements=Dictionary',
+        '  field name=id type=string value="u1"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new User()', env)).toThrow(
+      "implements interface 'Dictionary' that is not executable as a class protocol in v1",
+    );
+  });
+
+  test('malformed runtime implements lists fail instead of skipping validation', () => {
+    const root = parse(
+      [
+        'interface name=Named',
+        '  field name=id type=string',
+        'class name=User implements="Named,"',
+        '  field name=id type=string value="u1"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new User()', env)).toThrow('implements= contains an empty reference');
+  });
+
+  test('invalid runtime implements entries fail instead of being ignored', () => {
+    const root = parse(
+      [
+        'interface name=Named',
+        '  field name=id type=string',
+        'class name=User implements="123"',
+        '  field name=id type=string value="u1"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new User()', env)).toThrow('implements= contains an invalid reference: 123');
+  });
+
+  test('runtime implements entries reject trailing junk', () => {
+    const root = parse(
+      [
+        'interface name=Named',
+        '  field name=id type=string',
+        'class name=User implements="Named junk"',
+        '  field name=id type=string value="u1"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new User()', env)).toThrow(
+      'implements= contains an invalid reference: Named junk',
+    );
+  });
+
+  test('unknown local runtime implements targets fail instead of being ignored', () => {
+    const root = parse(['class name=User implements=MissingProtocol'].join('\n'));
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new User()', env)).toThrow(
+      "class 'User' implements unknown interface 'MissingProtocol'",
+    );
+  });
+
+  test('imported runtime implements targets are treated as external protocols', () => {
+    const root = parse(
+      [
+        'import from="./protocols" names=ExternalProtocol',
+        'class name=User implements=ExternalProtocol',
+        '  field name=id type=string value="u1"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new User().id', env))).toBe('u1');
+  });
+
   test('executes inherited fields getters methods and overrides', () => {
     const root = parse(
       [

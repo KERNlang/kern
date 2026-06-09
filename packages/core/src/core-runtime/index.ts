@@ -13,6 +13,7 @@ import {
   coreFixtureValueToKernValue,
   kernValueToCoreFixtureValue,
 } from './contract-adapter.js';
+import { collectCoreShapeFacts, validateCoreShape } from './shape-validator.js';
 import { brandValue, KERN_VALUE_BRAND } from './value-brand.js';
 
 const INTEGER_INDEX_RE = /^(0|[1-9]\d*)$/;
@@ -55,6 +56,7 @@ export interface KernClassValue {
   node: IRNode;
   env: CoreRuntimeEnv;
   staticFields: Record<string, KernValue>;
+  runtimeRootContext?: IRNode | readonly IRNode[];
 }
 
 export interface KernInstanceValue {
@@ -104,6 +106,7 @@ export interface CreateCoreRuntimeEnvOptions {
 
 export class CoreRuntimeEnv {
   private readonly bindings = new Map<string, KernValue>();
+  private runtimeRootContext?: IRNode | readonly IRNode[];
 
   constructor(readonly parent?: CoreRuntimeEnv) {}
 
@@ -134,6 +137,14 @@ export class CoreRuntimeEnv {
 
   child(): CoreRuntimeEnv {
     return new CoreRuntimeEnv(this);
+  }
+
+  setRuntimeRootContext(root: IRNode | readonly IRNode[]): void {
+    this.runtimeRootContext = root;
+  }
+
+  getRuntimeRootContext(): IRNode | readonly IRNode[] | undefined {
+    return this.runtimeRootContext ?? this.parent?.getRuntimeRootContext();
   }
 }
 
@@ -247,6 +258,7 @@ export function runCoreRuntime(
   nodeOrNodes: IRNode | readonly IRNode[],
   env = createCoreRuntimeEnv(),
 ): CoreRuntimeResult {
+  env.setRuntimeRootContext(nodeOrNodes);
   const nodes: readonly IRNode[] = isIRNodeArray(nodeOrNodes) ? nodeOrNodes : runtimeChildren(nodeOrNodes);
   return { completion: executeSequence(nodes, env), env };
 }
@@ -279,6 +291,10 @@ function executeSequence(nodes: readonly IRNode[], env: CoreRuntimeEnv): CoreCom
 
 function executeNode(node: IRNode, env: CoreRuntimeEnv): CoreCompletion {
   switch (node.type) {
+    case 'interface':
+    case 'import':
+    case 'use':
+      return { kind: 'normal', value: kUndefined() };
     case 'handler':
     case '__block':
       return executeSequence(node.children ?? [], env);
@@ -723,6 +739,7 @@ function makeClass(node: IRNode, env: CoreRuntimeEnv): KernClassValue {
     node,
     env,
     staticFields: createRecordEntries(),
+    ...(env.getRuntimeRootContext() ? { runtimeRootContext: env.getRuntimeRootContext() } : {}),
   });
 }
 
@@ -746,7 +763,100 @@ function constructClassValue(klass: KernClassValue, args: readonly KernValue[]):
     initializedClasses: new Set<string>(),
   });
   initializeClassLayer(instance, klass, args, true);
+  validateImplementedClassProtocols(instance, klass);
   return instance;
+}
+
+function validateImplementedClassProtocols(instance: KernInstanceValue, klass: KernClassValue): void {
+  const factsByRoot = new Map<IRNode | readonly IRNode[], ReturnType<typeof collectCoreShapeFacts>>();
+  for (const layer of classHierarchyFromBase(klass)) {
+    const root = layer.runtimeRootContext ?? layer.env.getRuntimeRootContext();
+    if (!root) continue;
+    const facts = factsByRoot.get(root) ?? collectCoreShapeFacts(root);
+    factsByRoot.set(root, facts);
+    const shapeByName = new Map(facts.interfaces.map((shape) => [shape.name, shape]));
+    const importedProtocolNames = runtimeImportedProtocolNames(root);
+    for (const interfaceName of runtimeClassReferenceNames(layer.node.props?.implements)) {
+      const shape = shapeByName.get(interfaceName);
+      if (!shape) {
+        if (importedProtocolNames.has(interfaceName)) continue;
+        throw new Error(`KERN core runtime class '${klass.name}' implements unknown interface '${interfaceName}'.`);
+      }
+      if (!shape.validatorAvailable || shape.indexers.length > 0) {
+        throw new Error(
+          `KERN core runtime class '${klass.name}' implements interface '${interfaceName}' that is not executable as a class protocol in v1.`,
+        );
+      }
+      const projection = classProtocolProjection(
+        instance,
+        shape.fields.map((field) => field.name),
+      );
+      const result = validateCoreShape(projection, interfaceName, root);
+      if (result.passed) continue;
+      throw new Error(
+        `KERN core runtime class '${klass.name}' violates implemented interface '${interfaceName}':\n${result.diagnostics
+          .map((diagnostic) => diagnostic.message)
+          .join('\n')}`,
+      );
+    }
+  }
+}
+
+function classProtocolProjection(instance: KernInstanceValue, fieldNames: readonly string[]): KernValue {
+  const entries = createRecordEntries();
+  for (const fieldName of fieldNames) {
+    if (Object.hasOwn(instance.fields, fieldName)) {
+      entries[fieldName] = instance.fields[fieldName] ?? kUndefined();
+      continue;
+    }
+    const member = findReadableClassShapeMember(instance.classValue, fieldName, false);
+    if (member?.kind !== 'getter') continue;
+    entries[fieldName] = evalInstanceMember(instance, fieldName);
+  }
+  return brandValue({ kind: 'record', entries });
+}
+
+function classHierarchyFromBase(klass: KernClassValue): KernClassValue[] {
+  const base = resolveBaseClass(klass);
+  return base ? [...classHierarchyFromBase(base), klass] : [klass];
+}
+
+function runtimeImportedProtocolNames(rootOrNodes: IRNode | readonly IRNode[]): Set<string> {
+  const names = new Set<string>();
+  const visit = (node: IRNode): void => {
+    if (node.type === 'import') {
+      for (const name of runtimeImportLocalNames(node)) names.add(name);
+    }
+    if (node.type === 'use') {
+      for (const child of node.children ?? []) {
+        if (child.type !== 'from') continue;
+        const kind = runtimeStringProp(child.props?.kind);
+        if (kind && kind !== 'interface' && kind !== 'type') continue;
+        const localName = runtimeStringProp(child.props?.as) ?? runtimeStringProp(child.props?.name);
+        if (localName) names.add(localName);
+      }
+    }
+    for (const child of node.children ?? []) visit(child);
+  };
+  for (const node of isIRNodeArray(rootOrNodes) ? rootOrNodes : [rootOrNodes]) visit(node);
+  return names;
+}
+
+function runtimeImportLocalNames(node: IRNode): string[] {
+  const names: string[] = [];
+  const props = node.props ?? {};
+  const defaultName = runtimeStringProp(props.default);
+  if (defaultName && defaultName !== 'true') names.push(defaultName);
+  const rawNames = runtimeStringProp(props.names);
+  if (rawNames) {
+    for (const raw of rawNames.split(',')) {
+      const name = raw.trim();
+      const aliasMatch = /^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/u.exec(name);
+      if (aliasMatch) names.push(aliasMatch[2] ?? aliasMatch[1]);
+      else if (/^[A-Za-z_$][\w$]*$/u.test(name)) names.push(name);
+    }
+  }
+  return names;
 }
 
 function initializeClassLayer(
@@ -1217,6 +1327,68 @@ function classBaseName(value: unknown): string | undefined {
   return match?.[1];
 }
 
+function runtimeStringProp(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function runtimeClassReferenceNames(value: unknown): string[] {
+  if (typeof value !== 'string' || !value.trim()) return [];
+  const parts = splitRuntimeClassReferenceList(value);
+  const names = new Set<string>();
+  for (const part of parts) {
+    const name = runtimeClassReferenceName(part);
+    if (!name) throw new Error(`implements= contains an invalid reference: ${part}.`);
+    names.add(name);
+  }
+  return [...names];
+}
+
+function runtimeClassReferenceName(value: string): string | undefined {
+  const trimmed = value.trim();
+  const match = /^([A-Za-z_$][\w$]*)(?:\s*<[\s\S]*>)?$/u.exec(trimmed);
+  return match?.[1];
+}
+
+function splitRuntimeClassReferenceList(raw: string): string[] {
+  const out: string[] = [];
+  let current = '';
+  let depth = 0;
+  let angleDepth = 0;
+  let quote: '"' | "'" | '`' | null = null;
+  for (let index = 0; index < raw.length; index += 1) {
+    const ch = raw[index];
+    if (quote !== null) {
+      current += ch;
+      if (ch === '\\' && index + 1 < raw.length) current += raw[++index];
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === '(' || ch === '[' || ch === '{') depth += 1;
+    else if (ch === ')' || ch === ']' || ch === '}') depth -= 1;
+    else if (ch === '<') angleDepth += 1;
+    else if (ch === '>' && angleDepth > 0) angleDepth -= 1;
+    if (depth < 0 || angleDepth < 0) throw new Error('implements= has unbalanced delimiters.');
+    if (ch === ',' && depth === 0 && angleDepth === 0) {
+      const part = current.trim();
+      if (part.length === 0) throw new Error('implements= contains an empty reference.');
+      out.push(part);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  if (quote !== null || depth !== 0 || angleDepth !== 0) throw new Error('implements= has unbalanced delimiters.');
+  const tail = current.trim();
+  if (tail.length === 0 && raw.trim().endsWith(',')) throw new Error('implements= contains an empty reference.');
+  if (tail.length > 0) out.push(tail);
+  return out;
+}
+
 function classThisEnv(klass: KernClassValue, receiver: KernInstanceValue): CoreRuntimeEnv {
   const env = klass.env.child();
   env.define('this', receiver);
@@ -1510,7 +1682,7 @@ function isKernValueShape(value: unknown, seen: WeakSet<object>): value is KernV
       );
     case 'class':
       return (
-        hasOnlyKeys(value, ['kind', 'name', 'node', 'env', 'staticFields']) &&
+        hasOnlyKeys(value, ['kind', 'name', 'node', 'env', 'staticFields'], ['runtimeRootContext']) &&
         typeof value.name === 'string' &&
         isPlainRecord(value.node) &&
         value.env instanceof CoreRuntimeEnv &&
