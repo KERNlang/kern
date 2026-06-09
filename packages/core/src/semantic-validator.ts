@@ -2822,11 +2822,13 @@ function validateClassGraphRoots(roots: readonly IRNode[], violations: SemanticV
     validateClassConstructors(info, violations);
     validateClassMemberConflicts(info, violations);
     validateClassSuperUsage(info, classByName, violations);
+    validateClassAbstractMembers(info, classByName, violations);
   }
 
   validateClassInheritanceCycles(classes, classByName, violations);
   validateClassOverrides(classes, classByName, violations);
   validateClassShapeUsage(classes, classByName, violations);
+  validateAbstractInstantiations(roots, classByName, visibleNamesByRoot, violations);
 }
 
 function collectClassInfos(root: IRNode, rootIndex = 0): ClassInfo[] {
@@ -3353,6 +3355,203 @@ function classInfoParticipatesInCycle(info: ClassInfo, classByName: ReadonlyMap<
     current = current.baseName ? classByName.get(current.baseName) : undefined;
   }
   return false;
+}
+
+// ── Abstract-class contract enforcement ──────────────────────────────────────
+// KERN owns its abstract contract at the VALIDATOR layer (codegen/runtime stay
+// the loud backstop): a concrete class must implement every abstract member it
+// inherits, and an abstract class may never be instantiated. The validator runs
+// before codegen, so enforcement is parity-free — TS and Python reject the same
+// programs by construction.
+//
+// PR3 convention: an "abstract member" is a handler-less method/getter/setter
+// declared under an `abstract=true` class. Fields always carry a value, so they
+// are never abstract.
+
+function isAbstractClassNode(node: IRNode): boolean {
+  const raw = node.props?.abstract;
+  return raw === true || raw === 'true';
+}
+
+function memberHasHandler(node: IRNode): boolean {
+  return (node.children ?? []).some((child) => child.type === 'handler');
+}
+
+interface AbstractObligation {
+  readonly name: string;
+  readonly kind: ClassMemberKind;
+  readonly static: boolean;
+  // The nearest abstract ancestor that left this member unimplemented.
+  readonly declaredIn: string;
+}
+
+function abstractObligationKey(member: {
+  readonly static: boolean;
+  readonly name: string;
+  readonly kind: ClassMemberKind;
+}): string {
+  return `${member.static ? 'static' : 'instance'}:${member.name}:${member.kind}`;
+}
+
+// Walk the lineage base→derived and return the abstract members still owed by
+// `info`. Keyed by (static, name, kind) so a getter override never clears the
+// sibling setter obligation, and a same-name different-kind member never erases
+// an inherited abstract member (the exact soundness hole that drove this off
+// `effectiveClassMemberFacts`, which collapses members by name+static only).
+function collectAbstractObligations(
+  info: ClassInfo,
+  classByName: ReadonlyMap<string, ClassInfo>,
+  seen: ReadonlySet<string> = new Set(),
+): AbstractObligation[] {
+  // Inheritance cycles carry their own primary diagnostic; do not also walk a
+  // cyclic chain here (it would never terminate cleanly nor add signal).
+  if (seen.has(info.name) || classInfoParticipatesInCycle(info, classByName)) return [];
+  const nextSeen = new Set(seen);
+  nextSeen.add(info.name);
+  const obligations = new Map<string, AbstractObligation>();
+  const base = info.baseName ? classByName.get(info.baseName) : undefined;
+  if (base) {
+    for (const obligation of collectAbstractObligations(base, classByName, nextSeen)) {
+      obligations.set(abstractObligationKey(obligation), obligation);
+    }
+  }
+  const ownIsAbstract = isAbstractClassNode(info.node);
+  for (const member of info.members) {
+    if (member.kind === 'field') continue; // fields are never abstract
+    const key = abstractObligationKey(member);
+    if (memberHasHandler(member.node)) {
+      // A concrete definition for this exact (static,name,kind) satisfies the
+      // obligation — same-kind only.
+      obligations.delete(key);
+    } else if (ownIsAbstract) {
+      // Handler-less member under an abstract owner declares an obligation.
+      obligations.set(key, {
+        name: member.name,
+        kind: member.kind,
+        static: member.static,
+        declaredIn: info.name,
+      });
+    }
+    // A handler-less member under a CONCRETE owner neither satisfies nor
+    // declares: any inherited obligation stands and is flagged below.
+  }
+  return [...obligations.values()].sort((a, b) => abstractObligationKey(a).localeCompare(abstractObligationKey(b)));
+}
+
+function validateClassAbstractMembers(
+  info: ClassInfo,
+  classByName: ReadonlyMap<string, ClassInfo>,
+  violations: SemanticViolation[],
+): void {
+  // Abstract classes are allowed to carry (and inherit) abstract members.
+  if (isAbstractClassNode(info.node)) return;
+  for (const obligation of collectAbstractObligations(info, classByName)) {
+    violations.push({
+      rule: 'class-abstract-member-unimplemented',
+      nodeType: info.node.type,
+      message: `Concrete class '${info.name}' must implement abstract ${obligation.kind} '${obligation.name}' inherited from '${obligation.declaredIn}'.`,
+      line: info.node.loc?.line,
+      col: info.node.loc?.col,
+    });
+  }
+}
+
+// Resolve the class a `new` expression constructs. KERN parses `new` greedily
+// (the argument is a full postfix chain), and codegen prefixes `new ` to the
+// emitted chain, so KERN follows JS `new` precedence:
+//   new Shape           -> Shape
+//   new Shape()         -> Shape
+//   new Shape().area()  -> Shape   (new binds to Shape(); `.area()` is after)
+//   new pkg.Shape()     -> pkg.Shape  (qualified) -> not a bare local class, skip
+//   new makeShape()()   -> makeShape (head ident; not a class -> skipped on lookup)
+// We descend the spine to the head ident and skip qualified constructors (a head
+// reached as a member's object, e.g. `pkg.Shape`).
+function newExpressionClassName(argument: ValueIR): string | undefined {
+  let node: ValueIR = argument;
+  let edge: 'root' | 'callee' | 'object' = 'root';
+  while (true) {
+    switch (node.kind) {
+      case 'ident':
+        // A member-object head (`pkg.Shape`) is a qualified constructor; every
+        // other head (root, or a called ident) is a bare construction target.
+        return edge === 'object' ? undefined : node.name;
+      case 'call':
+        node = node.callee;
+        edge = 'callee';
+        continue;
+      case 'member':
+        node = node.object;
+        edge = 'object';
+        continue;
+      case 'index':
+        node = node.object;
+        edge = 'object';
+        continue;
+      case 'nonNull':
+        node = node.expression;
+        continue;
+      default:
+        return undefined; // dynamic / non-resolvable constructor
+    }
+  }
+}
+
+// Module-wide pass: reject `new <AbstractClass>(...)` anywhere — including inside
+// the abstract class's own static factory (KERN matches TS: abstract is not
+// self-instantiable). Conservative by design — non-ident callees, names not
+// resolving to a visible local class, and (consistent with every other
+// class-name resolution in this validator) names rebound by a local binding are
+// not pursued; the validator does not track lexical shadowing for any class
+// reference, so abstract instantiation follows the same name+visibility rule.
+function validateAbstractInstantiations(
+  roots: readonly IRNode[],
+  classByName: ReadonlyMap<string, ClassInfo>,
+  visibleNamesByRoot: readonly ReadonlySet<string>[],
+  violations: SemanticViolation[],
+): void {
+  roots.forEach((root, rootIndex) => {
+    const visible = visibleNamesByRoot[rootIndex];
+    walkSemanticTree(root, (node) => {
+      for (const prop of BODY_EXPRESSION_PROPS) {
+        const text = expressionPropText(node.props?.[prop]);
+        if (!text) continue;
+        let value: ValueIR;
+        try {
+          value = parseExpression(text);
+        } catch {
+          continue;
+        }
+        collectAbstractInstantiations(value, node, visible, classByName, violations);
+      }
+    });
+  });
+}
+
+function collectAbstractInstantiations(
+  value: ValueIR,
+  node: IRNode,
+  visible: ReadonlySet<string> | undefined,
+  classByName: ReadonlyMap<string, ClassInfo>,
+  violations: SemanticViolation[],
+): void {
+  if (value.kind === 'new') {
+    const name = newExpressionClassName(value.argument);
+    if (name && (!visible || visible.has(name))) {
+      const target = classByName.get(name);
+      if (target && isAbstractClassNode(target.node)) {
+        violations.push({
+          rule: 'class-abstract-instantiation',
+          nodeType: node.type,
+          message: `Cannot instantiate abstract class '${name}'.`,
+          line: node.loc?.line,
+          col: node.loc?.col,
+        });
+      }
+    }
+  }
+  for (const child of valueIRChildren(value)) {
+    collectAbstractInstantiations(child, node, visible, classByName, violations);
+  }
 }
 
 function collectClassOverrideFacts(
