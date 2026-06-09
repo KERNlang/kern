@@ -15,7 +15,7 @@ import {
 } from '@kernlang/core';
 import { emitNativeKernBodyPythonWithImports } from '../codegen-body-python.js';
 import { buildPythonParamList, firstChild, kids, p, parseLegacyParamParts } from '../codegen-helpers.js';
-import { mapTsTypeToPython, toSnakeCase } from '../type-map.js';
+import { mapTsTypeToPython, mapTsTypeToPythonAnnotation, toSnakeCase } from '../type-map.js';
 
 /** Slice 4b — native KERN method body dispatch (Python target).
  *
@@ -566,7 +566,7 @@ export function generatePythonClass(node: IRNode): string[] {
     for (const g of staticGetters) {
       const gp = p(g);
       const gname = toSnakeCase((gp.name as string) || 'prop');
-      const returns = gp.returns ? ` -> ${mapTsTypeToPython(gp.returns as string)}` : '';
+      const returns = gp.returns ? ` -> ${mapTsTypeToPythonAnnotation(gp.returns as string)}` : '';
       metaGetterNames.add(gname);
       metaLines.push('    @property');
       metaLines.push(`    def ${gname}(cls)${returns}:`);
@@ -590,7 +590,9 @@ export function generatePythonClass(node: IRNode): string[] {
         metaGetterNames.add(sname);
       }
       metaLines.push(`    @${sname}.setter`);
-      metaLines.push(`    def ${sname}(cls, ${buildPythonParamList(s, { selfPrefix: false })}):`);
+      metaLines.push(
+        `    def ${sname}(cls, ${buildPythonParamList(s, { selfPrefix: false, lazyAnnotations: true })}):`,
+      );
       if (isAbstractMember(s)) {
         metaLines.push(abstractRaise('setter', sname));
       } else {
@@ -608,7 +610,7 @@ export function generatePythonClass(node: IRNode): string[] {
   for (const f of staticFields) {
     const fp = p(f);
     const fname = toSnakeCase((fp.name as string) || 'field');
-    const ftype = fp.type ? mapTsTypeToPython(fp.type as string) : 'Any';
+    const ftype = fp.type ? mapTsTypeToPythonAnnotation(fp.type as string) : 'Any';
     body.push(`    ${fname}: ${ftype} = ${fieldDefaultPython(f) ?? 'None'}`);
   }
   if (staticFields.length > 0) body.push('');
@@ -624,7 +626,7 @@ export function generatePythonClass(node: IRNode): string[] {
     (f) => `        self.${toSnakeCase((p(f).name as string) || 'field')} = ${fieldDefaultPython(f)}`,
   );
   if (ctor) {
-    body.push(`    def __init__(${buildPythonParamList(ctor, { selfPrefix: true })}):`);
+    body.push(`    def __init__(${buildPythonParamList(ctor, { selfPrefix: true, lazyAnnotations: true })}):`);
     const ctorLines = methodBodyLinesPython(ctor, { classBody: true, isConstructor: true });
     // Whether the constructor already calls super(...) is decided by the canonical
     // structural predicate (shared with the validator, runtime, and TS target) —
@@ -670,12 +672,16 @@ export function generatePythonClass(node: IRNode): string[] {
     const mp = p(m);
     const mname = toSnakeCase((mp.name as string) || 'method');
     const asyncKw = mp.async === 'true' || mp.async === true ? 'async ' : '';
-    const returns = mp.returns ? ` -> ${mapTsTypeToPython(mp.returns as string)}` : '';
+    const returns = mp.returns ? ` -> ${mapTsTypeToPythonAnnotation(mp.returns as string)}` : '';
     if (isStatic(m)) {
       body.push('    @staticmethod');
-      body.push(`    ${asyncKw}def ${mname}(${buildPythonParamList(m, { selfPrefix: false })})${returns}:`);
+      body.push(
+        `    ${asyncKw}def ${mname}(${buildPythonParamList(m, { selfPrefix: false, lazyAnnotations: true })})${returns}:`,
+      );
     } else {
-      body.push(`    ${asyncKw}def ${mname}(${buildPythonParamList(m, { selfPrefix: true })})${returns}:`);
+      body.push(
+        `    ${asyncKw}def ${mname}(${buildPythonParamList(m, { selfPrefix: true, lazyAnnotations: true })})${returns}:`,
+      );
     }
     if (isAbstractMember(m)) {
       body.push(abstractRaise('method', mname));
@@ -692,7 +698,7 @@ export function generatePythonClass(node: IRNode): string[] {
     const gp = p(g);
     const gname = toSnakeCase((gp.name as string) || 'prop');
     instanceGetterNames.add(gname);
-    const returns = gp.returns ? ` -> ${mapTsTypeToPython(gp.returns as string)}` : '';
+    const returns = gp.returns ? ` -> ${mapTsTypeToPythonAnnotation(gp.returns as string)}` : '';
     body.push('    @property');
     body.push(`    def ${gname}(self)${returns}:`);
     if (isAbstractMember(g)) {
@@ -717,7 +723,7 @@ export function generatePythonClass(node: IRNode): string[] {
       instanceGetterNames.add(sname);
     }
     body.push(`    @${sname}.setter`);
-    body.push(`    def ${sname}(${buildPythonParamList(s, { selfPrefix: true })}):`);
+    body.push(`    def ${sname}(${buildPythonParamList(s, { selfPrefix: true, lazyAnnotations: true })}):`);
     if (isAbstractMember(s)) {
       body.push(abstractRaise('setter', sname));
     } else {
