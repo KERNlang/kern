@@ -11,6 +11,7 @@ import {
   KERN_JS_STRING_HELPERS_PY,
   KERN_TMOD_HELPER_PY,
 } from './helpers.js';
+import { lowerPortableArrayMethodPy } from './list-ops.js';
 
 export {
   KERN_FMT_HELPER_PY,
@@ -344,10 +345,11 @@ function lowerJsArrayMethods(expr: string, ctx: ExprRewriteContext): string {
             lowered = `(next((__i for __i, __v in enumerate(${receiver}) if __v == ${needle}), -1))`;
           }
         } else if (method === 'push') {
-          // JS Array.push mutates AND returns the new length. Python list.append
-          // returns None, so emit `(recv.append(x) or len(recv))` for exact parity
-          // (mutate + length). Single-arg only; varargs push left unsupported.
-          if (args.length === 1) lowered = `(${receiver}.append(${args[0]}) or len(${receiver}))`;
+          // Delegate to the single shared push lowering (also used by the
+          // class-method body emitter) so routes and class methods can't drift.
+          // Single-arg only; varargs push left unsupported.
+          const portable = lowerPortableArrayMethodPy(receiver, 'push', args);
+          if (portable !== null) lowered = portable;
         } else if (method === 'reverse') {
           // JS Array.reverse mutates AND returns the (same, reversed) array; Python
           // list.reverse returns None -> `(recv.reverse() or recv)` mutates + returns it.

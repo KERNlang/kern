@@ -62,6 +62,7 @@ import {
   KERN_PAIR_HELPERS_PY,
   KERN_TMOD_HELPER_PY,
 } from './core/expr/index.js';
+import { isSharedPortableArrayMethod, lowerPortableArrayMethodPy } from './core/expr/list-ops.js';
 import { mapTsTypeToPython } from './type-map.js';
 
 /** Slice 3e — caller-provided options for the Python body emitter.
@@ -2115,6 +2116,11 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   if (regex !== null) return { guard: null, expr: regex };
   const stdlib = applyStdlibLoweringPython(node, ctx);
   if (stdlib !== null) return { guard: null, expr: stdlib };
+  // Portable array methods (e.g. `arr.push(x)`) lower through the SAME shared
+  // helper the route emitter uses, so a class method's `this.items.push(x)`
+  // matches a route handler's `arr.push(x)` by construction (no per-path drift).
+  const portableArray = lowerPortableArrayCallPython(node, ctx);
+  if (portableArray !== null) return { guard: null, expr: portableArray };
   if (ctx.inConstructor && node.callee.kind === 'ident' && node.callee.name === 'super') {
     const superArgs = node.args.map((arg) => emitPyExprCtx(arg, ctx)).join(', ');
     return { guard: null, expr: `super().__init__(${superArgs})` };
@@ -2135,6 +2141,40 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
       : { guard: null, expr: emitPyExprCtx(callee, ctx) };
   const args = node.args.map((a) => emitPyExprCtx(a, ctx)).join(', ');
   return { guard: inner.guard, expr: `${inner.expr}(${args})` };
+}
+
+/**
+ * Lower a portable Array *method call* (e.g. `arr.push(x)`) through the shared
+ * `list-ops` module, so a class-method body and a route handler lower the same
+ * portable subset to identical Python. Returns `null` — and the caller falls
+ * through to the generic call emission — for anything that is not a bare,
+ * non-optional member call of a shared portable method on a guard-free
+ * receiver. Mirrors the peek-then-emit shape of `lowerRegexCallPython`.
+ */
+function lowerPortableArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: BodyEmitContext): string | null {
+  const callee = call.callee;
+  if (callee.kind !== 'member' || callee.optional) return null;
+  // Gate on method name + arity BEFORE emitting receiver/args, so a non-shared
+  // or malformed call falls through without any duplicated emission. The only
+  // shared method (push) is single-arg; a 0-/2-arg push is left to the generic
+  // path (an unsupported case, pre-existing on the route emitter too).
+  if (!isSharedPortableArrayMethod(callee.property)) return null;
+  if (call.args.length !== 1) return null;
+  const recvNode = callee.object;
+  // The shim names the receiver twice (`(recv.append(x) or len(recv))`), so a
+  // side-effectful receiver — `makeBag().items.push(x)`, `bags[idx()].push(x)` —
+  // would run those effects twice on Python and break JS parity. Lower only a
+  // provably-pure receiver; let impure ones fall through unchanged.
+  if (!isReceiverChainPure(recvNode)) return null;
+  const recv: GuardedExpr =
+    recvNode.kind === 'member' || recvNode.kind === 'call' || recvNode.kind === 'index'
+      ? lowerChain(recvNode, ctx)
+      : { guard: null, expr: emitPyExprCtx(recvNode, ctx) };
+  // A pure receiver can still be an optional chain (`a?.b`), which carries a
+  // None-guard the flat shim can't honor — fall through for those too.
+  if (recv.guard !== null) return null;
+  const args = call.args.map((a) => emitPyExprCtx(a, ctx));
+  return lowerPortableArrayMethodPy(recv.expr, callee.property, args);
 }
 
 function lowerRegexCallPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: BodyEmitContext): string | null {
