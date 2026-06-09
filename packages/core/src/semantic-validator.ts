@@ -38,7 +38,12 @@ export interface SemanticViolation {
 
 export type ClassSemanticMemberKind = 'field' | 'method' | 'getter' | 'setter';
 
-export type ClassSemanticOverrideStatus = 'compatible' | 'kind-mismatch' | 'arity-mismatch';
+export type ClassSemanticOverrideStatus =
+  | 'compatible'
+  | 'kind-mismatch'
+  | 'arity-mismatch'
+  | 'return-mismatch'
+  | 'param-mismatch';
 
 export interface ClassSemanticLocation {
   readonly line: number;
@@ -3584,7 +3589,7 @@ function collectClassOverrideFacts(
         baseClassName: baseMember.owner,
         baseKind: baseMember.kind,
         baseArity: baseMember.arity,
-        status: classOverrideStatus(member, baseMember),
+        status: classOverrideStatus(member, baseMember, classByName),
         ...(member.node.loc ? { loc: semanticLocation(member.node) } : {}),
       });
     }
@@ -3592,12 +3597,97 @@ function collectClassOverrideFacts(
   return overrides;
 }
 
-function classOverrideStatus(member: ClassMemberInfo, baseMember: ClassMemberInfo): ClassSemanticOverrideStatus {
+function classOverrideStatus(
+  member: ClassMemberInfo,
+  baseMember: ClassMemberInfo,
+  classByName: ReadonlyMap<string, ClassInfo>,
+): ClassSemanticOverrideStatus {
   if (!sameOverrideKind(member, baseMember)) return 'kind-mismatch';
   if (member.kind === 'method' && baseMember.kind === 'method' && member.arity !== baseMember.arity) {
     return 'arity-mismatch';
   }
+  const variance = checkOverrideVariance(member, baseMember, classByName);
+  if (variance) return variance;
   return 'compatible';
+}
+
+/**
+ * Liskov substitutability check for a member override against its base member.
+ *
+ * Runs ONLY when kinds are strictly equal (method/method, getter/getter,
+ * setter/setter). Mixed accessor pairs (getter overriding setter, or vice
+ * versa) and fields return null (skip) to preserve existing behavior. For
+ * methods, it assumes arity has already matched (arity-mismatch fires first).
+ *
+ * Variance rules:
+ *  - Return position is COVARIANT: an override may narrow the return type
+ *    (override.returns must be a subtype of base.returns). A non-subtype is a
+ *    'return-mismatch'.
+ *  - Param positions are CONTRAVARIANT: an override may widen a param type
+ *    (base.paramTypes[i] must be a subtype of override.paramTypes[i]). A
+ *    non-subtype is a 'param-mismatch'.
+ *
+ * 'unknown' subtype results (gradual typing — primitives, unannotated, or
+ * non-class names) are skipped, so the check produces zero false positives.
+ */
+function checkOverrideVariance(
+  member: ClassMemberInfo,
+  baseMember: ClassMemberInfo,
+  classByName: ReadonlyMap<string, ClassInfo>,
+): 'return-mismatch' | 'param-mismatch' | null {
+  if (member.kind !== baseMember.kind) return null;
+  if (member.kind === 'field') return null;
+  if (member.kind === 'method') {
+    if (member.arity !== baseMember.arity) return null;
+    if (isNominalSubtype(member.returns, baseMember.returns, classByName) === false) {
+      return 'return-mismatch';
+    }
+    for (let index = 0; index < member.paramTypes.length; index += 1) {
+      if (isNominalSubtype(baseMember.paramTypes[index], member.paramTypes[index], classByName) === false) {
+        return 'param-mismatch';
+      }
+    }
+    return null;
+  }
+  if (member.kind === 'getter') {
+    if (isNominalSubtype(member.returns, baseMember.returns, classByName) === false) {
+      return 'return-mismatch';
+    }
+    return null;
+  }
+  // setter: param position 0 only, same contravariant direction.
+  if (isNominalSubtype(baseMember.paramTypes[0], member.paramTypes[0], classByName) === false) {
+    return 'param-mismatch';
+  }
+  return null;
+}
+
+/**
+ * Nominal subtype check: is `sub` a (non-strict) subtype of `sup`?
+ *  - undefined on either side → 'unknown' (gradual: caller skips).
+ *  - sub === sup → true.
+ *  - either name not a known class in classByName → 'unknown' (primitives /
+ *    external / unresolved types are not compared).
+ *  - else cycle-safe walk of sub's baseName chain; reaching sup → true; chain
+ *    ends or cycles without reaching sup → false.
+ */
+function isNominalSubtype(
+  sub: string | undefined,
+  sup: string | undefined,
+  classByName: ReadonlyMap<string, ClassInfo>,
+): true | false | 'unknown' {
+  if (sub === undefined || sup === undefined) return 'unknown';
+  if (sub === sup) return true;
+  if (!classByName.has(sub) || !classByName.has(sup)) return 'unknown';
+  let current = classByName.get(sub);
+  const visited = new Set<string>();
+  while (current) {
+    if (current.name === sup) return true;
+    if (visited.has(current.name)) return false;
+    visited.add(current.name);
+    current = current.baseName ? classByName.get(current.baseName) : undefined;
+  }
+  return false;
 }
 
 function collectClassCycleFacts(
@@ -4419,6 +4509,26 @@ function validateClassOverrides(
           rule: 'class-override-arity-mismatch',
           nodeType: member.node.type,
           message: `Class '${info.name}' method '${member.name}' overrides a base method with ${baseMember.arity} parameter(s), but declares ${member.arity}.`,
+          line: member.node.loc?.line,
+          col: member.node.loc?.col,
+        });
+      }
+      const variance = checkOverrideVariance(member, baseMember, classByName);
+      if (variance === 'return-mismatch') {
+        violations.push({
+          rule: 'class-override-return-mismatch',
+          nodeType: member.node.type,
+          message: `Class '${info.name}' member '${member.name}' overrides a base member returning '${baseMember.returns}' with return type '${member.returns}'. Overrides must be covariant in their return type (the override's return must be a subtype of the base's).`,
+          line: member.node.loc?.line,
+          col: member.node.loc?.col,
+        });
+        continue;
+      }
+      if (variance === 'param-mismatch') {
+        violations.push({
+          rule: 'class-override-param-mismatch',
+          nodeType: member.node.type,
+          message: `Class '${info.name}' member '${member.name}' narrows a parameter type when overriding a base member. Overrides must be contravariant in their parameter types (the override's parameter must be a supertype of the base's).`,
           line: member.node.loc?.line,
           col: member.node.loc?.col,
         });

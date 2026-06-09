@@ -282,6 +282,93 @@ fn name=probe returns=number
     // NaN on TS / AttributeError on Python); field defaults before super.
     expected: 8,
   },
+  {
+    name: 'liskov covariant return: override narrows return Animal -> Dog',
+    kern: `class name=Animal export=true
+  field name=sound type=string value={{ "generic" }}
+  method name=make returns=Animal
+    handler
+      return value="new Animal()"
+class name=Dog extends=Animal export=true
+  field name=sound type=string value={{ "woof" }}
+  method name=make returns=Dog
+    handler
+      return value="new Dog()"
+fn name=probe returns=string
+  handler
+    return value="new Dog().make().sound"`,
+    // The override narrows its return to Dog (a subtype of Animal); the produced
+    // instance is a Dog, so reading .sound yields "woof" on both targets. The
+    // validator must ACCEPT this covariant narrowing (no codegen change here).
+    expected: 'woof',
+  },
+  {
+    name: 'liskov contravariant param: override widens param Dog -> Animal',
+    kern: `class name=Animal export=true
+  field name=kind type=string value={{ "animal" }}
+class name=Dog extends=Animal export=true
+class name=Greeter export=true
+  method name=greet returns=string
+    param name=who type=Dog
+    handler
+      return value="\`greet \${who.kind}\`"
+class name=LoudGreeter extends=Greeter export=true
+  method name=greet returns=string
+    param name=who type=Animal
+    handler
+      return value="\`hi \${who.kind}\`"
+fn name=probe returns=string
+  handler
+    return value="new LoudGreeter().greet(new Animal())"`,
+    // The override widens its param to Animal (a supertype of Dog) and is passed
+    // an Animal; reading who.kind yields "animal" on both targets. The validator
+    // must ACCEPT this contravariant widening.
+    expected: 'hi animal',
+  },
+  {
+    name: 'liskov grandparent-chain covariant return: A <- B <- C',
+    kern: `class name=A export=true
+  field name=tier type=string value={{ "A" }}
+  method name=spawn returns=A
+    handler
+      return value="new A()"
+class name=B extends=A export=true
+  field name=tier type=string value={{ "B" }}
+class name=C extends=B export=true
+  field name=tier type=string value={{ "C" }}
+  method name=spawn returns=C
+    handler
+      return value="new C()"
+fn name=probe returns=string
+  handler
+    return value="new C().spawn().tier"`,
+    // C overrides A's spawn (declared returns=A) with returns=C; C is a subtype
+    // of A through the grandparent chain, so the narrowing is covariant and SOUND.
+    // The returned instance is a C, so .tier is "C" on both targets.
+    expected: 'C',
+  },
+  {
+    name: 'liskov getter covariant return: override narrows getter Animal -> Dog',
+    kern: `class name=Animal export=true
+  field name=label type=string value={{ "animal" }}
+class name=Dog extends=Animal export=true
+  field name=label type=string value={{ "dog" }}
+class name=Kennel export=true
+  getter name=resident returns=Animal
+    handler
+      return value="new Animal()"
+class name=DogKennel extends=Kennel export=true
+  getter name=resident returns=Dog
+    handler
+      return value="new Dog()"
+fn name=probe returns=string
+  handler
+    return value="new DogKennel().resident.label"`,
+    // The getter override narrows its return to Dog (a subtype of Animal); the
+    // produced instance is a Dog, so .label is "dog" on both targets. The
+    // validator must ACCEPT covariant getter-return narrowing.
+    expected: 'dog',
+  },
 ];
 
 const canon = (v) => JSON.stringify(v);
