@@ -624,6 +624,14 @@ export function generatePythonClass(node: IRNode): string[] {
     const superIdx = ctorLines.findIndex((line) => line.includes('super().__init__'));
     if (superIdx >= 0) {
       body.push(...ctorLines.slice(0, superIdx + 1), ...defaultLines, ...ctorLines.slice(superIdx + 1));
+    } else if (base) {
+      // KERN constructor semantic: a DERIVED constructor that omits super()
+      // gets an implicit no-arg base-init injected FIRST, then field defaults,
+      // then the body — so `this`/field access is always legal (TS requires
+      // super-before-this; Python is lax, but we emit identically for parity).
+      // The author writes explicit `super(args)` only to pass args up; when the
+      // base constructor REQUIRES args, that's a validator concern (a follow-up).
+      body.push('        super().__init__()', ...defaultLines, ...ctorLines);
     } else {
       body.push(...defaultLines, ...ctorLines);
     }

@@ -299,6 +299,15 @@ function emitClassBody(node: IRNode, lines: string[]): void {
     const ctorCode = classMemberBodyCode(ctorNode);
     lines.push('');
     lines.push(`  constructor${generics}(${ctorParams}) {`);
+    // KERN constructor semantic: a DERIVED constructor that omits super() gets an
+    // implicit no-arg super() injected FIRST, so `this`/field access is legal (JS
+    // forbids touching `this` before super in a derived ctor). Mirrors the Python
+    // side's injected base-init; class-field initializers then run after super per
+    // JS semantics. The author writes explicit `super(args)` only to pass args up.
+    const isDerived = typeof p(node).extends === 'string' && p(node).extends !== '';
+    if (isDerived && !/\bsuper\s*\(/.test(ctorCode)) {
+      lines.push('    super();');
+    }
     if (ctorCode) {
       for (const line of ctorCode.split('\n')) {
         lines.push(`    ${line}`);
