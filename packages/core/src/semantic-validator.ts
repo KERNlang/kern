@@ -70,6 +70,30 @@ export interface ClassSemanticClassFact {
   readonly loc?: ClassSemanticLocation;
 }
 
+export type ClassSemanticConstructorSuperStatus =
+  | 'not-required'
+  | 'satisfied'
+  | 'missing'
+  | 'conditional'
+  | 'double'
+  | 'this-before-super';
+
+export interface ClassSemanticConstructorFact {
+  readonly className: string;
+  readonly hasConstructor: boolean;
+  readonly constructorCount: number;
+  readonly hasBase: boolean;
+  readonly requiresSuper: boolean;
+  readonly superStatus: ClassSemanticConstructorSuperStatus;
+  readonly superCallCount: number;
+  readonly thisBeforeSuper: boolean;
+  readonly declaredFields: readonly string[];
+  readonly initializedFields: readonly string[];
+  readonly uninitializedRequiredFields: readonly string[];
+  readonly provenance: 'static-analysis';
+  readonly loc?: ClassSemanticLocation;
+}
+
 export interface ClassSemanticInheritanceEdge {
   readonly from: string;
   readonly to: string;
@@ -120,6 +144,7 @@ export interface ClassSemanticProtocolConformanceFact {
 
 export interface ClassSemanticFacts {
   readonly classes: readonly ClassSemanticClassFact[];
+  readonly constructorFacts: readonly ClassSemanticConstructorFact[];
   readonly inheritanceEdges: readonly ClassSemanticInheritanceEdge[];
   readonly implementsEdges: readonly ClassSemanticImplementsEdge[];
   readonly overrides: readonly ClassSemanticOverrideFact[];
@@ -2917,6 +2942,7 @@ export function collectClassSemanticFacts(root: IRNode | readonly IRNode[]): Cla
 
   return {
     classes: classes.map((info) => classSemanticFact(info, classByName)),
+    constructorFacts: classes.map((info) => classConstructorSemanticFact(info)),
     inheritanceEdges,
     implementsEdges,
     overrides: collectClassOverrideFacts(classes, classByName),
@@ -2945,6 +2971,37 @@ function classSemanticFact(info: ClassInfo, classByName: ReadonlyMap<string, Cla
   };
 }
 
+function classConstructorSemanticFact(info: ClassInfo): ClassSemanticConstructorFact {
+  const superDiagnostics = constructorSuperDiagnostics(info);
+  const superCallCount = info.constructors.reduce(
+    (count, ctor) =>
+      count + constructorBodyStatements(ctor).reduce((sum, statement) => sum + superCallCountInNode(statement), 0),
+    0,
+  );
+  const declaredFields = declaredInstanceFieldNames(info);
+  const declaredFieldSet = new Set(declaredFields);
+  const initializedFields = sortedUnique(
+    [...fieldInitializerNames(info), ...constructorThisAssignmentNames(info)].filter((name) =>
+      declaredFieldSet.has(name),
+    ),
+  );
+  return {
+    className: info.name,
+    hasConstructor: info.constructors.length > 0,
+    constructorCount: info.constructors.length,
+    hasBase: Boolean(info.baseName),
+    requiresSuper: Boolean(info.baseName) && info.constructors.length > 0,
+    superStatus: constructorSuperStatus(info, superDiagnostics),
+    superCallCount,
+    thisBeforeSuper: superDiagnostics.some((diagnostic) => diagnostic.rule === 'class-constructor-this-before-super'),
+    declaredFields,
+    initializedFields,
+    uninitializedRequiredFields: uninitializedRequiredFieldNames(info, initializedFields),
+    provenance: 'static-analysis',
+    ...(info.node.loc ? { loc: semanticLocation(info.node) } : {}),
+  };
+}
+
 function classMemberSemanticFact(
   member: ClassMemberInfo,
   className = member.owner,
@@ -2964,6 +3021,215 @@ function classMemberSemanticFact(
     ...(inheritedFrom ? { inheritedFrom } : {}),
     ...(member.node.loc ? { loc: semanticLocation(member.node) } : {}),
   };
+}
+
+function constructorSuperDiagnostics(info: ClassInfo): SemanticViolation[] {
+  const violations: SemanticViolation[] = [];
+  if (!info.baseName) return violations;
+  for (const ctor of info.constructors) validateDerivedConstructorDiscipline(info, ctor, violations);
+  return violations;
+}
+
+function constructorSuperStatus(
+  info: ClassInfo,
+  diagnostics: readonly SemanticViolation[],
+): ClassSemanticConstructorSuperStatus {
+  if (!info.baseName || info.constructors.length === 0) return 'not-required';
+  const rules = new Set(diagnostics.map((diagnostic) => diagnostic.rule));
+  if (rules.has('class-constructor-this-before-super')) return 'this-before-super';
+  if (rules.has('class-constructor-double-super')) return 'double';
+  if (rules.has('class-constructor-conditional-super')) return 'conditional';
+  if (rules.has('class-constructor-missing-super')) return 'missing';
+  return 'satisfied';
+}
+
+function declaredInstanceFieldNames(info: ClassInfo): string[] {
+  return sortedUnique(
+    info.members.filter((member) => member.kind === 'field' && !member.static).map((member) => member.name),
+  );
+}
+
+function requiredInstanceFieldNames(info: ClassInfo): string[] {
+  return sortedUnique(
+    info.members
+      .filter((member) => member.kind === 'field' && !member.static && !isTrueFlag(member.node.props?.optional))
+      .map((member) => member.name),
+  );
+}
+
+function fieldInitializerNames(info: ClassInfo): string[] {
+  return sortedUnique(
+    info.members
+      .filter(
+        (member) =>
+          member.kind === 'field' &&
+          !member.static &&
+          (Object.hasOwn(member.node.props ?? {}, 'value') || Object.hasOwn(member.node.props ?? {}, 'default')),
+      )
+      .map((member) => member.name),
+  );
+}
+
+function constructorThisAssignmentNames(info: ClassInfo): string[] {
+  if (info.constructors.length === 0) return [];
+  const constructorAssignments: string[][] = [];
+  for (const ctor of info.constructors) {
+    constructorAssignments.push([...definiteThisAssignmentsInStatements(constructorBodyStatements(ctor))]);
+  }
+  const [first = [], ...rest] = constructorAssignments;
+  return sortedUnique([...rest.reduce((common, names) => setIntersection(common, new Set(names)), new Set(first))]);
+}
+
+interface ThisAssignmentPathStates {
+  readonly continuing: Set<string>[];
+  readonly exited: Set<string>[];
+}
+
+function definiteThisAssignmentsInStatements(statements: readonly IRNode[], initial = new Set<string>()): Set<string> {
+  const states = thisAssignmentPathStatesInStatements(statements, [new Set(initial)]);
+  const [first = new Set<string>(), ...rest] = states.exited.concat(states.continuing);
+  return rest.reduce((common, names) => setIntersection(common, names), new Set(first));
+}
+
+function thisAssignmentPathStatesInStatements(
+  statements: readonly IRNode[],
+  initialStates: readonly ReadonlySet<string>[],
+): ThisAssignmentPathStates {
+  let continuing = initialStates.map((state) => new Set(state));
+  const exited: Set<string>[] = [];
+  for (let index = 0; index < statements.length; index += 1) {
+    const statement = statements[index];
+    if (statement.type === 'else') continue;
+    const nextContinuing: Set<string>[] = [];
+    if (statement.type === 'if') {
+      const maybeElse = statements[index + 1]?.type === 'else' ? statements[index + 1] : undefined;
+      for (const state of continuing) {
+        const thenStates = thisAssignmentPathStatesInStatements(statement.children ?? [], [state]);
+        const elseStates = maybeElse
+          ? thisAssignmentPathStatesInStatements(maybeElse.children ?? [], [state])
+          : { continuing: [new Set(state)], exited: [] };
+        nextContinuing.push(...thenStates.continuing, ...elseStates.continuing);
+        exited.push(...thenStates.exited, ...elseStates.exited);
+      }
+      continuing = nextContinuing;
+      if (maybeElse) index += 1;
+      continue;
+    }
+    if (statement.type === 'try') {
+      const tryStates = thisAssignmentTryPathStates(statement, continuing);
+      continuing = tryStates.continuing;
+      exited.push(...tryStates.exited);
+      continue;
+    }
+    if (statement.type === 'return') {
+      exited.push(...continuing.map((state) => new Set(state)));
+      continuing = [];
+      continue;
+    }
+    if (statement.type === 'throw' || statement.type === 'break' || statement.type === 'continue') {
+      continuing = [];
+      continue;
+    }
+    if (statement.type === 'while' || statement.type === 'for' || statement.type === 'each') {
+      continue;
+    }
+    for (const state of continuing) {
+      const next = new Set(state);
+      const directName =
+        statement.type === 'assign' && isSimpleAssignment(statement)
+          ? thisMemberName(expressionPropText(statement.props?.target))
+          : undefined;
+      if (directName) next.add(directName);
+      nextContinuing.push(next);
+    }
+    continuing = nextContinuing;
+  }
+  return { continuing, exited };
+}
+
+function thisAssignmentTryPathStates(
+  statement: IRNode,
+  initialStates: readonly ReadonlySet<string>[],
+): ThisAssignmentPathStates {
+  const children = statement.children ?? [];
+  const catchNode = children.find((child) => child.type === 'catch');
+  const finallyNode = children.find((child) => child.type === 'finally');
+  const tryChildren = children.filter((child) => child.type !== 'catch' && child.type !== 'finally');
+  const tryStates = thisAssignmentPathStatesInStatements(tryChildren, initialStates);
+  const catchStates = catchNode
+    ? thisAssignmentPathStatesInStatements(catchNode.children ?? [], initialStates)
+    : { continuing: [], exited: [] };
+  const continuing = [...tryStates.continuing, ...catchStates.continuing];
+  const exited = [...tryStates.exited, ...catchStates.exited];
+  if (!finallyNode) return { continuing, exited };
+
+  const continuingAfterFinally = thisAssignmentPathStatesInStatements(finallyNode.children ?? [], continuing);
+  const exitingAfterFinally = thisAssignmentPathStatesInStatements(finallyNode.children ?? [], exited);
+  return {
+    continuing: continuingAfterFinally.continuing,
+    exited: [...continuingAfterFinally.exited, ...exitingAfterFinally.continuing, ...exitingAfterFinally.exited],
+  };
+}
+
+function isSimpleAssignment(statement: IRNode): boolean {
+  const op = statement.props?.op;
+  return op === undefined || op === null || op === '' || op === '=';
+}
+
+function setIntersection(left: ReadonlySet<string>, right: ReadonlySet<string>): Set<string> {
+  const out = new Set<string>();
+  for (const value of left) {
+    if (right.has(value)) out.add(value);
+  }
+  return out;
+}
+
+function uninitializedRequiredFieldNames(info: ClassInfo, initializedFields: readonly string[]): string[] {
+  const initialized = new Set(initializedFields);
+  return requiredInstanceFieldNames(info).filter((name) => !initialized.has(name));
+}
+
+function thisMemberName(text: string | undefined): string | undefined {
+  if (!text) return undefined;
+  try {
+    const value = parseExpression(text);
+    if (value.kind === 'member' && value.object.kind === 'ident' && value.object.name === 'this') {
+      return value.property;
+    }
+    if (
+      value.kind === 'index' &&
+      value.object.kind === 'ident' &&
+      value.object.name === 'this' &&
+      value.index.kind === 'strLit'
+    ) {
+      return value.index.value;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function superCallCountInNode(node: IRNode): number {
+  let count = 0;
+  walkSemanticTreeUntil(node, (candidate) => {
+    if (candidate !== node && candidate.type === 'class') return 'stop';
+    for (const prop of BODY_EXPRESSION_PROPS) {
+      const text = expressionPropText(candidate.props?.[prop]);
+      if (!text) continue;
+      try {
+        count += valueIRSuperConstructorCallCount(parseExpression(text));
+      } catch {}
+    }
+    return 'continue';
+  });
+  return count;
+}
+
+function valueIRSuperConstructorCallCount(value: ValueIR): number {
+  if (value.kind === 'lambda') return 0;
+  const own = value.kind === 'call' && value.callee.kind === 'ident' && value.callee.name === 'super' ? 1 : 0;
+  return own + valueIRChildren(value).reduce((count, child) => count + valueIRSuperConstructorCallCount(child), 0);
 }
 
 function effectiveClassMemberFacts(

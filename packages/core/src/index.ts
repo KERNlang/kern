@@ -512,6 +512,8 @@ export {
 // Semantic validation
 export type {
   ClassSemanticClassFact,
+  ClassSemanticConstructorFact,
+  ClassSemanticConstructorSuperStatus,
   ClassSemanticFacts,
   ClassSemanticImplementsEdge,
   ClassSemanticInheritanceEdge,
