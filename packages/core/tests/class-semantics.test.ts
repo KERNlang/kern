@@ -543,8 +543,11 @@ describe('semantic-validator — class object model', () => {
     expect(violations.map((violation) => violation.rule)).toContain('class-member-conflict');
   });
 
-  test('reports derived constructors that omit super', () => {
-    const violations = violationsFor(
+  test('accepts a derived constructor that omits super (implicit base init)', () => {
+    // KERN Option C: a derived constructor may omit super(); KERN injects an
+    // implicit no-arg base init at entry, so omitting it is legal when the base
+    // constructor needs no arguments. No missing-super / needs-args violation.
+    const rules = rulesFor(
       [
         'class name=Entity',
         'class name=User extends=Entity',
@@ -554,11 +557,15 @@ describe('semantic-validator — class object model', () => {
       ].join('\n'),
     );
 
-    expect(violations.map((violation) => violation.rule)).toContain('class-constructor-missing-super');
+    expect(rules).not.toContain('class-constructor-missing-super');
+    expect(rules).not.toContain('class-constructor-implicit-super-needs-args');
   });
 
-  test('does not accept delayed super calls inside constructor lambdas', () => {
-    const violations = violationsFor(
+  test('treats a lambda-only super as no effective super (implicit base init)', () => {
+    // A super() that only appears inside a lambda never runs at construction, so
+    // it is not an effective super call. Under Option C the constructor falls
+    // into implicit mode and is legal (base needs no args) — no missing-super.
+    const rules = rulesFor(
       [
         'class name=Entity',
         'class name=User extends=Entity',
@@ -568,10 +575,59 @@ describe('semantic-validator — class object model', () => {
       ].join('\n'),
     );
 
-    expect(violations.map((violation) => violation.rule)).toContain('class-constructor-missing-super');
+    expect(rules).not.toContain('class-constructor-missing-super');
   });
 
-  test('reports this and super member access before constructor super', () => {
+  test('flags an omitted super when the base constructor requires arguments', () => {
+    // Implicit no-arg super() cannot satisfy a base whose constructor needs `id`,
+    // so KERN raises the arity-specific diagnostic (NOT the retired missing-super).
+    const rules = rulesFor(
+      [
+        'class name=Entity',
+        '  field name=id type=string',
+        '  constructor',
+        '    param name=id type=string',
+        '    handler lang=kern',
+        '      assign target="this.id" value="id"',
+        'class name=User extends=Entity',
+        '  field name=label type=string',
+        '  constructor',
+        '    param name=label type=string',
+        '    handler lang=kern',
+        '      assign target="this.label" value="label"',
+      ].join('\n'),
+    );
+
+    expect(rules).toContain('class-constructor-implicit-super-needs-args');
+    expect(rules).not.toContain('class-constructor-missing-super');
+  });
+
+  test('accepts an explicit super(args) when the base constructor requires arguments', () => {
+    const rules = rulesFor(
+      [
+        'class name=Entity',
+        '  field name=id type=string',
+        '  constructor',
+        '    param name=id type=string',
+        '    handler lang=kern',
+        '      assign target="this.id" value="id"',
+        'class name=User extends=Entity',
+        '  constructor',
+        '    param name=id type=string',
+        '    handler lang=kern',
+        '      do value="super(id)"',
+      ].join('\n'),
+    );
+
+    expect(rules).not.toContain('class-constructor-implicit-super-needs-args');
+    expect(rules).not.toContain('class-constructor-missing-super');
+  });
+
+  test('reports this access before an explicit super, but allows super.member in implicit mode', () => {
+    // User writes an explicit super() AFTER touching `this` -> this-before-super.
+    // Admin only reads super.kind() (a super MEMBER call, not a super constructor
+    // call), so it has no explicit super and runs in implicit mode, where base
+    // init happens at entry and super.kind() is legal. Only User is flagged.
     const rules = rulesFor(
       [
         'class name=Entity',
@@ -590,7 +646,7 @@ describe('semantic-validator — class object model', () => {
       ].join('\n'),
     );
 
-    expect(rules.filter((rule) => rule === 'class-constructor-this-before-super')).toHaveLength(2);
+    expect(rules.filter((rule) => rule === 'class-constructor-this-before-super')).toHaveLength(1);
   });
 
   test('reports double constructor super calls', () => {
