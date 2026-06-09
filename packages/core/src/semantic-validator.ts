@@ -3130,10 +3130,9 @@ function fieldInitializerNames(info: ClassInfo): string[] {
 
 function constructorThisAssignmentNames(info: ClassInfo): string[] {
   if (info.constructors.length === 0) return [];
-  const constructorAssignments: string[][] = [];
-  for (const ctor of info.constructors) {
-    constructorAssignments.push([...definiteThisAssignmentsInStatements(constructorBodyStatements(ctor))]);
-  }
+  const constructorAssignments = info.constructors.map((ctor) => [
+    ...definiteThisAssignmentsInStatements(constructorBodyStatements(ctor)),
+  ]);
   const [first = [], ...rest] = constructorAssignments;
   return sortedUnique([...rest.reduce((common, names) => setIntersection(common, new Set(names)), new Set(first))]);
 }
@@ -3277,7 +3276,9 @@ function superCallCountInNode(node: IRNode): number {
       if (!text) continue;
       try {
         count += valueIRSuperConstructorCallCount(parseExpression(text));
-      } catch {}
+      } catch {
+        // Unparseable expression text contributes no super() calls.
+      }
     }
     return 'continue';
   });
