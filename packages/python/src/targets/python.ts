@@ -135,7 +135,7 @@ export function transpilePython(root: IRNode, config?: ResolvedKernConfig): Tran
 
   // 3b. Class declarations -> pure Python classes. Additive: files without
   // `class` nodes (e.g. the models-only byte-invariance corpus) are untouched.
-  const classNodes = (root.children ?? []).filter((child) => child.type === 'class');
+  const classNodes = root.type === 'class' ? [root] : (root.children ?? []).filter((child) => child.type === 'class');
   const classesCode = classNodes.map((node) => generatePythonClass(node).join('\n')).join('\n\n');
 
   const lines: string[] = [];

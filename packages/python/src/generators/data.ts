@@ -119,6 +119,25 @@ export function formatPythonDefault(value: string, kernType: string): string {
   return trimmed;
 }
 
+/** Lower a field's default to a Python expression, or undefined when none.
+ *  A `value={{ <expr> }}` block parses to `{ __expr: true, code: '<expr>' }`;
+ *  a bare `default=...` is a raw string. `new X(...)` -> `X(...)`; literals go
+ *  through formatPythonDefault (true/false/null/number/string handling). */
+function fieldDefaultPython(field: IRNode): string | undefined {
+  const fp = p(field);
+  const v = fp.value as unknown;
+  let code: string | undefined;
+  if (v && typeof v === 'object' && (v as { __expr?: boolean }).__expr) {
+    code = (v as { code?: string }).code;
+  } else if (typeof v === 'string') {
+    code = v;
+  } else if (typeof fp.default === 'string') {
+    code = fp.default as string;
+  }
+  if (code === undefined) return undefined;
+  return formatPythonDefault(code.replace(/\bnew\s+/g, ''), (fp.type as string) || '');
+}
+
 // SQLModel column override: pydantic validator types -> plain DB types for column declarations
 const SQLMODEL_COLUMN_OVERRIDE: Record<string, string> = {
   Email: 'str',
@@ -494,21 +513,49 @@ export function generatePythonClass(node: IRNode): string[] {
 
   const body: string[] = [];
 
-  // Static fields -> class-level attributes.
+  // Static fields -> class-level attributes (shared across instances, like TS statics).
   for (const f of staticFields) {
     const fp = p(f);
     const fname = toSnakeCase((fp.name as string) || 'field');
     const ftype = fp.type ? mapTsTypeToPython(fp.type as string) : 'Any';
-    const raw = typeof fp.value === 'string' ? (fp.value as string).replace(/\bnew\s+/g, '') : undefined;
-    const value = raw !== undefined ? formatPythonDefault(raw, (fp.type as string) || '') : 'None';
-    body.push(`    ${fname}: ${ftype} = ${value}`);
+    body.push(`    ${fname}: ${ftype} = ${fieldDefaultPython(f) ?? 'None'}`);
   }
   if (staticFields.length > 0) body.push('');
 
-  // Constructor -> __init__.
+  // Constructor -> __init__. Instance-field defaults are emitted INSIDE __init__
+  // (never as class-level attributes) so each instance gets a fresh value —
+  // matching TS per-instance field initialization and avoiding Python's
+  // shared-mutable-default trap (a class-level `items = []` would be shared by
+  // every instance). Defaults precede the constructor body, which may reassign
+  // them (TS field-init-then-constructor order).
+  const instanceDefaults = fields.filter((f) => !isStatic(f) && fieldDefaultPython(f) !== undefined);
+  const defaultLines = instanceDefaults.map(
+    (f) => `        self.${toSnakeCase((p(f).name as string) || 'field')} = ${fieldDefaultPython(f)}`,
+  );
   if (ctor) {
     body.push(`    def __init__(${buildPythonParamList(ctor, { selfPrefix: true })}):`);
-    body.push(...methodBodyLinesPython(ctor, { classBody: true, isConstructor: true }));
+    const ctorLines = methodBodyLinesPython(ctor, { classBody: true, isConstructor: true });
+    // Field initializers run AFTER super().__init__() (TS field-init-after-super
+    // order), so inject defaults right after the super call when present, else at
+    // the top of the constructor body.
+    const superIdx = ctorLines.findIndex((line) => line.includes('super().__init__'));
+    if (superIdx >= 0) {
+      body.push(...ctorLines.slice(0, superIdx + 1), ...defaultLines, ...ctorLines.slice(superIdx + 1));
+    } else {
+      body.push(...defaultLines, ...ctorLines);
+    }
+    body.push('');
+  } else if (instanceDefaults.length > 0) {
+    // No explicit constructor. A derived class still forwards to its base
+    // initializer (TS subclasses without a constructor auto-forward args), then
+    // applies its own field defaults.
+    if (base) {
+      body.push('    def __init__(self, *args, **kwargs):');
+      body.push('        super().__init__(*args, **kwargs)');
+    } else {
+      body.push('    def __init__(self):');
+    }
+    body.push(...defaultLines);
     body.push('');
   }
 
