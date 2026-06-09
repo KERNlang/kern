@@ -23,7 +23,6 @@ import {
 import { collectExternalImportSymbols, type ExternalImportSymbolTable } from './external-symbols.js';
 import { importRegistryOf } from './import-metadata.js';
 import { parseExpression } from './parser-expression.js';
-import { splitPortableExpressionList } from './portable-expression-list.js';
 import { RAG_ASSERTION_KIND_SET, RAG_ASSERTION_KINDS } from './rag-assertions.js';
 import type { IRNode } from './types.js';
 import type { ValueIR } from './value-ir.js';
@@ -51,8 +50,13 @@ export interface ClassSemanticMemberFact {
   readonly name: string;
   readonly kind: ClassSemanticMemberKind;
   readonly static: boolean;
+  readonly private?: boolean;
+  readonly async?: boolean;
+  readonly stream?: boolean;
+  readonly generator?: boolean;
   readonly type?: string;
   readonly returns?: string;
+  readonly paramTypes?: readonly string[];
   readonly arity: number;
   readonly readable: boolean;
   readonly writable: boolean;
@@ -2699,8 +2703,13 @@ interface ClassMemberInfo {
   name: string;
   kind: ClassMemberKind;
   static: boolean;
+  private: boolean;
+  async: boolean;
+  stream: boolean;
+  generator: boolean;
   type?: string;
   returns?: string;
+  paramTypes: readonly string[];
   arity: number;
 }
 
@@ -2710,12 +2719,23 @@ interface InterfaceInfo {
   name: string;
   extendsNames: string[];
   fields: InterfaceFieldInfo[];
+  methods: InterfaceMethodInfo[];
 }
 
 interface InterfaceFieldInfo {
   name: string;
   type?: string;
   optional: boolean;
+}
+
+interface InterfaceMethodInfo {
+  name: string;
+  returns?: string;
+  paramTypes: readonly string[];
+  arity: number;
+  async: boolean;
+  stream: boolean;
+  generator: boolean;
 }
 
 interface ClassProtocolShapeContext {
@@ -2834,6 +2854,7 @@ function collectInterfaceInfos(root: IRNode, rootIndex = 0): InterfaceInfo[] {
       name,
       extendsNames: classReferenceNames(node.props?.extends, 'interface extends='),
       fields: collectInterfaceFields(node),
+      methods: collectInterfaceMethods(node),
     });
   });
   return out;
@@ -2852,6 +2873,25 @@ function collectInterfaceFields(node: IRNode): InterfaceFieldInfo[] {
     });
   }
   return fields;
+}
+
+function collectInterfaceMethods(node: IRNode): InterfaceMethodInfo[] {
+  const methods: InterfaceMethodInfo[] = [];
+  for (const child of node.children ?? []) {
+    if (child.type !== 'method') continue;
+    const name = stringProp(child, 'name');
+    if (!name) continue;
+    methods.push({
+      name,
+      ...(stringProp(child, 'returns') ? { returns: stringProp(child, 'returns') } : {}),
+      paramTypes: memberParamTypes(child),
+      arity: memberArity(child),
+      async: isTrueFlag(child.props?.async),
+      stream: isTrueFlag(child.props?.stream),
+      generator: isTrueFlag(child.props?.generator),
+    });
+  }
+  return methods;
 }
 
 function collectClassProtocolShapeContext(roots: readonly IRNode[]): ClassProtocolShapeContext {
@@ -2880,8 +2920,13 @@ function collectClassMembers(node: IRNode, owner: string): ClassMemberInfo[] {
       name,
       kind: child.type,
       static: isTrueFlag(child.props?.static),
+      private: isTrueFlag(child.props?.private),
+      async: isTrueFlag(child.props?.async),
+      stream: isTrueFlag(child.props?.stream),
+      generator: isTrueFlag(child.props?.generator),
       ...(stringProp(child, 'type') ? { type: stringProp(child, 'type') } : {}),
       ...(stringProp(child, 'returns') ? { returns: stringProp(child, 'returns') } : {}),
+      paramTypes: memberParamTypes(child),
       arity: memberArity(child),
     });
   }
@@ -3013,8 +3058,13 @@ function classMemberSemanticFact(
     name: member.name,
     kind: member.kind,
     static: member.static,
+    ...(member.private ? { private: true } : {}),
+    ...(member.async ? { async: true } : {}),
+    ...(member.stream ? { stream: true } : {}),
+    ...(member.generator ? { generator: true } : {}),
     ...(member.type ? { type: member.type } : {}),
     ...(member.returns ? { returns: member.returns } : {}),
+    ...(member.kind === 'method' && member.paramTypes.length > 0 ? { paramTypes: member.paramTypes } : {}),
     arity: member.arity,
     readable: member.kind === 'field' || member.kind === 'getter' || member.kind === 'method',
     writable: member.kind === 'field' || member.kind === 'setter',
@@ -3381,7 +3431,7 @@ function collectClassProtocolConformanceFacts(
         });
         continue;
       }
-      const result = classInterfaceConformance(info, protocol, protocolShapeContext, classByName);
+      const result = classInterfaceConformance(info, protocol, protocolShapeContext, classByName, interfaceByName);
       facts.push({
         className: info.name,
         interfaceName,
@@ -3402,6 +3452,7 @@ function classInterfaceConformance(
   protocol: InterfaceInfo,
   protocolShapeContext: ClassProtocolShapeContext,
   classByName: ReadonlyMap<string, ClassInfo>,
+  interfaceByName: ReadonlyMap<string, InterfaceInfo>,
 ): ClassInterfaceConformanceResult {
   const shape = protocolShapeContext.shapeByName.get(protocol.name);
   const diagnostics = (protocolShapeContext.diagnosticsByName.get(protocol.name) ?? []).map(
@@ -3431,6 +3482,7 @@ function classInterfaceConformance(
   const effectiveMembers = effectiveClassMemberFacts(info, classByName);
   const fields = shape?.fields ?? protocol.fields;
   const requiredFields = fields.filter((field) => !field.optional);
+  const requiredMethods = effectiveInterfaceMethods(protocol, interfaceByName);
   const missingMembers: string[] = [];
   const satisfiedMembers: string[] = [];
   for (const field of requiredFields) {
@@ -3438,6 +3490,13 @@ function classInterfaceConformance(
       satisfiedMembers.push(field.name);
     } else {
       missingMembers.push(field.name);
+    }
+  }
+  for (const method of requiredMethods) {
+    if (classHasCallableInstanceMethod(effectiveMembers, method)) {
+      satisfiedMembers.push(method.name);
+    } else {
+      missingMembers.push(method.name);
     }
   }
   const missing = sortedUnique(missingMembers);
@@ -3451,6 +3510,24 @@ function classInterfaceConformance(
   };
 }
 
+function effectiveInterfaceMethods(
+  protocol: InterfaceInfo,
+  interfaceByName: ReadonlyMap<string, InterfaceInfo>,
+  seen: ReadonlySet<string> = new Set(),
+): InterfaceMethodInfo[] {
+  if (seen.has(protocol.name)) return [];
+  const nextSeen = new Set(seen);
+  nextSeen.add(protocol.name);
+  const methods = new Map<string, InterfaceMethodInfo>();
+  for (const baseName of protocol.extendsNames) {
+    const base = interfaceByName.get(baseName);
+    if (!base) continue;
+    for (const method of effectiveInterfaceMethods(base, interfaceByName, nextSeen)) methods.set(method.name, method);
+  }
+  for (const method of protocol.methods) methods.set(method.name, method);
+  return [...methods.values()];
+}
+
 function classHasReadableInstanceMember(
   members: readonly ClassSemanticMemberFact[],
   field: { readonly name: string; readonly type?: string },
@@ -3461,6 +3538,83 @@ function classHasReadableInstanceMember(
     const actualType = member.kind === 'getter' ? member.returns : member.type;
     return !field.type || actualType === field.type;
   });
+}
+
+function classHasCallableInstanceMethod(
+  members: readonly ClassSemanticMemberFact[],
+  method: InterfaceMethodInfo,
+): boolean {
+  return members.some((member) => {
+    if (member.name !== method.name || member.static || member.private || member.kind !== 'method') return false;
+    if (member.arity !== method.arity) return false;
+    if (!methodParamTypesCompatible(member.paramTypes ?? [], method.paramTypes)) return false;
+    if ((member.async === true) !== method.async) return false;
+    if ((member.stream === true) !== method.stream) return false;
+    if ((member.generator === true) !== method.generator) return false;
+    return methodReturnTypesCompatible(
+      member.returns,
+      {
+        async: member.async === true,
+        stream: member.stream === true,
+        generator: member.generator === true,
+      },
+      method.returns,
+      method,
+    );
+  });
+}
+
+function methodParamTypesCompatible(actual: readonly string[], expected: readonly string[]): boolean {
+  return expected.every((type, index) => !type || normalizeProtocolType(actual[index]) === normalizeProtocolType(type));
+}
+
+function normalizeProtocolType(type: string | undefined): string {
+  return compactProtocolTypeWhitespace(type);
+}
+
+function compactProtocolTypeWhitespace(type: string | undefined): string {
+  let out = '';
+  let quote: '"' | "'" | '`' | null = null;
+  for (let index = 0; index < (type ?? '').length; index += 1) {
+    const ch = (type ?? '')[index];
+    if (quote !== null) {
+      out += ch;
+      if (ch === '\\' && index + 1 < (type ?? '').length) out += (type ?? '')[++index];
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      out += ch;
+      continue;
+    }
+    if (!/\s/.test(ch)) out += ch;
+  }
+  return out;
+}
+
+function methodReturnTypesCompatible(
+  actual: string | undefined,
+  actualFlags: { readonly async: boolean; readonly stream: boolean; readonly generator: boolean },
+  expected: string | undefined,
+  expectedFlags: { readonly async: boolean; readonly stream: boolean; readonly generator: boolean },
+): boolean {
+  return normalizeMethodReturnType(actual, actualFlags) === normalizeMethodReturnType(expected, expectedFlags);
+}
+
+function normalizeMethodReturnType(
+  returns: string | undefined,
+  flags: { readonly async: boolean; readonly stream: boolean; readonly generator: boolean },
+): string {
+  if (flags.stream) {
+    if (returns?.startsWith('AsyncGenerator<')) return returns;
+    return `AsyncGenerator<${returns || 'unknown'}>`;
+  }
+  if (flags.generator) {
+    if (returns?.startsWith('Generator<') || returns?.startsWith('AsyncGenerator<')) return returns;
+    return `${flags.async ? 'AsyncGenerator' : 'Generator'}<${returns || 'unknown'}>`;
+  }
+  return !returns || returns === 'void' ? 'void' : returns;
 }
 
 function semanticLocation(node: IRNode): ClassSemanticLocation | undefined {
@@ -3518,7 +3672,7 @@ function validateClassImplements(
       }
       continue;
     }
-    const conformance = classInterfaceConformance(info, protocol, protocolShapeContext, classByName);
+    const conformance = classInterfaceConformance(info, protocol, protocolShapeContext, classByName, interfaceByName);
     if (conformance.status === 'invalid-interface') {
       violations.push({
         rule: 'class-implements-invalid-interface',
@@ -4154,10 +4308,129 @@ function memberArity(node: IRNode): number {
   const params = node.props?.params;
   if (typeof params !== 'string' || !params.trim()) return 0;
   try {
-    return splitPortableExpressionList(params, `${node.type} params=`).length;
+    return splitSemanticParamList(params, `${node.type} params=`).length;
   } catch {
     return 0;
   }
+}
+
+function memberParamTypes(node: IRNode): string[] {
+  const childParams = node.children?.filter((child) => child.type === 'param') ?? [];
+  if (childParams.length > 0) {
+    return childParams.map((param) => stringProp(param, 'type') ?? '');
+  }
+  const params = node.props?.params;
+  if (typeof params !== 'string' || !params.trim()) return [];
+  try {
+    return splitSemanticParamList(params, `${node.type} params=`).map((part) => {
+      const typeIndex = part.indexOf(':');
+      if (typeIndex < 0) return '';
+      const typeAndMaybeDefault = part.slice(typeIndex + 1);
+      const defaultIndex = paramDefaultSeparatorIndex(typeAndMaybeDefault);
+      return (defaultIndex >= 0 ? typeAndMaybeDefault.slice(0, defaultIndex) : typeAndMaybeDefault).trim();
+    });
+  } catch {
+    return [];
+  }
+}
+
+function paramDefaultSeparatorIndex(value: string): number {
+  let depth = 0;
+  let quote: '"' | "'" | '`' | null = null;
+  for (let index = 0; index < value.length; index += 1) {
+    const ch = value[index];
+    if (quote !== null) {
+      if (ch === '\\' && index + 1 < value.length) index += 1;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      continue;
+    }
+    if (ch === '<' || ch === '(' || ch === '{' || ch === '[') depth += 1;
+    else if ((ch === '>' || ch === ')' || ch === '}' || ch === ']') && depth > 0) depth -= 1;
+    else if (ch === '=' && depth === 0) {
+      if (
+        value[index + 1] === '>' ||
+        value[index + 1] === '=' ||
+        value[index - 1] === '=' ||
+        value[index - 1] === '<' ||
+        value[index - 1] === '>' ||
+        value[index - 1] === '!'
+      ) {
+        continue;
+      }
+      return index;
+    }
+  }
+  return -1;
+}
+
+function splitSemanticParamList(raw: string, propName: string): string[] {
+  const out: string[] = [];
+  let current = '';
+  let depth = 0;
+  let angleDepth = 0;
+  let inDefault = false;
+  let quote: '"' | "'" | '`' | null = null;
+  for (let index = 0; index < raw.length; index += 1) {
+    const ch = raw[index];
+    if (quote !== null) {
+      current += ch;
+      if (ch === '\\' && index + 1 < raw.length) current += raw[++index];
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === '(' || ch === '[' || ch === '{') depth += 1;
+    else if (ch === ')' || ch === ']' || ch === '}') depth -= 1;
+    else if (ch === '=' && depth === 0 && angleDepth === 0 && raw[index + 1] !== '>') inDefault = true;
+    else if (ch === '<' && (!inDefault || angleClosesBeforeNextTopLevelComma(raw, index + 1))) angleDepth += 1;
+    else if (!inDefault && ch === '>' && angleDepth > 0) angleDepth -= 1;
+    else if (inDefault && ch === '>' && angleDepth > 0) angleDepth -= 1;
+    if (depth < 0 || angleDepth < 0) throw new Error(`${propName} has unbalanced delimiters.`);
+    if (ch === ',' && depth === 0 && angleDepth === 0) {
+      const part = current.trim();
+      if (part.length === 0) throw new Error(`${propName} contains an empty expression.`);
+      out.push(part);
+      current = '';
+      inDefault = false;
+      continue;
+    }
+    current += ch;
+  }
+  if (quote !== null || depth !== 0 || angleDepth !== 0) throw new Error(`${propName} has unbalanced delimiters.`);
+  const tail = current.trim();
+  if (tail.length === 0 && raw.trim().endsWith(',')) throw new Error(`${propName} contains an empty expression.`);
+  if (tail.length > 0) out.push(tail);
+  return out;
+}
+
+function angleClosesBeforeNextTopLevelComma(raw: string, start: number): boolean {
+  let depth = 0;
+  let quote: '"' | "'" | '`' | null = null;
+  for (let index = start; index < raw.length; index += 1) {
+    const ch = raw[index];
+    if (quote !== null) {
+      if (ch === '\\' && index + 1 < raw.length) index += 1;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      continue;
+    }
+    if (ch === '(' || ch === '[' || ch === '{') depth += 1;
+    else if ((ch === ')' || ch === ']' || ch === '}') && depth > 0) depth -= 1;
+    else if (ch === '>' && depth === 0) return true;
+    else if (ch === ',' && depth === 0) return false;
+  }
+  return false;
 }
 
 function nodeBodyUsesSuper(node: IRNode): boolean {

@@ -96,7 +96,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       generics: { kind: 'rawExpr' },
       export: { kind: 'boolean' },
     },
-    allowedChildren: ['field', 'indexer'],
+    allowedChildren: ['field', 'indexer', 'method'],
   },
   indexer: {
     description: 'Index signature for an interface — [keyName: keyType]: type',
@@ -219,6 +219,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       returns: { kind: 'typeAnnotation' },
       async: { kind: 'boolean' },
       stream: { kind: 'boolean' },
+      generator: { kind: 'boolean' },
       private: { kind: 'boolean' },
       static: { kind: 'boolean' },
       generics: { kind: 'rawExpr' },

@@ -74,6 +74,195 @@ describe('semantic-validator — class object model', () => {
     expect(rules).not.toContain('class-implements-missing-member');
   });
 
+  test('accepts class implements when instance methods satisfy interface methods', () => {
+    const rules = rulesFor(
+      [
+        'interface name=Runnable',
+        '  method name=run params="input:string" returns=number',
+        'class name=Base',
+        '  method name=run params="input:string" returns=number',
+        '    handler lang=kern',
+        '      return value="input.length"',
+        'class name=Job extends=Base implements=Runnable',
+      ].join('\n'),
+    );
+
+    expect(rules).not.toContain('class-implements-missing-member');
+  });
+
+  test('reports missing and incompatible interface methods for class implements', () => {
+    const violations = violationsFor(
+      [
+        'interface name=Runnable',
+        '  method name=run params="input:string" returns=number',
+        '  method name=stop returns=void',
+        'class name=Job implements=Runnable',
+        '  method name=run returns=number',
+        '    handler lang=kern',
+        '      return value="1"',
+        '  getter name=stop returns=void',
+        '    handler lang=kern',
+        '      return value="undefined"',
+      ].join('\n'),
+    );
+
+    const violation = violations.find((candidate) => candidate.rule === 'class-implements-missing-member');
+    expect(violation?.message).toContain('run');
+    expect(violation?.message).toContain('stop');
+  });
+
+  test('checks interface method parameter types and accepts implicit void returns', () => {
+    const acceptedRules = rulesFor(
+      [
+        'interface name=Lifecycle',
+        '  method name=close returns=void',
+        'class name=Socket implements=Lifecycle',
+        '  method name=close',
+        '    handler lang=kern',
+        '      do value="undefined"',
+      ].join('\n'),
+    );
+    expect(acceptedRules).not.toContain('class-implements-missing-member');
+
+    const rejectedRules = rulesFor(
+      [
+        'interface name=Runnable',
+        '  method name=run params="input:string" returns=number',
+        'class name=Job implements=Runnable',
+        '  method name=run params="input:number" returns=number',
+        '    handler lang=kern',
+        '      return value="input"',
+      ].join('\n'),
+    );
+    expect(rejectedRules).toContain('class-implements-missing-member');
+  });
+
+  test('requires stream interface methods to be implemented as stream methods', () => {
+    const acceptedRules = rulesFor(
+      [
+        'interface name=Events',
+        '  method name=read returns=Event stream=true',
+        'class name=Reader implements=Events',
+        '  method name=read returns=Event stream=true',
+        '    handler lang=kern',
+        '      return value="undefined"',
+      ].join('\n'),
+    );
+    expect(acceptedRules).not.toContain('class-implements-missing-member');
+
+    const rejectedRules = rulesFor(
+      [
+        'interface name=Events',
+        '  method name=read returns=Event stream=true',
+        'class name=Reader implements=Events',
+        '  method name=read returns=Event',
+        '    handler lang=kern',
+        '      return value="undefined"',
+      ].join('\n'),
+    );
+    expect(rejectedRules).toContain('class-implements-missing-member');
+  });
+
+  test('normalizes streamed method returns and generic parameter types for class implements', () => {
+    const streamedRules = rulesFor(
+      [
+        'interface name=Events',
+        '  method name=read returns="AsyncGenerator<Event>" stream=true',
+        'class name=Reader implements=Events',
+        '  method name=read returns=Event stream=true',
+        '    handler lang=kern',
+        '      return value="undefined"',
+      ].join('\n'),
+    );
+    expect(streamedRules).not.toContain('class-implements-missing-member');
+
+    const genericParamRules = rulesFor(
+      [
+        'interface name=Sink',
+        '  method name=write params="item:Record<string,number>" returns=void',
+        'class name=BadSink implements=Sink',
+        '  method name=write params="item:Record<string,boolean>" returns=void',
+        '    handler lang=kern',
+        '      do value="undefined"',
+      ].join('\n'),
+    );
+    expect(genericParamRules).toContain('class-implements-missing-member');
+
+    const literalWhitespaceRules = rulesFor(
+      [
+        'interface name=Sink',
+        '  method name=write params="item:\'a b\'" returns=void',
+        'class name=BadSink implements=Sink',
+        '  method name=write params="item:\'ab\'" returns=void',
+        '    handler lang=kern',
+        '      do value="undefined"',
+      ].join('\n'),
+    );
+    expect(literalWhitespaceRules).toContain('class-implements-missing-member');
+  });
+
+  test('rejects private protocol methods and tolerates whitespace/default comparison params', () => {
+    const privateRules = rulesFor(
+      [
+        'interface name=Runnable',
+        '  method name=run returns=number',
+        'class name=Job implements=Runnable',
+        '  method name=run private=true returns=number',
+        '    handler lang=kern',
+        '      return value="1"',
+      ].join('\n'),
+    );
+    expect(privateRules).toContain('class-implements-missing-member');
+
+    const whitespaceRules = rulesFor(
+      [
+        'interface name=Sink',
+        '  method name=write params="item:Record<string, number>" returns=void',
+        'class name=GoodSink implements=Sink',
+        '  method name=write params="item:Record<string,number>" returns=void',
+        '    handler lang=kern',
+        '      do value="undefined"',
+      ].join('\n'),
+    );
+    expect(whitespaceRules).not.toContain('class-implements-missing-member');
+
+    const defaultComparisonRules = rulesFor(
+      [
+        'interface name=Calculator',
+        '  method name=calc params="value:number=1 < 2,unit:string" returns=number',
+        'class name=DefaultCalc implements=Calculator',
+        '  method name=calc params="value:number=1 < 2,unit:string" returns=number',
+        '    handler lang=kern',
+        '      return value="value"',
+      ].join('\n'),
+    );
+    expect(defaultComparisonRules).not.toContain('class-implements-missing-member');
+
+    const defaultEqualityRules = rulesFor(
+      [
+        'interface name=Comparator',
+        '  method name=cmp params="value:number=a==b,unit:string" returns=number',
+        'class name=DefaultCmp implements=Comparator',
+        '  method name=cmp params="value:number=a==b,unit:string" returns=number',
+        '    handler lang=kern',
+        '      return value="value"',
+      ].join('\n'),
+    );
+    expect(defaultEqualityRules).not.toContain('class-implements-missing-member');
+
+    const genericDefaultRules = rulesFor(
+      [
+        'interface name=Formatter',
+        '  method name=format params="value:Map<string, number>=make<Pair<string, number>>(),unit:string" returns=number',
+        'class name=DefaultFormatter implements=Formatter',
+        '  method name=format params="value:Map<string, number>=make<Pair<string, number>>(),unit:string" returns=number',
+        '    handler lang=kern',
+        '      return value="1"',
+      ].join('\n'),
+    );
+    expect(genericDefaultRules).not.toContain('class-implements-missing-member');
+  });
+
   test('reports unknown class implements targets unless imported', () => {
     const localRules = rulesFor('class name=User implements=MissingProtocol');
     expect(localRules).toContain('class-implements-unknown');
@@ -88,6 +277,15 @@ describe('semantic-validator — class object model', () => {
     const rules = rulesFor('class name=User implements="Known,"');
 
     expect(rules).toContain('class-implements-invalid-reference-list');
+  });
+
+  test('parses generic implements references with default types containing commas', () => {
+    const rules = rulesFor(
+      ['interface name=Protocol', 'class name=User implements="Protocol<T = Map<string, number>>"'].join('\n'),
+    );
+
+    expect(rules).not.toContain('class-implements-invalid-reference-list');
+    expect(rules).not.toContain('class-implements-unknown');
   });
 
   test('reports missing required readable instance members for class implements', () => {
@@ -150,6 +348,24 @@ describe('semantic-validator — class object model', () => {
       ].join('\n'),
     );
     expect(optionalityConflictRules).toContain('class-implements-invalid-interface');
+  });
+
+  test('reports cyclic method protocols as invalid interfaces', () => {
+    const rules = rulesFor(
+      [
+        'interface name=A extends=B',
+        '  method name=a returns=void',
+        'interface name=B extends=A',
+        '  method name=b returns=void',
+        'class name=CycleImpl implements=A',
+        '  method name=a returns=void',
+        '    handler lang=kern',
+        '      do value="undefined"',
+      ].join('\n'),
+    );
+
+    expect(rules).toContain('class-implements-invalid-interface');
+    expect(rules).not.toContain('class-implements-missing-member');
   });
 
   test('reports interface indexers as unsupported class implements protocols in v1', () => {

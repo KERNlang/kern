@@ -437,12 +437,17 @@ describe('Schema Validation', () => {
 
   describe('allowed children', () => {
     it('flags wrong child type in interface', () => {
-      const v = validate(['interface name=User', '  method name=foo'].join('\n'));
-      expect(v.some((v) => v.message.includes("does not allow child type 'method'"))).toBe(true);
+      const v = validate(['interface name=User', '  const name=foo value=1'].join('\n'));
+      expect(v.some((v) => v.message.includes("does not allow child type 'const'"))).toBe(true);
     });
 
     it('allows field in interface', () => {
       const v = validate(['interface name=User', '  field name=id type=string'].join('\n'));
+      expect(v).toHaveLength(0);
+    });
+
+    it('allows method in interface', () => {
+      const v = validate(['interface name=User', '  method name=displayName returns=string'].join('\n'));
       expect(v).toHaveLength(0);
     });
 

@@ -467,6 +467,275 @@ describe('KERN core runtime statements', () => {
     expect(toHostValue(evalCoreExpression('new User().name', env))).toBe('Ada');
   });
 
+  test('validates implemented interface methods without invoking them', () => {
+    const root = parse(
+      [
+        'interface name=Runnable',
+        '  method name=run params="input:string" returns=number',
+        'class name=Job implements=Runnable',
+        '  field name=count type=number value={{ 0 }}',
+        '  method name=run params="input:string" returns=number',
+        '    handler',
+        '      assign target="this.count" value="this.count + 1"',
+        '      return value="input.length"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new Job().count', env))).toBe(0);
+    expect(toHostValue(evalCoreExpression('new Job().run("abc")', env))).toBe(3);
+  });
+
+  test('rejects missing implemented interface methods', () => {
+    const root = parse(
+      [
+        'interface name=Runnable',
+        '  method name=run params="input:string" returns=number',
+        'class name=Job implements=Runnable',
+        '  field name=id type=string value="j1"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new Job()', env)).toThrow('missing or incompatible method(s): run');
+  });
+
+  test('rejects incompatible implemented interface method signatures', () => {
+    const root = parse(
+      [
+        'interface name=Runnable',
+        '  method name=run params="input:string" returns=number',
+        'class name=Job implements=Runnable',
+        '  method name=run returns=number',
+        '    handler',
+        '      return value="1"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new Job()', env)).toThrow('missing or incompatible method(s): run');
+  });
+
+  test('rejects implemented interface methods with incompatible parameter types', () => {
+    const root = parse(
+      [
+        'interface name=Runnable',
+        '  method name=run params="input:string" returns=number',
+        'class name=Job implements=Runnable',
+        '  method name=run params="input:number" returns=number',
+        '    handler',
+        '      return value="input"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new Job()', env)).toThrow('missing or incompatible method(s): run');
+  });
+
+  test('accepts implicit void methods for explicit void interface methods', () => {
+    const root = parse(
+      [
+        'interface name=Lifecycle',
+        '  method name=close returns=void',
+        'class name=Socket implements=Lifecycle',
+        '  method name=close',
+        '    handler',
+        '      do value="undefined"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new Socket().close()', env))).toBeUndefined();
+  });
+
+  test('rejects non-stream methods for stream interface methods', () => {
+    const root = parse(
+      [
+        'interface name=Events',
+        '  method name=read returns=Event stream=true',
+        'class name=Reader implements=Events',
+        '  method name=read returns=Event',
+        '    handler',
+        '      return value="undefined"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new Reader()', env)).toThrow('missing or incompatible method(s): read');
+  });
+
+  test('normalizes streamed method returns for implemented interface methods', () => {
+    const root = parse(
+      [
+        'interface name=Events',
+        '  method name=read returns="AsyncGenerator<Event>" stream=true',
+        'class name=Reader implements=Events',
+        '  method name=read returns=Event stream=true',
+        '    handler',
+        '      return value="undefined"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new Reader()', env)).not.toThrow();
+  });
+
+  test('rejects generic parameter type mismatches in implemented interface methods', () => {
+    const root = parse(
+      [
+        'interface name=Sink',
+        '  method name=write params="item:Record<string,number>" returns=void',
+        'class name=BadSink implements=Sink',
+        '  method name=write params="item:Record<string,boolean>" returns=void',
+        '    handler',
+        '      do value="undefined"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new BadSink()', env)).toThrow('missing or incompatible method(s): write');
+  });
+
+  test('preserves quoted whitespace in implemented interface method parameter types', () => {
+    const root = parse(
+      [
+        'interface name=Sink',
+        '  method name=write params="item:\'a b\'" returns=void',
+        'class name=BadSink implements=Sink',
+        '  method name=write params="item:\'ab\'" returns=void',
+        '    handler',
+        '      do value="undefined"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new BadSink()', env)).toThrow('missing or incompatible method(s): write');
+  });
+
+  test('rejects private methods for implemented interface methods', () => {
+    const root = parse(
+      [
+        'interface name=Runnable',
+        '  method name=run returns=number',
+        'class name=Job implements=Runnable',
+        '  method name=run private=true returns=number',
+        '    handler',
+        '      return value="1"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new Job()', env)).toThrow('missing or incompatible method(s): run');
+  });
+
+  test('normalizes whitespace in implemented interface method parameter types', () => {
+    const root = parse(
+      [
+        'interface name=Sink',
+        '  method name=write params="item:Record<string, number>" returns=void',
+        'class name=GoodSink implements=Sink',
+        '  method name=write params="item:Record<string,number>" returns=void',
+        '    handler',
+        '      do value="undefined"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new GoodSink()', env)).not.toThrow();
+  });
+
+  test('parses default comparison expressions in implemented interface method params', () => {
+    const root = parse(
+      [
+        'interface name=Calculator',
+        '  method name=calc params="value:number=1 < 2,unit:string=\'m\'" returns=number',
+        'class name=DefaultCalc implements=Calculator',
+        '  method name=calc params="value:number=1 < 2,unit:string=\'m\'" returns=number',
+        '    handler',
+        '      return value="value"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new DefaultCalc().calc()', env))).toBe(true);
+  });
+
+  test('parses default equality expressions in implemented interface method params', () => {
+    const root = parse(
+      [
+        'interface name=Comparator',
+        '  method name=cmp params="value:number=1==1,unit:string=\'m\'" returns=number',
+        'class name=DefaultCmp implements=Comparator',
+        '  method name=cmp params="value:number=1==1,unit:string=\'m\'" returns=number',
+        '    handler',
+        '      return value="value"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new DefaultCmp().cmp()', env))).toBe(true);
+  });
+
+  test('parses generic default expressions in implemented interface method params', () => {
+    const root = parse(
+      [
+        'interface name=Formatter',
+        '  method name=format params="value:Map<string, number>=make<Pair<string, number>>(),unit:string" returns=number',
+        'class name=DefaultFormatter implements=Formatter',
+        '  method name=format params="value:Map<string, number>=make<Pair<string, number>>(),unit:string" returns=number',
+        '    handler',
+        '      return value="1"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new DefaultFormatter()', env)).not.toThrow();
+  });
+
+  test('enforces inherited interface methods for implemented protocols', () => {
+    const root = parse(
+      [
+        'interface name=Runnable',
+        '  method name=run params="input:string" returns=number',
+        'interface name=NamedRunnable extends=Runnable',
+        '  field name=name type=string',
+        'class name=Job implements=NamedRunnable',
+        '  field name=name type=string value="job"',
+        '  method name=run params="input:string" returns=number',
+        '    handler',
+        '      return value="input.length"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new Job().run("abcd")', env))).toBe(4);
+  });
+
+  test('parses generic implements references with default types containing commas', () => {
+    const root = parse(
+      ['interface name=Protocol', 'class name=User implements="Protocol<T = Map<string, number>>"'].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new User()', env)).not.toThrow();
+  });
+
   test('enforces base class implemented protocols on derived instances', () => {
     const root = parse(
       [

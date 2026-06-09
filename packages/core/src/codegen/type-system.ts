@@ -92,6 +92,14 @@ export function generateInterface(node: IRNode): string[] {
     const opt = fp.optional === 'true' || fp.optional === true ? '?' : '';
     lines.push(`  ${fieldName}${opt}: ${emitTypeAnnotation(fp.type, 'unknown', field)};`);
   }
+  for (const method of kids(node, 'method')) {
+    const mp = propsOf<'method'>(method);
+    const methodName = emitIdentifier(mp.name, 'method', method);
+    const generics = mp.generics ? emitTypeAnnotation(mp.generics, '', method) : '';
+    const params = emitParamList(method, { stripDefaults: true });
+    const returns = interfaceMethodReturnType(method, mp);
+    lines.push(`  ${methodName}${generics}(${params}): ${returns};`);
+  }
   for (const idx of kids(node, 'indexer')) {
     const ip = propsOf<'indexer'>(idx);
     // `||` (not `??`) so an empty-string keyName also falls back to 'key'.
@@ -103,6 +111,23 @@ export function generateInterface(node: IRNode): string[] {
   }
   lines.push('}');
   return lines;
+}
+
+function interfaceMethodReturnType(
+  node: IRNode,
+  props: { returns?: string; async?: unknown; stream?: unknown; generator?: unknown },
+): string {
+  const isAsync = props.async === 'true' || props.async === true;
+  const isStream = props.stream === 'true' || props.stream === true;
+  const isGenerator = props.generator === 'true' || props.generator === true;
+  const returns = props.returns ? emitTypeAnnotation(props.returns, 'unknown', node) : '';
+  const generatorPrefix = isAsync ? 'AsyncGenerator<' : 'Generator<';
+  if (isStream) return returns.startsWith('AsyncGenerator<') ? returns : `AsyncGenerator<${returns || 'unknown'}>`;
+  if (isGenerator) {
+    if (returns.startsWith('Generator<') || returns.startsWith('AsyncGenerator<')) return returns;
+    return `${generatorPrefix}${returns || 'unknown'}>`;
+  }
+  return returns || 'void';
 }
 
 // ── Discriminated Union ──────────────────────────────────────────────────

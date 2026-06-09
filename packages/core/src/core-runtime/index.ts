@@ -792,12 +792,21 @@ function validateImplementedClassProtocols(instance: KernInstanceValue, klass: K
         shape.fields.map((field) => field.name),
       );
       const result = validateCoreShape(projection, interfaceName, root);
-      if (result.passed) continue;
-      throw new Error(
-        `KERN core runtime class '${klass.name}' violates implemented interface '${interfaceName}':\n${result.diagnostics
-          .map((diagnostic) => diagnostic.message)
-          .join('\n')}`,
-      );
+      if (!result.passed) {
+        throw new Error(
+          `KERN core runtime class '${klass.name}' violates implemented interface '${interfaceName}':\n${result.diagnostics
+            .map((diagnostic) => diagnostic.message)
+            .join('\n')}`,
+        );
+      }
+      const missingMethods = runtimeInterfaceProtocolMethods(root, interfaceName)
+        .filter((method) => !classHasRuntimeProtocolMethod(instance.classValue, method))
+        .map((method) => method.name);
+      if (missingMethods.length > 0) {
+        throw new Error(
+          `KERN core runtime class '${klass.name}' violates implemented interface '${interfaceName}': missing or incompatible method(s): ${missingMethods.join(', ')}.`,
+        );
+      }
     }
   }
 }
@@ -814,6 +823,147 @@ function classProtocolProjection(instance: KernInstanceValue, fieldNames: readon
     entries[fieldName] = evalInstanceMember(instance, fieldName);
   }
   return brandValue({ kind: 'record', entries });
+}
+
+interface RuntimeInterfaceProtocolMethod {
+  readonly name: string;
+  readonly arity: number;
+  readonly paramTypes: readonly string[];
+  readonly async: boolean;
+  readonly stream: boolean;
+  readonly generator: boolean;
+  readonly returns?: string;
+}
+
+function runtimeInterfaceProtocolMethods(
+  rootOrNodes: IRNode | readonly IRNode[],
+  interfaceName: string,
+): RuntimeInterfaceProtocolMethod[] {
+  const interfaceByName = new Map<string, IRNode>();
+  const visit = (node: IRNode): void => {
+    if (node.type === 'interface') {
+      const name = runtimeStringProp(node.props?.name);
+      if (name && !interfaceByName.has(name)) interfaceByName.set(name, node);
+    }
+    for (const child of node.children ?? []) visit(child);
+  };
+  for (const node of isIRNodeArray(rootOrNodes) ? rootOrNodes : [rootOrNodes]) visit(node);
+
+  const resolve = (name: string, seen: ReadonlySet<string>): RuntimeInterfaceProtocolMethod[] => {
+    if (seen.has(name)) return [];
+    const node = interfaceByName.get(name);
+    if (!node) return [];
+    const nextSeen = new Set(seen);
+    nextSeen.add(name);
+    const methods = new Map<string, RuntimeInterfaceProtocolMethod>();
+    for (const baseName of runtimeClassReferenceNames(node.props?.extends)) {
+      for (const method of resolve(baseName, nextSeen)) methods.set(method.name, method);
+    }
+    for (const child of node.children ?? []) {
+      if (child.type !== 'method') continue;
+      const name = runtimeStringProp(child.props?.name);
+      if (!name) continue;
+      methods.set(name, {
+        name,
+        arity: runtimeParams(child).length,
+        paramTypes: runtimeParams(child).map((param) => param.type ?? ''),
+        async: runtimeBooleanProp(child.props?.async),
+        stream: runtimeBooleanProp(child.props?.stream),
+        generator: runtimeBooleanProp(child.props?.generator),
+        ...(runtimeStringProp(child.props?.returns) ? { returns: runtimeStringProp(child.props?.returns) } : {}),
+      });
+    }
+    return [...methods.values()];
+  };
+
+  return resolve(interfaceName, new Set());
+}
+
+function classHasRuntimeProtocolMethod(klass: KernClassValue, method: RuntimeInterfaceProtocolMethod): boolean {
+  const member = findReadableClassShapeMember(klass, method.name, false);
+  if (member?.kind !== 'method') return false;
+  if (runtimeBooleanProp(member.node.props?.private)) return false;
+  const params = runtimeParams(member.node);
+  if (params.length !== method.arity) return false;
+  if (
+    !runtimeProtocolParamTypesCompatible(
+      params.map((param) => param.type ?? ''),
+      method.paramTypes,
+    )
+  )
+    return false;
+  if (runtimeBooleanProp(member.node.props?.async) !== method.async) return false;
+  if (runtimeBooleanProp(member.node.props?.stream) !== method.stream) return false;
+  if (runtimeBooleanProp(member.node.props?.generator) !== method.generator) return false;
+  const returns = runtimeStringProp(member.node.props?.returns);
+  return runtimeProtocolReturnTypesCompatible(
+    returns,
+    {
+      async: runtimeBooleanProp(member.node.props?.async),
+      stream: runtimeBooleanProp(member.node.props?.stream),
+      generator: runtimeBooleanProp(member.node.props?.generator),
+    },
+    method.returns,
+    method,
+  );
+}
+
+function runtimeProtocolParamTypesCompatible(actual: readonly string[], expected: readonly string[]): boolean {
+  return expected.every(
+    (type, index) => !type || normalizeRuntimeProtocolType(actual[index]) === normalizeRuntimeProtocolType(type),
+  );
+}
+
+function normalizeRuntimeProtocolType(type: string | undefined): string {
+  return compactRuntimeProtocolTypeWhitespace(type);
+}
+
+function compactRuntimeProtocolTypeWhitespace(type: string | undefined): string {
+  let out = '';
+  let quote: '"' | "'" | '`' | null = null;
+  for (let index = 0; index < (type ?? '').length; index += 1) {
+    const ch = (type ?? '')[index];
+    if (quote !== null) {
+      out += ch;
+      if (ch === '\\' && index + 1 < (type ?? '').length) out += (type ?? '')[++index];
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      out += ch;
+      continue;
+    }
+    if (!/\s/.test(ch)) out += ch;
+  }
+  return out;
+}
+
+function runtimeProtocolReturnTypesCompatible(
+  actual: string | undefined,
+  actualFlags: { readonly async: boolean; readonly stream: boolean; readonly generator: boolean },
+  expected: string | undefined,
+  expectedFlags: { readonly async: boolean; readonly stream: boolean; readonly generator: boolean },
+): boolean {
+  return (
+    normalizeRuntimeProtocolReturnType(actual, actualFlags) ===
+    normalizeRuntimeProtocolReturnType(expected, expectedFlags)
+  );
+}
+
+function normalizeRuntimeProtocolReturnType(
+  returns: string | undefined,
+  flags: { readonly async: boolean; readonly stream: boolean; readonly generator: boolean },
+): string {
+  if (flags.stream) {
+    if (returns?.startsWith('AsyncGenerator<')) return returns;
+    return `AsyncGenerator<${returns || 'unknown'}>`;
+  }
+  if (flags.generator) {
+    if (returns?.startsWith('Generator<') || returns?.startsWith('AsyncGenerator<')) return returns;
+    return `${flags.async ? 'AsyncGenerator' : 'Generator'}<${returns || 'unknown'}>`;
+  }
+  return !returns || returns === 'void' ? 'void' : returns;
 }
 
 function classHierarchyFromBase(klass: KernClassValue): KernClassValue[] {
@@ -1331,6 +1481,10 @@ function runtimeStringProp(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
+function runtimeBooleanProp(value: unknown): boolean {
+  return value === true || (typeof value === 'string' && value.trim().toLowerCase() === 'true');
+}
+
 function runtimeClassReferenceNames(value: unknown): string[] {
   if (typeof value !== 'string' || !value.trim()) return [];
   const parts = splitRuntimeClassReferenceList(value);
@@ -1387,6 +1541,28 @@ function splitRuntimeClassReferenceList(raw: string): string[] {
   if (tail.length === 0 && raw.trim().endsWith(',')) throw new Error('implements= contains an empty reference.');
   if (tail.length > 0) out.push(tail);
   return out;
+}
+
+function runtimeAngleClosesBeforeNextTopLevelComma(raw: string, start: number): boolean {
+  let depth = 0;
+  let quote: '"' | "'" | '`' | null = null;
+  for (let index = start; index < raw.length; index += 1) {
+    const ch = raw[index];
+    if (quote !== null) {
+      if (ch === '\\' && index + 1 < raw.length) index += 1;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      continue;
+    }
+    if (ch === '(' || ch === '[' || ch === '{') depth += 1;
+    else if ((ch === ')' || ch === ']' || ch === '}') && depth > 0) depth -= 1;
+    else if (ch === '>' && depth === 0) return true;
+    else if (ch === ',' && depth === 0) return false;
+  }
+  return false;
 }
 
 function classThisEnv(klass: KernClassValue, receiver: KernInstanceValue): CoreRuntimeEnv {
@@ -1540,7 +1716,7 @@ function runtimeParams(node: IRNode): RuntimeParam[] {
 
   const raw = typeof node.props?.params === 'string' ? node.props.params : '';
   if (!raw.trim()) return [];
-  return splitPortableExpressionList(raw, 'fn params=').map((part) => {
+  return splitRuntimeParamList(raw, 'fn params=').map((part) => {
     const defaultIndex = findRuntimeDefaultSeparator(part);
     const beforeDefault = defaultIndex >= 0 ? part.slice(0, defaultIndex) : part;
     const defaultExpr = defaultIndex >= 0 ? part.slice(defaultIndex + 1).trim() : undefined;
@@ -1553,6 +1729,49 @@ function runtimeParams(node: IRNode): RuntimeParam[] {
       defaultExpr: defaultExpr || undefined,
     };
   });
+}
+
+function splitRuntimeParamList(raw: string, propName: string): string[] {
+  const out: string[] = [];
+  let current = '';
+  let depth = 0;
+  let angleDepth = 0;
+  let inDefault = false;
+  let quote: '"' | "'" | '`' | null = null;
+  for (let index = 0; index < raw.length; index += 1) {
+    const ch = raw[index];
+    if (quote !== null) {
+      current += ch;
+      if (ch === '\\' && index + 1 < raw.length) current += raw[++index];
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === '(' || ch === '[' || ch === '{') depth += 1;
+    else if (ch === ')' || ch === ']' || ch === '}') depth -= 1;
+    else if (ch === '=' && depth === 0 && angleDepth === 0 && raw[index + 1] !== '>') inDefault = true;
+    else if (ch === '<' && (!inDefault || runtimeAngleClosesBeforeNextTopLevelComma(raw, index + 1))) angleDepth += 1;
+    else if (ch === '>' && angleDepth > 0) angleDepth -= 1;
+    if (depth < 0 || angleDepth < 0) throw new Error(`${propName} has unbalanced delimiters.`);
+    if (ch === ',' && depth === 0 && angleDepth === 0) {
+      const part = current.trim();
+      if (part.length === 0) throw new Error(`${propName} contains an empty expression.`);
+      out.push(part);
+      current = '';
+      inDefault = false;
+      continue;
+    }
+    current += ch;
+  }
+  if (quote !== null || depth !== 0 || angleDepth !== 0) throw new Error(`${propName} has unbalanced delimiters.`);
+  const tail = current.trim();
+  if (tail.length === 0 && raw.trim().endsWith(',')) throw new Error(`${propName} contains an empty expression.`);
+  if (tail.length > 0) out.push(tail);
+  return out;
 }
 
 function runtimeParamDefaultExpr(node: IRNode): string | undefined {
