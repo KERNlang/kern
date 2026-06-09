@@ -45,7 +45,7 @@ describe('emitPyExpression — KERN-stdlib dispatch (Text module)', () => {
 
   test('lambda callbacks lower to Python lambda expressions', () => {
     expect(emitPyExpression(parseExpression('visit(() => value)'))).toBe('visit(lambda: value)');
-    expect(emitPyExpression(parseExpression('visit((a, b) => a + b)'))).toBe('visit(lambda a, b: a + b)');
+    expect(emitPyExpression(parseExpression('visit((a, b) => a + b)'))).toBe('visit(lambda a, b: __kern_add(a, b))');
     expect(emitPyExpression(parseExpression('visit(user => user.name)'))).toBe('visit(lambda user: user.name)');
     expect(emitPyExpression(parseExpression('visit((user: User) => user.name)'))).toBe('visit(lambda user: user.name)');
   });

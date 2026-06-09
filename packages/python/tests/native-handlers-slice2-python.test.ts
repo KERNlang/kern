@@ -13,14 +13,21 @@
 import type { IRNode } from '@kernlang/core';
 import { parseDocument, parseExpression } from '@kernlang/core';
 import { emitNativeKernBodyPython, emitPyExpression } from '../src/codegen-body-python.js';
+import { KERN_FMT_HELPER_PY } from '../src/core/expr/helpers.js';
 import { generateFunction } from '../src/generators/core.js';
 
 function makeHandler(children: IRNode[]): IRNode {
   return { type: 'handler', props: { lang: 'kern' }, children };
 }
 
+// A dynamic `typeof` references the `_KERN_UNDEFINED` sentinel, so any BODY that
+// lowers one carries the coercion helper prelude (derived from the source const
+// so it can never drift). Expression-only `emitPyExpression` returns just the
+// expression — no prelude — since it discards the collected helper set.
+const PY_PRELUDE = `${KERN_FMT_HELPER_PY}\n\n`;
+
 const TYPEOF_VALUE_PY =
-  '("object" if (__k_typeof1 := value) is None else "boolean" if isinstance(__k_typeof1, bool) else "number" if isinstance(__k_typeof1, (int, float)) else "string" if isinstance(__k_typeof1, str) else "function" if callable(__k_typeof1) else "object")';
+  '("undefined" if (__k_typeof1 := value) is _KERN_UNDEFINED else "object" if __k_typeof1 is None else "boolean" if isinstance(__k_typeof1, bool) else "number" if isinstance(__k_typeof1, (int, float)) else "string" if isinstance(__k_typeof1, str) else "function" if callable(__k_typeof1) else "object")';
 
 // ── 2b: stdlib expansion (Python) ────────────────────────────────────────
 
@@ -72,12 +79,12 @@ describe('KERN-stdlib expansion — Python target', () => {
 // ── 2c: arithmetic + comparison (Python) ─────────────────────────────────
 
 describe('emitPyExpression — arithmetic + comparison + unary', () => {
-  test('addition emits verbatim', () => {
-    expect(emitPyExpression(parseExpression('a + b'))).toBe('a + b');
+  test('addition lowers to __kern_add (JS + string-coercion guard)', () => {
+    expect(emitPyExpression(parseExpression('a + b'))).toBe('__kern_add(a, b)');
   });
 
   test('multiplication binds tighter (precedence)', () => {
-    expect(emitPyExpression(parseExpression('a + b * c'))).toBe('a + b * c');
+    expect(emitPyExpression(parseExpression('a + b * c'))).toBe('__kern_add(a, b * c)');
   });
 
   test('strict equality === lowers to Python ==', () => {
@@ -134,7 +141,7 @@ describe('emitPyExpression — arithmetic + comparison + unary', () => {
 
   test('typeof in return body codegen does not throw on Python target', () => {
     const handler = makeHandler([{ type: 'return', props: { value: 'typeof value === "string"' }, children: [] }]);
-    expect(emitNativeKernBodyPython(handler)).toBe(`return ${TYPEOF_VALUE_PY} == "string"`);
+    expect(emitNativeKernBodyPython(handler)).toBe(`${PY_PRELUDE}return ${TYPEOF_VALUE_PY} == "string"`);
   });
 
   test('typeof composes in Python if conditions', () => {
@@ -145,15 +152,15 @@ describe('emitPyExpression — arithmetic + comparison + unary', () => {
         children: [{ type: 'return', props: { value: 'value' }, children: [] }],
       },
     ]);
-    expect(emitNativeKernBodyPython(handler)).toBe(`if ${TYPEOF_VALUE_PY} == "string":\n    return value`);
+    expect(emitNativeKernBodyPython(handler)).toBe(`${PY_PRELUDE}if ${TYPEOF_VALUE_PY} == "string":\n    return value`);
   });
 
   test('nested typeof and await keep stable temp numbering', () => {
     expect(emitPyExpression(parseExpression('typeof typeof value'))).toBe(
-      '("object" if (__k_typeof2 := (("object" if (__k_typeof1 := value) is None else "boolean" if isinstance(__k_typeof1, bool) else "number" if isinstance(__k_typeof1, (int, float)) else "string" if isinstance(__k_typeof1, str) else "function" if callable(__k_typeof1) else "object"))) is None else "boolean" if isinstance(__k_typeof2, bool) else "number" if isinstance(__k_typeof2, (int, float)) else "string" if isinstance(__k_typeof2, str) else "function" if callable(__k_typeof2) else "object")',
+      '("undefined" if (__k_typeof2 := (("undefined" if (__k_typeof1 := value) is _KERN_UNDEFINED else "object" if __k_typeof1 is None else "boolean" if isinstance(__k_typeof1, bool) else "number" if isinstance(__k_typeof1, (int, float)) else "string" if isinstance(__k_typeof1, str) else "function" if callable(__k_typeof1) else "object"))) is _KERN_UNDEFINED else "object" if __k_typeof2 is None else "boolean" if isinstance(__k_typeof2, bool) else "number" if isinstance(__k_typeof2, (int, float)) else "string" if isinstance(__k_typeof2, str) else "function" if callable(__k_typeof2) else "object")',
     );
     expect(emitPyExpression(parseExpression('typeof await readValue()'))).toBe(
-      '("object" if (__k_typeof1 := (await readValue())) is None else "boolean" if isinstance(__k_typeof1, bool) else "number" if isinstance(__k_typeof1, (int, float)) else "string" if isinstance(__k_typeof1, str) else "function" if callable(__k_typeof1) else "object")',
+      '("undefined" if (__k_typeof1 := (await readValue())) is _KERN_UNDEFINED else "object" if __k_typeof1 is None else "boolean" if isinstance(__k_typeof1, bool) else "number" if isinstance(__k_typeof1, (int, float)) else "string" if isinstance(__k_typeof1, str) else "function" if callable(__k_typeof1) else "object")',
     );
   });
 
@@ -442,16 +449,20 @@ describe('Cross-target parity — slice 2 stdlib hard cases', () => {
 
 describe('Review fixes — Python', () => {
   test('`??` nullish coalesce lowers to Python ternary with None check', () => {
-    expect(emitPyExpression(parseExpression('user ?? guest'))).toBe('(user if user is not None else guest)');
+    expect(emitPyExpression(parseExpression('user ?? guest'))).toBe(
+      '(user if (user is not None and user is not _KERN_UNDEFINED) else guest)',
+    );
   });
 
   test('`??` on member chain also works', () => {
-    expect(emitPyExpression(parseExpression('user.id ?? 0'))).toBe('(user.id if user.id is not None else 0)');
+    expect(emitPyExpression(parseExpression('user.id ?? 0'))).toBe(
+      '(user.id if (user.id is not None and user.id is not _KERN_UNDEFINED) else 0)',
+    );
   });
 
   test('`??` with side-effecting left side uses walrus for single-eval (slice 4c)', () => {
     expect(emitPyExpression(parseExpression('call() ?? b'))).toBe(
-      '(__k_nc1 if (__k_nc1 := call()) is not None else b)',
+      '(__k_nc1 if ((__k_nc1 := call()) is not None and __k_nc1 is not _KERN_UNDEFINED) else b)',
     );
   });
 
@@ -466,8 +477,9 @@ describe('Review fixes — Python', () => {
 
   test('non-comparison binary ops do NOT trigger force-paren', () => {
     // `a + b - c` should NOT get extra parens (force-paren only applies to
-    // comparison-comparison nesting).
-    expect(emitPyExpression(parseExpression('a + b - c'))).toBe('a + b - c');
+    // comparison-comparison nesting). The `+` lowers to __kern_add; the `-`
+    // is a non-`+` op and stays verbatim.
+    expect(emitPyExpression(parseExpression('a + b - c'))).toBe('__kern_add(a, b) - c');
   });
 
   test('stdlib arity mismatch — Python target also throws', () => {

@@ -104,6 +104,16 @@ export interface BodyEmitOptions {
    * packages/core/src/ir/semantics/python-leg.ts for the runtime contract.
    */
   traceHooks?: { eachIterNext?: boolean; forIterNext?: boolean; letAssign?: boolean };
+  /** Coercion-slice opt-out for the helper-less Ground/React declarative
+   *  layer. Defaults to `true` (native KERN bodies + expression unit tests
+   *  get full JS value→string coercion, injecting helpers function-locally).
+   *  The Ground generators (`coalesce`/`firstDefined`/`firstTruthy`/`objectMerge`
+   *  /…) emit module-level statements via `emitPyExpression` and have no
+   *  channel to define `_kern_fmt`/`__kern_add`/`_KERN_UNDEFINED`, so they pass
+   *  `false` to keep the pre-slice output (zero regression). Extending coercion
+   *  to the Ground layer needs module-level (single-definition) helper
+   *  injection — a separate follow-up. */
+  coerceJsValues?: boolean;
   /** Outer-scope names the body INHERITS — typically function parameters and
    * module-level globals the wrapper has bound. Pre-populated as the
    * outermost `localScopes` map so an inner-block `let` that shadows ANY of
@@ -173,6 +183,16 @@ interface BodyEmitContext {
    *  override pending control flow, so it gets a finally-specific error. */
   finallyDepth: number;
   standaloneExpression: boolean;
+  /** When true, helper-dependent JS value→string coercion is emitted
+   *  (`__kern_add`, `_kern_fmt`-wrapped templates, the `_KERN_UNDEFINED`
+   *  sentinel + sentinel-aware `??`/`typeof`). Native KERN bodies inject the
+   *  required helpers function-locally, so the default is true. The Ground/
+   *  React declarative layer (`coalesce`/`firstDefined`/etc.) emits module-
+   *  level statements through `emitPyExpression` with NO per-statement helper
+   *  channel, so it opts out and keeps the pre-coercion-slice forms (raw `+`,
+   *  raw f-string interpolation, `None` for undefined, None-only `??`).
+   *  See BodyEmitOptions.coerceJsValues. */
+  coerceJsValues: boolean;
 }
 
 const INDENT_STEP = '    ';
@@ -194,6 +214,7 @@ function freshCtx(options?: BodyEmitOptions): BodyEmitContext {
     tryDepth: 0,
     finallyDepth: 0,
     standaloneExpression: false,
+    coerceJsValues: options?.coerceJsValues ?? true,
     traceHooks: options?.traceHooks,
   };
 }
@@ -1692,7 +1713,12 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
     case 'nullLit':
       return 'None';
     case 'undefLit':
-      return 'None';
+      // Ground/React layer (no helper channel) keeps the pre-slice collapse to
+      // None; native bodies materialize the sentinel so `${undefined}` renders
+      // "undefined" (vs null's "null") and `?? `/`typeof` can distinguish it.
+      if (!ctx.coerceJsValues) return 'None';
+      ctx.helpers.add(KERN_FMT_HELPER_PY);
+      return '_KERN_UNDEFINED';
     case 'regexLit':
       ctx.imports.add('re');
       return `__k_re.compile(${pyRegexPattern(node)}, ${pyRegexFlags(node.flags, { allowGlobal: true })})`;
@@ -1741,7 +1767,13 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
     case 'nonNull':
       return emitPyExprCtx(node.expression, ctx);
     case 'tmplLit': {
-      // Lower TS template literals to Python f-strings.
+      // Lower TS template literals to Python f-strings. In native bodies, wrap
+      // each interpolation in _kern_fmt so JS value→string coercion semantics
+      // (true→"true", null→"null", undefined→"undefined", 1.0→"1", arrays→
+      // comma-joined, objects→"[object Object]") are preserved. The helper-less
+      // Ground/React layer keeps the pre-slice raw f-string interpolation.
+      const coerce = ctx.coerceJsValues;
+      if (coerce) ctx.helpers.add(KERN_FMT_HELPER_PY);
       let out = 'f"';
       for (let i = 0; i < node.quasis.length; i++) {
         out += node.quasis[i]
@@ -1750,7 +1782,10 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
           .replace(/\n/g, '\\n')
           .replace(/\{/g, '{{')
           .replace(/\}/g, '}}');
-        if (i < node.expressions.length) out += `{${emitPyExprCtx(node.expressions[i], ctx)}}`;
+        if (i < node.expressions.length) {
+          const inner = emitPyExprCtx(node.expressions[i], ctx);
+          out += coerce ? `{_kern_fmt(${inner})}` : `{${inner}}`;
+        }
       }
       out += '"';
       return out;
@@ -1791,6 +1826,25 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
         return `isinstance(${left}, ${right})`;
       }
 
+      if (node.op === '+' && ctx.coerceJsValues) {
+        // JS `+` is overloaded: string concat if either operand is string-ish,
+        // numeric addition otherwise. Python has no implicit coercion, so we
+        // lower based on syntactic hints:
+        //  - If either operand is syntactically string-producing (strLit/tmplLit),
+        //    emit _kern_fmt(left) + _kern_fmt(right) for JS string concat.
+        //  - Otherwise (idents/calls/members/numbers — type unknown at emit time),
+        //    emit __kern_add(left, right) so numeric + stays additive and dynamic
+        //    string concat is coerced at runtime.
+        // The helper-less Ground/React layer skips this and falls through to the
+        // generic raw `+` path below (pre-slice behavior, zero regression).
+        ctx.helpers.add(KERN_FMT_HELPER_PY);
+        const isStr = (n: ValueIR) => n.kind === 'strLit' || n.kind === 'tmplLit';
+        if (isStr(node.left) || isStr(node.right)) {
+          return `_kern_fmt(${left}) + _kern_fmt(${right})`;
+        }
+        return `__kern_add(${left}, ${right})`;
+      }
+
       if (node.op === '??') {
         // Slice 4c — nullish coalesce lowering. Two shapes:
         //
@@ -1813,11 +1867,22 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
         // Slice 4c (post-buddy-review) was the easy-win expansion after the
         // 22.7% empirical-gate scan; this lifts the slice-2 `??` throw and
         // adds an estimated +7% to native eligibility on Agon-AI bodies.
+        // Ground/React layer keeps the pre-slice None-only nullish test (no
+        // sentinel, no helper). Native bodies also exclude the undefined
+        // sentinel so `undefined ?? x` coalesces.
+        if (!ctx.coerceJsValues) {
+          if (isReceiverChainPure(node.left)) {
+            return `(${left} if ${left} is not None else ${right})`;
+          }
+          const tmp = `__k_nc${++ctx.gensymCounter}`;
+          return `(${tmp} if (${tmp} := ${left}) is not None else ${right})`;
+        }
+        ctx.helpers.add(KERN_FMT_HELPER_PY);
         if (isReceiverChainPure(node.left)) {
-          return `(${left} if ${left} is not None else ${right})`;
+          return `(${left} if (${left} is not None and ${left} is not _KERN_UNDEFINED) else ${right})`;
         }
         const tmp = `__k_nc${++ctx.gensymCounter}`;
-        return `(${tmp} if (${tmp} := ${left}) is not None else ${right})`;
+        return `(${tmp} if ((${tmp} := ${left}) is not None and ${tmp} is not _KERN_UNDEFINED) else ${right})`;
       }
 
       const forceLeft = needsComparisonChainParens(node.left, node.op);
@@ -1922,6 +1987,23 @@ function emitPyTypeof(argument: ValueIR, ctx: BodyEmitContext): string {
   const value = emitPyExprCtx(argument, ctx);
   const wrapped = needsArgParens(argument) ? `(${value})` : value;
   const tmp = `__k_typeof${++ctx.gensymCounter}`;
+  // Native bodies: a runtime value holding the undefined sentinel reports
+  // "undefined" (JS `typeof undefined`), not "object". The walrus binds in the
+  // first test so the sentinel branch is checked before the None branch. The
+  // helper-less Ground layer never materializes the sentinel, so it keeps the
+  // pre-slice None-first form.
+  if (ctx.coerceJsValues) {
+    ctx.helpers.add(KERN_FMT_HELPER_PY);
+    return (
+      `("undefined" if (${tmp} := ${wrapped}) is _KERN_UNDEFINED ` +
+      `else "object" if ${tmp} is None ` +
+      `else "boolean" if isinstance(${tmp}, bool) ` +
+      `else "number" if isinstance(${tmp}, (int, float)) ` +
+      `else "string" if isinstance(${tmp}, str) ` +
+      `else "function" if callable(${tmp}) ` +
+      `else "object")`
+    );
+  }
   return (
     `("object" if (${tmp} := ${wrapped}) is None ` +
     `else "boolean" if isinstance(${tmp}, bool) ` +

@@ -35,6 +35,11 @@ const { parse, generateCoreNode } = await import(join(REPO, 'packages/core/dist/
 const { generatePythonCoreNode } = await import(join(REPO, 'packages/python/dist/codegen-python.js'));
 const tsCompiler = await import('typescript');
 
+// A big decimal float literal (KERN has no `e` exponent syntax) whose square
+// overflows IEEE-754 double → inf on Python / Infinity on JS. Used to exercise
+// the non-finite-float coercion branch at runtime.
+const HUGE = `1${'0'.repeat(200)}.0`;
+
 // Each fixture: a probe() returning the value under test. `expected` is JS/TS truth.
 const FIXTURES = [
   // ── Template interpolation: scalar coercion ───────────────────────────────
@@ -51,6 +56,14 @@ const FIXTURES = [
   { name: 'concat string + bool', ret: 'string', expr: '"a" + true', expected: 'atrue' },
   // ── Mixed ─────────────────────────────────────────────────────────────────
   { name: 'mixed template (arith + bool)', ret: 'string', expr: '`count: ${1 + 2}, ok: ${true}`', expected: 'count: 3, ok: true' },
+  // ── `+` with nullish: JS numeric ToNumber coercion (null→0, undef→NaN) ─────
+  { name: 'number + null → numeric (null→0)', ret: 'number', expr: '5 + null', expected: 5 },
+  { name: 'null + number → numeric (null→0)', ret: 'number', expr: 'null + 5', expected: 5 },
+  { name: 'number + bool → numeric (true→1)', ret: 'number', expr: '5 + true', expected: 6 },
+  { name: 'number + undefined → NaN renders "NaN"', ret: 'string', expr: '`${5 + undefined}`', expected: 'NaN' },
+  // ── Non-finite floats: JS String() → "Infinity"/"-Infinity" (Python str → "inf") ──
+  { name: 'Infinity renders "Infinity"', ret: 'string', expr: `\`\${${HUGE} * ${HUGE}}\``, expected: 'Infinity' },
+  { name: 'negative Infinity renders "-Infinity"', ret: 'string', expr: `\`\${-${HUGE} * ${HUGE}}\``, expected: '-Infinity' },
   // ── GUARD fixtures — currently GREEN, must STAY green (catch over-fixes) ───
   { name: 'GUARD numeric + stays additive', ret: 'number', expr: '2 + 3', expected: 5 },
   { name: 'GUARD nullish keeps present value', ret: 'number', expr: '5 ?? 9', expected: 5 },
