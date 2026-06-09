@@ -628,7 +628,7 @@ describe('semantic-validator — class object model', () => {
     // forwards [] through B to A — which requires `id`. The validator must walk
     // through the constructor-less B to A (matching the runtime), or it would pass
     // here while the runtime throws, re-opening the split this reconciliation closes.
-    const rules = rulesFor(
+    const violations = violationsFor(
       [
         'class name=A',
         '  field name=id type=string',
@@ -646,7 +646,12 @@ describe('semantic-validator — class object model', () => {
       ].join('\n'),
     );
 
-    expect(rules).toContain('class-constructor-implicit-super-needs-args');
+    const needsArgs = violations.find((v) => v.rule === 'class-constructor-implicit-super-needs-args');
+    expect(needsArgs).toBeDefined();
+    // The message must name the class that actually has the arg-requiring ctor (A),
+    // not the immediate constructor-less base (B).
+    expect(needsArgs?.message).toContain("base class 'A'");
+    expect(needsArgs?.message).not.toContain("base class 'B'");
   });
 
   test('accepts an omitted super when the transitively-reached base needs no args', () => {

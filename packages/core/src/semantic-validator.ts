@@ -3824,10 +3824,10 @@ function validateClassSuperUsage(
   violations: SemanticViolation[],
 ): void {
   const hasBase = Boolean(info.baseName);
-  const baseRequiresArgs = hasBase && baseConstructorRequiresArgs(info, classByName);
+  const argRequiringBaseName = hasBase ? argRequiringEffectiveBaseName(info, classByName) : undefined;
   for (const ctor of info.constructors) {
     if (hasBase) {
-      validateDerivedConstructorSuper(info, ctor, baseRequiresArgs, violations);
+      validateDerivedConstructorSuper(info, ctor, argRequiringBaseName, violations);
     }
     if (!hasBase && nodeBodyUsesSuper(ctor)) {
       violations.push({
@@ -3917,15 +3917,18 @@ function validateDerivedConstructorDiscipline(info: ClassInfo, ctor: IRNode, vio
 function validateDerivedConstructorSuper(
   info: ClassInfo,
   ctor: IRNode,
-  baseRequiresArgs: boolean,
+  argRequiringBaseName: string | undefined,
   violations: SemanticViolation[],
 ): void {
   if (!hasDirectSuperCtorCall(ctor)) {
-    if (baseRequiresArgs) {
+    if (argRequiringBaseName) {
+      // Name the class whose constructor actually requires args — which may be a
+      // transitive ancestor reached through constructor-less bases, not the
+      // immediate base — so the diagnostic points the author at the real source.
       violations.push({
         rule: 'class-constructor-implicit-super-needs-args',
         nodeType: 'constructor',
-        message: `Class '${info.name}' omits \`super(...)\` but base class '${info.baseName}' has a constructor that requires arguments. Call \`super(...)\` explicitly to pass them.`,
+        message: `Class '${info.name}' omits \`super(...)\` but base class '${argRequiringBaseName}' has a constructor that requires arguments. Call \`super(...)\` explicitly to pass them.`,
         line: ctor.loc?.line,
         col: ctor.loc?.col,
       });
@@ -3946,37 +3949,43 @@ function validateDerivedConstructorSuper(
 }
 
 /**
- * True when the EFFECTIVE base constructor reached by an implicit no-arg
- * `super()` declares at least one required (no-default) parameter — i.e. that
- * implicit init would fail at runtime. The effective base ctor is found by walking
- * up the inheritance chain through constructor-less bases, exactly as the runtime
- * does: `initializeClassLayer` forwards `[]` through a base that has no
- * constructor (`base && !ctor`) to ITS base, so the first ancestor that actually
- * declares a constructor is the one invoked with no args. Checking only the
- * immediate base would let `C extends B extends A` (B ctor-less, A arg-requiring)
- * pass validation yet throw at runtime — re-creating the validator/runtime split
- * this reconciliation closes. Mirrors the runtime's required-arg rule (a param is
- * required unless it carries a `value`/`default`); a chain with no constructor
- * anywhere (or an unresolved base) requires no args.
+ * The name of the EFFECTIVE base class whose constructor an implicit no-arg
+ * `super()` would reach and fail to satisfy — i.e. the first ancestor that
+ * declares a constructor with a required (no-default) parameter — or `undefined`
+ * when implicit init succeeds. The effective base ctor is found by walking up the
+ * inheritance chain through constructor-less bases, exactly as the runtime does:
+ * `initializeClassLayer` forwards `[]` through a base that has no constructor
+ * (`base && !ctor`) to ITS base, so the first ancestor that actually declares a
+ * constructor is the one invoked with no args. Checking only the immediate base
+ * would let `C extends B extends A` (B ctor-less, A arg-requiring) pass validation
+ * yet throw at runtime — re-creating the validator/runtime split this
+ * reconciliation closes. Returning the name (not a bool) lets the diagnostic point
+ * at the real source rather than the immediate base. Mirrors the runtime's
+ * required-arg rule (a param is required unless it carries a `value`/`default`); a
+ * chain with no constructor anywhere (or an unresolved base) needs no args.
  */
-function baseConstructorRequiresArgs(info: ClassInfo, classByName: ReadonlyMap<string, ClassInfo>): boolean {
+function argRequiringEffectiveBaseName(
+  info: ClassInfo,
+  classByName: ReadonlyMap<string, ClassInfo>,
+): string | undefined {
   const seen = new Set<string>();
   let current = info.baseName ? classByName.get(info.baseName) : undefined;
   while (current && !seen.has(current.name)) {
     seen.add(current.name);
     const ctor = current.constructors[0];
     if (ctor) {
-      return (ctor.children ?? []).some(
+      const requiresArgs = (ctor.children ?? []).some(
         (child) =>
           child.type === 'param' &&
           !Object.hasOwn(child.props ?? {}, 'value') &&
           !Object.hasOwn(child.props ?? {}, 'default'),
       );
+      return requiresArgs ? current.name : undefined;
     }
     // Constructor-less base: the runtime forwards [] to its base — keep walking.
     current = current.baseName ? classByName.get(current.baseName) : undefined;
   }
-  return false;
+  return undefined;
 }
 
 function analyzeConstructorStatements(
