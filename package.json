@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.32.1",
-  "description": "KERN — backend structure and portable route logic for TypeScript/Express and Python/FastAPI parity.",
+  "description": "KERN \u2014 backend structure and portable route logic for TypeScript/Express and Python/FastAPI parity.",
   "author": "cukas",
   "repository": {
     "type": "git",
@@ -18,7 +18,7 @@
     "test:non-semantics": "pnpm -r --filter '!kern-monorepo' --filter '!@kernlang/review-python' test --testPathIgnorePatterns=ir-semantics && pnpm test:prepush && pnpm check:rule-coverage",
     "check:rule-coverage": "node ./scripts/check-rule-coverage.mjs",
     "check:python-codegen": "pnpm --filter @kernlang/core --filter @kernlang/python build && node ./scripts/lift-rate-python.mjs --check",
-    "check:conformance": "pnpm --filter @kernlang/core --filter @kernlang/python --filter @kernlang/express build && node ./scripts/conformance.mjs",
+    "check:conformance": "pnpm --filter @kernlang/core --filter @kernlang/python --filter @kernlang/express build && node ./scripts/conformance.mjs && node ./scripts/class-conformance.mjs",
     "docs:contracts": "pnpm --filter @kernlang/core build && node ./scripts/generate-ir-semantics-docs.mjs --format=markdown --out=-",
     "docs:contracts:json": "pnpm --filter @kernlang/core build && node ./scripts/generate-ir-semantics-docs.mjs --format=json --out=generated/contracts/registry.json",
     "docs:contracts:check": "pnpm --filter @kernlang/core build && node ./scripts/check-contract-docs.mjs",
@@ -32,7 +32,8 @@
     "lint:fix": "biome check --fix",
     "format": "biome format --write",
     "prepush": "node ./scripts/pre-push.mjs",
-    "prepare": "node ./scripts/install-git-hooks.mjs"
+    "prepare": "node ./scripts/install-git-hooks.mjs",
+    "check:class-conformance": "pnpm --filter @kernlang/core --filter @kernlang/python build && node ./scripts/class-conformance.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
