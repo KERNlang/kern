@@ -958,3 +958,180 @@ describe('semantic-validator — class object model', () => {
     expect(rules).toContain('class-inheritance-cycle');
   });
 });
+
+describe('semantic-validator — abstract-class contract', () => {
+  // ── class-abstract-instantiation: `new <AbstractClass>()` is rejected ──────
+  test('rejects instantiating an abstract class directly', () => {
+    const violations = violationsFor(
+      [
+        'class name=Shape abstract=true',
+        '  method name=area returns=number',
+        'fn name=probe returns=number',
+        '  handler lang=kern',
+        '    return value="new Shape().area()"',
+      ].join('\n'),
+    );
+    const violation = violations.find((candidate) => candidate.rule === 'class-abstract-instantiation');
+    expect(violation?.message).toContain("Cannot instantiate abstract class 'Shape'");
+  });
+
+  test('accepts instantiating a concrete subclass that overrides the abstract member', () => {
+    const rules = rulesFor(
+      [
+        'class name=Shape abstract=true',
+        '  method name=area returns=number',
+        'class name=Square extends=Shape',
+        '  method name=area returns=number',
+        '    handler lang=kern',
+        '      return value=9',
+        'fn name=probe returns=number',
+        '  handler lang=kern',
+        '    return value="new Square().area()"',
+      ].join('\n'),
+    );
+    expect(rules).not.toContain('class-abstract-instantiation');
+    expect(rules).not.toContain('class-abstract-member-unimplemented');
+  });
+
+  test('rejects abstract instantiation even inside the abstract class own static factory', () => {
+    // KERN matches TS: an abstract class is not self-instantiable, anywhere.
+    const rules = rulesFor(
+      [
+        'class name=Shape abstract=true',
+        '  method name=area returns=number',
+        '  method name=make returns=Shape static=true',
+        '    handler lang=kern',
+        '      return value="new Shape()"',
+      ].join('\n'),
+    );
+    expect(rules).toContain('class-abstract-instantiation');
+  });
+
+  test('does not flag new of a concrete class or an unresolved identifier', () => {
+    const rules = rulesFor(
+      [
+        'class name=Widget',
+        '  method name=run returns=number',
+        '    handler lang=kern',
+        '      return value=1',
+        'fn name=probe returns=number',
+        '  handler lang=kern',
+        '    return value="new Widget().run() + new Unknown().x"',
+      ].join('\n'),
+    );
+    expect(rules).not.toContain('class-abstract-instantiation');
+  });
+
+  // ── class-abstract-member-unimplemented: concrete must override ────────────
+  test('rejects a concrete subclass that leaves an inherited abstract member unimplemented', () => {
+    const violations = violationsFor(
+      [
+        'class name=Shape abstract=true',
+        '  method name=area returns=number',
+        'class name=Square extends=Shape',
+        '  field name=side type=number value={{ 3 }}',
+      ].join('\n'),
+    );
+    const violation = violations.find((candidate) => candidate.rule === 'class-abstract-member-unimplemented');
+    expect(violation?.message).toContain("Concrete class 'Square' must implement abstract method 'area'");
+    expect(violation?.message).toContain("inherited from 'Shape'");
+  });
+
+  test('accepts a concrete subclass that overrides every abstract member', () => {
+    const rules = rulesFor(
+      [
+        'class name=Shape abstract=true',
+        '  method name=area returns=number',
+        'class name=Square extends=Shape',
+        '  method name=area returns=number',
+        '    handler lang=kern',
+        '      return value=9',
+      ].join('\n'),
+    );
+    expect(rules).not.toContain('class-abstract-member-unimplemented');
+  });
+
+  test('allows an abstract subclass to leave an inherited abstract member unimplemented', () => {
+    const rules = rulesFor(
+      [
+        'class name=Shape abstract=true',
+        '  method name=area returns=number',
+        'class name=Polygon extends=Shape abstract=true',
+        '  method name=sides returns=number',
+      ].join('\n'),
+    );
+    expect(rules).not.toContain('class-abstract-member-unimplemented');
+  });
+
+  test('requires the override only at the concrete leaf of a multi-level abstract chain', () => {
+    // A(abstract area) -> B(abstract, no override) -> C(concrete, no override).
+    const violations = violationsFor(
+      [
+        'class name=A abstract=true',
+        '  method name=area returns=number',
+        'class name=B extends=A abstract=true',
+        'class name=C extends=B',
+      ].join('\n'),
+    );
+    const matches = violations.filter((candidate) => candidate.rule === 'class-abstract-member-unimplemented');
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.message).toContain("Concrete class 'C'");
+    expect(matches[0]?.message).toContain("inherited from 'A'");
+  });
+
+  test('requires overriding BOTH an abstract getter and setter pair (no sibling erasure)', () => {
+    // The soundness case: overriding only the getter must NOT silently satisfy
+    // the sibling abstract setter (effectiveClassMemberFacts would collapse by
+    // name+static and drop it — collectAbstractObligations keys by kind).
+    const violations = violationsFor(
+      [
+        'class name=Cell abstract=true',
+        '  getter name=value returns=number',
+        '  setter name=value',
+        '    param name=next type=number',
+        'class name=IntCell extends=Cell',
+        '  getter name=value returns=number',
+        '    handler lang=kern',
+        '      return value="this._value"',
+      ].join('\n'),
+    );
+    const matches = violations.filter((candidate) => candidate.rule === 'class-abstract-member-unimplemented');
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.message).toContain("abstract setter 'value'");
+  });
+
+  test('accepts overriding both members of an abstract getter/setter pair', () => {
+    const rules = rulesFor(
+      [
+        'class name=Cell abstract=true',
+        '  getter name=value returns=number',
+        '  setter name=value',
+        '    param name=next type=number',
+        'class name=IntCell extends=Cell',
+        '  getter name=value returns=number',
+        '    handler lang=kern',
+        '      return value="this._value"',
+        '  setter name=value',
+        '    param name=next type=number',
+        '    handler lang=kern',
+        '      assign target="this._value" value="next"',
+      ].join('\n'),
+    );
+    expect(rules).not.toContain('class-abstract-member-unimplemented');
+  });
+
+  test('a same-name different-kind member does not satisfy an abstract method obligation', () => {
+    // Base abstract METHOD `area`; subclass declares a FIELD `area`. The method
+    // obligation stands (kind-specific); the kind collision is owned separately
+    // by class-member-conflict.
+    const violations = violationsFor(
+      [
+        'class name=Shape abstract=true',
+        '  method name=area returns=number',
+        'class name=Square extends=Shape',
+        '  field name=area type=number value={{ 9 }}',
+      ].join('\n'),
+    );
+    expect(violations.map((candidate) => candidate.rule)).toContain('class-abstract-member-unimplemented');
+  });
+});
