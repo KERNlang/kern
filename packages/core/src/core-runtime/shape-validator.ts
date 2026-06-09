@@ -10,6 +10,7 @@ export type CoreShapeDiagnosticCode =
   | 'shape-field-type'
   | 'shape-generic-unsupported'
   | 'shape-indexer-key-unsupported'
+  | 'shape-interface-duplicate'
   | 'shape-interface-not-found'
   | 'shape-object-expected'
   | 'shape-type-reference-unknown'
@@ -114,6 +115,7 @@ export function validateCoreShape(
   const registry = collectShapeRegistry(rootOrNodes);
   const diagnostics: CoreShapeDiagnostic[] = [];
   const shape = registry.interfaces.get(interfaceName);
+  diagnostics.push(...interfaceDuplicateDiagnostics(registry, interfaceName));
   if (!shape) {
     diagnostics.push({
       code: 'shape-interface-not-found',
@@ -123,7 +125,8 @@ export function validateCoreShape(
     return { passed: false, interfaceName, diagnostics };
   }
   diagnostics.push(...validateAgainstInterface(value, shape, registry, interfaceName, [], new WeakMap()));
-  return { passed: diagnostics.length === 0, interfaceName, diagnostics };
+  const uniqueDiagnostics = dedupeDiagnostics(diagnostics);
+  return { passed: uniqueDiagnostics.length === 0, interfaceName, diagnostics: uniqueDiagnostics };
 }
 
 export function assertCoreShape(
@@ -191,6 +194,13 @@ function collectShapeRegistry(rootOrNodes: IRNode | readonly IRNode[]): ShapeReg
     if (node.type !== 'interface') continue;
     const name = stringProp(node.props?.name);
     if (!name) continue;
+    if (interfaces.has(name)) {
+      diagnostics.push({
+        code: 'shape-interface-duplicate',
+        message: `KERN core shape '${name}' is declared more than once; the last declaration is used.`,
+        interfaceName: name,
+      });
+    }
     const shape: ShapeInterface = {
       name,
       extendsNames: splitExtends(node.props?.extends),
@@ -274,16 +284,9 @@ function validateAgainstInterface(
         }
         continue;
       }
-      diagnostics.push(
-        ...validateType(
-          object[field.name] ?? kUndefinedValue(),
-          field.type,
-          registry,
-          fieldPath(path, field.name),
-          stack,
-          visited,
-        ),
-      );
+      const value = object[field.name] ?? kUndefinedValue();
+      if (field.optional && value.kind === 'undefined') continue;
+      diagnostics.push(...validateType(value, field.type, registry, fieldPath(path, field.name), stack, visited));
     }
 
     for (const [key, entry] of Object.entries(object)) {
@@ -348,7 +351,10 @@ function validateType(
         },
       ];
     }
-    return validateAgainstInterface(value, nested, registry, path, stack, visited);
+    return [
+      ...interfaceDuplicateDiagnostics(registry, type),
+      ...validateAgainstInterface(value, nested, registry, path, stack, visited),
+    ];
   }
   return [
     {
@@ -413,6 +419,11 @@ function resolveShape(shape: ShapeInterface, registry: ShapeRegistry, stack: rea
       });
       continue;
     }
+    diagnostics.push(
+      ...registry.diagnostics.filter(
+        (diagnostic) => diagnostic.code === 'shape-interface-duplicate' && diagnostic.interfaceName === baseName,
+      ),
+    );
     const resolved = resolveShape(base, registry, [...stack, shape.name]);
     diagnostics.push(...resolved.diagnostics);
     for (const field of resolved.fields) {
@@ -485,6 +496,7 @@ function shapeUnsupportedReasons(
 ): readonly string[] {
   const reasons = new Set<string>();
   if (shape.generic) reasons.add('generic-interface');
+  for (const diagnostic of interfaceDuplicateDiagnostics(registry, shape.name)) reasons.add(diagnostic.code);
   for (const diagnostic of resolved.diagnostics) reasons.add(diagnostic.code);
   for (const field of resolved.fields) {
     for (const issue of unsupportedTypeReasons(field.type, registry)) reasons.add(issue);
@@ -496,13 +508,22 @@ function shapeUnsupportedReasons(
   return [...reasons].sort();
 }
 
+function interfaceDuplicateDiagnostics(registry: ShapeRegistry, interfaceName: string): readonly CoreShapeDiagnostic[] {
+  return registry.diagnostics.filter(
+    (diagnostic) => diagnostic.interfaceName === interfaceName && diagnostic.code === 'shape-interface-duplicate',
+  );
+}
+
 function unsupportedTypeReasons(rawType: string | undefined, registry: ShapeRegistry): string[] {
   const type = normalizeType(rawType);
   if (!type || type === 'any' || type === 'unknown' || isPrimitiveType(type)) return [];
   if (type.endsWith('[]')) return unsupportedTypeReasons(type.slice(0, -2), registry);
   const arrayMatch = /^Array<(.+)>$/.exec(type);
   if (arrayMatch) return unsupportedTypeReasons(arrayMatch[1], registry);
-  if (isSimpleIdentifier(type)) return registry.interfaces.has(type) ? [] : [`unknown-type:${type}`];
+  if (isSimpleIdentifier(type)) {
+    if (!registry.interfaces.has(type)) return [`unknown-type:${type}`];
+    return interfaceDuplicateDiagnostics(registry, type).map((diagnostic) => diagnostic.code);
+  }
   return [`unsupported-type:${type}`];
 }
 
@@ -558,7 +579,7 @@ function sameShapeField(left: ShapeField, right: ShapeField): boolean {
 
 function keyMatchesIndexer(key: string, indexer: ShapeIndexer): boolean {
   if (indexer.keyType === 'string') return true;
-  return indexer.keyType === 'number' && /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(key);
+  return indexer.keyType === 'number' && /^-?(?:0|[1-9]\d*)$/.test(key);
 }
 
 function fieldPath(path: string, field: string): string {
@@ -581,10 +602,56 @@ function normalizeType(value: string | undefined): string | undefined {
 function splitExtends(value: unknown): string[] {
   const raw = stringProp(value);
   if (!raw) return [];
-  return raw
-    .split(',')
-    .map((part) => part.trim())
-    .filter(Boolean);
+  return splitTopLevelCommas(raw);
+}
+
+function splitTopLevelCommas(value: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let angleDepth = 0;
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+  let quote: '"' | "'" | '`' | undefined;
+  let escaped = false;
+  for (const char of value) {
+    if (quote) {
+      current += char;
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (char === quote) quote = undefined;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === '`') {
+      quote = char;
+      current += char;
+      continue;
+    }
+    if (char === '<') angleDepth += 1;
+    else if (char === '>' && angleDepth > 0) angleDepth -= 1;
+    else if (char === '(') parenDepth += 1;
+    else if (char === ')' && parenDepth > 0) parenDepth -= 1;
+    else if (char === '[') bracketDepth += 1;
+    else if (char === ']' && bracketDepth > 0) bracketDepth -= 1;
+    else if (char === '{') braceDepth += 1;
+    else if (char === '}' && braceDepth > 0) braceDepth -= 1;
+    if (char === ',' && angleDepth === 0 && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0) {
+      const part = current.trim();
+      if (part) parts.push(part);
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  const part = current.trim();
+  if (part) parts.push(part);
+  return parts;
 }
 
 function extendsEdgeParticipatesInCycle(from: string, to: string, registry: ShapeRegistry): boolean {

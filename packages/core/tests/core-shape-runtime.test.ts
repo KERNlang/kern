@@ -123,10 +123,13 @@ describe('KERN core declared shape validators', () => {
     const root = parse('interface name=NumericMap\n  indexer keyType=number type=string');
 
     expect(
-      validateCoreShape(fromHostValue({ '-1': 'left', '1.5': 'half', '2e3': 'large' }), 'NumericMap', root).passed,
+      validateCoreShape(fromHostValue({ '-1': 'left', '0': 'zero', '42': 'answer' }), 'NumericMap', root).passed,
     ).toBe(true);
     expect(codes(validateCoreShape(fromHostValue({ label: 'not numeric' }), 'NumericMap', root))).toContain(
       'shape-unexpected-field',
+    );
+    expect(codes(validateCoreShape(fromHostValue({ '1.5': 'half', '2e3': 'large' }), 'NumericMap', root))).toEqual(
+      expect.arrayContaining(['shape-unexpected-field', 'shape-unexpected-field']),
     );
   });
 
@@ -158,6 +161,17 @@ describe('KERN core declared shape validators', () => {
     expect(codes(result)).toEqual(expect.arrayContaining(['shape-field-conflict', 'shape-type-reference-unknown']));
   });
 
+  test('allows explicit undefined for optional fields', () => {
+    const root = parse(
+      ['interface name=User', '  field name=id type=string', '  field name=nickname type=string optional=true'].join(
+        '\n',
+      ),
+    );
+
+    expect(validateCoreShape(fromHostValue({ id: 'u1', nickname: undefined }), 'User', root).passed).toBe(true);
+    expect(codes(validateCoreShape(fromHostValue({ id: undefined }), 'User', root))).toContain('shape-field-type');
+  });
+
   test('reports recursive values instead of recursing through self-referential shape fields', () => {
     const root = parse(
       ['interface name=Node', '  field name=id type=string', '  field name=next type=Node optional=true'].join('\n'),
@@ -187,7 +201,9 @@ describe('KERN core declared shape validators', () => {
       ].join('\n'),
     );
 
-    expect(codes(validateCoreShape(fromHostValue({ value: 'x' }), 'Box', root))).toContain('shape-generic-unsupported');
+    const boxCodes = codes(validateCoreShape(fromHostValue({ value: 'x' }), 'Box', root));
+    expect(boxCodes).toContain('shape-generic-unsupported');
+    expect(boxCodes.filter((code) => code === 'shape-generic-unsupported')).toHaveLength(1);
     const maybeNameCodes = codes(validateCoreShape(fromHostValue({ name: 'Ada' }), 'MaybeName', root));
     expect(maybeNameCodes).toContain('shape-type-unsupported');
     expect(maybeNameCodes).not.toContain('shape-generic-unsupported');
@@ -249,6 +265,8 @@ describe('KERN core declared shape validators', () => {
         'interface name=Right',
         '  field name=id type=number',
         'interface name=Joined extends=Left,Right',
+        'interface name=GenericChild extends="Pair<string, string>,Left"',
+        'interface name=ObjectGenericChild extends="Wrapper<{ a: string, b: number }>,Left"',
         'interface name=Broken extends=Missing',
         '  indexer keyType=symbol type=string',
         'interface name=Indexed',
@@ -257,28 +275,57 @@ describe('KERN core declared shape validators', () => {
         'interface name=Duplicate',
         '  field name=id type=string',
         '  field name=id type=string',
+        'interface name=Shadowed',
+        '  field name=id type=string',
+        'interface name=Shadowed',
+        '  field name=id type=number',
+        'interface name=ShadowedChild extends=Shadowed',
+        'interface name=UsesShadowed',
+        '  field name=child type=Shadowed',
       ].join('\n'),
     );
 
     const facts = collectCoreShapeFacts(root);
 
     expect(facts.interfaces.map((shape) => shape.name)).toEqual(
-      expect.arrayContaining(['Nested', 'Left', 'Right', 'Joined', 'Broken', 'Indexed', 'IndexedChild', 'Duplicate']),
+      expect.arrayContaining([
+        'Nested',
+        'Left',
+        'Right',
+        'Joined',
+        'GenericChild',
+        'ObjectGenericChild',
+        'Broken',
+        'Indexed',
+        'IndexedChild',
+        'Duplicate',
+        'Shadowed',
+        'ShadowedChild',
+        'UsesShadowed',
+      ]),
     );
     expect(facts.extendsEdges).toEqual(
       expect.arrayContaining([
         { from: 'Joined', to: 'Left', resolved: true },
         { from: 'Joined', to: 'Right', resolved: true },
+        { from: 'GenericChild', to: 'Pair<string, string>', resolved: false },
+        { from: 'GenericChild', to: 'Left', resolved: true },
+        { from: 'ObjectGenericChild', to: 'Wrapper<{ a: string, b: number }>', resolved: false },
+        { from: 'ObjectGenericChild', to: 'Left', resolved: true },
         { from: 'Broken', to: 'Missing', resolved: false },
         { from: 'IndexedChild', to: 'Indexed', resolved: true },
+        { from: 'ShadowedChild', to: 'Shadowed', resolved: true },
       ]),
     );
     expect(facts.validationDiagnostics).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ code: 'shape-field-conflict', interfaceName: 'Joined' }),
         expect.objectContaining({ code: 'shape-extends-unknown', interfaceName: 'Broken' }),
+        expect.objectContaining({ code: 'shape-extends-unknown', interfaceName: 'GenericChild' }),
+        expect.objectContaining({ code: 'shape-extends-unknown', interfaceName: 'ObjectGenericChild' }),
         expect.objectContaining({ code: 'shape-indexer-key-unsupported', interfaceName: 'Broken' }),
         expect.objectContaining({ code: 'shape-field-duplicate', interfaceName: 'Duplicate' }),
+        expect.objectContaining({ code: 'shape-interface-duplicate', interfaceName: 'Shadowed' }),
       ]),
     );
     expect(facts.interfaces.find((shape) => shape.name === 'Broken')?.unsupportedReasons).toEqual(
@@ -287,5 +334,28 @@ describe('KERN core declared shape validators', () => {
     expect(facts.interfaces.find((shape) => shape.name === 'IndexedChild')?.indexers).toEqual([
       expect.objectContaining({ keyType: 'string', type: 'unknown' }),
     ]);
+    expect(facts.interfaces.find((shape) => shape.name === 'Shadowed')).toEqual(
+      expect.objectContaining({
+        validatorAvailable: false,
+        unsupportedReasons: expect.arrayContaining(['shape-interface-duplicate']),
+      }),
+    );
+    expect(facts.interfaces.find((shape) => shape.name === 'UsesShadowed')).toEqual(
+      expect.objectContaining({
+        validatorAvailable: false,
+        unsupportedReasons: expect.arrayContaining(['shape-interface-duplicate']),
+      }),
+    );
+    const shadowed = validateCoreShape(fromHostValue({ id: 1 }), 'Shadowed', root);
+    expect(shadowed.passed).toBe(false);
+    expect(shadowed.diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'shape-interface-duplicate' })]),
+    );
+    expect(codes(validateCoreShape(fromHostValue({ id: 1 }), 'ShadowedChild', root))).toContain(
+      'shape-interface-duplicate',
+    );
+    expect(codes(validateCoreShape(fromHostValue({ child: { id: 1 } }), 'UsesShadowed', root))).toContain(
+      'shape-interface-duplicate',
+    );
   });
 });
