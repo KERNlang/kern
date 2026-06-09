@@ -118,4 +118,87 @@ describe('Python class codegen (single-source class slice)', () => {
     expect(code).not.toContain('def label(self)');
     expect(code).toContain("static getter 'label'");
   });
+
+  test('instance-field defaults emit in __init__, never as a shared class attr', () => {
+    const bag: IRNode = {
+      type: 'class',
+      props: { name: 'Bag' },
+      children: [
+        {
+          type: 'field',
+          props: { name: 'items', type: 'object[]', value: { __expr: true, code: '[]' } },
+          children: [],
+        },
+        {
+          type: 'field',
+          props: { name: 'tag', type: 'string', value: { __expr: true, code: '"empty"' } },
+          children: [],
+        },
+      ],
+    };
+    const code = generatePythonClass(bag).join('\n');
+    expect(code).toContain('def __init__(self):');
+    expect(code).toContain('self.items = []');
+    expect(code).toContain('self.tag = "empty"');
+    // Shared-mutable-default trap: instance fields must NOT become class-level attrs.
+    expect(code).not.toMatch(/^ {4}items\s*[:=]/m);
+  });
+
+  test('static field values are extracted from value={{...}} (not None)', () => {
+    const reg: IRNode = {
+      type: 'class',
+      props: { name: 'Reg' },
+      children: [
+        {
+          type: 'field',
+          props: { name: 'kind', type: 'string', static: 'true', value: { __expr: true, code: '"audited"' } },
+          children: [],
+        },
+      ],
+    };
+    const code = generatePythonClass(reg).join('\n');
+    expect(code).toContain('kind: str = "audited"');
+    expect(code).not.toContain('kind: str = None');
+  });
+
+  test('derived class without a constructor forwards to base init, then applies defaults', () => {
+    const dog: IRNode = {
+      type: 'class',
+      props: { name: 'Dog', extends: 'Animal' },
+      children: [
+        {
+          type: 'field',
+          props: { name: 'tricks', type: 'object[]', value: { __expr: true, code: '[]' } },
+          children: [],
+        },
+      ],
+    };
+    const code = generatePythonClass(dog).join('\n');
+    expect(code).toContain('def __init__(self, *args, **kwargs):');
+    expect(code).toContain('super().__init__(*args, **kwargs)');
+    expect(code).toContain('self.tricks = []');
+    expect(code.indexOf('super().__init__')).toBeLessThan(code.indexOf('self.tricks = []'));
+  });
+
+  test('field defaults run AFTER super() inside an explicit derived constructor', () => {
+    const dog: IRNode = {
+      type: 'class',
+      props: { name: 'Dog', extends: 'Animal' },
+      children: [
+        {
+          type: 'field',
+          props: { name: 'tricks', type: 'object[]', value: { __expr: true, code: '[]' } },
+          children: [],
+        },
+        {
+          type: 'constructor',
+          props: {},
+          children: [param('name', 'string'), handler([{ type: 'do', props: { value: 'super(name)' }, children: [] }])],
+        },
+      ],
+    };
+    const code = generatePythonClass(dog).join('\n');
+    expect(code).toContain('super().__init__(name)');
+    expect(code.indexOf('super().__init__(name)')).toBeLessThan(code.indexOf('self.tricks = []'));
+  });
 });
