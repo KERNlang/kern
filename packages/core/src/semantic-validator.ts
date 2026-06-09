@@ -49,6 +49,7 @@ export interface ClassSemanticMemberFact {
   readonly arity: number;
   readonly readable: boolean;
   readonly writable: boolean;
+  readonly inheritedFrom?: string;
   readonly loc?: ClassSemanticLocation;
 }
 
@@ -58,6 +59,7 @@ export interface ClassSemanticClassFact {
   readonly hasConstructor: boolean;
   readonly constructorCount: number;
   readonly members: readonly ClassSemanticMemberFact[];
+  readonly effectiveMembers: readonly ClassSemanticMemberFact[];
   readonly loc?: ClassSemanticLocation;
 }
 
@@ -2755,7 +2757,7 @@ export function collectClassSemanticFacts(root: IRNode | readonly IRNode[]): Cla
   }
 
   return {
-    classes: classes.map(classSemanticFact),
+    classes: classes.map((info) => classSemanticFact(info, classByName)),
     inheritanceEdges,
     overrides: collectClassOverrideFacts(classes, classByName),
     unresolvedBases: [...unresolvedBases].sort(),
@@ -2763,20 +2765,25 @@ export function collectClassSemanticFacts(root: IRNode | readonly IRNode[]): Cla
   };
 }
 
-function classSemanticFact(info: ClassInfo): ClassSemanticClassFact {
+function classSemanticFact(info: ClassInfo, classByName: ReadonlyMap<string, ClassInfo>): ClassSemanticClassFact {
   return {
     name: info.name,
     ...(info.baseName ? { baseName: info.baseName } : {}),
     hasConstructor: info.constructors.length > 0,
     constructorCount: info.constructors.length,
-    members: info.members.map(classMemberSemanticFact),
+    members: info.members.map((member) => classMemberSemanticFact(member)),
+    effectiveMembers: effectiveClassMemberFacts(info, classByName),
     ...(info.node.loc ? { loc: semanticLocation(info.node) } : {}),
   };
 }
 
-function classMemberSemanticFact(member: ClassMemberInfo): ClassSemanticMemberFact {
+function classMemberSemanticFact(
+  member: ClassMemberInfo,
+  className = member.owner,
+  inheritedFrom?: string,
+): ClassSemanticMemberFact {
   return {
-    className: member.owner,
+    className,
     owner: member.owner,
     name: member.name,
     kind: member.kind,
@@ -2784,8 +2791,72 @@ function classMemberSemanticFact(member: ClassMemberInfo): ClassSemanticMemberFa
     arity: member.arity,
     readable: member.kind === 'field' || member.kind === 'getter' || member.kind === 'method',
     writable: member.kind === 'field' || member.kind === 'setter',
+    ...(inheritedFrom ? { inheritedFrom } : {}),
     ...(member.node.loc ? { loc: semanticLocation(member.node) } : {}),
   };
+}
+
+function effectiveClassMemberFacts(
+  info: ClassInfo,
+  classByName: ReadonlyMap<string, ClassInfo>,
+  seen: ReadonlySet<string> = new Set(),
+): ClassSemanticMemberFact[] {
+  const effective = new Map<string, ClassSemanticMemberFact>();
+  if (seen.has(info.name) || classInfoParticipatesInCycle(info, classByName)) {
+    return info.members.map((member) => classMemberSemanticFact(member, info.name));
+  }
+  const nextSeen = new Set(seen);
+  nextSeen.add(info.name);
+  const base = info.baseName ? classByName.get(info.baseName) : undefined;
+  if (base) {
+    for (const member of effectiveClassMemberFacts(base, classByName, nextSeen)) {
+      effective.set(classMemberEffectiveKey(member), {
+        ...member,
+        className: info.name,
+        inheritedFrom: member.inheritedFrom ?? member.owner,
+      });
+    }
+  }
+  const ownGroups = new Map<string, ClassMemberInfo[]>();
+  for (const member of info.members) {
+    const group = ownGroups.get(classMemberShapeKey(member)) ?? [];
+    group.push(member);
+    ownGroups.set(classMemberShapeKey(member), group);
+  }
+  for (const [shapeKey, members] of ownGroups) {
+    const first = members[0];
+    if (!first) continue;
+    for (const key of [...effective.keys()]) {
+      if (classMemberShapeKey(effective.get(key) ?? first) === shapeKey) effective.delete(key);
+    }
+    for (const member of members) {
+      effective.set(classMemberEffectiveKey(member), classMemberSemanticFact(member, info.name));
+    }
+  }
+  return [...effective.values()];
+}
+
+function classMemberShapeKey(member: { readonly static: boolean; readonly name: string }): string {
+  return `${member.static ? 'static' : 'instance'}:${member.name}`;
+}
+
+function classMemberEffectiveKey(member: {
+  readonly static: boolean;
+  readonly name: string;
+  readonly kind: ClassSemanticMemberKind | ClassMemberKind;
+}): string {
+  return `${classMemberShapeKey(member)}:${member.kind}`;
+}
+
+function classInfoParticipatesInCycle(info: ClassInfo, classByName: ReadonlyMap<string, ClassInfo>): boolean {
+  const seen = new Set<string>();
+  let current: ClassInfo | undefined = info;
+  while (current) {
+    if (seen.has(current.name)) return true;
+    seen.add(current.name);
+    current = current.baseName ? classByName.get(current.baseName) : undefined;
+  }
+  return false;
 }
 
 function collectClassOverrideFacts(

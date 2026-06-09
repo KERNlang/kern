@@ -74,9 +74,13 @@ describe('KERN semantic substrate', () => {
       [
         'class name=Base',
         '  field name=id type=string',
+        '  field name=version type=number static=true',
         '  method name=load returns=string',
         '    param name=id type=string',
         '  getter name=label returns=string',
+        '  getter name=status returns=string',
+        '  setter name=status',
+        '    param name=value type=string',
         'class name=Derived extends=Base',
         '  constructor',
         '    handler lang=kern',
@@ -128,6 +132,79 @@ describe('KERN semantic substrate', () => {
         }),
       ]),
     );
+    expect(derived?.effectiveMembers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          className: 'Derived',
+          owner: 'Base',
+          inheritedFrom: 'Base',
+          name: 'id',
+          kind: 'field',
+          static: false,
+          readable: true,
+          writable: true,
+        }),
+        expect.objectContaining({
+          className: 'Derived',
+          owner: 'Base',
+          inheritedFrom: 'Base',
+          name: 'status',
+          kind: 'getter',
+          static: false,
+          readable: true,
+          writable: false,
+        }),
+        expect.objectContaining({
+          className: 'Derived',
+          owner: 'Base',
+          inheritedFrom: 'Base',
+          name: 'status',
+          kind: 'setter',
+          static: false,
+          readable: false,
+          writable: true,
+        }),
+        expect.objectContaining({
+          className: 'Derived',
+          owner: 'Base',
+          inheritedFrom: 'Base',
+          name: 'version',
+          kind: 'field',
+          static: true,
+          readable: true,
+          writable: true,
+        }),
+        expect.objectContaining({
+          className: 'Derived',
+          owner: 'Derived',
+          name: 'load',
+          kind: 'method',
+          arity: 2,
+        }),
+        expect.objectContaining({
+          className: 'Derived',
+          owner: 'Derived',
+          name: 'label',
+          kind: 'setter',
+          readable: false,
+          writable: true,
+        }),
+      ]),
+    );
+    expect(derived?.effectiveMembers).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          className: 'Derived',
+          owner: 'Base',
+          name: 'load',
+        }),
+        expect.objectContaining({
+          className: 'Derived',
+          owner: 'Base',
+          name: 'label',
+        }),
+      ]),
+    );
 
     expect(substrate.classFacts?.overrides).toEqual(
       expect.arrayContaining([
@@ -156,7 +233,13 @@ describe('KERN semantic substrate', () => {
   test('reports unresolved bases and inheritance cycles as class facts', () => {
     const facts = collectClassSemanticFacts(
       parseRoot(
-        ['class name=UsesExternal extends=ExternalBase', 'class name=A extends=B', 'class name=B extends=A'].join('\n'),
+        [
+          'class name=UsesExternal extends=ExternalBase',
+          'class name=A extends=B',
+          '  field name=onlyA type=string',
+          'class name=B extends=A',
+          '  field name=onlyB type=string',
+        ].join('\n'),
       ),
     );
 
@@ -168,6 +251,9 @@ describe('KERN semantic substrate', () => {
       ]),
     );
     expect(facts.cycles).toEqual([['A', 'B', 'A']]);
+    expect(facts.classes.find((candidate) => candidate.name === 'A')?.effectiveMembers).toEqual([
+      expect.objectContaining({ className: 'A', owner: 'A', name: 'onlyA' }),
+    ]);
   });
 
   test('resolves imported and cross-root class bases consistently with validation', () => {
