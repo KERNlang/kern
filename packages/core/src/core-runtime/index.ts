@@ -320,6 +320,7 @@ function executeNode(node: IRNode, env: CoreRuntimeEnv): CoreCompletion {
       const klass = makeClass(node, env);
       env.define(klass.name, klass);
       initializeClassStaticFields(klass);
+      validateImplementedClassStaticProtocols(klass);
       return { kind: 'normal', value: kUndefined() };
     }
     case 'assign':
@@ -811,6 +812,57 @@ function validateImplementedClassProtocols(instance: KernInstanceValue, klass: K
   }
 }
 
+function validateImplementedClassStaticProtocols(klass: KernClassValue): void {
+  const root = klass.runtimeRootContext ?? klass.env.getRuntimeRootContext();
+  if (!root) return;
+  const facts = collectCoreShapeFacts(root);
+  const shapeByName = new Map(facts.interfaces.map((shape) => [shape.name, shape]));
+  const importedProtocolNames = runtimeImportedProtocolNames(root);
+  for (const interfaceName of runtimeClassReferenceNames(klass.node.props?.implements)) {
+    const shape = shapeByName.get(interfaceName);
+    if (!shape) {
+      if (importedProtocolNames.has(interfaceName)) continue;
+      throw new Error(`KERN core runtime class '${klass.name}' implements unknown interface '${interfaceName}'.`);
+    }
+    if (!shape.validatorAvailable || shape.indexers.length > 0) {
+      throw new Error(
+        `KERN core runtime class '${klass.name}' implements interface '${interfaceName}' that is not executable as a class protocol in v1.`,
+      );
+    }
+    const staticFields = runtimeInterfaceProtocolFields(root, interfaceName, true);
+    if (staticFields.length > 0) {
+      const missingFields = staticFields.filter((field) => !classHasRuntimeProtocolField(klass, field));
+      if (missingFields.length > 0) {
+        throw new Error(
+          `KERN core runtime class '${klass.name}' violates implemented interface '${interfaceName}': missing or incompatible static member(s): ${missingFields
+            .map((field) => field.name)
+            .join(', ')}.`,
+        );
+      }
+      const fieldBackedFields = staticFields.filter(
+        (field) => findReadableClassShapeMember(klass, field.name, true)?.kind === 'field',
+      );
+      const projection = classStaticProtocolProjection(klass, fieldBackedFields);
+      const result = validateProjectedProtocolFields(projection, interfaceName, fieldBackedFields, root);
+      if (!result.passed) {
+        throw new Error(
+          `KERN core runtime class '${klass.name}' violates implemented interface '${interfaceName}' static field contract:\n${result.diagnostics
+            .map((diagnostic) => diagnostic.message)
+            .join('\n')}`,
+        );
+      }
+    }
+    const missingMethods = runtimeInterfaceProtocolMethods(root, interfaceName, true)
+      .filter((method) => !classHasRuntimeProtocolMethod(klass, method, true))
+      .map((method) => method.name);
+    if (missingMethods.length > 0) {
+      throw new Error(
+        `KERN core runtime class '${klass.name}' violates implemented interface '${interfaceName}': missing or incompatible static member(s): ${missingMethods.join(', ')}.`,
+      );
+    }
+  }
+}
+
 function classProtocolProjection(instance: KernInstanceValue, fieldNames: readonly string[]): KernValue {
   const entries = createRecordEntries();
   for (const fieldName of fieldNames) {
@@ -825,6 +877,49 @@ function classProtocolProjection(instance: KernInstanceValue, fieldNames: readon
   return brandValue({ kind: 'record', entries });
 }
 
+function classStaticProtocolProjection(
+  klass: KernClassValue,
+  fields: readonly RuntimeInterfaceProtocolField[],
+): KernValue {
+  const entries = createRecordEntries();
+  for (const field of fields) {
+    const member = findReadableClassShapeMember(klass, field.name, true);
+    if (member?.kind !== 'field') continue;
+    entries[field.name] = evalClassMember(klass, field.name);
+  }
+  return brandValue({ kind: 'record', entries });
+}
+
+function validateProjectedProtocolFields(
+  projection: KernValue,
+  interfaceName: string,
+  fields: readonly RuntimeInterfaceProtocolField[],
+  rootOrNodes: IRNode | readonly IRNode[],
+): ReturnType<typeof validateCoreShape> {
+  const syntheticName = `__KernStaticProtocol_${interfaceName}`;
+  const syntheticInterface: IRNode = {
+    type: 'interface',
+    props: { name: syntheticName },
+    children: fields.map((field) => ({
+      type: 'field',
+      props: {
+        name: field.name,
+        optional: field.optional,
+        ...(field.type ? { type: field.type } : {}),
+      },
+    })),
+  };
+  const roots = [...(isIRNodeArray(rootOrNodes) ? rootOrNodes : [rootOrNodes]), syntheticInterface];
+  return validateCoreShape(projection, syntheticName, roots);
+}
+
+interface RuntimeInterfaceProtocolField {
+  readonly name: string;
+  readonly type?: string;
+  readonly optional: boolean;
+  readonly static: boolean;
+}
+
 interface RuntimeInterfaceProtocolMethod {
   readonly name: string;
   readonly arity: number;
@@ -832,23 +927,50 @@ interface RuntimeInterfaceProtocolMethod {
   readonly async: boolean;
   readonly stream: boolean;
   readonly generator: boolean;
+  readonly static: boolean;
   readonly returns?: string;
+}
+
+function runtimeInterfaceProtocolFields(
+  rootOrNodes: IRNode | readonly IRNode[],
+  interfaceName: string,
+  staticOnly: boolean,
+): RuntimeInterfaceProtocolField[] {
+  const interfaceByName = runtimeInterfaceNodesByName(rootOrNodes);
+  const resolve = (name: string, seen: ReadonlySet<string>): RuntimeInterfaceProtocolField[] => {
+    if (seen.has(name)) return [];
+    const node = interfaceByName.get(name);
+    if (!node) return [];
+    const nextSeen = new Set(seen);
+    nextSeen.add(name);
+    const fields = new Map<string, RuntimeInterfaceProtocolField>();
+    for (const baseName of runtimeClassReferenceNames(node.props?.extends)) {
+      for (const field of resolve(baseName, nextSeen)) fields.set(runtimeInterfaceMemberShapeKey(field), field);
+    }
+    for (const child of node.children ?? []) {
+      if (child.type !== 'field') continue;
+      const name = runtimeStringProp(child.props?.name);
+      if (!name) continue;
+      const isStatic = runtimeBooleanProp(child.props?.static);
+      if (isStatic !== staticOnly) continue;
+      fields.set(runtimeInterfaceMemberShapeKey({ name, static: isStatic }), {
+        name,
+        optional: runtimeBooleanProp(child.props?.optional),
+        static: isStatic,
+        ...(runtimeStringProp(child.props?.type) ? { type: runtimeStringProp(child.props?.type) } : {}),
+      });
+    }
+    return [...fields.values()];
+  };
+  return resolve(interfaceName, new Set());
 }
 
 function runtimeInterfaceProtocolMethods(
   rootOrNodes: IRNode | readonly IRNode[],
   interfaceName: string,
+  staticOnly = false,
 ): RuntimeInterfaceProtocolMethod[] {
-  const interfaceByName = new Map<string, IRNode>();
-  const visit = (node: IRNode): void => {
-    if (node.type === 'interface') {
-      const name = runtimeStringProp(node.props?.name);
-      if (name && !interfaceByName.has(name)) interfaceByName.set(name, node);
-    }
-    for (const child of node.children ?? []) visit(child);
-  };
-  for (const node of isIRNodeArray(rootOrNodes) ? rootOrNodes : [rootOrNodes]) visit(node);
-
+  const interfaceByName = runtimeInterfaceNodesByName(rootOrNodes);
   const resolve = (name: string, seen: ReadonlySet<string>): RuntimeInterfaceProtocolMethod[] => {
     if (seen.has(name)) return [];
     const node = interfaceByName.get(name);
@@ -857,19 +979,22 @@ function runtimeInterfaceProtocolMethods(
     nextSeen.add(name);
     const methods = new Map<string, RuntimeInterfaceProtocolMethod>();
     for (const baseName of runtimeClassReferenceNames(node.props?.extends)) {
-      for (const method of resolve(baseName, nextSeen)) methods.set(method.name, method);
+      for (const method of resolve(baseName, nextSeen)) methods.set(runtimeInterfaceMemberShapeKey(method), method);
     }
     for (const child of node.children ?? []) {
       if (child.type !== 'method') continue;
       const name = runtimeStringProp(child.props?.name);
       if (!name) continue;
-      methods.set(name, {
+      const isStatic = runtimeBooleanProp(child.props?.static);
+      if (isStatic !== staticOnly) continue;
+      methods.set(runtimeInterfaceMemberShapeKey({ name, static: isStatic }), {
         name,
         arity: runtimeParams(child).length,
         paramTypes: runtimeParams(child).map((param) => param.type ?? ''),
         async: runtimeBooleanProp(child.props?.async),
         stream: runtimeBooleanProp(child.props?.stream),
         generator: runtimeBooleanProp(child.props?.generator),
+        static: isStatic,
         ...(runtimeStringProp(child.props?.returns) ? { returns: runtimeStringProp(child.props?.returns) } : {}),
       });
     }
@@ -879,8 +1004,29 @@ function runtimeInterfaceProtocolMethods(
   return resolve(interfaceName, new Set());
 }
 
-function classHasRuntimeProtocolMethod(klass: KernClassValue, method: RuntimeInterfaceProtocolMethod): boolean {
-  const member = findReadableClassShapeMember(klass, method.name, false);
+function runtimeInterfaceNodesByName(rootOrNodes: IRNode | readonly IRNode[]): Map<string, IRNode> {
+  const interfaceByName = new Map<string, IRNode>();
+  const visit = (node: IRNode): void => {
+    if (node.type === 'interface') {
+      const name = runtimeStringProp(node.props?.name);
+      if (name && !interfaceByName.has(name)) interfaceByName.set(name, node);
+    }
+    for (const child of node.children ?? []) visit(child);
+  };
+  for (const node of isIRNodeArray(rootOrNodes) ? rootOrNodes : [rootOrNodes]) visit(node);
+  return interfaceByName;
+}
+
+function runtimeInterfaceMemberShapeKey(member: { readonly name: string; readonly static: boolean }): string {
+  return `${member.static ? 'static' : 'instance'}:${member.name}`;
+}
+
+function classHasRuntimeProtocolMethod(
+  klass: KernClassValue,
+  method: RuntimeInterfaceProtocolMethod,
+  staticOnly = false,
+): boolean {
+  const member = findReadableClassShapeMember(klass, method.name, staticOnly);
   if (member?.kind !== 'method') return false;
   if (runtimeBooleanProp(member.node.props?.private)) return false;
   const params = runtimeParams(member.node);
@@ -906,6 +1052,18 @@ function classHasRuntimeProtocolMethod(klass: KernClassValue, method: RuntimeInt
     method.returns,
     method,
   );
+}
+
+function classHasRuntimeProtocolField(klass: KernClassValue, field: RuntimeInterfaceProtocolField): boolean {
+  const member = findReadableClassShapeMember(klass, field.name, true);
+  if (!member) return field.optional;
+  if (member.kind !== 'field' && member.kind !== 'getter') return false;
+  if (runtimeBooleanProp(member.node.props?.private)) return false;
+  const actualType =
+    member.kind === 'getter'
+      ? runtimeStringProp(member.node.props?.returns)
+      : runtimeStringProp(member.node.props?.type);
+  return !field.type || normalizeRuntimeProtocolType(actualType) === normalizeRuntimeProtocolType(field.type);
 }
 
 function runtimeProtocolParamTypesCompatible(actual: readonly string[], expected: readonly string[]): boolean {

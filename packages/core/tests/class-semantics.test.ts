@@ -74,6 +74,20 @@ describe('semantic-validator — class object model', () => {
     expect(rules).not.toContain('class-implements-missing-member');
   });
 
+  test('rejects private instance fields as protocol members', () => {
+    const violations = violationsFor(
+      [
+        'interface name=Named',
+        '  field name=name type=string',
+        'class name=User implements=Named',
+        '  field name=name type=string private=true',
+      ].join('\n'),
+    );
+
+    const violation = violations.find((candidate) => candidate.rule === 'class-implements-missing-member');
+    expect(violation?.message).toContain('instance member(s): name');
+  });
+
   test('accepts class implements when instance methods satisfy interface methods', () => {
     const rules = rulesFor(
       [
@@ -88,6 +102,56 @@ describe('semantic-validator — class object model', () => {
     );
 
     expect(rules).not.toContain('class-implements-missing-member');
+  });
+
+  test('accepts static fields and inherited static methods for class implements', () => {
+    const rules = rulesFor(
+      [
+        'interface name=Factory',
+        '  field name=kind type=string static=true',
+        '  method name=create params="id:string" returns=string static=true',
+        'class name=Base',
+        '  method name=create params="id:string" returns=string static=true',
+        '    handler lang=kern',
+        '      return value="id"',
+        'class name=UserFactory extends=Base implements=Factory',
+        '  field name=kind type=string static=true',
+      ].join('\n'),
+    );
+
+    expect(rules).not.toContain('class-implements-missing-member');
+  });
+
+  test('rejects private static fields as protocol members', () => {
+    const violations = violationsFor(
+      [
+        'interface name=Factory',
+        '  field name=kind type=string static=true',
+        'class name=UserFactory implements=Factory',
+        '  field name=kind type=string static=true private=true',
+      ].join('\n'),
+    );
+
+    const violation = violations.find((candidate) => candidate.rule === 'class-implements-missing-member');
+    expect(violation?.message).toContain('static member(s): kind');
+  });
+
+  test('rejects static protocol members satisfied only by instance members', () => {
+    const violations = violationsFor(
+      [
+        'interface name=Factory',
+        '  field name=kind type=string static=true',
+        '  method name=create params="id:string" returns=string static=true',
+        'class name=Confused implements=Factory',
+        '  field name=kind type=string',
+        '  method name=create params="id:string" returns=string',
+        '    handler lang=kern',
+        '      return value="id"',
+      ].join('\n'),
+    );
+
+    const violation = violations.find((candidate) => candidate.rule === 'class-implements-missing-member');
+    expect(violation?.message).toContain('static member(s): create, kind');
   });
 
   test('reports missing and incompatible interface methods for class implements', () => {

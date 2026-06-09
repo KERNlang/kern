@@ -467,6 +467,117 @@ describe('KERN core runtime statements', () => {
     expect(toHostValue(evalCoreExpression('new User().name', env))).toBe('Ada');
   });
 
+  test('validates static implemented interface fields at class definition', () => {
+    const root = parse(
+      [
+        'interface name=Factory',
+        '  field name=kind type=string static=true',
+        'class name=UserFactory implements=Factory',
+        '  field name=kind type=string static=true value="user"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+
+    expect(() => runCoreRuntime(root, env)).not.toThrow();
+    expect(toHostValue(evalCoreExpression('UserFactory.kind', env))).toBe('user');
+  });
+
+  test('accepts missing optional static implemented interface fields', () => {
+    const root = parse(
+      [
+        'interface name=Factory',
+        '  field name=kind type=string static=true optional=true',
+        'class name=UserFactory implements=Factory',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+
+    expect(() => runCoreRuntime(root, env)).not.toThrow();
+  });
+
+  test('rejects private static implemented interface fields', () => {
+    const root = parse(
+      [
+        'interface name=Factory',
+        '  field name=kind type=string static=true',
+        'class name=UserFactory implements=Factory',
+        '  field name=kind type=string static=true private=true value="user"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+
+    expect(() => runCoreRuntime(root, env)).toThrow('missing or incompatible static member(s): kind');
+  });
+
+  test('rejects static implemented interface field type mismatches', () => {
+    const root = parse(
+      [
+        'interface name=Factory',
+        '  field name=kind type=string static=true',
+        'class name=BadFactory implements=Factory',
+        '  field name=kind type=number static=true value=1',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+
+    expect(() => runCoreRuntime(root, env)).toThrow('missing or incompatible static member(s): kind');
+  });
+
+  test('rejects static implemented interface members satisfied only by instance members', () => {
+    const root = parse(
+      [
+        'interface name=Factory',
+        '  field name=kind type=string static=true',
+        '  method name=create params="id:string" returns=string static=true',
+        'class name=Confused implements=Factory',
+        '  field name=kind type=string value="user"',
+        '  method name=create params="id:string" returns=string',
+        '    handler',
+        '      return value="id"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+
+    expect(() => runCoreRuntime(root, env)).toThrow('missing or incompatible static member(s): kind');
+  });
+
+  test('does not invoke static getters while validating implemented interface fields', () => {
+    const root = parse(
+      [
+        'interface name=Factory',
+        '  field name=kind type=string static=true',
+        'class name=UserFactory implements=Factory',
+        '  getter name=kind returns=string static=true',
+        '    handler',
+        '      return value="Later.kind"',
+        'class name=Later',
+        '  field name=kind type=string static=true value="user"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('UserFactory.kind', env))).toBe('user');
+  });
+
+  test('validates inherited static methods for implemented interfaces', () => {
+    const root = parse(
+      [
+        'interface name=Factory',
+        '  method name=create params="id:string" returns=string static=true',
+        'class name=BaseFactory',
+        '  method name=create params="id:string" returns=string static=true',
+        '    handler',
+        '      return value="id"',
+        'class name=UserFactory extends=BaseFactory implements=Factory',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('UserFactory.create("u1")', env))).toBe('u1');
+  });
+
   test('validates implemented interface methods without invoking them', () => {
     const root = parse(
       [
@@ -823,9 +934,8 @@ describe('KERN core runtime statements', () => {
       ].join('\n'),
     );
     const env = createCoreRuntimeEnv();
-    runCoreRuntime(root, env);
 
-    expect(() => evalCoreExpression('new User()', env)).toThrow(
+    expect(() => runCoreRuntime(root, env)).toThrow(
       "implements interface 'Dictionary' that is not executable as a class protocol in v1",
     );
   });
@@ -840,9 +950,8 @@ describe('KERN core runtime statements', () => {
       ].join('\n'),
     );
     const env = createCoreRuntimeEnv();
-    runCoreRuntime(root, env);
 
-    expect(() => evalCoreExpression('new User()', env)).toThrow('implements= contains an empty reference');
+    expect(() => runCoreRuntime(root, env)).toThrow('implements= contains an empty reference');
   });
 
   test('invalid runtime implements entries fail instead of being ignored', () => {
@@ -855,9 +964,8 @@ describe('KERN core runtime statements', () => {
       ].join('\n'),
     );
     const env = createCoreRuntimeEnv();
-    runCoreRuntime(root, env);
 
-    expect(() => evalCoreExpression('new User()', env)).toThrow('implements= contains an invalid reference: 123');
+    expect(() => runCoreRuntime(root, env)).toThrow('implements= contains an invalid reference: 123');
   });
 
   test('runtime implements entries reject trailing junk', () => {
@@ -870,21 +978,15 @@ describe('KERN core runtime statements', () => {
       ].join('\n'),
     );
     const env = createCoreRuntimeEnv();
-    runCoreRuntime(root, env);
 
-    expect(() => evalCoreExpression('new User()', env)).toThrow(
-      'implements= contains an invalid reference: Named junk',
-    );
+    expect(() => runCoreRuntime(root, env)).toThrow('implements= contains an invalid reference: Named junk');
   });
 
   test('unknown local runtime implements targets fail instead of being ignored', () => {
     const root = parse(['class name=User implements=MissingProtocol'].join('\n'));
     const env = createCoreRuntimeEnv();
-    runCoreRuntime(root, env);
 
-    expect(() => evalCoreExpression('new User()', env)).toThrow(
-      "class 'User' implements unknown interface 'MissingProtocol'",
-    );
+    expect(() => runCoreRuntime(root, env)).toThrow("class 'User' implements unknown interface 'MissingProtocol'");
   });
 
   test('imported runtime implements targets are treated as external protocols', () => {

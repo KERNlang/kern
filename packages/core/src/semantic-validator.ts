@@ -141,6 +141,8 @@ export interface ClassSemanticProtocolConformanceFact {
   readonly status: ClassSemanticProtocolStatus;
   readonly missingMembers: readonly string[];
   readonly satisfiedMembers: readonly string[];
+  readonly missingStaticMembers: readonly string[];
+  readonly satisfiedStaticMembers: readonly string[];
   readonly diagnostics?: readonly string[];
   readonly unsupportedReasons?: readonly string[];
   readonly loc?: ClassSemanticLocation;
@@ -2726,6 +2728,7 @@ interface InterfaceFieldInfo {
   name: string;
   type?: string;
   optional: boolean;
+  static: boolean;
 }
 
 interface InterfaceMethodInfo {
@@ -2736,6 +2739,7 @@ interface InterfaceMethodInfo {
   async: boolean;
   stream: boolean;
   generator: boolean;
+  static: boolean;
 }
 
 interface ClassProtocolShapeContext {
@@ -2747,6 +2751,8 @@ interface ClassInterfaceConformanceResult {
   status: Exclude<ClassSemanticProtocolStatus, 'external' | 'unknown-interface'>;
   missingMembers: string[];
   satisfiedMembers: string[];
+  missingStaticMembers: string[];
+  satisfiedStaticMembers: string[];
   diagnostics: string[];
   unsupportedReasons: string[];
 }
@@ -2870,6 +2876,7 @@ function collectInterfaceFields(node: IRNode): InterfaceFieldInfo[] {
       name,
       ...(stringProp(child, 'type') ? { type: stringProp(child, 'type') } : {}),
       optional: isTrueFlag(child.props?.optional),
+      static: isTrueFlag(child.props?.static),
     });
   }
   return fields;
@@ -2889,6 +2896,7 @@ function collectInterfaceMethods(node: IRNode): InterfaceMethodInfo[] {
       async: isTrueFlag(child.props?.async),
       stream: isTrueFlag(child.props?.stream),
       generator: isTrueFlag(child.props?.generator),
+      static: isTrueFlag(child.props?.static),
     });
   }
   return methods;
@@ -3427,6 +3435,8 @@ function collectClassProtocolConformanceFacts(
           status: visible ? 'external' : 'unknown-interface',
           missingMembers: [],
           satisfiedMembers: [],
+          missingStaticMembers: [],
+          satisfiedStaticMembers: [],
           ...(info.node.loc ? { loc: semanticLocation(info.node) } : {}),
         });
         continue;
@@ -3438,6 +3448,8 @@ function collectClassProtocolConformanceFacts(
         status: result.status,
         missingMembers: result.missingMembers,
         satisfiedMembers: result.satisfiedMembers,
+        missingStaticMembers: result.missingStaticMembers,
+        satisfiedStaticMembers: result.satisfiedStaticMembers,
         ...(result.diagnostics.length > 0 ? { diagnostics: result.diagnostics } : {}),
         ...(result.unsupportedReasons.length > 0 ? { unsupportedReasons: result.unsupportedReasons } : {}),
         ...(info.node.loc ? { loc: semanticLocation(info.node) } : {}),
@@ -3463,6 +3475,8 @@ function classInterfaceConformance(
       status: 'invalid-interface',
       missingMembers: [],
       satisfiedMembers: [],
+      missingStaticMembers: [],
+      satisfiedStaticMembers: [],
       diagnostics: sortedUnique(diagnostics),
       unsupportedReasons: [],
     };
@@ -3472,6 +3486,8 @@ function classInterfaceConformance(
       status: 'unsupported-protocol',
       missingMembers: [],
       satisfiedMembers: [],
+      missingStaticMembers: [],
+      satisfiedStaticMembers: [],
       diagnostics: [],
       unsupportedReasons: sortedUnique([
         ...shape.unsupportedReasons,
@@ -3480,34 +3496,77 @@ function classInterfaceConformance(
     };
   }
   const effectiveMembers = effectiveClassMemberFacts(info, classByName);
-  const fields = shape?.fields ?? protocol.fields;
-  const requiredFields = fields.filter((field) => !field.optional);
+  const fields = effectiveInterfaceFields(protocol, interfaceByName);
+  const requiredFields = fields.filter((field) => !field.optional && !field.static);
+  const requiredStaticFields = fields.filter((field) => !field.optional && field.static);
   const requiredMethods = effectiveInterfaceMethods(protocol, interfaceByName);
+  const requiredInstanceMethods = requiredMethods.filter((method) => !method.static);
+  const requiredStaticMethods = requiredMethods.filter((method) => method.static);
   const missingMembers: string[] = [];
   const satisfiedMembers: string[] = [];
+  const missingStaticMembers: string[] = [];
+  const satisfiedStaticMembers: string[] = [];
   for (const field of requiredFields) {
-    if (classHasReadableInstanceMember(effectiveMembers, field)) {
+    if (classHasReadableMember(effectiveMembers, field, false)) {
       satisfiedMembers.push(field.name);
     } else {
       missingMembers.push(field.name);
     }
   }
-  for (const method of requiredMethods) {
-    if (classHasCallableInstanceMethod(effectiveMembers, method)) {
+  for (const field of requiredStaticFields) {
+    if (classHasReadableMember(effectiveMembers, field, true)) {
+      satisfiedStaticMembers.push(field.name);
+    } else {
+      missingStaticMembers.push(field.name);
+    }
+  }
+  for (const method of requiredInstanceMethods) {
+    if (classHasCallableMethod(effectiveMembers, method, false)) {
       satisfiedMembers.push(method.name);
     } else {
       missingMembers.push(method.name);
     }
   }
+  for (const method of requiredStaticMethods) {
+    if (classHasCallableMethod(effectiveMembers, method, true)) {
+      satisfiedStaticMembers.push(method.name);
+    } else {
+      missingStaticMembers.push(method.name);
+    }
+  }
   const missing = sortedUnique(missingMembers);
   const satisfied = sortedUnique(satisfiedMembers);
+  const missingStatic = sortedUnique(missingStaticMembers);
+  const satisfiedStatic = sortedUnique(satisfiedStaticMembers);
   return {
-    status: missing.length > 0 ? 'missing-members' : 'satisfied',
+    status: missing.length > 0 || missingStatic.length > 0 ? 'missing-members' : 'satisfied',
     missingMembers: missing,
     satisfiedMembers: satisfied,
+    missingStaticMembers: missingStatic,
+    satisfiedStaticMembers: satisfiedStatic,
     diagnostics: [],
     unsupportedReasons: [],
   };
+}
+
+function effectiveInterfaceFields(
+  protocol: InterfaceInfo,
+  interfaceByName: ReadonlyMap<string, InterfaceInfo>,
+  seen: ReadonlySet<string> = new Set(),
+): InterfaceFieldInfo[] {
+  if (seen.has(protocol.name)) return [];
+  const nextSeen = new Set(seen);
+  nextSeen.add(protocol.name);
+  const fields = new Map<string, InterfaceFieldInfo>();
+  for (const baseName of protocol.extendsNames) {
+    const base = interfaceByName.get(baseName);
+    if (!base) continue;
+    for (const field of effectiveInterfaceFields(base, interfaceByName, nextSeen)) {
+      fields.set(interfaceMemberShapeKey(field), field);
+    }
+  }
+  for (const field of protocol.fields) fields.set(interfaceMemberShapeKey(field), field);
+  return [...fields.values()];
 }
 
 function effectiveInterfaceMethods(
@@ -3522,30 +3581,40 @@ function effectiveInterfaceMethods(
   for (const baseName of protocol.extendsNames) {
     const base = interfaceByName.get(baseName);
     if (!base) continue;
-    for (const method of effectiveInterfaceMethods(base, interfaceByName, nextSeen)) methods.set(method.name, method);
+    for (const method of effectiveInterfaceMethods(base, interfaceByName, nextSeen)) {
+      methods.set(interfaceMemberShapeKey(method), method);
+    }
   }
-  for (const method of protocol.methods) methods.set(method.name, method);
+  for (const method of protocol.methods) methods.set(interfaceMemberShapeKey(method), method);
   return [...methods.values()];
 }
 
-function classHasReadableInstanceMember(
+function interfaceMemberShapeKey(member: { readonly name: string; readonly static: boolean }): string {
+  return `${member.static ? 'static' : 'instance'}:${member.name}`;
+}
+
+function classHasReadableMember(
   members: readonly ClassSemanticMemberFact[],
   field: { readonly name: string; readonly type?: string },
+  staticOnly: boolean,
 ): boolean {
   return members.some((member) => {
-    if (member.name !== field.name || member.static) return false;
+    if (member.name !== field.name || member.static !== staticOnly || member.private) return false;
     if (member.kind !== 'field' && member.kind !== 'getter') return false;
     const actualType = member.kind === 'getter' ? member.returns : member.type;
     return !field.type || actualType === field.type;
   });
 }
 
-function classHasCallableInstanceMethod(
+function classHasCallableMethod(
   members: readonly ClassSemanticMemberFact[],
   method: InterfaceMethodInfo,
+  staticOnly: boolean,
 ): boolean {
   return members.some((member) => {
-    if (member.name !== method.name || member.static || member.private || member.kind !== 'method') return false;
+    if (member.name !== method.name || member.static !== staticOnly || member.private || member.kind !== 'method') {
+      return false;
+    }
     if (member.arity !== method.arity) return false;
     if (!methodParamTypesCompatible(member.paramTypes ?? [], method.paramTypes)) return false;
     if ((member.async === true) !== method.async) return false;
@@ -3693,11 +3762,19 @@ function validateClassImplements(
       });
       continue;
     }
-    if (conformance.missingMembers.length === 0) continue;
+    if (conformance.missingMembers.length === 0 && conformance.missingStaticMembers.length === 0) continue;
+    const missingParts = [
+      ...(conformance.missingMembers.length > 0
+        ? [`instance member(s): ${conformance.missingMembers.join(', ')}`]
+        : []),
+      ...(conformance.missingStaticMembers.length > 0
+        ? [`static member(s): ${conformance.missingStaticMembers.join(', ')}`]
+        : []),
+    ];
     violations.push({
       rule: 'class-implements-missing-member',
       nodeType: 'class',
-      message: `Class '${info.name}' does not satisfy interface '${interfaceName}'. Missing readable instance member(s): ${conformance.missingMembers.join(', ')}.`,
+      message: `Class '${info.name}' does not satisfy interface '${interfaceName}'. Missing readable ${missingParts.join('; ')}.`,
       line: info.node.loc?.line,
       col: info.node.loc?.col,
     });

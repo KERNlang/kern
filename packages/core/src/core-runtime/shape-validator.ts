@@ -204,7 +204,9 @@ function collectShapeRegistry(rootOrNodes: IRNode | readonly IRNode[]): ShapeReg
     const shape: ShapeInterface = {
       name,
       extendsNames: splitExtends(node.props?.extends),
-      fields: (node.children ?? []).filter((child) => child.type === 'field').map((field) => shapeField(field)),
+      fields: (node.children ?? [])
+        .filter((child) => child.type === 'field' && !trueFlag(child.props?.static))
+        .map((field) => shapeField(field)),
       indexers: (node.children ?? [])
         .filter((child) => child.type === 'indexer')
         .map((indexer) => shapeIndexer(indexer)),

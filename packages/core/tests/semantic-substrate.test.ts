@@ -532,8 +532,15 @@ describe('KERN semantic substrate', () => {
           '  field name=id type=string',
           'interface name=DictionaryProtocol',
           '  indexer keyName=key keyType=string type=number',
+          'interface name=FactoryProtocol',
+          '  field name=kind type=string static=true',
+          '  method name=create params="id:string" returns=string static=true',
           'class name=Base',
           '  field name=id type=string',
+          'class name=BaseFactory',
+          '  method name=create params="id:string" returns=string static=true',
+          '    handler lang=kern',
+          '      return value="id"',
           'class name=User extends=Base implements="Named,ExternalProtocol,MissingProtocol"',
           '  getter name=name returns=string',
           '    handler lang=kern',
@@ -546,6 +553,8 @@ describe('KERN semantic substrate', () => {
           'class name=Invalid implements=BrokenProtocol',
           '  field name=id type=string',
           'class name=Dictionary implements=DictionaryProtocol',
+          'class name=FactoryImpl extends=BaseFactory implements=FactoryProtocol',
+          '  field name=kind type=string static=true',
         ].join('\n'),
       ),
     );
@@ -555,6 +564,7 @@ describe('KERN semantic substrate', () => {
         { from: 'User', to: 'Named', relation: 'implements', resolved: true, external: false },
         { from: 'User', to: 'ExternalProtocol', relation: 'implements', resolved: true, external: true },
         { from: 'User', to: 'MissingProtocol', relation: 'implements', resolved: false, external: false },
+        { from: 'FactoryImpl', to: 'FactoryProtocol', relation: 'implements', resolved: true, external: false },
       ]),
     );
     expect(facts.unresolvedImplements).toEqual(['MissingProtocol']);
@@ -589,6 +599,13 @@ describe('KERN semantic substrate', () => {
           interfaceName: 'DictionaryProtocol',
           status: 'unsupported-protocol',
           unsupportedReasons: ['indexer'],
+        }),
+        expect.objectContaining({
+          className: 'FactoryImpl',
+          interfaceName: 'FactoryProtocol',
+          status: 'satisfied',
+          satisfiedStaticMembers: ['create', 'kind'],
+          missingStaticMembers: [],
         }),
       ]),
     );
