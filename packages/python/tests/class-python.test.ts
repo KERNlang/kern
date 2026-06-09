@@ -232,6 +232,43 @@ describe('Python class codegen (single-source class slice)', () => {
     expect(code.indexOf('super().__init__(name)')).toBeLessThan(code.indexOf('self.tricks = []'));
   });
 
+  test('abstract instance method (handler-less, under abstract class) emits a fail-fast raise', () => {
+    const shape: IRNode = {
+      type: 'class',
+      props: { name: 'Shape', abstract: 'true' },
+      children: [{ type: 'method', props: { name: 'area', returns: 'number' }, children: [] }], // no handler -> abstract
+    };
+    const code = generatePythonClass(shape).join('\n');
+    expect(code).toContain('class Shape:'); // abstract erased -> plain instantiable class (no ABC/metaclass)
+    expect(code).toContain('raise NotImplementedError("abstract method Shape.area not implemented")');
+  });
+
+  test('abstract STATIC accessor emits a fail-fast raise (not a silent metaclass pass)', () => {
+    const base: IRNode = {
+      type: 'class',
+      props: { name: 'Base', abstract: 'true' },
+      children: [{ type: 'getter', props: { name: 'tag', static: 'true', returns: 'string' }, children: [] }],
+    };
+    const code = generatePythonClass(base).join('\n');
+    // The metaclass static getter must raise, matching the TS throw — not `pass`/None.
+    expect(code).toContain('raise NotImplementedError("abstract getter Base.tag not implemented")');
+    expect(code).not.toMatch(/def tag\(cls\)[^\n]*:\n\s*pass\b/);
+  });
+
+  test('implements is erased on the Python target, left as a marker comment', () => {
+    const user: IRNode = {
+      type: 'class',
+      props: { name: 'User', implements: 'Serializable' },
+      children: [
+        { type: 'field', props: { name: 'id', type: 'string', value: { __expr: true, code: '"x"' } }, children: [] },
+      ],
+    };
+    const code = generatePythonClass(user).join('\n');
+    expect(code).toContain('# implements: Serializable');
+    expect(code).toContain('class User:'); // no Protocol/ABC base injected
+    expect(code).not.toContain('Serializable)'); // implements is NOT a runtime base
+  });
+
   test('list push on a pure receiver lowers to the shared append+len shim', () => {
     const bag: IRNode = {
       type: 'class',
