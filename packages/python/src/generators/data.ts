@@ -31,10 +31,23 @@ function methodBodyCodePython(
     return { code: handlerCode(method), imports: new Set(), helpers: new Set() };
   }
   const symbolMap: Record<string, string> = {};
-  const claimedSnake = new Set<string>(['self']);
+  // The implicit receiver occupies the first parameter slot: `self` for an
+  // instance member, `cls` for a static accessor (metaclass property). A user
+  // parameter that snake-cases to the receiver name would emit invalid Python
+  // (e.g. `def label(cls, cls):`), so reserve it and fail codegen early with a
+  // clear message rather than generate a SyntaxError.
+  const receiver = opts?.staticReceiver ? 'cls' : 'self';
+  const claimedSnake = new Set<string>([receiver]);
   const recordParam = (rawName: string): void => {
     if (!rawName) return;
     const snake = toSnakeCase(rawName);
+    if (snake === receiver) {
+      throw new Error(
+        `KERN-Python codegen: parameter '${rawName}' snake-cases to '${snake}', the implicit ` +
+          `${opts?.staticReceiver ? 'static-accessor receiver (cls)' : 'method receiver (self)'}. ` +
+          'Rename the parameter to avoid shadowing the receiver.',
+      );
+    }
     if (claimedSnake.has(snake)) {
       throw new Error(
         `KERN-Python codegen: method param '${rawName}' snake-cases to '${snake}', which collides with another param on this method. ` +

@@ -131,6 +131,24 @@ describe('Python class codegen (single-source class slice)', () => {
     expect(code).not.toContain('def label(self)');
   });
 
+  test('static setter param shadowing the cls receiver fails codegen (no `def label(cls, cls):`)', () => {
+    const reg: IRNode = {
+      type: 'class',
+      props: { name: 'Reg' },
+      children: [
+        {
+          type: 'setter',
+          props: { name: 'label', static: 'true' },
+          children: [
+            param('cls', 'string'), // snake-cases to the implicit metaclass receiver
+            handler([{ type: 'assign', props: { target: 'this.store', value: 'cls' }, children: [] }]),
+          ],
+        },
+      ],
+    };
+    expect(() => generatePythonClass(reg)).toThrow(/receiver/);
+  });
+
   test('instance-field defaults emit in __init__, never as a shared class attr', () => {
     const bag: IRNode = {
       type: 'class',
