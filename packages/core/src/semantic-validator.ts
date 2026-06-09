@@ -15,6 +15,11 @@
  *      symbols that the resolver proved exist.
  */
 
+import {
+  type CoreShapeDiagnostic,
+  type CoreShapeInterfaceFact,
+  collectCoreShapeFacts,
+} from './core-runtime/shape-validator.js';
 import { collectExternalImportSymbols, type ExternalImportSymbolTable } from './external-symbols.js';
 import { importRegistryOf } from './import-metadata.js';
 import { parseExpression } from './parser-expression.js';
@@ -46,6 +51,8 @@ export interface ClassSemanticMemberFact {
   readonly name: string;
   readonly kind: ClassSemanticMemberKind;
   readonly static: boolean;
+  readonly type?: string;
+  readonly returns?: string;
   readonly arity: number;
   readonly readable: boolean;
   readonly writable: boolean;
@@ -71,6 +78,14 @@ export interface ClassSemanticInheritanceEdge {
   readonly builtin: boolean;
 }
 
+export interface ClassSemanticImplementsEdge {
+  readonly from: string;
+  readonly to: string;
+  readonly relation: 'implements';
+  readonly resolved: boolean;
+  readonly external: boolean;
+}
+
 export interface ClassSemanticOverrideFact {
   readonly className: string;
   readonly memberName: string;
@@ -84,11 +99,33 @@ export interface ClassSemanticOverrideFact {
   readonly loc?: ClassSemanticLocation;
 }
 
+export type ClassSemanticProtocolStatus =
+  | 'satisfied'
+  | 'missing-members'
+  | 'external'
+  | 'unknown-interface'
+  | 'invalid-interface'
+  | 'unsupported-protocol';
+
+export interface ClassSemanticProtocolConformanceFact {
+  readonly className: string;
+  readonly interfaceName: string;
+  readonly status: ClassSemanticProtocolStatus;
+  readonly missingMembers: readonly string[];
+  readonly satisfiedMembers: readonly string[];
+  readonly diagnostics?: readonly string[];
+  readonly unsupportedReasons?: readonly string[];
+  readonly loc?: ClassSemanticLocation;
+}
+
 export interface ClassSemanticFacts {
   readonly classes: readonly ClassSemanticClassFact[];
   readonly inheritanceEdges: readonly ClassSemanticInheritanceEdge[];
+  readonly implementsEdges: readonly ClassSemanticImplementsEdge[];
   readonly overrides: readonly ClassSemanticOverrideFact[];
   readonly unresolvedBases: readonly string[];
+  readonly unresolvedImplements: readonly string[];
+  readonly protocolConformance: readonly ClassSemanticProtocolConformanceFact[];
   readonly cycles: readonly (readonly string[])[];
 }
 
@@ -2625,6 +2662,8 @@ interface ClassInfo {
   rootIndex: number;
   name: string;
   baseName?: string;
+  implementsNames: string[];
+  implementsMalformed: boolean;
   members: ClassMemberInfo[];
   constructors: IRNode[];
 }
@@ -2635,7 +2674,36 @@ interface ClassMemberInfo {
   name: string;
   kind: ClassMemberKind;
   static: boolean;
+  type?: string;
+  returns?: string;
   arity: number;
+}
+
+interface InterfaceInfo {
+  node: IRNode;
+  rootIndex: number;
+  name: string;
+  extendsNames: string[];
+  fields: InterfaceFieldInfo[];
+}
+
+interface InterfaceFieldInfo {
+  name: string;
+  type?: string;
+  optional: boolean;
+}
+
+interface ClassProtocolShapeContext {
+  shapeByName: ReadonlyMap<string, CoreShapeInterfaceFact>;
+  diagnosticsByName: ReadonlyMap<string, readonly CoreShapeDiagnostic[]>;
+}
+
+interface ClassInterfaceConformanceResult {
+  status: Exclude<ClassSemanticProtocolStatus, 'external' | 'unknown-interface'>;
+  missingMembers: string[];
+  satisfiedMembers: string[];
+  diagnostics: string[];
+  unsupportedReasons: string[];
 }
 
 const BUILTIN_CLASS_BASES = new Set(['Error']);
@@ -2667,6 +2735,12 @@ function validateClassGraphRoots(roots: readonly IRNode[], violations: SemanticV
   const classes = classesByRoot.flat();
   if (classes.length === 0) return;
 
+  const interfaces = roots.flatMap((root, rootIndex) => collectInterfaceInfos(root, rootIndex));
+  const interfaceByName = new Map<string, InterfaceInfo>();
+  for (const info of interfaces) {
+    if (!interfaceByName.has(info.name)) interfaceByName.set(info.name, info);
+  }
+  const protocolShapeContext = collectClassProtocolShapeContext(roots);
   const classByName = new Map<string, ClassInfo>();
   const declaredClassNames = new Set<string>();
   for (const info of classes) {
@@ -2681,9 +2755,18 @@ function validateClassGraphRoots(roots: readonly IRNode[], violations: SemanticV
     for (const className of declaredClassNames) visibleNames.add(className);
     return visibleNames;
   });
+  const visibleProtocolNamesByRoot = roots.map((root) => collectVisibleProtocolNames(root));
 
   for (const info of classes) {
     validateClassBaseReference(info, visibleNamesByRoot[info.rootIndex] ?? declaredClassNames, violations);
+    validateClassImplements(
+      info,
+      interfaceByName,
+      visibleProtocolNamesByRoot[info.rootIndex] ?? new Set(),
+      protocolShapeContext,
+      classByName,
+      violations,
+    );
     validateClassConstructors(info, violations);
     validateClassMemberConflicts(info, violations);
     validateClassSuperUsage(info, violations);
@@ -2705,11 +2788,59 @@ function collectClassInfos(root: IRNode, rootIndex = 0): ClassInfo[] {
       rootIndex,
       name,
       baseName: classBaseName(node.props?.extends),
+      implementsNames: classReferenceNames(node.props?.implements, 'class implements='),
+      implementsMalformed: classReferenceListMalformed(node.props?.implements, 'class implements='),
       members: collectClassMembers(node, name),
       constructors: (node.children ?? []).filter((child) => child.type === 'constructor'),
     });
   });
   return out;
+}
+
+function collectInterfaceInfos(root: IRNode, rootIndex = 0): InterfaceInfo[] {
+  const out: InterfaceInfo[] = [];
+  walkSemanticTree(root, (node) => {
+    if (node.type !== 'interface') return;
+    const name = stringProp(node, 'name');
+    if (!name) return;
+    out.push({
+      node,
+      rootIndex,
+      name,
+      extendsNames: classReferenceNames(node.props?.extends, 'interface extends='),
+      fields: collectInterfaceFields(node),
+    });
+  });
+  return out;
+}
+
+function collectInterfaceFields(node: IRNode): InterfaceFieldInfo[] {
+  const fields: InterfaceFieldInfo[] = [];
+  for (const child of node.children ?? []) {
+    if (child.type !== 'field') continue;
+    const name = stringProp(child, 'name');
+    if (!name) continue;
+    fields.push({
+      name,
+      ...(stringProp(child, 'type') ? { type: stringProp(child, 'type') } : {}),
+      optional: isTrueFlag(child.props?.optional),
+    });
+  }
+  return fields;
+}
+
+function collectClassProtocolShapeContext(roots: readonly IRNode[]): ClassProtocolShapeContext {
+  const facts = collectCoreShapeFacts(roots);
+  const shapeByName = new Map<string, CoreShapeInterfaceFact>();
+  for (const shape of facts.interfaces) shapeByName.set(shape.name, shape);
+  const diagnosticsByName = new Map<string, CoreShapeDiagnostic[]>();
+  for (const diagnostic of facts.validationDiagnostics) {
+    if (!diagnostic.interfaceName) continue;
+    const diagnostics = diagnosticsByName.get(diagnostic.interfaceName) ?? [];
+    diagnostics.push(diagnostic);
+    diagnosticsByName.set(diagnostic.interfaceName, diagnostics);
+  }
+  return { shapeByName, diagnosticsByName };
 }
 
 function collectClassMembers(node: IRNode, owner: string): ClassMemberInfo[] {
@@ -2724,6 +2855,8 @@ function collectClassMembers(node: IRNode, owner: string): ClassMemberInfo[] {
       name,
       kind: child.type,
       static: isTrueFlag(child.props?.static),
+      ...(stringProp(child, 'type') ? { type: stringProp(child, 'type') } : {}),
+      ...(stringProp(child, 'returns') ? { returns: stringProp(child, 'returns') } : {}),
       arity: memberArity(child),
     });
   }
@@ -2733,11 +2866,18 @@ function collectClassMembers(node: IRNode, owner: string): ClassMemberInfo[] {
 export function collectClassSemanticFacts(root: IRNode | readonly IRNode[]): ClassSemanticFacts {
   const roots = Array.isArray(root) ? root : [root];
   const classes = roots.flatMap((candidate, rootIndex) => collectClassInfos(candidate, rootIndex));
+  const interfaces = roots.flatMap((candidate, rootIndex) => collectInterfaceInfos(candidate, rootIndex));
   const classByName = new Map<string, ClassInfo>();
   for (const info of classes) {
     if (!classByName.has(info.name)) classByName.set(info.name, info);
   }
+  const interfaceByName = new Map<string, InterfaceInfo>();
+  for (const info of interfaces) {
+    if (!interfaceByName.has(info.name)) interfaceByName.set(info.name, info);
+  }
+  const protocolShapeContext = collectClassProtocolShapeContext(roots);
   const visibleNamesByRoot = roots.map((candidate) => collectVisibleClassBaseNames(candidate));
+  const visibleProtocolNamesByRoot = roots.map((candidate) => collectVisibleProtocolNames(candidate));
 
   const inheritanceEdges: ClassSemanticInheritanceEdge[] = [];
   const unresolvedBases = new Set<string>();
@@ -2756,11 +2896,39 @@ export function collectClassSemanticFacts(root: IRNode | readonly IRNode[]): Cla
     if (!resolved) unresolvedBases.add(info.baseName);
   }
 
+  const implementsEdges: ClassSemanticImplementsEdge[] = [];
+  const unresolvedImplements = new Set<string>();
+  for (const info of classes) {
+    for (const interfaceName of info.implementsNames) {
+      const external =
+        !interfaceByName.has(interfaceName) &&
+        (visibleProtocolNamesByRoot[info.rootIndex] ?? new Set()).has(interfaceName);
+      const resolved = interfaceByName.has(interfaceName) || external;
+      implementsEdges.push({
+        from: info.name,
+        to: interfaceName,
+        relation: 'implements',
+        resolved,
+        external,
+      });
+      if (!resolved) unresolvedImplements.add(interfaceName);
+    }
+  }
+
   return {
     classes: classes.map((info) => classSemanticFact(info, classByName)),
     inheritanceEdges,
+    implementsEdges,
     overrides: collectClassOverrideFacts(classes, classByName),
     unresolvedBases: [...unresolvedBases].sort(),
+    unresolvedImplements: [...unresolvedImplements].sort(),
+    protocolConformance: collectClassProtocolConformanceFacts(
+      classes,
+      interfaceByName,
+      visibleProtocolNamesByRoot,
+      protocolShapeContext,
+      classByName,
+    ),
     cycles: collectClassCycleFacts(classes, classByName),
   };
 }
@@ -2788,6 +2956,8 @@ function classMemberSemanticFact(
     name: member.name,
     kind: member.kind,
     static: member.static,
+    ...(member.type ? { type: member.type } : {}),
+    ...(member.returns ? { returns: member.returns } : {}),
     arity: member.arity,
     readable: member.kind === 'field' || member.kind === 'getter' || member.kind === 'method',
     writable: member.kind === 'field' || member.kind === 'setter',
@@ -2922,6 +3092,111 @@ function collectClassCycleFacts(
   return cycles;
 }
 
+function collectClassProtocolConformanceFacts(
+  classes: readonly ClassInfo[],
+  interfaceByName: ReadonlyMap<string, InterfaceInfo>,
+  visibleProtocolNamesByRoot: readonly ReadonlySet<string>[],
+  protocolShapeContext: ClassProtocolShapeContext,
+  classByName: ReadonlyMap<string, ClassInfo>,
+): ClassSemanticProtocolConformanceFact[] {
+  const facts: ClassSemanticProtocolConformanceFact[] = [];
+  for (const info of classes) {
+    for (const interfaceName of info.implementsNames) {
+      const protocol = interfaceByName.get(interfaceName);
+      if (!protocol) {
+        const visible = (visibleProtocolNamesByRoot[info.rootIndex] ?? new Set()).has(interfaceName);
+        facts.push({
+          className: info.name,
+          interfaceName,
+          status: visible ? 'external' : 'unknown-interface',
+          missingMembers: [],
+          satisfiedMembers: [],
+          ...(info.node.loc ? { loc: semanticLocation(info.node) } : {}),
+        });
+        continue;
+      }
+      const result = classInterfaceConformance(info, protocol, protocolShapeContext, classByName);
+      facts.push({
+        className: info.name,
+        interfaceName,
+        status: result.status,
+        missingMembers: result.missingMembers,
+        satisfiedMembers: result.satisfiedMembers,
+        ...(result.diagnostics.length > 0 ? { diagnostics: result.diagnostics } : {}),
+        ...(result.unsupportedReasons.length > 0 ? { unsupportedReasons: result.unsupportedReasons } : {}),
+        ...(info.node.loc ? { loc: semanticLocation(info.node) } : {}),
+      });
+    }
+  }
+  return facts;
+}
+
+function classInterfaceConformance(
+  info: ClassInfo,
+  protocol: InterfaceInfo,
+  protocolShapeContext: ClassProtocolShapeContext,
+  classByName: ReadonlyMap<string, ClassInfo>,
+): ClassInterfaceConformanceResult {
+  const shape = protocolShapeContext.shapeByName.get(protocol.name);
+  const diagnostics = (protocolShapeContext.diagnosticsByName.get(protocol.name) ?? []).map(
+    (diagnostic) => diagnostic.code,
+  );
+  if (diagnostics.length > 0) {
+    return {
+      status: 'invalid-interface',
+      missingMembers: [],
+      satisfiedMembers: [],
+      diagnostics: sortedUnique(diagnostics),
+      unsupportedReasons: [],
+    };
+  }
+  if (shape && (shape.indexers.length > 0 || !shape.validatorAvailable)) {
+    return {
+      status: 'unsupported-protocol',
+      missingMembers: [],
+      satisfiedMembers: [],
+      diagnostics: [],
+      unsupportedReasons: sortedUnique([
+        ...shape.unsupportedReasons,
+        ...(shape.indexers.length > 0 ? ['indexer'] : []),
+      ]),
+    };
+  }
+  const effectiveMembers = effectiveClassMemberFacts(info, classByName);
+  const fields = shape?.fields ?? protocol.fields;
+  const requiredFields = fields.filter((field) => !field.optional);
+  const missingMembers: string[] = [];
+  const satisfiedMembers: string[] = [];
+  for (const field of requiredFields) {
+    if (classHasReadableInstanceMember(effectiveMembers, field)) {
+      satisfiedMembers.push(field.name);
+    } else {
+      missingMembers.push(field.name);
+    }
+  }
+  const missing = sortedUnique(missingMembers);
+  const satisfied = sortedUnique(satisfiedMembers);
+  return {
+    status: missing.length > 0 ? 'missing-members' : 'satisfied',
+    missingMembers: missing,
+    satisfiedMembers: satisfied,
+    diagnostics: [],
+    unsupportedReasons: [],
+  };
+}
+
+function classHasReadableInstanceMember(
+  members: readonly ClassSemanticMemberFact[],
+  field: { readonly name: string; readonly type?: string },
+): boolean {
+  return members.some((member) => {
+    if (member.name !== field.name || member.static) return false;
+    if (member.kind !== 'field' && member.kind !== 'getter') return false;
+    const actualType = member.kind === 'getter' ? member.returns : member.type;
+    return !field.type || actualType === field.type;
+  });
+}
+
 function semanticLocation(node: IRNode): ClassSemanticLocation | undefined {
   return node.loc ? { line: node.loc.line, col: node.loc.col } : undefined;
 }
@@ -2944,6 +3219,69 @@ function validateClassBaseReference(
     line: info.node.loc?.line,
     col: info.node.loc?.col,
   });
+}
+
+function validateClassImplements(
+  info: ClassInfo,
+  interfaceByName: ReadonlyMap<string, InterfaceInfo>,
+  visibleProtocolNames: ReadonlySet<string>,
+  protocolShapeContext: ClassProtocolShapeContext,
+  classByName: ReadonlyMap<string, ClassInfo>,
+  violations: SemanticViolation[],
+): void {
+  if (info.implementsMalformed) {
+    violations.push({
+      rule: 'class-implements-invalid-reference-list',
+      nodeType: 'class',
+      message: `Class '${info.name}' has an invalid implements= reference list. Use a comma-separated list of interface names.`,
+      line: info.node.loc?.line,
+      col: info.node.loc?.col,
+    });
+  }
+  for (const interfaceName of info.implementsNames) {
+    const protocol = interfaceByName.get(interfaceName);
+    if (!protocol) {
+      if (!visibleProtocolNames.has(interfaceName)) {
+        violations.push({
+          rule: 'class-implements-unknown',
+          nodeType: 'class',
+          message: `Class '${info.name}' implements unknown interface '${interfaceName}'. Declare or import the interface before implementing it.`,
+          line: info.node.loc?.line,
+          col: info.node.loc?.col,
+        });
+      }
+      continue;
+    }
+    const conformance = classInterfaceConformance(info, protocol, protocolShapeContext, classByName);
+    if (conformance.status === 'invalid-interface') {
+      violations.push({
+        rule: 'class-implements-invalid-interface',
+        nodeType: 'class',
+        message: `Class '${info.name}' implements invalid interface '${interfaceName}' (${conformance.diagnostics.join(', ')}). Fix the interface shape before relying on protocol conformance.`,
+        line: info.node.loc?.line,
+        col: info.node.loc?.col,
+      });
+      continue;
+    }
+    if (conformance.status === 'unsupported-protocol') {
+      violations.push({
+        rule: 'class-implements-unsupported-protocol',
+        nodeType: 'class',
+        message: `Class '${info.name}' implements interface '${interfaceName}' whose shape is not class-satisfiable in protocol v1 (${conformance.unsupportedReasons.join(', ')}).`,
+        line: info.node.loc?.line,
+        col: info.node.loc?.col,
+      });
+      continue;
+    }
+    if (conformance.missingMembers.length === 0) continue;
+    violations.push({
+      rule: 'class-implements-missing-member',
+      nodeType: 'class',
+      message: `Class '${info.name}' does not satisfy interface '${interfaceName}'. Missing readable instance member(s): ${conformance.missingMembers.join(', ')}.`,
+      line: info.node.loc?.line,
+      col: info.node.loc?.col,
+    });
+  }
 }
 
 function validateClassConstructors(info: ClassInfo, violations: SemanticViolation[]): void {
@@ -3514,6 +3852,27 @@ function collectVisibleClassBaseNames(root: IRNode): Set<string> {
   return names;
 }
 
+function collectVisibleProtocolNames(root: IRNode): Set<string> {
+  const names = new Set<string>();
+  walkSemanticTree(root, (node) => {
+    const name = stringProp(node, 'name');
+    if (name && node.type === 'interface') names.add(name);
+    if (node.type === 'import') {
+      for (const binding of importLocalBindings(node)) names.add(binding.name);
+    }
+    if (node.type === 'use') {
+      for (const child of node.children ?? []) {
+        if (child.type !== 'from') continue;
+        const kind = stringProp(child, 'kind');
+        if (kind && kind !== 'interface' && kind !== 'type') continue;
+        const localName = stringProp(child, 'as') ?? stringProp(child, 'name');
+        if (localName) names.add(localName);
+      }
+    }
+  });
+  return names;
+}
+
 function isVisibleClassBaseDeclaration(nodeType: string): boolean {
   return nodeType === 'class' || nodeType === 'error';
 }
@@ -3633,6 +3992,72 @@ function classBaseName(value: unknown): string | undefined {
   if (typeof value !== 'string' || !value.trim()) return undefined;
   const match = /^([A-Za-z_$][\w$]*)/.exec(value.trim());
   return match?.[1];
+}
+
+function classReferenceNames(value: unknown, propName: string): string[] {
+  if (typeof value !== 'string' || !value.trim()) return [];
+  let parts: string[];
+  try {
+    parts = splitClassReferenceList(value, propName);
+  } catch {
+    parts = [];
+  }
+  const names = new Set<string>();
+  for (const part of parts) {
+    const name = classBaseName(part);
+    if (name) names.add(name);
+  }
+  return [...names];
+}
+
+function classReferenceListMalformed(value: unknown, propName: string): boolean {
+  if (typeof value !== 'string' || !value.trim()) return false;
+  try {
+    splitClassReferenceList(value, propName);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+function splitClassReferenceList(raw: string, propName: string): string[] {
+  const out: string[] = [];
+  let current = '';
+  let depth = 0;
+  let angleDepth = 0;
+  let quote: '"' | "'" | '`' | null = null;
+  for (let index = 0; index < raw.length; index++) {
+    const ch = raw[index];
+    if (quote !== null) {
+      current += ch;
+      if (ch === '\\' && index + 1 < raw.length) current += raw[++index];
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === '(' || ch === '[' || ch === '{') depth++;
+    else if (ch === ')' || ch === ']' || ch === '}') depth--;
+    else if (ch === '<') angleDepth++;
+    else if (ch === '>' && angleDepth > 0) angleDepth--;
+    if (depth < 0 || angleDepth < 0) throw new Error(`${propName} has unbalanced delimiters.`);
+    if (ch === ',' && depth === 0 && angleDepth === 0) {
+      const part = current.trim();
+      if (part.length === 0) throw new Error(`${propName} contains an empty reference.`);
+      out.push(part);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  if (quote !== null || depth !== 0 || angleDepth !== 0) throw new Error(`${propName} has unbalanced delimiters.`);
+  const tail = current.trim();
+  if (tail.length === 0 && raw.trim().endsWith(',')) throw new Error(`${propName} contains an empty reference.`);
+  if (tail.length > 0) out.push(tail);
+  return out;
 }
 
 function stringProp(node: IRNode, prop: string): string | undefined;

@@ -293,6 +293,78 @@ describe('KERN semantic substrate', () => {
     expect(invalidSubstrate.classValidationSummary?.byRule['class-extends-unknown']).toBe(1);
   });
 
+  test('exports class implements edges and protocol conformance facts', () => {
+    const facts = collectClassSemanticFacts(
+      parseRoot(
+        [
+          'import from="./protocols" names=ExternalProtocol',
+          'interface name=Entity',
+          '  field name=id type=string',
+          'interface name=Named extends=Entity',
+          '  field name=name type=string',
+          'interface name=BrokenProtocol extends=MissingBaseProtocol',
+          '  field name=id type=string',
+          'interface name=DictionaryProtocol',
+          '  indexer keyName=key keyType=string type=number',
+          'class name=Base',
+          '  field name=id type=string',
+          'class name=User extends=Base implements="Named,ExternalProtocol,MissingProtocol"',
+          '  getter name=name returns=string',
+          '    handler lang=kern',
+          '      return value="this.id"',
+          'class name=Broken implements=Named',
+          '  field name=id type=string',
+          'class name=Invalid implements=BrokenProtocol',
+          '  field name=id type=string',
+          'class name=Dictionary implements=DictionaryProtocol',
+        ].join('\n'),
+      ),
+    );
+
+    expect(facts.implementsEdges).toEqual(
+      expect.arrayContaining([
+        { from: 'User', to: 'Named', relation: 'implements', resolved: true, external: false },
+        { from: 'User', to: 'ExternalProtocol', relation: 'implements', resolved: true, external: true },
+        { from: 'User', to: 'MissingProtocol', relation: 'implements', resolved: false, external: false },
+      ]),
+    );
+    expect(facts.unresolvedImplements).toEqual(['MissingProtocol']);
+    expect(facts.protocolConformance).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          className: 'User',
+          interfaceName: 'Named',
+          status: 'satisfied',
+          satisfiedMembers: ['id', 'name'],
+          missingMembers: [],
+        }),
+        expect.objectContaining({
+          className: 'User',
+          interfaceName: 'ExternalProtocol',
+          status: 'external',
+        }),
+        expect.objectContaining({
+          className: 'Broken',
+          interfaceName: 'Named',
+          status: 'missing-members',
+          missingMembers: ['name'],
+        }),
+        expect.objectContaining({
+          className: 'Invalid',
+          interfaceName: 'BrokenProtocol',
+          status: 'invalid-interface',
+          diagnostics: ['shape-extends-unknown'],
+        }),
+        expect.objectContaining({
+          className: 'Dictionary',
+          interfaceName: 'DictionaryProtocol',
+          status: 'unsupported-protocol',
+          unsupportedReasons: ['indexer'],
+        }),
+      ]),
+    );
+  });
+
   test('can summarize class validation rules alongside class facts', () => {
     const root = parseRoot(
       [

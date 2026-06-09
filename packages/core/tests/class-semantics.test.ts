@@ -54,6 +54,116 @@ describe('semantic-validator — class object model', () => {
     expect(rulesFor(source)).not.toContain('class-extends-unknown');
   });
 
+  test('accepts class implements when effective readable instance members satisfy local interfaces', () => {
+    const source = [
+      'interface name=Entity',
+      '  field name=id type=string',
+      'interface name=Named extends=Entity',
+      '  field name=name type=string',
+      '  field name=nickname type=string optional=true',
+      'class name=Base',
+      '  field name=id type=string',
+      'class name=User extends=Base implements=Named',
+      '  getter name=name returns=string',
+      '    handler lang=kern',
+      '      return value="this.id"',
+    ].join('\n');
+
+    const rules = rulesFor(source);
+    expect(rules).not.toContain('class-implements-unknown');
+    expect(rules).not.toContain('class-implements-missing-member');
+  });
+
+  test('reports unknown class implements targets unless imported', () => {
+    const localRules = rulesFor('class name=User implements=MissingProtocol');
+    expect(localRules).toContain('class-implements-unknown');
+
+    const importedRules = rulesFor(
+      ['import from="./protocols" names=ExternalProtocol', 'class name=User implements=ExternalProtocol'].join('\n'),
+    );
+    expect(importedRules).not.toContain('class-implements-unknown');
+  });
+
+  test('reports malformed class implements reference lists', () => {
+    const rules = rulesFor('class name=User implements="Known,"');
+
+    expect(rules).toContain('class-implements-invalid-reference-list');
+  });
+
+  test('reports missing required readable instance members for class implements', () => {
+    const violations = violationsFor(
+      [
+        'interface name=RoleBearing',
+        '  field name=role type=string',
+        '  field name=status type=string optional=true',
+        'class name=Account implements=RoleBearing',
+        '  field name=role type=string static=true',
+      ].join('\n'),
+    );
+
+    expect(violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rule: 'class-implements-missing-member',
+          message: expect.stringContaining('role'),
+        }),
+      ]),
+    );
+  });
+
+  test('does not satisfy interface fields with methods or mismatched field types', () => {
+    const rules = rulesFor(
+      [
+        'interface name=RoleBearing',
+        '  field name=role type=string',
+        'class name=MethodRole implements=RoleBearing',
+        '  method name=role returns=string',
+        '    handler lang=kern',
+        '      return value="\'admin\'"',
+        'class name=NumberRole implements=RoleBearing',
+        '  field name=role type=number',
+      ].join('\n'),
+    );
+
+    expect(rules.filter((rule) => rule === 'class-implements-missing-member')).toHaveLength(2);
+  });
+
+  test('reports invalid interface shapes before class implements conformance', () => {
+    const unknownBaseRules = rulesFor(
+      [
+        'interface name=Protocol extends=MissingProtocol',
+        '  field name=id type=string',
+        'class name=User implements=Protocol',
+        '  field name=id type=string',
+      ].join('\n'),
+    );
+    expect(unknownBaseRules).toContain('class-implements-invalid-interface');
+
+    const optionalityConflictRules = rulesFor(
+      [
+        'interface name=BaseProtocol',
+        '  field name=id type=string',
+        'interface name=Protocol extends=BaseProtocol',
+        '  field name=id type=string optional=true',
+        'class name=User implements=Protocol',
+        '  field name=id type=string',
+      ].join('\n'),
+    );
+    expect(optionalityConflictRules).toContain('class-implements-invalid-interface');
+  });
+
+  test('reports interface indexers as unsupported class implements protocols in v1', () => {
+    const rules = rulesFor(
+      [
+        'interface name=DictionaryProtocol',
+        '  indexer keyName=key keyType=string type=number',
+        'class name=Dictionary implements=DictionaryProtocol',
+      ].join('\n'),
+    );
+
+    expect(rules).toContain('class-implements-unsupported-protocol');
+  });
+
   test('reports unknown base class names', () => {
     const violations = violationsFor('class name=User extends=MissingBase');
 
