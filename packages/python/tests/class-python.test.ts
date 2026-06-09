@@ -231,4 +231,59 @@ describe('Python class codegen (single-source class slice)', () => {
     expect(code).toContain('super().__init__(name)');
     expect(code.indexOf('super().__init__(name)')).toBeLessThan(code.indexOf('self.tricks = []'));
   });
+
+  test('list push on a pure receiver lowers to the shared append+len shim', () => {
+    const bag: IRNode = {
+      type: 'class',
+      props: { name: 'Bag' },
+      children: [
+        {
+          type: 'field',
+          props: { name: 'items', type: 'number[]', value: { __expr: true, code: '[]' } },
+          children: [],
+        },
+        {
+          type: 'method',
+          props: { name: 'add', returns: 'number' },
+          children: [
+            param('x', 'number'),
+            handler([{ type: 'return', props: { value: 'this.items.push(x)' }, children: [] }]),
+          ],
+        },
+      ],
+    };
+    const code = generatePythonClass(bag).join('\n');
+    // Same lowering the route emitter uses — JS push's new-length return parity.
+    expect(code).toContain('(self.items.append(x) or len(self.items))');
+    expect(code).not.toContain('self.items.push'); // no JS-ism leaks
+  });
+
+  test('list push on an IMPURE receiver does NOT lower (no double-evaluation)', () => {
+    // The shim names the receiver twice; a side-effectful receiver would run its
+    // effects twice on Python and break parity. It must fall through unchanged.
+    const box: IRNode = {
+      type: 'class',
+      props: { name: 'Box' },
+      children: [
+        {
+          type: 'field',
+          props: { name: 'items', type: 'number[]', value: { __expr: true, code: '[]' } },
+          children: [],
+        },
+        {
+          type: 'method',
+          props: { name: 'fresh', returns: 'number[]' },
+          children: [handler([{ type: 'return', props: { value: 'this.items' }, children: [] }])],
+        },
+        {
+          type: 'method',
+          props: { name: 'danger', returns: 'number' },
+          children: [handler([{ type: 'return', props: { value: 'this.fresh().push(9)' }, children: [] }])],
+        },
+      ],
+    };
+    const code = generatePythonClass(box).join('\n');
+    expect(code).not.toContain('.append(9)'); // shim NOT applied to the impure receiver
+    expect(code).toContain('self.fresh().push(9)'); // receiver named exactly once
+  });
 });

@@ -9,9 +9,11 @@
  * targets BY CONSTRUCTION (both derive from one definition), not by hand-diffing
  * two emitters.
  *
- * Scope: portable probes only (number/string ops). List mutation needs a
- * portable list-append lowering and is exercised separately (unit tests prove
- * the instance-field-default isolation directly).
+ * Scope: portable probes (number/string ops) plus portable list mutation —
+ * `arr.push(x)` lowers identically in class methods and route handlers via the
+ * shared `core/expr/list-ops` module, so per-instance list isolation is proven
+ * differentially here (not only in unit tests). Other list ops (`.length`,
+ * `.slice`, …) are a tracked follow-up; `.map`/`.filter` stay per-path.
  *
  * Run:  node scripts/class-conformance.mjs   (or via `pnpm check:class-conformance`)
  */
@@ -146,6 +148,27 @@ fn name=probe returns=number
     assign target="Counter.count" value="Counter.count + 5"
     return value="Counter.count"`,
     expected: 10,
+  },
+  {
+    name: 'portable list mutation: per-instance isolation + push return parity',
+    kern: `class name=Bag export=true
+  field name=items type=number[] value={{ [] }}
+  method name=add returns=number
+    param name=x type=number
+    handler
+      return value="this.items.push(x)"
+fn name=probe returns=number
+  handler
+    let name=a value="new Bag()"
+    let name=b value="new Bag()"
+    do value="a.add(10)"
+    do value="a.add(20)"
+    return value="b.add(99)"`,
+    // Discriminating: b is a SEPARATE instance, so b.add returns 1 — not 3.
+    // Kills (a) shared-mutable-default (items aliased -> b.add returns 3),
+    // (b) push not lowered (Python `list.push` -> AttributeError, ts != py),
+    // (c) push without JS return parity (`append` returns None -> b.add != 1).
+    expected: 1,
   },
   {
     name: 'inherited + overridden static accessor (metaclass chaining)',
