@@ -3946,24 +3946,37 @@ function validateDerivedConstructorSuper(
 }
 
 /**
- * True when the base class's own constructor declares at least one required
- * (no-default) parameter — i.e. an implicit no-arg `super()` would fail at
- * runtime. Mirrors the runtime's required-arg rule (a param is required unless it
- * carries a `value`/`default`). A base with no own constructor, or an unresolved
- * base, is treated as requiring no args (the implicit super forwards safely);
- * required args inherited transitively through a constructor-less base are a
- * deliberate follow-up, not caught here.
+ * True when the EFFECTIVE base constructor reached by an implicit no-arg
+ * `super()` declares at least one required (no-default) parameter — i.e. that
+ * implicit init would fail at runtime. The effective base ctor is found by walking
+ * up the inheritance chain through constructor-less bases, exactly as the runtime
+ * does: `initializeClassLayer` forwards `[]` through a base that has no
+ * constructor (`base && !ctor`) to ITS base, so the first ancestor that actually
+ * declares a constructor is the one invoked with no args. Checking only the
+ * immediate base would let `C extends B extends A` (B ctor-less, A arg-requiring)
+ * pass validation yet throw at runtime — re-creating the validator/runtime split
+ * this reconciliation closes. Mirrors the runtime's required-arg rule (a param is
+ * required unless it carries a `value`/`default`); a chain with no constructor
+ * anywhere (or an unresolved base) requires no args.
  */
 function baseConstructorRequiresArgs(info: ClassInfo, classByName: ReadonlyMap<string, ClassInfo>): boolean {
-  const base = info.baseName ? classByName.get(info.baseName) : undefined;
-  const baseCtor = base?.constructors[0];
-  if (!baseCtor) return false;
-  return (baseCtor.children ?? []).some(
-    (child) =>
-      child.type === 'param' &&
-      !Object.hasOwn(child.props ?? {}, 'value') &&
-      !Object.hasOwn(child.props ?? {}, 'default'),
-  );
+  const seen = new Set<string>();
+  let current = info.baseName ? classByName.get(info.baseName) : undefined;
+  while (current && !seen.has(current.name)) {
+    seen.add(current.name);
+    const ctor = current.constructors[0];
+    if (ctor) {
+      return (ctor.children ?? []).some(
+        (child) =>
+          child.type === 'param' &&
+          !Object.hasOwn(child.props ?? {}, 'value') &&
+          !Object.hasOwn(child.props ?? {}, 'default'),
+      );
+    }
+    // Constructor-less base: the runtime forwards [] to its base — keep walking.
+    current = current.baseName ? classByName.get(current.baseName) : undefined;
+  }
+  return false;
 }
 
 function analyzeConstructorStatements(

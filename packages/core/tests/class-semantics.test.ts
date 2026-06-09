@@ -623,6 +623,52 @@ describe('semantic-validator — class object model', () => {
     expect(rules).not.toContain('class-constructor-missing-super');
   });
 
+  test('flags an omitted super when an arg-requiring base is reached transitively through a ctor-less base', () => {
+    // C extends B extends A: B has no constructor, so an implicit super() in C
+    // forwards [] through B to A — which requires `id`. The validator must walk
+    // through the constructor-less B to A (matching the runtime), or it would pass
+    // here while the runtime throws, re-opening the split this reconciliation closes.
+    const rules = rulesFor(
+      [
+        'class name=A',
+        '  field name=id type=string',
+        '  constructor',
+        '    param name=id type=string',
+        '    handler lang=kern',
+        '      assign target="this.id" value="id"',
+        'class name=B extends=A',
+        'class name=C extends=B',
+        '  field name=label type=string',
+        '  constructor',
+        '    param name=label type=string',
+        '    handler lang=kern',
+        '      assign target="this.label" value="label"',
+      ].join('\n'),
+    );
+
+    expect(rules).toContain('class-constructor-implicit-super-needs-args');
+  });
+
+  test('accepts an omitted super when the transitively-reached base needs no args', () => {
+    // Same ctor-less intermediate, but the effective base A takes no required args,
+    // so an implicit no-arg super() succeeds end-to-end — no diagnostic.
+    const rules = rulesFor(
+      [
+        'class name=A',
+        '  field name=tag type=string value="base"',
+        'class name=B extends=A',
+        'class name=C extends=B',
+        '  field name=label type=string',
+        '  constructor',
+        '    param name=label type=string',
+        '    handler lang=kern',
+        '      assign target="this.label" value="label"',
+      ].join('\n'),
+    );
+
+    expect(rules).not.toContain('class-constructor-implicit-super-needs-args');
+  });
+
   test('reports this access before an explicit super, but allows super.member in implicit mode', () => {
     // User writes an explicit super() AFTER touching `this` -> this-before-super.
     // Admin only reads super.kind() (a super MEMBER call, not a super constructor
