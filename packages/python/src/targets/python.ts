@@ -5,6 +5,7 @@ import { emitModels } from '../core/emit-models.js';
 import { collectFenceDiagnostics } from '../core/fence-diagnostics.js';
 import { emitPureHandlers } from '../core/handlers/index.js';
 import { findServerNode } from '../fastapi-utils.js';
+import { generatePythonClass } from '../generators/data.js';
 
 /**
  * The PyDotDict / _DotList shim, emitted at the top of every `--emit=backend`
@@ -132,6 +133,11 @@ export function transpilePython(root: IRNode, config?: ResolvedKernConfig): Tran
     target: 'python',
   });
 
+  // 3b. Class declarations -> pure Python classes. Additive: files without
+  // `class` nodes (e.g. the models-only byte-invariance corpus) are untouched.
+  const classNodes = root.type === 'class' ? [root] : (root.children ?? []).filter((child) => child.type === 'class');
+  const classesCode = classNodes.map((node) => generatePythonClass(node).join('\n')).join('\n\n');
+
   const lines: string[] = [];
 
   // Sort and print imports
@@ -164,6 +170,12 @@ export function transpilePython(root: IRNode, config?: ResolvedKernConfig): Tran
   if (emit !== 'backend' && modelsCode.trim().length > 0) {
     lines.push('');
     lines.push(modelsCode);
+  }
+
+  // Class definitions (pure Python — not FastAPI/Pydantic).
+  if (classesCode.trim().length > 0) {
+    lines.push('');
+    lines.push(classesCode);
   }
 
   // Pure handlers (additive)

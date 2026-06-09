@@ -22,7 +22,10 @@ import { mapTsTypeToPython, toSnakeCase } from '../type-map.js';
  *
  *  When the handler is legacy raw, returns `{ code: handlerCode(method),
  *  imports: empty }`. */
-function methodBodyCodePython(method: IRNode): { code: string; imports: Set<string>; helpers: Set<string> } {
+function methodBodyCodePython(
+  method: IRNode,
+  opts?: { classBody?: boolean; isConstructor?: boolean; staticReceiver?: boolean },
+): { code: string; imports: Set<string>; helpers: Set<string> } {
   const handler = getFirstChild(method, 'handler');
   if (!handler || getProps(handler).lang !== 'kern') {
     return { code: handlerCode(method), imports: new Set(), helpers: new Set() };
@@ -54,7 +57,15 @@ function methodBodyCodePython(method: IRNode): { code: string; imports: Set<stri
       for (const part of parseLegacyParamParts(rawParams)) recordParam(part.name);
     }
   }
-  const { code, imports, helpers } = emitNativeKernBodyPythonWithImports(handler, { symbolMap });
+  // Class member bodies: `this` resolves to `self`, and `super(...)`/`super.x`
+  // lower to `super().__init__(...)`/`super().x` via the inClassBody flag.
+  // In a static accessor (metaclass property) body `this` is the class -> `cls`.
+  if (opts?.classBody) symbolMap.this = opts?.staticReceiver ? 'cls' : 'self';
+  const { code, imports, helpers } = emitNativeKernBodyPythonWithImports(handler, {
+    symbolMap,
+    inClassBody: opts?.classBody ?? false,
+    inConstructor: opts?.isConstructor ?? false,
+  });
   return { code, imports, helpers };
 }
 
@@ -64,8 +75,11 @@ function methodBodyCodePython(method: IRNode): { code: string; imports: Set<stri
  *  scope absorbs them, and Python caches modules after first import.
  *  Returns the indented lines (4-space prefix) ready to push into the
  *  enclosing class definition. Empty body yields a single `pass`. */
-function methodBodyLinesPython(method: IRNode): string[] {
-  const { code, imports, helpers } = methodBodyCodePython(method);
+function methodBodyLinesPython(
+  method: IRNode,
+  opts?: { classBody?: boolean; isConstructor?: boolean; staticReceiver?: boolean },
+): string[] {
+  const { code, imports, helpers } = methodBodyCodePython(method, opts);
   const lines: string[] = [];
   for (const mod of [...imports].sort()) {
     lines.push(`        import ${mod} as __k_${mod}`);
@@ -107,6 +121,25 @@ export function formatPythonDefault(value: string, kernType: string): string {
     return `"${trimmed}"`;
   }
   return trimmed;
+}
+
+/** Lower a field's default to a Python expression, or undefined when none.
+ *  A `value={{ <expr> }}` block parses to `{ __expr: true, code: '<expr>' }`;
+ *  a bare `default=...` is a raw string. `new X(...)` -> `X(...)`; literals go
+ *  through formatPythonDefault (true/false/null/number/string handling). */
+function fieldDefaultPython(field: IRNode): string | undefined {
+  const fp = p(field);
+  const v = fp.value as unknown;
+  let code: string | undefined;
+  if (v && typeof v === 'object' && (v as { __expr?: boolean }).__expr) {
+    code = (v as { code?: string }).code;
+  } else if (typeof v === 'string') {
+    code = v;
+  } else if (typeof fp.default === 'string') {
+    code = fp.default as string;
+  }
+  if (code === undefined) return undefined;
+  return formatPythonDefault(code.replace(/\bnew\s+/g, ''), (fp.type as string) || '');
 }
 
 // SQLModel column override: pydantic validator types -> plain DB types for column declarations
@@ -453,6 +486,178 @@ export function generatePythonService(node: IRNode): string[] {
   }
 
   return lines;
+}
+
+// ── Class (single-source class slice, Python target) ────────────────────
+// Phase 1: structural shell parity with the TS `emitClassBody`. Emits the
+// class header + `extends` base, static fields as class attributes, the
+// constructor as `__init__`, instance/static methods, and getters/setters via
+// `@property`. Method/ctor bodies route through the shared
+// `methodBodyLinesPython`; full class-body symbol translation
+// (`this`->`self`, `super.m()`->`super().m()`, `new X()`->`X()`) is the next
+// sub-problem the differential class fixtures will drive.
+export function generatePythonClass(node: IRNode): string[] {
+  const props = p(node);
+  const name = emitIdentifier(props.name as string, 'UnknownClass', node);
+  const baseRaw = typeof props.extends === 'string' ? (props.extends as string) : '';
+  const base = baseRaw ? emitIdentifier(baseRaw, 'object', node) : '';
+
+  const isStatic = (n: IRNode): boolean => {
+    const np = p(n);
+    return np.static === 'true' || np.static === true;
+  };
+
+  const fields = kids(node, 'field');
+  const staticFields = fields.filter(isStatic);
+  const methods = kids(node, 'method');
+  const getters = kids(node, 'getter');
+  const setters = kids(node, 'setter');
+  const ctor = firstChild(node, 'constructor');
+
+  // Static accessors (static get/set) lower to a per-class metaclass: both
+  // `Box.label` reads and `Box.label = x` writes dispatch through the metaclass
+  // @property/.setter (a plain descriptor would be shadowed on assignment). The
+  // static backing field stays a class attribute. The metaclass extends
+  // `type(<base>)` so that when the base ALSO has static accessors the derived
+  // metaclass subclasses the base metaclass (no `metaclass conflict`, and the
+  // base's static accessors are inherited); when the base has none, `type(<base>)`
+  // is just `type`.
+  const staticGetters = getters.filter(isStatic);
+  const staticSetters = setters.filter(isStatic);
+  const metaName = `_${name}Meta`;
+  const metaLines: string[] = [];
+  if (staticGetters.length + staticSetters.length > 0) {
+    metaLines.push(`class ${metaName}(${base ? `type(${base})` : 'type'}):`);
+    const metaGetterNames = new Set<string>();
+    for (const g of staticGetters) {
+      const gp = p(g);
+      const gname = toSnakeCase((gp.name as string) || 'prop');
+      const returns = gp.returns ? ` -> ${mapTsTypeToPython(gp.returns as string)}` : '';
+      metaGetterNames.add(gname);
+      metaLines.push('    @property');
+      metaLines.push(`    def ${gname}(cls)${returns}:`);
+      metaLines.push(...methodBodyLinesPython(g, { classBody: true, staticReceiver: true }));
+      metaLines.push('');
+    }
+    for (const s of staticSetters) {
+      const sname = toSnakeCase((p(s).name as string) || 'prop');
+      if (!metaGetterNames.has(sname)) {
+        metaLines.push('    @property');
+        metaLines.push(`    def ${sname}(cls):  # write-only static property`);
+        metaLines.push('        return None');
+        metaLines.push('');
+        metaGetterNames.add(sname);
+      }
+      metaLines.push(`    @${sname}.setter`);
+      metaLines.push(`    def ${sname}(cls, ${buildPythonParamList(s, { selfPrefix: false })}):`);
+      metaLines.push(...methodBodyLinesPython(s, { classBody: true, staticReceiver: true }));
+      metaLines.push('');
+    }
+  }
+  const baseParts = [base, metaLines.length > 0 ? `metaclass=${metaName}` : ''].filter(Boolean);
+  const header = baseParts.length > 0 ? `class ${name}(${baseParts.join(', ')}):` : `class ${name}:`;
+
+  const body: string[] = [];
+
+  // Static fields -> class-level attributes (shared across instances, like TS statics).
+  for (const f of staticFields) {
+    const fp = p(f);
+    const fname = toSnakeCase((fp.name as string) || 'field');
+    const ftype = fp.type ? mapTsTypeToPython(fp.type as string) : 'Any';
+    body.push(`    ${fname}: ${ftype} = ${fieldDefaultPython(f) ?? 'None'}`);
+  }
+  if (staticFields.length > 0) body.push('');
+
+  // Constructor -> __init__. Instance-field defaults are emitted INSIDE __init__
+  // (never as class-level attributes) so each instance gets a fresh value —
+  // matching TS per-instance field initialization and avoiding Python's
+  // shared-mutable-default trap (a class-level `items = []` would be shared by
+  // every instance). Defaults precede the constructor body, which may reassign
+  // them (TS field-init-then-constructor order).
+  const instanceDefaults = fields.filter((f) => !isStatic(f) && fieldDefaultPython(f) !== undefined);
+  const defaultLines = instanceDefaults.map(
+    (f) => `        self.${toSnakeCase((p(f).name as string) || 'field')} = ${fieldDefaultPython(f)}`,
+  );
+  if (ctor) {
+    body.push(`    def __init__(${buildPythonParamList(ctor, { selfPrefix: true })}):`);
+    const ctorLines = methodBodyLinesPython(ctor, { classBody: true, isConstructor: true });
+    // Field initializers run AFTER super().__init__() (TS field-init-after-super
+    // order), so inject defaults right after the super call when present, else at
+    // the top of the constructor body.
+    const superIdx = ctorLines.findIndex((line) => line.includes('super().__init__'));
+    if (superIdx >= 0) {
+      body.push(...ctorLines.slice(0, superIdx + 1), ...defaultLines, ...ctorLines.slice(superIdx + 1));
+    } else {
+      body.push(...defaultLines, ...ctorLines);
+    }
+    body.push('');
+  } else if (instanceDefaults.length > 0) {
+    // No explicit constructor. A derived class still forwards to its base
+    // initializer (TS subclasses without a constructor auto-forward args), then
+    // applies its own field defaults.
+    if (base) {
+      body.push('    def __init__(self, *args, **kwargs):');
+      body.push('        super().__init__(*args, **kwargs)');
+    } else {
+      body.push('    def __init__(self):');
+    }
+    body.push(...defaultLines);
+    body.push('');
+  }
+
+  // Methods (instance + static).
+  for (const m of methods) {
+    const mp = p(m);
+    const mname = toSnakeCase((mp.name as string) || 'method');
+    const asyncKw = mp.async === 'true' || mp.async === true ? 'async ' : '';
+    const returns = mp.returns ? ` -> ${mapTsTypeToPython(mp.returns as string)}` : '';
+    if (isStatic(m)) {
+      body.push('    @staticmethod');
+      body.push(`    ${asyncKw}def ${mname}(${buildPythonParamList(m, { selfPrefix: false })})${returns}:`);
+    } else {
+      body.push(`    ${asyncKw}def ${mname}(${buildPythonParamList(m, { selfPrefix: true })})${returns}:`);
+    }
+    body.push(...methodBodyLinesPython(m, { classBody: !isStatic(m) }));
+    body.push('');
+  }
+
+  // Getters -> @property. Static getters were already emitted on the metaclass.
+  const instanceGetterNames = new Set<string>();
+  for (const g of getters) {
+    if (isStatic(g)) continue;
+    const gp = p(g);
+    const gname = toSnakeCase((gp.name as string) || 'prop');
+    instanceGetterNames.add(gname);
+    const returns = gp.returns ? ` -> ${mapTsTypeToPython(gp.returns as string)}` : '';
+    body.push('    @property');
+    body.push(`    def ${gname}(self)${returns}:`);
+    body.push(...methodBodyLinesPython(g, { classBody: true }));
+    body.push('');
+  }
+  // Setters -> @<name>.setter. Python requires a property to exist before its
+  // `.setter`; KERN allows setter-only properties, so synthesize a getter when
+  // none was declared (write-only -> returns None, matching a TS getter-less read).
+  for (const s of setters) {
+    if (isStatic(s)) continue; // static setters were already emitted on the metaclass
+    const sp = p(s);
+    const sname = toSnakeCase((sp.name as string) || 'prop');
+    if (!instanceGetterNames.has(sname)) {
+      body.push('    @property');
+      body.push(`    def ${sname}(self):  # write-only property (no getter declared in KERN)`);
+      body.push('        return None');
+      body.push('');
+      instanceGetterNames.add(sname);
+    }
+    body.push(`    @${sname}.setter`);
+    body.push(`    def ${sname}(${buildPythonParamList(s, { selfPrefix: true })}):`);
+    body.push(...methodBodyLinesPython(s, { classBody: true }));
+    body.push('');
+  }
+
+  if (body.length === 0) body.push('    pass');
+
+  // Metaclass (if any) must be defined before the class that references it.
+  return metaLines.length > 0 ? [...metaLines, header, ...body] : [header, ...body];
 }
 
 // ── Union (Pydantic Discriminated Union) ────────────────────────────────
