@@ -369,6 +369,116 @@ fn name=probe returns=string
     // validator must ACCEPT covariant getter-return narrowing.
     expected: 'dog',
   },
+  // ── list-ops parity (.length / .slice / .concat) shared between class + route ──
+  // These prove the property hook (.length) and the slice/concat method shims
+  // lower identically in class methods. Without the property hook a class
+  // method's `this.items.length` emits invalid `self.items.length` (AttributeError
+  // on Python -> ts != py). Each fixture's expected value is cross-target
+  // deterministic and kills a specific wrong-impl.
+  {
+    name: 'list-ops F1: items.length after two pushes (property hook in class method)',
+    kern: `class name=Bag export=true
+  field name=items type=number[] value={{ [] }}
+  method name=count returns=number
+    handler
+      do value="this.items.push(10)"
+      do value="this.items.push(20)"
+      return value="this.items.length"
+fn name=probe returns=number
+  handler
+    return value="new Bag().count()"`,
+    // Kills: property hook missing (self.items.length -> AttributeError on Python),
+    // a method-shaped-only impl that never lowers non-call `.length`.
+    expected: 2,
+  },
+  {
+    name: 'list-ops F2: this.data.slice(-2).length (negative slice then length)',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [10, 20, 30, 40] }}
+  method name=tail returns=number
+    handler
+      return value="this.data.slice(-2).length"
+fn name=probe returns=number
+  handler
+    return value="new Box().tail()"`,
+    // slice(-2) of [10,20,30,40] is [30,40]; its length is 2. Kills: negative
+    // index mishandling, length-after-chain loss (the .length on a slice result).
+    expected: 2,
+  },
+  {
+    name: 'list-ops F3: slice() copies (aliasing) — original length unchanged',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [1, 2, 3] }}
+  method name=keep returns=number
+    handler
+      let name=copy value="this.data.slice()"
+      do value="copy.push(99)"
+      return value="this.data.length"
+fn name=probe returns=number
+  handler
+    return value="new Box().keep()"`,
+    // slice() with no args COPIES; pushing to the copy must NOT grow the original,
+    // so this.data.length stays 3. Kills: an aliasing slice (recv[:] -> recv) that
+    // shares the underlying list (would give 4).
+    expected: 3,
+  },
+  {
+    name: 'list-ops F4: this.data.slice(1, 3).length (two-arg slice)',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [10, 20, 30, 40] }}
+  method name=mid returns=number
+    handler
+      return value="this.data.slice(1, 3).length"
+fn name=probe returns=number
+  handler
+    return value="new Box().mid()"`,
+    // slice(1,3) of [10,20,30,40] is [20,30]; length 2. Kills: second-arg ignored
+    // (recv[1:] -> length 3) and a recv[1:None]-style shape that drops the bound.
+    expected: 2,
+  },
+  {
+    name: 'list-ops F5: this.name.length on a STRING field (len works on str too)',
+    kern: `class name=Box export=true
+  field name=name type=string value={{ "hello" }}
+  method name=size returns=number
+    handler
+      return value="this.name.length"
+fn name=probe returns=number
+  handler
+    return value="new Box().size()"`,
+    // "hello".length is 5. Kills a list-only len lowering — `.length` must lower
+    // to `len(...)`, which works on Python strings as well as lists.
+    expected: 5,
+  },
+  {
+    name: 'list-ops F6a: this.base.concat([3,4]).length (array arg spreads)',
+    kern: `class name=Box export=true
+  field name=base type=number[] value={{ [1, 2] }}
+  method name=joined returns=number
+    handler
+      return value="this.base.concat([3, 4]).length"
+fn name=probe returns=number
+  handler
+    return value="new Box().joined()"`,
+    // [1,2].concat([3,4]) is [1,2,3,4]; length 4. Kills a non-flattening concat
+    // (array arg appended as one nested element -> length 3).
+    expected: 4,
+  },
+  {
+    name: 'list-ops F6b: this.base.concat(3) result (scalar arg appends)',
+    kern: `class name=Box export=true
+  field name=base type=number[] value={{ [1, 2] }}
+  method name=appended returns=number[]
+    handler
+      return value="this.base.concat(3)"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().appended()"`,
+    // [1,2].concat(3) is [1,2,3]. Printing the ARRAY (not its length) discriminates
+    // a wrongly-nested concat: a wrong impl that appends [3] as a nested element
+    // yields [1,2,[3]] — length 3 would NOT discriminate, but the JSON does.
+    expected: [1, 2, 3],
+  },
 ];
 
 const canon = (v) => JSON.stringify(v);

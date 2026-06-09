@@ -62,7 +62,12 @@ import {
   KERN_PAIR_HELPERS_PY,
   KERN_TMOD_HELPER_PY,
 } from './core/expr/index.js';
-import { isSharedPortableArrayMethod, lowerPortableArrayMethodPy } from './core/expr/list-ops.js';
+import {
+  isSharedPortableArrayMethod,
+  isSharedPortableArrayProperty,
+  lowerPortableArrayMethodPy,
+  lowerPortableArrayPropertyPy,
+} from './core/expr/list-ops.js';
 import { mapTsTypeToPython } from './type-map.js';
 
 /** Slice 3e — caller-provided options for the Python body emitter.
@@ -2144,6 +2149,16 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
       obj.kind === 'member' || obj.kind === 'call' || obj.kind === 'index'
         ? lowerChain(obj, ctx)
         : { guard: null, expr: emitPyExprCtx(obj, ctx) };
+    // Portable Array *property* read (non-call `.length`) lowers through the
+    // SAME shared list-ops hook the route emitter uses, so `this.items.length`
+    // emits `len(self.items)` (not invalid `self.items.length`) — identical to
+    // a route handler's `arr.length` by construction. Only the trailing `.prop`
+    // link is rewritten; the accumulated optional-chain guard is left UNTOUCHED
+    // and still flows through `wrapGuardIfAny`, so `items?.length` stays
+    // `(len(items) if items is not None else None)`-shaped.
+    const linkExpr = isSharedPortableArrayProperty(node.property)
+      ? (lowerPortableArrayPropertyPy(inner.expr, node.property) ?? `${inner.expr}.${node.property}`)
+      : `${inner.expr}.${node.property}`;
     if (node.optional) {
       // The receiver expression names what we need to test. The expr names
       // the receiver twice (once in test, once in branch); reject when that
@@ -2156,9 +2171,9 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
       }
       const newGuard =
         inner.guard === null ? `${inner.expr} is not None` : `${inner.guard} and ${inner.expr} is not None`;
-      return { guard: newGuard, expr: `${inner.expr}.${node.property}` };
+      return { guard: newGuard, expr: linkExpr };
     }
-    return { guard: inner.guard, expr: `${inner.expr}.${node.property}` };
+    return { guard: inner.guard, expr: linkExpr };
   }
   if (node.kind === 'index') {
     const obj = node.object;
@@ -2236,12 +2251,14 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
 function lowerPortableArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: BodyEmitContext): string | null {
   const callee = call.callee;
   if (callee.kind !== 'member' || callee.optional) return null;
-  // Gate on method name + arity BEFORE emitting receiver/args, so a non-shared
-  // or malformed call falls through without any duplicated emission. The only
-  // shared method (push) is single-arg; a 0-/2-arg push is left to the generic
-  // path (an unsupported case, pre-existing on the route emitter too).
+  // Gate on method name BEFORE emitting receiver/args, so a non-shared call
+  // falls through without any duplicated emission. Arity is NOT gated here —
+  // the shared `lowerPortableArrayMethodPy` validates the arg count per method
+  // (push/concat are single-arg, slice takes 0/1/2) and returns null for shapes
+  // it can't lower, so a malformed call falls through unchanged. A blanket
+  // `args.length !== 1` guard here would have wrongly blocked `slice()` /
+  // `slice(1, 3)` (a push-shaped assumption — see spec 3a).
   if (!isSharedPortableArrayMethod(callee.property)) return null;
-  if (call.args.length !== 1) return null;
   const recvNode = callee.object;
   // The shim names the receiver twice (`(recv.append(x) or len(recv))`), so a
   // side-effectful receiver — `makeBag().items.push(x)`, `bags[idx()].push(x)` —
