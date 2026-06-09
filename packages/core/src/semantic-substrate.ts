@@ -6,7 +6,12 @@ import {
   type PortableLogicSupport,
   type PortableLogicTarget,
 } from './codegen/portable-logic-primitives.js';
-import { CORE_TYPE_CONTRACTS, type CoreOperationReturns, contractToGraphEdges } from './core-contracts/index.js';
+import {
+  CORE_TYPE_CONTRACTS,
+  type CoreOperationReturns,
+  type CoreTypeContract,
+  contractToGraphEdges,
+} from './core-contracts/index.js';
 import { type CoreShapeFacts, collectCoreShapeFacts } from './core-runtime/shape-validator.js';
 import type { NodeContract } from './ir/semantics/index.js';
 import { snapshotRegistry } from './ir/semantics/index.js';
@@ -138,7 +143,10 @@ export interface BuildKernSemanticSubstrateOptions {
 
 export function buildKernSemanticSubstrate(options: BuildKernSemanticSubstrateOptions = {}): KernSemanticSubstrate {
   const ragFacts = options.documentRag ? collectRagSemanticFacts(options.documentRag) : undefined;
-  const coreTypes = Object.values(CORE_TYPE_CONTRACTS.types).map((contract) => ({
+  // The registry guarantees every value is a CoreTypeContract; pin the element type so
+  // Object.values does not widen to unknown/any under stricter tsconfig settings (ts18046).
+  const coreContracts = Object.values(CORE_TYPE_CONTRACTS.types) as readonly CoreTypeContract[];
+  const coreTypes = coreContracts.map((contract) => ({
     id: `core.type.${contract.name}`,
     name: contract.name,
     kind: contract.kind,
@@ -160,7 +168,7 @@ export function buildKernSemanticSubstrate(options: BuildKernSemanticSubstrateOp
     generatedBy: 'kern-semantic-substrate',
     source: options.source ?? 'codegen-from-ts',
     coreTypes,
-    coreGraphEdges: Object.values(CORE_TYPE_CONTRACTS.types).flatMap((contract) => contractToGraphEdges(contract)),
+    coreGraphEdges: coreContracts.flatMap((contract) => contractToGraphEdges(contract)),
     portablePrimitives: PORTABLE_LOGIC_PRIMITIVE_IDS.map((id) => {
       const primitive = PORTABLE_LOGIC_PRIMITIVES[id];
       return {
