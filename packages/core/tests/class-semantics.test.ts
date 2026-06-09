@@ -1007,6 +1007,20 @@ describe('semantic-validator — abstract-class contract', () => {
     expect(rules).toContain('class-abstract-instantiation');
   });
 
+  test('rejects abstract instantiation in a field default= initializer (not just value={{}})', () => {
+    // Review (codex/kimi/agy): `default=` is an executable initializer site like
+    // `value`, but is not in BODY_EXPRESSION_PROPS, so it must be scanned too.
+    const fieldDefault = rulesFor(
+      [
+        'class name=Shape abstract=true',
+        '  method name=area returns=number',
+        'class name=Holder',
+        '  field name=s type=Shape default="new Shape()"',
+      ].join('\n'),
+    );
+    expect(fieldDefault).toContain('class-abstract-instantiation');
+  });
+
   test('does not flag new of a concrete class or an unresolved identifier', () => {
     const rules = rulesFor(
       [

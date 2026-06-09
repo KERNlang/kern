@@ -3496,6 +3496,14 @@ function newExpressionClassName(argument: ValueIR): string | undefined {
   }
 }
 
+// `default` is an executable initializer site (field `default=` and
+// `param default=`) that is NOT in BODY_EXPRESSION_PROPS — field initializers
+// treat `value` and `default` equivalently and both lower to runtime code, so a
+// `new Abstract()` in a default must be checked too. Scanned local to this pass
+// so the shared super-detection / shape-usage walks are unaffected. A non-`new`
+// default just parses to a harmless expression that matches nothing.
+const INSTANTIATION_EXPRESSION_PROPS: readonly string[] = [...BODY_EXPRESSION_PROPS, 'default'];
+
 // Module-wide pass: reject `new <AbstractClass>(...)` anywhere — including inside
 // the abstract class's own static factory (KERN matches TS: abstract is not
 // self-instantiable). Conservative by design — non-ident callees, names not
@@ -3503,6 +3511,10 @@ function newExpressionClassName(argument: ValueIR): string | undefined {
 // class-name resolution in this validator) names rebound by a local binding are
 // not pursued; the validator does not track lexical shadowing for any class
 // reference, so abstract instantiation follows the same name+visibility rule.
+// Multi-root note: visibleNamesByRoot unions every root's declared class names
+// (as extends/implements resolution already does), so this resolves classes
+// across roots; all production callers validate a single root, so the
+// cross-root union is not a false-positive surface in practice.
 function validateAbstractInstantiations(
   roots: readonly IRNode[],
   classByName: ReadonlyMap<string, ClassInfo>,
@@ -3512,7 +3524,7 @@ function validateAbstractInstantiations(
   roots.forEach((root, rootIndex) => {
     const visible = visibleNamesByRoot[rootIndex];
     walkSemanticTree(root, (node) => {
-      for (const prop of BODY_EXPRESSION_PROPS) {
+      for (const prop of INSTANTIATION_EXPRESSION_PROPS) {
         const text = expressionPropText(node.props?.[prop]);
         if (!text) continue;
         let value: ValueIR;
