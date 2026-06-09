@@ -13,10 +13,13 @@ import {
   coreFixtureValueToKernValue,
   kernValueToCoreFixtureValue,
 } from './contract-adapter.js';
+import { collectCoreShapeFacts, validateCoreShape } from './shape-validator.js';
 import { brandValue, KERN_VALUE_BRAND } from './value-brand.js';
 
 const INTEGER_INDEX_RE = /^(0|[1-9]\d*)$/;
 const ACTIVE_INSTANCE_SETTERS = new WeakMap<KernInstanceValue, Set<string>>();
+const ACTIVE_CLASS_SETTERS = new WeakMap<KernClassValue, Set<string>>();
+const ACTIVE_CONSTRUCTORS = new WeakMap<KernInstanceValue, RuntimeConstructionFrame[]>();
 
 export type KernValue =
   | { kind: 'null' }
@@ -52,6 +55,8 @@ export interface KernClassValue {
   name: string;
   node: IRNode;
   env: CoreRuntimeEnv;
+  staticFields: Record<string, KernValue>;
+  runtimeRootContext?: IRNode | readonly IRNode[];
 }
 
 export interface KernInstanceValue {
@@ -71,15 +76,20 @@ export interface KernBoundMethodValue {
 
 export interface KernSuperValue {
   kind: 'super';
-  receiver: KernInstanceValue;
+  receiver: KernInstanceValue | KernClassValue;
   ownerClass: KernClassValue;
-  mode: 'constructor' | 'method';
+  mode: 'constructor' | 'method' | 'static';
 }
 
 export interface RuntimeParam {
   name: string;
   type?: string;
   defaultExpr?: string;
+}
+
+interface RuntimeConstructionFrame {
+  ownerClass: KernClassValue;
+  superCalled: boolean;
 }
 
 export type CoreCompletion = { kind: 'normal'; value: KernValue } | { kind: 'return'; value: KernValue };
@@ -96,6 +106,7 @@ export interface CreateCoreRuntimeEnvOptions {
 
 export class CoreRuntimeEnv {
   private readonly bindings = new Map<string, KernValue>();
+  private runtimeRootContext?: IRNode | readonly IRNode[];
 
   constructor(readonly parent?: CoreRuntimeEnv) {}
 
@@ -126,6 +137,14 @@ export class CoreRuntimeEnv {
 
   child(): CoreRuntimeEnv {
     return new CoreRuntimeEnv(this);
+  }
+
+  setRuntimeRootContext(root: IRNode | readonly IRNode[]): void {
+    this.runtimeRootContext = root;
+  }
+
+  getRuntimeRootContext(): IRNode | readonly IRNode[] | undefined {
+    return this.runtimeRootContext ?? this.parent?.getRuntimeRootContext();
   }
 }
 
@@ -239,6 +258,7 @@ export function runCoreRuntime(
   nodeOrNodes: IRNode | readonly IRNode[],
   env = createCoreRuntimeEnv(),
 ): CoreRuntimeResult {
+  env.setRuntimeRootContext(nodeOrNodes);
   const nodes: readonly IRNode[] = isIRNodeArray(nodeOrNodes) ? nodeOrNodes : runtimeChildren(nodeOrNodes);
   return { completion: executeSequence(nodes, env), env };
 }
@@ -271,6 +291,10 @@ function executeSequence(nodes: readonly IRNode[], env: CoreRuntimeEnv): CoreCom
 
 function executeNode(node: IRNode, env: CoreRuntimeEnv): CoreCompletion {
   switch (node.type) {
+    case 'interface':
+    case 'import':
+    case 'use':
+      return { kind: 'normal', value: kUndefined() };
     case 'handler':
     case '__block':
       return executeSequence(node.children ?? [], env);
@@ -295,6 +319,8 @@ function executeNode(node: IRNode, env: CoreRuntimeEnv): CoreCompletion {
     case 'class': {
       const klass = makeClass(node, env);
       env.define(klass.name, klass);
+      initializeClassStaticFields(klass);
+      validateImplementedClassStaticProtocols(klass);
       return { kind: 'normal', value: kUndefined() };
     }
     case 'assign':
@@ -372,8 +398,11 @@ function evalValueIR(node: ValueIR, env: CoreRuntimeEnv): KernValue {
       return kNull();
     case 'undefLit':
       return kUndefined();
-    case 'ident':
-      return env.lookup(node.name);
+    case 'ident': {
+      const value = env.lookup(node.name);
+      if (node.name === 'this' && value.kind === 'instance') guardConstructedInstanceAccess(value);
+      return value;
+    }
     case 'tmplLit':
       return kString(
         node.quasis.reduce((out, quasi, index) => {
@@ -710,7 +739,21 @@ function makeClass(node: IRNode, env: CoreRuntimeEnv): KernClassValue {
     name: requiredString(node.props?.name, 'class name='),
     node,
     env,
+    staticFields: createRecordEntries(),
+    ...(env.getRuntimeRootContext() ? { runtimeRootContext: env.getRuntimeRootContext() } : {}),
   });
+}
+
+function initializeClassStaticFields(klass: KernClassValue): void {
+  for (const field of runtimeChildNodes(klass.node, 'field')) {
+    if (field.props?.static !== true && field.props?.static !== 'true') continue;
+    const name = requiredString(field.props?.name, 'field name=');
+    const value =
+      Object.hasOwn(field.props ?? {}, 'value') || Object.hasOwn(field.props ?? {}, 'default')
+        ? evalCoreExpression(runtimeFieldInitializerExpr(field), classStaticEnv(klass))
+        : kUndefined();
+    klass.staticFields[name] = value;
+  }
 }
 
 function constructClassValue(klass: KernClassValue, args: readonly KernValue[]): KernInstanceValue {
@@ -721,7 +764,407 @@ function constructClassValue(klass: KernClassValue, args: readonly KernValue[]):
     initializedClasses: new Set<string>(),
   });
   initializeClassLayer(instance, klass, args, true);
+  validateImplementedClassProtocols(instance, klass);
   return instance;
+}
+
+function validateImplementedClassProtocols(instance: KernInstanceValue, klass: KernClassValue): void {
+  const factsByRoot = new Map<IRNode | readonly IRNode[], ReturnType<typeof collectCoreShapeFacts>>();
+  for (const layer of classHierarchyFromBase(klass)) {
+    const root = layer.runtimeRootContext ?? layer.env.getRuntimeRootContext();
+    if (!root) continue;
+    const facts = factsByRoot.get(root) ?? collectCoreShapeFacts(root);
+    factsByRoot.set(root, facts);
+    const shapeByName = new Map(facts.interfaces.map((shape) => [shape.name, shape]));
+    const importedProtocolNames = runtimeImportedProtocolNames(root);
+    for (const interfaceName of runtimeClassReferenceNames(layer.node.props?.implements)) {
+      const shape = shapeByName.get(interfaceName);
+      if (!shape) {
+        if (importedProtocolNames.has(interfaceName)) continue;
+        throw new Error(`KERN core runtime class '${klass.name}' implements unknown interface '${interfaceName}'.`);
+      }
+      if (!shape.validatorAvailable || shape.indexers.length > 0) {
+        throw new Error(
+          `KERN core runtime class '${klass.name}' implements interface '${interfaceName}' that is not executable as a class protocol in v1.`,
+        );
+      }
+      const projection = classProtocolProjection(
+        instance,
+        shape.fields.map((field) => field.name),
+      );
+      const result = validateCoreShape(projection, interfaceName, root);
+      if (!result.passed) {
+        throw new Error(
+          `KERN core runtime class '${klass.name}' violates implemented interface '${interfaceName}':\n${result.diagnostics
+            .map((diagnostic) => diagnostic.message)
+            .join('\n')}`,
+        );
+      }
+      const missingMethods = runtimeInterfaceProtocolMethods(root, interfaceName)
+        .filter((method) => !classHasRuntimeProtocolMethod(instance.classValue, method))
+        .map((method) => method.name);
+      if (missingMethods.length > 0) {
+        throw new Error(
+          `KERN core runtime class '${klass.name}' violates implemented interface '${interfaceName}': missing or incompatible method(s): ${missingMethods.join(', ')}.`,
+        );
+      }
+    }
+  }
+}
+
+function validateImplementedClassStaticProtocols(klass: KernClassValue): void {
+  const root = klass.runtimeRootContext ?? klass.env.getRuntimeRootContext();
+  if (!root) return;
+  const facts = collectCoreShapeFacts(root);
+  const shapeByName = new Map(facts.interfaces.map((shape) => [shape.name, shape]));
+  const importedProtocolNames = runtimeImportedProtocolNames(root);
+  for (const interfaceName of runtimeClassReferenceNames(klass.node.props?.implements)) {
+    const shape = shapeByName.get(interfaceName);
+    if (!shape) {
+      if (importedProtocolNames.has(interfaceName)) continue;
+      throw new Error(`KERN core runtime class '${klass.name}' implements unknown interface '${interfaceName}'.`);
+    }
+    if (!shape.validatorAvailable || shape.indexers.length > 0) {
+      throw new Error(
+        `KERN core runtime class '${klass.name}' implements interface '${interfaceName}' that is not executable as a class protocol in v1.`,
+      );
+    }
+    const staticFields = runtimeInterfaceProtocolFields(root, interfaceName, true);
+    if (staticFields.length > 0) {
+      const missingFields = staticFields.filter((field) => !classHasRuntimeProtocolField(klass, field));
+      if (missingFields.length > 0) {
+        throw new Error(
+          `KERN core runtime class '${klass.name}' violates implemented interface '${interfaceName}': missing or incompatible static member(s): ${missingFields
+            .map((field) => field.name)
+            .join(', ')}.`,
+        );
+      }
+      const fieldBackedFields = staticFields.filter(
+        (field) => findReadableClassShapeMember(klass, field.name, true)?.kind === 'field',
+      );
+      const projection = classStaticProtocolProjection(klass, fieldBackedFields);
+      const result = validateProjectedProtocolFields(projection, interfaceName, fieldBackedFields, root);
+      if (!result.passed) {
+        throw new Error(
+          `KERN core runtime class '${klass.name}' violates implemented interface '${interfaceName}' static field contract:\n${result.diagnostics
+            .map((diagnostic) => diagnostic.message)
+            .join('\n')}`,
+        );
+      }
+    }
+    const missingMethods = runtimeInterfaceProtocolMethods(root, interfaceName, true)
+      .filter((method) => !classHasRuntimeProtocolMethod(klass, method, true))
+      .map((method) => method.name);
+    if (missingMethods.length > 0) {
+      throw new Error(
+        `KERN core runtime class '${klass.name}' violates implemented interface '${interfaceName}': missing or incompatible static member(s): ${missingMethods.join(', ')}.`,
+      );
+    }
+  }
+}
+
+function classProtocolProjection(instance: KernInstanceValue, fieldNames: readonly string[]): KernValue {
+  const entries = createRecordEntries();
+  for (const fieldName of fieldNames) {
+    if (Object.hasOwn(instance.fields, fieldName)) {
+      entries[fieldName] = instance.fields[fieldName] ?? kUndefined();
+      continue;
+    }
+    const member = findReadableClassShapeMember(instance.classValue, fieldName, false);
+    if (member?.kind !== 'getter') continue;
+    entries[fieldName] = evalInstanceMember(instance, fieldName);
+  }
+  return brandValue({ kind: 'record', entries });
+}
+
+function classStaticProtocolProjection(
+  klass: KernClassValue,
+  fields: readonly RuntimeInterfaceProtocolField[],
+): KernValue {
+  const entries = createRecordEntries();
+  for (const field of fields) {
+    const member = findReadableClassShapeMember(klass, field.name, true);
+    if (member?.kind !== 'field') continue;
+    entries[field.name] = evalClassMember(klass, field.name);
+  }
+  return brandValue({ kind: 'record', entries });
+}
+
+function validateProjectedProtocolFields(
+  projection: KernValue,
+  interfaceName: string,
+  fields: readonly RuntimeInterfaceProtocolField[],
+  rootOrNodes: IRNode | readonly IRNode[],
+): ReturnType<typeof validateCoreShape> {
+  const syntheticName = `__KernStaticProtocol_${interfaceName}`;
+  const syntheticInterface: IRNode = {
+    type: 'interface',
+    props: { name: syntheticName },
+    children: fields.map((field) => ({
+      type: 'field',
+      props: {
+        name: field.name,
+        optional: field.optional,
+        ...(field.type ? { type: field.type } : {}),
+      },
+    })),
+  };
+  const roots = [...(isIRNodeArray(rootOrNodes) ? rootOrNodes : [rootOrNodes]), syntheticInterface];
+  return validateCoreShape(projection, syntheticName, roots);
+}
+
+interface RuntimeInterfaceProtocolField {
+  readonly name: string;
+  readonly type?: string;
+  readonly optional: boolean;
+  readonly static: boolean;
+}
+
+interface RuntimeInterfaceProtocolMethod {
+  readonly name: string;
+  readonly arity: number;
+  readonly paramTypes: readonly string[];
+  readonly async: boolean;
+  readonly stream: boolean;
+  readonly generator: boolean;
+  readonly static: boolean;
+  readonly returns?: string;
+}
+
+function runtimeInterfaceProtocolFields(
+  rootOrNodes: IRNode | readonly IRNode[],
+  interfaceName: string,
+  staticOnly: boolean,
+): RuntimeInterfaceProtocolField[] {
+  const interfaceByName = runtimeInterfaceNodesByName(rootOrNodes);
+  const resolve = (name: string, seen: ReadonlySet<string>): RuntimeInterfaceProtocolField[] => {
+    if (seen.has(name)) return [];
+    const node = interfaceByName.get(name);
+    if (!node) return [];
+    const nextSeen = new Set(seen);
+    nextSeen.add(name);
+    const fields = new Map<string, RuntimeInterfaceProtocolField>();
+    for (const baseName of runtimeClassReferenceNames(node.props?.extends)) {
+      for (const field of resolve(baseName, nextSeen)) fields.set(runtimeInterfaceMemberShapeKey(field), field);
+    }
+    for (const child of node.children ?? []) {
+      if (child.type !== 'field') continue;
+      const name = runtimeStringProp(child.props?.name);
+      if (!name) continue;
+      const isStatic = runtimeBooleanProp(child.props?.static);
+      if (isStatic !== staticOnly) continue;
+      fields.set(runtimeInterfaceMemberShapeKey({ name, static: isStatic }), {
+        name,
+        optional: runtimeBooleanProp(child.props?.optional),
+        static: isStatic,
+        ...(runtimeStringProp(child.props?.type) ? { type: runtimeStringProp(child.props?.type) } : {}),
+      });
+    }
+    return [...fields.values()];
+  };
+  return resolve(interfaceName, new Set());
+}
+
+function runtimeInterfaceProtocolMethods(
+  rootOrNodes: IRNode | readonly IRNode[],
+  interfaceName: string,
+  staticOnly = false,
+): RuntimeInterfaceProtocolMethod[] {
+  const interfaceByName = runtimeInterfaceNodesByName(rootOrNodes);
+  const resolve = (name: string, seen: ReadonlySet<string>): RuntimeInterfaceProtocolMethod[] => {
+    if (seen.has(name)) return [];
+    const node = interfaceByName.get(name);
+    if (!node) return [];
+    const nextSeen = new Set(seen);
+    nextSeen.add(name);
+    const methods = new Map<string, RuntimeInterfaceProtocolMethod>();
+    for (const baseName of runtimeClassReferenceNames(node.props?.extends)) {
+      for (const method of resolve(baseName, nextSeen)) methods.set(runtimeInterfaceMemberShapeKey(method), method);
+    }
+    for (const child of node.children ?? []) {
+      if (child.type !== 'method') continue;
+      const name = runtimeStringProp(child.props?.name);
+      if (!name) continue;
+      const isStatic = runtimeBooleanProp(child.props?.static);
+      if (isStatic !== staticOnly) continue;
+      methods.set(runtimeInterfaceMemberShapeKey({ name, static: isStatic }), {
+        name,
+        arity: runtimeParams(child).length,
+        paramTypes: runtimeParams(child).map((param) => param.type ?? ''),
+        async: runtimeBooleanProp(child.props?.async),
+        stream: runtimeBooleanProp(child.props?.stream),
+        generator: runtimeBooleanProp(child.props?.generator),
+        static: isStatic,
+        ...(runtimeStringProp(child.props?.returns) ? { returns: runtimeStringProp(child.props?.returns) } : {}),
+      });
+    }
+    return [...methods.values()];
+  };
+
+  return resolve(interfaceName, new Set());
+}
+
+function runtimeInterfaceNodesByName(rootOrNodes: IRNode | readonly IRNode[]): Map<string, IRNode> {
+  const interfaceByName = new Map<string, IRNode>();
+  const visit = (node: IRNode): void => {
+    if (node.type === 'interface') {
+      const name = runtimeStringProp(node.props?.name);
+      if (name && !interfaceByName.has(name)) interfaceByName.set(name, node);
+    }
+    for (const child of node.children ?? []) visit(child);
+  };
+  for (const node of isIRNodeArray(rootOrNodes) ? rootOrNodes : [rootOrNodes]) visit(node);
+  return interfaceByName;
+}
+
+function runtimeInterfaceMemberShapeKey(member: { readonly name: string; readonly static: boolean }): string {
+  return `${member.static ? 'static' : 'instance'}:${member.name}`;
+}
+
+function classHasRuntimeProtocolMethod(
+  klass: KernClassValue,
+  method: RuntimeInterfaceProtocolMethod,
+  staticOnly = false,
+): boolean {
+  const member = findReadableClassShapeMember(klass, method.name, staticOnly);
+  if (member?.kind !== 'method') return false;
+  if (runtimeBooleanProp(member.node.props?.private)) return false;
+  const params = runtimeParams(member.node);
+  if (params.length !== method.arity) return false;
+  if (
+    !runtimeProtocolParamTypesCompatible(
+      params.map((param) => param.type ?? ''),
+      method.paramTypes,
+    )
+  )
+    return false;
+  if (runtimeBooleanProp(member.node.props?.async) !== method.async) return false;
+  if (runtimeBooleanProp(member.node.props?.stream) !== method.stream) return false;
+  if (runtimeBooleanProp(member.node.props?.generator) !== method.generator) return false;
+  const returns = runtimeStringProp(member.node.props?.returns);
+  return runtimeProtocolReturnTypesCompatible(
+    returns,
+    {
+      async: runtimeBooleanProp(member.node.props?.async),
+      stream: runtimeBooleanProp(member.node.props?.stream),
+      generator: runtimeBooleanProp(member.node.props?.generator),
+    },
+    method.returns,
+    method,
+  );
+}
+
+function classHasRuntimeProtocolField(klass: KernClassValue, field: RuntimeInterfaceProtocolField): boolean {
+  const member = findReadableClassShapeMember(klass, field.name, true);
+  if (!member) return field.optional;
+  if (member.kind !== 'field' && member.kind !== 'getter') return false;
+  if (runtimeBooleanProp(member.node.props?.private)) return false;
+  const actualType =
+    member.kind === 'getter'
+      ? runtimeStringProp(member.node.props?.returns)
+      : runtimeStringProp(member.node.props?.type);
+  return !field.type || normalizeRuntimeProtocolType(actualType) === normalizeRuntimeProtocolType(field.type);
+}
+
+function runtimeProtocolParamTypesCompatible(actual: readonly string[], expected: readonly string[]): boolean {
+  return expected.every(
+    (type, index) => !type || normalizeRuntimeProtocolType(actual[index]) === normalizeRuntimeProtocolType(type),
+  );
+}
+
+function normalizeRuntimeProtocolType(type: string | undefined): string {
+  return compactRuntimeProtocolTypeWhitespace(type);
+}
+
+function compactRuntimeProtocolTypeWhitespace(type: string | undefined): string {
+  let out = '';
+  let quote: '"' | "'" | '`' | null = null;
+  for (let index = 0; index < (type ?? '').length; index += 1) {
+    const ch = (type ?? '')[index];
+    if (quote !== null) {
+      out += ch;
+      if (ch === '\\' && index + 1 < (type ?? '').length) out += (type ?? '')[++index];
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      out += ch;
+      continue;
+    }
+    if (!/\s/.test(ch)) out += ch;
+  }
+  return out;
+}
+
+function runtimeProtocolReturnTypesCompatible(
+  actual: string | undefined,
+  actualFlags: { readonly async: boolean; readonly stream: boolean; readonly generator: boolean },
+  expected: string | undefined,
+  expectedFlags: { readonly async: boolean; readonly stream: boolean; readonly generator: boolean },
+): boolean {
+  return (
+    normalizeRuntimeProtocolReturnType(actual, actualFlags) ===
+    normalizeRuntimeProtocolReturnType(expected, expectedFlags)
+  );
+}
+
+function normalizeRuntimeProtocolReturnType(
+  returns: string | undefined,
+  flags: { readonly async: boolean; readonly stream: boolean; readonly generator: boolean },
+): string {
+  if (flags.stream) {
+    if (returns?.startsWith('AsyncGenerator<')) return returns;
+    return `AsyncGenerator<${returns || 'unknown'}>`;
+  }
+  if (flags.generator) {
+    if (returns?.startsWith('Generator<') || returns?.startsWith('AsyncGenerator<')) return returns;
+    return `${flags.async ? 'AsyncGenerator' : 'Generator'}<${returns || 'unknown'}>`;
+  }
+  return !returns || returns === 'void' ? 'void' : returns;
+}
+
+function classHierarchyFromBase(klass: KernClassValue): KernClassValue[] {
+  const base = resolveBaseClass(klass);
+  return base ? [...classHierarchyFromBase(base), klass] : [klass];
+}
+
+function runtimeImportedProtocolNames(rootOrNodes: IRNode | readonly IRNode[]): Set<string> {
+  const names = new Set<string>();
+  const visit = (node: IRNode): void => {
+    if (node.type === 'import') {
+      for (const name of runtimeImportLocalNames(node)) names.add(name);
+    }
+    if (node.type === 'use') {
+      for (const child of node.children ?? []) {
+        if (child.type !== 'from') continue;
+        const kind = runtimeStringProp(child.props?.kind);
+        if (kind && kind !== 'interface' && kind !== 'type') continue;
+        const localName = runtimeStringProp(child.props?.as) ?? runtimeStringProp(child.props?.name);
+        if (localName) names.add(localName);
+      }
+    }
+    for (const child of node.children ?? []) visit(child);
+  };
+  for (const node of isIRNodeArray(rootOrNodes) ? rootOrNodes : [rootOrNodes]) visit(node);
+  return names;
+}
+
+function runtimeImportLocalNames(node: IRNode): string[] {
+  const names: string[] = [];
+  const props = node.props ?? {};
+  const defaultName = runtimeStringProp(props.default);
+  if (defaultName && defaultName !== 'true') names.push(defaultName);
+  const rawNames = runtimeStringProp(props.names);
+  if (rawNames) {
+    for (const raw of rawNames.split(',')) {
+      const name = raw.trim();
+      const aliasMatch = /^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/u.exec(name);
+      if (aliasMatch) names.push(aliasMatch[2] ?? aliasMatch[1]);
+      else if (/^[A-Za-z_$][\w$]*$/u.test(name)) names.push(name);
+    }
+  }
+  return names;
 }
 
 function initializeClassLayer(
@@ -735,9 +1178,8 @@ function initializeClassLayer(
   }
   const base = resolveBaseClass(klass);
   const ctor = firstRuntimeChild(klass.node, 'constructor');
-  const ctorCallsSuper = Boolean(base && ctor && constructorCallsSuper(ctor));
-  if (base && !ctorCallsSuper) initializeClassLayer(instance, base, [], false);
-  if (!ctorCallsSuper) initializeClassFields(instance, klass);
+  if (base && !ctor) initializeClassLayer(instance, base, [], false);
+  if (!base || !ctor) initializeClassFields(instance, klass);
   if (!ctor) {
     if (receivesConstructorArgs && args.length > 0) {
       throw new Error(`KERN core runtime class ${klass.name} has no constructor.`);
@@ -745,8 +1187,14 @@ function initializeClassLayer(
     instance.initializedClasses.add(klass.name);
     return;
   }
-  callClassMemberBody(ctor, klass, instance, receivesConstructorArgs ? args : []).value;
-  if (base && ctorCallsSuper && !instance.initializedClasses.has(base.name)) {
+  if (base) {
+    withConstructionFrame(instance, klass, () => {
+      callClassMemberBody(ctor, klass, instance, receivesConstructorArgs ? args : []).value;
+    });
+  } else {
+    callClassMemberBody(ctor, klass, instance, receivesConstructorArgs ? args : []).value;
+  }
+  if (base && !instance.initializedClasses.has(base.name)) {
     throw new Error(`KERN core runtime constructor ${klass.name} must call super(...).`);
   }
   instance.initializedClasses.add(klass.name);
@@ -772,77 +1220,143 @@ function runtimeFieldInitializerExpr(node: IRNode): string {
 }
 
 function evalInstanceMember(object: KernInstanceValue, property: string): KernValue {
-  if (Object.hasOwn(object.fields, property)) return object.fields[property] ?? kUndefined();
-  const getter = findClassMember(object.classValue, 'getter', property);
-  if (getter) return callClassMemberBody(getter.node, getter.owner, object, []).value;
-  const method = findClassMember(object.classValue, 'method', property);
-  if (method) {
-    return brandValue({
-      kind: 'bound-method',
-      name: `${object.classValue.name}.${property}`,
-      receiver: object,
-      methodNode: method.node,
-      ownerClass: method.owner,
-    });
+  guardConstructedInstanceAccess(object);
+  const member = findReadableClassShapeMember(object.classValue, property, false);
+  if (!member) throw new Error(`KERN core runtime unknown instance property: ${object.classValue.name}.${property}.`);
+  switch (member.kind) {
+    case 'field':
+      return object.fields[property] ?? kUndefined();
+    case 'getter':
+      return callClassMemberBody(member.node, member.owner, object, []).value;
+    case 'method':
+      return brandValue({
+        kind: 'bound-method',
+        name: `${object.classValue.name}.${property}`,
+        receiver: object,
+        methodNode: member.node,
+        ownerClass: member.owner,
+      });
+    case 'setter':
+      throw new Error(`KERN core runtime cannot read setter-only property: ${property}.`);
   }
-  return kUndefined();
 }
 
 function evalSuperMember(object: KernSuperValue, property: string): KernValue {
   const base = resolveBaseClass(object.ownerClass);
   if (!base) return kUndefined();
-  const getter = findClassMember(base, 'getter', property);
-  if (getter) return callClassMemberBody(getter.node, getter.owner, object.receiver, []).value;
-  const method = findClassMember(base, 'method', property);
-  if (method) {
-    return brandValue({
-      kind: 'bound-method',
-      name: `${base.name}.${property}`,
-      receiver: object.receiver,
-      methodNode: method.node,
-      ownerClass: method.owner,
-    });
+  if (object.receiver.kind === 'class') return evalClassMemberFrom(base, property, object.receiver);
+  guardConstructedSuperAccess(object.receiver);
+  const member = findReadableClassShapeMember(base, property, false);
+  if (!member) throw new Error(`KERN core runtime unknown super property: ${object.ownerClass.name}.${property}.`);
+  switch (member.kind) {
+    case 'field':
+      return object.receiver.fields[property] ?? kUndefined();
+    case 'getter':
+      return callClassMemberBody(member.node, member.owner, object.receiver, []).value;
+    case 'method':
+      return brandValue({
+        kind: 'bound-method',
+        name: `${base.name}.${property}`,
+        receiver: object.receiver,
+        methodNode: member.node,
+        ownerClass: member.owner,
+      });
+    case 'setter':
+      throw new Error(`KERN core runtime cannot read setter-only super property: ${property}.`);
   }
-  if (Object.hasOwn(object.receiver.fields, property)) return object.receiver.fields[property] ?? kUndefined();
-  return kUndefined();
 }
 
 function evalClassMember(object: KernClassValue, property: string): KernValue {
-  const method = findClassMember(object, 'method', property, true);
-  if (method) {
-    return brandValue({
-      kind: 'builtin',
-      name: `${object.name}.${property}`,
-      call: (args) => callClassMemberBody(method.node, method.owner, undefined, args).value,
-    });
+  return evalClassMemberFrom(object, property, object);
+}
+
+function evalClassMemberFrom(owner: KernClassValue, property: string, receiver: KernClassValue): KernValue {
+  const member = findReadableClassShapeMember(owner, property, true);
+  if (!member) throw new Error(`KERN core runtime unknown static property: ${receiver.name}.${property}.`);
+  switch (member.kind) {
+    case 'field':
+      return member.owner === receiver
+        ? (receiver.staticFields[property] ?? kUndefined())
+        : evalClassStaticField(member.owner, receiver, property);
+    case 'getter':
+      return callStaticClassMemberBody(member.node, member.owner, receiver, []).value;
+    case 'method':
+      return brandValue({
+        kind: 'builtin' as const,
+        name: `${receiver.name}.${property}`,
+        call: (args) => callStaticClassMemberBody(member.node, member.owner, receiver, args).value,
+      });
+    case 'setter':
+      throw new Error(`KERN core runtime cannot read setter-only static property: ${property}.`);
   }
-  return kUndefined();
 }
 
 function assignInstanceMember(object: KernInstanceValue, property: string, value: KernValue): void {
-  const setter = findClassMember(object.classValue, 'setter', property);
-  if (setter) {
-    callSetterBody(object, setter.node, setter.owner, property, value);
-    return;
+  guardConstructedInstanceAccess(object);
+  const member = findWritableClassShapeMember(object.classValue, property, false);
+  if (!member) throw new Error(`KERN core runtime cannot assign undeclared instance property: ${property}.`);
+  switch (member.kind) {
+    case 'field':
+      object.fields[property] = value;
+      return;
+    case 'setter':
+      callSetterBody(object, member.node, member.owner, property, value);
+      return;
+    case 'getter':
+      throw new Error(`KERN core runtime cannot assign getter-only property: ${property}.`);
+    case 'method':
+      throw new Error(`KERN core runtime cannot assign method property: ${property}.`);
   }
-  if (findClassMember(object.classValue, 'getter', property)) {
-    throw new Error(`KERN core runtime cannot assign getter-only property: ${property}.`);
-  }
-  object.fields[property] = value;
 }
 
 function assignSuperMember(object: KernSuperValue, property: string, value: KernValue): void {
   const base = resolveBaseClass(object.ownerClass);
   if (!base) throw new Error(`KERN core runtime class ${object.ownerClass.name} has no base class.`);
-  const setter = findClassMember(base, 'setter', property);
-  if (setter) {
-    callSetterBody(object.receiver, setter.node, setter.owner, property, value);
+  if (object.receiver.kind === 'class') {
+    assignClassMemberFrom(base, object.receiver, property, value);
     return;
   }
-  if (findClassMember(base, 'getter', property)) {
-    throw new Error(`KERN core runtime cannot assign getter-only property: ${property}.`);
+  guardConstructedSuperAccess(object.receiver);
+  const member = findWritableClassShapeMember(base, property, false);
+  if (!member) throw new Error(`KERN core runtime cannot assign undeclared super property: ${property}.`);
+  switch (member.kind) {
+    case 'field':
+      object.receiver.fields[property] = value;
+      return;
+    case 'setter':
+      callSetterBody(object.receiver, member.node, member.owner, property, value);
+      return;
+    case 'getter':
+      throw new Error(`KERN core runtime cannot assign getter-only property: ${property}.`);
+    case 'method':
+      throw new Error(`KERN core runtime cannot assign method property: ${property}.`);
   }
-  object.receiver.fields[property] = value;
+}
+
+function assignClassMember(object: KernClassValue, property: string, value: KernValue): void {
+  assignClassMemberFrom(object, object, property, value);
+}
+
+function assignClassMemberFrom(
+  owner: KernClassValue,
+  receiver: KernClassValue,
+  property: string,
+  value: KernValue,
+): void {
+  const member = findWritableClassShapeMember(owner, property, true);
+  if (!member) throw new Error(`KERN core runtime cannot assign undeclared static property: ${property}.`);
+  switch (member.kind) {
+    case 'field':
+      receiver.staticFields[property] = value;
+      return;
+    case 'setter':
+      callStaticSetterBody(receiver, member.node, member.owner, property, value);
+      return;
+    case 'getter':
+      throw new Error(`KERN core runtime cannot assign getter-only static property: ${property}.`);
+    case 'method':
+      throw new Error(`KERN core runtime cannot assign static method property: ${property}.`);
+  }
 }
 
 function callSetterBody(
@@ -867,6 +1381,28 @@ function callSetterBody(
   }
 }
 
+function callStaticSetterBody(
+  receiver: KernClassValue,
+  setterNode: IRNode,
+  ownerClass: KernClassValue,
+  property: string,
+  value: KernValue,
+): void {
+  const key = `${ownerClass.name}.${property}`;
+  const activeSetters = ACTIVE_CLASS_SETTERS.get(receiver) ?? new Set<string>();
+  if (activeSetters.has(key)) {
+    throw new Error(`KERN core runtime recursive static setter assignment: ${key}.`);
+  }
+  activeSetters.add(key);
+  ACTIVE_CLASS_SETTERS.set(receiver, activeSetters);
+  try {
+    callStaticClassMemberBody(setterNode, ownerClass, receiver, [value]);
+  } finally {
+    activeSetters.delete(key);
+    if (activeSetters.size === 0) ACTIVE_CLASS_SETTERS.delete(receiver);
+  }
+}
+
 function callBoundMethodValue(
   method: KernBoundMethodValue,
   args: readonly KernValue[],
@@ -878,11 +1414,54 @@ function callSuperConstructor(value: KernSuperValue, args: readonly KernValue[])
   if (value.mode !== 'constructor') {
     throw new Error('KERN core runtime super(...) is only valid inside a constructor.');
   }
+  if (value.receiver.kind !== 'instance') {
+    throw new Error('KERN core runtime super(...) requires an instance receiver.');
+  }
   const base = resolveBaseClass(value.ownerClass);
   if (!base) throw new Error(`KERN core runtime class ${value.ownerClass.name} has no base class.`);
+  const frame = activeConstructionFrame(value.receiver);
+  if (!frame || frame.ownerClass !== value.ownerClass) {
+    throw new Error(`KERN core runtime super(...) is not active for constructor ${value.ownerClass.name}.`);
+  }
+  if (frame.superCalled || value.receiver.initializedClasses.has(base.name)) {
+    throw new Error(`KERN core runtime constructor ${value.ownerClass.name} called super(...) more than once.`);
+  }
+  frame.superCalled = true;
   initializeClassLayer(value.receiver, base, args, true);
   initializeClassFields(value.receiver, value.ownerClass);
   return value.receiver;
+}
+
+function withConstructionFrame(instance: KernInstanceValue, ownerClass: KernClassValue, run: () => void): void {
+  const stack = ACTIVE_CONSTRUCTORS.get(instance) ?? [];
+  const frame: RuntimeConstructionFrame = { ownerClass, superCalled: false };
+  stack.push(frame);
+  ACTIVE_CONSTRUCTORS.set(instance, stack);
+  try {
+    run();
+  } finally {
+    stack.pop();
+    if (stack.length === 0) ACTIVE_CONSTRUCTORS.delete(instance);
+  }
+}
+
+function activeConstructionFrame(instance: KernInstanceValue): RuntimeConstructionFrame | undefined {
+  const stack = ACTIVE_CONSTRUCTORS.get(instance);
+  return stack?.[stack.length - 1];
+}
+
+function guardConstructedInstanceAccess(instance: KernInstanceValue): void {
+  const frame = activeConstructionFrame(instance);
+  if (!frame || frame.superCalled) return;
+  if (!resolveBaseClass(frame.ownerClass)) return;
+  throw new Error(`KERN core runtime cannot access this before super(...) in ${frame.ownerClass.name}.`);
+}
+
+function guardConstructedSuperAccess(instance: KernInstanceValue): void {
+  const frame = activeConstructionFrame(instance);
+  if (!frame || frame.superCalled) return;
+  if (!resolveBaseClass(frame.ownerClass)) return;
+  throw new Error(`KERN core runtime cannot access super members before super(...) in ${frame.ownerClass.name}.`);
 }
 
 function callClassMemberBody(
@@ -922,7 +1501,42 @@ function callClassMemberBody(
   return { value: completion.value, env: callEnv };
 }
 
-function findClassMember(
+function callStaticClassMemberBody(
+  memberNode: IRNode,
+  ownerClass: KernClassValue,
+  receiver: KernClassValue,
+  args: readonly KernValue[],
+): { value: KernValue; env: CoreRuntimeEnv } {
+  const callEnv = ownerClass.env.child();
+  callEnv.define('this', receiver);
+  if (resolveBaseClass(ownerClass)) {
+    callEnv.define(
+      'super',
+      brandValue({
+        kind: 'super',
+        receiver,
+        ownerClass,
+        mode: 'static',
+      }),
+    );
+  }
+  const params = runtimeParams(memberNode);
+  validateRuntimeArgs(`${ownerClass.name}.${memberNode.type}`, params, args);
+  params.forEach((param, index) => {
+    const provided = args[index];
+    const value =
+      provided === undefined || (provided.kind === 'undefined' && param.defaultExpr)
+        ? param.defaultExpr
+          ? evalCoreExpression(param.defaultExpr, callEnv)
+          : kUndefined()
+        : provided;
+    callEnv.define(param.name, value);
+  });
+  const completion = executeSequence(runtimeFunctionBody(memberNode), callEnv);
+  return { value: completion.value, env: callEnv };
+}
+
+function findOwnClassMember(
   klass: KernClassValue,
   type: 'method' | 'getter' | 'setter',
   name: string,
@@ -934,8 +1548,77 @@ function findClassMember(
     if (staticOnly !== isStatic) continue;
     return { node: child, owner: klass };
   }
+  return undefined;
+}
+
+type RuntimeClassShapeKind = 'field' | 'getter' | 'setter' | 'method';
+
+interface RuntimeClassShapeMember {
+  kind: RuntimeClassShapeKind;
+  node: IRNode;
+  owner: KernClassValue;
+}
+
+function findReadableClassShapeMember(
+  klass: KernClassValue,
+  name: string,
+  staticOnly: boolean,
+): RuntimeClassShapeMember | undefined {
+  return findClassShapeMember(klass, name, staticOnly, ['field', 'getter', 'method', 'setter']);
+}
+
+function findWritableClassShapeMember(
+  klass: KernClassValue,
+  name: string,
+  staticOnly: boolean,
+): RuntimeClassShapeMember | undefined {
+  return findClassShapeMember(klass, name, staticOnly, ['field', 'setter', 'getter', 'method']);
+}
+
+function findClassShapeMember(
+  klass: KernClassValue,
+  name: string,
+  staticOnly: boolean,
+  precedence: readonly RuntimeClassShapeKind[],
+): RuntimeClassShapeMember | undefined {
+  for (const kind of precedence) {
+    const member =
+      kind === 'field'
+        ? findOwnClassField(klass, name, staticOnly)
+        : findOwnClassMethodShapeMember(klass, kind, name, staticOnly);
+    if (member) return member;
+  }
   const base = resolveBaseClass(klass);
-  return base ? findClassMember(base, type, name, staticOnly) : undefined;
+  return base ? findClassShapeMember(base, name, staticOnly, precedence) : undefined;
+}
+
+function findOwnClassMethodShapeMember(
+  klass: KernClassValue,
+  kind: 'getter' | 'setter' | 'method',
+  name: string,
+  staticOnly: boolean,
+): RuntimeClassShapeMember | undefined {
+  const member = findOwnClassMember(klass, kind, name, staticOnly);
+  return member ? { kind, node: member.node, owner: member.owner } : undefined;
+}
+
+function findOwnClassField(
+  klass: KernClassValue,
+  name: string,
+  staticOnly: boolean,
+): RuntimeClassShapeMember | undefined {
+  for (const child of klass.node.children ?? []) {
+    if (child.type !== 'field' || child.props?.name !== name) continue;
+    const isStatic = child.props?.static === true || child.props?.static === 'true';
+    if (staticOnly !== isStatic) continue;
+    return { kind: 'field', node: child, owner: klass };
+  }
+  return undefined;
+}
+
+function evalClassStaticField(owner: KernClassValue, receiver: KernClassValue, property: string): KernValue {
+  if (Object.hasOwn(receiver.staticFields, property)) return receiver.staticFields[property] ?? kUndefined();
+  return owner.staticFields[property] ?? kUndefined();
 }
 
 function resolveBaseClass(klass: KernClassValue): KernClassValue | undefined {
@@ -952,9 +1635,114 @@ function classBaseName(value: unknown): string | undefined {
   return match?.[1];
 }
 
+function runtimeStringProp(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function runtimeBooleanProp(value: unknown): boolean {
+  return value === true || (typeof value === 'string' && value.trim().toLowerCase() === 'true');
+}
+
+function runtimeClassReferenceNames(value: unknown): string[] {
+  if (typeof value !== 'string' || !value.trim()) return [];
+  const parts = splitRuntimeClassReferenceList(value);
+  const names = new Set<string>();
+  for (const part of parts) {
+    const name = runtimeClassReferenceName(part);
+    if (!name) throw new Error(`implements= contains an invalid reference: ${part}.`);
+    names.add(name);
+  }
+  return [...names];
+}
+
+function runtimeClassReferenceName(value: string): string | undefined {
+  const trimmed = value.trim();
+  const match = /^([A-Za-z_$][\w$]*)(?:\s*<[\s\S]*>)?$/u.exec(trimmed);
+  return match?.[1];
+}
+
+function splitRuntimeClassReferenceList(raw: string): string[] {
+  const out: string[] = [];
+  let current = '';
+  let depth = 0;
+  let angleDepth = 0;
+  let quote: '"' | "'" | '`' | null = null;
+  for (let index = 0; index < raw.length; index += 1) {
+    const ch = raw[index];
+    if (quote !== null) {
+      current += ch;
+      if (ch === '\\' && index + 1 < raw.length) current += raw[++index];
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === '(' || ch === '[' || ch === '{') depth += 1;
+    else if (ch === ')' || ch === ']' || ch === '}') depth -= 1;
+    else if (ch === '<') angleDepth += 1;
+    else if (ch === '>' && angleDepth > 0) angleDepth -= 1;
+    if (depth < 0 || angleDepth < 0) throw new Error('implements= has unbalanced delimiters.');
+    if (ch === ',' && depth === 0 && angleDepth === 0) {
+      const part = current.trim();
+      if (part.length === 0) throw new Error('implements= contains an empty reference.');
+      out.push(part);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  if (quote !== null || depth !== 0 || angleDepth !== 0) throw new Error('implements= has unbalanced delimiters.');
+  const tail = current.trim();
+  if (tail.length === 0 && raw.trim().endsWith(',')) throw new Error('implements= contains an empty reference.');
+  if (tail.length > 0) out.push(tail);
+  return out;
+}
+
+function runtimeAngleClosesBeforeNextTopLevelComma(raw: string, start: number): boolean {
+  let depth = 0;
+  let quote: '"' | "'" | '`' | null = null;
+  for (let index = start; index < raw.length; index += 1) {
+    const ch = raw[index];
+    if (quote !== null) {
+      if (ch === '\\' && index + 1 < raw.length) index += 1;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      continue;
+    }
+    if (ch === '(' || ch === '[' || ch === '{') depth += 1;
+    else if ((ch === ')' || ch === ']' || ch === '}') && depth > 0) depth -= 1;
+    else if (ch === '>' && depth === 0) return true;
+    else if (ch === ',' && depth === 0) return false;
+  }
+  return false;
+}
+
 function classThisEnv(klass: KernClassValue, receiver: KernInstanceValue): CoreRuntimeEnv {
   const env = klass.env.child();
   env.define('this', receiver);
+  return env;
+}
+
+function classStaticEnv(klass: KernClassValue): CoreRuntimeEnv {
+  const env = klass.env.child();
+  env.define('this', klass);
+  if (resolveBaseClass(klass)) {
+    env.define(
+      'super',
+      brandValue({
+        kind: 'super',
+        receiver: klass,
+        ownerClass: klass,
+        mode: 'static',
+      }),
+    );
+  }
   return env;
 }
 
@@ -1028,6 +1816,10 @@ function assignRuntimeTarget(target: string, value: KernValue, env: CoreRuntimeE
       object.entries[parsed.property] = value;
       return;
     }
+    if (object.kind === 'class') {
+      assignClassMember(object, parsed.property, value);
+      return;
+    }
     throw new Error(`KERN core runtime cannot assign member on ${object.kind}.`);
   }
   if (parsed.kind === 'index') {
@@ -1064,71 +1856,6 @@ function runtimeChildNodes(node: IRNode, type: string): IRNode[] {
   return node.children?.filter((child) => child.type === type) ?? [];
 }
 
-function constructorCallsSuper(node: IRNode): boolean {
-  return runtimeFunctionBody(node).some(statementCallsSuper);
-}
-
-function statementCallsSuper(node: IRNode): boolean {
-  const rawValue = node.type === 'do' ? node.props?.value : undefined;
-  if (rawValue !== undefined && expressionCallsSuper(rawValue)) return true;
-  return (node.children ?? []).some(statementCallsSuper);
-}
-
-function expressionCallsSuper(value: unknown): boolean {
-  try {
-    return valueIRCallsSuper(parseExpression(unwrapExpr(value, 'super expression')));
-  } catch {
-    return false;
-  }
-}
-
-function valueIRCallsSuper(value: ValueIR): boolean {
-  switch (value.kind) {
-    case 'call':
-      return (
-        (value.callee.kind === 'ident' && value.callee.name === 'super') ||
-        valueIRCallsSuper(value.callee) ||
-        value.args.some(valueIRCallsSuper)
-      );
-    case 'member':
-      return valueIRCallsSuper(value.object);
-    case 'index':
-      return valueIRCallsSuper(value.object) || valueIRCallsSuper(value.index);
-    case 'tmplLit':
-      return value.expressions.some(valueIRCallsSuper);
-    case 'arrayLit':
-      return value.items.some(valueIRCallsSuper);
-    case 'objectLit':
-      return value.entries.some((entry) =>
-        'kind' in entry ? valueIRCallsSuper(entry.argument) : valueIRCallsSuper(entry.value),
-      );
-    case 'unary':
-    case 'await':
-    case 'new':
-    case 'spread':
-    case 'propagate':
-      return valueIRCallsSuper(value.argument);
-    case 'typeAssert':
-    case 'nonNull':
-      return valueIRCallsSuper(value.expression);
-    case 'binary':
-      return valueIRCallsSuper(value.left) || valueIRCallsSuper(value.right);
-    case 'conditional':
-      return valueIRCallsSuper(value.test) || valueIRCallsSuper(value.consequent) || valueIRCallsSuper(value.alternate);
-    case 'lambda':
-      return false;
-    case 'numLit':
-    case 'strLit':
-    case 'boolLit':
-    case 'nullLit':
-    case 'undefLit':
-    case 'regexLit':
-    case 'ident':
-      return false;
-  }
-  return false;
-}
-
 function runtimeChildren(node: IRNode): IRNode[] {
   if (node.type === 'document' || node.type === 'handler' || node.type === '__block') return node.children ?? [];
   return [node];
@@ -1147,7 +1874,7 @@ function runtimeParams(node: IRNode): RuntimeParam[] {
 
   const raw = typeof node.props?.params === 'string' ? node.props.params : '';
   if (!raw.trim()) return [];
-  return splitPortableExpressionList(raw, 'fn params=').map((part) => {
+  return splitRuntimeParamList(raw, 'fn params=').map((part) => {
     const defaultIndex = findRuntimeDefaultSeparator(part);
     const beforeDefault = defaultIndex >= 0 ? part.slice(0, defaultIndex) : part;
     const defaultExpr = defaultIndex >= 0 ? part.slice(defaultIndex + 1).trim() : undefined;
@@ -1160,6 +1887,49 @@ function runtimeParams(node: IRNode): RuntimeParam[] {
       defaultExpr: defaultExpr || undefined,
     };
   });
+}
+
+function splitRuntimeParamList(raw: string, propName: string): string[] {
+  const out: string[] = [];
+  let current = '';
+  let depth = 0;
+  let angleDepth = 0;
+  let inDefault = false;
+  let quote: '"' | "'" | '`' | null = null;
+  for (let index = 0; index < raw.length; index += 1) {
+    const ch = raw[index];
+    if (quote !== null) {
+      current += ch;
+      if (ch === '\\' && index + 1 < raw.length) current += raw[++index];
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === '(' || ch === '[' || ch === '{') depth += 1;
+    else if (ch === ')' || ch === ']' || ch === '}') depth -= 1;
+    else if (ch === '=' && depth === 0 && angleDepth === 0 && raw[index + 1] !== '>') inDefault = true;
+    else if (ch === '<' && (!inDefault || runtimeAngleClosesBeforeNextTopLevelComma(raw, index + 1))) angleDepth += 1;
+    else if (ch === '>' && angleDepth > 0) angleDepth -= 1;
+    if (depth < 0 || angleDepth < 0) throw new Error(`${propName} has unbalanced delimiters.`);
+    if (ch === ',' && depth === 0 && angleDepth === 0) {
+      const part = current.trim();
+      if (part.length === 0) throw new Error(`${propName} contains an empty expression.`);
+      out.push(part);
+      current = '';
+      inDefault = false;
+      continue;
+    }
+    current += ch;
+  }
+  if (quote !== null || depth !== 0 || angleDepth !== 0) throw new Error(`${propName} has unbalanced delimiters.`);
+  const tail = current.trim();
+  if (tail.length === 0 && raw.trim().endsWith(',')) throw new Error(`${propName} contains an empty expression.`);
+  if (tail.length > 0) out.push(tail);
+  return out;
 }
 
 function runtimeParamDefaultExpr(node: IRNode): string | undefined {
@@ -1237,6 +2007,10 @@ function isNullish(value: KernValue): boolean {
 }
 
 function isKernValue(value: unknown): value is KernValue {
+  return isKernValueShape(value, new WeakSet<object>());
+}
+
+function isKernValueShape(value: unknown, seen: WeakSet<object>): value is KernValue {
   if (
     !isPlainRecord(value) ||
     (value as { [KERN_VALUE_BRAND]?: true })[KERN_VALUE_BRAND] !== true ||
@@ -1244,6 +2018,8 @@ function isKernValue(value: unknown): value is KernValue {
   ) {
     return false;
   }
+  if (seen.has(value)) return true;
+  seen.add(value);
   switch (value.kind) {
     case 'null':
     case 'undefined':
@@ -1259,13 +2035,13 @@ function isKernValue(value: unknown): value is KernValue {
         hasOnlyKeys(value, ['kind', 'items']) &&
         Array.isArray(value.items) &&
         !hasArrayHoles(value.items) &&
-        value.items.every(isKernValue)
+        value.items.every((item) => isKernValueShape(item, seen))
       );
     case 'record':
       return (
         hasOnlyKeys(value, ['kind', 'entries']) &&
         isPlainRecord(value.entries) &&
-        Object.values(value.entries).every(isKernValue)
+        Object.values(value.entries).every((entry) => isKernValueShape(entry, seen))
       );
     case 'function':
       return (
@@ -1283,38 +2059,40 @@ function isKernValue(value: unknown): value is KernValue {
       );
     case 'class':
       return (
-        hasOnlyKeys(value, ['kind', 'name', 'node', 'env']) &&
+        hasOnlyKeys(value, ['kind', 'name', 'node', 'env', 'staticFields'], ['runtimeRootContext']) &&
         typeof value.name === 'string' &&
         isPlainRecord(value.node) &&
-        value.env instanceof CoreRuntimeEnv
+        value.env instanceof CoreRuntimeEnv &&
+        isPlainRecord(value.staticFields) &&
+        Object.values(value.staticFields).every((entry) => isKernValueShape(entry, seen))
       );
     case 'instance':
       return (
         hasOnlyKeys(value, ['kind', 'classValue', 'fields', 'initializedClasses']) &&
-        isKernValue(value.classValue) &&
+        isKernValueShape(value.classValue, seen) &&
         value.classValue.kind === 'class' &&
         isPlainRecord(value.fields) &&
-        Object.values(value.fields).every(isKernValue) &&
+        Object.values(value.fields).every((entry) => isKernValueShape(entry, seen)) &&
         value.initializedClasses instanceof Set
       );
     case 'bound-method':
       return (
         hasOnlyKeys(value, ['kind', 'name', 'receiver', 'methodNode', 'ownerClass']) &&
         typeof value.name === 'string' &&
-        isKernValue(value.receiver) &&
+        isKernValueShape(value.receiver, seen) &&
         value.receiver.kind === 'instance' &&
         isPlainRecord(value.methodNode) &&
-        isKernValue(value.ownerClass) &&
+        isKernValueShape(value.ownerClass, seen) &&
         value.ownerClass.kind === 'class'
       );
     case 'super':
       return (
         hasOnlyKeys(value, ['kind', 'receiver', 'ownerClass', 'mode']) &&
-        isKernValue(value.receiver) &&
-        value.receiver.kind === 'instance' &&
-        isKernValue(value.ownerClass) &&
+        isKernValueShape(value.receiver, seen) &&
+        (value.receiver.kind === 'instance' || value.receiver.kind === 'class') &&
+        isKernValueShape(value.ownerClass, seen) &&
         value.ownerClass.kind === 'class' &&
-        (value.mode === 'constructor' || value.mode === 'method')
+        (value.mode === 'constructor' || value.mode === 'method' || value.mode === 'static')
       );
     default:
       return false;

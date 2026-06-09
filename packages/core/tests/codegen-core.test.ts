@@ -562,6 +562,39 @@ describe('Core Language Codegen', () => {
     });
   });
 
+  describe('interface', () => {
+    it('generates method signatures', () => {
+      const code = gen(
+        [
+          'interface name=Formatter',
+          '  field name=id type=string',
+          '  method name=format params="value:string,count:number" returns=string',
+        ].join('\n'),
+      );
+
+      expect(code).toContain('export interface Formatter {');
+      expect(code).toContain('id: string;');
+      expect(code).toContain('format(value: string, count: number): string;');
+    });
+
+    it('strips defaults from interface method signatures', () => {
+      const code = gen(
+        ['interface name=Formatter', '  method name=format params="value:string,count:number=1" returns=string'].join(
+          '\n',
+        ),
+      );
+
+      expect(code).toContain('format(value: string, count: number): string;');
+      expect(code).not.toContain('count: number = 1');
+    });
+
+    it('generates streamed interface method signatures', () => {
+      const code = gen('interface name=Events\n  method name=read returns=Event stream=true');
+
+      expect(code).toContain('read(): AsyncGenerator<Event>;');
+    });
+  });
+
   // ── Gap 1: Service (class) ──
 
   describe('service', () => {

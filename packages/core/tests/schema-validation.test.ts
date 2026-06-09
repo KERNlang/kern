@@ -95,6 +95,76 @@ describe('Schema Validation', () => {
       expect(v).toHaveLength(0);
     });
 
+    it('passes valid RAG declarations and flags missing required graph props', () => {
+      const valid = validate(
+        [
+          'corpus name=Docs',
+          '  source name=manuals uri="./docs/**/*.md"',
+          '  chunking source=manuals strategy=semantic maxTokens=600 overlap=80',
+          'embed name=DocsEmbedding corpus=Docs',
+          'retriever name=DocsSearch corpus=Docs embed=DocsEmbedding topK=8 minScore=0.72',
+          'rag name=AnswerDocs retriever=DocsSearch',
+          '  grounding requireCitations=true maxContext=6000',
+          '  ragEval name=Faithfulness metric=faithfulness threshold=0.85 mode=contract',
+          '    ragCase name=refunds query="How do refunds work?"',
+          '      ragAssert kind=scoreGte threshold=0.72',
+          '  ragAnswerContract name=RefundAnswer query="How do refunds work?" answer="Refunds follow policy." minGroundingCoverage=0.8',
+          '    answerSpan start=0 end=22 chunks=refunds required=true',
+        ].join('\n'),
+      );
+      expect(valid).toHaveLength(0);
+
+      const missing = validate(
+        [
+          'corpus',
+          'source name=missingUri',
+          'embed name=NoCorpus',
+          'retriever name=NoCorpus',
+          'rag name=NoRetriever',
+          'ragAnswerContract query="q"',
+          'answerSpan start=0 end=1',
+        ].join('\n'),
+      );
+      expect(missing.some((violation) => violation.message.includes("'corpus' requires prop 'name'"))).toBe(true);
+      expect(missing.some((violation) => violation.message.includes("'source' requires prop 'uri'"))).toBe(true);
+      expect(missing.some((violation) => violation.message.includes("'embed' requires prop 'corpus'"))).toBe(true);
+      expect(missing.some((violation) => violation.message.includes("'retriever' requires prop 'corpus'"))).toBe(true);
+      expect(missing.some((violation) => violation.message.includes("'rag' requires prop 'retriever'"))).toBe(true);
+      expect(missing.some((violation) => violation.message.includes("'ragAnswerContract' requires prop 'name'"))).toBe(
+        true,
+      );
+      expect(
+        missing.some((violation) => violation.message.includes("'ragAnswerContract' requires prop 'answer'")),
+      ).toBe(true);
+      expect(missing.some((violation) => violation.message.includes("'answerSpan' requires prop 'chunks'"))).toBe(true);
+
+      const misplaced = validate(
+        ['retriever name=DocsSearch corpus=Docs', '  grounding requireCitations=true'].join('\n'),
+      );
+      expect(
+        misplaced.some((violation) => violation.message.includes("'retriever' does not allow child type 'grounding'")),
+      ).toBe(true);
+
+      const nestedEmbed = validate(['corpus name=Docs', '  embed name=DocsEmbedding corpus=Docs'].join('\n'));
+      expect(
+        nestedEmbed.some((violation) => violation.message.includes("'corpus' does not allow child type 'embed'")),
+      ).toBe(true);
+
+      const invalidAssertKind = validate(
+        [
+          'corpus name=Docs',
+          'retriever name=DocsSearch corpus=Docs',
+          'rag name=AnswerDocs retriever=DocsSearch',
+          '  ragEval name=Faithfulness metric=faithfulness threshold=0.85 mode=contract',
+          '    ragCase name=refunds query="How do refunds work?"',
+          '      ragAssert kind=unsupported',
+        ].join('\n'),
+      );
+      expect(
+        invalidAssertKind.some((violation) => violation.message.includes("'ragAssert' prop 'kind' must be one of")),
+      ).toBe(true);
+    });
+
     it('passes explicit foreign handler metadata', () => {
       const v = validate(
         [
@@ -367,12 +437,17 @@ describe('Schema Validation', () => {
 
   describe('allowed children', () => {
     it('flags wrong child type in interface', () => {
-      const v = validate(['interface name=User', '  method name=foo'].join('\n'));
-      expect(v.some((v) => v.message.includes("does not allow child type 'method'"))).toBe(true);
+      const v = validate(['interface name=User', '  const name=foo value=1'].join('\n'));
+      expect(v.some((v) => v.message.includes("does not allow child type 'const'"))).toBe(true);
     });
 
     it('allows field in interface', () => {
       const v = validate(['interface name=User', '  field name=id type=string'].join('\n'));
+      expect(v).toHaveLength(0);
+    });
+
+    it('allows method in interface', () => {
+      const v = validate(['interface name=User', '  method name=displayName returns=string'].join('\n'));
       expect(v).toHaveLength(0);
     });
 

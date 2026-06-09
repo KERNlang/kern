@@ -359,6 +359,650 @@ describe('KERN core runtime statements', () => {
     expect(toHostValue(evalCoreExpression('make()', env))).toBe(6);
   });
 
+  test('enforces implemented interface fields after class construction', () => {
+    const root = parse(
+      [
+        'interface name=Named',
+        '  field name=id type=string',
+        'class name=User implements=Named',
+        '  field name=id type=string value="unset"',
+        '  field name=name type=string value="Ada"',
+        '  constructor',
+        '    param name=id type=string',
+        '    handler',
+        '      assign target="this.id" value="id"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new User("u1").id', env))).toBe('u1');
+    expect(toHostValue(evalCoreExpression('new User("u1").name', env))).toBe('Ada');
+  });
+
+  test('rejects constructed classes that miss implemented interface fields', () => {
+    const root = parse(
+      [
+        'interface name=Named',
+        '  field name=name type=string',
+        'class name=User implements=Named',
+        '  constructor',
+        '    handler',
+        '      do value="1"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new User()', env)).toThrow("class 'User' violates implemented interface 'Named'");
+    expect(() => evalCoreExpression('new User()', env)).toThrow('missing required field Named.name');
+  });
+
+  test('rejects constructed classes with wrong implemented interface field types', () => {
+    const root = parse(
+      [
+        'interface name=Named',
+        '  field name=id type=string',
+        'class name=User implements=Named',
+        '  field name=id type=number value={{ 1 }}',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new User()', env)).toThrow('expected Named.id to be string, got number');
+  });
+
+  test('enforces inherited interface fields for implemented protocols', () => {
+    const root = parse(
+      [
+        'interface name=Entity',
+        '  field name=id type=string',
+        'interface name=Named extends=Entity',
+        '  field name=name type=string',
+        'class name=User implements=Named',
+        '  field name=id type=string value="u1"',
+        '  field name=name type=string value="Ada"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new User().id', env))).toBe('u1');
+    expect(toHostValue(evalCoreExpression('new User().name', env))).toBe('Ada');
+  });
+
+  test('rejects classes missing inherited implemented interface fields', () => {
+    const root = parse(
+      [
+        'interface name=Entity',
+        '  field name=id type=string',
+        'interface name=Named extends=Entity',
+        '  field name=name type=string',
+        'class name=User implements=Named',
+        '  field name=name type=string value="Ada"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new User()', env)).toThrow('missing required field Named.id');
+  });
+
+  test('validates getter-backed implemented interface fields', () => {
+    const root = parse(
+      [
+        'interface name=Named',
+        '  field name=name type=string',
+        'class name=User implements=Named',
+        '  field name=first type=string value="Ada"',
+        '  getter name=name returns=string',
+        '    handler',
+        '      return value="this.first"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new User().name', env))).toBe('Ada');
+  });
+
+  test('validates static implemented interface fields at class definition', () => {
+    const root = parse(
+      [
+        'interface name=Factory',
+        '  field name=kind type=string static=true',
+        'class name=UserFactory implements=Factory',
+        '  field name=kind type=string static=true value="user"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+
+    expect(() => runCoreRuntime(root, env)).not.toThrow();
+    expect(toHostValue(evalCoreExpression('UserFactory.kind', env))).toBe('user');
+  });
+
+  test('accepts missing optional static implemented interface fields', () => {
+    const root = parse(
+      [
+        'interface name=Factory',
+        '  field name=kind type=string static=true optional=true',
+        'class name=UserFactory implements=Factory',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+
+    expect(() => runCoreRuntime(root, env)).not.toThrow();
+  });
+
+  test('rejects private static implemented interface fields', () => {
+    const root = parse(
+      [
+        'interface name=Factory',
+        '  field name=kind type=string static=true',
+        'class name=UserFactory implements=Factory',
+        '  field name=kind type=string static=true private=true value="user"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+
+    expect(() => runCoreRuntime(root, env)).toThrow('missing or incompatible static member(s): kind');
+  });
+
+  test('rejects static implemented interface field type mismatches', () => {
+    const root = parse(
+      [
+        'interface name=Factory',
+        '  field name=kind type=string static=true',
+        'class name=BadFactory implements=Factory',
+        '  field name=kind type=number static=true value=1',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+
+    expect(() => runCoreRuntime(root, env)).toThrow('missing or incompatible static member(s): kind');
+  });
+
+  test('rejects static implemented interface members satisfied only by instance members', () => {
+    const root = parse(
+      [
+        'interface name=Factory',
+        '  field name=kind type=string static=true',
+        '  method name=create params="id:string" returns=string static=true',
+        'class name=Confused implements=Factory',
+        '  field name=kind type=string value="user"',
+        '  method name=create params="id:string" returns=string',
+        '    handler',
+        '      return value="id"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+
+    expect(() => runCoreRuntime(root, env)).toThrow('missing or incompatible static member(s): kind');
+  });
+
+  test('does not invoke static getters while validating implemented interface fields', () => {
+    const root = parse(
+      [
+        'interface name=Factory',
+        '  field name=kind type=string static=true',
+        'class name=UserFactory implements=Factory',
+        '  getter name=kind returns=string static=true',
+        '    handler',
+        '      return value="Later.kind"',
+        'class name=Later',
+        '  field name=kind type=string static=true value="user"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('UserFactory.kind', env))).toBe('user');
+  });
+
+  test('validates inherited static methods for implemented interfaces', () => {
+    const root = parse(
+      [
+        'interface name=Factory',
+        '  method name=create params="id:string" returns=string static=true',
+        'class name=BaseFactory',
+        '  method name=create params="id:string" returns=string static=true',
+        '    handler',
+        '      return value="id"',
+        'class name=UserFactory extends=BaseFactory implements=Factory',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('UserFactory.create("u1")', env))).toBe('u1');
+  });
+
+  test('validates implemented interface methods without invoking them', () => {
+    const root = parse(
+      [
+        'interface name=Runnable',
+        '  method name=run params="input:string" returns=number',
+        'class name=Job implements=Runnable',
+        '  field name=count type=number value={{ 0 }}',
+        '  method name=run params="input:string" returns=number',
+        '    handler',
+        '      assign target="this.count" value="this.count + 1"',
+        '      return value="input.length"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new Job().count', env))).toBe(0);
+    expect(toHostValue(evalCoreExpression('new Job().run("abc")', env))).toBe(3);
+  });
+
+  test('rejects missing implemented interface methods', () => {
+    const root = parse(
+      [
+        'interface name=Runnable',
+        '  method name=run params="input:string" returns=number',
+        'class name=Job implements=Runnable',
+        '  field name=id type=string value="j1"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new Job()', env)).toThrow('missing or incompatible method(s): run');
+  });
+
+  test('rejects incompatible implemented interface method signatures', () => {
+    const root = parse(
+      [
+        'interface name=Runnable',
+        '  method name=run params="input:string" returns=number',
+        'class name=Job implements=Runnable',
+        '  method name=run returns=number',
+        '    handler',
+        '      return value="1"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new Job()', env)).toThrow('missing or incompatible method(s): run');
+  });
+
+  test('rejects implemented interface methods with incompatible parameter types', () => {
+    const root = parse(
+      [
+        'interface name=Runnable',
+        '  method name=run params="input:string" returns=number',
+        'class name=Job implements=Runnable',
+        '  method name=run params="input:number" returns=number',
+        '    handler',
+        '      return value="input"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new Job()', env)).toThrow('missing or incompatible method(s): run');
+  });
+
+  test('accepts implicit void methods for explicit void interface methods', () => {
+    const root = parse(
+      [
+        'interface name=Lifecycle',
+        '  method name=close returns=void',
+        'class name=Socket implements=Lifecycle',
+        '  method name=close',
+        '    handler',
+        '      do value="undefined"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new Socket().close()', env))).toBeUndefined();
+  });
+
+  test('rejects non-stream methods for stream interface methods', () => {
+    const root = parse(
+      [
+        'interface name=Events',
+        '  method name=read returns=Event stream=true',
+        'class name=Reader implements=Events',
+        '  method name=read returns=Event',
+        '    handler',
+        '      return value="undefined"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new Reader()', env)).toThrow('missing or incompatible method(s): read');
+  });
+
+  test('normalizes streamed method returns for implemented interface methods', () => {
+    const root = parse(
+      [
+        'interface name=Events',
+        '  method name=read returns="AsyncGenerator<Event>" stream=true',
+        'class name=Reader implements=Events',
+        '  method name=read returns=Event stream=true',
+        '    handler',
+        '      return value="undefined"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new Reader()', env)).not.toThrow();
+  });
+
+  test('rejects generic parameter type mismatches in implemented interface methods', () => {
+    const root = parse(
+      [
+        'interface name=Sink',
+        '  method name=write params="item:Record<string,number>" returns=void',
+        'class name=BadSink implements=Sink',
+        '  method name=write params="item:Record<string,boolean>" returns=void',
+        '    handler',
+        '      do value="undefined"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new BadSink()', env)).toThrow('missing or incompatible method(s): write');
+  });
+
+  test('preserves quoted whitespace in implemented interface method parameter types', () => {
+    const root = parse(
+      [
+        'interface name=Sink',
+        '  method name=write params="item:\'a b\'" returns=void',
+        'class name=BadSink implements=Sink',
+        '  method name=write params="item:\'ab\'" returns=void',
+        '    handler',
+        '      do value="undefined"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new BadSink()', env)).toThrow('missing or incompatible method(s): write');
+  });
+
+  test('rejects private methods for implemented interface methods', () => {
+    const root = parse(
+      [
+        'interface name=Runnable',
+        '  method name=run returns=number',
+        'class name=Job implements=Runnable',
+        '  method name=run private=true returns=number',
+        '    handler',
+        '      return value="1"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new Job()', env)).toThrow('missing or incompatible method(s): run');
+  });
+
+  test('normalizes whitespace in implemented interface method parameter types', () => {
+    const root = parse(
+      [
+        'interface name=Sink',
+        '  method name=write params="item:Record<string, number>" returns=void',
+        'class name=GoodSink implements=Sink',
+        '  method name=write params="item:Record<string,number>" returns=void',
+        '    handler',
+        '      do value="undefined"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new GoodSink()', env)).not.toThrow();
+  });
+
+  test('parses default comparison expressions in implemented interface method params', () => {
+    const root = parse(
+      [
+        'interface name=Calculator',
+        '  method name=calc params="value:number=1 < 2,unit:string=\'m\'" returns=number',
+        'class name=DefaultCalc implements=Calculator',
+        '  method name=calc params="value:number=1 < 2,unit:string=\'m\'" returns=number',
+        '    handler',
+        '      return value="value"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new DefaultCalc().calc()', env))).toBe(true);
+  });
+
+  test('parses default equality expressions in implemented interface method params', () => {
+    const root = parse(
+      [
+        'interface name=Comparator',
+        '  method name=cmp params="value:number=1==1,unit:string=\'m\'" returns=number',
+        'class name=DefaultCmp implements=Comparator',
+        '  method name=cmp params="value:number=1==1,unit:string=\'m\'" returns=number',
+        '    handler',
+        '      return value="value"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new DefaultCmp().cmp()', env))).toBe(true);
+  });
+
+  test('parses generic default expressions in implemented interface method params', () => {
+    const root = parse(
+      [
+        'interface name=Formatter',
+        '  method name=format params="value:Map<string, number>=make<Pair<string, number>>(),unit:string" returns=number',
+        'class name=DefaultFormatter implements=Formatter',
+        '  method name=format params="value:Map<string, number>=make<Pair<string, number>>(),unit:string" returns=number',
+        '    handler',
+        '      return value="1"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new DefaultFormatter()', env)).not.toThrow();
+  });
+
+  test('enforces inherited interface methods for implemented protocols', () => {
+    const root = parse(
+      [
+        'interface name=Runnable',
+        '  method name=run params="input:string" returns=number',
+        'interface name=NamedRunnable extends=Runnable',
+        '  field name=name type=string',
+        'class name=Job implements=NamedRunnable',
+        '  field name=name type=string value="job"',
+        '  method name=run params="input:string" returns=number',
+        '    handler',
+        '      return value="input.length"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new Job().run("abcd")', env))).toBe(4);
+  });
+
+  test('parses generic implements references with default types containing commas', () => {
+    const root = parse(
+      ['interface name=Protocol', 'class name=User implements="Protocol<T = Map<string, number>>"'].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new User()', env)).not.toThrow();
+  });
+
+  test('enforces base class implemented protocols on derived instances', () => {
+    const root = parse(
+      [
+        'interface name=EntityLike',
+        '  field name=id type=string',
+        'class name=Entity implements=EntityLike',
+        '  field name=id type=string value="base"',
+        'class name=User extends=Entity',
+        '  field name=name type=string value="Ada"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new User().id', env))).toBe('base');
+    expect(toHostValue(evalCoreExpression('new User().name', env))).toBe('Ada');
+  });
+
+  test('rejects derived instances when a base implemented protocol is unsatisfied', () => {
+    const root = parse(
+      [
+        'interface name=EntityLike',
+        '  field name=id type=string',
+        'class name=Entity implements=EntityLike',
+        'class name=User extends=Entity',
+        '  field name=name type=string value="Ada"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new User()', env)).toThrow(
+      "class 'User' violates implemented interface 'EntityLike'",
+    );
+  });
+
+  test('class implements validation uses the declaration root context', () => {
+    const firstRoot = parse(
+      [
+        'interface name=Named',
+        '  field name=id type=string',
+        'class name=User implements=Named',
+        '  field name=id type=string value="u1"',
+      ].join('\n'),
+    );
+    const secondRoot = parse(['interface name=Named', '  field name=id type=number'].join('\n'));
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(firstRoot, env);
+    runCoreRuntime(secondRoot, env);
+
+    expect(toHostValue(evalCoreExpression('new User().id', env))).toBe('u1');
+  });
+
+  test('base implemented protocols use the base declaration root context', () => {
+    const firstRoot = parse(
+      [
+        'interface name=EntityLike',
+        '  field name=id type=string',
+        'class name=Entity implements=EntityLike',
+        '  field name=id type=string value="base"',
+      ].join('\n'),
+    );
+    const secondRoot = parse(
+      [
+        'interface name=EntityLike',
+        '  field name=id type=number',
+        'class name=User extends=Entity',
+        '  field name=name type=string value="Ada"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(firstRoot, env);
+    runCoreRuntime(secondRoot, env);
+
+    expect(toHostValue(evalCoreExpression('new User().id', env))).toBe('base');
+  });
+
+  test('runtime class protocols reject unsupported indexer interfaces', () => {
+    const root = parse(
+      [
+        'interface name=Dictionary',
+        '  indexer keyType=string type=string',
+        'class name=User implements=Dictionary',
+        '  field name=id type=string value="u1"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+
+    expect(() => runCoreRuntime(root, env)).toThrow(
+      "implements interface 'Dictionary' that is not executable as a class protocol in v1",
+    );
+  });
+
+  test('malformed runtime implements lists fail instead of skipping validation', () => {
+    const root = parse(
+      [
+        'interface name=Named',
+        '  field name=id type=string',
+        'class name=User implements="Named,"',
+        '  field name=id type=string value="u1"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+
+    expect(() => runCoreRuntime(root, env)).toThrow('implements= contains an empty reference');
+  });
+
+  test('invalid runtime implements entries fail instead of being ignored', () => {
+    const root = parse(
+      [
+        'interface name=Named',
+        '  field name=id type=string',
+        'class name=User implements="123"',
+        '  field name=id type=string value="u1"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+
+    expect(() => runCoreRuntime(root, env)).toThrow('implements= contains an invalid reference: 123');
+  });
+
+  test('runtime implements entries reject trailing junk', () => {
+    const root = parse(
+      [
+        'interface name=Named',
+        '  field name=id type=string',
+        'class name=User implements="Named junk"',
+        '  field name=id type=string value="u1"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+
+    expect(() => runCoreRuntime(root, env)).toThrow('implements= contains an invalid reference: Named junk');
+  });
+
+  test('unknown local runtime implements targets fail instead of being ignored', () => {
+    const root = parse(['class name=User implements=MissingProtocol'].join('\n'));
+    const env = createCoreRuntimeEnv();
+
+    expect(() => runCoreRuntime(root, env)).toThrow("class 'User' implements unknown interface 'MissingProtocol'");
+  });
+
+  test('imported runtime implements targets are treated as external protocols', () => {
+    const root = parse(
+      [
+        'import from="./protocols" names=ExternalProtocol',
+        'class name=User implements=ExternalProtocol',
+        '  field name=id type=string value="u1"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new User().id', env))).toBe('u1');
+  });
+
   test('executes inherited fields getters methods and overrides', () => {
     const root = parse(
       [
@@ -389,6 +1033,129 @@ describe('KERN core runtime statements', () => {
     expect(toHostValue(evalCoreExpression('new User().label()', env))).toBe('user/entity:base:Ada');
   });
 
+  test('executes static fields getters methods and inherited static receiver dispatch', () => {
+    const root = parse(
+      [
+        'class name=Base',
+        '  field name=count type=number static=true value={{ 1 }}',
+        '  field name=seed type=number static=true value={{ 2 }}',
+        '  getter name=label static=true returns=string',
+        '    handler',
+        '      return value="`count=${this.count}`"',
+        '  method name=bump static=true returns=number',
+        '    param name=step type=number value={{ 1 }}',
+        '    handler',
+        '      assign target="this.count" value="this.count + step"',
+        '      return value="this.count"',
+        '  method name=tag static=true returns=string',
+        '    handler',
+        '      return value="\'base\'"',
+        'class name=Derived extends=Base',
+        '  field name=own type=number static=true value={{ this.count + 9 }}',
+        '  field name=fromBase type=number static=true value={{ super.seed + this.count }}',
+        '  method name=tag static=true returns=string',
+        '    handler',
+        '      return value="`derived/${super.tag()}/${this.own}`"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('Base.count', env))).toBe(1);
+    expect(toHostValue(evalCoreExpression('Derived.count', env))).toBe(1);
+    expect(toHostValue(evalCoreExpression('Derived.own', env))).toBe(10);
+    expect(toHostValue(evalCoreExpression('Derived.fromBase', env))).toBe(3);
+    expect(toHostValue(evalCoreExpression('Derived.label', env))).toBe('count=1');
+    expect(toHostValue(evalCoreExpression('Derived.tag()', env))).toBe('derived/base/10');
+    expect(toHostValue(evalCoreExpression('Derived.bump(4)', env))).toBe(5);
+    expect(toHostValue(evalCoreExpression('Derived.count', env))).toBe(5);
+    expect(toHostValue(evalCoreExpression('Base.count', env))).toBe(1);
+  });
+
+  test('dispatches static assignment through setters and rejects getter-only static assignment', () => {
+    const root = parse(
+      [
+        'class name=Gauge',
+        '  field name=_value type=number static=true value={{ 0 }}',
+        '  setter name=value static=true',
+        '    param name=next type=number',
+        '    handler',
+        '      assign target="this._value" value="next * 3"',
+        '  getter name=value static=true returns=number',
+        '    handler',
+        '      return value="this._value"',
+        'class name=ReadOnly',
+        '  getter name=value static=true returns=number',
+        '    handler',
+        '      return value="1"',
+        'class name=Dual',
+        '  field name=value type=number value={{ 2 }}',
+        '  field name=value type=number static=true value={{ 1 }}',
+        'class name=ParentReadOnly',
+        '  getter name=value static=true returns=number',
+        '    handler',
+        '      return value="1"',
+        'class name=ChildShadow extends=ParentReadOnly',
+        '  field name=value type=number static=true value={{ 2 }}',
+        'fn name=setGaugeStatic returns=number',
+        '  handler',
+        '    assign target="Gauge.value" value="7"',
+        '    return value="Gauge.value"',
+        'fn name=setReadOnlyStatic returns=number',
+        '  handler',
+        '    assign target="ReadOnly.value" value="7"',
+        '    return value="ReadOnly.value"',
+        'fn name=setDualStatic returns=number',
+        '  handler',
+        '    assign target="Dual.value" value="8"',
+        '    return value="new Dual().value"',
+        'fn name=setChildShadowStatic returns=number',
+        '  handler',
+        '    assign target="ChildShadow.value" value="3"',
+        '    return value="ChildShadow.value"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('setGaugeStatic()', env))).toBe(21);
+    expect(toHostValue(evalCoreExpression('setDualStatic()', env))).toBe(2);
+    expect(toHostValue(evalCoreExpression('Dual.value', env))).toBe(8);
+    expect(toHostValue(evalCoreExpression('setChildShadowStatic()', env))).toBe(3);
+    expect(toHostValue(evalCoreExpression('ParentReadOnly.value', env))).toBe(1);
+    expect(() => evalCoreExpression('setReadOnlyStatic()', env)).toThrow(
+      'cannot assign getter-only static property: value',
+    );
+  });
+
+  test('rejects recursive static setter assignment', () => {
+    const root = parse(
+      [
+        'class name=Loop',
+        '  setter name=value static=true',
+        '    param name=next type=number',
+        '    handler',
+        '      assign target="this.value" value="next"',
+        'fn name=setLoopStatic returns=number',
+        '  handler',
+        '    assign target="Loop.value" value="5"',
+        '    return value="0"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('setLoopStatic()', env)).toThrow('recursive static setter assignment: Loop.value');
+  });
+
+  test('accepts self-referential static fields as branded KERN values', () => {
+    const root = parse(['class name=SelfRef', '  field name=self static=true value={{ this }}'].join('\n'));
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(fromHostValue(env.lookup('SelfRef'))).toBe(env.lookup('SelfRef'));
+  });
+
   test('executes derived constructors with super constructor arguments', () => {
     const root = parse(
       [
@@ -413,6 +1180,22 @@ describe('KERN core runtime statements', () => {
 
     expect(toHostValue(evalCoreExpression('new User("u1", "Ada").id', env))).toBe('u1');
     expect(toHostValue(evalCoreExpression('new User("u1", "Ada").name', env))).toBe('Ada');
+  });
+
+  test('initializes fields before running a base-less constructor body', () => {
+    const root = parse(
+      [
+        'class name=Plain',
+        '  field name=count type=number value={{ 2 }}',
+        '  constructor',
+        '    handler',
+        '      assign target="this.count" value="this.count + 3"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new Plain().count', env))).toBe(5);
   });
 
   test('initializes derived fields after super constructor state', () => {
@@ -461,7 +1244,66 @@ describe('KERN core runtime statements', () => {
     expect(() => evalCoreExpression('new Box(1, 2)', env)).toThrow('received too many arguments');
   });
 
-  test('detects nested constructor super calls structurally', () => {
+  test('requires explicit super before this access in derived constructors', () => {
+    const root = parse(
+      [
+        'class name=Entity',
+        '  constructor',
+        '    param name=id type=string',
+        '    handler',
+        '      assign target="this.id" value="id"',
+        'class name=User extends=Entity',
+        '  constructor',
+        '    param name=id type=string',
+        '    handler',
+        '      assign target="this.id" value="id"',
+        '      do value="super(id)"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new User("u1")', env)).toThrow('cannot access this before super(...)');
+  });
+
+  test('allows reading a separate initialized instance before constructor super', () => {
+    const root = parse(
+      [
+        'class name=Entity',
+        '  field name=id type=string value="base"',
+        'class name=User extends=Entity',
+        '  constructor',
+        '    param name=other type=Entity',
+        '    handler',
+        '      let name=otherId value="other.id"',
+        '      do value="super()"',
+        '      assign target="this.id" value="otherId"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(toHostValue(evalCoreExpression('new User(new Entity()).id', env))).toBe('base');
+  });
+
+  test('rejects double super calls in derived constructors', () => {
+    const root = parse(
+      [
+        'class name=Entity',
+        'class name=User extends=Entity',
+        '  constructor',
+        '    handler',
+        '      do value="super()"',
+        '      do value="super()"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('new User()', env)).toThrow('called super(...) more than once');
+  });
+
+  test('missing runtime super path fails instead of auto-initializing the base', () => {
     const root = parse(
       [
         'class name=Entity',
@@ -473,15 +1315,17 @@ describe('KERN core runtime statements', () => {
         'class name=User extends=Entity',
         '  constructor',
         '    param name=id type=string',
+        '    param name=ready type=boolean',
         '    handler',
-        '      if cond=true',
+        '      if cond=ready',
         '        do value="super(id)"',
       ].join('\n'),
     );
     const env = createCoreRuntimeEnv();
     runCoreRuntime(root, env);
 
-    expect(toHostValue(evalCoreExpression('new User("u1").id', env))).toBe('u1');
+    expect(toHostValue(evalCoreExpression('new User("u1", true).id', env))).toBe('u1');
+    expect(() => evalCoreExpression('new User("u2", false)', env)).toThrow('must call super(...)');
   });
 
   test('dispatches instance assignment through setters', () => {
@@ -572,6 +1416,69 @@ describe('KERN core runtime statements', () => {
     expect(() => evalCoreExpression('setReadOnly()', env)).toThrow('cannot assign getter-only property: value');
   });
 
+  test('rejects undeclared instance and super property reads and writes', () => {
+    const root = parse(
+      [
+        'class name=Base',
+        '  field name=known type=number value={{ 1 }}',
+        'class name=Derived extends=Base',
+        '  method name=readMissingSuper returns=number',
+        '    handler',
+        '      return value="super.missing"',
+        '  method name=writeMissingSuper returns=number',
+        '    handler',
+        '      assign target="super.missing" value="2"',
+        '      return value="this.known"',
+        'fn name=readMissing returns=number',
+        '  handler',
+        '    let name=d value="new Derived()"',
+        '    return value="d.missing"',
+        'fn name=writeMissing returns=number',
+        '  handler',
+        '    let name=d value="new Derived()"',
+        '    assign target="d.missing" value="2"',
+        '    return value="d.known"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('readMissing()', env)).toThrow('unknown instance property');
+    expect(() => evalCoreExpression('writeMissing()', env)).toThrow('undeclared instance property');
+    expect(() => evalCoreExpression('new Derived().readMissingSuper()', env)).toThrow('unknown super property');
+    expect(() => evalCoreExpression('new Derived().writeMissingSuper()', env)).toThrow('undeclared super property');
+  });
+
+  test('rejects undeclared static property reads and writes', () => {
+    const root = parse(
+      [
+        'class name=Closed',
+        '  field name=known type=number static=true value={{ 1 }}',
+        'fn name=writeMissingStatic returns=number',
+        '  handler',
+        '    assign target="Closed.missing" value="2"',
+        '    return value="Closed.known"',
+      ].join('\n'),
+    );
+    const env = createCoreRuntimeEnv();
+    runCoreRuntime(root, env);
+
+    expect(() => evalCoreExpression('Closed.missing', env)).toThrow('unknown static property');
+    expect(() => evalCoreExpression('writeMissingStatic()', env)).toThrow('undeclared static property');
+  });
+
+  test('keeps records open while class instances are shape-checked', () => {
+    const result = runCoreRuntime(
+      handler([
+        { type: 'let', props: { name: 'r', value: '{ a: 1 }' } },
+        { type: 'assign', props: { target: 'r.b', value: '2' } },
+        { type: 'return', props: { value: 'r.b' } },
+      ]),
+    );
+
+    expect(toHostValue(result.completion.value)).toBe(2);
+  });
+
   test('rejects recursive setter assignment', () => {
     const root = parse(
       [
@@ -640,7 +1547,7 @@ describe('KERN core runtime statements', () => {
     const env = createCoreRuntimeEnv();
     runCoreRuntime(root, env);
 
-    expect(() => evalCoreExpression('new User("u1")', env)).toThrow('missing required argument: id');
+    expect(() => evalCoreExpression('new User("u1")', env)).toThrow('lambda expressions are not supported');
   });
 });
 

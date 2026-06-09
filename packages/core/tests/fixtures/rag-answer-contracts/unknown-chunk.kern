@@ -1,0 +1,12 @@
+corpus name=Docs
+  source name=manuals kind=local uri="./docs/**/*.md" media=markdown
+
+retriever name=DocsSearch corpus=Docs topK=1
+
+rag name=AnswerDocs retriever=DocsSearch prompt="./answer.md"
+  grounding policy=strict maxContext=6000
+  ragEval name=Faithfulness metric=faithfulness threshold=0.85 mode=contract
+    ragCase name=refunds query="refund policy" chunkCount=1
+      ragAssert kind=contains value="refund" required=true
+  ragAnswerContract name=MissingChunkAnswer query="refund policy" answer="Refunds follow the refund policy." minGroundingCoverage=1
+    answerSpan start=0 end=33 chunks=missing required=true

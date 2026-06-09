@@ -148,6 +148,68 @@ describe('native kern test runner', () => {
     expect(summary.results.map((result) => result.ruleId)).toEqual(['has:duplicatenames', 'has:derivecycles']);
   });
 
+  test('matches positive semantic invariant assertions against all findings', () => {
+    writeFileSync(
+      join(tmpDir, 'bad-semantics.kern'),
+      [
+        'class name=UnknownBase extends=MissingBase',
+        'class name=MultiCtor',
+        '  constructor',
+        '    handler',
+        '      do value=1',
+        '  constructor',
+        '    handler',
+        '      do value=2',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'bad-semantics.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Bad semantic target" target="./bad-semantics.kern"',
+        '  it name="matches non-first semantic violation"',
+        '    expect has=semanticViolations matches="declares more than one constructor"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(1);
+    expect(summary.results[0].ruleId).toBe('has:semanticviolations');
+  });
+
+  test('does not match positive invariant regexes across unrelated findings', () => {
+    writeFileSync(
+      join(tmpDir, 'bad-semantics-span.kern'),
+      [
+        'class name=UnknownBase extends=MissingBase',
+        'class name=MultiCtor',
+        '  constructor',
+        '    handler',
+        '      do value=1',
+        '  constructor',
+        '    handler',
+        '      do value=2',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'bad-semantics-span.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Bad semantic target" target="./bad-semantics-span.kern"',
+        '  it name="does not span diagnostics"',
+        '    expect has=semanticViolations matches="MissingBase.*more than one constructor"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].ruleId).toBe('has:semanticviolations');
+    expect(summary.results[0].message).toContain('findings to match');
+  });
+
   test('fails positive invariant assertions with incorrect expected counts', () => {
     writeFileSync(
       join(tmpDir, 'bad-count.kern'),

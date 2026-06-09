@@ -1,0 +1,57 @@
+corpus name=Docs
+retriever name=DocsSearch corpus=Docs
+
+rag name=AnswerDocs retriever=DocsSearch citations=true
+  grounding requireCitations=true
+
+mcp name=Support
+  resource name=DocsResource uri="docs://manuals"
+
+  tool name=badTool
+    param name=question type=string required=true
+    retrieve rag=AnswerDocs retriever=MissingRetriever queryParam=missing query={{question}} topK=0 minScore=1.2 requireGrounding=false
+    retrieve retriever=AlsoMissing queryParam=question
+
+  prompt name=badPrompt
+    retrieve retriever=DocsSearch
+
+  tool name=badOutput
+    param name=question type=string required=true
+    retrieve retriever=DocsSearch queryParam=question output="Foo[]"
+
+  tool name=scalarOutput
+    param name=question type=string required=true
+    retrieve retriever=DocsSearch queryParam=question output=RetrievedChunk
+
+  tool name=fieldWithoutOutput
+    param name=question type=string required=true
+    retrieve retriever=DocsSearch queryParam=question citationField=citation
+
+  tool name=requireCitationsWithoutOutput
+    param name=question type=string required=true
+    retrieve retriever=DocsSearch queryParam=question requireCitations=true
+
+  tool name=missingOutputCitation
+    param name=question type=string required=true
+    retrieve retriever=DocsSearch queryParam=question output="RetrievedChunk[]" requireCitations=true provenance=source
+
+  tool name=missingOutputSource
+    param name=question type=string required=true
+    retrieve retriever=DocsSearch queryParam=question output="RetrievedChunk[]" requireCitations=true citationField=citation
+
+  tool name=weakensRagCitations
+    param name=question type=string required=true
+    retrieve rag=AnswerDocs queryParam=question output="RetrievedChunk[]" requireCitations=false
+
+mcp name=OtherSupport
+  resource name=DocsResource uri="docs://other-manuals"
+
+corpus name=BadIngress
+  source name=missingResource kind=mcp uri="mcp://MissingResource"
+  source name=unknownResource kind=mcp resource=MissingResource uri="mcp://MissingResource"
+  source name=toolResource kind=mcp resource=badTool uri="mcp://badTool"
+  source name=promptResource kind=mcp resource=badPrompt uri="mcp://badPrompt"
+  source name=ambiguousResource kind=mcp resource=DocsResource uri="mcp://DocsResource"
+  source name=fileResource kind=local resource=DocsResource uri="./docs/**/*.md"
+
+retrieve rag=MissingRag

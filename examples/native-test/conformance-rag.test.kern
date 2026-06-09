@@ -1,0 +1,14 @@
+test name="RAG language conformance" target="./conformance-rag.kern" coverage=false
+  it name="rag declarations stay schema and semantic valid"
+    expect no=schemaViolations
+    expect no=semanticViolations
+
+  it name="rag declarations keep their KERN shape"
+    expect node=corpus name=Docs child=source childName=manuals
+    expect node=corpus name=Docs child=chunking
+    expect node=embed name=DocsEmbedding prop=corpus is=Docs
+    expect node=retriever name=DocsSearch prop=topK is=8
+    expect node=rag name=AnswerDocs child=grounding childName=StrictGrounding
+    expect node=rag name=AnswerDocs child=ragEval childName=Faithfulness
+    expect node=ragEval name=Faithfulness child=ragCase childName=refunds
+    expect node=ragAssert count=3

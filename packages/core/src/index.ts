@@ -205,6 +205,16 @@ export {
   runCoreRuntime,
   toHostValue,
 } from './core-runtime/index.js';
+export type {
+  CoreShapeDiagnostic,
+  CoreShapeDiagnosticCode,
+  CoreShapeFacts,
+  CoreShapeFieldFact,
+  CoreShapeIndexerFact,
+  CoreShapeInterfaceFact,
+  CoreShapeValidationResult,
+} from './core-runtime/shape-validator.js';
+export { assertCoreShape, collectCoreShapeFacts, validateCoreShape } from './core-runtime/shape-validator.js';
 export type { CoverageGap } from './coverage-gap.js';
 // Coverage gap emitter (v3)
 export { collectCoverageGaps, readCoverageGaps, writeCoverageGaps } from './coverage-gap.js';
@@ -427,6 +437,49 @@ export {
   validatePortablePredicateAST,
 } from './portable-predicate.js';
 export { parsePortableNonNegativeIntLiteral, parsePortablePathSegments } from './portable-route-collection.js';
+export type { RagAssertionKind } from './rag-assertions.js';
+export { RAG_ASSERTION_KIND_SET, RAG_ASSERTION_KINDS } from './rag-assertions.js';
+export type {
+  InMemoryRagRetriever,
+  ProvenancedRetrieveResult,
+  RagAnswerContract,
+  RagAnswerContractDiagnostic,
+  RagAnswerContractDiagnosticCode,
+  RagAnswerContractResult,
+  RagAnswerContractStatus,
+  RagAnswerGroundingSpan,
+  RagChunkInput,
+  RagCitation,
+  RagContractRetriever,
+  RagEvalAssertionCode,
+  RagEvalAssertionResult,
+  RagEvalCaseResult,
+  RagEvalContractOptions,
+  RagEvalContractResult,
+  RagMcpRetrieveProvenanceMapping,
+  RagRuntimeProvenance,
+  RagRuntimeProvenanceOptions,
+  RagRuntimeProvenanceStatus,
+  RagSemanticAnswerContractOptions,
+  RetrievedChunk,
+  RetrieveOptions,
+  RetrieveResult,
+} from './rag-runtime.js';
+export {
+  createInMemoryRetriever,
+  createRagRuntimeProvenance,
+  evaluateRagAnswerContract,
+  evaluateRagEvalContract,
+  evaluateRagSemanticAnswerContract,
+  hashRetrievedChunkText,
+  InMemoryRagCorpus,
+  MAX_IN_MEMORY_RAG_TOP_K,
+  ragAnswerContractFromSemanticFact,
+  ragMcpRetrieveProvenanceMapping,
+  retrieveFromInMemoryCorpus,
+  tokenizeForRetrieval,
+  withRagRuntimeProvenance,
+} from './rag-runtime.js';
 export type { ParserHintsConfig } from './runtime.js';
 // Runtime (instance-based state)
 export { defaultRuntime, KernRuntime } from './runtime.js';
@@ -442,11 +495,14 @@ export type {
   KernSemanticCoreType,
   KernSemanticIrContract,
   KernSemanticPrimitive,
+  KernSemanticRagAnswerReviewFact,
+  KernSemanticRagAnswerReviewStatus,
   KernSemanticStdlibOperation,
   KernSemanticSubstrate,
   KernSemanticSubstrateSource,
   KernSemanticSubstrateTarget,
   KernSemanticSupport,
+  KernSemanticValidationSummary,
 } from './semantic-substrate.js';
 export {
   buildKernSemanticSubstrate,
@@ -454,8 +510,46 @@ export {
   semanticPrimitiveSupportSummary,
 } from './semantic-substrate.js';
 // Semantic validation
-export type { SemanticViolation } from './semantic-validator.js';
-export { validateSemantics } from './semantic-validator.js';
+export type {
+  ClassSemanticClassFact,
+  ClassSemanticConstructorFact,
+  ClassSemanticConstructorSuperStatus,
+  ClassSemanticFacts,
+  ClassSemanticImplementsEdge,
+  ClassSemanticInheritanceEdge,
+  ClassSemanticLocation,
+  ClassSemanticMemberFact,
+  ClassSemanticMemberKind,
+  ClassSemanticOverrideFact,
+  ClassSemanticOverrideStatus,
+  ClassSemanticProtocolConformanceFact,
+  ClassSemanticProtocolStatus,
+  RagSemanticAnswerContractFact,
+  RagSemanticAnswerSpanFact,
+  RagSemanticChunkingFact,
+  RagSemanticCorpusFact,
+  RagSemanticEmbedFact,
+  RagSemanticEvalAssertFact,
+  RagSemanticEvalCaseFact,
+  RagSemanticEvalFact,
+  RagSemanticFacts,
+  RagSemanticGroundingFact,
+  RagSemanticLocation,
+  RagSemanticMcpRetrievalFact,
+  RagSemanticPipelineFact,
+  RagSemanticRetrieverFact,
+  RagSemanticSourceFact,
+  SemanticViolation,
+} from './semantic-validator.js';
+export {
+  collectClassSemanticFacts,
+  collectRagSemanticFacts,
+  RAG_MCP_RETRIEVE_OUTPUT_ITEM_SHAPE,
+  RAG_MCP_RETRIEVE_OUTPUT_SHAPE,
+  validateClassSemantics,
+  validateRagSemantics,
+  validateSemantics,
+} from './semantic-validator.js';
 export type { ShadowAnalyzeOptions, ShadowDiagnostic } from './shadow-analyzer.js';
 export { analyzeShadow } from './shadow-analyzer.js';
 export type { SourceMapV3 } from './source-map.js';

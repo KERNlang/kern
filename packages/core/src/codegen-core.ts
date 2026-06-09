@@ -721,6 +721,19 @@ export const CORE_NODE_TYPES = new Set([
   'evidence',
   // Confidence layer
   'needs',
+  // RAG contract layer
+  'corpus',
+  'source',
+  'chunking',
+  'embed',
+  'retriever',
+  'rag',
+  'grounding',
+  'ragEval',
+  'ragCase',
+  'ragAssert',
+  'ragAnswerContract',
+  'answerSpan',
   // Backend data layer (graduated nodes)
   'model',
   'column',
@@ -1009,6 +1022,22 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
     case 'evidence':
       return [];
     case 'needs':
+      return [];
+    // RAG declarations are semantic contracts consumed by validators,
+    // substrate, MCP/review tooling, and future adapters. They intentionally
+    // emit no JavaScript in core codegen.
+    case 'corpus':
+    case 'source':
+    case 'chunking':
+    case 'embed':
+    case 'retriever':
+    case 'rag':
+    case 'grounding':
+    case 'ragEval':
+    case 'ragCase':
+    case 'ragAssert':
+    case 'ragAnswerContract':
+    case 'answerSpan':
       return [];
     // Graduated nodes — backend data layer
     case 'model':

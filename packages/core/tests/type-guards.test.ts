@@ -51,7 +51,7 @@ describe('Type guards (Slice 2d)', () => {
       // Gemini review of slice 2d: confirm method-in-class path also preserves
       // predicate return types via emitClassBody's emitTypeAnnotation route.
       const src =
-        'class name=User\n  method name=isAdmin returns="this is AdminUser"\n    handler <<<\n      return this.role === "admin";\n    >>>';
+        'class name=User\n  field name=role type=string\n  method name=isAdmin returns="this is AdminUser"\n    handler <<<\n      return this.role === "admin";\n    >>>';
       const out = gen(src);
       expect(out).toContain('export class User {');
       expect(out).toContain('isAdmin(): this is AdminUser {');

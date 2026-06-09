@@ -1,0 +1,15 @@
+corpus name=Docs title="Support docs"
+  source name=manuals kind=local uri="./docs/**/*.md" media=markdown
+  chunking source=manuals strategy=semantic maxTokens=600 overlap=80 unit=tokens
+
+embed name=DocsEmbedding corpus=Docs model=text-embedding-3-small dims=1536 metric=cosine
+
+retriever name=DocsSearch corpus=Docs embed=DocsEmbedding mode=hybrid topK=8 minScore=0.72
+
+rag name=AnswerDocs retriever=DocsSearch prompt="./answer.md" citations=true
+  grounding name=StrictGrounding requireCitations=true policy=strict maxContext=6000
+  ragEval name=Faithfulness metric=faithfulness threshold=0.85 mode=contract
+    ragCase name=refunds query="How do refunds work?" tags="smoke,policy" topK=4 minScore=0.72 sources="docs/refunds.md"
+      ragAssert kind=scoreGte threshold=0.72 required=true
+      ragAssert kind=sourceGlob value="docs/refunds.md" required=true
+      ragAssert kind=citesRequired

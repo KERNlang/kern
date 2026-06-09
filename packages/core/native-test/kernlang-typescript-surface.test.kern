@@ -66,4 +66,5 @@ test name="KERNlang TypeScript surface parity" target="./kernlang-typescript-sur
     expect decompile contains="indexer keyType=string type=number"
     expect decompile contains="fn name=add"
     expect decompile contains="overload params=\"a:number,b:number\" returns=number"
+    expect decompile contains="field name=role type=string"
     expect roundtrip=true

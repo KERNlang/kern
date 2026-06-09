@@ -1,0 +1,37 @@
+corpus name=Docs
+  source name=manuals uri="./docs/**/*.md"
+  chunking source=missing strategy=semantic maxTokens=64 overlap=64
+
+embed name=BadEmbedding corpus=Missing dims=0
+embed name=OtherEmbedding corpus=Docs
+
+corpus name=OtherDocs
+
+retriever name=BadRetriever corpus=Missing embed=MissingEmbed topK=0 minScore=1.1
+retriever name=MismatchRetriever corpus=OtherDocs embed=OtherEmbedding
+
+rag name=BadRag retriever=MissingRetriever citations=true
+  ragEval metric=faithfulness threshold=0.85
+    ragCase name=badCase query="What changed?" topK=0 minScore=1.2 chunkCount=-1
+      ragAssert kind=unknownKind
+      ragAssert kind=scoreGte threshold=1.5
+      ragAssert kind=scoreLte
+      ragAssert kind=chunkHash value=not-a-hash
+      ragAssert kind=chunkCountEq count=-1
+      ragAssert kind=latencyLte valueMs=-1
+      ragAssert kind=sourceEq
+
+rag name=PlainRag retriever=MismatchRetriever
+  ragEval name=PlainEval metric=faithfulness threshold=0.85 mode=contract
+    ragCase name=needsCitations query="needs cite" sources="docs/refunds.md"
+      ragAssert kind=citesRequired
+    ragCase name=needsCitations query="duplicate case"
+
+ragEval rag=PlainRag name=PlainEval metric=faithfulness threshold=0.85 mode=contract
+  ragCase name=outside query="duplicate eval"
+
+grounding rag=MissingRag maxContext=0
+ragEval rag=MissingRag threshold=1.1
+
+ragCase name=loose query="outside eval"
+ragAssert kind=citesRequired

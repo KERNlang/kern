@@ -24,6 +24,7 @@ import {
 import { type KernTarget, VALID_TARGETS } from './config.js';
 import { validateCapabilityMetadata, validateImportMetadata } from './import-metadata.js';
 import { parsePortablePredicateProp, validatePortablePredicateAST } from './portable-predicate.js';
+import { RAG_ASSERTION_KINDS } from './rag-assertions.js';
 import { defaultRuntime, type KernRuntime } from './runtime.js';
 import { KERN_VERSION, NODE_TYPES, STYLE_SHORTHANDS, VALUE_SHORTHANDS } from './spec.js';
 import type { IRNode } from './types.js';
@@ -43,6 +44,7 @@ export type PropKind =
 export interface PropSchema {
   required?: boolean;
   kind: PropKind;
+  values?: readonly string[];
 }
 
 export interface NodeSchema {
@@ -94,7 +96,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       generics: { kind: 'rawExpr' },
       export: { kind: 'boolean' },
     },
-    allowedChildren: ['field', 'indexer'],
+    allowedChildren: ['field', 'indexer', 'method'],
   },
   indexer: {
     description: 'Index signature for an interface — [keyName: keyType]: type',
@@ -217,6 +219,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       returns: { kind: 'typeAnnotation' },
       async: { kind: 'boolean' },
       stream: { kind: 'boolean' },
+      generator: { kind: 'boolean' },
       private: { kind: 'boolean' },
       static: { kind: 'boolean' },
       generics: { kind: 'rawExpr' },
@@ -2288,6 +2291,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'guard',
       'sampling',
       'elicitation',
+      'retrieve',
       'derive',
       'effect',
       'respond',
@@ -2355,7 +2359,31 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       name: { required: true, kind: 'identifier' },
     },
-    allowedChildren: ['param', 'handler', 'description'],
+    allowedChildren: ['param', 'handler', 'description', 'retrieve'],
+  },
+  retrieve: {
+    description:
+      'MCP retrieval intent — declaratively binds a tool or prompt to a RAG retriever or pipeline without executing provider retrieval in core.',
+    example:
+      'retrieve rag=AnswerDocs queryParam=question as=context output="RetrievedChunk[]" requireCitations=true provenance=source citationField=citation sourceField=uri scoreField=score',
+    props: {
+      name: { kind: 'identifier' },
+      retriever: { kind: 'identifier' },
+      rag: { kind: 'identifier' },
+      queryParam: { kind: 'identifier' },
+      query: { kind: 'expression' },
+      as: { kind: 'identifier' },
+      topK: { kind: 'number' },
+      minScore: { kind: 'number' },
+      requireGrounding: { kind: 'boolean' },
+      output: { kind: 'typeAnnotation' },
+      requireCitations: { kind: 'boolean' },
+      provenance: { kind: 'identifier' },
+      citationField: { kind: 'identifier' },
+      sourceField: { kind: 'identifier' },
+      scoreField: { kind: 'identifier' },
+    },
+    allowedChildren: [],
   },
   description: {
     description: 'Documentation text for a tool, resource, or prompt',
@@ -2379,6 +2407,172 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       message: { kind: 'string' },
       text: { kind: 'string' },
     },
+  },
+
+  // ── RAG (retrieval-augmented generation) contract nodes ─────────────
+
+  corpus: {
+    description:
+      'RAG corpus declaration — names a document collection and its source/chunking contract without binding to a provider runtime.',
+    example:
+      'corpus name=Docs title="Support docs"\n  source name=manuals kind=local uri="./docs/**/*.md"\n  chunking strategy=semantic maxTokens=600 overlap=80',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      title: { kind: 'string' },
+      tenant: { kind: 'identifier' },
+      refresh: { kind: 'string' },
+    },
+    allowedChildren: ['source', 'chunking'],
+  },
+  source: {
+    description: 'RAG corpus source — a raw document location such as local files, S3, HTTP, or an MCP resource.',
+    example: 'source name=manuals kind=local uri="./docs/**/*.md" media=markdown',
+    props: {
+      name: { kind: 'identifier' },
+      kind: { kind: 'identifier' },
+      uri: { required: true, kind: 'string' },
+      resource: { kind: 'identifier' },
+      media: { kind: 'identifier' },
+      acl: { kind: 'identifier' },
+    },
+    allowedChildren: [],
+  },
+  chunking: {
+    description:
+      'RAG chunking policy — describes document segmentation. Named `chunking` to avoid colliding with the collection `chunk` primitive.',
+    example: 'chunking corpus=Docs source=manuals strategy=semantic maxTokens=600 overlap=80 unit=tokens',
+    props: {
+      name: { kind: 'identifier' },
+      corpus: { kind: 'identifier' },
+      source: { kind: 'identifier' },
+      strategy: { kind: 'identifier' },
+      maxTokens: { kind: 'number' },
+      overlap: { kind: 'number' },
+      unit: { kind: 'identifier' },
+    },
+    allowedChildren: [],
+  },
+  embed: {
+    description:
+      'RAG embedding contract — names the embedding model/dimension contract for a corpus. Provider execution is adapter-owned.',
+    example: 'embed name=DocsEmbedding corpus=Docs model=text-embedding-3-small dims=1536 metric=cosine',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      corpus: { required: true, kind: 'identifier' },
+      model: { kind: 'string' },
+      dims: { kind: 'number' },
+      metric: { kind: 'identifier' },
+    },
+    allowedChildren: [],
+  },
+  retriever: {
+    description:
+      'RAG retriever declaration — binds a corpus and optional embedding contract to search policy such as topK/minScore.',
+    example: 'retriever name=DocsSearch corpus=Docs embed=DocsEmbedding mode=hybrid topK=8 minScore=0.72',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      corpus: { required: true, kind: 'identifier' },
+      embed: { kind: 'identifier' },
+      mode: { kind: 'identifier' },
+      topK: { kind: 'number' },
+      minScore: { kind: 'number' },
+      rerank: { kind: 'string' },
+    },
+    allowedChildren: [],
+  },
+  rag: {
+    description:
+      'RAG pipeline declaration — connects a query/answer flow to a retriever and grounding/evaluation requirements.',
+    example:
+      'rag name=AnswerDocs retriever=DocsSearch prompt="./answer.md" citations=true\n  grounding requireCitations=true policy=strict\n  ragEval metric=faithfulness threshold=0.85',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      retriever: { required: true, kind: 'identifier' },
+      prompt: { kind: 'string' },
+      answer: { kind: 'string' },
+      citations: { kind: 'boolean' },
+    },
+    allowedChildren: ['grounding', 'ragEval', 'ragAnswerContract'],
+  },
+  grounding: {
+    description: 'RAG grounding policy — declares citation and context constraints for a RAG pipeline.',
+    example: 'grounding rag=AnswerDocs requireCitations=true policy=strict maxContext=6000',
+    props: {
+      name: { kind: 'identifier' },
+      rag: { kind: 'identifier' },
+      requireCitations: { kind: 'boolean' },
+      policy: { kind: 'identifier' },
+      maxContext: { kind: 'number' },
+    },
+    allowedChildren: [],
+  },
+  ragEval: {
+    description: 'RAG evaluation contract — declares metric thresholds and static eval cases for a RAG pipeline.',
+    example:
+      'ragEval rag=AnswerDocs metric=faithfulness threshold=0.85 mode=contract\n  ragCase name=refunds query="How do refunds work?"\n    ragAssert kind=sourceGlob value="docs/refunds.md" required=true',
+    props: {
+      name: { kind: 'identifier' },
+      rag: { kind: 'identifier' },
+      metric: { kind: 'identifier' },
+      threshold: { kind: 'number' },
+      mode: { kind: 'identifier' },
+    },
+    allowedChildren: ['ragCase'],
+  },
+  ragCase: {
+    description: 'RAG evaluation case — declares a single query and expected retrieval contract facts.',
+    example:
+      'ragCase name=refunds query="How do refunds work?" tags=smoke minScore=0.72\n  ragAssert kind=sourceGlob value="docs/refunds.md" required=true',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      query: { required: true, kind: 'string' },
+      tags: { kind: 'string' },
+      topK: { kind: 'number' },
+      minScore: { kind: 'number' },
+      chunkCount: { kind: 'number' },
+      sources: { kind: 'string' },
+    },
+    allowedChildren: ['ragAssert'],
+  },
+  ragAssert: {
+    description: 'RAG evaluation assertion — declares a closed static check over retrieved chunks or grounding.',
+    example: 'ragAssert kind=scoreGte threshold=0.72 required=true',
+    props: {
+      kind: { required: true, kind: 'identifier', values: RAG_ASSERTION_KINDS },
+      value: { kind: 'string' },
+      threshold: { kind: 'number' },
+      count: { kind: 'number' },
+      valueMs: { kind: 'number' },
+      required: { kind: 'boolean' },
+    },
+    allowedChildren: [],
+  },
+  ragAnswerContract: {
+    description:
+      'RAG answer contract — declares the provider-free answer grounding shape evaluated by the core RAG runtime.',
+    example:
+      'ragAnswerContract name=RefundAnswer query="How do refunds work?" answer="Refunds follow the refund policy." requireCitations=true minGroundingCoverage=0.8\n  answerSpan start=0 end=34 chunks=refunds required=true',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      rag: { kind: 'identifier' },
+      query: { required: true, kind: 'string' },
+      answer: { required: true, kind: 'string' },
+      prompt: { kind: 'string' },
+      requireCitations: { kind: 'boolean' },
+      minGroundingCoverage: { kind: 'number' },
+    },
+    allowedChildren: ['answerSpan'],
+  },
+  answerSpan: {
+    description: 'RAG answer grounding span — maps answer text character ranges to retrieved chunk ids.',
+    example: 'answerSpan start=0 end=34 chunks="refunds,policy" required=true',
+    props: {
+      start: { required: true, kind: 'number' },
+      end: { required: true, kind: 'number' },
+      chunks: { required: true, kind: 'string' },
+      required: { kind: 'boolean' },
+    },
+    allowedChildren: [],
   },
 
   // ── React / UI element nodes ──────────────────────────────────────────
@@ -4152,11 +4346,28 @@ function checkAllowedChildren(node: IRNode, schema: NodeSchema, violations: Sche
   }
 }
 
+function checkAllowedPropValues(node: IRNode, schema: NodeSchema, violations: SchemaViolation[]): void {
+  const props = node.props || {};
+  for (const [propName, propSchema] of Object.entries(schema.props)) {
+    if (!propSchema.values || !(propName in props)) continue;
+    const value = props[propName];
+    if (typeof value !== 'string' || !propSchema.values.includes(value)) {
+      violations.push({
+        nodeType: node.type,
+        message: `'${node.type}' prop '${propName}' must be one of ${propSchema.values.join(', ')}`,
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+  }
+}
+
 function validateNode(node: IRNode, violations: SchemaViolation[], parent?: IRNode): void {
   const schema = Object.hasOwn(NODE_SCHEMAS, node.type) ? NODE_SCHEMAS[node.type] : undefined;
   if (schema) {
     checkRequiredProps(node, schema, violations, parent);
     checkCrossProps(node, violations, parent);
+    checkAllowedPropValues(node, schema, violations);
     checkAllowedChildren(node, schema, violations);
   }
   if (node.children) {
