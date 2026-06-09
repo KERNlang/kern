@@ -24,7 +24,7 @@ import { mapTsTypeToPython, toSnakeCase } from '../type-map.js';
  *  imports: empty }`. */
 function methodBodyCodePython(
   method: IRNode,
-  opts?: { classBody?: boolean; isConstructor?: boolean },
+  opts?: { classBody?: boolean; isConstructor?: boolean; staticReceiver?: boolean },
 ): { code: string; imports: Set<string>; helpers: Set<string> } {
   const handler = getFirstChild(method, 'handler');
   if (!handler || getProps(handler).lang !== 'kern') {
@@ -59,7 +59,8 @@ function methodBodyCodePython(
   }
   // Class member bodies: `this` resolves to `self`, and `super(...)`/`super.x`
   // lower to `super().__init__(...)`/`super().x` via the inClassBody flag.
-  if (opts?.classBody) symbolMap.this = 'self';
+  // In a static accessor (metaclass property) body `this` is the class -> `cls`.
+  if (opts?.classBody) symbolMap.this = opts?.staticReceiver ? 'cls' : 'self';
   const { code, imports, helpers } = emitNativeKernBodyPythonWithImports(handler, {
     symbolMap,
     inClassBody: opts?.classBody ?? false,
@@ -74,7 +75,10 @@ function methodBodyCodePython(
  *  scope absorbs them, and Python caches modules after first import.
  *  Returns the indented lines (4-space prefix) ready to push into the
  *  enclosing class definition. Empty body yields a single `pass`. */
-function methodBodyLinesPython(method: IRNode, opts?: { classBody?: boolean; isConstructor?: boolean }): string[] {
+function methodBodyLinesPython(
+  method: IRNode,
+  opts?: { classBody?: boolean; isConstructor?: boolean; staticReceiver?: boolean },
+): string[] {
   const { code, imports, helpers } = methodBodyCodePython(method, opts);
   const lines: string[] = [];
   for (const mod of [...imports].sort()) {
@@ -497,7 +501,6 @@ export function generatePythonClass(node: IRNode): string[] {
   const name = emitIdentifier(props.name as string, 'UnknownClass', node);
   const baseRaw = typeof props.extends === 'string' ? (props.extends as string) : '';
   const base = baseRaw ? emitIdentifier(baseRaw, 'object', node) : '';
-  const header = base ? `class ${name}(${base}):` : `class ${name}:`;
 
   const isStatic = (n: IRNode): boolean => {
     const np = p(n);
@@ -510,6 +513,49 @@ export function generatePythonClass(node: IRNode): string[] {
   const getters = kids(node, 'getter');
   const setters = kids(node, 'setter');
   const ctor = firstChild(node, 'constructor');
+
+  // Static accessors (static get/set) lower to a per-class metaclass: both
+  // `Box.label` reads and `Box.label = x` writes dispatch through the metaclass
+  // @property/.setter (a plain descriptor would be shadowed on assignment). The
+  // static backing field stays a class attribute. The metaclass extends
+  // `type(<base>)` so that when the base ALSO has static accessors the derived
+  // metaclass subclasses the base metaclass (no `metaclass conflict`, and the
+  // base's static accessors are inherited); when the base has none, `type(<base>)`
+  // is just `type`.
+  const staticGetters = getters.filter(isStatic);
+  const staticSetters = setters.filter(isStatic);
+  const metaName = `_${name}Meta`;
+  const metaLines: string[] = [];
+  if (staticGetters.length + staticSetters.length > 0) {
+    metaLines.push(`class ${metaName}(${base ? `type(${base})` : 'type'}):`);
+    const metaGetterNames = new Set<string>();
+    for (const g of staticGetters) {
+      const gp = p(g);
+      const gname = toSnakeCase((gp.name as string) || 'prop');
+      const returns = gp.returns ? ` -> ${mapTsTypeToPython(gp.returns as string)}` : '';
+      metaGetterNames.add(gname);
+      metaLines.push('    @property');
+      metaLines.push(`    def ${gname}(cls)${returns}:`);
+      metaLines.push(...methodBodyLinesPython(g, { classBody: true, staticReceiver: true }));
+      metaLines.push('');
+    }
+    for (const s of staticSetters) {
+      const sname = toSnakeCase((p(s).name as string) || 'prop');
+      if (!metaGetterNames.has(sname)) {
+        metaLines.push('    @property');
+        metaLines.push(`    def ${sname}(cls):  # write-only static property`);
+        metaLines.push('        return None');
+        metaLines.push('');
+        metaGetterNames.add(sname);
+      }
+      metaLines.push(`    @${sname}.setter`);
+      metaLines.push(`    def ${sname}(cls, ${buildPythonParamList(s, { selfPrefix: false })}):`);
+      metaLines.push(...methodBodyLinesPython(s, { classBody: true, staticReceiver: true }));
+      metaLines.push('');
+    }
+  }
+  const baseParts = [base, metaLines.length > 0 ? `metaclass=${metaName}` : ''].filter(Boolean);
+  const header = baseParts.length > 0 ? `class ${name}(${baseParts.join(', ')}):` : `class ${name}:`;
 
   const body: string[] = [];
 
@@ -575,16 +621,12 @@ export function generatePythonClass(node: IRNode): string[] {
     body.push('');
   }
 
-  // Getters -> @property. Static accessors need a metaclass/classmethod-property
-  // and are a follow-up; skip them with a marker rather than emit broken code.
+  // Getters -> @property. Static getters were already emitted on the metaclass.
   const instanceGetterNames = new Set<string>();
   for (const g of getters) {
+    if (isStatic(g)) continue;
     const gp = p(g);
     const gname = toSnakeCase((gp.name as string) || 'prop');
-    if (isStatic(g)) {
-      body.push(`    # static getter '${gname}' is not yet supported on the Python target`);
-      continue;
-    }
     instanceGetterNames.add(gname);
     const returns = gp.returns ? ` -> ${mapTsTypeToPython(gp.returns as string)}` : '';
     body.push('    @property');
@@ -596,12 +638,9 @@ export function generatePythonClass(node: IRNode): string[] {
   // `.setter`; KERN allows setter-only properties, so synthesize a getter when
   // none was declared (write-only -> returns None, matching a TS getter-less read).
   for (const s of setters) {
+    if (isStatic(s)) continue; // static setters were already emitted on the metaclass
     const sp = p(s);
     const sname = toSnakeCase((sp.name as string) || 'prop');
-    if (isStatic(s)) {
-      body.push(`    # static setter '${sname}' is not yet supported on the Python target`);
-      continue;
-    }
     if (!instanceGetterNames.has(sname)) {
       body.push('    @property');
       body.push(`    def ${sname}(self):  # write-only property (no getter declared in KERN)`);
@@ -617,7 +656,8 @@ export function generatePythonClass(node: IRNode): string[] {
 
   if (body.length === 0) body.push('    pass');
 
-  return [header, ...body];
+  // Metaclass (if any) must be defined before the class that references it.
+  return metaLines.length > 0 ? [...metaLines, header, ...body] : [header, ...body];
 }
 
 // ── Union (Pydantic Discriminated Union) ────────────────────────────────
