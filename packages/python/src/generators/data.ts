@@ -520,6 +520,19 @@ export function generatePythonClass(node: IRNode): string[] {
     return np.static === 'true' || np.static === true;
   };
 
+  // `abstract` is ERASED at codegen on both targets (a plain, instantiable
+  // class — matching TS, where `abstract` is compile-time-only and gone from
+  // emitted JS). An abstract member is a handler-less method/getter/setter under
+  // an abstract class; it lowers to a fail-fast `raise`, so an un-overridden
+  // abstract member fails identically on TS (throw) and Python (raise) — parity
+  // by construction. `implements` is likewise erased (the semantic validator
+  // owns conformance); only a human-readable marker comment is emitted.
+  const isAbstractClass = props.abstract === 'true' || props.abstract === true;
+  const implementsRaw = typeof props.implements === 'string' ? (props.implements as string) : '';
+  const isAbstractMember = (m: IRNode): boolean => isAbstractClass && firstChild(m, 'handler') === undefined;
+  const abstractRaise = (kind: string, memberName: string): string =>
+    `        raise NotImplementedError("abstract ${kind} ${name}.${memberName} not implemented")`;
+
   const fields = kids(node, 'field');
   const staticFields = fields.filter(isStatic);
   const methods = kids(node, 'method');
@@ -549,7 +562,14 @@ export function generatePythonClass(node: IRNode): string[] {
       metaGetterNames.add(gname);
       metaLines.push('    @property');
       metaLines.push(`    def ${gname}(cls)${returns}:`);
-      metaLines.push(...methodBodyLinesPython(g, { classBody: true, staticReceiver: true }));
+      // Abstract static accessors fail-fast like instance ones, so an
+      // un-overridden abstract static getter raises on Python the same way it
+      // throws on TS (was silently `pass` -> None before).
+      if (isAbstractMember(g)) {
+        metaLines.push(abstractRaise('getter', gname));
+      } else {
+        metaLines.push(...methodBodyLinesPython(g, { classBody: true, staticReceiver: true }));
+      }
       metaLines.push('');
     }
     for (const s of staticSetters) {
@@ -563,7 +583,11 @@ export function generatePythonClass(node: IRNode): string[] {
       }
       metaLines.push(`    @${sname}.setter`);
       metaLines.push(`    def ${sname}(cls, ${buildPythonParamList(s, { selfPrefix: false })}):`);
-      metaLines.push(...methodBodyLinesPython(s, { classBody: true, staticReceiver: true }));
+      if (isAbstractMember(s)) {
+        metaLines.push(abstractRaise('setter', sname));
+      } else {
+        metaLines.push(...methodBodyLinesPython(s, { classBody: true, staticReceiver: true }));
+      }
       metaLines.push('');
     }
   }
@@ -630,7 +654,11 @@ export function generatePythonClass(node: IRNode): string[] {
     } else {
       body.push(`    ${asyncKw}def ${mname}(${buildPythonParamList(m, { selfPrefix: true })})${returns}:`);
     }
-    body.push(...methodBodyLinesPython(m, { classBody: !isStatic(m) }));
+    if (isAbstractMember(m)) {
+      body.push(abstractRaise('method', mname));
+    } else {
+      body.push(...methodBodyLinesPython(m, { classBody: !isStatic(m) }));
+    }
     body.push('');
   }
 
@@ -644,7 +672,11 @@ export function generatePythonClass(node: IRNode): string[] {
     const returns = gp.returns ? ` -> ${mapTsTypeToPython(gp.returns as string)}` : '';
     body.push('    @property');
     body.push(`    def ${gname}(self)${returns}:`);
-    body.push(...methodBodyLinesPython(g, { classBody: true }));
+    if (isAbstractMember(g)) {
+      body.push(abstractRaise('getter', gname));
+    } else {
+      body.push(...methodBodyLinesPython(g, { classBody: true }));
+    }
     body.push('');
   }
   // Setters -> @<name>.setter. Python requires a property to exist before its
@@ -663,14 +695,21 @@ export function generatePythonClass(node: IRNode): string[] {
     }
     body.push(`    @${sname}.setter`);
     body.push(`    def ${sname}(${buildPythonParamList(s, { selfPrefix: true })}):`);
-    body.push(...methodBodyLinesPython(s, { classBody: true }));
+    if (isAbstractMember(s)) {
+      body.push(abstractRaise('setter', sname));
+    } else {
+      body.push(...methodBodyLinesPython(s, { classBody: true }));
+    }
     body.push('');
   }
 
   if (body.length === 0) body.push('    pass');
 
+  // `implements` is erased at codegen (the validator owns conformance); emit a
+  // human-readable marker so the relationship survives in the generated source.
+  const headerLines = implementsRaw ? [`# implements: ${implementsRaw}`, header] : [header];
   // Metaclass (if any) must be defined before the class that references it.
-  return metaLines.length > 0 ? [...metaLines, header, ...body] : [header, ...body];
+  return metaLines.length > 0 ? [...metaLines, ...headerLines, ...body] : [...headerLines, ...body];
 }
 
 // ── Union (Pydantic Discriminated Union) ────────────────────────────────
