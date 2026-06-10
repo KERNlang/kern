@@ -289,25 +289,31 @@ function lowerJsArrayMethods(expr: string, ctx: ExprRewriteContext): string {
           // name.
           const loopTarget = idxVar ? `${idxVar}, ${elemVar}` : elemVar;
           const source = idxVar ? `enumerate(${receiver})` : receiver;
+          // filter/find-family predicates wrap the body in `js_truthy(...)`:
+          // a predicate that yields a JS-truthy empty container ([] / {}) must be
+          // KEPT, but Python treats [] / {} as falsy, so a bare `if body` would
+          // wrongly drop it. `js_truthy` restores JS truthiness. (`map`/`flatMap`
+          // have no predicate and are left untouched.) The helper lands once.
+          ctx.imports?.add(KERN_JS_HELPER_PY);
           let lowered: string;
           if (method === 'filter') {
-            lowered = `[${elemVar} for ${loopTarget} in ${source} if ${body}]`;
+            lowered = `[${elemVar} for ${loopTarget} in ${source} if js_truthy(${body})]`;
           } else if (method === 'find') {
-            lowered = `next((${elemVar} for ${loopTarget} in ${source} if ${body}), None)`;
+            lowered = `next((${elemVar} for ${loopTarget} in ${source} if js_truthy(${body})), None)`;
           } else if (method === 'findIndex') {
             // index of the first match, or -1 (never raises). Bind the user's
             // own index var when the callback has one, so `(x, i) => …i…` works.
             const ix = idxVar ?? '__i';
-            lowered = `next((${ix} for ${ix}, ${elemVar} in enumerate(${receiver}) if ${body}), -1)`;
+            lowered = `next((${ix} for ${ix}, ${elemVar} in enumerate(${receiver}) if js_truthy(${body})), -1)`;
           } else if (method === 'findLast') {
             // last matching element, or None
             lowered = idxVar
-              ? `next((${elemVar} for ${idxVar}, ${elemVar} in reversed(list(enumerate(${receiver}))) if ${body}), None)`
-              : `next((${elemVar} for ${elemVar} in reversed(${receiver}) if ${body}), None)`;
+              ? `next((${elemVar} for ${idxVar}, ${elemVar} in reversed(list(enumerate(${receiver}))) if js_truthy(${body})), None)`
+              : `next((${elemVar} for ${elemVar} in reversed(${receiver}) if js_truthy(${body})), None)`;
           } else if (method === 'findLastIndex') {
             // index of the last match, or -1
             const ix = idxVar ?? '__i';
-            lowered = `next((${ix} for ${ix}, ${elemVar} in reversed(list(enumerate(${receiver}))) if ${body}), -1)`;
+            lowered = `next((${ix} for ${ix}, ${elemVar} in reversed(list(enumerate(${receiver}))) if js_truthy(${body})), -1)`;
           } else if (method === 'flatMap') {
             // map, then flatten ONE level — JS flatMap only flattens arrays, so
             // a scalar/string callback result is appended as a single element.
@@ -338,33 +344,19 @@ function lowerJsArrayMethods(expr: string, ctx: ExprRewriteContext): string {
           lowerJsArrayMethods(a.trim(), ctx),
         );
         let lowered: string | null = null;
-        if (method === 'includes') {
-          const needle = args[0] ?? '';
-          lowered = `(${needle} in ${receiver})`;
-        } else if (method === 'indexOf') {
-          const needle = args[0] ?? '';
-          const fromIndex = args[1] ?? null;
-          if (fromIndex) {
-            lowered = `(next((__i for __i, __v in enumerate(${receiver}) if __i >= ${fromIndex} and __v == ${needle}), -1))`;
-          } else {
-            lowered = `(next((__i for __i, __v in enumerate(${receiver}) if __v == ${needle}), -1))`;
-          }
-        } else if (isSharedPortableArrayMethod(method)) {
-          // Delegate push/slice/concat to the single shared list-ops lowering
-          // (also used by the class-method body emitter) so routes and class
-          // methods can't drift. The shared helper returns null for arg-count
-          // shapes it doesn't support (e.g. multi-arg concat), and `lowered`
-          // stays null so the caller falls through unchanged — the same gap as
-          // the pre-migration inline branches.
+        if (isSharedPortableArrayMethod(method)) {
+          // Delegate the argument-shape (non-lambda) scalar methods —
+          // push/slice/concat/includes/indexOf/join/flat/reverse/at/fill/
+          // lastIndexOf — to the single shared list-ops lowering (also used by
+          // the class-method body emitter) so routes and class methods can't
+          // drift. The shared helper returns null for arg-count shapes it
+          // doesn't support (e.g. multi-arg concat), and `lowered` stays null so
+          // the caller falls through unchanged — the same gap as the pre-sweep
+          // inline branches. The method names here are disjoint from the
+          // lambda-bearing some/every/reduce/reduceRight/sort branches below, so
+          // chain order does not matter.
           const portable = lowerPortableArrayMethodPy(receiver, method, args);
           if (portable !== null) lowered = portable;
-        } else if (method === 'reverse') {
-          // JS Array.reverse mutates AND returns the (same, reversed) array; Python
-          // list.reverse returns None -> `(recv.reverse() or recv)` mutates + returns it.
-          lowered = `(${receiver}.reverse() or ${receiver})`;
-        } else if (method === 'join') {
-          const sep = args[0] ?? '","';
-          lowered = `${sep}.join(str(__v) for __v in ${receiver})`;
         } else if (method === 'some' || method === 'every') {
           const arrow = parseArrowCallback(expr.slice(openIdx + 1, closeIdx));
           if (arrow && arrow.params.length >= 1) {
@@ -376,10 +368,17 @@ function lowerJsArrayMethods(expr: string, ctx: ExprRewriteContext): string {
             const pred = blockClosure ?? lowerJsArrayMethods(lowerDictMemberAccess(arrow.body, elemVar), ctx);
             const loopTarget = idxVar ? `${idxVar}, ${elemVar}` : elemVar;
             const source = idxVar ? `enumerate(${receiver})` : receiver;
+            // Wrap the predicate in `js_truthy(...)` for JS truthiness parity (a
+            // predicate yielding [] / {} is JS-truthy but Python-falsy). Skip the
+            // wrap when `pred` is ALREADY a js_truthy(...) call — the block-closure
+            // path's `lowerCondition` can emit one — to avoid emit-noise double
+            // wrapping (harmless but ugly). The helper lands once.
+            const wrappedPred = pred.startsWith('js_truthy(') ? pred : `js_truthy(${pred})`;
+            ctx.imports?.add(KERN_JS_HELPER_PY);
             lowered =
               method === 'some'
-                ? `any(${pred} for ${loopTarget} in ${source})`
-                : `all(${pred} for ${loopTarget} in ${source})`;
+                ? `any(${wrappedPred} for ${loopTarget} in ${source})`
+                : `all(${wrappedPred} for ${loopTarget} in ${source})`;
           }
         } else if (method === 'reduce') {
           const rawArgs = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));
@@ -429,28 +428,6 @@ function lowerJsArrayMethods(expr: string, ctx: ExprRewriteContext): string {
           } else {
             lowered = `sorted(${receiver}, key=lambda __v${LAMBDA_COLON_PLACEHOLDER} str(__v))`;
           }
-        } else if (method === 'flat') {
-          // one level: flatten nested lists, keep scalars
-          lowered = `[__y for __x in ${receiver} for __y in (__x if isinstance(__x, list) else [__x])]`;
-        } else if (method === 'at') {
-          const n = args[0] ?? '0';
-          lowered = `(${receiver}[${n}] if -len(${receiver}) <= ${n} < len(${receiver}) else None)`;
-        } else if (method === 'fill') {
-          const v = args[0] ?? 'None';
-          if (args.length <= 1) {
-            lowered = `[${v} for __ in ${receiver}]`;
-          } else {
-            // fill(value, start, end) fills [start, end) with JS negative-index
-            // normalization; untouched positions keep their original element.
-            const s = args[1];
-            const e = args[2] ?? `len(${receiver})`;
-            lowered = `[(${v} if (${s} if ${s} >= 0 else ${s} + len(${receiver})) <= __i < (${e} if ${e} >= 0 else ${e} + len(${receiver})) else __x) for __i, __x in enumerate(${receiver})]`;
-          }
-        } else if (method === 'lastIndexOf') {
-          const needle = args[0] ?? '';
-          // String receivers use rfind (correct for multi-char substrings, -1
-          // when absent); array receivers reverse-scan by element equality.
-          lowered = `(${receiver}.rfind(${needle}) if isinstance(${receiver}, str) else (len(${receiver}) - 1 - ${receiver}[::-1].index(${needle}) if ${needle} in ${receiver} else -1))`;
         }
         if (lowered) {
           out = `${pre}${lowered}`;

@@ -190,6 +190,21 @@ interface LLMFinding {
   category: string;
   message: string;
   evidence?: string;
+  confidence?: number;
+}
+
+/** v1 calibration boundary for LLM self-reported confidence. Identity for
+ *  valid integers, capped at 89 so an LLM finding can never enter the 'high'
+ *  band (>=90) reserved for deterministic sources (tsc ~95) — preserving
+ *  rank-ordering within LLM findings while keeping group-by-root-cause
+ *  primary selection deterministic-first. Anything invalid (missing, float,
+ *  out-of-range, non-number) falls back to exactly 70 — today's flat value —
+ *  so a non-complying model reproduces current behavior bit-for-bit. */
+function parseLlmConfidence(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 70;
+  if (!Number.isInteger(value)) return 70;
+  if (value < 0 || value > 100) return 70;
+  return Math.min(value, 89);
 }
 
 /** Map AI-returned categories to valid internal categories. */
@@ -336,7 +351,7 @@ export function parseLLMResponse(response: string, inferred: InferResult[]): Rev
       message,
       primarySpan,
       ...(nodeIds ? { nodeIds } : {}),
-      confidence: 70, // LLM findings get lower confidence
+      confidence: parseLlmConfidence(item.confidence),
       fingerprint: createFingerprint(`llm-${category}`, primarySpan.startLine, primarySpan.startCol),
     });
   }

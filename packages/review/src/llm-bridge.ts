@@ -760,7 +760,7 @@ ${buildFullReviewChecklist()}
 OUTPUT FORMAT:
 - Write a structured review with severity, node alias (N1, N2, etc.) or line number, and explanation.
 - Do NOT repeat what static analysis already found — focus on what it MISSED.
-- Only report findings you are confident about (>70% sure).
+- Only report findings you would score 60+ for confidence (provable from the shown code, or likely-but-depends-on-unseen-code).
 - Include specific evidence — quote the relevant code from the IR.
 - For bugs, explain the IMPACT (what goes wrong, for whom, when).
 - Prioritize: bugs > security > error handling > data flow > concurrency > API contracts.
@@ -802,10 +802,20 @@ Categories: bug, type, pattern, style, structure
 Severities: error (definitely a bug), warning (likely a bug or serious concern), info (suggestion)
 
 Return ONLY a JSON array of findings. Schema:
-[{"nodeAlias":"N3","severity":"warning","category":"bug","message":"...","evidence":"..."}]
+[{"nodeAlias":"N3","severity":"warning","category":"bug","message":"...","evidence":"...","confidence":75}]
+
+The optional integer "confidence" field is your evidence-grounded self-assessment:
+- 80-89: defect provable from the shown code alone — cite the line evidence
+- 60-79: likely defect but depends on unseen code (call sites, module boundaries, domain assumptions)
+- below 60: do NOT report the finding at all — speculative pattern-concerns and might-be-intentional designs fall here
+- NEVER emit 90 or higher (reserved for deterministic tooling); never emit fractional values
+
+Examples:
+[{"nodeAlias":"N3","severity":"error","category":"bug","message":"Off-by-one: loop uses <= items.length, indexing items[i] reads one past the end.","evidence":"for (let i = 0; i <= items.length; i++) items[i]","confidence":85},
+ {"nodeAlias":"N5","severity":"warning","category":"pattern","message":"Result of fetch() may be unhandled if the caller ignores the returned promise.","evidence":"return fetch(url)","confidence":65}]
 
 Rules:
-- Only report findings you are confident about (>70% sure)
+- Only report findings scoring 60+ on the confidence rubric above
 - Include specific evidence — quote the relevant code
 - For bugs, explain the IMPACT (what goes wrong, for whom, when)
 - Do NOT report style/formatting issues — only things that affect correctness or security
@@ -849,10 +859,20 @@ Categories: bug, type, pattern, style, structure
 Severities: error, warning, info
 
 Return ONLY a JSON array of findings. Schema:
-[{"nodeAlias":"N3","severity":"warning","category":"bug","message":"...","evidence":"..."}]
+[{"nodeAlias":"N3","severity":"warning","category":"bug","message":"...","evidence":"...","confidence":75}]
+
+The optional integer "confidence" field is your evidence-grounded self-assessment:
+- 80-89: defect provable from the shown code alone — cite the line evidence
+- 60-79: likely defect but depends on unseen code (call sites, module boundaries, domain assumptions)
+- below 60: do NOT report the finding at all — speculative pattern-concerns and might-be-intentional designs fall here
+- NEVER emit 90 or higher (reserved for deterministic tooling); never emit fractional values
+
+Examples:
+[{"nodeAlias":"N3","severity":"error","category":"bug","message":"Command injection: userInput is concatenated into an exec() argument with no escaping.","evidence":"exec('git log ' + userInput)","confidence":85},
+ {"nodeAlias":"N5","severity":"warning","category":"bug","message":"Possible auth bypass if isAdmin defaults truthy upstream — depends on the unseen caller.","evidence":"if (user.isAdmin) grant()","confidence":65}]
 
 Rules:
-- Only report findings you are confident about (>70% sure)
+- Only report findings scoring 60+ on the confidence rubric above
 - Include specific evidence from the code
 - Explain HOW an attacker could exploit each issue
 - Do NOT report style issues — only security-relevant findings

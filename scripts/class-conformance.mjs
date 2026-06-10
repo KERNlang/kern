@@ -479,6 +479,848 @@ fn name=probe returns=number[]
     // yields [1,2,[3]] — length 3 would NOT discriminate, but the JSON does.
     expected: [1, 2, 3],
   },
+  // ── scalar-method sweep (includes/indexOf/join/flat/reverse/at/fill/lastIndexOf) ──
+  // These 8 methods were route-only; lifting them into the shared list-ops module
+  // makes a class method's `this.x.includes(v)` lower identically to the route path
+  // (was invalid `self.x.includes(v)` -> AttributeError on Python). Each fixture's
+  // expected value is cross-target deterministic and kills a named wrong-impl.
+  {
+    name: 'scalar S1: includes true/false (number array)',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [3, 1, 4] }}
+  method name=both returns=boolean[]
+    handler
+      return value="[this.data.includes(1), this.data.includes(9)]"
+fn name=probe returns=boolean[]
+  handler
+    return value="new Box().both()"`,
+    // [3,1,4].includes(1) is true, .includes(9) is false. Kills an always-true impl.
+    expected: [true, false],
+  },
+  {
+    name: 'scalar S2: includes substring on a STRING field',
+    kern: `class name=Box export=true
+  field name=name type=string value={{ "hello" }}
+  method name=has returns=boolean
+    handler
+      return value="this.name.includes(\\"ll\\")"
+fn name=probe returns=boolean
+  handler
+    return value="new Box().has()"`,
+    // "hello".includes("ll") is true via Python `in` (substring membership). Kills an
+    // element-equality impl that would scan chars and never find the 2-char "ll".
+    expected: true,
+  },
+  {
+    name: 'scalar S3: indexOf first match (duplicate element)',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [5, 6, 7, 6] }}
+  method name=where returns=number
+    handler
+      return value="this.data.indexOf(6)"
+fn name=probe returns=number
+  handler
+    return value="new Box().where()"`,
+    // [5,6,7,6].indexOf(6) is 1 (FIRST match). Kills an always-0 impl and a
+    // lastIndexOf-style impl that would return 3.
+    expected: 1,
+  },
+  {
+    name: 'scalar S4: indexOf with fromIndex',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [5, 6, 7, 6] }}
+  method name=where returns=number
+    handler
+      return value="this.data.indexOf(6, 2)"
+fn name=probe returns=number
+  handler
+    return value="new Box().where()"`,
+    // indexOf(6, 2) skips index 1 and finds the next 6 at index 3. Kills an impl
+    // that ignores fromIndex (would return 1).
+    expected: 3,
+  },
+  {
+    name: 'scalar S5: join with separator coerces numbers',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [1, 2, 3] }}
+  method name=joined returns=string
+    handler
+      return value="this.data.join(\\"-\\")"
+fn name=probe returns=string
+  handler
+    return value="new Box().joined()"`,
+    // [1,2,3].join("-") is "1-2-3". Kills an impl missing str() on numbers (TypeError
+    // on Python `"-".join([1,2,3])`).
+    expected: '1-2-3',
+  },
+  {
+    name: 'scalar S6: join default separator is comma',
+    kern: `class name=Box export=true
+  field name=data type=string[] value={{ ["a", "b"] }}
+  method name=joined returns=string
+    handler
+      return value="this.data.join()"
+fn name=probe returns=string
+  handler
+    return value="new Box().joined()"`,
+    // ["a","b"].join() defaults to "," -> "a,b". Kills a wrong default separator.
+    expected: 'a,b',
+  },
+  {
+    name: 'scalar S7: flat one level only (nested array preserved)',
+    kern: `class name=Box export=true
+  field name=data type=number[][] value={{ [[1, 2], [3, [4, 5]]] }}
+  method name=flattened returns=number[]
+    handler
+      return value="this.data.flat()"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().flattened()"`,
+    // [[1,2],[3,[4,5]]].flat() flattens ONE level -> [1,2,3,[4,5]]. Kills a recursive
+    // flatten (which would yield [1,2,3,4,5]).
+    expected: [1, 2, 3, [4, 5]],
+  },
+  {
+    name: 'scalar S8: reverse mutates AND returns the reversed array',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [1, 2, 3] }}
+  method name=rev returns=number[]
+    handler
+      return value="this.data.reverse()"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().rev()"`,
+    // JS reverse() mutates AND RETURNS the reversed array; the shim is
+    // `(recv.reverse() or recv)`. Returning the RESULT directly is the
+    // discriminator: native Python `list.reverse()` returns None, so an
+    // un-lowered/fall-through impl yields null on Python (RED at base, ts != py),
+    // and a non-mutating copy impl would also diverge. The shim returns [3,2,1].
+    // (A mutate-then-read-receiver shape is NON-discriminating here because
+    // Python's native list.reverse already mutates in place — see report.)
+    expected: [3, 2, 1],
+  },
+  {
+    name: 'scalar S9: at(-1) negative index normalization',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [10, 20, 30] }}
+  method name=last returns=number
+    handler
+      return value="this.data.at(-1)"
+fn name=probe returns=number
+  handler
+    return value="new Box().last()"`,
+    // [10,20,30].at(-1) is 30. Kills an impl with no negative normalization.
+    expected: 30,
+  },
+  {
+    name: 'scalar S10: at out-of-bounds is null (not IndexError)',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [10, 20] }}
+  method name=oob returns=number[]
+    handler
+      return value="[this.data.at(9)]"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().oob()"`,
+    // [10,20].at(9) is undefined in JS / None in Python -> wrapped as [null]. Kills a
+    // bare `recv[n]` impl (IndexError on Python). The array-wrap makes the null
+    // observable as JSON `[null]` on both targets.
+    expected: [null],
+  },
+  {
+    name: 'scalar S11: fill(value, start, end) return value (NEW list, bounds)',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [0, 0, 0, 0, 0] }}
+  method name=filled returns=number[]
+    handler
+      let name=out value="this.data.fill(9, 1, 3)"
+      return value="out"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().filled()"`,
+    // The lowering is a comprehension returning a NEW list; we print the RETURN value,
+    // never the receiver. [0,0,0,0,0].fill(9,1,3) fills [1,3) -> [0,9,9,0,0]. Kills an
+    // off-by-one bounds impl.
+    expected: [0, 9, 9, 0, 0],
+  },
+  {
+    name: 'scalar S12: fill(value, start) negative start normalization',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [1, 2, 3, 4] }}
+  method name=filled returns=number[]
+    handler
+      let name=out value="this.data.fill(7, -2)"
+      return value="out"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().filled()"`,
+    // fill(7, -2) on [1,2,3,4] normalizes -2 to index 2 -> [1,2,7,7]. Kills an impl
+    // missing negative-index normalization.
+    expected: [1, 2, 7, 7],
+  },
+  {
+    name: 'scalar S13: lastIndexOf last match (array)',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [1, 2, 3, 2, 1] }}
+  method name=where returns=number
+    handler
+      return value="this.data.lastIndexOf(2)"
+fn name=probe returns=number
+  handler
+    return value="new Box().where()"`,
+    // [1,2,3,2,1].lastIndexOf(2) is 3 (LAST match). Kills a first-index impl (-> 1).
+    expected: 3,
+  },
+  {
+    name: 'scalar S14: lastIndexOf substring on a STRING field',
+    kern: `class name=Box export=true
+  field name=name type=string value={{ "banana" }}
+  method name=where returns=number
+    handler
+      return value="this.name.lastIndexOf(\\"na\\")"
+fn name=probe returns=number
+  handler
+    return value="new Box().where()"`,
+    // "banana".lastIndexOf("na") is 4 via rfind (multi-char substring). Kills an
+    // element-scan impl that would treat the string char-by-char.
+    expected: 4,
+  },
+  {
+    name: 'scalar S15: impure receiver + slice(1) (single-eval, NOW lowers)',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [1, 2, 3] }}
+  method name=fetch returns=number[]
+    handler
+      return value="this.data"
+  method name=tail returns=number[]
+    handler
+      return value="this.fetch().slice(1)"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().tail()"`,
+    // slice is single-eval (names the receiver once), so an IMPURE receiver
+    // `this.fetch()` is now lowered (the old blanket guard wrongly skipped it,
+    // the 0.97 agon-review finding). [1,2,3].slice(1) is [2,3]. This is THE fix proof.
+    expected: [2, 3],
+  },
+  {
+    name: 'scalar S16: impure receiver + includes (single-eval, NOW lowers)',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [1, 2, 3] }}
+  method name=fetch returns=number[]
+    handler
+      return value="this.data"
+  method name=has returns=boolean
+    handler
+      return value="this.fetch().includes(2)"
+fn name=probe returns=boolean
+  handler
+    return value="new Box().has()"`,
+    // includes is single-eval, so the impure receiver `this.fetch()` is now lowered
+    // (same 0.97 finding). [1,2,3].includes(2) is true.
+    expected: true,
+  },
+  {
+    name: 'scalar S17: indexOf substring on a STRING field',
+    kern: `class name=Box export=true
+  field name=name type=string value={{ "hello" }}
+  method name=where returns=number
+    handler
+      return value="this.name.indexOf(\\"ll\\")"
+fn name=probe returns=number
+  handler
+    return value="new Box().where()"`,
+    // "hello".indexOf("ll") is 2 via str.find (multi-char substring). RED at base:
+    // the element-scan treated the string char-by-char and never matched -> -1.
+    // Mirrors S14 (lastIndexOf str-receiver) for the indexOf direction.
+    expected: 2,
+  },
+  {
+    name: 'scalar S18: indexOf multi-char substring on a STRING field with fromIndex',
+    kern: `class name=Box export=true
+  field name=name type=string value={{ "hello" }}
+  method name=where returns=number
+    handler
+      return value="this.name.indexOf(\\"lo\\", 2)"
+fn name=probe returns=number
+  handler
+    return value="new Box().where()"`,
+    // "hello".indexOf("lo", 2) is 3 (str.find with a start offset for the 2-char
+    // substring "lo"). RED at base: the element-scan never matches the 2-char
+    // needle and returns -1. Kills both the scan impl and a fromIndex-ignoring impl.
+    expected: 3,
+  },
+  {
+    // K1 — block-bodied arrow with a read-capture of an outer `const` (factor)
+    // and a local `const` + return inside the block. Kills naive `lambda`
+    // emission (statements in a Python lambda are invalid) and missing
+    // read-capture (the def must close over `factor`).
+    name: 'closure K1: block arrow, local const + outer read-capture',
+    kern: `class name=Box export=true
+  method name=run returns=number
+    handler
+      let name=factor value="3"
+      let name=scale value="(x) => { const y = x * factor; return y; }"
+      return value="scale(7)"
+fn name=probe returns=number
+  handler
+    return value="new Box().run()"`,
+    expected: 21,
+  },
+  {
+    // K2 — if/else block body returning string literals. Kills
+    // expression-only body handling (the block has two control-flow paths).
+    name: 'closure K2: block arrow with if/else returning strings',
+    kern: `class name=Box export=true
+  method name=run returns=string
+    handler
+      let name=pick value="(x) => { if (x > 2) { return \\"big\\" } else { return \\"small\\" } }"
+      return value="pick(5)"
+fn name=probe returns=string
+  handler
+    return value="new Box().run()"`,
+    expected: 'big',
+  },
+  {
+    // K3 — closure reads the enclosing METHOD param `n` (capture across the
+    // method signature). Kills param-capture scope bugs.
+    name: 'closure K3: block arrow capturing a method param',
+    kern: `class name=Box export=true
+  method name=run returns=number
+    param name=n type=number
+    handler
+      let name=add value="(x) => { const t = x + n; return t; }"
+      return value="add(4)"
+fn name=probe returns=number
+  handler
+    return value="new Box().run(6)"`,
+    expected: 10,
+  },
+  {
+    // K4 — expression-statement inside the block mutates a captured array
+    // (`acc.push(...)`), then returns its length; the closure is also CALLED
+    // as a `do` statement before the result is read. Kills hoist-ordering
+    // bugs (the def must precede its use), over-broad write-rejection (a
+    // method call on a capture must be allowed, not treated as a free-var
+    // write), and missing expression-statement support.
+    name: 'closure K4: block arrow mutating a captured array via method call',
+    kern: `class name=Box export=true
+  method name=run returns=number[]
+    handler
+      let name=acc value="[]"
+      let name=grab value="(x) => { acc.push(x * 2); return acc.length; }"
+      do value="grab(3)"
+      return value="acc"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().run()"`,
+    expected: [6],
+  },
+  {
+    // K5 — the closure is used TWICE in one expression (`inc(inc(5))`). Kills
+    // one-shot / inlined-def impls that can only reference the closure once.
+    name: 'closure K5: block arrow invoked twice (nested calls)',
+    kern: `class name=Box export=true
+  method name=run returns=number
+    handler
+      let name=inc value="(x) => { return x + 1; }"
+      return value="inc(inc(5))"
+fn name=probe returns=number
+  handler
+    return value="new Box().run()"`,
+    expected: 7,
+  },
+  {
+    // K6 — block arrow invoked inside an IF CONDITION (header position). Kills
+    // the hoist-buffer recursion-steal bug (agon review, claude 0.7): without
+    // per-level buffer isolation the def is spliced INSIDE the if body — after
+    // `if __kern_closure_0(2):` already referenced it — a runtime NameError on
+    // Python while TS is fine. Correct placement is BEFORE the `if` header.
+    name: 'closure K6: block arrow called in an if-condition (header hoist)',
+    kern: `class name=Box export=true
+  method name=run returns=number
+    handler
+      if cond="((x) => { return x > 1; })(2)"
+        return value="10"
+      return value="20"
+fn name=probe returns=number
+  handler
+    return value="new Box().run()"`,
+    expected: 10,
+  },
+  {
+    // K7 — block arrow invoked in a WHILE CONDITION. Same header-position
+    // hazard as K6 for the loop header; the def binds once before the loop
+    // (capture-free closure, so def-once ≡ JS per-evaluation semantics).
+    name: 'closure K7: block arrow called in a while-condition (header hoist)',
+    kern: `class name=Box export=true
+  method name=run returns=number
+    handler
+      let name=i value="0" kind=let
+      while cond="((n) => { return n < 3; })(i)"
+        assign target="i" value="i + 1"
+      return value="i"
+fn name=probe returns=number
+  handler
+    return value="new Box().run()"`,
+    expected: 3,
+  },
+  {
+    // K8 — block arrow invoked in an ELIF condition (the else>[if] chain shape
+    // the Python emitter collapses to `elif`). Python cannot hold a `def`
+    // between `if` and `elif`, so the only correct placement is before the
+    // WHOLE chain — which per-level buffer isolation produces. Kills any
+    // "flush before the immediately-enclosing header line" impl that would
+    // emit an illegal def between branches.
+    name: 'closure K8: block arrow called in an elif-condition (chain hoist)',
+    kern: `class name=Box export=true
+  method name=pick params="n:number" returns=number
+    handler
+      if cond="n > 10"
+        return value="1"
+      else
+        if cond="((x) => { return x === 5; })(n)"
+          return value="2"
+        else
+          return value="3"
+fn name=probe returns=number
+  handler
+    return value="new Box().pick(5)"`,
+    expected: 2,
+  },
+  {
+    // P1 — THE classic loop-variable capture. A closure created per iteration
+    // of `each x` reads `x`. JS re-binds `x` per iteration, so each closure
+    // sees its own value → [0,1,2]. A naive Python hoisted def late-binds the
+    // captured name → all closures see the LAST value → [2,2,2]. The fix pins
+    // `x` via a default arg (`def __kern_closure_N(p, x=x):`).
+    name: 'closure P1: per-iteration each-var capture (classic 0,1,2)',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=fns value="[]"
+    each name=x in="[0, 1, 2]"
+      do value="fns.push((p) => { return x; })"
+    let name=out value="[]"
+    each name=f in="fns"
+      do value="out.push(f(0))"
+    return value="out"`,
+    expected: [0, 1, 2],
+  },
+  {
+    // P2 — a body-LOCAL per-iteration binding (`const t` declared inside the
+    // each body) is also re-bound every iteration in JS. The closure captures
+    // `t`; correct = [10,20]. Without pinning the captured local late-binds to
+    // the last value → [20,20].
+    name: 'closure P2: body-local per-iteration const capture',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=fns value="[]"
+    each name=x in="[1, 2]"
+      let name=t value="x * 10"
+      do value="fns.push((p) => { return t; })"
+    let name=out value="[]"
+    each name=f in="fns"
+      do value="out.push(f(0))"
+    return value="out"`,
+    expected: [10, 20],
+  },
+  {
+    // P3 — an OUTSIDE-loop binding (`total`, declared before the loop) is
+    // captured by reference: JS closures see its CURRENT value at call time.
+    // `total` is mutated to 3 AFTER the loop, then both closures are called →
+    // [3,3]. OVER-pinning would freeze the per-iteration value (0) → [0,0],
+    // wrong. Python late binding is already parity-correct here, so `total`
+    // must NOT be pinned.
+    name: 'closure P3: outside-loop binding NOT pinned (by-reference)',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=total value="0" kind=let
+    let name=fns value="[]"
+    each name=x in="[1, 2]"
+      do value="fns.push((p) => { return total; })"
+    assign target="total" value="3"
+    let name=out value="[]"
+    each name=f in="fns"
+      do value="out.push(f(0))"
+    return value="out"`,
+    expected: [3, 3],
+  },
+  {
+    // P4 — a `while` CONDITION variable (`i`) is declared outside the loop.
+    // Closures created inside the while body capture `i` by reference; after
+    // the loop `i` is 2, so both closures return 2 → [2,2]. Over-pinning the
+    // while-condition var would freeze the per-iteration values → [0,1], wrong.
+    // (Per-iteration locals inside a while body DO pin — see P2 — but the
+    // condition var declared OUTSIDE does not.)
+    name: 'closure P4: while-condition var NOT pinned (by-reference)',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=i value="0" kind=let
+    let name=fns value="[]"
+    while cond="i < 2"
+      do value="fns.push((p) => { return i; })"
+      assign target="i" value="i + 1"
+    let name=out value="[]"
+    each name=f in="fns"
+      do value="out.push(f(0))"
+    return value="out"`,
+    expected: [2, 2],
+  },
+  {
+    // P5 — TRIBUNAL KILL-SWITCH PROBE. Inside `each x`, an `if`-block
+    // re-declares `x` (shadow → __k_shadow_x_N) initialized from a sibling
+    // per-iteration local `base` (= x + 100) — NOT from `x` itself, which
+    // would be a TS temporal-dead-zone ReferenceError. The closure reads the
+    // INNER shadowed `x` (101, 102 per iteration). Correct capture-set
+    // resolution pins the RENAMED inner name → [101,102]. If the TS-AST
+    // free-var set disagrees with the KERN rename resolution (captures the
+    // outer loop `x`, or fails to pin the renamed inner name), the values
+    // diverge ([2,2] from the outer loop var, or [102,102] late-bound on the
+    // un-pinned renamed name). The closure references the renamed name in BOTH
+    // its body and its pinned default param.
+    name: 'closure P5: shadowed inner per-iteration binding (kill-switch)',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=fns value="[]"
+    each name=x in="[1, 2]"
+      let name=base value="x + 100"
+      if cond="x > 0"
+        let name=x value="base" kind=let
+        do value="fns.push((p) => { return x; })"
+    let name=out value="[]"
+    each name=f in="fns"
+      do value="out.push(f(0))"
+    return value="out"`,
+    expected: [101, 102],
+  },
+  {
+    // P6 — nested loops. The INNER each (`y`) creates closures that read both
+    // the inner var `y` AND the outer loop var `x`. BOTH are per-iteration
+    // bindings AT or INSIDE the outermost loop-body scope, so BOTH must pin.
+    // Inner-loop-only pinning leaves `x` late-bound → wrong (all closures see
+    // x's last value 2). Correct = [11,21,12,22].
+    name: 'closure P6: nested loops pin BOTH loop vars',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=fns value="[]"
+    each name=x in="[1, 2]"
+      each name=y in="[10, 20]"
+        do value="fns.push((p) => { return x + y; })"
+    let name=out value="[]"
+    each name=f in="fns"
+      do value="out.push(f(0))"
+    return value="out"`,
+    expected: [11, 21, 12, 22],
+  },
+  {
+    // P7 — the `for` RANGE node (distinct from `each`). The for-loop variable
+    // `i` is per-iteration in JS; closures created in the body must pin it →
+    // [0,1,2]. If the for-node body is not marked as a loop scope, `i` stays
+    // late-bound → [2,2,2] (or the post-loop deleted-name shape).
+    name: 'closure P7: for-range loop var pinned',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=fns value="[]"
+    for name=i from=0 to=3
+      do value="fns.push((p) => { return i; })"
+    let name=out value="[]"
+    each name=f in="fns"
+      do value="out.push(f(0))"
+    return value="out"`,
+    expected: [0, 1, 2],
+  },
+  // ── lambda-bearing array methods (map/filter/some/every) on the class/native
+  //    Python path. These methods are NOT in the shared portable list-ops set
+  //    (push/slice/concat/…), so at base a class method's `this.data.map(...)`
+  //    falls through to a verbatim `self.data.map(...)` emit → Python lists have
+  //    no `.map` → AttributeError (RED at base, ts != py). The new
+  //    `lowerLambdaArrayCallPython` peek lowers them to a call-by-name
+  //    comprehension. Each fixture kills a specific wrong-impl.
+  {
+    name: 'lambda M1: this.data.map((x) => x * 2) — expression lambda',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [1, 2, 3] }}
+  method name=doubled returns=number[]
+    handler
+      return value="this.data.map((x) => x * 2)"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().doubled()"`,
+    // [1,2,3].map(x => x*2) is [2,4,6]. Kills a verbatim `.map(` emit
+    // (AttributeError on Python) and any non-mapping shape.
+    expected: [2, 4, 6],
+  },
+  {
+    name: 'lambda M2: map with a BLOCK lambda (hoisted def ordering)',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [1, 2, 3] }}
+  method name=squared returns=number[]
+    handler
+      return value="this.data.map((x) => { const y = x + 1; return y * y; })"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().squared()"`,
+    // map(x => { const y=x+1; return y*y }) over [1,2,3] is [4,9,16]. Kills a
+    // block-lambda mis-lowered at the comprehension site: the hoisted
+    // `def __kern_closure_N` must precede the statement whose comprehension
+    // calls it. A NameError (def spliced after use) is RED at base.
+    expected: [4, 9, 16],
+  },
+  {
+    name: 'lambda M3: map with 2-arity callback (enumerate index)',
+    kern: `class name=Box export=true
+  method name=indexed returns=number[]
+    handler
+      return value="[10, 20, 30].map((x, i) => x + i)"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().indexed()"`,
+    // [10,20,30].map((x,i) => x+i) is [10,21,32]. Kills a single-arg lowering
+    // that drops the index param (would NameError on `i`, or emit `x+0`).
+    expected: [10, 21, 32],
+  },
+  {
+    name: 'lambda M4: filter predicate returns ARRAY — js_truthy contract',
+    kern: `class name=Box export=true
+  method name=kept returns=number[]
+    handler
+      return value="[1, 2, 3].filter((x) => [])"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().kept()"`,
+    // JS keeps `[]` truthy, so filter(x => []) keeps EVERY element → [1,2,3].
+    // Bare Python truthiness drops `[]` (empty list is falsy) → would give [].
+    // THE contract fixture: only a `js_truthy(...)`-wrapped predicate matches JS.
+    expected: [1, 2, 3],
+  },
+  {
+    name: 'lambda M5: filter with a modulo predicate',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [1, 2, 3, 4] }}
+  method name=evens returns=number[]
+    handler
+      return value="this.data.filter((x) => x % 2 === 0)"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().evens()"`,
+    // [1,2,3,4].filter(x => x%2===0) is [2,4]. Kills comprehension-if basics
+    // (a verbatim `.filter(` emit is AttributeError at base).
+    expected: [2, 4],
+  },
+  {
+    name: 'lambda M6: receiver evaluated ONCE (side-effecting bump())',
+    kern: `class name=Counter export=true
+  field name=count type=number value={{ 0 }}
+  method name=bump returns=number[]
+    handler
+      assign target="this.count" value="this.count + 1"
+      return value="[1, 2, 3]"
+  method name=run
+    handler
+      let name=mapped value="this.bump().map((x) => x * 2)"
+      return value="[mapped, this.count]"
+fn name=probe
+  handler
+    return value="new Counter().run()"`,
+    // `this.bump()` mutates count and returns [1,2,3]; mapping doubles → [2,4,6].
+    // The receiver must be named ONCE in the comprehension, so bump() runs ONCE
+    // and count is 1. A double-eval template (recv named twice) would run bump()
+    // twice → count 2 (RED for a redundant-receiver-eval impl).
+    expected: [[2, 4, 6], 1],
+  },
+  {
+    name: 'lambda M7: chained map().filter()',
+    kern: `class name=Box export=true
+  method name=chain returns=number[]
+    handler
+      return value="[1, 2, 3, 4].map((x) => x * 2).filter((x) => x > 4)"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().chain()"`,
+    // [1,2,3,4].map(x=>x*2) is [2,4,6,8]; .filter(x=>x>4) is [6,8]. Kills a
+    // lowering that can't nest (the filter receiver is itself a lowered map
+    // comprehension).
+    expected: [6, 8],
+  },
+  {
+    name: 'lambda M8: every over array-of-arrays — js_truthy on every',
+    kern: `class name=Box export=true
+  method name=truthy returns=boolean
+    handler
+      return value="[[], []].every((x) => x)"
+fn name=probe returns=boolean
+  handler
+    return value="new Box().truthy()"`,
+    // JS: [[],[]].every(x => x) is true ([] is truthy). Bare Python `all([], [])`
+    // would treat empty lists as falsy → false. Only a js_truthy-wrapped
+    // predicate inside all(...) matches JS → true.
+    expected: true,
+  },
+  {
+    name: 'lambda M9: some — false then true (any() basics + bool parity)',
+    kern: `class name=Box export=true
+  method name=results returns=boolean[]
+    handler
+      return value="[[0, 1].some((x) => x > 1), [0, 1, 2].some((x) => x > 1)]"
+fn name=probe returns=boolean[]
+  handler
+    return value="new Box().results()"`,
+    // [0,1].some(x=>x>1) is false (no element > 1); [0,1,2].some(...) is true.
+    // Kills an always-true / always-false any() lowering; the boolean[] print
+    // proves true/false parity across targets.
+    expected: [false, true],
+  },
+  {
+    name: 'lambda M10: bare LOCAL identifier callback',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [1, 2] }}
+  method name=tripled returns=number[]
+    handler
+      let name=f value="(x) => x * 3"
+      return value="this.data.map(f)"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().tripled()"`,
+    // `let f = x => x*3; this.data.map(f)` — the callback is a bare LOCAL ident
+    // (ValueIR `ident`, NOT a member chain), so it lowers to `[f(__kern_el) for
+    // __kern_el in self.data]` → [3,6]. Kills an impl that only handles inline
+    // lambdas and falls through (AttributeError) on a named callback.
+    expected: [3, 6],
+  },
+  // ── instanceof hardening + host Error mapping (Python target) ──────────────
+  // I1-I4, I8 are regression guards: user-class RHS already works (same-file
+  // Python classes). I5-I7 exercise the new host mappings (Array→list,
+  // Error→Exception for BOTH `new Error(...)` and `instanceof Error`).
+  {
+    name: 'I1: new Dog() instanceof Dog (user class, self)',
+    kern: `class name=Dog export=true
+  method name=speak returns=string
+    handler
+      return value="\\"woof\\""
+fn name=probe returns=boolean
+  handler
+    return value="new Dog() instanceof Dog"`,
+    // RHS is a user class in scope on both targets → isinstance(Dog(), Dog).
+    // Kills a not-lowered impl (verbatim `instanceof` is a Python SyntaxError).
+    expected: true,
+  },
+  {
+    name: 'I2: Cat extends Animal; new Cat() instanceof Animal',
+    kern: `class name=Animal export=true
+  method name=kind returns=string
+    handler
+      return value="\\"animal\\""
+class name=Cat extends=Animal export=true
+  method name=meow returns=string
+    handler
+      return value="\\"meow\\""
+fn name=probe returns=boolean
+  handler
+    return value="new Cat() instanceof Animal"`,
+    // Subclass instance vs base class → true. Kills a `type(x) == Y` /
+    // name-compare impl (isinstance honors the MRO; type()== does not).
+    expected: true,
+  },
+  {
+    name: 'I3: 3-level chain, grandchild instanceof grandparent',
+    kern: `class name=Animal export=true
+  method name=kind returns=string
+    handler
+      return value="\\"animal\\""
+class name=Pet extends=Animal export=true
+  method name=owned returns=boolean
+    handler
+      return value="true"
+class name=Cat extends=Pet export=true
+  method name=meow returns=string
+    handler
+      return value="\\"meow\\""
+fn name=probe returns=boolean
+  handler
+    return value="new Cat() instanceof Animal"`,
+    // Cat → Pet → Animal: grandchild instance vs grandparent. Kills a
+    // single-level (direct-base-only) impl.
+    expected: true,
+  },
+  {
+    name: 'I4: new Cat() instanceof Dog (sibling class)',
+    kern: `class name=Animal export=true
+  method name=kind returns=string
+    handler
+      return value="\\"animal\\""
+class name=Cat extends=Animal export=true
+  method name=meow returns=string
+    handler
+      return value="\\"meow\\""
+class name=Dog extends=Animal export=true
+  method name=woof returns=string
+    handler
+      return value="\\"woof\\""
+fn name=probe returns=boolean
+  handler
+    return value="new Cat() instanceof Dog"`,
+    // Siblings under a shared base → false. Kills an always-true impl.
+    expected: false,
+  },
+  {
+    name: 'I5: [1, 2] instanceof Array → host Array→list mapping',
+    kern: `fn name=probe returns=boolean
+  handler
+    return value="[1, 2] instanceof Array"`,
+    // RHS ident `Array` must lower to `isinstance([1, 2], list)` on Python
+    // (RED at base: emits `isinstance(..., Array)` → NameError). On TS it is
+    // native (`[1,2] instanceof Array` → true). Kills a missing Array→list map.
+    expected: true,
+  },
+  {
+    name: 'I6: new Dog() instanceof Array → false (Array mapping not too broad)',
+    kern: `class name=Dog export=true
+  method name=woof returns=string
+    handler
+      return value="\\"woof\\""
+fn name=probe returns=boolean
+  handler
+    return value="new Dog() instanceof Array"`,
+    // A class instance is NOT a list → false. Kills a too-broad Array mapping
+    // (e.g. one that maps Array→object). RED at base (NameError on `Array`).
+    expected: false,
+  },
+  {
+    name: 'I7: try/throw new Error; catch e: e instanceof Error ? "err" : "other"',
+    kern: `fn name=probe returns=string
+  handler
+    try
+      throw value="new Error(\\"boom\\")"
+      catch name=e
+        return value="e instanceof Error ? \\"err\\" : \\"other\\""
+    return value="\\"never\\""`,
+    // Exercises BOTH host Error mappings: `new Error("boom")` must lower to
+    // `Exception("boom")` (else `raise Error(...)` → NameError) AND
+    // `e instanceof Error` must lower to `isinstance(e, Exception)` (else
+    // NameError on `Error`). RED at base on Python; native on TS.
+    expected: 'err',
+  },
+  {
+    name: 'I8: !(new Cat() instanceof Dog) → true (negation precedence)',
+    kern: `class name=Animal export=true
+  method name=kind returns=string
+    handler
+      return value="\\"animal\\""
+class name=Cat extends=Animal export=true
+  method name=meow returns=string
+    handler
+      return value="\\"meow\\""
+class name=Dog extends=Animal export=true
+  method name=woof returns=string
+    handler
+      return value="\\"woof\\""
+fn name=probe returns=boolean
+  handler
+    return value="!(new Cat() instanceof Dog)"`,
+    // `not isinstance(Cat(), Dog)` → true. Guards negation precedence around
+    // the lowered isinstance call.
+    expected: true,
+  },
 ];
 
 const canon = (v) => JSON.stringify(v);

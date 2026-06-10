@@ -87,11 +87,16 @@ describe('slice 4c — Python throw of non-Exception literals wraps in Exception
     expect(emitNativeKernBodyPython(handler)).toContain('raise Exception({"code": "x"})');
   });
 
-  test('throw new Error(...) passes through unwrapped', () => {
+  test('throw new Error(...) maps to raise Exception(...) (host Error mapping, spec §1)', () => {
+    // `new Error("oops")` lowers to `Exception("oops")` on Python (Python has
+    // no global `Error`, so the pre-slice `raise Error(...)` was a runtime
+    // NameError). The `throw` wrapper does NOT double-wrap it in another
+    // `Exception(...)` — a `new`/call value is already a BaseException.
     const handler = makeHandler([{ type: 'throw', props: { value: 'new Error("oops")' } }]);
     const out = emitNativeKernBodyPython(handler);
-    expect(out).toContain('raise Error("oops")');
-    expect(out).not.toContain('raise Exception(Error');
+    expect(out).toContain('raise Exception("oops")');
+    expect(out).not.toContain('raise Exception(Exception');
+    expect(out).not.toContain('Error("oops")');
   });
 
   test('throw call expression passes through unwrapped', () => {

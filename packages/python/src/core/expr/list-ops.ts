@@ -38,10 +38,18 @@
  *     (array arg spread, scalar arg appended). Multi-arg concat returns null
  *     (caller falls through — the same gap as before the migration).
  *
- * The remaining scalar methods (`.includes`/`.indexOf`/`.join`/`.some`/`.every`/
- * `.reduce*`/`.sort`/`.flat`/`.at`/`.reverse`/`.fill`/`.lastIndexOf`) stay
- * route-only (no class-path counterpart yet, so no drift). This module owns the
- * methods that are actually shared.
+ * Migrated in the scalar-method sweep: the 8 argument-shape (non-lambda) scalar
+ * methods `.includes`/`.indexOf`/`.join`/`.flat`/`.reverse`/`.at`/`.fill`/
+ * `.lastIndexOf`. They were previously route-only, so a class method's
+ * `this.items.includes(x)` emitted invalid `self.items.includes(x)`; routing them
+ * here lowers both paths identically by construction. Their lowerings are byte-
+ * copied from the route path (the canonical source pre-sweep).
+ *
+ * The remaining methods that stay per-path BY DESIGN are the lambda-bearing ones
+ * (`.some`/`.every`/`.map`/`.filter`/`.reduce`/`.reduceRight`/`.sort`/the
+ * `.find`-family): they operate on representation-specific inputs (route rewrites
+ * arrow *strings*; the class path lowers `ValueIR` *lambdas*), so a single
+ * string-based helper cannot express them cleanly — each path keeps its own.
  */
 
 /**
@@ -50,7 +58,19 @@
  * consumer — exporting the `Set` itself would be a runtime footgun, since a
  * `ReadonlySet` type does not freeze the underlying `Set`.
  */
-const SHARED_PORTABLE_ARRAY_METHODS: ReadonlySet<string> = new Set(['push', 'slice', 'concat']);
+const SHARED_PORTABLE_ARRAY_METHODS: ReadonlySet<string> = new Set([
+  'push',
+  'slice',
+  'concat',
+  'includes',
+  'indexOf',
+  'join',
+  'flat',
+  'reverse',
+  'at',
+  'fill',
+  'lastIndexOf',
+]);
 
 /**
  * Property names this module lowers (arg-free, non-call member access). Kept
@@ -66,6 +86,32 @@ const SHARED_PORTABLE_ARRAY_PROPERTIES: ReadonlySet<string> = new Set(['length']
  */
 export function isSharedPortableArrayMethod(method: string): boolean {
   return SHARED_PORTABLE_ARRAY_METHODS.has(method);
+}
+
+/**
+ * Methods whose lowering names the RECEIVER more than once (or mutates it),
+ * so a side-effectful receiver — `makeBox().items.reverse()` — would run its
+ * effects twice on Python and break JS parity. The class-body emitter gates
+ * these on a provably-pure receiver; single-eval methods (slice/includes/
+ * indexOf/join/flat/concat) accept impure receivers.
+ * Receiver eval counts: push x2, reverse x2, at x3, fill x1-4 (3-arg form),
+ * indexOf x2-3 (isinstance probe + the chosen str/array branch), lastIndexOf x4.
+ * NOT tracked: argument multi-eval (concat arg x3, at n x3, indexOf needle x2,
+ * lastIndexOf needle x3, fill bounds multi) — the route path has no purity
+ * analysis at all and lowers impure args blindly; the class path matches that
+ * behavior for args (documented divergence, candidate follow-up).
+ */
+const PURE_RECEIVER_REQUIRED: ReadonlySet<string> = new Set([
+  'push',
+  'reverse',
+  'at',
+  'fill',
+  'indexOf',
+  'lastIndexOf',
+]);
+
+export function sharedPortableMethodRequiresPureReceiver(method: string): boolean {
+  return PURE_RECEIVER_REQUIRED.has(method);
 }
 
 /**
@@ -102,6 +148,65 @@ export function lowerPortableArrayMethodPy(receiver: string, method: string, arg
     // only; multi-arg concat returns null so the caller falls through (the same
     // gap as the pre-migration route path).
     return `(${receiver} + (${args[0]} if isinstance(${args[0]}, list) else [${args[0]}]))`;
+  }
+  // COPIED VERBATIM from the route path's inline branches (the canonical source
+  // before the scalar-method sweep), including the `??` arg defaults — byte-
+  // identity with the route lowerings is a hard requirement so routes and class
+  // methods can't drift.
+  if (method === 'includes') {
+    const needle = args[0] ?? '';
+    return `(${needle} in ${receiver})`;
+  }
+  if (method === 'indexOf') {
+    const needle = args[0] ?? '';
+    const fromIndex = args[1] ?? null;
+    // String receivers use str.find (correct for multi-char substrings, -1 when
+    // absent); array receivers scan by element equality. Mirrors lastIndexOf's
+    // str/array split below. JS `"hello".indexOf("ll")` is 2 — the old element
+    // scan treated the string char-by-char and never matched the 2-char needle.
+    if (fromIndex) {
+      return `(${receiver}.find(${needle}, ${fromIndex}) if isinstance(${receiver}, str) else (next((__i for __i, __v in enumerate(${receiver}) if __i >= ${fromIndex} and __v == ${needle}), -1)))`;
+    }
+    return `(${receiver}.find(${needle}) if isinstance(${receiver}, str) else (next((__i for __i, __v in enumerate(${receiver}) if __v == ${needle}), -1)))`;
+  }
+  if (method === 'join') {
+    // Treat an EMPTY arg as absent (default to comma): the route path's
+    // `splitTopLevelArgs('')` returns `['']` for a bare `.join()`, so `args[0]`
+    // is the empty STRING (not undefined) and `?? '","'` would keep it, emitting
+    // an invalid `.join(...)` with no separator. `args[0] ? args[0] : '","'`
+    // falls back to the JS default comma. The class path never produces '' here.
+    const sep = args[0] ? args[0] : '","';
+    return `${sep}.join(str(__v) for __v in ${receiver})`;
+  }
+  if (method === 'flat') {
+    // one level: flatten nested lists, keep scalars
+    return `[__y for __x in ${receiver} for __y in (__x if isinstance(__x, list) else [__x])]`;
+  }
+  if (method === 'reverse') {
+    // JS Array.reverse mutates AND returns the (same, reversed) array; Python
+    // list.reverse returns None -> `(recv.reverse() or recv)` mutates + returns it.
+    return `(${receiver}.reverse() or ${receiver})`;
+  }
+  if (method === 'at') {
+    const n = args[0] ?? '0';
+    return `(${receiver}[${n}] if -len(${receiver}) <= ${n} < len(${receiver}) else None)`;
+  }
+  if (method === 'fill') {
+    const v = args[0] ?? 'None';
+    if (args.length <= 1) {
+      return `[${v} for __ in ${receiver}]`;
+    }
+    // fill(value, start, end) fills [start, end) with JS negative-index
+    // normalization; untouched positions keep their original element.
+    const s = args[1];
+    const e = args[2] ?? `len(${receiver})`;
+    return `[(${v} if (${s} if ${s} >= 0 else ${s} + len(${receiver})) <= __i < (${e} if ${e} >= 0 else ${e} + len(${receiver})) else __x) for __i, __x in enumerate(${receiver})]`;
+  }
+  if (method === 'lastIndexOf') {
+    const needle = args[0] ?? '';
+    // String receivers use rfind (correct for multi-char substrings, -1 when
+    // absent); array receivers reverse-scan by element equality.
+    return `(${receiver}.rfind(${needle}) if isinstance(${receiver}, str) else (len(${receiver}) - 1 - ${receiver}[::-1].index(${needle}) if ${needle} in ${receiver} else -1))`;
   }
   return null;
 }

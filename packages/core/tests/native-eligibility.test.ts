@@ -107,12 +107,30 @@ describe('classifyHandlerBody — eligible bodies', () => {
     expect(classifyHandlerBody(`return Text.upper(name);`).eligible).toBe(true);
   });
 
-  test('instanceof is eligible — the `err instanceof Error` idiom is now native', () => {
+  test('instanceof Error is eligible — the `err instanceof Error` idiom maps to Exception', () => {
+    // `Error` is an ACCEPTED host RHS (lowers to `isinstance(e, Exception)`),
+    // so this idiom stays native. `Array` is the other accepted host RHS.
     expect(classifyHandlerBody(`return err instanceof Error ? err.message : String(err);`)).toEqual({
       eligible: true,
       reason: 'ok',
     });
-    expect(classifyHandlerBody(`const ok = value instanceof Map;\nreturn ok;`).eligible).toBe(true);
+    expect(classifyHandlerBody(`return xs instanceof Array;`).eligible).toBe(true);
+  });
+
+  test('instanceof RHS reject table fails closed (eligible ≡ lowerable)', () => {
+    // The wrapper-parity trap + unmapped builtins have no isinstance parity, so
+    // the body is ineligible with an actionable RHS-specific reason (spec §3).
+    // This was eligible under the old blind `isinstance(x, <RHS>)` lowering;
+    // the slice deliberately hardens it.
+    expect(classifyHandlerBody(`return x instanceof String;`).reason).toBe('instanceof-rhs-wrapper-rejected');
+    expect(classifyHandlerBody(`const ok = value instanceof Map;\nreturn ok;`).reason).toBe(
+      'instanceof-rhs-unsupported-builtin',
+    );
+    expect(classifyHandlerBody(`return x instanceof Promise;`).reason).toBe('instanceof-rhs-unsupported-builtin');
+    expect(classifyHandlerBody(`return x instanceof (getClass());`).reason).toBe('instanceof-rhs-not-a-type-name');
+    // User-class and qualified-member RHS still pass (emit as-is).
+    expect(classifyHandlerBody(`return x instanceof Dog;`).eligible).toBe(true);
+    expect(classifyHandlerBody(`return x instanceof a.b.C;`).eligible).toBe(true);
   });
 
   test('member access named after an Object.prototype member is eligible (prototype-pollution fix)', () => {
@@ -364,10 +382,15 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
     expect(result.reason).toBe(expectedReason);
   }
 
-  // Block-bodied callbacks are still rejected by the expression parser,
-  // surfacing as `<stmt>-bad-expr` rather than a syntactic top-level bail.
-  test('block-bodied callback rejected (return-bad-expr)', () =>
-    rejected(`return xs.map((x) => { return x * 2; });`, 'return-bad-expr'));
+  // Slices 0+1: block-bodied arrows now PARSE (captured as `bodyBlock`) and
+  // are gated by the v1 closure gate. A GATE-PASSING block arrow is eligible
+  // (covered in closure-eligibility.test.ts); a GATE-FAILING one keeps the
+  // statement ineligible with the gate's reason. This disqualifier test uses a
+  // gate-failing arrow (nested arrow inside the callback) to stay a real
+  // rejection case. (Was `return-bad-expr` pre-slice when the parser threw on
+  // any block body.)
+  test('gate-failing block-bodied callback rejected (closure-nested-function)', () =>
+    rejected(`return xs.map((x) => { const g = (y) => y; return g(x); });`, 'closure-nested-function'));
 
   test('typed callback return predicate is eligible', () => {
     expect(
@@ -557,18 +580,28 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
     expect(LEGACY_NEG_PATTERNS.some((re) => re.test(body))).toBe(false);
   });
 
-  // `instanceof` is now a supported relational operator (TS `instanceof` /
-  // Python `isinstance`), so it is no longer a disqualifier. See the
-  // "instanceof is eligible" test above.
-  test('instanceof is eligible (no longer bails)', () => {
-    expect(classifyHandlerBody(`return x instanceof Date;`).eligible).toBe(true);
+  // `instanceof` is a supported relational operator (TS `instanceof` / Python
+  // `isinstance`) for accepted RHS — user classes, qualified members, and the
+  // host globals `Error`/`Array`. `Date` is in the reject set (no verified
+  // cross-target host mapping), so it now fails closed with an RHS-specific
+  // reason. See the "instanceof RHS reject table" test above.
+  test('instanceof with an accepted RHS is eligible; rejected RHS bails with a reason', () => {
+    expect(classifyHandlerBody(`return x instanceof Dog;`).eligible).toBe(true);
+    expect(classifyHandlerBody(`return x instanceof Date;`).reason).toBe('instanceof-rhs-unsupported-builtin');
   });
 
   test('import statement rejected', () =>
     rejected(`import { foo } from 'bar';\nreturn foo();`, 'unsupported-stmt-ImportDeclaration'));
 
-  test('computed non-expression assignment target rejected', () =>
-    rejected(`obj[(a) => { return a; }] = 1;\nreturn obj;`, 'expr-stmt-bad-assign-target'));
+  // Slices 0+1: the original body used a BLOCK-bodied arrow as the computed
+  // index. Block arrows now parse; a gate-PASSING one no longer disqualifies
+  // the statement (the assignment-target check decides). To keep this a real
+  // disqualifier we use a gate-FAILING arrow (`this` inside it), so the gate
+  // reason surfaces as the statement reason. The remaining optional-chain
+  // assignment-target cases below keep exercising `expr-stmt-bad-assign-target`
+  // directly.
+  test('computed gate-failing block-arrow rejected (closure-this)', () =>
+    rejected(`obj[(a) => { return this.a; }] = 1;\nreturn obj;`, 'closure-this'));
 
   test('optional-chain assignment targets rejected', () => {
     rejected(`obj?.x = 1;\nreturn obj;`, 'expr-stmt-bad-assign-target');

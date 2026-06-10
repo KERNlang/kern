@@ -726,7 +726,7 @@ describe('FastAPI Transpiler', () => {
 
       expect(output).toContain('class UserRepository:');
       expect(output).toContain('def __init__(self, session: AsyncSession):');
-      expect(output).toContain('async def find_by_email(self, email: str) -> User | None:');
+      expect(output).toContain('async def find_by_email(self, email: str) -> "User | None":');
     });
 
     test('generates Python cache class', async () => {
@@ -763,6 +763,50 @@ describe('FastAPI Transpiler', () => {
       expect(output).toContain('= database');
     });
 
+    test('dependency factory return annotation referencing a custom class is QUOTED', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse(
+        [
+          'dependency name=authService scope=singleton',
+          '  inject userRepo type=UserRepository with=(db)',
+          '  returns type=AuthService with=(userRepo)',
+        ].join('\n'),
+      );
+      const output = generatePythonCoreNode(ast).join('\n');
+
+      // Lazy annotation (mirror of d1c209de): the return annotation must be
+      // quoted so eager evaluation doesn't NameError on a forward-defined class.
+      expect(output).toContain('def create_auth_service() -> "AuthService":');
+      // The constructor CALL position stays a raw (evaluated) name, not a string.
+      expect(output).toContain('instance = AuthService((userRepo))');
+    });
+
+    test('union variant field typed with a custom class is QUOTED', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonUnion } = await import('../src/codegen-python.js');
+
+      const ast = parse(
+        [
+          'union name=Shape discriminant=kind',
+          '  variant name=Circle',
+          '    field name=meta type=ShapeMeta',
+          '  variant name=Square',
+          '    field name=side type=number',
+        ].join('\n'),
+      );
+      const output = generatePythonUnion(ast).join('\n');
+
+      // Custom-class member annotation in a dataclass-style class body is quoted.
+      expect(output).toContain('meta: "ShapeMeta"');
+      // A primitive field stays unquoted (byte-identical to mapTsTypeToPython).
+      expect(output).toContain('side: float');
+      // The module-level Union alias is built from the (already-defined) variant
+      // class names, so it is left unquoted.
+      expect(output).toContain('Shape = Union[CircleShape, SquareShape]');
+    });
+
     test('generates Python service class', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { generatePythonCoreNode } = await import('../src/codegen-python.js');
@@ -780,9 +824,9 @@ describe('FastAPI Transpiler', () => {
       const output = generatePythonCoreNode(ast).join('\n');
 
       expect(output).toContain('class AuthService:');
-      expect(output).toContain('def __init__(self, repo: UserRepository):');
+      expect(output).toContain('def __init__(self, repo: "UserRepository"):');
       expect(output).toContain('self._repo = repo');
-      expect(output).toContain('async def find_by_email(self, email: str) -> User | None:');
+      expect(output).toContain('async def find_by_email(self, email: str) -> "User | None":');
     });
   });
 
@@ -2341,7 +2385,7 @@ describe('FastAPI Transpiler', () => {
 
     test('.filter((x) => pred) lowers to list comprehension', async () => {
       const { rewriteExpr } = await import('../src/core/expr/index.js');
-      expect(rewriteExpr('users.filter((u) => u.active)', [])).toBe('[u for u in users if u["active"]]');
+      expect(rewriteExpr('users.filter((u) => u.active)', [])).toBe('[u for u in users if js_truthy(u["active"])]');
     });
 
     test('.map((x) => expr) lowers to list comprehension', async () => {
@@ -2351,7 +2395,9 @@ describe('FastAPI Transpiler', () => {
 
     test('.find((x) => pred) lowers to next() with None default', async () => {
       const { rewriteExpr } = await import('../src/core/expr/index.js');
-      expect(rewriteExpr('users.find((u) => u.id == id)', [])).toBe('next((u for u in users if u["id"] == id), None)');
+      expect(rewriteExpr('users.find((u) => u.id == id)', [])).toBe(
+        'next((u for u in users if js_truthy(u["id"] == id)), None)',
+      );
     });
 
     test('combined: .find with === lowers correctly (ordering invariant)', async () => {
@@ -2359,7 +2405,7 @@ describe('FastAPI Transpiler', () => {
       // Arrow rewrite runs first; the inner `===` is then caught by the
       // strict-equality pass on the rewritten predicate.
       expect(rewriteExpr('users.find((item) => item.id === id)', [])).toBe(
-        'next((item for item in users if item["id"] == id), None)',
+        'next((item for item in users if js_truthy(item["id"] == id)), None)',
       );
     });
 
@@ -2370,14 +2416,16 @@ describe('FastAPI Transpiler', () => {
 
     test('arr-core dict member access lowers to subscript form', async () => {
       const { rewriteExpr } = await import('../src/core/expr/index.js');
-      expect(rewriteExpr('items.filter((x) => x.active)', [])).toBe('[x for x in items if x["active"]]');
+      expect(rewriteExpr('items.filter((x) => x.active)', [])).toBe('[x for x in items if js_truthy(x["active"])]');
       expect(rewriteExpr('items.map((x) => x.n)', [])).toBe('[x["n"] for x in items]');
-      expect(rewriteExpr('items.find((x) => x.n === 2)', [])).toBe('next((x for x in items if x["n"] == 2), None)');
+      expect(rewriteExpr('items.find((x) => x.n === 2)', [])).toBe(
+        'next((x for x in items if js_truthy(x["n"] == 2)), None)',
+      );
     });
 
     test('arr-core supports bare arrow params and nested dict member access', async () => {
       const { rewriteExpr } = await import('../src/core/expr/index.js');
-      expect(rewriteExpr('items.filter(x => x.active)', [])).toBe('[x for x in items if x["active"]]');
+      expect(rewriteExpr('items.filter(x => x.active)', [])).toBe('[x for x in items if js_truthy(x["active"])]');
       expect(rewriteExpr('items.map((x) => x.meta.tag)', [])).toBe('[x["meta"]["tag"] for x in items]');
       expect(rewriteExpr('items.map((x, i) => x.n + i)', [])).toBe('[x["n"] + i for i, x in enumerate(items)]');
     });
@@ -2385,11 +2433,13 @@ describe('FastAPI Transpiler', () => {
     test('arr-core filter/find/some with an index param bind it via enumerate (codex review ab192611)', async () => {
       const { rewriteExpr } = await import('../src/core/expr/index.js');
       // The index var was previously unbound for filter/find/some → NameError.
-      expect(rewriteExpr('items.filter((x, i) => i > 0)', [])).toBe('[x for i, x in enumerate(items) if i > 0]');
-      expect(rewriteExpr('items.find((x, i) => i === 1)', [])).toBe(
-        'next((x for i, x in enumerate(items) if i == 1), None)',
+      expect(rewriteExpr('items.filter((x, i) => i > 0)', [])).toBe(
+        '[x for i, x in enumerate(items) if js_truthy(i > 0)]',
       );
-      expect(rewriteExpr('items.some((x, i) => i > 0)', [])).toBe('any(i > 0 for i, x in enumerate(items))');
+      expect(rewriteExpr('items.find((x, i) => i === 1)', [])).toBe(
+        'next((x for i, x in enumerate(items) if js_truthy(i == 1)), None)',
+      );
+      expect(rewriteExpr('items.some((x, i) => i > 0)', [])).toBe('any(js_truthy(i > 0) for i, x in enumerate(items))');
     });
 
     test('arr-core subscripts data fields before a method call + nested map (codex review ab192611)', async () => {
@@ -2415,7 +2465,7 @@ describe('FastAPI Transpiler', () => {
     test('chained .filter().map() rewrites fully (Gemini #2)', async () => {
       const { rewriteExpr } = await import('../src/core/expr/index.js');
       expect(rewriteExpr('users.filter((u) => u.active).map((u) => u.name)', [])).toBe(
-        '[u["name"] for u in [u for u in users if u["active"]]]',
+        '[u["name"] for u in [u for u in users if js_truthy(u["active"])]]',
       );
     });
 
@@ -2445,8 +2495,8 @@ describe('FastAPI Transpiler', () => {
         false,
         imports,
       );
-      expect(out).toContain('any(n == 2 for n in nums)');
-      expect(out).toContain('all(n > 0 for n in nums)');
+      expect(out).toContain('any(js_truthy(n == 2) for n in nums)');
+      expect(out).toContain('all(js_truthy(n > 0) for n in nums)');
       expect(out).toContain('functools.reduce(lambda a, b: a + b, nums, 0)');
       expect(out).not.toContain('nums.some(');
       expect(out).not.toContain('nums.every(');
@@ -2456,7 +2506,9 @@ describe('FastAPI Transpiler', () => {
 
     test('arrow predicate with one level of nested parens (Gemini #3)', async () => {
       const { rewriteExpr } = await import('../src/core/expr/index.js');
-      expect(rewriteExpr('users.filter((u) => (u.age > 18))', [])).toBe('[u for u in users if (u["age"] > 18)]');
+      expect(rewriteExpr('users.filter((u) => (u.age > 18))', [])).toBe(
+        '[u for u in users if js_truthy((u["age"] > 18))]',
+      );
     });
 
     test('undefined / null lower to None outside strings (Gemini #4)', async () => {

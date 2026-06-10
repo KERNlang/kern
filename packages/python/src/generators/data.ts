@@ -310,8 +310,11 @@ export function generatePythonRepository(node: IRNode): string[] {
     const asyncKw = isAsync ? 'async ' : '';
     // Slice 3c P2 follow-up: target-neutral helper reads structured `param`
     // children when present, falls back to legacy `params="..."` otherwise.
-    const params = buildPythonParamList(method, { selfPrefix: true });
-    const returns = mp.returns ? ` -> ${mapTsTypeToPython(mp.returns as string)}` : '';
+    // Lazy annotations (mirror of fb0bd72a for generatePythonClass): a member
+    // signature that references a custom/forward class name must be quoted so
+    // Python's eager annotation evaluation doesn't NameError on the ref.
+    const params = buildPythonParamList(method, { selfPrefix: true, lazyAnnotations: true });
+    const returns = mp.returns ? ` -> ${mapTsTypeToPythonAnnotation(mp.returns as string)}` : '';
 
     lines.push(`    ${asyncKw}def ${mname}(${params})${returns}:`);
     // Slice 4b — methodBodyLinesPython dispatches lang=kern, builds symbol
@@ -407,7 +410,12 @@ export function generatePythonDependency(node: IRNode): string[] {
     lines.push('');
   }
 
-  lines.push(`def create_${name}() -> ${returnsType}:`);
+  // Lazy annotation (mirror of d1c209de): the factory's return annotation may
+  // reference a forward-defined class, so quote it to avoid an eager-evaluation
+  // NameError. Only the ANNOTATION is mapped — `returnsType` is reused verbatim
+  // below as a CONSTRUCTOR CALL (`instance = ${returnsType}(...)`), an evaluated
+  // position that must stay a bare name.
+  lines.push(`def create_${name}() -> ${mapTsTypeToPythonAnnotation(returnsType)}:`);
 
   if (scope === 'singleton') {
     lines.push(`    global _${name}_instance`);
@@ -466,7 +474,9 @@ export function generatePythonService(node: IRNode): string[] {
       .map((f) => {
         const fp = p(f);
         const fname = toSnakeCase((fp.name as string) || 'field');
-        const ftype = fp.type ? mapTsTypeToPython(fp.type as string) : 'Any';
+        // Lazy annotation (mirror of fb0bd72a): a ctor field typed with a custom
+        // class name must be quoted so the eager annotation doesn't NameError.
+        const ftype = fp.type ? mapTsTypeToPythonAnnotation(fp.type as string) : 'Any';
         return `${fname}: ${ftype}`;
       })
       .join(', ');
@@ -492,8 +502,10 @@ export function generatePythonService(node: IRNode): string[] {
     const asyncKw = isAsync ? 'async ' : '';
     // Slice 3c P2 follow-up: target-neutral helper reads structured `param`
     // children when present, falls back to legacy `params="..."` otherwise.
-    const params = buildPythonParamList(method, { selfPrefix: true });
-    const returns = mp.returns ? ` -> ${mapTsTypeToPython(mp.returns as string)}` : '';
+    // Lazy annotations (mirror of fb0bd72a): a service member signature
+    // referencing a custom/forward class name is quoted to avoid a NameError.
+    const params = buildPythonParamList(method, { selfPrefix: true, lazyAnnotations: true });
+    const returns = mp.returns ? ` -> ${mapTsTypeToPythonAnnotation(mp.returns as string)}` : '';
 
     lines.push(`    ${asyncKw}def ${mname}(${params})${returns}:`);
     // Slice 4b — same method dispatch as repository, sharing the helper.
@@ -776,7 +788,13 @@ export function generatePythonUnion(node: IRNode): string[] {
     for (const field of fields) {
       const fp = p(field);
       const fname = toSnakeCase((fp.name as string) || 'field');
-      const ftype = mapTsTypeToPython((fp.type as string) || 'Any');
+      // Lazy annotation (mirror of fb0bd72a/d1c209de): a variant field is a
+      // dataclass-style member of a `class …(BaseModel):` body, evaluated
+      // EAGERLY at import time — a custom/forward class name must be quoted to
+      // avoid a NameError. The module-level `${name} = Union[...]` alias below is
+      // built from the (already-defined) variant CLASS names, not this mapper, so
+      // it stays unquoted (an evaluated TypeAlias, not a class-body annotation).
+      const ftype = mapTsTypeToPythonAnnotation((fp.type as string) || 'Any');
       const isOptional = fp.optional === 'true' || fp.optional === true;
       if (isOptional) {
         lines.push(`    ${fname}: ${ftype} | None = None`);

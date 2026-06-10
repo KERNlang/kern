@@ -12,6 +12,8 @@
  */
 
 import type { IRNode } from '@kernlang/core';
+import { parse } from '@kernlang/core';
+import { emitNativeKernBodyPythonWithImports } from '../src/codegen-body-python.js';
 import { generatePythonClass } from '../src/generators/data.js';
 
 function handler(children: IRNode[]): IRNode {
@@ -324,6 +326,66 @@ describe('Python class codegen (single-source class slice)', () => {
     expect(code).toContain('self.fresh().push(9)'); // receiver named exactly once
   });
 
+  // ── scalar-method sweep: per-method purity contract ──
+  // Single-eval methods (slice/includes) name the receiver ONCE, so they now
+  // lower even on an IMPURE receiver (the old blanket guard wrongly skipped
+  // them — the 0.97 agon-review finding). Multi-eval / mutating methods
+  // (reverse/at) keep requiring a pure receiver and fall through unchanged.
+  function impureReceiverClass(method: string, returns: string): IRNode {
+    return {
+      type: 'class',
+      props: { name: 'Box' },
+      children: [
+        {
+          type: 'field',
+          props: { name: 'items', type: 'number[]', value: { __expr: true, code: '[1, 2, 3]' } },
+          children: [],
+        },
+        {
+          type: 'method',
+          props: { name: 'fresh', returns: 'number[]' },
+          children: [handler([{ type: 'return', props: { value: 'this.items' }, children: [] }])],
+        },
+        {
+          type: 'method',
+          props: { name: 'use', returns },
+          children: [handler([{ type: 'return', props: { value: `this.fresh().${method}` }, children: [] }])],
+        },
+      ],
+    };
+  }
+
+  test('single-eval slice on an IMPURE receiver NOW lowers (old blanket guard removed)', () => {
+    const code = generatePythonClass(impureReceiverClass('slice(1)', 'number[]')).join('\n');
+    // slice names the receiver once, so `this.fresh().slice(1)` lowers to a Python
+    // slice on the call result — the impure receiver is evaluated exactly once.
+    expect(code).toContain('self.fresh()[1:]');
+    expect(code).not.toContain('self.fresh().slice(1)'); // no JS-ism leaks
+  });
+
+  test('single-eval includes on an IMPURE receiver NOW lowers', () => {
+    const code = generatePythonClass(impureReceiverClass('includes(2)', 'boolean')).join('\n');
+    // includes names the receiver once -> `(2 in self.fresh())`.
+    expect(code).toContain('(2 in self.fresh())');
+    expect(code).not.toContain('self.fresh().includes'); // no JS-ism leaks
+  });
+
+  test('multi-eval reverse on an IMPURE receiver does NOT lower (falls through)', () => {
+    const code = generatePythonClass(impureReceiverClass('reverse()', 'number[]')).join('\n');
+    // reverse names the receiver twice (`(recv.reverse() or recv)`), so an impure
+    // receiver must fall through unchanged — no shim applied.
+    expect(code).not.toContain('.reverse() or'); // shim NOT applied
+    expect(code).toContain('self.fresh().reverse()'); // receiver named exactly once
+  });
+
+  test('multi-eval at on an IMPURE receiver does NOT lower (falls through)', () => {
+    const code = generatePythonClass(impureReceiverClass('at(0)', 'number')).join('\n');
+    // at names the receiver three times (value + two bounds), so an impure
+    // receiver falls through unchanged.
+    expect(code).not.toContain('-len('); // bounds shim NOT applied
+    expect(code).toContain('self.fresh().at(0)'); // receiver named exactly once
+  });
+
   test('derived constructor omitting super() gets an implicit super().__init__() first', () => {
     const box: IRNode = {
       type: 'class',
@@ -364,5 +426,464 @@ describe('Python class codegen (single-source class slice)', () => {
     };
     const code = generatePythonClass(box).join('\n');
     expect(code).not.toContain('super().__init__');
+  });
+});
+
+describe('Python block-bodied arrow closures (slices 0+1)', () => {
+  function findHandler(node: IRNode | null): IRNode | null {
+    if (!node) return null;
+    if (node.type === 'handler') return node;
+    for (const child of node.children ?? []) {
+      const found = findHandler(child);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  test('method with a block arrow hoists a local def BEFORE its use, with indented body and call site', () => {
+    const box: IRNode = {
+      type: 'class',
+      props: { name: 'Box' },
+      children: [
+        {
+          type: 'method',
+          props: { name: 'run', returns: 'number' },
+          children: [
+            {
+              type: 'handler',
+              props: { lang: 'kern' },
+              children: [
+                { type: 'let', props: { name: 'factor', value: '3' }, children: [] },
+                {
+                  type: 'let',
+                  props: { name: 'scale', value: '(x) => { const t = x * factor; return t; }' },
+                  children: [],
+                },
+                { type: 'return', props: { value: 'scale(7)' }, children: [] },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const code = generatePythonClass(box).join('\n');
+    // The hoisted def appears BEFORE the `scale = __kern_closure_0` use line.
+    const defIdx = code.indexOf('def __kern_closure_0(x):');
+    const useIdx = code.indexOf('scale = __kern_closure_0');
+    expect(defIdx).toBeGreaterThan(-1);
+    expect(useIdx).toBeGreaterThan(-1);
+    expect(defIdx).toBeLessThan(useIdx);
+    // Body lines lowered + properly indented (def body sits at method-indent+1).
+    expect(code).toContain('            t = x * factor');
+    expect(code).toContain('            return t');
+    // Call site preserved.
+    expect(code).toContain('return scale(7)');
+    // No naive `lambda` emission for a statement body.
+    expect(code).not.toContain('lambda');
+  });
+
+  test('a closure capturing a SHADOW-RENAMED outer variable references the renamed Python name', () => {
+    // outer `let x`; an inner if-block re-declares `x` (shadow → __k_shadow_x_N);
+    // a closure inside that block READS x → its def body must reference the
+    // RENAMED Python name (captures resolve through ctx; the param is NOT renamed).
+    const kern = `screen name=S
+  callback name=fn params="c:boolean"
+    handler lang=kern
+      let name=x value="1" kind=let
+      if cond="c"
+        let name=x value="2" kind=let
+        let name=f value="(a) => { const r = a + x; return r; }"
+        return value="f(10)"
+      return value="x"`;
+    const handler = findHandler(parse(kern));
+    expect(handler).not.toBeNull();
+    const { code } = emitNativeKernBodyPythonWithImports(handler as IRNode, { outerBindings: ['c'] });
+    // The inner shadow rename happened.
+    expect(code).toMatch(/__k_shadow_x_\d+ = 2/);
+    // The closure body references the RENAMED name, not the bare `x`.
+    expect(code).toMatch(/def __kern_closure_0\(a\):/);
+    expect(code).toMatch(/r = __kern_add\(a, __k_shadow_x_\d+\)/);
+    // The closure PARAM `a` is not renamed.
+    expect(code).toContain('def __kern_closure_0(a):');
+  });
+
+  test('the hoisted def is placed inside the if-block (correct nested indent)', () => {
+    const kern = `screen name=S
+  callback name=fn params="c:boolean"
+    handler lang=kern
+      if cond="c"
+        let name=g value="(x) => { const y = x + 1; return y; }"
+        return value="g(4)"
+      return value="0"`;
+    const handler = findHandler(parse(kern));
+    const { code } = emitNativeKernBodyPythonWithImports(handler as IRNode, { outerBindings: ['c'] });
+    // The def is indented one level under the `if` (4 spaces) — flushed via the
+    // nested emitChildrenPy call, not at the function-body top level.
+    expect(code).toContain('    def __kern_closure_0(x):');
+    expect(code).toContain('    g = __kern_closure_0');
+  });
+
+  test('a pinned loop-local REASSIGNED AFTER the closure fails closed (no silent divergence)', () => {
+    // agon-review (claude 0.7) divergence fix: `let t = 0; fns.push(() => t);
+    // t = t + x` — JS closures see the post-creation mutation ([1,2]); the
+    // def-time pin would freeze t=0 ([0,0]). Must be a compile error, never
+    // silently wrong output.
+    const kern = `screen name=S
+  callback name=fn params="c:boolean"
+    handler lang=kern
+      let name=fns value="[]" kind=let
+      each name=x in="[1, 2]"
+        let name=t value="0" kind=let
+        do value="fns.push((p) => { return t; })"
+        assign target="t" value="t + x"
+      return value="fns"`;
+    const handler = findHandler(parse(kern));
+    expect(() => emitNativeKernBodyPythonWithImports(handler as IRNode, { outerBindings: ['c'] })).toThrow(
+      /reassigned after the closure/,
+    );
+  });
+
+  test('a pinned loop-local assigned BEFORE the closure still pins (assignment order respected)', () => {
+    // The reject is order-aware: assignments at an EARLIER sibling index are
+    // captured by the pin and remain legal.
+    const kern = `screen name=S
+  callback name=fn params="c:boolean"
+    handler lang=kern
+      let name=fns value="[]" kind=let
+      each name=x in="[1, 2]"
+        let name=t value="0" kind=let
+        assign target="t" value="t + x"
+        do value="fns.push((p) => { return t; })"
+      return value="fns"`;
+    const handler = findHandler(parse(kern));
+    const { code } = emitNativeKernBodyPythonWithImports(handler as IRNode, { outerBindings: ['c'] });
+    expect(code).toMatch(/def __kern_closure_0\(p, t=t\):/);
+  });
+
+  test('a pinned loop-local reassigned in the SAME top-level child as the closure fails closed (3b granularity)', () => {
+    // Within-child statement order is NOT tracked (the whole top-level child
+    // shares one index), so a closure and a later reassignment nested in the
+    // SAME child (here both inside one `if`) cannot be order-distinguished.
+    // Fail closed (>=) rather than silently freeze a value JS mutates.
+    const kern = `screen name=S
+  callback name=fn params="c:boolean"
+    handler lang=kern
+      let name=fns value="[]" kind=let
+      each name=x in="[1, 2]"
+        let name=t value="0" kind=let
+        if cond="c"
+          do value="fns.push((p) => { return t; })"
+          assign target="t" value="t + x"
+      return value="fns"`;
+    const handler = findHandler(parse(kern));
+    expect(() => emitNativeKernBodyPythonWithImports(handler as IRNode, { outerBindings: ['c'] })).toThrow(
+      /reassigned after the closure/,
+    );
+  });
+
+  test('a captured cell reassigned via `set` after the closure fails closed (3d set-node scan)', () => {
+    // The later-assign scan must cover `set name=… to=…` (a bare-name cell
+    // write), not just `assign`. A cell captured by a closure and then reassigned
+    // via `set` in a later sibling must fail closed, exactly like an `assign`.
+    const kern = `screen name=S
+  callback name=fn params="c:boolean"
+    handler lang=kern
+      let name=fns value="[]" kind=let
+      each name=x in="[1, 2]"
+        cell name=t value="0"
+        do value="fns.push((p) => { return t; })"
+        set name=t to="t + x"
+      return value="fns"`;
+    const handler = findHandler(parse(kern));
+    expect(() => emitNativeKernBodyPythonWithImports(handler as IRNode, { outerBindings: ['c'] })).toThrow(
+      /reassigned after the closure/,
+    );
+  });
+
+  test('a captured loop-local reassigned via a COMPOUND assign (op="+=") after the closure fails closed (3d compound coverage)', () => {
+    // Compound (`+=`) and postfix (`++`) reassignments are the SAME `assign` node
+    // type as plain `=`, distinguished only by `op=`, all rebinding `target=`, so
+    // they are already covered by the later-assign scan. This proves it.
+    const kern = `screen name=S
+  callback name=fn params="c:boolean"
+    handler lang=kern
+      let name=fns value="[]" kind=let
+      each name=x in="[1, 2]"
+        let name=t value="0" kind=let
+        do value="fns.push((p) => { return t; })"
+        assign target="t" op="+=" value="x"
+      return value="fns"`;
+    const handler = findHandler(parse(kern));
+    expect(() => emitNativeKernBodyPythonWithImports(handler as IRNode, { outerBindings: ['c'] })).toThrow(
+      /reassigned after the closure/,
+    );
+  });
+
+  test('a closure in an IF CONDITION hoists BEFORE the if header (per-level buffer isolation)', () => {
+    // agon-review fix (claude 0.7): the condition's def was pushed to
+    // pendingHoists before the if-branch recursed into its body, and the
+    // BODY-level per-child flush stole it — emitting the def INSIDE the body,
+    // AFTER `if __kern_closure_0(2):` already referenced it (runtime
+    // NameError). Per-level buffer isolation in emitChildrenPy makes a header
+    // def survive until the PARENT flush, landing before the whole statement.
+    const kern = `screen name=S
+  callback name=fn params="c:boolean"
+    handler lang=kern
+      if cond="((x) => { return x > 1; })(2)"
+        return value="10"
+      return value="20"`;
+    const handler = findHandler(parse(kern));
+    const { code } = emitNativeKernBodyPythonWithImports(handler as IRNode, { outerBindings: ['c'] });
+    const defIdx = code.indexOf('def __kern_closure_0(x):');
+    const ifIdx = code.indexOf('if __kern_closure_0(2):');
+    expect(defIdx).toBeGreaterThan(-1);
+    expect(ifIdx).toBeGreaterThan(-1);
+    expect(defIdx).toBeLessThan(ifIdx);
+    // The def sits at the function-body level (no extra indent under the if).
+    expect(code).toContain('def __kern_closure_0(x):');
+    expect(code).not.toContain('    def __kern_closure_0'); // not nested in the body
+  });
+});
+
+describe('Python closure loop-variable pinning (slice 2)', () => {
+  function findHandler(node: IRNode | null): IRNode | null {
+    if (!node) return null;
+    if (node.type === 'handler') return node;
+    for (const child of node.children ?? []) {
+      const found = findHandler(child);
+      if (found) return found;
+    }
+    return null;
+  }
+  function emit(kern: string): string {
+    const handlerNode = findHandler(parse(kern));
+    expect(handlerNode).not.toBeNull();
+    return emitNativeKernBodyPythonWithImports(handlerNode as IRNode).code;
+  }
+
+  test('an `each` loop-var capture is pinned via a default arg (def __kern_closure_0(p, x=x))', () => {
+    // The classic per-iteration capture: JS sees 0,1,2; a naive late-bound
+    // Python def would see 2,2,2. The fix pins `x` as a default arg evaluated
+    // at def time (the per-iteration hoist point).
+    const code = emit(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    let name=fns value="[]"
+    each name=x in="[0, 1, 2]"
+      do value="fns.push((p) => { return x; })"
+    return value="fns"`,
+    );
+    expect(code).toContain('def __kern_closure_0(p, x=x):');
+  });
+
+  test('an OUTSIDE-loop capture is NOT pinned (no default arg added)', () => {
+    // `total` is declared before the loop; JS captures it by reference (call
+    // time value), and Python late binding is already parity-correct. Pinning
+    // it would WRONGLY freeze the per-iteration value — so no default arg.
+    const code = emit(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    let name=total value="0" kind=let
+    let name=fns value="[]"
+    each name=x in="[1, 2]"
+      do value="fns.push((p) => { return total; })"
+    return value="fns"`,
+    );
+    expect(code).toContain('def __kern_closure_0(p):');
+    expect(code).not.toMatch(/def __kern_closure_0\([^)]*total/);
+  });
+
+  test('a `while`-condition var captured inside the body is NOT pinned', () => {
+    // The while-condition var `i` is declared OUTSIDE the loop, so it resolves
+    // below the loop scope and stays late-bound (by-reference parity).
+    const code = emit(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    let name=i value="0" kind=let
+    let name=fns value="[]"
+    while cond="i < 2"
+      do value="fns.push((p) => { return i; })"
+      assign target="i" value="i + 1"
+    return value="fns"`,
+    );
+    expect(code).toContain('def __kern_closure_0(p):');
+    expect(code).not.toMatch(/def __kern_closure_0\([^)]*i=i/);
+  });
+
+  test('a SHADOW-RENAMED inner per-iteration binding pins the RENAMED Python name (P5 kill-switch)', () => {
+    // Inside `each x`, an if-block re-declares `x` (shadow → __k_shadow_x_N)
+    // from a sibling per-iteration local. The closure reads the inner `x`; the
+    // pinned default param MUST be the renamed name on BOTH sides — proving the
+    // TS-AST free-var set and the KERN rename resolution agree (the armed
+    // tribunal kill-switch is satisfied, not tripped).
+    const code = emit(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    let name=fns value="[]"
+    each name=x in="[1, 2]"
+      let name=base value="x + 100"
+      if cond="x > 0"
+        let name=x value="base" kind=let
+        do value="fns.push((p) => { return x; })"
+    return value="fns"`,
+    );
+    expect(code).toMatch(/def __kern_closure_0\(p, __k_shadow_x_\d+=__k_shadow_x_\d+\):/);
+    // The body references the same renamed name (no bare `x`).
+    expect(code).toMatch(/return __k_shadow_x_\d+/);
+  });
+
+  test('nested loops pin BOTH loop vars (alphabetical default-arg order)', () => {
+    const code = emit(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    let name=fns value="[]"
+    each name=x in="[1, 2]"
+      each name=y in="[10, 20]"
+        do value="fns.push((p) => { return x + y; })"
+    return value="fns"`,
+    );
+    expect(code).toContain('def __kern_closure_0(p, x=x, y=y):');
+  });
+
+  test('a `for` range loop var captured in the body is pinned', () => {
+    const code = emit(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    let name=fns value="[]"
+    for name=i from=0 to=3
+      do value="fns.push((p) => { return i; })"
+    return value="fns"`,
+    );
+    expect(code).toContain('def __kern_closure_0(p, i=i):');
+  });
+});
+
+describe('Python lambda-bearing array methods (map/filter/some/every)', () => {
+  function findHandler(node: IRNode | null): IRNode | null {
+    if (!node) return null;
+    if (node.type === 'handler') return node;
+    for (const child of node.children ?? []) {
+      const found = findHandler(child);
+      if (found) return found;
+    }
+    return null;
+  }
+  function emitFull(kern: string, options?: Parameters<typeof emitNativeKernBodyPythonWithImports>[1]) {
+    const handlerNode = findHandler(parse(kern));
+    expect(handlerNode).not.toBeNull();
+    return emitNativeKernBodyPythonWithImports(handlerNode as IRNode, options);
+  }
+
+  test('M2-shape: hoisted `def __kern_closure_0` precedes the statement whose comprehension calls it', () => {
+    // A block lambda inside map lowers to a hoisted closure def; the def MUST be
+    // emitted BEFORE the `return [...]` line that references it (a NameError
+    // otherwise). emitChildrenPy flushes the hoist immediately before the
+    // statement, so the def precedes the comprehension.
+    const { code } = emitFull(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    return value="[1, 2, 3].map((x) => { const y = x + 1; return y * y; })"`,
+    );
+    const defIdx = code.indexOf('def __kern_closure_0(x):');
+    const useIdx = code.indexOf('__kern_closure_0(__kern_el_');
+    expect(defIdx).toBeGreaterThanOrEqual(0);
+    expect(useIdx).toBeGreaterThan(defIdx);
+    expect(code).toMatch(/\[__kern_closure_0\(__kern_el_\d+\) for __kern_el_\d+ in \[1, 2, 3\]\]/);
+  });
+
+  test('expression lambda is hoisted as `__kern_cb_0 = lambda ...` before the comprehension that calls it', () => {
+    const { code } = emitFull(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    return value="[1, 2, 3].map((x) => x * 2)"`,
+    );
+    const hoistIdx = code.indexOf('__kern_cb_0 = lambda x: x * 2');
+    const useIdx = code.indexOf('__kern_cb_0(__kern_el_');
+    expect(hoistIdx).toBeGreaterThanOrEqual(0);
+    expect(useIdx).toBeGreaterThan(hoistIdx);
+  });
+
+  test('a 2-arity callback lowers to an enumerate comprehension', () => {
+    const { code } = emitFull(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    return value="[10, 20, 30].map((x, i) => x + i)"`,
+    );
+    expect(code).toMatch(/for __kern_ix_\d+, __kern_el_\d+ in enumerate\(\[10, 20, 30\]\)/);
+    expect(code).toMatch(/__kern_cb_0\(__kern_el_\d+, __kern_ix_\d+\)/);
+  });
+
+  test('a bare LOCAL identifier callback lowers to a call-by-name comprehension', () => {
+    const { code } = emitFull(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    let name=f value="(x) => x * 3"
+    return value="[1, 2].map(f)"`,
+    );
+    // No hoisted lambda assignment for a named callback — the comprehension
+    // calls the resolved ident directly, single-arg (arity unknown).
+    expect(code).toMatch(/\[f\(__kern_el_\d+\) for __kern_el_\d+ in \[1, 2\]\]/);
+    expect(code).not.toContain('__kern_cb_');
+  });
+
+  test('filter wraps the predicate in js_truthy and includes the helper source EXACTLY once', () => {
+    const { code, helpers } = emitFull(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    return value="[1, 2, 3].filter((x) => x)"`,
+    );
+    expect(code).toContain('js_truthy(');
+    expect(code).toMatch(/if js_truthy\(__kern_cb_0\(__kern_el_\d+\)\)\]/);
+    // The helper lands once via the helpers Set (a single def js_truthy source).
+    const helperList = [...helpers];
+    const jsHelpers = helperList.filter((h) => h.includes('def js_truthy('));
+    expect(jsHelpers.length).toBe(1);
+  });
+
+  test('some/every lower to any()/all() with a js_truthy-wrapped predicate', () => {
+    const someCode = emitFull(
+      `fn name=probe returns=boolean
+  handler lang=kern
+    return value="[0, 1].some((x) => x > 1)"`,
+    ).code;
+    expect(someCode).toMatch(/any\(js_truthy\(__kern_cb_0\(__kern_el_\d+\)\) for __kern_el_\d+ in \[0, 1\]\)/);
+    const everyCode = emitFull(
+      `fn name=probe returns=boolean
+  handler lang=kern
+    return value="[[], []].every((x) => x)"`,
+    ).code;
+    expect(everyCode).toMatch(/all\(js_truthy\(__kern_cb_0\(__kern_el_\d+\)\) for __kern_el_\d+ in \[\[\], \[\]\]\)/);
+  });
+
+  test('member-expression callback (`this.fmt`) is NOT lowered — falls through verbatim', () => {
+    // JS `.map(this.fmt)` passes the method UNBOUND, so the TS target is broken
+    // for it; lowering on Python would create works-on-Python/breaks-on-TS
+    // anti-parity. The gate rejects a `member` arg, so the call emits verbatim.
+    const { code } = emitFull(
+      `fn name=run returns=number[]
+  handler lang=kern
+    return value="this.items.map(this.fmt)"`,
+      { inClassBody: true, symbolMap: { this: 'self' } },
+    );
+    expect(code).toContain('self.items.map(self.fmt)');
+    expect(code).not.toContain('__kern_el_');
+    expect(code).not.toContain('js_truthy');
+  });
+
+  test('a 3-param callback (el, i, arr) is NOT lowered (would be called with 2 args → TypeError)', () => {
+    // The enumerate comprehension only supplies (el, i); a 3-param lambda is
+    // defined with 3 params but called with 2, raising a runtime TypeError. Such
+    // a shape must fall through verbatim (the pre-slice status quo), never lower.
+    const { code } = emitFull(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    let name=arr value="[1, 2, 3]"
+    return value="arr.map((el, i, all) => el + i)"`,
+    );
+    // Must NOT produce the broken lowered comprehension that calls the callback
+    // with fewer args than it declares.
+    expect(code).not.toContain('__kern_el_');
+    expect(code).not.toContain('__kern_ix_');
+    expect(code).not.toContain('__kern_cb_');
   });
 });

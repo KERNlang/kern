@@ -44,11 +44,15 @@
 import type { ExprObject, IRNode, ValueIR } from '@kernlang/core';
 import {
   applyTemplate,
+  collectFreeIdentifierNames,
   emitStringKeyArray,
+  instanceofRhsPythonType,
+  instanceofRhsRejectReasonForName,
   isPostfixMutationOperator,
   isSupportedAssignOperator,
   KERN_STDLIB_MODULES,
   lookupStdlib,
+  lowerJsClosureBodyToPython,
   needsArgParens,
   needsBinaryParens,
   parseExpression,
@@ -59,6 +63,7 @@ import { buildPythonParamList } from './codegen-helpers.js';
 import {
   KERN_FMT_HELPER_PY,
   KERN_I32_HELPER_PY,
+  KERN_JS_HELPER_PY,
   KERN_PAIR_HELPERS_PY,
   KERN_TMOD_HELPER_PY,
 } from './core/expr/index.js';
@@ -67,6 +72,7 @@ import {
   isSharedPortableArrayProperty,
   lowerPortableArrayMethodPy,
   lowerPortableArrayPropertyPy,
+  sharedPortableMethodRequiresPureReceiver,
 } from './core/expr/list-ops.js';
 import { mapTsTypeToPython } from './type-map.js';
 
@@ -198,6 +204,43 @@ interface BodyEmitContext {
    *  raw f-string interpolation, `None` for undefined, None-only `??`).
    *  See BodyEmitOptions.coerceJsValues. */
   coerceJsValues: boolean;
+  /** Slices 0+1 — block-bodied arrow closure lowering. When `emitLambdaPy`
+   *  lowers a block arrow it pushes a hoisted local `def __kern_closure_N(...)`
+   *  (a block of source lines) here and returns the def's NAME as the
+   *  expression string. `emitChildrenPy`'s per-child loop flushes the buffer
+   *  IMMEDIATELY BEFORE the statement that referenced it (at the current
+   *  indent), so the def precedes its use even inside if/else/loop bodies. A
+   *  buffer left non-empty when a handler body finishes is a BUG (defensive
+   *  throw at the body-emit entry point). */
+  pendingHoists: string[][];
+  /** Monotonic gensym counter for hoisted closure def names. Separate from
+   *  `gensymCounter` so closure names stay stable/independent of other
+   *  gensym usage. */
+  closureSeq: number;
+  /** Slice-2 loop-variable pinning. Each entry is the INDEX into `localScopes`
+   *  of a scope that is a loop BODY (an `each`/`for`/`while` body). A captured
+   *  name is pinned (JS per-iteration capture → Python default arg) IFF its
+   *  binding resolves at an index `>= loopScopeIndexes[0]` — i.e. at or inside
+   *  the OUTERMOST enclosing loop body. Bindings declared OUTSIDE every loop
+   *  (function params, accumulators, a `while` condition var) resolve below
+   *  `loopScopeIndexes[0]` and stay late-bound (already JS-parity-correct).
+   *  Pushed on loop-body entry, popped on exit (LIFO, mirrors `localScopes`). */
+  loopScopeIndexes: number[];
+  /** Slice-2 fix (agon review, claude 0.7) — one frame per active loop body,
+   *  parallel to `loopScopeIndexes`. `assignLast` maps a bare assign-target
+   *  name to the LAST top-level child index (within that loop body) whose
+   *  subtree assigns it; `current` is the child index the loop body is
+   *  emitting right now. The default-arg pin freezes a capture at def time,
+   *  but JS captures BY REFERENCE — so a pinned per-iteration binding that is
+   *  REASSIGNED in a LATER sibling statement diverges (JS sees the mutation,
+   *  the frozen default does not). Such captures fail closed at emission
+   *  instead of emitting silently wrong values. Because within-child statement
+   *  order is NOT tracked (the whole top-level child shares one index), the
+   *  reject is `>=` (not `>`): a reassignment in the SAME top-level child as the
+   *  closure also fails closed (it cannot be proven to run before the closure).
+   *  `assignLast` covers both `assign` (incl. compound/postfix `op=` forms, same
+   *  node type) and `set` (a bare-name cell write). */
+  loopLaterAssignFrames: Array<{ assignLast: Map<string, number>; current: number }>;
 }
 
 const INDENT_STEP = '    ';
@@ -221,6 +264,10 @@ function freshCtx(options?: BodyEmitOptions): BodyEmitContext {
     standaloneExpression: false,
     coerceJsValues: options?.coerceJsValues ?? true,
     traceHooks: options?.traceHooks,
+    pendingHoists: [],
+    closureSeq: 0,
+    loopScopeIndexes: [],
+    loopLaterAssignFrames: [],
   };
 }
 
@@ -317,6 +364,15 @@ export function emitNativeKernBodyPythonWithImports(handlerNode: IRNode, options
   }
   try {
     const code = emitChildrenPy(handlerNode.children ?? [], ctx, '').join('\n');
+    // Slices 0+1 — a hoisted closure def left un-flushed means some statement
+    // emitter produced a block arrow without routing through emitChildrenPy's
+    // flush point. That would silently drop the def → NameError at runtime.
+    // Fail loud instead.
+    if (ctx.pendingHoists.length > 0) {
+      throw new Error(
+        'Internal codegen error: block-arrow closure def(s) were not flushed (a statement emitter bypassed the emitChildrenPy hoist point).',
+      );
+    }
     return { code, imports: ctx.imports, usedPropagation: ctx.usedPropagation, helpers: ctx.helpers };
   } finally {
     if (outerBindings.length > 0) {
@@ -358,20 +414,82 @@ function trailingCommentToPy(raw: string): string {
   return `# ${raw}`.trimEnd();
 }
 
+/** Slice-2 fix — map each bare-identifier write target inside a loop body to the
+ *  LAST top-level child index whose subtree writes it. Recurses into nested
+ *  statements (if/else branches, nested loops, try bodies) but attributes every
+ *  write to the TOP-LEVEL child containing it (the granularity
+ *  `loopLaterAssignFrames.current` tracks). Member/index targets (`this.x`,
+ *  `a[i]`) are excluded — mutating a captured OBJECT is by-reference in both
+ *  languages and never pinned.
+ *
+ *  Covered write node types (the body-statement emitters that can rebind a bare
+ *  name): `assign` (its `target=` prop, INCLUDING the compound `op="+="`/`-=`/…
+ *  and postfix `op="++"`/`--` forms — all the same node type, distinguished only
+ *  by `op=`, all rebinding `target=`) and `set` (its `name=` prop, a bare-name
+ *  cell write). `let`/`cell` are DECLARATIONS, not reassignments, so they are
+ *  not scanned (the binding they create is the thing being pinned). */
+function collectLoopAssignLastIndexes(children: IRNode[]): Map<string, number> {
+  const last = new Map<string, number>();
+  const scan = (node: IRNode, topIdx: number): void => {
+    if (node.type === 'assign') {
+      // `target=` is the bare name (or member/index) being rebound, regardless of
+      // `op=` (plain `=`, compound `+=`, or postfix `++`/`--`).
+      const target = String((node.props as Record<string, unknown> | undefined)?.target ?? '');
+      if (target && !target.includes('.') && !target.includes('[')) last.set(target, topIdx);
+    } else if (node.type === 'set') {
+      // `set name=… to=…` rebinds a bare-name cell; the target is `name=`.
+      const target = String((node.props as Record<string, unknown> | undefined)?.name ?? '');
+      if (target && !target.includes('.') && !target.includes('[')) last.set(target, topIdx);
+    }
+    for (const child of node.children ?? []) scan(child, topIdx);
+  };
+  for (let i = 0; i < children.length; i++) scan(children[i], i);
+  return last;
+}
+
 function emitChildrenPy(
   children: IRNode[],
   ctx: BodyEmitContext,
   indent: string,
   initialBindings: Array<[string, 'const' | 'let']> = [],
+  isLoopBody = false,
 ): string[] {
   const lines: string[] = [];
   ctx.localScopes.push(new Map(initialBindings));
   ctx.regexScopes.push(new Map(initialBindings.map(([name]) => [name, null])));
   ctx.renameStack.push(new Map());
+  // Slice-2 loop-variable pinning. When this recursion is a loop BODY, record
+  // the just-pushed scope's index so `emitBlockClosurePy` can decide whether a
+  // captured name resolves at-or-inside the enclosing loop body (→ pin). Only
+  // loop bodies mark a scope here — if/else/try/branch/with bodies do not, so a
+  // closure inside an `if` that is itself inside a loop still pins via the
+  // outer loop's recorded index (the `if` body's own scope index is >= it).
+  if (isLoopBody) ctx.loopScopeIndexes.push(ctx.localScopes.length - 1);
+  // Slice-2 fix — pre-scan this loop body for bare-name assign targets so the
+  // closure emitter can reject a pin whose binding is reassigned AFTER the
+  // closure-creating statement (see loopLaterAssignFrames doc).
+  const loopFrame = isLoopBody ? { assignLast: collectLoopAssignLastIndexes(children), current: -1 } : null;
+  if (loopFrame) ctx.loopLaterAssignFrames.push(loopFrame);
+  // Slices 0+1 fix (agon review, claude 0.7) — isolate the hoist buffer per
+  // recursion level. A statement emitter that lowers a HEADER expression (an
+  // `if`/`while` condition, an `each`/`for` iterable, a `branch` scrutinee)
+  // pushes that expression's closure defs into the buffer BEFORE recursing
+  // into its body via this function. Without isolation, the body-level
+  // per-child flush below would steal those defs and splice them INSIDE the
+  // body — after the header line already referenced the def name (runtime
+  // NameError: `if __kern_closure_0(2):` with the def indented under it).
+  // Saving/clearing here means a header def survives untouched until the
+  // PARENT level's per-child flush, which splices it before the entire
+  // statement — defs bind once, so before-the-header placement is correct for
+  // every header position including `elif` chains (the def simply precedes
+  // the whole if/elif chain).
+  const outerHoists = ctx.pendingHoists;
+  ctx.pendingHoists = [];
   try {
     for (let i = 0; i < children.length; i++) {
       const child = children[i];
-      const trailStart = lines.length;
+      if (loopFrame) loopFrame.current = i;
+      let trailStart = lines.length;
       if (child.type === 'comment') {
         for (const line of emitCommentPy(child)) lines.push(`${indent}${line}`);
       } else if (child.type === 'cell') {
@@ -463,7 +581,11 @@ function emitChildrenPy(
           );
         }
         lines.push(`${indent}while ${emitPyExprCtx(condIR, ctx)}:`);
-        const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP);
+        // Slice-2: a `while` body is a loop body — per-iteration locals declared
+        // INSIDE it (JS re-binds block-scoped lets each iteration) must pin.
+        // The condition var, declared OUTSIDE, resolves below the loop scope and
+        // stays late-bound (by-reference, JS-parity-correct).
+        const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, [], true);
         if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
         for (const sl of inner) lines.push(sl);
       } else if (child.type === 'for') {
@@ -580,10 +702,16 @@ function emitChildrenPy(
               `${indent}${INDENT_STEP}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(v)}, "value": ${v}})`,
             );
           }
-          const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, [
-            [k, 'const'],
-            [v, 'const'],
-          ]);
+          const inner = emitChildrenPy(
+            child.children ?? [],
+            ctx,
+            indent + INDENT_STEP,
+            [
+              [k, 'const'],
+              [v, 'const'],
+            ],
+            true,
+          );
           if (inner.length === 0 && !ctx.traceHooks?.eachIterNext) lines.push(`${indent}${INDENT_STEP}pass`);
           for (const sl of inner) lines.push(sl);
           continue;
@@ -611,7 +739,7 @@ function emitChildrenPy(
                 `${indent}${INDENT_STEP}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(k)}, "value": ${k}})`,
               );
             }
-            const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, [[k, 'const']]);
+            const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, [[k, 'const']], true);
             if (inner.length === 0 && !ctx.traceHooks?.eachIterNext) lines.push(`${indent}${INDENT_STEP}pass`);
             for (const sl of inner) lines.push(sl);
           } else {
@@ -623,7 +751,7 @@ function emitChildrenPy(
                 `${indent}${INDENT_STEP}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(v)}, "value": ${v}})`,
               );
             }
-            const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, [[v, 'const']]);
+            const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, [[v, 'const']], true);
             if (inner.length === 0 && !ctx.traceHooks?.eachIterNext) lines.push(`${indent}${INDENT_STEP}pass`);
             for (const sl of inner) lines.push(sl);
           }
@@ -670,7 +798,7 @@ function emitChildrenPy(
             `${indent}${INDENT_STEP}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(primaryBindingPy)}, "value": ${primaryBindingPy}})`,
           );
         }
-        const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, initialBindings);
+        const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, initialBindings, true);
         // `pass` is needed only when the for-loop body would otherwise be empty:
         //   - index-mode path emits NO assignment (direct destructuring), so an
         //     empty children list leaves the loop bodyless → IndentationError.
@@ -691,6 +819,24 @@ function emitChildrenPy(
         for (const line of emitBranchPy(child, ctx, indent)) lines.push(line);
       }
 
+      // Slices 0+1 — flush hoisted block-arrow closure defs. `emitLambdaPy`
+      // pushed each `def __kern_closure_N(...):` block into `ctx.pendingHoists`
+      // when it lowered a block arrow used by THIS child. Splice them in at the
+      // current indent IMMEDIATELY BEFORE the child's own lines so the def
+      // precedes its use — works at any nesting level because every nested
+      // emission funnels through emitChildrenPy. Bump `trailStart` past the
+      // spliced defs so the trailing-comment check below still measures only
+      // the child's own line count.
+      if (ctx.pendingHoists.length > 0) {
+        const hoistLines: string[] = [];
+        for (const def of ctx.pendingHoists) {
+          for (const dl of def) hoistLines.push(`${indent}${dl}`);
+        }
+        lines.splice(trailStart, 0, ...hoistLines);
+        trailStart += hoistLines.length;
+        ctx.pendingHoists = [];
+      }
+
       // W1 — re-attach an inline same-line trailing comment (captured by the
       // migrator as `trailingComment=`) to the simple statement's last line,
       // converted to a Python `#` comment.
@@ -705,9 +851,16 @@ function emitChildrenPy(
       }
     }
   } finally {
+    if (isLoopBody) ctx.loopScopeIndexes.pop();
+    if (loopFrame) ctx.loopLaterAssignFrames.pop();
     ctx.localScopes.pop();
     ctx.regexScopes.pop();
     ctx.renameStack.pop();
+    // Restore the parent level's hoist buffer (see the isolation comment at
+    // entry). Any defs THIS level's last child left behind are appended so the
+    // parent's flush (or the defensive end-of-body throw) still sees them —
+    // hoists are never silently dropped.
+    ctx.pendingHoists = outerHoists.concat(ctx.pendingHoists);
   }
   return lines;
 }
@@ -784,7 +937,7 @@ function emitRangeForPy(node: IRNode, ctx: BodyEmitContext, indent: string): str
   if (ctx.traceHooks?.forIterNext) {
     out.push(`${bodyIndent}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(name)}, "value": ${name}})`);
   }
-  const inner = emitChildrenPy(node.children ?? [], ctx, bodyIndent, [[name, 'const']]);
+  const inner = emitChildrenPy(node.children ?? [], ctx, bodyIndent, [[name, 'const']], true);
   if (inner.length === 0 && !ctx.traceHooks?.forIterNext) out.push(`${bodyIndent}pass`);
   for (const sl of inner) out.push(sl);
   out.push(`${indent}finally:`);
@@ -1392,6 +1545,20 @@ function lookupLocalBinding(ctx: BodyEmitContext, name: string): 'const' | 'let'
   return undefined;
 }
 
+/** Slice-2 — the index into `ctx.localScopes` of the innermost scope that
+ *  binds `name`, or `null` if no scope binds it (an unresolved/host name).
+ *  Used by `emitBlockClosurePy` to decide loop-variable pinning: a captured
+ *  name pins IFF its binding index is at-or-inside the outermost enclosing
+ *  loop body (`>= ctx.loopScopeIndexes[0]`). Walks innermost→outermost so a
+ *  shadowing inner re-declaration wins over an outer binding of the same name,
+ *  matching the rename resolution the body emission uses. */
+function findBindingScopeIndex(ctx: BodyEmitContext, name: string): number | null {
+  for (let i = ctx.localScopes.length - 1; i >= 0; i--) {
+    if (ctx.localScopes[i].has(name)) return i;
+  }
+  return null;
+}
+
 function isAssignableTarget(node: ValueIR): boolean {
   if (node.kind === 'ident') return true;
   if (node.kind === 'member') return !node.optional && !containsOptionalAccess(node.object);
@@ -1765,8 +1932,23 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
     }
     case 'await':
       return `await ${emitPyExprCtx(node.argument, ctx)}`;
-    case 'new':
-      return emitPyExprCtx(node.argument, ctx);
+    case 'new': {
+      // Host Error mapping (spec §1): `new Error(args)` → `Exception(args)` on
+      // Python, since `raise Error(...)` / `isinstance(x, Error)` would
+      // NameError (Python has no global `Error`). The mapping also covers
+      // `let e = new Error(x)` and `throw new Error(x)` (both flow through the
+      // `new` expression). `new TypeError(...)` is intentionally NOT mapped —
+      // Python has a native `TypeError`, so it emits as-is. RangeError/
+      // SyntaxError/etc. stay status-quo (v2). A user KERN class literally
+      // named `Error` would be shadowed by this mapping — registry-precedence
+      // hardening is v2.
+      const arg = node.argument;
+      if (arg.kind === 'call' && arg.callee.kind === 'ident' && arg.callee.name === 'Error') {
+        const remapped: ValueIR = { ...arg, callee: { ...arg.callee, name: 'Exception' } };
+        return emitPyExprCtx(remapped, ctx);
+      }
+      return emitPyExprCtx(arg, ctx);
+    }
     case 'typeAssert':
       return emitPyExprCtx(node.expression, ctx);
     case 'nonNull':
@@ -1824,11 +2006,43 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       if (node.op === 'instanceof') {
         // JS `a instanceof B` → Python `isinstance(a, B)`. Emitting `instanceof`
         // verbatim would be a Python *syntax* error, so this lowering is
-        // mandatory (unlike raw host methods, which emit verbatim). The RHS
-        // class name emits as-is — e.g. `Error` stays `Error`, consistent with
-        // how host globals like `Date` already emit; KERN's portable surface is
-        // the stdlib namespace, not raw host constructors.
-        return `isinstance(${left}, ${right})`;
+        // mandatory (unlike raw host methods, which emit verbatim).
+        //
+        // RHS handling (spec §2, shared table in core/instanceof-rhs.ts):
+        //   - accepted host global → mapped Python type: `Array`→`list`,
+        //     `Error`→`Exception` (so `e instanceof Error` ≡
+        //     `isinstance(e, Exception)`, mirroring `new Error(...)` →
+        //     `Exception(...)`; Python `except Exception as e` + this check ≡
+        //     JS catch + `e instanceof Error` for KERN-thrown errors).
+        //   - rejected RHS (wrapper-parity trap / unsupported builtin /
+        //     non-type-name) → THROW fail-closed. This is defense in depth:
+        //     the eligibility gate already rejects these bodies, so this throw
+        //     can only fire on directly-built IR, never on gate-passed source —
+        //     gate and lowerer share core/instanceof-rhs.ts and cannot drift.
+        //   - any other ident/member RHS → emit as-is (user classes work; an
+        //     unknown name fails loud at Python runtime with NameError —
+        //     registry-precedence hardening is v2).
+        const rhs = node.right;
+        if (rhs.kind === 'ident') {
+          const rejectReason = instanceofRhsRejectReasonForName(rhs.name);
+          if (rejectReason !== null) {
+            throw new Error(
+              `instanceof RHS '${rhs.name}' has no Python lowering (${rejectReason}). ` +
+                'JS primitive-wrapper / unmapped-builtin instanceof has no isinstance parity; ' +
+                'this body is ineligible for native KERN.',
+            );
+          }
+          const mapped = instanceofRhsPythonType(rhs.name);
+          if (mapped !== null) return `isinstance(${left}, ${mapped})`;
+          return `isinstance(${left}, ${right})`;
+        }
+        if (rhs.kind === 'member') {
+          return `isinstance(${left}, ${right})`;
+        }
+        throw new Error(
+          'instanceof RHS is not a type name (instanceof-rhs-not-a-type-name); ' +
+            'only a class identifier or qualified member name can lower to isinstance().',
+        );
       }
 
       if (node.op === '+' && ctx.coerceJsValues) {
@@ -2021,11 +2235,132 @@ function emitPyTypeof(argument: ValueIR, ctx: BodyEmitContext): string {
 
 function emitLambdaPy(node: Extract<ValueIR, { kind: 'lambda' }>, ctx: BodyEmitContext): string {
   const names = node.params.map((p) => p.name);
+  if (node.bodyBlock) {
+    return emitBlockClosurePy(node, names, ctx);
+  }
   const previous = new Set(ctx.shadowedSymbols);
   for (const name of names) ctx.shadowedSymbols.add(name);
   try {
     const params = names.length === 0 ? '' : ` ${names.join(', ')}`;
-    return `lambda${params}: ${emitPyExprCtx(node.body, ctx)}`;
+    return `lambda${params}: ${emitPyExprCtx(node.body as ValueIR, ctx)}`;
+  } finally {
+    ctx.shadowedSymbols = previous;
+  }
+}
+
+/** Slices 0+1 — lower a block-bodied arrow (`x => { ... }`) to a hoisted local
+ *  Python `def`. Pushes `def __kern_closure_N(params): <body>` into
+ *  `ctx.pendingHoists` (flushed by emitChildrenPy immediately before the
+ *  enclosing statement) and RETURNS the def name as the expression string, so
+ *  `let scale = (x) => {...}` lowers to `scale = __kern_closure_0` with the def
+ *  hoisted above it.
+ *
+ *  The closure body is lowered through `lowerJsClosureBodyToPython`, reusing
+ *  the class-path expression/condition callbacks:
+ *   - `lowerExpression(raw)` = `emitPyExprCtx(parseExpression(raw), ctx)` —
+ *     identical to every other native-body expression emit, so a captured
+ *     RENAMED outer variable resolves through `ctx` (the rename stack /
+ *     symbolMap) exactly as it does outside the closure.
+ *   - `lowerCondition(raw)` mirrors the class/native if-emitter, which lowers a
+ *     condition as the bare `emitPyExprCtx(parseExpression(cond), ctx)` (NO
+ *     js_truthy wrapper). Matching it EXACTLY means a condition inside a
+ *     closure lowers identically to the same condition outside one.
+ *
+ *  Closure PARAMS shadow outer renames while the body is lowered (same
+ *  `shadowedSymbols` save/restore as the expression-lambda branch) — params
+ *  must NOT be renamed, while captures of renamed outer vars still resolve
+ *  through ctx. The v1 gate (commit A) guarantees the lowering succeeds;
+ *  gate/lowerer drift (`ok:false`) is a loud bug. */
+function emitBlockClosurePy(node: Extract<ValueIR, { kind: 'lambda' }>, names: string[], ctx: BodyEmitContext): string {
+  const closureName = `__kern_closure_${ctx.closureSeq++}`;
+  const previous = new Set(ctx.shadowedSymbols);
+  for (const name of names) ctx.shadowedSymbols.add(name);
+  try {
+    const lowered = lowerJsClosureBodyToPython(node.bodyBlock!.raw, {
+      lowerExpression: (raw) => emitPyExprCtx(parseExpression(raw), ctx),
+      // Mirror the native/class if-emitter EXACTLY (bare expression, no
+      // js_truthy) so a condition inside the closure matches the same
+      // condition outside it.
+      lowerCondition: (raw) => emitPyExprCtx(parseExpression(raw), ctx),
+    });
+    if (!lowered.ok) {
+      // The commit-A gate already accepted this block, so a lowering failure
+      // here is gate/lowerer drift — surface it loudly.
+      throw new Error(
+        `Internal codegen error: block-arrow closure passed the v1 gate but failed to lower (${lowered.reason ?? 'unknown'}).`,
+      );
+    }
+    // Slice-2 loop-variable pinning. JS closures capture variables BY
+    // REFERENCE; a binding created PER-ITERATION (an each/for loop var, or any
+    // let/const declared inside a loop body) is re-bound each iteration, so
+    // each closure sees its own iteration's value. A naive Python hoisted def
+    // late-binds → every closure sees the LAST value (the classic 0,1,2 vs
+    // 2,2,2 bug). FIX: pin such captures via a default arg
+    // (`def __kern_closure_N(p, x=x):`) — Python evaluates defaults at def
+    // time = the hoist point before the enclosing statement = exactly the
+    // per-iteration snapshot JS produces.
+    //
+    // RULE: pin a captured name IFF its binding resolves at-or-inside the
+    // OUTERMOST loop body enclosing the closure (scope index >=
+    // loopScopeIndexes[0]). A binding declared OUTSIDE every loop (a function
+    // param, an accumulator, a `while` condition var) resolves below that
+    // index and stays late-bound — JS sees its CURRENT value at call time, and
+    // Python late binding is already parity-correct for it. Over-pinning those
+    // would WRONGLY freeze a value JS does not freeze.
+    const pinParams: string[] = [];
+    if (ctx.loopScopeIndexes.length > 0) {
+      const free = collectFreeIdentifierNames(node.bodyBlock!.raw, names);
+      const outermostLoopScope = ctx.loopScopeIndexes[0];
+      // Alphabetical by user-facing name for deterministic emission order.
+      for (const name of [...free].sort()) {
+        const scopeIndex = findBindingScopeIndex(ctx, name);
+        if (scopeIndex === null || scopeIndex < outermostLoopScope) continue;
+        // Slice-2 fix (agon review, claude 0.7) — a pin FREEZES the value at
+        // def time, but JS captures by reference: if the pinned binding is
+        // REASSIGNED in a later sibling statement of any enclosing loop body,
+        // the JS closure sees the mutation and the frozen default does not
+        // (`let t = 0; fns.push(() => t); t = t + x` → JS [1,2], pinned
+        // Python [0,0]). Fail closed instead of emitting silent divergence.
+        // Assignments in a STRICTLY-LOWER top-level child (`< current`) run
+        // before the closure and are captured by the pin — those are fine. The
+        // `>=` (not `>`) rejects an assignment in the SAME top-level child as the
+        // closure too: within-child statement order is not tracked (the whole
+        // child shares one index), so a same-child closure+reassignment cannot be
+        // proven safe — fail closed beats the silent divergence (kimi 0.85).
+        for (const frame of ctx.loopLaterAssignFrames) {
+          const lastAssign = frame.assignLast.get(name);
+          if (lastAssign !== undefined && lastAssign >= frame.current) {
+            throw new Error(
+              `Closure captures loop-local '${name}' which is reassigned after the closure is created — ` +
+                `the per-iteration pin would freeze a value JS does not freeze. ` +
+                `Bind the final value to a fresh const before creating the closure (v1 limitation).`,
+            );
+          }
+        }
+        // Resolve to the SAME Python name the body emission uses. A captured
+        // loop-body binding goes through the block-scope rename stack
+        // (`resolveLocalRename`) — identical to the `ident` emit path — so a
+        // shadow-renamed inner `x` pins as `__k_shadow_x_N=__k_shadow_x_N`.
+        // (symbolMap is param-only and never names a loop-body-scoped binding,
+        // so it is intentionally not consulted here.)
+        const renamed = resolveLocalRename(ctx, name);
+        // Defensive (agon review, claude 0.3 nit): a renamed pin equal to a
+        // closure param would emit `def f(p, p=p)` — a Python SyntaxError.
+        // Renames are __k_shadow_*/gensym forms, so this is theoretical; fail
+        // loud rather than emit invalid Python if it ever happens.
+        if (names.includes(renamed)) {
+          throw new Error(
+            `Closure parameter '${renamed}' collides with the rename of captured '${name}' — rename the parameter.`,
+          );
+        }
+        pinParams.push(`${renamed}=${renamed}`);
+      }
+    }
+    const params = [...names, ...pinParams].join(', ');
+    // `lowered.lines` are body lines at 4-space indent (the lowerer's own
+    // convention); they nest directly under the `def` header.
+    ctx.pendingHoists.push([`def ${closureName}(${params}):`, ...lowered.lines]);
+    return closureName;
   } finally {
     ctx.shadowedSymbols = previous;
   }
@@ -2070,17 +2405,26 @@ function valueReferencesIdent(node: ValueIR, name: string): boolean {
       return node.items.some((item) => valueReferencesIdent(item, name));
     case 'lambda':
       if (node.params.some((p) => p.name === name)) return false;
-      return valueReferencesIdent(node.body, name);
+      if (node.bodyBlock) return rawBlockReferencesIdent(node.bodyBlock.raw, name);
+      return valueReferencesIdent(node.body as ValueIR, name);
     default:
       return false;
   }
+}
+
+/** Conservative word-boundary check for an identifier inside a raw closure
+ *  block. Used when a block-bodied arrow (slices 0+1) has no expression `body`
+ *  to recurse. Over-matching is safe for the capture analyses that consume it. */
+function rawBlockReferencesIdent(raw: string, name: string): boolean {
+  return new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(raw);
 }
 
 function containsLambdaCapturingIdent(node: ValueIR, name: string): boolean {
   switch (node.kind) {
     case 'lambda':
       if (node.params.some((p) => p.name === name)) return false;
-      return valueReferencesIdent(node.body, name);
+      if (node.bodyBlock) return rawBlockReferencesIdent(node.bodyBlock.raw, name);
+      return valueReferencesIdent(node.body as ValueIR, name);
     case 'member':
       return containsLambdaCapturingIdent(node.object, name);
     case 'index':
@@ -2213,6 +2557,12 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   if (regex !== null) return { guard: null, expr: regex };
   const stdlib = applyStdlibLoweringPython(node, ctx);
   if (stdlib !== null) return { guard: null, expr: stdlib };
+  // Lambda-bearing array methods (`map`/`filter`/`some`/`every`) lower to a
+  // call-by-name comprehension. Peeked BEFORE the portable-array shim because
+  // none of these four are in that shim's set; gating here keeps the two paths
+  // independent and lets a non-matching shape fall through unchanged.
+  const lambdaArray = lowerLambdaArrayCallPython(node, ctx);
+  if (lambdaArray !== null) return { guard: null, expr: lambdaArray };
   // Portable array methods (e.g. `arr.push(x)`) lower through the SAME shared
   // helper the route emitter uses, so a class method's `this.items.push(x)`
   // matches a route handler's `arr.push(x)` by construction (no per-path drift).
@@ -2260,11 +2610,17 @@ function lowerPortableArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, 
   // `slice(1, 3)` (a push-shaped assumption — see spec 3a).
   if (!isSharedPortableArrayMethod(callee.property)) return null;
   const recvNode = callee.object;
-  // The shim names the receiver twice (`(recv.append(x) or len(recv))`), so a
-  // side-effectful receiver — `makeBag().items.push(x)`, `bags[idx()].push(x)` —
-  // would run those effects twice on Python and break JS parity. Lower only a
-  // provably-pure receiver; let impure ones fall through unchanged.
-  if (!isReceiverChainPure(recvNode)) return null;
+  // Per-method purity contract (scalar-method sweep). Multi-eval / mutating
+  // methods (push/reverse/at/fill/lastIndexOf) name the receiver more than once
+  // (`(recv.append(x) or len(recv))`, `(recv.reverse() or recv)`), so a
+  // side-effectful receiver — `makeBag().items.push(x)`, `bags[idx()].reverse()`
+  // — would run those effects twice on Python and break JS parity; lower only a
+  // provably-pure receiver for those. Single-eval methods
+  // (slice/includes/indexOf/join/flat/concat) name the receiver once, so they
+  // accept an impure receiver — the old blanket `isReceiverChainPure` guard
+  // wrongly skipped `makeBox().items.slice(1)` (the prior agon-review 0.97
+  // finding). The optional-chain guard below still applies to ALL methods.
+  if (sharedPortableMethodRequiresPureReceiver(callee.property) && !isReceiverChainPure(recvNode)) return null;
   const recv: GuardedExpr =
     recvNode.kind === 'member' || recvNode.kind === 'call' || recvNode.kind === 'index'
       ? lowerChain(recvNode, ctx)
@@ -2274,6 +2630,141 @@ function lowerPortableArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, 
   if (recv.guard !== null) return null;
   const args = call.args.map((a) => emitPyExprCtx(a, ctx));
   return lowerPortableArrayMethodPy(recv.expr, callee.property, args);
+}
+
+/** Methods this peek lowers to a call-by-name comprehension. `find`/`findIndex`/
+ *  `findLast`/`findLastIndex`/`flatMap`/`reduce`/`reduceRight`/sort-with-comparator
+ *  are the same shape but DEFERRED (see slice report). */
+const LAMBDA_ARRAY_METHODS: ReadonlySet<string> = new Set(['map', 'filter', 'some', 'every']);
+
+/**
+ * Lower a lambda-bearing Array method call (`recv.map(cb)` / `.filter` / `.some`
+ * / `.every`) on the class/native-body Python path to a call-by-name
+ * comprehension. Returns `null` — and the caller falls through to the generic
+ * call emission — for any shape this peek does not own. Peeked at the same
+ * dispatch point as `lowerPortableArrayCallPython` (these four methods are NOT
+ * in that shim's set).
+ *
+ * GATE (all required): a non-optional `member` callee, method ∈
+ * {map,filter,some,every}, exactly one call arg, and that arg is a `lambda`
+ * (expression- or block-bodied) OR a bare `ident`.
+ *
+ * Callback shapes resolved to a Python NAME `cb`:
+ *   - block lambda  → `emitPyExprCtx` returns the hoisted `def __kern_closure_N`
+ *                     name (closures v1), and the def is pushed into
+ *                     `ctx.pendingHoists` (flushed by emitChildrenPy before the
+ *                     enclosing statement).
+ *   - expr  lambda  → emit `lambda x: <expr>`, hoist ONE assignment
+ *                     `__kern_cb_N = <lambda>` into the SAME `ctx.pendingHoists`
+ *                     buffer; `cb` = `__kern_cb_N`.
+ *   - bare ident    → the rename-resolved identifier as-is. Arity is unknown for
+ *                     a named callback, so it is always called single-arg. JS
+ *                     would pass `(el, idx, arr)`; a named callback that reads a
+ *                     2nd/3rd param diverges — an ACCEPTED edge for this slice.
+ *
+ * MEMBER-EXPRESSION callbacks (`this.items.map(this.fmt)`) FALL THROUGH verbatim
+ * (the arg is a `member`, not `lambda`/`ident`, so the gate rejects it). This is
+ * deliberate: JS `.map(this.fmt)` passes the method UNBOUND (`this` is undefined
+ * inside it), so the TS target is already broken for such code. Lowering it on
+ * Python would create works-on-Python / breaks-on-TS anti-parity; until KERN
+ * defines a bound-method story there is nothing to be parity-correct WITH.
+ *
+ * TRUTHINESS: filter/some/every wrap the predicate result in `js_truthy(...)`.
+ * This is JS-CORRECT — JS keeps `[]`/`{}` truthy while bare Python drops them.
+ * Two VERIFIED pre-existing divergences are intentionally NOT fixed here:
+ *   (1) the ROUTE path's filter/find-family predicates are BARE (`if ${body}`,
+ *       core/expr/index.ts ~:294) — a pre-existing route truthiness bug, a
+ *       follow-up for the deferral-sweep slice;
+ *   (2) the class path's `if cond=` lowering is bare (no js_truthy wrapper) — a
+ *       separate follow-up.
+ * `js_truthy` here matches JS semantics for the lambda-array predicates only.
+ */
+function lowerLambdaArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: BodyEmitContext): string | null {
+  // SCOPE GATE (do not remove). This lowering is for the class/native-body
+  // statement path (`emitNativeKernBodyPythonWithImports`, standaloneExpression
+  // = false). The standalone-expression entry point (`emitPyExpression`) is the
+  // Ground/React declarative + expression-unit surface; it emits array methods
+  // VERBATIM (e.g. `values.filter(lambda value: ...)`) by design, so do NOT
+  // intercept there. The FastAPI ROUTE path lowers `.map`/`.filter` through a
+  // SEPARATE string-rewrite (`core/expr` `rewriteExpr`/`lowerJsArrayMethods`),
+  // never this IR `lowerChain` peek, so routes are untouched.
+  if (ctx.standaloneExpression) return null;
+  const callee = call.callee;
+  if (callee.kind !== 'member' || callee.optional) return null;
+  if (!LAMBDA_ARRAY_METHODS.has(callee.property)) return null;
+  if (call.args.length !== 1) return null;
+  const arg = call.args[0];
+  if (arg.kind !== 'lambda' && arg.kind !== 'ident') return null;
+  const method = callee.property;
+
+  // Resolve the callback to a NAME. For a lambda the arg arity decides the
+  // comprehension form (enumerate when 2 params); a bare ident is arity-unknown
+  // and always called single-arg (documented divergence above).
+  let cb: string;
+  let twoArity = false;
+  if (arg.kind === 'lambda') {
+    // The enumerate comprehension only supplies (el, i); a callback declaring a
+    // 3rd param (`(el, i, arr) => …`) would be DEFINED with 3 params but CALLED
+    // with 2 → runtime TypeError. Fall through verbatim (the pre-slice status quo
+    // for that shape) rather than emit a broken lowering.
+    if (arg.params.length > 2) return null;
+    twoArity = arg.params.length >= 2;
+    const emitted = emitLambdaPy(arg, ctx);
+    if (arg.bodyBlock) {
+      // Block lambda → `emitLambdaPy` already pushed the hoisted def and
+      // returned its bare name; use it directly as the callback name.
+      cb = emitted;
+    } else {
+      // Expression lambda → `emitted` is a `lambda x: <expr>`. Hoist ONE
+      // assignment into the SAME buffer as closure defs (flushed before the
+      // enclosing statement) and call it by name, so the comprehension names
+      // the callback exactly once.
+      cb = `__kern_cb_${ctx.closureSeq++}`;
+      ctx.pendingHoists.push([`${cb} = ${emitted}`]);
+    }
+  } else {
+    // Bare LOCAL ident callback (`let f = …; recv.map(f)`). Emit through the
+    // ident path so a renamed binding resolves to its Python name.
+    cb = emitPyExprCtx(arg, ctx);
+  }
+
+  // Receiver: lowered ONCE. Every template below names `recv` EXACTLY ONCE, so
+  // there is NO purity gate here (deliberate contrast with the multi-eval
+  // list-ops methods, which DO gate — see `lowerPortableArrayCallPython`).
+  // FUTURE READER: do not add a redundant `isReceiverChainPure` gate; the
+  // single-eval property is what makes M6 (`this.bump().map(...)` runs bump()
+  // exactly once) correct.
+  const recvNode = callee.object;
+  const recv: GuardedExpr =
+    recvNode.kind === 'member' || recvNode.kind === 'call' || recvNode.kind === 'index'
+      ? lowerChain(recvNode, ctx)
+      : { guard: null, expr: emitPyExprCtx(recvNode, ctx) };
+  // An optional-chain receiver (`a?.b`) carries a None-guard the comprehension
+  // can't honor — fall through unchanged for those.
+  if (recv.guard !== null) return null;
+  const recvExpr = recv.expr;
+
+  // Hygienic loop vars, fresh per call.
+  const seq = ctx.gensymCounter++;
+  const el = `__kern_el_${seq}`;
+  const ix = `__kern_ix_${seq}`;
+  const callCb = twoArity ? `${cb}(${el}, ${ix})` : `${cb}(${el})`;
+  const head = twoArity ? `for ${ix}, ${el} in enumerate(${recvExpr})` : `for ${el} in ${recvExpr}`;
+
+  if (method === 'map') {
+    return `[${callCb} ${head}]`;
+  }
+  // filter/some/every predicates wrap in `js_truthy` (JS-correct; map does not
+  // need it). The helper lands once via the helper Set.
+  ctx.helpers.add(KERN_JS_HELPER_PY);
+  if (method === 'filter') {
+    return `[${el} ${head} if js_truthy(${callCb})]`;
+  }
+  if (method === 'some') {
+    return `any(js_truthy(${callCb}) ${head})`;
+  }
+  // method === 'every'
+  return `all(js_truthy(${callCb}) ${head})`;
 }
 
 function lowerRegexCallPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: BodyEmitContext): string | null {
@@ -2480,6 +2971,11 @@ function lowerListLambdaPython(
   if (callback.params.length !== 1) {
     throw new Error(`List.${methodName} expects a one-parameter lambda on the Python target.`);
   }
+  // Block-bodied arrow callback: the comprehension lowering only handles an
+  // expression `body`. Fall through (null) so the lambda routes through the
+  // default call path → `emitLambdaPy` (which fails closed in commit A and
+  // hoists a local def in commit B).
+  if (!callback.body) return null;
   const name = callback.params[0].name;
   const previous = new Set(ctx.shadowedSymbols);
   ctx.shadowedSymbols.add(name);
@@ -2558,7 +3054,10 @@ export function lowerBitwiseAndModuloAST(node: ValueIR): ValueIR {
         args: node.args.map(lowerBitwiseAndModuloAST),
       };
     case 'lambda':
-      return { ...node, body: lowerBitwiseAndModuloAST(node.body) };
+      // Block-bodied arrows carry raw text, not an expression `body`. The raw
+      // is re-parsed and lowered during closure emission (commit B), so leave
+      // it untouched here.
+      return node.bodyBlock ? node : { ...node, body: lowerBitwiseAndModuloAST(node.body as ValueIR) };
     case 'spread':
       return { ...node, argument: lowerBitwiseAndModuloAST(node.argument) };
     case 'await':
@@ -2638,7 +3137,9 @@ export function registerHelpers(node: ValueIR, ctx: BodyEmitContext) {
       registerHelpers(node.index, ctx);
       break;
     case 'lambda':
-      registerHelpers(node.body, ctx);
+      // Block-bodied arrows have no expression `body`; helpers referenced by a
+      // block body are registered during closure emission (commit B).
+      if (node.body) registerHelpers(node.body, ctx);
       break;
     case 'spread':
       registerHelpers(node.argument, ctx);
