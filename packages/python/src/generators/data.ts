@@ -310,8 +310,11 @@ export function generatePythonRepository(node: IRNode): string[] {
     const asyncKw = isAsync ? 'async ' : '';
     // Slice 3c P2 follow-up: target-neutral helper reads structured `param`
     // children when present, falls back to legacy `params="..."` otherwise.
-    const params = buildPythonParamList(method, { selfPrefix: true });
-    const returns = mp.returns ? ` -> ${mapTsTypeToPython(mp.returns as string)}` : '';
+    // Lazy annotations (mirror of fb0bd72a for generatePythonClass): a member
+    // signature that references a custom/forward class name must be quoted so
+    // Python's eager annotation evaluation doesn't NameError on the ref.
+    const params = buildPythonParamList(method, { selfPrefix: true, lazyAnnotations: true });
+    const returns = mp.returns ? ` -> ${mapTsTypeToPythonAnnotation(mp.returns as string)}` : '';
 
     lines.push(`    ${asyncKw}def ${mname}(${params})${returns}:`);
     // Slice 4b — methodBodyLinesPython dispatches lang=kern, builds symbol
@@ -466,7 +469,9 @@ export function generatePythonService(node: IRNode): string[] {
       .map((f) => {
         const fp = p(f);
         const fname = toSnakeCase((fp.name as string) || 'field');
-        const ftype = fp.type ? mapTsTypeToPython(fp.type as string) : 'Any';
+        // Lazy annotation (mirror of fb0bd72a): a ctor field typed with a custom
+        // class name must be quoted so the eager annotation doesn't NameError.
+        const ftype = fp.type ? mapTsTypeToPythonAnnotation(fp.type as string) : 'Any';
         return `${fname}: ${ftype}`;
       })
       .join(', ');
@@ -492,8 +497,10 @@ export function generatePythonService(node: IRNode): string[] {
     const asyncKw = isAsync ? 'async ' : '';
     // Slice 3c P2 follow-up: target-neutral helper reads structured `param`
     // children when present, falls back to legacy `params="..."` otherwise.
-    const params = buildPythonParamList(method, { selfPrefix: true });
-    const returns = mp.returns ? ` -> ${mapTsTypeToPython(mp.returns as string)}` : '';
+    // Lazy annotations (mirror of fb0bd72a): a service member signature
+    // referencing a custom/forward class name is quoted to avoid a NameError.
+    const params = buildPythonParamList(method, { selfPrefix: true, lazyAnnotations: true });
+    const returns = mp.returns ? ` -> ${mapTsTypeToPythonAnnotation(mp.returns as string)}` : '';
 
     lines.push(`    ${asyncKw}def ${mname}(${params})${returns}:`);
     // Slice 4b — same method dispatch as repository, sharing the helper.

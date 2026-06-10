@@ -726,7 +726,7 @@ describe('FastAPI Transpiler', () => {
 
       expect(output).toContain('class UserRepository:');
       expect(output).toContain('def __init__(self, session: AsyncSession):');
-      expect(output).toContain('async def find_by_email(self, email: str) -> User | None:');
+      expect(output).toContain('async def find_by_email(self, email: str) -> "User | None":');
     });
 
     test('generates Python cache class', async () => {
@@ -780,9 +780,9 @@ describe('FastAPI Transpiler', () => {
       const output = generatePythonCoreNode(ast).join('\n');
 
       expect(output).toContain('class AuthService:');
-      expect(output).toContain('def __init__(self, repo: UserRepository):');
+      expect(output).toContain('def __init__(self, repo: "UserRepository"):');
       expect(output).toContain('self._repo = repo');
-      expect(output).toContain('async def find_by_email(self, email: str) -> User | None:');
+      expect(output).toContain('async def find_by_email(self, email: str) -> "User | None":');
     });
   });
 

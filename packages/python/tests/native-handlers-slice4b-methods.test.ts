@@ -67,7 +67,7 @@ describe('slice 4b — Python service methods with lang=kern', () => {
     const code = generatePythonService(node).join('\n');
     // Python signature snake-cases orderId → order_id; body must reference
     // the same form (symbol map applied).
-    expect(code).toContain('def lookup(self, order_id: str) -> Order:');
+    expect(code).toContain('def lookup(self, order_id: str) -> "Order":');
     expect(code).toContain('return {"id": order_id}');
   });
 
@@ -159,7 +159,7 @@ describe('slice 4b — Python repository methods with lang=kern', () => {
     };
     const code = generatePythonRepository(node).join('\n');
     expect(code).toContain('class UserRepo:');
-    expect(code).toContain('async def find_by_id(self, id: str) -> User:');
+    expect(code).toContain('async def find_by_id(self, id: str) -> "User":');
     expect(code).toContain('return {"id": id, "name": "test"}');
   });
 
@@ -178,5 +178,34 @@ describe('slice 4b — Python repository methods with lang=kern', () => {
     // Binary arg `total / count` gets paren-wrapped via needsArgParens
     // (slice 2 review fix) before template substitution.
     expect(code).toContain('return __k_math.floor((total / count))');
+  });
+
+  // ── lazy-annotation rider (mirror of fb0bd72a for generatePythonClass) ──
+  // A member signature that references a custom/forward class name must be
+  // quoted so Python's eager annotation evaluation doesn't NameError on the ref.
+  test('repository method returning a custom model type emits a quoted annotation', () => {
+    const node: IRNode = {
+      type: 'repository',
+      props: { name: 'AccountRepo', model: 'Account' },
+      children: [
+        makeMethod({ name: 'find', params: 'id:string', returns: 'Account', async: 'true' }, [
+          { type: 'return', props: { value: '{ id: id }' } },
+        ]),
+      ],
+    };
+    const code = generatePythonRepository(node).join('\n');
+    expect(code).toContain('async def find(self, id: str) -> "Account":'); // quoted custom type
+    expect(code).not.toContain('-> Account:'); // bare (unquoted) form must NOT appear
+  });
+
+  test('service ctor field typed with a custom class emits a quoted annotation', () => {
+    const node: IRNode = {
+      type: 'service',
+      props: { name: 'BillingService' },
+      children: [{ type: 'field', props: { name: 'gateway', type: 'PaymentGateway' }, children: [] }],
+    };
+    const code = generatePythonService(node).join('\n');
+    expect(code).toContain('def __init__(self, gateway: "PaymentGateway"):'); // quoted custom type
+    expect(code).not.toContain('gateway: PaymentGateway)'); // bare (unquoted) form must NOT appear
   });
 });
