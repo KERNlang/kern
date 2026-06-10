@@ -59,6 +59,17 @@ describe('parseExpression — block-bodied arrow capture', () => {
     expect(() => parseExpression('(x) => { arr.push(x++); return 0; }')).toThrow(/closure-incdec-value-position/);
   });
 
+  test('THROWS on value-position assignments — closure-assign-value-position (agon review, claude 0.85)', () => {
+    // Same drift class as value-position ++: the lowerer can only emit an
+    // assignment that is the DIRECT expression of an ExpressionStatement.
+    expect(() => parseExpression('(x) => { arr.push(x = 5); return 0; }')).toThrow(/closure-assign-value-position/);
+    expect(() => parseExpression('(x) => { const y = (x = 5); return y; }')).toThrow(/closure-assign-value-position/);
+    expect(() => parseExpression('(x) => { return (x = 5); }')).toThrow(/closure-assign-value-position/);
+    expect(() => parseExpression('(x) => { let a = 0; a = (x = 2); return a; }')).toThrow(
+      /closure-assign-value-position/,
+    );
+  });
+
   test('THROWS on an unsupported assignment operator (`x &= 1`) — closure-unsupported-operator', () => {
     expect(() => parseExpression('(x) => { count &= 1; return count; }')).toThrow(/closure-unsupported-operator/);
   });

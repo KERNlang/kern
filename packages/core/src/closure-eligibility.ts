@@ -314,6 +314,22 @@ function findUnsupportedConstruct(block: ts.Block): string | null {
     if (ts.isBinaryExpression(node)) {
       const op = node.operatorToken.kind;
       if (op >= ts.SyntaxKind.FirstAssignment && op <= ts.SyntaxKind.LastAssignment) {
+        // STATEMENT position only — mirror the ++/-- guard (agon review,
+        // claude 0.85): a value-position assignment (`arr.push(x = 5)`,
+        // `const y = (x = 5)`, `return (x = 5)`, chained `x = (y = 2)`)
+        // passes shape checks but the lowerer can only emit an assignment
+        // that is the direct expression of an ExpressionStatement — anything
+        // else routes through the expression callback, which has no
+        // assignment grammar. Reject here so eligible ≡ lowerable holds.
+        // Paren-wrapped statement assignments (`({ a } = x);` — JS REQUIRES
+        // the parens there) count as statement position: walk up through
+        // parens so the precise TARGET reason (e.g. destructuring) survives.
+        let posParent: ts.Node | undefined = node.parent;
+        while (posParent && ts.isParenthesizedExpression(posParent)) posParent = posParent.parent;
+        if (!posParent || !ts.isExpressionStatement(posParent)) {
+          reason = 'closure-assign-value-position';
+          return;
+        }
         if (!CLOSURE_ASSIGN_OPERATORS.has(op)) {
           reason = 'closure-unsupported-operator';
           return;

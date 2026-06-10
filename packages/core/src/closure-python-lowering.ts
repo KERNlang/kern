@@ -191,7 +191,12 @@ export function lowerJsClosureBodyToPython(
     }
 
     if (ts.isExpressionStatement(stmt)) {
-      const inner = stmt.expression;
+      let inner: ts.Expression = stmt.expression;
+      // Unwrap parens: `({ a } = x);`-style statement assignments carry
+      // syntactically-required parens — the gate counts them as statement
+      // position (same unwrap), so the lowerer must reach the assignment
+      // through them too (gate/lowerer lockstep).
+      while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
       // Mutation v1: an assignment / inc-dec in statement position lowers to a
       // Python assignment STATEMENT (NOT through `lowerExpression`, which has
       // no assignment grammar). These branches sit BEFORE the generic fallback
