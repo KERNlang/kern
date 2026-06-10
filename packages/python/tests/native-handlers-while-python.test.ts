@@ -20,7 +20,10 @@ describe('body-statement while — Python target', () => {
       },
     ]);
     const out = emitNativeKernBodyPython(handler);
-    expect(out).toContain('while queue.length > 0:');
+    // `.length` now lowers through the shared list-ops property hook to `len(...)`
+    // (parity-correct: JS `.length` and Python `len()` both work on lists/strings).
+    // Previously this emitted invalid `queue.length`.
+    expect(out).toContain('while len(queue) > 0:');
     expect(out).toContain('    item = queue.pop()');
     expect(out).toContain('    process(item)');
   });

@@ -57,6 +57,7 @@ exports[`golden: class abstract class 1`] = `
   private area: number;
 
   render(): void {
+    throw new Error("abstract method Shape.render not implemented");
   }
 }"
 `;

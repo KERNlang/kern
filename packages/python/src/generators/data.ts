@@ -4,10 +4,18 @@
  */
 
 import type { IRNode } from '@kernlang/core';
-import { emitIdentifier, getFirstChild, getProps, handlerCode, mapSemanticType, propsOf } from '@kernlang/core';
+import {
+  emitIdentifier,
+  getFirstChild,
+  getProps,
+  handlerCode,
+  hasDirectSuperCtorCall,
+  mapSemanticType,
+  propsOf,
+} from '@kernlang/core';
 import { emitNativeKernBodyPythonWithImports } from '../codegen-body-python.js';
 import { buildPythonParamList, firstChild, kids, p, parseLegacyParamParts } from '../codegen-helpers.js';
-import { mapTsTypeToPython, toSnakeCase } from '../type-map.js';
+import { mapTsTypeToPython, mapTsTypeToPythonAnnotation, toSnakeCase } from '../type-map.js';
 
 /** Slice 4b — native KERN method body dispatch (Python target).
  *
@@ -31,10 +39,23 @@ function methodBodyCodePython(
     return { code: handlerCode(method), imports: new Set(), helpers: new Set() };
   }
   const symbolMap: Record<string, string> = {};
-  const claimedSnake = new Set<string>(['self']);
+  // The implicit receiver occupies the first parameter slot: `self` for an
+  // instance member, `cls` for a static accessor (metaclass property). A user
+  // parameter that snake-cases to the receiver name would emit invalid Python
+  // (e.g. `def label(cls, cls):`), so reserve it and fail codegen early with a
+  // clear message rather than generate a SyntaxError.
+  const receiver = opts?.staticReceiver ? 'cls' : 'self';
+  const claimedSnake = new Set<string>([receiver]);
   const recordParam = (rawName: string): void => {
     if (!rawName) return;
     const snake = toSnakeCase(rawName);
+    if (snake === receiver) {
+      throw new Error(
+        `KERN-Python codegen: parameter '${rawName}' snake-cases to '${snake}', the implicit ` +
+          `${opts?.staticReceiver ? 'static-accessor receiver (cls)' : 'method receiver (self)'}. ` +
+          'Rename the parameter to avoid shadowing the receiver.',
+      );
+    }
     if (claimedSnake.has(snake)) {
       throw new Error(
         `KERN-Python codegen: method param '${rawName}' snake-cases to '${snake}', which collides with another param on this method. ` +
@@ -507,6 +528,19 @@ export function generatePythonClass(node: IRNode): string[] {
     return np.static === 'true' || np.static === true;
   };
 
+  // `abstract` is ERASED at codegen on both targets (a plain, instantiable
+  // class — matching TS, where `abstract` is compile-time-only and gone from
+  // emitted JS). An abstract member is a handler-less method/getter/setter under
+  // an abstract class; it lowers to a fail-fast `raise`, so an un-overridden
+  // abstract member fails identically on TS (throw) and Python (raise) — parity
+  // by construction. `implements` is likewise erased (the semantic validator
+  // owns conformance); only a human-readable marker comment is emitted.
+  const isAbstractClass = props.abstract === 'true' || props.abstract === true;
+  const implementsRaw = typeof props.implements === 'string' ? (props.implements as string) : '';
+  const isAbstractMember = (m: IRNode): boolean => isAbstractClass && firstChild(m, 'handler') === undefined;
+  const abstractRaise = (kind: string, memberName: string): string =>
+    `        raise NotImplementedError("abstract ${kind} ${name}.${memberName} not implemented")`;
+
   const fields = kids(node, 'field');
   const staticFields = fields.filter(isStatic);
   const methods = kids(node, 'method');
@@ -532,11 +566,18 @@ export function generatePythonClass(node: IRNode): string[] {
     for (const g of staticGetters) {
       const gp = p(g);
       const gname = toSnakeCase((gp.name as string) || 'prop');
-      const returns = gp.returns ? ` -> ${mapTsTypeToPython(gp.returns as string)}` : '';
+      const returns = gp.returns ? ` -> ${mapTsTypeToPythonAnnotation(gp.returns as string)}` : '';
       metaGetterNames.add(gname);
       metaLines.push('    @property');
       metaLines.push(`    def ${gname}(cls)${returns}:`);
-      metaLines.push(...methodBodyLinesPython(g, { classBody: true, staticReceiver: true }));
+      // Abstract static accessors fail-fast like instance ones, so an
+      // un-overridden abstract static getter raises on Python the same way it
+      // throws on TS (was silently `pass` -> None before).
+      if (isAbstractMember(g)) {
+        metaLines.push(abstractRaise('getter', gname));
+      } else {
+        metaLines.push(...methodBodyLinesPython(g, { classBody: true, staticReceiver: true }));
+      }
       metaLines.push('');
     }
     for (const s of staticSetters) {
@@ -549,8 +590,14 @@ export function generatePythonClass(node: IRNode): string[] {
         metaGetterNames.add(sname);
       }
       metaLines.push(`    @${sname}.setter`);
-      metaLines.push(`    def ${sname}(cls, ${buildPythonParamList(s, { selfPrefix: false })}):`);
-      metaLines.push(...methodBodyLinesPython(s, { classBody: true, staticReceiver: true }));
+      metaLines.push(
+        `    def ${sname}(cls, ${buildPythonParamList(s, { selfPrefix: false, lazyAnnotations: true })}):`,
+      );
+      if (isAbstractMember(s)) {
+        metaLines.push(abstractRaise('setter', sname));
+      } else {
+        metaLines.push(...methodBodyLinesPython(s, { classBody: true, staticReceiver: true }));
+      }
       metaLines.push('');
     }
   }
@@ -563,7 +610,7 @@ export function generatePythonClass(node: IRNode): string[] {
   for (const f of staticFields) {
     const fp = p(f);
     const fname = toSnakeCase((fp.name as string) || 'field');
-    const ftype = fp.type ? mapTsTypeToPython(fp.type as string) : 'Any';
+    const ftype = fp.type ? mapTsTypeToPythonAnnotation(fp.type as string) : 'Any';
     body.push(`    ${fname}: ${ftype} = ${fieldDefaultPython(f) ?? 'None'}`);
   }
   if (staticFields.length > 0) body.push('');
@@ -579,14 +626,29 @@ export function generatePythonClass(node: IRNode): string[] {
     (f) => `        self.${toSnakeCase((p(f).name as string) || 'field')} = ${fieldDefaultPython(f)}`,
   );
   if (ctor) {
-    body.push(`    def __init__(${buildPythonParamList(ctor, { selfPrefix: true })}):`);
+    body.push(`    def __init__(${buildPythonParamList(ctor, { selfPrefix: true, lazyAnnotations: true })}):`);
     const ctorLines = methodBodyLinesPython(ctor, { classBody: true, isConstructor: true });
-    // Field initializers run AFTER super().__init__() (TS field-init-after-super
-    // order), so inject defaults right after the super call when present, else at
-    // the top of the constructor body.
-    const superIdx = ctorLines.findIndex((line) => line.includes('super().__init__'));
-    if (superIdx >= 0) {
-      body.push(...ctorLines.slice(0, superIdx + 1), ...defaultLines, ...ctorLines.slice(superIdx + 1));
+    // Whether the constructor already calls super(...) is decided by the canonical
+    // structural predicate (shared with the validator, runtime, and TS target) —
+    // NEVER by scanning emitted text, so a `super().__init__` substring inside a
+    // string literal or comment can't change codegen. Field initializers run AFTER
+    // super (TS field-init-after-super order).
+    if (hasDirectSuperCtorCall(ctor)) {
+      // Explicit-super mode: position the field defaults right after the emitted
+      // super line. The predicate already proved a direct super exists, so this
+      // locates the real call (a native super(...) lowers to `super().__init__(...)`);
+      // the index is used only for placement, not the inject decision.
+      const superIdx = ctorLines.findIndex((line) => line.includes('super().__init__'));
+      const splice = superIdx >= 0 ? superIdx + 1 : 0;
+      body.push(...ctorLines.slice(0, splice), ...defaultLines, ...ctorLines.slice(splice));
+    } else if (base) {
+      // Implicit-super mode (KERN Option C): a DERIVED constructor that omits
+      // super() gets an implicit no-arg base-init injected FIRST, then field
+      // defaults, then the body — so `this`/field access is always legal (TS
+      // requires super-before-this; Python is lax, but we emit identically for
+      // parity). The author writes explicit `super(args)` only to pass args up;
+      // when the base constructor REQUIRES args, the validator flags it.
+      body.push('        super().__init__()', ...defaultLines, ...ctorLines);
     } else {
       body.push(...defaultLines, ...ctorLines);
     }
@@ -610,14 +672,22 @@ export function generatePythonClass(node: IRNode): string[] {
     const mp = p(m);
     const mname = toSnakeCase((mp.name as string) || 'method');
     const asyncKw = mp.async === 'true' || mp.async === true ? 'async ' : '';
-    const returns = mp.returns ? ` -> ${mapTsTypeToPython(mp.returns as string)}` : '';
+    const returns = mp.returns ? ` -> ${mapTsTypeToPythonAnnotation(mp.returns as string)}` : '';
     if (isStatic(m)) {
       body.push('    @staticmethod');
-      body.push(`    ${asyncKw}def ${mname}(${buildPythonParamList(m, { selfPrefix: false })})${returns}:`);
+      body.push(
+        `    ${asyncKw}def ${mname}(${buildPythonParamList(m, { selfPrefix: false, lazyAnnotations: true })})${returns}:`,
+      );
     } else {
-      body.push(`    ${asyncKw}def ${mname}(${buildPythonParamList(m, { selfPrefix: true })})${returns}:`);
+      body.push(
+        `    ${asyncKw}def ${mname}(${buildPythonParamList(m, { selfPrefix: true, lazyAnnotations: true })})${returns}:`,
+      );
     }
-    body.push(...methodBodyLinesPython(m, { classBody: !isStatic(m) }));
+    if (isAbstractMember(m)) {
+      body.push(abstractRaise('method', mname));
+    } else {
+      body.push(...methodBodyLinesPython(m, { classBody: !isStatic(m) }));
+    }
     body.push('');
   }
 
@@ -628,10 +698,14 @@ export function generatePythonClass(node: IRNode): string[] {
     const gp = p(g);
     const gname = toSnakeCase((gp.name as string) || 'prop');
     instanceGetterNames.add(gname);
-    const returns = gp.returns ? ` -> ${mapTsTypeToPython(gp.returns as string)}` : '';
+    const returns = gp.returns ? ` -> ${mapTsTypeToPythonAnnotation(gp.returns as string)}` : '';
     body.push('    @property');
     body.push(`    def ${gname}(self)${returns}:`);
-    body.push(...methodBodyLinesPython(g, { classBody: true }));
+    if (isAbstractMember(g)) {
+      body.push(abstractRaise('getter', gname));
+    } else {
+      body.push(...methodBodyLinesPython(g, { classBody: true }));
+    }
     body.push('');
   }
   // Setters -> @<name>.setter. Python requires a property to exist before its
@@ -649,15 +723,22 @@ export function generatePythonClass(node: IRNode): string[] {
       instanceGetterNames.add(sname);
     }
     body.push(`    @${sname}.setter`);
-    body.push(`    def ${sname}(${buildPythonParamList(s, { selfPrefix: true })}):`);
-    body.push(...methodBodyLinesPython(s, { classBody: true }));
+    body.push(`    def ${sname}(${buildPythonParamList(s, { selfPrefix: true, lazyAnnotations: true })}):`);
+    if (isAbstractMember(s)) {
+      body.push(abstractRaise('setter', sname));
+    } else {
+      body.push(...methodBodyLinesPython(s, { classBody: true }));
+    }
     body.push('');
   }
 
   if (body.length === 0) body.push('    pass');
 
+  // `implements` is erased at codegen (the validator owns conformance); emit a
+  // human-readable marker so the relationship survives in the generated source.
+  const headerLines = implementsRaw ? [`# implements: ${implementsRaw}`, header] : [header];
   // Metaclass (if any) must be defined before the class that references it.
-  return metaLines.length > 0 ? [...metaLines, header, ...body] : [header, ...body];
+  return metaLines.length > 0 ? [...metaLines, ...headerLines, ...body] : [...headerLines, ...body];
 }
 
 // ── Union (Pydantic Discriminated Union) ────────────────────────────────

@@ -1,3 +1,4 @@
+import { hasDirectSuperCtorCall } from '../constructor-super.js';
 import {
   CORE_TYPE_CONTRACTS,
   CoreContractEvaluationError,
@@ -1187,8 +1188,25 @@ function initializeClassLayer(
     instance.initializedClasses.add(klass.name);
     return;
   }
+  if (base && !hasDirectSuperCtorCall(ctor)) {
+    // Implicit-super mode (KERN Option C): a derived constructor that omits a
+    // direct super(...) gets base init injected FIRST, then its own field
+    // defaults, then its body — identical to what both codegen targets emit, so
+    // the interpreter and generated TS/Python agree. The frame starts with
+    // superCalled=true so this/super access inside the body is unguarded; an
+    // unexpected late super(...) would still trip the double-init guard. The same
+    // `hasDirectSuperCtorCall` predicate decides this mode in the validator and
+    // both codegens, so all four layers classify the constructor identically.
+    initializeClassLayer(instance, base, [], false);
+    initializeClassFields(instance, klass);
+    withConstructionFrame(instance, klass, true, () => {
+      callClassMemberBody(ctor, klass, instance, receivesConstructorArgs ? args : []).value;
+    });
+    instance.initializedClasses.add(klass.name);
+    return;
+  }
   if (base) {
-    withConstructionFrame(instance, klass, () => {
+    withConstructionFrame(instance, klass, false, () => {
       callClassMemberBody(ctor, klass, instance, receivesConstructorArgs ? args : []).value;
     });
   } else {
@@ -1432,9 +1450,14 @@ function callSuperConstructor(value: KernSuperValue, args: readonly KernValue[])
   return value.receiver;
 }
 
-function withConstructionFrame(instance: KernInstanceValue, ownerClass: KernClassValue, run: () => void): void {
+function withConstructionFrame(
+  instance: KernInstanceValue,
+  ownerClass: KernClassValue,
+  initialSuperCalled: boolean,
+  run: () => void,
+): void {
   const stack = ACTIVE_CONSTRUCTORS.get(instance) ?? [];
-  const frame: RuntimeConstructionFrame = { ownerClass, superCalled: false };
+  const frame: RuntimeConstructionFrame = { ownerClass, superCalled: initialSuperCalled };
   stack.push(frame);
   ACTIVE_CONSTRUCTORS.set(instance, stack);
   try {

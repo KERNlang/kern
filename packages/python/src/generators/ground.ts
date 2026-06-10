@@ -16,6 +16,16 @@ import {
 } from '../codegen-helpers.js';
 import { mapTsTypeToPython, toPythonBindingName, toSnakeCase } from '../type-map.js';
 
+/** Ground/React Layer generators emit module-level statements and have NO
+ *  per-statement channel to define the runtime helpers (`_kern_fmt`,
+ *  `__kern_add`, the `_KERN_UNDEFINED` sentinel) that JS value→string coercion
+ *  needs. So every `emitPyExpression` here opts out of coercion and keeps the
+ *  pre-slice forms (raw `+`, raw f-string interpolation, `None` for undefined,
+ *  None-only `??`). Coercion remains scoped to native KERN bodies, where
+ *  helpers inject function-locally. Extending it to this layer is a follow-up
+ *  that needs module-level (single-definition) helper injection. */
+const GROUND_EMIT = { coerceJsValues: false } as const;
+
 /**
  * Common preamble extracted from all ground layer generators.
  * Returns { annotations, todo, props, name } ready for use.
@@ -145,7 +155,7 @@ export function generateFirstTruthy(node: IRNode): string[] {
 }
 
 function emitFirstTruthyOperandPy(valueIR: ValueIR): string {
-  const emitted = emitPyExpression(valueIR);
+  const emitted = emitPyExpression(valueIR, GROUND_EMIT);
   return valueIR.kind === 'conditional' ? `(${emitted})` : emitted;
 }
 
@@ -172,7 +182,7 @@ export function generateCoalesce(node: IRNode): string[] {
 
   const constType = props.type as string | undefined;
   const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
-  const chain = emitPyExpression(buildNullishCoalesceIR(valueIRs));
+  const chain = emitPyExpression(buildNullishCoalesceIR(valueIRs), GROUND_EMIT);
   return [...todo, ...annotations, `${name}${typeAnnotation} = ${chain}`];
 }
 
@@ -193,7 +203,7 @@ export function generateFirstDefined(node: IRNode): string[] {
 
   const constType = props.type as string | undefined;
   const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
-  const chain = emitPyExpression(buildNullishCoalesceIR(valueIRs));
+  const chain = emitPyExpression(buildNullishCoalesceIR(valueIRs), GROUND_EMIT);
   return [...todo, ...annotations, `${name}${typeAnnotation} = ${chain}`];
 }
 
@@ -213,7 +223,7 @@ export function generateObjectMerge(node: IRNode): string[] {
     if (sourceIR.kind === 'propagate') {
       throw new Error("Propagation '?' is not allowed in `objectMerge sources=` — bind the value first.");
     }
-    emitted.push(`**(${emitPyExpression(sourceIR)})`);
+    emitted.push(`**(${emitPyExpression(sourceIR, GROUND_EMIT)})`);
   }
 
   const constType = props.type as string | undefined;
@@ -235,7 +245,7 @@ export function generateObjectPick(node: IRNode): string[] {
   if (inIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in objectPick in=");
   }
-  const inExpr = emitPyExpression(inIR);
+  const inExpr = emitPyExpression(inIR, GROUND_EMIT);
 
   const keysList = parseKeys(rawKeys, node, 'objectPick keys=');
   const formattedKeys = emitStringKeyArray(keysList);
@@ -264,7 +274,7 @@ export function generateObjectOmit(node: IRNode): string[] {
   if (inIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in objectOmit in=");
   }
-  const inExpr = emitPyExpression(inIR);
+  const inExpr = emitPyExpression(inIR, GROUND_EMIT);
 
   const keysList = parseKeys(rawKeys, node, 'objectOmit keys=');
   const formattedKeys = emitStringKeyArray(keysList);

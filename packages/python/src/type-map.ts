@@ -110,6 +110,52 @@ export function mapTsTypeToPython(tsType: string): string {
   return trimmed;
 }
 
+/** Python type names guaranteed to be bound before any user class body is
+ *  evaluated (typing imports + stdlib-preamble aliases). An annotation made of
+ *  these alone is safe to evaluate eagerly at `def`/class-body time. */
+const EAGER_SAFE_PY_TYPE_NAMES = new Set([
+  'Any',
+  'Literal',
+  'Callable',
+  'Optional',
+  'Union',
+  'Result',
+  'Option',
+  'None',
+  'True',
+  'False',
+]);
+
+/**
+ * Map a TS type string to a Python ANNOTATION string. Unlike
+ * `mapTsTypeToPython` (whose output is also used in evaluated positions, e.g.
+ * type-alias assignments where quoting would assign a plain string),
+ * annotation positions are evaluated EAGERLY by Python — a class-member
+ * annotation referencing its own class (`def make(self) -> Animal:` inside
+ * `class Animal:`) or a later-defined class raises NameError at import time
+ * (the class name is only bound once the `class` statement completes). PEP 484
+ * string annotations are lazy, so when the mapped type references a custom
+ * class name the WHOLE annotation is emitted as one quoted string (quoting a
+ * union member alone would make Python eagerly compute `"Dog" | None` →
+ * TypeError). Known typing/preamble names stay unquoted — primitive-only
+ * annotations emit byte-identically to `mapTsTypeToPython`.
+ */
+export function mapTsTypeToPythonAnnotation(tsType: string): string {
+  const mapped = mapTsTypeToPython(tsType);
+  if (!referencesCustomClassName(mapped)) return mapped;
+  if (!mapped.includes('"')) return `"${mapped}"`;
+  if (!mapped.includes("'")) return `'${mapped}'`;
+  // Both quote kinds already present (Literal mixing quote styles around a
+  // custom class — not produced by this mapper today). Emit eagerly rather
+  // than risk invalid syntax.
+  return mapped;
+}
+
+function referencesCustomClassName(pyType: string): boolean {
+  const identifiers = pyType.match(/[A-Za-z_]\w*/g) ?? [];
+  return identifiers.some((id) => /^[A-Z]/.test(id) && !EAGER_SAFE_PY_TYPE_NAMES.has(id));
+}
+
 function parseFunctionType(tsType: string): string | null {
   if (!tsType.startsWith('(')) return null;
   const closeIdx = findMatchingParen(tsType, 0);

@@ -5,6 +5,7 @@
  */
 
 import { emitExpression } from '../codegen-expression.js';
+import { hasDirectSuperCtorCall } from '../constructor-super.js';
 import { propsOf } from '../node-props.js';
 import { parseExpression } from '../parser-expression.js';
 import { type IRNode, isExprObject } from '../types.js';
@@ -243,6 +244,17 @@ function emitSingletons(node: IRNode, lines: string[], className: string, exp: s
 }
 
 function emitClassBody(node: IRNode, lines: string[]): void {
+  // Abstract members — handler-less methods/getters/setters under an
+  // `abstract=true` class — emit a fail-fast `throw` body, identical to the
+  // Python `raise`, so an un-overridden abstract member fails the same way on
+  // both targets. The class-level `abstract` keyword stays (tsc still rejects
+  // `new X()`); only the member BODY is synthesized, since TS forbids a body on
+  // an `abstract` method.
+  const className = emitIdentifier(p(node).name as string | undefined, 'Unknown', node);
+  const isAbstractClass = p(node).abstract === 'true' || p(node).abstract === true;
+  const isHandlerless = (m: IRNode): boolean => firstChild(m, 'handler') === undefined;
+  const abstractThrow = (kind: string, memberName: string): string =>
+    `throw new Error("abstract ${kind} ${className}.${memberName} not implemented");`;
   // Fields
   for (const field of kids(node, 'field')) {
     const fp = propsOf<'field'>(field);
@@ -288,6 +300,19 @@ function emitClassBody(node: IRNode, lines: string[]): void {
     const ctorCode = classMemberBodyCode(ctorNode);
     lines.push('');
     lines.push(`  constructor${generics}(${ctorParams}) {`);
+    // KERN constructor semantic: a DERIVED constructor that omits a direct
+    // super(...) call gets an implicit no-arg super() injected FIRST, so
+    // `this`/field access is legal (JS forbids touching `this` before super in a
+    // derived ctor). Mirrors the Python side's injected base-init; class-field
+    // initializers then run after super per JS semantics. The author writes
+    // explicit `super(args)` only to pass args up. The inject decision uses the
+    // canonical structural predicate (shared with the validator, runtime, and
+    // Python target) rather than scanning emitted text — a `super(` inside a
+    // string literal or comment no longer suppresses injection.
+    const isDerived = typeof p(node).extends === 'string' && p(node).extends !== '';
+    if (isDerived && !hasDirectSuperCtorCall(ctorNode)) {
+      lines.push('    super();');
+    }
     if (ctorCode) {
       for (const line of ctorCode.split('\n')) {
         lines.push(`    ${line}`);
@@ -310,7 +335,7 @@ function emitClassBody(node: IRNode, lines: string[]): void {
     const staticKw = isStatic ? 'static ' : '';
     const star = isStream || isGenerator ? '*' : '';
     const asyncKw = isAsync || isStream ? 'async ' : '';
-    const mcode = methodBodyCode(method);
+    const mcode = isAbstractClass && isHandlerless(method) ? abstractThrow('method', mname) : methodBodyCode(method);
 
     // stream=true → AsyncGenerator, generator=true → Generator/AsyncGenerator
     // If user already declared full Generator<...>/AsyncGenerator<...>, use as-is
@@ -345,7 +370,8 @@ function emitClassBody(node: IRNode, lines: string[]): void {
     const gvis = gp.private === 'true' || gp.private === true ? 'private ' : '';
     const gstatic = gp.static === 'true' || gp.static === true ? 'static ' : '';
     const greturns = gp.returns ? `: ${emitTypeAnnotation(gp.returns, 'unknown', getter)}` : '';
-    const gcode = classMemberBodyCode(getter);
+    const gcode =
+      isAbstractClass && isHandlerless(getter) ? abstractThrow('getter', gname) : classMemberBodyCode(getter);
     lines.push('');
     lines.push(`  ${gvis}${gstatic}get ${gname}()${greturns} {`);
     if (gcode) {
@@ -363,7 +389,8 @@ function emitClassBody(node: IRNode, lines: string[]): void {
     const svis = sp.private === 'true' || sp.private === true ? 'private ' : '';
     const sstatic = sp.static === 'true' || sp.static === true ? 'static ' : '';
     const sparams = emitParamList(setter, { fallback: 'value: unknown' });
-    const scode = classMemberBodyCode(setter);
+    const scode =
+      isAbstractClass && isHandlerless(setter) ? abstractThrow('setter', sname) : classMemberBodyCode(setter);
     lines.push('');
     lines.push(`  ${svis}${sstatic}set ${sname}(${sparams}) {`);
     if (scode) {

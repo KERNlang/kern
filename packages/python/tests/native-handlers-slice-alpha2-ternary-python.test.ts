@@ -12,8 +12,8 @@ describe('emitPyExpression — ternary lowering', () => {
   });
 
   test('binary test gets parens around the test in Python form', () => {
-    // Python: `b if (a + 1) else c`
-    expect(emitPyExpression(parseExpression('a + 1 ? b : c'))).toBe('b if (a + 1) else c');
+    // Python: `b if (__kern_add(a, 1)) else c` — the `+` test lowers to __kern_add.
+    expect(emitPyExpression(parseExpression('a + 1 ? b : c'))).toBe('b if (__kern_add(a, 1)) else c');
   });
 
   test('nested ternary in alternate gets parens', () => {
