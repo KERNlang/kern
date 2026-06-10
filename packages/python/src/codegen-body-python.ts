@@ -2295,6 +2295,12 @@ function emitBlockClosurePy(node: Extract<ValueIR, { kind: 'lambda' }>, names: s
       // param (`(x) => { x = x + 1 }`) must not be reported as a written FREE
       // name. The lowerer excludes both params and block-locals.
       paramNames: names,
+      // Bare write TARGETS resolve through the SAME rename machinery reads use
+      // — a write to a shadow-renamed capture must target the renamed binding
+      // (`__k_shadow_x_N = …`), not the outer one (probe-verified silent
+      // wrong-values without this). Params/block-locals are never renamed, so
+      // the resolver is identity for them.
+      lowerAssignTarget: (name) => resolveLocalRename(ctx, name),
     });
     if (!lowered.ok) {
       // The commit-A gate already accepted this block, so a lowering failure
@@ -2421,8 +2427,14 @@ function emitBlockClosurePy(node: Extract<ValueIR, { kind: 'lambda' }>, names: s
     // `lowered.lines` are body lines at 4-space indent (the lowerer's own
     // convention); they nest directly under the `def` header. A `nonlocal` line
     // (if any) is the def's FIRST body statement (Python requires it before any
-    // use of the name).
-    const nonlocalLine = nonlocalNames.length > 0 ? [`    nonlocal ${nonlocalNames.join(', ')}`] : [];
+    // use of the name). The declared names are RENAME-RESOLVED — the body's
+    // write targets went through `lowerAssignTarget` (same resolver), so the
+    // nonlocal declaration, the writes, and the enclosing binding all agree on
+    // the renamed Python name for shadow-renamed captures.
+    const nonlocalLine =
+      nonlocalNames.length > 0
+        ? [`    nonlocal ${nonlocalNames.map((n) => resolveLocalRename(ctx, n)).join(', ')}`]
+        : [];
     ctx.pendingHoists.push([`def ${closureName}(${params}):`, ...nonlocalLine, ...lowered.lines]);
     return closureName;
   } finally {

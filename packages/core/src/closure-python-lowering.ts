@@ -9,6 +9,15 @@ export interface LowerJsClosureBodyToPythonOptions {
    *  assignment — it must NOT be reported as a written FREE name (no
    *  `nonlocal`). Omitted = the closure has no params. */
   paramNames?: string[];
+  /** Resolve a bare-identifier WRITE TARGET to its emitted Python name. The
+   *  class path passes `resolveLocalRename` so a write to a shadow-renamed
+   *  capture targets the SAME renamed binding its reads resolve to (without
+   *  this, `x = x + 10` against a shadowed capture wrote the OUTER binding
+   *  while reads hit the renamed inner one — silent wrong values both ways,
+   *  probe-verified). The route path has no renames — omitted = identity.
+   *  `writtenFreeNames` still reports SOURCE names; the consumer resolves
+   *  again when building its `nonlocal` line. */
+  lowerAssignTarget?(name: string): string;
 }
 
 export interface LowerJsClosureBodyToPythonResult {
@@ -83,6 +92,11 @@ export function lowerJsClosureBodyToPython(
   const recordIfFree = (name: string): void => {
     if (!paramNames.has(name) && !declaredLocals.has(name)) writtenFreeNames.add(name);
   };
+  // Bare write targets resolve through the consumer's rename machinery (see
+  // the option doc). Params and block-locals are def-locals the consumer never
+  // renames, so applying the resolver to ALL bare targets is safe — it is the
+  // identity for them.
+  const lowerTarget = opts.lowerAssignTarget ?? ((name: string) => name);
 
   // Python compound-assignment operator for an accepted JS assignment op. `=`
   // → plain assignment; the five compound forms map 1:1. Returns null for any
@@ -122,7 +136,7 @@ export function lowerJsClosureBodyToPython(
     const rhs = lowerExpr(expr.right);
     if (ts.isIdentifier(target)) {
       recordIfFree(target.text);
-      return [`${indent}${target.text} ${pyOp} ${rhs}`];
+      return [`${indent}${lowerTarget(target.text)} ${pyOp} ${rhs}`];
     }
     if (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) {
       // `this`-rooted targets are gate-rejected; a non-this member/index write
@@ -142,7 +156,7 @@ export function lowerJsClosureBodyToPython(
     if (!ts.isIdentifier(expr.operand)) return null;
     const step = expr.operator === ts.SyntaxKind.PlusPlusToken ? '+=' : '-=';
     recordIfFree(expr.operand.text);
-    return [`${indent}${expr.operand.text} ${step} 1`];
+    return [`${indent}${lowerTarget(expr.operand.text)} ${step} 1`];
   };
 
   const emitStatement = (stmt: ts.Statement, indent: string): string[] | null => {

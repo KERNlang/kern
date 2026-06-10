@@ -1453,6 +1453,28 @@ fn name=probe returns=boolean
     return value="[r, outer]"`,
     expected: [[1, 2], 2],
   },
+  {
+    // MUT9 — write to a SHADOW-RENAMED capture targets the renamed binding.
+    // The inner `let x` shadows the outer (Python rename `__k_shadow_x_N`); the
+    // closure's `x = x + 10` must write THAT binding — nonlocal, write target,
+    // and reads all rename-resolved together. RED before the lowerAssignTarget
+    // fix: the write went to the OUTER x while reads hit the renamed inner one
+    // (f() returned 2, outer corrupted to 12 → [2, 2, 12]). Correct JS: f()=12,
+    // inner x=12, outer x untouched → [12, 12, 1].
+    name: 'closure MUT9: write to shadow-renamed capture targets the renamed binding',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=x value="1" kind=let
+    let name=out value="[]"
+    if cond="true"
+      let name=x value="2" kind=let
+      let name=f value="() => { x = x + 10; return x; }"
+      do value="out.push(f())"
+      do value="out.push(x)"
+    do value="out.push(x)"
+    return value="out"`,
+    expected: [12, 12, 1],
+  },
 ];
 
 const canon = (v) => JSON.stringify(v);
