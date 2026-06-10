@@ -760,7 +760,7 @@ ${buildFullReviewChecklist()}
 OUTPUT FORMAT:
 - Write a structured review with severity, node alias (N1, N2, etc.) or line number, and explanation.
 - Do NOT repeat what static analysis already found — focus on what it MISSED.
-- Only report findings you are confident about (>70% sure).
+- Only report findings you would score 60+ for confidence (provable from the shown code, or likely-but-depends-on-unseen-code).
 - Include specific evidence — quote the relevant code from the IR.
 - For bugs, explain the IMPACT (what goes wrong, for whom, when).
 - Prioritize: bugs > security > error handling > data flow > concurrency > API contracts.
