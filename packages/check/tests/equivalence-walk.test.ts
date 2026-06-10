@@ -136,12 +136,21 @@ const CORPUS: readonly Corpus[] = [
       '  method name=spawn returns=B',
       '    handler lang=kern',
       '      return value="new B()"',
+      'class name=Animal',
+      'class name=Dog extends=Animal',
       'class name=A2',
+      '  method name=make returns=Dog',
+      '    handler lang=kern',
+      '      return value="new Dog()"',
       'class name=B2 extends=A2',
       'class name=C2 extends=B2',
-      '  method name=q returns=number',
+      // C2 WIDENS the grandparent A2's return (Dog -> Animal): covariance
+      // requires Dog-or-narrower, so BOTH systems must emit return-mismatch.
+      // (agon review, minimax 0.95: the previous shape declared an unrelated
+      // method q -> no override pair existed -> both sides trivially empty.)
+      '  method name=make returns=Animal',
       '    handler lang=kern',
-      '      return value=1',
+      '      return value="new Animal()"',
     ].join('\n'),
   },
   {
@@ -319,7 +328,13 @@ function validatorTuples(source: string): Set<SharedTuple> {
     // The validator encodes className/member only in its message; recover them
     // so tuples are comparable across the two diagnostic shapes.
     const m = /Class '([^']+)' (?:member|method) '([^']+)'/.exec(v.message);
-    if (!m) continue;
+    // A shared-surface diagnostic whose message no longer parses must FAIL
+    // loudly, not silently vanish from the comparison set (agon review,
+    // kimi 0.85 / minimax 0.9: silent continue would let a validator wording
+    // change zero out the equivalence corpus).
+    if (!m) {
+      throw new Error(`validator message for rule '${v.rule}' no longer matches the recovery pattern: ${v.message}`);
+    }
     set.add(`${checkRule}|${m[1]}|${m[2]}`);
   }
   return set;
