@@ -41,8 +41,16 @@ const { toSnakeCase } = await import(join(REPO, 'packages/python/dist/type-map.j
 // Statement-level (kind:'stmt') fixtures lower a native `lang=kern` handler BODY via these,
 // run it in an isolated subprocess (TS via --experimental-strip-types), and compare the
 // RETURNED value — capturing control-flow behaviour the expression harness cannot reach.
-const { parse, emitNativeKernBodyTSWithImports } = await import(join(REPO, 'packages/core/dist/index.js'));
+const { parse, emitNativeKernBodyTSWithImports, generateCoreNode } = await import(
+  join(REPO, 'packages/core/dist/index.js')
+);
 const { emitNativeKernBodyPythonWithImports } = await import(join(REPO, 'packages/python/dist/codegen-body-python.js'));
+// Whole-file (kind:'whole-file') + compile-reject (kind:'compile-reject') fixtures compile a FULL
+// multi-declaration .kern module via the SAME entry class-conformance.mjs uses (`generateCoreNode`
+// per top node → TS module; `generatePythonCoreNode` per top node → Python module). whole-file
+// runs both and compares the probe() result; compile-reject asserts the source is rejected with a
+// specific reason at every layer that rejects (parse / TS codegen / Python codegen).
+const { generatePythonCoreNode } = await import(join(REPO, 'packages/python/dist/codegen-python.js'));
 const tsCompiler = await import('typescript');
 // Route-level (kind:'route') fixtures lower a full portable route HANDLER to both targets and
 // compare the {status, body} HTTP response — covering guard/respond error-shape parity (#3).
@@ -1111,6 +1119,160 @@ const FIXTURES = [
   { name: 'R1 probe: Date diff in days', expr: 'Math.round((new Date(target).getTime() - new Date(today).getTime()) / 86400000)', path: '/api/r1d', bindings: { locals: { target: '2026-06-10', today: '2026-06-03' } }, expected: 7 },
   { name: 'R1 probe: Date from numeric epoch-ms', expr: 'new Date(ms).getTime()', path: '/api/r1n', bindings: { locals: { ms: 86400000 } }, expected: 86400000 },
   { name: 'R1 probe: logical not and double-not', expr: '{ a: !flag, b: !!flag }', path: '/api/r1not', bindings: { locals: { flag: false } }, expected: { a: true, b: false } },
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // whole-file: FULL multi-declaration .kern modules (kind:'whole-file', 2026-06-10).
+  // Each is a self-contained KERN module (classes + helper fns + a zero-arg `fn probe`),
+  // compiled via the SAME `generateCoreNode` / `generatePythonCoreNode` entry
+  // class-conformance.mjs uses, run on BOTH targets, and asserted ts == python == expected.
+  // Where the expression/route/stmt harnesses prove ONE construct in isolation, these prove
+  // CROSS-DECLARATION interaction (a method mutating a field a fn constructs, a helper fn shared
+  // by two fns, closures sharing a captured binding inside a class method, an inheritance chain,
+  // an array pipeline crossing a class field and a helper fn). They are GREEN at base by design
+  // — integration guards, not RED gap-fillers: they catch a regression that breaks the SEAM
+  // between two already-working features. `skip: ['python'|'node']` drops a target (none needed
+  // yet); `expectedStdout` (line array) compares raw stdout instead of probe()'s JSON value.
+  { kind: 'whole-file', name: 'whole-file: class field-mutate method + fn constructs the instance',
+    kern: `class name=Counter export=true
+  field name=n type=number value={{ 0 }}
+  method name=bump returns=number
+    handler
+      assign target="this.n" value="this.n + 1"
+      return value="this.n"
+fn name=make returns=Counter
+  handler
+    return value="new Counter()"
+fn name=probe returns=number
+  handler
+    let name=c value="make()"
+    do value="c.bump()"
+    do value="c.bump()"
+    return value="c.bump()"`,
+    expected: 3 },
+  { kind: 'whole-file', name: 'whole-file: helper fn shared by two fns',
+    kern: `fn name=dbl returns=number
+  param name=x type=number
+  handler
+    return value="x * 2"
+fn name=addtwo returns=number
+  param name=a type=number
+  param name=b type=number
+  handler
+    return value="dbl(a) + dbl(b)"
+fn name=probe returns=number
+  handler
+    return value="addtwo(3, 4) + dbl(1)"`,
+    expected: 16 },
+  { kind: 'whole-file', name: 'whole-file: two closures share one captured binding inside a class method (MUT6 shape)',
+    kern: `class name=Box export=true
+  method name=run returns=number
+    handler
+      let name=count value="0" kind=let
+      let name=inc value="() => { count++; return 0; }"
+      let name=get value="() => { return count; }"
+      do value="inc()"
+      do value="inc()"
+      return value="get()"
+fn name=probe returns=number
+  handler
+    return value="new Box().run()"`,
+    expected: 2 },
+  { kind: 'whole-file', name: 'whole-file: two-class inheritance chain used by a probe fn',
+    kern: `class name=Animal export=true
+  field name=legs type=number value={{ 4 }}
+  method name=describe returns=string
+    handler
+      return value="\`legs=\${this.legs}\`"
+class name=Dog extends=Animal export=true
+  method name=speak returns=string
+    handler
+      return value="\`\${this.describe()} woof\`"
+fn name=probe returns=string
+  handler
+    return value="new Dog().speak()"`,
+    expected: 'legs=4 woof' },
+  { kind: 'whole-file', name: 'whole-file: array pipeline map+filter+reduce across a class field and a helper fn',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [1, 2, 3, 4, 5] }}
+  method name=evens returns=number[]
+    handler
+      return value="this.data.filter((x) => x % 2 === 0)"
+fn name=total returns=number
+  param name=xs type=number[]
+  handler
+    return value="xs.map((x) => x * 10).reduce((a, b) => a + b, 0)"
+fn name=probe returns=number
+  handler
+    return value="total(new Box().evens())"`,
+    expected: 60 },
+  // Council seed #6 wanted a multi-line `expectedStdout` line-by-line compare exercising an
+  // each-loop print. VERIFIED: the native KERN body dialect has NO portable print/log primitive
+  // (a `log value=...` node is silently dropped on both targets), so a stdout-emitting fixture
+  // cannot be authored in-dialect. Shipped as a VALUE fixture that builds the array via an
+  // each-loop instead; the `expectedStdout` line-by-line path is DEFERRED until a print
+  // primitive exists. The runner still supports `expectedStdout` (raw-stdout line compare) for
+  // when it lands.
+  { kind: 'whole-file', name: 'whole-file: each-loop builds a string array (expectedStdout deferred — no print primitive)',
+    kern: `fn name=probe returns=string[]
+  handler lang=kern
+    let name=out value="[]"
+    each name=x in="[1, 2, 3]"
+      do value="out.push(\`line-\${x}\`)"
+    return value="out"`,
+    expected: ['line-1', 'line-2', 'line-3'] },
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // compile-reject: sources KERN must REJECT, asserting the EXACT reason at every layer that
+  // rejects (kind:'compile-reject', 2026-06-10). The runner tries parse / TS codegen / Python
+  // codegen; for each layer that throws, the message MUST contain `expectReason`. ≥1 layer must
+  // reject with the reason; any layer that rejects with a DIFFERENT reason is a real TS↔Python
+  // lockstep bug (a failure, not papered over). Target note: rejects are target-neutral
+  // (eligibility, surfaced on BOTH TS+Python codegen) or Python-side; there is no separate TS
+  // reject path to invent.
+  //
+  // REASON-CODE VERIFICATION (council's hallucinated codes vs the REAL thrown strings):
+  //   • closure-this                  — REAL: `Unsupported closure body (closure-this) at column N.`
+  //                                      rejects on BOTH TS + Python codegen (eligibility).
+  //   • closure-assign-value-position — REAL: `Unsupported closure body (closure-assign-value-position) …`
+  //                                      rejects on BOTH TS + Python codegen (eligibility).
+  //   • closure-pinned-write          — NOT a literal string. The conceptual `closure-pinned-write`
+  //                                      surfaces as the Python-emission throw
+  //                                      `… per-iteration loop capture …` (TS codegen is OK — this
+  //                                      is the genuine TS↔Python asymmetry the slice guards), so
+  //                                      expectReason is the real substring, not the council's code.
+  //   • instanceof-rhs-wrapper-rejected — REAL substring of the Python throw
+  //                                      `instanceof RHS 'String' has no Python lowering
+  //                                      (instanceof-rhs-wrapper-rejected). …` (Python-side only).
+  { kind: 'compile-reject', name: 'compile-reject: closure writes this.x (closure-this)',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=f value="() => { this.x = 1; return 0; }"
+    return value="f()"`,
+    expectReason: 'closure-this' },
+  { kind: 'compile-reject', name: 'compile-reject: closure value-position assignment (closure-assign-value-position)',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=x value="0" kind=let
+    let name=f value="() => { let y = (x = 1); return y; }"
+    return value="f()"`,
+    expectReason: 'closure-assign-value-position' },
+  // NEEDS a loop: a closure inside `each` that WRITES the per-iteration loop var. Python emission
+  // fails closed (the per-iteration pin freezes a value a `nonlocal` write would mis-target);
+  // TS codegen is fine — the asymmetry IS the point. expectReason is the real message substring.
+  { kind: 'compile-reject', name: 'compile-reject: closure writes a per-iteration loop capture (closure-pinned-write)',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=fns value="[]"
+    each name=x in="[0, 1, 2]"
+      do value="fns.push(() => { x = x + 1; return x; })"
+    return value="fns"`,
+    expectReason: 'per-iteration loop capture' },
+  { kind: 'compile-reject', name: 'compile-reject: x instanceof String (instanceof-rhs-wrapper-rejected)',
+    kern: `fn name=probe returns=boolean
+  handler lang=kern
+    let name=x value="\\"a\\""
+    return value="x instanceof String"`,
+    expectReason: 'instanceof-rhs-wrapper-rejected' },
 ];
 
 // ── Value → literal emitters ────────────────────────────────────────────────
@@ -1553,6 +1715,117 @@ for (const fx of FIXTURES) {
       }
     } catch (err) {
       failures.push({ name: fx.name, why: `pure-pipeline exec error: ${String(err.message ?? err).split('\n').slice(-4).join(' ')}` });
+    }
+    continue;
+  }
+
+  // ── whole-file branch: compile a FULL multi-declaration .kern module to BOTH targets via the
+  // SAME `generateCoreNode` / `generatePythonCoreNode` entry class-conformance.mjs uses, run each
+  // (node / python3), and compare. By default compares the JSON value of `probe()`; if the fixture
+  // sets `expectedStdout` (line array) it compares raw stdout split into lines. `skip: ['python'|
+  // 'node']` drops a target's run+compare. Mirrors the class-conformance loop, scaled to the route
+  // harness's failure-reporting shape.
+  if (fx.kind === 'whole-file') {
+    try {
+      const root = parse(fx.kern);
+      // A single top-level decl parses as the node itself; multiple decls wrap in a root.
+      const topNodes = root.type === 'class' || root.type === 'fn' ? [root] : (root.children ?? []);
+      const skip = new Set(fx.skip ?? []);
+      const useStdout = Array.isArray(fx.expectedStdout);
+      const probeLogTs = useStdout ? '' : '\nconsole.log(JSON.stringify(probe()));';
+      const probeLogPy = useStdout ? '' : '\nprint(json.dumps(probe()))';
+
+      let tsOut;
+      if (!skip.has('node')) {
+        const tsSource = `${topNodes.map((n) => generateCoreNode(n).join('\n')).join('\n\n')}${probeLogTs}`;
+        const tsFile = join(dir, 'whole-file.mjs');
+        writeFileSync(
+          tsFile,
+          tsCompiler.transpileModule(tsSource, {
+            compilerOptions: { module: tsCompiler.ModuleKind.ESNext, target: tsCompiler.ScriptTarget.ES2022 },
+          }).outputText,
+        );
+        tsOut = execFileSync('node', [tsFile], { encoding: 'utf8', timeout: 10_000 }).trim();
+      }
+      let pyOut;
+      if (!skip.has('python')) {
+        const pySource = `import json\n${topNodes.map((n) => generatePythonCoreNode(n).join('\n')).join('\n\n')}${probeLogPy}`;
+        const pyFile = join(dir, 'whole-file.py');
+        writeFileSync(pyFile, pySource);
+        pyOut = execFileSync('python3', [pyFile], { encoding: 'utf8', timeout: 10_000 }).trim();
+      }
+
+      // Canonicalize each present target's output, then assert all present == expected.
+      const cExp = useStdout ? canon(fx.expectedStdout, 'value') : canon(fx.expected, 'value');
+      const norm = (raw) => (useStdout ? canon(raw.split('\n'), 'value') : canon(JSON.parse(raw), 'value'));
+      const cTs = skip.has('node') ? undefined : norm(tsOut);
+      const cPy = skip.has('python') ? undefined : norm(pyOut);
+      if (cTs !== undefined && cPy !== undefined && cTs !== cPy) {
+        failures.push({ name: fx.name, why: `ts ≠ py\n      ts: ${cTs}\n      py: ${cPy}` });
+      } else if (cTs !== undefined && cTs !== cExp) {
+        failures.push({ name: fx.name, why: `result ≠ expected\n      got: ${cTs}\n      exp: ${cExp}` });
+      } else if (cPy !== undefined && cPy !== cExp) {
+        failures.push({ name: fx.name, why: `result ≠ expected\n      got: ${cPy}\n      exp: ${cExp}` });
+      } else {
+        pass++;
+      }
+    } catch (err) {
+      failures.push({ name: fx.name, why: `whole-file exec error: ${String(err.message ?? err).split('\n').slice(-4).join(' ')}` });
+    }
+    continue;
+  }
+
+  // ── compile-reject branch: assert the source is REJECTED with EXACTLY `expectReason` at every
+  // layer that rejects. Tries parse → TS codegen → Python codegen; each layer that THROWS must
+  // throw a message containing `expectReason`. ≥1 layer must reject with the reason; any layer
+  // that rejects with a DIFFERENT reason is a real TS↔Python lockstep bug (a failure). A layer
+  // that does NOT throw simply does not reject (fine for a Python-side-only reason — there is no
+  // TS reject path to invent).
+  if (fx.kind === 'compile-reject') {
+    const reason = String(fx.expectReason ?? '');
+    if (!reason) {
+      failures.push({ name: fx.name, why: 'compile-reject fixture is missing expectReason' });
+      continue;
+    }
+    const layers = []; // { name, threw, msg }
+    let topNodes = null;
+    try {
+      const root = parse(fx.kern);
+      topNodes = root.type === 'class' || root.type === 'fn' ? [root] : (root.children ?? []);
+      layers.push({ name: 'parse', threw: false, msg: '' });
+    } catch (err) {
+      layers.push({ name: 'parse', threw: true, msg: String(err?.message ?? err) });
+    }
+    if (topNodes) {
+      try {
+        topNodes.map((n) => generateCoreNode(n));
+        layers.push({ name: 'ts-codegen', threw: false, msg: '' });
+      } catch (err) {
+        layers.push({ name: 'ts-codegen', threw: true, msg: String(err?.message ?? err) });
+      }
+      try {
+        topNodes.map((n) => generatePythonCoreNode(n));
+        layers.push({ name: 'python-codegen', threw: false, msg: '' });
+      } catch (err) {
+        layers.push({ name: 'python-codegen', threw: true, msg: String(err?.message ?? err) });
+      }
+    }
+    const rejectedWithReason = layers.filter((l) => l.threw && l.msg.includes(reason));
+    const rejectedDifferent = layers.filter((l) => l.threw && !l.msg.includes(reason));
+    if (rejectedDifferent.length > 0) {
+      // Tripwire 3: a layer rejected with a DIFFERENT reason than expected — a real lockstep bug.
+      const d = rejectedDifferent[0];
+      failures.push({
+        name: fx.name,
+        why: `layer "${d.name}" rejected with a DIFFERENT reason than "${reason}"\n      got: ${d.msg.split('\n')[0]}`,
+      });
+    } else if (rejectedWithReason.length === 0) {
+      failures.push({
+        name: fx.name,
+        why: `no layer rejected with "${reason}" (every layer compiled clean)\n      layers: ${layers.map((l) => `${l.name}=${l.threw ? 'threw' : 'ok'}`).join(', ')}`,
+      });
+    } else {
+      pass++;
     }
     continue;
   }
