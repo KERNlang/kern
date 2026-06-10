@@ -3630,7 +3630,7 @@ function classOverrideStatus(
  * 'unknown' subtype results (gradual typing — primitives, unannotated, or
  * non-class names) are skipped, so the check produces zero false positives.
  */
-function checkOverrideVariance(
+export function checkOverrideVariance(
   member: ClassMemberInfo,
   baseMember: ClassMemberInfo,
   classByName: ReadonlyMap<string, ClassInfo>,
@@ -3671,7 +3671,7 @@ function checkOverrideVariance(
  *  - else cycle-safe walk of sub's baseName chain; reaching sup → true; chain
  *    ends or cycles without reaching sup → false.
  */
-function isNominalSubtype(
+export function isNominalSubtype(
   sub: string | undefined,
   sup: string | undefined,
   classByName: ReadonlyMap<string, ClassInfo>,
