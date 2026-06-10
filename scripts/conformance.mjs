@@ -886,6 +886,23 @@ const FIXTURES = [
       byKeyLast: { "true": { id: 'bool', key: true }, "1": { id: 'num2', key: 1 }, "null": { id: 'null', key: null }, "false": { id: 'false', key: false } },
       counts: { "true": 1, "1": 3, "null": 1, "false": 1 },
     } } },
+  // route-level `let kind=let` binding parity (2026-06-10). At base the route
+  // emitters' PORTABLE_TYPES allow-list (express-portable / fastapi-portable /
+  // core/handlers) OMITTED `let`, so a route-level `let` child was SILENTLY
+  // DROPPED — the dependent `respond` expression then referenced an unbound name
+  // (ReferenceError on Express, NameError on FastAPI + pure pipeline). RED at
+  // base: route exec error / pure-pipeline exec error on BOTH targets. The fix
+  // adds `let` to all three allow-lists; the existing `case 'let'` emitters then
+  // bind `name = <expr>` before the respond. A let with a DEPENDENT expression
+  // (`base * 2`) is the discriminator — a dropped binding can't produce 84.
+  { kind: 'route', name: 'route: let binding feeds a dependent respond expression',
+    kern: `route method=post path=/api/t\n  let name=doubled value="base * 2" kind=let\n  respond 200 json={{ {doubled: doubled} }}`,
+    bindings: { locals: { base: 42 } }, expected: { status: 200, body: { doubled: 84 } } },
+  // A SECOND let reads the FIRST (chained route-level bindings) — kills an impl
+  // that emits only the last let or mis-orders the two. tripled = doubled * 3 → 6.
+  { kind: 'route', name: 'route: chained let bindings (second reads the first)',
+    kern: `route method=post path=/api/t\n  let name=doubled value="base * 2" kind=let\n  let name=tripled value="doubled * 3" kind=let\n  respond 200 json={{ {doubled: doubled, tripled: tripled} }}`,
+    bindings: { locals: { base: 1 } }, expected: { status: 200, body: { doubled: 2, tripled: 6 } } },
 
   // ──────────────────────────────────────────────────────────────────────────
   // route-pipeline: PURE-pipeline-ONLY fixtures (Wave 3 python-decouple parity, 2026-05-31).
