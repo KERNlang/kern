@@ -24,6 +24,7 @@ import ts from 'typescript';
 import { supportedCompoundAssignmentOperator } from './assignment-operators.js';
 import { classifyClosureBlock } from './closure-eligibility.js';
 import { emitTypeAnnotation } from './codegen/emitters.js';
+import { instanceofRhsRejectReasonForName } from './instanceof-rhs.js';
 import { parseExpression } from './parser-expression.js';
 import type { ValueIR } from './value-ir.js';
 
@@ -574,9 +575,54 @@ function classifyBlockArrows(stmt: ts.Statement, sf: ts.SourceFile): string | nu
   return null;
 }
 
+/** Scan a statement subtree for an `instanceof` whose RHS KERN cannot lower
+ *  (eligible ≡ lowerable, spec §3). Returns the first reject reason or `null`:
+ *   - RHS is a bare ident in the reject set →
+ *     `instanceof-rhs-wrapper-rejected` (String/Number/Boolean) or
+ *     `instanceof-rhs-unsupported-builtin` (Object/Function/Date/RegExp/
+ *     Promise/Map/Set/Symbol/BigInt).
+ *   - RHS is NOT an identifier (call/literal/binary/etc.) →
+ *     `instanceof-rhs-not-a-type-name`. A member-access RHS (`a.b.C`) is a
+ *     qualified type name and stays accepted (emits as-is, like a user class).
+ *  Accepted host idents (`Array`/`Error`/`TypeError`) and user-class /
+ *  member RHS pass (return `null`); they emit as-is or via the host map.
+ *
+ *  Detection is on the TS AST (`ts.isBinaryExpression` + `InstanceOfKeyword`),
+ *  mirroring the Python emitter's fail-closed reject so the gate and the
+ *  lowerer share one source of truth (`instanceof-rhs.ts`). The whole subtree
+ *  is scanned so a rejected `instanceof` nested in any expression position
+ *  (ternary arm, call arg, arrow body, …) is caught. */
+function classifyInstanceofRhs(node: ts.Node): string | null {
+  let reason: string | null = null;
+  const visit = (n: ts.Node): void => {
+    if (reason !== null) return;
+    if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.InstanceOfKeyword) {
+      const rhs = n.right;
+      if (ts.isIdentifier(rhs)) {
+        reason = instanceofRhsRejectReasonForName(rhs.text);
+      } else if (!ts.isPropertyAccessExpression(rhs)) {
+        // Member RHS (`a.b.C`) is a qualified type name → accepted (emit
+        // as-is). Anything else (call/literal/parenthesized/binary) is not a
+        // type name and cannot be lowered.
+        reason = 'instanceof-rhs-not-a-type-name';
+      }
+      if (reason !== null) return;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(node);
+  return reason;
+}
+
 /** Classify a single statement. Returns null if the migrator can emit it,
  *  otherwise a kebab-case reason. Recurses through if/try branches. */
 function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContext): string | null {
+  // Eligible ≡ lowerable (spec §3): a statement carrying an `instanceof` with a
+  // RHS the Python emitter fail-closes on is ineligible, with a reason that
+  // names the exact RHS problem. Run before the per-shape checks so the
+  // instanceof reason wins over a generic `*-bad-expr`.
+  const instanceofReason = classifyInstanceofRhs(stmt);
+  if (instanceofReason !== null) return instanceofReason;
   // Slices 0+1+2 — a statement containing a block-bodied arrow is eligible IFF
   // every such arrow passes the v1 closure gate. Slice 2 lifted the former
   // in-loop reject (the Python lowerer now pins per-iteration captures), so the

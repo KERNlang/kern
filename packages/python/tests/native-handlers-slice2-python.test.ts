@@ -105,14 +105,34 @@ describe('emitPyExpression — arithmetic + comparison + unary', () => {
 
   // `instanceof` has no infix Python form — emitting it verbatim would be a
   // Python SyntaxError, so it MUST lower to the `isinstance(...)` call form.
-  // The RHS class name emits as-is (like host globals such as `Date`).
+  // Host `Error` maps to Python `Exception` (spec §2); user-class / qualified-
+  // member RHS emit as-is.
   test('instanceof lowers to Python isinstance(...)', () => {
-    expect(emitPyExpression(parseExpression('x instanceof Error'))).toBe('isinstance(x, Error)');
+    expect(emitPyExpression(parseExpression('x instanceof Error'))).toBe('isinstance(x, Exception)');
+    expect(emitPyExpression(parseExpression('xs instanceof Array'))).toBe('isinstance(xs, list)');
     expect(emitPyExpression(parseExpression('x instanceof a.b.C'))).toBe('isinstance(x, a.b.C)');
     expect(emitPyExpression(parseExpression('a instanceof B && c'))).toBe('isinstance(a, B) and c');
     // The dominant idiom — mirrors the TS-side round-trip in core/expression.test.ts.
     expect(emitPyExpression(parseExpression('err instanceof Error ? err.message : String(err)'))).toBe(
-      "err.message if (isinstance(err, Error)) else (lambda __k_v: ('true' if __k_v else 'false') if isinstance(__k_v, bool) else 'null' if __k_v is None else str(int(__k_v)) if isinstance(__k_v, float) and __k_v.is_integer() else str(__k_v))(err)",
+      "err.message if (isinstance(err, Exception)) else (lambda __k_v: ('true' if __k_v else 'false') if isinstance(__k_v, bool) else 'null' if __k_v is None else str(int(__k_v)) if isinstance(__k_v, float) and __k_v.is_integer() else str(__k_v))(err)",
+    );
+  });
+
+  test('new Error(...) maps to Exception(...) on Python (host Error mapping, spec §1)', () => {
+    expect(emitPyExpression(parseExpression('new Error("x")'))).toBe('Exception("x")');
+    // `new TypeError(...)` is NOT remapped — Python has a native TypeError.
+    expect(emitPyExpression(parseExpression('new TypeError("t")'))).toBe('TypeError("t")');
+    // A user class constructor is unaffected.
+    expect(emitPyExpression(parseExpression('new Point(3, 4)'))).toBe('Point(3, 4)');
+  });
+
+  test('instanceof rejected RHS throws fail-closed at emission (spec §2/§3 defense-in-depth)', () => {
+    expect(() => emitPyExpression(parseExpression('x instanceof String'))).toThrow(/instanceof-rhs-wrapper-rejected/);
+    expect(() => emitPyExpression(parseExpression('x instanceof Promise'))).toThrow(
+      /instanceof-rhs-unsupported-builtin/,
+    );
+    expect(() => emitPyExpression(parseExpression('x instanceof getClass()'))).toThrow(
+      /instanceof-rhs-not-a-type-name/,
     );
   });
 

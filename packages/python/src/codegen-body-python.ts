@@ -46,6 +46,8 @@ import {
   applyTemplate,
   collectFreeIdentifierNames,
   emitStringKeyArray,
+  instanceofRhsPythonType,
+  instanceofRhsRejectReasonForName,
   isPostfixMutationOperator,
   isSupportedAssignOperator,
   KERN_STDLIB_MODULES,
@@ -1914,8 +1916,23 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
     }
     case 'await':
       return `await ${emitPyExprCtx(node.argument, ctx)}`;
-    case 'new':
-      return emitPyExprCtx(node.argument, ctx);
+    case 'new': {
+      // Host Error mapping (spec §1): `new Error(args)` → `Exception(args)` on
+      // Python, since `raise Error(...)` / `isinstance(x, Error)` would
+      // NameError (Python has no global `Error`). The mapping also covers
+      // `let e = new Error(x)` and `throw new Error(x)` (both flow through the
+      // `new` expression). `new TypeError(...)` is intentionally NOT mapped —
+      // Python has a native `TypeError`, so it emits as-is. RangeError/
+      // SyntaxError/etc. stay status-quo (v2). A user KERN class literally
+      // named `Error` would be shadowed by this mapping — registry-precedence
+      // hardening is v2.
+      const arg = node.argument;
+      if (arg.kind === 'call' && arg.callee.kind === 'ident' && arg.callee.name === 'Error') {
+        const remapped: ValueIR = { ...arg, callee: { ...arg.callee, name: 'Exception' } };
+        return emitPyExprCtx(remapped, ctx);
+      }
+      return emitPyExprCtx(arg, ctx);
+    }
     case 'typeAssert':
       return emitPyExprCtx(node.expression, ctx);
     case 'nonNull':
@@ -1973,11 +1990,43 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       if (node.op === 'instanceof') {
         // JS `a instanceof B` → Python `isinstance(a, B)`. Emitting `instanceof`
         // verbatim would be a Python *syntax* error, so this lowering is
-        // mandatory (unlike raw host methods, which emit verbatim). The RHS
-        // class name emits as-is — e.g. `Error` stays `Error`, consistent with
-        // how host globals like `Date` already emit; KERN's portable surface is
-        // the stdlib namespace, not raw host constructors.
-        return `isinstance(${left}, ${right})`;
+        // mandatory (unlike raw host methods, which emit verbatim).
+        //
+        // RHS handling (spec §2, shared table in core/instanceof-rhs.ts):
+        //   - accepted host global → mapped Python type: `Array`→`list`,
+        //     `Error`→`Exception` (so `e instanceof Error` ≡
+        //     `isinstance(e, Exception)`, mirroring `new Error(...)` →
+        //     `Exception(...)`; Python `except Exception as e` + this check ≡
+        //     JS catch + `e instanceof Error` for KERN-thrown errors).
+        //   - rejected RHS (wrapper-parity trap / unsupported builtin /
+        //     non-type-name) → THROW fail-closed. This is defense in depth:
+        //     the eligibility gate already rejects these bodies, so this throw
+        //     can only fire on directly-built IR, never on gate-passed source —
+        //     gate and lowerer share core/instanceof-rhs.ts and cannot drift.
+        //   - any other ident/member RHS → emit as-is (user classes work; an
+        //     unknown name fails loud at Python runtime with NameError —
+        //     registry-precedence hardening is v2).
+        const rhs = node.right;
+        if (rhs.kind === 'ident') {
+          const rejectReason = instanceofRhsRejectReasonForName(rhs.name);
+          if (rejectReason !== null) {
+            throw new Error(
+              `instanceof RHS '${rhs.name}' has no Python lowering (${rejectReason}). ` +
+                'JS primitive-wrapper / unmapped-builtin instanceof has no isinstance parity; ' +
+                'this body is ineligible for native KERN.',
+            );
+          }
+          const mapped = instanceofRhsPythonType(rhs.name);
+          if (mapped !== null) return `isinstance(${left}, ${mapped})`;
+          return `isinstance(${left}, ${right})`;
+        }
+        if (rhs.kind === 'member') {
+          return `isinstance(${left}, ${right})`;
+        }
+        throw new Error(
+          'instanceof RHS is not a type name (instanceof-rhs-not-a-type-name); ' +
+            'only a class identifier or qualified member name can lower to isinstance().',
+        );
       }
 
       if (node.op === '+' && ctx.coerceJsValues) {

@@ -283,6 +283,13 @@ export {
 // TS → .kern importer
 export type { ImportResult } from './importer.js';
 export { escapeKernString, importTypeScript } from './importer.js';
+export type { InstanceofRhsRejectReason } from './instanceof-rhs.js';
+export {
+  INSTANCEOF_RHS_BUILTIN_REJECT,
+  INSTANCEOF_RHS_WRAPPER_REJECT,
+  instanceofRhsPythonType,
+  instanceofRhsRejectReasonForName,
+} from './instanceof-rhs.js';
 export {
   expressionV1Contract,
   registerExpressionV1Contract,

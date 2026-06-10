@@ -1157,6 +1157,140 @@ fn name=probe returns=number[]
     // lambdas and falls through (AttributeError) on a named callback.
     expected: [3, 6],
   },
+  // ── instanceof hardening + host Error mapping (Python target) ──────────────
+  // I1-I4, I8 are regression guards: user-class RHS already works (same-file
+  // Python classes). I5-I7 exercise the new host mappings (Array→list,
+  // Error→Exception for BOTH `new Error(...)` and `instanceof Error`).
+  {
+    name: 'I1: new Dog() instanceof Dog (user class, self)',
+    kern: `class name=Dog export=true
+  method name=speak returns=string
+    handler
+      return value="\\"woof\\""
+fn name=probe returns=boolean
+  handler
+    return value="new Dog() instanceof Dog"`,
+    // RHS is a user class in scope on both targets → isinstance(Dog(), Dog).
+    // Kills a not-lowered impl (verbatim `instanceof` is a Python SyntaxError).
+    expected: true,
+  },
+  {
+    name: 'I2: Cat extends Animal; new Cat() instanceof Animal',
+    kern: `class name=Animal export=true
+  method name=kind returns=string
+    handler
+      return value="\\"animal\\""
+class name=Cat extends=Animal export=true
+  method name=meow returns=string
+    handler
+      return value="\\"meow\\""
+fn name=probe returns=boolean
+  handler
+    return value="new Cat() instanceof Animal"`,
+    // Subclass instance vs base class → true. Kills a `type(x) == Y` /
+    // name-compare impl (isinstance honors the MRO; type()== does not).
+    expected: true,
+  },
+  {
+    name: 'I3: 3-level chain, grandchild instanceof grandparent',
+    kern: `class name=Animal export=true
+  method name=kind returns=string
+    handler
+      return value="\\"animal\\""
+class name=Pet extends=Animal export=true
+  method name=owned returns=boolean
+    handler
+      return value="true"
+class name=Cat extends=Pet export=true
+  method name=meow returns=string
+    handler
+      return value="\\"meow\\""
+fn name=probe returns=boolean
+  handler
+    return value="new Cat() instanceof Animal"`,
+    // Cat → Pet → Animal: grandchild instance vs grandparent. Kills a
+    // single-level (direct-base-only) impl.
+    expected: true,
+  },
+  {
+    name: 'I4: new Cat() instanceof Dog (sibling class)',
+    kern: `class name=Animal export=true
+  method name=kind returns=string
+    handler
+      return value="\\"animal\\""
+class name=Cat extends=Animal export=true
+  method name=meow returns=string
+    handler
+      return value="\\"meow\\""
+class name=Dog extends=Animal export=true
+  method name=woof returns=string
+    handler
+      return value="\\"woof\\""
+fn name=probe returns=boolean
+  handler
+    return value="new Cat() instanceof Dog"`,
+    // Siblings under a shared base → false. Kills an always-true impl.
+    expected: false,
+  },
+  {
+    name: 'I5: [1, 2] instanceof Array → host Array→list mapping',
+    kern: `fn name=probe returns=boolean
+  handler
+    return value="[1, 2] instanceof Array"`,
+    // RHS ident `Array` must lower to `isinstance([1, 2], list)` on Python
+    // (RED at base: emits `isinstance(..., Array)` → NameError). On TS it is
+    // native (`[1,2] instanceof Array` → true). Kills a missing Array→list map.
+    expected: true,
+  },
+  {
+    name: 'I6: new Dog() instanceof Array → false (Array mapping not too broad)',
+    kern: `class name=Dog export=true
+  method name=woof returns=string
+    handler
+      return value="\\"woof\\""
+fn name=probe returns=boolean
+  handler
+    return value="new Dog() instanceof Array"`,
+    // A class instance is NOT a list → false. Kills a too-broad Array mapping
+    // (e.g. one that maps Array→object). RED at base (NameError on `Array`).
+    expected: false,
+  },
+  {
+    name: 'I7: try/throw new Error; catch e: e instanceof Error ? "err" : "other"',
+    kern: `fn name=probe returns=string
+  handler
+    try
+      throw value="new Error(\\"boom\\")"
+      catch name=e
+        return value="e instanceof Error ? \\"err\\" : \\"other\\""
+    return value="\\"never\\""`,
+    // Exercises BOTH host Error mappings: `new Error("boom")` must lower to
+    // `Exception("boom")` (else `raise Error(...)` → NameError) AND
+    // `e instanceof Error` must lower to `isinstance(e, Exception)` (else
+    // NameError on `Error`). RED at base on Python; native on TS.
+    expected: 'err',
+  },
+  {
+    name: 'I8: !(new Cat() instanceof Dog) → true (negation precedence)',
+    kern: `class name=Animal export=true
+  method name=kind returns=string
+    handler
+      return value="\\"animal\\""
+class name=Cat extends=Animal export=true
+  method name=meow returns=string
+    handler
+      return value="\\"meow\\""
+class name=Dog extends=Animal export=true
+  method name=woof returns=string
+    handler
+      return value="\\"woof\\""
+fn name=probe returns=boolean
+  handler
+    return value="!(new Cat() instanceof Dog)"`,
+    // `not isinstance(Cat(), Dog)` → true. Guards negation precedence around
+    // the lowered isinstance call.
+    expected: true,
+  },
 ];
 
 const canon = (v) => JSON.stringify(v);
