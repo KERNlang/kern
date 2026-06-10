@@ -289,25 +289,31 @@ function lowerJsArrayMethods(expr: string, ctx: ExprRewriteContext): string {
           // name.
           const loopTarget = idxVar ? `${idxVar}, ${elemVar}` : elemVar;
           const source = idxVar ? `enumerate(${receiver})` : receiver;
+          // filter/find-family predicates wrap the body in `js_truthy(...)`:
+          // a predicate that yields a JS-truthy empty container ([] / {}) must be
+          // KEPT, but Python treats [] / {} as falsy, so a bare `if body` would
+          // wrongly drop it. `js_truthy` restores JS truthiness. (`map`/`flatMap`
+          // have no predicate and are left untouched.) The helper lands once.
+          ctx.imports?.add(KERN_JS_HELPER_PY);
           let lowered: string;
           if (method === 'filter') {
-            lowered = `[${elemVar} for ${loopTarget} in ${source} if ${body}]`;
+            lowered = `[${elemVar} for ${loopTarget} in ${source} if js_truthy(${body})]`;
           } else if (method === 'find') {
-            lowered = `next((${elemVar} for ${loopTarget} in ${source} if ${body}), None)`;
+            lowered = `next((${elemVar} for ${loopTarget} in ${source} if js_truthy(${body})), None)`;
           } else if (method === 'findIndex') {
             // index of the first match, or -1 (never raises). Bind the user's
             // own index var when the callback has one, so `(x, i) => …i…` works.
             const ix = idxVar ?? '__i';
-            lowered = `next((${ix} for ${ix}, ${elemVar} in enumerate(${receiver}) if ${body}), -1)`;
+            lowered = `next((${ix} for ${ix}, ${elemVar} in enumerate(${receiver}) if js_truthy(${body})), -1)`;
           } else if (method === 'findLast') {
             // last matching element, or None
             lowered = idxVar
-              ? `next((${elemVar} for ${idxVar}, ${elemVar} in reversed(list(enumerate(${receiver}))) if ${body}), None)`
-              : `next((${elemVar} for ${elemVar} in reversed(${receiver}) if ${body}), None)`;
+              ? `next((${elemVar} for ${idxVar}, ${elemVar} in reversed(list(enumerate(${receiver}))) if js_truthy(${body})), None)`
+              : `next((${elemVar} for ${elemVar} in reversed(${receiver}) if js_truthy(${body})), None)`;
           } else if (method === 'findLastIndex') {
             // index of the last match, or -1
             const ix = idxVar ?? '__i';
-            lowered = `next((${ix} for ${ix}, ${elemVar} in reversed(list(enumerate(${receiver}))) if ${body}), -1)`;
+            lowered = `next((${ix} for ${ix}, ${elemVar} in reversed(list(enumerate(${receiver}))) if js_truthy(${body})), -1)`;
           } else if (method === 'flatMap') {
             // map, then flatten ONE level — JS flatMap only flattens arrays, so
             // a scalar/string callback result is appended as a single element.
@@ -362,10 +368,17 @@ function lowerJsArrayMethods(expr: string, ctx: ExprRewriteContext): string {
             const pred = blockClosure ?? lowerJsArrayMethods(lowerDictMemberAccess(arrow.body, elemVar), ctx);
             const loopTarget = idxVar ? `${idxVar}, ${elemVar}` : elemVar;
             const source = idxVar ? `enumerate(${receiver})` : receiver;
+            // Wrap the predicate in `js_truthy(...)` for JS truthiness parity (a
+            // predicate yielding [] / {} is JS-truthy but Python-falsy). Skip the
+            // wrap when `pred` is ALREADY a js_truthy(...) call — the block-closure
+            // path's `lowerCondition` can emit one — to avoid emit-noise double
+            // wrapping (harmless but ugly). The helper lands once.
+            const wrappedPred = pred.startsWith('js_truthy(') ? pred : `js_truthy(${pred})`;
+            ctx.imports?.add(KERN_JS_HELPER_PY);
             lowered =
               method === 'some'
-                ? `any(${pred} for ${loopTarget} in ${source})`
-                : `all(${pred} for ${loopTarget} in ${source})`;
+                ? `any(${wrappedPred} for ${loopTarget} in ${source})`
+                : `all(${wrappedPred} for ${loopTarget} in ${source})`;
           }
         } else if (method === 'reduce') {
           const rawArgs = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));

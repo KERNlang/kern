@@ -2341,7 +2341,7 @@ describe('FastAPI Transpiler', () => {
 
     test('.filter((x) => pred) lowers to list comprehension', async () => {
       const { rewriteExpr } = await import('../src/core/expr/index.js');
-      expect(rewriteExpr('users.filter((u) => u.active)', [])).toBe('[u for u in users if u["active"]]');
+      expect(rewriteExpr('users.filter((u) => u.active)', [])).toBe('[u for u in users if js_truthy(u["active"])]');
     });
 
     test('.map((x) => expr) lowers to list comprehension', async () => {
@@ -2351,7 +2351,9 @@ describe('FastAPI Transpiler', () => {
 
     test('.find((x) => pred) lowers to next() with None default', async () => {
       const { rewriteExpr } = await import('../src/core/expr/index.js');
-      expect(rewriteExpr('users.find((u) => u.id == id)', [])).toBe('next((u for u in users if u["id"] == id), None)');
+      expect(rewriteExpr('users.find((u) => u.id == id)', [])).toBe(
+        'next((u for u in users if js_truthy(u["id"] == id)), None)',
+      );
     });
 
     test('combined: .find with === lowers correctly (ordering invariant)', async () => {
@@ -2359,7 +2361,7 @@ describe('FastAPI Transpiler', () => {
       // Arrow rewrite runs first; the inner `===` is then caught by the
       // strict-equality pass on the rewritten predicate.
       expect(rewriteExpr('users.find((item) => item.id === id)', [])).toBe(
-        'next((item for item in users if item["id"] == id), None)',
+        'next((item for item in users if js_truthy(item["id"] == id)), None)',
       );
     });
 
@@ -2370,14 +2372,16 @@ describe('FastAPI Transpiler', () => {
 
     test('arr-core dict member access lowers to subscript form', async () => {
       const { rewriteExpr } = await import('../src/core/expr/index.js');
-      expect(rewriteExpr('items.filter((x) => x.active)', [])).toBe('[x for x in items if x["active"]]');
+      expect(rewriteExpr('items.filter((x) => x.active)', [])).toBe('[x for x in items if js_truthy(x["active"])]');
       expect(rewriteExpr('items.map((x) => x.n)', [])).toBe('[x["n"] for x in items]');
-      expect(rewriteExpr('items.find((x) => x.n === 2)', [])).toBe('next((x for x in items if x["n"] == 2), None)');
+      expect(rewriteExpr('items.find((x) => x.n === 2)', [])).toBe(
+        'next((x for x in items if js_truthy(x["n"] == 2)), None)',
+      );
     });
 
     test('arr-core supports bare arrow params and nested dict member access', async () => {
       const { rewriteExpr } = await import('../src/core/expr/index.js');
-      expect(rewriteExpr('items.filter(x => x.active)', [])).toBe('[x for x in items if x["active"]]');
+      expect(rewriteExpr('items.filter(x => x.active)', [])).toBe('[x for x in items if js_truthy(x["active"])]');
       expect(rewriteExpr('items.map((x) => x.meta.tag)', [])).toBe('[x["meta"]["tag"] for x in items]');
       expect(rewriteExpr('items.map((x, i) => x.n + i)', [])).toBe('[x["n"] + i for i, x in enumerate(items)]');
     });
@@ -2385,11 +2389,13 @@ describe('FastAPI Transpiler', () => {
     test('arr-core filter/find/some with an index param bind it via enumerate (codex review ab192611)', async () => {
       const { rewriteExpr } = await import('../src/core/expr/index.js');
       // The index var was previously unbound for filter/find/some → NameError.
-      expect(rewriteExpr('items.filter((x, i) => i > 0)', [])).toBe('[x for i, x in enumerate(items) if i > 0]');
-      expect(rewriteExpr('items.find((x, i) => i === 1)', [])).toBe(
-        'next((x for i, x in enumerate(items) if i == 1), None)',
+      expect(rewriteExpr('items.filter((x, i) => i > 0)', [])).toBe(
+        '[x for i, x in enumerate(items) if js_truthy(i > 0)]',
       );
-      expect(rewriteExpr('items.some((x, i) => i > 0)', [])).toBe('any(i > 0 for i, x in enumerate(items))');
+      expect(rewriteExpr('items.find((x, i) => i === 1)', [])).toBe(
+        'next((x for i, x in enumerate(items) if js_truthy(i == 1)), None)',
+      );
+      expect(rewriteExpr('items.some((x, i) => i > 0)', [])).toBe('any(js_truthy(i > 0) for i, x in enumerate(items))');
     });
 
     test('arr-core subscripts data fields before a method call + nested map (codex review ab192611)', async () => {
@@ -2415,7 +2421,7 @@ describe('FastAPI Transpiler', () => {
     test('chained .filter().map() rewrites fully (Gemini #2)', async () => {
       const { rewriteExpr } = await import('../src/core/expr/index.js');
       expect(rewriteExpr('users.filter((u) => u.active).map((u) => u.name)', [])).toBe(
-        '[u["name"] for u in [u for u in users if u["active"]]]',
+        '[u["name"] for u in [u for u in users if js_truthy(u["active"])]]',
       );
     });
 
@@ -2445,8 +2451,8 @@ describe('FastAPI Transpiler', () => {
         false,
         imports,
       );
-      expect(out).toContain('any(n == 2 for n in nums)');
-      expect(out).toContain('all(n > 0 for n in nums)');
+      expect(out).toContain('any(js_truthy(n == 2) for n in nums)');
+      expect(out).toContain('all(js_truthy(n > 0) for n in nums)');
       expect(out).toContain('functools.reduce(lambda a, b: a + b, nums, 0)');
       expect(out).not.toContain('nums.some(');
       expect(out).not.toContain('nums.every(');
@@ -2456,7 +2462,9 @@ describe('FastAPI Transpiler', () => {
 
     test('arrow predicate with one level of nested parens (Gemini #3)', async () => {
       const { rewriteExpr } = await import('../src/core/expr/index.js');
-      expect(rewriteExpr('users.filter((u) => (u.age > 18))', [])).toBe('[u for u in users if (u["age"] > 18)]');
+      expect(rewriteExpr('users.filter((u) => (u.age > 18))', [])).toBe(
+        '[u for u in users if js_truthy((u["age"] > 18))]',
+      );
     });
 
     test('undefined / null lower to None outside strings (Gemini #4)', async () => {

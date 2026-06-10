@@ -331,6 +331,16 @@ const FIXTURES = [
   { name: 'arr-method: indexOf missing is -1 (not raise)', expr: 'nums.indexOf(9)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: -1 },
   { name: 'arr-method: some (scalar predicate)', expr: 'nums.some((n) => n === 2)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: true },
   { name: 'arr-method: every (scalar predicate)', expr: 'nums.every((n) => n > 0)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: true },
+  // RT1/RT2 (route truthiness): a filter/every predicate that yields a JS-truthy
+  // empty container ([] / {}) must be KEPT (JS truthy) — a bare `if pred` lowering
+  // drops it (Python treats [] / {} as falsy). The wrapped `if js_truthy(pred)`
+  // restores parity. RED at base: RT1 gives [], RT2 gives false.
+  { name: 'RT1: filter predicate returning [] is JS-truthy (kept)', expr: '[1, 2, 3].filter((x) => [])', path: '/api/a', bindings: {}, expected: [1, 2, 3] },
+  { name: 'RT2: every predicate over [] elements is JS-truthy (all true)', expr: '[[], []].every((x) => x)', path: '/api/a', bindings: {}, expected: true },
+  // RT3 (bare route join): `.join()` with NO separator splits to args=[''] so the
+  // emitted Python was `.join(...)` with an empty separator string — a syntax error.
+  // Treating '' as absent restores the JS default comma. RED at base: invalid Python.
+  { name: 'RT3: bare join() defaults to comma separator', expr: '["a", "b"].join()', path: '/api/a', bindings: {}, expected: 'a,b' },
   { name: 'arr-method: reduce sum with seed', expr: 'nums.reduce((a, b) => a + b, 0)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: 6 },
   // push mutates AND returns the new length (JS) -> Python `(recv.append(x) or len(recv))` (#6).
   { name: 'arr-method: push returns new length', expr: 'nums.push(9)', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: 4 },
@@ -380,6 +390,11 @@ const FIXTURES = [
   { name: 'str-method: substring(0, 2)', expr: 's.substring(0, 2)', path: '/api/s', bindings: { locals: { s: 'banana' } }, expected: 'ba' },
   { name: 'str-method: indexOf present', expr: 's.indexOf("n")', path: '/api/s', bindings: { locals: { s: 'banana' } }, expected: 2 },
   { name: 'str-method: indexOf missing is -1', expr: 's.indexOf("z")', path: '/api/s', bindings: { locals: { s: 'banana' } }, expected: -1 },
+  // RT4 (str indexOf multi-char substring): JS `"hello".indexOf("ll")` is 2; the old
+  // element-scan treated the string char-by-char and never matched the 2-char "ll"
+  // (RED at base: -1). The str-receiver branch uses Python str.find. Kills the scan impl.
+  { name: 'RT4: str indexOf multi-char substring', expr: 's.indexOf("ll")', path: '/api/s', bindings: { locals: { s: 'hello' } }, expected: 2 },
+  { name: 'RT5: str indexOf multi-char substring with fromIndex', expr: 's.indexOf("lo", 2)', path: '/api/s', bindings: { locals: { s: 'hello' } }, expected: 3 },
   { name: 'str-method: padStart', expr: 's.padStart(8, "0")', path: '/api/s', bindings: { locals: { s: 'banana' } }, expected: '00banana' },
   { name: 'str-method: padEnd', expr: 's.padEnd(8, "0")', path: '/api/s', bindings: { locals: { s: 'banana' } }, expected: 'banana00' },
   { name: 'str-method: repeat', expr: 's.repeat(2)', path: '/api/s', bindings: { locals: { s: 'ab' } }, expected: 'abab' },

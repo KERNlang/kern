@@ -721,6 +721,36 @@ fn name=probe returns=boolean
     expected: true,
   },
   {
+    name: 'scalar S17: indexOf substring on a STRING field',
+    kern: `class name=Box export=true
+  field name=name type=string value={{ "hello" }}
+  method name=where returns=number
+    handler
+      return value="this.name.indexOf(\\"ll\\")"
+fn name=probe returns=number
+  handler
+    return value="new Box().where()"`,
+    // "hello".indexOf("ll") is 2 via str.find (multi-char substring). RED at base:
+    // the element-scan treated the string char-by-char and never matched -> -1.
+    // Mirrors S14 (lastIndexOf str-receiver) for the indexOf direction.
+    expected: 2,
+  },
+  {
+    name: 'scalar S18: indexOf multi-char substring on a STRING field with fromIndex',
+    kern: `class name=Box export=true
+  field name=name type=string value={{ "hello" }}
+  method name=where returns=number
+    handler
+      return value="this.name.indexOf(\\"lo\\", 2)"
+fn name=probe returns=number
+  handler
+    return value="new Box().where()"`,
+    // "hello".indexOf("lo", 2) is 3 (str.find with a start offset for the 2-char
+    // substring "lo"). RED at base: the element-scan never matches the 2-char
+    // needle and returns -1. Kills both the scan impl and a fromIndex-ignoring impl.
+    expected: 3,
+  },
+  {
     // K1 — block-bodied arrow with a read-capture of an outer `const` (factor)
     // and a local `const` + return inside the block. Kills naive `lambda`
     // emission (statements in a Python lambda are invalid) and missing

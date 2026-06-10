@@ -95,12 +95,20 @@ export function isSharedPortableArrayMethod(method: string): boolean {
  * these on a provably-pure receiver; single-eval methods (slice/includes/
  * indexOf/join/flat/concat) accept impure receivers.
  * Receiver eval counts: push x2, reverse x2, at x3, fill x1-4 (3-arg form),
- * lastIndexOf x4. NOT tracked: argument multi-eval (concat arg x3, at n x3,
+ * indexOf x2-3 (isinstance probe + the chosen str/array branch), lastIndexOf x4.
+ * NOT tracked: argument multi-eval (concat arg x3, at n x3, indexOf needle x2,
  * lastIndexOf needle x3, fill bounds multi) — the route path has no purity
  * analysis at all and lowers impure args blindly; the class path matches that
  * behavior for args (documented divergence, candidate follow-up).
  */
-const PURE_RECEIVER_REQUIRED: ReadonlySet<string> = new Set(['push', 'reverse', 'at', 'fill', 'lastIndexOf']);
+const PURE_RECEIVER_REQUIRED: ReadonlySet<string> = new Set([
+  'push',
+  'reverse',
+  'at',
+  'fill',
+  'indexOf',
+  'lastIndexOf',
+]);
 
 export function sharedPortableMethodRequiresPureReceiver(method: string): boolean {
   return PURE_RECEIVER_REQUIRED.has(method);
@@ -152,16 +160,22 @@ export function lowerPortableArrayMethodPy(receiver: string, method: string, arg
   if (method === 'indexOf') {
     const needle = args[0] ?? '';
     const fromIndex = args[1] ?? null;
-    // TODO(kern): indexOf string-substring semantics mismatch with JS
-    // ('hello'.indexOf('ll') is 2 in JS; this enumerate scans elements/chars) —
-    // lifted bug-compatible, fix is a follow-up that may break route byte-identity.
+    // String receivers use str.find (correct for multi-char substrings, -1 when
+    // absent); array receivers scan by element equality. Mirrors lastIndexOf's
+    // str/array split below. JS `"hello".indexOf("ll")` is 2 — the old element
+    // scan treated the string char-by-char and never matched the 2-char needle.
     if (fromIndex) {
-      return `(next((__i for __i, __v in enumerate(${receiver}) if __i >= ${fromIndex} and __v == ${needle}), -1))`;
+      return `(${receiver}.find(${needle}, ${fromIndex}) if isinstance(${receiver}, str) else (next((__i for __i, __v in enumerate(${receiver}) if __i >= ${fromIndex} and __v == ${needle}), -1)))`;
     }
-    return `(next((__i for __i, __v in enumerate(${receiver}) if __v == ${needle}), -1))`;
+    return `(${receiver}.find(${needle}) if isinstance(${receiver}, str) else (next((__i for __i, __v in enumerate(${receiver}) if __v == ${needle}), -1)))`;
   }
   if (method === 'join') {
-    const sep = args[0] ?? '","';
+    // Treat an EMPTY arg as absent (default to comma): the route path's
+    // `splitTopLevelArgs('')` returns `['']` for a bare `.join()`, so `args[0]`
+    // is the empty STRING (not undefined) and `?? '","'` would keep it, emitting
+    // an invalid `.join(...)` with no separator. `args[0] ? args[0] : '","'`
+    // falls back to the JS default comma. The class path never produces '' here.
+    const sep = args[0] ? args[0] : '","';
     return `${sep}.join(str(__v) for __v in ${receiver})`;
   }
   if (method === 'flat') {
