@@ -90,4 +90,34 @@ describe('groupFindingsByRootCause', () => {
     // Both share the same span signature, so relatedSpans should be empty.
     expect(out[0].relatedSpans).toBeUndefined();
   });
+
+  it('picks the deterministic tsc finding (95) over a capped LLM finding (89) as primary', () => {
+    // The LLM confidence cap (<=89) guarantees a deterministic-source finding
+    // in the same group always out-ranks an LLM one on confidence — so
+    // group-by-root-cause primary selection stays deterministic-first.
+    const shared = { key: 'shared-cause-3', kind: 'symbol' as const };
+    const input = [
+      f({
+        source: 'llm',
+        ruleId: 'llm-bug',
+        confidence: 89,
+        severity: 'error',
+        rootCause: shared,
+        fingerprint: 'llm-bug:10:1',
+      }),
+      f({
+        source: 'tsc',
+        ruleId: 'ts2345',
+        confidence: 95,
+        severity: 'error',
+        rootCause: shared,
+        fingerprint: 'ts2345:10:1',
+      }),
+    ];
+    const out = groupFindingsByRootCause(input);
+    expect(out).toHaveLength(1);
+    expect(out[0].source).toBe('tsc');
+    expect(out[0].ruleId).toBe('ts2345');
+    expect(out[0].confidence).toBe(95);
+  });
 });

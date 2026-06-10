@@ -4,6 +4,7 @@
  * Does NOT call real LLM APIs — tests the plumbing.
  */
 
+import { inferFromSource } from '../src/inferrer.js';
 import {
   buildReviewInstructions,
   chunkLargeInput,
@@ -11,6 +12,7 @@ import {
   isLLMAvailable,
   runLLMReview,
 } from '../src/llm-bridge.js';
+import { parseLLMResponse } from '../src/llm-review.js';
 import type { ReviewFinding } from '../src/types.js';
 
 describe('isLLMAvailable', () => {
@@ -167,6 +169,19 @@ describe('isHighValueFinding', () => {
 
   it('keeps findings at exactly 50 confidence (threshold)', () => {
     expect(isHighValueFinding(makeFinding('warning', 50))).toBe(true);
+  });
+
+  it('suppresses an LLM finding parsed at 45 (below the >=50 gate)', () => {
+    const inferred = inferFromSource('export function getUser(id: string) { return id; }', 'user.ts');
+    const alias = inferred.find((r) => r.node.type !== 'import')!.promptAlias;
+    const response = JSON.stringify([
+      { nodeAlias: alias, severity: 'warning', category: 'bug', message: 'speculative', confidence: 45 },
+    ]);
+    const findings = parseLLMResponse(response, inferred);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].confidence).toBe(45);
+    // Old flat-70 LLM findings always cleared the gate; a parsed 45 no longer does.
+    expect(isHighValueFinding(findings[0])).toBe(false);
   });
 });
 

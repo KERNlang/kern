@@ -802,7 +802,18 @@ Categories: bug, type, pattern, style, structure
 Severities: error (definitely a bug), warning (likely a bug or serious concern), info (suggestion)
 
 Return ONLY a JSON array of findings. Schema:
-[{"nodeAlias":"N3","severity":"warning","category":"bug","message":"...","evidence":"..."}]
+[{"nodeAlias":"N3","severity":"warning","category":"bug","message":"...","evidence":"...","confidence":75}]
+
+The optional integer "confidence" field is your evidence-grounded self-assessment:
+- 80-89: defect provable from the shown code alone — cite the line evidence
+- 60-79: likely defect but depends on unseen code (call sites, module boundaries, domain assumptions)
+- 40-59: speculative — a pattern-based concern, or possibly intentional design
+- below 40: omit the "confidence" field entirely rather than guess
+- NEVER emit 90 or higher (reserved for deterministic tooling); never emit fractional values
+
+Examples:
+[{"nodeAlias":"N3","severity":"error","category":"bug","message":"Off-by-one: loop uses <= items.length, indexing items[i] reads one past the end.","evidence":"for (let i = 0; i <= items.length; i++) items[i]","confidence":85},
+ {"nodeAlias":"N5","severity":"warning","category":"pattern","message":"Result of fetch() may be unhandled if the caller ignores the returned promise.","evidence":"return fetch(url)","confidence":55}]
 
 Rules:
 - Only report findings you are confident about (>70% sure)
@@ -849,7 +860,18 @@ Categories: bug, type, pattern, style, structure
 Severities: error, warning, info
 
 Return ONLY a JSON array of findings. Schema:
-[{"nodeAlias":"N3","severity":"warning","category":"bug","message":"...","evidence":"..."}]
+[{"nodeAlias":"N3","severity":"warning","category":"bug","message":"...","evidence":"...","confidence":75}]
+
+The optional integer "confidence" field is your evidence-grounded self-assessment:
+- 80-89: defect provable from the shown code alone — cite the line evidence
+- 60-79: likely defect but depends on unseen code (call sites, module boundaries, domain assumptions)
+- 40-59: speculative — a pattern-based concern, or possibly intentional design
+- below 40: omit the "confidence" field entirely rather than guess
+- NEVER emit 90 or higher (reserved for deterministic tooling); never emit fractional values
+
+Examples:
+[{"nodeAlias":"N3","severity":"error","category":"bug","message":"Command injection: userInput is concatenated into an exec() argument with no escaping.","evidence":"exec('git log ' + userInput)","confidence":85},
+ {"nodeAlias":"N5","severity":"warning","category":"bug","message":"Possible auth bypass if isAdmin defaults truthy upstream — depends on the unseen caller.","evidence":"if (user.isAdmin) grant()","confidence":55}]
 
 Rules:
 - Only report findings you are confident about (>70% sure)
