@@ -763,6 +763,50 @@ describe('FastAPI Transpiler', () => {
       expect(output).toContain('= database');
     });
 
+    test('dependency factory return annotation referencing a custom class is QUOTED', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse(
+        [
+          'dependency name=authService scope=singleton',
+          '  inject userRepo type=UserRepository with=(db)',
+          '  returns type=AuthService with=(userRepo)',
+        ].join('\n'),
+      );
+      const output = generatePythonCoreNode(ast).join('\n');
+
+      // Lazy annotation (mirror of d1c209de): the return annotation must be
+      // quoted so eager evaluation doesn't NameError on a forward-defined class.
+      expect(output).toContain('def create_auth_service() -> "AuthService":');
+      // The constructor CALL position stays a raw (evaluated) name, not a string.
+      expect(output).toContain('instance = AuthService((userRepo))');
+    });
+
+    test('union variant field typed with a custom class is QUOTED', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonUnion } = await import('../src/codegen-python.js');
+
+      const ast = parse(
+        [
+          'union name=Shape discriminant=kind',
+          '  variant name=Circle',
+          '    field name=meta type=ShapeMeta',
+          '  variant name=Square',
+          '    field name=side type=number',
+        ].join('\n'),
+      );
+      const output = generatePythonUnion(ast).join('\n');
+
+      // Custom-class member annotation in a dataclass-style class body is quoted.
+      expect(output).toContain('meta: "ShapeMeta"');
+      // A primitive field stays unquoted (byte-identical to mapTsTypeToPython).
+      expect(output).toContain('side: float');
+      // The module-level Union alias is built from the (already-defined) variant
+      // class names, so it is left unquoted.
+      expect(output).toContain('Shape = Union[CircleShape, SquareShape]');
+    });
+
     test('generates Python service class', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { generatePythonCoreNode } = await import('../src/codegen-python.js');
