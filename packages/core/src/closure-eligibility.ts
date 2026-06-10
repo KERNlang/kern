@@ -66,6 +66,63 @@ function collectLocalDeclaredNames(block: ts.Block): Set<string> {
   return names;
 }
 
+/** Collect the set of free identifier NAMES referenced in a closure block —
+ *  identifiers used in the block that are NOT declared inside the block and
+ *  NOT in `paramNames` (the closure's own parameters). These are exactly the
+ *  names the closure CAPTURES from its enclosing scope.
+ *
+ *  Slice-2 loop-variable pinning consumes this: a captured name whose binding
+ *  resolves at-or-inside the enclosing loop body must be pinned via a Python
+ *  default arg, so each closure sees its own iteration's value (JS per-iteration
+ *  capture) instead of late-binding to the last value.
+ *
+ *  Uses the TS AST (via `parseClosureBlockAst`) — never string scanning.
+ *  Excludes, per the spec:
+ *   - the `.name` side of a member access (`a.b` references only `a`),
+ *   - object-literal property keys (`{ a: 1 }` — `a` is a key, not a ref),
+ *   - declaration names themselves (`const x = …` — `x` is the bound name),
+ *   - shorthand-property assignment names are NOT excluded: `{ a }` reads `a`,
+ *     so the shorthand identifier IS a real reference and stays in the set.
+ *
+ *  A name both declared-inside and referenced (a block-local, or a shadowing
+ *  re-declaration) is NOT free — `collectLocalDeclaredNames` removes it. The
+ *  block is parsed once (memoized); a parse failure yields an empty set (the
+ *  gate already rejected such bodies, so this is defensive). */
+export function collectFreeIdentifierNames(raw: string, paramNames: string[]): Set<string> {
+  const block = parseClosureBlockAst(raw);
+  if (block === null) return new Set<string>();
+  const declared = collectLocalDeclaredNames(block);
+  const params = new Set(paramNames);
+  const free = new Set<string>();
+  const visit = (node: ts.Node): void => {
+    if (ts.isIdentifier(node)) {
+      const parent = node.parent;
+      // `a.b` — only `a` is a reference; skip the `.b` name side.
+      if (parent && ts.isPropertyAccessExpression(parent) && parent.name === node) return;
+      // `a?.b` qualified-name / similar — defensive (PropertyAccess covers the
+      // common case; QualifiedName appears only in type positions, which the
+      // gate rejects, but skip the right-hand name there too for safety).
+      if (parent && ts.isQualifiedName(parent) && parent.right === node) return;
+      // Object-literal property KEY (`{ a: 1 }`) — `a` is a key, not a ref.
+      // Shorthand (`{ a }`) is a ShorthandPropertyAssignment whose `.name` IS
+      // a real read of `a`, so it is NOT excluded here.
+      if (parent && ts.isPropertyAssignment(parent) && parent.name === node) return;
+      // Declaration name (`const x = …`, `let x`, a binding-element name).
+      if (parent && ts.isVariableDeclaration(parent) && parent.name === node) return;
+      if (parent && ts.isBindingElement(parent) && parent.name === node) return;
+      // A binding element's property name (`const { p: local } = o` — `p`).
+      if (parent && ts.isBindingElement(parent) && parent.propertyName === node) return;
+      const name = node.text;
+      if (declared.has(name) || params.has(name)) return;
+      free.add(name);
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(block, visit);
+  return free;
+}
+
 /** Root identifier of an assignment target (`acc`, `acc.x`, `acc[i]` → `acc`),
  *  or `null` if the target is not rooted at a plain identifier. */
 function assignmentTargetRoot(target: ts.Expression): string | null {

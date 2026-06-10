@@ -548,3 +548,116 @@ describe('Python block-bodied arrow closures (slices 0+1)', () => {
     expect(code).not.toContain('    def __kern_closure_0'); // not nested in the body
   });
 });
+
+describe('Python closure loop-variable pinning (slice 2)', () => {
+  function findHandler(node: IRNode | null): IRNode | null {
+    if (!node) return null;
+    if (node.type === 'handler') return node;
+    for (const child of node.children ?? []) {
+      const found = findHandler(child);
+      if (found) return found;
+    }
+    return null;
+  }
+  function emit(kern: string): string {
+    const handlerNode = findHandler(parse(kern));
+    expect(handlerNode).not.toBeNull();
+    return emitNativeKernBodyPythonWithImports(handlerNode as IRNode).code;
+  }
+
+  test('an `each` loop-var capture is pinned via a default arg (def __kern_closure_0(p, x=x))', () => {
+    // The classic per-iteration capture: JS sees 0,1,2; a naive late-bound
+    // Python def would see 2,2,2. The fix pins `x` as a default arg evaluated
+    // at def time (the per-iteration hoist point).
+    const code = emit(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    let name=fns value="[]"
+    each name=x in="[0, 1, 2]"
+      do value="fns.push((p) => { return x; })"
+    return value="fns"`,
+    );
+    expect(code).toContain('def __kern_closure_0(p, x=x):');
+  });
+
+  test('an OUTSIDE-loop capture is NOT pinned (no default arg added)', () => {
+    // `total` is declared before the loop; JS captures it by reference (call
+    // time value), and Python late binding is already parity-correct. Pinning
+    // it would WRONGLY freeze the per-iteration value — so no default arg.
+    const code = emit(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    let name=total value="0" kind=let
+    let name=fns value="[]"
+    each name=x in="[1, 2]"
+      do value="fns.push((p) => { return total; })"
+    return value="fns"`,
+    );
+    expect(code).toContain('def __kern_closure_0(p):');
+    expect(code).not.toMatch(/def __kern_closure_0\([^)]*total/);
+  });
+
+  test('a `while`-condition var captured inside the body is NOT pinned', () => {
+    // The while-condition var `i` is declared OUTSIDE the loop, so it resolves
+    // below the loop scope and stays late-bound (by-reference parity).
+    const code = emit(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    let name=i value="0" kind=let
+    let name=fns value="[]"
+    while cond="i < 2"
+      do value="fns.push((p) => { return i; })"
+      assign target="i" value="i + 1"
+    return value="fns"`,
+    );
+    expect(code).toContain('def __kern_closure_0(p):');
+    expect(code).not.toMatch(/def __kern_closure_0\([^)]*i=i/);
+  });
+
+  test('a SHADOW-RENAMED inner per-iteration binding pins the RENAMED Python name (P5 kill-switch)', () => {
+    // Inside `each x`, an if-block re-declares `x` (shadow → __k_shadow_x_N)
+    // from a sibling per-iteration local. The closure reads the inner `x`; the
+    // pinned default param MUST be the renamed name on BOTH sides — proving the
+    // TS-AST free-var set and the KERN rename resolution agree (the armed
+    // tribunal kill-switch is satisfied, not tripped).
+    const code = emit(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    let name=fns value="[]"
+    each name=x in="[1, 2]"
+      let name=base value="x + 100"
+      if cond="x > 0"
+        let name=x value="base" kind=let
+        do value="fns.push((p) => { return x; })"
+    return value="fns"`,
+    );
+    expect(code).toMatch(/def __kern_closure_0\(p, __k_shadow_x_\d+=__k_shadow_x_\d+\):/);
+    // The body references the same renamed name (no bare `x`).
+    expect(code).toMatch(/return __k_shadow_x_\d+/);
+  });
+
+  test('nested loops pin BOTH loop vars (alphabetical default-arg order)', () => {
+    const code = emit(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    let name=fns value="[]"
+    each name=x in="[1, 2]"
+      each name=y in="[10, 20]"
+        do value="fns.push((p) => { return x + y; })"
+    return value="fns"`,
+    );
+    expect(code).toContain('def __kern_closure_0(p, x=x, y=y):');
+  });
+
+  test('a `for` range loop var captured in the body is pinned', () => {
+    const code = emit(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    let name=fns value="[]"
+    for name=i from=0 to=3
+      do value="fns.push((p) => { return i; })"
+    return value="fns"`,
+    );
+    expect(code).toContain('def __kern_closure_0(p, i=i):');
+  });
+});

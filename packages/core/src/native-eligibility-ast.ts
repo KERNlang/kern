@@ -552,34 +552,38 @@ function collectBlockArrowRaws(node: ts.Node, sf: ts.SourceFile): string[] {
 }
 
 /** Eligibility verdict for any block-bodied arrows in a statement (slices
- *  0+1). Returns a reject reason or `null` if the statement's block arrows are
- *  all gate-passing and not loop-pinned:
+ *  0+1+2). Returns a reject reason or `null` if the statement's block arrows
+ *  are all gate-passing:
  *   - any arrow whose `classifyClosureBlock` is non-null → that gate reason
  *     (the statement is ineligible for the same reason the closure is).
- *   - a gate-passing arrow inside a loop (`ctx.loopDepth > 0`) →
- *     `closure-in-loop` (slice 2 lifts this with default-arg pinning).
  *   - otherwise `null` (eligible — funnels through isValidKernExpression for
- *     the statement's own expression validity, which now parses the arrow). */
-function classifyBlockArrows(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContext): string | null {
+ *     the statement's own expression validity, which now parses the arrow).
+ *
+ *  Slice 2 lifted the former `closure-in-loop` reject: a gate-passing block
+ *  arrow inside a loop is now eligible. The Python lowerer pins per-iteration
+ *  captures via default args (`def __kern_closure_N(p, x=x):`) so JS
+ *  by-reference / per-iteration capture semantics are preserved across both
+ *  targets. The classifier therefore no longer consults `ctx.loopDepth`. */
+function classifyBlockArrows(stmt: ts.Statement, sf: ts.SourceFile): string | null {
   const raws = collectBlockArrowRaws(stmt, sf);
   if (raws.length === 0) return null;
   for (const raw of raws) {
     const gateReason = classifyClosureBlock(raw);
     if (gateReason !== null) return gateReason;
   }
-  if (ctx.loopDepth > 0) return 'closure-in-loop';
   return null;
 }
 
 /** Classify a single statement. Returns null if the migrator can emit it,
  *  otherwise a kebab-case reason. Recurses through if/try branches. */
 function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContext): string | null {
-  // Slices 0+1 — a statement containing a block-bodied arrow is eligible IFF
-  // every such arrow passes the v1 closure gate AND the statement is not inside
-  // a loop. (Commit A kept these blanket-ineligible; this is the real gate
-  // wiring.) The statement's own expression validity is still checked below via
-  // isValidKernExpression — the block arrow inside it parses now.
-  const closureReason = classifyBlockArrows(stmt, sf, ctx);
+  // Slices 0+1+2 — a statement containing a block-bodied arrow is eligible IFF
+  // every such arrow passes the v1 closure gate. Slice 2 lifted the former
+  // in-loop reject (the Python lowerer now pins per-iteration captures), so the
+  // loop context no longer matters here. The statement's own expression
+  // validity is still checked below via isValidKernExpression — the block arrow
+  // inside it parses now.
+  const closureReason = classifyBlockArrows(stmt, sf);
   if (closureReason !== null) return closureReason;
   if (ts.isVariableStatement(stmt)) {
     const flags = stmt.declarationList.flags;

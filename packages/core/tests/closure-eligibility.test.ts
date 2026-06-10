@@ -5,7 +5,7 @@
  *  reasons, and the commit-A eligibility guard (`closure-stmt-body`) that
  *  keeps migrator eligibility unchanged. */
 
-import { classifyClosureBlock, parseClosureBlockAst } from '../src/closure-eligibility.js';
+import { classifyClosureBlock, collectFreeIdentifierNames, parseClosureBlockAst } from '../src/closure-eligibility.js';
 import { emitExpression } from '../src/codegen-expression.js';
 import { classifyHandlerBodyAst } from '../src/native-eligibility-ast.js';
 import { parseExpression } from '../src/parser-expression.js';
@@ -171,11 +171,63 @@ describe('commit B — eligibility flip (gate-passing block arrows are eligible)
     expect(classifyHandlerBodyAst(destrBody)).toEqual({ eligible: false, reason: 'closure-destructure' });
   });
 
-  test('a gate-passing block arrow INSIDE a loop is rejected with closure-in-loop', () => {
+  test('a gate-passing block arrow INSIDE a loop is now ELIGIBLE (slice 2 lifted closure-in-loop)', () => {
+    // Slice 2: the Python lowerer pins per-iteration captures via default args,
+    // so a gate-passing block arrow inside a loop is eligible (was rejected as
+    // `closure-in-loop` in slices 0+1). The arrow still funnels through the
+    // closure gate; only the loop-context veto was removed.
     const body =
       'const out = [];\nfor (const n of xs) {\n  const f = (x) => { return x + n; };\n  out.push(f(n));\n}\nreturn out;';
     const result = classifyHandlerBodyAst(body);
+    expect(result.eligible).toBe(true);
+    expect(result.reason).toBe('ok');
+  });
+
+  test('a GATE-FAILING block arrow inside a loop still rejects with the gate reason', () => {
+    // The loop-context lift does NOT relax the closure gate itself — a `this`
+    // usage inside a looped closure still rejects with the gate reason, not
+    // `ok`.
+    const body =
+      'const out = [];\nfor (const n of xs) {\n  const f = (x) => { return this.v + x; };\n  out.push(f(n));\n}\nreturn out;';
+    const result = classifyHandlerBodyAst(body);
     expect(result.eligible).toBe(false);
-    expect(result.reason).toBe('closure-in-loop');
+    expect(result.reason).toBe('closure-this');
+  });
+});
+
+describe('collectFreeIdentifierNames — captured free variables', () => {
+  test('returns identifiers referenced but not declared inside the block or in params', () => {
+    // `factor` is captured (free); `y` is a block-local; `x` is a param.
+    const free = collectFreeIdentifierNames('{ const y = x * factor; return y; }', ['x']);
+    expect([...free].sort()).toEqual(['factor']);
+  });
+
+  test('member-access reads only the ROOT identifier, never the property name', () => {
+    // `acc` is the free root; `length`/`push` are property NAMES (not refs).
+    const free = collectFreeIdentifierNames('{ acc.push(x); return acc.length; }', ['x']);
+    expect([...free].sort()).toEqual(['acc']);
+  });
+
+  test('object-literal KEYS are excluded; shorthand and value refs are kept', () => {
+    // `a` is a key (excluded); `b` shorthand IS a read; `v` value IS a read.
+    const free = collectFreeIdentifierNames('{ return { a: v, b }; }', []);
+    expect([...free].sort()).toEqual(['b', 'v']);
+  });
+
+  test('closure params are excluded even when also referenced', () => {
+    const free = collectFreeIdentifierNames('{ return x + y; }', ['x', 'y']);
+    expect([...free]).toEqual([]);
+  });
+
+  test('a block-local that SHADOWS an outer name is not free (declared inside wins)', () => {
+    // `x` is re-declared inside, so the reference resolves to the inner local,
+    // not the outer capture — `x` is NOT free. `seed` IS free (its initializer).
+    const free = collectFreeIdentifierNames('{ const x = seed; return x; }', []);
+    expect([...free].sort()).toEqual(['seed']);
+  });
+
+  test('nested if-branch declarations are excluded from the free set', () => {
+    const free = collectFreeIdentifierNames('{ if (cond) { const t = base; return t; } return base; }', []);
+    expect([...free].sort()).toEqual(['base', 'cond']);
   });
 });

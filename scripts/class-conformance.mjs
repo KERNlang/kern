@@ -858,6 +858,147 @@ fn name=probe returns=number
     return value="new Box().pick(5)"`,
     expected: 2,
   },
+  {
+    // P1 — THE classic loop-variable capture. A closure created per iteration
+    // of `each x` reads `x`. JS re-binds `x` per iteration, so each closure
+    // sees its own value → [0,1,2]. A naive Python hoisted def late-binds the
+    // captured name → all closures see the LAST value → [2,2,2]. The fix pins
+    // `x` via a default arg (`def __kern_closure_N(p, x=x):`).
+    name: 'closure P1: per-iteration each-var capture (classic 0,1,2)',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=fns value="[]"
+    each name=x in="[0, 1, 2]"
+      do value="fns.push((p) => { return x; })"
+    let name=out value="[]"
+    each name=f in="fns"
+      do value="out.push(f(0))"
+    return value="out"`,
+    expected: [0, 1, 2],
+  },
+  {
+    // P2 — a body-LOCAL per-iteration binding (`const t` declared inside the
+    // each body) is also re-bound every iteration in JS. The closure captures
+    // `t`; correct = [10,20]. Without pinning the captured local late-binds to
+    // the last value → [20,20].
+    name: 'closure P2: body-local per-iteration const capture',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=fns value="[]"
+    each name=x in="[1, 2]"
+      let name=t value="x * 10"
+      do value="fns.push((p) => { return t; })"
+    let name=out value="[]"
+    each name=f in="fns"
+      do value="out.push(f(0))"
+    return value="out"`,
+    expected: [10, 20],
+  },
+  {
+    // P3 — an OUTSIDE-loop binding (`total`, declared before the loop) is
+    // captured by reference: JS closures see its CURRENT value at call time.
+    // `total` is mutated to 3 AFTER the loop, then both closures are called →
+    // [3,3]. OVER-pinning would freeze the per-iteration value (0) → [0,0],
+    // wrong. Python late binding is already parity-correct here, so `total`
+    // must NOT be pinned.
+    name: 'closure P3: outside-loop binding NOT pinned (by-reference)',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=total value="0" kind=let
+    let name=fns value="[]"
+    each name=x in="[1, 2]"
+      do value="fns.push((p) => { return total; })"
+    assign target="total" value="3"
+    let name=out value="[]"
+    each name=f in="fns"
+      do value="out.push(f(0))"
+    return value="out"`,
+    expected: [3, 3],
+  },
+  {
+    // P4 — a `while` CONDITION variable (`i`) is declared outside the loop.
+    // Closures created inside the while body capture `i` by reference; after
+    // the loop `i` is 2, so both closures return 2 → [2,2]. Over-pinning the
+    // while-condition var would freeze the per-iteration values → [0,1], wrong.
+    // (Per-iteration locals inside a while body DO pin — see P2 — but the
+    // condition var declared OUTSIDE does not.)
+    name: 'closure P4: while-condition var NOT pinned (by-reference)',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=i value="0" kind=let
+    let name=fns value="[]"
+    while cond="i < 2"
+      do value="fns.push((p) => { return i; })"
+      assign target="i" value="i + 1"
+    let name=out value="[]"
+    each name=f in="fns"
+      do value="out.push(f(0))"
+    return value="out"`,
+    expected: [2, 2],
+  },
+  {
+    // P5 — TRIBUNAL KILL-SWITCH PROBE. Inside `each x`, an `if`-block
+    // re-declares `x` (shadow → __k_shadow_x_N) initialized from a sibling
+    // per-iteration local `base` (= x + 100) — NOT from `x` itself, which
+    // would be a TS temporal-dead-zone ReferenceError. The closure reads the
+    // INNER shadowed `x` (101, 102 per iteration). Correct capture-set
+    // resolution pins the RENAMED inner name → [101,102]. If the TS-AST
+    // free-var set disagrees with the KERN rename resolution (captures the
+    // outer loop `x`, or fails to pin the renamed inner name), the values
+    // diverge ([2,2] from the outer loop var, or [102,102] late-bound on the
+    // un-pinned renamed name). The closure references the renamed name in BOTH
+    // its body and its pinned default param.
+    name: 'closure P5: shadowed inner per-iteration binding (kill-switch)',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=fns value="[]"
+    each name=x in="[1, 2]"
+      let name=base value="x + 100"
+      if cond="x > 0"
+        let name=x value="base" kind=let
+        do value="fns.push((p) => { return x; })"
+    let name=out value="[]"
+    each name=f in="fns"
+      do value="out.push(f(0))"
+    return value="out"`,
+    expected: [101, 102],
+  },
+  {
+    // P6 — nested loops. The INNER each (`y`) creates closures that read both
+    // the inner var `y` AND the outer loop var `x`. BOTH are per-iteration
+    // bindings AT or INSIDE the outermost loop-body scope, so BOTH must pin.
+    // Inner-loop-only pinning leaves `x` late-bound → wrong (all closures see
+    // x's last value 2). Correct = [11,21,12,22].
+    name: 'closure P6: nested loops pin BOTH loop vars',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=fns value="[]"
+    each name=x in="[1, 2]"
+      each name=y in="[10, 20]"
+        do value="fns.push((p) => { return x + y; })"
+    let name=out value="[]"
+    each name=f in="fns"
+      do value="out.push(f(0))"
+    return value="out"`,
+    expected: [11, 21, 12, 22],
+  },
+  {
+    // P7 — the `for` RANGE node (distinct from `each`). The for-loop variable
+    // `i` is per-iteration in JS; closures created in the body must pin it →
+    // [0,1,2]. If the for-node body is not marked as a loop scope, `i` stays
+    // late-bound → [2,2,2] (or the post-loop deleted-name shape).
+    name: 'closure P7: for-range loop var pinned',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=fns value="[]"
+    for name=i from=0 to=3
+      do value="fns.push((p) => { return i; })"
+    let name=out value="[]"
+    each name=f in="fns"
+      do value="out.push(f(0))"
+    return value="out"`,
+    expected: [0, 1, 2],
+  },
 ];
 
 const canon = (v) => JSON.stringify(v);

@@ -11,7 +11,7 @@ export {
 // v1 closure gate — shared eligibility predicate + emission precondition for
 // block-bodied arrows (slices 0+1). Single owner consumed by parser, migrator
 // eligibility classifier, and the Python lowerer.
-export { classifyClosureBlock, parseClosureBlockAst } from './closure-eligibility.js';
+export { classifyClosureBlock, collectFreeIdentifierNames, parseClosureBlockAst } from './closure-eligibility.js';
 export type {
   LowerJsClosureBodyToPythonOptions,
   LowerJsClosureBodyToPythonResult,

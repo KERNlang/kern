@@ -44,6 +44,7 @@
 import type { ExprObject, IRNode, ValueIR } from '@kernlang/core';
 import {
   applyTemplate,
+  collectFreeIdentifierNames,
   emitStringKeyArray,
   isPostfixMutationOperator,
   isSupportedAssignOperator,
@@ -213,6 +214,15 @@ interface BodyEmitContext {
    *  `gensymCounter` so closure names stay stable/independent of other
    *  gensym usage. */
   closureSeq: number;
+  /** Slice-2 loop-variable pinning. Each entry is the INDEX into `localScopes`
+   *  of a scope that is a loop BODY (an `each`/`for`/`while` body). A captured
+   *  name is pinned (JS per-iteration capture → Python default arg) IFF its
+   *  binding resolves at an index `>= loopScopeIndexes[0]` — i.e. at or inside
+   *  the OUTERMOST enclosing loop body. Bindings declared OUTSIDE every loop
+   *  (function params, accumulators, a `while` condition var) resolve below
+   *  `loopScopeIndexes[0]` and stay late-bound (already JS-parity-correct).
+   *  Pushed on loop-body entry, popped on exit (LIFO, mirrors `localScopes`). */
+  loopScopeIndexes: number[];
 }
 
 const INDENT_STEP = '    ';
@@ -238,6 +248,7 @@ function freshCtx(options?: BodyEmitOptions): BodyEmitContext {
     traceHooks: options?.traceHooks,
     pendingHoists: [],
     closureSeq: 0,
+    loopScopeIndexes: [],
   };
 }
 
@@ -389,11 +400,19 @@ function emitChildrenPy(
   ctx: BodyEmitContext,
   indent: string,
   initialBindings: Array<[string, 'const' | 'let']> = [],
+  isLoopBody = false,
 ): string[] {
   const lines: string[] = [];
   ctx.localScopes.push(new Map(initialBindings));
   ctx.regexScopes.push(new Map(initialBindings.map(([name]) => [name, null])));
   ctx.renameStack.push(new Map());
+  // Slice-2 loop-variable pinning. When this recursion is a loop BODY, record
+  // the just-pushed scope's index so `emitBlockClosurePy` can decide whether a
+  // captured name resolves at-or-inside the enclosing loop body (→ pin). Only
+  // loop bodies mark a scope here — if/else/try/branch/with bodies do not, so a
+  // closure inside an `if` that is itself inside a loop still pins via the
+  // outer loop's recorded index (the `if` body's own scope index is >= it).
+  if (isLoopBody) ctx.loopScopeIndexes.push(ctx.localScopes.length - 1);
   // Slices 0+1 fix (agon review, claude 0.7) — isolate the hoist buffer per
   // recursion level. A statement emitter that lowers a HEADER expression (an
   // `if`/`while` condition, an `each`/`for` iterable, a `branch` scrutinee)
@@ -504,7 +523,11 @@ function emitChildrenPy(
           );
         }
         lines.push(`${indent}while ${emitPyExprCtx(condIR, ctx)}:`);
-        const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP);
+        // Slice-2: a `while` body is a loop body — per-iteration locals declared
+        // INSIDE it (JS re-binds block-scoped lets each iteration) must pin.
+        // The condition var, declared OUTSIDE, resolves below the loop scope and
+        // stays late-bound (by-reference, JS-parity-correct).
+        const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, [], true);
         if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
         for (const sl of inner) lines.push(sl);
       } else if (child.type === 'for') {
@@ -621,10 +644,16 @@ function emitChildrenPy(
               `${indent}${INDENT_STEP}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(v)}, "value": ${v}})`,
             );
           }
-          const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, [
-            [k, 'const'],
-            [v, 'const'],
-          ]);
+          const inner = emitChildrenPy(
+            child.children ?? [],
+            ctx,
+            indent + INDENT_STEP,
+            [
+              [k, 'const'],
+              [v, 'const'],
+            ],
+            true,
+          );
           if (inner.length === 0 && !ctx.traceHooks?.eachIterNext) lines.push(`${indent}${INDENT_STEP}pass`);
           for (const sl of inner) lines.push(sl);
           continue;
@@ -652,7 +681,7 @@ function emitChildrenPy(
                 `${indent}${INDENT_STEP}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(k)}, "value": ${k}})`,
               );
             }
-            const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, [[k, 'const']]);
+            const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, [[k, 'const']], true);
             if (inner.length === 0 && !ctx.traceHooks?.eachIterNext) lines.push(`${indent}${INDENT_STEP}pass`);
             for (const sl of inner) lines.push(sl);
           } else {
@@ -664,7 +693,7 @@ function emitChildrenPy(
                 `${indent}${INDENT_STEP}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(v)}, "value": ${v}})`,
               );
             }
-            const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, [[v, 'const']]);
+            const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, [[v, 'const']], true);
             if (inner.length === 0 && !ctx.traceHooks?.eachIterNext) lines.push(`${indent}${INDENT_STEP}pass`);
             for (const sl of inner) lines.push(sl);
           }
@@ -711,7 +740,7 @@ function emitChildrenPy(
             `${indent}${INDENT_STEP}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(primaryBindingPy)}, "value": ${primaryBindingPy}})`,
           );
         }
-        const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, initialBindings);
+        const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, initialBindings, true);
         // `pass` is needed only when the for-loop body would otherwise be empty:
         //   - index-mode path emits NO assignment (direct destructuring), so an
         //     empty children list leaves the loop bodyless → IndentationError.
@@ -764,6 +793,7 @@ function emitChildrenPy(
       }
     }
   } finally {
+    if (isLoopBody) ctx.loopScopeIndexes.pop();
     ctx.localScopes.pop();
     ctx.regexScopes.pop();
     ctx.renameStack.pop();
@@ -848,7 +878,7 @@ function emitRangeForPy(node: IRNode, ctx: BodyEmitContext, indent: string): str
   if (ctx.traceHooks?.forIterNext) {
     out.push(`${bodyIndent}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(name)}, "value": ${name}})`);
   }
-  const inner = emitChildrenPy(node.children ?? [], ctx, bodyIndent, [[name, 'const']]);
+  const inner = emitChildrenPy(node.children ?? [], ctx, bodyIndent, [[name, 'const']], true);
   if (inner.length === 0 && !ctx.traceHooks?.forIterNext) out.push(`${bodyIndent}pass`);
   for (const sl of inner) out.push(sl);
   out.push(`${indent}finally:`);
@@ -1454,6 +1484,20 @@ function lookupLocalBinding(ctx: BodyEmitContext, name: string): 'const' | 'let'
     if (found) return found;
   }
   return undefined;
+}
+
+/** Slice-2 — the index into `ctx.localScopes` of the innermost scope that
+ *  binds `name`, or `null` if no scope binds it (an unresolved/host name).
+ *  Used by `emitBlockClosurePy` to decide loop-variable pinning: a captured
+ *  name pins IFF its binding index is at-or-inside the outermost enclosing
+ *  loop body (`>= ctx.loopScopeIndexes[0]`). Walks innermost→outermost so a
+ *  shadowing inner re-declaration wins over an outer binding of the same name,
+ *  matching the rename resolution the body emission uses. */
+function findBindingScopeIndex(ctx: BodyEmitContext, name: string): number | null {
+  for (let i = ctx.localScopes.length - 1; i >= 0; i--) {
+    if (ctx.localScopes[i].has(name)) return i;
+  }
+  return null;
 }
 
 function isAssignableTarget(node: ValueIR): boolean {
@@ -2140,7 +2184,42 @@ function emitBlockClosurePy(node: Extract<ValueIR, { kind: 'lambda' }>, names: s
         `Internal codegen error: block-arrow closure passed the v1 gate but failed to lower (${lowered.reason ?? 'unknown'}).`,
       );
     }
-    const params = names.join(', ');
+    // Slice-2 loop-variable pinning. JS closures capture variables BY
+    // REFERENCE; a binding created PER-ITERATION (an each/for loop var, or any
+    // let/const declared inside a loop body) is re-bound each iteration, so
+    // each closure sees its own iteration's value. A naive Python hoisted def
+    // late-binds → every closure sees the LAST value (the classic 0,1,2 vs
+    // 2,2,2 bug). FIX: pin such captures via a default arg
+    // (`def __kern_closure_N(p, x=x):`) — Python evaluates defaults at def
+    // time = the hoist point before the enclosing statement = exactly the
+    // per-iteration snapshot JS produces.
+    //
+    // RULE: pin a captured name IFF its binding resolves at-or-inside the
+    // OUTERMOST loop body enclosing the closure (scope index >=
+    // loopScopeIndexes[0]). A binding declared OUTSIDE every loop (a function
+    // param, an accumulator, a `while` condition var) resolves below that
+    // index and stays late-bound — JS sees its CURRENT value at call time, and
+    // Python late binding is already parity-correct for it. Over-pinning those
+    // would WRONGLY freeze a value JS does not freeze.
+    const pinParams: string[] = [];
+    if (ctx.loopScopeIndexes.length > 0) {
+      const free = collectFreeIdentifierNames(node.bodyBlock!.raw, names);
+      const outermostLoopScope = ctx.loopScopeIndexes[0];
+      // Alphabetical by user-facing name for deterministic emission order.
+      for (const name of [...free].sort()) {
+        const scopeIndex = findBindingScopeIndex(ctx, name);
+        if (scopeIndex === null || scopeIndex < outermostLoopScope) continue;
+        // Resolve to the SAME Python name the body emission uses. A captured
+        // loop-body binding goes through the block-scope rename stack
+        // (`resolveLocalRename`) — identical to the `ident` emit path — so a
+        // shadow-renamed inner `x` pins as `__k_shadow_x_N=__k_shadow_x_N`.
+        // (symbolMap is param-only and never names a loop-body-scoped binding,
+        // so it is intentionally not consulted here.)
+        const renamed = resolveLocalRename(ctx, name);
+        pinParams.push(`${renamed}=${renamed}`);
+      }
+    }
+    const params = [...names, ...pinParams].join(', ');
     // `lowered.lines` are body lines at 4-space indent (the lowerer's own
     // convention); they nest directly under the `def` header.
     ctx.pendingHoists.push([`def ${closureName}(${params}):`, ...lowered.lines]);
