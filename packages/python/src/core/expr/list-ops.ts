@@ -93,7 +93,9 @@ export function isSharedPortableArrayMethod(method: string): boolean {
  * so a side-effectful receiver — `makeBox().items.reverse()` — would run its
  * effects twice on Python and break JS parity. The class-body emitter gates
  * these on a provably-pure receiver; single-eval methods (slice/includes/
- * indexOf/join/flat/concat) accept impure receivers.
+ * join/flat/concat) accept impure receivers. (`indexOf` moved INTO this set
+ * when its str-receiver branch landed — the isinstance probe names the
+ * receiver again.)
  * Receiver eval counts: push x2, reverse x2, at x3, fill x1-4 (3-arg form),
  * indexOf x2-3 (isinstance probe + the chosen str/array branch), lastIndexOf x4.
  * NOT tracked: argument multi-eval (concat arg x3, at n x3, indexOf needle x2,
@@ -165,7 +167,12 @@ export function lowerPortableArrayMethodPy(receiver: string, method: string, arg
     // str/array split below. JS `"hello".indexOf("ll")` is 2 — the old element
     // scan treated the string char-by-char and never matched the 2-char needle.
     if (fromIndex) {
-      return `(${receiver}.find(${needle}, ${fromIndex}) if isinstance(${receiver}, str) else (next((__i for __i, __v in enumerate(${receiver}) if __i >= ${fromIndex} and __v == ${needle}), -1)))`;
+      // JS CLAMPS a negative fromIndex to 0 on string receivers; Python's
+      // str.find treats a negative start as from-the-end — `max(…, 0)` keeps
+      // parity ("hello".indexOf("h", -2) is 0 in JS). The ARRAY branch's
+      // negative-fromIndex semantics (JS counts from the end there) remain a
+      // pre-existing route divergence — documented, deferred.
+      return `(${receiver}.find(${needle}, max(${fromIndex}, 0)) if isinstance(${receiver}, str) else (next((__i for __i, __v in enumerate(${receiver}) if __i >= ${fromIndex} and __v == ${needle}), -1)))`;
     }
     return `(${receiver}.find(${needle}) if isinstance(${receiver}, str) else (next((__i for __i, __v in enumerate(${receiver}) if __v == ${needle}), -1)))`;
   }
