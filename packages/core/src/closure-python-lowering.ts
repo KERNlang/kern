@@ -46,7 +46,11 @@ function hasUnsupportedNestedConstruct(node: ts.Node): boolean {
       ts.isFunctionExpression(child) ||
       ts.isFunctionDeclaration(child) ||
       child.kind === ts.SyntaxKind.ThisKeyword ||
-      child.kind === ts.SyntaxKind.YieldExpression
+      child.kind === ts.SyntaxKind.YieldExpression ||
+      // Defense-in-depth (agon review): the gate rejects `await` already, but
+      // this safety net runs for ALL consumers — keep it in lockstep so a
+      // future gate widening cannot silently emit invalid sync Python.
+      ts.isAwaitExpression(child)
     ) {
       unsupported = true;
       return;
@@ -153,10 +157,21 @@ export function lowerJsClosureBodyToPython(
   // `name -= 1`. Value-position inc/dec and member targets are gate-rejected.
   const emitIncDec = (expr: ts.PrefixUnaryExpression | ts.PostfixUnaryExpression, indent: string): string[] | null => {
     if (expr.operator !== ts.SyntaxKind.PlusPlusToken && expr.operator !== ts.SyntaxKind.MinusMinusToken) return null;
-    if (!ts.isIdentifier(expr.operand)) return null;
     const step = expr.operator === ts.SyntaxKind.PlusPlusToken ? '+=' : '-=';
-    recordIfFree(expr.operand.text);
-    return [`${indent}${lowerTarget(expr.operand.text)} ${step} 1`];
+    if (ts.isIdentifier(expr.operand)) {
+      recordIfFree(expr.operand.text);
+      return [`${indent}${lowerTarget(expr.operand.text)} ${step} 1`];
+    }
+    // Member/index inc/dec (`acc.n++`, `acc[0]--`) — the gate accepts these
+    // (mutating a captured object by reference, like the assignment forms), so
+    // the lowerer must too (agon review, kimi 0.9 + zai 0.9 gate/lowerer
+    // drift). The whole target lowers through `lowerExpression` exactly like
+    // member ASSIGNMENT targets; NO `recordIfFree` — by-reference mutation
+    // needs no `nonlocal`.
+    if (ts.isPropertyAccessExpression(expr.operand) || ts.isElementAccessExpression(expr.operand)) {
+      return [`${indent}${lowerExpr(expr.operand)} ${step} 1`];
+    }
+    return null;
   };
 
   const emitStatement = (stmt: ts.Statement, indent: string): string[] | null => {

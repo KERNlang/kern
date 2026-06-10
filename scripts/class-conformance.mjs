@@ -1461,6 +1461,21 @@ fn name=probe returns=boolean
     // fix: the write went to the OUTER x while reads hit the renamed inner one
     // (f() returned 2, outer corrupted to 12 → [2, 2, 12]). Correct JS: f()=12,
     // inner x=12, outer x untouched → [12, 12, 1].
+    name: 'closure MUT10: member/index inc-dec on a captured object (gate/lowerer lockstep)',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=acc value="[10, 5]"
+    let name=f value="() => { acc[0]++; acc[1]--; return 0; }"
+    do value="f()"
+    do value="f()"
+    return value="acc"`,
+    // The gate accepts member/index ++/-- (by-reference mutation); the lowerer
+    // must too (agon review: kimi 0.9 + zai 0.9 found the drift — emitIncDec
+    // required a bare ident and eligible code died 'unsupported-statement').
+    // [10,5] → two f() calls → [12, 3]. No nonlocal involved.
+    expected: [12, 3],
+  },
+  {
     name: 'closure MUT9: write to shadow-renamed capture targets the renamed binding',
     kern: `fn name=probe returns=number[]
   handler lang=kern
