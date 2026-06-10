@@ -523,6 +523,43 @@ describe('Python block-bodied arrow closures (slices 0+1)', () => {
     expect(code).toContain('    g = __kern_closure_0');
   });
 
+  test('a pinned loop-local REASSIGNED AFTER the closure fails closed (no silent divergence)', () => {
+    // agon-review (claude 0.7) divergence fix: `let t = 0; fns.push(() => t);
+    // t = t + x` — JS closures see the post-creation mutation ([1,2]); the
+    // def-time pin would freeze t=0 ([0,0]). Must be a compile error, never
+    // silently wrong output.
+    const kern = `screen name=S
+  callback name=fn params="c:boolean"
+    handler lang=kern
+      let name=fns value="[]" kind=let
+      each name=x in="[1, 2]"
+        let name=t value="0" kind=let
+        do value="fns.push((p) => { return t; })"
+        assign target="t" value="t + x"
+      return value="fns"`;
+    const handler = findHandler(parse(kern));
+    expect(() => emitNativeKernBodyPythonWithImports(handler as IRNode, { outerBindings: ['c'] })).toThrow(
+      /reassigned after the closure/,
+    );
+  });
+
+  test('a pinned loop-local assigned BEFORE the closure still pins (assignment order respected)', () => {
+    // The reject is order-aware: assignments at an EARLIER sibling index are
+    // captured by the pin and remain legal.
+    const kern = `screen name=S
+  callback name=fn params="c:boolean"
+    handler lang=kern
+      let name=fns value="[]" kind=let
+      each name=x in="[1, 2]"
+        let name=t value="0" kind=let
+        assign target="t" value="t + x"
+        do value="fns.push((p) => { return t; })"
+      return value="fns"`;
+    const handler = findHandler(parse(kern));
+    const { code } = emitNativeKernBodyPythonWithImports(handler as IRNode, { outerBindings: ['c'] });
+    expect(code).toMatch(/def __kern_closure_0\(p, t=t\):/);
+  });
+
   test('a closure in an IF CONDITION hoists BEFORE the if header (per-level buffer isolation)', () => {
     // agon-review fix (claude 0.7): the condition's def was pushed to
     // pendingHoists before the if-branch recursed into its body, and the

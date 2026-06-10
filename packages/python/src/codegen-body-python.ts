@@ -224,6 +224,18 @@ interface BodyEmitContext {
    *  `loopScopeIndexes[0]` and stay late-bound (already JS-parity-correct).
    *  Pushed on loop-body entry, popped on exit (LIFO, mirrors `localScopes`). */
   loopScopeIndexes: number[];
+  /** Slice-2 fix (agon review, claude 0.7) — one frame per active loop body,
+   *  parallel to `loopScopeIndexes`. `assignLast` maps a bare assign-target
+   *  name to the LAST top-level child index (within that loop body) whose
+   *  subtree assigns it; `current` is the child index the loop body is
+   *  emitting right now. The default-arg pin freezes a capture at def time,
+   *  but JS captures BY REFERENCE — so a pinned per-iteration binding that is
+   *  REASSIGNED in a LATER sibling statement diverges (JS sees the mutation,
+   *  the frozen default does not). Such captures fail closed at emission
+   *  instead of emitting silently wrong values. Known v1 limit: a closure and
+   *  a later assignment nested inside the SAME top-level child are not
+   *  order-distinguished (the whole child shares one index). */
+  loopLaterAssignFrames: Array<{ assignLast: Map<string, number>; current: number }>;
 }
 
 const INDENT_STEP = '    ';
@@ -250,6 +262,7 @@ function freshCtx(options?: BodyEmitOptions): BodyEmitContext {
     pendingHoists: [],
     closureSeq: 0,
     loopScopeIndexes: [],
+    loopLaterAssignFrames: [],
   };
 }
 
@@ -396,6 +409,26 @@ function trailingCommentToPy(raw: string): string {
   return `# ${raw}`.trimEnd();
 }
 
+/** Slice-2 fix — map each bare-identifier `assign` target inside a loop body
+ *  to the LAST top-level child index whose subtree assigns it. Recurses into
+ *  nested statements (if/else branches, nested loops, try bodies) but
+ *  attributes every assignment to the TOP-LEVEL child containing it (the
+ *  granularity `loopLaterAssignFrames.current` tracks). Member/index targets
+ *  (`this.x`, `a[i]`) are excluded — mutating a captured OBJECT is
+ *  by-reference in both languages and never pinned. */
+function collectLoopAssignLastIndexes(children: IRNode[]): Map<string, number> {
+  const last = new Map<string, number>();
+  const scan = (node: IRNode, topIdx: number): void => {
+    if (node.type === 'assign') {
+      const target = String((node.props as Record<string, unknown> | undefined)?.target ?? '');
+      if (target && !target.includes('.') && !target.includes('[')) last.set(target, topIdx);
+    }
+    for (const child of node.children ?? []) scan(child, topIdx);
+  };
+  for (let i = 0; i < children.length; i++) scan(children[i], i);
+  return last;
+}
+
 function emitChildrenPy(
   children: IRNode[],
   ctx: BodyEmitContext,
@@ -414,6 +447,11 @@ function emitChildrenPy(
   // closure inside an `if` that is itself inside a loop still pins via the
   // outer loop's recorded index (the `if` body's own scope index is >= it).
   if (isLoopBody) ctx.loopScopeIndexes.push(ctx.localScopes.length - 1);
+  // Slice-2 fix — pre-scan this loop body for bare-name assign targets so the
+  // closure emitter can reject a pin whose binding is reassigned AFTER the
+  // closure-creating statement (see loopLaterAssignFrames doc).
+  const loopFrame = isLoopBody ? { assignLast: collectLoopAssignLastIndexes(children), current: -1 } : null;
+  if (loopFrame) ctx.loopLaterAssignFrames.push(loopFrame);
   // Slices 0+1 fix (agon review, claude 0.7) — isolate the hoist buffer per
   // recursion level. A statement emitter that lowers a HEADER expression (an
   // `if`/`while` condition, an `each`/`for` iterable, a `branch` scrutinee)
@@ -432,6 +470,7 @@ function emitChildrenPy(
   try {
     for (let i = 0; i < children.length; i++) {
       const child = children[i];
+      if (loopFrame) loopFrame.current = i;
       let trailStart = lines.length;
       if (child.type === 'comment') {
         for (const line of emitCommentPy(child)) lines.push(`${indent}${line}`);
@@ -795,6 +834,7 @@ function emitChildrenPy(
     }
   } finally {
     if (isLoopBody) ctx.loopScopeIndexes.pop();
+    if (loopFrame) ctx.loopLaterAssignFrames.pop();
     ctx.localScopes.pop();
     ctx.regexScopes.pop();
     ctx.renameStack.pop();
@@ -2210,6 +2250,24 @@ function emitBlockClosurePy(node: Extract<ValueIR, { kind: 'lambda' }>, names: s
       for (const name of [...free].sort()) {
         const scopeIndex = findBindingScopeIndex(ctx, name);
         if (scopeIndex === null || scopeIndex < outermostLoopScope) continue;
+        // Slice-2 fix (agon review, claude 0.7) — a pin FREEZES the value at
+        // def time, but JS captures by reference: if the pinned binding is
+        // REASSIGNED in a later sibling statement of any enclosing loop body,
+        // the JS closure sees the mutation and the frozen default does not
+        // (`let t = 0; fns.push(() => t); t = t + x` → JS [1,2], pinned
+        // Python [0,0]). Fail closed instead of emitting silent divergence.
+        // Assignments BEFORE the closure (lower child index) are fine — the
+        // pin captures their result.
+        for (const frame of ctx.loopLaterAssignFrames) {
+          const lastAssign = frame.assignLast.get(name);
+          if (lastAssign !== undefined && lastAssign > frame.current) {
+            throw new Error(
+              `Closure captures loop-local '${name}' which is reassigned after the closure is created — ` +
+                `the per-iteration pin would freeze a value JS does not freeze. ` +
+                `Bind the final value to a fresh const before creating the closure (v1 limitation).`,
+            );
+          }
+        }
         // Resolve to the SAME Python name the body emission uses. A captured
         // loop-body binding goes through the block-scope rename stack
         // (`resolveLocalRename`) — identical to the `ident` emit path — so a
@@ -2217,6 +2275,15 @@ function emitBlockClosurePy(node: Extract<ValueIR, { kind: 'lambda' }>, names: s
         // (symbolMap is param-only and never names a loop-body-scoped binding,
         // so it is intentionally not consulted here.)
         const renamed = resolveLocalRename(ctx, name);
+        // Defensive (agon review, claude 0.3 nit): a renamed pin equal to a
+        // closure param would emit `def f(p, p=p)` — a Python SyntaxError.
+        // Renames are __k_shadow_*/gensym forms, so this is theoretical; fail
+        // loud rather than emit invalid Python if it ever happens.
+        if (names.includes(renamed)) {
+          throw new Error(
+            `Internal codegen error: pinned capture '${name}' renames to '${renamed}', colliding with a closure parameter.`,
+          );
+        }
         pinParams.push(`${renamed}=${renamed}`);
       }
     }
