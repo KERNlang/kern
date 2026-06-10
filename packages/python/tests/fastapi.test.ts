@@ -3418,4 +3418,50 @@ describe('FastAPI Transpiler', () => {
       expect(code).toContain('entries_typed: list[Any] = _kern_js_object_entries(');
     });
   });
+
+  // ── route block-arrow closure mutation (the `nonlocal` route bug fix) ──────
+  describe('route block-arrow closure free-var write (nonlocal)', () => {
+    test('a route array-method closure writing a free handler-local emits nonlocal (live UnboundLocalError fix)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePortableHandlerFastAPI } = await import('../src/fastapi-portable.js');
+
+      // RED at base: the route hoist wrapper (`lowerArrowBlockClosure`) emitted
+      // the def WITHOUT a `nonlocal` declaration, so the free write `total =
+      // total + x` shadowed `total` → `UnboundLocalError` (read+write) at
+      // runtime, while the TS target re-emitted the arrow verbatim and worked.
+      // The fix prepends `nonlocal total` as the def's FIRST body line for ALL
+      // written free names (the route path has no loop-pinning concept).
+      const kern = [
+        'route method=post path=/api/t',
+        '  derive name=doubled expr={{ nums.map((x) => { total = total + x; return x * 2; }) }}',
+        '  respond 200 json={{ {doubled: doubled, total: total} }}',
+      ].join('\n');
+      const imports = new Set<string>();
+      const lines = generatePortableHandlerFastAPI(parse(kern), '    ', [], imports);
+      const code = lines.join('\n');
+
+      // The hoisted def carries `nonlocal total` BEFORE the assignment.
+      expect(code).toContain('def __kern_closure_0(x):');
+      const defIdx = code.indexOf('def __kern_closure_0(x):');
+      const nonlocalIdx = code.indexOf('nonlocal total', defIdx);
+      const writeIdx = code.indexOf('total = total + x', defIdx);
+      expect(nonlocalIdx).toBeGreaterThan(defIdx);
+      expect(writeIdx).toBeGreaterThan(nonlocalIdx); // nonlocal precedes the write
+    });
+
+    test('a route closure with NO free write emits no nonlocal line', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePortableHandlerFastAPI } = await import('../src/fastapi-portable.js');
+
+      const kern = [
+        'route method=post path=/api/t',
+        '  derive name=doubled expr={{ nums.map((x) => { const y = x * 2; return y; }) }}',
+        '  respond 200 json={{ {doubled: doubled} }}',
+      ].join('\n');
+      const imports = new Set<string>();
+      const code = generatePortableHandlerFastAPI(parse(kern), '    ', [], imports).join('\n');
+      expect(code).toContain('def __kern_closure_0(x):');
+      expect(code).not.toContain('nonlocal');
+    });
+  });
 });

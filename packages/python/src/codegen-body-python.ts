@@ -239,7 +239,16 @@ interface BodyEmitContext {
    *  reject is `>=` (not `>`): a reassignment in the SAME top-level child as the
    *  closure also fails closed (it cannot be proven to run before the closure).
    *  `assignLast` covers both `assign` (incl. compound/postfix `op=` forms, same
-   *  node type) and `set` (a bare-name cell write). */
+   *  node type) and `set` (a bare-name cell write).
+   *
+   *  Mutation-v1 note: this sibling-reassignment check applies ONLY to PINNED
+   *  candidates (per-iteration loop-locals that pin via a default arg). A
+   *  free-variable WRITE inside a closure body (`emitBlockClosurePy`'s
+   *  `nonlocal` path) targets an OUTER binding declared below the outermost
+   *  loop scope, so it is never a pin candidate and never enters this frame —
+   *  the `>=` reject cannot misfire on a nonlocal-written capture. (A write to a
+   *  binding that IS a per-iteration capture is rejected earlier as
+   *  `closure-pinned-write`, so the two paths stay disjoint.) */
   loopLaterAssignFrames: Array<{ assignLast: Map<string, number>; current: number }>;
 }
 
@@ -2282,6 +2291,16 @@ function emitBlockClosurePy(node: Extract<ValueIR, { kind: 'lambda' }>, names: s
       // js_truthy) so a condition inside the closure matches the same
       // condition outside it.
       lowerCondition: (raw) => emitPyExprCtx(parseExpression(raw), ctx),
+      // The closure's own params are def-locals, never `nonlocal`: a write to a
+      // param (`(x) => { x = x + 1 }`) must not be reported as a written FREE
+      // name. The lowerer excludes both params and block-locals.
+      paramNames: names,
+      // Bare write TARGETS resolve through the SAME rename machinery reads use
+      // — a write to a shadow-renamed capture must target the renamed binding
+      // (`__k_shadow_x_N = …`), not the outer one (probe-verified silent
+      // wrong-values without this). Params/block-locals are never renamed, so
+      // the resolver is identity for them.
+      lowerAssignTarget: (name) => resolveLocalRename(ctx, name),
     });
     if (!lowered.ok) {
       // The commit-A gate already accepted this block, so a lowering failure
@@ -2308,6 +2327,12 @@ function emitBlockClosurePy(node: Extract<ValueIR, { kind: 'lambda' }>, names: s
     // Python late binding is already parity-correct for it. Over-pinning those
     // would WRONGLY freeze a value JS does not freeze.
     const pinParams: string[] = [];
+    // The user-facing names that got PINNED (per-iteration loop captures). A
+    // WRITTEN free name that is also pinned is unlowerable in v1 (the def-time
+    // pin freezes the value; a `nonlocal` write would target the wrong binding)
+    // — it throws `closure-pinned-write` below. Tracked here so the throw and
+    // the disjointness assertion can consult it.
+    const pinnedNames = new Set<string>();
     if (ctx.loopScopeIndexes.length > 0) {
       const free = collectFreeIdentifierNames(node.bodyBlock!.raw, names);
       const outermostLoopScope = ctx.loopScopeIndexes[0];
@@ -2354,12 +2379,63 @@ function emitBlockClosurePy(node: Extract<ValueIR, { kind: 'lambda' }>, names: s
           );
         }
         pinParams.push(`${renamed}=${renamed}`);
+        pinnedNames.add(name);
       }
     }
+
+    // Mutation v1 — free-variable WRITES (`nonlocal`). A bare write to a free
+    // capture (one that is neither a closure param nor a block-local — the
+    // lowerer already excluded those) needs a `nonlocal` declaration so Python
+    // rebinds the OUTER binding instead of creating a def-local shadow (without
+    // it: `UnboundLocalError` for read+write, or a silent dead local for
+    // write-only). Member/index writes never appear in `writtenFreeNames` —
+    // they mutate a captured object by reference and need no `nonlocal`.
+    //
+    // The eligibility≢lowerability gap (documented on the gate): a write to a
+    // PINNED per-iteration capture cannot be lowered. The def-time default-arg
+    // pin freezes the value, and a `nonlocal` on that name would rebind the
+    // enclosing loop-body binding — neither matches JS's per-iteration
+    // by-reference capture. The gate cannot see the enclosing loop from a
+    // single statement, so we fail closed LOUDLY here.
+    const nonlocalNames: string[] = [];
+    for (const name of [...lowered.writtenFreeNames].sort()) {
+      if (pinnedNames.has(name)) {
+        throw new Error(
+          `Closure writes to per-iteration loop capture '${name}', which v1 cannot lower: ` +
+            `mutation of a per-iteration loop capture needs cell-boxing (v2). ` +
+            `Bind to an outer variable or restructure.`,
+        );
+      }
+      nonlocalNames.push(name);
+    }
+    // Council's riskiest-thing defensive assertion: a name cannot be both
+    // pinned (a per-iteration loop capture → default-arg) AND nonlocal (an
+    // outer free write). By construction they are disjoint — pinning requires
+    // the binding to resolve AT-OR-INSIDE the outermost loop, while a
+    // nonlocal-written name is precisely one that did NOT (the pinned case
+    // throws above). If this ever fires, the pin condition and the written-free
+    // classification have drifted — a DESIGN error, not a user error.
+    for (const name of nonlocalNames) {
+      if (pinnedNames.has(name)) {
+        throw new Error(
+          `Internal codegen invariant violated: '${name}' is both pinned and nonlocal in closure ${closureName}.`,
+        );
+      }
+    }
+
     const params = [...names, ...pinParams].join(', ');
     // `lowered.lines` are body lines at 4-space indent (the lowerer's own
-    // convention); they nest directly under the `def` header.
-    ctx.pendingHoists.push([`def ${closureName}(${params}):`, ...lowered.lines]);
+    // convention); they nest directly under the `def` header. A `nonlocal` line
+    // (if any) is the def's FIRST body statement (Python requires it before any
+    // use of the name). The declared names are RENAME-RESOLVED — the body's
+    // write targets went through `lowerAssignTarget` (same resolver), so the
+    // nonlocal declaration, the writes, and the enclosing binding all agree on
+    // the renamed Python name for shadow-renamed captures.
+    const nonlocalLine =
+      nonlocalNames.length > 0
+        ? [`    nonlocal ${nonlocalNames.map((n) => resolveLocalRename(ctx, n)).join(', ')}`]
+        : [];
+    ctx.pendingHoists.push([`def ${closureName}(${params}):`, ...nonlocalLine, ...lowered.lines]);
     return closureName;
   } finally {
     ctx.shadowedSymbols = previous;

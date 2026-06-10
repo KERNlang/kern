@@ -43,8 +43,35 @@ describe('parseExpression — block-bodied arrow capture', () => {
     expect(() => parseExpression('(x) => { this.y = 1; return x; }')).toThrow(/closure-this/);
   });
 
-  test('THROWS on free-variable write (`count++`)', () => {
-    expect(() => parseExpression('(x) => { count++; return count; }')).toThrow(/closure-free-var-assign/);
+  test('ACCEPTS a free-variable write (mutation v1) — `count++` parses', () => {
+    // Mutation v1 lifted the assignment reject: a bare free write is accepted at
+    // the gate (the Python emitter adds `nonlocal`; TS re-emits verbatim).
+    const ir = parseExpression('(x) => { count++; return count; }') as { kind: string; bodyBlock?: { raw: string } };
+    expect(ir.kind).toBe('lambda');
+    expect(ir.bodyBlock).toEqual({ raw: '{ count++; return count; }' });
+  });
+
+  test('THROWS on a `this`-rooted assign target (still closure-this)', () => {
+    expect(() => parseExpression('(x) => { this.y = 1; return x; }')).toThrow(/closure-this/);
+  });
+
+  test('THROWS on a value-position ++ (`arr.push(x++)`) — closure-incdec-value-position', () => {
+    expect(() => parseExpression('(x) => { arr.push(x++); return 0; }')).toThrow(/closure-incdec-value-position/);
+  });
+
+  test('THROWS on value-position assignments — closure-assign-value-position (agon review, claude 0.85)', () => {
+    // Same drift class as value-position ++: the lowerer can only emit an
+    // assignment that is the DIRECT expression of an ExpressionStatement.
+    expect(() => parseExpression('(x) => { arr.push(x = 5); return 0; }')).toThrow(/closure-assign-value-position/);
+    expect(() => parseExpression('(x) => { const y = (x = 5); return y; }')).toThrow(/closure-assign-value-position/);
+    expect(() => parseExpression('(x) => { return (x = 5); }')).toThrow(/closure-assign-value-position/);
+    expect(() => parseExpression('(x) => { let a = 0; a = (x = 2); return a; }')).toThrow(
+      /closure-assign-value-position/,
+    );
+  });
+
+  test('THROWS on an unsupported assignment operator (`x &= 1`) — closure-unsupported-operator', () => {
+    expect(() => parseExpression('(x) => { count &= 1; return count; }')).toThrow(/closure-unsupported-operator/);
   });
 
   test('THROWS on a `for` loop inside the block', () => {
@@ -92,10 +119,24 @@ describe('classifyClosureBlock — accept set + reject reasons', () => {
     expect(classifyClosureBlock('{ return; }')).toBeNull();
     expect(classifyClosureBlock('{ foo(); return 1; }')).toBeNull();
     expect(classifyClosureBlock('{ if (c) { return 1 } else return 0 }')).toBeNull();
-    // Method-call mutation on a captured object is allowed (the v1 mutation
-    // story). Assignment EXPRESSIONS — even to closure-locals — are NOT (see
-    // the assignment-free v1 rejections below; agon-review codex finding).
+    // Method-call mutation on a captured object is allowed (the original v1
+    // mutation story).
     expect(classifyClosureBlock('{ acc.push(x); return acc.length; }')).toBeNull();
+    // Mutation v1 — bare assignments (local OR free), compound forms, statement-
+    // position ++/--, and non-this member/index writes are now ACCEPTED. The
+    // gate is a shape classifier; the Python emitter decides pinned-vs-nonlocal.
+    expect(classifyClosureBlock('{ count = count + 1; return count; }')).toBeNull();
+    expect(classifyClosureBlock('{ count++; return count; }')).toBeNull();
+    expect(classifyClosureBlock('{ let x = 1; x = x + 1; return x; }')).toBeNull();
+    expect(classifyClosureBlock('{ let x = 1; x++; return x; }')).toBeNull();
+    expect(classifyClosureBlock('{ x *= 2; return x; }')).toBeNull();
+    expect(classifyClosureBlock('{ x -= 1; return x; }')).toBeNull();
+    expect(classifyClosureBlock('{ x /= 2; return x; }')).toBeNull();
+    expect(classifyClosureBlock('{ x %= 2; return x; }')).toBeNull();
+    expect(classifyClosureBlock('{ acc.total = 1; return 1; }')).toBeNull();
+    expect(classifyClosureBlock('{ acc[0] = 1; return 1; }')).toBeNull();
+    expect(classifyClosureBlock('{ acc.n++; return 1; }')).toBeNull();
+    expect(classifyClosureBlock('{ acc[0] += 5; return 1; }')).toBeNull();
   });
 
   test('returns a distinct reason for each reject category', () => {
@@ -109,24 +150,23 @@ describe('classifyClosureBlock — accept set + reject reasons', () => {
     expect(classifyClosureBlock('{ switch (x) { default: return 1; } }')).toBe('closure-switch');
     expect(classifyClosureBlock('{ var n = 1; return n; }')).toBe('closure-var');
     expect(classifyClosureBlock('{ const {a} = x; return a; }')).toBe('closure-destructure');
-    expect(classifyClosureBlock('{ count = count + 1; return count; }')).toBe('closure-free-var-assign');
-    expect(classifyClosureBlock('{ count++; return count; }')).toBe('closure-free-var-assign');
-    // Non-bare assignment targets (agon review, agy blocking finding) — a
-    // destructuring assignment or parenthesized target could smuggle a
-    // free-variable write past the bare-identifier check. Fail closed.
+    // A `this`-rooted assign target is first and foremost a `this` usage.
+    expect(classifyClosureBlock('{ this.x = 1; return 1; }')).toBe('closure-this');
+    // Non-bare assignment targets (a destructuring assignment or parenthesized
+    // target could smuggle a free-variable write past the bare-identifier
+    // check). Fail closed.
     expect(classifyClosureBlock('{ ({ a: outer } = x); return 1; }')).toBe('closure-unsupported-assign-target');
     expect(classifyClosureBlock('{ [outer] = x; return 1; }')).toBe('closure-unsupported-assign-target');
     expect(classifyClosureBlock('{ (outer) = x; return 1; }')).toBe('closure-unsupported-assign-target');
-    // v1 is ASSIGNMENT-FREE inside closures (agon review, codex gate/lowerer
-    // drift finding): the class-path lowering routes expression statements
-    // through parseExpression, which has no assignment grammar — a
-    // gate-approved assignment would be an eligible-handler compile error.
-    // Local and member targets reject with precise not-yet-supported reasons.
-    expect(classifyClosureBlock('{ let x = 1; x = x + 1; return x; }')).toBe('closure-local-assign');
-    expect(classifyClosureBlock('{ let x = 1; x++; return x; }')).toBe('closure-local-assign');
-    expect(classifyClosureBlock('{ acc.total = 1; return 1; }')).toBe('closure-member-assign');
-    expect(classifyClosureBlock('{ acc[0] = 1; return 1; }')).toBe('closure-member-assign');
-    expect(classifyClosureBlock('{ acc.n++; return 1; }')).toBe('closure-member-assign');
+    // Mutation-v1 NEW reasons: an assignment operator outside {=,+=,-=,*=,/=,%=}
+    // and a value-position ++/-- (operand of a larger expression).
+    expect(classifyClosureBlock('{ count &= 1; return count; }')).toBe('closure-unsupported-operator');
+    expect(classifyClosureBlock('{ count |= 1; return count; }')).toBe('closure-unsupported-operator');
+    expect(classifyClosureBlock('{ count <<= 1; return count; }')).toBe('closure-unsupported-operator');
+    expect(classifyClosureBlock('{ count **= 2; return count; }')).toBe('closure-unsupported-operator');
+    expect(classifyClosureBlock('{ acc.push(x++); return 0; }')).toBe('closure-incdec-value-position');
+    expect(classifyClosureBlock('{ const y = x++; return y; }')).toBe('closure-incdec-value-position');
+    expect(classifyClosureBlock('{ f(--n); return 0; }')).toBe('closure-incdec-value-position');
     // Method CALLS on captured objects remain the v1 mutation story.
     expect(classifyClosureBlock('{ acc.push(1); return acc.length; }')).toBeNull();
     // Statement outside the accept set (e.g. a labeled statement is caught by

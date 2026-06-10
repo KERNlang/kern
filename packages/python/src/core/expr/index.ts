@@ -230,11 +230,27 @@ function lowerArrowBlockClosure(arrow: { params: string[]; body: string }, ctx: 
         undefined,
         ctx.closureSeq,
       )})`,
+    // Closure params are def-locals (never `nonlocal`); the lowerer excludes
+    // them and block-locals from the written-free set.
+    paramNames: arrow.params,
   });
   if (!result.ok) return null;
   ctx.imports?.add(KERN_JS_HELPER_PY);
   const params = arrow.params.join(', ');
-  const def = [`def ${name}(${params}):`, ...(result.lines.length > 0 ? result.lines : ['    pass'])].join('\n');
+  // Mutation v1 — free-variable WRITES need `nonlocal`. The route hoisted def
+  // nests INSIDE the route handler function, so a free capture that the closure
+  // writes is a handler-local (a `derive`/method-local). Unlike the class/
+  // native path (`emitBlockClosurePy`), the route path has NO loop-pinning
+  // concept — every written free name is an outer handler binding and ALL of
+  // them get a `nonlocal` declaration. Without it the def shadows the name and
+  // raises `UnboundLocalError` (read+write) or silently writes a dead local
+  // (write-only) — a live route bug this fixes. `nonlocal` is the def's FIRST
+  // body statement (Python requires it before any use). Member/index writes
+  // never appear in `writtenFreeNames` (by-reference mutation needs no decl).
+  const sortedFreeWrites = [...result.writtenFreeNames].sort();
+  const nonlocalLines = sortedFreeWrites.length > 0 ? [`    nonlocal ${sortedFreeWrites.join(', ')}`] : [];
+  const bodyLines = result.lines.length > 0 ? result.lines : ['    pass'];
+  const def = [`def ${name}(${params}):`, ...nonlocalLines, ...bodyLines].join('\n');
   if (ctx.hoistedDefs) {
     ctx.hoistedDefs.push(def);
   } else {

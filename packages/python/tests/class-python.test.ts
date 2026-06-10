@@ -887,3 +887,137 @@ describe('Python lambda-bearing array methods (map/filter/some/every)', () => {
     expect(code).not.toContain('__kern_cb_');
   });
 });
+
+describe('Python closure mutation v1 (local/free assigns + nonlocal + pinned-write throw)', () => {
+  function findHandler(node: IRNode | null): IRNode | null {
+    if (!node) return null;
+    if (node.type === 'handler') return node;
+    for (const child of node.children ?? []) {
+      const found = findHandler(child);
+      if (found) return found;
+    }
+    return null;
+  }
+  function emit(kern: string, outerBindings?: string[]): string {
+    const handlerNode = findHandler(parse(kern));
+    expect(handlerNode).not.toBeNull();
+    return emitNativeKernBodyPythonWithImports(handlerNode as IRNode, outerBindings ? { outerBindings } : undefined)
+      .code;
+  }
+
+  test('a free-var read+write closure (MUT1) prepends `nonlocal n` as the def first body line', () => {
+    // The classic accumulator: a method-local `n` written from inside the
+    // closure needs `nonlocal n` so Python rebinds the OUTER binding instead of
+    // creating a def-local shadow (without it: UnboundLocalError on the read).
+    const code = emit(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    let name=n value="0" kind=let
+    let name=inc value="() => { n = n + 1; return n; }"
+    return value="[inc(), inc(), inc()]"`,
+    );
+    expect(code).toContain('def __kern_closure_0():');
+    // `nonlocal n` is the FIRST body line, immediately under the def header and
+    // before the assignment that uses it.
+    expect(code).toMatch(/def __kern_closure_0\(\):\n\s+nonlocal n\n/);
+    const nlIdx = code.indexOf('nonlocal n');
+    const writeIdx = code.indexOf('n = __kern_add(n, 1)');
+    expect(nlIdx).toBeGreaterThan(-1);
+    expect(writeIdx).toBeGreaterThan(nlIdx);
+  });
+
+  test('a closure PARAM write lowers as a def-local assignment — NO nonlocal, NO reject', () => {
+    // `(x) => { x = x + 1; return x; }` — `x` is the closure PARAM, not a free
+    // capture. The gate (which cannot see params) accepts the bare-ident shape;
+    // the lowerer EXCLUDES params from the written-free set → a plain local
+    // assignment with no `nonlocal`. (Fixes the earlier param-write
+    // misclassification.)
+    const code = emit(
+      `fn name=probe returns=number
+  handler lang=kern
+    let name=f value="(x) => { x = x + 1; return x; }"
+    return value="f(4)"`,
+    );
+    expect(code).toContain('def __kern_closure_0(x):');
+    expect(code).not.toContain('nonlocal');
+    expect(code).toContain('x = __kern_add(x, 1)');
+  });
+
+  test('a compound free-var write (`x *= 2`) emits the Python compound op + nonlocal', () => {
+    const code = emit(
+      `fn name=probe returns=number
+  handler lang=kern
+    let name=x value="10" kind=let
+    let name=f value="() => { x *= 2; return 0; }"
+    do value="f()"
+    return value="x"`,
+    );
+    expect(code).toMatch(/def __kern_closure_0\(\):\n\s+nonlocal x\n/);
+    expect(code).toContain('x *= 2');
+  });
+
+  test('a statement-position ++ on a free var lowers to `x += 1` with nonlocal', () => {
+    const code = emit(
+      `fn name=probe returns=number
+  handler lang=kern
+    let name=x value="0" kind=let
+    let name=f value="() => { x++; return 0; }"
+    do value="f()"
+    return value="x"`,
+    );
+    expect(code).toMatch(/def __kern_closure_0\(\):\n\s+nonlocal x\n/);
+    expect(code).toContain('x += 1');
+  });
+
+  test('an index member write mutates a captured object by reference — NO nonlocal', () => {
+    // `acc[0] = acc[0] + 1` mutates the captured list in place; Python needs no
+    // `nonlocal` for a member/index write (the binding is not rebound).
+    const code = emit(
+      `fn name=probe returns=number
+  handler lang=kern
+    let name=acc value="[0]"
+    let name=f value="() => { acc[0] = acc[0] + 1; return 0; }"
+    do value="f()"
+    return value="acc[0]"`,
+    );
+    expect(code).toContain('def __kern_closure_0():');
+    expect(code).not.toContain('nonlocal');
+    expect(code).toContain('acc[0] = __kern_add(acc[0], 1)');
+  });
+
+  test('a pinned-read + nonlocal-write closure (MUT8) emits BOTH the default-arg pin and the nonlocal', () => {
+    // Inside `each x`, the closure reads the per-iteration `x` (pinned via a
+    // default arg `x=x`) AND writes the outside-loop accumulator `outer`
+    // (nonlocal). Both mechanisms must apply in ONE def. They target different
+    // names, so the pinned/nonlocal disjointness invariant holds.
+    const code = emit(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    let name=outer value="0" kind=let
+    let name=fns value="[]"
+    each name=x in="[1, 2]"
+      do value="fns.push(() => { outer = outer + 1; return x; })"
+    return value="fns"`,
+    );
+    expect(code).toContain('def __kern_closure_0(x=x):');
+    expect(code).toContain('nonlocal outer');
+  });
+
+  test('a WRITE to a per-iteration loop capture throws closure-pinned-write (eligibility≢lowerability)', () => {
+    // A free write whose binding IS a per-iteration loop-local cannot be lowered
+    // in v1: the def-time default-arg pin freezes the value, and `nonlocal`
+    // would rebind the wrong binding. The single-statement gate cannot see the
+    // enclosing loop, so this fails closed LOUDLY at emission. Here the closure
+    // writes the each-var `x` itself (a per-iteration capture).
+    const kern = `fn name=probe returns=number[]
+  handler lang=kern
+    let name=fns value="[]"
+    each name=x in="[1, 2]"
+      do value="fns.push(() => { x = x + 1; return x; })"
+    return value="fns"`;
+    const handlerNode = findHandler(parse(kern));
+    expect(() => emitNativeKernBodyPythonWithImports(handlerNode as IRNode)).toThrow(
+      /per-iteration loop capture 'x'.*cell-boxing/s,
+    );
+  });
+});
