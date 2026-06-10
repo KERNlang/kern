@@ -1,0 +1,782 @@
+[
+  {
+    "snippet": "not a block",
+    "classifier": "closure-block",
+    "eligible": false,
+    "reason": "closure-parse-error"
+  },
+  {
+    "snippet": "{ acc.push(x); }",
+    "classifier": "closure-block",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "{ return x + 1; }",
+    "classifier": "closure-block",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "{ total += 1; }",
+    "classifier": "closure-block",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "empty"
+  },
+  {
+    "snippet": "++x;",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "expr-stmt-mutation"
+  },
+  {
+    "snippet": "a.b?.c = 1;",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "expr-stmt-bad-assign-target"
+  },
+  {
+    "snippet": "acc.total = 1;",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "acc[i] = v;",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "break;",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "break-outside-loop"
+  },
+  {
+    "snippet": "const [a, b] = pair;",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "const a = 1, b = 2;",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "var-multi-decl"
+  },
+  {
+    "snippet": "const f = (x) => { ({ a } = o); };",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "closure-unsupported-assign-target"
+  },
+  {
+    "snippet": "const f = (x) => { acc.push(x); };",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "const f = (x) => { acc.total = x; };",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "const f = (x) => { arr.push(x++); };",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "closure-incdec-value-position"
+  },
+  {
+    "snippet": "const f = (x) => { await g(); };",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "closure-await"
+  },
+  {
+    "snippet": "const f = (x) => { break; };",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "closure-break-continue"
+  },
+  {
+    "snippet": "const f = (x) => { class C {} };",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "closure-class"
+  },
+  {
+    "snippet": "const f = (x) => { const g = () => 1; };",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "closure-nested-function"
+  },
+  {
+    "snippet": "const f = (x) => { const y = (x = 5); };",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "closure-assign-value-position"
+  },
+  {
+    "snippet": "const f = (x) => { const y = x + 1; return y; };",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "const f = (x) => { const { a } = o; };",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "closure-destructure"
+  },
+  {
+    "snippet": "const f = (x) => { count++; };",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "const f = (x) => { foo(...a); };",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "closure-spread"
+  },
+  {
+    "snippet": "const f = (x) => { for (const a of b) {} };",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "closure-loop"
+  },
+  {
+    "snippet": "const f = (x) => { if (x) { g(x); } };",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "const f = (x) => { import y from \"z\"; };",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "closure-unsupported-stmt-ImportDeclaration"
+  },
+  {
+    "snippet": "const f = (x) => { lbl: g(); };",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "closure-labeled"
+  },
+  {
+    "snippet": "const f = (x) => { let y; };",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "closure-uninitialized-decl"
+  },
+  {
+    "snippet": "const f = (x) => { switch (a) {} };",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "closure-switch"
+  },
+  {
+    "snippet": "const f = (x) => { this.y = 1; };",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "closure-this"
+  },
+  {
+    "snippet": "const f = (x) => { throw e; };",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "closure-throw"
+  },
+  {
+    "snippet": "const f = (x) => { total += x; };",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "const f = (x) => { try { g(); } catch (e) {} };",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "closure-try"
+  },
+  {
+    "snippet": "const f = (x) => { var y = 1; };",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "closure-var"
+  },
+  {
+    "snippet": "const f = (x) => { with (o) {} };",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "closure-with"
+  },
+  {
+    "snippet": "const f = (x) => { x **= 1; };",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "closure-unsupported-operator"
+  },
+  {
+    "snippet": "const f = (x) => { yield 1; };",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "closure-yield"
+  },
+  {
+    "snippet": "const t = `a\nb`;",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "var-template-multiline"
+  },
+  {
+    "snippet": "const t = `a\\u{1F600}b`;",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "var-template-escapes"
+  },
+  {
+    "snippet": "const t = `hi ${name}`;",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "const x = 1;",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "const x = function () {};",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "var-bad-expr"
+  },
+  {
+    "snippet": "const x: number = 1;",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "const x: typeof import(\"fs\") = v;",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "var-bad-type"
+  },
+  {
+    "snippet": "const { ...rest } = o;",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "var-destructure-rest"
+  },
+  {
+    "snippet": "const { [\"k\"]: v } = o;",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "var-destructure-computed"
+  },
+  {
+    "snippet": "const { a = 1 } = o;",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "var-destructure-default"
+  },
+  {
+    "snippet": "const { a } = function () {};",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "var-destructure-bad-expr"
+  },
+  {
+    "snippet": "const { a };",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "var-destructure"
+  },
+  {
+    "snippet": "const { a, b } = o;",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "const { a: { b } } = o;",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "var-destructure-nested"
+  },
+  {
+    "snippet": "const { p: local } = o;",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "const {} = o;",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "var-destructure-empty"
+  },
+  {
+    "snippet": "continue;",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "continue-outside-loop"
+  },
+  {
+    "snippet": "do { g(); } while (c);",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "do-while-stmt"
+  },
+  {
+    "snippet": "export const z = 1;",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "foo(/* mid */);",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "comments-present"
+  },
+  {
+    "snippet": "for (const [k, v] of pairs) { g(k, v); }",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "for (const [k, v]: [string, number] of m) { g(k); }",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "for-of-destructure-type"
+  },
+  {
+    "snippet": "for (const [k] of m) { g(k); }",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "for-of-sync-pair"
+  },
+  {
+    "snippet": "for (const a = 1, b = 2 of xs) { g(a); }",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "for-of-multi-decl"
+  },
+  {
+    "snippet": "for (const k in obj) { g(k); }",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "for-stmt"
+  },
+  {
+    "snippet": "for (const k of Object.entries(o)) { g(k); }",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "for (const x = 1 of xs) { g(x); }",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "for-of-init"
+  },
+  {
+    "snippet": "for (const x of function () {}) { g(x); }",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "for-of-bad-expr"
+  },
+  {
+    "snippet": "for (const x of xs) g(x);",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "for-of-non-block"
+  },
+  {
+    "snippet": "for (const x of xs) { break outer; }",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "break-labeled"
+  },
+  {
+    "snippet": "for (const x of xs) { break; }",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "for (const x of xs) { continue outer; }",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "continue-labeled"
+  },
+  {
+    "snippet": "for (const x of xs) { continue; }",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "for (const x of xs) { g(x); }",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "for (const x of xs) {}",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "for-of-empty-body"
+  },
+  {
+    "snippet": "for (const x: typeof import(\"fs\") of xs) { g(x); }",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "for-of-bad-type"
+  },
+  {
+    "snippet": "for (const { a } of xs) { g(a); }",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "for-of-destructure"
+  },
+  {
+    "snippet": "for (let i = 0; i < 3; i++) { g(i); }",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "for-stmt"
+  },
+  {
+    "snippet": "for (let x of xs) { g(x); }",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "for-of-non-const"
+  },
+  {
+    "snippet": "for (x of xs) { g(x); }",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "for-of-non-decl"
+  },
+  {
+    "snippet": "for await (const [k, v] of Object.entries(o)) { g(k); }",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "for-of-async-object-entries"
+  },
+  {
+    "snippet": "for await (const [k] of m) { g(k); }",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "for-of-async-entry"
+  },
+  {
+    "snippet": "g();",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "if (c) g();",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "if-non-block-then"
+  },
+  {
+    "snippet": "if (c) { g(); }",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "if (c) { g(); } else h();",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "if-non-block-else"
+  },
+  {
+    "snippet": "if (c) { g(); } else if (d) { h(); }",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "if (c) { g(); } else { h(); }",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "if (function () {}) { g(); }",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "if-bad-cond"
+  },
+  {
+    "snippet": "import x from \"y\";",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "unsupported-stmt-ImportDeclaration"
+  },
+  {
+    "snippet": "interface I {}",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "unsupported-stmt-InterfaceDeclaration"
+  },
+  {
+    "snippet": "let x = 1;",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "let x;",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "notify(@@@);",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "ts-parse-error"
+  },
+  {
+    "snippet": "return `a\nb`;",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "return-template-multiline"
+  },
+  {
+    "snippet": "return `a\\u{1F600}b`;",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "return-template-escapes"
+  },
+  {
+    "snippet": "return `hi ${name}`;",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "return e instanceof Error;",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "return function () {};",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "return-bad-expr"
+  },
+  {
+    "snippet": "return res.status(200);",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "foreign-by-design"
+  },
+  {
+    "snippet": "return x + 1;",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "return x instanceof Array;",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "return x instanceof Date;",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "instanceof-rhs-unsupported-builtin"
+  },
+  {
+    "snippet": "return x instanceof MyClass;",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "return x instanceof String;",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "instanceof-rhs-wrapper-rejected"
+  },
+  {
+    "snippet": "return x instanceof TypeError;",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "return x instanceof a.b.C;",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "return x instanceof foo();",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "instanceof-rhs-not-a-type-name"
+  },
+  {
+    "snippet": "return {{ userName }};",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "template-placeholder"
+  },
+  {
+    "snippet": "return;",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "switch (x) { case 1: break; }",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "switch-stmt"
+  },
+  {
+    "snippet": "throw err;",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "throw function () {};",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "throw-bad-expr"
+  },
+  {
+    "snippet": "try { g(); } catch (e) { h(); }",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "try { g(); } catch (e) { h(); } finally { c(); }",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "try { g(); } catch ({ e }) {}",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "try-destruct-catch"
+  },
+  {
+    "snippet": "try { g(); } finally { cleanup(); }",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "var x = 1;",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "var-non-const"
+  },
+  {
+    "snippet": "void 0;",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "expr-stmt-bad-expr"
+  },
+  {
+    "snippet": "while (c) g();",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "while-non-block"
+  },
+  {
+    "snippet": "while (c) { g(); }",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "while (c) {}",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "while-empty-body"
+  },
+  {
+    "snippet": "while (function () {}) { g(); }",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "while-bad-cond"
+  },
+  {
+    "snippet": "x &&= 2;",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "expr-stmt-assignment"
+  },
+  {
+    "snippet": "x += 1;",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "x = 1;",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "x = function () {};",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "expr-stmt-bad-assign-value"
+  },
+  {
+    "snippet": "x = y, z;",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "expr-stmt-bad-expr"
+  },
+  {
+    "snippet": "x++;",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "x--;",
+    "classifier": "handler-body",
+    "eligible": true,
+    "reason": "ok"
+  },
+  {
+    "snippet": "{ g(); }",
+    "classifier": "handler-body",
+    "eligible": false,
+    "reason": "bare-block"
+  }
+]
