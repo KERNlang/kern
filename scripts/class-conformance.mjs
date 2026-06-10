@@ -9,9 +9,11 @@
  * targets BY CONSTRUCTION (both derive from one definition), not by hand-diffing
  * two emitters.
  *
- * Scope: portable probes only (number/string ops). List mutation needs a
- * portable list-append lowering and is exercised separately (unit tests prove
- * the instance-field-default isolation directly).
+ * Scope: portable probes (number/string ops) plus portable list mutation —
+ * `arr.push(x)` lowers identically in class methods and route handlers via the
+ * shared `core/expr/list-ops` module, so per-instance list isolation is proven
+ * differentially here (not only in unit tests). Other list ops (`.length`,
+ * `.slice`, …) are a tracked follow-up; `.map`/`.filter` stay per-path.
  *
  * Run:  node scripts/class-conformance.mjs   (or via `pnpm check:class-conformance`)
  */
@@ -148,6 +150,27 @@ fn name=probe returns=number
     expected: 10,
   },
   {
+    name: 'portable list mutation: per-instance isolation + push return parity',
+    kern: `class name=Bag export=true
+  field name=items type=number[] value={{ [] }}
+  method name=add returns=number
+    param name=x type=number
+    handler
+      return value="this.items.push(x)"
+fn name=probe returns=number
+  handler
+    let name=a value="new Bag()"
+    let name=b value="new Bag()"
+    do value="a.add(10)"
+    do value="a.add(20)"
+    return value="b.add(99)"`,
+    // Discriminating: b is a SEPARATE instance, so b.add returns 1 — not 3.
+    // Kills (a) shared-mutable-default (items aliased -> b.add returns 3),
+    // (b) push not lowered (Python `list.push` -> AttributeError, ts != py),
+    // (c) push without JS return parity (`append` returns None -> b.add != 1).
+    expected: 1,
+  },
+  {
     name: 'inherited + overridden static accessor (metaclass chaining)',
     kern: `class name=Base export=true
   field name=_val type=number static=true value={{ 0 }}
@@ -171,6 +194,290 @@ fn name=probe returns=number
     assign target="Derived.val" value="5"
     return value="Derived.val"`,
     expected: 12,
+  },
+  {
+    name: 'abstract class: erased at codegen, polymorphic dispatch to override',
+    kern: `class name=Shape abstract=true export=true
+  method name=area returns=number
+class name=Square extends=Shape export=true
+  field name=side type=number value={{ 3 }}
+  method name=area returns=number
+    handler
+      return value="this.side * this.side"
+fn name=measure returns=number
+  param name=shape type=Shape
+  handler
+    return value="shape.area()"
+fn name=probe returns=number
+  handler
+    return value="measure(new Square())"`,
+    // `abstract` is erased on both targets (plain instantiable class), so a
+    // Shape-typed reference dispatches to Square.area on TS AND Python.
+    // Kills: Python dropping the override (AttributeError), the abstract base
+    // stub running instead of the override (NotImplementedError != 9), and any
+    // ABC/metaclass lowering that would make `new Square()` diverge.
+    expected: 9,
+  },
+  {
+    name: 'abstract method: template method calls override + inherited field default',
+    kern: `class name=Formatter abstract=true export=true
+  field name=prefix type=string value={{ "[" }}
+  method name=suffix returns=string
+  method name=format returns=string
+    param name=input type=string
+    handler
+      return value="\`\${this.prefix}\${input}\${this.suffix()}\`"
+class name=BracketFormatter extends=Formatter export=true
+  method name=suffix returns=string
+    handler
+      return value="\\"]\\""
+fn name=probe returns=string
+  handler
+    return value="new BracketFormatter().format(\\"test\\")"`,
+    // The concrete `format` (inherited) reads the inherited field default
+    // `prefix` and calls the abstract `suffix`, which dispatches to the override.
+    // Kills: dropped inherited field default, dropped inherited concrete method,
+    // and the abstract stub running instead of the BracketFormatter override.
+    expected: '[test]',
+  },
+  {
+    name: 'abstract static accessor: override dispatches through chained metaclass',
+    kern: `class name=Base abstract=true export=true
+  getter name=tag static=true returns=string
+class name=Impl extends=Base export=true
+  getter name=tag static=true returns=string
+    handler
+      return value="\\"impl\\""
+fn name=probe returns=string
+  handler
+    return value="Impl.tag"`,
+    // Abstract static getter on Base (fail-fast raise stub) + override on Impl,
+    // dispatched through the chained metaclass _ImplMeta(type(Base)). Reading
+    // Impl.tag resolves to the override on BOTH targets. Kills a Python lowering
+    // where the abstract static stub is `pass` (returns None) instead of a raise,
+    // or where the chained metaclass drops the override.
+    expected: 'impl',
+  },
+  {
+    name: 'derived constructor without super(): implicit base-init injected',
+    kern: `class name=Base export=true
+  field name=tag type=number value={{ 1 }}
+class name=Box extends=Base export=true
+  field name=x type=number value={{ 0 }}
+  constructor
+    param name=v type=number
+    handler
+      assign target="this.x" value="v"
+  method name=get returns=number
+    handler
+      return value="this.x + this.tag"
+fn name=probe returns=number
+  handler
+    return value="new Box(7).get()"`,
+    // Box's constructor touches `this.x` but never calls super(). KERN injects an
+    // implicit super() FIRST on both targets, so (a) TS doesn't crash with "must
+    // call super before this", and (b) the base's `tag=1` default runs via that
+    // super, giving get() = 7 + 1. Kills: no super injected (TS crash); super
+    // injected AFTER this.x (TS crash); base init skipped (this.tag undefined ->
+    // NaN on TS / AttributeError on Python); field defaults before super.
+    expected: 8,
+  },
+  {
+    name: 'liskov covariant return: override narrows return Animal -> Dog',
+    kern: `class name=Animal export=true
+  field name=sound type=string value={{ "generic" }}
+  method name=make returns=Animal
+    handler
+      return value="new Animal()"
+class name=Dog extends=Animal export=true
+  field name=sound type=string value={{ "woof" }}
+  method name=make returns=Dog
+    handler
+      return value="new Dog()"
+fn name=probe returns=string
+  handler
+    return value="new Dog().make().sound"`,
+    // The override narrows its return to Dog (a subtype of Animal); the produced
+    // instance is a Dog, so reading .sound yields "woof" on both targets. The
+    // validator must ACCEPT this covariant narrowing (no codegen change here).
+    expected: 'woof',
+  },
+  {
+    name: 'liskov contravariant param: override widens param Dog -> Animal',
+    kern: `class name=Animal export=true
+  field name=kind type=string value={{ "animal" }}
+class name=Dog extends=Animal export=true
+class name=Greeter export=true
+  method name=greet returns=string
+    param name=who type=Dog
+    handler
+      return value="\`greet \${who.kind}\`"
+class name=LoudGreeter extends=Greeter export=true
+  method name=greet returns=string
+    param name=who type=Animal
+    handler
+      return value="\`hi \${who.kind}\`"
+fn name=probe returns=string
+  handler
+    return value="new LoudGreeter().greet(new Animal())"`,
+    // The override widens its param to Animal (a supertype of Dog) and is passed
+    // an Animal; reading who.kind yields "animal" on both targets. The validator
+    // must ACCEPT this contravariant widening.
+    expected: 'hi animal',
+  },
+  {
+    name: 'liskov grandparent-chain covariant return: A <- B <- C',
+    kern: `class name=A export=true
+  field name=tier type=string value={{ "A" }}
+  method name=spawn returns=A
+    handler
+      return value="new A()"
+class name=B extends=A export=true
+  field name=tier type=string value={{ "B" }}
+class name=C extends=B export=true
+  field name=tier type=string value={{ "C" }}
+  method name=spawn returns=C
+    handler
+      return value="new C()"
+fn name=probe returns=string
+  handler
+    return value="new C().spawn().tier"`,
+    // C overrides A's spawn (declared returns=A) with returns=C; C is a subtype
+    // of A through the grandparent chain, so the narrowing is covariant and SOUND.
+    // The returned instance is a C, so .tier is "C" on both targets.
+    expected: 'C',
+  },
+  {
+    name: 'liskov getter covariant return: override narrows getter Animal -> Dog',
+    kern: `class name=Animal export=true
+  field name=label type=string value={{ "animal" }}
+class name=Dog extends=Animal export=true
+  field name=label type=string value={{ "dog" }}
+class name=Kennel export=true
+  getter name=resident returns=Animal
+    handler
+      return value="new Animal()"
+class name=DogKennel extends=Kennel export=true
+  getter name=resident returns=Dog
+    handler
+      return value="new Dog()"
+fn name=probe returns=string
+  handler
+    return value="new DogKennel().resident.label"`,
+    // The getter override narrows its return to Dog (a subtype of Animal); the
+    // produced instance is a Dog, so .label is "dog" on both targets. The
+    // validator must ACCEPT covariant getter-return narrowing.
+    expected: 'dog',
+  },
+  // ── list-ops parity (.length / .slice / .concat) shared between class + route ──
+  // These prove the property hook (.length) and the slice/concat method shims
+  // lower identically in class methods. Without the property hook a class
+  // method's `this.items.length` emits invalid `self.items.length` (AttributeError
+  // on Python -> ts != py). Each fixture's expected value is cross-target
+  // deterministic and kills a specific wrong-impl.
+  {
+    name: 'list-ops F1: items.length after two pushes (property hook in class method)',
+    kern: `class name=Bag export=true
+  field name=items type=number[] value={{ [] }}
+  method name=count returns=number
+    handler
+      do value="this.items.push(10)"
+      do value="this.items.push(20)"
+      return value="this.items.length"
+fn name=probe returns=number
+  handler
+    return value="new Bag().count()"`,
+    // Kills: property hook missing (self.items.length -> AttributeError on Python),
+    // a method-shaped-only impl that never lowers non-call `.length`.
+    expected: 2,
+  },
+  {
+    name: 'list-ops F2: this.data.slice(-2).length (negative slice then length)',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [10, 20, 30, 40] }}
+  method name=tail returns=number
+    handler
+      return value="this.data.slice(-2).length"
+fn name=probe returns=number
+  handler
+    return value="new Box().tail()"`,
+    // slice(-2) of [10,20,30,40] is [30,40]; its length is 2. Kills: negative
+    // index mishandling, length-after-chain loss (the .length on a slice result).
+    expected: 2,
+  },
+  {
+    name: 'list-ops F3: slice() copies (aliasing) — original length unchanged',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [1, 2, 3] }}
+  method name=keep returns=number
+    handler
+      let name=copy value="this.data.slice()"
+      do value="copy.push(99)"
+      return value="this.data.length"
+fn name=probe returns=number
+  handler
+    return value="new Box().keep()"`,
+    // slice() with no args COPIES; pushing to the copy must NOT grow the original,
+    // so this.data.length stays 3. Kills: an aliasing slice (recv[:] -> recv) that
+    // shares the underlying list (would give 4).
+    expected: 3,
+  },
+  {
+    name: 'list-ops F4: this.data.slice(1, 3).length (two-arg slice)',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [10, 20, 30, 40] }}
+  method name=mid returns=number
+    handler
+      return value="this.data.slice(1, 3).length"
+fn name=probe returns=number
+  handler
+    return value="new Box().mid()"`,
+    // slice(1,3) of [10,20,30,40] is [20,30]; length 2. Kills: second-arg ignored
+    // (recv[1:] -> length 3) and a recv[1:None]-style shape that drops the bound.
+    expected: 2,
+  },
+  {
+    name: 'list-ops F5: this.name.length on a STRING field (len works on str too)',
+    kern: `class name=Box export=true
+  field name=name type=string value={{ "hello" }}
+  method name=size returns=number
+    handler
+      return value="this.name.length"
+fn name=probe returns=number
+  handler
+    return value="new Box().size()"`,
+    // "hello".length is 5. Kills a list-only len lowering — `.length` must lower
+    // to `len(...)`, which works on Python strings as well as lists.
+    expected: 5,
+  },
+  {
+    name: 'list-ops F6a: this.base.concat([3,4]).length (array arg spreads)',
+    kern: `class name=Box export=true
+  field name=base type=number[] value={{ [1, 2] }}
+  method name=joined returns=number
+    handler
+      return value="this.base.concat([3, 4]).length"
+fn name=probe returns=number
+  handler
+    return value="new Box().joined()"`,
+    // [1,2].concat([3,4]) is [1,2,3,4]; length 4. Kills a non-flattening concat
+    // (array arg appended as one nested element -> length 3).
+    expected: 4,
+  },
+  {
+    name: 'list-ops F6b: this.base.concat(3) result (scalar arg appends)',
+    kern: `class name=Box export=true
+  field name=base type=number[] value={{ [1, 2] }}
+  method name=appended returns=number[]
+    handler
+      return value="this.base.concat(3)"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().appended()"`,
+    // [1,2].concat(3) is [1,2,3]. Printing the ARRAY (not its length) discriminates
+    // a wrongly-nested concat: a wrong impl that appends [3] as a nested element
+    // yields [1,2,[3]] — length 3 would NOT discriminate, but the JSON does.
+    expected: [1, 2, 3],
   },
 ];
 

@@ -62,6 +62,12 @@ import {
   KERN_PAIR_HELPERS_PY,
   KERN_TMOD_HELPER_PY,
 } from './core/expr/index.js';
+import {
+  isSharedPortableArrayMethod,
+  isSharedPortableArrayProperty,
+  lowerPortableArrayMethodPy,
+  lowerPortableArrayPropertyPy,
+} from './core/expr/list-ops.js';
 import { mapTsTypeToPython } from './type-map.js';
 
 /** Slice 3e — caller-provided options for the Python body emitter.
@@ -103,6 +109,16 @@ export interface BodyEmitOptions {
    * packages/core/src/ir/semantics/python-leg.ts for the runtime contract.
    */
   traceHooks?: { eachIterNext?: boolean; forIterNext?: boolean; letAssign?: boolean };
+  /** Coercion-slice opt-out for the helper-less Ground/React declarative
+   *  layer. Defaults to `true` (native KERN bodies + expression unit tests
+   *  get full JS value→string coercion, injecting helpers function-locally).
+   *  The Ground generators (`coalesce`/`firstDefined`/`firstTruthy`/`objectMerge`
+   *  /…) emit module-level statements via `emitPyExpression` and have no
+   *  channel to define `_kern_fmt`/`__kern_add`/`_KERN_UNDEFINED`, so they pass
+   *  `false` to keep the pre-slice output (zero regression). Extending coercion
+   *  to the Ground layer needs module-level (single-definition) helper
+   *  injection — a separate follow-up. */
+  coerceJsValues?: boolean;
   /** Outer-scope names the body INHERITS — typically function parameters and
    * module-level globals the wrapper has bound. Pre-populated as the
    * outermost `localScopes` map so an inner-block `let` that shadows ANY of
@@ -172,6 +188,16 @@ interface BodyEmitContext {
    *  override pending control flow, so it gets a finally-specific error. */
   finallyDepth: number;
   standaloneExpression: boolean;
+  /** When true, helper-dependent JS value→string coercion is emitted
+   *  (`__kern_add`, `_kern_fmt`-wrapped templates, the `_KERN_UNDEFINED`
+   *  sentinel + sentinel-aware `??`/`typeof`). Native KERN bodies inject the
+   *  required helpers function-locally, so the default is true. The Ground/
+   *  React declarative layer (`coalesce`/`firstDefined`/etc.) emits module-
+   *  level statements through `emitPyExpression` with NO per-statement helper
+   *  channel, so it opts out and keeps the pre-coercion-slice forms (raw `+`,
+   *  raw f-string interpolation, `None` for undefined, None-only `??`).
+   *  See BodyEmitOptions.coerceJsValues. */
+  coerceJsValues: boolean;
 }
 
 const INDENT_STEP = '    ';
@@ -193,6 +219,7 @@ function freshCtx(options?: BodyEmitOptions): BodyEmitContext {
     tryDepth: 0,
     finallyDepth: 0,
     standaloneExpression: false,
+    coerceJsValues: options?.coerceJsValues ?? true,
     traceHooks: options?.traceHooks,
   };
 }
@@ -1691,7 +1718,12 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
     case 'nullLit':
       return 'None';
     case 'undefLit':
-      return 'None';
+      // Ground/React layer (no helper channel) keeps the pre-slice collapse to
+      // None; native bodies materialize the sentinel so `${undefined}` renders
+      // "undefined" (vs null's "null") and `?? `/`typeof` can distinguish it.
+      if (!ctx.coerceJsValues) return 'None';
+      ctx.helpers.add(KERN_FMT_HELPER_PY);
+      return '_KERN_UNDEFINED';
     case 'regexLit':
       ctx.imports.add('re');
       return `__k_re.compile(${pyRegexPattern(node)}, ${pyRegexFlags(node.flags, { allowGlobal: true })})`;
@@ -1740,7 +1772,13 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
     case 'nonNull':
       return emitPyExprCtx(node.expression, ctx);
     case 'tmplLit': {
-      // Lower TS template literals to Python f-strings.
+      // Lower TS template literals to Python f-strings. In native bodies, wrap
+      // each interpolation in _kern_fmt so JS value→string coercion semantics
+      // (true→"true", null→"null", undefined→"undefined", 1.0→"1", arrays→
+      // comma-joined, objects→"[object Object]") are preserved. The helper-less
+      // Ground/React layer keeps the pre-slice raw f-string interpolation.
+      const coerce = ctx.coerceJsValues;
+      if (coerce) ctx.helpers.add(KERN_FMT_HELPER_PY);
       let out = 'f"';
       for (let i = 0; i < node.quasis.length; i++) {
         out += node.quasis[i]
@@ -1749,7 +1787,10 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
           .replace(/\n/g, '\\n')
           .replace(/\{/g, '{{')
           .replace(/\}/g, '}}');
-        if (i < node.expressions.length) out += `{${emitPyExprCtx(node.expressions[i], ctx)}}`;
+        if (i < node.expressions.length) {
+          const inner = emitPyExprCtx(node.expressions[i], ctx);
+          out += coerce ? `{_kern_fmt(${inner})}` : `{${inner}}`;
+        }
       }
       out += '"';
       return out;
@@ -1790,6 +1831,25 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
         return `isinstance(${left}, ${right})`;
       }
 
+      if (node.op === '+' && ctx.coerceJsValues) {
+        // JS `+` is overloaded: string concat if either operand is string-ish,
+        // numeric addition otherwise. Python has no implicit coercion, so we
+        // lower based on syntactic hints:
+        //  - If either operand is syntactically string-producing (strLit/tmplLit),
+        //    emit _kern_fmt(left) + _kern_fmt(right) for JS string concat.
+        //  - Otherwise (idents/calls/members/numbers — type unknown at emit time),
+        //    emit __kern_add(left, right) so numeric + stays additive and dynamic
+        //    string concat is coerced at runtime.
+        // The helper-less Ground/React layer skips this and falls through to the
+        // generic raw `+` path below (pre-slice behavior, zero regression).
+        ctx.helpers.add(KERN_FMT_HELPER_PY);
+        const isStr = (n: ValueIR) => n.kind === 'strLit' || n.kind === 'tmplLit';
+        if (isStr(node.left) || isStr(node.right)) {
+          return `_kern_fmt(${left}) + _kern_fmt(${right})`;
+        }
+        return `__kern_add(${left}, ${right})`;
+      }
+
       if (node.op === '??') {
         // Slice 4c — nullish coalesce lowering. Two shapes:
         //
@@ -1812,11 +1872,22 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
         // Slice 4c (post-buddy-review) was the easy-win expansion after the
         // 22.7% empirical-gate scan; this lifts the slice-2 `??` throw and
         // adds an estimated +7% to native eligibility on Agon-AI bodies.
+        // Ground/React layer keeps the pre-slice None-only nullish test (no
+        // sentinel, no helper). Native bodies also exclude the undefined
+        // sentinel so `undefined ?? x` coalesces.
+        if (!ctx.coerceJsValues) {
+          if (isReceiverChainPure(node.left)) {
+            return `(${left} if ${left} is not None else ${right})`;
+          }
+          const tmp = `__k_nc${++ctx.gensymCounter}`;
+          return `(${tmp} if (${tmp} := ${left}) is not None else ${right})`;
+        }
+        ctx.helpers.add(KERN_FMT_HELPER_PY);
         if (isReceiverChainPure(node.left)) {
-          return `(${left} if ${left} is not None else ${right})`;
+          return `(${left} if (${left} is not None and ${left} is not _KERN_UNDEFINED) else ${right})`;
         }
         const tmp = `__k_nc${++ctx.gensymCounter}`;
-        return `(${tmp} if (${tmp} := ${left}) is not None else ${right})`;
+        return `(${tmp} if ((${tmp} := ${left}) is not None and ${tmp} is not _KERN_UNDEFINED) else ${right})`;
       }
 
       const forceLeft = needsComparisonChainParens(node.left, node.op);
@@ -1921,6 +1992,23 @@ function emitPyTypeof(argument: ValueIR, ctx: BodyEmitContext): string {
   const value = emitPyExprCtx(argument, ctx);
   const wrapped = needsArgParens(argument) ? `(${value})` : value;
   const tmp = `__k_typeof${++ctx.gensymCounter}`;
+  // Native bodies: a runtime value holding the undefined sentinel reports
+  // "undefined" (JS `typeof undefined`), not "object". The walrus binds in the
+  // first test so the sentinel branch is checked before the None branch. The
+  // helper-less Ground layer never materializes the sentinel, so it keeps the
+  // pre-slice None-first form.
+  if (ctx.coerceJsValues) {
+    ctx.helpers.add(KERN_FMT_HELPER_PY);
+    return (
+      `("undefined" if (${tmp} := ${wrapped}) is _KERN_UNDEFINED ` +
+      `else "object" if ${tmp} is None ` +
+      `else "boolean" if isinstance(${tmp}, bool) ` +
+      `else "number" if isinstance(${tmp}, (int, float)) ` +
+      `else "string" if isinstance(${tmp}, str) ` +
+      `else "function" if callable(${tmp}) ` +
+      `else "object")`
+    );
+  }
   return (
     `("object" if (${tmp} := ${wrapped}) is None ` +
     `else "boolean" if isinstance(${tmp}, bool) ` +
@@ -2061,6 +2149,16 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
       obj.kind === 'member' || obj.kind === 'call' || obj.kind === 'index'
         ? lowerChain(obj, ctx)
         : { guard: null, expr: emitPyExprCtx(obj, ctx) };
+    // Portable Array *property* read (non-call `.length`) lowers through the
+    // SAME shared list-ops hook the route emitter uses, so `this.items.length`
+    // emits `len(self.items)` (not invalid `self.items.length`) — identical to
+    // a route handler's `arr.length` by construction. Only the trailing `.prop`
+    // link is rewritten; the accumulated optional-chain guard is left UNTOUCHED
+    // and still flows through `wrapGuardIfAny`, so `items?.length` stays
+    // `(len(items) if items is not None else None)`-shaped.
+    const linkExpr = isSharedPortableArrayProperty(node.property)
+      ? (lowerPortableArrayPropertyPy(inner.expr, node.property) ?? `${inner.expr}.${node.property}`)
+      : `${inner.expr}.${node.property}`;
     if (node.optional) {
       // The receiver expression names what we need to test. The expr names
       // the receiver twice (once in test, once in branch); reject when that
@@ -2073,9 +2171,9 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
       }
       const newGuard =
         inner.guard === null ? `${inner.expr} is not None` : `${inner.guard} and ${inner.expr} is not None`;
-      return { guard: newGuard, expr: `${inner.expr}.${node.property}` };
+      return { guard: newGuard, expr: linkExpr };
     }
-    return { guard: inner.guard, expr: `${inner.expr}.${node.property}` };
+    return { guard: inner.guard, expr: linkExpr };
   }
   if (node.kind === 'index') {
     const obj = node.object;
@@ -2115,6 +2213,11 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   if (regex !== null) return { guard: null, expr: regex };
   const stdlib = applyStdlibLoweringPython(node, ctx);
   if (stdlib !== null) return { guard: null, expr: stdlib };
+  // Portable array methods (e.g. `arr.push(x)`) lower through the SAME shared
+  // helper the route emitter uses, so a class method's `this.items.push(x)`
+  // matches a route handler's `arr.push(x)` by construction (no per-path drift).
+  const portableArray = lowerPortableArrayCallPython(node, ctx);
+  if (portableArray !== null) return { guard: null, expr: portableArray };
   if (ctx.inConstructor && node.callee.kind === 'ident' && node.callee.name === 'super') {
     const superArgs = node.args.map((arg) => emitPyExprCtx(arg, ctx)).join(', ');
     return { guard: null, expr: `super().__init__(${superArgs})` };
@@ -2135,6 +2238,42 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
       : { guard: null, expr: emitPyExprCtx(callee, ctx) };
   const args = node.args.map((a) => emitPyExprCtx(a, ctx)).join(', ');
   return { guard: inner.guard, expr: `${inner.expr}(${args})` };
+}
+
+/**
+ * Lower a portable Array *method call* (e.g. `arr.push(x)`) through the shared
+ * `list-ops` module, so a class-method body and a route handler lower the same
+ * portable subset to identical Python. Returns `null` — and the caller falls
+ * through to the generic call emission — for anything that is not a bare,
+ * non-optional member call of a shared portable method on a guard-free
+ * receiver. Mirrors the peek-then-emit shape of `lowerRegexCallPython`.
+ */
+function lowerPortableArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: BodyEmitContext): string | null {
+  const callee = call.callee;
+  if (callee.kind !== 'member' || callee.optional) return null;
+  // Gate on method name BEFORE emitting receiver/args, so a non-shared call
+  // falls through without any duplicated emission. Arity is NOT gated here —
+  // the shared `lowerPortableArrayMethodPy` validates the arg count per method
+  // (push/concat are single-arg, slice takes 0/1/2) and returns null for shapes
+  // it can't lower, so a malformed call falls through unchanged. A blanket
+  // `args.length !== 1` guard here would have wrongly blocked `slice()` /
+  // `slice(1, 3)` (a push-shaped assumption — see spec 3a).
+  if (!isSharedPortableArrayMethod(callee.property)) return null;
+  const recvNode = callee.object;
+  // The shim names the receiver twice (`(recv.append(x) or len(recv))`), so a
+  // side-effectful receiver — `makeBag().items.push(x)`, `bags[idx()].push(x)` —
+  // would run those effects twice on Python and break JS parity. Lower only a
+  // provably-pure receiver; let impure ones fall through unchanged.
+  if (!isReceiverChainPure(recvNode)) return null;
+  const recv: GuardedExpr =
+    recvNode.kind === 'member' || recvNode.kind === 'call' || recvNode.kind === 'index'
+      ? lowerChain(recvNode, ctx)
+      : { guard: null, expr: emitPyExprCtx(recvNode, ctx) };
+  // A pure receiver can still be an optional chain (`a?.b`), which carries a
+  // None-guard the flat shim can't honor — fall through for those too.
+  if (recv.guard !== null) return null;
+  const args = call.args.map((a) => emitPyExprCtx(a, ctx));
+  return lowerPortableArrayMethodPy(recv.expr, callee.property, args);
 }
 
 function lowerRegexCallPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: BodyEmitContext): string | null {

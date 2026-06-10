@@ -11,6 +11,12 @@ import {
   KERN_JS_STRING_HELPERS_PY,
   KERN_TMOD_HELPER_PY,
 } from './helpers.js';
+import {
+  isSharedPortableArrayMethod,
+  isSharedPortableArrayProperty,
+  lowerPortableArrayMethodPy,
+  lowerPortableArrayPropertyPy,
+} from './list-ops.js';
 
 export {
   KERN_FMT_HELPER_PY,
@@ -343,31 +349,22 @@ function lowerJsArrayMethods(expr: string, ctx: ExprRewriteContext): string {
           } else {
             lowered = `(next((__i for __i, __v in enumerate(${receiver}) if __v == ${needle}), -1))`;
           }
-        } else if (method === 'push') {
-          // JS Array.push mutates AND returns the new length. Python list.append
-          // returns None, so emit `(recv.append(x) or len(recv))` for exact parity
-          // (mutate + length). Single-arg only; varargs push left unsupported.
-          if (args.length === 1) lowered = `(${receiver}.append(${args[0]}) or len(${receiver}))`;
+        } else if (isSharedPortableArrayMethod(method)) {
+          // Delegate push/slice/concat to the single shared list-ops lowering
+          // (also used by the class-method body emitter) so routes and class
+          // methods can't drift. The shared helper returns null for arg-count
+          // shapes it doesn't support (e.g. multi-arg concat), and `lowered`
+          // stays null so the caller falls through unchanged — the same gap as
+          // the pre-migration inline branches.
+          const portable = lowerPortableArrayMethodPy(receiver, method, args);
+          if (portable !== null) lowered = portable;
         } else if (method === 'reverse') {
           // JS Array.reverse mutates AND returns the (same, reversed) array; Python
           // list.reverse returns None -> `(recv.reverse() or recv)` mutates + returns it.
           lowered = `(${receiver}.reverse() or ${receiver})`;
-        } else if (method === 'concat') {
-          // JS Array.concat returns a NEW array; an array arg is spread, a scalar arg
-          // is appended. Mirror with `recv + (x if isinstance(x, list) else [x])`.
-          // Single-arg only; varargs concat left unsupported.
-          if (args.length === 1)
-            lowered = `(${receiver} + (${args[0]} if isinstance(${args[0]}, list) else [${args[0]}]))`;
         } else if (method === 'join') {
           const sep = args[0] ?? '","';
           lowered = `${sep}.join(str(__v) for __v in ${receiver})`;
-        } else if (method === 'slice') {
-          const start = args[0];
-          const end = args[1];
-          if (!start && !end) lowered = `${receiver}[:]`;
-          else if (start && !end) lowered = `${receiver}[${start}:]`;
-          else if (!start && end) lowered = `${receiver}[:${end}]`;
-          else lowered = `${receiver}[${start}:${end}]`;
         } else if (method === 'some' || method === 'every') {
           const arrow = parseArrowCallback(expr.slice(openIdx + 1, closeIdx));
           if (arrow && arrow.params.length >= 1) {
@@ -458,6 +455,26 @@ function lowerJsArrayMethods(expr: string, ctx: ExprRewriteContext): string {
         if (lowered) {
           out = `${pre}${lowered}`;
           i = closeIdx + 1;
+          continue;
+        }
+      }
+    }
+    // Portable Array *property* access (non-call `.length`). Matched only when
+    // NOT immediately followed by `(` (the method scan above owns call forms),
+    // so `arr.length` lowers to `len(arr)` while a hypothetical `arr.length(...)`
+    // call is left for the method path. Receiver taken from already-emitted
+    // `out` like the method path, so chained forms (`arr.slice(1).length`)
+    // compose naturally.
+    const mProp = expr.slice(i).match(/^\.([A-Za-z]\w*)(?!\s*\()/);
+    if (mProp && isSharedPortableArrayProperty(mProp[1])) {
+      const recvStart = findReceiverStart(out);
+      if (recvStart !== -1) {
+        const receiver = out.slice(recvStart);
+        const pre = out.slice(0, recvStart);
+        const lowered = lowerPortableArrayPropertyPy(receiver, mProp[1]);
+        if (lowered !== null) {
+          out = `${pre}${lowered}`;
+          i += mProp[0].length;
           continue;
         }
       }
