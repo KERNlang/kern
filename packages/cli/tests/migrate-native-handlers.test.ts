@@ -911,11 +911,15 @@ describe('rewriteNativeHandlers — supported statement types', () => {
 });
 
 describe('rewriteNativeHandlers — bail conditions', () => {
-  test('skips handlers whose body is ineligible (block-bodied callback)', () => {
+  test('skips handlers whose body is ineligible (gate-failing block-bodied callback)', () => {
+    // Slices 0+1: gate-PASSING block arrows are now eligible and migrate. A
+    // gate-FAILING block arrow (nested arrow inside the callback) keeps the
+    // handler ineligible, so this bail-condition test uses one to stay a
+    // genuine skip. (Was an unconditional block-callback bail pre-slice.)
     const source = [
       'fn name=fold returns=number',
       '  handler <<<',
-      '    return items.map((x) => { return x.id; });',
+      '    return items.map((x) => { const g = (y) => y.id; return g(x); });',
       '  >>>',
     ].join('\n');
     const result = rewriteNativeHandlers(source);

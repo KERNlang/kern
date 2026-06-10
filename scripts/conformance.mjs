@@ -537,6 +537,17 @@ const FIXTURES = [
     body: `clamp name=bounded value=score min=lo max=hi\nreturn value="{ bounded: bounded }"`,
     expected: { bounded: 12.5 } },
 
+  // ── BLOCK-BODIED ARROW CLOSURE (slices 0+1) on the native-body stmt path. ──────────
+  // The closure lowers via the SAME emitChildrenPy hoist point the class path uses, so
+  // the stmt harness proves TS == Python on a let-position block arrow that (a) reads a
+  // captured outer param (`factor`), (b) holds a local const + return, and (c) is invoked
+  // TWICE in one expression. Discriminates: naive Python `lambda` (invalid — statements),
+  // missing read-capture, and one-shot/inlined-def impls (the def must be reusable).
+  { kind: 'stmt', name: 'stmt: block-bodied arrow closure with read-capture, invoked twice',
+    params: [{ name: 'factor', type: 'number', value: 3 }],
+    body: `let name=scale value="(x) => { const y = x * factor; return y; }"\nreturn value="{ a: scale(7), b: scale(scale(1)) }"`,
+    expected: { a: 21, b: 9 } },
+
   // ── BLOCK SCOPE oracle (memory's #6 known divergence; deferred from #1 slice 1). ───
   // TS `let` is block-scoped, Python assignment is function-scoped. Discriminating fixtures:
   // (1) baseline shadow: catches "Python leaks inner let".

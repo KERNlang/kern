@@ -720,6 +720,86 @@ fn name=probe returns=boolean
     // (same 0.97 finding). [1,2,3].includes(2) is true.
     expected: true,
   },
+  {
+    // K1 — block-bodied arrow with a read-capture of an outer `const` (factor)
+    // and a local `const` + return inside the block. Kills naive `lambda`
+    // emission (statements in a Python lambda are invalid) and missing
+    // read-capture (the def must close over `factor`).
+    name: 'closure K1: block arrow, local const + outer read-capture',
+    kern: `class name=Box export=true
+  method name=run returns=number
+    handler
+      let name=factor value="3"
+      let name=scale value="(x) => { const y = x * factor; return y; }"
+      return value="scale(7)"
+fn name=probe returns=number
+  handler
+    return value="new Box().run()"`,
+    expected: 21,
+  },
+  {
+    // K2 — if/else block body returning string literals. Kills
+    // expression-only body handling (the block has two control-flow paths).
+    name: 'closure K2: block arrow with if/else returning strings',
+    kern: `class name=Box export=true
+  method name=run returns=string
+    handler
+      let name=pick value="(x) => { if (x > 2) { return \\"big\\" } else { return \\"small\\" } }"
+      return value="pick(5)"
+fn name=probe returns=string
+  handler
+    return value="new Box().run()"`,
+    expected: 'big',
+  },
+  {
+    // K3 — closure reads the enclosing METHOD param `n` (capture across the
+    // method signature). Kills param-capture scope bugs.
+    name: 'closure K3: block arrow capturing a method param',
+    kern: `class name=Box export=true
+  method name=run returns=number
+    param name=n type=number
+    handler
+      let name=add value="(x) => { const t = x + n; return t; }"
+      return value="add(4)"
+fn name=probe returns=number
+  handler
+    return value="new Box().run(6)"`,
+    expected: 10,
+  },
+  {
+    // K4 — expression-statement inside the block mutates a captured array
+    // (`acc.push(...)`), then returns its length; the closure is also CALLED
+    // as a `do` statement before the result is read. Kills hoist-ordering
+    // bugs (the def must precede its use), over-broad write-rejection (a
+    // method call on a capture must be allowed, not treated as a free-var
+    // write), and missing expression-statement support.
+    name: 'closure K4: block arrow mutating a captured array via method call',
+    kern: `class name=Box export=true
+  method name=run returns=number[]
+    handler
+      let name=acc value="[]"
+      let name=grab value="(x) => { acc.push(x * 2); return acc.length; }"
+      do value="grab(3)"
+      return value="acc"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().run()"`,
+    expected: [6],
+  },
+  {
+    // K5 — the closure is used TWICE in one expression (`inc(inc(5))`). Kills
+    // one-shot / inlined-def impls that can only reference the closure once.
+    name: 'closure K5: block arrow invoked twice (nested calls)',
+    kern: `class name=Box export=true
+  method name=run returns=number
+    handler
+      let name=inc value="(x) => { return x + 1; }"
+      return value="inc(inc(5))"
+fn name=probe returns=number
+  handler
+    return value="new Box().run()"`,
+    expected: 7,
+  },
 ];
 
 const canon = (v) => JSON.stringify(v);

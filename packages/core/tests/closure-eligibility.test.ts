@@ -123,18 +123,41 @@ describe('classifyClosureBlock — accept set + reject reasons', () => {
   });
 });
 
-describe('commit A — eligibility stays CLOSED (closure-stmt-body)', () => {
-  test('a handler statement containing a gate-passing block arrow is INELIGIBLE', () => {
-    const body = 'const f = (x) => { return x + 1; }; return f(2);';
+describe('commit B — eligibility flip (gate-passing block arrows are eligible)', () => {
+  test('a let-bound gate-passing block arrow is now ELIGIBLE', () => {
+    const body = 'const scale = (x) => { const y = x * 2; return y; };\nreturn scale(7);';
     const result = classifyHandlerBodyAst(body);
-    expect(result.eligible).toBe(false);
-    expect(result.reason).toBe('closure-stmt-body');
+    expect(result.eligible).toBe(true);
+    expect(result.reason).toBe('ok');
   });
 
-  test('a let-bound block arrow is INELIGIBLE with closure-stmt-body', () => {
-    const body = 'const scale = (x) => { const y = x * 2; return y; };';
+  test('a return-position gate-passing block arrow call is ELIGIBLE', () => {
+    const body = 'const f = (x) => { return x + 1; };\nreturn f(2);';
+    const result = classifyHandlerBodyAst(body);
+    expect(result.eligible).toBe(true);
+    expect(result.reason).toBe('ok');
+  });
+
+  test('a gate-FAILING block arrow keeps the statement ineligible with the gate reason', () => {
+    // `this` inside the closure → gate reason surfaces as the statement reason.
+    const thisBody = 'const f = (x) => { return this.x + x; };\nreturn f(1);';
+    expect(classifyHandlerBodyAst(thisBody)).toEqual({ eligible: false, reason: 'closure-this' });
+    // Nested arrow.
+    const nestedBody = 'const f = (x) => { const g = (y) => y; return g(x); };\nreturn f(1);';
+    expect(classifyHandlerBodyAst(nestedBody)).toEqual({
+      eligible: false,
+      reason: 'closure-nested-function',
+    });
+    // Destructuring declaration inside the closure.
+    const destrBody = 'const f = (x) => { const {a} = x; return a; };\nreturn f({a:1});';
+    expect(classifyHandlerBodyAst(destrBody)).toEqual({ eligible: false, reason: 'closure-destructure' });
+  });
+
+  test('a gate-passing block arrow INSIDE a loop is rejected with closure-in-loop', () => {
+    const body =
+      'const out = [];\nfor (const n of xs) {\n  const f = (x) => { return x + n; };\n  out.push(f(n));\n}\nreturn out;';
     const result = classifyHandlerBodyAst(body);
     expect(result.eligible).toBe(false);
-    expect(result.reason).toBe('closure-stmt-body');
+    expect(result.reason).toBe('closure-in-loop');
   });
 });

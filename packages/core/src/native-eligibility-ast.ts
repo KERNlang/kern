@@ -22,6 +22,7 @@
 
 import ts from 'typescript';
 import { supportedCompoundAssignmentOperator } from './assignment-operators.js';
+import { classifyClosureBlock } from './closure-eligibility.js';
 import { emitTypeAnnotation } from './codegen/emitters.js';
 import { parseExpression } from './parser-expression.js';
 import type { ValueIR } from './value-ir.js';
@@ -532,32 +533,54 @@ function isSimpleTrailingStmt(node: ts.Node): boolean {
   return false;
 }
 
-/** True when `node` (a statement subtree) contains any arrow function with a
- *  block body (`x => { … }`). TS-AST walk, never string scanning. Commit A
- *  uses this to keep block-arrow statements INELIGIBLE (`closure-stmt-body`);
- *  commit B replaces the blanket reject with the real v1 gate wiring. */
-function hasBlockBodiedArrow(node: ts.Node): boolean {
-  let found = false;
+/** Collect the raw text (braces included) of every block-bodied arrow
+ *  (`x => { … }`) inside a statement subtree. TS-AST walk, never string
+ *  scanning — `arrow.body.getText(sf)` yields the exact `{ … }` source. */
+function collectBlockArrowRaws(node: ts.Node, sf: ts.SourceFile): string[] {
+  const raws: string[] = [];
   const visit = (n: ts.Node): void => {
-    if (found) return;
     if (ts.isArrowFunction(n) && ts.isBlock(n.body)) {
-      found = true;
+      raws.push(n.body.getText(sf));
+      // Don't descend into the block body: the v1 closure gate already rejects
+      // nested arrows, so a nested block arrow can't be independently eligible.
       return;
     }
     ts.forEachChild(n, visit);
   };
   visit(node);
-  return found;
+  return raws;
+}
+
+/** Eligibility verdict for any block-bodied arrows in a statement (slices
+ *  0+1). Returns a reject reason or `null` if the statement's block arrows are
+ *  all gate-passing and not loop-pinned:
+ *   - any arrow whose `classifyClosureBlock` is non-null → that gate reason
+ *     (the statement is ineligible for the same reason the closure is).
+ *   - a gate-passing arrow inside a loop (`ctx.loopDepth > 0`) →
+ *     `closure-in-loop` (slice 2 lifts this with default-arg pinning).
+ *   - otherwise `null` (eligible — funnels through isValidKernExpression for
+ *     the statement's own expression validity, which now parses the arrow). */
+function classifyBlockArrows(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContext): string | null {
+  const raws = collectBlockArrowRaws(stmt, sf);
+  if (raws.length === 0) return null;
+  for (const raw of raws) {
+    const gateReason = classifyClosureBlock(raw);
+    if (gateReason !== null) return gateReason;
+  }
+  if (ctx.loopDepth > 0) return 'closure-in-loop';
+  return null;
 }
 
 /** Classify a single statement. Returns null if the migrator can emit it,
  *  otherwise a kebab-case reason. Recurses through if/try branches. */
 function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContext): string | null {
-  // Commit A — block-bodied arrows are captured + gated in the parser, which
-  // would otherwise silently flip migrator eligibility. Keep them ineligible
-  // explicitly so commit A is ZERO eligibility-behavior change. Commit B
-  // removes this and replaces it with the real v1-gate wiring.
-  if (hasBlockBodiedArrow(stmt)) return 'closure-stmt-body';
+  // Slices 0+1 — a statement containing a block-bodied arrow is eligible IFF
+  // every such arrow passes the v1 closure gate AND the statement is not inside
+  // a loop. (Commit A kept these blanket-ineligible; this is the real gate
+  // wiring.) The statement's own expression validity is still checked below via
+  // isValidKernExpression — the block arrow inside it parses now.
+  const closureReason = classifyBlockArrows(stmt, sf, ctx);
+  if (closureReason !== null) return closureReason;
   if (ts.isVariableStatement(stmt)) {
     const flags = stmt.declarationList.flags;
     const isConst = (flags & ts.NodeFlags.Const) !== 0;

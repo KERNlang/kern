@@ -12,6 +12,8 @@
  */
 
 import type { IRNode } from '@kernlang/core';
+import { parse } from '@kernlang/core';
+import { emitNativeKernBodyPythonWithImports } from '../src/codegen-body-python.js';
 import { generatePythonClass } from '../src/generators/data.js';
 
 function handler(children: IRNode[]): IRNode {
@@ -424,5 +426,100 @@ describe('Python class codegen (single-source class slice)', () => {
     };
     const code = generatePythonClass(box).join('\n');
     expect(code).not.toContain('super().__init__');
+  });
+});
+
+describe('Python block-bodied arrow closures (slices 0+1)', () => {
+  function findHandler(node: IRNode | null): IRNode | null {
+    if (!node) return null;
+    if (node.type === 'handler') return node;
+    for (const child of node.children ?? []) {
+      const found = findHandler(child);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  test('method with a block arrow hoists a local def BEFORE its use, with indented body and call site', () => {
+    const box: IRNode = {
+      type: 'class',
+      props: { name: 'Box' },
+      children: [
+        {
+          type: 'method',
+          props: { name: 'run', returns: 'number' },
+          children: [
+            {
+              type: 'handler',
+              props: { lang: 'kern' },
+              children: [
+                { type: 'let', props: { name: 'factor', value: '3' }, children: [] },
+                {
+                  type: 'let',
+                  props: { name: 'scale', value: '(x) => { const t = x * factor; return t; }' },
+                  children: [],
+                },
+                { type: 'return', props: { value: 'scale(7)' }, children: [] },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const code = generatePythonClass(box).join('\n');
+    // The hoisted def appears BEFORE the `scale = __kern_closure_0` use line.
+    const defIdx = code.indexOf('def __kern_closure_0(x):');
+    const useIdx = code.indexOf('scale = __kern_closure_0');
+    expect(defIdx).toBeGreaterThan(-1);
+    expect(useIdx).toBeGreaterThan(-1);
+    expect(defIdx).toBeLessThan(useIdx);
+    // Body lines lowered + properly indented (def body sits at method-indent+1).
+    expect(code).toContain('            t = x * factor');
+    expect(code).toContain('            return t');
+    // Call site preserved.
+    expect(code).toContain('return scale(7)');
+    // No naive `lambda` emission for a statement body.
+    expect(code).not.toContain('lambda');
+  });
+
+  test('a closure capturing a SHADOW-RENAMED outer variable references the renamed Python name', () => {
+    // outer `let x`; an inner if-block re-declares `x` (shadow → __k_shadow_x_N);
+    // a closure inside that block READS x → its def body must reference the
+    // RENAMED Python name (captures resolve through ctx; the param is NOT renamed).
+    const kern = `screen name=S
+  callback name=fn params="c:boolean"
+    handler lang=kern
+      let name=x value="1" kind=let
+      if cond="c"
+        let name=x value="2" kind=let
+        let name=f value="(a) => { const r = a + x; return r; }"
+        return value="f(10)"
+      return value="x"`;
+    const handler = findHandler(parse(kern));
+    expect(handler).not.toBeNull();
+    const { code } = emitNativeKernBodyPythonWithImports(handler as IRNode, { outerBindings: ['c'] });
+    // The inner shadow rename happened.
+    expect(code).toMatch(/__k_shadow_x_\d+ = 2/);
+    // The closure body references the RENAMED name, not the bare `x`.
+    expect(code).toMatch(/def __kern_closure_0\(a\):/);
+    expect(code).toMatch(/r = __kern_add\(a, __k_shadow_x_\d+\)/);
+    // The closure PARAM `a` is not renamed.
+    expect(code).toContain('def __kern_closure_0(a):');
+  });
+
+  test('the hoisted def is placed inside the if-block (correct nested indent)', () => {
+    const kern = `screen name=S
+  callback name=fn params="c:boolean"
+    handler lang=kern
+      if cond="c"
+        let name=g value="(x) => { const y = x + 1; return y; }"
+        return value="g(4)"
+      return value="0"`;
+    const handler = findHandler(parse(kern));
+    const { code } = emitNativeKernBodyPythonWithImports(handler as IRNode, { outerBindings: ['c'] });
+    // The def is indented one level under the `if` (4 spaces) — flushed via the
+    // nested emitChildrenPy call, not at the function-body top level.
+    expect(code).toContain('    def __kern_closure_0(x):');
+    expect(code).toContain('    g = __kern_closure_0');
   });
 });

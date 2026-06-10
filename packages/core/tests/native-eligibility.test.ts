@@ -365,14 +365,14 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
   }
 
   // Slices 0+1: block-bodied arrows now PARSE (captured as `bodyBlock`) and
-  // are gated by the v1 closure gate. In commit A the statement classifier
-  // keeps any block-arrow-bearing statement ineligible via the dedicated
-  // `closure-stmt-body` reason (asserted BEFORE the per-statement expression
-  // checks). Previously the parser threw on the block, surfacing as
-  // `return-bad-expr`. Still ineligible — only the (more accurate) reason
-  // changed. Commit B flips this to eligible for gate-passing arrows.
-  test('block-bodied callback rejected (closure-stmt-body)', () =>
-    rejected(`return xs.map((x) => { return x * 2; });`, 'closure-stmt-body'));
+  // are gated by the v1 closure gate. A GATE-PASSING block arrow is eligible
+  // (covered in closure-eligibility.test.ts); a GATE-FAILING one keeps the
+  // statement ineligible with the gate's reason. This disqualifier test uses a
+  // gate-failing arrow (nested arrow inside the callback) to stay a real
+  // rejection case. (Was `return-bad-expr` pre-slice when the parser threw on
+  // any block body.)
+  test('gate-failing block-bodied callback rejected (closure-nested-function)', () =>
+    rejected(`return xs.map((x) => { const g = (y) => y; return g(x); });`, 'closure-nested-function'));
 
   test('typed callback return predicate is eligible', () => {
     expect(
@@ -573,14 +573,14 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
     rejected(`import { foo } from 'bar';\nreturn foo();`, 'unsupported-stmt-ImportDeclaration'));
 
   // Slices 0+1: the original body used a BLOCK-bodied arrow as the computed
-  // index, which the parser used to reject (→ `expr-stmt-bad-assign-target`).
-  // Block arrows now parse and the statement classifier short-circuits to
-  // `closure-stmt-body` (asserted before the assignment-target check). Still
-  // ineligible — only the reason changed. The remaining optional-chain
+  // index. Block arrows now parse; a gate-PASSING one no longer disqualifies
+  // the statement (the assignment-target check decides). To keep this a real
+  // disqualifier we use a gate-FAILING arrow (`this` inside it), so the gate
+  // reason surfaces as the statement reason. The remaining optional-chain
   // assignment-target cases below keep exercising `expr-stmt-bad-assign-target`
   // directly.
-  test('computed block-arrow assignment target rejected (closure-stmt-body)', () =>
-    rejected(`obj[(a) => { return a; }] = 1;\nreturn obj;`, 'closure-stmt-body'));
+  test('computed gate-failing block-arrow rejected (closure-this)', () =>
+    rejected(`obj[(a) => { return this.a; }] = 1;\nreturn obj;`, 'closure-this'));
 
   test('optional-chain assignment targets rejected', () => {
     rejected(`obj?.x = 1;\nreturn obj;`, 'expr-stmt-bad-assign-target');

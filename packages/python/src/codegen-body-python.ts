@@ -49,6 +49,7 @@ import {
   isSupportedAssignOperator,
   KERN_STDLIB_MODULES,
   lookupStdlib,
+  lowerJsClosureBodyToPython,
   needsArgParens,
   needsBinaryParens,
   parseExpression,
@@ -199,6 +200,19 @@ interface BodyEmitContext {
    *  raw f-string interpolation, `None` for undefined, None-only `??`).
    *  See BodyEmitOptions.coerceJsValues. */
   coerceJsValues: boolean;
+  /** Slices 0+1 — block-bodied arrow closure lowering. When `emitLambdaPy`
+   *  lowers a block arrow it pushes a hoisted local `def __kern_closure_N(...)`
+   *  (a block of source lines) here and returns the def's NAME as the
+   *  expression string. `emitChildrenPy`'s per-child loop flushes the buffer
+   *  IMMEDIATELY BEFORE the statement that referenced it (at the current
+   *  indent), so the def precedes its use even inside if/else/loop bodies. A
+   *  buffer left non-empty when a handler body finishes is a BUG (defensive
+   *  throw at the body-emit entry point). */
+  pendingHoists: string[][];
+  /** Monotonic gensym counter for hoisted closure def names. Separate from
+   *  `gensymCounter` so closure names stay stable/independent of other
+   *  gensym usage. */
+  closureSeq: number;
 }
 
 const INDENT_STEP = '    ';
@@ -222,6 +236,8 @@ function freshCtx(options?: BodyEmitOptions): BodyEmitContext {
     standaloneExpression: false,
     coerceJsValues: options?.coerceJsValues ?? true,
     traceHooks: options?.traceHooks,
+    pendingHoists: [],
+    closureSeq: 0,
   };
 }
 
@@ -318,6 +334,15 @@ export function emitNativeKernBodyPythonWithImports(handlerNode: IRNode, options
   }
   try {
     const code = emitChildrenPy(handlerNode.children ?? [], ctx, '').join('\n');
+    // Slices 0+1 — a hoisted closure def left un-flushed means some statement
+    // emitter produced a block arrow without routing through emitChildrenPy's
+    // flush point. That would silently drop the def → NameError at runtime.
+    // Fail loud instead.
+    if (ctx.pendingHoists.length > 0) {
+      throw new Error(
+        'Internal codegen error: block-arrow closure def(s) were not flushed (a statement emitter bypassed the emitChildrenPy hoist point).',
+      );
+    }
     return { code, imports: ctx.imports, usedPropagation: ctx.usedPropagation, helpers: ctx.helpers };
   } finally {
     if (outerBindings.length > 0) {
@@ -372,7 +397,7 @@ function emitChildrenPy(
   try {
     for (let i = 0; i < children.length; i++) {
       const child = children[i];
-      const trailStart = lines.length;
+      let trailStart = lines.length;
       if (child.type === 'comment') {
         for (const line of emitCommentPy(child)) lines.push(`${indent}${line}`);
       } else if (child.type === 'cell') {
@@ -690,6 +715,24 @@ function emitChildrenPy(
         // fastapi target. We gensym the `on=` expression once so it's not
         // double-evaluated across cases.
         for (const line of emitBranchPy(child, ctx, indent)) lines.push(line);
+      }
+
+      // Slices 0+1 — flush hoisted block-arrow closure defs. `emitLambdaPy`
+      // pushed each `def __kern_closure_N(...):` block into `ctx.pendingHoists`
+      // when it lowered a block arrow used by THIS child. Splice them in at the
+      // current indent IMMEDIATELY BEFORE the child's own lines so the def
+      // precedes its use — works at any nesting level because every nested
+      // emission funnels through emitChildrenPy. Bump `trailStart` past the
+      // spliced defs so the trailing-comment check below still measures only
+      // the child's own line count.
+      if (ctx.pendingHoists.length > 0) {
+        const hoistLines: string[] = [];
+        for (const def of ctx.pendingHoists) {
+          for (const dl of def) hoistLines.push(`${indent}${dl}`);
+        }
+        lines.splice(trailStart, 0, ...hoistLines);
+        trailStart += hoistLines.length;
+        ctx.pendingHoists = [];
       }
 
       // W1 — re-attach an inline same-line trailing comment (captured by the
@@ -2021,21 +2064,67 @@ function emitPyTypeof(argument: ValueIR, ctx: BodyEmitContext): string {
 }
 
 function emitLambdaPy(node: Extract<ValueIR, { kind: 'lambda' }>, ctx: BodyEmitContext): string {
-  if (node.bodyBlock) {
-    // Commit A: block-bodied arrows are captured + gated in core but not yet
-    // lowered on the Python target. Fail closed so any eligible-but-unlowered
-    // block arrow surfaces as a compile error (commit B replaces this with the
-    // hoisted-local-def lowering).
-    throw new Error(
-      'Block-bodied arrow closures are not yet lowered to Python (commit A captures them; commit B lowers them).',
-    );
-  }
   const names = node.params.map((p) => p.name);
+  if (node.bodyBlock) {
+    return emitBlockClosurePy(node, names, ctx);
+  }
   const previous = new Set(ctx.shadowedSymbols);
   for (const name of names) ctx.shadowedSymbols.add(name);
   try {
     const params = names.length === 0 ? '' : ` ${names.join(', ')}`;
     return `lambda${params}: ${emitPyExprCtx(node.body as ValueIR, ctx)}`;
+  } finally {
+    ctx.shadowedSymbols = previous;
+  }
+}
+
+/** Slices 0+1 — lower a block-bodied arrow (`x => { ... }`) to a hoisted local
+ *  Python `def`. Pushes `def __kern_closure_N(params): <body>` into
+ *  `ctx.pendingHoists` (flushed by emitChildrenPy immediately before the
+ *  enclosing statement) and RETURNS the def name as the expression string, so
+ *  `let scale = (x) => {...}` lowers to `scale = __kern_closure_0` with the def
+ *  hoisted above it.
+ *
+ *  The closure body is lowered through `lowerJsClosureBodyToPython`, reusing
+ *  the class-path expression/condition callbacks:
+ *   - `lowerExpression(raw)` = `emitPyExprCtx(parseExpression(raw), ctx)` —
+ *     identical to every other native-body expression emit, so a captured
+ *     RENAMED outer variable resolves through `ctx` (the rename stack /
+ *     symbolMap) exactly as it does outside the closure.
+ *   - `lowerCondition(raw)` mirrors the class/native if-emitter, which lowers a
+ *     condition as the bare `emitPyExprCtx(parseExpression(cond), ctx)` (NO
+ *     js_truthy wrapper). Matching it EXACTLY means a condition inside a
+ *     closure lowers identically to the same condition outside one.
+ *
+ *  Closure PARAMS shadow outer renames while the body is lowered (same
+ *  `shadowedSymbols` save/restore as the expression-lambda branch) — params
+ *  must NOT be renamed, while captures of renamed outer vars still resolve
+ *  through ctx. The v1 gate (commit A) guarantees the lowering succeeds;
+ *  gate/lowerer drift (`ok:false`) is a loud bug. */
+function emitBlockClosurePy(node: Extract<ValueIR, { kind: 'lambda' }>, names: string[], ctx: BodyEmitContext): string {
+  const closureName = `__kern_closure_${ctx.closureSeq++}`;
+  const previous = new Set(ctx.shadowedSymbols);
+  for (const name of names) ctx.shadowedSymbols.add(name);
+  try {
+    const lowered = lowerJsClosureBodyToPython(node.bodyBlock!.raw, {
+      lowerExpression: (raw) => emitPyExprCtx(parseExpression(raw), ctx),
+      // Mirror the native/class if-emitter EXACTLY (bare expression, no
+      // js_truthy) so a condition inside the closure matches the same
+      // condition outside it.
+      lowerCondition: (raw) => emitPyExprCtx(parseExpression(raw), ctx),
+    });
+    if (!lowered.ok) {
+      // The commit-A gate already accepted this block, so a lowering failure
+      // here is gate/lowerer drift — surface it loudly.
+      throw new Error(
+        `Internal codegen error: block-arrow closure passed the v1 gate but failed to lower (${lowered.reason ?? 'unknown'}).`,
+      );
+    }
+    const params = names.join(', ');
+    // `lowered.lines` are body lines at 4-space indent (the lowerer's own
+    // convention); they nest directly under the `def` header.
+    ctx.pendingHoists.push([`def ${closureName}(${params}):`, ...lowered.lines]);
+    return closureName;
   } finally {
     ctx.shadowedSymbols = previous;
   }

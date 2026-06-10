@@ -159,7 +159,10 @@ describe('NATIVE_KERN_ELIGIBLE diagnostic — multi-handler walk', () => {
       '  >>>',
       'fn name="c" type=any',
       '  handler <<<',
-      '    return xs.map((x) => { return x; });', // disqualified by block-bodied callback
+      // Slices 0+1: gate-PASSING block arrows are now eligible, so `c` uses a
+      // gate-FAILING block arrow (nested arrow inside the callback) to stay
+      // disqualified — keeping this a 2-eligible multi-handler walk.
+      '    return xs.map((x) => { const g = (y) => y; return g(x); });',
       '  >>>',
     ].join('\n');
     expect(nativeHints(src)).toHaveLength(2);
