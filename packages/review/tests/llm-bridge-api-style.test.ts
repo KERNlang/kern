@@ -1,5 +1,5 @@
 // describe/expect/it are ambient — injected by scripts/node-test-globals.ts.
-import { buildLLMRequest, parseWireResponse, type LLMBridgeConfig } from '../src/llm-bridge.js';
+import { buildLLMRequest, type LLMBridgeConfig, parseWireResponse } from '../src/llm-bridge.js';
 
 const cfg = (apiStyle: 'openai' | 'anthropic'): Required<LLMBridgeConfig> => ({
   apiKey: 'k-test',
@@ -20,7 +20,7 @@ describe('buildLLMRequest', () => {
   it('openai style posts chat/completions with Bearer auth and inline system message', () => {
     const req = buildLLMRequest(MESSAGES, cfg('openai'));
     expect(req.url).toBe('https://api.example.com/v1/chat/completions');
-    expect(req.headers['Authorization']).toBe('Bearer k-test');
+    expect(req.headers.Authorization).toBe('Bearer k-test');
     expect(req.headers['x-api-key']).toBeUndefined();
     const body = JSON.parse(req.body);
     expect(body.messages).toHaveLength(2);
@@ -34,7 +34,7 @@ describe('buildLLMRequest', () => {
     expect(req.url).toBe('https://api.example.com/v1/messages');
     expect(req.headers['x-api-key']).toBe('k-test');
     expect(req.headers['anthropic-version']).toBe('2023-06-01');
-    expect(req.headers['Authorization']).toBeUndefined();
+    expect(req.headers.Authorization).toBeUndefined();
     const body = JSON.parse(req.body);
     expect(body.system).toBe('You are a reviewer.');
     expect(body.messages).toEqual([{ role: 'user', content: 'Review this.' }]);

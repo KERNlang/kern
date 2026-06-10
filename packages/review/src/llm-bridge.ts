@@ -91,8 +91,7 @@ function resolveConfig(override?: LLMBridgeConfig): Required<LLMBridgeConfig> & 
     apiKey,
     model,
     baseUrl: (override?.baseUrl || process.env.KERN_LLM_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, ''),
-    apiStyle:
-      override?.apiStyle || (process.env.KERN_LLM_API_STYLE === 'anthropic' ? 'anthropic' : 'openai'),
+    apiStyle: override?.apiStyle || (process.env.KERN_LLM_API_STYLE === 'anthropic' ? 'anthropic' : 'openai'),
     timeout: override?.timeout || 60_000,
     maxTokens,
     maxBatchTokens: override?.maxBatchTokens || defaultMaxBatchTokens(maxTokens),
@@ -155,9 +154,7 @@ export function buildLLMRequest(
       .filter((m) => m.role === 'system')
       .map((m) => m.content)
       .join('\n\n');
-    const chat = messages
-      .filter((m) => m.role !== 'system')
-      .map((m) => ({ role: m.role, content: m.content }));
+    const chat = messages.filter((m) => m.role !== 'system').map((m) => ({ role: m.role, content: m.content }));
     return {
       url: `${config.baseUrl}/messages`,
       headers: {
