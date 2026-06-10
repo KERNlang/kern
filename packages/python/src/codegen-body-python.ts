@@ -394,6 +394,21 @@ function emitChildrenPy(
   ctx.localScopes.push(new Map(initialBindings));
   ctx.regexScopes.push(new Map(initialBindings.map(([name]) => [name, null])));
   ctx.renameStack.push(new Map());
+  // Slices 0+1 fix (agon review, claude 0.7) — isolate the hoist buffer per
+  // recursion level. A statement emitter that lowers a HEADER expression (an
+  // `if`/`while` condition, an `each`/`for` iterable, a `branch` scrutinee)
+  // pushes that expression's closure defs into the buffer BEFORE recursing
+  // into its body via this function. Without isolation, the body-level
+  // per-child flush below would steal those defs and splice them INSIDE the
+  // body — after the header line already referenced the def name (runtime
+  // NameError: `if __kern_closure_0(2):` with the def indented under it).
+  // Saving/clearing here means a header def survives untouched until the
+  // PARENT level's per-child flush, which splices it before the entire
+  // statement — defs bind once, so before-the-header placement is correct for
+  // every header position including `elif` chains (the def simply precedes
+  // the whole if/elif chain).
+  const outerHoists = ctx.pendingHoists;
+  ctx.pendingHoists = [];
   try {
     for (let i = 0; i < children.length; i++) {
       const child = children[i];
@@ -752,6 +767,11 @@ function emitChildrenPy(
     ctx.localScopes.pop();
     ctx.regexScopes.pop();
     ctx.renameStack.pop();
+    // Restore the parent level's hoist buffer (see the isolation comment at
+    // entry). Any defs THIS level's last child left behind are appended so the
+    // parent's flush (or the defensive end-of-body throw) still sees them —
+    // hoists are never silently dropped.
+    ctx.pendingHoists = outerHoists.concat(ctx.pendingHoists);
   }
   return lines;
 }

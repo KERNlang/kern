@@ -83,6 +83,30 @@ function isBareIdentifierTarget(target: ts.Expression): boolean {
   return ts.isIdentifier(target);
 }
 
+/** v1 reject reason for an assignment/update TARGET inside a closure block.
+ *  All assignment shapes reject in v1 (the class-path lowering has no
+ *  assignment grammar — see the call-site comment); the reason distinguishes
+ *  the semantically-wrong case (free-variable write) from the merely
+ *  not-yet-supported ones. */
+function classifyAssignTarget(target: ts.Expression, localNames: Set<string>): string {
+  if (isBareIdentifierTarget(target)) {
+    const root = assignmentTargetRoot(target);
+    if (root !== null && !localNames.has(root)) return 'closure-free-var-assign';
+    return 'closure-local-assign';
+  }
+  if (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) {
+    // A `this`-rooted target (`this.x = …`) is first and foremost a `this`
+    // usage — surface the more precise reason the rest of the gate uses.
+    let current: ts.Expression = target;
+    while (ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current)) {
+      current = current.expression;
+    }
+    if (current.kind === ts.SyntaxKind.ThisKeyword) return 'closure-this';
+    return 'closure-member-assign';
+  }
+  return 'closure-unsupported-assign-target';
+}
+
 /** Walk the whole block rejecting any v1-unsupported construct. Returns a
  *  distinct reject reason string, or `null` if no unsupported construct is
  *  found. Statement-level shape (only let/const/return/expr/if accepted) is
@@ -181,37 +205,37 @@ function findUnsupportedConstruct(block: ts.Block): string | null {
       return;
     }
 
-    // Assignment to a free variable (a name NOT declared inside the block).
-    // `acc.push(x)` is a CALL on a captured object — fine. Only assignments
-    // (`x = …`, `x += …`, `x++`/`x--`) whose target is a bare identifier not
-    // declared in the block count as a free-variable write.
+    // ASSIGNMENT EXPRESSIONS — all rejected in v1 (agon review, codex 0.94
+    // gate/lowerer-drift finding). The class-path statement lowering routes
+    // expression statements through KERN's `parseExpression`, which has no
+    // assignment grammar (`=`/`+=`/`++` throw) — so ANY gate-approved
+    // assignment would surface as an eligible-handler compile error, not
+    // working code. Fail closed with a precise reason instead; a follow-up
+    // "closure local mutation" slice lifts this by lowering assignments
+    // structurally. `acc.push(x)` is a CALL on a captured object — fine and
+    // the v1 mutation story.
+    //  - bare free identifier (`count = …` where count is captured):
+    //    'closure-free-var-assign' (would ALSO be semantically wrong without
+    //    `nonlocal` — the most important reject).
+    //  - bare local identifier: 'closure-local-assign' (lowerable in
+    //    principle, unsupported v1).
+    //  - member/index target (`acc.x = 1`): 'closure-member-assign'
+    //    (semantically fine, unsupported by the v1 lowering).
+    //  - anything else (destructuring `({a} = obj)`, parenthesized `(x) = 1`):
+    //    'closure-unsupported-assign-target' (agy blocking finding — could
+    //    smuggle a free write past the bare-identifier check).
     if (ts.isBinaryExpression(node)) {
       const op = node.operatorToken.kind;
       if (op >= ts.SyntaxKind.FirstAssignment && op <= ts.SyntaxKind.LastAssignment) {
-        if (isBareIdentifierTarget(node.left)) {
-          const root = assignmentTargetRoot(node.left);
-          if (root !== null && !localNames.has(root)) {
-            reason = 'closure-free-var-assign';
-            return;
-          }
-        } else {
-          // Member/index assignment target — allowed only if the root object
-          // is captured-and-mutated (always fine: mutating a captured object
-          // is in scope for v1). Bare-identifier reassignment is the only
-          // free-var write we reject.
-        }
+        reason = classifyAssignTarget(node.left, localNames);
+        return;
       }
     }
     if (ts.isPostfixUnaryExpression(node) || ts.isPrefixUnaryExpression(node)) {
       const op = node.operator;
       if (op === ts.SyntaxKind.PlusPlusToken || op === ts.SyntaxKind.MinusMinusToken) {
-        if (isBareIdentifierTarget(node.operand)) {
-          const root = assignmentTargetRoot(node.operand);
-          if (root !== null && !localNames.has(root)) {
-            reason = 'closure-free-var-assign';
-            return;
-          }
-        }
+        reason = classifyAssignTarget(node.operand, localNames);
+        return;
       }
     }
 

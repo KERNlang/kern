@@ -92,10 +92,10 @@ describe('classifyClosureBlock — accept set + reject reasons', () => {
     expect(classifyClosureBlock('{ return; }')).toBeNull();
     expect(classifyClosureBlock('{ foo(); return 1; }')).toBeNull();
     expect(classifyClosureBlock('{ if (c) { return 1 } else return 0 }')).toBeNull();
-    // Member/index mutation on a captured object is allowed.
+    // Method-call mutation on a captured object is allowed (the v1 mutation
+    // story). Assignment EXPRESSIONS — even to closure-locals — are NOT (see
+    // the assignment-free v1 rejections below; agon-review codex finding).
     expect(classifyClosureBlock('{ acc.push(x); return acc.length; }')).toBeNull();
-    // Assignment to a closure-LOCAL is allowed.
-    expect(classifyClosureBlock('{ let n = 0; n = n + 1; return n; }')).toBeNull();
   });
 
   test('returns a distinct reason for each reject category', () => {
@@ -111,6 +111,24 @@ describe('classifyClosureBlock — accept set + reject reasons', () => {
     expect(classifyClosureBlock('{ const {a} = x; return a; }')).toBe('closure-destructure');
     expect(classifyClosureBlock('{ count = count + 1; return count; }')).toBe('closure-free-var-assign');
     expect(classifyClosureBlock('{ count++; return count; }')).toBe('closure-free-var-assign');
+    // Non-bare assignment targets (agon review, agy blocking finding) — a
+    // destructuring assignment or parenthesized target could smuggle a
+    // free-variable write past the bare-identifier check. Fail closed.
+    expect(classifyClosureBlock('{ ({ a: outer } = x); return 1; }')).toBe('closure-unsupported-assign-target');
+    expect(classifyClosureBlock('{ [outer] = x; return 1; }')).toBe('closure-unsupported-assign-target');
+    expect(classifyClosureBlock('{ (outer) = x; return 1; }')).toBe('closure-unsupported-assign-target');
+    // v1 is ASSIGNMENT-FREE inside closures (agon review, codex gate/lowerer
+    // drift finding): the class-path lowering routes expression statements
+    // through parseExpression, which has no assignment grammar — a
+    // gate-approved assignment would be an eligible-handler compile error.
+    // Local and member targets reject with precise not-yet-supported reasons.
+    expect(classifyClosureBlock('{ let x = 1; x = x + 1; return x; }')).toBe('closure-local-assign');
+    expect(classifyClosureBlock('{ let x = 1; x++; return x; }')).toBe('closure-local-assign');
+    expect(classifyClosureBlock('{ acc.total = 1; return 1; }')).toBe('closure-member-assign');
+    expect(classifyClosureBlock('{ acc[0] = 1; return 1; }')).toBe('closure-member-assign');
+    expect(classifyClosureBlock('{ acc.n++; return 1; }')).toBe('closure-member-assign');
+    // Method CALLS on captured objects remain the v1 mutation story.
+    expect(classifyClosureBlock('{ acc.push(1); return acc.length; }')).toBeNull();
     // Statement outside the accept set (e.g. a labeled statement is caught by
     // the construct walk first; a for-loop by closure-loop). A bare nested
     // block is not in the accept set.

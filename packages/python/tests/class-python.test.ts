@@ -522,4 +522,29 @@ describe('Python block-bodied arrow closures (slices 0+1)', () => {
     expect(code).toContain('    def __kern_closure_0(x):');
     expect(code).toContain('    g = __kern_closure_0');
   });
+
+  test('a closure in an IF CONDITION hoists BEFORE the if header (per-level buffer isolation)', () => {
+    // agon-review fix (claude 0.7): the condition's def was pushed to
+    // pendingHoists before the if-branch recursed into its body, and the
+    // BODY-level per-child flush stole it — emitting the def INSIDE the body,
+    // AFTER `if __kern_closure_0(2):` already referenced it (runtime
+    // NameError). Per-level buffer isolation in emitChildrenPy makes a header
+    // def survive until the PARENT flush, landing before the whole statement.
+    const kern = `screen name=S
+  callback name=fn params="c:boolean"
+    handler lang=kern
+      if cond="((x) => { return x > 1; })(2)"
+        return value="10"
+      return value="20"`;
+    const handler = findHandler(parse(kern));
+    const { code } = emitNativeKernBodyPythonWithImports(handler as IRNode, { outerBindings: ['c'] });
+    const defIdx = code.indexOf('def __kern_closure_0(x):');
+    const ifIdx = code.indexOf('if __kern_closure_0(2):');
+    expect(defIdx).toBeGreaterThan(-1);
+    expect(ifIdx).toBeGreaterThan(-1);
+    expect(defIdx).toBeLessThan(ifIdx);
+    // The def sits at the function-body level (no extra indent under the if).
+    expect(code).toContain('def __kern_closure_0(x):');
+    expect(code).not.toContain('    def __kern_closure_0'); // not nested in the body
+  });
 });

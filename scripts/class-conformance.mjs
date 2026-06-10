@@ -800,6 +800,64 @@ fn name=probe returns=number
     return value="new Box().run()"`,
     expected: 7,
   },
+  {
+    // K6 — block arrow invoked inside an IF CONDITION (header position). Kills
+    // the hoist-buffer recursion-steal bug (agon review, claude 0.7): without
+    // per-level buffer isolation the def is spliced INSIDE the if body — after
+    // `if __kern_closure_0(2):` already referenced it — a runtime NameError on
+    // Python while TS is fine. Correct placement is BEFORE the `if` header.
+    name: 'closure K6: block arrow called in an if-condition (header hoist)',
+    kern: `class name=Box export=true
+  method name=run returns=number
+    handler
+      if cond="((x) => { return x > 1; })(2)"
+        return value="10"
+      return value="20"
+fn name=probe returns=number
+  handler
+    return value="new Box().run()"`,
+    expected: 10,
+  },
+  {
+    // K7 — block arrow invoked in a WHILE CONDITION. Same header-position
+    // hazard as K6 for the loop header; the def binds once before the loop
+    // (capture-free closure, so def-once ≡ JS per-evaluation semantics).
+    name: 'closure K7: block arrow called in a while-condition (header hoist)',
+    kern: `class name=Box export=true
+  method name=run returns=number
+    handler
+      let name=i value="0" kind=let
+      while cond="((n) => { return n < 3; })(i)"
+        assign target="i" value="i + 1"
+      return value="i"
+fn name=probe returns=number
+  handler
+    return value="new Box().run()"`,
+    expected: 3,
+  },
+  {
+    // K8 — block arrow invoked in an ELIF condition (the else>[if] chain shape
+    // the Python emitter collapses to `elif`). Python cannot hold a `def`
+    // between `if` and `elif`, so the only correct placement is before the
+    // WHOLE chain — which per-level buffer isolation produces. Kills any
+    // "flush before the immediately-enclosing header line" impl that would
+    // emit an illegal def between branches.
+    name: 'closure K8: block arrow called in an elif-condition (chain hoist)',
+    kern: `class name=Box export=true
+  method name=pick params="n:number" returns=number
+    handler
+      if cond="n > 10"
+        return value="1"
+      else
+        if cond="((x) => { return x === 5; })(n)"
+          return value="2"
+        else
+          return value="3"
+fn name=probe returns=number
+  handler
+    return value="new Box().pick(5)"`,
+    expected: 2,
+  },
 ];
 
 const canon = (v) => JSON.stringify(v);
