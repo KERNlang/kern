@@ -1248,14 +1248,14 @@ fn name=probe returns=number
   handler lang=kern
     let name=f value="() => { this.x = 1; return 0; }"
     return value="f()"`,
-    expectReason: 'closure-this' },
+    expectReason: 'closure-this', rejectLayers: ['ts-codegen', 'python-codegen'] },
   { kind: 'compile-reject', name: 'compile-reject: closure value-position assignment (closure-assign-value-position)',
     kern: `fn name=probe returns=number
   handler lang=kern
     let name=x value="0" kind=let
     let name=f value="() => { let y = (x = 1); return y; }"
     return value="f()"`,
-    expectReason: 'closure-assign-value-position' },
+    expectReason: 'closure-assign-value-position', rejectLayers: ['ts-codegen', 'python-codegen'] },
   // NEEDS a loop: a closure inside `each` that WRITES the per-iteration loop var. Python emission
   // fails closed (the per-iteration pin freezes a value a `nonlocal` write would mis-target);
   // TS codegen is fine — the asymmetry IS the point. expectReason is the real message substring.
@@ -1266,13 +1266,13 @@ fn name=probe returns=number
     each name=x in="[0, 1, 2]"
       do value="fns.push(() => { x = x + 1; return x; })"
     return value="fns"`,
-    expectReason: 'per-iteration loop capture' },
+    expectReason: 'per-iteration loop capture', rejectLayers: ['python-codegen'] },
   { kind: 'compile-reject', name: 'compile-reject: x instanceof String (instanceof-rhs-wrapper-rejected)',
     kern: `fn name=probe returns=boolean
   handler lang=kern
     let name=x value="\\"a\\""
     return value="x instanceof String"`,
-    expectReason: 'instanceof-rhs-wrapper-rejected' },
+    expectReason: 'instanceof-rhs-wrapper-rejected', rejectLayers: ['python-codegen'] },
 ];
 
 // ── Value → literal emitters ────────────────────────────────────────────────
@@ -1726,16 +1726,31 @@ for (const fx of FIXTURES) {
   // 'node']` drops a target's run+compare. Mirrors the class-conformance loop, scaled to the route
   // harness's failure-reporting shape.
   if (fx.kind === 'whole-file') {
+    // Phase tag so a failure says WHERE it broke (parse vs ts vs python) —
+    // agon review (kimi 0.95): one conflated catch loses debugging context.
+    let phase = 'parse';
     try {
       const root = parse(fx.kern);
       // A single top-level decl parses as the node itself; multiple decls wrap in a root.
       const topNodes = root.type === 'class' || root.type === 'fn' ? [root] : (root.children ?? []);
       const skip = new Set(fx.skip ?? []);
+      // Both targets skipped would silently auto-pass (agon review, zai 0.95) — refuse.
+      if (skip.has('node') && skip.has('python')) {
+        failures.push({ name: fx.name, why: 'both targets skipped — fixture asserts nothing' });
+        continue;
+      }
       const useStdout = Array.isArray(fx.expectedStdout);
+      // probe() is the harness entrypoint for value fixtures — a missing probe fn
+      // would surface as a cryptic runtime NameError (kimi 0.9); guard it here.
+      if (!useStdout && !topNodes.some((n) => n.type === 'fn' && n.props?.name === 'probe')) {
+        failures.push({ name: fx.name, why: 'whole-file value fixture has no top-level `fn name=probe`' });
+        continue;
+      }
       const probeLogTs = useStdout ? '' : '\nconsole.log(JSON.stringify(probe()));';
       const probeLogPy = useStdout ? '' : '\nprint(json.dumps(probe()))';
 
       let tsOut;
+      phase = 'ts';
       if (!skip.has('node')) {
         const tsSource = `${topNodes.map((n) => generateCoreNode(n).join('\n')).join('\n\n')}${probeLogTs}`;
         const tsFile = join(dir, 'whole-file.mjs');
@@ -1748,6 +1763,7 @@ for (const fx of FIXTURES) {
         tsOut = execFileSync('node', [tsFile], { encoding: 'utf8', timeout: 10_000 }).trim();
       }
       let pyOut;
+      phase = 'python';
       if (!skip.has('python')) {
         const pySource = `import json\n${topNodes.map((n) => generatePythonCoreNode(n).join('\n')).join('\n\n')}${probeLogPy}`;
         const pyFile = join(dir, 'whole-file.py');
@@ -1756,8 +1772,11 @@ for (const fx of FIXTURES) {
       }
 
       // Canonicalize each present target's output, then assert all present == expected.
-      const cExp = useStdout ? canon(fx.expectedStdout, 'value') : canon(fx.expected, 'value');
-      const norm = (raw) => (useStdout ? canon(raw.split('\n'), 'value') : canon(JSON.parse(raw), 'value'));
+      // Honor a fixture's compare mode (kimi 0.95 — was hardcoded 'value').
+      phase = 'compare';
+      const mode = fx.compare ?? 'value';
+      const cExp = useStdout ? canon(fx.expectedStdout, mode) : canon(fx.expected, mode);
+      const norm = (raw) => (useStdout ? canon(raw.split('\n'), mode) : canon(JSON.parse(raw), mode));
       const cTs = skip.has('node') ? undefined : norm(tsOut);
       const cPy = skip.has('python') ? undefined : norm(pyOut);
       if (cTs !== undefined && cPy !== undefined && cTs !== cPy) {
@@ -1770,7 +1789,10 @@ for (const fx of FIXTURES) {
         pass++;
       }
     } catch (err) {
-      failures.push({ name: fx.name, why: `whole-file exec error: ${String(err.message ?? err).split('\n').slice(-4).join(' ')}` });
+      failures.push({
+        name: fx.name,
+        why: `whole-file ${phase} error: ${String(err?.message ?? err).split('\n').slice(-4).join(' ')}`,
+      });
     }
     continue;
   }
@@ -1812,6 +1834,20 @@ for (const fx of FIXTURES) {
     }
     const rejectedWithReason = layers.filter((l) => l.threw && l.msg.includes(reason));
     const rejectedDifferent = layers.filter((l) => l.threw && !l.msg.includes(reason));
+    // Optional EXACT layer assertion (kimi 0.9): a fixture documenting a
+    // TS↔Python asymmetry pins WHICH layers must reject (e.g. a Python-only
+    // reason asserts ts-codegen stays clean). Drift in either direction fails.
+    if (Array.isArray(fx.rejectLayers)) {
+      const got = layers.filter((l) => l.threw).map((l) => l.name).sort().join(',');
+      const want = [...fx.rejectLayers].sort().join(',');
+      if (got !== want) {
+        failures.push({
+          name: fx.name,
+          why: `reject-layer set drifted\n      want: ${want}\n      got:  ${got || '(none)'}`,
+        });
+        continue;
+      }
+    }
     if (rejectedDifferent.length > 0) {
       // Tripwire 3: a layer rejected with a DIFFERENT reason than expected — a real lockstep bug.
       const d = rejectedDifferent[0];
