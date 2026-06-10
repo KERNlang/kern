@@ -2847,7 +2847,16 @@ function lowerLambdaArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, ct
   // An optional-chain receiver (`a?.b`) carries a None-guard the comprehension
   // can't honor — fall through unchanged for those.
   if (recv.guard !== null) return null;
-  const recvExpr = recv.expr;
+  // A compound receiver (a ternary `xs if c else ys`, a binary expression)
+  // dropped bare into a generator head parses WRONG: Python reads the `if`
+  // as the comprehension filter (`for el in xs if c else ys` → SyntaxError) —
+  // agon review, agy 1.0. Call-arg positions (`enumerate(recv)`) are immune;
+  // the bare `for … in recv` heads and `recv[::-1]` are not. Space-heuristic
+  // parens: atoms (`self.items`, `makeBox().items`, `[1, 2]`?) — note a
+  // bracketed literal contains ', ' but leading `[`/`(` already self-delimits;
+  // anything else with top-level spaces gets wrapped. Parens are never wrong,
+  // the heuristic only preserves byte-identical output for the common shapes.
+  const recvExpr = parenthesizeIterable(recv.expr);
 
   // Hygienic loop vars, fresh per call.
   const seq = ctx.gensymCounter++;
@@ -2976,8 +2985,13 @@ function lowerReduceArrayCallPython(
       ? lowerChain(recvNode, ctx)
       : { guard: null, expr: emitPyExprCtx(recvNode, ctx) };
   if (recv.guard !== null) return null;
-  // reduceRight reverses the sequence; reduce uses it as-is.
-  const seq = method === 'reduceRight' ? `${recv.expr}[::-1]` : recv.expr;
+  // reduceRight reverses the sequence; reduce uses it as-is. The slice binds
+  // TIGHTER than ternary/binary receivers (`xs if c else ys[::-1]` slices only
+  // `ys` — agon review, agy 1.0), so the receiver is parenthesized when
+  // compound. The plain-reduce position is a call argument (self-delimiting),
+  // but wrap uniformly so both methods agree on the receiver text.
+  const recvExpr = parenthesizeIterable(recv.expr);
+  const seq = method === 'reduceRight' ? `${recvExpr}[::-1]` : recvExpr;
 
   ctx.imports.add('functools');
   if (call.args.length === 2) {
@@ -2985,6 +2999,45 @@ function lowerReduceArrayCallPython(
     return `__k_functools.reduce(${cb}, ${seq}, ${seed})`;
   }
   return `__k_functools.reduce(${cb}, ${seq})`;
+}
+
+/** Parenthesize a lowered receiver for generator-head (`for el in <recv>`) and
+ *  slice (`<recv>[::-1]`) positions, where a compound expression parses wrong
+ *  (a bare ternary's `if` reads as the comprehension filter — SyntaxError; a
+ *  slice binds only the rightmost operand). Space heuristic: an expression
+ *  with no top-level spaces is an atom/chain (`self.items`, `makeBox().items`,
+ *  `xs[1:]`) and stays bare (byte-identical to pre-fix output); one that
+ *  starts with a self-delimiting bracket also stays bare; anything else wraps.
+ *  Parens are never semantically wrong — the heuristic only preserves
+ *  idiomatic output for the common shapes. */
+function parenthesizeIterable(expr: string): string {
+  if (!expr.includes(' ')) return expr;
+  // A leading bracket is only self-delimiting if it CLOSES at the very end
+  // (`[1, 2, 3]` yes; `[1] if c else [2]` no — same opener, not enclosing).
+  const open = expr[0];
+  const close = open === '[' ? ']' : open === '(' ? ')' : open === '{' ? '}' : null;
+  if (close !== null && expr[expr.length - 1] === close) {
+    let depth = 0;
+    let quote: string | null = null;
+    for (let i = 0; i < expr.length; i++) {
+      const ch = expr[i];
+      if (quote) {
+        if (ch === '\\') i++;
+        else if (ch === quote) quote = null;
+        continue;
+      }
+      if (ch === '"' || ch === "'") quote = ch;
+      else if (ch === '[' || ch === '(' || ch === '{') depth++;
+      else if (ch === ']' || ch === ')' || ch === '}') {
+        depth--;
+        // Depth returns to 0 before the end → the leading bracket does NOT
+        // enclose the whole expression.
+        if (depth === 0 && i < expr.length - 1) return `(${expr})`;
+      }
+    }
+    if (depth === 0) return expr;
+  }
+  return `(${expr})`;
 }
 
 function lowerRegexCallPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: BodyEmitContext): string | null {

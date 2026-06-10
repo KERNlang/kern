@@ -1476,6 +1476,23 @@ fn name=probe returns=boolean
     expected: [12, 3],
   },
   {
+    name: 'lambda-array FR11: TERNARY receiver parenthesized in generator heads + reduceRight slice',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=xs value="[1, 2]"
+    let name=ys value="[3, 4]"
+    let name=c value="true"
+    let name=m value="(c ? xs : ys).map((x) => x * 10)"
+    let name=r value="(c ? ys : xs).reduceRight((a, b) => a - b)"
+    return value="[m, r]"`,
+    // A compound (ternary) receiver dropped bare into `for el in <recv>` makes
+    // Python read the `if` as the comprehension filter (SyntaxError), and
+    // `<recv>[::-1]` slices only the rightmost branch (agon review, agy 1.0).
+    // parenthesizeIterable wraps compound receivers: map over xs → [10,20];
+    // reduceRight over ys=[3,4] reversed → 4-3=1. RED at base: SyntaxError.
+    expected: [[10, 20], 1],
+  },
+  {
     name: 'closure MUT9: write to shadow-renamed capture targets the renamed binding',
     kern: `fn name=probe returns=number[]
   handler lang=kern
