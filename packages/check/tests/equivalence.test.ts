@@ -273,8 +273,10 @@ function buildVarianceCells(): VarianceCell[] {
   for (const [label, mp, bp] of setterParam) {
     cells.push({
       label,
-      member: member('setter', { paramTypes: [mp as string], arity: 1 }),
-      base: member('setter', { paramTypes: [bp as string], arity: 1 }),
+      // paramTypes may carry an undefined cell on purpose (the undefined-type
+      // sentinel path); type it honestly instead of casting undefined to string.
+      member: member('setter', { paramTypes: [mp] as (string | undefined)[] as string[], arity: 1 }),
+      base: member('setter', { paramTypes: [bp] as (string | undefined)[] as string[], arity: 1 }),
       classByName: chain,
     });
   }
