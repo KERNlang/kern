@@ -999,6 +999,164 @@ fn name=probe returns=number
     return value="out"`,
     expected: [0, 1, 2],
   },
+  // ── lambda-bearing array methods (map/filter/some/every) on the class/native
+  //    Python path. These methods are NOT in the shared portable list-ops set
+  //    (push/slice/concat/…), so at base a class method's `this.data.map(...)`
+  //    falls through to a verbatim `self.data.map(...)` emit → Python lists have
+  //    no `.map` → AttributeError (RED at base, ts != py). The new
+  //    `lowerLambdaArrayCallPython` peek lowers them to a call-by-name
+  //    comprehension. Each fixture kills a specific wrong-impl.
+  {
+    name: 'lambda M1: this.data.map((x) => x * 2) — expression lambda',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [1, 2, 3] }}
+  method name=doubled returns=number[]
+    handler
+      return value="this.data.map((x) => x * 2)"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().doubled()"`,
+    // [1,2,3].map(x => x*2) is [2,4,6]. Kills a verbatim `.map(` emit
+    // (AttributeError on Python) and any non-mapping shape.
+    expected: [2, 4, 6],
+  },
+  {
+    name: 'lambda M2: map with a BLOCK lambda (hoisted def ordering)',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [1, 2, 3] }}
+  method name=squared returns=number[]
+    handler
+      return value="this.data.map((x) => { const y = x + 1; return y * y; })"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().squared()"`,
+    // map(x => { const y=x+1; return y*y }) over [1,2,3] is [4,9,16]. Kills a
+    // block-lambda mis-lowered at the comprehension site: the hoisted
+    // `def __kern_closure_N` must precede the statement whose comprehension
+    // calls it. A NameError (def spliced after use) is RED at base.
+    expected: [4, 9, 16],
+  },
+  {
+    name: 'lambda M3: map with 2-arity callback (enumerate index)',
+    kern: `class name=Box export=true
+  method name=indexed returns=number[]
+    handler
+      return value="[10, 20, 30].map((x, i) => x + i)"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().indexed()"`,
+    // [10,20,30].map((x,i) => x+i) is [10,21,32]. Kills a single-arg lowering
+    // that drops the index param (would NameError on `i`, or emit `x+0`).
+    expected: [10, 21, 32],
+  },
+  {
+    name: 'lambda M4: filter predicate returns ARRAY — js_truthy contract',
+    kern: `class name=Box export=true
+  method name=kept returns=number[]
+    handler
+      return value="[1, 2, 3].filter((x) => [])"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().kept()"`,
+    // JS keeps `[]` truthy, so filter(x => []) keeps EVERY element → [1,2,3].
+    // Bare Python truthiness drops `[]` (empty list is falsy) → would give [].
+    // THE contract fixture: only a `js_truthy(...)`-wrapped predicate matches JS.
+    expected: [1, 2, 3],
+  },
+  {
+    name: 'lambda M5: filter with a modulo predicate',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [1, 2, 3, 4] }}
+  method name=evens returns=number[]
+    handler
+      return value="this.data.filter((x) => x % 2 === 0)"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().evens()"`,
+    // [1,2,3,4].filter(x => x%2===0) is [2,4]. Kills comprehension-if basics
+    // (a verbatim `.filter(` emit is AttributeError at base).
+    expected: [2, 4],
+  },
+  {
+    name: 'lambda M6: receiver evaluated ONCE (side-effecting bump())',
+    kern: `class name=Counter export=true
+  field name=count type=number value={{ 0 }}
+  method name=bump returns=number[]
+    handler
+      assign target="this.count" value="this.count + 1"
+      return value="[1, 2, 3]"
+  method name=run
+    handler
+      let name=mapped value="this.bump().map((x) => x * 2)"
+      return value="[mapped, this.count]"
+fn name=probe
+  handler
+    return value="new Counter().run()"`,
+    // `this.bump()` mutates count and returns [1,2,3]; mapping doubles → [2,4,6].
+    // The receiver must be named ONCE in the comprehension, so bump() runs ONCE
+    // and count is 1. A double-eval template (recv named twice) would run bump()
+    // twice → count 2 (RED for a redundant-receiver-eval impl).
+    expected: [[2, 4, 6], 1],
+  },
+  {
+    name: 'lambda M7: chained map().filter()',
+    kern: `class name=Box export=true
+  method name=chain returns=number[]
+    handler
+      return value="[1, 2, 3, 4].map((x) => x * 2).filter((x) => x > 4)"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().chain()"`,
+    // [1,2,3,4].map(x=>x*2) is [2,4,6,8]; .filter(x=>x>4) is [6,8]. Kills a
+    // lowering that can't nest (the filter receiver is itself a lowered map
+    // comprehension).
+    expected: [6, 8],
+  },
+  {
+    name: 'lambda M8: every over array-of-arrays — js_truthy on every',
+    kern: `class name=Box export=true
+  method name=truthy returns=boolean
+    handler
+      return value="[[], []].every((x) => x)"
+fn name=probe returns=boolean
+  handler
+    return value="new Box().truthy()"`,
+    // JS: [[],[]].every(x => x) is true ([] is truthy). Bare Python `all([], [])`
+    // would treat empty lists as falsy → false. Only a js_truthy-wrapped
+    // predicate inside all(...) matches JS → true.
+    expected: true,
+  },
+  {
+    name: 'lambda M9: some — false then true (any() basics + bool parity)',
+    kern: `class name=Box export=true
+  method name=results returns=boolean[]
+    handler
+      return value="[[0, 1].some((x) => x > 1), [0, 1, 2].some((x) => x > 1)]"
+fn name=probe returns=boolean[]
+  handler
+    return value="new Box().results()"`,
+    // [0,1].some(x=>x>1) is false (no element > 1); [0,1,2].some(...) is true.
+    // Kills an always-true / always-false any() lowering; the boolean[] print
+    // proves true/false parity across targets.
+    expected: [false, true],
+  },
+  {
+    name: 'lambda M10: bare LOCAL identifier callback',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [1, 2] }}
+  method name=tripled returns=number[]
+    handler
+      let name=f value="(x) => x * 3"
+      return value="this.data.map(f)"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().tripled()"`,
+    // `let f = x => x*3; this.data.map(f)` — the callback is a bare LOCAL ident
+    // (ValueIR `ident`, NOT a member chain), so it lowers to `[f(__kern_el) for
+    // __kern_el in self.data]` → [3,6]. Kills an impl that only handles inline
+    // lambdas and falls through (AttributeError) on a named callback.
+    expected: [3, 6],
+  },
 ];
 
 const canon = (v) => JSON.stringify(v);

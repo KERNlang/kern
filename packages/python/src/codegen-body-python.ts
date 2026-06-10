@@ -61,6 +61,7 @@ import { buildPythonParamList } from './codegen-helpers.js';
 import {
   KERN_FMT_HELPER_PY,
   KERN_I32_HELPER_PY,
+  KERN_JS_HELPER_PY,
   KERN_PAIR_HELPERS_PY,
   KERN_TMOD_HELPER_PY,
 } from './core/expr/index.js';
@@ -2420,6 +2421,12 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   if (regex !== null) return { guard: null, expr: regex };
   const stdlib = applyStdlibLoweringPython(node, ctx);
   if (stdlib !== null) return { guard: null, expr: stdlib };
+  // Lambda-bearing array methods (`map`/`filter`/`some`/`every`) lower to a
+  // call-by-name comprehension. Peeked BEFORE the portable-array shim because
+  // none of these four are in that shim's set; gating here keeps the two paths
+  // independent and lets a non-matching shape fall through unchanged.
+  const lambdaArray = lowerLambdaArrayCallPython(node, ctx);
+  if (lambdaArray !== null) return { guard: null, expr: lambdaArray };
   // Portable array methods (e.g. `arr.push(x)`) lower through the SAME shared
   // helper the route emitter uses, so a class method's `this.items.push(x)`
   // matches a route handler's `arr.push(x)` by construction (no per-path drift).
@@ -2487,6 +2494,136 @@ function lowerPortableArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, 
   if (recv.guard !== null) return null;
   const args = call.args.map((a) => emitPyExprCtx(a, ctx));
   return lowerPortableArrayMethodPy(recv.expr, callee.property, args);
+}
+
+/** Methods this peek lowers to a call-by-name comprehension. `find`/`findIndex`/
+ *  `findLast`/`findLastIndex`/`flatMap`/`reduce`/`reduceRight`/sort-with-comparator
+ *  are the same shape but DEFERRED (see slice report). */
+const LAMBDA_ARRAY_METHODS: ReadonlySet<string> = new Set(['map', 'filter', 'some', 'every']);
+
+/**
+ * Lower a lambda-bearing Array method call (`recv.map(cb)` / `.filter` / `.some`
+ * / `.every`) on the class/native-body Python path to a call-by-name
+ * comprehension. Returns `null` — and the caller falls through to the generic
+ * call emission — for any shape this peek does not own. Peeked at the same
+ * dispatch point as `lowerPortableArrayCallPython` (these four methods are NOT
+ * in that shim's set).
+ *
+ * GATE (all required): a non-optional `member` callee, method ∈
+ * {map,filter,some,every}, exactly one call arg, and that arg is a `lambda`
+ * (expression- or block-bodied) OR a bare `ident`.
+ *
+ * Callback shapes resolved to a Python NAME `cb`:
+ *   - block lambda  → `emitPyExprCtx` returns the hoisted `def __kern_closure_N`
+ *                     name (closures v1), and the def is pushed into
+ *                     `ctx.pendingHoists` (flushed by emitChildrenPy before the
+ *                     enclosing statement).
+ *   - expr  lambda  → emit `lambda x: <expr>`, hoist ONE assignment
+ *                     `__kern_cb_N = <lambda>` into the SAME `ctx.pendingHoists`
+ *                     buffer; `cb` = `__kern_cb_N`.
+ *   - bare ident    → the rename-resolved identifier as-is. Arity is unknown for
+ *                     a named callback, so it is always called single-arg. JS
+ *                     would pass `(el, idx, arr)`; a named callback that reads a
+ *                     2nd/3rd param diverges — an ACCEPTED edge for this slice.
+ *
+ * MEMBER-EXPRESSION callbacks (`this.items.map(this.fmt)`) FALL THROUGH verbatim
+ * (the arg is a `member`, not `lambda`/`ident`, so the gate rejects it). This is
+ * deliberate: JS `.map(this.fmt)` passes the method UNBOUND (`this` is undefined
+ * inside it), so the TS target is already broken for such code. Lowering it on
+ * Python would create works-on-Python / breaks-on-TS anti-parity; until KERN
+ * defines a bound-method story there is nothing to be parity-correct WITH.
+ *
+ * TRUTHINESS: filter/some/every wrap the predicate result in `js_truthy(...)`.
+ * This is JS-CORRECT — JS keeps `[]`/`{}` truthy while bare Python drops them.
+ * Two VERIFIED pre-existing divergences are intentionally NOT fixed here:
+ *   (1) the ROUTE path's filter/find-family predicates are BARE (`if ${body}`,
+ *       core/expr/index.ts ~:294) — a pre-existing route truthiness bug, a
+ *       follow-up for the deferral-sweep slice;
+ *   (2) the class path's `if cond=` lowering is bare (no js_truthy wrapper) — a
+ *       separate follow-up.
+ * `js_truthy` here matches JS semantics for the lambda-array predicates only.
+ */
+function lowerLambdaArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: BodyEmitContext): string | null {
+  // SCOPE GATE (do not remove). This lowering is for the class/native-body
+  // statement path (`emitNativeKernBodyPythonWithImports`, standaloneExpression
+  // = false). The standalone-expression entry point (`emitPyExpression`) is the
+  // Ground/React declarative + expression-unit surface; it emits array methods
+  // VERBATIM (e.g. `values.filter(lambda value: ...)`) by design, so do NOT
+  // intercept there. The FastAPI ROUTE path lowers `.map`/`.filter` through a
+  // SEPARATE string-rewrite (`core/expr` `rewriteExpr`/`lowerJsArrayMethods`),
+  // never this IR `lowerChain` peek, so routes are untouched.
+  if (ctx.standaloneExpression) return null;
+  const callee = call.callee;
+  if (callee.kind !== 'member' || callee.optional) return null;
+  if (!LAMBDA_ARRAY_METHODS.has(callee.property)) return null;
+  if (call.args.length !== 1) return null;
+  const arg = call.args[0];
+  if (arg.kind !== 'lambda' && arg.kind !== 'ident') return null;
+  const method = callee.property;
+
+  // Resolve the callback to a NAME. For a lambda the arg arity decides the
+  // comprehension form (enumerate when 2 params); a bare ident is arity-unknown
+  // and always called single-arg (documented divergence above).
+  let cb: string;
+  let twoArity = false;
+  if (arg.kind === 'lambda') {
+    twoArity = arg.params.length >= 2;
+    const emitted = emitLambdaPy(arg, ctx);
+    if (arg.bodyBlock) {
+      // Block lambda → `emitLambdaPy` already pushed the hoisted def and
+      // returned its bare name; use it directly as the callback name.
+      cb = emitted;
+    } else {
+      // Expression lambda → `emitted` is a `lambda x: <expr>`. Hoist ONE
+      // assignment into the SAME buffer as closure defs (flushed before the
+      // enclosing statement) and call it by name, so the comprehension names
+      // the callback exactly once.
+      cb = `__kern_cb_${ctx.closureSeq++}`;
+      ctx.pendingHoists.push([`${cb} = ${emitted}`]);
+    }
+  } else {
+    // Bare LOCAL ident callback (`let f = …; recv.map(f)`). Emit through the
+    // ident path so a renamed binding resolves to its Python name.
+    cb = emitPyExprCtx(arg, ctx);
+  }
+
+  // Receiver: lowered ONCE. Every template below names `recv` EXACTLY ONCE, so
+  // there is NO purity gate here (deliberate contrast with the multi-eval
+  // list-ops methods, which DO gate — see `lowerPortableArrayCallPython`).
+  // FUTURE READER: do not add a redundant `isReceiverChainPure` gate; the
+  // single-eval property is what makes M6 (`this.bump().map(...)` runs bump()
+  // exactly once) correct.
+  const recvNode = callee.object;
+  const recv: GuardedExpr =
+    recvNode.kind === 'member' || recvNode.kind === 'call' || recvNode.kind === 'index'
+      ? lowerChain(recvNode, ctx)
+      : { guard: null, expr: emitPyExprCtx(recvNode, ctx) };
+  // An optional-chain receiver (`a?.b`) carries a None-guard the comprehension
+  // can't honor — fall through unchanged for those.
+  if (recv.guard !== null) return null;
+  const recvExpr = recv.expr;
+
+  // Hygienic loop vars, fresh per call.
+  const seq = ctx.gensymCounter++;
+  const el = `__kern_el_${seq}`;
+  const ix = `__kern_ix_${seq}`;
+  const callCb = twoArity ? `${cb}(${el}, ${ix})` : `${cb}(${el})`;
+  const head = twoArity ? `for ${ix}, ${el} in enumerate(${recvExpr})` : `for ${el} in ${recvExpr}`;
+
+  if (method === 'map') {
+    return `[${callCb} ${head}]`;
+  }
+  // filter/some/every predicates wrap in `js_truthy` (JS-correct; map does not
+  // need it). The helper lands once via the helper Set.
+  ctx.helpers.add(KERN_JS_HELPER_PY);
+  if (method === 'filter') {
+    return `[${el} ${head} if js_truthy(${callCb})]`;
+  }
+  if (method === 'some') {
+    return `any(js_truthy(${callCb}) ${head})`;
+  }
+  // method === 'every'
+  return `all(js_truthy(${callCb}) ${head})`;
 }
 
 function lowerRegexCallPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: BodyEmitContext): string | null {

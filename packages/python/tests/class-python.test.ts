@@ -661,3 +661,116 @@ describe('Python closure loop-variable pinning (slice 2)', () => {
     expect(code).toContain('def __kern_closure_0(p, i=i):');
   });
 });
+
+describe('Python lambda-bearing array methods (map/filter/some/every)', () => {
+  function findHandler(node: IRNode | null): IRNode | null {
+    if (!node) return null;
+    if (node.type === 'handler') return node;
+    for (const child of node.children ?? []) {
+      const found = findHandler(child);
+      if (found) return found;
+    }
+    return null;
+  }
+  function emitFull(kern: string, options?: Parameters<typeof emitNativeKernBodyPythonWithImports>[1]) {
+    const handlerNode = findHandler(parse(kern));
+    expect(handlerNode).not.toBeNull();
+    return emitNativeKernBodyPythonWithImports(handlerNode as IRNode, options);
+  }
+
+  test('M2-shape: hoisted `def __kern_closure_0` precedes the statement whose comprehension calls it', () => {
+    // A block lambda inside map lowers to a hoisted closure def; the def MUST be
+    // emitted BEFORE the `return [...]` line that references it (a NameError
+    // otherwise). emitChildrenPy flushes the hoist immediately before the
+    // statement, so the def precedes the comprehension.
+    const { code } = emitFull(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    return value="[1, 2, 3].map((x) => { const y = x + 1; return y * y; })"`,
+    );
+    const defIdx = code.indexOf('def __kern_closure_0(x):');
+    const useIdx = code.indexOf('__kern_closure_0(__kern_el_');
+    expect(defIdx).toBeGreaterThanOrEqual(0);
+    expect(useIdx).toBeGreaterThan(defIdx);
+    expect(code).toMatch(/\[__kern_closure_0\(__kern_el_\d+\) for __kern_el_\d+ in \[1, 2, 3\]\]/);
+  });
+
+  test('expression lambda is hoisted as `__kern_cb_0 = lambda ...` before the comprehension that calls it', () => {
+    const { code } = emitFull(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    return value="[1, 2, 3].map((x) => x * 2)"`,
+    );
+    const hoistIdx = code.indexOf('__kern_cb_0 = lambda x: x * 2');
+    const useIdx = code.indexOf('__kern_cb_0(__kern_el_');
+    expect(hoistIdx).toBeGreaterThanOrEqual(0);
+    expect(useIdx).toBeGreaterThan(hoistIdx);
+  });
+
+  test('a 2-arity callback lowers to an enumerate comprehension', () => {
+    const { code } = emitFull(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    return value="[10, 20, 30].map((x, i) => x + i)"`,
+    );
+    expect(code).toMatch(/for __kern_ix_\d+, __kern_el_\d+ in enumerate\(\[10, 20, 30\]\)/);
+    expect(code).toMatch(/__kern_cb_0\(__kern_el_\d+, __kern_ix_\d+\)/);
+  });
+
+  test('a bare LOCAL identifier callback lowers to a call-by-name comprehension', () => {
+    const { code } = emitFull(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    let name=f value="(x) => x * 3"
+    return value="[1, 2].map(f)"`,
+    );
+    // No hoisted lambda assignment for a named callback — the comprehension
+    // calls the resolved ident directly, single-arg (arity unknown).
+    expect(code).toMatch(/\[f\(__kern_el_\d+\) for __kern_el_\d+ in \[1, 2\]\]/);
+    expect(code).not.toContain('__kern_cb_');
+  });
+
+  test('filter wraps the predicate in js_truthy and includes the helper source EXACTLY once', () => {
+    const { code, helpers } = emitFull(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    return value="[1, 2, 3].filter((x) => x)"`,
+    );
+    expect(code).toContain('js_truthy(');
+    expect(code).toMatch(/if js_truthy\(__kern_cb_0\(__kern_el_\d+\)\)\]/);
+    // The helper lands once via the helpers Set (a single def js_truthy source).
+    const helperList = [...helpers];
+    const jsHelpers = helperList.filter((h) => h.includes('def js_truthy('));
+    expect(jsHelpers.length).toBe(1);
+  });
+
+  test('some/every lower to any()/all() with a js_truthy-wrapped predicate', () => {
+    const someCode = emitFull(
+      `fn name=probe returns=boolean
+  handler lang=kern
+    return value="[0, 1].some((x) => x > 1)"`,
+    ).code;
+    expect(someCode).toMatch(/any\(js_truthy\(__kern_cb_0\(__kern_el_\d+\)\) for __kern_el_\d+ in \[0, 1\]\)/);
+    const everyCode = emitFull(
+      `fn name=probe returns=boolean
+  handler lang=kern
+    return value="[[], []].every((x) => x)"`,
+    ).code;
+    expect(everyCode).toMatch(/all\(js_truthy\(__kern_cb_0\(__kern_el_\d+\)\) for __kern_el_\d+ in \[\[\], \[\]\]\)/);
+  });
+
+  test('member-expression callback (`this.fmt`) is NOT lowered — falls through verbatim', () => {
+    // JS `.map(this.fmt)` passes the method UNBOUND, so the TS target is broken
+    // for it; lowering on Python would create works-on-Python/breaks-on-TS
+    // anti-parity. The gate rejects a `member` arg, so the call emits verbatim.
+    const { code } = emitFull(
+      `fn name=run returns=number[]
+  handler lang=kern
+    return value="this.items.map(this.fmt)"`,
+      { inClassBody: true, symbolMap: { this: 'self' } },
+    );
+    expect(code).toContain('self.items.map(self.fmt)');
+    expect(code).not.toContain('__kern_el_');
+    expect(code).not.toContain('js_truthy');
+  });
+});
