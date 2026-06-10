@@ -67,6 +67,7 @@ import {
   isSharedPortableArrayProperty,
   lowerPortableArrayMethodPy,
   lowerPortableArrayPropertyPy,
+  sharedPortableMethodRequiresPureReceiver,
 } from './core/expr/list-ops.js';
 import { mapTsTypeToPython } from './type-map.js';
 
@@ -2260,11 +2261,17 @@ function lowerPortableArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, 
   // `slice(1, 3)` (a push-shaped assumption — see spec 3a).
   if (!isSharedPortableArrayMethod(callee.property)) return null;
   const recvNode = callee.object;
-  // The shim names the receiver twice (`(recv.append(x) or len(recv))`), so a
-  // side-effectful receiver — `makeBag().items.push(x)`, `bags[idx()].push(x)` —
-  // would run those effects twice on Python and break JS parity. Lower only a
-  // provably-pure receiver; let impure ones fall through unchanged.
-  if (!isReceiverChainPure(recvNode)) return null;
+  // Per-method purity contract (scalar-method sweep). Multi-eval / mutating
+  // methods (push/reverse/at/fill/lastIndexOf) name the receiver more than once
+  // (`(recv.append(x) or len(recv))`, `(recv.reverse() or recv)`), so a
+  // side-effectful receiver — `makeBag().items.push(x)`, `bags[idx()].reverse()`
+  // — would run those effects twice on Python and break JS parity; lower only a
+  // provably-pure receiver for those. Single-eval methods
+  // (slice/includes/indexOf/join/flat/concat) name the receiver once, so they
+  // accept an impure receiver — the old blanket `isReceiverChainPure` guard
+  // wrongly skipped `makeBox().items.slice(1)` (the prior agon-review 0.97
+  // finding). The optional-chain guard below still applies to ALL methods.
+  if (sharedPortableMethodRequiresPureReceiver(callee.property) && !isReceiverChainPure(recvNode)) return null;
   const recv: GuardedExpr =
     recvNode.kind === 'member' || recvNode.kind === 'call' || recvNode.kind === 'index'
       ? lowerChain(recvNode, ctx)

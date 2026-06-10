@@ -344,6 +344,11 @@ const FIXTURES = [
   // route emitter's new home, on a LITERAL receiver (no binding to constant-fold).
   { name: 'R1: array .length property hook', expr: '[1, 2, 3].length', path: '/api/a', bindings: {}, expected: 3 },
   { name: 'R2: slice(-1) relocated lowering byte-correct', expr: '[1, 2, 3, 4].slice(-1)', path: '/api/a', bindings: {}, expected: [4] },
+  // R3/R4 (scalar-sweep migration): indexOf and lastIndexOf were relocated into the
+  // shared list-ops module — these prove the route output is unchanged at runtime
+  // after the relocation (mirror class-conformance S3/S13 on the route path).
+  { name: 'R3: indexOf first match relocated lowering byte-correct', expr: '[5, 6, 7, 6].indexOf(6)', path: '/api/a', bindings: {}, expected: 1 },
+  { name: 'R4: lastIndexOf last match relocated lowering byte-correct', expr: '[1, 2, 3, 2, 1].lastIndexOf(2)', path: '/api/a', bindings: {}, expected: 3 },
 
   // ── closures slice 1 (#5): an arrow STATEMENT body that is EXACTLY `{ return E }` is ──
   // semantically the expression body E, so it unwraps to the existing comprehension

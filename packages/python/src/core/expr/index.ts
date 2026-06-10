@@ -338,33 +338,19 @@ function lowerJsArrayMethods(expr: string, ctx: ExprRewriteContext): string {
           lowerJsArrayMethods(a.trim(), ctx),
         );
         let lowered: string | null = null;
-        if (method === 'includes') {
-          const needle = args[0] ?? '';
-          lowered = `(${needle} in ${receiver})`;
-        } else if (method === 'indexOf') {
-          const needle = args[0] ?? '';
-          const fromIndex = args[1] ?? null;
-          if (fromIndex) {
-            lowered = `(next((__i for __i, __v in enumerate(${receiver}) if __i >= ${fromIndex} and __v == ${needle}), -1))`;
-          } else {
-            lowered = `(next((__i for __i, __v in enumerate(${receiver}) if __v == ${needle}), -1))`;
-          }
-        } else if (isSharedPortableArrayMethod(method)) {
-          // Delegate push/slice/concat to the single shared list-ops lowering
-          // (also used by the class-method body emitter) so routes and class
-          // methods can't drift. The shared helper returns null for arg-count
-          // shapes it doesn't support (e.g. multi-arg concat), and `lowered`
-          // stays null so the caller falls through unchanged — the same gap as
-          // the pre-migration inline branches.
+        if (isSharedPortableArrayMethod(method)) {
+          // Delegate the argument-shape (non-lambda) scalar methods —
+          // push/slice/concat/includes/indexOf/join/flat/reverse/at/fill/
+          // lastIndexOf — to the single shared list-ops lowering (also used by
+          // the class-method body emitter) so routes and class methods can't
+          // drift. The shared helper returns null for arg-count shapes it
+          // doesn't support (e.g. multi-arg concat), and `lowered` stays null so
+          // the caller falls through unchanged — the same gap as the pre-sweep
+          // inline branches. The method names here are disjoint from the
+          // lambda-bearing some/every/reduce/reduceRight/sort branches below, so
+          // chain order does not matter.
           const portable = lowerPortableArrayMethodPy(receiver, method, args);
           if (portable !== null) lowered = portable;
-        } else if (method === 'reverse') {
-          // JS Array.reverse mutates AND returns the (same, reversed) array; Python
-          // list.reverse returns None -> `(recv.reverse() or recv)` mutates + returns it.
-          lowered = `(${receiver}.reverse() or ${receiver})`;
-        } else if (method === 'join') {
-          const sep = args[0] ?? '","';
-          lowered = `${sep}.join(str(__v) for __v in ${receiver})`;
         } else if (method === 'some' || method === 'every') {
           const arrow = parseArrowCallback(expr.slice(openIdx + 1, closeIdx));
           if (arrow && arrow.params.length >= 1) {
@@ -429,28 +415,6 @@ function lowerJsArrayMethods(expr: string, ctx: ExprRewriteContext): string {
           } else {
             lowered = `sorted(${receiver}, key=lambda __v${LAMBDA_COLON_PLACEHOLDER} str(__v))`;
           }
-        } else if (method === 'flat') {
-          // one level: flatten nested lists, keep scalars
-          lowered = `[__y for __x in ${receiver} for __y in (__x if isinstance(__x, list) else [__x])]`;
-        } else if (method === 'at') {
-          const n = args[0] ?? '0';
-          lowered = `(${receiver}[${n}] if -len(${receiver}) <= ${n} < len(${receiver}) else None)`;
-        } else if (method === 'fill') {
-          const v = args[0] ?? 'None';
-          if (args.length <= 1) {
-            lowered = `[${v} for __ in ${receiver}]`;
-          } else {
-            // fill(value, start, end) fills [start, end) with JS negative-index
-            // normalization; untouched positions keep their original element.
-            const s = args[1];
-            const e = args[2] ?? `len(${receiver})`;
-            lowered = `[(${v} if (${s} if ${s} >= 0 else ${s} + len(${receiver})) <= __i < (${e} if ${e} >= 0 else ${e} + len(${receiver})) else __x) for __i, __x in enumerate(${receiver})]`;
-          }
-        } else if (method === 'lastIndexOf') {
-          const needle = args[0] ?? '';
-          // String receivers use rfind (correct for multi-char substrings, -1
-          // when absent); array receivers reverse-scan by element equality.
-          lowered = `(${receiver}.rfind(${needle}) if isinstance(${receiver}, str) else (len(${receiver}) - 1 - ${receiver}[::-1].index(${needle}) if ${needle} in ${receiver} else -1))`;
         }
         if (lowered) {
           out = `${pre}${lowered}`;

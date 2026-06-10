@@ -324,6 +324,66 @@ describe('Python class codegen (single-source class slice)', () => {
     expect(code).toContain('self.fresh().push(9)'); // receiver named exactly once
   });
 
+  // ── scalar-method sweep: per-method purity contract ──
+  // Single-eval methods (slice/includes) name the receiver ONCE, so they now
+  // lower even on an IMPURE receiver (the old blanket guard wrongly skipped
+  // them — the 0.97 agon-review finding). Multi-eval / mutating methods
+  // (reverse/at) keep requiring a pure receiver and fall through unchanged.
+  function impureReceiverClass(method: string, returns: string): IRNode {
+    return {
+      type: 'class',
+      props: { name: 'Box' },
+      children: [
+        {
+          type: 'field',
+          props: { name: 'items', type: 'number[]', value: { __expr: true, code: '[1, 2, 3]' } },
+          children: [],
+        },
+        {
+          type: 'method',
+          props: { name: 'fresh', returns: 'number[]' },
+          children: [handler([{ type: 'return', props: { value: 'this.items' }, children: [] }])],
+        },
+        {
+          type: 'method',
+          props: { name: 'use', returns },
+          children: [handler([{ type: 'return', props: { value: `this.fresh().${method}` }, children: [] }])],
+        },
+      ],
+    };
+  }
+
+  test('single-eval slice on an IMPURE receiver NOW lowers (old blanket guard removed)', () => {
+    const code = generatePythonClass(impureReceiverClass('slice(1)', 'number[]')).join('\n');
+    // slice names the receiver once, so `this.fresh().slice(1)` lowers to a Python
+    // slice on the call result — the impure receiver is evaluated exactly once.
+    expect(code).toContain('self.fresh()[1:]');
+    expect(code).not.toContain('self.fresh().slice(1)'); // no JS-ism leaks
+  });
+
+  test('single-eval includes on an IMPURE receiver NOW lowers', () => {
+    const code = generatePythonClass(impureReceiverClass('includes(2)', 'boolean')).join('\n');
+    // includes names the receiver once -> `(2 in self.fresh())`.
+    expect(code).toContain('(2 in self.fresh())');
+    expect(code).not.toContain('self.fresh().includes'); // no JS-ism leaks
+  });
+
+  test('multi-eval reverse on an IMPURE receiver does NOT lower (falls through)', () => {
+    const code = generatePythonClass(impureReceiverClass('reverse()', 'number[]')).join('\n');
+    // reverse names the receiver twice (`(recv.reverse() or recv)`), so an impure
+    // receiver must fall through unchanged — no shim applied.
+    expect(code).not.toContain('.reverse() or'); // shim NOT applied
+    expect(code).toContain('self.fresh().reverse()'); // receiver named exactly once
+  });
+
+  test('multi-eval at on an IMPURE receiver does NOT lower (falls through)', () => {
+    const code = generatePythonClass(impureReceiverClass('at(0)', 'number')).join('\n');
+    // at names the receiver three times (value + two bounds), so an impure
+    // receiver falls through unchanged.
+    expect(code).not.toContain('-len('); // bounds shim NOT applied
+    expect(code).toContain('self.fresh().at(0)'); // receiver named exactly once
+  });
+
   test('derived constructor omitting super() gets an implicit super().__init__() first', () => {
     const box: IRNode = {
       type: 'class',

@@ -479,6 +479,247 @@ fn name=probe returns=number[]
     // yields [1,2,[3]] — length 3 would NOT discriminate, but the JSON does.
     expected: [1, 2, 3],
   },
+  // ── scalar-method sweep (includes/indexOf/join/flat/reverse/at/fill/lastIndexOf) ──
+  // These 8 methods were route-only; lifting them into the shared list-ops module
+  // makes a class method's `this.x.includes(v)` lower identically to the route path
+  // (was invalid `self.x.includes(v)` -> AttributeError on Python). Each fixture's
+  // expected value is cross-target deterministic and kills a named wrong-impl.
+  {
+    name: 'scalar S1: includes true/false (number array)',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [3, 1, 4] }}
+  method name=both returns=boolean[]
+    handler
+      return value="[this.data.includes(1), this.data.includes(9)]"
+fn name=probe returns=boolean[]
+  handler
+    return value="new Box().both()"`,
+    // [3,1,4].includes(1) is true, .includes(9) is false. Kills an always-true impl.
+    expected: [true, false],
+  },
+  {
+    name: 'scalar S2: includes substring on a STRING field',
+    kern: `class name=Box export=true
+  field name=name type=string value={{ "hello" }}
+  method name=has returns=boolean
+    handler
+      return value="this.name.includes(\\"ll\\")"
+fn name=probe returns=boolean
+  handler
+    return value="new Box().has()"`,
+    // "hello".includes("ll") is true via Python `in` (substring membership). Kills an
+    // element-equality impl that would scan chars and never find the 2-char "ll".
+    expected: true,
+  },
+  {
+    name: 'scalar S3: indexOf first match (duplicate element)',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [5, 6, 7, 6] }}
+  method name=where returns=number
+    handler
+      return value="this.data.indexOf(6)"
+fn name=probe returns=number
+  handler
+    return value="new Box().where()"`,
+    // [5,6,7,6].indexOf(6) is 1 (FIRST match). Kills an always-0 impl and a
+    // lastIndexOf-style impl that would return 3.
+    expected: 1,
+  },
+  {
+    name: 'scalar S4: indexOf with fromIndex',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [5, 6, 7, 6] }}
+  method name=where returns=number
+    handler
+      return value="this.data.indexOf(6, 2)"
+fn name=probe returns=number
+  handler
+    return value="new Box().where()"`,
+    // indexOf(6, 2) skips index 1 and finds the next 6 at index 3. Kills an impl
+    // that ignores fromIndex (would return 1).
+    expected: 3,
+  },
+  {
+    name: 'scalar S5: join with separator coerces numbers',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [1, 2, 3] }}
+  method name=joined returns=string
+    handler
+      return value="this.data.join(\\"-\\")"
+fn name=probe returns=string
+  handler
+    return value="new Box().joined()"`,
+    // [1,2,3].join("-") is "1-2-3". Kills an impl missing str() on numbers (TypeError
+    // on Python `"-".join([1,2,3])`).
+    expected: '1-2-3',
+  },
+  {
+    name: 'scalar S6: join default separator is comma',
+    kern: `class name=Box export=true
+  field name=data type=string[] value={{ ["a", "b"] }}
+  method name=joined returns=string
+    handler
+      return value="this.data.join()"
+fn name=probe returns=string
+  handler
+    return value="new Box().joined()"`,
+    // ["a","b"].join() defaults to "," -> "a,b". Kills a wrong default separator.
+    expected: 'a,b',
+  },
+  {
+    name: 'scalar S7: flat one level only (nested array preserved)',
+    kern: `class name=Box export=true
+  field name=data type=number[][] value={{ [[1, 2], [3, [4, 5]]] }}
+  method name=flattened returns=number[]
+    handler
+      return value="this.data.flat()"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().flattened()"`,
+    // [[1,2],[3,[4,5]]].flat() flattens ONE level -> [1,2,3,[4,5]]. Kills a recursive
+    // flatten (which would yield [1,2,3,4,5]).
+    expected: [1, 2, 3, [4, 5]],
+  },
+  {
+    name: 'scalar S8: reverse mutates AND returns the reversed array',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [1, 2, 3] }}
+  method name=rev returns=number[]
+    handler
+      return value="this.data.reverse()"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().rev()"`,
+    // JS reverse() mutates AND RETURNS the reversed array; the shim is
+    // `(recv.reverse() or recv)`. Returning the RESULT directly is the
+    // discriminator: native Python `list.reverse()` returns None, so an
+    // un-lowered/fall-through impl yields null on Python (RED at base, ts != py),
+    // and a non-mutating copy impl would also diverge. The shim returns [3,2,1].
+    // (A mutate-then-read-receiver shape is NON-discriminating here because
+    // Python's native list.reverse already mutates in place — see report.)
+    expected: [3, 2, 1],
+  },
+  {
+    name: 'scalar S9: at(-1) negative index normalization',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [10, 20, 30] }}
+  method name=last returns=number
+    handler
+      return value="this.data.at(-1)"
+fn name=probe returns=number
+  handler
+    return value="new Box().last()"`,
+    // [10,20,30].at(-1) is 30. Kills an impl with no negative normalization.
+    expected: 30,
+  },
+  {
+    name: 'scalar S10: at out-of-bounds is null (not IndexError)',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [10, 20] }}
+  method name=oob returns=number[]
+    handler
+      return value="[this.data.at(9)]"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().oob()"`,
+    // [10,20].at(9) is undefined in JS / None in Python -> wrapped as [null]. Kills a
+    // bare `recv[n]` impl (IndexError on Python). The array-wrap makes the null
+    // observable as JSON `[null]` on both targets.
+    expected: [null],
+  },
+  {
+    name: 'scalar S11: fill(value, start, end) return value (NEW list, bounds)',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [0, 0, 0, 0, 0] }}
+  method name=filled returns=number[]
+    handler
+      let name=out value="this.data.fill(9, 1, 3)"
+      return value="out"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().filled()"`,
+    // The lowering is a comprehension returning a NEW list; we print the RETURN value,
+    // never the receiver. [0,0,0,0,0].fill(9,1,3) fills [1,3) -> [0,9,9,0,0]. Kills an
+    // off-by-one bounds impl.
+    expected: [0, 9, 9, 0, 0],
+  },
+  {
+    name: 'scalar S12: fill(value, start) negative start normalization',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [1, 2, 3, 4] }}
+  method name=filled returns=number[]
+    handler
+      let name=out value="this.data.fill(7, -2)"
+      return value="out"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().filled()"`,
+    // fill(7, -2) on [1,2,3,4] normalizes -2 to index 2 -> [1,2,7,7]. Kills an impl
+    // missing negative-index normalization.
+    expected: [1, 2, 7, 7],
+  },
+  {
+    name: 'scalar S13: lastIndexOf last match (array)',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [1, 2, 3, 2, 1] }}
+  method name=where returns=number
+    handler
+      return value="this.data.lastIndexOf(2)"
+fn name=probe returns=number
+  handler
+    return value="new Box().where()"`,
+    // [1,2,3,2,1].lastIndexOf(2) is 3 (LAST match). Kills a first-index impl (-> 1).
+    expected: 3,
+  },
+  {
+    name: 'scalar S14: lastIndexOf substring on a STRING field',
+    kern: `class name=Box export=true
+  field name=name type=string value={{ "banana" }}
+  method name=where returns=number
+    handler
+      return value="this.name.lastIndexOf(\\"na\\")"
+fn name=probe returns=number
+  handler
+    return value="new Box().where()"`,
+    // "banana".lastIndexOf("na") is 4 via rfind (multi-char substring). Kills an
+    // element-scan impl that would treat the string char-by-char.
+    expected: 4,
+  },
+  {
+    name: 'scalar S15: impure receiver + slice(1) (single-eval, NOW lowers)',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [1, 2, 3] }}
+  method name=fetch returns=number[]
+    handler
+      return value="this.data"
+  method name=tail returns=number[]
+    handler
+      return value="this.fetch().slice(1)"
+fn name=probe returns=number[]
+  handler
+    return value="new Box().tail()"`,
+    // slice is single-eval (names the receiver once), so an IMPURE receiver
+    // `this.fetch()` is now lowered (the old blanket guard wrongly skipped it,
+    // the 0.97 agon-review finding). [1,2,3].slice(1) is [2,3]. This is THE fix proof.
+    expected: [2, 3],
+  },
+  {
+    name: 'scalar S16: impure receiver + includes (single-eval, NOW lowers)',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [1, 2, 3] }}
+  method name=fetch returns=number[]
+    handler
+      return value="this.data"
+  method name=has returns=boolean
+    handler
+      return value="this.fetch().includes(2)"
+fn name=probe returns=boolean
+  handler
+    return value="new Box().has()"`,
+    // includes is single-eval, so the impure receiver `this.fetch()` is now lowered
+    // (same 0.97 finding). [1,2,3].includes(2) is true.
+    expected: true,
+  },
 ];
 
 const canon = (v) => JSON.stringify(v);
