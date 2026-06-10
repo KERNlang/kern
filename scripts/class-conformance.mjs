@@ -18,11 +18,10 @@
  * Run:  node scripts/class-conformance.mjs   (or via `pnpm check:class-conformance`)
  */
 
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { canon, makeTmpDir, runNode, runPython, transpileTs } from './conformance-helpers.mjs';
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 const { parse, generateCoreNode } = await import(join(REPO, 'packages/core/dist/index.js'));
@@ -1622,16 +1621,7 @@ fn name=probe returns=boolean
   },
 ];
 
-const canon = (v) => JSON.stringify(v);
-
-const dir = mkdtempSync(join(tmpdir(), 'kern-class-conf-'));
-process.on('exit', () => {
-  try {
-    rmSync(dir, { recursive: true, force: true });
-  } catch {
-    // best-effort tmp cleanup — never fail the run on it
-  }
-});
+const dir = makeTmpDir('kern-class-conf-');
 
 let pass = 0;
 const failures = [];
@@ -1646,21 +1636,15 @@ for (let i = 0; i < FIXTURES.length; i++) {
     // TypeScript module
     const tsSource = `${topNodes.map((n) => generateCoreNode(n).join('\n')).join('\n\n')}\nconsole.log(JSON.stringify(probe()));`;
     const tsFile = join(dir, `mod-${i}.mjs`);
-    writeFileSync(
-      tsFile,
-      tsCompiler.transpileModule(tsSource, {
-        compilerOptions: { module: tsCompiler.ModuleKind.ESNext, target: tsCompiler.ScriptTarget.ES2022 },
-      }).outputText,
-    );
+    writeFileSync(tsFile, transpileTs(tsCompiler, tsSource));
 
     // Python module
     const pySource = `import json\n${topNodes.map((n) => generatePythonCoreNode(n).join('\n')).join('\n\n')}\nprint(json.dumps(probe()))`;
     const pyFile = join(dir, `mod-${i}.py`);
     writeFileSync(pyFile, pySource);
 
-    const opts = { encoding: 'utf8', timeout: 10_000 };
-    const tsOut = JSON.parse(execFileSync('node', [tsFile], opts).trim());
-    const pyOut = JSON.parse(execFileSync('python3', [pyFile], opts).trim());
+    const tsOut = JSON.parse(runNode(tsFile));
+    const pyOut = JSON.parse(runPython(pyFile));
 
     if (canon(tsOut) === canon(fx.expected) && canon(pyOut) === canon(fx.expected)) {
       pass++;
