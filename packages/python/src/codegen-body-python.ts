@@ -1938,14 +1938,22 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       // NameError (Python has no global `Error`). The mapping also covers
       // `let e = new Error(x)` and `throw new Error(x)` (both flow through the
       // `new` expression). `new TypeError(...)` is intentionally NOT mapped —
-      // Python has a native `TypeError`, so it emits as-is. RangeError/
-      // SyntaxError/etc. stay status-quo (v2). A user KERN class literally
-      // named `Error` would be shadowed by this mapping — registry-precedence
-      // hardening is v2.
+      // Python has a native `TypeError`, so it emits as-is.
+      // TODO(kern): RangeError/SyntaxError/ReferenceError/EvalError/URIError
+      // have NO same-named Python builtins and emit as-is → runtime NameError;
+      // map or reject in the v2 builtin-errors slice. A user KERN class
+      // literally named `Error` would be shadowed by this mapping —
+      // registry-precedence hardening is also v2.
       const arg = node.argument;
       if (arg.kind === 'call' && arg.callee.kind === 'ident' && arg.callee.name === 'Error') {
         const remapped: ValueIR = { ...arg, callee: { ...arg.callee, name: 'Exception' } };
         return emitPyExprCtx(remapped, ctx);
+      }
+      // `new Error` WITHOUT parens is valid JS (≡ `new Error()`) and parses as
+      // a bare ident argument — remap it too, else it emits a bare `Error`
+      // NameError (agon review, claude/zai convergence).
+      if (arg.kind === 'ident' && arg.name === 'Error') {
+        return 'Exception()';
       }
       return emitPyExprCtx(arg, ctx);
     }
@@ -2580,6 +2588,14 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
     if (ctx.standaloneExpression) return { guard: null, expr: inlineKernFmtPy(arg) };
     ctx.helpers.add(KERN_FMT_HELPER_PY);
     return { guard: null, expr: `_kern_fmt(${arg})` };
+  }
+  // Host Error mapping, call-without-new form: JS `Error("x")` (no `new`)
+  // constructs an error too — remap like `new Error(...)`, else it emits a
+  // bare `Error(...)` NameError on Python (agon review, kimi 0.7). The same
+  // documented user-class-named-Error shadowing edge applies (v2 hardening).
+  if (node.callee.kind === 'ident' && node.callee.name === 'Error') {
+    const errArgs = node.args.map((arg) => emitPyExprCtx(arg, ctx)).join(', ');
+    return { guard: null, expr: `Exception(${errArgs})` };
   }
   const callee = node.callee;
   const inner: GuardedExpr =

@@ -128,6 +128,11 @@ describe('classifyHandlerBody — eligible bodies', () => {
     );
     expect(classifyHandlerBody(`return x instanceof Promise;`).reason).toBe('instanceof-rhs-unsupported-builtin');
     expect(classifyHandlerBody(`return x instanceof (getClass());`).reason).toBe('instanceof-rhs-not-a-type-name');
+    // Parenthesized bare ident RHS unwraps before classification (agon
+    // review, 3-engine convergence): `(Error)` is still a type name, and a
+    // parenthesized WRAPPER still rejects with the precise reason.
+    expect(classifyHandlerBody(`return x instanceof (Error);`).eligible).toBe(true);
+    expect(classifyHandlerBody(`return x instanceof (String);`).reason).toBe('instanceof-rhs-wrapper-rejected');
     // User-class and qualified-member RHS still pass (emit as-is).
     expect(classifyHandlerBody(`return x instanceof Dog;`).eligible).toBe(true);
     expect(classifyHandlerBody(`return x instanceof a.b.C;`).eligible).toBe(true);
