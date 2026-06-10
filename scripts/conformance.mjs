@@ -338,6 +338,12 @@ const FIXTURES = [
   { name: 'arr-method: reverse returns reversed array', expr: 'nums.reverse()', path: '/api/a', bindings: { locals: { nums: [1, 2, 3] } }, expected: [3, 2, 1] },
   { name: 'arr-method: concat array arg spreads', expr: 'nums.concat(more)', path: '/api/a', bindings: { locals: { nums: [1], more: [2, 3] } }, expected: [1, 2, 3] },
   { name: 'arr-method: concat scalar arg appends', expr: 'nums.concat(9)', path: '/api/a', bindings: { locals: { nums: [1, 2] } }, expected: [1, 2, 9] },
+  // R1/R2 (list-ops parity migration, 2026-06-09): .length is now a route-path
+  // property hook (was emitted as broken `arr.length`), and slice was relocated
+  // to the shared list-ops module — these prove both work byte-correctly in the
+  // route emitter's new home, on a LITERAL receiver (no binding to constant-fold).
+  { name: 'R1: array .length property hook', expr: '[1, 2, 3].length', path: '/api/a', bindings: {}, expected: 3 },
+  { name: 'R2: slice(-1) relocated lowering byte-correct', expr: '[1, 2, 3, 4].slice(-1)', path: '/api/a', bindings: {}, expected: [4] },
 
   // ── closures slice 1 (#5): an arrow STATEMENT body that is EXACTLY `{ return E }` is ──
   // semantically the expression body E, so it unwraps to the existing comprehension

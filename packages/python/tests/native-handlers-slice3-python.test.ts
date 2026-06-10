@@ -333,6 +333,13 @@ describe('slice 3d — optional chain ?. lowering on Python target', () => {
     expect(emitPyExpression(parseExpression('a.b?.c'))).toBe('(a.b.c if a.b is not None else None)');
   });
 
+  test('optional .length composes with the portable property hook: items?.length', () => {
+    // The list-ops property hook rewrites the trailing `.length` link to
+    // `len(...)` while the optional-chain guard mechanism stays untouched —
+    // the guard tests the RECEIVER and the branch wraps the lowered link.
+    expect(emitPyExpression(parseExpression('items?.length'))).toBe('(len(items) if items is not None else None)');
+  });
+
   test('non-optional access stays plain', () => {
     expect(emitPyExpression(parseExpression('a.b'))).toBe('a.b');
     expect(emitPyExpression(parseExpression('a.b.c'))).toBe('a.b.c');

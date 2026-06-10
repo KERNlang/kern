@@ -943,6 +943,130 @@ describe('semantic-validator — class object model', () => {
     expect(rules).toContain('class-override-kind-mismatch');
   });
 
+  test('rejects covariant parameter narrowing in a method override (Liskov)', () => {
+    // N1: base greet(Animal); Dog extends Animal overrides greet(Dog). Narrowing
+    // a parameter breaks substitutability — REJECT.
+    const rules = rulesFor(
+      [
+        'class name=Animal',
+        '  method name=greet returns=string',
+        '    param name=other type=Animal',
+        '    handler lang=kern',
+        '      return value="\'hi\'"',
+        'class name=Dog extends=Animal',
+        '  method name=greet returns=string',
+        '    param name=other type=Dog',
+        '    handler lang=kern',
+        '      return value="\'woof\'"',
+      ].join('\n'),
+    );
+
+    expect(rules).toContain('class-override-param-mismatch');
+  });
+
+  test('rejects contravariant return widening in a method override (Liskov)', () => {
+    // N2: base make() returns Dog; Dog extends Animal overrides make() returns
+    // Animal. Widening a return type breaks substitutability — REJECT.
+    const rules = rulesFor(
+      [
+        'class name=Animal',
+        '  method name=make returns=Dog',
+        '    handler lang=kern',
+        '      return value="new Dog()"',
+        'class name=Dog extends=Animal',
+        '  method name=make returns=Animal',
+        '    handler lang=kern',
+        '      return value="new Animal()"',
+      ].join('\n'),
+    );
+
+    expect(rules).toContain('class-override-return-mismatch');
+  });
+
+  test('rejects covariant parameter narrowing in a setter override (Liskov)', () => {
+    // N3: base setter value(Animal); derived setter value(Dog). Setters are
+    // contravariant in their single parameter — narrowing is a REJECT.
+    const rules = rulesFor(
+      [
+        'class name=Animal',
+        '  setter name=tag',
+        '    param name=next type=Animal',
+        '    handler lang=kern',
+        '      assign target="this._tag" value="next"',
+        'class name=Dog extends=Animal',
+        '  setter name=tag',
+        '    param name=next type=Dog',
+        '    handler lang=kern',
+        '      assign target="this._tag" value="next"',
+      ].join('\n'),
+    );
+
+    expect(rules).toContain('class-override-param-mismatch');
+  });
+
+  test('accepts covariant return narrowing in a method override (Liskov)', () => {
+    // Mirror of N2 in the legal direction: base returns Animal, override returns
+    // Dog (a subtype). Covariant return narrowing is SOUND — no violation.
+    const rules = rulesFor(
+      [
+        'class name=Animal',
+        '  method name=make returns=Animal',
+        '    handler lang=kern',
+        '      return value="new Animal()"',
+        'class name=Dog extends=Animal',
+        '  method name=make returns=Dog',
+        '    handler lang=kern',
+        '      return value="new Dog()"',
+      ].join('\n'),
+    );
+
+    expect(rules).not.toContain('class-override-return-mismatch');
+    expect(rules).not.toContain('class-override-param-mismatch');
+  });
+
+  test('accepts contravariant parameter widening in a method override (Liskov)', () => {
+    // Mirror of N1 in the legal direction: base param Dog, override widens to
+    // Animal (a supertype). Contravariant param widening is SOUND — no violation.
+    const rules = rulesFor(
+      [
+        'class name=Animal',
+        '  method name=greet returns=string',
+        '    param name=other type=Dog',
+        '    handler lang=kern',
+        '      return value="\'hi\'"',
+        'class name=Dog extends=Animal',
+        '  method name=greet returns=string',
+        '    param name=other type=Animal',
+        '    handler lang=kern',
+        '      return value="\'woof\'"',
+      ].join('\n'),
+    );
+
+    expect(rules).not.toContain('class-override-param-mismatch');
+    expect(rules).not.toContain('class-override-return-mismatch');
+  });
+
+  test('accepts grandparent-chain covariant return narrowing (Liskov)', () => {
+    // A <- B <- C. C overrides A's method declared returns=A with returns=C.
+    // C is a subtype of A through the grandparent chain, so narrowing is SOUND.
+    const rules = rulesFor(
+      [
+        'class name=A',
+        '  method name=spawn returns=A',
+        '    handler lang=kern',
+        '      return value="new A()"',
+        'class name=B extends=A',
+        'class name=C extends=B',
+        '  method name=spawn returns=C',
+        '    handler lang=kern',
+        '      return value="new C()"',
+      ].join('\n'),
+    );
+
+    expect(rules).not.toContain('class-override-return-mismatch');
+    expect(rules).not.toContain('class-override-param-mismatch');
+  });
+
   test('override validation terminates when an inheritance cycle has no matching member', () => {
     const rules = rulesFor(
       [

@@ -4,7 +4,7 @@
  */
 
 import { type IRNode, isExprObject } from '@kernlang/core';
-import { mapTsTypeToPython, toSnakeCase } from './type-map.js';
+import { mapTsTypeToPython, mapTsTypeToPythonAnnotation, toSnakeCase } from './type-map.js';
 
 // ── Micro-helpers ──────────────────────────────────────────────────────
 
@@ -288,7 +288,7 @@ function formatPyDefault(paramNode: IRNode): string {
   return '';
 }
 
-function formatPyParamFromChild(paramNode: IRNode): string | null {
+function formatPyParamFromChild(paramNode: IRNode, lazyAnnotations: boolean): string | null {
   const props = p(paramNode);
   const hasDestructure = (paramNode.children ?? []).some((c) => c.type === 'binding' || c.type === 'element');
   // Python has no destructured-param syntax — skip entirely.
@@ -298,6 +298,11 @@ function formatPyParamFromChild(paramNode: IRNode): string | null {
   const variadic = props.variadic === true || props.variadic === 'true';
   const optional = props.optional === true || props.optional === 'true';
   const rawType = props.type as string | undefined;
+
+  // Class-body signatures are evaluated eagerly at definition time, so a
+  // param annotation referencing a not-yet-bound class (self-reference or a
+  // later-defined class) must lower to a lazy PEP-484 string annotation.
+  const mapType = lazyAnnotations ? mapTsTypeToPythonAnnotation : mapTsTypeToPython;
 
   // Variadic: `*args: T` (element type, not the array). Strip a trailing `[]`
   // before mapping so `string[]` → `str`.
@@ -313,21 +318,32 @@ function formatPyParamFromChild(paramNode: IRNode): string | null {
     // `Optional[T]` produces a Python module that fails on import. The
     // existing convention here (see `field: float | None = None` test) is
     // `T | None`, which has no import dependency from Python 3.10+.
-    const optType = typeBase ? `: ${mapTsTypeToPython(typeBase)} | None` : '';
+    // In lazy mode the `| null` union maps as ONE annotation so the quotes
+    // wrap the whole `"Dog | None"` (quoting only the member would make
+    // Python eagerly compute `"Dog" | None` → TypeError).
+    const optType = typeBase
+      ? lazyAnnotations
+        ? `: ${mapTsTypeToPythonAnnotation(`${typeBase} | null`)}`
+        : `: ${mapTsTypeToPython(typeBase)} | None`
+      : '';
     return `${namePart}${optType} = None`;
   }
 
-  const typePart = typeBase ? `: ${mapTsTypeToPython(typeBase)}` : '';
+  const typePart = typeBase ? `: ${mapType(typeBase)}` : '';
   return defaultStr ? `${namePart}${typePart} = ${defaultStr}` : `${namePart}${typePart}`;
 }
 
-export function buildPythonParamList(node: IRNode, options?: { selfPrefix?: boolean }): string {
+export function buildPythonParamList(
+  node: IRNode,
+  options?: { selfPrefix?: boolean; lazyAnnotations?: boolean },
+): string {
   const paramChildren = kids(node, 'param');
+  const lazyAnnotations = options?.lazyAnnotations === true;
   let signature: string;
 
   if (paramChildren.length > 0) {
     signature = paramChildren
-      .map((paramNode) => formatPyParamFromChild(paramNode))
+      .map((paramNode) => formatPyParamFromChild(paramNode, lazyAnnotations))
       .filter((s): s is string => s !== null && s !== '')
       .join(', ');
   } else {
@@ -338,7 +354,8 @@ export function buildPythonParamList(node: IRNode, options?: { selfPrefix?: bool
       signature = parseLegacyParamParts(rawParams)
         .map((part) => {
           const namePart = toSnakeCase(part.name);
-          const typePart = part.type ? `: ${mapTsTypeToPython(part.type)}` : '';
+          const mapType = lazyAnnotations ? mapTsTypeToPythonAnnotation : mapTsTypeToPython;
+          const typePart = part.type ? `: ${mapType(part.type)}` : '';
           const defaultPart = part.defaultValue ? ` = ${jsLiteralToPython(part.defaultValue)}` : '';
           return `${namePart}${typePart}${defaultPart}`;
         })
