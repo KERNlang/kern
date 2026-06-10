@@ -1321,6 +1321,138 @@ fn name=probe returns=boolean
     // the lowered isinstance call.
     expected: true,
   },
+  // ── closure MUTATION v1 (MUT1-MUT8) ────────────────────────────────────────
+  // Statement-position mutation inside block-bodied closures: bare local/free
+  // assigns (incl. compound + statement-position ++/--), and index member
+  // writes. RED at base: the v1 gate REJECTED every assignment shape
+  // (closure-free-var-assign / closure-local-assign / closure-member-assign) →
+  // a compile error at `parseExpression`. Now the gate accepts the shapes, the
+  // lowerer emits Python assignment statements, and `emitBlockClosurePy`
+  // prepends `nonlocal` for free writes (or throws closure-pinned-write for a
+  // per-iteration loop capture). Each kills a specific wrong-impl.
+  {
+    // MUT1 — read+write of a method-LOCAL free var across three calls. RED at
+    // base: gate rejected (closure-free-var-assign). Without `nonlocal` the def
+    // raises UnboundLocalError (read of `n` before the local write) or, if the
+    // shadow somehow initialized, accumulates 1,1,1. Correct = [1,2,3].
+    name: 'closure MUT1: free-var read+write needs nonlocal (accumulate)',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=n value="0" kind=let
+    let name=inc value="() => { n = n + 1; return n; }"
+    return value="[inc(), inc(), inc()]"`,
+    expected: [1, 2, 3],
+  },
+  {
+    // MUT2 — index member write on a captured list mutates BY REFERENCE (no
+    // nonlocal). Called twice → acc[0] = 2. RED at base: gate rejected
+    // (closure-member-assign). Kills a copied-object / not-emitted member-write
+    // impl. (Adapted from the spec's `acc.total` object-member form to an
+    // INDEX write: native-body dict-attribute access — `acc.total` on a Python
+    // dict — is a SEPARATE pre-existing gap outside this slice; an index write
+    // proves the same by-reference member-mutation contract and lowers cleanly
+    // on both targets.)
+    name: 'closure MUT2: index member write mutates captured object by reference',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=acc value="[0]"
+    let name=f value="() => { acc[0] = acc[0] + 1; return 0; }"
+    do value="f()"
+    do value="f()"
+    return value="acc[0]"`,
+    expected: 2,
+  },
+  {
+    // MUT3 — compound assignment (`x *= 2`) on a free var. RED at base: gate
+    // rejected. Kills a not-lowered compound (a verbatim `x *= 2` through the
+    // expression path has no assignment grammar). Correct = 20.
+    name: 'closure MUT3: compound *= on a free var',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=x value="10" kind=let
+    let name=f value="() => { x *= 2; return 0; }"
+    do value="f()"
+    return value="x"`,
+    expected: 20,
+  },
+  {
+    // MUT4 — statement-position `x++` lowers to `x += 1` with `nonlocal`. RED
+    // at base: gate rejected. Called twice → 2. Kills a dropped/not-lowered
+    // postfix increment.
+    name: 'closure MUT4: statement-position ++ lowers to += 1',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=x value="0" kind=let
+    let name=f value="() => { x++; return 0; }"
+    do value="f()"
+    do value="f()"
+    return value="x"`,
+    expected: 2,
+  },
+  {
+    // MUT5 — a free-var write nested inside an if-branch. RED at base: gate
+    // rejected. The `nonlocal` declaration must hoist to the def's first body
+    // line even though the write lives inside a nested block. Correct = true.
+    name: 'closure MUT5: nonlocal write inside a nested if-branch',
+    kern: `fn name=probe returns=boolean
+  handler lang=kern
+    let name=flag value="false" kind=let
+    let name=f value="() => { if (flag === false) { flag = true; } return 0; }"
+    do value="f()"
+    return value="flag"`,
+    expected: true,
+  },
+  {
+    // MUT6 — two SEPARATE closures share one captured binding: `inc` writes
+    // `count`, `get` reads it. RED at base: gate rejected. Kills a per-def
+    // private-copy impl (each def must `nonlocal` the SAME outer `count`, not a
+    // local snapshot). inc() twice then get() → 2.
+    name: 'closure MUT6: two defs share one captured binding',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=count value="0" kind=let
+    let name=inc value="() => { count++; return 0; }"
+    let name=get value="() => { return count; }"
+    do value="inc()"
+    do value="inc()"
+    return value="get()"`,
+    expected: 2,
+  },
+  {
+    // MUT7 — write to a closure PARAM, not a free var. RED at base: the gate
+    // mis-saw `x` as free (params are stripped before the block is parsed) and
+    // rejected closure-free-var-assign. Now: gate accepts the bare-ident shape,
+    // and the LOWERER excludes params from the written-free set → a plain
+    // def-local assignment, NO nonlocal. Correct = 5 (a misroute to nonlocal
+    // would raise/return wrong; a reject would be a compile error).
+    name: 'closure MUT7: param write is a def-local (no nonlocal, no reject)',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=f value="(x) => { x = x + 1; return x; }"
+    return value="f(4)"`,
+    expected: 5,
+  },
+  {
+    // MUT8 — pinned-read + nonlocal-write COEXIST in one looped closure. Inside
+    // `each x`, the closure reads the per-iteration `x` (PINNED via default arg
+    // `x=x`) AND writes the outside-loop accumulator `outer` (NONLOCAL). RED at
+    // base: gate rejected. Kills a pin/nonlocal conflict (a name cannot be both;
+    // here they are different names and both mechanisms must apply in ONE def).
+    // Also re-proves pinning: x is [1,2] not [2,2]. Correct = [[1,2],2].
+    // (returns=number[] is a non-enforcing annotation; the value is nested.)
+    name: 'closure MUT8: pinned per-iteration read + nonlocal outer write coexist',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=outer value="0" kind=let
+    let name=fns value="[]"
+    each name=x in="[1, 2]"
+      do value="fns.push(() => { outer = outer + 1; return x; })"
+    let name=r value="[]"
+    each name=f in="fns"
+      do value="r.push(f())"
+    return value="[r, outer]"`,
+    expected: [[1, 2], 2],
+  },
 ];
 
 const canon = (v) => JSON.stringify(v);

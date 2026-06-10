@@ -14,6 +14,31 @@
  *   - the Python lowerer precondition (`codegen-body-python.ts`)
  *  so nothing eligible can fail to lower.
  *
+ *  ── Mutation v1 (the closure-mutation slice) ───────────────────────────────
+ *  The gate now ACCEPTS in statement position:
+ *   (a) assignments to bare identifiers — block-LOCAL or FREE alike. The gate
+ *       is a SHAPE classifier: it sees only the block (params live on the arrow
+ *       and are stripped before the block is parsed), so it CANNOT tell a free
+ *       capture from a closure param. Both are accepted here; the Python
+ *       EMITTER (`emitBlockClosurePy`) decides pinned-vs-`nonlocal` using the
+ *       enclosing loop context it alone can see, and the LOWERER excludes
+ *       params from the written-free set (so a param write stays a plain local
+ *       assignment, never `nonlocal`). The compound forms `+=,-=,*=,/=,%=` are
+ *       accepted; statement-position `++`/`--` lower to `+= 1`/`-= 1`.
+ *   (b) member/index writes on any non-`this` base (`acc.total = 1`,
+ *       `acc[i] = v`, compound forms) — by-reference parity, no `nonlocal`.
+ *  It KEEPS REJECTING, with precise reasons:
+ *   - `this`-rooted targets → `closure-this` (unchanged).
+ *   - destructuring / parenthesized targets → `closure-unsupported-assign-target`.
+ *   - assignment operators outside {=,+=,-=,*=,/=,%=} (e.g. `&=`, `|=`, `<<=`)
+ *     → `closure-unsupported-operator`.
+ *   - value-position `++`/`--` (operand of a larger expression, e.g.
+ *     `arr.push(x++)`) → `closure-incdec-value-position`.
+ *  The eligibility≢lowerability gap for PINNED captures (a free write to a
+ *  per-iteration loop binding) is intentional and surfaces as a LOUD compile
+ *  error at emission (`closure-pinned-write`), not here: the single-statement
+ *  gate cannot see the enclosing loop header.
+ *
  *  v1 is deliberately NARROWER than the lowering machinery
  *  (`lowerJsClosureBodyToPython` supports try/for-of; the gate rejects them).
  *  Widening the gate is a future slice. */
@@ -123,33 +148,40 @@ export function collectFreeIdentifierNames(raw: string, paramNames: string[]): S
   return free;
 }
 
-/** Root identifier of an assignment target (`acc`, `acc.x`, `acc[i]` → `acc`),
- *  or `null` if the target is not rooted at a plain identifier. */
-function assignmentTargetRoot(target: ts.Expression): string | null {
-  let current: ts.Expression = target;
-  while (ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current)) {
-    current = current.expression;
-  }
-  return ts.isIdentifier(current) ? current.text : null;
-}
-
 /** True when `target` is itself a bare identifier (not a member/index). A bare
  *  identifier write rebinds the variable; a member/index write mutates an
- *  object the closure captured (allowed when the root is captured). */
+ *  object the closure captured. Both are accepted under mutation-v1. */
 function isBareIdentifierTarget(target: ts.Expression): boolean {
   return ts.isIdentifier(target);
 }
 
-/** v1 reject reason for an assignment/update TARGET inside a closure block.
- *  All assignment shapes reject in v1 (the class-path lowering has no
- *  assignment grammar — see the call-site comment); the reason distinguishes
- *  the semantically-wrong case (free-variable write) from the merely
- *  not-yet-supported ones. */
-function classifyAssignTarget(target: ts.Expression, localNames: Set<string>): string {
+/** The assignment operators the mutation-v1 gate accepts (mirrored by the
+ *  Python lowerer, which emits the same compound operator directly). Anything
+ *  else (`&=`, `|=`, `^=`, `<<=`, `>>=`, `>>>=`, `**=`, `&&=`, `||=`, `??=`)
+ *  rejects with `closure-unsupported-operator`. The lowerer SHARES this set so
+ *  the gate and the emitter never drift. */
+export const CLOSURE_ASSIGN_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.EqualsToken,
+  ts.SyntaxKind.PlusEqualsToken,
+  ts.SyntaxKind.MinusEqualsToken,
+  ts.SyntaxKind.AsteriskEqualsToken,
+  ts.SyntaxKind.SlashEqualsToken,
+  ts.SyntaxKind.PercentEqualsToken,
+]);
+
+/** Classify an assignment/update TARGET inside a closure block. Returns `null`
+ *  when the target SHAPE is accepted (bare identifier — local or free; or a
+ *  non-`this` member/index write), or a precise reject reason otherwise.
+ *
+ *  The gate is a shape classifier and cannot distinguish a free capture from a
+ *  closure param (params are stripped before the block is parsed). Both bare
+ *  cases accept here; `nonlocal`-vs-pinned-vs-local is the Python emitter's
+ *  decision (see the header doc + `emitBlockClosurePy`). */
+function classifyAssignTarget(target: ts.Expression): string | null {
   if (isBareIdentifierTarget(target)) {
-    const root = assignmentTargetRoot(target);
-    if (root !== null && !localNames.has(root)) return 'closure-free-var-assign';
-    return 'closure-local-assign';
+    // Bare identifier — local OR free, both accepted. The lowerer/emitter
+    // decide whether a `nonlocal` declaration is needed.
+    return null;
   }
   if (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) {
     // A `this`-rooted target (`this.x = …`) is first and foremost a `this`
@@ -159,8 +191,11 @@ function classifyAssignTarget(target: ts.Expression, localNames: Set<string>): s
       current = current.expression;
     }
     if (current.kind === ts.SyntaxKind.ThisKeyword) return 'closure-this';
-    return 'closure-member-assign';
+    // Member/index write on a non-`this` base — by-reference mutation, accepted.
+    return null;
   }
+  // Destructuring (`({a} = x)`, `[a] = x`) or parenthesized (`(a) = x`) target —
+  // could smuggle a free write past the bare-identifier check. Fail closed.
   return 'closure-unsupported-assign-target';
 }
 
@@ -169,7 +204,6 @@ function classifyAssignTarget(target: ts.Expression, localNames: Set<string>): s
  *  found. Statement-level shape (only let/const/return/expr/if accepted) is
  *  checked separately by `classifyStatementShape`. */
 function findUnsupportedConstruct(block: ts.Block): string | null {
-  const localNames = collectLocalDeclaredNames(block);
   let reason: string | null = null;
   const visit = (node: ts.Node): void => {
     if (reason !== null) return;
@@ -262,36 +296,56 @@ function findUnsupportedConstruct(block: ts.Block): string | null {
       return;
     }
 
-    // ASSIGNMENT EXPRESSIONS — all rejected in v1 (agon review, codex 0.94
-    // gate/lowerer-drift finding). The class-path statement lowering routes
-    // expression statements through KERN's `parseExpression`, which has no
-    // assignment grammar (`=`/`+=`/`++` throw) — so ANY gate-approved
-    // assignment would surface as an eligible-handler compile error, not
-    // working code. Fail closed with a precise reason instead; a follow-up
-    // "closure local mutation" slice lifts this by lowering assignments
-    // structurally. `acc.push(x)` is a CALL on a captured object — fine and
-    // the v1 mutation story.
-    //  - bare free identifier (`count = …` where count is captured):
-    //    'closure-free-var-assign' (would ALSO be semantically wrong without
-    //    `nonlocal` — the most important reject).
-    //  - bare local identifier: 'closure-local-assign' (lowerable in
-    //    principle, unsupported v1).
-    //  - member/index target (`acc.x = 1`): 'closure-member-assign'
-    //    (semantically fine, unsupported by the v1 lowering).
-    //  - anything else (destructuring `({a} = obj)`, parenthesized `(x) = 1`):
-    //    'closure-unsupported-assign-target' (agy blocking finding — could
-    //    smuggle a free write past the bare-identifier check).
+    // ASSIGNMENT EXPRESSIONS — mutation v1 lowers them structurally (the
+    // Python lowerer emits assignment STATEMENTS from this AST; the TS target
+    // re-emits the raw block verbatim). The gate validates only the TARGET
+    // SHAPE and the OPERATOR:
+    //  - bare identifier (local or free): accepted (the emitter decides
+    //    pinned-vs-`nonlocal`-vs-local). `acc.push(x)` is a CALL on a captured
+    //    object — also accepted, the original v1 mutation story.
+    //  - member/index target on a non-`this` base (`acc.x = 1`, `acc[i] = v`):
+    //    accepted — by-reference mutation, no `nonlocal`.
+    //  - `this`-rooted target (`this.x = …`): 'closure-this'.
+    //  - destructuring (`({a} = obj)`) / parenthesized (`(x) = 1`) target:
+    //    'closure-unsupported-assign-target' (could smuggle a free write past
+    //    the bare-identifier check — fail closed).
+    //  - assignment operator outside {=,+=,-=,*=,/=,%=}: 'closure-unsupported-
+    //    operator'.
     if (ts.isBinaryExpression(node)) {
       const op = node.operatorToken.kind;
       if (op >= ts.SyntaxKind.FirstAssignment && op <= ts.SyntaxKind.LastAssignment) {
-        reason = classifyAssignTarget(node.left, localNames);
+        if (!CLOSURE_ASSIGN_OPERATORS.has(op)) {
+          reason = 'closure-unsupported-operator';
+          return;
+        }
+        const targetReason = classifyAssignTarget(node.left);
+        if (targetReason !== null) {
+          reason = targetReason;
+          return;
+        }
+        // Accepted assignment — keep walking its subexpressions (the RHS may
+        // contain an unsupported construct, e.g. a nested arrow or `this`).
+        ts.forEachChild(node, visit);
         return;
       }
     }
     if (ts.isPostfixUnaryExpression(node) || ts.isPrefixUnaryExpression(node)) {
       const op = node.operator;
       if (op === ts.SyntaxKind.PlusPlusToken || op === ts.SyntaxKind.MinusMinusToken) {
-        reason = classifyAssignTarget(node.operand, localNames);
+        // `++`/`--` is only a statement-position mutation when its IMMEDIATE
+        // parent is an ExpressionStatement (`x++;`). In any other position
+        // (`arr.push(x++)`, `f(--x)`, `a = x++`) it is a value-producing
+        // sub-expression v1 does not lower — reject with the actionable reason.
+        if (!node.parent || !ts.isExpressionStatement(node.parent)) {
+          reason = 'closure-incdec-value-position';
+          return;
+        }
+        const targetReason = classifyAssignTarget(node.operand);
+        if (targetReason !== null) {
+          reason = targetReason;
+          return;
+        }
+        ts.forEachChild(node, visit);
         return;
       }
     }
@@ -335,13 +389,22 @@ function isAcceptedBranch(node: ts.Statement): boolean {
  *  ACCEPT set: `let`/`const` (identifier names + initializers, no
  *  destructuring), `return` (with or without expression), expression
  *  statements, `if`/`else` (block or single-statement branches, nesting fine).
+ *  Statement-position MUTATIONS are now accepted: assignments to a bare
+ *  identifier (local OR free) and to a non-`this` member/index target, with the
+ *  operators {=,+=,-=,*=,/=,%=}, plus statement-position `++`/`--`.
  *
- *  REJECT (whole-block walk): `this`, nested arrow/function/class, `yield`,
- *  `await`, any loop, `throw`, `try`, `switch`, `break`/`continue`, `var`,
- *  parameter default values, spread, labeled statements, `with`, and any
- *  assignment (`=`/`+=`/`++`/`--`) to a free variable (one not declared inside
- *  the closure block). Member/index mutation on a captured object
- *  (`acc.push(x)`) is allowed. Any statement outside the accept set rejects. */
+ *  REJECT (whole-block walk): `this` (incl. a `this`-rooted assign target →
+ *  `closure-this`), nested arrow/function/class, `yield`, `await`, any loop,
+ *  `throw`, `try`, `switch`, `break`/`continue`, `var`, parameter default
+ *  values, spread, labeled statements, `with`; a destructuring/parenthesized
+ *  assign target (`closure-unsupported-assign-target`); an assignment operator
+ *  outside the accepted set (`closure-unsupported-operator`); and a
+ *  value-position `++`/`--` (`closure-incdec-value-position`). Member/index
+ *  mutation and method calls on a captured object (`acc.push(x)`) are allowed.
+ *  Any statement outside the accept set rejects. NOTE: a free write to a
+ *  PINNED per-iteration loop capture passes the gate but is rejected LOUDLY at
+ *  Python emission (`closure-pinned-write`) — the single-statement gate cannot
+ *  see the enclosing loop header (eligibility≢lowerability, by design). */
 export function classifyClosureBlock(raw: string): null | string {
   const block = parseClosureBlockAst(raw);
   if (block === null) return 'closure-parse-error';
