@@ -9,3 +9,5 @@ export {
   checkOverrideVariance,
   isNominalSubtype,
 } from './assignable.js';
+export type { CheckDiagnostic, CheckRule, IRNode } from './walk.js';
+export { checkProgram } from './walk.js';
