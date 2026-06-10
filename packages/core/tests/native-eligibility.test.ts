@@ -364,10 +364,15 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
     expect(result.reason).toBe(expectedReason);
   }
 
-  // Block-bodied callbacks are still rejected by the expression parser,
-  // surfacing as `<stmt>-bad-expr` rather than a syntactic top-level bail.
-  test('block-bodied callback rejected (return-bad-expr)', () =>
-    rejected(`return xs.map((x) => { return x * 2; });`, 'return-bad-expr'));
+  // Slices 0+1: block-bodied arrows now PARSE (captured as `bodyBlock`) and
+  // are gated by the v1 closure gate. In commit A the statement classifier
+  // keeps any block-arrow-bearing statement ineligible via the dedicated
+  // `closure-stmt-body` reason (asserted BEFORE the per-statement expression
+  // checks). Previously the parser threw on the block, surfacing as
+  // `return-bad-expr`. Still ineligible — only the (more accurate) reason
+  // changed. Commit B flips this to eligible for gate-passing arrows.
+  test('block-bodied callback rejected (closure-stmt-body)', () =>
+    rejected(`return xs.map((x) => { return x * 2; });`, 'closure-stmt-body'));
 
   test('typed callback return predicate is eligible', () => {
     expect(
@@ -567,8 +572,15 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
   test('import statement rejected', () =>
     rejected(`import { foo } from 'bar';\nreturn foo();`, 'unsupported-stmt-ImportDeclaration'));
 
-  test('computed non-expression assignment target rejected', () =>
-    rejected(`obj[(a) => { return a; }] = 1;\nreturn obj;`, 'expr-stmt-bad-assign-target'));
+  // Slices 0+1: the original body used a BLOCK-bodied arrow as the computed
+  // index, which the parser used to reject (→ `expr-stmt-bad-assign-target`).
+  // Block arrows now parse and the statement classifier short-circuits to
+  // `closure-stmt-body` (asserted before the assignment-target check). Still
+  // ineligible — only the reason changed. The remaining optional-chain
+  // assignment-target cases below keep exercising `expr-stmt-bad-assign-target`
+  // directly.
+  test('computed block-arrow assignment target rejected (closure-stmt-body)', () =>
+    rejected(`obj[(a) => { return a; }] = 1;\nreturn obj;`, 'closure-stmt-body'));
 
   test('optional-chain assignment targets rejected', () => {
     rejected(`obj?.x = 1;\nreturn obj;`, 'expr-stmt-bad-assign-target');

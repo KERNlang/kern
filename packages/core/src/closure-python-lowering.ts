@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { parseClosureBlockAst } from './closure-eligibility.js';
 
 export interface LowerJsClosureBodyToPythonOptions {
   lowerExpression(expr: string): string;
@@ -30,25 +31,16 @@ function hasUnsupportedNestedConstruct(node: ts.Node): boolean {
   return unsupported;
 }
 
-function parseClosureBlock(body: string): { sf: ts.SourceFile; block: ts.Block } | null {
-  const trimmed = body.trim();
-  if (trimmed.length < 2 || trimmed[0] !== '{' || trimmed[trimmed.length - 1] !== '}') return null;
-  const source = `function __kern_closure__() ${trimmed}`;
-  const sf = ts.createSourceFile('__kern_closure__.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  const diags = (sf as unknown as { parseDiagnostics?: ts.Diagnostic[] }).parseDiagnostics;
-  if (diags && diags.length > 0) return null;
-  const fn = sf.statements[0];
-  if (!fn || !ts.isFunctionDeclaration(fn) || !fn.body) return null;
-  return { sf, block: fn.body };
-}
-
 export function lowerJsClosureBodyToPython(
   body: string,
   opts: LowerJsClosureBodyToPythonOptions,
 ): LowerJsClosureBodyToPythonResult {
-  const parsed = parseClosureBlock(body);
-  if (!parsed) return { ok: false, lines: [], reason: 'parse' };
-  const { sf, block } = parsed;
+  // Shared block parse — single source of truth with the v1 closure gate
+  // (`closure-eligibility.ts`). The block carries its own SourceFile (created
+  // with parent nodes), which we need for `expr.getText(sf)`.
+  const block = parseClosureBlockAst(body);
+  if (!block) return { ok: false, lines: [], reason: 'parse' };
+  const sf = block.getSourceFile();
   if (hasUnsupportedNestedConstruct(block)) return { ok: false, lines: [], reason: 'unsupported-nested' };
 
   const lowerExpr = (expr: ts.Expression): string => opts.lowerExpression(expr.getText(sf));

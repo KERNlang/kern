@@ -2021,12 +2021,21 @@ function emitPyTypeof(argument: ValueIR, ctx: BodyEmitContext): string {
 }
 
 function emitLambdaPy(node: Extract<ValueIR, { kind: 'lambda' }>, ctx: BodyEmitContext): string {
+  if (node.bodyBlock) {
+    // Commit A: block-bodied arrows are captured + gated in core but not yet
+    // lowered on the Python target. Fail closed so any eligible-but-unlowered
+    // block arrow surfaces as a compile error (commit B replaces this with the
+    // hoisted-local-def lowering).
+    throw new Error(
+      'Block-bodied arrow closures are not yet lowered to Python (commit A captures them; commit B lowers them).',
+    );
+  }
   const names = node.params.map((p) => p.name);
   const previous = new Set(ctx.shadowedSymbols);
   for (const name of names) ctx.shadowedSymbols.add(name);
   try {
     const params = names.length === 0 ? '' : ` ${names.join(', ')}`;
-    return `lambda${params}: ${emitPyExprCtx(node.body, ctx)}`;
+    return `lambda${params}: ${emitPyExprCtx(node.body as ValueIR, ctx)}`;
   } finally {
     ctx.shadowedSymbols = previous;
   }
@@ -2071,17 +2080,26 @@ function valueReferencesIdent(node: ValueIR, name: string): boolean {
       return node.items.some((item) => valueReferencesIdent(item, name));
     case 'lambda':
       if (node.params.some((p) => p.name === name)) return false;
-      return valueReferencesIdent(node.body, name);
+      if (node.bodyBlock) return rawBlockReferencesIdent(node.bodyBlock.raw, name);
+      return valueReferencesIdent(node.body as ValueIR, name);
     default:
       return false;
   }
+}
+
+/** Conservative word-boundary check for an identifier inside a raw closure
+ *  block. Used when a block-bodied arrow (slices 0+1) has no expression `body`
+ *  to recurse. Over-matching is safe for the capture analyses that consume it. */
+function rawBlockReferencesIdent(raw: string, name: string): boolean {
+  return new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(raw);
 }
 
 function containsLambdaCapturingIdent(node: ValueIR, name: string): boolean {
   switch (node.kind) {
     case 'lambda':
       if (node.params.some((p) => p.name === name)) return false;
-      return valueReferencesIdent(node.body, name);
+      if (node.bodyBlock) return rawBlockReferencesIdent(node.bodyBlock.raw, name);
+      return valueReferencesIdent(node.body as ValueIR, name);
     case 'member':
       return containsLambdaCapturingIdent(node.object, name);
     case 'index':
@@ -2487,6 +2505,11 @@ function lowerListLambdaPython(
   if (callback.params.length !== 1) {
     throw new Error(`List.${methodName} expects a one-parameter lambda on the Python target.`);
   }
+  // Block-bodied arrow callback: the comprehension lowering only handles an
+  // expression `body`. Fall through (null) so the lambda routes through the
+  // default call path → `emitLambdaPy` (which fails closed in commit A and
+  // hoists a local def in commit B).
+  if (!callback.body) return null;
   const name = callback.params[0].name;
   const previous = new Set(ctx.shadowedSymbols);
   ctx.shadowedSymbols.add(name);
@@ -2565,7 +2588,10 @@ export function lowerBitwiseAndModuloAST(node: ValueIR): ValueIR {
         args: node.args.map(lowerBitwiseAndModuloAST),
       };
     case 'lambda':
-      return { ...node, body: lowerBitwiseAndModuloAST(node.body) };
+      // Block-bodied arrows carry raw text, not an expression `body`. The raw
+      // is re-parsed and lowered during closure emission (commit B), so leave
+      // it untouched here.
+      return node.bodyBlock ? node : { ...node, body: lowerBitwiseAndModuloAST(node.body as ValueIR) };
     case 'spread':
       return { ...node, argument: lowerBitwiseAndModuloAST(node.argument) };
     case 'await':
@@ -2645,7 +2671,9 @@ export function registerHelpers(node: ValueIR, ctx: BodyEmitContext) {
       registerHelpers(node.index, ctx);
       break;
     case 'lambda':
-      registerHelpers(node.body, ctx);
+      // Block-bodied arrows have no expression `body`; helpers referenced by a
+      // block body are registered during closure emission (commit B).
+      if (node.body) registerHelpers(node.body, ctx);
       break;
     case 'spread':
       registerHelpers(node.argument, ctx);

@@ -82,7 +82,14 @@ export function emitExpression(node: ValueIR): string {
           ? node.params[0].name
           : `(${node.params.map((p) => (p.type ? `${p.name}: ${p.type}` : p.name)).join(', ')})`;
       const returnType = node.returnType ? `: ${node.returnType}` : '';
-      return `${params}${returnType} => ${emitExpression(node.body)}`;
+      // Block-bodied arrow (slices 0+1): re-emit the raw block verbatim. The
+      // raw text INCLUDES the outer braces, so emission adds nothing inside it
+      // and `parse(emit(x))` reproduces `raw` byte-identically — the round-trip
+      // invariant `canonicalKernExpression` relies on.
+      if (node.bodyBlock) {
+        return `${params}${returnType} => ${node.bodyBlock.raw}`;
+      }
+      return `${params}${returnType} => ${emitExpression(node.body as ValueIR)}`;
     }
     case 'binary': {
       const left = emitExpression(node.left);

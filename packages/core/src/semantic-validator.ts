@@ -5016,7 +5016,9 @@ function valueIRChildren(value: ValueIR): ValueIR[] {
     case 'conditional':
       return [value.test, value.consequent, value.alternate];
     case 'lambda':
-      return [value.body];
+      // Block-bodied arrows carry `bodyBlock` (raw text) instead of an
+      // expression `body`; they contribute no ValueIR children here.
+      return value.body ? [value.body] : [];
     case 'numLit':
     case 'strLit':
     case 'boolLit':

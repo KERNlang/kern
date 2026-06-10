@@ -14,6 +14,7 @@
  *  require shape changes the body emitter doesn't have, so the parser
  *  deliberately rejects them. */
 
+import { classifyClosureBlock, parseClosureBlockAst } from './closure-eligibility.js';
 import type { ValueIR } from './value-ir.js';
 
 // ── Tokenizer ────────────────────────────────────────────────────────────
@@ -43,6 +44,7 @@ export type ExprTokenKind =
   | 'qmark'
   | 'eq'
   | 'arrow'
+  | 'closureBlock'
   | 'neq'
   | 'strictEq'
   | 'strictNeq'
@@ -597,6 +599,20 @@ export function tokenizeExpression(input: string): ExprToken[] {
       continue;
     }
     if (ch === '{') {
+      // Block-bodied arrow capture (slices 0+1). When `{` immediately follows
+      // an `arrow` token, the brace opens a statement block, not an object
+      // literal — the expression tokenizer otherwise throws on statement-y
+      // characters (`;`). Capture the whole `{ … }` (braces included) as ONE
+      // `closureBlock` token with a quote-aware balanced-brace scanner. The
+      // parse-time TS validation in `parseLambda` turns any miscapture into a
+      // clean reject (fail-closed), never corruption.
+      const prev = tokens[tokens.length - 1];
+      if (prev && prev.kind === 'arrow') {
+        const end = scanBalancedBlock(input, i);
+        tokens.push({ kind: 'closureBlock', value: input.slice(i, end), pos: i, end });
+        i = end;
+        continue;
+      }
       tokens.push({ kind: 'lbrace', value: '{', pos: i });
       i++;
       continue;
@@ -697,15 +713,47 @@ class Parser {
     if (this.peek().kind === 'ident' && this.peek(1).kind === 'arrow') {
       const param = this.advance();
       this.advance();
-      return { kind: 'lambda', params: [{ name: param.value }], body: this.parseLambda(), parenthesized: false };
+      const params = [{ name: param.value }];
+      if (this.peek().kind === 'closureBlock') {
+        return this.buildBlockLambda(params, undefined, false);
+      }
+      return { kind: 'lambda', params, body: this.parseLambda(), parenthesized: false };
     }
     if (this.peek().kind === 'lparen' && this.isParenthesizedLambdaAhead()) {
       const params = this.parseLambdaParams();
       const returnType = this.peek().kind === 'colon' ? this.consumeLambdaReturnType() : undefined;
       this.expect('arrow');
+      if (this.peek().kind === 'closureBlock') {
+        return this.buildBlockLambda(params, returnType, true);
+      }
       return { kind: 'lambda', params, returnType, body: this.parseLambda(), parenthesized: true };
     }
     return this.parseConditional();
+  }
+
+  /** Build a block-bodied arrow lambda (slices 0+1). Consumes the
+   *  `closureBlock` token and validates the raw block at parse time:
+   *   1. `parseClosureBlockAst` must succeed (TS parse) — else fail-closed.
+   *   2. The v1 closure gate (`classifyClosureBlock`) must accept it — else
+   *      fail-closed. A lambda with `bodyBlock` existing in the IR therefore
+   *      implies it passed the gate; downstream emitters can trust it. */
+  private buildBlockLambda(
+    params: { name: string; type?: string }[],
+    returnType: string | undefined,
+    parenthesized: boolean,
+  ): ValueIR {
+    const tok = this.advance(); // closureBlock
+    const raw = tok.value;
+    if (parseClosureBlockAst(raw) === null) {
+      throw new Error(
+        `Unsupported closure body: the block at column ${tok.pos + 1} does not parse as a statement block.`,
+      );
+    }
+    const reason = classifyClosureBlock(raw);
+    if (reason !== null) {
+      throw new Error(`Unsupported closure body (${reason}) at column ${tok.pos + 1}.`);
+    }
+    return { kind: 'lambda', params, returnType, bodyBlock: { raw }, parenthesized };
   }
 
   private isParenthesizedLambdaAhead(): boolean {
@@ -1389,6 +1437,53 @@ class Parser {
     // Drop any tokens whose pos < `pos` from being re-consumed; jump past them.
     while (this.i < this.tokens.length && this.tokens[this.i].pos < pos) this.i++;
   }
+}
+
+/** Scan a balanced `{ … }` block starting at `input[start]` (which must be
+ *  `{`), returning the source offset just past the matching `}`. Quote-aware
+ *  with the same conventions as `splitTopLevelArgs` (packages/python core/expr):
+ *  `'`, `"`, and `` ` `` quotes with `\` escapes are skipped so braces inside
+ *  string/template literals don't affect the depth count. Template `${…}`
+ *  substitutions are followed (so a `}` inside `${…}` doesn't close the block);
+ *  a backtick inside a `${…}` is the documented v1 limitation — a miscapture
+ *  there is turned into a clean REJECT by the parse-time TS validation in
+ *  `parseLambda` (fail-closed), never a corruption. Throws if unbalanced. */
+function scanBalancedBlock(input: string, start: number): number {
+  let depth = 0;
+  let i = start;
+  while (i < input.length) {
+    const ch = input[i];
+    if (ch === '"' || ch === "'") {
+      // Skip a single-/double-quoted string with `\` escapes.
+      const quote = ch;
+      i++;
+      while (i < input.length && input[i] !== quote) {
+        if (input[i] === '\\') i += 2;
+        else i++;
+      }
+      i++; // past the closing quote
+      continue;
+    }
+    if (ch === '`') {
+      // Template literal — `scanTemplateEnd` follows `${…}` substitutions and
+      // `\` escapes, returning the offset past the closing backtick.
+      i = scanTemplateEnd(input, i + 1);
+      continue;
+    }
+    if (ch === '{') {
+      depth++;
+      i++;
+      continue;
+    }
+    if (ch === '}') {
+      depth--;
+      i++;
+      if (depth === 0) return i;
+      continue;
+    }
+    i++;
+  }
+  throw new Error(`Unclosed closure block starting at column ${start + 1}`);
 }
 
 function scanTemplateEnd(input: string, start: number): number {

@@ -97,9 +97,19 @@ function evalValue(node: ValueIR, scope: EvalScope): unknown {
       return evalCall(node, scope);
     case 'lambda': {
       const captured = scope;
+      // Block-bodied arrows (slices 0+1) carry raw text, not an expression
+      // `body`; the expression-semantics reference interpreter does not
+      // execute statement blocks. They never reach here in practice (the
+      // contract harness runs expression IR only).
+      if (!node.body) {
+        throw new Error(
+          'evalValue: block-bodied arrow closures are not executable by the expression reference interpreter.',
+        );
+      }
+      const lambdaBody = node.body;
       return (...args: unknown[]) => {
         const params = node.params.map((p, i) => [p.name, args[i]] as [string, unknown]);
-        return evalValue(node.body, childScope(captured, params));
+        return evalValue(lambdaBody, childScope(captured, params));
       };
     }
     case 'binary':

@@ -532,9 +532,32 @@ function isSimpleTrailingStmt(node: ts.Node): boolean {
   return false;
 }
 
+/** True when `node` (a statement subtree) contains any arrow function with a
+ *  block body (`x => { … }`). TS-AST walk, never string scanning. Commit A
+ *  uses this to keep block-arrow statements INELIGIBLE (`closure-stmt-body`);
+ *  commit B replaces the blanket reject with the real v1 gate wiring. */
+function hasBlockBodiedArrow(node: ts.Node): boolean {
+  let found = false;
+  const visit = (n: ts.Node): void => {
+    if (found) return;
+    if (ts.isArrowFunction(n) && ts.isBlock(n.body)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(node);
+  return found;
+}
+
 /** Classify a single statement. Returns null if the migrator can emit it,
  *  otherwise a kebab-case reason. Recurses through if/try branches. */
 function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContext): string | null {
+  // Commit A — block-bodied arrows are captured + gated in the parser, which
+  // would otherwise silently flip migrator eligibility. Keep them ineligible
+  // explicitly so commit A is ZERO eligibility-behavior change. Commit B
+  // removes this and replaces it with the real v1-gate wiring.
+  if (hasBlockBodiedArrow(stmt)) return 'closure-stmt-body';
   if (ts.isVariableStatement(stmt)) {
     const flags = stmt.declarationList.flags;
     const isConst = (flags & ts.NodeFlags.Const) !== 0;
