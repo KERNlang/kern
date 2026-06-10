@@ -560,6 +560,65 @@ describe('Python block-bodied arrow closures (slices 0+1)', () => {
     expect(code).toMatch(/def __kern_closure_0\(p, t=t\):/);
   });
 
+  test('a pinned loop-local reassigned in the SAME top-level child as the closure fails closed (3b granularity)', () => {
+    // Within-child statement order is NOT tracked (the whole top-level child
+    // shares one index), so a closure and a later reassignment nested in the
+    // SAME child (here both inside one `if`) cannot be order-distinguished.
+    // Fail closed (>=) rather than silently freeze a value JS mutates.
+    const kern = `screen name=S
+  callback name=fn params="c:boolean"
+    handler lang=kern
+      let name=fns value="[]" kind=let
+      each name=x in="[1, 2]"
+        let name=t value="0" kind=let
+        if cond="c"
+          do value="fns.push((p) => { return t; })"
+          assign target="t" value="t + x"
+      return value="fns"`;
+    const handler = findHandler(parse(kern));
+    expect(() => emitNativeKernBodyPythonWithImports(handler as IRNode, { outerBindings: ['c'] })).toThrow(
+      /reassigned after the closure/,
+    );
+  });
+
+  test('a captured cell reassigned via `set` after the closure fails closed (3d set-node scan)', () => {
+    // The later-assign scan must cover `set name=… to=…` (a bare-name cell
+    // write), not just `assign`. A cell captured by a closure and then reassigned
+    // via `set` in a later sibling must fail closed, exactly like an `assign`.
+    const kern = `screen name=S
+  callback name=fn params="c:boolean"
+    handler lang=kern
+      let name=fns value="[]" kind=let
+      each name=x in="[1, 2]"
+        cell name=t value="0"
+        do value="fns.push((p) => { return t; })"
+        set name=t to="t + x"
+      return value="fns"`;
+    const handler = findHandler(parse(kern));
+    expect(() => emitNativeKernBodyPythonWithImports(handler as IRNode, { outerBindings: ['c'] })).toThrow(
+      /reassigned after the closure/,
+    );
+  });
+
+  test('a captured loop-local reassigned via a COMPOUND assign (op="+=") after the closure fails closed (3d compound coverage)', () => {
+    // Compound (`+=`) and postfix (`++`) reassignments are the SAME `assign` node
+    // type as plain `=`, distinguished only by `op=`, all rebinding `target=`, so
+    // they are already covered by the later-assign scan. This proves it.
+    const kern = `screen name=S
+  callback name=fn params="c:boolean"
+    handler lang=kern
+      let name=fns value="[]" kind=let
+      each name=x in="[1, 2]"
+        let name=t value="0" kind=let
+        do value="fns.push((p) => { return t; })"
+        assign target="t" op="+=" value="x"
+      return value="fns"`;
+    const handler = findHandler(parse(kern));
+    expect(() => emitNativeKernBodyPythonWithImports(handler as IRNode, { outerBindings: ['c'] })).toThrow(
+      /reassigned after the closure/,
+    );
+  });
+
   test('a closure in an IF CONDITION hoists BEFORE the if header (per-level buffer isolation)', () => {
     // agon-review fix (claude 0.7): the condition's def was pushed to
     // pendingHoists before the if-branch recursed into its body, and the
@@ -809,5 +868,22 @@ describe('Python lambda-bearing array methods (map/filter/some/every)', () => {
     expect(code).toContain('self.items.map(self.fmt)');
     expect(code).not.toContain('__kern_el_');
     expect(code).not.toContain('js_truthy');
+  });
+
+  test('a 3-param callback (el, i, arr) is NOT lowered (would be called with 2 args → TypeError)', () => {
+    // The enumerate comprehension only supplies (el, i); a 3-param lambda is
+    // defined with 3 params but called with 2, raising a runtime TypeError. Such
+    // a shape must fall through verbatim (the pre-slice status quo), never lower.
+    const { code } = emitFull(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    let name=arr value="[1, 2, 3]"
+    return value="arr.map((el, i, all) => el + i)"`,
+    );
+    // Must NOT produce the broken lowered comprehension that calls the callback
+    // with fewer args than it declares.
+    expect(code).not.toContain('__kern_el_');
+    expect(code).not.toContain('__kern_ix_');
+    expect(code).not.toContain('__kern_cb_');
   });
 });

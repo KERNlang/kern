@@ -234,9 +234,12 @@ interface BodyEmitContext {
    *  but JS captures BY REFERENCE — so a pinned per-iteration binding that is
    *  REASSIGNED in a LATER sibling statement diverges (JS sees the mutation,
    *  the frozen default does not). Such captures fail closed at emission
-   *  instead of emitting silently wrong values. Known v1 limit: a closure and
-   *  a later assignment nested inside the SAME top-level child are not
-   *  order-distinguished (the whole child shares one index). */
+   *  instead of emitting silently wrong values. Because within-child statement
+   *  order is NOT tracked (the whole top-level child shares one index), the
+   *  reject is `>=` (not `>`): a reassignment in the SAME top-level child as the
+   *  closure also fails closed (it cannot be proven to run before the closure).
+   *  `assignLast` covers both `assign` (incl. compound/postfix `op=` forms, same
+   *  node type) and `set` (a bare-name cell write). */
   loopLaterAssignFrames: Array<{ assignLast: Map<string, number>; current: number }>;
 }
 
@@ -411,18 +414,31 @@ function trailingCommentToPy(raw: string): string {
   return `# ${raw}`.trimEnd();
 }
 
-/** Slice-2 fix — map each bare-identifier `assign` target inside a loop body
- *  to the LAST top-level child index whose subtree assigns it. Recurses into
- *  nested statements (if/else branches, nested loops, try bodies) but
- *  attributes every assignment to the TOP-LEVEL child containing it (the
- *  granularity `loopLaterAssignFrames.current` tracks). Member/index targets
- *  (`this.x`, `a[i]`) are excluded — mutating a captured OBJECT is
- *  by-reference in both languages and never pinned. */
+/** Slice-2 fix — map each bare-identifier write target inside a loop body to the
+ *  LAST top-level child index whose subtree writes it. Recurses into nested
+ *  statements (if/else branches, nested loops, try bodies) but attributes every
+ *  write to the TOP-LEVEL child containing it (the granularity
+ *  `loopLaterAssignFrames.current` tracks). Member/index targets (`this.x`,
+ *  `a[i]`) are excluded — mutating a captured OBJECT is by-reference in both
+ *  languages and never pinned.
+ *
+ *  Covered write node types (the body-statement emitters that can rebind a bare
+ *  name): `assign` (its `target=` prop, INCLUDING the compound `op="+="`/`-=`/…
+ *  and postfix `op="++"`/`--` forms — all the same node type, distinguished only
+ *  by `op=`, all rebinding `target=`) and `set` (its `name=` prop, a bare-name
+ *  cell write). `let`/`cell` are DECLARATIONS, not reassignments, so they are
+ *  not scanned (the binding they create is the thing being pinned). */
 function collectLoopAssignLastIndexes(children: IRNode[]): Map<string, number> {
   const last = new Map<string, number>();
   const scan = (node: IRNode, topIdx: number): void => {
     if (node.type === 'assign') {
+      // `target=` is the bare name (or member/index) being rebound, regardless of
+      // `op=` (plain `=`, compound `+=`, or postfix `++`/`--`).
       const target = String((node.props as Record<string, unknown> | undefined)?.target ?? '');
+      if (target && !target.includes('.') && !target.includes('[')) last.set(target, topIdx);
+    } else if (node.type === 'set') {
+      // `set name=… to=…` rebinds a bare-name cell; the target is `name=`.
+      const target = String((node.props as Record<string, unknown> | undefined)?.name ?? '');
       if (target && !target.includes('.') && !target.includes('[')) last.set(target, topIdx);
     }
     for (const child of node.children ?? []) scan(child, topIdx);
@@ -2305,11 +2321,15 @@ function emitBlockClosurePy(node: Extract<ValueIR, { kind: 'lambda' }>, names: s
         // the JS closure sees the mutation and the frozen default does not
         // (`let t = 0; fns.push(() => t); t = t + x` → JS [1,2], pinned
         // Python [0,0]). Fail closed instead of emitting silent divergence.
-        // Assignments BEFORE the closure (lower child index) are fine — the
-        // pin captures their result.
+        // Assignments in a STRICTLY-LOWER top-level child (`< current`) run
+        // before the closure and are captured by the pin — those are fine. The
+        // `>=` (not `>`) rejects an assignment in the SAME top-level child as the
+        // closure too: within-child statement order is not tracked (the whole
+        // child shares one index), so a same-child closure+reassignment cannot be
+        // proven safe — fail closed beats the silent divergence (kimi 0.85).
         for (const frame of ctx.loopLaterAssignFrames) {
           const lastAssign = frame.assignLast.get(name);
-          if (lastAssign !== undefined && lastAssign > frame.current) {
+          if (lastAssign !== undefined && lastAssign >= frame.current) {
             throw new Error(
               `Closure captures loop-local '${name}' which is reassigned after the closure is created — ` +
                 `the per-iteration pin would freeze a value JS does not freeze. ` +
@@ -2330,7 +2350,7 @@ function emitBlockClosurePy(node: Extract<ValueIR, { kind: 'lambda' }>, names: s
         // loud rather than emit invalid Python if it ever happens.
         if (names.includes(renamed)) {
           throw new Error(
-            `Internal codegen error: pinned capture '${name}' renames to '${renamed}', colliding with a closure parameter.`,
+            `Closure parameter '${renamed}' collides with the rename of captured '${name}' — rename the parameter.`,
           );
         }
         pinParams.push(`${renamed}=${renamed}`);
@@ -2683,6 +2703,11 @@ function lowerLambdaArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, ct
   let cb: string;
   let twoArity = false;
   if (arg.kind === 'lambda') {
+    // The enumerate comprehension only supplies (el, i); a callback declaring a
+    // 3rd param (`(el, i, arr) => …`) would be DEFINED with 3 params but CALLED
+    // with 2 → runtime TypeError. Fall through verbatim (the pre-slice status quo
+    // for that shape) rather than emit a broken lowering.
+    if (arg.params.length > 2) return null;
     twoArity = arg.params.length >= 2;
     const emitted = emitLambdaPy(arg, ctx);
     if (arg.bodyBlock) {
