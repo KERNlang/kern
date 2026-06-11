@@ -7,9 +7,11 @@
 import { capabilitySupport } from '../src/capability-matrix.js';
 import { generateCoreNode, isCoreNode } from '../src/codegen-core.js';
 import { parse } from '../src/parser.js';
+import { validateSemantics } from '../src/semantic-validator.js';
 import { isKnownNodeType, RESERVED_FUTURE_NAMES } from '../src/spec.js';
 
 const gen = (src: string) => generateCoreNode(parse(src)).join('\n');
+const rulesFor = (src: string): string[] => validateSemantics(parse(src)).map((v) => v.rule);
 
 describe('Enum node (Slice 2b)', () => {
   describe('spec changes', () => {
@@ -97,8 +99,91 @@ describe('Enum node (Slice 2b)', () => {
       expect(capabilitySupport('nextjs', 'enum-type', 'top-level')).toBe('native');
     });
 
-    test('enum-type is unsupported on Python until FastAPI generator handles it', () => {
-      expect(capabilitySupport('fastapi', 'enum-type', 'top-level')).toBe('unsupported');
+    test('enum-type lowers on Python targets (namespace class)', () => {
+      expect(capabilitySupport('fastapi', 'enum-type', 'top-level')).toBe('lowered');
+      expect(capabilitySupport('python', 'enum-type', 'top-level')).toBe('lowered');
+    });
+  });
+
+  // The symmetric reverse-index / iteration gate lives in `validateSemantics`
+  // (target-agnostic core), so a rejected enum operation is rejected for BOTH
+  // the TS and Python targets — neither can silently diverge on a construct the
+  // other can't represent. KERN enums lower to bare int/str on both sides:
+  // a TS `enum` has a reverse map only on NON-const enums; a Python namespace
+  // class has none, and neither iterates identically. v1 rejects both.
+  describe('symmetric enum access gate (reverse-index + iteration)', () => {
+    const withProbe = (body: string): string =>
+      `enum name=Status values="Pending|Active|Done"\nfn name=probe\n  handler\n    ${body}`;
+
+    test('rejects reverse-index access Status[0]', () => {
+      expect(rulesFor(withProbe('return value="Status[0]"'))).toContain('enum-reverse-index');
+    });
+
+    test('rejects reverse-index with a non-literal index too', () => {
+      expect(rulesFor(withProbe('return value="Status[someVar]"'))).toContain('enum-reverse-index');
+    });
+
+    test('rejects Object.keys(Status)', () => {
+      expect(rulesFor(withProbe('return value="Object.keys(Status)"'))).toContain('enum-iteration');
+    });
+
+    test('rejects Object.values(Status)', () => {
+      expect(rulesFor(withProbe('return value="Object.values(Status)"'))).toContain('enum-iteration');
+    });
+
+    test('rejects Object.entries(Status)', () => {
+      expect(rulesFor(withProbe('return value="Object.entries(Status)"'))).toContain('enum-iteration');
+    });
+
+    test('allows static member access Status.Pending', () => {
+      const rules = rulesFor(withProbe('return value="Status.Pending"'));
+      expect(rules).not.toContain('enum-reverse-index');
+      expect(rules).not.toContain('enum-iteration');
+    });
+
+    test('does not reject index access on a NON-enum identifier', () => {
+      const src = `enum name=Status values="Pending|Active|Done"\nfn name=probe\n  handler\n    let name=arr value="[1,2,3]"\n    return value="arr[0]"`;
+      expect(rulesFor(src)).not.toContain('enum-reverse-index');
+    });
+
+    test('does not reject Object.keys on a NON-enum identifier', () => {
+      const src = `enum name=Status values="Pending|Active|Done"\nfn name=probe\n  handler\n    let name=obj value="{a:1}"\n    return value="Object.keys(obj)"`;
+      expect(rulesFor(src)).not.toContain('enum-iteration');
+    });
+
+    test('rejects a reverse-index nested inside a larger expression', () => {
+      expect(rulesFor(withProbe('return value="Status[0] + 1"'))).toContain('enum-reverse-index');
+    });
+
+    // ZERO-FP regressions from the kern-codex cross-review (probe-verified).
+
+    test('a quoted string member VALUE is an initializer, not a body expression', () => {
+      // `value="Object.keys(E)"` is the literal string "Object.keys(E)" — the
+      // pre-fix gate scanned member props and false-flagged enum-iteration.
+      const src = 'enum name=E\n  member name=X value="Object.keys(E)"';
+      expect(rulesFor(src)).not.toContain('enum-iteration');
+    });
+
+    test('a let binding shadowing the enum name suppresses the gate (conservative)', () => {
+      const src = [
+        'enum name=Status values="A|B"',
+        'fn name=f',
+        '  handler lang=kern',
+        '    let name=Status value="[10,20]"',
+        '    return value="Status[0]"',
+      ].join('\n');
+      expect(rulesFor(src)).not.toContain('enum-reverse-index');
+    });
+
+    test('a param shadowing the enum name suppresses the gate (conservative)', () => {
+      const src = [
+        'enum name=Status values="A|B"',
+        'fn name=f',
+        '  param name=Status type=any',
+        '  handler lang=kern',
+        '    return value="Status[0]"',
+      ].join('\n');
+      expect(rulesFor(src)).not.toContain('enum-reverse-index');
     });
   });
 });

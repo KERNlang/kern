@@ -10,6 +10,7 @@ import {
   getProps,
   handlerCode,
   hasDirectSuperCtorCall,
+  isExprObject,
   mapSemanticType,
   propsOf,
 } from '@kernlang/core';
@@ -810,4 +811,123 @@ export function generatePythonUnion(node: IRNode): string[] {
 
   lines.push(`${name} = Union[${variantClassNames.join(', ')}]`);
   return lines;
+}
+
+// ── Enum (plain namespace class) ─────────────────────────────────────────
+// enum name=Status values="Pending|Active|Done"
+// -> class Status:
+//        Pending = 0
+//        Active = 1
+//        Done = 2
+//
+// enum name=Direction
+//   member name=Up value="UP"
+//   member name=Down value="DOWN"
+// -> class Direction:
+//        Up = "UP"
+//        Down = "DOWN"
+//
+// Tribunal-decided representation (run tribunal-1781176354539): a PLAIN
+// namespace class, NOT enum.Enum / IntEnum / StrEnum / a metaclass, and NO
+// runtime library import. Members evaluate to bare `int`/`str`, so equality,
+// arithmetic, JSON serialization and fmt interpolation all behave identically
+// to the TS `enum` (which compiles to plain numbers/strings too) WITHOUT any
+// runtime support — parity by construction.
+//
+// The implicit-numeric semantics MIRROR the TS emitter (generateEnum in
+// packages/core/src/codegen/type-system.ts) EXACTLY, which in turn mirrors
+// TypeScript's own enum value assignment:
+//   - the `values="A|B|C"` pipe form auto-numbers 0, 1, 2, …
+//   - a bare member child (no `value=`) takes `<previous numeric> + 1`, or 0
+//     when it is the first member
+//   - a member with an explicit numeric `value=N` resets the running counter,
+//     so the next bare member is `N + 1` (verified against tsc runtime output:
+//     `A=10, B, C=30, D` -> 10, 11, 30, 31).
+// `export=` is intentionally ignored here, mirroring generatePythonClass /
+// generatePythonUnion (see line ~617): Python module-level names are importable
+// by definition, so there is no `export` keyword to emit. `const=true` produces
+// the SAME class — TS forbids reverse-map access on const enums anyway, and the
+// core symmetric gate rejects `Enum[0]` / `Object.keys(Enum)` on both targets,
+// so dropping the (absent) const inlining diverges from nothing.
+export function generatePythonEnum(node: IRNode): string[] {
+  const props = propsOf<'enum'>(node);
+  const name = emitIdentifier(props.name, 'UnknownEnum', node);
+
+  const body: string[] = [];
+  // Running implicit counter — the next value a bare member would receive.
+  // Reset to `explicitNumeric + 1` after each explicit numeric member, exactly
+  // as TypeScript's enum auto-increment does. `null` = the previous member's
+  // value is not statically numeric (expression / string member): a bare
+  // member then emits `<prevName> + 1` — the class body evaluates members in
+  // order, so the prior attribute is referencable, and the successor mirrors
+  // TS auto-increment BY CONSTRUCTION (kern-codex probe: `A = 1 << 0` then
+  // bare B is 2 in TS; a stale numeric counter silently emitted B = 0).
+  let nextImplicit: number | null = 0;
+  let prevName: string | null = null;
+
+  const emitBare = (mname: string): string =>
+    nextImplicit !== null ? `    ${mname} = ${nextImplicit}` : `    ${mname} = ${prevName} + 1`;
+
+  const memberChildren = kids(node, 'member');
+  if (memberChildren.length > 0) {
+    for (const m of memberChildren) {
+      const mp = propsOf<'member'>(m);
+      const mname = emitIdentifier(mp.name, 'unknownMember', m);
+      const rawVal = mp.value;
+
+      if (rawVal === undefined || rawVal === '') {
+        // Bare member -> implicit successor (numeric counter, or symbolic
+        // `prev + 1` when the previous value is an expression).
+        body.push(emitBare(mname));
+        if (nextImplicit !== null) nextImplicit += 1;
+        // After a symbolic successor the NEXT bare member chains (`C = B + 1`),
+        // which `prevName` tracking below gives us for free.
+      } else if (isExprObject(rawVal)) {
+        // ExprObject escape hatch: emit the carried code verbatim. The value is
+        // not statically known, so the counter goes symbolic (`prev + 1`).
+        body.push(`    ${mname} = ${rawVal.code}`);
+        nextImplicit = null;
+      } else if (typeof rawVal === 'string') {
+        const isQuoted = m.__quotedProps?.includes('value') === true;
+        if (isQuoted) {
+          // Explicit string member -> Python string literal. A bare member
+          // after a string member is invalid in TS (tsc errors); the symbolic
+          // `prev + 1` mirrors that as a Python TypeError at class definition —
+          // an error on both targets, fail-closed.
+          body.push(`    ${mname} = ${JSON.stringify(rawVal)}`);
+          nextImplicit = null;
+        } else {
+          // Bare (unquoted) value: numeric literals seed the implicit counter
+          // (matching TS — ANY finite numeric seeds it: after `A = 1.5` a bare
+          // member is 2.5 in TS, so integer-only seeding silently diverged),
+          // anything else is emitted verbatim with a symbolic counter.
+          const asNum = Number(rawVal);
+          if (rawVal.trim() !== '' && Number.isFinite(asNum)) {
+            body.push(`    ${mname} = ${asNum}`);
+            nextImplicit = asNum + 1;
+          } else {
+            body.push(`    ${mname} = ${rawVal}`);
+            nextImplicit = null;
+          }
+        }
+      } else {
+        // number | boolean prop value.
+        body.push(`    ${mname} = ${String(rawVal)}`);
+        nextImplicit = typeof rawVal === 'number' && Number.isFinite(rawVal) ? rawVal + 1 : null;
+      }
+      prevName = mname;
+    }
+  } else if (props.values) {
+    // `values="A|B|C"` -> auto-numbered 0, 1, 2, … (mirrors TS bare-member enum).
+    for (const v of props.values.split('|')) {
+      const mname = emitIdentifier(v.trim(), 'unknownMember', node);
+      body.push(`    ${mname} = ${nextImplicit}`);
+      nextImplicit += 1;
+    }
+  }
+
+  // An empty enum still emits a valid (empty) namespace class.
+  if (body.length === 0) body.push('    pass');
+
+  return [`class ${name}:`, ...body];
 }
