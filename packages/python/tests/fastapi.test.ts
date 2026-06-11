@@ -1361,6 +1361,20 @@ describe('FastAPI Transpiler', () => {
       expect(route!.content).toContain('@router.get("/api/users")');
     });
 
+    test('route-v3 raw handler with declaration plus res.json lowers to Python statements', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = readFileSync(resolve(ROOT, 'examples/route-v3.kern'), 'utf-8');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path === 'routes/get_api_users.py');
+      expect(route).toBeDefined();
+      const content = route!.content;
+      expect(content).toContain('users = await db.query(');
+      expect(content).toContain('return users');
+      expect(content).not.toContain('res.json(');
+      expect(content).not.toContain('Unsupported raw JavaScript handler syntax');
+    });
+
     test('params generates typed function parameters with defaults', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
