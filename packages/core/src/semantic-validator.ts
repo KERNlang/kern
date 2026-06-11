@@ -359,6 +359,7 @@ export function validateSemantics(root: IRNode): SemanticViolation[] {
   const violations: SemanticViolation[] = [];
   validateClassGraph(root, violations);
   validateRagGraph(root, violations);
+  validateEnumAccess(root, violations);
   validateNode(root, violations, [], []);
   return violations;
 }
@@ -3508,6 +3509,107 @@ function newExpressionClassName(argument: ValueIR): string | undefined {
 // so the shared super-detection / shape-usage walks are unaffected. A non-`new`
 // default just parses to a harmless expression that matches nothing.
 const INSTANTIATION_EXPRESSION_PROPS: readonly string[] = [...BODY_EXPRESSION_PROPS, 'default'];
+
+// ── Enum reverse-index / iteration gate (symmetric, fail-closed) ──────────
+//
+// KERN enums lower to plain int/str members on BOTH targets — a TS `enum`
+// (reverse-map only on NON-const enums) and a Python namespace class (no
+// reverse map, no iteration protocol). Two enum operations are therefore NOT
+// representable identically and are rejected at compile time on BOTH targets so
+// neither silently diverges:
+//   1. REVERSE-INDEX  `Status[0]`  — TS non-const enums build a numeric→name
+//      reverse map; the Python namespace class has none. (const enums forbid it
+//      on TS already.)
+//   2. ITERATION      `Object.keys(Status)` / `Object.values(Status)` /
+//      `Object.entries(Status)` — TS enumerates BOTH forward and reverse keys;
+//      the Python class would enumerate only the forward names (plus dunders).
+//
+// Scope honesty (documented in the diagnostic): this rejects DYNAMIC-key access
+// on enums in v1. Static member access (`Status.Pending`) is unaffected.
+const ENUM_REFLECTION_CALLEES: ReadonlySet<string> = new Set(['keys', 'values', 'entries']);
+
+function validateEnumAccess(root: IRNode, violations: SemanticViolation[]): void {
+  const enumNames = new Set<string>();
+  walkSemanticTree(root, (node) => {
+    if (node.type === 'enum') {
+      const name = typeof node.props?.name === 'string' ? node.props.name : undefined;
+      if (name) enumNames.add(name);
+    }
+  });
+  if (enumNames.size === 0) return;
+
+  // ZERO-FP shadowing guard (kern-codex probe): a value binding of the same
+  // name ANYWHERE in the program (`let Status = [10, 20]`) makes `Status[0]`
+  // plain indexing in that scope. This pass is scope-blind, so it must be
+  // conservative: drop a shadowed name from the gate entirely rather than
+  // false-reject legal code. Real scope tracking is a later slice.
+  const SHADOWING_DECL_TYPES: ReadonlySet<string> = new Set(['let', 'const', 'param']);
+  walkSemanticTree(root, (node) => {
+    if (!SHADOWING_DECL_TYPES.has(node.type)) return;
+    const name = typeof node.props?.name === 'string' ? node.props.name : undefined;
+    if (name) enumNames.delete(name);
+  });
+  if (enumNames.size === 0) return;
+
+  walkSemanticTree(root, (node) => {
+    // An enum `member`'s value prop is an initializer literal, not a body
+    // expression — scanning it false-flagged quoted string values like
+    // `value="Object.keys(E)"` as enum-iteration (kern-codex probe). Members
+    // carry no body expressions, so skip the node entirely.
+    if (node.type === 'member') return;
+    for (const prop of INSTANTIATION_EXPRESSION_PROPS) {
+      const text = expressionPropText(node.props?.[prop]);
+      if (!text) continue;
+      let value: ValueIR;
+      try {
+        value = parseExpression(text);
+      } catch {
+        continue;
+      }
+      collectEnumAccessViolations(value, node, enumNames, violations);
+    }
+  });
+}
+
+function collectEnumAccessViolations(
+  value: ValueIR,
+  node: IRNode,
+  enumNames: ReadonlySet<string>,
+  violations: SemanticViolation[],
+): void {
+  // Reverse-index: `Status[<anything>]` where the object is a bare enum ident.
+  if (value.kind === 'index' && value.object.kind === 'ident' && enumNames.has(value.object.name)) {
+    violations.push({
+      rule: 'enum-reverse-index',
+      nodeType: node.type,
+      message: `Reverse-index access on enum '${value.object.name}' (e.g. \`${value.object.name}[...]\`) is not supported in v1 — it diverges between targets (TS builds a numeric→name reverse map; the Python namespace class has none). Use a static member like '${value.object.name}.MemberName' instead.`,
+      line: node.loc?.line,
+      col: node.loc?.col,
+    });
+  }
+  // Iteration: `Object.keys(Status)` / `.values(...)` / `.entries(...)`.
+  if (
+    value.kind === 'call' &&
+    value.callee.kind === 'member' &&
+    value.callee.object.kind === 'ident' &&
+    value.callee.object.name === 'Object' &&
+    ENUM_REFLECTION_CALLEES.has(value.callee.property)
+  ) {
+    const firstArg = value.args[0];
+    if (firstArg && firstArg.kind === 'ident' && enumNames.has(firstArg.name)) {
+      violations.push({
+        rule: 'enum-iteration',
+        nodeType: node.type,
+        message: `Enum iteration via \`Object.${value.callee.property}(${firstArg.name})\` is not supported in v1 — it diverges between targets (TS enumerates both forward and reverse-map keys; the Python namespace class enumerates only forward member names). Dynamic-key access on enums is not available in v1.`,
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+  }
+  for (const child of valueIRChildren(value)) {
+    collectEnumAccessViolations(child, node, enumNames, violations);
+  }
+}
 
 // Module-wide pass: reject `new <AbstractClass>(...)` anywhere — including inside
 // the abstract class's own static factory (KERN matches TS: abstract is not

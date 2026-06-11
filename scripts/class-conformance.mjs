@@ -1619,6 +1619,143 @@ fn name=probe returns=boolean
     // comprehension).
     expected: 2,
   },
+
+  // ── Enum (namespace-class) parity ──────────────────────────────────────
+  // Each enum lowers to a TS `enum` and a Python plain namespace class whose
+  // members are bare int/str. The discriminators below are version-INDEPENDENT
+  // and kill every alternative Python representation (enum.Enum / IntEnum /
+  // StrEnum / metaclass):
+  //   - `member == N` and arithmetic `member + 1` give the NUMBER for a bare
+  //     int (our impl) but FAIL or differ for enum.Enum (== is False, + is a
+  //     TypeError). [The IntEnum killer is the emitted-source unit test, since
+  //     IntEnum passes the arithmetic/JSON probes — see packages/python tests.]
+  //   - string-member CONCAT works on a bare str but TypeErrors on enum.Enum.
+  //   - JSON serialization of the probe return is the harness default path;
+  //     enum.Enum members are not JSON-serializable (TypeError), so any
+  //     Enum-subclass impl diverges hard here too.
+  {
+    name: 'ENUM1: implicit numeric (values=) — member value + equality',
+    kern: `enum name=Status values="Pending|Active|Done"
+fn name=probe returns=boolean
+  handler lang=kern
+    return value="Status.Active == 1"`,
+    // values= auto-numbers 0,1,2 (mirrors TS). A bare int Active is exactly 1 →
+    // True. enum.Enum's Active == 1 is False (kills the Enum representation).
+    expected: true,
+  },
+  {
+    name: 'ENUM2: explicit + implicit-after-explicit numeric members',
+    kern: `enum name=Mixed
+  member name=A value=10
+  member name=B
+  member name=C value=30
+  member name=D
+fn name=probe
+  handler lang=kern
+    return value="[Mixed.A, Mixed.B, Mixed.C, Mixed.D]"`,
+    // TS auto-increment after an explicit numeric: A=10, B=11, C=30, D=31
+    // (verified against tsc runtime). A counter that ignores the explicit reset
+    // (e.g. 10,0,30,0 or 0,1,2,3) diverges — this is the discriminating mixed case.
+    expected: [10, 11, 30, 31],
+  },
+  {
+    name: 'ENUM3: explicit string members — concat + value',
+    kern: `enum name=Dir
+  member name=Up value="UP"
+  member name=Down value="DOWN"
+fn name=probe returns=string
+  handler lang=kern
+    return value="Dir.Up + Dir.Down"`,
+    // Bare str members concat to "UPDOWN". enum.Enum members TypeError on `+`
+    // (kills Enum); a StrEnum would concat but the source-shape unit test kills it.
+    expected: 'UPDOWN',
+  },
+  {
+    name: 'ENUM4: const=true enum used in an expression',
+    kern: `enum name=Flag const=true values="On|Off"
+fn name=probe returns=number
+  handler lang=kern
+    return value="Flag.On + Flag.Off"`,
+    // const=true emits the SAME class (no inlining); On=0, Off=1 → 0+1=1.
+    expected: 1,
+  },
+  {
+    name: 'ENUM5: enum member passed as a function argument',
+    kern: `enum name=Status values="Pending|Active|Done"
+fn name=ident returns=number
+  param name=x type=number
+  handler lang=kern
+    return value="x"
+fn name=probe returns=number
+  handler lang=kern
+    return value="ident(Status.Done)"`,
+    // Status.Done is the bare int 2, passed through identity → 2.
+    expected: 2,
+  },
+  {
+    name: 'ENUM6: enum member as a class field default',
+    kern: `enum name=Status values="Pending|Active|Done"
+class name=Task
+  field name=state type=number default=Status.Active
+  method name=read returns=number
+    handler lang=kern
+      return value="this.state"
+fn name=probe returns=number
+  handler lang=kern
+    return value="new Task().read()"`,
+    // The field default Status.Active (= 1) initializes per-instance on both
+    // targets; reading it back yields 1.
+    expected: 1,
+  },
+  {
+    name: 'ENUM7: fmt interpolation of a member prints the VALUE',
+    kern: `enum name=Status values="Pending|Active|Done"
+fn name=probe returns=string
+  handler lang=kern
+    return value="\`v=\${Status.Done}\`"`,
+    // A bare int interpolates as "2". enum.Enum would interpolate the member
+    // repr ("Status.Done") on every version (kills Enum). NOTE: IntEnum prints
+    // the number on 3.11+ but the member name on 3.10, so this fixture is NOT a
+    // reliable IntEnum killer — the emitted-source unit test is.
+    expected: 'v=2',
+  },
+  {
+    name: 'ENUM8: arithmetic on a numeric member (member + 1)',
+    kern: `enum name=Status values="Pending|Active|Done"
+fn name=probe returns=number
+  handler lang=kern
+    return value="Status.Pending + 1"`,
+    // Status.Pending (0) + 1 = 1. enum.Enum has no __add__ → TypeError (kills Enum).
+    expected: 1,
+  },
+  {
+    name: 'ENUM9: float member seeds the implicit counter (bare member after 1.5 is 2.5)',
+    kern: `enum name=F
+  member name=A value=1.5
+  member name=B
+fn name=probe
+  handler lang=kern
+    return value="[F.A, F.B]"`,
+    // TS auto-increment is value+1 for ANY finite numeric, not just integers:
+    // A=1.5 makes the next bare member 2.5 (verified against tsc runtime). An
+    // integer-only counter silently emitted B=0 — caught at gate, fixed.
+    expected: [1.5, 2.5],
+  },
+  {
+    name: 'ENUM10: bare members after an expression-valued member chain symbolically (A={{1 << 0}} → B = A + 1)',
+    kern: `enum name=Mixed
+  member name=A value={{1 << 0}}
+  member name=B
+  member name=C
+fn name=probe
+  handler lang=kern
+    return value="[Mixed.A, Mixed.B, Mixed.C]"`,
+    // TS evaluates the constant expression and auto-increments: A=1, B=2, C=3.
+    // Python emits the symbolic successor (B = A + 1, C = B + 1) — same values
+    // by construction. A stale numeric counter emitted B=0 (kern-codex review,
+    // verified blocking — fixed).
+    expected: [1, 2, 3],
+  },
 ];
 
 const dir = makeTmpDir('kern-class-conf-');

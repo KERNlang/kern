@@ -29,6 +29,7 @@ import {
   generatePythonCache,
   generatePythonClass,
   generatePythonDependency,
+  generatePythonEnum,
   generatePythonModel,
   generatePythonRepository,
   generatePythonService,
@@ -90,6 +91,7 @@ export {
   formatPythonDefault,
   generatePythonCache,
   generatePythonDependency,
+  generatePythonEnum,
   generatePythonModel,
   generatePythonRepository,
   generatePythonService,
@@ -183,6 +185,8 @@ export function generatePythonCoreNode(node: IRNode, options: PythonCodegenOptio
       return generatePythonService(node);
     case 'class':
       return generatePythonClass(node);
+    case 'enum':
+      return generatePythonEnum(node);
     case 'union':
       return generatePythonUnion(node);
     // Backend infrastructure
