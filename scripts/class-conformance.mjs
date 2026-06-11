@@ -627,7 +627,7 @@ fn name=probe returns=number[]
     expected: [null],
   },
   {
-    name: 'scalar S11: fill(value, start, end) return value (NEW list, bounds)',
+    name: 'scalar S11: fill(value, start, end) return value (mutated receiver, bounds)',
     kern: `class name=Box export=true
   field name=data type=number[] value={{ [0, 0, 0, 0, 0] }}
   method name=filled returns=number[]
@@ -637,9 +637,8 @@ fn name=probe returns=number[]
 fn name=probe returns=number[]
   handler
     return value="new Box().filled()"`,
-    // The lowering is a comprehension returning a NEW list; we print the RETURN value,
-    // never the receiver. [0,0,0,0,0].fill(9,1,3) fills [1,3) -> [0,9,9,0,0]. Kills an
-    // off-by-one bounds impl.
+    // JS fill mutates and returns the receiver. This return-only shape keeps
+    // the bounds discriminator from the old fixture: [1,3) -> [0,9,9,0,0].
     expected: [0, 9, 9, 0, 0],
   },
   {
@@ -656,6 +655,66 @@ fn name=probe returns=number[]
     // fill(7, -2) on [1,2,3,4] normalizes -2 to index 2 -> [1,2,7,7]. Kills an impl
     // missing negative-index normalization.
     expected: [1, 2, 7, 7],
+  },
+  {
+    name: 'scalar S12b: fill mutates receiver and returns same array after impure receiver',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [1, 2, 3] }}
+  method name=fetch returns=number[]
+    handler
+      return value="this.data"
+  method name=filled returns=number[][]
+    handler
+      let name=out value="this.fetch().fill(8, 1, 2)"
+      assign target="out[0]" value="99"
+      return value="[out, this.data]"
+fn name=probe returns=number[][]
+  handler
+    return value="new Box().filled()"`,
+    // Discriminates the real parity bug: the old Python lowering returned a
+    // NEW list and left `this.data` unchanged, yielding [[1,8,3],[1,2,3]].
+    // Mutating through `out` proves the returned value aliases the receiver.
+    // The receiver is an impure method call, proving the helper-bound lowering
+    // evaluates it once and no longer needs the pure-receiver fence.
+    expected: [
+      [99, 8, 3],
+      [99, 8, 3],
+    ],
+  },
+  {
+    name: 'scalar S12c: fill edge bounds distinguish omitted end, null end, and no-op ranges',
+    kern: `class name=Box export=true
+  method name=filled returns=number[][]
+    handler
+      let name=all value="[1, 2, 3]"
+      let name=oversize value="[1, 2, 3]"
+      let name=negative value="[1, 2, 3]"
+      let name=noop value="[1, 2, 3]"
+      let name=nullEnd value="[1, 2, 3]"
+      let name=undefinedEnd value="[1, 2, 3]"
+      let name=dynamicUndefinedEnd value="[1, 2, 3]"
+      let name=undefinedStart value="[1, 2, 3]"
+      let name=dynamicUndefinedStart value="[1, 2, 3]"
+      let name=end value="undefined"
+      let name=start value="undefined"
+      return value="[all.fill(8), oversize.fill(8, 1, 99), negative.fill(8, -2), noop.fill(8, 5, 2), nullEnd.fill(8, 0, null), undefinedEnd.fill(8, 1, undefined), dynamicUndefinedEnd.fill(8, 1, end), undefinedStart.fill(8, undefined), dynamicUndefinedStart.fill(8, start)]"
+fn name=probe returns=number[][]
+  handler
+    return value="new Box().filled()"`,
+    // Kills common shortcuts: omitted end must mean len, explicit null end
+    // coerces to zero, explicit undefined end means len, oversize/negative
+    // bounds clamp, and start > end is no-op.
+    expected: [
+      [8, 8, 8],
+      [1, 8, 8],
+      [1, 8, 8],
+      [1, 2, 3],
+      [1, 2, 3],
+      [1, 8, 8],
+      [1, 8, 8],
+      [8, 8, 8],
+      [8, 8, 8],
+    ],
   },
   {
     name: 'scalar S13: lastIndexOf last match (array)',

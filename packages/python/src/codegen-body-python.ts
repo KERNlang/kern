@@ -63,6 +63,7 @@ import { buildPythonParamList } from './codegen-helpers.js';
 import {
   KERN_FMT_HELPER_PY,
   KERN_I32_HELPER_PY,
+  KERN_JS_ARRAY_HELPERS_PY,
   KERN_JS_HELPER_PY,
   KERN_PAIR_HELPERS_PY,
   KERN_TMOD_HELPER_PY,
@@ -2703,12 +2704,12 @@ function lowerPortableArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, 
   if (!isSharedPortableArrayMethod(callee.property)) return null;
   const recvNode = callee.object;
   // Per-method purity contract (scalar-method sweep). Multi-eval / mutating
-  // methods (push/reverse/at/fill/lastIndexOf) name the receiver more than once
+  // methods (push/reverse/at/lastIndexOf) name the receiver more than once
   // (`(recv.append(x) or len(recv))`, `(recv.reverse() or recv)`), so a
   // side-effectful receiver — `makeBag().items.push(x)`, `bags[idx()].reverse()`
   // — would run those effects twice on Python and break JS parity; lower only a
   // provably-pure receiver for those. Single-eval methods
-  // (slice/includes/indexOf/join/flat/concat) name the receiver once, so they
+  // (slice/includes/indexOf/join/flat/concat/fill) name the receiver once, so they
   // accept an impure receiver — the old blanket `isReceiverChainPure` guard
   // wrongly skipped `makeBox().items.slice(1)` (the prior agon-review 0.97
   // finding). The optional-chain guard below still applies to ALL methods.
@@ -2721,7 +2722,11 @@ function lowerPortableArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, 
   // None-guard the flat shim can't honor — fall through for those too.
   if (recv.guard !== null) return null;
   const args = call.args.map((a) => emitPyExprCtx(a, ctx));
-  return lowerPortableArrayMethodPy(recv.expr, callee.property, args);
+  const lowered = lowerPortableArrayMethodPy(recv.expr, callee.property, args);
+  if (lowered !== null && callee.property === 'fill') {
+    ctx.helpers.add(KERN_JS_ARRAY_HELPERS_PY);
+  }
+  return lowered;
 }
 
 /** Methods this peek lowers to a call-by-name comprehension. `reduce`/
