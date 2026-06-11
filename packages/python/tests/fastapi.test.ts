@@ -2423,6 +2423,27 @@ describe('FastAPI Transpiler', () => {
       );
     });
 
+    test('Array.fill void operands bypass the bitwise pre-pass and keep helper import', async () => {
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
+      const imports = new Set<string>();
+      expect(rewriteExpr('arr.fill(v, 1, void ~x)', [], new Set(), false, imports)).toBe(
+        '_kern_js_fill(arr, v, 1, (_i32(~_i32(x)), _KERN_UNDEFINED)[1])',
+      );
+      expect(rewriteExpr('arr.fill(v, 1, void void 0)', [], new Set(), false, imports)).toBe(
+        '_kern_js_fill(arr, v, 1, ((0, _KERN_UNDEFINED)[1], _KERN_UNDEFINED)[1])',
+      );
+      expect(rewriteExpr('arr.fill(v, 1, void (x && y))', [], new Set(), false, imports)).toBe(
+        '_kern_js_fill(arr, v, 1, ((x  and  y), _KERN_UNDEFINED)[1])',
+      );
+      expect(rewriteExpr('arr.fill(v, 1, void (x >>> 2))', [], new Set(), false, imports)).toBe(
+        '_kern_js_fill(arr, v, 1, ((((x & 0xFFFFFFFF) >> (2 & 31))), _KERN_UNDEFINED)[1])',
+      );
+      expect(() => rewriteExpr('arr.fill(v, 1, void x + y)', [], new Set(), false, imports)).toThrow(
+        /exact unary void/,
+      );
+      expect([...imports].join('\n')).toContain('def _kern_js_fill');
+    });
+
     test('arr-core supports bare arrow params and nested dict member access', async () => {
       const { rewriteExpr } = await import('../src/core/expr/index.js');
       expect(rewriteExpr('items.filter(x => x.active)', [])).toBe('[x for x in items if js_truthy(x["active"])]');

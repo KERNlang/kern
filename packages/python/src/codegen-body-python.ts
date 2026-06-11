@@ -161,6 +161,12 @@ export interface BodyEmitResult {
   helpers: Set<string>;
 }
 
+export interface PyExpressionEmitResult {
+  code: string;
+  imports: Set<string>;
+  helpers: Set<string>;
+}
+
 interface BodyEmitContext {
   gensymCounter: number;
   imports: Set<string>;
@@ -1872,9 +1878,14 @@ const NON_EXCEPTION_LITERAL_KINDS: ReadonlySet<string> = new Set([
  *  `emitPyExprCtx` which threads the live ctx (and therefore the live
  *  imports set) end-to-end. */
 export function emitPyExpression(node: ValueIR, options?: BodyEmitOptions): string {
+  return emitPyExpressionWithImports(node, options).code;
+}
+
+export function emitPyExpressionWithImports(node: ValueIR, options?: BodyEmitOptions): PyExpressionEmitResult {
   const ctx = freshCtx(options);
   ctx.standaloneExpression = true;
-  return emitPyExprCtx(node, ctx);
+  const code = emitPyExprCtx(node, ctx);
+  return { code, imports: ctx.imports, helpers: ctx.helpers };
 }
 
 function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {

@@ -11,6 +11,7 @@ import {
   emitNativeKernBodyPython,
   emitNativeKernBodyPythonWithImports,
   emitPyExpression,
+  emitPyExpressionWithImports,
 } from '../src/codegen-body-python.js';
 import { KERN_FMT_HELPER_PY } from '../src/core/expr/helpers.js';
 import { generateFunction } from '../src/generators/core.js';
@@ -41,6 +42,12 @@ describe('emitPyExpression — slice 1 lowering rules', () => {
 
   test('undefined lowers to the _KERN_UNDEFINED sentinel', () => {
     expect(emitPyExpression(parseExpression('undefined'))).toBe('_KERN_UNDEFINED');
+  });
+
+  test('structured expression API exposes helpers needed by Array.fill lowering', () => {
+    const result = emitPyExpressionWithImports(parseExpression('arr.fill(v)'));
+    expect(result.code).toBe('_kern_js_fill(arr, v, 0, _KERN_JS_FILL_ABSENT)');
+    expect([...result.helpers].join('\n\n')).toContain('def _kern_js_fill');
   });
 
   test('await lowers to Python `await ${expr}`', () => {
