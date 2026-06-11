@@ -46,6 +46,7 @@ import type { ClassInfo } from '../../core/dist/semantic-validator.js';
 import { collectClassInfos } from '../../core/dist/semantic-validator.js';
 import type { ValueIR } from '../../core/dist/value-ir.js';
 import { assignable, type NominalClassInfo } from './assignable.js';
+import { expressionPropText, newClassName, stringProp } from './shared.js';
 import type { IRNode } from './walk.js';
 
 /** A call-site check rule identifier. */
@@ -253,7 +254,7 @@ function checkCallAgainstFn(
   }
 
   for (let index = 0; index < call.args.length; index += 1) {
-    const argType = newClassArgType(call.args[index]);
+    const argType = newClassName(call.args[index]);
     if (argType === undefined) continue; // arg type unknown → SKIP this position.
     const paramType = fn.paramTypes[index];
     if (paramType === undefined) continue; // param unannotated → SKIP this position.
@@ -269,22 +270,6 @@ function checkCallAgainstFn(
       });
     }
   }
-}
-
-/**
- * Extract the nominal class name of an argument expression IFF it is literally
- * `new ClassName(...)`, else `undefined`. `new ClassName()` parses to
- * `{ kind: 'new', argument: { kind: 'call', callee: { kind: 'ident', name } } }`.
- * No other argument shape yields a known type (nero C1/C4 — no use-def).
- */
-function newClassArgType(arg: ValueIR): string | undefined {
-  if (arg.kind !== 'new') return undefined;
-  const inner = arg.argument;
-  if (inner.kind === 'call' && inner.callee.kind === 'ident') return inner.callee.name;
-  // `new Foo` (no call) parses with an ident argument; treat the bare ident as
-  // the class name too.
-  if (inner.kind === 'ident') return inner.name;
-  return undefined;
 }
 
 /**
@@ -331,30 +316,6 @@ function valueChildren(value: ValueIR): ValueIR[] {
 /** True when a flag prop is the boolean `true` or the string `'true'`. */
 function isTrueFlag(value: unknown): boolean {
   return value === true || value === 'true';
-}
-
-/** Read a non-empty string prop, mirroring core's `stringProp`. */
-function stringProp(node: IRNode, prop: string): string | undefined {
-  const value = node.props?.[prop];
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
-}
-
-/** Coerce an expression-bearing prop to its source text, mirroring core's
- *  `expressionPropText` (bare string, `{ __expr, code }` object, or scalar). */
-function expressionPropText(value: unknown): string | undefined {
-  if (typeof value === 'string') return value;
-  if (isExpressionObject(value)) return value.code;
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  return undefined;
-}
-
-function isExpressionObject(value: unknown): value is { code: string } {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    (value as { readonly __expr?: unknown }).__expr === true &&
-    typeof (value as { readonly code?: unknown }).code === 'string'
-  );
 }
 
 /** Pre-order walk of the IR tree, mirroring core's `walkSemanticTree`. */
