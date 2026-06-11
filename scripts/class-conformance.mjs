@@ -18,11 +18,10 @@
  * Run:  node scripts/class-conformance.mjs   (or via `pnpm check:class-conformance`)
  */
 
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { canon, makeTmpDir, runNode, runPython, transpileTs } from './conformance-helpers.mjs';
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 const { parse, generateCoreNode } = await import(join(REPO, 'packages/core/dist/index.js'));
@@ -1321,18 +1320,308 @@ fn name=probe returns=boolean
     // the lowered isinstance call.
     expected: true,
   },
+  // ── closure MUTATION v1 (MUT1-MUT8) ────────────────────────────────────────
+  // Statement-position mutation inside block-bodied closures: bare local/free
+  // assigns (incl. compound + statement-position ++/--), and index member
+  // writes. RED at base: the v1 gate REJECTED every assignment shape
+  // (closure-free-var-assign / closure-local-assign / closure-member-assign) →
+  // a compile error at `parseExpression`. Now the gate accepts the shapes, the
+  // lowerer emits Python assignment statements, and `emitBlockClosurePy`
+  // prepends `nonlocal` for free writes (or throws closure-pinned-write for a
+  // per-iteration loop capture). Each kills a specific wrong-impl.
+  {
+    // MUT1 — read+write of a method-LOCAL free var across three calls. RED at
+    // base: gate rejected (closure-free-var-assign). Without `nonlocal` the def
+    // raises UnboundLocalError (read of `n` before the local write) or, if the
+    // shadow somehow initialized, accumulates 1,1,1. Correct = [1,2,3].
+    name: 'closure MUT1: free-var read+write needs nonlocal (accumulate)',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=n value="0" kind=let
+    let name=inc value="() => { n = n + 1; return n; }"
+    return value="[inc(), inc(), inc()]"`,
+    expected: [1, 2, 3],
+  },
+  {
+    // MUT2 — index member write on a captured list mutates BY REFERENCE (no
+    // nonlocal). Called twice → acc[0] = 2. RED at base: gate rejected
+    // (closure-member-assign). Kills a copied-object / not-emitted member-write
+    // impl. (Adapted from the spec's `acc.total` object-member form to an
+    // INDEX write: native-body dict-attribute access — `acc.total` on a Python
+    // dict — is a SEPARATE pre-existing gap outside this slice; an index write
+    // proves the same by-reference member-mutation contract and lowers cleanly
+    // on both targets.)
+    name: 'closure MUT2: index member write mutates captured object by reference',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=acc value="[0]"
+    let name=f value="() => { acc[0] = acc[0] + 1; return 0; }"
+    do value="f()"
+    do value="f()"
+    return value="acc[0]"`,
+    expected: 2,
+  },
+  {
+    // MUT3 — compound assignment (`x *= 2`) on a free var. RED at base: gate
+    // rejected. Kills a not-lowered compound (a verbatim `x *= 2` through the
+    // expression path has no assignment grammar). Correct = 20.
+    name: 'closure MUT3: compound *= on a free var',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=x value="10" kind=let
+    let name=f value="() => { x *= 2; return 0; }"
+    do value="f()"
+    return value="x"`,
+    expected: 20,
+  },
+  {
+    // MUT4 — statement-position `x++` lowers to `x += 1` with `nonlocal`. RED
+    // at base: gate rejected. Called twice → 2. Kills a dropped/not-lowered
+    // postfix increment.
+    name: 'closure MUT4: statement-position ++ lowers to += 1',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=x value="0" kind=let
+    let name=f value="() => { x++; return 0; }"
+    do value="f()"
+    do value="f()"
+    return value="x"`,
+    expected: 2,
+  },
+  {
+    // MUT5 — a free-var write nested inside an if-branch. RED at base: gate
+    // rejected. The `nonlocal` declaration must hoist to the def's first body
+    // line even though the write lives inside a nested block. Correct = true.
+    name: 'closure MUT5: nonlocal write inside a nested if-branch',
+    kern: `fn name=probe returns=boolean
+  handler lang=kern
+    let name=flag value="false" kind=let
+    let name=f value="() => { if (flag === false) { flag = true; } return 0; }"
+    do value="f()"
+    return value="flag"`,
+    expected: true,
+  },
+  {
+    // MUT6 — two SEPARATE closures share one captured binding: `inc` writes
+    // `count`, `get` reads it. RED at base: gate rejected. Kills a per-def
+    // private-copy impl (each def must `nonlocal` the SAME outer `count`, not a
+    // local snapshot). inc() twice then get() → 2.
+    name: 'closure MUT6: two defs share one captured binding',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=count value="0" kind=let
+    let name=inc value="() => { count++; return 0; }"
+    let name=get value="() => { return count; }"
+    do value="inc()"
+    do value="inc()"
+    return value="get()"`,
+    expected: 2,
+  },
+  {
+    // MUT7 — write to a closure PARAM, not a free var. RED at base: the gate
+    // mis-saw `x` as free (params are stripped before the block is parsed) and
+    // rejected closure-free-var-assign. Now: gate accepts the bare-ident shape,
+    // and the LOWERER excludes params from the written-free set → a plain
+    // def-local assignment, NO nonlocal. Correct = 5 (a misroute to nonlocal
+    // would raise/return wrong; a reject would be a compile error).
+    name: 'closure MUT7: param write is a def-local (no nonlocal, no reject)',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=f value="(x) => { x = x + 1; return x; }"
+    return value="f(4)"`,
+    expected: 5,
+  },
+  {
+    // MUT8 — pinned-read + nonlocal-write COEXIST in one looped closure. Inside
+    // `each x`, the closure reads the per-iteration `x` (PINNED via default arg
+    // `x=x`) AND writes the outside-loop accumulator `outer` (NONLOCAL). RED at
+    // base: gate rejected. Kills a pin/nonlocal conflict (a name cannot be both;
+    // here they are different names and both mechanisms must apply in ONE def).
+    // Also re-proves pinning: x is [1,2] not [2,2]. Correct = [[1,2],2].
+    // (returns=number[] is a non-enforcing annotation; the value is nested.)
+    name: 'closure MUT8: pinned per-iteration read + nonlocal outer write coexist',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=outer value="0" kind=let
+    let name=fns value="[]"
+    each name=x in="[1, 2]"
+      do value="fns.push(() => { outer = outer + 1; return x; })"
+    let name=r value="[]"
+    each name=f in="fns"
+      do value="r.push(f())"
+    return value="[r, outer]"`,
+    expected: [[1, 2], 2],
+  },
+  {
+    // MUT9 — write to a SHADOW-RENAMED capture targets the renamed binding.
+    // The inner `let x` shadows the outer (Python rename `__k_shadow_x_N`); the
+    // closure's `x = x + 10` must write THAT binding — nonlocal, write target,
+    // and reads all rename-resolved together. RED before the lowerAssignTarget
+    // fix: the write went to the OUTER x while reads hit the renamed inner one
+    // (f() returned 2, outer corrupted to 12 → [2, 2, 12]). Correct JS: f()=12,
+    // inner x=12, outer x untouched → [12, 12, 1].
+    name: 'closure MUT10: member/index inc-dec on a captured object (gate/lowerer lockstep)',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=acc value="[10, 5]"
+    let name=f value="() => { acc[0]++; acc[1]--; return 0; }"
+    do value="f()"
+    do value="f()"
+    return value="acc"`,
+    // The gate accepts member/index ++/-- (by-reference mutation); the lowerer
+    // must too (agon review: kimi 0.9 + zai 0.9 found the drift — emitIncDec
+    // required a bare ident and eligible code died 'unsupported-statement').
+    // [10,5] → two f() calls → [12, 3]. No nonlocal involved.
+    expected: [12, 3],
+  },
+  {
+    name: 'lambda-array FR11: TERNARY receiver parenthesized in generator heads + reduceRight slice',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=xs value="[1, 2]"
+    let name=ys value="[3, 4]"
+    let name=c value="true"
+    let name=m value="(c ? xs : ys).map((x) => x * 10)"
+    let name=r value="(c ? ys : xs).reduceRight((a, b) => a - b)"
+    return value="[m, r]"`,
+    // A compound (ternary) receiver dropped bare into `for el in <recv>` makes
+    // Python read the `if` as the comprehension filter (SyntaxError), and
+    // `<recv>[::-1]` slices only the rightmost branch (agon review, agy 1.0).
+    // parenthesizeIterable wraps compound receivers: map over xs → [10,20];
+    // reduceRight over ys=[3,4] reversed → 4-3=1. RED at base: SyntaxError.
+    expected: [[10, 20], 1],
+  },
+  {
+    name: 'closure MUT9: write to shadow-renamed capture targets the renamed binding',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=x value="1" kind=let
+    let name=out value="[]"
+    if cond="true"
+      let name=x value="2" kind=let
+      let name=f value="() => { x = x + 10; return x; }"
+      do value="out.push(f())"
+      do value="out.push(x)"
+    do value="out.push(x)"
+    return value="out"`,
+    expected: [12, 12, 1],
+  },
+  // ── find-family + flatMap + reduce on the class/native Python path (FR1-FR10) ──
+  // Same `lowerLambdaArrayCallPython` call-by-name architecture as map/filter.
+  // RED at base: a class method's `this.data.find(...)` falls through to a
+  // verbatim `self.data.find(...)` emit → Python lists have no `.find`/`.flatMap`
+  // → AttributeError (ts != py). The new lowering emits a `next((... ), None/-1)`
+  // generator, a single-call flatMap comprehension, and `__k_functools.reduce`.
+  {
+    name: 'FR1: find first element > 2 (expression lambda)',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    return value="[1, 2, 3, 4].find((x) => x > 2)"`,
+    // [1,2,3,4].find(x => x>2) is 3 (first match). Kills a not-lowered impl
+    // (AttributeError on Python) and a filter-style impl that returns the array.
+    expected: 3,
+  },
+  {
+    name: 'FR2: find with no match is null (JSON-wrapped)',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    return value="[[1, 2].find((x) => x > 5)]"`,
+    // [1,2].find(x => x>5) is undefined in JS / None in Python → wrapped as [null]
+    // (the at() null-printing precedent). Kills a wrong miss value (e.g. -1 / [] /
+    // an exception when next() has no default).
+    expected: [null],
+  },
+  {
+    name: 'FR3: findIndex vs findLastIndex on a duplicated element',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=a value="[1, 2, 3, 2].findIndex((x) => x === 2)"
+    let name=b value="[1, 2, 3, 2].findLastIndex((x) => x === 2)"
+    return value="[a, b]"`,
+    // findIndex finds the FIRST 2 at index 1; findLastIndex finds the LAST at
+    // index 3. Kills a reversed-scan that is missing/wrong (both would be equal,
+    // or the last-index would be 1).
+    expected: [1, 3],
+  },
+  {
+    name: 'FR4: findLast vs find (no conflation)',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=first value="[1, 2, 3, 2].find((x) => x < 3)"
+    let name=last value="[1, 2, 3, 2].findLast((x) => x < 3)"
+    return value="[first, last]"`,
+    // find(x => x<3) is 1 (first match); findLast(x => x<3) is 2 (last match,
+    // the trailing 2). Kills find/findLast conflation (both equal) and a
+    // reversed-scan that drops the last match.
+    expected: [1, 2],
+  },
+  {
+    name: 'FR5: flatMap maps then flattens one level',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    return value="[1, 2, 3].flatMap((x) => [x, x * 10])"`,
+    // [1,2,3].flatMap(x => [x, x*10]) is [1,10,2,20,3,30]. Kills a not-lowered
+    // impl (AttributeError) and a non-flattening map (would give [[1,10],...]).
+    expected: [1, 10, 2, 20, 3, 30],
+  },
+  {
+    name: 'FR6: flatMap calls the callback EXACTLY ONCE per element (single-eval purity)',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=n value="0" kind=let
+    let name=cb value="(x) => { n = n + 1; return [x]; }"
+    let name=r value="[1, 2, 3].flatMap(cb)"
+    return value="[r, n]"`,
+    // The class-path flatMap binds the callback result ONCE per element
+    // (`for __kern_r_N in [cb(el)]`), so the side-effecting `n` counter ends at 3
+    // — NOT 6. The route's body-substitution double-eval would call cb twice per
+    // element → n = 6 (RED for that shape). Also an integration probe for the
+    // closure-mutation slice: the free-var write `n = n + 1` needs `nonlocal`.
+    expected: [[1, 2, 3], 3],
+  },
+  {
+    name: 'FR7: reduce vs reduceRight (seedless, order-sensitive)',
+    kern: `fn name=probe returns=string[]
+  handler lang=kern
+    let name=l value="[\\"a\\", \\"b\\", \\"c\\"].reduce((a, c) => a + c)"
+    let name=r value="[\\"a\\", \\"b\\", \\"c\\"].reduceRight((a, c) => a + c)"
+    return value="[l, r]"`,
+    // reduce concatenates left-to-right → "abc"; reduceRight right-to-left → "cba".
+    // Order-sensitive (asserts functools.reduce(acc, cur) arg order parity and the
+    // [::-1] reversal). Seedless handling — no seed arg.
+    expected: ['abc', 'cba'],
+  },
+  {
+    name: 'FR8: reduce with a seed',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    return value="[1, 2, 3].reduce((a, c) => a + c, 10)"`,
+    // [1,2,3].reduce((a,c) => a+c, 10) is 16. Kills a seed-dropped impl (would be 6).
+    expected: 16,
+  },
+  {
+    name: 'FR9: reduce with a BLOCK lambda callback (def usable in functools.reduce)',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    return value="[1, 2, 3].reduce((a, c) => { const t = a + c; return t; }, 0)"`,
+    // A block-bodied 2-param callback hoists to a `def __kern_closure_N` whose
+    // NAME is passed to functools.reduce. [1,2,3] seed 0 → 6. Kills an impl that
+    // can only pass inline expression lambdas (a def name must work too).
+    expected: 6,
+  },
+  {
+    name: 'FR10: chained flatMap().find()',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    return value="[[1], [2, 3]].flatMap((xs) => xs).find((x) => x > 1)"`,
+    // [[1],[2,3]].flatMap(xs => xs) is [1,2,3]; .find(x => x>1) is 2. Kills a
+    // lowering that can't nest (the find receiver is itself a lowered flatMap
+    // comprehension).
+    expected: 2,
+  },
 ];
 
-const canon = (v) => JSON.stringify(v);
-
-const dir = mkdtempSync(join(tmpdir(), 'kern-class-conf-'));
-process.on('exit', () => {
-  try {
-    rmSync(dir, { recursive: true, force: true });
-  } catch {
-    // best-effort tmp cleanup — never fail the run on it
-  }
-});
+const dir = makeTmpDir('kern-class-conf-');
 
 let pass = 0;
 const failures = [];
@@ -1347,21 +1636,15 @@ for (let i = 0; i < FIXTURES.length; i++) {
     // TypeScript module
     const tsSource = `${topNodes.map((n) => generateCoreNode(n).join('\n')).join('\n\n')}\nconsole.log(JSON.stringify(probe()));`;
     const tsFile = join(dir, `mod-${i}.mjs`);
-    writeFileSync(
-      tsFile,
-      tsCompiler.transpileModule(tsSource, {
-        compilerOptions: { module: tsCompiler.ModuleKind.ESNext, target: tsCompiler.ScriptTarget.ES2022 },
-      }).outputText,
-    );
+    writeFileSync(tsFile, transpileTs(tsCompiler, tsSource));
 
     // Python module
     const pySource = `import json\n${topNodes.map((n) => generatePythonCoreNode(n).join('\n')).join('\n\n')}\nprint(json.dumps(probe()))`;
     const pyFile = join(dir, `mod-${i}.py`);
     writeFileSync(pyFile, pySource);
 
-    const opts = { encoding: 'utf8', timeout: 10_000 };
-    const tsOut = JSON.parse(execFileSync('node', [tsFile], opts).trim());
-    const pyOut = JSON.parse(execFileSync('python3', [pyFile], opts).trim());
+    const tsOut = JSON.parse(runNode(tsFile));
+    const pyOut = JSON.parse(runPython(pyFile));
 
     if (canon(tsOut) === canon(fx.expected) && canon(pyOut) === canon(fx.expected)) {
       pass++;

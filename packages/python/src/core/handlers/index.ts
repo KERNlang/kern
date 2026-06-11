@@ -1113,6 +1113,7 @@ export function emitPureHandlers(serverNode: IRNode, imports: Set<string>, root?
     const children = routeNode.children || [];
     const PORTABLE_TYPES = new Set([
       'derive',
+      'let',
       'guard',
       'filter',
       'handler',

@@ -887,3 +887,273 @@ describe('Python lambda-bearing array methods (map/filter/some/every)', () => {
     expect(code).not.toContain('__kern_cb_');
   });
 });
+
+describe('Python find-family + flatMap + reduce array methods (class/native path)', () => {
+  function findHandler(node: IRNode | null): IRNode | null {
+    if (!node) return null;
+    if (node.type === 'handler') return node;
+    for (const child of node.children ?? []) {
+      const found = findHandler(child);
+      if (found) return found;
+    }
+    return null;
+  }
+  function emitFull(kern: string, options?: Parameters<typeof emitNativeKernBodyPythonWithImports>[1]) {
+    const handlerNode = findHandler(parse(kern));
+    expect(handlerNode).not.toBeNull();
+    return emitNativeKernBodyPythonWithImports(handlerNode as IRNode, options);
+  }
+
+  test('find lowers to a next((...), None) generator with a js_truthy-wrapped predicate', () => {
+    const { code } = emitFull(
+      `fn name=probe returns=number
+  handler lang=kern
+    return value="[1, 2, 3, 4].find((x) => x > 2)"`,
+    );
+    expect(code).toContain('js_truthy(');
+    expect(code).toMatch(
+      /next\(\(__kern_el_\d+ for __kern_el_\d+ in \[1, 2, 3, 4\] if js_truthy\(__kern_cb_0\(__kern_el_\d+\)\)\), None\)/,
+    );
+  });
+
+  test('findIndex/findLast/findLastIndex lower to index/element next() with the right miss + reversal', () => {
+    const idx = emitFull(
+      `fn name=probe returns=number
+  handler lang=kern
+    return value="[1, 2, 2].findIndex((x) => x === 2)"`,
+    ).code;
+    // findIndex always iterates enumerate and yields the index; miss → -1.
+    expect(idx).toMatch(
+      /next\(\(__kern_ix_\d+ for __kern_ix_\d+, __kern_el_\d+ in enumerate\(\[1, 2, 2\]\) if js_truthy\(__kern_cb_0\(__kern_el_\d+\)\)\), -1\)/,
+    );
+
+    const last = emitFull(
+      `fn name=probe returns=number
+  handler lang=kern
+    return value="[1, 2, 2].findLast((x) => x === 2)"`,
+    ).code;
+    // findLast scans a reversed view and yields the element; miss → None.
+    expect(last).toMatch(
+      /next\(\(__kern_el_\d+ for __kern_el_\d+ in reversed\(\[1, 2, 2\]\) if js_truthy\(__kern_cb_0\(__kern_el_\d+\)\)\), None\)/,
+    );
+
+    const lastIdx = emitFull(
+      `fn name=probe returns=number
+  handler lang=kern
+    return value="[1, 2, 2].findLastIndex((x) => x === 2)"`,
+    ).code;
+    // findLastIndex reverses list(enumerate(recv)) and yields the index; miss → -1.
+    expect(lastIdx).toMatch(
+      /next\(\(__kern_ix_\d+ for __kern_ix_\d+, __kern_el_\d+ in reversed\(list\(enumerate\(\[1, 2, 2\]\)\)\) if js_truthy\(__kern_cb_0\(__kern_el_\d+\)\)\), -1\)/,
+    );
+  });
+
+  test('flatMap binds the callback result ONCE per element (single-call, no double-eval)', () => {
+    const { code } = emitFull(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    return value="[1, 2, 3].flatMap((x) => [x, x * 10])"`,
+    );
+    // THE single-call idiom: the callback is named in a one-element `for`,
+    // then flattened one level. (The route's body-substitution emits the body
+    // text twice; this binds it exactly once.) No js_truthy (flatMap has no
+    // predicate).
+    expect(code).toMatch(/for __kern_r_0 in \[__kern_cb_0\(__kern_el_\d+\)\]/);
+    expect(code).toMatch(/for __kern_y_0 in \(__kern_r_0 if isinstance\(__kern_r_0, list\) else \[__kern_r_0\]\)/);
+    expect(code).not.toContain('js_truthy');
+  });
+
+  test('reduce emits __k_functools.reduce with the hoisted expression-lambda callback', () => {
+    const { code, imports } = emitFull(
+      `fn name=probe returns=number
+  handler lang=kern
+    return value="[1, 2, 3].reduce((a, c) => a + c, 10)"`,
+    );
+    expect(code).toContain('__kern_cb_0 = lambda a, c:');
+    expect(code).toContain('__k_functools.reduce(__kern_cb_0, [1, 2, 3], 10)');
+    // functools registered exactly once via the imports Set.
+    expect([...imports].filter((m) => m === 'functools')).toHaveLength(1);
+  });
+
+  test('reduce with a BLOCK lambda passes the hoisted def NAME to functools.reduce', () => {
+    const { code } = emitFull(
+      `fn name=probe returns=number
+  handler lang=kern
+    return value="[1, 2, 3].reduce((a, c) => { const t = a + c; return t; }, 0)"`,
+    );
+    const defIdx = code.indexOf('def __kern_closure_0(a, c):');
+    const useIdx = code.indexOf('__k_functools.reduce(__kern_closure_0, [1, 2, 3], 0)');
+    expect(defIdx).toBeGreaterThanOrEqual(0);
+    expect(useIdx).toBeGreaterThan(defIdx);
+  });
+
+  test('reduceRight reverses the receiver with [::-1]', () => {
+    const { code } = emitFull(
+      `fn name=probe returns=string
+  handler lang=kern
+    return value="[\\"a\\", \\"b\\", \\"c\\"].reduceRight((a, c) => a + c)"`,
+    );
+    expect(code).toContain('__k_functools.reduce(__kern_cb_0, ["a", "b", "c"][::-1])');
+  });
+
+  test('a 3-param reduce callback (idx) is NOT lowered — falls through verbatim', () => {
+    // functools.reduce calls the callback with exactly (acc, cur); a 3-param
+    // callback declaring an index would be mis-called, so the shape must fall
+    // through to a verbatim `.reduce(` emit (the pre-slice status quo).
+    const { code } = emitFull(
+      `fn name=probe returns=number
+  handler lang=kern
+    let name=arr value="[1, 2, 3]"
+    return value="arr.reduce((a, c, i) => a + c + i, 0)"`,
+    );
+    expect(code).not.toContain('__k_functools.reduce');
+    expect(code).toContain('.reduce(');
+  });
+
+  test('member-expression callback (`this.fold`) on reduce is NOT lowered — falls through verbatim', () => {
+    // Same unbound-this policy as map/filter: a member callback would be passed
+    // unbound, breaking the TS target, so it falls through rather than lower.
+    const { code } = emitFull(
+      `fn name=run returns=number
+  handler lang=kern
+    return value="this.items.reduce(this.fold, 0)"`,
+      { inClassBody: true, symbolMap: { this: 'self' } },
+    );
+    expect(code).toContain('self.items.reduce(self.fold, 0)');
+    expect(code).not.toContain('__k_functools.reduce');
+  });
+});
+
+describe('Python closure mutation v1 (local/free assigns + nonlocal + pinned-write throw)', () => {
+  function findHandler(node: IRNode | null): IRNode | null {
+    if (!node) return null;
+    if (node.type === 'handler') return node;
+    for (const child of node.children ?? []) {
+      const found = findHandler(child);
+      if (found) return found;
+    }
+    return null;
+  }
+  function emit(kern: string, outerBindings?: string[]): string {
+    const handlerNode = findHandler(parse(kern));
+    expect(handlerNode).not.toBeNull();
+    return emitNativeKernBodyPythonWithImports(handlerNode as IRNode, outerBindings ? { outerBindings } : undefined)
+      .code;
+  }
+
+  test('a free-var read+write closure (MUT1) prepends `nonlocal n` as the def first body line', () => {
+    // The classic accumulator: a method-local `n` written from inside the
+    // closure needs `nonlocal n` so Python rebinds the OUTER binding instead of
+    // creating a def-local shadow (without it: UnboundLocalError on the read).
+    const code = emit(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    let name=n value="0" kind=let
+    let name=inc value="() => { n = n + 1; return n; }"
+    return value="[inc(), inc(), inc()]"`,
+    );
+    expect(code).toContain('def __kern_closure_0():');
+    // `nonlocal n` is the FIRST body line, immediately under the def header and
+    // before the assignment that uses it.
+    expect(code).toMatch(/def __kern_closure_0\(\):\n\s+nonlocal n\n/);
+    const nlIdx = code.indexOf('nonlocal n');
+    const writeIdx = code.indexOf('n = __kern_add(n, 1)');
+    expect(nlIdx).toBeGreaterThan(-1);
+    expect(writeIdx).toBeGreaterThan(nlIdx);
+  });
+
+  test('a closure PARAM write lowers as a def-local assignment — NO nonlocal, NO reject', () => {
+    // `(x) => { x = x + 1; return x; }` — `x` is the closure PARAM, not a free
+    // capture. The gate (which cannot see params) accepts the bare-ident shape;
+    // the lowerer EXCLUDES params from the written-free set → a plain local
+    // assignment with no `nonlocal`. (Fixes the earlier param-write
+    // misclassification.)
+    const code = emit(
+      `fn name=probe returns=number
+  handler lang=kern
+    let name=f value="(x) => { x = x + 1; return x; }"
+    return value="f(4)"`,
+    );
+    expect(code).toContain('def __kern_closure_0(x):');
+    expect(code).not.toContain('nonlocal');
+    expect(code).toContain('x = __kern_add(x, 1)');
+  });
+
+  test('a compound free-var write (`x *= 2`) emits the Python compound op + nonlocal', () => {
+    const code = emit(
+      `fn name=probe returns=number
+  handler lang=kern
+    let name=x value="10" kind=let
+    let name=f value="() => { x *= 2; return 0; }"
+    do value="f()"
+    return value="x"`,
+    );
+    expect(code).toMatch(/def __kern_closure_0\(\):\n\s+nonlocal x\n/);
+    expect(code).toContain('x *= 2');
+  });
+
+  test('a statement-position ++ on a free var lowers to `x += 1` with nonlocal', () => {
+    const code = emit(
+      `fn name=probe returns=number
+  handler lang=kern
+    let name=x value="0" kind=let
+    let name=f value="() => { x++; return 0; }"
+    do value="f()"
+    return value="x"`,
+    );
+    expect(code).toMatch(/def __kern_closure_0\(\):\n\s+nonlocal x\n/);
+    expect(code).toContain('x += 1');
+  });
+
+  test('an index member write mutates a captured object by reference — NO nonlocal', () => {
+    // `acc[0] = acc[0] + 1` mutates the captured list in place; Python needs no
+    // `nonlocal` for a member/index write (the binding is not rebound).
+    const code = emit(
+      `fn name=probe returns=number
+  handler lang=kern
+    let name=acc value="[0]"
+    let name=f value="() => { acc[0] = acc[0] + 1; return 0; }"
+    do value="f()"
+    return value="acc[0]"`,
+    );
+    expect(code).toContain('def __kern_closure_0():');
+    expect(code).not.toContain('nonlocal');
+    expect(code).toContain('acc[0] = __kern_add(acc[0], 1)');
+  });
+
+  test('a pinned-read + nonlocal-write closure (MUT8) emits BOTH the default-arg pin and the nonlocal', () => {
+    // Inside `each x`, the closure reads the per-iteration `x` (pinned via a
+    // default arg `x=x`) AND writes the outside-loop accumulator `outer`
+    // (nonlocal). Both mechanisms must apply in ONE def. They target different
+    // names, so the pinned/nonlocal disjointness invariant holds.
+    const code = emit(
+      `fn name=probe returns=number[]
+  handler lang=kern
+    let name=outer value="0" kind=let
+    let name=fns value="[]"
+    each name=x in="[1, 2]"
+      do value="fns.push(() => { outer = outer + 1; return x; })"
+    return value="fns"`,
+    );
+    expect(code).toContain('def __kern_closure_0(x=x):');
+    expect(code).toContain('nonlocal outer');
+  });
+
+  test('a WRITE to a per-iteration loop capture throws closure-pinned-write (eligibility≢lowerability)', () => {
+    // A free write whose binding IS a per-iteration loop-local cannot be lowered
+    // in v1: the def-time default-arg pin freezes the value, and `nonlocal`
+    // would rebind the wrong binding. The single-statement gate cannot see the
+    // enclosing loop, so this fails closed LOUDLY at emission. Here the closure
+    // writes the each-var `x` itself (a per-iteration capture).
+    const kern = `fn name=probe returns=number[]
+  handler lang=kern
+    let name=fns value="[]"
+    each name=x in="[1, 2]"
+      do value="fns.push(() => { x = x + 1; return x; })"
+    return value="fns"`;
+    const handlerNode = findHandler(parse(kern));
+    expect(() => emitNativeKernBodyPythonWithImports(handlerNode as IRNode)).toThrow(
+      /per-iteration loop capture 'x'.*cell-boxing/s,
+    );
+  });
+});

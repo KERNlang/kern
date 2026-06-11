@@ -1,15 +1,41 @@
 import ts from 'typescript';
-import { parseClosureBlockAst } from './closure-eligibility.js';
+import { CLOSURE_ASSIGN_OPERATORS, parseClosureBlockAst } from './closure-eligibility.js';
 
 export interface LowerJsClosureBodyToPythonOptions {
   lowerExpression(expr: string): string;
   lowerCondition?(expr: string): string;
+  /** The closure's own parameter names. A bare-identifier write to a param (or
+   *  to a block-LOCAL declared inside the closure) is a def-local plain
+   *  assignment — it must NOT be reported as a written FREE name (no
+   *  `nonlocal`). Omitted = the closure has no params. */
+  paramNames?: string[];
+  /** Resolve a bare-identifier WRITE TARGET to its emitted Python name. The
+   *  class path passes `resolveLocalRename` so a write to a shadow-renamed
+   *  capture targets the SAME renamed binding its reads resolve to (without
+   *  this, `x = x + 10` against a shadowed capture wrote the OUTER binding
+   *  while reads hit the renamed inner one — silent wrong values both ways,
+   *  probe-verified). The route path has no renames — omitted = identity.
+   *  `writtenFreeNames` still reports SOURCE names; the consumer resolves
+   *  again when building its `nonlocal` line. */
+  lowerAssignTarget?(name: string): string;
 }
 
 export interface LowerJsClosureBodyToPythonResult {
   ok: boolean;
   lines: string[];
   reason?: string;
+  /** The set of FREE identifier names this closure WRITES (bare-identifier
+   *  assignments / `++` / `--` to a name that is neither a closure param nor a
+   *  block-local declared inside the body). The CONSUMER decides what to do
+   *  with them: the Python class/native emitter (`emitBlockClosurePy`) throws
+   *  `closure-pinned-write` for any that are per-iteration loop captures and
+   *  prepends a `nonlocal` line for the rest; the route hoist wrapper
+   *  (`lowerArrowBlockClosure`) prepends `nonlocal` for ALL of them (route
+   *  hoisted defs nest in the handler function, with no pinning concept).
+   *  Member/index writes (`acc.x = …`) mutate a captured object by reference
+   *  and never appear here — Python needs no `nonlocal` for them. Empty when
+   *  `ok` is false. */
+  writtenFreeNames: Set<string>;
 }
 
 function hasUnsupportedNestedConstruct(node: ts.Node): boolean {
@@ -20,7 +46,11 @@ function hasUnsupportedNestedConstruct(node: ts.Node): boolean {
       ts.isFunctionExpression(child) ||
       ts.isFunctionDeclaration(child) ||
       child.kind === ts.SyntaxKind.ThisKeyword ||
-      child.kind === ts.SyntaxKind.YieldExpression
+      child.kind === ts.SyntaxKind.YieldExpression ||
+      // Defense-in-depth (agon review): the gate rejects `await` already, but
+      // this safety net runs for ALL consumers — keep it in lockstep so a
+      // future gate widening cannot silently emit invalid sync Python.
+      ts.isAwaitExpression(child)
     ) {
       unsupported = true;
       return;
@@ -39,13 +69,110 @@ export function lowerJsClosureBodyToPython(
   // (`closure-eligibility.ts`). The block carries its own SourceFile (created
   // with parent nodes), which we need for `expr.getText(sf)`.
   const block = parseClosureBlockAst(body);
-  if (!block) return { ok: false, lines: [], reason: 'parse' };
+  if (!block) return { ok: false, lines: [], reason: 'parse', writtenFreeNames: new Set() };
   const sf = block.getSourceFile();
-  if (hasUnsupportedNestedConstruct(block)) return { ok: false, lines: [], reason: 'unsupported-nested' };
+  if (hasUnsupportedNestedConstruct(block))
+    return { ok: false, lines: [], reason: 'unsupported-nested', writtenFreeNames: new Set() };
 
   const lowerExpr = (expr: ts.Expression): string => opts.lowerExpression(expr.getText(sf));
   const lowerCond = (expr: ts.Expression): string =>
     opts.lowerCondition ? opts.lowerCondition(expr.getText(sf)) : `js_truthy(${lowerExpr(expr)})`;
+
+  // A bare-identifier write needs `nonlocal` (it is FREE) only when its name is
+  // neither a closure PARAM nor a block-LOCAL declared inside the body. Collect
+  // both up front so the assignment branches can classify each target. Mirrors
+  // `collectLocalDeclaredNames` in the gate (identifier-named let/const only;
+  // destructuring never reaches here — the gate rejects it).
+  const paramNames = new Set(opts.paramNames ?? []);
+  const declaredLocals = new Set<string>();
+  {
+    const collect = (node: ts.Node): void => {
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) declaredLocals.add(node.name.text);
+      ts.forEachChild(node, collect);
+    };
+    ts.forEachChild(block, collect);
+  }
+  const writtenFreeNames = new Set<string>();
+  const recordIfFree = (name: string): void => {
+    if (!paramNames.has(name) && !declaredLocals.has(name)) writtenFreeNames.add(name);
+  };
+  // Bare write targets resolve through the consumer's rename machinery (see
+  // the option doc). Params and block-locals are def-locals the consumer never
+  // renames, so applying the resolver to ALL bare targets is safe — it is the
+  // identity for them.
+  const lowerTarget = opts.lowerAssignTarget ?? ((name: string) => name);
+
+  // Python compound-assignment operator for an accepted JS assignment op. `=`
+  // → plain assignment; the five compound forms map 1:1. Returns null for any
+  // operator the gate does not accept (defensive — the gate already rejected
+  // them, so this is gate/lowerer-drift insurance, not a runtime path).
+  const pyAssignOp = (op: ts.SyntaxKind): string | null => {
+    switch (op) {
+      case ts.SyntaxKind.EqualsToken:
+        return '=';
+      case ts.SyntaxKind.PlusEqualsToken:
+        return '+=';
+      case ts.SyntaxKind.MinusEqualsToken:
+        return '-=';
+      case ts.SyntaxKind.AsteriskEqualsToken:
+        return '*=';
+      case ts.SyntaxKind.SlashEqualsToken:
+        return '/=';
+      case ts.SyntaxKind.PercentEqualsToken:
+        return '%=';
+      default:
+        return null;
+    }
+  };
+
+  // Lower an accepted assignment EXPRESSION (`x = rhs`, `acc.p += rhs`,
+  // `a[i] = rhs`) used in statement position to a Python assignment STATEMENT.
+  // Subexpressions (base / index / rhs) flow through `lowerExpression` exactly
+  // like every other native-body expression, so a captured renamed outer
+  // variable resolves through the same rename stack. Returns null on a shape
+  // the gate should already have rejected (drift insurance → the caller turns
+  // null into a loud reason).
+  const emitAssignment = (expr: ts.BinaryExpression, indent: string): string[] | null => {
+    if (!CLOSURE_ASSIGN_OPERATORS.has(expr.operatorToken.kind)) return null;
+    const pyOp = pyAssignOp(expr.operatorToken.kind);
+    if (pyOp === null) return null;
+    const target = expr.left;
+    const rhs = lowerExpr(expr.right);
+    if (ts.isIdentifier(target)) {
+      recordIfFree(target.text);
+      return [`${indent}${lowerTarget(target.text)} ${pyOp} ${rhs}`];
+    }
+    if (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) {
+      // `this`-rooted targets are gate-rejected; a non-this member/index write
+      // mutates a captured object by reference — emit the whole target through
+      // `lowerExpression` (so `acc.total` / `acc[i]` lower identically to how
+      // they read elsewhere) and append the compound operator.
+      const lhs = lowerExpr(target);
+      return [`${indent}${lhs} ${pyOp} ${rhs}`];
+    }
+    return null;
+  };
+
+  // Lower a statement-position `++`/`--` on a bare identifier to `name += 1` /
+  // `name -= 1`. Value-position inc/dec and member targets are gate-rejected.
+  const emitIncDec = (expr: ts.PrefixUnaryExpression | ts.PostfixUnaryExpression, indent: string): string[] | null => {
+    if (expr.operator !== ts.SyntaxKind.PlusPlusToken && expr.operator !== ts.SyntaxKind.MinusMinusToken) return null;
+    const step = expr.operator === ts.SyntaxKind.PlusPlusToken ? '+=' : '-=';
+    if (ts.isIdentifier(expr.operand)) {
+      recordIfFree(expr.operand.text);
+      return [`${indent}${lowerTarget(expr.operand.text)} ${step} 1`];
+    }
+    // Member/index inc/dec (`acc.n++`, `acc[0]--`) — the gate accepts these
+    // (mutating a captured object by reference, like the assignment forms), so
+    // the lowerer must too (agon review, kimi 0.9 + zai 0.9 gate/lowerer
+    // drift). The whole target lowers through `lowerExpression` exactly like
+    // member ASSIGNMENT targets; NO `recordIfFree` — by-reference mutation
+    // needs no `nonlocal`.
+    if (ts.isPropertyAccessExpression(expr.operand) || ts.isElementAccessExpression(expr.operand)) {
+      return [`${indent}${lowerExpr(expr.operand)} ${step} 1`];
+    }
+    return null;
+  };
 
   const emitStatement = (stmt: ts.Statement, indent: string): string[] | null => {
     if (ts.isVariableStatement(stmt)) {
@@ -64,6 +191,26 @@ export function lowerJsClosureBodyToPython(
     }
 
     if (ts.isExpressionStatement(stmt)) {
+      let inner: ts.Expression = stmt.expression;
+      // Unwrap parens: `({ a } = x);`-style statement assignments carry
+      // syntactically-required parens — the gate counts them as statement
+      // position (same unwrap), so the lowerer must reach the assignment
+      // through them too (gate/lowerer lockstep).
+      while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
+      // Mutation v1: an assignment / inc-dec in statement position lowers to a
+      // Python assignment STATEMENT (NOT through `lowerExpression`, which has
+      // no assignment grammar). These branches sit BEFORE the generic fallback
+      // so a method call (`acc.push(x)`) — which is neither — still flows
+      // through `lowerExpression` unchanged.
+      if (ts.isBinaryExpression(inner) && CLOSURE_ASSIGN_OPERATORS.has(inner.operatorToken.kind)) {
+        return emitAssignment(inner, indent);
+      }
+      if (
+        (ts.isPrefixUnaryExpression(inner) || ts.isPostfixUnaryExpression(inner)) &&
+        (inner.operator === ts.SyntaxKind.PlusPlusToken || inner.operator === ts.SyntaxKind.MinusMinusToken)
+      ) {
+        return emitIncDec(inner, indent);
+      }
       return [`${indent}${lowerExpr(stmt.expression)}`];
     }
 
@@ -134,6 +281,6 @@ export function lowerJsClosureBodyToPython(
   const nonEmptyBody = (lines: string[], indent: string): string[] => (lines.length > 0 ? lines : [`${indent}pass`]);
 
   const lines = emitBlock(block, '    ');
-  if (!lines) return { ok: false, lines: [], reason: 'unsupported-statement' };
-  return { ok: true, lines };
+  if (!lines) return { ok: false, lines: [], reason: 'unsupported-statement', writtenFreeNames: new Set() };
+  return { ok: true, lines, writtenFreeNames };
 }
