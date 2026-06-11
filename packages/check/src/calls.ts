@@ -42,11 +42,9 @@
  */
 
 import { parseExpression } from '../../core/dist/parser-expression.js';
-import type { ClassInfo } from '../../core/dist/semantic-validator.js';
-import { collectClassInfos } from '../../core/dist/semantic-validator.js';
 import type { ValueIR } from '../../core/dist/value-ir.js';
 import { assignable, type NominalClassInfo } from './assignable.js';
-import type { IRNode } from './walk.js';
+import { buildClassByName, expressionPropText, type IRNode, newClassName, stringProp, walkTree } from './shared.js';
 
 /** A call-site check rule identifier. */
 export type CallCheckRule = 'check-call-arity' | 'check-call-arg-type';
@@ -101,13 +99,7 @@ export function checkCalls(root: IRNode): CallCheckDiagnostic[] {
   const diagnostics: CallCheckDiagnostic[] = [];
 
   // classByName: first-wins, mirroring the validator (slice 2 / core).
-  const classes = collectClassInfos(root as never) as readonly ClassInfo[];
-  const classByName = new Map<string, NominalClassInfo>();
-  for (const info of classes) {
-    if (!classByName.has(info.name)) {
-      classByName.set(info.name, { name: info.name, ...(info.baseName ? { baseName: info.baseName } : {}) });
-    }
-  }
+  const classByName = buildClassByName(root);
 
   // fnByName: first-wins registry of CHECKABLE top-level fns (simple params
   // only). Non-simple fns are intentionally absent → calls to them SKIP.
@@ -136,18 +128,24 @@ export function checkCalls(root: IRNode): CallCheckDiagnostic[] {
  * registry. A fn is checkable iff it uses only child `param` nodes, none of
  * which carry a `rest`, `default`, or `optional` marker, and it has no `params=`
  * string prop. Non-simple fns are omitted so their call sites SKIP.
+ *
+ * TOP-LEVEL means a DIRECT child of the document root — deliberately NOT a full
+ * tree walk. A nested `fn` (a class method, a fn local to a handler body) is
+ * not callable as a top-level bare ident, and registering one lets a method
+ * shadow a later legitimate top-level fn of the same name (first-wins +
+ * pre-order), producing a FALSE diagnostic on legal code (agon review, kimi).
  */
 function collectCheckableFns(root: IRNode): ReadonlyMap<string, CheckableFn> {
   const fns = new Map<string, CheckableFn>();
-  walkTree(root, (node) => {
-    if (node.type !== 'fn') return;
+  for (const node of root.children ?? []) {
+    if (node.type !== 'fn') continue;
     const name = stringProp(node, 'name');
-    if (!name) return;
-    if (fns.has(name)) return; // first-wins
+    if (!name) continue;
+    if (fns.has(name)) continue; // first-wins
     const checkable = checkableFn(node);
-    if (!checkable) return; // non-simple params → not registered.
+    if (!checkable) continue; // non-simple params → not registered.
     fns.set(name, checkable);
-  });
+  }
   return fns;
 }
 
@@ -162,8 +160,15 @@ function checkableFn(node: IRNode): CheckableFn | undefined {
 
   const children = node.children ?? [];
   const paramTypes: Array<string | undefined> = [];
+  let seenNonParam = false;
   for (const child of children) {
-    if (child.type !== 'param') continue;
+    if (child.type !== 'param') {
+      seenNonParam = true;
+      continue;
+    }
+    // A param after a non-param child is a shape this slice doesn't understand
+    // (silently dropping it would misalign arity) → the whole fn is non-simple.
+    if (seenNonParam) return undefined;
     // Any non-simple marker disqualifies the entire fn.
     if (isTrueFlag(child.props?.rest) || child.props?.default !== undefined || isTrueFlag(child.props?.optional)) {
       return undefined;
@@ -240,7 +245,7 @@ function checkCallAgainstFn(
   }
 
   for (let index = 0; index < call.args.length; index += 1) {
-    const argType = newClassArgType(call.args[index]);
+    const argType = newClassName(call.args[index]);
     if (argType === undefined) continue; // arg type unknown → SKIP this position.
     const paramType = fn.paramTypes[index];
     if (paramType === undefined) continue; // param unannotated → SKIP this position.
@@ -256,22 +261,6 @@ function checkCallAgainstFn(
       });
     }
   }
-}
-
-/**
- * Extract the nominal class name of an argument expression IFF it is literally
- * `new ClassName(...)`, else `undefined`. `new ClassName()` parses to
- * `{ kind: 'new', argument: { kind: 'call', callee: { kind: 'ident', name } } }`.
- * No other argument shape yields a known type (nero C1/C4 — no use-def).
- */
-function newClassArgType(arg: ValueIR): string | undefined {
-  if (arg.kind !== 'new') return undefined;
-  const inner = arg.argument;
-  if (inner.kind === 'call' && inner.callee.kind === 'ident') return inner.callee.name;
-  // `new Foo` (no call) parses with an ident argument; treat the bare ident as
-  // the class name too.
-  if (inner.kind === 'ident') return inner.name;
-  return undefined;
 }
 
 /**
@@ -318,34 +307,4 @@ function valueChildren(value: ValueIR): ValueIR[] {
 /** True when a flag prop is the boolean `true` or the string `'true'`. */
 function isTrueFlag(value: unknown): boolean {
   return value === true || value === 'true';
-}
-
-/** Read a non-empty string prop, mirroring core's `stringProp`. */
-function stringProp(node: IRNode, prop: string): string | undefined {
-  const value = node.props?.[prop];
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
-}
-
-/** Coerce an expression-bearing prop to its source text, mirroring core's
- *  `expressionPropText` (bare string, `{ __expr, code }` object, or scalar). */
-function expressionPropText(value: unknown): string | undefined {
-  if (typeof value === 'string') return value;
-  if (isExpressionObject(value)) return value.code;
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  return undefined;
-}
-
-function isExpressionObject(value: unknown): value is { code: string } {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    (value as { readonly __expr?: unknown }).__expr === true &&
-    typeof (value as { readonly code?: unknown }).code === 'string'
-  );
-}
-
-/** Pre-order walk of the IR tree, mirroring core's `walkSemanticTree`. */
-function walkTree(node: IRNode, visit: (node: IRNode) => void): void {
-  visit(node);
-  for (const child of node.children ?? []) walkTree(child, visit);
 }
