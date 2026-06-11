@@ -437,6 +437,36 @@ function splitRawHandlerStatements(code: string): string[] | null {
   return statements;
 }
 
+function hasTopLevelComma(expr: string): boolean {
+  let quote: '"' | "'" | '`' | null = null;
+  let escaped = false;
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+  for (let index = 0; index < expr.length; index += 1) {
+    const char = expr[index];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === '`') {
+      quote = char;
+      continue;
+    }
+    if (char === '(') parenDepth += 1;
+    else if (char === ')') parenDepth -= 1;
+    else if (char === '[') bracketDepth += 1;
+    else if (char === ']') bracketDepth -= 1;
+    else if (char === '{') braceDepth += 1;
+    else if (char === '}') braceDepth -= 1;
+    if (parenDepth < 0 || bracketDepth < 0 || braceDepth < 0) return true;
+    if (char === ',' && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0) return true;
+  }
+  return quote !== null || parenDepth !== 0 || bracketDepth !== 0 || braceDepth !== 0;
+}
+
 function lowerRawHandlerBodyForPython(code: string, indent: string, imports: Set<string>): string[] | null {
   const statements = splitRawHandlerStatements(code);
   if (!statements || statements.length === 0) return null;
@@ -448,7 +478,7 @@ function lowerRawHandlerBodyForPython(code: string, indent: string, imports: Set
 
     const declaration = statement.match(/^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*([\s\S]+)$/);
     if (declaration) {
-      if (!isLowerableJsValueExpression(declaration[2])) return null;
+      if (isLast || hasTopLevelComma(declaration[2]) || !isLowerableJsValueExpression(declaration[2])) return null;
       lines.push(`${indent}${declaration[1]} = ${lowerJsValueExpressionForPython(declaration[2])}`);
       continue;
     }

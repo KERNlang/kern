@@ -1375,6 +1375,39 @@ describe('FastAPI Transpiler', () => {
       expect(content).not.toContain('Unsupported raw JavaScript handler syntax');
     });
 
+    test('raw handler multi-declarations fall back instead of emitting invalid Python', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /items',
+        '    handler <<<',
+        '      const a = 1, b = 2;',
+        '      res.json(a);',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path === 'routes/get_items.py');
+      expect(route!.content).toContain('Unsupported raw JavaScript handler syntax');
+      expect(route!.content).not.toContain('a = 1, b = 2');
+    });
+
+    test('raw handler declaration-only body does not lower to an implicit None response', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /items',
+        '    handler <<<',
+        '      const users = await db.query("SELECT * FROM users");',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path === 'routes/get_items.py');
+      expect(route!.content).toContain('Unsupported raw JavaScript handler syntax');
+      expect(route!.content).not.toContain('users = await db.query(');
+    });
+
     test('params generates typed function parameters with defaults', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
