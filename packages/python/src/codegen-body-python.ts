@@ -2732,12 +2732,17 @@ function lowerPortableArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, 
   // A pure receiver can still be an optional chain (`a?.b`), which carries a
   // None-guard the flat shim can't honor — fall through for those too.
   if (recv.guard !== null) return null;
-  const args = call.args.map((a) => emitPyExprCtx(a, ctx));
+  const args = call.args.map((a) => (callee.property === 'fill' ? emitPyArrayFillArg(a, ctx) : emitPyExprCtx(a, ctx)));
   const lowered = lowerPortableArrayMethodPy(recv.expr, callee.property, args);
   if (lowered !== null && callee.property === 'fill') {
     ctx.helpers.add(KERN_JS_ARRAY_HELPERS_PY);
   }
   return lowered;
+}
+
+function emitPyArrayFillArg(node: ValueIR, ctx: BodyEmitContext): string {
+  if (node.kind === 'undefLit') return '_KERN_UNDEFINED';
+  return emitPyExprCtx(node, ctx);
 }
 
 /** Methods this peek lowers to a call-by-name comprehension. `reduce`/

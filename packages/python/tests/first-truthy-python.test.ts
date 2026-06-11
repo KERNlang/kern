@@ -24,6 +24,12 @@ describe('Python Ground Layer: firstTruthy', () => {
     expect(code.indexOf('def _kern_js_fill')).toBeLessThan(code.indexOf('label ='));
   });
 
+  it('keeps explicit undefined Array.fill bounds as the helper sentinel', () => {
+    const node = mk('firstTruthy', { name: 'label', values: "arr.fill(v, 1, undefined), 'fallback'" });
+    const code = generateFirstTruthy(node).join('\n');
+    expect(code).toContain('label = _kern_js_fill(arr, v, 1, _KERN_UNDEFINED) or "fallback"');
+  });
+
   it('rejects missing, unary, and propagated values', () => {
     expect(() => generateFirstTruthy(mk('firstTruthy', { name: 'x' }))).toThrow(/values/);
     expect(() => generateFirstTruthy(mk('firstTruthy', { name: 'x', values: 'preferred' }))).toThrow(/at least two/);
