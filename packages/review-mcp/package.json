@@ -1,6 +1,6 @@
 {
   "name": "@kernlang/review-mcp",
-  "version": "3.5.8",
+  "version": "4.0.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/KERNlang/kern.git",
