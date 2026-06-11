@@ -12,15 +12,18 @@ export const KERN_PAIR_HELPERS_PY = [
 ].join('\n');
 
 export const KERN_FMT_HELPER_PY = [
-  'class _KernUndefined:',
+  'try:',
+  '    _KERN_UNDEFINED',
+  'except NameError:',
+  '    class _KernUndefined:',
   // JS `undefined` is falsy: `!undefined`, `undefined ? a : b`, `if (undefined)`,
   // and `undefined || x` must behave as falsy. A bare object is truthy in Python,
   // so override __bool__ — without this the sentinel diverges from JS in every
   // truthiness position. Identity (`is`) is unaffected, so the `??` checks hold.
-  '    def __bool__(self): return False',
-  "    def __repr__(self): return 'undefined'",
-  "    def __str__(self): return 'undefined'",
-  '_KERN_UNDEFINED = _KernUndefined()',
+  '        def __bool__(self): return False',
+  "        def __repr__(self): return 'undefined'",
+  "        def __str__(self): return 'undefined'",
+  '    _KERN_UNDEFINED = _KernUndefined()',
   '',
   'def _kern_fmt(__k_v):',
   '    if __k_v is _KERN_UNDEFINED:',

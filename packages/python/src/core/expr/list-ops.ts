@@ -95,8 +95,7 @@ export function isSharedPortableArrayMethod(method: string): boolean {
  * these on a provably-pure receiver; single-eval methods (slice/includes/
  * join/flat/concat/fill) accept impure receivers. (`indexOf` moved INTO this
  * set when its str-receiver branch landed — the isinstance probe names the
- * receiver again; `fill` moved OUT when its helper-bound lowering landed —
- * the receiver is named exactly once as the helper argument.)
+ * receiver again.)
  * Receiver eval counts: push x2, reverse x2, at x3, fill x1 (helper-bound),
  * indexOf x2-3 (isinstance probe + the chosen str/array branch), lastIndexOf x4.
  * NOT tracked: argument multi-eval (concat arg x3, at n x3, indexOf needle x2,

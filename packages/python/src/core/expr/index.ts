@@ -359,10 +359,9 @@ function lowerJsArrayMethods(expr: string, ctx: ExprRewriteContext): string {
         const receiver = out.slice(recvStart);
         const pre = out.slice(0, recvStart);
         const rawArgs = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));
-        const args = rawArgs.map((a) => lowerJsArrayMethods(a.trim(), ctx));
-        if (method === 'fill' && rawArgs.length >= 3 && isUndefinedFillEndArg(rawArgs[2])) {
-          args[2] = '_KERN_JS_FILL_ABSENT';
-        }
+        const args = rawArgs.map((a) =>
+          method === 'fill' ? lowerJsFillArgument(a.trim(), ctx) : lowerJsArrayMethods(a.trim(), ctx),
+        );
         let lowered: string | null = null;
         if (isSharedPortableArrayMethod(method)) {
           // Delegate the argument-shape (non-lambda) scalar methods —
@@ -510,15 +509,126 @@ function matchBalancedParen(expr: string, openIdx: number): number {
   return -1;
 }
 
-function isUndefinedFillEndArg(raw: string): boolean {
+function stripOuterParens(raw: string): string {
   let trimmed = raw.trim();
   while (trimmed.startsWith('(')) {
     const close = matchBalancedParen(trimmed, 0);
     if (close !== trimmed.length - 1) break;
     trimmed = trimmed.slice(1, -1).trim();
   }
-  if (trimmed === 'undefined') return true;
-  return /^void(?:\s|\()/.test(trimmed);
+  return trimmed;
+}
+
+function exactVoidOperand(raw: string): string | null {
+  const trimmed = stripOuterParens(raw);
+  if (!trimmed.startsWith('void')) return null;
+  const rest = trimmed.slice('void'.length);
+  if (rest === '' || (!/^\s/.test(rest) && !rest.startsWith('('))) return null;
+  const operand = rest.trim();
+  if (!operand) return null;
+  if (operand.startsWith('(')) {
+    const close = matchBalancedParen(operand, 0);
+    return close === operand.length - 1 ? operand : null;
+  }
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = 0; i < operand.length; i += 1) {
+    const c = operand[i];
+    if (quote) {
+      if (c === '\\') i += 1;
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      continue;
+    }
+    if (c === '(' || c === '[' || c === '{') {
+      depth += 1;
+      continue;
+    }
+    if (c === ')' || c === ']' || c === '}') {
+      depth -= 1;
+      if (depth < 0) return null;
+      continue;
+    }
+    if (depth === 0 && /[,+\-*/%|&^?:<>=]/.test(c) && !(i === 0 && /[+-]/.test(c))) return null;
+  }
+  return depth === 0 && !quote ? operand : null;
+}
+
+function rewriteExprInContext(raw: string, ctx: ExprRewriteContext): string {
+  return rewriteExpr(raw, ctx.pathParams, ctx.bodyFields, ctx.authUser, ctx.imports, ctx.hoistedDefs, ctx.closureSeq);
+}
+
+function lowerLogicalAndOr(expr: string): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    if (expr.startsWith('&&', i)) {
+      out += ' and ';
+      i += 2;
+      continue;
+    }
+    if (expr.startsWith('||', i)) {
+      out += ' or ';
+      i += 2;
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
+function lowerJsVoidExpression(raw: string, ctx: ExprRewriteContext): string {
+  const voidOperand = exactVoidOperand(raw);
+  if (voidOperand === null) {
+    throw new Error(
+      'Array.fill void argument lowering expects an exact unary void expression; bind complex void expressions first.',
+    );
+  }
+  return `(${lowerJsVoidOperand(voidOperand, ctx)}, _KERN_UNDEFINED)[1]`;
+}
+
+function lowerJsVoidOperand(raw: string, ctx: ExprRewriteContext): string {
+  const nestedVoidOperand = exactVoidOperand(raw);
+  if (nestedVoidOperand !== null) {
+    return lowerJsVoidExpression(raw, ctx);
+  }
+  return lowerLogicalAndOr(rewriteExprInContext(raw, ctx));
+}
+
+function lowerJsFillArgument(raw: string, ctx: ExprRewriteContext): string {
+  const trimmed = stripOuterParens(raw);
+  if (trimmed === 'undefined') return '_KERN_UNDEFINED';
+  const voidOperand = exactVoidOperand(trimmed);
+  if (voidOperand !== null) {
+    return `(${lowerJsVoidOperand(voidOperand, ctx)}, _KERN_UNDEFINED)[1]`;
+  }
+  if (trimmed.startsWith('void')) {
+    return lowerJsVoidExpression(trimmed, ctx);
+  }
+  return rewriteExprInContext(trimmed, ctx);
 }
 
 // Split a call's inner argument text on top-level commas, ignoring commas
@@ -2017,8 +2127,12 @@ export function rewriteExpr(
     const tokens = tokenizeJSExpr(expr);
     const comparisonProbe = expr.replace(/>>>|>>|<</g, '');
     const hasLooseComparison = /(?:===|!==|==|!=|<=|>=|<|>)/.test(comparisonProbe);
+    const hasVoidOperator = /\bvoid\b/.test(expr);
     const hasBitwiseOrModulo =
-      !expr.includes('=>') && !hasLooseComparison && tokens.some((t) => t.type === 'UNARY' || t.type === 'OP');
+      !hasVoidOperator &&
+      !expr.includes('=>') &&
+      !hasLooseComparison &&
+      tokens.some((t) => t.type === 'UNARY' || t.type === 'OP');
     if (hasBitwiseOrModulo) {
       const ast = parseTokens(tokens);
       expr = codegenASTToPython(ast, imports);

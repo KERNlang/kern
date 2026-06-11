@@ -161,6 +161,12 @@ export interface BodyEmitResult {
   helpers: Set<string>;
 }
 
+export interface PyExpressionEmitResult {
+  code: string;
+  imports: Set<string>;
+  helpers: Set<string>;
+}
+
 interface BodyEmitContext {
   gensymCounter: number;
   imports: Set<string>;
@@ -1872,9 +1878,14 @@ const NON_EXCEPTION_LITERAL_KINDS: ReadonlySet<string> = new Set([
  *  `emitPyExprCtx` which threads the live ctx (and therefore the live
  *  imports set) end-to-end. */
 export function emitPyExpression(node: ValueIR, options?: BodyEmitOptions): string {
+  return emitPyExpressionWithImports(node, options).code;
+}
+
+export function emitPyExpressionWithImports(node: ValueIR, options?: BodyEmitOptions): PyExpressionEmitResult {
   const ctx = freshCtx(options);
   ctx.standaloneExpression = true;
-  return emitPyExprCtx(node, ctx);
+  const code = emitPyExprCtx(node, ctx);
+  return { code, imports: ctx.imports, helpers: ctx.helpers };
 }
 
 function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
@@ -2721,12 +2732,17 @@ function lowerPortableArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, 
   // A pure receiver can still be an optional chain (`a?.b`), which carries a
   // None-guard the flat shim can't honor — fall through for those too.
   if (recv.guard !== null) return null;
-  const args = call.args.map((a) => emitPyExprCtx(a, ctx));
+  const args = call.args.map((a) => (callee.property === 'fill' ? emitPyArrayFillArg(a, ctx) : emitPyExprCtx(a, ctx)));
   const lowered = lowerPortableArrayMethodPy(recv.expr, callee.property, args);
   if (lowered !== null && callee.property === 'fill') {
     ctx.helpers.add(KERN_JS_ARRAY_HELPERS_PY);
   }
   return lowered;
+}
+
+function emitPyArrayFillArg(node: ValueIR, ctx: BodyEmitContext): string {
+  if (node.kind === 'undefLit') return '_KERN_UNDEFINED';
+  return emitPyExprCtx(node, ctx);
 }
 
 /** Methods this peek lowers to a call-by-name comprehension. `reduce`/
