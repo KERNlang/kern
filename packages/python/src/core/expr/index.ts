@@ -625,7 +625,12 @@ function lowerJsFillArgument(raw: string, ctx: ExprRewriteContext): string {
   if (voidOperand !== null) {
     return `(${lowerJsVoidOperand(voidOperand, ctx)}, _KERN_UNDEFINED)[1]`;
   }
-  if (trimmed.startsWith('void')) {
+  // Fail-closed ONLY on a true `void` OPERATOR with a complex operand
+  // (exactVoidOperand already rejected it above). A bare identifier that
+  // merely STARTS with "void" (voidValue, voidFn()) is ordinary code and
+  // must lower normally — `void` is followed by whitespace or `(` when it
+  // is the operator.
+  if (/^void(?:\s|\()/.test(trimmed)) {
     return lowerJsVoidExpression(trimmed, ctx);
   }
   return rewriteExprInContext(trimmed, ctx);
