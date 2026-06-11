@@ -61,7 +61,13 @@ function isTriggered(code: string, present: Set<string>): boolean {
  *  Mirrors the grep the snapshot script's docs describe — strips comments first
  *  so doc-example slugs never count, then matches returned / assigned / union /
  *  template-family reason literals. Returns the de-duplicated set, with the two
- *  dynamic families represented by their prefix slug. */
+ *  dynamic families represented by their prefix slug.
+ *
+ *  Phase 2 (taxonomy AUTHORITY inversion): ineligible reasons are now emitted as
+ *  `return reject('<reason>')` / `reason = reject('<reason>')`, so the prefix
+ *  alternation also matches a `reject(` opener. The structurally-unreachable
+ *  defensive codes (`throw-no-expr` / `try-no-catch` / `var-no-init`) stay as
+ *  bare `return '<reason>'` and are matched by the `return` alternative. */
 function extractReasonCodesFromSource(): Set<string> {
   const files = ['native-eligibility-ast.ts', 'closure-eligibility.ts', 'instanceof-rhs.ts'];
   const found = new Set<string>();
@@ -72,7 +78,7 @@ function extractReasonCodesFromSource(): Set<string> {
       .split('\n')
       .map((line) => line.replace(/\/\/.*$/, ''))
       .join('\n');
-    for (const m of code.matchAll(/(?:return|reason\s*=|:)\s*'([a-z][a-z0-9]*(?:-[a-z0-9]+)+)'/g)) {
+    for (const m of code.matchAll(/(?:return|reason\s*=|:|reject\()\s*'([a-z][a-z0-9]*(?:-[a-z0-9]+)+)'/g)) {
       found.add(m[1]);
     }
     for (const m of code.matchAll(/`((?:closure-)?unsupported-stmt)-\$\{/g)) {
