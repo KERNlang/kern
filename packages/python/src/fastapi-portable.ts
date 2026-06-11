@@ -1450,6 +1450,7 @@ export function generatePortableHandlerFastAPI(
   // Walk all route children in document order
   const PORTABLE_TYPES = new Set([
     'derive',
+    'let',
     'guard',
     'filter',
     'handler',

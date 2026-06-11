@@ -2708,10 +2708,31 @@ function lowerPortableArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, 
   return lowerPortableArrayMethodPy(recv.expr, callee.property, args);
 }
 
-/** Methods this peek lowers to a call-by-name comprehension. `find`/`findIndex`/
- *  `findLast`/`findLastIndex`/`flatMap`/`reduce`/`reduceRight`/sort-with-comparator
- *  are the same shape but DEFERRED (see slice report). */
-const LAMBDA_ARRAY_METHODS: ReadonlySet<string> = new Set(['map', 'filter', 'some', 'every']);
+/** Methods this peek lowers to a call-by-name comprehension. `reduce`/
+ *  `reduceRight` share the call-by-name callback resolution but lower to
+ *  `functools.reduce` (a different arg-count/arity contract), so they live in
+ *  `REDUCE_ARRAY_METHODS` and route through `lowerReduceArrayCallPython`.
+ *  `sort`-with-comparator remains DEFERRED (see slice report). */
+const LAMBDA_ARRAY_METHODS: ReadonlySet<string> = new Set([
+  'map',
+  'filter',
+  'some',
+  'every',
+  // find-family + flatMap: same call-by-name comprehension architecture as
+  // map/filter (callback 1 or 2 params; the 2-param form binds the index via
+  // enumerate). The find-family wraps the predicate in `js_truthy`.
+  'find',
+  'findIndex',
+  'findLast',
+  'findLastIndex',
+  'flatMap',
+]);
+
+/** reduce/reduceRight take a callback of EXACTLY 2 params (acc, cur) and the
+ *  CALL itself carries 1 arg (cb) or 2 (cb, seed) — a different arg-count and
+ *  callback-arity contract than the enumerate-comprehension methods above, so
+ *  they are dispatched on their own path inside `lowerLambdaArrayCallPython`. */
+const REDUCE_ARRAY_METHODS: ReadonlySet<string> = new Set(['reduce', 'reduceRight']);
 
 /**
  * Lower a lambda-bearing Array method call (`recv.map(cb)` / `.filter` / `.some`
@@ -2767,11 +2788,19 @@ function lowerLambdaArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, ct
   if (ctx.standaloneExpression) return null;
   const callee = call.callee;
   if (callee.kind !== 'member' || callee.optional) return null;
-  if (!LAMBDA_ARRAY_METHODS.has(callee.property)) return null;
+  const method = callee.property;
+  const isReduce = REDUCE_ARRAY_METHODS.has(method);
+  if (!LAMBDA_ARRAY_METHODS.has(method) && !isReduce) return null;
+
+  // reduce/reduceRight have a DISTINCT contract (callback EXACTLY 2 params; the
+  // call carries 1 arg [cb] or 2 [cb, seed]) and lower to `functools.reduce`,
+  // not a comprehension. Handle them on their own path before the shared
+  // enumerate-comprehension machinery below. `callee.object` is the receiver.
+  if (isReduce) return lowerReduceArrayCallPython(call, callee.object, method, ctx);
+
   if (call.args.length !== 1) return null;
   const arg = call.args[0];
   if (arg.kind !== 'lambda' && arg.kind !== 'ident') return null;
-  const method = callee.property;
 
   // Resolve the callback to a NAME. For a lambda the arg arity decides the
   // comprehension form (enumerate when 2 params); a bare ident is arity-unknown
@@ -2818,7 +2847,16 @@ function lowerLambdaArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, ct
   // An optional-chain receiver (`a?.b`) carries a None-guard the comprehension
   // can't honor — fall through unchanged for those.
   if (recv.guard !== null) return null;
-  const recvExpr = recv.expr;
+  // A compound receiver (a ternary `xs if c else ys`, a binary expression)
+  // dropped bare into a generator head parses WRONG: Python reads the `if`
+  // as the comprehension filter (`for el in xs if c else ys` → SyntaxError) —
+  // agon review, agy 1.0. Call-arg positions (`enumerate(recv)`) are immune;
+  // the bare `for … in recv` heads and `recv[::-1]` are not. Space-heuristic
+  // parens: atoms (`self.items`, `makeBox().items`, `[1, 2]`?) — note a
+  // bracketed literal contains ', ' but leading `[`/`(` already self-delimits;
+  // anything else with top-level spaces gets wrapped. Parens are never wrong,
+  // the heuristic only preserves byte-identical output for the common shapes.
+  const recvExpr = parenthesizeIterable(recv.expr);
 
   // Hygienic loop vars, fresh per call.
   const seq = ctx.gensymCounter++;
@@ -2830,8 +2868,22 @@ function lowerLambdaArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, ct
   if (method === 'map') {
     return `[${callCb} ${head}]`;
   }
-  // filter/some/every predicates wrap in `js_truthy` (JS-correct; map does not
-  // need it). The helper lands once via the helper Set.
+  if (method === 'flatMap') {
+    // map, then flatten ONE level — JS flatMap only flattens arrays, so a
+    // scalar/string callback result is appended as a single element. The
+    // callback is bound to a fresh `__kern_r_N` via a one-element `for`, so it
+    // is called EXACTLY ONCE per element. This is deliberately BETTER than the
+    // FastAPI route's body-substitution lowering (core/expr/index.ts ~:336),
+    // which textually re-emits the callback body twice (`__x` substituted in
+    // both the isinstance test and the fallback) and double-evaluates a
+    // side-effecting callback — a tracked route follow-up. flatMap has no
+    // predicate, so NO js_truthy here.
+    const r = `__kern_r_${seq}`;
+    const y = `__kern_y_${seq}`;
+    return `[${y} ${head} for ${r} in [${callCb}] for ${y} in (${r} if isinstance(${r}, list) else [${r}])]`;
+  }
+  // filter + find-family predicates wrap in `js_truthy` (JS-correct; map/flatMap
+  // do not need it). The helper lands once via the helper Set.
   ctx.helpers.add(KERN_JS_HELPER_PY);
   if (method === 'filter') {
     return `[${el} ${head} if js_truthy(${callCb})]`;
@@ -2839,8 +2891,153 @@ function lowerLambdaArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, ct
   if (method === 'some') {
     return `any(js_truthy(${callCb}) ${head})`;
   }
-  // method === 'every'
-  return `all(js_truthy(${callCb}) ${head})`;
+  if (method === 'every') {
+    return `all(js_truthy(${callCb}) ${head})`;
+  }
+  // find-family — `next((<gen>), <miss>)` never raises. find/findLast yield the
+  // ELEMENT (miss → None); findIndex/findLastIndex yield the INDEX (miss → -1).
+  // The *Last variants scan a reversed view; with a 2-param callback the index
+  // must come from enumerate, so they reverse `list(enumerate(recv))` (mirrors
+  // the route's findLast/findLastIndex shape).
+  if (method === 'find') {
+    return `next((${el} ${head} if js_truthy(${callCb})), None)`;
+  }
+  if (method === 'findIndex') {
+    // The index is always bound here, so iterate enumerate(recv) even for a
+    // 1-param callback (which is called single-arg on the element).
+    const enumHead = `for ${ix}, ${el} in enumerate(${recvExpr})`;
+    return `next((${ix} ${enumHead} if js_truthy(${callCb})), -1)`;
+  }
+  if (method === 'findLast') {
+    const revHead = twoArity
+      ? `for ${ix}, ${el} in reversed(list(enumerate(${recvExpr})))`
+      : `for ${el} in reversed(${recvExpr})`;
+    return `next((${el} ${revHead} if js_truthy(${callCb})), None)`;
+  }
+  // method === 'findLastIndex'
+  const revIndexHead = `for ${ix}, ${el} in reversed(list(enumerate(${recvExpr})))`;
+  return `next((${ix} ${revIndexHead} if js_truthy(${callCb})), -1)`;
+}
+
+/** Lower `recv.reduce(cb)` / `.reduce(cb, seed)` / `.reduceRight(...)` on the
+ *  class/native-body Python path to `functools.reduce`. Returns `null` (caller
+ *  falls through to verbatim emission) for any shape this peek does not own.
+ *
+ *  CONTRACT (all required): a non-optional `member` callee already checked by
+ *  the caller; the call carries 1 arg (cb) or 2 (cb, seed); the callback is a
+ *  `lambda` with EXACTLY 2 params (acc, cur) OR a bare `ident` (arity unknown —
+ *  accepted, called with two args by functools.reduce). A 1- or 3+-param lambda
+ *  callback (e.g. an idx-reading `(a, c, i) =>`) FALLS THROUGH verbatim (status
+ *  quo) rather than emit a callback functools.reduce would call with the wrong
+ *  arity.
+ *
+ *  JS `reduce((acc, cur) => …)` arg order == `functools.reduce(fn(acc, cur), …)`,
+ *  so NO adaptation is needed (asserted by the order-sensitive FR7 fixture).
+ *  reduceRight is the same callback over the reversed sequence (`recv[::-1]`).
+ *
+ *  PARITY NOTE: JS `[].reduce(cb)` (no seed, empty array) throws TypeError;
+ *  Python `functools.reduce(cb, [])` raises TypeError too — same failure mode,
+ *  documented parity (not a divergence).
+ *
+ *  IMPORT: `functools` is registered via `ctx.imports.add('functools')`, which
+ *  the fn/method generators render as `import functools as __k_functools` (the
+ *  same alias convention as `re` → `__k_re`); the template names
+ *  `__k_functools.reduce`. The Set dedupes, so the import lands exactly once per
+ *  body. (The FastAPI route path uses a SEPARATE imports channel that emits a
+ *  bare `import functools`; this class path is untouched by that.) */
+function lowerReduceArrayCallPython(
+  call: Extract<ValueIR, { kind: 'call' }>,
+  recvNode: ValueIR,
+  method: string,
+  ctx: BodyEmitContext,
+): string | null {
+  if (call.args.length !== 1 && call.args.length !== 2) return null;
+  const cbArg = call.args[0];
+  if (cbArg.kind !== 'lambda' && cbArg.kind !== 'ident') return null;
+  // Member-expression callbacks fall through verbatim (same unbound-this policy
+  // as the comprehension methods) — the gate above already rejects them.
+
+  let cb: string;
+  if (cbArg.kind === 'lambda') {
+    // EXACTLY 2 params (acc, cur). A 1-param or 3+-param (idx-reading) callback
+    // would be mis-called by functools.reduce — fall through verbatim.
+    if (cbArg.params.length !== 2) return null;
+    const emitted = emitLambdaPy(cbArg, ctx);
+    if (cbArg.bodyBlock) {
+      // Block lambda → hoisted def name from emitLambdaPy; use it directly.
+      cb = emitted;
+    } else {
+      // Expression lambda → hoist `__kern_cb_N = lambda a, c: <expr>` and pass
+      // the name, so functools.reduce names the callback exactly once.
+      cb = `__kern_cb_${ctx.closureSeq++}`;
+      ctx.pendingHoists.push([`${cb} = ${emitted}`]);
+    }
+  } else {
+    // Bare LOCAL ident callback — resolve through the ident path.
+    cb = emitPyExprCtx(cbArg, ctx);
+  }
+
+  // Receiver: lowered ONCE (same single-eval property as the comprehension
+  // methods — no purity gate). `recvNode` is the caller's already-narrowed
+  // `callee.object`.
+  const recv: GuardedExpr =
+    recvNode.kind === 'member' || recvNode.kind === 'call' || recvNode.kind === 'index'
+      ? lowerChain(recvNode, ctx)
+      : { guard: null, expr: emitPyExprCtx(recvNode, ctx) };
+  if (recv.guard !== null) return null;
+  // reduceRight reverses the sequence; reduce uses it as-is. The slice binds
+  // TIGHTER than ternary/binary receivers (`xs if c else ys[::-1]` slices only
+  // `ys` — agon review, agy 1.0), so the receiver is parenthesized when
+  // compound. The plain-reduce position is a call argument (self-delimiting),
+  // but wrap uniformly so both methods agree on the receiver text.
+  const recvExpr = parenthesizeIterable(recv.expr);
+  const seq = method === 'reduceRight' ? `${recvExpr}[::-1]` : recvExpr;
+
+  ctx.imports.add('functools');
+  if (call.args.length === 2) {
+    const seed = emitPyExprCtx(call.args[1], ctx);
+    return `__k_functools.reduce(${cb}, ${seq}, ${seed})`;
+  }
+  return `__k_functools.reduce(${cb}, ${seq})`;
+}
+
+/** Parenthesize a lowered receiver for generator-head (`for el in <recv>`) and
+ *  slice (`<recv>[::-1]`) positions, where a compound expression parses wrong
+ *  (a bare ternary's `if` reads as the comprehension filter — SyntaxError; a
+ *  slice binds only the rightmost operand). Space heuristic: an expression
+ *  with no top-level spaces is an atom/chain (`self.items`, `makeBox().items`,
+ *  `xs[1:]`) and stays bare (byte-identical to pre-fix output); one that
+ *  starts with a self-delimiting bracket also stays bare; anything else wraps.
+ *  Parens are never semantically wrong — the heuristic only preserves
+ *  idiomatic output for the common shapes. */
+function parenthesizeIterable(expr: string): string {
+  if (!expr.includes(' ')) return expr;
+  // A leading bracket is only self-delimiting if it CLOSES at the very end
+  // (`[1, 2, 3]` yes; `[1] if c else [2]` no — same opener, not enclosing).
+  const open = expr[0];
+  const close = open === '[' ? ']' : open === '(' ? ')' : open === '{' ? '}' : null;
+  if (close !== null && expr[expr.length - 1] === close) {
+    let depth = 0;
+    let quote: string | null = null;
+    for (let i = 0; i < expr.length; i++) {
+      const ch = expr[i];
+      if (quote) {
+        if (ch === '\\') i++;
+        else if (ch === quote) quote = null;
+        continue;
+      }
+      if (ch === '"' || ch === "'") quote = ch;
+      else if (ch === '[' || ch === '(' || ch === '{') depth++;
+      else if (ch === ']' || ch === ')' || ch === '}') {
+        depth--;
+        // Depth returns to 0 before the end → the leading bracket does NOT
+        // enclose the whole expression.
+        if (depth === 0 && i < expr.length - 1) return `(${expr})`;
+      }
+    }
+    if (depth === 0) return expr;
+  }
+  return `(${expr})`;
 }
 
 function lowerRegexCallPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: BodyEmitContext): string | null {

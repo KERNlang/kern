@@ -843,6 +843,7 @@ export function generatePortableHandlerExpress(
   // Walk all route children in document order — portable nodes are emitted inline
   const PORTABLE_TYPES = new Set([
     'derive',
+    'let',
     'guard',
     'filter',
     'handler',
