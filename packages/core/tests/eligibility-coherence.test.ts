@@ -72,8 +72,10 @@ function extractRejectLiterals(): string[] {
     .map((line) => line.replace(/\/\/.*$/, ''))
     .join('\n');
   const literals: string[] = [];
-  for (const m of code.matchAll(/\breject\(\s*'([^']+)'\s*\)/g)) {
-    literals.push(m[1]);
+  // Both quote styles: biome enforces single quotes, but a double-quoted
+  // literal must not silently escape the gate (agon review, kimi 0.85).
+  for (const m of code.matchAll(/\breject\(\s*(?:'([^']+)'|"([^"]+)")\s*\)/g)) {
+    literals.push(m[1] ?? m[2]);
   }
   return literals;
 }

@@ -53,11 +53,26 @@ export interface EligibilityTaxonomy {
   rows: EligibilityTaxonomyRow[];
 }
 
-/** Return the committed taxonomy. The data is compiled in from the generated
- *  module (no runtime filesystem read), so the production path carries it as
- *  code. */
+/** The taxonomy singleton, deep-frozen once at module init: this is the
+ *  production AUTHORITY for emitted reasons, so no in-process caller may
+ *  mutate it (agon review, codex 0.91). 92 rows — freeze cost is negligible. */
+const FROZEN_TAXONOMY: EligibilityTaxonomy = deepFreeze(ELIGIBILITY_TAXONOMY as EligibilityTaxonomy);
+
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const key of Object.keys(value)) {
+      deepFreeze((value as Record<string, unknown>)[key]);
+    }
+  }
+  return value;
+}
+
+/** Return the committed taxonomy (deep-frozen singleton). The data is compiled
+ *  in from the generated module (no runtime filesystem read), so the
+ *  production path carries it as code. */
 export function loadEligibilityTaxonomy(): EligibilityTaxonomy {
-  return ELIGIBILITY_TAXONOMY as EligibilityTaxonomy;
+  return FROZEN_TAXONOMY;
 }
 
 /** The reason-keyed (deterministic) rows — verdict is `eligible` or

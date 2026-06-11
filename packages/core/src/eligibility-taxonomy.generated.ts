@@ -11,9 +11,9 @@
 import type { EligibilityTaxonomy } from './eligibility-taxonomy.js';
 
 export const ELIGIBILITY_TAXONOMY = {
-  $schema: 'declarative eligibility taxonomy — shadow mode, phase 1 step 2',
+  $schema: 'declarative eligibility taxonomy — production authority (phase 2)',
   description:
-    'CURRENT behavior of the native-eligibility classifier, transcribed from native-eligibility-ast.ts / closure-eligibility.ts / instanceof-rhs.ts. Reason-keyed rows (verdict eligible|ineligible) are shadow-verified against the golden snapshot; contextual rows (verdict contextual, when:[imperative]) describe surface constructs whose verdict depends on shape predicates a flat row cannot evaluate — the phase-2 (consumption-inversion) backlog. No production path imports this file.',
+    'CURRENT behavior of the native-eligibility classifier, transcribed from native-eligibility-ast.ts / closure-eligibility.ts / instanceof-rhs.ts. Reason-keyed rows (verdict eligible|ineligible) are snapshot-verified against the golden corpus AND consumed in production as the authority for emitted reasons (native-eligibility-ast.ts reject(), via the generated eligibility-taxonomy.generated.ts — no fs at runtime); contextual rows (verdict contextual, when:[imperative]) describe surface constructs whose verdict depends on shape predicates a flat row cannot evaluate — the phase-2.5 (deterministic-row extraction) backlog.',
   rows: [
     {
       construct: 'bare-block',

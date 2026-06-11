@@ -38,16 +38,19 @@ const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 const JSON_PATH = join(REPO, 'packages/core/src/eligibility-taxonomy.json');
 const MODULE_PATH = join(REPO, 'packages/core/src/eligibility-taxonomy.generated.ts');
 
-/** Single-quote a string the way biome's JS formatter does: prefer single
- *  quotes, fall back to double quotes only when the string contains a single
- *  quote but no double quote, and escape backslashes + the chosen quote. */
+/** Quote a string as a valid TS literal via JSON.stringify (which escapes
+ *  control characters, line separators, and backslashes correctly — a hand
+ *  -rolled escaper missed those; agon review, codex 0.98), then convert to
+ *  biome's preferred single quotes when that needs no extra escaping. */
 function quote(value) {
-  const hasSingle = value.includes("'");
-  const hasDouble = value.includes('"');
-  const useDouble = hasSingle && !hasDouble;
-  const q = useDouble ? '"' : "'";
-  const escaped = value.replace(/\\/g, '\\\\').replace(new RegExp(q, 'g'), `\\${q}`);
-  return `${q}${escaped}${q}`;
+  const json = JSON.stringify(value); // double-quoted, fully escaped
+  const inner = json.slice(1, -1);
+  // Safe to single-quote only when no single quote and no escape sequences
+  // would change meaning: \" unescapes to ", ' must gain escaping.
+  if (!value.includes("'")) {
+    return `'${inner.replace(/\\"/g, '"')}'`;
+  }
+  return json;
 }
 
 /** Emit one taxonomy row as an object literal. Field order is fixed (construct,

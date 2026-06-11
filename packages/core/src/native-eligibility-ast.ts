@@ -70,8 +70,11 @@ function taxonomyIndex(): TaxonomyIndex {
  *  any reason string with no deterministic taxonomy row — exact or family — so
  *  the coherence-gate tests can assert the live classifier never emits an
  *  un-taxonomied reason. Production never reads this; tests do, via the getter
- *  and the reset below. */
-const coherenceViolationsInternal: string[] = [];
+ *  and the reset below. A Set, not an array: violations are reason CODES, so
+ *  duplicates add nothing and growth is bounded by the (finite) code space
+ *  even if an un-taxonomied reason ships and fires on a hot path (agon
+ *  review, codex 0.96). */
+const coherenceViolationsInternal = new Set<string>();
 
 /** A snapshot of the recorded coherence violations (reasons emitted with no
  *  taxonomy row). Empty in a coherent build. */
@@ -81,7 +84,7 @@ export function coherenceViolations(): readonly string[] {
 
 /** Test-only: clear the recorded coherence violations between runs. */
 export function resetCoherenceViolations(): void {
-  coherenceViolationsInternal.length = 0;
+  coherenceViolationsInternal.clear();
 }
 
 /** Fail-safe taxonomy AUTHORITY gate for an emitted ineligible reason.
@@ -98,7 +101,7 @@ function reject(reason: string): string {
   for (const prefix of index.reasonFamilyPrefixes) {
     if (reason.startsWith(prefix)) return reason;
   }
-  coherenceViolationsInternal.push(reason);
+  coherenceViolationsInternal.add(reason);
   return reason;
 }
 
