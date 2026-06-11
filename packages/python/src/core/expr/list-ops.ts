@@ -93,24 +93,18 @@ export function isSharedPortableArrayMethod(method: string): boolean {
  * so a side-effectful receiver — `makeBox().items.reverse()` — would run its
  * effects twice on Python and break JS parity. The class-body emitter gates
  * these on a provably-pure receiver; single-eval methods (slice/includes/
- * join/flat/concat) accept impure receivers. (`indexOf` moved INTO this set
- * when its str-receiver branch landed — the isinstance probe names the
- * receiver again.)
- * Receiver eval counts: push x2, reverse x2, at x3, fill x1-4 (3-arg form),
+ * join/flat/concat/fill) accept impure receivers. (`indexOf` moved INTO this
+ * set when its str-receiver branch landed — the isinstance probe names the
+ * receiver again; `fill` moved OUT when its helper-bound lowering landed —
+ * the receiver is named exactly once as the helper argument.)
+ * Receiver eval counts: push x2, reverse x2, at x3, fill x1 (helper-bound),
  * indexOf x2-3 (isinstance probe + the chosen str/array branch), lastIndexOf x4.
  * NOT tracked: argument multi-eval (concat arg x3, at n x3, indexOf needle x2,
- * lastIndexOf needle x3, fill bounds multi) — the route path has no purity
- * analysis at all and lowers impure args blindly; the class path matches that
- * behavior for args (documented divergence, candidate follow-up).
+ * lastIndexOf needle x3) — the route path has no purity analysis at all and
+ * lowers impure args blindly; the class path matches that behavior for args
+ * (documented divergence, candidate follow-up).
  */
-const PURE_RECEIVER_REQUIRED: ReadonlySet<string> = new Set([
-  'push',
-  'reverse',
-  'at',
-  'fill',
-  'indexOf',
-  'lastIndexOf',
-]);
+const PURE_RECEIVER_REQUIRED: ReadonlySet<string> = new Set(['push', 'reverse', 'at', 'indexOf', 'lastIndexOf']);
 
 export function sharedPortableMethodRequiresPureReceiver(method: string): boolean {
   return PURE_RECEIVER_REQUIRED.has(method);
@@ -200,14 +194,9 @@ export function lowerPortableArrayMethodPy(receiver: string, method: string, arg
   }
   if (method === 'fill') {
     const v = args[0] ?? 'None';
-    if (args.length <= 1) {
-      return `[${v} for __ in ${receiver}]`;
-    }
-    // fill(value, start, end) fills [start, end) with JS negative-index
-    // normalization; untouched positions keep their original element.
-    const s = args[1];
-    const e = args[2] ?? `len(${receiver})`;
-    return `[(${v} if (${s} if ${s} >= 0 else ${s} + len(${receiver})) <= __i < (${e} if ${e} >= 0 else ${e} + len(${receiver})) else __x) for __i, __x in enumerate(${receiver})]`;
+    const s = args[1] ?? '0';
+    const e = args[2] ?? '_KERN_JS_FILL_ABSENT';
+    return `_kern_js_fill(${receiver}, ${v}, ${s}, ${e})`;
   }
   if (method === 'lastIndexOf') {
     const needle = args[0] ?? '';

@@ -6,6 +6,7 @@ import { lowerJsClosureBodyToPython, PORTABLE_LOGIC_PRIMITIVES, type PortableLog
 import { toSnakeCase } from '../../type-map.js';
 import {
   KERN_I32_HELPER_PY,
+  KERN_JS_ARRAY_HELPERS_PY,
   KERN_JS_HELPER_PY,
   KERN_JS_OBJECT_HELPERS_PY,
   KERN_JS_STRING_HELPERS_PY,
@@ -21,6 +22,7 @@ import {
 export {
   KERN_FMT_HELPER_PY,
   KERN_I32_HELPER_PY,
+  KERN_JS_ARRAY_HELPERS_PY,
   KERN_JS_HELPER_PY,
   KERN_JS_OBJECT_HELPERS_PY,
   KERN_JS_STRING_HELPERS_PY,
@@ -356,9 +358,11 @@ function lowerJsArrayMethods(expr: string, ctx: ExprRewriteContext): string {
       if (closeIdx !== -1 && recvStart !== -1) {
         const receiver = out.slice(recvStart);
         const pre = out.slice(0, recvStart);
-        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) =>
-          lowerJsArrayMethods(a.trim(), ctx),
-        );
+        const rawArgs = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));
+        const args = rawArgs.map((a) => lowerJsArrayMethods(a.trim(), ctx));
+        if (method === 'fill' && rawArgs.length >= 3 && isUndefinedFillEndArg(rawArgs[2])) {
+          args[2] = '_KERN_JS_FILL_ABSENT';
+        }
         let lowered: string | null = null;
         if (isSharedPortableArrayMethod(method)) {
           // Delegate the argument-shape (non-lambda) scalar methods —
@@ -371,8 +375,14 @@ function lowerJsArrayMethods(expr: string, ctx: ExprRewriteContext): string {
           // inline branches. The method names here are disjoint from the
           // lambda-bearing some/every/reduce/reduceRight/sort branches below, so
           // chain order does not matter.
-          const portable = lowerPortableArrayMethodPy(receiver, method, args);
-          if (portable !== null) lowered = portable;
+          const imports = ctx.imports;
+          const portable = method === 'fill' && !imports ? null : lowerPortableArrayMethodPy(receiver, method, args);
+          if (portable !== null) {
+            if (method === 'fill') {
+              imports?.add(KERN_JS_ARRAY_HELPERS_PY);
+            }
+            lowered = portable;
+          }
         } else if (method === 'some' || method === 'every') {
           const arrow = parseArrowCallback(expr.slice(openIdx + 1, closeIdx));
           if (arrow && arrow.params.length >= 1) {
@@ -498,6 +508,17 @@ function matchBalancedParen(expr: string, openIdx: number): number {
     }
   }
   return -1;
+}
+
+function isUndefinedFillEndArg(raw: string): boolean {
+  let trimmed = raw.trim();
+  while (trimmed.startsWith('(')) {
+    const close = matchBalancedParen(trimmed, 0);
+    if (close !== trimmed.length - 1) break;
+    trimmed = trimmed.slice(1, -1).trim();
+  }
+  if (trimmed === 'undefined') return true;
+  return /^void(?:\s|\()/.test(trimmed);
 }
 
 // Split a call's inner argument text on top-level commas, ignoring commas
