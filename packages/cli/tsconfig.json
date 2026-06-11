@@ -6,6 +6,7 @@
   },
   "include": ["src/**/*"],
   "references": [
+    { "path": "../check" },
     { "path": "../core" },
     { "path": "../native" },
     { "path": "../react" },

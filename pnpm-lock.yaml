@@ -37,6 +37,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@kernlang/check':
+        specifier: workspace:*
+        version: link:../check
       '@kernlang/codemod':
         specifier: workspace:*
         version: link:../codemod
