@@ -391,36 +391,128 @@ function isLowerableJsValueExpression(expr: string): boolean {
   return true;
 }
 
-function lowerRawHandlerBodyForPython(code: string, indent: string, imports: Set<string>): string[] | null {
-  const statement = code.trim();
-  if (!statement || statement.includes('\n')) return null;
+function splitRawHandlerStatements(code: string): string[] | null {
+  const statements: string[] = [];
+  let current = '';
+  let quote: '"' | "'" | '`' | null = null;
+  let escaped = false;
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
 
-  const statusJson =
-    statement.match(/^(?:return\s+)?res\.status\((\d+)\)\.json\(([\s\S]*)\);?$/) ??
-    statement.match(/^(?:return\s+)?response\.status\((\d+)\)\.json\(([\s\S]*)\);?$/);
-  if (statusJson) {
-    if (!statusJson[2].trim() || !isLowerableJsValueExpression(statusJson[2])) {
-      return null;
+  for (let index = 0; index < code.length; index += 1) {
+    const char = code[index];
+    if (quote) {
+      current += char;
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === quote) quote = null;
+      continue;
     }
-    imports.add('from fastapi.responses import JSONResponse');
-    return [
-      `${indent}return JSONResponse(content=${lowerJsValueExpressionForPython(statusJson[2])}, status_code=${statusJson[1]})`,
-    ];
+    if (char === '"' || char === "'" || char === '`') {
+      quote = char;
+      current += char;
+      continue;
+    }
+    if (char === '(') parenDepth += 1;
+    else if (char === ')') parenDepth -= 1;
+    else if (char === '[') bracketDepth += 1;
+    else if (char === ']') bracketDepth -= 1;
+    else if (char === '{') braceDepth += 1;
+    else if (char === '}') braceDepth -= 1;
+    if (parenDepth < 0 || bracketDepth < 0 || braceDepth < 0) return null;
+
+    if ((char === ';' || char === '\n') && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0) {
+      const statement = current.trim();
+      if (statement) statements.push(statement);
+      current = '';
+      continue;
+    }
+    current += char;
   }
 
-  const json = statement.match(/^(?:return\s+)?res\.json\(([\s\S]*)\);?$/);
-  if (json) {
-    if (!json[1].trim() || !isLowerableJsValueExpression(json[1])) return null;
-    return [`${indent}return ${lowerJsValueExpressionForPython(json[1])}`];
+  if (quote || parenDepth !== 0 || bracketDepth !== 0 || braceDepth !== 0) return null;
+  const tail = current.trim();
+  if (tail) statements.push(tail);
+  return statements;
+}
+
+function hasTopLevelComma(expr: string): boolean {
+  let quote: '"' | "'" | '`' | null = null;
+  let escaped = false;
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+  for (let index = 0; index < expr.length; index += 1) {
+    const char = expr[index];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === '`') {
+      quote = char;
+      continue;
+    }
+    if (char === '(') parenDepth += 1;
+    else if (char === ')') parenDepth -= 1;
+    else if (char === '[') bracketDepth += 1;
+    else if (char === ']') bracketDepth -= 1;
+    else if (char === '{') braceDepth += 1;
+    else if (char === '}') braceDepth -= 1;
+    if (parenDepth < 0 || bracketDepth < 0 || braceDepth < 0) return true;
+    if (char === ',' && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0) return true;
+  }
+  return quote !== null || parenDepth !== 0 || bracketDepth !== 0 || braceDepth !== 0;
+}
+
+function lowerRawHandlerBodyForPython(code: string, indent: string, imports: Set<string>): string[] | null {
+  const statements = splitRawHandlerStatements(code);
+  if (!statements || statements.length === 0) return null;
+
+  const lines: string[] = [];
+  for (let index = 0; index < statements.length; index += 1) {
+    const statement = statements[index];
+    const isLast = index === statements.length - 1;
+
+    const declaration = statement.match(/^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*([\s\S]+)$/);
+    if (declaration) {
+      if (isLast || hasTopLevelComma(declaration[2]) || !isLowerableJsValueExpression(declaration[2])) return null;
+      lines.push(`${indent}${declaration[1]} = ${lowerJsValueExpressionForPython(declaration[2])}`);
+      continue;
+    }
+
+    const statusJson =
+      statement.match(/^(?:return\s+)?res\.status\((\d+)\)\.json\(([\s\S]*)\)$/) ??
+      statement.match(/^(?:return\s+)?response\.status\((\d+)\)\.json\(([\s\S]*)\)$/);
+    if (statusJson && isLast) {
+      if (!statusJson[2].trim() || !isLowerableJsValueExpression(statusJson[2])) return null;
+      imports.add('from fastapi.responses import JSONResponse');
+      lines.push(
+        `${indent}return JSONResponse(content=${lowerJsValueExpressionForPython(statusJson[2])}, status_code=${statusJson[1]})`,
+      );
+      continue;
+    }
+
+    const json = statement.match(/^(?:return\s+)?res\.json\(([\s\S]*)\)$/);
+    if (json && isLast) {
+      if (!json[1].trim() || !isLowerableJsValueExpression(json[1])) return null;
+      lines.push(`${indent}return ${lowerJsValueExpressionForPython(json[1])}`);
+      continue;
+    }
+
+    const directReturn = statement.match(/^return\s+([\s\S]+)$/);
+    if (directReturn && isLast) {
+      if (!isLowerableJsValueExpression(directReturn[1])) return null;
+      lines.push(`${indent}return ${lowerJsValueExpressionForPython(directReturn[1])}`);
+      continue;
+    }
+
+    return null;
   }
 
-  const directReturn = statement.match(/^return\s+([\s\S]*?);?$/);
-  if (directReturn) {
-    if (!isLowerableJsValueExpression(directReturn[1])) return null;
-    return [`${indent}return ${lowerJsValueExpressionForPython(directReturn[1])}`];
-  }
-
-  return null;
+  return lines;
 }
 
 export function buildRouteArtifact(
