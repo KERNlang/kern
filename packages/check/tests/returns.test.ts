@@ -289,7 +289,7 @@ describe('checkReturns — mutation discrimination (counts unambiguous)', () => 
     expect(diags(program(fnReturning('Animal', 'Dog')))).toEqual([]);
   });
 
-  test('(M1) flip subtype direction → ALL 3 ACCEPT fixtures light (exact count)', () => {
+  test('(M1) flip subtype direction → both strict-subtype ACCEPT fixtures light (exact 2; Dog=Dog survives both directions)', () => {
     const accepts: ReadonlyArray<readonly [string, string]> = [
       ['new Dog()', 'Animal'],
       ['new Puppy()', 'Dog'],

@@ -192,8 +192,18 @@ function runWall(): WallResult {
   }
 
   // Synthetic injection: known-ACCEPT programs that DO run the return rule.
+  // Each must meet the SAME bar as a real accepted corpus file — parse-clean
+  // AND validator-clean — before it may contribute to the floors (agon review,
+  // codex: an accidentally-broken synthetic would otherwise count via a
+  // malformed root and fail only indirectly through the M3 floor).
   for (let i = 0; i < SYNTHETIC_ACCEPT_PROGRAMS.length; i += 1) {
     const result = parseDocumentWithDiagnostics(SYNTHETIC_ACCEPT_PROGRAMS[i]);
+    if ((result.diagnostics ?? []).length > 0) {
+      throw new Error(`<synthetic-accept-${i}> failed to parse — fix the synthetic program`);
+    }
+    if (validateSemantics(result.root).length > 0) {
+      throw new Error(`<synthetic-accept-${i}> is validator-rejected — fix the synthetic program`);
+    }
     acceptProgram(result.root, `<synthetic-accept-${i}>`);
   }
 

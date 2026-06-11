@@ -13,16 +13,41 @@
  * definition of each in the package.
  */
 
+import type { ClassInfo } from '../../core/dist/semantic-validator.js';
+import { collectClassInfos } from '../../core/dist/semantic-validator.js';
 import type { ValueIR } from '../../core/dist/value-ir.js';
+import type { NominalClassInfo } from './assignable.js';
 
 /** A structural IR node — kept narrow so the package carries no compile-time
  *  dependency on core's `IRNode` (core's real node is assignable to it). This
- *  is the same shape `walk.ts` exports; redeclared here to avoid a cycle. */
+ *  is the package's SINGLE definition; `walk.ts` re-exports it (agon review:
+ *  two structurally-identical declarations can silently drift apart). */
 export interface IRNode {
   type: string;
   loc?: { line: number; col: number };
   children?: readonly IRNode[];
   props?: Record<string, unknown>;
+}
+
+/** Pre-order walk of the IR tree, mirroring core's `walkSemanticTree`. The
+ *  package's single copy (agon review: was duplicated in calls.ts/returns.ts). */
+export function walkTree(node: IRNode, visit: (node: IRNode) => void): void {
+  visit(node);
+  for (const child of node.children ?? []) walkTree(child, visit);
+}
+
+/** Build the first-wins nominal class registry, mirroring the validator
+ *  (slice 2 / core). The package's single copy of the construction `calls.ts`
+ *  and `returns.ts` both perform before their walks. */
+export function buildClassByName(root: IRNode): ReadonlyMap<string, NominalClassInfo> {
+  const classes = collectClassInfos(root as never) as readonly ClassInfo[];
+  const classByName = new Map<string, NominalClassInfo>();
+  for (const info of classes) {
+    if (!classByName.has(info.name)) {
+      classByName.set(info.name, { name: info.name, ...(info.baseName ? { baseName: info.baseName } : {}) });
+    }
+  }
+  return classByName;
 }
 
 /**

@@ -36,10 +36,8 @@
  */
 
 import { parseExpression } from '../../core/dist/parser-expression.js';
-import type { ClassInfo } from '../../core/dist/semantic-validator.js';
-import { collectClassInfos } from '../../core/dist/semantic-validator.js';
-import { assignable, type NominalClassInfo } from './assignable.js';
-import { expressionPropText, type IRNode, newClassName, stringProp } from './shared.js';
+import { assignable } from './assignable.js';
+import { buildClassByName, expressionPropText, type IRNode, newClassName, stringProp, walkTree } from './shared.js';
 
 /** The return-check rule identifier. */
 export type ReturnCheckRule = 'check-return-type';
@@ -79,13 +77,7 @@ export function checkReturns(root: IRNode): ReturnCheckResult {
   let returnChecksRun = 0;
 
   // classByName: first-wins, mirroring the validator (slice 2 / core).
-  const classes = collectClassInfos(root as never) as readonly ClassInfo[];
-  const classByName = new Map<string, NominalClassInfo>();
-  for (const info of classes) {
-    if (!classByName.has(info.name)) {
-      classByName.set(info.name, { name: info.name, ...(info.baseName ? { baseName: info.baseName } : {}) });
-    }
-  }
+  const classByName = buildClassByName(root);
 
   // Every fn/method ANYWHERE in the tree is a candidate declaration. A method
   // is its own node type nested under a class; a fn may be top-level or nested
@@ -111,9 +103,10 @@ export function checkReturns(root: IRNode): ReturnCheckResult {
       returnChecksRun += 1;
       const verdict = assignable(actual, declared, classByName);
       if (verdict.ok === false) {
+        const fnName = stringProp(node, 'name');
         diagnostics.push({
           rule: 'check-return-type',
-          ...(stringProp(node, 'name') !== undefined ? { fnName: stringProp(node, 'name') } : {}),
+          ...(fnName !== undefined ? { fnName } : {}),
           declared,
           actual,
           reason:
@@ -150,10 +143,4 @@ function collectReturnTexts(decl: IRNode): string[] {
   };
   descend(decl);
   return texts;
-}
-
-/** Pre-order walk of the IR tree, mirroring core's `walkSemanticTree`. */
-function walkTree(node: IRNode, visit: (node: IRNode) => void): void {
-  visit(node);
-  for (const child of node.children ?? []) walkTree(child, visit);
 }

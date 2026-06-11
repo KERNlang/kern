@@ -42,12 +42,9 @@
  */
 
 import { parseExpression } from '../../core/dist/parser-expression.js';
-import type { ClassInfo } from '../../core/dist/semantic-validator.js';
-import { collectClassInfos } from '../../core/dist/semantic-validator.js';
 import type { ValueIR } from '../../core/dist/value-ir.js';
 import { assignable, type NominalClassInfo } from './assignable.js';
-import { expressionPropText, newClassName, stringProp } from './shared.js';
-import type { IRNode } from './walk.js';
+import { buildClassByName, expressionPropText, type IRNode, newClassName, stringProp, walkTree } from './shared.js';
 
 /** A call-site check rule identifier. */
 export type CallCheckRule = 'check-call-arity' | 'check-call-arg-type';
@@ -102,13 +99,7 @@ export function checkCalls(root: IRNode): CallCheckDiagnostic[] {
   const diagnostics: CallCheckDiagnostic[] = [];
 
   // classByName: first-wins, mirroring the validator (slice 2 / core).
-  const classes = collectClassInfos(root as never) as readonly ClassInfo[];
-  const classByName = new Map<string, NominalClassInfo>();
-  for (const info of classes) {
-    if (!classByName.has(info.name)) {
-      classByName.set(info.name, { name: info.name, ...(info.baseName ? { baseName: info.baseName } : {}) });
-    }
-  }
+  const classByName = buildClassByName(root);
 
   // fnByName: first-wins registry of CHECKABLE top-level fns (simple params
   // only). Non-simple fns are intentionally absent → calls to them SKIP.
@@ -316,10 +307,4 @@ function valueChildren(value: ValueIR): ValueIR[] {
 /** True when a flag prop is the boolean `true` or the string `'true'`. */
 function isTrueFlag(value: unknown): boolean {
   return value === true || value === 'true';
-}
-
-/** Pre-order walk of the IR tree, mirroring core's `walkSemanticTree`. */
-function walkTree(node: IRNode, visit: (node: IRNode) => void): void {
-  visit(node);
-  for (const child of node.children ?? []) walkTree(child, visit);
 }

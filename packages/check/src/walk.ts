@@ -36,16 +36,12 @@
 import type { ClassInfo, ClassMemberInfo } from '../../core/dist/semantic-validator.js';
 import { collectClassInfos } from '../../core/dist/semantic-validator.js';
 import { checkOverrideVariance } from './assignable.js';
+import type { IRNode } from './shared.js';
 
-/** A node accepted by the reused core builder. Kept structural so this package
- *  carries no compile-time dependency on core's `IRNode`; core's real node is
- *  assignable to it. */
-export interface IRNode {
-  type: string;
-  loc?: { line: number; col: number };
-  children?: readonly IRNode[];
-  props?: Record<string, unknown>;
-}
+/** A node accepted by the reused core builder. Canonical definition lives in
+ *  `shared.ts` (single source — agon review); re-exported here so slice-2
+ *  consumers keep importing it from this module unchanged. */
+export type { IRNode } from './shared.js';
 
 /** A check rule identifier. The two override rules are the structural-
  *  equivalence surface shared with core's validator; the duplicate rule is
