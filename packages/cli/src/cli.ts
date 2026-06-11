@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { runApply } from './commands/apply.js';
+import { runCheck } from './commands/check.js';
 import { runCompile } from './commands/compile.js';
 import { runConfidence } from './commands/confidence.js';
 import { runContext } from './commands/context.js';
@@ -24,6 +25,7 @@ const cmd = args[0];
 
 const COMMANDS: Record<string, (args: string[]) => void | Promise<void>> = {
   dev: runDev,
+  check: runCheck,
   compile: runCompile,
   init: runInit,
   test: runTest,
