@@ -136,18 +136,24 @@ export function checkCalls(root: IRNode): CallCheckDiagnostic[] {
  * registry. A fn is checkable iff it uses only child `param` nodes, none of
  * which carry a `rest`, `default`, or `optional` marker, and it has no `params=`
  * string prop. Non-simple fns are omitted so their call sites SKIP.
+ *
+ * TOP-LEVEL means a DIRECT child of the document root — deliberately NOT a full
+ * tree walk. A nested `fn` (a class method, a fn local to a handler body) is
+ * not callable as a top-level bare ident, and registering one lets a method
+ * shadow a later legitimate top-level fn of the same name (first-wins +
+ * pre-order), producing a FALSE diagnostic on legal code (agon review, kimi).
  */
 function collectCheckableFns(root: IRNode): ReadonlyMap<string, CheckableFn> {
   const fns = new Map<string, CheckableFn>();
-  walkTree(root, (node) => {
-    if (node.type !== 'fn') return;
+  for (const node of root.children ?? []) {
+    if (node.type !== 'fn') continue;
     const name = stringProp(node, 'name');
-    if (!name) return;
-    if (fns.has(name)) return; // first-wins
+    if (!name) continue;
+    if (fns.has(name)) continue; // first-wins
     const checkable = checkableFn(node);
-    if (!checkable) return; // non-simple params → not registered.
+    if (!checkable) continue; // non-simple params → not registered.
     fns.set(name, checkable);
-  });
+  }
   return fns;
 }
 
@@ -162,8 +168,15 @@ function checkableFn(node: IRNode): CheckableFn | undefined {
 
   const children = node.children ?? [];
   const paramTypes: Array<string | undefined> = [];
+  let seenNonParam = false;
   for (const child of children) {
-    if (child.type !== 'param') continue;
+    if (child.type !== 'param') {
+      seenNonParam = true;
+      continue;
+    }
+    // A param after a non-param child is a shape this slice doesn't understand
+    // (silently dropping it would misalign arity) → the whole fn is non-simple.
+    if (seenNonParam) return undefined;
     // Any non-simple marker disqualifies the entire fn.
     if (isTrueFlag(child.props?.rest) || child.props?.default !== undefined || isTrueFlag(child.props?.optional)) {
       return undefined;

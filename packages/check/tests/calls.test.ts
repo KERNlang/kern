@@ -167,6 +167,37 @@ describe('checkCalls — ZERO-FP corpus (unresolvable shapes produce ZERO)', () 
       ),
     ],
     ['spread arg → SKIP', program(fnDog(), 'do value="h(...xs)"')],
+    [
+      'class-method fn is NOT a top-level callee (no registration → SKIP)',
+      program(
+        ['class name=Holder', '  fn name=h', '    param name=a type=Dog', '    return value=a'].join('\n'),
+        'do value="h(new Cat())"',
+      ),
+    ],
+    [
+      'class-method must not shadow a later top-level fn of the same name',
+      // method h(a: Dog) precedes top-level h(a: Animal); the call is LEGAL
+      // against the real top-level fn (Cat <: Animal). The pre-fix full-tree
+      // walk registered the METHOD first-wins and falsely rejected this.
+      program(
+        ['class name=Holder', '  fn name=h', '    param name=a type=Dog', '    return value=a'].join('\n'),
+        fnAnimal('h'),
+        'do value="h(new Cat())"',
+      ),
+    ],
+    [
+      'param after non-param child → fn is non-simple → SKIP',
+      program(
+        [
+          'fn name=m returns=string',
+          '  param name=a type=Dog',
+          '  handler lang=kern',
+          '    return value="\'x\'"',
+          '  param name=b type=Dog',
+        ].join('\n'),
+        'do value="m(new Cat(), new Cat())"',
+      ),
+    ],
   ];
   for (const [label, source] of ZERO_FP) {
     test(`zero diagnostics: ${label}`, () => {
@@ -247,7 +278,7 @@ describe('checkCalls — mutation discrimination (counts unambiguous)', () => {
     expect(check(program(fnAnimal(), 'do value="f(new Dog())"'))).toEqual([]);
   });
 
-  test('(a) flip subtype direction → the ACCEPT fixtures light (count ≥ 2)', () => {
+  test('(a) flip subtype direction → ALL 3 ACCEPT fixtures light (exact count)', () => {
     const accepts: ReadonlyArray<readonly [string, string]> = [
       ['f(new Dog())', 'Animal'],
       ['f(new Puppy())', 'Animal'],
@@ -256,7 +287,7 @@ describe('checkCalls — mutation discrimination (counts unambiguous)', () => {
     const real = accepts.reduce((n, [body, p]) => n + argTypeDiagCount(body, p, {}), 0);
     const flipped = accepts.reduce((n, [body, p]) => n + argTypeDiagCount(body, p, { flipSubtype: true }), 0);
     expect(real).toBe(0); // real impl: all ACCEPT
-    expect(flipped).toBeGreaterThanOrEqual(2); // mutation lights ≥ 2
+    expect(flipped).toBe(3); // mutation lights EVERY accept fixture — exact, no drift
   });
 
   test('(b) unresolvable-arg REJECT → the ident-arg zero-FP program lights (count = 1)', () => {
