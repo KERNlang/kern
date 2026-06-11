@@ -2444,6 +2444,19 @@ describe('FastAPI Transpiler', () => {
       expect([...imports].join('\n')).toContain('def _kern_js_fill');
     });
 
+    test('Array.fill args that merely START with "void" are ordinary expressions', async () => {
+      const { rewriteExpr } = await import('../src/core/expr/index.js');
+      const imports = new Set<string>();
+      // Identifiers/calls beginning with "void" are NOT the void operator —
+      // the fail-closed throw is reserved for `void <complex-operand>` forms.
+      expect(rewriteExpr('arr.fill(voidValue)', [], new Set(), false, imports)).toBe(
+        '_kern_js_fill(arr, voidValue, 0, _KERN_JS_FILL_ABSENT)',
+      );
+      expect(rewriteExpr('arr.fill(v, voidFn(), 2)', [], new Set(), false, imports)).toBe(
+        '_kern_js_fill(arr, v, voidFn(), 2)',
+      );
+    });
+
     test('arr-core supports bare arrow params and nested dict member access', async () => {
       const { rewriteExpr } = await import('../src/core/expr/index.js');
       expect(rewriteExpr('items.filter(x => x.active)', [])).toBe('[x for x in items if js_truthy(x["active"])]');
