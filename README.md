@@ -118,6 +118,32 @@ See [`examples/starter/fullstack/`](examples/starter/fullstack/) for the generat
 
 ---
 
+## kern check
+
+The KERN nominal type checker — deterministic, zero false positives by design (it only fires on violations it can prove; anything ambiguous is skipped, never guessed).
+
+```bash
+kern check                              # Check every .kern file under cwd
+kern check src/                         # Check a directory
+kern check api.kern                     # Check one file
+kern check --json                       # Stable machine output (schemaVersion 1.0) for CI/bots
+kern check --with-semantics             # Also run semantic validation
+```
+
+What it checks: class declarations and override variance, call-site arity and argument types, and declared returns — annotate a function with `returns=<Class>` and the checker verifies every literal `return value="new <Class>(...)"` against it:
+
+```kern
+class name=Dog
+class name=Cat
+fn name=mk returns=Dog
+  handler lang=kern
+    return value="new Cat()"   # kern check: check-return-type error
+```
+
+Exit codes: `0` clean, `1` findings, `2` operational failure — drop it straight into CI before `kern review`.
+
+---
+
 ## kern review
 
 Static analysis with taint tracking, concept-level checks, and OWASP LLM01 coverage. No AI needed.
