@@ -62,47 +62,27 @@ function collectKernFiles(dir: string, out: string[]): void {
 }
 
 /**
- * Parse failures pinned from reality (28 files, all parse-diagnostic — none
- * throw). A NEW parse failure (or a fixed one) changes this set and FAILS the
- * wall via the exact deep-equal below — guarding mutation M4 (a file silently
- * dropping out of the accepted set). Relative POSIX paths, sorted.
+ * Parse failures pinned from reality: NONE — with the severity fix (only
+ * `severity: 'error'` diagnostics are parse failures) every repo .kern file
+ * parses. The original wall counted ANY diagnostic as a failure, which
+ * silently excluded 28 files that merely carried advisory warnings
+ * (NATIVE_KERN_ELIGIBLE hints, UNKNOWN_NODE_TYPE) from zero-FP coverage —
+ * found by dogfooding the wall against the AGON corpus. The allowlist
+ * mechanism stays: a NEW error-level failure (or a fixed one) changes this
+ * set and FAILS the wall via the exact deep-equal below — guarding mutation
+ * M4 (a file silently dropping out of the accepted set). Relative POSIX
+ * paths, sorted.
  */
-const PARSE_FAILURE_ALLOWLIST: readonly string[] = [
-  'examples/agon-plan.kern',
-  'examples/agon.kern',
-  'examples/audiofacets-toast.kern',
-  'examples/mcp-api-gateway.kern',
-  'examples/mcp-server.kern',
-  'examples/native-test/conformance-bad-cases.kern',
-  'examples/native-test/conformance-classes.test.kern',
-  'examples/native-test/conformance-mocks.test.kern',
-  'examples/native-test/conformance-routes.test.kern',
-  'examples/native-test/conformance-tools.test.kern',
-  'examples/native-test/language-surface.test.kern',
-  'examples/native-test/runtime-functions.test.kern',
-  'examples/template-usage.kern',
-  'packages/core/native-test/kernlang-contracts.test.kern',
-  'packages/core/src/kern/utils/external-boundary-utils.kern',
-  'packages/core/src/kern/utils/import-metadata.kern',
-  'packages/review-mcp/rules/mcp01-command-injection.kern',
-  'packages/review-mcp/rules/mcp02-path-traversal.kern',
-  'packages/review-mcp/rules/mcp03-tool-poisoning.kern',
-  'packages/review-mcp/rules/mcp04-secrets-exposure.kern',
-  'packages/review-mcp/rules/mcp05-unsanitized-response.kern',
-  'packages/review-mcp/rules/mcp06-missing-validation.kern',
-  'packages/review-mcp/rules/mcp07-missing-auth.kern',
-  'packages/review-mcp/rules/mcp09-data-injection.kern',
-  'packages/review-mcp/rules/mcp10-ssrf.kern',
-  'packages/review-mcp/rules/mcp11-secret-leakage.kern',
-  'packages/review-mcp/rules/mcp12-rug-pull.kern',
-  'packages/review-mcp/rules/mcp13-insufficient-logging.kern',
-];
+const PARSE_FAILURE_ALLOWLIST: readonly string[] = [];
 
 /** Files that parse but are validator-rejected — EXCLUDED from the zero-assert.
- *  Pin the COUNT so drift is visible (spec §1b). */
-const VALIDATOR_REJECTED_COUNT = 5;
-/** Accepted-program floor pinned from reality (currently 90). */
-const ACCEPTED_FLOOR = 80;
+ *  Pin the COUNT so drift is visible (spec §1b). 7 = the 5 originally pinned
+ *  plus 2 that previously hid behind warning-level "parse failures" and now
+ *  flow through to validation. */
+const VALIDATOR_REJECTED_COUNT = 7;
+/** Accepted-program floor pinned from reality (currently 116 — up from 90
+ *  after the severity fix widened coverage by 26 programs). */
+const ACCEPTED_FLOOR = 100;
 /** Synthetic injection floor for the return rule (spec §1b.3.2). */
 const RETURN_CHECKS_FLOOR = 3;
 
@@ -179,8 +159,11 @@ function runWall(): WallResult {
       parseFailures.push(rel); // thrown parse → failure.
       continue;
     }
-    if ((result.diagnostics ?? []).length > 0) {
-      parseFailures.push(rel); // parse diagnostics → failure.
+    if ((result.diagnostics ?? []).some((d) => d.severity === 'error')) {
+      parseFailures.push(rel); // ERROR-level parse diagnostics → failure.
+      // Warning-level diagnostics (NATIVE_KERN_ELIGIBLE opportunity hints,
+      // UNKNOWN_NODE_TYPE advisories) do NOT exclude a file — the program
+      // parsed and must stay inside zero-FP coverage.
       continue;
     }
     if (validateSemantics(result.root).length > 0) {
