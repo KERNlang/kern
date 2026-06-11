@@ -11,7 +11,7 @@
   <br>
 
   **One backend spec. Real TypeScript and Python output.** 240 review rules.<br>
-  <sub>LLMs write .kern in up to 85% fewer tokens. 7 LLMs verified.</sub>
+  <sub>A .kern spec is ~70% fewer tokens than the TypeScript it generates — ~81% fewer than maintaining both backends (measured, GPT-class tokenizer, example corpus).</sub>
 
   <br>
 
@@ -108,16 +108,20 @@ The parity guarantee is enforced, not promised: every language construct ships w
 
 ## Quick Example
 
-**7 lines of .kern:**
+**8 lines of .kern:**
 
 ```kern
-machine name=Order initial=pending
-  transition from=pending to=confirmed event=confirm
-  transition from=confirmed to=shipped event=ship
-  transition from=shipped to=delivered event=deliver
+machine name=Order
+  state name=pending
+  state name=confirmed
+  state name=shipped
+  state name=delivered
+  transition name=confirm from=pending to=confirmed
+  transition name=ship from=confirmed to=shipped
+  transition name=deliver from=shipped to=delivered
 ```
 
-**Compiles to 140+ lines** of typed TypeScript — enums, transition functions, exhaustive checks, error classes.
+**Compiles to 40 lines** of typed TypeScript — a state union type, guarded transition functions, and a dedicated error class.
 
 ---
 
