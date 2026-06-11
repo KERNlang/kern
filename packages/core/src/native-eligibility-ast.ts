@@ -24,9 +24,86 @@ import ts from 'typescript';
 import { supportedCompoundAssignmentOperator } from './assignment-operators.js';
 import { classifyClosureBlock } from './closure-eligibility.js';
 import { emitTypeAnnotation } from './codegen/emitters.js';
+import { deterministicRows, loadEligibilityTaxonomy } from './eligibility-taxonomy.js';
 import { instanceofRhsRejectReasonForName } from './instanceof-rhs.js';
 import { parseExpression } from './parser-expression.js';
 import type { ValueIR } from './value-ir.js';
+
+/** ── Taxonomy AUTHORITY (grammar-sovereignty phase 2) ──────────────────────
+ *
+ *  The eligibility taxonomy (`eligibility-taxonomy.ts`, compiled from the
+ *  human-edited JSON) is the AUTHORITY over which ineligible-reason strings
+ *  this classifier is permitted to emit. The imperative walk below keeps ALL
+ *  shape detection — what `reject()` flips is whose word AUTHORIZES an emitted
+ *  reason: every ineligible reason flows through `reject()`, which validates it
+ *  against the taxonomy.
+ *
+ *  Built once, lazily, from the deterministic (`eligible`/`ineligible`) rows:
+ *   - `exactReasonCodes`: the exact ineligible reason codes (e.g. `var-non-const`).
+ *   - `reasonFamilyPrefixes`: prefixes for the dynamic families — taxonomy rows
+ *     whose construct ends with `-` (`unsupported-stmt-`,
+ *     `closure-unsupported-stmt-`) match any reason starting with that prefix. */
+interface TaxonomyIndex {
+  exactReasonCodes: ReadonlySet<string>;
+  reasonFamilyPrefixes: readonly string[];
+}
+
+let taxonomyIndexCache: TaxonomyIndex | null = null;
+
+function taxonomyIndex(): TaxonomyIndex {
+  if (taxonomyIndexCache !== null) return taxonomyIndexCache;
+  const exact = new Set<string>();
+  const prefixes: string[] = [];
+  for (const row of deterministicRows(loadEligibilityTaxonomy())) {
+    if (row.verdict !== 'ineligible' || row.reason === undefined) continue;
+    if (row.construct.endsWith('-')) {
+      prefixes.push(row.reason);
+    } else {
+      exact.add(row.reason);
+    }
+  }
+  taxonomyIndexCache = { exactReasonCodes: exact, reasonFamilyPrefixes: prefixes };
+  return taxonomyIndexCache;
+}
+
+/** Coherence-violation collector. `reject()` records (fail-safe, never throws)
+ *  any reason string with no deterministic taxonomy row — exact or family — so
+ *  the coherence-gate tests can assert the live classifier never emits an
+ *  un-taxonomied reason. Production never reads this; tests do, via the getter
+ *  and the reset below. A Set, not an array: violations are reason CODES, so
+ *  duplicates add nothing and growth is bounded by the (finite) code space
+ *  even if an un-taxonomied reason ships and fires on a hot path (agon
+ *  review, codex 0.96). */
+const coherenceViolationsInternal = new Set<string>();
+
+/** A snapshot of the recorded coherence violations (reasons emitted with no
+ *  taxonomy row). Empty in a coherent build. */
+export function coherenceViolations(): readonly string[] {
+  return [...coherenceViolationsInternal];
+}
+
+/** Test-only: clear the recorded coherence violations between runs. */
+export function resetCoherenceViolations(): void {
+  coherenceViolationsInternal.clear();
+}
+
+/** Fail-safe taxonomy AUTHORITY gate for an emitted ineligible reason.
+ *
+ *  Pure indirection: ALWAYS returns `reason` UNCHANGED, never throws, never
+ *  alters classifier behavior. Its ONLY side effect is recording a coherence
+ *  violation when `reason` has no deterministic taxonomy row (exact match or a
+ *  matching dynamic-family prefix). The classifier wraps every ineligible
+ *  reason in `reject(...)`; the recorded violations are surfaced only to the
+ *  coherence-gate tests. */
+function reject(reason: string): string {
+  const index = taxonomyIndex();
+  if (index.exactReasonCodes.has(reason)) return reason;
+  for (const prefix of index.reasonFamilyPrefixes) {
+    if (reason.startsWith(prefix)) return reason;
+  }
+  coherenceViolationsInternal.add(reason);
+  return reason;
+}
 
 export interface AstEligibilityResult {
   eligible: boolean;
@@ -188,8 +265,8 @@ export function isValidKernTypeAnnotation(typeText: string): boolean {
  *  explicit foreign/template boundary, not a parser/codegen lift slice.
  */
 function classifyParseFailureBoundary(bodyText: string): string | null {
-  if (/\{\{\s*[A-Za-z_$][\w$.-]*\s*\}\}/.test(bodyText)) return 'template-placeholder';
-  if (isObjectFragmentBody(bodyText)) return 'foreign-by-design';
+  if (/\{\{\s*[A-Za-z_$][\w$.-]*\s*\}\}/.test(bodyText)) return reject('template-placeholder');
+  if (isObjectFragmentBody(bodyText)) return reject('foreign-by-design');
   return null;
 }
 
@@ -570,7 +647,7 @@ function classifyBlockArrows(stmt: ts.Statement, sf: ts.SourceFile): string | nu
   if (raws.length === 0) return null;
   for (const raw of raws) {
     const gateReason = classifyClosureBlock(raw);
-    if (gateReason !== null) return gateReason;
+    if (gateReason !== null) return reject(gateReason);
   }
   return null;
 }
@@ -592,6 +669,12 @@ function classifyBlockArrows(stmt: ts.Statement, sf: ts.SourceFile): string | nu
  *  lowerer share one source of truth (`instanceof-rhs.ts`). The whole subtree
  *  is scanned so a rejected `instanceof` nested in any expression position
  *  (ternary arm, call arg, arrow body, …) is caught. */
+// TODO(taxonomy-fold): the `instanceof` RHS reject set in instanceof-rhs.ts
+// (INSTANCEOF_RHS_WRAPPER_REJECT / INSTANCEOF_RHS_BUILTIN_REJECT) is the target
+// declarative shape for a future deterministic-row extraction slice — fold those
+// RHS-name → reason mappings into the taxonomy so this dynamic reason source is
+// itself authority-backed, not just family-validated at runtime. Deferred (phase 2
+// scope is the AUTHORITY inversion; instanceof-rhs.ts fold-in is a separate slice).
 function classifyInstanceofRhs(node: ts.Node): string | null {
   let reason: string | null = null;
   const visit = (n: ts.Node): void => {
@@ -604,12 +687,13 @@ function classifyInstanceofRhs(node: ts.Node): string | null {
       let rhs: ts.Expression = n.right;
       while (ts.isParenthesizedExpression(rhs)) rhs = rhs.expression;
       if (ts.isIdentifier(rhs)) {
-        reason = instanceofRhsRejectReasonForName(rhs.text);
+        const rhsReason = instanceofRhsRejectReasonForName(rhs.text);
+        reason = rhsReason === null ? null : reject(rhsReason);
       } else if (!ts.isPropertyAccessExpression(rhs)) {
         // Member RHS (`a.b.C`) is a qualified type name → accepted (emit
         // as-is). Anything else (call/literal/parenthesized/binary) is not a
         // type name and cannot be lowered.
-        reason = 'instanceof-rhs-not-a-type-name';
+        reason = reject('instanceof-rhs-not-a-type-name');
       }
       if (reason !== null) return;
     }
@@ -640,18 +724,18 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
     const flags = stmt.declarationList.flags;
     const isConst = (flags & ts.NodeFlags.Const) !== 0;
     const isLet = (flags & ts.NodeFlags.Let) !== 0;
-    if (!isConst && !isLet) return 'var-non-const';
+    if (!isConst && !isLet) return reject('var-non-const');
     const decls = stmt.declarationList.declarations;
-    if (decls.length !== 1) return 'var-multi-decl';
+    if (decls.length !== 1) return reject('var-multi-decl');
     const decl = decls[0];
-    if (decl.type && !isValidKernTypeAnnotation(decl.type.getText(sf))) return 'var-bad-type';
+    if (decl.type && !isValidKernTypeAnnotation(decl.type.getText(sf))) return reject('var-bad-type');
     if (!decl.initializer) {
       // `let x;` migrates to `let name=x kind=let` (the body emitter handles
       // missing `value=` by emitting `let x = undefined;`, matching TS
       // semantics). Destructured uninitialised bindings (`let { x };`) are a
       // TS parse error in practice, but defensively reject them anyway since
       // the migrator can only emit identifier-named lets in this branch.
-      if (!ts.isIdentifier(decl.name)) return 'var-destructure';
+      if (!ts.isIdentifier(decl.name)) return reject('var-destructure');
       return null;
     }
     if (!ts.isIdentifier(decl.name)) return classifyDestructureDecl(decl, sf);
@@ -667,11 +751,11 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
     if (ts.isNoSubstitutionTemplateLiteral(decl.initializer) || ts.isTemplateExpression(decl.initializer)) {
       const raw = decl.initializer.getText(sf);
       const body = raw.slice(1, -1);
-      if (body.includes('\n')) return 'var-template-multiline';
-      if (hasTsOnlyTemplateEscape(body)) return 'var-template-escapes';
+      if (body.includes('\n')) return reject('var-template-multiline');
+      if (hasTsOnlyTemplateEscape(body)) return reject('var-template-escapes');
       return null;
     }
-    if (!isValidKernExpression(decl.initializer.getText(sf))) return 'var-bad-expr';
+    if (!isValidKernExpression(decl.initializer.getText(sf))) return reject('var-bad-expr');
     return null;
   }
   if (ts.isReturnStatement(stmt)) {
@@ -681,33 +765,35 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
     if (ts.isNoSubstitutionTemplateLiteral(stmt.expression) || ts.isTemplateExpression(stmt.expression)) {
       const raw = stmt.expression.getText(sf);
       const body = raw.slice(1, -1);
-      if (body.includes('\n')) return 'return-template-multiline';
-      if (hasTsOnlyTemplateEscape(body)) return 'return-template-escapes';
+      if (body.includes('\n')) return reject('return-template-multiline');
+      if (hasTsOnlyTemplateEscape(body)) return reject('return-template-escapes');
       return null;
     }
-    if (!isValidKernExpression(stmt.expression.getText(sf))) return 'return-bad-expr';
+    if (!isValidKernExpression(stmt.expression.getText(sf))) return reject('return-bad-expr');
     return null;
   }
   if (ts.isThrowStatement(stmt)) {
+    // `throw;` is structurally unreachable (always a TS parse error) and has no
+    // taxonomy row — NOT routed through reject() (it would never validate).
     if (!stmt.expression) return 'throw-no-expr';
-    if (!isValidKernExpression(stmt.expression.getText(sf))) return 'throw-bad-expr';
+    if (!isValidKernExpression(stmt.expression.getText(sf))) return reject('throw-bad-expr');
     return null;
   }
   if (ts.isBreakStatement(stmt)) {
-    if (stmt.label) return 'break-labeled';
-    return ctx.loopDepth > 0 ? null : 'break-outside-loop';
+    if (stmt.label) return reject('break-labeled');
+    return ctx.loopDepth > 0 ? null : reject('break-outside-loop');
   }
   if (ts.isContinueStatement(stmt)) {
-    if (stmt.label) return 'continue-labeled';
-    return ctx.loopDepth > 0 ? null : 'continue-outside-loop';
+    if (stmt.label) return reject('continue-labeled');
+    return ctx.loopDepth > 0 ? null : reject('continue-outside-loop');
   }
   if (ts.isIfStatement(stmt)) {
-    if (!isValidKernExpression(stmt.expression.getText(sf))) return 'if-bad-cond';
+    if (!isValidKernExpression(stmt.expression.getText(sf))) return reject('if-bad-cond');
     // Body emitters (`emitNativeKernBodyTS` / `emitNativeKernBodyPython`) always
     // wrap `if` bodies in braces / indented blocks. A raw `if (cond) stmt;`
     // would migrate to `if cond=… → { stmt; }` and lose byte-equivalence under
     // `--verify`. Mirror the `for-of-non-block` / `while-non-block` guards.
-    if (!ctx.allowNonBlock && !ts.isBlock(stmt.thenStatement)) return 'if-non-block-then';
+    if (!ctx.allowNonBlock && !ts.isBlock(stmt.thenStatement)) return reject('if-non-block-then');
     const thenReason = classifyBranch(stmt.thenStatement, sf, ctx);
     if (thenReason !== null) return thenReason;
     if (stmt.elseStatement) {
@@ -717,7 +803,7 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
       // 88c06dcc on dev). classifyBranch handles the nested IfStatement
       // by re-entering classifyStmt, so the recursion is automatic.
       if (!ctx.allowNonBlock && !ts.isIfStatement(stmt.elseStatement) && !ts.isBlock(stmt.elseStatement)) {
-        return 'if-non-block-else';
+        return reject('if-non-block-else');
       }
       const elseReason = classifyBranch(stmt.elseStatement, sf, ctx);
       if (elseReason !== null) return elseReason;
@@ -730,10 +816,12 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
     // (body-ts.ts:286-292 / codegen-body-python.ts:316-323), and the schema
     // permits `finally` as a `try` child. The only remaining requirement is
     // the TS-level shape — at least one of `catch`/`finally` must be present.
+    // `try {}` without catch|finally is structurally unreachable (always a TS
+    // parse error) and has no taxonomy row — NOT routed through reject().
     if (!stmt.catchClause && !stmt.finallyBlock) return 'try-no-catch';
     if (stmt.catchClause) {
       const cc = stmt.catchClause;
-      if (cc.variableDeclaration && !ts.isIdentifier(cc.variableDeclaration.name)) return 'try-destruct-catch';
+      if (cc.variableDeclaration && !ts.isIdentifier(cc.variableDeclaration.name)) return reject('try-destruct-catch');
       const catchReason = classifyBranch(cc.block, sf, ctx);
       if (catchReason !== null) return catchReason;
     }
@@ -755,10 +843,11 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
       const op = stmt.expression.operatorToken.kind;
       if (op >= ts.SyntaxKind.FirstAssignment && op <= ts.SyntaxKind.LastAssignment) {
         if (op !== ts.SyntaxKind.EqualsToken && !supportedCompoundAssignmentOperator(op)) {
-          return 'expr-stmt-assignment';
+          return reject('expr-stmt-assignment');
         }
-        if (!isValidKernAssignmentTarget(stmt.expression.left.getText(sf))) return 'expr-stmt-bad-assign-target';
-        if (!isValidKernAssignmentValue(stmt.expression.right.getText(sf))) return 'expr-stmt-bad-assign-value';
+        if (!isValidKernAssignmentTarget(stmt.expression.left.getText(sf)))
+          return reject('expr-stmt-bad-assign-target');
+        if (!isValidKernAssignmentValue(stmt.expression.right.getText(sf))) return reject('expr-stmt-bad-assign-value');
         return null;
       }
     }
@@ -774,32 +863,33 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
         // raw-handler authors get a clear reason and the migrator never rewrites
         // bytes it cannot reproduce.
         if (!isValidKernAssignmentTarget(stmt.expression.operand.getText(sf))) {
-          return 'expr-stmt-bad-assign-target';
+          return reject('expr-stmt-bad-assign-target');
         }
         return null;
       }
     }
     if (ts.isPrefixUnaryExpression(stmt.expression)) {
       const op = stmt.expression.operator;
-      if (op === ts.SyntaxKind.PlusPlusToken || op === ts.SyntaxKind.MinusMinusToken) return 'expr-stmt-mutation';
+      if (op === ts.SyntaxKind.PlusPlusToken || op === ts.SyntaxKind.MinusMinusToken)
+        return reject('expr-stmt-mutation');
     }
-    if (!isValidKernExpression(stmt.expression.getText(sf))) return 'expr-stmt-bad-expr';
+    if (!isValidKernExpression(stmt.expression.getText(sf))) return reject('expr-stmt-bad-expr');
     return null;
   }
   if (ts.isForOfStatement(stmt)) {
-    if (!ts.isVariableDeclarationList(stmt.initializer)) return 'for-of-non-decl';
-    if (!(stmt.initializer.flags & ts.NodeFlags.Const)) return 'for-of-non-const';
+    if (!ts.isVariableDeclarationList(stmt.initializer)) return reject('for-of-non-decl');
+    if (!(stmt.initializer.flags & ts.NodeFlags.Const)) return reject('for-of-non-const');
     const decls = stmt.initializer.declarations;
-    if (decls.length !== 1) return 'for-of-multi-decl';
+    if (decls.length !== 1) return reject('for-of-multi-decl');
     const decl = decls[0];
-    if (decl.initializer) return 'for-of-init';
+    if (decl.initializer) return reject('for-of-init');
     if (!ts.isIdentifier(decl.name)) {
       const entryBinding = parseForOfEntryBinding(decl.name);
-      if (entryBinding === null) return 'for-of-destructure';
+      if (entryBinding === null) return reject('for-of-destructure');
       if (stmt.awaitModifier && canonicalObjectEntriesSource(stmt.expression, sf) !== null) {
-        return 'for-of-async-object-entries';
+        return reject('for-of-async-object-entries');
       }
-      if (stmt.awaitModifier && entryBinding.kind !== 'pair') return 'for-of-async-entry';
+      if (stmt.awaitModifier && entryBinding.kind !== 'pair') return reject('for-of-async-entry');
       // KERN-GAPS: sync pair iteration (`for (const [k, v] of expr)`) lifts to
       // `each pairKey=k pairValue=v in=expr` regardless of whether `expr` is
       // `Object.entries(...)` — Map.entries(), arrays-of-pairs, and generators
@@ -811,46 +901,50 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
         entryBinding.kind !== 'pair' &&
         canonicalObjectEntriesSource(stmt.expression, sf) === null
       ) {
-        return 'for-of-sync-pair';
+        return reject('for-of-sync-pair');
       }
-      if (decl.type) return 'for-of-destructure-type';
+      if (decl.type) return reject('for-of-destructure-type');
     } else if (decl.type && !isValidKernTypeAnnotation(decl.type.getText(sf))) {
-      return 'for-of-bad-type';
+      return reject('for-of-bad-type');
     }
-    if (!isValidKernExpression(stmt.expression.getText(sf))) return 'for-of-bad-expr';
+    if (!isValidKernExpression(stmt.expression.getText(sf))) return reject('for-of-bad-expr');
     // Only block-shaped loops are currently migratable. `each` always emits
     // braces, so migrating `for (const x of xs) do(x);` would drift under
     // --verify even though it is semantically close.
-    if (!ctx.allowNonBlock && !ts.isBlock(stmt.statement)) return 'for-of-non-block';
-    if (ts.isBlock(stmt.statement) && stmt.statement.statements.length === 0) return 'for-of-empty-body';
+    if (!ctx.allowNonBlock && !ts.isBlock(stmt.statement)) return reject('for-of-non-block');
+    if (ts.isBlock(stmt.statement) && stmt.statement.statements.length === 0) return reject('for-of-empty-body');
     return classifyBranch(stmt.statement, sf, { ...ctx, loopDepth: ctx.loopDepth + 1 });
   }
   if (ts.isWhileStatement(stmt)) {
-    if (!isValidKernExpression(stmt.expression.getText(sf))) return 'while-bad-cond';
-    if (!ctx.allowNonBlock && !ts.isBlock(stmt.statement)) return 'while-non-block';
-    if (ts.isBlock(stmt.statement) && stmt.statement.statements.length === 0) return 'while-empty-body';
+    if (!isValidKernExpression(stmt.expression.getText(sf))) return reject('while-bad-cond');
+    if (!ctx.allowNonBlock && !ts.isBlock(stmt.statement)) return reject('while-non-block');
+    if (ts.isBlock(stmt.statement) && stmt.statement.statements.length === 0) return reject('while-empty-body');
     return classifyBranch(stmt.statement, sf, { ...ctx, loopDepth: ctx.loopDepth + 1 });
   }
-  if (ts.isForStatement(stmt) || ts.isForInStatement(stmt)) return 'for-stmt';
-  if (ts.isDoStatement(stmt)) return 'do-while-stmt';
-  if (ts.isSwitchStatement(stmt)) return 'switch-stmt';
-  if (ts.isBlock(stmt)) return 'bare-block';
+  if (ts.isForStatement(stmt) || ts.isForInStatement(stmt)) return reject('for-stmt');
+  if (ts.isDoStatement(stmt)) return reject('do-while-stmt');
+  if (ts.isSwitchStatement(stmt)) return reject('switch-stmt');
+  if (ts.isBlock(stmt)) return reject('bare-block');
   // Fallback — the TS SyntaxKind name surfaces in diagnostics so users have
   // a starting point when they hit something exotic (label, with, debugger).
-  return `unsupported-stmt-${ts.SyntaxKind[stmt.kind]}`;
+  // Validated against the `unsupported-stmt-` family prefix row.
+  return reject(`unsupported-stmt-${ts.SyntaxKind[stmt.kind]}`);
 }
 
 function classifyDestructureDecl(decl: ts.VariableDeclaration, sf: ts.SourceFile): string | null {
+  // `var-no-init` is structurally unreachable (an uninitialised destructure
+  // short-circuits to `var-destructure` before this branch is reached) and has
+  // no taxonomy row — NOT routed through reject().
   if (!decl.initializer) return 'var-no-init';
-  if (!isValidKernExpression(decl.initializer.getText(sf))) return 'var-destructure-bad-expr';
+  if (!isValidKernExpression(decl.initializer.getText(sf))) return reject('var-destructure-bad-expr');
   const name = decl.name;
   if (ts.isObjectBindingPattern(name)) {
-    if (name.elements.length === 0) return 'var-destructure-empty';
+    if (name.elements.length === 0) return reject('var-destructure-empty');
     for (const element of name.elements) {
-      if (element.dotDotDotToken) return 'var-destructure-rest';
-      if (element.initializer) return 'var-destructure-default';
-      if (!ts.isIdentifier(element.name)) return 'var-destructure-nested';
-      if (element.propertyName && !ts.isIdentifier(element.propertyName)) return 'var-destructure-computed';
+      if (element.dotDotDotToken) return reject('var-destructure-rest');
+      if (element.initializer) return reject('var-destructure-default');
+      if (!ts.isIdentifier(element.name)) return reject('var-destructure-nested');
+      if (element.propertyName && !ts.isIdentifier(element.propertyName)) return reject('var-destructure-computed');
     }
     return null;
   }
@@ -859,14 +953,14 @@ function classifyDestructureDecl(decl: ts.VariableDeclaration, sf: ts.SourceFile
     for (const element of name.elements) {
       if (ts.isOmittedExpression(element)) continue;
       concreteElements++;
-      if (element.dotDotDotToken) return 'var-destructure-rest';
-      if (element.initializer) return 'var-destructure-default';
-      if (!ts.isIdentifier(element.name)) return 'var-destructure-nested';
+      if (element.dotDotDotToken) return reject('var-destructure-rest');
+      if (element.initializer) return reject('var-destructure-default');
+      if (!ts.isIdentifier(element.name)) return reject('var-destructure-nested');
     }
-    if (concreteElements === 0) return 'var-destructure-empty';
+    if (concreteElements === 0) return reject('var-destructure-empty');
     return null;
   }
-  return 'var-destructure';
+  return reject('var-destructure');
 }
 
 function parseForOfEntryBinding(name: ts.BindingName): { kind: 'pair' | 'key' | 'value' } | null {
@@ -911,16 +1005,17 @@ export function classifyHandlerBodyAst(rawBody: string, opts?: { allowNonBlock?:
   // public type — the migrator reads it the same way.
   const diags = (sf as unknown as { parseDiagnostics?: ts.Diagnostic[] }).parseDiagnostics;
   if (diags && diags.length > 0) {
+    // `classifyParseFailureBoundary` already routes its reasons through reject().
     const parseBoundary = classifyParseFailureBoundary(rawBody);
     if (parseBoundary !== null) return { eligible: false, reason: parseBoundary };
     if (hasComments(rawBody) && !hasOnlyMigratableComments(rawBody)) {
-      return { eligible: false, reason: 'comments-present' };
+      return { eligible: false, reason: reject('comments-present') };
     }
-    return { eligible: false, reason: 'ts-parse-error' };
+    return { eligible: false, reason: reject('ts-parse-error') };
   }
-  if (isHostInteropBody(sf)) return { eligible: false, reason: 'foreign-by-design' };
+  if (isHostInteropBody(sf)) return { eligible: false, reason: reject('foreign-by-design') };
   if (hasComments(rawBody) && !hasOnlyMigratableComments(rawBody)) {
-    return { eligible: false, reason: 'comments-present' };
+    return { eligible: false, reason: reject('comments-present') };
   }
   for (const stmt of sf.statements) {
     const r = classifyStmt(stmt, sf, { loopDepth: 0, allowNonBlock: opts?.allowNonBlock });
