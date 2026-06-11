@@ -5,10 +5,11 @@
  * dist, deterministic sorted order) and asserts the whole @kernlang/check
  * checker suite is zero-false-positive against the real corpus:
  *
- *   - Files that fail to parse (a thrown parse OR any parse diagnostic) are
+ *   - Files that fail to parse (a thrown parse OR an ERROR-severity parse
+ *     diagnostic — warnings are advisory and do not exclude a file) are
  *     pinned to an EXPLICIT allowlist; a NEW parse failure FAILS the wall.
  *   - Files that parse but are rejected by the live core `validateSemantics`
- *     are EXCLUDED from the zero-assert; their COUNT is pinned so drift shows.
+ *     are EXCLUDED from the zero-assert; their PATHS are pinned so drift shows.
  *   - For every ACCEPTED program (parses + validator-clean) all THREE checkers
  *     — `checkProgram` (slice 2), `checkCalls` (slice 3), `checkReturns`
  *     (slice 4) — must produce ZERO diagnostics. ANY diagnostic FAILS the wall
@@ -61,48 +62,33 @@ function collectKernFiles(dir: string, out: string[]): void {
   }
 }
 
-/**
- * Parse failures pinned from reality (28 files, all parse-diagnostic — none
- * throw). A NEW parse failure (or a fixed one) changes this set and FAILS the
- * wall via the exact deep-equal below — guarding mutation M4 (a file silently
- * dropping out of the accepted set). Relative POSIX paths, sorted.
- */
-const PARSE_FAILURE_ALLOWLIST: readonly string[] = [
-  'examples/agon-plan.kern',
-  'examples/agon.kern',
-  'examples/audiofacets-toast.kern',
-  'examples/mcp-api-gateway.kern',
-  'examples/mcp-server.kern',
+/** Error-level parse failures pinned from reality: NONE — every repo .kern
+ *  file parses (warnings are advisory, see header). The deep-equal below
+ *  guards M4: a NEW error-level failure must be reviewed, never silent. */
+const PARSE_FAILURE_ALLOWLIST: readonly string[] = [];
+
+/** Files that parse but are validator-rejected — EXCLUDED from the zero-assert,
+ *  pinned by PATH (same M4 strength as the parse allowlist). 7 = the 5 the
+ *  original wall saw + 2 that previously hid behind warning-level "parse
+ *  failures" and now flow through to validation. (Of the 28 files the
+ *  any-diagnostic wall excluded, 26 are now accepted and 2 land here.) */
+const VALIDATOR_REJECTED_ALLOWLIST: readonly string[] = [
   'examples/native-test/conformance-bad-cases.kern',
   'examples/native-test/conformance-classes.test.kern',
-  'examples/native-test/conformance-mocks.test.kern',
-  'examples/native-test/conformance-routes.test.kern',
-  'examples/native-test/conformance-tools.test.kern',
-  'examples/native-test/language-surface.test.kern',
-  'examples/native-test/runtime-functions.test.kern',
-  'examples/template-usage.kern',
-  'packages/core/native-test/kernlang-contracts.test.kern',
-  'packages/core/src/kern/utils/external-boundary-utils.kern',
-  'packages/core/src/kern/utils/import-metadata.kern',
-  'packages/review-mcp/rules/mcp01-command-injection.kern',
-  'packages/review-mcp/rules/mcp02-path-traversal.kern',
-  'packages/review-mcp/rules/mcp03-tool-poisoning.kern',
-  'packages/review-mcp/rules/mcp04-secrets-exposure.kern',
-  'packages/review-mcp/rules/mcp05-unsanitized-response.kern',
-  'packages/review-mcp/rules/mcp06-missing-validation.kern',
-  'packages/review-mcp/rules/mcp07-missing-auth.kern',
-  'packages/review-mcp/rules/mcp09-data-injection.kern',
-  'packages/review-mcp/rules/mcp10-ssrf.kern',
-  'packages/review-mcp/rules/mcp11-secret-leakage.kern',
-  'packages/review-mcp/rules/mcp12-rug-pull.kern',
-  'packages/review-mcp/rules/mcp13-insufficient-logging.kern',
+  'examples/native-test/conformance-mcp-rag-bad-cases.kern',
+  'examples/native-test/conformance-rag-bad-cases.kern',
+  'examples/native-test/conformance-rag.test.kern',
+  'examples/with-primitive.kern',
+  'packages/core/native-test/kernlang-bad-cases.kern',
 ];
-
-/** Files that parse but are validator-rejected — EXCLUDED from the zero-assert.
- *  Pin the COUNT so drift is visible (spec §1b). */
-const VALIDATOR_REJECTED_COUNT = 5;
-/** Accepted-program floor pinned from reality (currently 90). */
-const ACCEPTED_FLOOR = 80;
+/** Accepted-program floor pinned from reality (currently 116 — up from 90
+ *  after the severity fix). */
+const ACCEPTED_FLOOR = 100;
+/** The severity values core's parser may emit. The wall asserts every observed
+ *  severity ∈ this set AND that at least one 'warning' was observed (28 corpus
+ *  files carry them) — so a rename/recase of the `severity` field can never
+ *  silently turn the error filter into a no-op (agon review, kimi 0.85). */
+const KNOWN_SEVERITIES = new Set(['error', 'warning', 'info']);
 /** Synthetic injection floor for the return rule (spec §1b.3.2). */
 const RETURN_CHECKS_FLOOR = 3;
 
@@ -142,8 +128,9 @@ const SYNTHETIC_ACCEPT_PROGRAMS: readonly string[] = [
 interface WallResult {
   filesFound: number;
   parseFailures: string[];
+  validatorRejected: string[];
   acceptedPrograms: number;
-  excludedCount: number;
+  severitiesSeen: ReadonlySet<string>;
   returnChecksRun: number;
   offenders: Array<{ file: string; checkProgram: unknown[]; checkCalls: unknown[]; checkReturns: unknown[] }>;
 }
@@ -154,9 +141,10 @@ function runWall(): WallResult {
   collectKernFiles(REPO_ROOT, files);
 
   const parseFailures: string[] = [];
+  const validatorRejected: string[] = [];
   let acceptedPrograms = 0;
-  let excludedCount = 0;
   let returnChecksRun = 0;
+  const severitiesSeen = new Set<string>();
   const offenders: WallResult['offenders'] = [];
 
   const acceptProgram = (root: unknown, file: string): void => {
@@ -179,12 +167,19 @@ function runWall(): WallResult {
       parseFailures.push(rel); // thrown parse → failure.
       continue;
     }
-    if ((result.diagnostics ?? []).length > 0) {
-      parseFailures.push(rel); // parse diagnostics → failure.
+    // Record every observed severity — the severity-sanity assertion below
+    // proves the 'error' filter is comparing against a live field, not a
+    // renamed/recased one that would silently match nothing.
+    for (const d of result.diagnostics ?? []) severitiesSeen.add(String(d.severity));
+    // Only ERROR-level diagnostics exclude a file. Warning-level ones
+    // (NATIVE_KERN_ELIGIBLE opportunity hints, UNKNOWN_NODE_TYPE advisories)
+    // do NOT — the program parsed and must stay inside zero-FP coverage.
+    if ((result.diagnostics ?? []).some((d) => d.severity === 'error')) {
+      parseFailures.push(rel);
       continue;
     }
     if (validateSemantics(result.root).length > 0) {
-      excludedCount += 1; // validator-rejected → excluded from zero-assert.
+      validatorRejected.push(rel); // validator-rejected → excluded from zero-assert.
       continue;
     }
     acceptedPrograms += 1;
@@ -192,8 +187,10 @@ function runWall(): WallResult {
   }
 
   // Synthetic injection: known-ACCEPT programs that DO run the return rule.
-  // Each must meet the SAME bar as a real accepted corpus file — parse-clean
-  // AND validator-clean — before it may contribute to the floors (agon review,
+  // Each must meet a STRICTER bar than a real corpus file — ZERO diagnostics
+  // of ANY severity (deliberately stricter than the error-only corpus filter:
+  // a synthetic is authored here, so even a warning means it drifted) AND
+  // validator-clean — before it may contribute to the floors (agon review,
   // codex: an accidentally-broken synthetic would otherwise count via a
   // malformed root and fail only indirectly through the M3 floor).
   for (let i = 0; i < SYNTHETIC_ACCEPT_PROGRAMS.length; i += 1) {
@@ -208,7 +205,16 @@ function runWall(): WallResult {
   }
 
   parseFailures.sort();
-  return { filesFound: files.length, parseFailures, acceptedPrograms, excludedCount, returnChecksRun, offenders };
+  validatorRejected.sort();
+  return {
+    filesFound: files.length,
+    parseFailures,
+    validatorRejected,
+    acceptedPrograms,
+    severitiesSeen,
+    returnChecksRun,
+    offenders,
+  };
 }
 
 describe('THE ZERO-FP ACCEPTANCE WALL', () => {
@@ -224,8 +230,17 @@ describe('THE ZERO-FP ACCEPTANCE WALL', () => {
     expect(wall.parseFailures).toEqual([...PARSE_FAILURE_ALLOWLIST]);
   });
 
-  test('validator-rejected count is pinned (drift is visible)', () => {
-    expect(wall.excludedCount).toBe(VALIDATOR_REJECTED_COUNT);
+  test('validator-rejected set exactly matches the pinned allowlist (drift is visible)', () => {
+    expect(wall.validatorRejected).toEqual([...VALIDATOR_REJECTED_ALLOWLIST]);
+  });
+
+  test('severity sanity: the error filter compares against a live field', () => {
+    // Every observed severity must be a known value (a renamed/recased field
+    // would surface as 'undefined' here), and the corpus's 28 warning-bearing
+    // files must actually be observed as warnings.
+    const unknown = [...wall.severitiesSeen].filter((s) => !KNOWN_SEVERITIES.has(s));
+    expect(unknown).toEqual([]);
+    expect(wall.severitiesSeen.has('warning')).toBe(true);
   });
 
   test('NON-VACUITY: filesFound >= 100', () => {
