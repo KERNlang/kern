@@ -403,6 +403,10 @@ const FIXTURES = [
   // (RED at base: -1). The str-receiver branch uses Python str.find. Kills the scan impl.
   { name: 'RT4: str indexOf multi-char substring', expr: 's.indexOf("ll")', path: '/api/s', bindings: { locals: { s: 'hello' } }, expected: 2 },
   { name: 'RT5: str indexOf multi-char substring with fromIndex', expr: 's.indexOf("lo", 2)', path: '/api/s', bindings: { locals: { s: 'hello' } }, expected: 3 },
+  // RT6 (agon review, claude/zai): JS CLAMPS a negative fromIndex to 0 on str
+  // receivers; Python str.find counts from the end. Kills an unclamped find()
+  // (which returns -1 here).
+  { name: 'RT6: str indexOf negative fromIndex clamps to 0', expr: 's.indexOf("h", -2)', path: '/api/s', bindings: { locals: { s: 'hello' } }, expected: 0 },
   { name: 'str-method: padStart', expr: 's.padStart(8, "0")', path: '/api/s', bindings: { locals: { s: 'banana' } }, expected: '00banana' },
   { name: 'str-method: padEnd', expr: 's.padEnd(8, "0")', path: '/api/s', bindings: { locals: { s: 'banana' } }, expected: 'banana00' },
   { name: 'str-method: repeat', expr: 's.repeat(2)', path: '/api/s', bindings: { locals: { s: 'ab' } }, expected: 'abab' },

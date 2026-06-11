@@ -126,6 +126,16 @@ describe('emitPyExpression — arithmetic + comparison + unary', () => {
     expect(emitPyExpression(parseExpression('new Point(3, 4)'))).toBe('Point(3, 4)');
   });
 
+  test('Error edge shapes also remap (agon review: paren-less new, call-without-new)', () => {
+    // `new Error` WITHOUT parens is valid JS (≡ `new Error()`); the bare ident
+    // argument must remap too, else Python emits a bare `Error` NameError.
+    expect(emitPyExpression(parseExpression('new Error'))).toBe('Exception()');
+    // JS `Error("x")` without `new` constructs an error as well.
+    expect(emitPyExpression(parseExpression('Error("x")'))).toBe('Exception("x")');
+    // Parenthesized instanceof RHS unwraps at parse — the mapping still fires.
+    expect(emitPyExpression(parseExpression('x instanceof (Error)'))).toBe('isinstance(x, Exception)');
+  });
+
   test('instanceof rejected RHS throws fail-closed at emission (spec §2/§3 defense-in-depth)', () => {
     expect(() => emitPyExpression(parseExpression('x instanceof String'))).toThrow(/instanceof-rhs-wrapper-rejected/);
     expect(() => emitPyExpression(parseExpression('x instanceof Promise'))).toThrow(

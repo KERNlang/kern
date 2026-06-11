@@ -597,7 +597,12 @@ function classifyInstanceofRhs(node: ts.Node): string | null {
   const visit = (n: ts.Node): void => {
     if (reason !== null) return;
     if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.InstanceOfKeyword) {
-      const rhs = n.right;
+      // Unwrap parens (`x instanceof (Error)`) before classification — the TS
+      // AST preserves them and a parenthesized bare ident is still a type
+      // name (agon review, 3-engine convergence). KERN's expression parser
+      // unwraps parens at parse time, so the emitter side never sees them.
+      let rhs: ts.Expression = n.right;
+      while (ts.isParenthesizedExpression(rhs)) rhs = rhs.expression;
       if (ts.isIdentifier(rhs)) {
         reason = instanceofRhsRejectReasonForName(rhs.text);
       } else if (!ts.isPropertyAccessExpression(rhs)) {
