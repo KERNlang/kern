@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "packages/core" },
+    { "path": "packages/check" },
     { "path": "packages/protocol" },
     { "path": "packages/context" },
     { "path": "packages/react" },

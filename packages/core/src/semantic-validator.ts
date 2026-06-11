@@ -2692,9 +2692,9 @@ function sortedUnique(values: readonly string[]): string[] {
   return [...new Set(values)].sort();
 }
 
-type ClassMemberKind = 'field' | 'method' | 'getter' | 'setter';
+export type ClassMemberKind = 'field' | 'method' | 'getter' | 'setter';
 
-interface ClassInfo {
+export interface ClassInfo {
   node: IRNode;
   rootIndex: number;
   name: string;
@@ -2705,7 +2705,7 @@ interface ClassInfo {
   constructors: IRNode[];
 }
 
-interface ClassMemberInfo {
+export interface ClassMemberInfo {
   node: IRNode;
   owner: string;
   name: string;
@@ -2836,7 +2836,7 @@ function validateClassGraphRoots(roots: readonly IRNode[], violations: SemanticV
   validateAbstractInstantiations(roots, classByName, visibleNamesByRoot, violations);
 }
 
-function collectClassInfos(root: IRNode, rootIndex = 0): ClassInfo[] {
+export function collectClassInfos(root: IRNode, rootIndex = 0): ClassInfo[] {
   const out: ClassInfo[] = [];
   walkSemanticTree(root, (node) => {
     if (node.type !== 'class') return;
@@ -3630,7 +3630,7 @@ function classOverrideStatus(
  * 'unknown' subtype results (gradual typing — primitives, unannotated, or
  * non-class names) are skipped, so the check produces zero false positives.
  */
-function checkOverrideVariance(
+export function checkOverrideVariance(
   member: ClassMemberInfo,
   baseMember: ClassMemberInfo,
   classByName: ReadonlyMap<string, ClassInfo>,
@@ -3671,7 +3671,7 @@ function checkOverrideVariance(
  *  - else cycle-safe walk of sub's baseName chain; reaching sup → true; chain
  *    ends or cycles without reaching sup → false.
  */
-function isNominalSubtype(
+export function isNominalSubtype(
   sub: string | undefined,
   sup: string | undefined,
   classByName: ReadonlyMap<string, ClassInfo>,

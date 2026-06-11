@@ -1,0 +1,13 @@
+export type {
+  AssignableResult,
+  ClassMemberKind,
+  NominalClassInfo,
+  OverrideMemberInfo,
+} from './assignable.js';
+export {
+  assignable,
+  checkOverrideVariance,
+  isNominalSubtype,
+} from './assignable.js';
+export type { CheckDiagnostic, CheckRule, IRNode } from './walk.js';
+export { checkProgram } from './walk.js';

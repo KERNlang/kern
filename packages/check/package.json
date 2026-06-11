@@ -1,0 +1,32 @@
+{
+  "name": "@kernlang/check",
+  "version": "3.5.8",
+  "description": "KERN nominal assignability core \u2014 lifted Liskov subtype and override-variance checks",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "kern",
+    "types",
+    "subtype",
+    "assignability",
+    "liskov"
+  ],
+  "license": "AGPL-3.0",
+  "scripts": {
+    "build": "tsc -b",
+    "test": "pnpm run build && node ../../scripts/run-node-tests.mjs \"tests/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "@kernlang/core": "workspace:*"
+  }
+}
