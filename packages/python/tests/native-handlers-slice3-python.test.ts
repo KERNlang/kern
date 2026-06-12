@@ -363,7 +363,7 @@ describe('slice 3d — optional chain ?. lowering on Python target', () => {
 
   test('await receiver single-evals via walrus', () => {
     expect(emitPyExpression(parseExpression('(await load())?.x'))).toBe(
-      '(__k_oc1.x if (not _kern_is_nullish(__k_oc1 := await load())) else _KERN_UNDEFINED)',
+      '(__k_oc1.x if (not _kern_is_nullish(__k_oc1 := (await load()))) else _KERN_UNDEFINED)',
     );
   });
 

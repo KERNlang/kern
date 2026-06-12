@@ -3037,8 +3037,7 @@ function lowerPortableArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, 
   if (recv.guard !== null) return null;
   const recvExpr = embedsReceiverInGenexp ? parenthesizeIterable(recv.expr) : recv.expr;
   const args = call.args.map((a) => (callee.property === 'fill' ? emitPyArrayFillArg(a, ctx) : emitPyExprCtx(a, ctx)));
-  const lowered = lowerPortableArrayMethodPy(recv.expr, callee.property, args, { sentinelMiss: ctx.coerceJsValues });
-  const lowered = lowerPortableArrayMethodPy(recvExpr, callee.property, args);
+  const lowered = lowerPortableArrayMethodPy(recvExpr, callee.property, args, { sentinelMiss: ctx.coerceJsValues });
   if (lowered !== null && callee.property === 'fill') {
     ctx.helpers.add(KERN_JS_ARRAY_HELPERS_PY);
   }
