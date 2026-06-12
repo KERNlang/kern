@@ -514,12 +514,19 @@ function evalBinary(node: Extract<ValueIR, { kind: 'binary' }>, env: CoreRuntime
     case '/':
     case '%':
       return evalNumberBinary(node.op, left, right);
+    // Slice S7 — split loose (`==`) and strict (`===`) equality so the
+    // null/undefined boundary matches JS: `undefined == null` is TRUE (both
+    // nullish) but `undefined === null` is FALSE (distinct kinds). Pre-S7 a
+    // single `kernEquals` served both ops and, since `undefined` and `null` are
+    // distinct KernValue kinds, made `undefined == null` wrongly FALSE.
     case '===':
+      return kBoolean(kernStrictEqual(left, right));
     case '==':
-      return kBoolean(kernEquals(left, right));
+      return kBoolean(kernLooseEqual(left, right));
     case '!==':
+      return kBoolean(!kernStrictEqual(left, right));
     case '!=':
-      return kBoolean(!kernEquals(left, right));
+      return kBoolean(!kernLooseEqual(left, right));
     case '<':
     case '<=':
     case '>':
@@ -2048,7 +2055,13 @@ function kernStringCoerce(value: KernValue): string {
   return String(toHostValue(value));
 }
 
-function kernEquals(left: KernValue, right: KernValue): boolean {
+/**
+ * Slice S7 — STRICT equality (`===` / `!==`). Different kinds are unequal, so
+ * `undefined === null` is FALSE. Same-nullish-kind is equal (`undefined ===
+ * undefined`, `null === null`). Arrays/records keep the structural-strict
+ * comparison KERN has always used (element identity recurses through strict).
+ */
+function kernStrictEqual(left: KernValue, right: KernValue): boolean {
   if (left.kind !== right.kind) return false;
   switch (left.kind) {
     case 'null':
@@ -2064,7 +2077,7 @@ function kernEquals(left: KernValue, right: KernValue): boolean {
       const rightArray = right as Extract<KernValue, { kind: 'array' }>;
       return (
         left.items.length === rightArray.items.length &&
-        left.items.every((item, i) => kernEquals(item, rightArray.items[i]))
+        left.items.every((item, i) => kernStrictEqual(item, rightArray.items[i]))
       );
     }
     case 'record': {
@@ -2074,7 +2087,8 @@ function kernEquals(left: KernValue, right: KernValue): boolean {
       return (
         leftKeys.length === rightKeys.length &&
         leftKeys.every(
-          (key) => Object.hasOwn(rightRecord.entries, key) && kernEquals(left.entries[key], rightRecord.entries[key]),
+          (key) =>
+            Object.hasOwn(rightRecord.entries, key) && kernStrictEqual(left.entries[key], rightRecord.entries[key]),
         )
       );
     }
@@ -2086,6 +2100,19 @@ function kernEquals(left: KernValue, right: KernValue): boolean {
     case 'super':
       return left === right;
   }
+}
+
+/**
+ * Slice S7 — LOOSE equality (`==` / `!=`). The ONLY divergence from strict in
+ * this slice is the null/undefined crossing: `undefined == null` and `null ==
+ * undefined` are TRUE (both nullish). Every other comparison defers to strict —
+ * KERN's typed value domain does not model the rest of JS's `==` coercion
+ * ladder (number↔string, boolean↔number), and the room contract scopes loose
+ * equality to the nullish boundary.
+ */
+function kernLooseEqual(left: KernValue, right: KernValue): boolean {
+  if (isNullish(left) && isNullish(right)) return true;
+  return kernStrictEqual(left, right);
 }
 
 function isNullish(value: KernValue): boolean {

@@ -70,6 +70,8 @@ import {
   KERN_FMT_HELPER_PY,
   KERN_JS_ARRAY_HELPERS_PY,
   KERN_JS_HELPER_PY,
+  KERN_JSON_STRINGIFY_SHIM_PY,
+  KERN_NULLISH_HELPER_PY,
   KERN_PAIR_HELPERS_PY,
   KERN_TMOD_HELPER_PY,
   KERN_TO_NUMBER_HELPER_PY,
@@ -1668,17 +1670,29 @@ function emitDestructurePy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (bindings.length > 0) {
     const tmp = `__k_d${++ctx.gensymCounter}`;
     const lines = [`${tmp} = ${source}`];
+    // Slice S7 — an ABSENT destructured key is JS `undefined` (the sentinel), so
+    // `typeof missing` is "undefined" not "object". `.get(key, _KERN_UNDEFINED)`
+    // returns the sentinel for an absent key AND preserves a PRESENT key whose
+    // stored value is already the sentinel (`{ a: undefined }`) — the two stay
+    // distinct from a present `None`. Ground/React (non-coerce) keeps `.get(key)`
+    // (None default), since it never materializes the sentinel.
+    const miss = ctx.coerceJsValues ? ', _KERN_UNDEFINED' : '';
+    if (ctx.coerceJsValues) ctx.helpers.add(KERN_NULLISH_HELPER_PY);
     for (const child of bindings) {
       const cp = (child.props ?? {}) as Record<string, unknown>;
       const name = String(cp.name ?? '');
       if (!name) throw new Error('body-statement `binding` requires `name=`.');
       const key = cp.key === undefined || cp.key === '' ? name : String(cp.key);
-      lines.push(`${ctx.symbolMap[name] ?? name} = ${tmp}.get(${JSON.stringify(key)})`);
+      lines.push(`${ctx.symbolMap[name] ?? name} = ${tmp}.get(${JSON.stringify(key)}${miss})`);
     }
     return lines;
   }
 
   const tmp = `__k_d${++ctx.gensymCounter}`;
+  // Slice S7 — an out-of-range array-destructure element is JS `undefined` (the
+  // sentinel) in value mode; Ground/React keeps `None`.
+  const arrMiss = ctx.coerceJsValues ? '_KERN_UNDEFINED' : 'None';
+  if (ctx.coerceJsValues && elements.length > 0) ctx.helpers.add(KERN_NULLISH_HELPER_PY);
   return [
     `${tmp} = ${source}`,
     ...elements
@@ -1690,7 +1704,7 @@ function emitDestructurePy(node: IRNode, ctx: BodyEmitContext): string[] {
         if (Number.isNaN(index)) throw new Error('body-statement `element` requires numeric `index=`.');
         return {
           index,
-          line: `${ctx.symbolMap[name] ?? name} = (${tmp}[${index}] if len(${tmp}) > ${index} else None)`,
+          line: `${ctx.symbolMap[name] ?? name} = (${tmp}[${index}] if len(${tmp}) > ${index} else ${arrMiss})`,
         };
       })
       .sort((a, b) => a.index - b.index)
@@ -2022,7 +2036,7 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       // The top-level wrapper produces `(expr if guard else None)` once
       // (or just `expr` when no `?.` was seen).
       const lowered = lowerChain(node, ctx);
-      return wrapGuardIfAny(lowered);
+      return wrapGuardIfAny(lowered, ctx);
     }
     case 'await':
       return `await ${emitPyExprCtx(node.argument, ctx)}`;
@@ -2274,6 +2288,24 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
           return `(lambda ${tmp}: (${tmp} if (${tmp} is not None and ${tmp} is not _KERN_UNDEFINED) else ${right}))(${left})`;
         }
         return `(${tmp} if ((${tmp} := ${left}) is not None and ${tmp} is not _KERN_UNDEFINED) else ${right})`;
+      }
+
+      // Slice S7 — split loose (`==`/`!=`) and strict (`===`/`!==`) equality so
+      // the null/undefined boundary matches JS: `undefined == null` is True (both
+      // nullish), `undefined === null` is False (distinct identities). Pre-S7
+      // both lowered to Python `==`, which on the sentinel/None pair is False —
+      // wrong for the loose op. Routed through the helper pair only in native
+      // (coerce) bodies; the helper-less Ground/React layer keeps the raw
+      // `==`/`!=` mapping (it never materializes the sentinel, so the nullish
+      // crossing cannot arise there). Function-call form sidesteps Python's
+      // comparison-chaining entirely, so no chain-paren handling is needed for
+      // the equality ops themselves; chained comparison CHILDREN still recurse
+      // through `emitPyExprCtx` and self-parenthesize as before.
+      if (ctx.coerceJsValues && (node.op === '===' || node.op === '!==' || node.op === '==' || node.op === '!=')) {
+        ctx.helpers.add(KERN_NULLISH_HELPER_PY);
+        const fn = node.op === '===' || node.op === '!==' ? '_kern_strict_equal' : '_kern_loose_equal';
+        const call = `${fn}(${left}, ${right})`;
+        return node.op === '!==' || node.op === '!=' ? `(not ${call})` : call;
       }
 
       const forceLeft = needsComparisonChainParens(node.left, node.op);
@@ -2758,6 +2790,55 @@ interface GuardedExpr {
   expr: string;
 }
 
+/** Slice S7 — the presence test an optional `?.`/`?.[]` link contributes to the
+ *  accumulated chain guard. Native (coerce) bodies test against the full nullish
+ *  set (`None` AND the undefined sentinel) so `undefined?.x` short-circuits; the
+ *  helper-less Ground/React layer keeps the pre-slice `is not None` test (it
+ *  never materializes the sentinel). `ref` may itself be a walrus assignment
+ *  expression (`(__k_oc1 := f())`), which Python evaluates exactly once. */
+function optionalPresenceTest(ref: string, ctx: BodyEmitContext): string {
+  if (ctx.coerceJsValues) {
+    ctx.helpers.add(KERN_NULLISH_HELPER_PY);
+    return `(not _kern_is_nullish(${ref}))`;
+  }
+  // `x := f() is not None` would bind the BOOLEAN to x; parenthesize a walrus
+  // ref so the receiver (not the comparison) is what gets bound.
+  const wrapped = ref.includes(':=') ? `(${ref})` : ref;
+  return `${wrapped} is not None`;
+}
+
+interface OptionalLink {
+  guard: string;
+  branchRef: string;
+}
+
+/** Slice S7 — build the guard + branch-receiver reference for one optional link.
+ *  Pure receivers keep the readable double-name form (named in both the guard
+ *  and the branch — re-evaluation is side-effect-free). A NON-pure receiver is
+ *  bound ONCE via the S4 walrus idiom: the guard carries `(__k_ocN := RECV)` so
+ *  the side effect runs exactly once, and the branch references the bound name.
+ *  A non-pure receiver that is ITSELF an optional chain (`inner.guard !== null`)
+ *  cannot host the walrus and still throws — bind it to a `let` first. */
+function lowerOptionalLink(inner: GuardedExpr, objectNode: ValueIR, ctx: BodyEmitContext): OptionalLink {
+  const pure = isReceiverChainPure(objectNode);
+  if (pure) {
+    const presence = optionalPresenceTest(inner.expr, ctx);
+    return {
+      guard: inner.guard === null ? presence : `${inner.guard} and ${presence}`,
+      branchRef: inner.expr,
+    };
+  }
+  if (inner.guard !== null) {
+    throw new Error(
+      "Optional chain '?.' on Python target requires a side-effect-free receiver (identifier or pure member chain). " +
+        'Bind the call/await result to a `let` first, then use `let.field?.next` on the bound name.',
+    );
+  }
+  const tmp = `__k_oc${++ctx.gensymCounter}`;
+  const presence = optionalPresenceTest(`${tmp} := ${inner.expr}`, ctx);
+  return { guard: presence, branchRef: tmp };
+}
+
 type ChainNode = Extract<ValueIR, { kind: 'member' | 'call' | 'index' }>;
 
 function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
@@ -2791,23 +2872,24 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
     // link is rewritten; the accumulated optional-chain guard is left UNTOUCHED
     // and still flows through `wrapGuardIfAny`, so `items?.length` stays
     // `(len(items) if items is not None else None)`-shaped.
+    if (node.optional) {
+      // Slice S7 — single-eval optional `?.`. A pure receiver may be named twice
+      // (guard + branch) with no observable effect, so it keeps the readable
+      // double-name form. A NON-pure receiver (e.g. `markReceiver(null)?.x`) is
+      // bound ONCE via the S4 walrus idiom so its side effect runs exactly once;
+      // the BOUND name is then used in both the guard's presence test and the
+      // trailing link. Only a single optional link can host the walrus (the
+      // receiver is not itself an optional chain ⇒ `inner.guard === null`); a
+      // non-pure receiver UNDER an existing optional chain still throws below.
+      const opt = lowerOptionalLink(inner, node.object, ctx);
+      const linkExpr = isSharedPortableArrayProperty(node.property)
+        ? (lowerPortableArrayPropertyPy(opt.branchRef, node.property) ?? `${opt.branchRef}.${node.property}`)
+        : `${opt.branchRef}.${node.property}`;
+      return { guard: opt.guard, expr: linkExpr };
+    }
     const linkExpr = isSharedPortableArrayProperty(node.property)
       ? (lowerPortableArrayPropertyPy(inner.expr, node.property) ?? `${inner.expr}.${node.property}`)
       : `${inner.expr}.${node.property}`;
-    if (node.optional) {
-      // The receiver expression names what we need to test. The expr names
-      // the receiver twice (once in test, once in branch); reject when that
-      // would re-evaluate side-effecting code.
-      if (!isReceiverChainPure(node.object)) {
-        throw new Error(
-          "Optional chain '?.' on Python target requires a side-effect-free receiver (identifier or pure member chain). " +
-            'Bind the call/await result to a `let` first, then use `let.field?.next` on the bound name.',
-        );
-      }
-      const newGuard =
-        inner.guard === null ? `${inner.expr} is not None` : `${inner.guard} and ${inner.expr} is not None`;
-      return { guard: newGuard, expr: linkExpr };
-    }
     return { guard: inner.guard, expr: linkExpr };
   }
   if (node.kind === 'index') {
@@ -2828,18 +2910,11 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
         : { guard: null, expr: emitPyExprCtx(obj, ctx) };
     const index = emitPyExprCtx(node.index, ctx);
     if (node.optional) {
-      // The Python lowering names the receiver in the guard and the branch.
-      // Keep that single-eval-safe by requiring a pure receiver. The index
-      // expression appears only in the selected branch, matching JS `?.[]`.
-      if (!isReceiverChainPure(node.object)) {
-        throw new Error(
-          "Optional element access '?.[]' on Python target requires a side-effect-free receiver. " +
-            'Bind call/await receiver results to `let` first, then index the bound name.',
-        );
-      }
-      const newGuard =
-        inner.guard === null ? `${inner.expr} is not None` : `${inner.guard} and ${inner.expr} is not None`;
-      return { guard: newGuard, expr: `${inner.expr}[${index}]` };
+      // Slice S7 — single-eval optional `?.[]` (same walrus discipline as `?.`).
+      // A non-pure receiver is bound once; the index expression appears only in
+      // the selected branch, matching JS `?.[]`.
+      const opt = lowerOptionalLink(inner, node.object, ctx);
+      return { guard: opt.guard, expr: `${opt.branchRef}[${index}]` };
     }
     const wrapped = needsIndexReceiverParens(node.object) ? `(${inner.expr})` : inner.expr;
     return { guard: inner.guard, expr: `${wrapped}[${index}]` };
@@ -2962,9 +3037,14 @@ function lowerPortableArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, 
   if (recv.guard !== null) return null;
   const recvExpr = embedsReceiverInGenexp ? parenthesizeIterable(recv.expr) : recv.expr;
   const args = call.args.map((a) => (callee.property === 'fill' ? emitPyArrayFillArg(a, ctx) : emitPyExprCtx(a, ctx)));
-  const lowered = lowerPortableArrayMethodPy(recvExpr, callee.property, args);
+  const lowered = lowerPortableArrayMethodPy(recvExpr, callee.property, args, { sentinelMiss: ctx.coerceJsValues });
   if (lowered !== null && callee.property === 'fill') {
     ctx.helpers.add(KERN_JS_ARRAY_HELPERS_PY);
+  }
+  // Slice S7 — `Array.at` out-of-range yields the undefined sentinel in value
+  // mode; register the helper that defines `_KERN_UNDEFINED`.
+  if (lowered !== null && callee.property === 'at' && ctx.coerceJsValues) {
+    ctx.helpers.add(KERN_NULLISH_HELPER_PY);
   }
   return lowered;
 }
@@ -3375,8 +3455,18 @@ function pyRegexFlags(flags: string, options: { allowGlobal?: boolean } = {}): s
   return parts.length > 0 ? parts.join(' | ') : '0';
 }
 
-function wrapGuardIfAny(g: GuardedExpr): string {
-  return g.guard === null ? g.expr : `(${g.expr} if ${g.guard} else None)`;
+function wrapGuardIfAny(g: GuardedExpr, ctx: BodyEmitContext): string {
+  if (g.guard === null) return g.expr;
+  // Slice S7 — an optional-chain short-circuit yields the undefined SENTINEL in
+  // native (coerce) bodies, so `typeof (undefined?.x)` is "undefined" and the
+  // result participates in `??`/`===` nullish semantics. The helper-less
+  // Ground/React layer (which never materializes the sentinel) keeps the
+  // pre-slice `else None` short-circuit.
+  if (ctx.coerceJsValues) {
+    ctx.helpers.add(KERN_NULLISH_HELPER_PY);
+    return `(${g.expr} if ${g.guard} else _KERN_UNDEFINED)`;
+  }
+  return `(${g.expr} if ${g.guard} else None)`;
 }
 
 /** Slice S5 — does the LEFT operand of a `&&`/`||` walrus binding
@@ -3484,6 +3574,10 @@ function needsIndexReceiverParens(child: ValueIR): boolean {
  *  receivers). */
 function isReceiverChainPure(node: ValueIR): boolean {
   if (node.kind === 'ident') return true;
+  // Slice S7 — `undefined`/`null` literals are constant, so an optional chain
+  // rooted at one (`undefined?.x`, `null?.x`) names a side-effect-free value and
+  // takes the readable double-name guard form (short-circuiting to the sentinel).
+  if (node.kind === 'undefLit' || node.kind === 'nullLit') return true;
   if (node.kind === 'member') return isReceiverChainPure(node.object);
   if (node.kind === 'index') return isReceiverChainPure(node.object) && isPureIndexExpression(node.index);
   return false;
@@ -3699,6 +3793,16 @@ function applyStdlibLoweringPython(call: Extract<ValueIR, { kind: 'call' }>, ctx
     const emitted = emitPyExprCtx(a, ctx);
     return needsArgParens(a) ? `(${emitted})` : emitted;
   });
+  // Slice S7 — `Json.stringify` on Python routes through the sentinel-aware shim
+  // (single-source `KERN_JSON_STRINGIFY_SHIM_PY`) instead of raw `__k_json.dumps`,
+  // so `JSON.stringify(undefined)` is host-undefined, an object key whose value
+  // is the sentinel is omitted, and a sentinel array element becomes JSON null —
+  // matching JS. The shim references `__k_json`, supplied by the table's
+  // `requires.py: 'json'` import registered above (one import shared with parse).
+  if (moduleName === 'Json' && methodName === 'stringify') {
+    ctx.helpers.add(KERN_JSON_STRINGIFY_SHIM_PY);
+    return `_kern_json_stringify(${args[0]})`;
+  }
   return applyTemplate(entry.py, args);
 }
 

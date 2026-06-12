@@ -13,7 +13,7 @@ import {
   emitPyExpression,
   emitPyExpressionWithImports,
 } from '../src/codegen-body-python.js';
-import { KERN_FMT_HELPER_PY, KERN_JS_HELPER_PY } from '../src/core/expr/helpers.js';
+import { KERN_FMT_HELPER_PY, KERN_JS_HELPER_PY, KERN_NULLISH_HELPER_PY } from '../src/core/expr/helpers.js';
 import { generateFunction } from '../src/generators/core.js';
 
 function makeHandler(stmts: Array<{ type: string; props: Record<string, unknown>; children?: IRNode[] }>): IRNode {
@@ -28,6 +28,10 @@ function makeHandler(stmts: Array<{ type: string; props: Record<string, unknown>
 // (the _KERN_UNDEFINED sentinel + _kern_fmt + __kern_add helpers) whenever a body
 // is lowered, ending with a blank-line separator before the body statements.
 const PY_PRELUDE = `${KERN_FMT_HELPER_PY}\n\n`;
+// Slice S7 — a body that ratchets a value-site miss to the undefined sentinel
+// (destructure absent key / array out-of-range) surfaces the nullish helper
+// block (which defines `_KERN_UNDEFINED`).
+const PY_PRELUDE_NULLISH = `${KERN_NULLISH_HELPER_PY}\n\n`;
 // Slice S4 — a body whose `if cond=`/ternary/`!`/`firstTruthy` touches the
 // truthiness helper surfaces `KERN_JS_HELPER_PY`. `JS_PRELUDE` is that helper
 // alone (bodies with no value coercion); `PY_PRELUDE_WITH_TRUTHY` is the JS
@@ -73,9 +77,11 @@ describe('emitPyExpression — slice 1 lowering rules', () => {
   });
 
   test('typed lambda return predicates erase on Python target', () => {
+    // Slice S7 — `value !== null` routes the strict inequality through
+    // `_kern_strict_equal` (so the null/undefined boundary matches JS).
     expect(
       emitPyExpression(parseExpression('values.filter((value: unknown): value is string => value !== null)')),
-    ).toBe('values.filter(lambda value: value != None)');
+    ).toBe('values.filter(lambda value: (not _kern_strict_equal(value, None)))');
   });
 
   test('TS generic call args and non-null assertions erase on Python target', () => {
@@ -428,10 +434,16 @@ describe('emitNativeKernBodyPython — slice 1 statements', () => {
       },
       { type: 'return', props: { value: 'trackId' } },
     ]);
+    // Slice S7 — absent keys default to the undefined sentinel (so `typeof
+    // missing` is "undefined"); a present key whose value is the sentinel is
+    // preserved by `.get`.
     expect(emitNativeKernBodyPython(h, { symbolMap: { trackId: 'track_id' } })).toBe(
-      ['__k_d1 = body', 'track_id = __k_d1.get("track_id")', 'options = __k_d1.get("options")', 'return track_id'].join(
-        '\n',
-      ),
+      `${PY_PRELUDE_NULLISH}${[
+        '__k_d1 = body',
+        'track_id = __k_d1.get("track_id", _KERN_UNDEFINED)',
+        'options = __k_d1.get("options", _KERN_UNDEFINED)',
+        'return track_id',
+      ].join('\n')}`,
     );
   });
 
@@ -443,7 +455,9 @@ describe('emitNativeKernBodyPython — slice 1 statements', () => {
         children: [{ type: 'binding', props: { name: 'id', key: '' } }],
       },
     ]);
-    expect(emitNativeKernBodyPython(h)).toBe(['__k_d1 = body', 'id = __k_d1.get("id")'].join('\n'));
+    expect(emitNativeKernBodyPython(h)).toBe(
+      `${PY_PRELUDE_NULLISH}${['__k_d1 = body', 'id = __k_d1.get("id", _KERN_UNDEFINED)'].join('\n')}`,
+    );
   });
 
   test('array destructuring lowers to missing-safe index reads', () => {
@@ -457,12 +471,13 @@ describe('emitNativeKernBodyPython — slice 1 statements', () => {
         ],
       },
     ]);
+    // Slice S7 — out-of-range array-destructure elements default to the sentinel.
     expect(emitNativeKernBodyPython(h)).toBe(
-      [
+      `${PY_PRELUDE_NULLISH}${[
         '__k_d1 = pair',
-        'first = (__k_d1[0] if len(__k_d1) > 0 else None)',
-        'third = (__k_d1[2] if len(__k_d1) > 2 else None)',
-      ].join('\n'),
+        'first = (__k_d1[0] if len(__k_d1) > 0 else _KERN_UNDEFINED)',
+        'third = (__k_d1[2] if len(__k_d1) > 2 else _KERN_UNDEFINED)',
+      ].join('\n')}`,
     );
   });
 });

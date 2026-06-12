@@ -621,10 +621,28 @@ fn name=probe returns=number
 fn name=probe returns=number[]
   handler
     return value="new Box().oob()"`,
-    // [10,20].at(9) is undefined in JS / None in Python -> wrapped as [null]. Kills a
-    // bare `recv[n]` impl (IndexError on Python). The array-wrap makes the null
-    // observable as JSON `[null]` on both targets.
+    // [10,20].at(9) is `undefined` in JS and the `_KERN_UNDEFINED` sentinel in
+    // Python (S7 value-site ratchet). Wrapped in an array, JSON.stringify maps the
+    // undefined element to `null` on both targets (the Python harness mirrors this
+    // via its sentinel-aware serialize default). Kills a bare `recv[n]` impl
+    // (IndexError on Python). The array-wrap makes the null observable as `[null]`.
     expected: [null],
+  },
+  {
+    name: 'scalar S10b: sentinel object value omits the key (JSON.stringify parity)',
+    kern: `class name=Box export=true
+  field name=data type=number[] value={{ [10, 20] }}
+  method name=shape returns=object
+    handler
+      return value="{ miss: this.data.at(9), keep: this.data.at(0) }"
+fn name=probe returns=object
+  handler
+    return value="new Box().shape()"`,
+    // JS JSON.stringify OMITS an object key whose value is `undefined`, while an
+    // ARRAY element becomes `null` (S10). This row pins the asymmetry: a harness
+    // (or shim) that maps every sentinel to null emits {"miss":null,...} and
+    // fails against the TS leg (r2 review fix, codex 0.97).
+    expected: { keep: 10 },
   },
   {
     name: 'scalar S11: fill(value, start, end) return value (mutated receiver, bounds)',
@@ -1834,8 +1852,31 @@ for (let i = 0; i < FIXTURES.length; i++) {
     const tsFile = join(dir, `mod-${i}.mjs`);
     writeFileSync(tsFile, transpileTs(tsCompiler, tsSource));
 
-    // Python module
-    const pySource = `import json\n${topNodes.map((n) => generatePythonCoreNode(n).join('\n')).join('\n\n')}\nprint(json.dumps(probe()))`;
+    // Python module.
+    // Slice S7 — `Array.at` out-of-range (and other value-site misses) now yield
+    // the `_KERN_UNDEFINED` sentinel, which raw `json.dumps` cannot serialize.
+    // The harness mirrors JS `JSON.stringify` semantics with a recursive
+    // pre-pass (r2 review fix, codex 0.97 — a `default=` hook alone maps EVERY
+    // sentinel to `null`, but JS OMITS object keys whose value is `undefined`
+    // and only nulls ARRAY elements): sentinel dict values drop their key,
+    // sentinel list elements become None, recursion covers nesting, and a
+    // top-level sentinel serializes as None (loud TS-side mismatch by design).
+    // The sentinel is matched by class NAME — it may not be defined in modules
+    // that never use it, so an isinstance check would NameError.
+    const pyProbeSerialize = [
+      'def _kern_conformance_prepare(__k_v):',
+      "    if type(__k_v).__name__ == '_KernUndefined':",
+      '        return None',
+      '    if isinstance(__k_v, list):',
+      '        return [_kern_conformance_prepare(__k_x) for __k_x in __k_v]',
+      '    if isinstance(__k_v, dict):',
+      "        return {__k_k: _kern_conformance_prepare(__k_x) for __k_k, __k_x in __k_v.items() if type(__k_x).__name__ != '_KernUndefined'}",
+      '    return __k_v',
+      'print(json.dumps(_kern_conformance_prepare(probe())))',
+    ].join('\n');
+    // `from typing import Any` — `returns=object` methods annotate as
+    // `dict[str, Any]` (S10b is the first such fixture); stdlib, side-effect-free.
+    const pySource = `import json\nfrom typing import Any\n${topNodes.map((n) => generatePythonCoreNode(n).join('\n')).join('\n\n')}\n${pyProbeSerialize}`;
     const pyFile = join(dir, `mod-${i}.py`);
     writeFileSync(pyFile, pySource);
 
