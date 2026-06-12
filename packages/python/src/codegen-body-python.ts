@@ -2140,6 +2140,53 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
         return `__kern_add(${left}, ${right})`;
       }
 
+      if (node.op === '&&' || node.op === '||') {
+        // Slice S5 — logical `&&` / `||` RESULT-VALUE semantics on Python.
+        //
+        // KERN `&&`/`||` are operand-selectors, not boolean operators:
+        //   `a && b` returns `a` when ToBoolean(a) is false, else `b`.
+        //   `a || b` returns `a` when ToBoolean(a) is true,  else `b`.
+        // Python's `and`/`or` use Python truthiness (`bool(x)` / `len(x)`), which
+        // diverges from KERN ToBoolean on `[]`, `{}`, `NaN`, `"0"`, `"false"`,
+        // `" "` — e.g. `[] or x` returns `x` in Python but must return `[]` in
+        // KERN. So `and`/`or` are wrong; we lower through the SAME `_kern_truthy`
+        // (KERN ToBoolean) substrate S4 routes `!`/ternary/`if cond=` through.
+        //
+        // Canonical lowering (single-eval, lazy, original-value-returning):
+        //   L && R  ->  (__k_logN if not _kern_truthy(__k_logN := L) else R)
+        //   L || R  ->  (__k_logN if     _kern_truthy(__k_logN := L) else R)
+        //
+        // The walrus binds L EXACTLY ONCE (works for calls/indexes/members/
+        // nested logicals — no double-read), `_kern_truthy` decides the branch
+        // on KERN truthiness, and the unselected operand is NEVER evaluated
+        // (Python conditional-expr branches are lazy). NO ident/pure-left fast
+        // path in this slice — conservative walrus for EVERY left operand is the
+        // single-eval law (S4 carry-forward; optimization needs its own oracle).
+        //
+        // Emitted UNCONDITIONALLY for both native (`coerceJsValues`) and Ground/
+        // React layers — mirroring S4's `!`/ternary, which also emit
+        // `_kern_truthy` regardless of the coercion flag. The `[]`/`{}`/`NaN`
+        // divergence is independent of the undefined sentinel, so a Ground-layer
+        // `a and b` would be just as wrong; parity demands one spelling.
+        // `KERN_JS_HELPER_PY` is in Ground's prelude registry, so the helper is
+        // inlined there too.
+        ctx.helpers.add(KERN_JS_HELPER_PY);
+        const tmp = `__k_log${++ctx.gensymCounter}`;
+        // `:=` (PEP 572) binds looser than almost everything, so a low-precedence
+        // left operand (conditional/lambda/walrus-bearing) must be parenthesized
+        // so `__k_logN := L` captures the WHOLE operand. A nested `&&`/`||` is
+        // already self-parenthesized, so this only fires on raw conditional/
+        // lambda left operands.
+        const leftOperand = needsWalrusOperandParens(node.left) ? `(${left})` : left;
+        // The `else` branch is a conditional-expression alternate; a bare
+        // conditional/lambda there reparses ambiguously, so wrap it. A nested
+        // logical R is self-parenthesized; only raw conditional/lambda needs it.
+        const rightOperand = needsConditionalAlternateParens(node.right) ? `(${right})` : right;
+        const test = `_kern_truthy(${tmp} := ${leftOperand})`;
+        const guarded = node.op === '&&' ? `not ${test}` : test;
+        return `(${tmp} if ${guarded} else ${rightOperand})`;
+      }
+
       if (node.op === '??') {
         // Slice 4c — nullish coalesce lowering. Two shapes:
         //
@@ -3236,6 +3283,28 @@ function pyRegexFlags(flags: string, options: { allowGlobal?: boolean } = {}): s
 
 function wrapGuardIfAny(g: GuardedExpr): string {
   return g.guard === null ? g.expr : `(${g.expr} if ${g.guard} else None)`;
+}
+
+/** Slice S5 — does the LEFT operand of a `&&`/`||` walrus binding
+ *  (`__k_logN := L`) need parentheses?
+ *
+ *  The walrus sits inside a `_kern_truthy(...)` call, whose own parens already
+ *  disambiguate `L`, so this is defensive/readability wrapping for the lowest-
+ *  precedence operand shapes (a `conditional` or `lambda` left operand). A
+ *  nested `&&`/`||` left operand is already self-parenthesized by its own
+ *  lowering, and an arithmetic/comparison `binary` binds tighter than `:=`, so
+ *  neither is wrapped here. */
+function needsWalrusOperandParens(child: ValueIR): boolean {
+  return child.kind === 'conditional' || child.kind === 'lambda';
+}
+
+/** Slice S5 — does the RIGHT operand, emitted in the `else` arm of the lowered
+ *  conditional expression, need parentheses? A bare `conditional`/`lambda` in
+ *  an `else` arm parses but is ambiguous to read and brittle under further
+ *  composition, so wrap those two. A nested `&&`/`||` right operand is already
+ *  self-parenthesized. */
+function needsConditionalAlternateParens(child: ValueIR): boolean {
+  return child.kind === 'conditional' || child.kind === 'lambda';
 }
 
 function needsIndexReceiverParens(child: ValueIR): boolean {
