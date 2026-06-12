@@ -11,7 +11,9 @@ import {
   emitNativeKernBodyPython,
   emitNativeKernBodyPythonWithImports,
   emitPyExpression,
+  emitPyExpressionWithImports,
 } from '../src/codegen-body-python.js';
+import { KERN_FMT_HELPER_PY } from '../src/core/expr/helpers.js';
 import { generateFunction } from '../src/generators/core.js';
 
 function makeHandler(stmts: Array<{ type: string; props: Record<string, unknown>; children?: IRNode[] }>): IRNode {
@@ -21,6 +23,11 @@ function makeHandler(stmts: Array<{ type: string; props: Record<string, unknown>
     children: stmts.map((s) => ({ type: s.type, props: s.props, children: s.children })),
   };
 }
+
+// JS value→string coercion runtime prelude. Body-emit prepends this whole block
+// (the _KERN_UNDEFINED sentinel + _kern_fmt + __kern_add helpers) whenever a body
+// is lowered, ending with a blank-line separator before the body statements.
+const PY_PRELUDE = `${KERN_FMT_HELPER_PY}\n\n`;
 
 describe('emitPyExpression — slice 1 lowering rules', () => {
   test('booleans lower to Python True/False', () => {
@@ -33,8 +40,14 @@ describe('emitPyExpression — slice 1 lowering rules', () => {
     expect(emitPyExpression(parseExpression('none'))).toBe('None');
   });
 
-  test('undefined lowers to None (slice 1 simplification)', () => {
-    expect(emitPyExpression(parseExpression('undefined'))).toBe('None');
+  test('undefined lowers to the _KERN_UNDEFINED sentinel', () => {
+    expect(emitPyExpression(parseExpression('undefined'))).toBe('_KERN_UNDEFINED');
+  });
+
+  test('structured expression API exposes helpers needed by Array.fill lowering', () => {
+    const result = emitPyExpressionWithImports(parseExpression('arr.fill(v)'));
+    expect(result.code).toBe('_kern_js_fill(arr, v, 0, _KERN_JS_FILL_ABSENT)');
+    expect([...result.helpers].join('\n\n')).toContain('def _kern_js_fill');
   });
 
   test('await lowers to Python `await ${expr}`', () => {
@@ -113,7 +126,7 @@ describe('emitPyExpression — slice 1 lowering rules', () => {
         left: { kind: 'numLit', value: 1, raw: '1' },
         right: { kind: 'numLit', value: 2, raw: '2' },
       }),
-    ).toBe('1 + 2');
+    ).toBe('__kern_add(1, 2)');
   });
 });
 
@@ -124,19 +137,7 @@ describe('emitNativeKernBodyPython — expression-v1 and nested fn statements', 
       { type: 'return', props: { value: 'label' } },
     ]);
     expect(emitNativeKernBodyPython(handler)).toBe(
-      [
-        'def _kern_fmt(__k_v):',
-        '    if isinstance(__k_v, bool):',
-        "        return 'true' if __k_v else 'false'",
-        '    if __k_v is None:',
-        "        return 'null'",
-        '    if isinstance(__k_v, float) and __k_v.is_integer():',
-        '        return str(int(__k_v))',
-        '    return str(__k_v)',
-        '',
-        'label = _kern_fmt(value)',
-        'return label',
-      ].join('\n'),
+      PY_PRELUDE + ['label = _kern_fmt(value)', 'return label'].join('\n'),
     );
   });
 
@@ -152,7 +153,8 @@ describe('emitNativeKernBodyPython — expression-v1 and nested fn statements', 
       { type: 'return', props: { value: 'add(2, 3)' } },
     ]);
     expect(emitNativeKernBodyPython(handler)).toBe(
-      ['def add(a: float, b: float) -> float:', '    return a + b', 'return add(2, 3)'].join('\n'),
+      PY_PRELUDE +
+        ['def add(a: float, b: float) -> float:', '    return __kern_add(a, b)', 'return add(2, 3)'].join('\n'),
     );
   });
 
@@ -190,9 +192,12 @@ describe('emitNativeKernBodyPython — expression-v1 and nested fn statements', 
       },
     ]);
     expect(emitNativeKernBodyPython(handler)).toBe(
-      ['async def loadTotal(amount: float) -> float:', '    loaded = await load(amount)', '    return loaded + 5'].join(
-        '\n',
-      ),
+      PY_PRELUDE +
+        [
+          'async def loadTotal(amount: float) -> float:',
+          '    loaded = await load(amount)',
+          '    return __kern_add(loaded, 5)',
+        ].join('\n'),
     );
   });
 
@@ -212,7 +217,9 @@ describe('emitNativeKernBodyPython — expression-v1 and nested fn statements', 
       { type: 'expression-v1', props: { name: 'total', expr: { __expr: true, code: 'amount + 1' } } },
       { type: 'return', props: { value: 'total' } },
     ]);
-    expect(emitNativeKernBodyPython(handler)).toBe(['total = amount + 1', 'return total'].join('\n'));
+    expect(emitNativeKernBodyPython(handler)).toBe(
+      PY_PRELUDE + ['total = __kern_add(amount, 1)', 'return total'].join('\n'),
+    );
   });
 
   test('nested fn rejects mixed legacy and structured params', () => {
@@ -591,10 +598,11 @@ describe('emitNativeKernBodyPython — coalesce / firstDefined body statement', 
       { type: 'return', props: { value: 'winner' } },
     ]);
     expect(emitNativeKernBodyPython(handler)).toBe(
-      [
-        'winner = (count if count is not None else (flag if flag is not None else (label if label is not None else "fallback")))',
-        'return winner',
-      ].join('\n'),
+      PY_PRELUDE +
+        [
+          'winner = (count if (count is not None and count is not _KERN_UNDEFINED) else (flag if (flag is not None and flag is not _KERN_UNDEFINED) else (label if (label is not None and label is not _KERN_UNDEFINED) else "fallback")))',
+          'return winner',
+        ].join('\n'),
     );
   });
 
@@ -604,7 +612,11 @@ describe('emitNativeKernBodyPython — coalesce / firstDefined body statement', 
       { type: 'return', props: { value: 'winner' } },
     ]);
     expect(emitNativeKernBodyPython(handler)).toBe(
-      ['winner = (primary if primary is not None else secondary)', 'return winner'].join('\n'),
+      PY_PRELUDE +
+        [
+          'winner = (primary if (primary is not None and primary is not _KERN_UNDEFINED) else secondary)',
+          'return winner',
+        ].join('\n'),
     );
   });
 

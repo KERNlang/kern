@@ -8,6 +8,10 @@ export {
   SUPPORTED_ASSIGN_OPERATORS,
   supportedCompoundAssignmentOperator,
 } from './assignment-operators.js';
+// v1 closure gate — shared eligibility predicate + emission precondition for
+// block-bodied arrows (slices 0+1). Single owner consumed by parser, migrator
+// eligibility classifier, and the Python lowerer.
+export { classifyClosureBlock, collectFreeIdentifierNames, parseClosureBlockAst } from './closure-eligibility.js';
 export type {
   LowerJsClosureBodyToPythonOptions,
   LowerJsClosureBodyToPythonResult,
@@ -140,6 +144,9 @@ export {
   VALID_STRUCTURES,
   VALID_TARGETS,
 } from './config.js';
+// Canonical constructor-super predicate — single source of truth shared by the
+// validator, runtime, and both codegen targets (TS here + Python via this export).
+export { hasDirectSuperCtorCall } from './constructor-super.js';
 export type {
   CoreFixture,
   CoreFixtureError,
@@ -276,6 +283,13 @@ export {
 // TS → .kern importer
 export type { ImportResult } from './importer.js';
 export { escapeKernString, importTypeScript } from './importer.js';
+export type { InstanceofRhsRejectReason } from './instanceof-rhs.js';
+export {
+  INSTANCEOF_RHS_BUILTIN_REJECT,
+  INSTANCEOF_RHS_WRAPPER_REJECT,
+  instanceofRhsPythonType,
+  instanceofRhsRejectReasonForName,
+} from './instanceof-rhs.js';
 export {
   expressionV1Contract,
   registerExpressionV1Contract,

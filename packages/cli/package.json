@@ -30,6 +30,7 @@
     "test": "pnpm run build && node ../../scripts/run-node-tests.mjs \"tests/**/*.test.ts\""
   },
   "dependencies": {
+    "@kernlang/check": "workspace:*",
     "@kernlang/codemod": "workspace:*",
     "@kernlang/core": "workspace:*",
     "@kernlang/evolve": "workspace:*",

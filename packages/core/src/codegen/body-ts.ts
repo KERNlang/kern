@@ -1134,6 +1134,14 @@ function containsOptionalAccess(node: ValueIR): boolean {
  *  A lambda whose parameter list shadows the name is treated as opaque —
  *  inside `count => count + step`, the inner `count` is the lambda param,
  *  not the surrounding cell, so the cell name is not referenced. */
+/** Conservative word-boundary check for an identifier inside a raw closure
+ *  block. Used when a block-bodied arrow has no expression `body` to recurse.
+ *  May over-match (e.g. the name appears in a string literal), which is safe
+ *  here — the only consequence is a redundant functional-updater rewrite. */
+function rawBlockReferencesIdent(raw: string, name: string): boolean {
+  return new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(raw);
+}
+
 function valueReferencesIdent(node: ValueIR, name: string): boolean {
   switch (node.kind) {
     case 'ident':
@@ -1175,7 +1183,12 @@ function valueReferencesIdent(node: ValueIR, name: string): boolean {
       // A lambda param with the same name shadows the cell binding inside
       // the body — treat the lambda as opaque in that case.
       if (node.params.some((p) => p.name === name)) return false;
-      return valueReferencesIdent(node.body, name);
+      // Block-bodied arrow (slices 0+1): no expression `body`. Conservatively
+      // detect a reference via the raw text (word-boundary). Over-detection
+      // only triggers a harmless functional-updater rewrite; under-detection
+      // would be the bug, so we err toward `true`.
+      if (node.bodyBlock) return rawBlockReferencesIdent(node.bodyBlock.raw, name);
+      return valueReferencesIdent(node.body as ValueIR, name);
     default:
       return false;
   }

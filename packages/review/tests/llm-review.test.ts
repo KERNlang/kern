@@ -7,7 +7,8 @@ import {
   parseLLMResponse,
   serializeNodeWithBody,
 } from '../src/llm-review.js';
-import type { InferResult } from '../src/types.js';
+import { checkEnforcement } from '../src/reporter.js';
+import type { InferResult, ReviewConfig, ReviewFinding, ReviewReport } from '../src/types.js';
 
 describe('LLM Review', () => {
   const source = `
@@ -179,6 +180,42 @@ export function getUser(id: string): User { return {} as User; }
     });
   });
 
+  // ── per-finding LLM confidence (parse + calibration) ──
+
+  describe('parseLLMResponse — self-reported confidence', () => {
+    const alias = () => inferred.find((r) => r.node.type !== 'import')!.promptAlias;
+
+    /** Drive a single finding carrying `confidence` (or omitting it) through
+     *  the real parser and return the resulting ReviewFinding.confidence. */
+    function confidenceOf(reported: unknown): number {
+      const item: Record<string, unknown> = {
+        nodeAlias: alias(),
+        severity: 'warning',
+        category: 'bug',
+        message: 'Possible bug',
+      };
+      if (reported !== undefined) item.confidence = reported;
+      const findings = parseLLMResponse(JSON.stringify([item]), inferred);
+      expect(findings.length).toBe(1);
+      return findings[0].confidence;
+    }
+
+    it.each([
+      ['valid 85 passes through', 85, 85],
+      ['valid 45 passes through', 45, 45],
+      ['missing falls back to flat 70', undefined, 70],
+      ['fractional 72.5 falls back to flat 70', 72.5, 70],
+      ['negative -5 falls back to flat 70', -5, 70],
+      ['out-of-range 120 falls back to flat 70', 120, 70],
+      ['non-number "high" falls back to flat 70', 'high', 70],
+      ['89 is preserved (top of LLM band)', 89, 89],
+      ['90 is capped to 89 (high band reserved)', 90, 89],
+      ['100 is capped to 89 (high band reserved)', 100, 89],
+    ])('%s', (_label, reported, expected) => {
+      expect(confidenceOf(reported)).toBe(expected);
+    });
+  });
+
   // ── serializeNodeWithBody ──
 
   describe('serializeNodeWithBody', () => {
@@ -325,6 +362,50 @@ export function getUser(id: string): User { return {} as User; }
       const defaultPrompt = buildLLMPrompt(inferred, []);
       const irPrompt = buildLLMPrompt(inferred, [], undefined, 'ir-only');
       expect(defaultPrompt).toBe(irPrompt);
+    });
+  });
+
+  // ── per-finding confidence drives downstream filtering ──
+
+  describe('parsed LLM confidence flows into reporter minConfidence filter', () => {
+    function reportFrom(findings: ReviewFinding[]): ReviewReport {
+      return {
+        filePath: 'user.ts',
+        inferred: [],
+        templateMatches: [],
+        findings,
+        stats: {
+          totalLines: 100,
+          coveredLines: 50,
+          coveragePct: 50,
+          totalTsTokens: 200,
+          totalKernTokens: 100,
+          reductionPct: 50,
+          constructCount: 5,
+        },
+      };
+    }
+
+    it('drops a finding parsed at 55 while one parsed at 85 survives at minConfidence 60', () => {
+      const aliases = inferred.filter((r) => r.node.type !== 'import').map((r) => r.promptAlias);
+      const response = JSON.stringify([
+        { nodeAlias: aliases[0], severity: 'error', category: 'bug', message: 'speculative', confidence: 55 },
+        {
+          nodeAlias: aliases[1] ?? aliases[0],
+          severity: 'error',
+          category: 'bug',
+          message: 'provable',
+          confidence: 85,
+        },
+      ]);
+      const findings = parseLLMResponse(response, inferred);
+      expect(findings.map((f) => f.confidence).sort((a, b) => a - b)).toEqual([55, 85]);
+
+      const config: ReviewConfig = { minConfidence: 60, maxErrors: 0 };
+      const result = checkEnforcement(reportFrom(findings), config);
+      // Only the 85 finding clears the 60 floor — under the old flat-70 both
+      // sat on the same (surviving) side, so this distinction is the new signal.
+      expect(result.errors.actual).toBe(1);
     });
   });
 });

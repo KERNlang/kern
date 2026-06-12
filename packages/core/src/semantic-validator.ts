@@ -15,6 +15,7 @@
  *      symbols that the resolver proved exist.
  */
 
+import { hasDirectSuperCtorCall } from './constructor-super.js';
 import {
   type CoreShapeDiagnostic,
   type CoreShapeInterfaceFact,
@@ -37,7 +38,12 @@ export interface SemanticViolation {
 
 export type ClassSemanticMemberKind = 'field' | 'method' | 'getter' | 'setter';
 
-export type ClassSemanticOverrideStatus = 'compatible' | 'kind-mismatch' | 'arity-mismatch';
+export type ClassSemanticOverrideStatus =
+  | 'compatible'
+  | 'kind-mismatch'
+  | 'arity-mismatch'
+  | 'return-mismatch'
+  | 'param-mismatch';
 
 export interface ClassSemanticLocation {
   readonly line: number;
@@ -353,6 +359,7 @@ export function validateSemantics(root: IRNode): SemanticViolation[] {
   const violations: SemanticViolation[] = [];
   validateClassGraph(root, violations);
   validateRagGraph(root, violations);
+  validateEnumAccess(root, violations);
   validateNode(root, violations, [], []);
   return violations;
 }
@@ -2686,9 +2693,9 @@ function sortedUnique(values: readonly string[]): string[] {
   return [...new Set(values)].sort();
 }
 
-type ClassMemberKind = 'field' | 'method' | 'getter' | 'setter';
+export type ClassMemberKind = 'field' | 'method' | 'getter' | 'setter';
 
-interface ClassInfo {
+export interface ClassInfo {
   node: IRNode;
   rootIndex: number;
   name: string;
@@ -2699,7 +2706,7 @@ interface ClassInfo {
   constructors: IRNode[];
 }
 
-interface ClassMemberInfo {
+export interface ClassMemberInfo {
   node: IRNode;
   owner: string;
   name: string;
@@ -2820,15 +2827,17 @@ function validateClassGraphRoots(roots: readonly IRNode[], violations: SemanticV
     );
     validateClassConstructors(info, violations);
     validateClassMemberConflicts(info, violations);
-    validateClassSuperUsage(info, violations);
+    validateClassSuperUsage(info, classByName, violations);
+    validateClassAbstractMembers(info, classByName, violations);
   }
 
   validateClassInheritanceCycles(classes, classByName, violations);
   validateClassOverrides(classes, classByName, violations);
   validateClassShapeUsage(classes, classByName, violations);
+  validateAbstractInstantiations(roots, classByName, visibleNamesByRoot, violations);
 }
 
-function collectClassInfos(root: IRNode, rootIndex = 0): ClassInfo[] {
+export function collectClassInfos(root: IRNode, rootIndex = 0): ClassInfo[] {
   const out: ClassInfo[] = [];
   walkSemanticTree(root, (node) => {
     if (node.type !== 'class') return;
@@ -3354,6 +3363,316 @@ function classInfoParticipatesInCycle(info: ClassInfo, classByName: ReadonlyMap<
   return false;
 }
 
+// ── Abstract-class contract enforcement ──────────────────────────────────────
+// KERN owns its abstract contract at the VALIDATOR layer (codegen/runtime stay
+// the loud backstop): a concrete class must implement every abstract member it
+// inherits, and an abstract class may never be instantiated. The validator runs
+// before codegen, so enforcement is parity-free — TS and Python reject the same
+// programs by construction.
+//
+// PR3 convention: an "abstract member" is a handler-less method/getter/setter
+// declared under an `abstract=true` class. Fields always carry a value, so they
+// are never abstract.
+
+function isAbstractClassNode(node: IRNode): boolean {
+  const raw = node.props?.abstract;
+  return raw === true || raw === 'true';
+}
+
+function memberHasHandler(node: IRNode): boolean {
+  return (node.children ?? []).some((child) => child.type === 'handler');
+}
+
+interface AbstractObligation {
+  readonly name: string;
+  readonly kind: ClassMemberKind;
+  readonly static: boolean;
+  // The nearest abstract ancestor that left this member unimplemented.
+  readonly declaredIn: string;
+}
+
+function abstractObligationKey(member: {
+  readonly static: boolean;
+  readonly name: string;
+  readonly kind: ClassMemberKind;
+}): string {
+  return `${member.static ? 'static' : 'instance'}:${member.name}:${member.kind}`;
+}
+
+// Walk the lineage base→derived and return the abstract members still owed by
+// `info`. Keyed by (static, name, kind) so a getter override never clears the
+// sibling setter obligation, and a same-name different-kind member never erases
+// an inherited abstract member (the exact soundness hole that drove this off
+// `effectiveClassMemberFacts`, which collapses members by name+static only).
+function collectAbstractObligations(
+  info: ClassInfo,
+  classByName: ReadonlyMap<string, ClassInfo>,
+  seen: ReadonlySet<string> = new Set(),
+): AbstractObligation[] {
+  // Inheritance cycles carry their own primary diagnostic; do not also walk a
+  // cyclic chain here (it would never terminate cleanly nor add signal).
+  if (seen.has(info.name) || classInfoParticipatesInCycle(info, classByName)) return [];
+  const nextSeen = new Set(seen);
+  nextSeen.add(info.name);
+  const obligations = new Map<string, AbstractObligation>();
+  const base = info.baseName ? classByName.get(info.baseName) : undefined;
+  if (base) {
+    for (const obligation of collectAbstractObligations(base, classByName, nextSeen)) {
+      obligations.set(abstractObligationKey(obligation), obligation);
+    }
+  }
+  const ownIsAbstract = isAbstractClassNode(info.node);
+  for (const member of info.members) {
+    if (member.kind === 'field') continue; // fields are never abstract
+    const key = abstractObligationKey(member);
+    if (memberHasHandler(member.node)) {
+      // A concrete definition for this exact (static,name,kind) satisfies the
+      // obligation — same-kind only.
+      obligations.delete(key);
+    } else if (ownIsAbstract) {
+      // Handler-less member under an abstract owner declares an obligation.
+      obligations.set(key, {
+        name: member.name,
+        kind: member.kind,
+        static: member.static,
+        declaredIn: info.name,
+      });
+    }
+    // A handler-less member under a CONCRETE owner neither satisfies nor
+    // declares: any inherited obligation stands and is flagged below.
+  }
+  return [...obligations.values()].sort((a, b) => abstractObligationKey(a).localeCompare(abstractObligationKey(b)));
+}
+
+function validateClassAbstractMembers(
+  info: ClassInfo,
+  classByName: ReadonlyMap<string, ClassInfo>,
+  violations: SemanticViolation[],
+): void {
+  // Abstract classes are allowed to carry (and inherit) abstract members.
+  if (isAbstractClassNode(info.node)) return;
+  for (const obligation of collectAbstractObligations(info, classByName)) {
+    violations.push({
+      rule: 'class-abstract-member-unimplemented',
+      nodeType: info.node.type,
+      message: `Concrete class '${info.name}' must implement abstract ${obligation.kind} '${obligation.name}' inherited from '${obligation.declaredIn}'.`,
+      line: info.node.loc?.line,
+      col: info.node.loc?.col,
+    });
+  }
+}
+
+// Resolve the class a `new` expression constructs. KERN parses `new` greedily
+// (the argument is a full postfix chain), and codegen prefixes `new ` to the
+// emitted chain, so KERN follows JS `new` precedence:
+//   new Shape           -> Shape
+//   new Shape()         -> Shape
+//   new Shape().area()  -> Shape   (new binds to Shape(); `.area()` is after)
+//   new pkg.Shape()     -> pkg.Shape  (qualified) -> not a bare local class, skip
+//   new makeShape()()   -> makeShape (head ident; not a class -> skipped on lookup)
+// We descend the spine to the head ident and skip qualified constructors (a head
+// reached as a member's object, e.g. `pkg.Shape`).
+function newExpressionClassName(argument: ValueIR): string | undefined {
+  let node: ValueIR = argument;
+  let edge: 'root' | 'callee' | 'object' = 'root';
+  while (true) {
+    switch (node.kind) {
+      case 'ident':
+        // A member-object head (`pkg.Shape`) is a qualified constructor; every
+        // other head (root, or a called ident) is a bare construction target.
+        return edge === 'object' ? undefined : node.name;
+      case 'call':
+        node = node.callee;
+        edge = 'callee';
+        continue;
+      case 'member':
+        node = node.object;
+        edge = 'object';
+        continue;
+      case 'index':
+        node = node.object;
+        edge = 'object';
+        continue;
+      case 'nonNull':
+        node = node.expression;
+        continue;
+      default:
+        return undefined; // dynamic / non-resolvable constructor
+    }
+  }
+}
+
+// `default` is an executable initializer site (field `default=` and
+// `param default=`) that is NOT in BODY_EXPRESSION_PROPS — field initializers
+// treat `value` and `default` equivalently and both lower to runtime code, so a
+// `new Abstract()` in a default must be checked too. Scanned local to this pass
+// so the shared super-detection / shape-usage walks are unaffected. A non-`new`
+// default just parses to a harmless expression that matches nothing.
+const INSTANTIATION_EXPRESSION_PROPS: readonly string[] = [...BODY_EXPRESSION_PROPS, 'default'];
+
+// ── Enum reverse-index / iteration gate (symmetric, fail-closed) ──────────
+//
+// KERN enums lower to plain int/str members on BOTH targets — a TS `enum`
+// (reverse-map only on NON-const enums) and a Python namespace class (no
+// reverse map, no iteration protocol). Two enum operations are therefore NOT
+// representable identically and are rejected at compile time on BOTH targets so
+// neither silently diverges:
+//   1. REVERSE-INDEX  `Status[0]`  — TS non-const enums build a numeric→name
+//      reverse map; the Python namespace class has none. (const enums forbid it
+//      on TS already.)
+//   2. ITERATION      `Object.keys(Status)` / `Object.values(Status)` /
+//      `Object.entries(Status)` — TS enumerates BOTH forward and reverse keys;
+//      the Python class would enumerate only the forward names (plus dunders).
+//
+// Scope honesty (documented in the diagnostic): this rejects DYNAMIC-key access
+// on enums in v1. Static member access (`Status.Pending`) is unaffected.
+const ENUM_REFLECTION_CALLEES: ReadonlySet<string> = new Set(['keys', 'values', 'entries']);
+
+function validateEnumAccess(root: IRNode, violations: SemanticViolation[]): void {
+  const enumNames = new Set<string>();
+  walkSemanticTree(root, (node) => {
+    if (node.type === 'enum') {
+      const name = typeof node.props?.name === 'string' ? node.props.name : undefined;
+      if (name) enumNames.add(name);
+    }
+  });
+  if (enumNames.size === 0) return;
+
+  // ZERO-FP shadowing guard (kern-codex probe): a value binding of the same
+  // name ANYWHERE in the program (`let Status = [10, 20]`) makes `Status[0]`
+  // plain indexing in that scope. This pass is scope-blind, so it must be
+  // conservative: drop a shadowed name from the gate entirely rather than
+  // false-reject legal code. Real scope tracking is a later slice.
+  const SHADOWING_DECL_TYPES: ReadonlySet<string> = new Set(['let', 'const', 'param']);
+  walkSemanticTree(root, (node) => {
+    if (!SHADOWING_DECL_TYPES.has(node.type)) return;
+    const name = typeof node.props?.name === 'string' ? node.props.name : undefined;
+    if (name) enumNames.delete(name);
+  });
+  if (enumNames.size === 0) return;
+
+  walkSemanticTree(root, (node) => {
+    // An enum `member`'s value prop is an initializer literal, not a body
+    // expression — scanning it false-flagged quoted string values like
+    // `value="Object.keys(E)"` as enum-iteration (kern-codex probe). Members
+    // carry no body expressions, so skip the node entirely.
+    if (node.type === 'member') return;
+    for (const prop of INSTANTIATION_EXPRESSION_PROPS) {
+      const text = expressionPropText(node.props?.[prop]);
+      if (!text) continue;
+      let value: ValueIR;
+      try {
+        value = parseExpression(text);
+      } catch {
+        continue;
+      }
+      collectEnumAccessViolations(value, node, enumNames, violations);
+    }
+  });
+}
+
+function collectEnumAccessViolations(
+  value: ValueIR,
+  node: IRNode,
+  enumNames: ReadonlySet<string>,
+  violations: SemanticViolation[],
+): void {
+  // Reverse-index: `Status[<anything>]` where the object is a bare enum ident.
+  if (value.kind === 'index' && value.object.kind === 'ident' && enumNames.has(value.object.name)) {
+    violations.push({
+      rule: 'enum-reverse-index',
+      nodeType: node.type,
+      message: `Reverse-index access on enum '${value.object.name}' (e.g. \`${value.object.name}[...]\`) is not supported in v1 — it diverges between targets (TS builds a numeric→name reverse map; the Python namespace class has none). Use a static member like '${value.object.name}.MemberName' instead.`,
+      line: node.loc?.line,
+      col: node.loc?.col,
+    });
+  }
+  // Iteration: `Object.keys(Status)` / `.values(...)` / `.entries(...)`.
+  if (
+    value.kind === 'call' &&
+    value.callee.kind === 'member' &&
+    value.callee.object.kind === 'ident' &&
+    value.callee.object.name === 'Object' &&
+    ENUM_REFLECTION_CALLEES.has(value.callee.property)
+  ) {
+    const firstArg = value.args[0];
+    if (firstArg && firstArg.kind === 'ident' && enumNames.has(firstArg.name)) {
+      violations.push({
+        rule: 'enum-iteration',
+        nodeType: node.type,
+        message: `Enum iteration via \`Object.${value.callee.property}(${firstArg.name})\` is not supported in v1 — it diverges between targets (TS enumerates both forward and reverse-map keys; the Python namespace class enumerates only forward member names). Dynamic-key access on enums is not available in v1.`,
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+  }
+  for (const child of valueIRChildren(value)) {
+    collectEnumAccessViolations(child, node, enumNames, violations);
+  }
+}
+
+// Module-wide pass: reject `new <AbstractClass>(...)` anywhere — including inside
+// the abstract class's own static factory (KERN matches TS: abstract is not
+// self-instantiable). Conservative by design — non-ident callees, names not
+// resolving to a visible local class, and (consistent with every other
+// class-name resolution in this validator) names rebound by a local binding are
+// not pursued; the validator does not track lexical shadowing for any class
+// reference, so abstract instantiation follows the same name+visibility rule.
+// Multi-root note: visibleNamesByRoot unions every root's declared class names
+// (as extends/implements resolution already does), so this resolves classes
+// across roots; all production callers validate a single root, so the
+// cross-root union is not a false-positive surface in practice.
+function validateAbstractInstantiations(
+  roots: readonly IRNode[],
+  classByName: ReadonlyMap<string, ClassInfo>,
+  visibleNamesByRoot: readonly ReadonlySet<string>[],
+  violations: SemanticViolation[],
+): void {
+  roots.forEach((root, rootIndex) => {
+    const visible = visibleNamesByRoot[rootIndex];
+    walkSemanticTree(root, (node) => {
+      for (const prop of INSTANTIATION_EXPRESSION_PROPS) {
+        const text = expressionPropText(node.props?.[prop]);
+        if (!text) continue;
+        let value: ValueIR;
+        try {
+          value = parseExpression(text);
+        } catch {
+          continue;
+        }
+        collectAbstractInstantiations(value, node, visible, classByName, violations);
+      }
+    });
+  });
+}
+
+function collectAbstractInstantiations(
+  value: ValueIR,
+  node: IRNode,
+  visible: ReadonlySet<string> | undefined,
+  classByName: ReadonlyMap<string, ClassInfo>,
+  violations: SemanticViolation[],
+): void {
+  if (value.kind === 'new') {
+    const name = newExpressionClassName(value.argument);
+    if (name && (!visible || visible.has(name))) {
+      const target = classByName.get(name);
+      if (target && isAbstractClassNode(target.node)) {
+        violations.push({
+          rule: 'class-abstract-instantiation',
+          nodeType: node.type,
+          message: `Cannot instantiate abstract class '${name}'.`,
+          line: node.loc?.line,
+          col: node.loc?.col,
+        });
+      }
+    }
+  }
+  for (const child of valueIRChildren(value)) {
+    collectAbstractInstantiations(child, node, visible, classByName, violations);
+  }
+}
+
 function collectClassOverrideFacts(
   classes: readonly ClassInfo[],
   classByName: ReadonlyMap<string, ClassInfo>,
@@ -3372,7 +3691,7 @@ function collectClassOverrideFacts(
         baseClassName: baseMember.owner,
         baseKind: baseMember.kind,
         baseArity: baseMember.arity,
-        status: classOverrideStatus(member, baseMember),
+        status: classOverrideStatus(member, baseMember, classByName),
         ...(member.node.loc ? { loc: semanticLocation(member.node) } : {}),
       });
     }
@@ -3380,12 +3699,97 @@ function collectClassOverrideFacts(
   return overrides;
 }
 
-function classOverrideStatus(member: ClassMemberInfo, baseMember: ClassMemberInfo): ClassSemanticOverrideStatus {
+function classOverrideStatus(
+  member: ClassMemberInfo,
+  baseMember: ClassMemberInfo,
+  classByName: ReadonlyMap<string, ClassInfo>,
+): ClassSemanticOverrideStatus {
   if (!sameOverrideKind(member, baseMember)) return 'kind-mismatch';
   if (member.kind === 'method' && baseMember.kind === 'method' && member.arity !== baseMember.arity) {
     return 'arity-mismatch';
   }
+  const variance = checkOverrideVariance(member, baseMember, classByName);
+  if (variance) return variance;
   return 'compatible';
+}
+
+/**
+ * Liskov substitutability check for a member override against its base member.
+ *
+ * Runs ONLY when kinds are strictly equal (method/method, getter/getter,
+ * setter/setter). Mixed accessor pairs (getter overriding setter, or vice
+ * versa) and fields return null (skip) to preserve existing behavior. For
+ * methods, it assumes arity has already matched (arity-mismatch fires first).
+ *
+ * Variance rules:
+ *  - Return position is COVARIANT: an override may narrow the return type
+ *    (override.returns must be a subtype of base.returns). A non-subtype is a
+ *    'return-mismatch'.
+ *  - Param positions are CONTRAVARIANT: an override may widen a param type
+ *    (base.paramTypes[i] must be a subtype of override.paramTypes[i]). A
+ *    non-subtype is a 'param-mismatch'.
+ *
+ * 'unknown' subtype results (gradual typing — primitives, unannotated, or
+ * non-class names) are skipped, so the check produces zero false positives.
+ */
+export function checkOverrideVariance(
+  member: ClassMemberInfo,
+  baseMember: ClassMemberInfo,
+  classByName: ReadonlyMap<string, ClassInfo>,
+): 'return-mismatch' | 'param-mismatch' | null {
+  if (member.kind !== baseMember.kind) return null;
+  if (member.kind === 'field') return null;
+  if (member.kind === 'method') {
+    if (member.arity !== baseMember.arity) return null;
+    if (isNominalSubtype(member.returns, baseMember.returns, classByName) === false) {
+      return 'return-mismatch';
+    }
+    for (let index = 0; index < member.paramTypes.length; index += 1) {
+      if (isNominalSubtype(baseMember.paramTypes[index], member.paramTypes[index], classByName) === false) {
+        return 'param-mismatch';
+      }
+    }
+    return null;
+  }
+  if (member.kind === 'getter') {
+    if (isNominalSubtype(member.returns, baseMember.returns, classByName) === false) {
+      return 'return-mismatch';
+    }
+    return null;
+  }
+  // setter: param position 0 only, same contravariant direction.
+  if (isNominalSubtype(baseMember.paramTypes[0], member.paramTypes[0], classByName) === false) {
+    return 'param-mismatch';
+  }
+  return null;
+}
+
+/**
+ * Nominal subtype check: is `sub` a (non-strict) subtype of `sup`?
+ *  - undefined on either side → 'unknown' (gradual: caller skips).
+ *  - sub === sup → true.
+ *  - either name not a known class in classByName → 'unknown' (primitives /
+ *    external / unresolved types are not compared).
+ *  - else cycle-safe walk of sub's baseName chain; reaching sup → true; chain
+ *    ends or cycles without reaching sup → false.
+ */
+export function isNominalSubtype(
+  sub: string | undefined,
+  sup: string | undefined,
+  classByName: ReadonlyMap<string, ClassInfo>,
+): true | false | 'unknown' {
+  if (sub === undefined || sup === undefined) return 'unknown';
+  if (sub === sup) return true;
+  if (!classByName.has(sub) || !classByName.has(sup)) return 'unknown';
+  let current = classByName.get(sub);
+  const visited = new Set<string>();
+  while (current) {
+    if (current.name === sup) return true;
+    if (visited.has(current.name)) return false;
+    visited.add(current.name);
+    current = current.baseName ? classByName.get(current.baseName) : undefined;
+  }
+  return false;
 }
 
 function collectClassCycleFacts(
@@ -3817,11 +4221,16 @@ function validateClassMemberConflicts(info: ClassInfo, violations: SemanticViola
   }
 }
 
-function validateClassSuperUsage(info: ClassInfo, violations: SemanticViolation[]): void {
+function validateClassSuperUsage(
+  info: ClassInfo,
+  classByName: ReadonlyMap<string, ClassInfo>,
+  violations: SemanticViolation[],
+): void {
   const hasBase = Boolean(info.baseName);
+  const argRequiringBaseName = hasBase ? argRequiringEffectiveBaseName(info, classByName) : undefined;
   for (const ctor of info.constructors) {
     if (hasBase) {
-      validateDerivedConstructorDiscipline(info, ctor, violations);
+      validateDerivedConstructorSuper(info, ctor, argRequiringBaseName, violations);
     }
     if (!hasBase && nodeBodyUsesSuper(ctor)) {
       violations.push({
@@ -3862,6 +4271,12 @@ interface ConstructorAnalysis {
   sawSuper: boolean;
 }
 
+// DESCRIPTIVE analyzer — feeds the `superStatus` substrate fact (via
+// `constructorSuperDiagnostics`), NOT user-facing violations. It still classifies
+// an omitted super as `missing` and a pre-super `this` access as `this-before-super`
+// so the FACT keeps describing the constructor's structure faithfully. The
+// user-facing legality judgment lives in `validateDerivedConstructorSuper`, which
+// applies KERN's Option-C semantics on top of this description.
 function validateDerivedConstructorDiscipline(info: ClassInfo, ctor: IRNode, violations: SemanticViolation[]): void {
   const ctx: ConstructorDisciplineContext = {
     info,
@@ -3883,6 +4298,97 @@ function validateDerivedConstructorDiscipline(info: ClassInfo, ctor: IRNode, vio
       });
     }
   }
+}
+
+/**
+ * User-facing derived-constructor validation under KERN's Option-C super
+ * semantics. The mode is decided by the canonical `hasDirectSuperCtorCall`
+ * predicate — shared verbatim with the runtime and both codegen targets so all
+ * four layers agree on whether a constructor opted into explicit-super mode:
+ *
+ *  - No direct `super(...)` call (implicit mode): KERN injects base init at
+ *    constructor entry, so omitting super is LEGAL and `this`/super-member access
+ *    is always safe. The only error is when the base constructor REQUIRES
+ *    arguments — an arg-less implicit super cannot satisfy it.
+ *  - A direct `super(...)` call exists (explicit mode): the author owns its
+ *    placement, so the full discipline applies — reject double-super,
+ *    conditional-super (not on every path), and `this`/super before super.
+ *
+ * `class-constructor-missing-super` is intentionally unreachable here: an omitted
+ * super is no longer an error, and an explicit super means a direct call exists.
+ */
+function validateDerivedConstructorSuper(
+  info: ClassInfo,
+  ctor: IRNode,
+  argRequiringBaseName: string | undefined,
+  violations: SemanticViolation[],
+): void {
+  if (!hasDirectSuperCtorCall(ctor)) {
+    if (argRequiringBaseName) {
+      // Name the class whose constructor actually requires args — which may be a
+      // transitive ancestor reached through constructor-less bases, not the
+      // immediate base — so the diagnostic points the author at the real source.
+      violations.push({
+        rule: 'class-constructor-implicit-super-needs-args',
+        nodeType: 'constructor',
+        message: `Class '${info.name}' omits \`super(...)\` but base class '${argRequiringBaseName}' has a constructor that requires arguments. Call \`super(...)\` explicitly to pass them.`,
+        line: ctor.loc?.line,
+        col: ctor.loc?.col,
+      });
+    }
+    return;
+  }
+  // Explicit-super mode: replay the discipline analysis. Its walk emits
+  // double-super / this-before-super as side effects; the tail covers "super
+  // present but not on every path" (conditional-super).
+  const ctx: ConstructorDisciplineContext = {
+    info,
+    violations,
+    sawSuper: false,
+    emittedConditionalSuper: false,
+  };
+  const analysis = analyzeConstructorStatements(constructorBodyStatements(ctor), 'uninit', ctx);
+  if (analysis.state !== 'init') emitConstructorConditionalSuper(ctx, ctor);
+}
+
+/**
+ * The name of the EFFECTIVE base class whose constructor an implicit no-arg
+ * `super()` would reach and fail to satisfy — i.e. the first ancestor that
+ * declares a constructor with a required (no-default) parameter — or `undefined`
+ * when implicit init succeeds. The effective base ctor is found by walking up the
+ * inheritance chain through constructor-less bases, exactly as the runtime does:
+ * `initializeClassLayer` forwards `[]` through a base that has no constructor
+ * (`base && !ctor`) to ITS base, so the first ancestor that actually declares a
+ * constructor is the one invoked with no args. Checking only the immediate base
+ * would let `C extends B extends A` (B ctor-less, A arg-requiring) pass validation
+ * yet throw at runtime — re-creating the validator/runtime split this
+ * reconciliation closes. Returning the name (not a bool) lets the diagnostic point
+ * at the real source rather than the immediate base. Mirrors the runtime's
+ * required-arg rule (a param is required unless it carries a `value`/`default`); a
+ * chain with no constructor anywhere (or an unresolved base) needs no args.
+ */
+function argRequiringEffectiveBaseName(
+  info: ClassInfo,
+  classByName: ReadonlyMap<string, ClassInfo>,
+): string | undefined {
+  const seen = new Set<string>();
+  let current = info.baseName ? classByName.get(info.baseName) : undefined;
+  while (current && !seen.has(current.name)) {
+    seen.add(current.name);
+    const ctor = current.constructors[0];
+    if (ctor) {
+      const requiresArgs = (ctor.children ?? []).some(
+        (child) =>
+          child.type === 'param' &&
+          !Object.hasOwn(child.props ?? {}, 'value') &&
+          !Object.hasOwn(child.props ?? {}, 'default'),
+      );
+      return requiresArgs ? current.name : undefined;
+    }
+    // Constructor-less base: the runtime forwards [] to its base — keep walking.
+    current = current.baseName ? classByName.get(current.baseName) : undefined;
+  }
+  return undefined;
 }
 
 function analyzeConstructorStatements(
@@ -4105,6 +4611,26 @@ function validateClassOverrides(
           rule: 'class-override-arity-mismatch',
           nodeType: member.node.type,
           message: `Class '${info.name}' method '${member.name}' overrides a base method with ${baseMember.arity} parameter(s), but declares ${member.arity}.`,
+          line: member.node.loc?.line,
+          col: member.node.loc?.col,
+        });
+      }
+      const variance = checkOverrideVariance(member, baseMember, classByName);
+      if (variance === 'return-mismatch') {
+        violations.push({
+          rule: 'class-override-return-mismatch',
+          nodeType: member.node.type,
+          message: `Class '${info.name}' member '${member.name}' overrides a base member returning '${baseMember.returns}' with return type '${member.returns}'. Overrides must be covariant in their return type (the override's return must be a subtype of the base's).`,
+          line: member.node.loc?.line,
+          col: member.node.loc?.col,
+        });
+        continue;
+      }
+      if (variance === 'param-mismatch') {
+        violations.push({
+          rule: 'class-override-param-mismatch',
+          nodeType: member.node.type,
+          message: `Class '${info.name}' member '${member.name}' narrows a parameter type when overriding a base member. Overrides must be contravariant in their parameter types (the override's parameter must be a supertype of the base's).`,
           line: member.node.loc?.line,
           col: member.node.loc?.col,
         });
@@ -4592,7 +5118,9 @@ function valueIRChildren(value: ValueIR): ValueIR[] {
     case 'conditional':
       return [value.test, value.consequent, value.alternate];
     case 'lambda':
-      return [value.body];
+      // Block-bodied arrows carry `bodyBlock` (raw text) instead of an
+      // expression `body`; they contribute no ValueIR children here.
+      return value.body ? [value.body] : [];
     case 'numLit':
     case 'strLit':
     case 'boolLit':

@@ -143,15 +143,17 @@ const PY_CORE_CAPABILITIES: CapabilityEntry[] = [
     support: 'unsupported',
     note: 'mapTsTypeToPython has no tuple branch; alias passthrough emits raw TS form',
   },
-  // Slice 2b — Python has Enum class via `from enum import Enum`, but the
-  // FastAPI generator does not yet emit class-based enums for the `enum` node.
-  // Mark unsupported until that path lands; flipping to `lowered` requires a
-  // dedicated Python generator (would emit `class Status(str, Enum): ...`).
+  // Slice 2b / enum-python-parity — the `enum` node now lowers to a PLAIN
+  // Python namespace class (`class Status:` with bare int/str members), NOT
+  // enum.Enum / IntEnum / a metaclass and with NO runtime import (tribunal
+  // run-1781176354539). Bare members give equality/arithmetic/JSON/fmt parity
+  // with the TS enum by construction. See generatePythonEnum in
+  // packages/python/src/generators/data.ts.
   {
     feature: 'enum-type',
     position: 'top-level',
-    support: 'unsupported',
-    note: 'FastAPI codegen does not yet handle the enum node; would produce no output',
+    support: 'lowered',
+    note: 'lowers to a plain namespace class with bare int/str members (no enum.Enum, no runtime import)',
   },
   // Slice 2c — Python has dict[K, V] / TypedDict but the FastAPI generator
   // does not yet emit either form from an `indexer` child. Mark unsupported.

@@ -21,30 +21,32 @@ import { emitPyExpression } from '../src/codegen-body-python.js';
 
 describe('slice 4c — ?? nullish coalesce on Python target', () => {
   test('ident left lowers to readable double-name form', () => {
-    expect(emitPyExpression(parseExpression('user ?? guest'))).toBe('(user if user is not None else guest)');
+    expect(emitPyExpression(parseExpression('user ?? guest'))).toBe(
+      '(user if (user is not None and user is not _KERN_UNDEFINED) else guest)',
+    );
   });
 
   test('member chain left also uses double-name form (pure receiver)', () => {
     expect(emitPyExpression(parseExpression('user.name ?? "anon"'))).toBe(
-      '(user.name if user.name is not None else "anon")',
+      '(user.name if (user.name is not None and user.name is not _KERN_UNDEFINED) else "anon")',
     );
   });
 
   test('deep member chain stays in pure form', () => {
     expect(emitPyExpression(parseExpression('user.profile.email ?? "no-email"'))).toBe(
-      '(user.profile.email if user.profile.email is not None else "no-email")',
+      '(user.profile.email if (user.profile.email is not None and user.profile.email is not _KERN_UNDEFINED) else "no-email")',
     );
   });
 
   test('call() left switches to walrus for single-eval', () => {
     expect(emitPyExpression(parseExpression('fetchName() ?? "default"'))).toBe(
-      '(__k_nc1 if (__k_nc1 := fetchName()) is not None else "default")',
+      '(__k_nc1 if ((__k_nc1 := fetchName()) is not None and __k_nc1 is not _KERN_UNDEFINED) else "default")',
     );
   });
 
   test('await left switches to walrus', () => {
     expect(emitPyExpression(parseExpression('(await loadName()) ?? "default"'))).toBe(
-      '(__k_nc1 if (__k_nc1 := await loadName()) is not None else "default")',
+      '(__k_nc1 if ((__k_nc1 := await loadName()) is not None and __k_nc1 is not _KERN_UNDEFINED) else "default")',
     );
   });
 
@@ -53,7 +55,7 @@ describe('slice 4c — ?? nullish coalesce on Python target', () => {
     // double-name form (re-evaluating a + b is technically fine for pure
     // arithmetic, but the purity heuristic conservatively walrus-binds).
     expect(emitPyExpression(parseExpression('(a + b) ?? 0'))).toBe(
-      '(__k_nc1 if (__k_nc1 := a + b) is not None else 0)',
+      '(__k_nc1 if ((__k_nc1 := __kern_add(a, b)) is not None and __k_nc1 is not _KERN_UNDEFINED) else 0)',
     );
   });
 
@@ -61,7 +63,7 @@ describe('slice 4c — ?? nullish coalesce on Python target', () => {
     // a ?? (call() ?? b) — outer pure (a is ident), inner non-pure (call).
     // Inner gets walrus __k_nc1; outer stays in double-name form.
     expect(emitPyExpression(parseExpression('a ?? (call() ?? b)'))).toBe(
-      '(a if a is not None else (__k_nc1 if (__k_nc1 := call()) is not None else b))',
+      '(a if (a is not None and a is not _KERN_UNDEFINED) else (__k_nc1 if ((__k_nc1 := call()) is not None and __k_nc1 is not _KERN_UNDEFINED) else b))',
     );
   });
 
@@ -71,7 +73,7 @@ describe('slice 4c — ?? nullish coalesce on Python target', () => {
     // side which doesn't itself trigger walrus (since walrus only fires on
     // the LEFT of a ??).
     expect(emitPyExpression(parseExpression('call1() ?? call2()'))).toBe(
-      '(__k_nc1 if (__k_nc1 := call1()) is not None else call2())',
+      '(__k_nc1 if ((__k_nc1 := call1()) is not None and __k_nc1 is not _KERN_UNDEFINED) else call2())',
     );
   });
 
@@ -79,7 +81,7 @@ describe('slice 4c — ?? nullish coalesce on Python target', () => {
     // Number.floor(x) lowers to __k_math.floor(x) — a call expression,
     // hence non-pure for the purity check, hence walrus.
     expect(emitPyExpression(parseExpression('Number.floor(x) ?? 0'))).toBe(
-      '(__k_nc1 if (__k_nc1 := __k_math.floor(x)) is not None else 0)',
+      '(__k_nc1 if ((__k_nc1 := __k_math.floor(x)) is not None and __k_nc1 is not _KERN_UNDEFINED) else 0)',
     );
   });
 });

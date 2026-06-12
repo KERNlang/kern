@@ -1,0 +1,576 @@
+{
+  "$schema": "declarative eligibility taxonomy — production authority (phase 2)",
+  "description": "CURRENT behavior of the native-eligibility classifier, transcribed from native-eligibility-ast.ts / closure-eligibility.ts / instanceof-rhs.ts. Reason-keyed rows (verdict eligible|ineligible) are snapshot-verified against the golden corpus AND consumed in production as the authority for emitted reasons (native-eligibility-ast.ts reject(), via the generated eligibility-taxonomy.generated.ts — no fs at runtime); contextual rows (verdict contextual, when:[imperative]) describe surface constructs whose verdict depends on shape predicates a flat row cannot evaluate — the phase-2.5 (deterministic-row extraction) backlog.",
+  "rows": [
+    {
+      "construct": "bare-block",
+      "verdict": "ineligible",
+      "rationale": "A bare `{ … }` block statement has no body-stmt form.",
+      "reason": "bare-block"
+    },
+    {
+      "construct": "block-bodied-arrow",
+      "verdict": "contextual",
+      "rationale": "A block-bodied arrow is eligible only when every statement is in the closure accept set (let/const/return/expr/if) with no rejected construct (this/await/loop/…); otherwise one of the closure-* reasons. Verdict depends on the whole block.",
+      "when": [
+        "imperative"
+      ]
+    },
+    {
+      "construct": "break-labeled",
+      "verdict": "ineligible",
+      "rationale": "A labeled `break` has no body-stmt form.",
+      "reason": "break-labeled"
+    },
+    {
+      "construct": "break-outside-loop",
+      "verdict": "ineligible",
+      "rationale": "A `break` outside any loop context.",
+      "reason": "break-outside-loop"
+    },
+    {
+      "construct": "closure-assign-value-position",
+      "verdict": "ineligible",
+      "rationale": "A value-position assignment (e.g. const y = (x = 5)) inside a block-bodied arrow.",
+      "reason": "closure-assign-value-position"
+    },
+    {
+      "construct": "closure-await",
+      "verdict": "ineligible",
+      "rationale": "An `await` inside a block-bodied arrow — v1 closures are synchronous.",
+      "reason": "closure-await"
+    },
+    {
+      "construct": "closure-break-continue",
+      "verdict": "ineligible",
+      "rationale": "A `break`/`continue` inside a block-bodied arrow.",
+      "reason": "closure-break-continue"
+    },
+    {
+      "construct": "closure-class",
+      "verdict": "ineligible",
+      "rationale": "A class declaration/expression inside a block-bodied arrow.",
+      "reason": "closure-class"
+    },
+    {
+      "construct": "closure-destructure",
+      "verdict": "ineligible",
+      "rationale": "A destructuring declaration inside a block-bodied arrow.",
+      "reason": "closure-destructure"
+    },
+    {
+      "construct": "closure-incdec-value-position",
+      "verdict": "ineligible",
+      "rationale": "A value-position ++/-- (e.g. arr.push(x++)) inside a block-bodied arrow.",
+      "reason": "closure-incdec-value-position"
+    },
+    {
+      "construct": "closure-labeled",
+      "verdict": "ineligible",
+      "rationale": "A labeled statement inside a block-bodied arrow.",
+      "reason": "closure-labeled"
+    },
+    {
+      "construct": "closure-loop",
+      "verdict": "ineligible",
+      "rationale": "Any loop (for/for-of/for-in/while/do) inside a block-bodied arrow — v1 closures reject loops.",
+      "reason": "closure-loop"
+    },
+    {
+      "construct": "closure-nested-function",
+      "verdict": "ineligible",
+      "rationale": "A nested arrow/function/function-declaration inside a block-bodied arrow.",
+      "reason": "closure-nested-function"
+    },
+    {
+      "construct": "closure-parse-error",
+      "verdict": "ineligible",
+      "rationale": "A raw closure block that does not parse as a single function body block.",
+      "reason": "closure-parse-error"
+    },
+    {
+      "construct": "closure-spread",
+      "verdict": "ineligible",
+      "rationale": "A spread element/assignment inside a block-bodied arrow.",
+      "reason": "closure-spread"
+    },
+    {
+      "construct": "closure-switch",
+      "verdict": "ineligible",
+      "rationale": "A `switch` inside a block-bodied arrow.",
+      "reason": "closure-switch"
+    },
+    {
+      "construct": "closure-this",
+      "verdict": "ineligible",
+      "rationale": "A `this` usage (incl. a this-rooted assignment target) inside a block-bodied arrow.",
+      "reason": "closure-this"
+    },
+    {
+      "construct": "closure-throw",
+      "verdict": "ineligible",
+      "rationale": "A `throw` inside a block-bodied arrow.",
+      "reason": "closure-throw"
+    },
+    {
+      "construct": "closure-try",
+      "verdict": "ineligible",
+      "rationale": "A `try` inside a block-bodied arrow.",
+      "reason": "closure-try"
+    },
+    {
+      "construct": "closure-uninitialized-decl",
+      "verdict": "ineligible",
+      "rationale": "An uninitialised `let`/`const` inside a block-bodied arrow.",
+      "reason": "closure-uninitialized-decl"
+    },
+    {
+      "construct": "closure-unsupported-assign-target",
+      "verdict": "ineligible",
+      "rationale": "A destructuring/parenthesized assignment target inside a block-bodied arrow (fail-closed).",
+      "reason": "closure-unsupported-assign-target"
+    },
+    {
+      "construct": "closure-unsupported-operator",
+      "verdict": "ineligible",
+      "rationale": "An assignment operator outside {=,+=,-=,*=,/=,%=} inside a block-bodied arrow.",
+      "reason": "closure-unsupported-operator"
+    },
+    {
+      "construct": "closure-unsupported-stmt-",
+      "verdict": "ineligible",
+      "rationale": "A statement outside the closure accept set (let/const/return/expr/if) inside a block-bodied arrow.",
+      "reason": "closure-unsupported-stmt-"
+    },
+    {
+      "construct": "closure-var",
+      "verdict": "ineligible",
+      "rationale": "A `var` declaration inside a block-bodied arrow.",
+      "reason": "closure-var"
+    },
+    {
+      "construct": "closure-with",
+      "verdict": "ineligible",
+      "rationale": "A `with` statement inside a block-bodied arrow.",
+      "reason": "closure-with"
+    },
+    {
+      "construct": "closure-yield",
+      "verdict": "ineligible",
+      "rationale": "A `yield` inside a block-bodied arrow.",
+      "reason": "closure-yield"
+    },
+    {
+      "construct": "comments-present",
+      "verdict": "ineligible",
+      "rationale": "A comment that does not sit at a migratable statement boundary; the migrator would drop it, so the body is rejected.",
+      "reason": "comments-present"
+    },
+    {
+      "construct": "continue-labeled",
+      "verdict": "ineligible",
+      "rationale": "A labeled `continue` has no body-stmt form.",
+      "reason": "continue-labeled"
+    },
+    {
+      "construct": "continue-outside-loop",
+      "verdict": "ineligible",
+      "rationale": "A `continue` outside any loop context.",
+      "reason": "continue-outside-loop"
+    },
+    {
+      "construct": "do-while-stmt",
+      "verdict": "ineligible",
+      "rationale": "A `do…while` statement has no body-stmt form.",
+      "reason": "do-while-stmt"
+    },
+    {
+      "construct": "empty",
+      "verdict": "eligible",
+      "rationale": "A whitespace-only body is trivially eligible (classifyHandlerBodyAst returns reason \"empty\")."
+    },
+    {
+      "construct": "expr-stmt-assignment",
+      "verdict": "ineligible",
+      "rationale": "A compound assignment operator outside the supported set (e.g. logical &&=/??=).",
+      "reason": "expr-stmt-assignment"
+    },
+    {
+      "construct": "expr-stmt-bad-assign-target",
+      "verdict": "ineligible",
+      "rationale": "An assignment target that is not a valid KERN assignment target (e.g. optional-chained).",
+      "reason": "expr-stmt-bad-assign-target"
+    },
+    {
+      "construct": "expr-stmt-bad-assign-value",
+      "verdict": "ineligible",
+      "rationale": "An assignment value that is not a valid KERN assignment value.",
+      "reason": "expr-stmt-bad-assign-value"
+    },
+    {
+      "construct": "expr-stmt-bad-expr",
+      "verdict": "ineligible",
+      "rationale": "An expression statement that is not a valid KERN expression (e.g. comma expression).",
+      "reason": "expr-stmt-bad-expr"
+    },
+    {
+      "construct": "expr-stmt-mutation",
+      "verdict": "ineligible",
+      "rationale": "A prefix ++/-- whose source text the migrator cannot byte-reproduce (postfix is accepted).",
+      "reason": "expr-stmt-mutation"
+    },
+    {
+      "construct": "expression-statement",
+      "verdict": "contextual",
+      "rationale": "An expression statement is eligible as a plain call/valid expression, a supported (compound) assignment, or a postfix ++/--; otherwise one of the expr-stmt-* reasons. Verdict depends on the expression shape.",
+      "when": [
+        "imperative"
+      ]
+    },
+    {
+      "construct": "for-of-async-entry",
+      "verdict": "ineligible",
+      "rationale": "A `for await` key-only/value-only entry binding — unsupported.",
+      "reason": "for-of-async-entry"
+    },
+    {
+      "construct": "for-of-async-object-entries",
+      "verdict": "ineligible",
+      "rationale": "A `for await` over Object.entries(...) — unsupported async-entry shape.",
+      "reason": "for-of-async-object-entries"
+    },
+    {
+      "construct": "for-of-bad-expr",
+      "verdict": "ineligible",
+      "rationale": "The for-of iterable expression is not a valid KERN expression.",
+      "reason": "for-of-bad-expr"
+    },
+    {
+      "construct": "for-of-bad-type",
+      "verdict": "ineligible",
+      "rationale": "A for-of binding type annotation that is not a valid KERN type annotation.",
+      "reason": "for-of-bad-type"
+    },
+    {
+      "construct": "for-of-destructure",
+      "verdict": "ineligible",
+      "rationale": "A for-of object-destructuring binding (only [k]/[k,v]/[,v] array patterns lift).",
+      "reason": "for-of-destructure"
+    },
+    {
+      "construct": "for-of-destructure-type",
+      "verdict": "ineligible",
+      "rationale": "A type annotation on a for-of destructuring binding is unsupported.",
+      "reason": "for-of-destructure-type"
+    },
+    {
+      "construct": "for-of-empty-body",
+      "verdict": "ineligible",
+      "rationale": "An empty for-of block body has nothing to emit.",
+      "reason": "for-of-empty-body"
+    },
+    {
+      "construct": "for-of-init",
+      "verdict": "ineligible",
+      "rationale": "A for-of declarator carrying an initializer.",
+      "reason": "for-of-init"
+    },
+    {
+      "construct": "for-of-loop",
+      "verdict": "contextual",
+      "rationale": "A `for…of` is eligible only as a const, single-declarator, non-empty braced loop over a valid iterable with a supported binding shape; otherwise one of the for-of-* reasons. Verdict depends on header + body shape.",
+      "when": [
+        "imperative"
+      ]
+    },
+    {
+      "construct": "for-of-multi-decl",
+      "verdict": "ineligible",
+      "rationale": "A for-of with more than one declarator.",
+      "reason": "for-of-multi-decl"
+    },
+    {
+      "construct": "for-of-non-block",
+      "verdict": "ineligible",
+      "rationale": "A non-block for-of body (`for (...) stmt;`); `each` always braces (strict mode).",
+      "reason": "for-of-non-block"
+    },
+    {
+      "construct": "for-of-non-const",
+      "verdict": "ineligible",
+      "rationale": "A for-of whose binding is not `const`.",
+      "reason": "for-of-non-const"
+    },
+    {
+      "construct": "for-of-non-decl",
+      "verdict": "ineligible",
+      "rationale": "A for-of whose initializer is not a variable declaration list.",
+      "reason": "for-of-non-decl"
+    },
+    {
+      "construct": "for-of-sync-pair",
+      "verdict": "ineligible",
+      "rationale": "A sync key-only/value-only binding not over Object.entries(...) (only entries=true emits those modes).",
+      "reason": "for-of-sync-pair"
+    },
+    {
+      "construct": "for-stmt",
+      "verdict": "ineligible",
+      "rationale": "A C-style `for` / `for-in` statement has no body-stmt form.",
+      "reason": "for-stmt"
+    },
+    {
+      "construct": "foreign-by-design",
+      "verdict": "ineligible",
+      "rationale": "Host-interop surface (res/process/db/req?., import(), useEffect, fetch, new Pool/AbortController) — stays a foreign boundary.",
+      "reason": "foreign-by-design"
+    },
+    {
+      "construct": "handler-body",
+      "verdict": "contextual",
+      "rationale": "The whole handler body is eligible only when it parses, is not a host-interop/template/comment boundary, and every top-level statement is eligible. The aggregate verdict is the conjunction of all per-statement verdicts.",
+      "when": [
+        "imperative"
+      ]
+    },
+    {
+      "construct": "if-bad-cond",
+      "verdict": "ineligible",
+      "rationale": "The if-condition is not a valid KERN expression.",
+      "reason": "if-bad-cond"
+    },
+    {
+      "construct": "if-non-block-else",
+      "verdict": "ineligible",
+      "rationale": "A non-block, non-else-if else-branch (`else stmt;`) would lose byte-equivalence (strict mode).",
+      "reason": "if-non-block-else"
+    },
+    {
+      "construct": "if-non-block-then",
+      "verdict": "ineligible",
+      "rationale": "A non-block then-branch (`if (c) stmt;`) would lose byte-equivalence; the emitter always braces (strict mode).",
+      "reason": "if-non-block-then"
+    },
+    {
+      "construct": "if-statement",
+      "verdict": "contextual",
+      "rationale": "An `if` is eligible only with a valid condition AND braced (or else-if) branches whose statements are all themselves eligible; otherwise if-bad-cond / if-non-block-then / if-non-block-else. Verdict depends on branch shape.",
+      "when": [
+        "imperative"
+      ]
+    },
+    {
+      "construct": "instanceof-expression",
+      "verdict": "contextual",
+      "rationale": "An `instanceof` is eligible when its RHS is an identifier outside the reject set or a qualified member name; otherwise one of the instanceof-rhs-* reasons. Verdict depends on the RHS shape.",
+      "when": [
+        "imperative"
+      ]
+    },
+    {
+      "construct": "instanceof-rhs-not-a-type-name",
+      "verdict": "ineligible",
+      "rationale": "An instanceof RHS that is not an identifier or qualified member name (call/literal/binary).",
+      "reason": "instanceof-rhs-not-a-type-name"
+    },
+    {
+      "construct": "instanceof-rhs-unsupported-builtin",
+      "verdict": "ineligible",
+      "rationale": "A built-in RHS with no verified cross-target host mapping (Object/Date/Map/Set/…).",
+      "reason": "instanceof-rhs-unsupported-builtin"
+    },
+    {
+      "construct": "instanceof-rhs-wrapper-rejected",
+      "verdict": "ineligible",
+      "rationale": "A primitive-wrapper RHS (String/Number/Boolean) — the wrapper-parity trap; fail-closed.",
+      "reason": "instanceof-rhs-wrapper-rejected"
+    },
+    {
+      "construct": "ok",
+      "verdict": "eligible",
+      "rationale": "Every top-level statement (and nested if/try branch) maps to a body-statement form the migrator can emit."
+    },
+    {
+      "construct": "return-bad-expr",
+      "verdict": "ineligible",
+      "rationale": "The returned expression is not a valid KERN expression.",
+      "reason": "return-bad-expr"
+    },
+    {
+      "construct": "return-template-escapes",
+      "verdict": "ineligible",
+      "rationale": "A returned template literal carrying a TS-only escape that diverges cross-target.",
+      "reason": "return-template-escapes"
+    },
+    {
+      "construct": "return-template-multiline",
+      "verdict": "ineligible",
+      "rationale": "A returned template literal containing a raw newline.",
+      "reason": "return-template-multiline"
+    },
+    {
+      "construct": "switch-stmt",
+      "verdict": "ineligible",
+      "rationale": "A `switch` statement has no body-stmt form.",
+      "reason": "switch-stmt"
+    },
+    {
+      "construct": "template-literal-initializer",
+      "verdict": "contextual",
+      "rationale": "A template-literal const/return is eligible when single-line with only cross-target-safe escapes; otherwise *-template-multiline / *-template-escapes. Verdict depends on the literal contents.",
+      "when": [
+        "imperative"
+      ]
+    },
+    {
+      "construct": "template-placeholder",
+      "verdict": "ineligible",
+      "rationale": "A {{ ident }} mustache placeholder in an unparseable body — a templating boundary, not a lift gap.",
+      "reason": "template-placeholder"
+    },
+    {
+      "construct": "throw-bad-expr",
+      "verdict": "ineligible",
+      "rationale": "The thrown expression is not a valid KERN expression.",
+      "reason": "throw-bad-expr"
+    },
+    {
+      "construct": "try-destruct-catch",
+      "verdict": "ineligible",
+      "rationale": "A destructuring catch binding (`catch ({ e })`) cannot map to the body-stmt catch name.",
+      "reason": "try-destruct-catch"
+    },
+    {
+      "construct": "try-statement",
+      "verdict": "contextual",
+      "rationale": "A `try` is eligible with catch and/or finally, an identifier-named catch binding, and eligible branch bodies; a destructuring catch is try-destruct-catch and a catch/finally-less try is a parse error. Verdict depends on clause shape.",
+      "when": [
+        "imperative"
+      ]
+    },
+    {
+      "construct": "ts-parse-error",
+      "verdict": "ineligible",
+      "rationale": "The body fails to parse as TypeScript and matches no foreign/template boundary — not migratable.",
+      "reason": "ts-parse-error"
+    },
+    {
+      "construct": "unsupported-stmt-",
+      "verdict": "ineligible",
+      "rationale": "Any other statement kind (import/export-default-less/enum/interface/labeled/debugger/…) surfaces its SyntaxKind name.",
+      "reason": "unsupported-stmt-"
+    },
+    {
+      "construct": "var-bad-expr",
+      "verdict": "ineligible",
+      "rationale": "The initializer expression is not a valid KERN expression.",
+      "reason": "var-bad-expr"
+    },
+    {
+      "construct": "var-bad-type",
+      "verdict": "ineligible",
+      "rationale": "The declared type annotation is not a valid KERN type annotation (round-trip-unsafe).",
+      "reason": "var-bad-type"
+    },
+    {
+      "construct": "var-destructure",
+      "verdict": "ineligible",
+      "rationale": "A destructuring binding whose shape the migrator cannot emit (incl. uninitialised destructure).",
+      "reason": "var-destructure"
+    },
+    {
+      "construct": "var-destructure-bad-expr",
+      "verdict": "ineligible",
+      "rationale": "A destructuring initializer that is not a valid KERN expression.",
+      "reason": "var-destructure-bad-expr"
+    },
+    {
+      "construct": "var-destructure-computed",
+      "verdict": "ineligible",
+      "rationale": "A computed property name ([k]) in a destructuring pattern is unsupported.",
+      "reason": "var-destructure-computed"
+    },
+    {
+      "construct": "var-destructure-default",
+      "verdict": "ineligible",
+      "rationale": "A default value (= 1) on a destructuring element is unsupported.",
+      "reason": "var-destructure-default"
+    },
+    {
+      "construct": "var-destructure-empty",
+      "verdict": "ineligible",
+      "rationale": "An empty destructuring pattern ({} / []) binds nothing.",
+      "reason": "var-destructure-empty"
+    },
+    {
+      "construct": "var-destructure-nested",
+      "verdict": "ineligible",
+      "rationale": "A nested destructuring pattern is unsupported.",
+      "reason": "var-destructure-nested"
+    },
+    {
+      "construct": "var-destructure-rest",
+      "verdict": "ineligible",
+      "rationale": "A rest element (...rest) in a destructuring pattern is unsupported.",
+      "reason": "var-destructure-rest"
+    },
+    {
+      "construct": "var-multi-decl",
+      "verdict": "ineligible",
+      "rationale": "A declaration list with more than one declarator cannot map to a single body-stmt.",
+      "reason": "var-multi-decl"
+    },
+    {
+      "construct": "var-non-const",
+      "verdict": "ineligible",
+      "rationale": "A `var` declaration; only `const`/`let` lift.",
+      "reason": "var-non-const"
+    },
+    {
+      "construct": "var-template-escapes",
+      "verdict": "ineligible",
+      "rationale": "A template-literal initializer carrying a TS-only escape (e.g. \\u{NNNN}) that diverges cross-target.",
+      "reason": "var-template-escapes"
+    },
+    {
+      "construct": "var-template-multiline",
+      "verdict": "ineligible",
+      "rationale": "A template-literal initializer containing a raw newline cannot sit in a KERN attribute value.",
+      "reason": "var-template-multiline"
+    },
+    {
+      "construct": "variable-declaration",
+      "verdict": "contextual",
+      "rationale": "A `let`/`const` is eligible only when single-declarator, identifier- or simple-pattern-named, with a valid type and a valid (or template) initializer; otherwise one of the var-* reasons. Verdict depends on declarator shape.",
+      "when": [
+        "imperative"
+      ]
+    },
+    {
+      "construct": "while-bad-cond",
+      "verdict": "ineligible",
+      "rationale": "The while-condition is not a valid KERN expression.",
+      "reason": "while-bad-cond"
+    },
+    {
+      "construct": "while-empty-body",
+      "verdict": "ineligible",
+      "rationale": "An empty while block body has nothing to emit.",
+      "reason": "while-empty-body"
+    },
+    {
+      "construct": "while-loop",
+      "verdict": "contextual",
+      "rationale": "A `while` is eligible only with a valid condition and a non-empty braced body; otherwise while-bad-cond / while-non-block / while-empty-body. Verdict depends on body shape.",
+      "when": [
+        "imperative"
+      ]
+    },
+    {
+      "construct": "while-non-block",
+      "verdict": "ineligible",
+      "rationale": "A non-block while body (`while (c) stmt;`); the emitter always braces (strict mode).",
+      "reason": "while-non-block"
+    }
+  ]
+}

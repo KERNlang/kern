@@ -11,7 +11,7 @@
   <br>
 
   **One backend spec. Real TypeScript and Python output.** 240 review rules.<br>
-  <sub>LLMs write .kern in up to 85% fewer tokens. 7 LLMs verified.</sub>
+  <sub>A .kern spec is ~70% fewer tokens than the TypeScript it generates — ~81% fewer than maintaining both backends (measured, GPT-class tokenizer, example corpus).</sub>
 
   <br>
 
@@ -31,6 +31,7 @@ npm install -g @kernlang/cli
 ```bash
 kern compile api.kern --target=express                        # Generate an Express backend
 kern compile api.kern --target=fastapi                        # Generate a FastAPI backend
+kern check                                                    # Nominal type checker (zero false positives)
 kern review src/ --recursive                                  # Static analysis (240 rules, taint tracking)
 kern context src/ --stdout                                    # Whole-project context map for an LLM/agent
 kern init --template=fullstack my-app                          # Scaffold fullstack app (Next.js + Express + MCP)
@@ -43,7 +44,7 @@ kern schema --json                                            # Full schema for 
 
 ## What is KERN?
 
-**KERN is a backend structure and portable route-logic language.**
+**KERN is a backend structure and portable route-logic language** — and as of v4, a typed core language: classes with inheritance, enums, closures, and a built-in nominal type checker, all compiling to both TypeScript and Python with parity proven by differential conformance fixtures (every fixture executes on both runtimes and must produce identical results).
 
 Define routes, schemas, handlers, API shape, validation, and small portable logic once, then emit real TypeScript/Express and Python/FastAPI code. Keep complex business logic in TypeScript or Python; move shared structure and parity-safe operations into KERN.
 
@@ -75,18 +76,52 @@ For detailed examples, interactive demos, and the full rule reference, visit **[
 
 ---
 
-## Quick Example
+## The Language (v4)
 
-**7 lines of .kern:**
+v4 turns KERN's portable layer into a typed core language. One source, two real runtimes, identical behavior:
 
 ```kern
-machine name=Order initial=pending
-  transition from=pending to=confirmed event=confirm
-  transition from=confirmed to=shipped event=ship
-  transition from=shipped to=delivered event=deliver
+enum name=Status values="Pending|Active|Done"
+
+class name=Shape abstract=true export=true
+  method name=area returns=number
+class name=Square extends=Shape export=true
+  field name=side type=number value={{ 3 }}
+  method name=area returns=number
+    handler
+      return value="this.side * this.side"
+
+fn name=measure returns=number
+  param name=shape type=Shape
+  handler
+    return value="shape.area()"
 ```
 
-**Compiles to 140+ lines** of typed TypeScript — enums, transition functions, exhaustive checks, error classes.
+- **Classes** — single inheritance, abstract classes, fields, getters, static members. Override variance is Liskov-checked by `kern check`.
+- **Enums** — TypeScript gets a native `enum`; Python gets a plain namespace class with identical member values (including TS auto-increment semantics). Operations the two targets *can't* represent identically — reverse indexing `Status[0]`, `Object.keys(Status)` iteration — are rejected at compile time for **both** targets, so neither side can silently diverge.
+- **Closures** — including captured-variable mutation, lowered correctly on both targets.
+- **Type checking** — `kern check` verifies class hierarchies, call-site arity and argument types, and declared returns. Zero false positives by design: it only reports violations it can prove.
+
+The parity guarantee is enforced, not promised: every language construct ships with differential conformance fixtures that execute the generated TypeScript *and* the generated Python and require identical results — and anything outside the provable subset fails closed with an explicit error instead of guessing.
+
+---
+
+## Quick Example
+
+**8 lines of .kern:**
+
+```kern
+machine name=Order
+  state name=pending
+  state name=confirmed
+  state name=shipped
+  state name=delivered
+  transition name=confirm from=pending to=confirmed
+  transition name=ship from=confirmed to=shipped
+  transition name=deliver from=shipped to=delivered
+```
+
+**Compiles to 40 lines** of typed TypeScript — a state union type, guarded transition functions, and a dedicated error class.
 
 ---
 
@@ -115,6 +150,32 @@ cd generated/api && npx tsx server.ts               # API on :3001
 Available templates: `fullstack`, `nextjs`, `express`, `file-tools`, `api-gateway`, `database-tools`
 
 See [`examples/starter/fullstack/`](examples/starter/fullstack/) for the generated files.
+
+---
+
+## kern check
+
+The KERN nominal type checker — deterministic, zero false positives by design (it only fires on violations it can prove; anything ambiguous is skipped, never guessed).
+
+```bash
+kern check                              # Check every .kern file under cwd
+kern check src/                         # Check a directory
+kern check api.kern                     # Check one file
+kern check --json                       # Stable machine output (schemaVersion 1.0) for CI/bots
+kern check --with-semantics             # Also run semantic validation
+```
+
+What it checks: class declarations and override variance, call-site arity and argument types, and declared returns — annotate a function with `returns=<Class>` and the checker verifies every literal `return value="new <Class>(...)"` against it:
+
+```kern
+class name=Dog
+class name=Cat
+fn name=mk returns=Dog
+  handler lang=kern
+    return value="new Cat()"   # kern check: check-return-type error
+```
+
+Exit codes: `0` clean, `1` findings, `2` operational failure — drop it straight into CI before `kern review`.
 
 ---
 

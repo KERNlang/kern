@@ -5,6 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
+  typescript: ^6.0.3
   dompurify: '>=3.4.0'
   brace-expansion: '>=5.0.6'
   picomatch: '>=4.0.4'
@@ -28,8 +29,17 @@ importers:
         specifier: ^6.0.3
         version: 6.0.3
 
+  packages/check:
+    devDependencies:
+      '@kernlang/core':
+        specifier: workspace:*
+        version: link:../core
+
   packages/cli:
     dependencies:
+      '@kernlang/check':
+        specifier: workspace:*
+        version: link:../check
       '@kernlang/codemod':
         specifier: workspace:*
         version: link:../codemod
@@ -135,8 +145,8 @@ importers:
   packages/core:
     dependencies:
       typescript:
-        specifier: ^6.0.0
-        version: 6.0.2
+        specifier: ^6.0.3
+        version: 6.0.3
 
   packages/evolve:
     dependencies:
@@ -1383,11 +1393,6 @@ packages:
     resolution: {integrity: sha512-OZs6gsjF4vMp32qrCbiVSkrFmXtG/AZhY3t0iAMrMBiAZyV9oALtXO8hsrHbMXF9x6L3grlFuwW2oAz7cav+Gw==}
     engines: {node: '>= 0.6'}
 
-  typescript@6.0.2:
-    resolution: {integrity: sha512-bGdAIrZ0wiGDo5l8c++HWtbaNCWTS4UTv7RaTH/ThVIgjkveJt83m74bBHMJkuCbslY8ixgLBVZJIOiQlQTjfQ==}
-    engines: {node: '>=14.17'}
-    hasBin: true
-
   typescript@6.0.3:
     resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
     engines: {node: '>=14.17'}
@@ -2370,8 +2375,6 @@ snapshots:
       content-type: 1.0.5
       media-typer: 1.1.0
       mime-types: 3.0.2
-
-  typescript@6.0.2: {}
 
   typescript@6.0.3: {}
 

@@ -46,7 +46,15 @@ export type ValueIR =
       kind: 'lambda';
       params: { name: string; type?: string }[];
       returnType?: string;
-      body: ValueIR;
+      /** Expression-bodied arrow (`x => x.id`). Mutually exclusive with
+       *  `bodyBlock` — exactly one is present. */
+      body?: ValueIR;
+      /** Block-bodied arrow (`x => { … }`). Raw TS text INCLUDING the outer
+       *  braces, for verbatim TS re-emit only. Every analyzer reads the TS AST
+       *  via `parseClosureBlockAst`, never this string. Its EXISTENCE in the IR
+       *  implies it passed the v1 closure gate (the parser validates at parse
+       *  time, fail-closed). Mutually exclusive with `body`. */
+      bodyBlock?: { raw: string };
       parenthesized: boolean;
       loc?: IRSourceLocation;
     }

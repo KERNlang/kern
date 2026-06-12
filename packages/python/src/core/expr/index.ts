@@ -6,15 +6,23 @@ import { lowerJsClosureBodyToPython, PORTABLE_LOGIC_PRIMITIVES, type PortableLog
 import { toSnakeCase } from '../../type-map.js';
 import {
   KERN_I32_HELPER_PY,
+  KERN_JS_ARRAY_HELPERS_PY,
   KERN_JS_HELPER_PY,
   KERN_JS_OBJECT_HELPERS_PY,
   KERN_JS_STRING_HELPERS_PY,
   KERN_TMOD_HELPER_PY,
 } from './helpers.js';
+import {
+  isSharedPortableArrayMethod,
+  isSharedPortableArrayProperty,
+  lowerPortableArrayMethodPy,
+  lowerPortableArrayPropertyPy,
+} from './list-ops.js';
 
 export {
   KERN_FMT_HELPER_PY,
   KERN_I32_HELPER_PY,
+  KERN_JS_ARRAY_HELPERS_PY,
   KERN_JS_HELPER_PY,
   KERN_JS_OBJECT_HELPERS_PY,
   KERN_JS_STRING_HELPERS_PY,
@@ -224,11 +232,27 @@ function lowerArrowBlockClosure(arrow: { params: string[]; body: string }, ctx: 
         undefined,
         ctx.closureSeq,
       )})`,
+    // Closure params are def-locals (never `nonlocal`); the lowerer excludes
+    // them and block-locals from the written-free set.
+    paramNames: arrow.params,
   });
   if (!result.ok) return null;
   ctx.imports?.add(KERN_JS_HELPER_PY);
   const params = arrow.params.join(', ');
-  const def = [`def ${name}(${params}):`, ...(result.lines.length > 0 ? result.lines : ['    pass'])].join('\n');
+  // Mutation v1 — free-variable WRITES need `nonlocal`. The route hoisted def
+  // nests INSIDE the route handler function, so a free capture that the closure
+  // writes is a handler-local (a `derive`/method-local). Unlike the class/
+  // native path (`emitBlockClosurePy`), the route path has NO loop-pinning
+  // concept — every written free name is an outer handler binding and ALL of
+  // them get a `nonlocal` declaration. Without it the def shadows the name and
+  // raises `UnboundLocalError` (read+write) or silently writes a dead local
+  // (write-only) — a live route bug this fixes. `nonlocal` is the def's FIRST
+  // body statement (Python requires it before any use). Member/index writes
+  // never appear in `writtenFreeNames` (by-reference mutation needs no decl).
+  const sortedFreeWrites = [...result.writtenFreeNames].sort();
+  const nonlocalLines = sortedFreeWrites.length > 0 ? [`    nonlocal ${sortedFreeWrites.join(', ')}`] : [];
+  const bodyLines = result.lines.length > 0 ? result.lines : ['    pass'];
+  const def = [`def ${name}(${params}):`, ...nonlocalLines, ...bodyLines].join('\n');
   if (ctx.hoistedDefs) {
     ctx.hoistedDefs.push(def);
   } else {
@@ -283,25 +307,31 @@ function lowerJsArrayMethods(expr: string, ctx: ExprRewriteContext): string {
           // name.
           const loopTarget = idxVar ? `${idxVar}, ${elemVar}` : elemVar;
           const source = idxVar ? `enumerate(${receiver})` : receiver;
+          // filter/find-family predicates wrap the body in `js_truthy(...)`:
+          // a predicate that yields a JS-truthy empty container ([] / {}) must be
+          // KEPT, but Python treats [] / {} as falsy, so a bare `if body` would
+          // wrongly drop it. `js_truthy` restores JS truthiness. (`map`/`flatMap`
+          // have no predicate and are left untouched.) The helper lands once.
+          ctx.imports?.add(KERN_JS_HELPER_PY);
           let lowered: string;
           if (method === 'filter') {
-            lowered = `[${elemVar} for ${loopTarget} in ${source} if ${body}]`;
+            lowered = `[${elemVar} for ${loopTarget} in ${source} if js_truthy(${body})]`;
           } else if (method === 'find') {
-            lowered = `next((${elemVar} for ${loopTarget} in ${source} if ${body}), None)`;
+            lowered = `next((${elemVar} for ${loopTarget} in ${source} if js_truthy(${body})), None)`;
           } else if (method === 'findIndex') {
             // index of the first match, or -1 (never raises). Bind the user's
             // own index var when the callback has one, so `(x, i) => …i…` works.
             const ix = idxVar ?? '__i';
-            lowered = `next((${ix} for ${ix}, ${elemVar} in enumerate(${receiver}) if ${body}), -1)`;
+            lowered = `next((${ix} for ${ix}, ${elemVar} in enumerate(${receiver}) if js_truthy(${body})), -1)`;
           } else if (method === 'findLast') {
             // last matching element, or None
             lowered = idxVar
-              ? `next((${elemVar} for ${idxVar}, ${elemVar} in reversed(list(enumerate(${receiver}))) if ${body}), None)`
-              : `next((${elemVar} for ${elemVar} in reversed(${receiver}) if ${body}), None)`;
+              ? `next((${elemVar} for ${idxVar}, ${elemVar} in reversed(list(enumerate(${receiver}))) if js_truthy(${body})), None)`
+              : `next((${elemVar} for ${elemVar} in reversed(${receiver}) if js_truthy(${body})), None)`;
           } else if (method === 'findLastIndex') {
             // index of the last match, or -1
             const ix = idxVar ?? '__i';
-            lowered = `next((${ix} for ${ix}, ${elemVar} in reversed(list(enumerate(${receiver}))) if ${body}), -1)`;
+            lowered = `next((${ix} for ${ix}, ${elemVar} in reversed(list(enumerate(${receiver}))) if js_truthy(${body})), -1)`;
           } else if (method === 'flatMap') {
             // map, then flatten ONE level — JS flatMap only flattens arrays, so
             // a scalar/string callback result is appended as a single element.
@@ -328,46 +358,30 @@ function lowerJsArrayMethods(expr: string, ctx: ExprRewriteContext): string {
       if (closeIdx !== -1 && recvStart !== -1) {
         const receiver = out.slice(recvStart);
         const pre = out.slice(0, recvStart);
-        const args = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)).map((a) =>
-          lowerJsArrayMethods(a.trim(), ctx),
+        const rawArgs = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));
+        const args = rawArgs.map((a) =>
+          method === 'fill' ? lowerJsFillArgument(a.trim(), ctx) : lowerJsArrayMethods(a.trim(), ctx),
         );
         let lowered: string | null = null;
-        if (method === 'includes') {
-          const needle = args[0] ?? '';
-          lowered = `(${needle} in ${receiver})`;
-        } else if (method === 'indexOf') {
-          const needle = args[0] ?? '';
-          const fromIndex = args[1] ?? null;
-          if (fromIndex) {
-            lowered = `(next((__i for __i, __v in enumerate(${receiver}) if __i >= ${fromIndex} and __v == ${needle}), -1))`;
-          } else {
-            lowered = `(next((__i for __i, __v in enumerate(${receiver}) if __v == ${needle}), -1))`;
+        if (isSharedPortableArrayMethod(method)) {
+          // Delegate the argument-shape (non-lambda) scalar methods —
+          // push/slice/concat/includes/indexOf/join/flat/reverse/at/fill/
+          // lastIndexOf — to the single shared list-ops lowering (also used by
+          // the class-method body emitter) so routes and class methods can't
+          // drift. The shared helper returns null for arg-count shapes it
+          // doesn't support (e.g. multi-arg concat), and `lowered` stays null so
+          // the caller falls through unchanged — the same gap as the pre-sweep
+          // inline branches. The method names here are disjoint from the
+          // lambda-bearing some/every/reduce/reduceRight/sort branches below, so
+          // chain order does not matter.
+          const imports = ctx.imports;
+          const portable = method === 'fill' && !imports ? null : lowerPortableArrayMethodPy(receiver, method, args);
+          if (portable !== null) {
+            if (method === 'fill') {
+              imports?.add(KERN_JS_ARRAY_HELPERS_PY);
+            }
+            lowered = portable;
           }
-        } else if (method === 'push') {
-          // JS Array.push mutates AND returns the new length. Python list.append
-          // returns None, so emit `(recv.append(x) or len(recv))` for exact parity
-          // (mutate + length). Single-arg only; varargs push left unsupported.
-          if (args.length === 1) lowered = `(${receiver}.append(${args[0]}) or len(${receiver}))`;
-        } else if (method === 'reverse') {
-          // JS Array.reverse mutates AND returns the (same, reversed) array; Python
-          // list.reverse returns None -> `(recv.reverse() or recv)` mutates + returns it.
-          lowered = `(${receiver}.reverse() or ${receiver})`;
-        } else if (method === 'concat') {
-          // JS Array.concat returns a NEW array; an array arg is spread, a scalar arg
-          // is appended. Mirror with `recv + (x if isinstance(x, list) else [x])`.
-          // Single-arg only; varargs concat left unsupported.
-          if (args.length === 1)
-            lowered = `(${receiver} + (${args[0]} if isinstance(${args[0]}, list) else [${args[0]}]))`;
-        } else if (method === 'join') {
-          const sep = args[0] ?? '","';
-          lowered = `${sep}.join(str(__v) for __v in ${receiver})`;
-        } else if (method === 'slice') {
-          const start = args[0];
-          const end = args[1];
-          if (!start && !end) lowered = `${receiver}[:]`;
-          else if (start && !end) lowered = `${receiver}[${start}:]`;
-          else if (!start && end) lowered = `${receiver}[:${end}]`;
-          else lowered = `${receiver}[${start}:${end}]`;
         } else if (method === 'some' || method === 'every') {
           const arrow = parseArrowCallback(expr.slice(openIdx + 1, closeIdx));
           if (arrow && arrow.params.length >= 1) {
@@ -379,10 +393,17 @@ function lowerJsArrayMethods(expr: string, ctx: ExprRewriteContext): string {
             const pred = blockClosure ?? lowerJsArrayMethods(lowerDictMemberAccess(arrow.body, elemVar), ctx);
             const loopTarget = idxVar ? `${idxVar}, ${elemVar}` : elemVar;
             const source = idxVar ? `enumerate(${receiver})` : receiver;
+            // Wrap the predicate in `js_truthy(...)` for JS truthiness parity (a
+            // predicate yielding [] / {} is JS-truthy but Python-falsy). Skip the
+            // wrap when `pred` is ALREADY a js_truthy(...) call — the block-closure
+            // path's `lowerCondition` can emit one — to avoid emit-noise double
+            // wrapping (harmless but ugly). The helper lands once.
+            const wrappedPred = pred.startsWith('js_truthy(') ? pred : `js_truthy(${pred})`;
+            ctx.imports?.add(KERN_JS_HELPER_PY);
             lowered =
               method === 'some'
-                ? `any(${pred} for ${loopTarget} in ${source})`
-                : `all(${pred} for ${loopTarget} in ${source})`;
+                ? `any(${wrappedPred} for ${loopTarget} in ${source})`
+                : `all(${wrappedPred} for ${loopTarget} in ${source})`;
           }
         } else if (method === 'reduce') {
           const rawArgs = splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx));
@@ -432,32 +453,30 @@ function lowerJsArrayMethods(expr: string, ctx: ExprRewriteContext): string {
           } else {
             lowered = `sorted(${receiver}, key=lambda __v${LAMBDA_COLON_PLACEHOLDER} str(__v))`;
           }
-        } else if (method === 'flat') {
-          // one level: flatten nested lists, keep scalars
-          lowered = `[__y for __x in ${receiver} for __y in (__x if isinstance(__x, list) else [__x])]`;
-        } else if (method === 'at') {
-          const n = args[0] ?? '0';
-          lowered = `(${receiver}[${n}] if -len(${receiver}) <= ${n} < len(${receiver}) else None)`;
-        } else if (method === 'fill') {
-          const v = args[0] ?? 'None';
-          if (args.length <= 1) {
-            lowered = `[${v} for __ in ${receiver}]`;
-          } else {
-            // fill(value, start, end) fills [start, end) with JS negative-index
-            // normalization; untouched positions keep their original element.
-            const s = args[1];
-            const e = args[2] ?? `len(${receiver})`;
-            lowered = `[(${v} if (${s} if ${s} >= 0 else ${s} + len(${receiver})) <= __i < (${e} if ${e} >= 0 else ${e} + len(${receiver})) else __x) for __i, __x in enumerate(${receiver})]`;
-          }
-        } else if (method === 'lastIndexOf') {
-          const needle = args[0] ?? '';
-          // String receivers use rfind (correct for multi-char substrings, -1
-          // when absent); array receivers reverse-scan by element equality.
-          lowered = `(${receiver}.rfind(${needle}) if isinstance(${receiver}, str) else (len(${receiver}) - 1 - ${receiver}[::-1].index(${needle}) if ${needle} in ${receiver} else -1))`;
         }
         if (lowered) {
           out = `${pre}${lowered}`;
           i = closeIdx + 1;
+          continue;
+        }
+      }
+    }
+    // Portable Array *property* access (non-call `.length`). Matched only when
+    // NOT immediately followed by `(` (the method scan above owns call forms),
+    // so `arr.length` lowers to `len(arr)` while a hypothetical `arr.length(...)`
+    // call is left for the method path. Receiver taken from already-emitted
+    // `out` like the method path, so chained forms (`arr.slice(1).length`)
+    // compose naturally.
+    const mProp = expr.slice(i).match(/^\.([A-Za-z]\w*)(?!\s*\()/);
+    if (mProp && isSharedPortableArrayProperty(mProp[1])) {
+      const recvStart = findReceiverStart(out);
+      if (recvStart !== -1) {
+        const receiver = out.slice(recvStart);
+        const pre = out.slice(0, recvStart);
+        const lowered = lowerPortableArrayPropertyPy(receiver, mProp[1]);
+        if (lowered !== null) {
+          out = `${pre}${lowered}`;
+          i += mProp[0].length;
           continue;
         }
       }
@@ -488,6 +507,133 @@ function matchBalancedParen(expr: string, openIdx: number): number {
     }
   }
   return -1;
+}
+
+function stripOuterParens(raw: string): string {
+  let trimmed = raw.trim();
+  while (trimmed.startsWith('(')) {
+    const close = matchBalancedParen(trimmed, 0);
+    if (close !== trimmed.length - 1) break;
+    trimmed = trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+function exactVoidOperand(raw: string): string | null {
+  const trimmed = stripOuterParens(raw);
+  if (!trimmed.startsWith('void')) return null;
+  const rest = trimmed.slice('void'.length);
+  if (rest === '' || (!/^\s/.test(rest) && !rest.startsWith('('))) return null;
+  const operand = rest.trim();
+  if (!operand) return null;
+  if (operand.startsWith('(')) {
+    const close = matchBalancedParen(operand, 0);
+    return close === operand.length - 1 ? operand : null;
+  }
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = 0; i < operand.length; i += 1) {
+    const c = operand[i];
+    if (quote) {
+      if (c === '\\') i += 1;
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      continue;
+    }
+    if (c === '(' || c === '[' || c === '{') {
+      depth += 1;
+      continue;
+    }
+    if (c === ')' || c === ']' || c === '}') {
+      depth -= 1;
+      if (depth < 0) return null;
+      continue;
+    }
+    if (depth === 0 && /[,+\-*/%|&^?:<>=]/.test(c) && !(i === 0 && /[+-]/.test(c))) return null;
+  }
+  return depth === 0 && !quote ? operand : null;
+}
+
+function rewriteExprInContext(raw: string, ctx: ExprRewriteContext): string {
+  return rewriteExpr(raw, ctx.pathParams, ctx.bodyFields, ctx.authUser, ctx.imports, ctx.hoistedDefs, ctx.closureSeq);
+}
+
+function lowerLogicalAndOr(expr: string): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    if (expr.startsWith('&&', i)) {
+      out += ' and ';
+      i += 2;
+      continue;
+    }
+    if (expr.startsWith('||', i)) {
+      out += ' or ';
+      i += 2;
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
+function lowerJsVoidExpression(raw: string, ctx: ExprRewriteContext): string {
+  const voidOperand = exactVoidOperand(raw);
+  if (voidOperand === null) {
+    throw new Error(
+      'Array.fill void argument lowering expects an exact unary void expression; bind complex void expressions first.',
+    );
+  }
+  return `(${lowerJsVoidOperand(voidOperand, ctx)}, _KERN_UNDEFINED)[1]`;
+}
+
+function lowerJsVoidOperand(raw: string, ctx: ExprRewriteContext): string {
+  const nestedVoidOperand = exactVoidOperand(raw);
+  if (nestedVoidOperand !== null) {
+    return lowerJsVoidExpression(raw, ctx);
+  }
+  return lowerLogicalAndOr(rewriteExprInContext(raw, ctx));
+}
+
+function lowerJsFillArgument(raw: string, ctx: ExprRewriteContext): string {
+  const trimmed = stripOuterParens(raw);
+  if (trimmed === 'undefined') return '_KERN_UNDEFINED';
+  const voidOperand = exactVoidOperand(trimmed);
+  if (voidOperand !== null) {
+    return `(${lowerJsVoidOperand(voidOperand, ctx)}, _KERN_UNDEFINED)[1]`;
+  }
+  // Fail-closed ONLY on a true `void` OPERATOR with a complex operand
+  // (exactVoidOperand already rejected it above). A bare identifier that
+  // merely STARTS with "void" (voidValue, voidFn()) is ordinary code and
+  // must lower normally — `void` is followed by whitespace or `(` when it
+  // is the operator.
+  if (/^void(?:\s|\()/.test(trimmed)) {
+    return lowerJsVoidExpression(trimmed, ctx);
+  }
+  return rewriteExprInContext(trimmed, ctx);
 }
 
 // Split a call's inner argument text on top-level commas, ignoring commas
@@ -1986,8 +2132,12 @@ export function rewriteExpr(
     const tokens = tokenizeJSExpr(expr);
     const comparisonProbe = expr.replace(/>>>|>>|<</g, '');
     const hasLooseComparison = /(?:===|!==|==|!=|<=|>=|<|>)/.test(comparisonProbe);
+    const hasVoidOperator = /\bvoid\b/.test(expr);
     const hasBitwiseOrModulo =
-      !expr.includes('=>') && !hasLooseComparison && tokens.some((t) => t.type === 'UNARY' || t.type === 'OP');
+      !hasVoidOperator &&
+      !expr.includes('=>') &&
+      !hasLooseComparison &&
+      tokens.some((t) => t.type === 'UNARY' || t.type === 'OP');
     if (hasBitwiseOrModulo) {
       const ast = parseTokens(tokens);
       expr = codegenASTToPython(ast, imports);

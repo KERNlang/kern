@@ -59,6 +59,13 @@ export interface LLMBridgeConfig {
   apiKey?: string;
   model?: string;
   baseUrl?: string;
+  /** Which wire protocol the provider speaks. 'openai' (default) POSTs
+   *  `${baseUrl}/chat/completions` with a Bearer header; 'anthropic' POSTs
+   *  `${baseUrl}/messages` with x-api-key + anthropic-version headers and
+   *  the system prompt in the top-level `system` field. Anthropic-compatible
+   *  gateways (MiniMax Coding Plan's /anthropic/v1, Z.ai's anthropic surface)
+   *  only exist on the latter — without this flag every review call 404s. */
+  apiStyle?: 'openai' | 'anthropic';
   timeout?: number; // ms, default 60000
   maxTokens?: number; // output token cap; default 32768
   /** Max input tokens per batch. Defaults to a value derived from
@@ -84,6 +91,7 @@ function resolveConfig(override?: LLMBridgeConfig): Required<LLMBridgeConfig> & 
     apiKey,
     model,
     baseUrl: (override?.baseUrl || process.env.KERN_LLM_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, ''),
+    apiStyle: override?.apiStyle || (process.env.KERN_LLM_API_STYLE === 'anthropic' ? 'anthropic' : 'openai'),
     timeout: override?.timeout || 60_000,
     maxTokens,
     maxBatchTokens: override?.maxBatchTokens || defaultMaxBatchTokens(maxTokens),
@@ -126,6 +134,79 @@ export interface LLMCallResult {
   durationMs: number;
 }
 
+/** Anthropic Messages API response (the subset we read). Anthropic-compatible
+ *  gateways return content as typed blocks and usage as input/output_tokens. */
+interface AnthropicResponse {
+  content?: Array<{ type?: string; text?: string }>;
+  usage?: { input_tokens?: number; output_tokens?: number };
+}
+
+/** Build the request URL + headers + body for the configured wire protocol.
+ *  Exported for tests. */
+export function buildLLMRequest(
+  messages: ChatMessage[],
+  config: Required<LLMBridgeConfig>,
+): { url: string; headers: Record<string, string>; body: string } {
+  if (config.apiStyle === 'anthropic') {
+    // Anthropic's Messages API takes the system prompt as a top-level field
+    // and rejects role:'system' entries in `messages`.
+    const system = messages
+      .filter((m) => m.role === 'system')
+      .map((m) => m.content)
+      .join('\n\n');
+    const chat = messages.filter((m) => m.role !== 'system').map((m) => ({ role: m.role, content: m.content }));
+    return {
+      url: `${config.baseUrl}/messages`,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': config.apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: config.model,
+        max_tokens: config.maxTokens,
+        temperature: 0.1,
+        ...(system.length > 0 ? { system } : {}),
+        messages: chat,
+      }),
+    };
+  }
+  return {
+    url: `${config.baseUrl}/chat/completions`,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: config.model,
+      messages,
+      max_tokens: config.maxTokens,
+      temperature: 0.1, // Low temp for consistent analysis
+    }),
+  };
+}
+
+/** Extract assistant text + token usage from either protocol's response.
+ *  Exported for tests. */
+export function parseWireResponse(data: unknown, apiStyle: 'openai' | 'anthropic'): Omit<LLMCallResult, 'durationMs'> {
+  if (apiStyle === 'anthropic') {
+    const r = data as AnthropicResponse;
+    const content = (r.content ?? [])
+      .filter((b) => b.type === 'text' || (b.type === undefined && typeof b.text === 'string'))
+      .map((b) => b.text ?? '')
+      .join('');
+    const out: Omit<LLMCallResult, 'durationMs'> = { content };
+    if (typeof r.usage?.input_tokens === 'number') out.promptTokens = r.usage.input_tokens;
+    if (typeof r.usage?.output_tokens === 'number') out.completionTokens = r.usage.output_tokens;
+    return out;
+  }
+  const r = data as ChatResponse;
+  const out: Omit<LLMCallResult, 'durationMs'> = { content: r.choices?.[0]?.message?.content || '' };
+  if (typeof r.usage?.prompt_tokens === 'number') out.promptTokens = r.usage.prompt_tokens;
+  if (typeof r.usage?.completion_tokens === 'number') out.completionTokens = r.usage.completion_tokens;
+  return out;
+}
+
 async function callLLM(messages: ChatMessage[], config: Required<LLMBridgeConfig>): Promise<LLMCallResult> {
   if (!config.model) {
     throw new Error('KERN_LLM_MODEL not set. Set it to your preferred model (e.g. gpt-4o, claude-sonnet-4-20250514).');
@@ -135,18 +216,11 @@ async function callLLM(messages: ChatMessage[], config: Required<LLMBridgeConfig
   const startedAt = Date.now();
 
   try {
-    const response = await fetch(`${config.baseUrl}/chat/completions`, {
+    const req = buildLLMRequest(messages, config);
+    const response = await fetch(req.url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: config.model,
-        messages,
-        max_tokens: config.maxTokens,
-        temperature: 0.1, // Low temp for consistent analysis
-      }),
+      headers: req.headers,
+      body: req.body,
       signal: controller.signal,
     });
 
@@ -155,11 +229,9 @@ async function callLLM(messages: ChatMessage[], config: Required<LLMBridgeConfig
       throw new Error(`LLM API error ${response.status}: ${text.substring(0, 200)}`);
     }
 
-    const data = (await response.json()) as ChatResponse;
+    const data: unknown = await response.json();
     return {
-      content: data.choices?.[0]?.message?.content || '',
-      promptTokens: data.usage?.prompt_tokens,
-      completionTokens: data.usage?.completion_tokens,
+      ...parseWireResponse(data, config.apiStyle),
       durationMs: Date.now() - startedAt,
     };
   } finally {
@@ -688,7 +760,7 @@ ${buildFullReviewChecklist()}
 OUTPUT FORMAT:
 - Write a structured review with severity, node alias (N1, N2, etc.) or line number, and explanation.
 - Do NOT repeat what static analysis already found — focus on what it MISSED.
-- Only report findings you are confident about (>70% sure).
+- Only report findings you would score 60+ for confidence (provable from the shown code, or likely-but-depends-on-unseen-code).
 - Include specific evidence — quote the relevant code from the IR.
 - For bugs, explain the IMPACT (what goes wrong, for whom, when).
 - Prioritize: bugs > security > error handling > data flow > concurrency > API contracts.
@@ -730,10 +802,20 @@ Categories: bug, type, pattern, style, structure
 Severities: error (definitely a bug), warning (likely a bug or serious concern), info (suggestion)
 
 Return ONLY a JSON array of findings. Schema:
-[{"nodeAlias":"N3","severity":"warning","category":"bug","message":"...","evidence":"..."}]
+[{"nodeAlias":"N3","severity":"warning","category":"bug","message":"...","evidence":"...","confidence":75}]
+
+The optional integer "confidence" field is your evidence-grounded self-assessment:
+- 80-89: defect provable from the shown code alone — cite the line evidence
+- 60-79: likely defect but depends on unseen code (call sites, module boundaries, domain assumptions)
+- below 60: do NOT report the finding at all — speculative pattern-concerns and might-be-intentional designs fall here
+- NEVER emit 90 or higher (reserved for deterministic tooling); never emit fractional values
+
+Examples:
+[{"nodeAlias":"N3","severity":"error","category":"bug","message":"Off-by-one: loop uses <= items.length, indexing items[i] reads one past the end.","evidence":"for (let i = 0; i <= items.length; i++) items[i]","confidence":85},
+ {"nodeAlias":"N5","severity":"warning","category":"pattern","message":"Result of fetch() may be unhandled if the caller ignores the returned promise.","evidence":"return fetch(url)","confidence":65}]
 
 Rules:
-- Only report findings you are confident about (>70% sure)
+- Only report findings scoring 60+ on the confidence rubric above
 - Include specific evidence — quote the relevant code
 - For bugs, explain the IMPACT (what goes wrong, for whom, when)
 - Do NOT report style/formatting issues — only things that affect correctness or security
@@ -777,10 +859,20 @@ Categories: bug, type, pattern, style, structure
 Severities: error, warning, info
 
 Return ONLY a JSON array of findings. Schema:
-[{"nodeAlias":"N3","severity":"warning","category":"bug","message":"...","evidence":"..."}]
+[{"nodeAlias":"N3","severity":"warning","category":"bug","message":"...","evidence":"...","confidence":75}]
+
+The optional integer "confidence" field is your evidence-grounded self-assessment:
+- 80-89: defect provable from the shown code alone — cite the line evidence
+- 60-79: likely defect but depends on unseen code (call sites, module boundaries, domain assumptions)
+- below 60: do NOT report the finding at all — speculative pattern-concerns and might-be-intentional designs fall here
+- NEVER emit 90 or higher (reserved for deterministic tooling); never emit fractional values
+
+Examples:
+[{"nodeAlias":"N3","severity":"error","category":"bug","message":"Command injection: userInput is concatenated into an exec() argument with no escaping.","evidence":"exec('git log ' + userInput)","confidence":85},
+ {"nodeAlias":"N5","severity":"warning","category":"bug","message":"Possible auth bypass if isAdmin defaults truthy upstream — depends on the unseen caller.","evidence":"if (user.isAdmin) grant()","confidence":65}]
 
 Rules:
-- Only report findings you are confident about (>70% sure)
+- Only report findings scoring 60+ on the confidence rubric above
 - Include specific evidence from the code
 - Explain HOW an attacker could exploit each issue
 - Do NOT report style issues — only security-relevant findings

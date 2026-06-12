@@ -5,7 +5,7 @@
 
 import type { ExprObject, IRNode, ValueIR } from '@kernlang/core';
 import { emitStringKeyArray, handlerCode, parseExpression, parseKeys } from '@kernlang/core';
-import { emitPyExpression } from '../codegen-body-python.js';
+import { emitPyExpressionWithImports, type PyExpressionEmitResult } from '../codegen-body-python.js';
 import {
   buildPythonParamList,
   emitPyLowConfidenceTodo,
@@ -15,6 +15,33 @@ import {
   p,
 } from '../codegen-helpers.js';
 import { mapTsTypeToPython, toPythonBindingName, toSnakeCase } from '../type-map.js';
+
+/** Ground/React Layer generators emit module-level statements and have NO
+ *  per-statement channel for JS value→string coercion, so ground expressions
+ *  opt out of coercion and keep the pre-slice forms (raw `+`, raw f-string
+ *  interpolation, `None` for undefined, None-only `??`). Helper-dependent
+ *  non-coercion lowerings, such as Array.fill, surface helpers through
+ *  emitGroundExpression and prepend them next to the generated statement. */
+const GROUND_EMIT = { coerceJsValues: false } as const;
+
+function emitGroundExpression(valueIR: ValueIR): PyExpressionEmitResult {
+  return emitPyExpressionWithImports(valueIR, GROUND_EMIT);
+}
+
+function groundExpressionPrelude(results: readonly PyExpressionEmitResult[]): string[] {
+  const imports = new Set<string>();
+  const helpers = new Set<string>();
+  for (const result of results) {
+    for (const mod of result.imports) imports.add(mod);
+    for (const helper of result.helpers) helpers.add(helper);
+  }
+  const importLines = [...imports].sort().map((mod) => `import ${mod} as __k_${mod}`);
+  return [...importLines, ...[...helpers].flatMap((helper) => helper.split('\n'))];
+}
+
+function withGroundExpressionCode(result: PyExpressionEmitResult, code: string): PyExpressionEmitResult {
+  return { code, imports: result.imports, helpers: result.helpers };
+}
 
 /**
  * Common preamble extracted from all ground layer generators.
@@ -141,12 +168,17 @@ export function generateFirstTruthy(node: IRNode): string[] {
 
   const constType = props.type as string | undefined;
   const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
-  return [...todo, ...annotations, `${name}${typeAnnotation} = ${emitted.join(' or ')}`];
+  return [
+    ...todo,
+    ...annotations,
+    ...groundExpressionPrelude(emitted),
+    `${name}${typeAnnotation} = ${emitted.map((result) => result.code).join(' or ')}`,
+  ];
 }
 
-function emitFirstTruthyOperandPy(valueIR: ValueIR): string {
-  const emitted = emitPyExpression(valueIR);
-  return valueIR.kind === 'conditional' ? `(${emitted})` : emitted;
+function emitFirstTruthyOperandPy(valueIR: ValueIR): PyExpressionEmitResult {
+  const emitted = emitGroundExpression(valueIR);
+  return valueIR.kind === 'conditional' ? withGroundExpressionCode(emitted, `(${emitted.code})`) : emitted;
 }
 
 function buildNullishCoalesceIR(values: ValueIR[]): ValueIR {
@@ -172,8 +204,8 @@ export function generateCoalesce(node: IRNode): string[] {
 
   const constType = props.type as string | undefined;
   const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
-  const chain = emitPyExpression(buildNullishCoalesceIR(valueIRs));
-  return [...todo, ...annotations, `${name}${typeAnnotation} = ${chain}`];
+  const chain = emitGroundExpression(buildNullishCoalesceIR(valueIRs));
+  return [...todo, ...annotations, ...groundExpressionPrelude([chain]), `${name}${typeAnnotation} = ${chain.code}`];
 }
 
 export function generateFirstDefined(node: IRNode): string[] {
@@ -193,8 +225,8 @@ export function generateFirstDefined(node: IRNode): string[] {
 
   const constType = props.type as string | undefined;
   const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
-  const chain = emitPyExpression(buildNullishCoalesceIR(valueIRs));
-  return [...todo, ...annotations, `${name}${typeAnnotation} = ${chain}`];
+  const chain = emitGroundExpression(buildNullishCoalesceIR(valueIRs));
+  return [...todo, ...annotations, ...groundExpressionPrelude([chain]), `${name}${typeAnnotation} = ${chain.code}`];
 }
 
 // ── objectMerge ─────────────────────────────────────────────────────────
@@ -205,7 +237,7 @@ export function generateObjectMerge(node: IRNode): string[] {
   if (rawSources === undefined || rawSources === '') throw new Error("objectMerge node requires a 'sources' prop");
   const sources = splitExpressionList(rawSources, 'objectMerge sources=');
   if (sources.length < 2) throw new Error('objectMerge requires at least two source expressions');
-  const emitted: string[] = [];
+  const emitted: PyExpressionEmitResult[] = [];
   for (const source of sources) {
     if (source.startsWith('...'))
       throw new Error('objectMerge sources imply spreading; omit leading `...` in sources=');
@@ -213,12 +245,18 @@ export function generateObjectMerge(node: IRNode): string[] {
     if (sourceIR.kind === 'propagate') {
       throw new Error("Propagation '?' is not allowed in `objectMerge sources=` — bind the value first.");
     }
-    emitted.push(`**(${emitPyExpression(sourceIR)})`);
+    const sourceExpr = emitGroundExpression(sourceIR);
+    emitted.push(withGroundExpressionCode(sourceExpr, `**(${sourceExpr.code})`));
   }
 
   const constType = props.type as string | undefined;
   const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
-  return [...todo, ...annotations, `${name}${typeAnnotation} = {${emitted.join(', ')}}`];
+  return [
+    ...todo,
+    ...annotations,
+    ...groundExpressionPrelude(emitted),
+    `${name}${typeAnnotation} = {${emitted.map((result) => result.code).join(', ')}}`,
+  ];
 }
 
 export function generateObjectPick(node: IRNode): string[] {
@@ -235,7 +273,7 @@ export function generateObjectPick(node: IRNode): string[] {
   if (inIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in objectPick in=");
   }
-  const inExpr = emitPyExpression(inIR);
+  const inExpr = emitGroundExpression(inIR);
 
   const keysList = parseKeys(rawKeys, node, 'objectPick keys=');
   const formattedKeys = emitStringKeyArray(keysList);
@@ -246,7 +284,8 @@ export function generateObjectPick(node: IRNode): string[] {
   return [
     ...todo,
     ...annotations,
-    `${name}${typeAnnotation} = (lambda __kern_source: {key: (__kern_source[key] if key in __kern_source else None) for key in ${formattedKeys}})(${inExpr})`,
+    ...groundExpressionPrelude([inExpr]),
+    `${name}${typeAnnotation} = (lambda __kern_source: {key: (__kern_source[key] if key in __kern_source else None) for key in ${formattedKeys}})(${inExpr.code})`,
   ];
 }
 
@@ -264,7 +303,7 @@ export function generateObjectOmit(node: IRNode): string[] {
   if (inIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in objectOmit in=");
   }
-  const inExpr = emitPyExpression(inIR);
+  const inExpr = emitGroundExpression(inIR);
 
   const keysList = parseKeys(rawKeys, node, 'objectOmit keys=');
   const formattedKeys = emitStringKeyArray(keysList);
@@ -275,7 +314,8 @@ export function generateObjectOmit(node: IRNode): string[] {
   return [
     ...todo,
     ...annotations,
-    `${name}${typeAnnotation} = {key: value for key, value in ${inExpr}.items() if key not in ${formattedKeys}}`,
+    ...groundExpressionPrelude([inExpr]),
+    `${name}${typeAnnotation} = {key: value for key, value in ${inExpr.code}.items() if key not in ${formattedKeys}}`,
   ];
 }
 
