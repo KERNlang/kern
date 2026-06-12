@@ -1,6 +1,6 @@
 {
   "name": "@kernlang/go",
-  "version": "3.5.8",
+  "version": "4.0.0",
   "description": "KERN Go net/http backend codegen",
   "type": "module",
   "main": "./dist/index.js",

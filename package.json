@@ -1,10 +1,10 @@
 {
   "name": "kern-monorepo",
-  "version": "3.5.8",
+  "version": "4.0.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.32.1",
-  "description": "KERN \u2014 backend structure and portable route logic for TypeScript/Express and Python/FastAPI parity.",
+  "description": "KERN — backend structure and portable route logic for TypeScript/Express and Python/FastAPI parity.",
   "author": "cukas",
   "repository": {
     "type": "git",
