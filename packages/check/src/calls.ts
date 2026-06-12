@@ -42,9 +42,19 @@
  */
 
 import { parseExpression } from '../../core/dist/parser-expression.js';
+import { typescriptClosureClassifier } from '../../core/dist/typescript-closure-classifier.js';
 import type { ValueIR } from '../../core/dist/value-ir.js';
 import { assignable, type NominalClassInfo } from './assignable.js';
 import { buildClassByName, expressionPropText, type IRNode, newClassName, stringProp, walkTree } from './shared.js';
+
+// Slice 0.9 review fix (codex blocking) — `kern check` is Node-only; without
+// the injected classifier, a block-bodied arrow anywhere in the expression made
+// the bare parse throw and the catch at the call site SKIP the statement,
+// silently dropping real call diagnostics.
+const TS_PARSE_OPTS = { closureClassifier: typescriptClosureClassifier };
+function parseExpr(input: string): ValueIR {
+  return parseExpression(input, TS_PARSE_OPTS);
+}
 
 /** A call-site check rule identifier. */
 export type CallCheckRule = 'check-call-arity' | 'check-call-arg-type';
@@ -112,7 +122,7 @@ export function checkCalls(root: IRNode): CallCheckDiagnostic[] {
       if (text === undefined) continue;
       let value: ValueIR;
       try {
-        value = parseExpression(text);
+        value = parseExpr(text);
       } catch {
         continue; // unparseable / legacy body → SKIP silently.
       }

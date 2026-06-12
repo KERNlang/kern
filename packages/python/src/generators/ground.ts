@@ -5,6 +5,7 @@
 
 import type { ExprObject, IRNode, ValueIR } from '@kernlang/core';
 import { emitStringKeyArray, handlerCode, parseExpression, parseKeys } from '@kernlang/core';
+import { typescriptClosureClassifier } from '@kernlang/core/node';
 import { emitPyExpressionWithImports, type PyExpressionEmitResult } from '../codegen-body-python.js';
 import {
   buildPythonParamList,
@@ -33,6 +34,15 @@ import { mapTsTypeToPython, toPythonBindingName, toSnakeCase } from '../type-map
  *  non-coercion lowerings, such as Array.fill, surface helpers through
  *  emitGroundExpression and prepend them next to the generated statement. */
 const GROUND_EMIT = { coerceJsValues: false } as const;
+
+// Slice 0.9 review fix — ground generators are Node-only and re-parse raw
+// expression props whose value lists may contain block-bodied arrows, so they
+// inject the TypeScript-backed closure classifier. All `parseExpression` calls
+// in this module route through `parseExpr`.
+const TS_PARSE_OPTS = { closureClassifier: typescriptClosureClassifier };
+function parseExpr(input: string): ReturnType<typeof parseExpression> {
+  return parseExpression(input, TS_PARSE_OPTS);
+}
 
 function emitGroundExpression(valueIR: ValueIR): PyExpressionEmitResult {
   return emitPyExpressionWithImports(valueIR, GROUND_EMIT);
@@ -250,7 +260,7 @@ export function generateFirstTruthy(node: IRNode): string[] {
   if (values.length < 2) throw new Error('firstTruthy requires at least two value expressions');
 
   const emitted = values.map((value) => {
-    const valueIR = parseExpression(value);
+    const valueIR = parseExpr(value);
     if (valueIR.kind === 'propagate') {
       throw new Error("Propagation '?' is not allowed in `firstTruthy values=` — bind the value first.");
     }
@@ -286,7 +296,7 @@ export function generateCoalesce(node: IRNode): string[] {
   if (values.length < 2) throw new Error('coalesce requires at least two value expressions');
 
   const valueIRs = values.map((value) => {
-    const valueIR = parseExpression(value);
+    const valueIR = parseExpr(value);
     if (valueIR.kind === 'propagate') {
       throw new Error("Propagation '?' is not allowed in `coalesce values=` — bind the value first.");
     }
@@ -307,7 +317,7 @@ export function generateFirstDefined(node: IRNode): string[] {
   if (values.length < 2) throw new Error('firstDefined requires at least two value expressions');
 
   const valueIRs = values.map((value) => {
-    const valueIR = parseExpression(value);
+    const valueIR = parseExpr(value);
     if (valueIR.kind === 'propagate') {
       throw new Error("Propagation '?' is not allowed in `firstDefined values=` — bind the value first.");
     }
@@ -332,7 +342,7 @@ export function generateObjectMerge(node: IRNode): string[] {
   for (const source of sources) {
     if (source.startsWith('...'))
       throw new Error('objectMerge sources imply spreading; omit leading `...` in sources=');
-    const sourceIR = parseExpression(source);
+    const sourceIR = parseExpr(source);
     if (sourceIR.kind === 'propagate') {
       throw new Error("Propagation '?' is not allowed in `objectMerge sources=` — bind the value first.");
     }
@@ -360,7 +370,7 @@ export function generateObjectPick(node: IRNode): string[] {
   const rawKeys = unwrapExpr(props.keys);
   if (rawKeys === undefined || rawKeys === '') throw new Error("objectPick node requires a 'keys' prop");
 
-  const inIR = parseExpression(rawIn);
+  const inIR = parseExpr(rawIn);
   if (inIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in objectPick in=");
   }
@@ -390,7 +400,7 @@ export function generateObjectOmit(node: IRNode): string[] {
   const rawKeys = unwrapExpr(props.keys);
   if (rawKeys === undefined || rawKeys === '') throw new Error("objectOmit node requires a 'keys' prop");
 
-  const inIR = parseExpression(rawIn);
+  const inIR = parseExpr(rawIn);
   if (inIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in objectOmit in=");
   }

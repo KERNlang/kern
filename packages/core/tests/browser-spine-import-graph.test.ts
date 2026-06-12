@@ -84,12 +84,19 @@ describe('browser parser spine — R1 import-graph proof', () => {
   }
 
   // R1 "exclusively" proof: enumerate EVERY module in the barrel graph that
-  // statically imports `typescript`. After slice 0.9 the ONLY such module is
-  // `closure-eligibility.js` (reached via the Node-only TS-codegen re-parse path,
-  // body-ts → typescript-closure-classifier → closure-eligibility). This pins the
-  // remaining barrel taint to that single, explicitly-deferred path — so the
-  // follow-up barrel-cleanup slice knows it is the last edge to cut.
-  test('dist/index.js (barrel) static typescript edges are exactly {closure-eligibility.js}', () => {
+  // statically imports `typescript`, and pin the exact set. Two sanctioned
+  // sources remain after slice 0.9 + its review fixes:
+  //   1. closure-eligibility.js — the Node-only TS-codegen re-parse path
+  //      (body-ts → typescript-closure-classifier → closure-eligibility).
+  //   2. The DEPRECATED root-barrel compatibility re-exports from `./node.js`
+  //      (review fix: removing public 4.x API from the barrel is a semver
+  //      break), which drag in assignment-operators-ts / closure-python-lowering
+  //      / importer / native-eligibility-ast until their 5.0 removal.
+  // The browser value prop is the PARSER subpath (asserted typescript-free
+  // above), not the barrel. The follow-up barrel-cleanup slice (5.0) deletes
+  // the deprecated block and de-typescripts the TS-codegen re-parse path,
+  // shrinking this pin back to the empty set.
+  test('dist/index.js (barrel) static typescript edges are exactly the sanctioned set', () => {
     const entry = resolve(DIST, 'index.js');
     expect(existsSync(entry)).toBe(true);
     const visited = new Set<string>();
@@ -106,7 +113,13 @@ describe('browser parser spine — R1 import-graph proof', () => {
         else if (spec === 'typescript') tsImporters.add(file.replace(`${DIST}/`, ''));
       }
     }
-    expect([...tsImporters].sort()).toEqual(['closure-eligibility.js']);
+    expect([...tsImporters].sort()).toEqual([
+      'assignment-operators-ts.js',
+      'closure-eligibility.js',
+      'closure-python-lowering.js',
+      'importer.js',
+      'native-eligibility-ast.js',
+    ]);
   });
 
   // R1 literal: the closure helpers must LEAVE the barrel (index.ts re-exported

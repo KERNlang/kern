@@ -36,8 +36,17 @@
  */
 
 import { parseExpression } from '../../core/dist/parser-expression.js';
+import { typescriptClosureClassifier } from '../../core/dist/typescript-closure-classifier.js';
 import { assignable } from './assignable.js';
 import { buildClassByName, expressionPropText, type IRNode, newClassName, stringProp, walkTree } from './shared.js';
+
+// Slice 0.9 review fix (codex blocking) — same Node-side classifier injection
+// as calls.ts: a bare parse would throw on block-bodied arrows and the
+// swallowing catch would silently drop real return diagnostics.
+const TS_PARSE_OPTS = { closureClassifier: typescriptClosureClassifier };
+function parseExpr(input: string): ReturnType<typeof parseExpression> {
+  return parseExpression(input, TS_PARSE_OPTS);
+}
 
 /** The return-check rule identifier. */
 export type ReturnCheckRule = 'check-return-type';
@@ -93,7 +102,7 @@ export function checkReturns(root: IRNode): ReturnCheckResult {
     for (const text of collectReturnTexts(node)) {
       let value: ReturnType<typeof parseExpression>;
       try {
-        value = parseExpression(text);
+        value = parseExpr(text);
       } catch {
         continue; // unparseable return value → SKIP silently.
       }

@@ -14,7 +14,7 @@ export {
 // (~10MB). They are intentionally NOT re-exported from this browser-safe barrel
 // so importing `@kernlang/core` or the parser never drags in `typescript`.
 // Node/codegen callers import them from the dedicated subpath instead:
-//   import { ... } from '@kernlang/core/node-closure';
+//   import { ... } from '@kernlang/core/node';
 // The browser-safe closure-classifier seam (interface + dependency-free default)
 // lives in `closure-classifier.ts` and is safe to re-export from the barrel.
 export type { ClosureClassifier } from './closure-classifier.js';
@@ -347,6 +347,41 @@ export { classifyHandlerGap, isInlineSafeExpression, isInlineSafeLiteral } from 
 // at `@kernlang/core/node` to keep this barrel typescript-free (slice 0.9).
 export type { EligibilityResult, FileEligibilityReport, HandlerBodyClassifier, RawBody } from './native-eligibility.js';
 export { extractRawBodies, isExplicitForeignRawBody } from './native-eligibility.js';
+// ── DEPRECATED root-barrel compatibility (slice 0.9 review fix) ─────────────
+// These APIs moved to the `@kernlang/core/node` subpath (the single
+// TypeScript-dependent entrypoint). They are re-exported here ONLY so the move
+// is not a semver break inside the 4.x line — importing ANY of them from the
+// root barrel drags `typescript` (~10MB) into the consumer's module graph.
+// Browser consumers must use the parser subpath / barrel WITHOUT these names.
+/** @deprecated import from `@kernlang/core/node` instead — scheduled for removal in 5.0. */
+export type {
+  AstEligibilityResult,
+  ImportResult,
+  LowerJsClosureBodyToPythonOptions,
+  LowerJsClosureBodyToPythonResult,
+} from './node.js';
+/** @deprecated import from `@kernlang/core/node` instead — scheduled for removal in 5.0. */
+export {
+  canonicalKernExpression,
+  canonicalObjectEntriesSource,
+  classifyClosureBlock,
+  classifyHandlerBody,
+  classifyHandlerBodyAst,
+  collectFreeIdentifierNames,
+  escapeKernString,
+  hasComments,
+  hasOnlyMigratableComments,
+  hasTsOnlyTemplateEscape,
+  importTypeScript,
+  isValidKernAssignmentTarget,
+  isValidKernAssignmentValue,
+  isValidKernExpression,
+  isValidKernTypeAnnotation,
+  lowerJsClosureBodyToPython,
+  parseClosureBlockAst,
+  scanFileForEligibility,
+  supportedCompoundAssignmentOperator,
+} from './node.js';
 export type {
   ActionProps,
   AssumeProps,
