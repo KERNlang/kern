@@ -37,6 +37,27 @@ export const KERN_NULLISH_HELPER_PY = [
   // before the value compare so the numeric/boolean type distinction survives.
   '    if (type(a) is bool) != (type(b) is bool):',
   '        return False',
+  // Containers must recurse ELEMENT-WISE through `_kern_strict_equal`, not Python
+  // `==`: Python list/dict `==` compares elements with `==`, which re-leaks the
+  // `0 == False` / `1 == True` bool⊂int conflation one level down (`[0] ==
+  // [False]` is True). The KERN core runtime compares structurally with
+  // kind-discrimination at EVERY level, so the Python target must too or
+  // `[0] === [false]` diverges (True on Python vs False in core). Lists/tuples
+  // (array-kind) compare by length + positional recursion; dicts (record-kind)
+  // by key set + per-key recursion. Strings stay on `==` (no element kinds).
+  '    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):',
+  '        if len(a) != len(b):',
+  '            return False',
+  '        return all(_kern_strict_equal(__k_x, __k_y) for __k_x, __k_y in zip(a, b))',
+  '    if isinstance(a, dict) and isinstance(b, dict):',
+  '        if a.keys() != b.keys():',
+  '            return False',
+  '        return all(_kern_strict_equal(a[__k_k], b[__k_k]) for __k_k in a)',
+  // A list-vs-dict (or container-vs-scalar) mismatch is unequal — Python `==`
+  // already returns False there, but make it explicit so the recursion above is
+  // the ONLY container path and a scalar `==` never sees a container pair.
+  '    if isinstance(a, (list, tuple, dict)) or isinstance(b, (list, tuple, dict)):',
+  '        return False',
   '    return a == b',
   '',
   'def _kern_loose_equal(a, b):',

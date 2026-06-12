@@ -132,6 +132,28 @@ describeIfPython('S7 — equality matrix (== vs === across undefined/null/values
   }
 });
 
+describeIfPython('S7 — strict equality recurses kind-aware into containers (no bool⊂int leak)', () => {
+  // Python list/dict `==` would conflate `[0]` and `[false]` (bool subclasses
+  // int). `_kern_strict_equal` must recurse element-wise so nested number-vs-
+  // boolean stays unequal, matching the core runtime's structural-kind equality.
+  // Bound globals so the operands are real Python lists/dicts.
+  const rows: [string, string, string][] = [
+    ['a === b', 'a=[0]\nb=[False]', 'False'],
+    ['a === b', 'a=[1]\nb=[True]', 'False'],
+    ['a === b', 'a=[0]\nb=[0]', 'True'],
+    ['a === b', 'a={"x":0}\nb={"x":False}', 'False'],
+    ['a === b', 'a={"x":0}\nb={"x":0}', 'True'],
+    ['a === b', 'a=[[0]]\nb=[[False]]', 'False'],
+    ['a === b', 'a=[1,2,3]\nb=[1,2,3]', 'True'],
+    ['a === b', 'a=[1,2]\nb=[1,2,3]', 'False'],
+  ];
+  for (const [expr, setup, expected] of rows) {
+    test(`${setup.replace(/\n/g, ' ')} | ${expr} => ${expected}`, () => {
+      expect(evalPy(expr, setup)).toBe(expected);
+    });
+  }
+});
+
 describeIfPython('S7 — live None-drift kill rows (typeof discriminators)', () => {
   // typeof distinguishes the sentinel ("undefined") from None ("object"), so a
   // sentinel→None collapse flips each of these.
