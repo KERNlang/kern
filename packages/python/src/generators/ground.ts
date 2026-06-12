@@ -69,7 +69,12 @@ const GROUND_PRELUDE_HELPER_BLOCKS: readonly string[][] = [
   KERN_JS_STRING_HELPERS_PY,
   KERN_PAIR_HELPERS_PY,
   KERN_TMOD_HELPER_PY,
-].map((block) => block.split('\n'));
+]
+  .map((block) => block.split('\n'))
+  // Longest-first so a block that happens to be a prefix of a longer one can
+  // never shadow it at a match site (none prefix-collide today; this guards
+  // the registry against future helper additions).
+  .sort((a, b) => b.length - a.length);
 
 /** `groundExpressionPrelude` surfaces module-name imports as
  *  `import <mod> as __k_<mod>` single lines. Match them to dedupe by exact text. */

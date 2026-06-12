@@ -35,6 +35,21 @@ describe('Python Ground Layer: per-module helper prelude dedup', () => {
     expect(output.indexOf('def _kern_js_fill(')).toBeLessThan(output.indexOf('a ='));
   });
 
+  test('emits a shared module import line exactly once across two ground statements', () => {
+    const output = emitModule([
+      'module name=rx',
+      '  firstTruthy name=a values="/ab/.test(x), 0"',
+      '  firstTruthy name=b values="/cd/.test(y), 0"',
+    ]);
+
+    // The `import re as __k_re` prelude line must be de-duped per module.
+    expect(output.match(/^import re as __k_re$/gmu) ?? []).toHaveLength(1);
+    // Both statements still emit and use the aliased module.
+    expect(output.match(/__k_re\.search\(/gu) ?? []).toHaveLength(2);
+    // The single import precedes its first use.
+    expect(output.indexOf('import re as __k_re')).toBeLessThan(output.indexOf('__k_re.search('));
+  });
+
   test('keeps a single ground statement that needs a helper unchanged (no dedup regression)', () => {
     const output = emitModule(['module name=solo', '  firstTruthy name=a values="arr.fill(v), \'x\'"']);
 
