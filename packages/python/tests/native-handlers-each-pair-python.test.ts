@@ -142,7 +142,8 @@ describe('each pair-mode — Python target', () => {
     ]);
     const out = emitNativeKernBodyPython(handler);
     expect(out).toContain('for k, v in _kern_pairs(cache):');
-    expect(out).toContain('  if v.expired:');
+    // Slice S4 — `if cond=` wraps the condition in `_kern_truthy(...)`.
+    expect(out).toContain('  if _kern_truthy(v.expired):');
     expect(out).toContain('    continue');
     expect(out).toContain('  use(k, v)');
   });

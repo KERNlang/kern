@@ -234,11 +234,36 @@ export const KERN_TMOD_HELPER_PY = [
 ].join('\n');
 
 export const KERN_JS_HELPER_PY = [
-  'def js_truthy(x):',
-  '    if x is None or x is False: return False',
-  '    if isinstance(x, (int, float)) and x == 0: return False',
-  '    if isinstance(x, str) and x == "": return False',
+  // Slice S4 — ToBoolean / KERN truthiness substrate. `js_truthy` is an EXPLICIT
+  // falsy-set predicate over the KERN value domain: falsy iff x is the undefined
+  // sentinel, None, a boolean False, numeric zero (+0/-0.0/0j), NaN, or "".
+  // Everything else is truthy — INCLUDING [], {}, callables, class instances, and
+  // user objects whose Python __bool__/__len__ are falsy. It NEVER delegates to
+  // bool(x), len(x), x.__bool__(), x.__len__(), or a ToNumber string conversion:
+  // "0", "false", " " are all truthy; only "" is falsy. `bool` is checked BEFORE
+  // the numeric branch because Python `bool` subclasses `int`. The undefined
+  // sentinel is matched by IDENTITY (`is _KERN_UNDEFINED`) — its __bool__ = False
+  // override is for bare-truthiness positions only and must NOT be generalized to
+  // user objects. `_kern_truthy` is the canonical name; `js_truthy` is the alias
+  // the existing array-predicate lowerings (filter/some/every/find-family) call.
+  'try:',
+  '    _KERN_UNDEFINED',
+  'except NameError:',
+  '    class _KernUndefined:',
+  '        def __bool__(self): return False',
+  "        def __repr__(self): return 'undefined'",
+  "        def __str__(self): return 'undefined'",
+  '    _KERN_UNDEFINED = _KernUndefined()',
+  'def _kern_truthy(x):',
+  '    if x is _KERN_UNDEFINED or x is None or x is False: return False',
+  '    if isinstance(x, bool): return x',
+  // `x == x` is False only for NaN, so `x != 0 and x == x` rejects both numeric
+  // zero (incl. -0.0 and 0j) and NaN without delegating to math.isnan / bool().
+  '    if isinstance(x, (int, float, complex)): return x != 0 and x == x',
+  '    if isinstance(x, str): return len(x) > 0',
   '    return True',
+  'def js_truthy(x):',
+  '    return _kern_truthy(x)',
   'def js_equals(a, b):',
   '    return a == b',
 ].join('\n');

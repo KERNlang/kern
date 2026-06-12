@@ -259,12 +259,34 @@ export function generateFirstTruthy(node: IRNode): string[] {
 
   const constType = props.type as string | undefined;
   const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
-  return [
-    ...todo,
-    ...annotations,
-    ...groundExpressionPrelude(emitted),
-    `${name}${typeAnnotation} = ${emitted.map((result) => result.code).join(' or ')}`,
-  ];
+  // Slice S4 — select the first KERN-truthy candidate (so `[]`/`{}` win and NaN
+  // is skipped), not the first Python-truthy one. Same `_kern_truthy`-gated,
+  // single-evaluation, lazy walrus chain as the native-body lowering. The ground
+  // layer has no per-statement helper channel, so `_kern_truthy`/`js_truthy` is
+  // surfaced through the emitted results' helpers set (prepended by the prelude).
+  const withHelper = emitted.map((result) => ({
+    ...result,
+    helpers: new Set([...result.helpers, KERN_JS_HELPER_PY]),
+  }));
+  const chain = buildGroundFirstTruthyChain(
+    withHelper.map((result) => result.code),
+    name,
+  );
+  return [...todo, ...annotations, ...groundExpressionPrelude(withHelper), `${name}${typeAnnotation} = ${chain}`];
+}
+
+/** Module-level (ground) twin of the native-body `firstTruthy` walrus chain.
+ *  No `ctx.gensymCounter` here, so temp names are seeded from the binding name
+ *  plus a positional index — stable per statement and disjoint across siblings
+ *  (each `firstTruthy` binds a distinct `name`). */
+function buildGroundFirstTruthyChain(candidates: string[], bindingName: string): string {
+  const last = candidates[candidates.length - 1];
+  let chain = last;
+  for (let i = candidates.length - 2; i >= 0; i--) {
+    const tmp = `__k_ft_${bindingName}_${i}`;
+    chain = `(${tmp} if _kern_truthy(${tmp} := ${candidates[i]}) else ${chain})`;
+  }
+  return chain;
 }
 
 function emitFirstTruthyOperandPy(valueIR: ValueIR): PyExpressionEmitResult {

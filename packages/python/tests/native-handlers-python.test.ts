@@ -13,7 +13,7 @@ import {
   emitPyExpression,
   emitPyExpressionWithImports,
 } from '../src/codegen-body-python.js';
-import { KERN_FMT_HELPER_PY } from '../src/core/expr/helpers.js';
+import { KERN_FMT_HELPER_PY, KERN_JS_HELPER_PY } from '../src/core/expr/helpers.js';
 import { generateFunction } from '../src/generators/core.js';
 
 function makeHandler(stmts: Array<{ type: string; props: Record<string, unknown>; children?: IRNode[] }>): IRNode {
@@ -28,6 +28,12 @@ function makeHandler(stmts: Array<{ type: string; props: Record<string, unknown>
 // (the _KERN_UNDEFINED sentinel + _kern_fmt + __kern_add helpers) whenever a body
 // is lowered, ending with a blank-line separator before the body statements.
 const PY_PRELUDE = `${KERN_FMT_HELPER_PY}\n\n`;
+// Slice S4 — a body whose `if cond=`/ternary/`!`/`firstTruthy` touches the
+// truthiness helper surfaces `KERN_JS_HELPER_PY`. `JS_PRELUDE` is that helper
+// alone (bodies with no value coercion); `PY_PRELUDE_WITH_TRUTHY` is the JS
+// helper followed by the fmt prelude (the JS helper is added to the Set first).
+const JS_PRELUDE = `${KERN_JS_HELPER_PY}\n\n`;
+const PY_PRELUDE_WITH_TRUTHY = `${KERN_JS_HELPER_PY}\n\n${KERN_FMT_HELPER_PY}\n\n`;
 
 describe('emitPyExpression — slice 1 lowering rules', () => {
   test('booleans lower to Python True/False', () => {
@@ -91,7 +97,8 @@ describe('emitPyExpression — slice 1 lowering rules', () => {
     expect(result.imports).toContain('re');
     expect(result.code).toContain('pattern = __k_re.compile("^ok$", __k_re.IGNORECASE)');
     expect(result.code).toContain('__k_re.search("^ok$", value, __k_re.IGNORECASE) is not None');
-    expect(result.code).toContain('not (__k_re.search("^ok$", value, __k_re.IGNORECASE) is not None)');
+    // Slice S4 — `!x` consumes KERN ToBoolean: `(not _kern_truthy(...))`.
+    expect(result.code).toContain('(not _kern_truthy((__k_re.search("^ok$", value, __k_re.IGNORECASE) is not None)))');
     expect(result.code).toContain('bound = (__k_re.search("^ok$", value, __k_re.IGNORECASE) is not None)');
     expect(result.code).toContain('__k_re.sub("\\\\s+", " ", value, count=0, flags=0)');
   });
@@ -333,7 +340,11 @@ describe('emitNativeKernBodyPython — slice 1 statements', () => {
         children: [{ type: 'assign', props: { target: 'total', op: '+=', value: '1' }, children: [] }],
       },
     ]);
-    expect(emitNativeKernBodyPython(h)).toBe(['total = 0', 'if ready:', '    total += 1'].join('\n'));
+    // Slice S4 — `if cond=` wraps the condition in `_kern_truthy(...)` and
+    // surfaces the truthiness helper prelude.
+    expect(emitNativeKernBodyPython(h)).toBe(
+      JS_PRELUDE + ['total = 0', 'if _kern_truthy(ready):', '    total += 1'].join('\n'),
+    );
   });
 
   test('duplicate local let in the same scope is rejected', () => {
@@ -565,23 +576,35 @@ describe('emitNativeKernBodyPython — objectPick/objectOmit body statements', (
 });
 
 describe('emitNativeKernBodyPython — firstTruthy body statement', () => {
-  test('firstTruthy emits an ordered short-circuit fallback binding', () => {
+  // Slice S4 — `firstTruthy` selects the first KERN-truthy candidate via a
+  // `_kern_truthy`-gated, single-evaluation, lazy walrus chain (so `[]`/`{}`
+  // win and NaN is skipped), not bare Python `a or b`. Temps build right-to-left
+  // (`__k_ft2` wraps `__k_ft1`); the final candidate is the unguarded fallthrough.
+  test('firstTruthy emits a KERN-truthiness-gated ordered fallback binding', () => {
     const handler = makeHandler([
       { type: 'firstTruthy', props: { name: 'label', values: "preferred, nickname, 'Anonymous'" } },
       { type: 'return', props: { value: 'label' } },
     ]);
     expect(emitNativeKernBodyPython(handler)).toBe(
-      ['label = preferred or nickname or "Anonymous"', 'return label'].join('\n'),
+      JS_PRELUDE +
+        [
+          'label = (__k_ft2 if _kern_truthy(__k_ft2 := preferred) else (__k_ft1 if _kern_truthy(__k_ft1 := nickname) else "Anonymous"))',
+          'return label',
+        ].join('\n'),
     );
   });
 
-  test('firstTruthy parenthesizes conditional operands before joining fallbacks', () => {
+  test('firstTruthy parenthesizes conditional operands before gating fallbacks', () => {
     const handler = makeHandler([
       { type: 'firstTruthy', props: { name: 'label', values: "ready ? preferred : nickname, 'Anonymous'" } },
       { type: 'return', props: { value: 'label' } },
     ]);
     expect(emitNativeKernBodyPython(handler)).toBe(
-      ['label = (preferred if ready else nickname) or "Anonymous"', 'return label'].join('\n'),
+      JS_PRELUDE +
+        [
+          'label = (__k_ft1 if _kern_truthy(__k_ft1 := (preferred if _kern_truthy(ready) else nickname)) else "Anonymous")',
+          'return label',
+        ].join('\n'),
     );
   });
 
