@@ -2642,6 +2642,16 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   }
   if (node.kind === 'index') {
     const obj = node.object;
+    // Slice H review fix — bracket access must not bypass the fail-closed
+    // guard: `Math["sqrt"]` / `Math["sqrt"](x)` is the same unmapped
+    // host-namespace access as `Math.sqrt`, only spelled as an index node.
+    // Call chains descend through this branch too, so this one site covers
+    // both the read and the call form. Non-literal keys (`Math[k]`) are just
+    // as unmapped — the label degrades to `[computed]`.
+    if (obj.kind === 'ident') {
+      const label = node.index.kind === 'strLit' ? node.index.value : '[computed]';
+      rejectUnmappedHostNamespacePython(obj.name, label, ctx);
+    }
     const inner: GuardedExpr =
       obj.kind === 'member' || obj.kind === 'call' || obj.kind === 'index'
         ? lowerChain(obj, ctx)
@@ -3314,6 +3324,11 @@ const RESERVED_HOST_NAMESPACE_ROOTS: ReadonlySet<string> = new Set([
   'process',
   'globalThis',
   'crypto',
+  // Review hardening (codex 0.95): host static-API roots named by review as
+  // still failing open. Same curated-set discipline — added by evidence, not
+  // by shape heuristic.
+  'Intl',
+  'URL',
 ]);
 
 /** Slice H — is `name` a reserved host-namespace root (capitalization-agnostic

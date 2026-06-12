@@ -107,6 +107,49 @@ describe('Slice H — capitalization-agnostic predicate (lowercase host globals)
   });
 });
 
+describe('Slice H review fix — bracket (index) access cannot bypass the guard', () => {
+  test('Math["sqrt"](x) fails closed exactly like Math.sqrt(x)', () => {
+    expect(() => emitPyExpression(parseExpression('Math["sqrt"](x)'))).toThrow(
+      /Unsupported host namespace in Python expression: Math\.sqrt .*not registered/,
+    );
+  });
+
+  test('host-constant bracket READ fails closed (Object["keys"], console["log"])', () => {
+    expect(() => emitPyExpression(parseExpression('Object["keys"]'))).toThrow(
+      /Unsupported host namespace in Python expression: Object\.keys .*not registered/,
+    );
+    expect(() => emitPyExpression(parseExpression('console["log"](x)'))).toThrow(
+      /Unsupported host namespace in Python expression: console\.log .*not registered/,
+    );
+  });
+
+  test('computed key on a host root fails closed too (Math[k])', () => {
+    expect(() => emitPyExpression(parseExpression('Math[k]'))).toThrow(
+      /Unsupported host namespace in Python expression: Math\.\[computed\] .*not registered/,
+    );
+  });
+
+  test('bracket access on user bindings stays legal (dict/list indexing untouched)', () => {
+    expect(emitPyExpression(parseExpression('data["key"]'))).toBe('data["key"]');
+    expect(emitPyExpression(parseExpression('items[0]'))).toBe('items[0]');
+    // Proven-local root named Math: bracket form follows the same shadowing rule.
+    expect(emitPyExpression(parseExpression('Math["sqrt"](x)'), { outerBindings: ['Math', 'x'] })).toBe(
+      'Math["sqrt"](x)',
+    );
+  });
+});
+
+describe('Slice H review hardening — Intl / URL join the curated host-root set', () => {
+  test('Intl.DateTimeFormat() and URL.canParse(x) fail closed (were failing open at review)', () => {
+    expect(() => emitPyExpression(parseExpression('Intl.DateTimeFormat()'))).toThrow(
+      /Unsupported host namespace in Python expression: Intl\.DateTimeFormat .*not registered/,
+    );
+    expect(() => emitPyExpression(parseExpression('URL.canParse(x)'))).toThrow(
+      /Unsupported host namespace in Python expression: URL\.canParse .*not registered/,
+    );
+  });
+});
+
 describe('Slice H — keeps user bindings (shadowing rule)', () => {
   test('a proven local root named Math is treated as a user value, not the host namespace', () => {
     // The scope model (outerBindings) proves `Math` is a user binding, so the
