@@ -378,8 +378,11 @@ describe('KERN core runtime statements', () => {
       expect(ev('"left" && 0 || "fallback"')).toBe('fallback');
       // `[]` is truthy, so the outer `||` returns it.
       expect(ev('"left" && [] || "fallback"')).toEqual([]);
-      // `NaN || [] || "fallback"` is covered on the Python/TS legs (NaN).
+      // `{}` is truthy → `&&` returns `""`, then `""` falsy → `||` falls through.
       expect(ev('{} && "" || "fallback"')).toBe('fallback');
+      // The NaN-bearing chained row (`NaN || [] || "fallback"` → `[]`) is
+      // exercised only on the Python leg (float('nan')) — NaN is unreachable in
+      // this TS core runtime because `kNumber` rejects non-finite numbers.
     });
 
     test('&& / || short-circuit: the unselected operand is never evaluated', () => {

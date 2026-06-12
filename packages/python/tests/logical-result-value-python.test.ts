@@ -225,6 +225,17 @@ describeIfPython('S5 Python execution — chained / precedence rows', () => {
   test('("left" && []) ? "then" : "else" => "then" (ternary wraps the logical result once)', () => {
     expect(evalPy('("left" && []) ? "then" : "else"')).toBe("'then'");
   });
+
+  // The undefined sentinel behaves as a KERN-falsy operand inside chained
+  // `&&`/`||` (not just in isolation): it selects like any falsy value and is
+  // preserved (never collapsed to None) when it is the chosen result. The
+  // helper bootstraps `_KERN_UNDEFINED`, so no extra setup is needed.
+  test('undefined && "right" || "fallback" => "fallback" (undefined is falsy through the chain)', () => {
+    expect(evalPy('undefined && "right" || "fallback"')).toBe("'fallback'");
+  });
+  test('"" || undefined && "right" => undefined (sentinel selected and preserved)', () => {
+    expect(evalPy('"" || undefined && "right"')).toBe('undefined');
+  });
 });
 
 describeIfPython('S5 Python execution — side-effect / evaluation-count probes', () => {
