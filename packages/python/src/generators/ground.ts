@@ -14,6 +14,16 @@ import {
   kids,
   p,
 } from '../codegen-helpers.js';
+import {
+  KERN_FMT_HELPER_PY,
+  KERN_I32_HELPER_PY,
+  KERN_JS_ARRAY_HELPERS_PY,
+  KERN_JS_HELPER_PY,
+  KERN_JS_OBJECT_HELPERS_PY,
+  KERN_JS_STRING_HELPERS_PY,
+  KERN_PAIR_HELPERS_PY,
+  KERN_TMOD_HELPER_PY,
+} from '../core/expr/helpers.js';
 import { mapTsTypeToPython, toPythonBindingName, toSnakeCase } from '../type-map.js';
 
 /** Ground/React Layer generators emit module-level statements and have NO
@@ -41,6 +51,87 @@ function groundExpressionPrelude(results: readonly PyExpressionEmitResult[]): st
 
 function withGroundExpressionCode(result: PyExpressionEmitResult, code: string): PyExpressionEmitResult {
   return { code, imports: result.imports, helpers: result.helpers };
+}
+
+/** The closed set of runtime helper blocks `groundExpressionPrelude` can inline
+ *  ahead of a ground statement (via `result.helpers`). Each is a self-contained
+ *  multi-line Python block; when two ground statements in the SAME module both
+ *  need one, the per-statement inlining repeats it. `dedupeGroundPrelude` uses
+ *  this registry to drop the repeats at module-assembly time. Block granularity
+ *  (not line) is required: distinct helpers share boilerplate lines
+ *  (`    try:`, `        return 0`), so line-level dedup would corrupt them. */
+const GROUND_PRELUDE_HELPER_BLOCKS: readonly string[][] = [
+  KERN_FMT_HELPER_PY,
+  KERN_I32_HELPER_PY,
+  KERN_JS_ARRAY_HELPERS_PY,
+  KERN_JS_HELPER_PY,
+  KERN_JS_OBJECT_HELPERS_PY,
+  KERN_JS_STRING_HELPERS_PY,
+  KERN_PAIR_HELPERS_PY,
+  KERN_TMOD_HELPER_PY,
+]
+  .map((block) => block.split('\n'))
+  // Longest-first so a block that happens to be a prefix of a longer one can
+  // never shadow it at a match site (none prefix-collide today; this guards
+  // the registry against future helper additions).
+  .sort((a, b) => b.length - a.length);
+
+/** `groundExpressionPrelude` surfaces module-name imports as
+ *  `import <mod> as __k_<mod>` single lines. Match them to dedupe by exact text. */
+const GROUND_PRELUDE_IMPORT_RE = /^import \S+ as __k_\S+$/;
+
+function matchesBlockAt(lines: readonly string[], start: number, block: readonly string[]): boolean {
+  if (start + block.length > lines.length) return false;
+  for (let i = 0; i < block.length; i++) {
+    if (lines[start + i] !== block[i]) return false;
+  }
+  return true;
+}
+
+/**
+ * De-duplicate ground-expression helper/import prelude blocks across the
+ * statements assembled into a single emitted Python module.
+ *
+ * Ground generators inline their prelude per-statement (so a standalone
+ * generator call still emits the helper it needs, ahead of its use). When the
+ * module assembler concatenates several such statements, identical helper
+ * blocks and `import … as __k_…` lines repeat. This pass keeps the FIRST
+ * occurrence of each unique block/import — preserving first-need order so the
+ * helper still precedes its first use — and removes every later repeat, leaving
+ * all non-prelude statement lines untouched.
+ */
+export function dedupeGroundPrelude(lines: readonly string[]): string[] {
+  const seenBlocks = new Set<string>();
+  const seenImports = new Set<string>();
+  const out: string[] = [];
+
+  for (let i = 0; i < lines.length; ) {
+    const matchedBlock = GROUND_PRELUDE_HELPER_BLOCKS.find((block) => matchesBlockAt(lines, i, block));
+    if (matchedBlock) {
+      const key = matchedBlock.join('\n');
+      if (seenBlocks.has(key)) {
+        i += matchedBlock.length;
+        continue;
+      }
+      seenBlocks.add(key);
+      for (let j = 0; j < matchedBlock.length; j++) out.push(lines[i + j]);
+      i += matchedBlock.length;
+      continue;
+    }
+
+    const line = lines[i];
+    if (GROUND_PRELUDE_IMPORT_RE.test(line)) {
+      if (seenImports.has(line)) {
+        i += 1;
+        continue;
+      }
+      seenImports.add(line);
+    }
+    out.push(line);
+    i += 1;
+  }
+
+  return out;
 }
 
 /**

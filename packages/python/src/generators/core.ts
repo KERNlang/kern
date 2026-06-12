@@ -8,6 +8,7 @@ import { emitIdentifier, handlerCode, shouldEmitImportForTarget } from '@kernlan
 import { emitNativeKernBodyPythonWithImports } from '../codegen-body-python.js';
 import { buildPythonParamList, kids, p, parseLegacyParamParts } from '../codegen-helpers.js';
 import { mapTsTypeToPython, toScreamingSnake, toSnakeCase } from '../type-map.js';
+import { dedupeGroundPrelude } from './ground.js';
 
 interface PythonCodegenOptions {
   resolveKernModuleSpec?: (rawPath: string, node: IRNode) => string | undefined;
@@ -974,7 +975,10 @@ export function generateModule(
     lines.push(`__all__ = [${[...new Set(publicExports)].map((name) => JSON.stringify(name)).join(', ')}]`);
   }
 
-  return lines;
+  // Ground generators inline their helper/import prelude per-statement; collapse
+  // repeats now that the module's statements are assembled so each helper block
+  // appears once, before its first use.
+  return dedupeGroundPrelude(lines);
 }
 
 // ── Const ────────────────────────────────────────────────────────────────
