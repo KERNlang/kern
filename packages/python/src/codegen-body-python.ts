@@ -1993,7 +1993,7 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       // The top-level wrapper produces `(expr if guard else None)` once
       // (or just `expr` when no `?.` was seen).
       const lowered = lowerChain(node, ctx);
-      return wrapGuardIfAny(lowered);
+      return wrapGuardIfAny(lowered, ctx);
     }
     case 'await':
       return `await ${emitPyExprCtx(node.argument, ctx)}`;
@@ -2657,6 +2657,55 @@ interface GuardedExpr {
   expr: string;
 }
 
+/** Slice S7 — the presence test an optional `?.`/`?.[]` link contributes to the
+ *  accumulated chain guard. Native (coerce) bodies test against the full nullish
+ *  set (`None` AND the undefined sentinel) so `undefined?.x` short-circuits; the
+ *  helper-less Ground/React layer keeps the pre-slice `is not None` test (it
+ *  never materializes the sentinel). `ref` may itself be a walrus assignment
+ *  expression (`(__k_oc1 := f())`), which Python evaluates exactly once. */
+function optionalPresenceTest(ref: string, ctx: BodyEmitContext): string {
+  if (ctx.coerceJsValues) {
+    ctx.helpers.add(KERN_NULLISH_HELPER_PY);
+    return `(not _kern_is_nullish(${ref}))`;
+  }
+  // `x := f() is not None` would bind the BOOLEAN to x; parenthesize a walrus
+  // ref so the receiver (not the comparison) is what gets bound.
+  const wrapped = ref.includes(':=') ? `(${ref})` : ref;
+  return `${wrapped} is not None`;
+}
+
+interface OptionalLink {
+  guard: string;
+  branchRef: string;
+}
+
+/** Slice S7 — build the guard + branch-receiver reference for one optional link.
+ *  Pure receivers keep the readable double-name form (named in both the guard
+ *  and the branch — re-evaluation is side-effect-free). A NON-pure receiver is
+ *  bound ONCE via the S4 walrus idiom: the guard carries `(__k_ocN := RECV)` so
+ *  the side effect runs exactly once, and the branch references the bound name.
+ *  A non-pure receiver that is ITSELF an optional chain (`inner.guard !== null`)
+ *  cannot host the walrus and still throws — bind it to a `let` first. */
+function lowerOptionalLink(inner: GuardedExpr, objectNode: ValueIR, ctx: BodyEmitContext): OptionalLink {
+  const pure = isReceiverChainPure(objectNode);
+  if (pure) {
+    const presence = optionalPresenceTest(inner.expr, ctx);
+    return {
+      guard: inner.guard === null ? presence : `${inner.guard} and ${presence}`,
+      branchRef: inner.expr,
+    };
+  }
+  if (inner.guard !== null) {
+    throw new Error(
+      "Optional chain '?.' on Python target requires a side-effect-free receiver (identifier or pure member chain). " +
+        'Bind the call/await result to a `let` first, then use `let.field?.next` on the bound name.',
+    );
+  }
+  const tmp = `__k_oc${++ctx.gensymCounter}`;
+  const presence = optionalPresenceTest(`${tmp} := ${inner.expr}`, ctx);
+  return { guard: presence, branchRef: tmp };
+}
+
 type ChainNode = Extract<ValueIR, { kind: 'member' | 'call' | 'index' }>;
 
 function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
@@ -2684,23 +2733,24 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
     // link is rewritten; the accumulated optional-chain guard is left UNTOUCHED
     // and still flows through `wrapGuardIfAny`, so `items?.length` stays
     // `(len(items) if items is not None else None)`-shaped.
+    if (node.optional) {
+      // Slice S7 — single-eval optional `?.`. A pure receiver may be named twice
+      // (guard + branch) with no observable effect, so it keeps the readable
+      // double-name form. A NON-pure receiver (e.g. `markReceiver(null)?.x`) is
+      // bound ONCE via the S4 walrus idiom so its side effect runs exactly once;
+      // the BOUND name is then used in both the guard's presence test and the
+      // trailing link. Only a single optional link can host the walrus (the
+      // receiver is not itself an optional chain ⇒ `inner.guard === null`); a
+      // non-pure receiver UNDER an existing optional chain still throws below.
+      const opt = lowerOptionalLink(inner, node.object, ctx);
+      const linkExpr = isSharedPortableArrayProperty(node.property)
+        ? (lowerPortableArrayPropertyPy(opt.branchRef, node.property) ?? `${opt.branchRef}.${node.property}`)
+        : `${opt.branchRef}.${node.property}`;
+      return { guard: opt.guard, expr: linkExpr };
+    }
     const linkExpr = isSharedPortableArrayProperty(node.property)
       ? (lowerPortableArrayPropertyPy(inner.expr, node.property) ?? `${inner.expr}.${node.property}`)
       : `${inner.expr}.${node.property}`;
-    if (node.optional) {
-      // The receiver expression names what we need to test. The expr names
-      // the receiver twice (once in test, once in branch); reject when that
-      // would re-evaluate side-effecting code.
-      if (!isReceiverChainPure(node.object)) {
-        throw new Error(
-          "Optional chain '?.' on Python target requires a side-effect-free receiver (identifier or pure member chain). " +
-            'Bind the call/await result to a `let` first, then use `let.field?.next` on the bound name.',
-        );
-      }
-      const newGuard =
-        inner.guard === null ? `${inner.expr} is not None` : `${inner.guard} and ${inner.expr} is not None`;
-      return { guard: newGuard, expr: linkExpr };
-    }
     return { guard: inner.guard, expr: linkExpr };
   }
   if (node.kind === 'index') {
@@ -2721,18 +2771,11 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
         : { guard: null, expr: emitPyExprCtx(obj, ctx) };
     const index = emitPyExprCtx(node.index, ctx);
     if (node.optional) {
-      // The Python lowering names the receiver in the guard and the branch.
-      // Keep that single-eval-safe by requiring a pure receiver. The index
-      // expression appears only in the selected branch, matching JS `?.[]`.
-      if (!isReceiverChainPure(node.object)) {
-        throw new Error(
-          "Optional element access '?.[]' on Python target requires a side-effect-free receiver. " +
-            'Bind call/await receiver results to `let` first, then index the bound name.',
-        );
-      }
-      const newGuard =
-        inner.guard === null ? `${inner.expr} is not None` : `${inner.guard} and ${inner.expr} is not None`;
-      return { guard: newGuard, expr: `${inner.expr}[${index}]` };
+      // Slice S7 — single-eval optional `?.[]` (same walrus discipline as `?.`).
+      // A non-pure receiver is bound once; the index expression appears only in
+      // the selected branch, matching JS `?.[]`.
+      const opt = lowerOptionalLink(inner, node.object, ctx);
+      return { guard: opt.guard, expr: `${opt.branchRef}[${index}]` };
     }
     const wrapped = needsIndexReceiverParens(node.object) ? `(${inner.expr})` : inner.expr;
     return { guard: inner.guard, expr: `${wrapped}[${index}]` };
@@ -3253,8 +3296,18 @@ function pyRegexFlags(flags: string, options: { allowGlobal?: boolean } = {}): s
   return parts.length > 0 ? parts.join(' | ') : '0';
 }
 
-function wrapGuardIfAny(g: GuardedExpr): string {
-  return g.guard === null ? g.expr : `(${g.expr} if ${g.guard} else None)`;
+function wrapGuardIfAny(g: GuardedExpr, ctx: BodyEmitContext): string {
+  if (g.guard === null) return g.expr;
+  // Slice S7 — an optional-chain short-circuit yields the undefined SENTINEL in
+  // native (coerce) bodies, so `typeof (undefined?.x)` is "undefined" and the
+  // result participates in `??`/`===` nullish semantics. The helper-less
+  // Ground/React layer (which never materializes the sentinel) keeps the
+  // pre-slice `else None` short-circuit.
+  if (ctx.coerceJsValues) {
+    ctx.helpers.add(KERN_NULLISH_HELPER_PY);
+    return `(${g.expr} if ${g.guard} else _KERN_UNDEFINED)`;
+  }
+  return `(${g.expr} if ${g.guard} else None)`;
 }
 
 function needsIndexReceiverParens(child: ValueIR): boolean {
@@ -3282,6 +3335,10 @@ function needsIndexReceiverParens(child: ValueIR): boolean {
  *  receivers). */
 function isReceiverChainPure(node: ValueIR): boolean {
   if (node.kind === 'ident') return true;
+  // Slice S7 — `undefined`/`null` literals are constant, so an optional chain
+  // rooted at one (`undefined?.x`, `null?.x`) names a side-effect-free value and
+  // takes the readable double-name guard form (short-circuiting to the sentinel).
+  if (node.kind === 'undefLit' || node.kind === 'nullLit') return true;
   if (node.kind === 'member') return isReceiverChainPure(node.object);
   if (node.kind === 'index') return isReceiverChainPure(node.object) && isPureIndexExpression(node.index);
   return false;

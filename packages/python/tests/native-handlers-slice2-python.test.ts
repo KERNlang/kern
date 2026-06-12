@@ -13,7 +13,7 @@
 import type { IRNode } from '@kernlang/core';
 import { parseDocument, parseExpression } from '@kernlang/core';
 import { emitNativeKernBodyPython, emitPyExpression } from '../src/codegen-body-python.js';
-import { KERN_FMT_HELPER_PY, KERN_JS_HELPER_PY } from '../src/core/expr/helpers.js';
+import { KERN_FMT_HELPER_PY, KERN_JS_HELPER_PY, KERN_NULLISH_HELPER_PY } from '../src/core/expr/helpers.js';
 import { generateFunction } from '../src/generators/core.js';
 
 function makeHandler(children: IRNode[]): IRNode {
@@ -33,6 +33,14 @@ const PY_PRELUDE_WITH_TRUTHY = `${KERN_JS_HELPER_PY}\n\n${KERN_FMT_HELPER_PY}\n\
 
 const TYPEOF_VALUE_PY =
   '("undefined" if (__k_typeof1 := value) is _KERN_UNDEFINED else "object" if __k_typeof1 is None else "boolean" if isinstance(__k_typeof1, bool) else "number" if isinstance(__k_typeof1, (int, float)) else "string" if isinstance(__k_typeof1, str) else "function" if callable(__k_typeof1) else "object")';
+
+// Slice S7 — `typeof value === "string"` now routes the strict-equality through
+// the nullish/equality helper. A BODY that lowers it carries the nullish helper
+// block after the fmt prelude (the `===` is emitted after the typeof's fmt
+// helper); the `if`/ternary form additionally carries the truthy helper first.
+const TYPEOF_EQ_STRING_PY = `_kern_strict_equal(${TYPEOF_VALUE_PY}, "string")`;
+const PY_PRELUDE_TYPEOF_EQ = `${KERN_FMT_HELPER_PY}\n\n${KERN_NULLISH_HELPER_PY}\n\n`;
+const PY_PRELUDE_TYPEOF_EQ_WITH_TRUTHY = `${KERN_JS_HELPER_PY}\n\n${KERN_FMT_HELPER_PY}\n\n${KERN_NULLISH_HELPER_PY}\n\n`;
 
 // ── 2b: stdlib expansion (Python) ────────────────────────────────────────
 
@@ -92,12 +100,16 @@ describe('emitPyExpression — arithmetic + comparison + unary', () => {
     expect(emitPyExpression(parseExpression('a + b * c'))).toBe('__kern_add(a, b * c)');
   });
 
-  test('strict equality === lowers to Python ==', () => {
-    expect(emitPyExpression(parseExpression('x === 0'))).toBe('x == 0');
+  // Slice S7 — strict equality routes through `_kern_strict_equal` so the
+  // null/undefined boundary and Python's bool⊂int conflation match JS
+  // (`undefined === null` false, `0 === false` false). For non-nullish operands
+  // the helper is value-equivalent to the prior `==`/`!=` lowering.
+  test('strict equality === lowers to _kern_strict_equal', () => {
+    expect(emitPyExpression(parseExpression('x === 0'))).toBe('_kern_strict_equal(x, 0)');
   });
 
-  test('strict inequality !== lowers to Python !=', () => {
-    expect(emitPyExpression(parseExpression('x !== 0'))).toBe('x != 0');
+  test('strict inequality !== lowers to not _kern_strict_equal', () => {
+    expect(emitPyExpression(parseExpression('x !== 0'))).toBe('(not _kern_strict_equal(x, 0))');
   });
 
   test('logical && lowers to Python and', () => {
@@ -164,7 +176,7 @@ describe('emitPyExpression — arithmetic + comparison + unary', () => {
   });
 
   test('typeof type guard composes with strict equality', () => {
-    expect(emitPyExpression(parseExpression('typeof value === "string"'))).toBe(`${TYPEOF_VALUE_PY} == "string"`);
+    expect(emitPyExpression(parseExpression('typeof value === "string"'))).toBe(TYPEOF_EQ_STRING_PY);
   });
 
   test('typeof literals lower without dynamic temp binding', () => {
@@ -180,7 +192,7 @@ describe('emitPyExpression — arithmetic + comparison + unary', () => {
 
   test('typeof in return body codegen does not throw on Python target', () => {
     const handler = makeHandler([{ type: 'return', props: { value: 'typeof value === "string"' }, children: [] }]);
-    expect(emitNativeKernBodyPython(handler)).toBe(`${PY_PRELUDE}return ${TYPEOF_VALUE_PY} == "string"`);
+    expect(emitNativeKernBodyPython(handler)).toBe(`${PY_PRELUDE_TYPEOF_EQ}return ${TYPEOF_EQ_STRING_PY}`);
   });
 
   test('typeof composes in Python if conditions', () => {
@@ -194,7 +206,7 @@ describe('emitPyExpression — arithmetic + comparison + unary', () => {
     // Slice S4 — `if cond=` wraps the whole condition in `_kern_truthy(...)` and
     // surfaces the truthiness helper alongside the fmt prelude.
     expect(emitNativeKernBodyPython(handler)).toBe(
-      `${PY_PRELUDE_WITH_TRUTHY}if _kern_truthy(${TYPEOF_VALUE_PY} == "string"):\n    return value`,
+      `${PY_PRELUDE_TYPEOF_EQ_WITH_TRUTHY}if _kern_truthy(${TYPEOF_EQ_STRING_PY}):\n    return value`,
     );
   });
 
@@ -215,7 +227,7 @@ describe('emitPyExpression — arithmetic + comparison + unary', () => {
     // Slice S4 — ternary test routes through `_kern_truthy(...)` (subsuming the
     // prior paren wrap on the binary `==` test).
     expect(emitPyExpression(parseExpression('typeof value === "string" ? "s" : "x"'))).toBe(
-      `"s" if _kern_truthy(${TYPEOF_VALUE_PY} == "string") else "x"`,
+      `"s" if _kern_truthy(${TYPEOF_EQ_STRING_PY}) else "x"`,
     );
   });
 
@@ -244,7 +256,7 @@ describe('emitNativeKernBodyPython — if / else control flow', () => {
     ]);
     const out = emitNativeKernBodyPython(handler);
     // Slice S4 — `if cond=` wraps the condition in `_kern_truthy(...)`.
-    expect(out).toContain('if _kern_truthy(x == 0):');
+    expect(out).toContain('if _kern_truthy(_kern_strict_equal(x, 0)):');
     expect(out).toContain('    return "empty"');
   });
 
@@ -262,7 +274,7 @@ describe('emitNativeKernBodyPython — if / else control flow', () => {
       },
     ]);
     const out = emitNativeKernBodyPython(handler);
-    expect(out).toContain('if _kern_truthy(x == 0):');
+    expect(out).toContain('if _kern_truthy(_kern_strict_equal(x, 0)):');
     expect(out).toContain('    return "empty"');
     expect(out).toContain('else:');
     expect(out).toContain('    return "non-empty"');
@@ -271,7 +283,7 @@ describe('emitNativeKernBodyPython — if / else control flow', () => {
   test('empty if-branch emits `pass`', () => {
     const handler = makeHandler([{ type: 'if', props: { cond: 'x === 0' }, children: [] }]);
     const out = emitNativeKernBodyPython(handler);
-    expect(out).toContain('if _kern_truthy(x == 0):');
+    expect(out).toContain('if _kern_truthy(_kern_strict_equal(x, 0)):');
     expect(out).toContain('    pass');
   });
 });
@@ -331,7 +343,11 @@ describe('emitNativeKernBodyPython — assignment body statement', () => {
 
   test('assignment allows optional access inside index rvalue', () => {
     const handler = makeHandler([{ type: 'assign', props: { target: 'arr[obj?.idx]', value: '1' } }]);
-    expect(emitNativeKernBodyPython(handler)).toContain('arr[(obj.idx if obj is not None else None)] = 1');
+    // Slice S7 — optional-chain guard tests the full nullish set and short-circuits
+    // to the undefined sentinel.
+    expect(emitNativeKernBodyPython(handler)).toContain(
+      'arr[(obj.idx if (not _kern_is_nullish(obj)) else _KERN_UNDEFINED)] = 1',
+    );
   });
 
   test('assignment composes inside nested control-flow body statements', () => {
@@ -414,29 +430,43 @@ describe('emitPyExpression — index access', () => {
     expect(emitPyExpression(parseExpression('obj["key"]'))).toBe('obj["key"]');
   });
 
+  // Slice S7 — optional-chain guards test the full nullish set (None AND the
+  // undefined sentinel) and short-circuit to the sentinel, so the result keeps
+  // JS `typeof`/`??`/`===` semantics.
   test('optional element access short-circuits trailing chains', () => {
-    expect(emitPyExpression(parseExpression('arr?.[i]'))).toBe('(arr[i] if arr is not None else None)');
+    expect(emitPyExpression(parseExpression('arr?.[i]'))).toBe(
+      '(arr[i] if (not _kern_is_nullish(arr)) else _KERN_UNDEFINED)',
+    );
     expect(emitPyExpression(parseExpression('users?.[id].name'))).toBe(
-      '(users[id].name if users is not None else None)',
+      '(users[id].name if (not _kern_is_nullish(users)) else _KERN_UNDEFINED)',
     );
     expect(emitPyExpression(parseExpression('users?.[id]?.name'))).toBe(
-      '(users[id].name if users is not None and users[id] is not None else None)',
+      '(users[id].name if (not _kern_is_nullish(users)) and (not _kern_is_nullish(users[id])) else _KERN_UNDEFINED)',
     );
-    expect(emitPyExpression(parseExpression('obj?.field[0]'))).toBe('(obj.field[0] if obj is not None else None)');
-    expect(emitPyExpression(parseExpression('arr?.[i][j]'))).toBe('(arr[i][j] if arr is not None else None)');
+    expect(emitPyExpression(parseExpression('obj?.field[0]'))).toBe(
+      '(obj.field[0] if (not _kern_is_nullish(obj)) else _KERN_UNDEFINED)',
+    );
+    expect(emitPyExpression(parseExpression('arr?.[i][j]'))).toBe(
+      '(arr[i][j] if (not _kern_is_nullish(arr)) else _KERN_UNDEFINED)',
+    );
     expect(emitPyExpression(parseExpression('users[id]?.name'))).toBe(
-      '(users[id].name if users[id] is not None else None)',
+      '(users[id].name if (not _kern_is_nullish(users[id])) else _KERN_UNDEFINED)',
     );
   });
 
   test('optional element access keeps index expressions branch-local', () => {
     expect(emitPyExpression(parseExpression('arr?.[nextIndex()]'))).toBe(
-      '(arr[nextIndex()] if arr is not None else None)',
+      '(arr[nextIndex()] if (not _kern_is_nullish(arr)) else _KERN_UNDEFINED)',
     );
   });
 
-  test('optional element access rejects side-effecting Python receiver inputs', () => {
-    expect(() => emitPyExpression(parseExpression('load()?.[i]'))).toThrow(/requires a side-effect-free receiver/);
+  // Slice S7 — a side-effecting optional-chain receiver is now bound ONCE via the
+  // S4 walrus idiom (single-eval) instead of being rejected; the bound name is
+  // used in both the guard and the indexed branch.
+  test('optional element access single-evals a side-effecting receiver via walrus', () => {
+    expect(emitPyExpression(parseExpression('load()?.[i]'))).toBe(
+      '(__k_oc1[i] if (not _kern_is_nullish(__k_oc1 := load())) else _KERN_UNDEFINED)',
+    );
   });
 });
 
@@ -470,7 +500,8 @@ describe('FastAPI fn lang=kern with slice-2 features', () => {
     const out = generateFunction(fnNode).join('\n');
     expect(out).toContain('trimmed = raw.strip()');
     // Slice S4 — `if cond=` wraps the condition in `_kern_truthy(...)`.
-    expect(out).toContain('if _kern_truthy(len(trimmed) == 0):');
+    // Slice S7 — the `=== 0` routes through `_kern_strict_equal`.
+    expect(out).toContain('if _kern_truthy(_kern_strict_equal(len(trimmed), 0)):');
     expect(out).toContain('return Result.err({"kind": "empty"})');
     expect(out).toContain('return Result.ok(trimmed.upper())');
   });
@@ -515,13 +546,13 @@ describe('Review fixes — Python', () => {
     );
   });
 
-  test('comparison chaining gets force-parens to disable Python chaining', () => {
+  test('comparison chaining is isolated by the S7 equality helper call form', () => {
     // KERN/JS precedence: `<` (11) binds tighter than `===` (10), so
-    // `a === b < c` parses as `a === (b < c)`. Without force-parens, Python
-    // would interpret `a == b < c` as chained `(a == b) and (b < c)` —
-    // different semantics. The force-paren on comparison-comparison nesting
-    // preserves the AST shape: `a == (b < c)`.
-    expect(emitPyExpression(parseExpression('a === b < c'))).toBe('a == (b < c)');
+    // `a === b < c` parses as `a === (b < c)`. Slice S7 routes `===` through
+    // `_kern_strict_equal(...)`, so the function-call boundary already isolates
+    // the operands — Python comparison-chaining cannot arise across a call's
+    // comma. The right operand `b < c` evaluates as a normal sub-comparison.
+    expect(emitPyExpression(parseExpression('a === b < c'))).toBe('_kern_strict_equal(a, b < c)');
   });
 
   test('non-comparison binary ops do NOT trigger force-paren', () => {

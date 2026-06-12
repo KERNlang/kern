@@ -73,9 +73,11 @@ describe('emitPyExpression — slice 1 lowering rules', () => {
   });
 
   test('typed lambda return predicates erase on Python target', () => {
+    // Slice S7 — `value !== null` routes the strict inequality through
+    // `_kern_strict_equal` (so the null/undefined boundary matches JS).
     expect(
       emitPyExpression(parseExpression('values.filter((value: unknown): value is string => value !== null)')),
-    ).toBe('values.filter(lambda value: value != None)');
+    ).toBe('values.filter(lambda value: (not _kern_strict_equal(value, None)))');
   });
 
   test('TS generic call args and non-null assertions erase on Python target', () => {
