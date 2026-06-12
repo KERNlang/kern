@@ -14,6 +14,7 @@ import { propsOf } from '../node-props.js';
 import { parseExpression } from '../parser-expression.js';
 import { expandTemplateNode, isTemplateNode } from '../template-engine.js';
 import type { ExprObject, IRNode } from '../types.js';
+import { typescriptClosureClassifier } from '../typescript-closure-classifier.js';
 import type { ValueIR } from '../value-ir.js';
 import { emitFmtTemplate, emitIdentifier, emitTypeAnnotation } from './emitters.js';
 import {
@@ -29,6 +30,15 @@ import {
 import { emitParamList } from './type-system.js';
 
 const p = getProps;
+
+// Slice 0.9 review fix — ground-layer codegen is Node-only and re-parses raw
+// expression props (firstTruthy/coalesce/objectMerge/... values may contain
+// block-bodied arrows), so it injects the TypeScript-backed closure classifier.
+// All `parseExpression` calls in this module route through `parseExpr`.
+const TS_PARSE_OPTS = { closureClassifier: typescriptClosureClassifier };
+function parseExpr(input: string): ReturnType<typeof parseExpression> {
+  return parseExpression(input, TS_PARSE_OPTS);
+}
 const kids = getChildren;
 const firstChild = getFirstChild;
 
@@ -834,7 +844,7 @@ export function generateFirstTruthy(node: IRNode): string[] {
   if (values.length < 2) throw new KernCodegenError('firstTruthy requires at least two value expressions', node);
 
   const emitted = values.map((value) => {
-    const valueIR = parseExpression(value);
+    const valueIR = parseExpr(value);
     if (valueIR.kind === 'propagate') {
       throw new KernCodegenError(
         "Propagation '?' is not allowed in `firstTruthy values=` — bind the value first.",
@@ -870,7 +880,7 @@ export function generateCoalesce(node: IRNode): string[] {
   if (values.length < 2) throw new KernCodegenError('coalesce requires at least two value expressions', node);
 
   const emitted = values.map((value) => {
-    const valueIR = parseExpression(value);
+    const valueIR = parseExpr(value);
     if (valueIR.kind === 'propagate') {
       throw new KernCodegenError("Propagation '?' is not allowed in `coalesce values=` — bind the value first.", node);
     }
@@ -898,7 +908,7 @@ export function generateFirstDefined(node: IRNode): string[] {
   if (values.length < 2) throw new KernCodegenError('firstDefined requires at least two value expressions', node);
 
   const emitted = values.map((value) => {
-    const valueIR = parseExpression(value);
+    const valueIR = parseExpr(value);
     if (valueIR.kind === 'propagate') {
       throw new KernCodegenError(
         "Propagation '?' is not allowed in `firstDefined values=` — bind the value first.",
@@ -947,7 +957,7 @@ export function generateObjectMerge(node: IRNode): string[] {
   const exp = exportPrefix(node);
   const spreadSources = sources
     .map((source) => {
-      const sourceIR = parseExpression(source);
+      const sourceIR = parseExpr(source);
       if (sourceIR.kind === 'propagate') {
         throw new KernCodegenError(
           "Propagation '?' is not allowed in `objectMerge sources=` — bind the value first.",
@@ -962,7 +972,7 @@ export function generateObjectMerge(node: IRNode): string[] {
 }
 
 export function parseKeys(raw: string, node: IRNode, propName: string): string[] {
-  const keyIR = parseExpression(raw);
+  const keyIR = parseExpr(raw);
   if (keyIR.kind === 'propagate') {
     throw new KernCodegenError(`Propagation '?' is not allowed in ${propName}`, node);
   }
@@ -1001,7 +1011,7 @@ export function generateObjectPick(node: IRNode): string[] {
     throw new KernCodegenError("objectPick node requires a 'keys' prop", node);
   }
 
-  const inIR = parseExpression(rawIn);
+  const inIR = parseExpr(rawIn);
   if (inIR.kind === 'propagate') {
     throw new KernCodegenError("Propagation '?' is not allowed in objectPick in=", node);
   }
@@ -1038,7 +1048,7 @@ export function generateObjectOmit(node: IRNode): string[] {
     throw new KernCodegenError("objectOmit node requires a 'keys' prop", node);
   }
 
-  const inIR = parseExpression(rawIn);
+  const inIR = parseExpr(rawIn);
   if (inIR.kind === 'propagate') {
     throw new KernCodegenError("Propagation '?' is not allowed in objectOmit in=", node);
   }

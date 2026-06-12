@@ -2,7 +2,8 @@
  * Shared Python expression lowering — framework-agnostic.
  */
 
-import { lowerJsClosureBodyToPython, PORTABLE_LOGIC_PRIMITIVES, type PortableLogicPrimitiveId } from '@kernlang/core';
+import { PORTABLE_LOGIC_PRIMITIVES, type PortableLogicPrimitiveId } from '@kernlang/core';
+import { lowerJsClosureBodyToPython } from '@kernlang/core/node';
 import { toSnakeCase } from '../../type-map.js';
 import {
   KERN_I32_HELPER_PY,

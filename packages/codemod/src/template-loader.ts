@@ -7,13 +7,18 @@
  */
 
 import { defaultRuntime, type IRNode, parse, registerTemplate, TEMPLATE_CATALOG } from '@kernlang/core';
+import { nativeEligibilityClassifier, typescriptClosureClassifier } from '@kernlang/core/node';
+
+// Slice 0.9 — Node-side: inject the TypeScript-backed classifiers so block-bodied
+// arrows in expression props keep parsing (instead of fail-closing).
+const NODE_PARSE_CAPS = { closureClassifier: typescriptClosureClassifier, nativeEligibilityClassifier } as const;
 
 const registered = new Set<string>();
 
 function findTemplateNode(source: string, templateName: string): IRNode | undefined {
   let ast: IRNode;
   try {
-    ast = parse(source);
+    ast = parse(source, undefined, NODE_PARSE_CAPS);
   } catch {
     // A single catalog template failing to parse must not abort lookup for
     // every other template.

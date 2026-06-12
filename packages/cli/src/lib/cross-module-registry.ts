@@ -13,8 +13,17 @@ import {
   type ModuleExports,
   parseDocument,
 } from '@kernlang/core';
+import { nativeEligibilityClassifier, typescriptClosureClassifier } from '@kernlang/core/node';
 import { existsSync, readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
+
+// Slice 0.9 — Node-side: parse with the TypeScript-backed classifiers so
+// block-bodied arrows in expression props don't fail-close (which would
+// silently drop a module from the cross-module export registry).
+const NODE_PARSE_CAPS = {
+  closureClassifier: typescriptClosureClassifier,
+  nativeEligibilityClassifier,
+} as const;
 
 const RESULT_RETURN_RE = /^Result<[\s\S]*>$/;
 const OPTION_RETURN_RE = /^Option<[\s\S]*>$/;
@@ -244,7 +253,7 @@ export function buildCrossModuleRegistry(kernFiles: readonly string[]): Map<stri
     try {
       const abs = resolve(file);
       const source = readFileSync(abs, 'utf-8');
-      const root = parseDocument(source);
+      const root = parseDocument(source, undefined, NODE_PARSE_CAPS);
       roots.set(abs, root);
       direct.set(abs, classifyDirectExports(root));
     } catch {
@@ -312,7 +321,7 @@ export function buildProjectTypeNodeIndex(kernFiles: readonly string[]): Map<str
   for (const file of kernFiles) {
     try {
       const abs = resolve(file);
-      const root = parseDocument(readFileSync(abs, 'utf-8'));
+      const root = parseDocument(readFileSync(abs, 'utf-8'), undefined, NODE_PARSE_CAPS);
       const types = new Map<string, IRNode>();
       collectTypeDecls(root, types);
       index.set(abs, types);

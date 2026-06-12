@@ -44,7 +44,6 @@
 import type { ExprObject, IRNode, ValueIR } from '@kernlang/core';
 import {
   applyTemplate,
-  collectFreeIdentifierNames,
   emitStringKeyArray,
   instanceofRhsPythonType,
   instanceofRhsRejectReasonForName,
@@ -52,13 +51,20 @@ import {
   isSupportedAssignOperator,
   KERN_STDLIB_MODULES,
   lookupStdlib,
-  lowerJsClosureBodyToPython,
   needsArgParens,
   needsBinaryParens,
   parseExpression,
   parseKeys,
   suggestStdlibMethod,
 } from '@kernlang/core';
+// Slice 0.9 — the TypeScript-AST closure helpers + classifier live on the Node
+// subpath (the barrel is browser-safe). Python codegen is Node-side and parses
+// block-bodied arrows, so it injects `typescriptClosureClassifier`.
+import {
+  collectFreeIdentifierNames,
+  lowerJsClosureBodyToPython,
+  typescriptClosureClassifier,
+} from '@kernlang/core/node';
 import { buildPythonParamList } from './codegen-helpers.js';
 import {
   KERN_FMT_HELPER_PY,
@@ -78,6 +84,17 @@ import {
   sharedPortableMethodRequiresPureReceiver,
 } from './core/expr/list-ops.js';
 import { mapTsTypeToPython } from './type-map.js';
+
+/** Parse options for Python codegen — always inject the TypeScript-backed
+ *  closure classifier so block-bodied arrows parse (slice 0.9). */
+const TS_PARSE_OPTS = { closureClassifier: typescriptClosureClassifier };
+
+/** Local `parseExpression` binding for Python codegen that always injects the
+ *  TypeScript closure classifier (slice 0.9). All `parseExpr(...)` calls in this
+ *  module route through here. */
+function parseExpr(input: string): ReturnType<typeof parseExpression> {
+  return parseExpression(input, TS_PARSE_OPTS);
+}
 
 /** Slice 3e — caller-provided options for the Python body emitter.
  *  Currently only `symbolMap`; future slices may add diagnostics, source-map
@@ -226,6 +243,19 @@ interface BodyEmitContext {
    *  `gensymCounter` so closure names stay stable/independent of other
    *  gensym usage. */
   closureSeq: number;
+  /** S5 review fix — CPython REJECTS the walrus operator anywhere inside a
+   *  comprehension/generator ITERABLE expression ("assignment expression
+   *  cannot be used in a comprehension iterable expression", a symtable check
+   *  that NO amount of nesting — parens, calls, lambdas, list displays —
+   *  escapes). Every site that interpolates an emitted expression into a
+   *  `for … in <here>` head sets this flag (via `withWalrusBan`) while
+   *  emitting that operand; every walrus-producing lowering (`&&`/`||`,
+   *  impure-left `??`, `typeof`) checks it and emits the walrus-free
+   *  lambda-parameter form instead: `(lambda __k_N: (<body using __k_N>))(L)`
+   *  — same single-eval of L, same lazy unselected branch (the conditional
+   *  lives in the lambda body), one extra closure allocation only in these
+   *  rare positions. */
+  banWalrus?: boolean;
   /** Slice-2 loop-variable pinning. Each entry is the INDEX into `localScopes`
    *  of a scope that is a loop BODY (an `each`/`for`/`while` body). A captured
    *  name is pinned (JS per-iteration capture → Python default arg) IFF its
@@ -542,7 +572,7 @@ function emitChildrenPy(
         for (const line of emitReturnPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'if') {
         const condRaw = String(child.props?.cond ?? '');
-        const condIR = parseExpression(condRaw);
+        const condIR = parseExpr(condRaw);
         // Slice-2 review fix: reject propagation `?` in `if cond=` (parallel to TS side).
         if (condIR.kind === 'propagate') {
           throw new Error(
@@ -572,7 +602,7 @@ function emitChildrenPy(
           if (isChainable) {
             const ifNode = ec[0];
             const nestedCondRaw = String(ifNode.props?.cond ?? '');
-            const nestedCondIR = parseExpression(nestedCondRaw);
+            const nestedCondIR = parseExpr(nestedCondRaw);
             if (nestedCondIR.kind === 'propagate') {
               throw new Error(
                 "Propagation '?' is not allowed in `if cond=` — bind the call to a `let` first, then test the bound name.",
@@ -598,7 +628,7 @@ function emitChildrenPy(
         throw new Error('`else` must immediately follow an `if` sibling. Found orphan `else` in handler body.');
       } else if (child.type === 'while') {
         const condRaw = String(child.props?.cond ?? '');
-        const condIR = parseExpression(condRaw);
+        const condIR = parseExpr(condRaw);
         if (condIR.kind === 'propagate') {
           throw new Error(
             "Propagation '?' is not allowed in `while cond=` — bind the call to a `let` first, then test the bound name.",
@@ -692,7 +722,7 @@ function emitChildrenPy(
         // Slice 4c+4d review fix (Codex P1) — read schema-compliant
         // `name`/`in` props (legacy `list`/`as` accepted as fallback).
         const listRaw = String(child.props?.in ?? child.props?.list ?? '[]');
-        const listIR = parseExpression(listRaw);
+        const listIR = parseExpr(listRaw);
         const pairKey = child.props?.pairKey;
         const pairValue = child.props?.pairValue;
         const entryKey = child.props?.entryKey;
@@ -935,9 +965,9 @@ function emitRangeForPy(node: IRNode, ctx: BodyEmitContext, indent: string): str
   validateIntegerRangeBound(String(rawFrom), 'from');
   validateIntegerRangeBound(String(rawTo), 'to');
   validatePositiveRangeStep(rawStep);
-  const fromIR = parseExpression(String(rawFrom));
-  const toIR = parseExpression(String(rawTo));
-  const stepIR = parseExpression(rawStep);
+  const fromIR = parseExpr(String(rawFrom));
+  const toIR = parseExpr(String(rawTo));
+  const stepIR = parseExpr(rawStep);
   if (fromIR.kind === 'propagate' || toIR.kind === 'propagate' || stepIR.kind === 'propagate') {
     throw new Error(
       "Propagation '?' is not allowed in `for from=`/`to=`/`step=` — bind the value to a `let` before the loop.",
@@ -1004,7 +1034,7 @@ function emitWithPy(node: IRNode, ctx: BodyEmitContext, indent: string): string[
   }
 
   const name = String(rawName);
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   if (valueIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in `with value=` — bind to `let` first.");
   }
@@ -1019,7 +1049,7 @@ function emitWithPy(node: IRNode, ctx: BodyEmitContext, indent: string): string[
     return lines;
   }
 
-  const cleanupIR = parseExpression(String(rawCleanup));
+  const cleanupIR = parseExpr(String(rawCleanup));
   if (cleanupIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in `with cleanup=` — bind to `let` first.");
   }
@@ -1072,7 +1102,7 @@ function emitBranchPy(node: IRNode, ctx: BodyEmitContext, indent: string): strin
   if (onRaw === '') {
     throw new Error('`branch` requires an `on=` expression in body-statement context.');
   }
-  const onIR = parseExpression(onRaw);
+  const onIR = parseExpr(onRaw);
   const subjectVar = `__k_branch_${++ctx.gensymCounter}`;
   const out: string[] = [];
   out.push(`${indent}${subjectVar} = ${emitPyExprCtx(onIR, ctx)}`);
@@ -1172,7 +1202,7 @@ function emitCellPy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawInitial === undefined || rawInitial === '') {
     return [`${pythonName} = None`];
   }
-  const initialIR = parseExpression(String(rawInitial));
+  const initialIR = parseExpr(String(rawInitial));
   return [`${pythonName} = ${emitPyExprCtx(initialIR, ctx)}`];
 }
 
@@ -1188,7 +1218,7 @@ function emitSetPy(node: IRNode, ctx: BodyEmitContext): string[] {
   }
   const name = String(rawName);
   const pythonName = ctx.symbolMap[name] ?? name;
-  const valueIR = parseExpression(String(rawTo));
+  const valueIR = parseExpr(String(rawTo));
   if (valueIR.kind === 'propagate') {
     throw new Error(
       `Propagation \`${valueIR.op}\` is not supported in \`set to=\` — bind to \`let\` first, then call set.`,
@@ -1213,7 +1243,7 @@ function emitLetPy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawValue === undefined || rawValue === '') {
     return [`${name} = None`];
   }
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   setRegexBinding(ctx, userName, valueIR.kind === 'regexLit' ? valueIR : null);
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
@@ -1291,9 +1321,9 @@ function emitClampPy(node: IRNode, ctx: BodyEmitContext): string[] {
   const rawMax = unwrapBodyExpr(props.max);
   if (rawMax === undefined || rawMax === '') throw new Error('body-statement `clamp` requires `max=`.');
 
-  const valueIR = parseExpression(rawValue);
-  const minIR = parseExpression(rawMin);
-  const maxIR = parseExpression(rawMax);
+  const valueIR = parseExpr(rawValue);
+  const minIR = parseExpr(rawMin);
+  const maxIR = parseExpr(rawMax);
   if (valueIR.kind === 'propagate' || minIR.kind === 'propagate' || maxIR.kind === 'propagate') {
     throw new Error(
       "Propagation '?' is not allowed in `clamp value=`/`min=`/`max=` — bind the value to a `let` first.",
@@ -1322,7 +1352,7 @@ function emitFirstTruthyPy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (values.length < 2) throw new Error('body-statement `firstTruthy` requires at least two value expressions.');
 
   const emitted = values.map((value) => {
-    const valueIR = parseExpression(value);
+    const valueIR = parseExpr(value);
     if (valueIR.kind === 'propagate') {
       throw new Error("Propagation '?' is not allowed in `firstTruthy values=` — bind the value to a `let` first.");
     }
@@ -1373,7 +1403,7 @@ function emitCoalescePy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (values.length < 2) throw new Error(`body-statement \`${type}\` requires at least two value expressions.`);
 
   const valueIRs = values.map((value) => {
-    const valueIR = parseExpression(value);
+    const valueIR = parseExpr(value);
     if (valueIR.kind === 'propagate') {
       throw new Error(`Propagation '?' is not allowed in \`${type} values=\` — bind the value to a \`let\` first.`);
     }
@@ -1415,7 +1445,7 @@ function emitObjectMergePy(node: IRNode, ctx: BodyEmitContext): string[] {
     if (source.startsWith('...')) {
       throw new Error('body-statement `objectMerge` sources imply spreading; omit leading `...`.');
     }
-    const sourceIR = parseExpression(source);
+    const sourceIR = parseExpr(source);
     if (sourceIR.kind === 'propagate') {
       throw new Error("Propagation '?' is not allowed in `objectMerge sources=` — bind the value to a `let` first.");
     }
@@ -1443,7 +1473,7 @@ function emitObjectPickPy(node: IRNode, ctx: BodyEmitContext): string[] {
     throw new Error('body-statement `objectPick` requires `keys=`.');
   }
 
-  const inIR = parseExpression(rawIn);
+  const inIR = parseExpr(rawIn);
   if (inIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in `objectPick in=` — bind the value to a `let` first.");
   }
@@ -1475,7 +1505,7 @@ function emitObjectOmitPy(node: IRNode, ctx: BodyEmitContext): string[] {
     throw new Error('body-statement `objectOmit` requires `keys=`.');
   }
 
-  const inIR = parseExpression(rawIn);
+  const inIR = parseExpr(rawIn);
   if (inIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in `objectOmit in=` — bind the value to a `let` first.");
   }
@@ -1518,7 +1548,7 @@ function emitAssignPy(node: IRNode, ctx: BodyEmitContext): string[] {
     // mirrors this; the emitter check is defense-in-depth for direct IR.
     throw new Error(`body-statement \`assign op="${rawOp}"\` is value-less; remove \`value=\`.`);
   }
-  const targetIR = parseExpression(String(rawTarget));
+  const targetIR = parseExpr(String(rawTarget));
   if (!isAssignableTarget(targetIR)) {
     throw new Error('body-statement `assign target=` must be an identifier, member access, or index access.');
   }
@@ -1531,7 +1561,7 @@ function emitAssignPy(node: IRNode, ctx: BodyEmitContext): string[] {
     const baseOp = rawOp === '++' ? '+=' : '-=';
     return [`${emitPyExprCtx(targetIR, ctx)} ${baseOp} 1`];
   }
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   if (valueIR.kind === 'propagate') {
     throw new Error(
       `Propagation \`${valueIR.op}\` is not supported in \`assign value=\` — bind to \`let\` first, then assign.`,
@@ -1627,7 +1657,7 @@ function emitDestructurePy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawSource === undefined || rawSource === '') {
     throw new Error('body-statement `destructure` requires `source=`.');
   }
-  const source = emitPyExprCtx(parseExpression(String(rawSource)), ctx);
+  const source = emitPyExprCtx(parseExpr(String(rawSource)), ctx);
   const children = node.children ?? [];
   const bindings = children.filter((c) => c.type === 'binding');
   const elements = children.filter((c) => c.type === 'element');
@@ -1792,7 +1822,7 @@ function templateToPyFString(template: string, ctx: BodyEmitContext): string {
         throw new Error('body-statement `fmt`: unterminated `${...}` in template.');
       }
       const inner = template.slice(i + 2, j);
-      const exprIR = parseExpression(inner);
+      const exprIR = parseExpr(inner);
       if (exprIR.kind === 'propagate') {
         throw new Error("Propagation '?' is not allowed inside an `fmt` template — bind via `let` first.");
       }
@@ -1841,7 +1871,7 @@ function emitReturnPy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawValue === undefined || rawValue === '') {
     return [`return`];
   }
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
@@ -1858,7 +1888,7 @@ function emitThrowPy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawValue === undefined || rawValue === '') {
     return [`raise Exception()`];
   }
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
@@ -1883,7 +1913,7 @@ function emitDoPy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawValue === undefined || rawValue === '') {
     return [];
   }
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
@@ -2154,6 +2184,63 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
         return `__kern_add(${left}, ${right})`;
       }
 
+      if (node.op === '&&' || node.op === '||') {
+        // Slice S5 — logical `&&` / `||` RESULT-VALUE semantics on Python.
+        //
+        // KERN `&&`/`||` are operand-selectors, not boolean operators:
+        //   `a && b` returns `a` when ToBoolean(a) is false, else `b`.
+        //   `a || b` returns `a` when ToBoolean(a) is true,  else `b`.
+        // Python's `and`/`or` use Python truthiness (`bool(x)` / `len(x)`), which
+        // diverges from KERN ToBoolean on `[]`, `{}`, `NaN`, `"0"`, `"false"`,
+        // `" "` — e.g. `[] or x` returns `x` in Python but must return `[]` in
+        // KERN. So `and`/`or` are wrong; we lower through the SAME `_kern_truthy`
+        // (KERN ToBoolean) substrate S4 routes `!`/ternary/`if cond=` through.
+        //
+        // Canonical lowering (single-eval, lazy, original-value-returning):
+        //   L && R  ->  (__k_logN if not _kern_truthy(__k_logN := L) else R)
+        //   L || R  ->  (__k_logN if     _kern_truthy(__k_logN := L) else R)
+        //
+        // The walrus binds L EXACTLY ONCE (works for calls/indexes/members/
+        // nested logicals — no double-read), `_kern_truthy` decides the branch
+        // on KERN truthiness, and the unselected operand is NEVER evaluated
+        // (Python conditional-expr branches are lazy). NO ident/pure-left fast
+        // path in this slice — conservative walrus for EVERY left operand is the
+        // single-eval law (S4 carry-forward; optimization needs its own oracle).
+        //
+        // Emitted UNCONDITIONALLY for both native (`coerceJsValues`) and Ground/
+        // React layers — mirroring S4's `!`/ternary, which also emit
+        // `_kern_truthy` regardless of the coercion flag. The `[]`/`{}`/`NaN`
+        // divergence is independent of the undefined sentinel, so a Ground-layer
+        // `a and b` would be just as wrong; parity demands one spelling.
+        // `KERN_JS_HELPER_PY` is in Ground's prelude registry, so the helper is
+        // inlined there too.
+        ctx.helpers.add(KERN_JS_HELPER_PY);
+        const tmp = `__k_log${++ctx.gensymCounter}`;
+        // `:=` (PEP 572) binds looser than almost everything, so a low-precedence
+        // left operand (conditional/lambda/walrus-bearing) must be parenthesized
+        // so `__k_logN := L` captures the WHOLE operand. A nested `&&`/`||` is
+        // already self-parenthesized, so this only fires on raw conditional/
+        // lambda left operands.
+        const leftOperand = needsWalrusOperandParens(node.left) ? `(${left})` : left;
+        // The `else` branch is a conditional-expression alternate; a bare
+        // conditional/lambda there reparses ambiguously, so wrap it. A nested
+        // logical R is self-parenthesized; only raw conditional/lambda needs it.
+        const rightOperand = needsConditionalAlternateParens(node.right) ? `(${right})` : right;
+        if (ctx.banWalrus) {
+          // Comprehension-iterable position (see BodyEmitContext.banWalrus):
+          // the walrus form is a SyntaxError here, so bind L as a lambda
+          // parameter instead. Same contract: L evaluated exactly once (as the
+          // call argument), the unselected branch never evaluated (lazy
+          // conditional inside the lambda body), original value returned.
+          const test = `_kern_truthy(${tmp})`;
+          const guarded = node.op === '&&' ? `not ${test}` : test;
+          return `(lambda ${tmp}: (${tmp} if ${guarded} else ${rightOperand}))(${left})`;
+        }
+        const test = `_kern_truthy(${tmp} := ${leftOperand})`;
+        const guarded = node.op === '&&' ? `not ${test}` : test;
+        return `(${tmp} if ${guarded} else ${rightOperand})`;
+      }
+
       if (node.op === '??') {
         // Slice 4c — nullish coalesce lowering. Two shapes:
         //
@@ -2184,6 +2271,11 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
             return `(${left} if ${left} is not None else ${right})`;
           }
           const tmp = `__k_nc${++ctx.gensymCounter}`;
+          if (ctx.banWalrus) {
+            // Comprehension-iterable position — walrus is a SyntaxError here;
+            // lambda-parameter form keeps single-eval + lazy right branch.
+            return `(lambda ${tmp}: (${tmp} if ${tmp} is not None else ${right}))(${left})`;
+          }
           return `(${tmp} if (${tmp} := ${left}) is not None else ${right})`;
         }
         ctx.helpers.add(KERN_FMT_HELPER_PY);
@@ -2191,6 +2283,10 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
           return `(${left} if (${left} is not None and ${left} is not _KERN_UNDEFINED) else ${right})`;
         }
         const tmp = `__k_nc${++ctx.gensymCounter}`;
+        if (ctx.banWalrus) {
+          // Comprehension-iterable position — see BodyEmitContext.banWalrus.
+          return `(lambda ${tmp}: (${tmp} if (${tmp} is not None and ${tmp} is not _KERN_UNDEFINED) else ${right}))(${left})`;
+        }
         return `(${tmp} if ((${tmp} := ${left}) is not None and ${tmp} is not _KERN_UNDEFINED) else ${right})`;
       }
 
@@ -2332,6 +2428,19 @@ function emitPyTypeof(argument: ValueIR, ctx: BodyEmitContext): string {
   // pre-slice None-first form.
   if (ctx.coerceJsValues) {
     ctx.helpers.add(KERN_FMT_HELPER_PY);
+    if (ctx.banWalrus) {
+      // Comprehension-iterable position — walrus is a SyntaxError here; bind
+      // the operand as a lambda parameter instead (single-eval preserved).
+      return (
+        `(lambda ${tmp}: ("undefined" if ${tmp} is _KERN_UNDEFINED ` +
+        `else "object" if ${tmp} is None ` +
+        `else "boolean" if isinstance(${tmp}, bool) ` +
+        `else "number" if isinstance(${tmp}, (int, float)) ` +
+        `else "string" if isinstance(${tmp}, str) ` +
+        `else "function" if callable(${tmp}) ` +
+        `else "object"))(${value})`
+      );
+    }
     return (
       `("undefined" if (${tmp} := ${wrapped}) is _KERN_UNDEFINED ` +
       `else "object" if ${tmp} is None ` +
@@ -2340,6 +2449,17 @@ function emitPyTypeof(argument: ValueIR, ctx: BodyEmitContext): string {
       `else "string" if isinstance(${tmp}, str) ` +
       `else "function" if callable(${tmp}) ` +
       `else "object")`
+    );
+  }
+  if (ctx.banWalrus) {
+    // Comprehension-iterable position — see BodyEmitContext.banWalrus.
+    return (
+      `(lambda ${tmp}: ("object" if ${tmp} is None ` +
+      `else "boolean" if isinstance(${tmp}, bool) ` +
+      `else "number" if isinstance(${tmp}, (int, float)) ` +
+      `else "string" if isinstance(${tmp}, str) ` +
+      `else "function" if callable(${tmp}) ` +
+      `else "object"))(${value})`
     );
   }
   return (
@@ -2376,12 +2496,12 @@ function emitLambdaPy(node: Extract<ValueIR, { kind: 'lambda' }>, ctx: BodyEmitC
  *
  *  The closure body is lowered through `lowerJsClosureBodyToPython`, reusing
  *  the class-path expression/condition callbacks:
- *   - `lowerExpression(raw)` = `emitPyExprCtx(parseExpression(raw), ctx)` —
+ *   - `lowerExpression(raw)` = `emitPyExprCtx(parseExpr(raw), ctx)` —
  *     identical to every other native-body expression emit, so a captured
  *     RENAMED outer variable resolves through `ctx` (the rename stack /
  *     symbolMap) exactly as it does outside the closure.
  *   - `lowerCondition(raw)` mirrors the class/native if-emitter, which lowers a
- *     condition as the bare `emitPyExprCtx(parseExpression(cond), ctx)` (NO
+ *     condition as the bare `emitPyExprCtx(parseExpr(cond), ctx)` (NO
  *     js_truthy wrapper). Matching it EXACTLY means a condition inside a
  *     closure lowers identically to the same condition outside one.
  *
@@ -2396,11 +2516,11 @@ function emitBlockClosurePy(node: Extract<ValueIR, { kind: 'lambda' }>, names: s
   for (const name of names) ctx.shadowedSymbols.add(name);
   try {
     const lowered = lowerJsClosureBodyToPython(node.bodyBlock!.raw, {
-      lowerExpression: (raw) => emitPyExprCtx(parseExpression(raw), ctx),
+      lowerExpression: (raw) => emitPyExprCtx(parseExpr(raw), ctx),
       // Mirror the native/class if-emitter EXACTLY (bare expression, no
       // js_truthy) so a condition inside the closure matches the same
       // condition outside it.
-      lowerCondition: (raw) => emitPyExprCtx(parseExpression(raw), ctx),
+      lowerCondition: (raw) => emitPyExprCtx(parseExpr(raw), ctx),
       // The closure's own params are def-locals, never `nonlocal`: a write to a
       // param (`(x) => { x = x + 1 }`) must not be reported as a written FREE
       // name. The lowerer excludes both params and block-locals.
@@ -2735,10 +2855,16 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
     if (obj.kind === 'ident') {
       rejectUnmappedHostNamespacePython(obj.name, node.property, ctx);
     }
+    // S5 review fix — a NON-CHAIN root that lowers to a compound expression
+    // must be parenthesized before `.${property}` is appended: a bare ternary
+    // root (`b if t else c`) would otherwise bind the member to its LAST
+    // operand only (`b if t else c.prop` — silently wrong Python). Same
+    // precedence set as index receivers; lowerings that already emit a
+    // self-delimited atom (`(walrus ternary)`, `__kern_add(a, b)`) stay bare.
     const inner: GuardedExpr =
       obj.kind === 'member' || obj.kind === 'call' || obj.kind === 'index'
         ? lowerChain(obj, ctx)
-        : { guard: null, expr: emitPyExprCtx(obj, ctx) };
+        : { guard: null, expr: wrapCompoundRootExpr(obj, emitPyExprCtx(obj, ctx)) };
     // Portable Array *property* read (non-call `.length`) lowers through the
     // SAME shared list-ops hook the route emitter uses, so `this.items.length`
     // emits `len(self.items)` (not invalid `self.items.length`) — identical to
@@ -2893,15 +3019,26 @@ function lowerPortableArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, 
   // wrongly skipped `makeBox().items.slice(1)` (the prior agon-review 0.97
   // finding). The optional-chain guard below still applies to ALL methods.
   if (sharedPortableMethodRequiresPureReceiver(callee.property) && !isReceiverChainPure(recvNode)) return null;
-  const recv: GuardedExpr =
+  // S5 review fix — these list-ops lowerings embed the receiver in a
+  // comprehension/generator ITERABLE (`join`: `str(__v) for __v in <recv>`;
+  // `flat`: `for __x in <recv>`; `indexOf`: `enumerate(<recv>)` inside a
+  // genexp), where CPython rejects `:=` outright. Emit the receiver under the
+  // walrus ban AND parenthesize compound receivers (a bare ternary in a
+  // generator head reads its `if` as the comprehension filter — SyntaxError).
+  const embedsReceiverInGenexp =
+    callee.property === 'join' || callee.property === 'flat' || callee.property === 'indexOf';
+  const emitRecv = (): GuardedExpr =>
     recvNode.kind === 'member' || recvNode.kind === 'call' || recvNode.kind === 'index'
       ? lowerChain(recvNode, ctx)
       : { guard: null, expr: emitPyExprCtx(recvNode, ctx) };
+  const recv: GuardedExpr = embedsReceiverInGenexp ? withWalrusBan(ctx, emitRecv) : emitRecv();
   // A pure receiver can still be an optional chain (`a?.b`), which carries a
   // None-guard the flat shim can't honor — fall through for those too.
   if (recv.guard !== null) return null;
+  const recvExpr = embedsReceiverInGenexp ? parenthesizeIterable(recv.expr) : recv.expr;
   const args = call.args.map((a) => (callee.property === 'fill' ? emitPyArrayFillArg(a, ctx) : emitPyExprCtx(a, ctx)));
   const lowered = lowerPortableArrayMethodPy(recv.expr, callee.property, args, { sentinelMiss: ctx.coerceJsValues });
+  const lowered = lowerPortableArrayMethodPy(recvExpr, callee.property, args);
   if (lowered !== null && callee.property === 'fill') {
     ctx.helpers.add(KERN_JS_ARRAY_HELPERS_PY);
   }
@@ -3050,10 +3187,15 @@ function lowerLambdaArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, ct
   // single-eval property is what makes M6 (`this.bump().map(...)` runs bump()
   // exactly once) correct.
   const recvNode = callee.object;
-  const recv: GuardedExpr =
+  // S5 review fix — the receiver lands in the comprehension's generator head
+  // (`for el in <recv>`), where CPython rejects `:=` at any nesting depth, so
+  // it is emitted under the walrus ban (logical/nullish/typeof producers at
+  // any depth switch to their lambda-parameter forms).
+  const recv: GuardedExpr = withWalrusBan(ctx, () =>
     recvNode.kind === 'member' || recvNode.kind === 'call' || recvNode.kind === 'index'
       ? lowerChain(recvNode, ctx)
-      : { guard: null, expr: emitPyExprCtx(recvNode, ctx) };
+      : { guard: null, expr: emitPyExprCtx(recvNode, ctx) },
+  );
   // An optional-chain receiver (`a?.b`) carries a None-guard the comprehension
   // can't honor — fall through unchanged for those.
   if (recv.guard !== null) return null;
@@ -3328,6 +3470,86 @@ function wrapGuardIfAny(g: GuardedExpr, ctx: BodyEmitContext): string {
   return `(${g.expr} if ${g.guard} else None)`;
 }
 
+/** Slice S5 — does the LEFT operand of a `&&`/`||` walrus binding
+ *  (`__k_logN := L`) need parentheses?
+ *
+ *  The walrus sits inside a `_kern_truthy(...)` call, whose own parens already
+ *  disambiguate `L`, so this is defensive/readability wrapping for the lowest-
+ *  precedence operand shapes (a `conditional` or `lambda` left operand). A
+ *  nested `&&`/`||` left operand is already self-parenthesized by its own
+ *  lowering, and an arithmetic/comparison `binary` binds tighter than `:=`, so
+ *  neither is wrapped here. */
+function needsWalrusOperandParens(child: ValueIR): boolean {
+  return child.kind === 'conditional' || child.kind === 'lambda';
+}
+
+/** S5 review fix — run `fn` with `ctx.banWalrus` set (save/restore), for
+ *  emitting an operand that will be interpolated into a comprehension/
+ *  generator ITERABLE position, where CPython rejects `:=` outright (see
+ *  BodyEmitContext.banWalrus). Nested emissions inherit the flag through the
+ *  shared ctx, so a walrus producer at ANY depth of the operand (e.g. the
+ *  index expression in `items[i || 0]`) switches to its walrus-free form. */
+function withWalrusBan<T>(ctx: BodyEmitContext, fn: () => T): T {
+  const previous = ctx.banWalrus === true;
+  ctx.banWalrus = true;
+  try {
+    return fn();
+  } finally {
+    ctx.banWalrus = previous;
+  }
+}
+
+/** Slice S5 — does the RIGHT operand, emitted in the `else` arm of the lowered
+ *  conditional expression, need parentheses? A bare `conditional`/`lambda` in
+ *  an `else` arm parses but is ambiguous to read and brittle under further
+ *  composition, so wrap those two. A nested `&&`/`||` right operand is already
+ *  self-parenthesized. */
+function needsConditionalAlternateParens(child: ValueIR): boolean {
+  return child.kind === 'conditional' || child.kind === 'lambda';
+}
+
+/** S5 review fix — parenthesize a compound NON-CHAIN member-root expression so
+ *  the appended `.prop` link binds to the WHOLE root (`(b if t else c).prop`),
+ *  not its last operand (`b if t else c.prop` — silently wrong Python).
+ *  Low-precedence node kinds (same set as index receivers) are wrapped UNLESS
+ *  the lowering already produced a self-delimited atom: a fully-enclosing
+ *  paren pair (the `&&`/`||`/`??` walrus ternaries) or a single helper call
+ *  (`__kern_add(a, b)`), which keeps existing pinned bytes stable. */
+function wrapCompoundRootExpr(obj: ValueIR, emitted: string): string {
+  if (!needsIndexReceiverParens(obj)) return emitted;
+  if (isSelfDelimitedPyAtom(emitted)) return emitted;
+  return `(${emitted})`;
+}
+
+/** True when `expr` is one self-delimited Python atom: a fully-enclosing
+ *  bracket pair (`(...)`, `[...]`) or one identifier-headed call/index chain
+ *  whose trailing bracket closes at the very end (`__kern_add(a, b)`). A
+ *  leading unary sign (`-a`, `not x`, `await f()`) is NOT an atom. */
+function isSelfDelimitedPyAtom(expr: string): boolean {
+  if (expr.length === 0) return false;
+  // Atoms start with an identifier/literal/bracket — a leading operator or
+  // keyword (`-`, `~`, `not `, `await `) always needs wrapping.
+  if (!/^[A-Za-z_0-9"'([{]/.test(expr)) return false;
+  if (!expr.includes(' ')) return true;
+  // Walk brackets/strings; any top-level space outside brackets means the
+  // expression is compound (`b if t else c`), not an atom.
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = 0; i < expr.length; i++) {
+    const ch = expr[i];
+    if (quote) {
+      if (ch === '\\') i++;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") quote = ch;
+    else if (ch === '(' || ch === '[' || ch === '{') depth++;
+    else if (ch === ')' || ch === ']' || ch === '}') depth--;
+    else if (ch === ' ' && depth === 0) return false;
+  }
+  return depth === 0;
+}
+
 function needsIndexReceiverParens(child: ValueIR): boolean {
   return (
     child.kind === 'binary' ||
@@ -3593,7 +3815,12 @@ function lowerListLambdaPython(
 ): string | null {
   if (moduleName !== 'List') return null;
   if (methodName !== 'map' && methodName !== 'filter') return null;
-  const source = emitPyExprCtx(call.args[0], ctx);
+  // S5 review fix — the source lands in the comprehension's generator head
+  // (`for x in <source>`): walrus producers must switch to lambda-parameter
+  // forms (CPython rejects `:=` in a comprehension iterable at any depth) and
+  // a compound source (bare ternary) must be parenthesized so its `if` does
+  // not parse as the comprehension filter.
+  const source = parenthesizeIterable(withWalrusBan(ctx, () => emitPyExprCtx(call.args[0], ctx)));
   const callback = call.args[1];
   if (callback.kind !== 'lambda') {
     const fn = emitPyExprCtx(callback, ctx);
@@ -3939,7 +4166,7 @@ function emitExpressionV1Py(node: IRNode, ctx: BodyEmitContext): string[] {
   if (exprSource === undefined || exprSource === '') {
     throw new Error('body-statement `expression-v1` requires `expr=`.');
   }
-  const exprIR = parseExpression(exprSource);
+  const exprIR = parseExpr(exprSource);
   declareLocalBinding(ctx, userName, 'const');
   const name = maybeRenameOnShadow(ctx, userName);
   setRegexBinding(ctx, userName, exprIR.kind === 'regexLit' ? exprIR : null);

@@ -235,7 +235,13 @@ export function kernTruthy(value: KernValue): boolean {
     case 'boolean':
       return value.value;
     case 'number':
-      return value.value !== 0;
+      // Slice S5 — KERN ToBoolean: a number is falsy iff it is +0/-0 OR NaN.
+      // Reject both zero and NaN, matching the Python `_kern_truthy` helper
+      // (`x != 0 and x == x`). NaN is currently unreachable here because
+      // `kNumber` rejects non-finite numbers, but this keeps the TS truthiness
+      // predicate parity-correct by construction (the Python leg DOES see NaN
+      // via `float('nan')`).
+      return value.value !== 0 && !Number.isNaN(value.value);
     case 'string':
       return value.value.length > 0;
     case 'array':

@@ -34,6 +34,10 @@
       "types": "./dist/core-contracts/index.d.ts",
       "default": "./dist/core-contracts/index.js"
     },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "default": "./dist/node.js"
+    },
     "./parser": {
       "types": "./dist/parser.d.ts",
       "default": "./dist/parser.js"

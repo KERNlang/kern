@@ -3,17 +3,24 @@ import {
   decompile,
   emitNativeKernBodyTS,
   generateCoreNode,
-  importTypeScript,
   parseDocumentWithDiagnostics,
   validateSchema,
   validateSemantics,
 } from '@kernlang/core';
+import { importTypeScript, nativeEligibilityClassifier, typescriptClosureClassifier } from '@kernlang/core/node';
 import { execFileSync } from 'child_process';
 import type { Dirent } from 'fs';
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { dirname, join, relative, resolve } from 'path';
 import { inspect, isDeepStrictEqual } from 'util';
 import { createContext, Script } from 'vm';
+
+// Slice 0.9 — Node-side: inject the TypeScript-backed classifiers so block-bodied
+// arrows in expression props keep parsing (instead of fail-closing).
+const NODE_PARSE_CAPS = {
+  closureClassifier: typescriptClosureClassifier,
+  nativeEligibilityClassifier,
+} as const;
 
 export type NativeKernTestStatus = 'passed' | 'failed' | 'warning';
 export type NativeKernTestSeverity = 'error' | 'warn';
@@ -766,7 +773,7 @@ function loadKernDocument(file: string): LoadedKernDocument {
   }
 
   const source = readFileSync(file, 'utf-8');
-  const parsed = parseDocumentWithDiagnostics(source);
+  const parsed = parseDocumentWithDiagnostics(source, undefined, NODE_PARSE_CAPS);
   const schemaViolations = validateSchema(parsed.root);
   const semanticViolations = validateSemantics(parsed.root).filter(
     (violation) => !isMultiSourceTransitionFalsePositive(violation, parsed.root),
@@ -2307,7 +2314,7 @@ function evaluateRoundtripAssertion(_node: IRNode, target: LoadedKernDocument): 
     return { passed: false, message: `Target has decompile error: ${decompiled.message || 'unknown error'}` };
   }
 
-  const reparsed = parseDocumentWithDiagnostics(decompiled.code);
+  const reparsed = parseDocumentWithDiagnostics(decompiled.code, undefined, NODE_PARSE_CAPS);
   const parseError = reparsed.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
   if (parseError) {
     return {
@@ -2385,7 +2392,7 @@ function evaluateImportedKernRoundtrip(
   kern: string,
   options: { allowWarnings?: boolean } = {},
 ): { passed: boolean; message?: string } {
-  const reparsed = parseDocumentWithDiagnostics(kern);
+  const reparsed = parseDocumentWithDiagnostics(kern, undefined, NODE_PARSE_CAPS);
   const parseError = reparsed.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
   if (parseError) {
     return {
@@ -6663,7 +6670,7 @@ function evaluateNativeAssertion(
 }
 
 export function hasNativeKernTests(source: string): boolean {
-  return collectNodes(parseDocumentWithDiagnostics(source).root, 'test').length > 0;
+  return collectNodes(parseDocumentWithDiagnostics(source, undefined, NODE_PARSE_CAPS).root, 'test').length > 0;
 }
 
 function isKernFile(file: string): boolean {

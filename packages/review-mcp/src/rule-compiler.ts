@@ -7,9 +7,17 @@
 
 import type { IRNode } from '@kernlang/core';
 import { parseWithDiagnostics } from '@kernlang/core';
+import { nativeEligibilityClassifier, typescriptClosureClassifier } from '@kernlang/core/node';
 import { isReDoSVulnerable } from '@kernlang/review';
 import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
+
+// Slice 0.9 — Node-side: inject the TypeScript-backed classifiers so block-bodied
+// arrows in expression props keep parsing (instead of fail-closing).
+const NODE_PARSE_CAPS = {
+  closureClassifier: typescriptClosureClassifier,
+  nativeEligibilityClassifier,
+} as const;
 
 // ── Compiled rule types ──────────────────────────────────────────────
 
@@ -61,7 +69,7 @@ export interface CompiledMCPRule {
 
 /** Compile a .kern rule file source into runtime rule objects */
 export function compileRuleSource(source: string): CompiledMCPRule[] {
-  const { root, diagnostics } = parseWithDiagnostics(source);
+  const { root, diagnostics } = parseWithDiagnostics(source, undefined, NODE_PARSE_CAPS);
   const errors = diagnostics.filter((d) => d.severity === 'error');
   if (errors.length > 0) {
     const msgs = errors.map((d) => `L${d.line}: ${d.message}`);
