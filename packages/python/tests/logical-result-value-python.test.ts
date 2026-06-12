@@ -329,6 +329,137 @@ describeIfPython('S5 Python execution — ?? boundary rows (?? is nullish, not t
   }
 });
 
+// ──────── r1 review fix — comprehension-iterable positions (walrus ban) ────────
+//
+// CPython REJECTS `:=` anywhere inside a comprehension/generator ITERABLE
+// expression ("assignment expression cannot be used in a comprehension
+// iterable expression") — a symtable check that NO nesting (parens, calls,
+// lambdas, list displays) escapes. Sites that interpolate an operand into a
+// `for … in <here>` head (List.map/filter source, `.join`/`.flat`/`.indexOf`
+// receivers, the method-form comprehension receiver) therefore emit it under
+// `ctx.banWalrus`, switching walrus producers (`&&`/`||`, impure-left `??`,
+// `typeof`) to the lambda-parameter form — same single-eval + lazy unselected
+// branch, no `:=`. Everywhere else the canonical walrus stays (oracle-pinned).
+
+describe('S5 r1 — iterable positions emit the walrus-free lambda-parameter form', () => {
+  test('List.map source: logical lowers to the lambda-parameter form, never `:=`', () => {
+    const out = emitPyExpression(parseExpression('List.map(a || b, (x) => x)'));
+    expect(out).toBe('[x for x in ((lambda __k_log1: (__k_log1 if _kern_truthy(__k_log1) else b))(a))]');
+    expect(out).not.toContain(':=');
+  });
+
+  test('List.filter source: same ban applies', () => {
+    expect(emitPyExpression(parseExpression('List.filter(a || b, (x) => x)'))).not.toContain(':=');
+  });
+
+  test('`.join`/`.flat` receivers: logical lowers walrus-free', () => {
+    const join = emitPyExpression(parseExpression('(a || b).join(",")'));
+    expect(join).toBe(
+      '",".join(str(__v) for __v in ((lambda __k_log1: (__k_log1 if _kern_truthy(__k_log1) else b))(a)))',
+    );
+    expect(emitPyExpression(parseExpression('(a || b).flat()'))).not.toContain(':=');
+  });
+
+  test('impure-left `??` and `typeof` sources are banned too (same producer class)', () => {
+    expect(emitPyExpression(parseExpression('List.map(f() ?? b, (x) => x)'))).not.toContain(':=');
+    expect(emitPyExpression(parseExpression('List.map(typeof a, (x) => x)'))).not.toContain(':=');
+  });
+
+  test('the ban reaches ANY depth of the iterable operand (index expression)', () => {
+    expect(emitPyExpression(parseExpression('List.map(items[i || 0], (x) => x)'))).not.toContain(':=');
+  });
+
+  test('nested logicals in iterable position nest the lambda form (each single-eval)', () => {
+    const out = emitPyExpression(parseExpression('List.map(a || b || c, (x) => x)'));
+    expect(out).not.toContain(':=');
+    expect(out).toContain('(lambda __k_log2:');
+    expect(out).toContain('(lambda __k_log1:');
+  });
+
+  test('NON-iterable positions keep the canonical walrus form (oracle-pinned)', () => {
+    expect(emitPyExpression(parseExpression('a || b'))).toContain(':=');
+    expect(emitPyExpression(parseExpression('g(a || b)'))).toContain(':=');
+    expect(emitPyExpression(parseExpression('(a || b)[0]'))).toContain(':=');
+  });
+
+  test('bare ternary SOURCE is parenthesized (its `if` must not parse as the filter)', () => {
+    expect(emitPyExpression(parseExpression('List.map(a ? b : c, (x) => x)'))).toBe(
+      '[x for x in (b if _kern_truthy(a) else c)]',
+    );
+  });
+
+  test('bare ternary RECEIVER of `.join`/`.flat` is parenthesized', () => {
+    expect(emitPyExpression(parseExpression('(a ? b : c).join(",")'))).toBe(
+      '",".join(str(__v) for __v in (b if _kern_truthy(a) else c))',
+    );
+    expect(emitPyExpression(parseExpression('(a ? b : c).flat()'))).toContain(
+      'for __x in (b if _kern_truthy(a) else c)',
+    );
+  });
+
+  test('compound MEMBER ROOT is parenthesized (`.prop` must bind the whole ternary)', () => {
+    // Pre-fix this emitted `b if _kern_truthy(a) else c.indexOf(x)` — silently
+    // wrong Python (member bound to the last operand only).
+    expect(emitPyExpression(parseExpression('(a ? b : c).indexOf(x)'))).toBe(
+      '(b if _kern_truthy(a) else c).indexOf(x)',
+    );
+    // Self-parenthesized lowerings stay bare — no double parens.
+    expect(emitPyExpression(parseExpression('(a || b).x'))).toBe('(__k_log1 if _kern_truthy(__k_log1 := a) else b).x');
+  });
+});
+
+describeIfPython('S5 r1 — iterable positions execute correctly (value + call-log rows)', () => {
+  const valueRows: [string, string, string][] = [
+    // KERN: `[] || x` returns `[]` (containers are KERN-truthy) — map over it.
+    ['List.map([] || [3, 4], (x) => x * 2)', '[]', ''],
+    ['List.map("" || [3, 4], (x) => x * 2)', '[6, 8]', ''],
+    ['List.filter([1, 0, 2] || [9], (x) => x)', '[1, 2]', ''],
+    // NaN && [1] → NaN (falsy left); NaN || [7, 8] → [7, 8]; joined.
+    ['(NaN && [1] || [7, 8]).join("-")', "'7-8'", ''],
+    ['([[1], [2, 3]] || []).flat()', '[1, 2, 3]', ''],
+    // Ternary source/receiver: parenthesized, not parsed as comprehension filter.
+    ['List.map(false ? [1] : [2, 3], (x) => x * 10)', '[20, 30]', ''],
+    ['(false ? [1] : [2, 3]).join(",")', "'2,3'", ''],
+    // Impure-left `??` source through the lambda-parameter form.
+    ['List.map(f() ?? [9], (x) => x + 1)', '[10]', 'def f():\n    return None'],
+    // `typeof` source (a string — List.map iterates its characters).
+    ['List.map(typeof 0, (c) => c)', "['n', 'u', 'm', 'b', 'e', 'r']", ''],
+  ];
+  for (const [expr, expected, setup] of valueRows) {
+    test(`${expr} => ${expected}`, () => {
+      expect(evalPy(expr, setup)).toBe(expected);
+    });
+  }
+
+  // Single-eval + short-circuit survive the lambda-parameter form.
+  const MARK = ['_log = []', 'def mark(name, value):', '    _log.append(name)', '    return value'].join('\n');
+  function probe(expr: string, expectedResultRepr: string, expectedLog: string[]): void {
+    const { code, helpers } = emit(expr);
+    const program = [
+      helpers,
+      "NaN = float('nan')",
+      MARK,
+      code,
+      `assert repr(r) == ${JSON.stringify(expectedResultRepr)}, 'value: ' + repr(r)`,
+      `assert _log == ${JSON.stringify(expectedLog).replace(/"/g, "'")}, 'log: ' + repr(_log)`,
+      "print('OK')",
+    ].join('\n');
+    expect(runPy(program).trim()).toBe('OK');
+  }
+  const probes: [string, string, string[]][] = [
+    // `[]` is KERN-truthy → selected, R never runs, mapped unchanged.
+    ['List.map(mark("L", []) || mark("R", [5]), (x) => x)', '[]', ['L']],
+    ['List.map(mark("L", 0) || mark("R", [5]), (x) => x)', '[5]', ['L', 'R']],
+    // Nested chain in iterable position: left-to-right, each operand once.
+    ['List.map(mark("A", 0) || mark("B", []) && mark("C", [1]), (x) => x)', '[1]', ['A', 'B', 'C']],
+  ];
+  for (const [expr, value, log] of probes) {
+    test(`${expr} => ${value}, log ${JSON.stringify(log)}`, () => {
+      probe(expr, value, log);
+    });
+  }
+});
+
 if (!pythonAvailable) {
   describe('S5 logical result-value — Python leg', () => {
     it.skip('skipped: python3 not on PATH', () => {

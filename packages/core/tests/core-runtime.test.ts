@@ -341,6 +341,11 @@ describe('KERN core runtime statements', () => {
       expect(ev('"" && "right"')).toBe('');
       expect(ev('false && "right"')).toBe(false);
       expect(ev('null && "right"')).toBeNull();
+      // r1 review fix (kimi 0.85) — `undefined` is its own KERN value, distinct
+      // from null, and falsy: `&&` selects it, `||` skips it (the TS oracle leg
+      // of the rows the Python tests already cover).
+      expect(ev('undefined && "right"')).toBeUndefined();
+      expect(ev('undefined || "fallback"')).toBe('fallback');
     });
 
     test('&& returns the right operand when the left is KERN-truthy', () => {

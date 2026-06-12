@@ -224,6 +224,19 @@ interface BodyEmitContext {
    *  `gensymCounter` so closure names stay stable/independent of other
    *  gensym usage. */
   closureSeq: number;
+  /** S5 review fix — CPython REJECTS the walrus operator anywhere inside a
+   *  comprehension/generator ITERABLE expression ("assignment expression
+   *  cannot be used in a comprehension iterable expression", a symtable check
+   *  that NO amount of nesting — parens, calls, lambdas, list displays —
+   *  escapes). Every site that interpolates an emitted expression into a
+   *  `for … in <here>` head sets this flag (via `withWalrusBan`) while
+   *  emitting that operand; every walrus-producing lowering (`&&`/`||`,
+   *  impure-left `??`, `typeof`) checks it and emits the walrus-free
+   *  lambda-parameter form instead: `(lambda __k_N: (<body using __k_N>))(L)`
+   *  — same single-eval of L, same lazy unselected branch (the conditional
+   *  lives in the lambda body), one extra closure allocation only in these
+   *  rare positions. */
+  banWalrus?: boolean;
   /** Slice-2 loop-variable pinning. Each entry is the INDEX into `localScopes`
    *  of a scope that is a loop BODY (an `each`/`for`/`while` body). A captured
    *  name is pinned (JS per-iteration capture → Python default arg) IFF its
@@ -2182,6 +2195,16 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
         // conditional/lambda there reparses ambiguously, so wrap it. A nested
         // logical R is self-parenthesized; only raw conditional/lambda needs it.
         const rightOperand = needsConditionalAlternateParens(node.right) ? `(${right})` : right;
+        if (ctx.banWalrus) {
+          // Comprehension-iterable position (see BodyEmitContext.banWalrus):
+          // the walrus form is a SyntaxError here, so bind L as a lambda
+          // parameter instead. Same contract: L evaluated exactly once (as the
+          // call argument), the unselected branch never evaluated (lazy
+          // conditional inside the lambda body), original value returned.
+          const test = `_kern_truthy(${tmp})`;
+          const guarded = node.op === '&&' ? `not ${test}` : test;
+          return `(lambda ${tmp}: (${tmp} if ${guarded} else ${rightOperand}))(${left})`;
+        }
         const test = `_kern_truthy(${tmp} := ${leftOperand})`;
         const guarded = node.op === '&&' ? `not ${test}` : test;
         return `(${tmp} if ${guarded} else ${rightOperand})`;
@@ -2217,6 +2240,11 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
             return `(${left} if ${left} is not None else ${right})`;
           }
           const tmp = `__k_nc${++ctx.gensymCounter}`;
+          if (ctx.banWalrus) {
+            // Comprehension-iterable position — walrus is a SyntaxError here;
+            // lambda-parameter form keeps single-eval + lazy right branch.
+            return `(lambda ${tmp}: (${tmp} if ${tmp} is not None else ${right}))(${left})`;
+          }
           return `(${tmp} if (${tmp} := ${left}) is not None else ${right})`;
         }
         ctx.helpers.add(KERN_FMT_HELPER_PY);
@@ -2224,6 +2252,10 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
           return `(${left} if (${left} is not None and ${left} is not _KERN_UNDEFINED) else ${right})`;
         }
         const tmp = `__k_nc${++ctx.gensymCounter}`;
+        if (ctx.banWalrus) {
+          // Comprehension-iterable position — see BodyEmitContext.banWalrus.
+          return `(lambda ${tmp}: (${tmp} if (${tmp} is not None and ${tmp} is not _KERN_UNDEFINED) else ${right}))(${left})`;
+        }
         return `(${tmp} if ((${tmp} := ${left}) is not None and ${tmp} is not _KERN_UNDEFINED) else ${right})`;
       }
 
@@ -2347,6 +2379,19 @@ function emitPyTypeof(argument: ValueIR, ctx: BodyEmitContext): string {
   // pre-slice None-first form.
   if (ctx.coerceJsValues) {
     ctx.helpers.add(KERN_FMT_HELPER_PY);
+    if (ctx.banWalrus) {
+      // Comprehension-iterable position — walrus is a SyntaxError here; bind
+      // the operand as a lambda parameter instead (single-eval preserved).
+      return (
+        `(lambda ${tmp}: ("undefined" if ${tmp} is _KERN_UNDEFINED ` +
+        `else "object" if ${tmp} is None ` +
+        `else "boolean" if isinstance(${tmp}, bool) ` +
+        `else "number" if isinstance(${tmp}, (int, float)) ` +
+        `else "string" if isinstance(${tmp}, str) ` +
+        `else "function" if callable(${tmp}) ` +
+        `else "object"))(${value})`
+      );
+    }
     return (
       `("undefined" if (${tmp} := ${wrapped}) is _KERN_UNDEFINED ` +
       `else "object" if ${tmp} is None ` +
@@ -2355,6 +2400,17 @@ function emitPyTypeof(argument: ValueIR, ctx: BodyEmitContext): string {
       `else "string" if isinstance(${tmp}, str) ` +
       `else "function" if callable(${tmp}) ` +
       `else "object")`
+    );
+  }
+  if (ctx.banWalrus) {
+    // Comprehension-iterable position — see BodyEmitContext.banWalrus.
+    return (
+      `(lambda ${tmp}: ("object" if ${tmp} is None ` +
+      `else "boolean" if isinstance(${tmp}, bool) ` +
+      `else "number" if isinstance(${tmp}, (int, float)) ` +
+      `else "string" if isinstance(${tmp}, str) ` +
+      `else "function" if callable(${tmp}) ` +
+      `else "object"))(${value})`
     );
   }
   return (
@@ -2701,10 +2757,16 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
     if (obj.kind === 'ident') {
       rejectUnmappedHostNamespacePython(obj.name, node.property, ctx);
     }
+    // S5 review fix — a NON-CHAIN root that lowers to a compound expression
+    // must be parenthesized before `.${property}` is appended: a bare ternary
+    // root (`b if t else c`) would otherwise bind the member to its LAST
+    // operand only (`b if t else c.prop` — silently wrong Python). Same
+    // precedence set as index receivers; lowerings that already emit a
+    // self-delimited atom (`(walrus ternary)`, `__kern_add(a, b)`) stay bare.
     const inner: GuardedExpr =
       obj.kind === 'member' || obj.kind === 'call' || obj.kind === 'index'
         ? lowerChain(obj, ctx)
-        : { guard: null, expr: emitPyExprCtx(obj, ctx) };
+        : { guard: null, expr: wrapCompoundRootExpr(obj, emitPyExprCtx(obj, ctx)) };
     // Portable Array *property* read (non-call `.length`) lowers through the
     // SAME shared list-ops hook the route emitter uses, so `this.items.length`
     // emits `len(self.items)` (not invalid `self.items.length`) — identical to
@@ -2865,15 +2927,25 @@ function lowerPortableArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, 
   // wrongly skipped `makeBox().items.slice(1)` (the prior agon-review 0.97
   // finding). The optional-chain guard below still applies to ALL methods.
   if (sharedPortableMethodRequiresPureReceiver(callee.property) && !isReceiverChainPure(recvNode)) return null;
-  const recv: GuardedExpr =
+  // S5 review fix — these list-ops lowerings embed the receiver in a
+  // comprehension/generator ITERABLE (`join`: `str(__v) for __v in <recv>`;
+  // `flat`: `for __x in <recv>`; `indexOf`: `enumerate(<recv>)` inside a
+  // genexp), where CPython rejects `:=` outright. Emit the receiver under the
+  // walrus ban AND parenthesize compound receivers (a bare ternary in a
+  // generator head reads its `if` as the comprehension filter — SyntaxError).
+  const embedsReceiverInGenexp =
+    callee.property === 'join' || callee.property === 'flat' || callee.property === 'indexOf';
+  const emitRecv = (): GuardedExpr =>
     recvNode.kind === 'member' || recvNode.kind === 'call' || recvNode.kind === 'index'
       ? lowerChain(recvNode, ctx)
       : { guard: null, expr: emitPyExprCtx(recvNode, ctx) };
+  const recv: GuardedExpr = embedsReceiverInGenexp ? withWalrusBan(ctx, emitRecv) : emitRecv();
   // A pure receiver can still be an optional chain (`a?.b`), which carries a
   // None-guard the flat shim can't honor — fall through for those too.
   if (recv.guard !== null) return null;
+  const recvExpr = embedsReceiverInGenexp ? parenthesizeIterable(recv.expr) : recv.expr;
   const args = call.args.map((a) => (callee.property === 'fill' ? emitPyArrayFillArg(a, ctx) : emitPyExprCtx(a, ctx)));
-  const lowered = lowerPortableArrayMethodPy(recv.expr, callee.property, args);
+  const lowered = lowerPortableArrayMethodPy(recvExpr, callee.property, args);
   if (lowered !== null && callee.property === 'fill') {
     ctx.helpers.add(KERN_JS_ARRAY_HELPERS_PY);
   }
@@ -3017,10 +3089,15 @@ function lowerLambdaArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, ct
   // single-eval property is what makes M6 (`this.bump().map(...)` runs bump()
   // exactly once) correct.
   const recvNode = callee.object;
-  const recv: GuardedExpr =
+  // S5 review fix — the receiver lands in the comprehension's generator head
+  // (`for el in <recv>`), where CPython rejects `:=` at any nesting depth, so
+  // it is emitted under the walrus ban (logical/nullish/typeof producers at
+  // any depth switch to their lambda-parameter forms).
+  const recv: GuardedExpr = withWalrusBan(ctx, () =>
     recvNode.kind === 'member' || recvNode.kind === 'call' || recvNode.kind === 'index'
       ? lowerChain(recvNode, ctx)
-      : { guard: null, expr: emitPyExprCtx(recvNode, ctx) };
+      : { guard: null, expr: emitPyExprCtx(recvNode, ctx) },
+  );
   // An optional-chain receiver (`a?.b`) carries a None-guard the comprehension
   // can't honor — fall through unchanged for those.
   if (recv.guard !== null) return null;
@@ -3298,6 +3375,22 @@ function needsWalrusOperandParens(child: ValueIR): boolean {
   return child.kind === 'conditional' || child.kind === 'lambda';
 }
 
+/** S5 review fix — run `fn` with `ctx.banWalrus` set (save/restore), for
+ *  emitting an operand that will be interpolated into a comprehension/
+ *  generator ITERABLE position, where CPython rejects `:=` outright (see
+ *  BodyEmitContext.banWalrus). Nested emissions inherit the flag through the
+ *  shared ctx, so a walrus producer at ANY depth of the operand (e.g. the
+ *  index expression in `items[i || 0]`) switches to its walrus-free form. */
+function withWalrusBan<T>(ctx: BodyEmitContext, fn: () => T): T {
+  const previous = ctx.banWalrus === true;
+  ctx.banWalrus = true;
+  try {
+    return fn();
+  } finally {
+    ctx.banWalrus = previous;
+  }
+}
+
 /** Slice S5 — does the RIGHT operand, emitted in the `else` arm of the lowered
  *  conditional expression, need parentheses? A bare `conditional`/`lambda` in
  *  an `else` arm parses but is ambiguous to read and brittle under further
@@ -3305,6 +3398,48 @@ function needsWalrusOperandParens(child: ValueIR): boolean {
  *  self-parenthesized. */
 function needsConditionalAlternateParens(child: ValueIR): boolean {
   return child.kind === 'conditional' || child.kind === 'lambda';
+}
+
+/** S5 review fix — parenthesize a compound NON-CHAIN member-root expression so
+ *  the appended `.prop` link binds to the WHOLE root (`(b if t else c).prop`),
+ *  not its last operand (`b if t else c.prop` — silently wrong Python).
+ *  Low-precedence node kinds (same set as index receivers) are wrapped UNLESS
+ *  the lowering already produced a self-delimited atom: a fully-enclosing
+ *  paren pair (the `&&`/`||`/`??` walrus ternaries) or a single helper call
+ *  (`__kern_add(a, b)`), which keeps existing pinned bytes stable. */
+function wrapCompoundRootExpr(obj: ValueIR, emitted: string): string {
+  if (!needsIndexReceiverParens(obj)) return emitted;
+  if (isSelfDelimitedPyAtom(emitted)) return emitted;
+  return `(${emitted})`;
+}
+
+/** True when `expr` is one self-delimited Python atom: a fully-enclosing
+ *  bracket pair (`(...)`, `[...]`) or one identifier-headed call/index chain
+ *  whose trailing bracket closes at the very end (`__kern_add(a, b)`). A
+ *  leading unary sign (`-a`, `not x`, `await f()`) is NOT an atom. */
+function isSelfDelimitedPyAtom(expr: string): boolean {
+  if (expr.length === 0) return false;
+  // Atoms start with an identifier/literal/bracket — a leading operator or
+  // keyword (`-`, `~`, `not `, `await `) always needs wrapping.
+  if (!/^[A-Za-z_0-9"'([{]/.test(expr)) return false;
+  if (!expr.includes(' ')) return true;
+  // Walk brackets/strings; any top-level space outside brackets means the
+  // expression is compound (`b if t else c`), not an atom.
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = 0; i < expr.length; i++) {
+    const ch = expr[i];
+    if (quote) {
+      if (ch === '\\') i++;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") quote = ch;
+    else if (ch === '(' || ch === '[' || ch === '{') depth++;
+    else if (ch === ')' || ch === ']' || ch === '}') depth--;
+    else if (ch === ' ' && depth === 0) return false;
+  }
+  return depth === 0;
 }
 
 function needsIndexReceiverParens(child: ValueIR): boolean {
@@ -3558,7 +3693,12 @@ function lowerListLambdaPython(
 ): string | null {
   if (moduleName !== 'List') return null;
   if (methodName !== 'map' && methodName !== 'filter') return null;
-  const source = emitPyExprCtx(call.args[0], ctx);
+  // S5 review fix — the source lands in the comprehension's generator head
+  // (`for x in <source>`): walrus producers must switch to lambda-parameter
+  // forms (CPython rejects `:=` in a comprehension iterable at any depth) and
+  // a compound source (bare ternary) must be parenthesized so its `if` does
+  // not parse as the comprehension filter.
+  const source = parenthesizeIterable(withWalrusBan(ctx, () => emitPyExprCtx(call.args[0], ctx)));
   const callback = call.args[1];
   if (callback.kind !== 'lambda') {
     const fn = emitPyExprCtx(callback, ctx);
