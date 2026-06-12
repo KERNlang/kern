@@ -1,17 +1,15 @@
 /** Native KERN handler body eligibility classifier — slice 5a tests. */
 
-import {
-  classifyHandlerBody,
-  type EligibilityResult,
-  extractRawBodies,
-  LEGACY_NEG_PATTERNS,
-  scanFileForEligibility,
-} from '../src/native-eligibility.js';
+import { type EligibilityResult, extractRawBodies, LEGACY_NEG_PATTERNS } from '../src/native-eligibility.js';
 import {
   canonicalKernExpression,
   isValidKernExpression,
   isValidKernTypeAnnotation,
 } from '../src/native-eligibility-ast.js';
+// Slice 0.9 — `classifyHandlerBody`/`scanFileForEligibility` now require the
+// TypeScript-AST classifier; the Node subpath provides the convenience-bound
+// versions matching the original single-arg call shape.
+import { classifyHandlerBody, scanFileForEligibility } from '../src/node.js';
 
 describe('canonicalKernExpression — single-line normalization', () => {
   test('passes single-line expression through unchanged structure', () => {

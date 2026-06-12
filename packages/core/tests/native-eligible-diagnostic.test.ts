@@ -5,12 +5,16 @@
  *  warning-severity diagnostic on raw `<<<…>>>` handler bodies that pass the
  *  classifier, and stays silent on bodies that do not. */
 
+import { classifyHandlerBodyAst } from '../src/native-eligibility-ast.js';
 import { parseDocumentWithDiagnostics } from '../src/parser.js';
 import { collectNativeEligibleHints } from '../src/parser-validate-native-eligible.js';
 import type { IRNode } from '../src/types.js';
 
+// Slice 0.9 — the NATIVE_KERN_ELIGIBLE advisory hint requires the injected
+// TypeScript-AST eligibility classifier; the browser-safe default skips it.
 function diagnostics(source: string) {
-  return parseDocumentWithDiagnostics(source).diagnostics;
+  return parseDocumentWithDiagnostics(source, undefined, { nativeEligibilityClassifier: classifyHandlerBodyAst })
+    .diagnostics;
 }
 
 function nativeHints(source: string) {
@@ -54,12 +58,12 @@ describe('NATIVE_KERN_ELIGIBLE diagnostic — lang=kern skip (direct validator)'
 
   test('handler with code + lang=kern emits no hint', () => {
     const root = doc([handler({ code: 'return 1 + 2;', lang: 'kern' })]);
-    expect(collectNativeEligibleHints(root)).toHaveLength(0);
+    expect(collectNativeEligibleHints(root, classifyHandlerBodyAst)).toHaveLength(0);
   });
 
   test('handler with code + no lang emits hint', () => {
     const root = doc([handler({ code: 'return 1 + 2;' })]);
-    const diagnostics = collectNativeEligibleHints(root);
+    const diagnostics = collectNativeEligibleHints(root, classifyHandlerBodyAst);
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0]?.code).toBe('NATIVE_KERN_ELIGIBLE');
   });
@@ -68,27 +72,27 @@ describe('NATIVE_KERN_ELIGIBLE diagnostic — lang=kern skip (direct validator)'
     // Only `lang === "kern"` skips. Other lang values shouldn't suppress —
     // those handlers are still raw-body candidates.
     const root = doc([handler({ code: 'return 1 + 2;', lang: 'other' })]);
-    expect(collectNativeEligibleHints(root)).toHaveLength(1);
+    expect(collectNativeEligibleHints(root, classifyHandlerBodyAst)).toHaveLength(1);
   });
 
   test('handler with explicit host lang + reason emits no native migration hint', () => {
     const root = doc([handler({ code: 'return 1 + 2;', lang: 'ts', reason: 'target-specific adapter glue' })]);
-    expect(collectNativeEligibleHints(root)).toHaveLength(0);
+    expect(collectNativeEligibleHints(root, classifyHandlerBodyAst)).toHaveLength(0);
   });
 
   test('handler with host lang but no reason still emits migration hint when eligible', () => {
     const root = doc([handler({ code: 'return 1 + 2;', lang: 'ts' })]);
-    expect(collectNativeEligibleHints(root)).toHaveLength(1);
+    expect(collectNativeEligibleHints(root, classifyHandlerBodyAst)).toHaveLength(1);
   });
 
   test('handler with no code prop emits no hint', () => {
     const root = doc([handler({ lang: 'kern' })]);
-    expect(collectNativeEligibleHints(root)).toHaveLength(0);
+    expect(collectNativeEligibleHints(root, classifyHandlerBodyAst)).toHaveLength(0);
   });
 
   test('handler with code + ineligible body emits no hint', () => {
     const root = doc([handler({ code: 'for (const x of xs) y += x; return y;' })]);
-    expect(collectNativeEligibleHints(root)).toHaveLength(0);
+    expect(collectNativeEligibleHints(root, classifyHandlerBodyAst)).toHaveLength(0);
   });
 });
 
