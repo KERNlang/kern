@@ -114,7 +114,12 @@ describe('slice 4a — FastAPI route lang=kern dispatch', () => {
       { type: 'return', props: { value: '{ name: user?.profile.name }' } },
     ]);
     const content = buildArtifactContent(route);
-    expect(content).toContain('return {"name": (user.profile.name if user is not None else None)}');
+    // Slice S7 — the optional-chain guard tests the full nullish set and
+    // short-circuits to the undefined sentinel (the route artifact emits the
+    // `_kern_is_nullish` / `_KERN_UNDEFINED` helper definitions inline).
+    expect(content).toContain(
+      'return {"name": (user.profile.name if (not _kern_is_nullish(user)) else _KERN_UNDEFINED)}',
+    );
   });
 
   test('handler without lang=kern keeps the legacy raw-body emit path', () => {

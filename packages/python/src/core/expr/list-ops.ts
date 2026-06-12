@@ -116,7 +116,22 @@ export function sharedPortableMethodRequiresPureReceiver(method: string): boolea
  * method is not a shared portable method, so callers fall through to their
  * existing handling.
  */
-export function lowerPortableArrayMethodPy(receiver: string, method: string, args: string[]): string | null {
+/** Slice S7 — value-site miss ratchet. When `sentinelMiss` is set (native/class
+ *  KERN value-mode, where the helper preamble defines `_KERN_UNDEFINED`),
+ *  `Array.at` out-of-range returns the undefined SENTINEL so `typeof arr.at(99)`
+ *  is "undefined" and the result participates in `??` nullish control. The route
+ *  path leaves it on `None` (its preamble does not always carry the sentinel) —
+ *  route-only compatibility stays isolated, as the S7 oracle permits. */
+export interface PortableArrayMethodOptions {
+  sentinelMiss?: boolean;
+}
+
+export function lowerPortableArrayMethodPy(
+  receiver: string,
+  method: string,
+  args: string[],
+  options?: PortableArrayMethodOptions,
+): string | null {
   if (method === 'push' && args.length === 1) {
     // JS `Array.push` mutates AND returns the new length; Python `list.append`
     // mutates but returns `None`. `(recv.append(x) or len(recv))` reproduces
@@ -189,7 +204,10 @@ export function lowerPortableArrayMethodPy(receiver: string, method: string, arg
   }
   if (method === 'at') {
     const n = args[0] ?? '0';
-    return `(${receiver}[${n}] if -len(${receiver}) <= ${n} < len(${receiver}) else None)`;
+    // S7 — out-of-range is JS `undefined` (the sentinel) in value-mode; route
+    // path keeps `None`.
+    const miss = options?.sentinelMiss ? '_KERN_UNDEFINED' : 'None';
+    return `(${receiver}[${n}] if -len(${receiver}) <= ${n} < len(${receiver}) else ${miss})`;
   }
   if (method === 'fill') {
     const v = args[0] ?? 'None';

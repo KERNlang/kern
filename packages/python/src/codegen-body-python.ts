@@ -1639,17 +1639,29 @@ function emitDestructurePy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (bindings.length > 0) {
     const tmp = `__k_d${++ctx.gensymCounter}`;
     const lines = [`${tmp} = ${source}`];
+    // Slice S7 — an ABSENT destructured key is JS `undefined` (the sentinel), so
+    // `typeof missing` is "undefined" not "object". `.get(key, _KERN_UNDEFINED)`
+    // returns the sentinel for an absent key AND preserves a PRESENT key whose
+    // stored value is already the sentinel (`{ a: undefined }`) — the two stay
+    // distinct from a present `None`. Ground/React (non-coerce) keeps `.get(key)`
+    // (None default), since it never materializes the sentinel.
+    const miss = ctx.coerceJsValues ? ', _KERN_UNDEFINED' : '';
+    if (ctx.coerceJsValues) ctx.helpers.add(KERN_NULLISH_HELPER_PY);
     for (const child of bindings) {
       const cp = (child.props ?? {}) as Record<string, unknown>;
       const name = String(cp.name ?? '');
       if (!name) throw new Error('body-statement `binding` requires `name=`.');
       const key = cp.key === undefined || cp.key === '' ? name : String(cp.key);
-      lines.push(`${ctx.symbolMap[name] ?? name} = ${tmp}.get(${JSON.stringify(key)})`);
+      lines.push(`${ctx.symbolMap[name] ?? name} = ${tmp}.get(${JSON.stringify(key)}${miss})`);
     }
     return lines;
   }
 
   const tmp = `__k_d${++ctx.gensymCounter}`;
+  // Slice S7 — an out-of-range array-destructure element is JS `undefined` (the
+  // sentinel) in value mode; Ground/React keeps `None`.
+  const arrMiss = ctx.coerceJsValues ? '_KERN_UNDEFINED' : 'None';
+  if (ctx.coerceJsValues && elements.length > 0) ctx.helpers.add(KERN_NULLISH_HELPER_PY);
   return [
     `${tmp} = ${source}`,
     ...elements
@@ -1661,7 +1673,7 @@ function emitDestructurePy(node: IRNode, ctx: BodyEmitContext): string[] {
         if (Number.isNaN(index)) throw new Error('body-statement `element` requires numeric `index=`.');
         return {
           index,
-          line: `${ctx.symbolMap[name] ?? name} = (${tmp}[${index}] if len(${tmp}) > ${index} else None)`,
+          line: `${ctx.symbolMap[name] ?? name} = (${tmp}[${index}] if len(${tmp}) > ${index} else ${arrMiss})`,
         };
       })
       .sort((a, b) => a.index - b.index)
@@ -2888,9 +2900,14 @@ function lowerPortableArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, 
   // None-guard the flat shim can't honor — fall through for those too.
   if (recv.guard !== null) return null;
   const args = call.args.map((a) => (callee.property === 'fill' ? emitPyArrayFillArg(a, ctx) : emitPyExprCtx(a, ctx)));
-  const lowered = lowerPortableArrayMethodPy(recv.expr, callee.property, args);
+  const lowered = lowerPortableArrayMethodPy(recv.expr, callee.property, args, { sentinelMiss: ctx.coerceJsValues });
   if (lowered !== null && callee.property === 'fill') {
     ctx.helpers.add(KERN_JS_ARRAY_HELPERS_PY);
+  }
+  // Slice S7 — `Array.at` out-of-range yields the undefined sentinel in value
+  // mode; register the helper that defines `_KERN_UNDEFINED`.
+  if (lowered !== null && callee.property === 'at' && ctx.coerceJsValues) {
+    ctx.helpers.add(KERN_NULLISH_HELPER_PY);
   }
   return lowered;
 }

@@ -323,21 +323,29 @@ describe('slice 3c — Number.round JS-parity on Python', () => {
 // ── 3d: optional-chain ?. member ─────────────────────────────────────────
 
 describe('slice 3d — optional chain ?. lowering on Python target', () => {
-  test('a?.b on ident receiver lowers to (a.b if a is not None else None)', () => {
-    expect(emitPyExpression(parseExpression('a?.b'))).toBe('(a.b if a is not None else None)');
+  // Slice S7 — optional `?.` guards test the FULL nullish set (None AND the
+  // undefined sentinel) via `_kern_is_nullish`, and short-circuit to
+  // `_KERN_UNDEFINED` (so `typeof (x?.y)` is "undefined" and the result
+  // participates in `??`/`===` nullish semantics).
+  test('a?.b on ident receiver short-circuits to the undefined sentinel', () => {
+    expect(emitPyExpression(parseExpression('a?.b'))).toBe('(a.b if (not _kern_is_nullish(a)) else _KERN_UNDEFINED)');
   });
 
   test('member-chain receiver: a.b?.c lowers with a.b as the test', () => {
     // Receiver is the (non-optional) member `a.b`. Both branches name it,
     // which is safe because attribute access is side-effect-free.
-    expect(emitPyExpression(parseExpression('a.b?.c'))).toBe('(a.b.c if a.b is not None else None)');
+    expect(emitPyExpression(parseExpression('a.b?.c'))).toBe(
+      '(a.b.c if (not _kern_is_nullish(a.b)) else _KERN_UNDEFINED)',
+    );
   });
 
   test('optional .length composes with the portable property hook: items?.length', () => {
     // The list-ops property hook rewrites the trailing `.length` link to
     // `len(...)` while the optional-chain guard mechanism stays untouched —
     // the guard tests the RECEIVER and the branch wraps the lowered link.
-    expect(emitPyExpression(parseExpression('items?.length'))).toBe('(len(items) if items is not None else None)');
+    expect(emitPyExpression(parseExpression('items?.length'))).toBe(
+      '(len(items) if (not _kern_is_nullish(items)) else _KERN_UNDEFINED)',
+    );
   });
 
   test('non-optional access stays plain', () => {
@@ -345,12 +353,18 @@ describe('slice 3d — optional chain ?. lowering on Python target', () => {
     expect(emitPyExpression(parseExpression('a.b.c'))).toBe('a.b.c');
   });
 
-  test('call receiver throws — `f()?.x` would double-eval', () => {
-    expect(() => emitPyExpression(parseExpression('f()?.x'))).toThrow(/side-effect-free receiver/);
+  // Slice S7 — a side-effecting receiver is bound ONCE via the S4 walrus idiom
+  // (single-eval) rather than rejected.
+  test('call receiver single-evals via walrus — `f()?.x`', () => {
+    expect(emitPyExpression(parseExpression('f()?.x'))).toBe(
+      '(__k_oc1.x if (not _kern_is_nullish(__k_oc1 := f())) else _KERN_UNDEFINED)',
+    );
   });
 
-  test('await receiver throws — bind first, then optional-chain', () => {
-    expect(() => emitPyExpression(parseExpression('(await load())?.x'))).toThrow(/side-effect-free receiver/);
+  test('await receiver single-evals via walrus', () => {
+    expect(emitPyExpression(parseExpression('(await load())?.x'))).toBe(
+      '(__k_oc1.x if (not _kern_is_nullish(__k_oc1 := await load())) else _KERN_UNDEFINED)',
+    );
   });
 
   test('optional call ?.() is rejected with a let-bind hint', () => {
@@ -365,7 +379,7 @@ describe('slice 3d — optional chain ?. lowering on Python target', () => {
     const out = emitPyExpression(parseExpression('user?.name'), {
       symbolMap: { user: 'current_user' },
     });
-    expect(out).toBe('(current_user.name if current_user is not None else None)');
+    expect(out).toBe('(current_user.name if (not _kern_is_nullish(current_user)) else _KERN_UNDEFINED)');
   });
 
   // ── Slice 3 review fix (Codex critical) — optional chain continuation ──
@@ -376,39 +390,42 @@ describe('slice 3d — optional chain ?. lowering on Python target', () => {
     // after `?.` short-circuits, so the entire `user.profile.name` belongs
     // inside the guarded branch.
     expect(emitPyExpression(parseExpression('user?.profile.name'))).toBe(
-      '(user.profile.name if user is not None else None)',
+      '(user.profile.name if (not _kern_is_nullish(user)) else _KERN_UNDEFINED)',
     );
   });
 
   test('chain continues through deeper non-optional accesses', () => {
     expect(emitPyExpression(parseExpression('user?.profile.address.city'))).toBe(
-      '(user.profile.address.city if user is not None else None)',
+      '(user.profile.address.city if (not _kern_is_nullish(user)) else _KERN_UNDEFINED)',
     );
   });
 
   test('multi-level optional a?.b?.c combines guards with `and`', () => {
-    // Pre-fix: threw because the inner `?.` made the receiver fail the
-    // purity check. Each `?.` link adds an `is not None` test against the
-    // expression up to that point, combined with `and`.
-    expect(emitPyExpression(parseExpression('a?.b?.c'))).toBe('(a.b.c if a is not None and a.b is not None else None)');
+    // Each `?.` link adds a nullish test against the expression up to that
+    // point, combined with `and`.
+    expect(emitPyExpression(parseExpression('a?.b?.c'))).toBe(
+      '(a.b.c if (not _kern_is_nullish(a)) and (not _kern_is_nullish(a.b)) else _KERN_UNDEFINED)',
+    );
   });
 
   test('optional then non-optional then optional — a?.b.c?.d', () => {
     expect(emitPyExpression(parseExpression('a?.b.c?.d'))).toBe(
-      '(a.b.c.d if a is not None and a.b.c is not None else None)',
+      '(a.b.c.d if (not _kern_is_nullish(a)) and (not _kern_is_nullish(a.b.c)) else _KERN_UNDEFINED)',
     );
   });
 
   test('optional member followed by call — user?.fetch() is guarded', () => {
     // The trailing call belongs inside the guarded branch.
-    expect(emitPyExpression(parseExpression('user?.fetch()'))).toBe('(user.fetch() if user is not None else None)');
+    expect(emitPyExpression(parseExpression('user?.fetch()'))).toBe(
+      '(user.fetch() if (not _kern_is_nullish(user)) else _KERN_UNDEFINED)',
+    );
   });
 
   test('symbol-map composes with chain continuation', () => {
     const out = emitPyExpression(parseExpression('user?.profile.name'), {
       symbolMap: { user: 'current_user' },
     });
-    expect(out).toBe('(current_user.profile.name if current_user is not None else None)');
+    expect(out).toBe('(current_user.profile.name if (not _kern_is_nullish(current_user)) else _KERN_UNDEFINED)');
   });
 });
 
