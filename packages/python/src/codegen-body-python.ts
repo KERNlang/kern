@@ -547,7 +547,11 @@ function emitChildrenPy(
             "Propagation '?' is not allowed in `if cond=` — bind the call to a `let` first, then test the bound name.",
           );
         }
-        lines.push(`${indent}if ${emitPyExprCtx(condIR, ctx)}:`);
+        // Slice S4 — `if cond=` consumes KERN ToBoolean, not Python bare
+        // truthiness, so `if []:`/`if {}:` are truthy and `if NaN:` is falsy.
+        // Wrap UNCONDITIONALLY (no "looks boolean" skip-analysis in v1).
+        ctx.helpers.add(KERN_JS_HELPER_PY);
+        lines.push(`${indent}if _kern_truthy(${emitPyExprCtx(condIR, ctx)}):`);
         const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP);
         if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
         for (const sl of inner) lines.push(sl);
@@ -572,7 +576,9 @@ function emitChildrenPy(
                 "Propagation '?' is not allowed in `if cond=` — bind the call to a `let` first, then test the bound name.",
               );
             }
-            lines.push(`${indent}elif ${emitPyExprCtx(nestedCondIR, ctx)}:`);
+            // Slice S4 — `else if` chains consume KERN ToBoolean too.
+            ctx.helpers.add(KERN_JS_HELPER_PY);
+            lines.push(`${indent}elif _kern_truthy(${emitPyExprCtx(nestedCondIR, ctx)}):`);
             const ifInner = emitChildrenPy(ifNode.children ?? [], ctx, indent + INDENT_STEP);
             if (ifInner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
             for (const sl of ifInner) lines.push(sl);
@@ -1321,9 +1327,32 @@ function emitFirstTruthyPy(node: IRNode, ctx: BodyEmitContext): string[] {
     return emitFirstTruthyOperandPy(valueIR, ctx);
   });
 
-  const lines = [`${name} = ${emitted.join(' or ')}`];
+  // Slice S4 — `firstTruthy` selects the first KERN-truthy candidate, NOT the
+  // first Python-truthy one. Bare `a or b` skips `[]`/`{}` (Python-falsy but
+  // JS-truthy) and keeps NaN (Python-truthy but JS-falsy), so it diverges. Lower
+  // to a `_kern_truthy`-gated walrus chain that evaluates each candidate AT MOST
+  // ONCE and only if every earlier candidate was falsy (left-to-right laziness):
+  //   (t1 if _kern_truthy(t1 := a) else (t2 if _kern_truthy(t2 := b) else c))
+  // The final candidate needs no temp/guard — it is the fallthrough value.
+  ctx.helpers.add(KERN_JS_HELPER_PY);
+  const lines = [`${name} = ${buildFirstTruthyChainPy(emitted, ctx)}`];
   if (ctx.traceHooks?.letAssign) lines.push(letAssignTracePy(name));
   return lines;
+}
+
+/** Build the `_kern_truthy`-gated, single-evaluation, lazy walrus chain for a
+ *  `firstTruthy` candidate list. The last candidate is the fallthrough (no
+ *  guard); every earlier candidate is bound once via `:=` and tested with
+ *  `_kern_truthy`. `gensymCounter`-seeded temp names avoid colliding with user
+ *  bindings or each other. */
+function buildFirstTruthyChainPy(candidates: string[], ctx: BodyEmitContext): string {
+  const last = candidates[candidates.length - 1];
+  let chain = last;
+  for (let i = candidates.length - 2; i >= 0; i--) {
+    const tmp = `__k_ft${++ctx.gensymCounter}`;
+    chain = `(${tmp} if _kern_truthy(${tmp} := ${candidates[i]}) else ${chain})`;
+  }
+  return chain;
 }
 
 function emitCoalescePy(node: IRNode, ctx: BodyEmitContext): string[] {
@@ -2153,7 +2182,13 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       if (node.op === 'typeof') return emitPyTypeof(node.argument, ctx);
       const arg = emitPyExprCtx(node.argument, ctx);
       const wrapped = needsArgParens(node.argument) ? `(${arg})` : arg;
-      if (node.op === '!') return `not ${wrapped}`;
+      // Slice S4 — `!x` consumes KERN ToBoolean and returns a real Python bool.
+      // `not _kern_truthy(x)` gives `!""`/`!NaN` → True and `!"0"`/`![]` → False
+      // (bare `not x` would get `![]`/`!{}`/`!NaN` wrong). Wrap unconditionally.
+      if (node.op === '!') {
+        ctx.helpers.add(KERN_JS_HELPER_PY);
+        return `(not _kern_truthy(${arg}))`;
+      }
       if (node.op === '-') return `-${wrapped}`;
       if (node.op === '+') return `+${wrapped}`;
       throw new Error(`emitPyExpression: unary op '${node.op}' has no Python equivalent in slice-2c.`);
@@ -2195,7 +2230,12 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
             return emitted;
         }
       };
-      return `${wrap(node.consequent, consStr)} if ${wrap(node.test, testStr)} else ${wrap(node.alternate, altStr)}`;
+      // Slice S4 — the ternary condition consumes KERN ToBoolean exactly once, so
+      // `{} ? a : b`/`[] ? a : b` take the consequent and `NaN ? a : b` takes the
+      // alternate. `_kern_truthy(...)` already parenthesizes the test, so no extra
+      // `wrap` is needed on it. Wrap unconditionally (no "looks boolean" skip).
+      ctx.helpers.add(KERN_JS_HELPER_PY);
+      return `${wrap(node.consequent, consStr)} if _kern_truthy(${testStr}) else ${wrap(node.alternate, altStr)}`;
     }
     case 'spread':
       return `*${emitPyExprCtx(node.argument, ctx)}`;
