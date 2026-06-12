@@ -100,12 +100,17 @@ describe('emitPyExpression — arithmetic + comparison + unary', () => {
     expect(emitPyExpression(parseExpression('x !== 0'))).toBe('x != 0');
   });
 
-  test('logical && lowers to Python and', () => {
-    expect(emitPyExpression(parseExpression('a && b'))).toBe('a and b');
+  // Slice S5 — `&&`/`||` are RESULT-VALUE operators, not Python `and`/`or`
+  // (which use Python truthiness and diverge on `[]`/`{}`/`NaN`/`"0"`). They
+  // lower to a single-eval walrus ternary gated on `_kern_truthy` (KERN
+  // ToBoolean), returning the original selected operand. See
+  // logical-result-value-python.test.ts for the executed contract.
+  test('logical && lowers to a _kern_truthy walrus ternary (result-value)', () => {
+    expect(emitPyExpression(parseExpression('a && b'))).toBe('(__k_log1 if not _kern_truthy(__k_log1 := a) else b)');
   });
 
-  test('logical || lowers to Python or', () => {
-    expect(emitPyExpression(parseExpression('a || b'))).toBe('a or b');
+  test('logical || lowers to a _kern_truthy walrus ternary (result-value)', () => {
+    expect(emitPyExpression(parseExpression('a || b'))).toBe('(__k_log1 if _kern_truthy(__k_log1 := a) else b)');
   });
 
   // `instanceof` has no infix Python form — emitting it verbatim would be a
@@ -116,7 +121,11 @@ describe('emitPyExpression — arithmetic + comparison + unary', () => {
     expect(emitPyExpression(parseExpression('x instanceof Error'))).toBe('isinstance(x, Exception)');
     expect(emitPyExpression(parseExpression('xs instanceof Array'))).toBe('isinstance(xs, list)');
     expect(emitPyExpression(parseExpression('x instanceof a.b.C'))).toBe('isinstance(x, a.b.C)');
-    expect(emitPyExpression(parseExpression('a instanceof B && c'))).toBe('isinstance(a, B) and c');
+    // Slice S5 — `&&` composes with the `isinstance(...)` lowering: the
+    // instanceof result becomes the walrus left operand.
+    expect(emitPyExpression(parseExpression('a instanceof B && c'))).toBe(
+      '(__k_log1 if not _kern_truthy(__k_log1 := isinstance(a, B)) else c)',
+    );
     // The dominant idiom — mirrors the TS-side round-trip in core/expression.test.ts.
     // Slice S4 — the ternary test routes through `_kern_truthy(...)` (subsuming
     // the prior `(isinstance(...))` paren wrap).
@@ -403,7 +412,11 @@ describe('emitPyExpression — index access', () => {
   });
 
   test('index receiver wraps lower-precedence expression', () => {
-    expect(emitPyExpression(parseExpression('(a || b)[0]'))).toBe('(a or b)[0]');
+    // Slice S5 — `||` lowers to a self-parenthesized walrus ternary; the index
+    // receiver wrap adds its own parens so composition stays correct.
+    expect(emitPyExpression(parseExpression('(a || b)[0]'))).toBe(
+      '((__k_log1 if _kern_truthy(__k_log1 := a) else b))[0]',
+    );
     // Slice S4 — ternary test routes through `_kern_truthy(...)`.
     expect(emitPyExpression(parseExpression('(c ? a : b)[0]'))).toBe('(a if _kern_truthy(c) else b)[0]');
     expect(emitPyExpression(parseExpression('(await load())[0]'))).toBe('(await load())[0]');
