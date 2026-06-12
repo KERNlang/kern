@@ -146,7 +146,13 @@ function isTypeAssertionBoundary(kind: ExprTokenKind): boolean {
     kind === 'minus' ||
     kind === 'star' ||
     kind === 'slash' ||
-    kind === 'percent'
+    kind === 'percent' ||
+    // Slice 6 review fix (codex 0.97): `^` is an expression operator with NO
+    // type-grammar meaning (unlike `|`/`&`, which stay in the type text as
+    // union/intersection — TS parses `x as Foo | y` as a union-type assertion).
+    // Without this boundary `x as Foo ^ y` swallowed `Foo ^ y` as type text
+    // instead of parsing `(x as Foo) ^ y`.
+    kind === 'caret'
   );
 }
 
@@ -1346,8 +1352,14 @@ class Parser {
       const closes = angleCloseCount(t.kind);
       if (opens > 0) angleDepth += opens;
       else if (closes > 0) {
+        // Slice 6 review fix (codex 0.95): a multi-`>` token that closes MORE
+        // generics than are open (`f<Bar<Baz>>>(x)` — `>>>` against depth 2)
+        // is NOT a type-argument list. Rejecting here makes the malformed form
+        // fall back to ordinary comparison/shift expression parsing instead of
+        // silently swallowing the surplus `>`.
+        if (closes > angleDepth) return false;
         angleDepth -= closes;
-        if (angleDepth <= 0) return this.tokens[j + 1]?.kind === 'lparen';
+        if (angleDepth === 0) return this.tokens[j + 1]?.kind === 'lparen';
       } else if (angleDepth > 0 && !isTypeArgumentTokenKind(t.kind)) {
         return false;
       } else if (t.kind === 'eof' || t.kind === 'rparen' || t.kind === 'rbracket' || t.kind === 'rbrace') {
@@ -1374,7 +1386,13 @@ class Parser {
         // The text ends BEFORE the `>` that returns depth to 0: of this token's
         // `>`s, the inner `(angleDepth - 1)` belong to the text and the last one
         // is the (excluded) closing bracket. (Single `>`, depth 1 -> `t.pos`.)
-        if (closes >= angleDepth) {
+        // Surplus `>`s beyond the open depth are malformed — the lookahead
+        // (`isTypeArgumentCallAhead`) rejects that shape, so reaching it here
+        // means an internal inconsistency, not user input; fail loudly.
+        if (closes > angleDepth) {
+          throw new Error(`Type argument list at column ${startTok.pos + 1} closes more generics than are open`);
+        }
+        if (closes === angleDepth) {
           end = t.pos + (angleDepth - 1);
           this.advance();
           break;

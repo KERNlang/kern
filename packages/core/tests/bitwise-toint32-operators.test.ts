@@ -55,6 +55,40 @@ describe('S6 tokenizer — bitwise/shift operators', () => {
   });
 });
 
+describe('S6 review fixes — type-position boundaries for the new operators', () => {
+  test('`^` after an `as` type is an expression boundary: (x as Foo) ^ y', () => {
+    // Review fix (codex 0.97): `^` has no type-grammar meaning, so it must
+    // terminate the type text — unlike `|`/`&`, which TS keeps in the type
+    // as union/intersection.
+    const a = parseExpression('x as Foo ^ y') as { kind: string; op?: string; left?: { kind: string; type?: string } };
+    expect(a.kind).toBe('binary');
+    expect(a.op).toBe('^');
+    expect(a.left).toMatchObject({ kind: 'typeAssert', type: 'Foo' });
+    // Union/intersection types stay in the type text (TS-compatible).
+    expect(parseExpression('x as Foo | y')).toMatchObject({ kind: 'typeAssert', type: 'Foo | y' });
+    expect(parseExpression('x as Foo & y')).toMatchObject({ kind: 'typeAssert', type: 'Foo & y' });
+  });
+
+  test('surplus `>` makes a generic-call lookahead FAIL instead of swallowing (f<Bar<Baz>>>(x))', () => {
+    // Review fix (codex 0.95): `>>>` against an open depth of 2 is NOT a
+    // type-argument list — the malformed form falls back to ordinary
+    // comparison/shift parsing rather than silently parsing as f<Bar<Baz>>(x).
+    const malformed = parseExpression('f<Bar<Baz>>>(x)') as { kind: string; typeArgs?: string };
+    expect(malformed.kind).not.toBe('call');
+    expect(malformed).not.toHaveProperty('typeArgs');
+    // The well-formed neighbors still parse as generic calls.
+    expect(parseExpression('f<Bar<Baz>>(x)')).toMatchObject({ kind: 'call', typeArgs: 'Bar<Baz>' });
+    expect(parseExpression('make<A<B<C>>>(x)')).toMatchObject({ kind: 'call', typeArgs: 'A<B<C>>' });
+  });
+
+  test('regex literal can follow `>>>` (operator position starts a regex)', () => {
+    // Review probe (kimi 0.85): `>>>` is in canStartRegex — verify end to end.
+    const r = parseExpression('a >>> /b/.source.length') as { kind: string; op?: string };
+    expect(r.kind).toBe('binary');
+    expect(r.op).toBe('>>>');
+  });
+});
+
 describe('S6 parser — precedence ladder (exact JS)', () => {
   // Assert the PARSE TREE shape directly: who is the root op, and which child
   // is the compound subtree. This is the discriminating check — it FAILS for

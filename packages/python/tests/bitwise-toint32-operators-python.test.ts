@@ -91,11 +91,14 @@ function runPy(program: string): string {
  * BEFORE the lowered body so identifiers (`a`, `b`, `x`) resolve.
  */
 function evalPy(expr: string, bindings: Record<string, string> = {}): string {
-  const { code, helpers } = emit(expr);
+  const { code, helpers, imports } = emit(expr);
+  // Review fix (kimi 0.80): thread emitted imports into the program, so a
+  // future helper that declares `requires.py` cannot pass vacuously here.
+  const importLines = imports.map((mod) => `import ${mod} as __k_${mod}`).join('\n');
   const setup = Object.entries(bindings)
     .map(([k, v]) => `${k} = ${v}`)
     .join('\n');
-  const program = [helpers, setup, code, 'print(repr(r))'].filter(Boolean).join('\n');
+  const program = [importLines, helpers, setup, code, 'print(repr(r))'].filter(Boolean).join('\n');
   return runPy(program).trim();
 }
 
