@@ -345,14 +345,10 @@ export {
   toNumber,
   toUint32,
 } from './ir/semantics/to-numeric.js';
-export type { ExpectedNumber, IntFixture, ToNumberFixture } from './ir/semantics/to-numeric-fixtures.js';
-export {
-  TO_INT32_FIXTURES,
-  TO_INTEGER_OR_INFINITY_FIXTURES,
-  TO_NUMBER_FIXTURES,
-  TO_UINT32_FIXTURES,
-  UNDEFINED_INPUT,
-} from './ir/semantics/to-numeric-fixtures.js';
+// NOTE: the to-numeric differential FIXTURE arrays are deliberately NOT
+// exported from this public barrel (review finding: battery data is not
+// shipped runtime API). Test legs import './ir/semantics/to-numeric-fixtures.js'
+// (or its dist path) directly.
 export type { GapCategory, GapClassification } from './migrate-literals.js';
 export { classifyHandlerGap, isInlineSafeExpression, isInlineSafeLiteral } from './migrate-literals.js';
 // Native KERN handler eligibility (slice 5a) — heuristic classifier used by

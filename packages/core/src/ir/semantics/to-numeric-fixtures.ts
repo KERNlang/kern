@@ -276,6 +276,30 @@ export const TO_INT32_FIXTURES: readonly IntFixture[] = Object.freeze([
   { probe: 'toInt32(-1) → -1', value: -1, tsExpr: '-1', pyExpr: '-1', expected: -1 },
   { probe: 'toInt32(4294967297) → 1', value: 4294967297, tsExpr: '4294967297', pyExpr: '4294967297', expected: 1 },
   { probe: 'toInt32(true) → 1', value: true, tsExpr: 'true', pyExpr: 'True', expected: 1 },
+  // Review hardening: beyond-2^53 / fractional-huge precision probes (expected
+  // values produced by the native `x|0` oracle, never hand-computed).
+  { probe: 'toInt32(2**53) → 0', value: 2 ** 53, tsExpr: '2**53', pyExpr: 'float(2**53)', expected: 0 },
+  {
+    probe: 'toInt32(2**53+2) → 2',
+    value: 2 ** 53 + 2,
+    tsExpr: '2**53+2',
+    pyExpr: 'float(2**53+2)',
+    expected: 2,
+  },
+  {
+    probe: 'toInt32(1e21) → -559939584',
+    value: 1e21,
+    tsExpr: '1e21',
+    pyExpr: '1e21',
+    expected: -559939584,
+  },
+  {
+    probe: 'toInt32(6442450943.5) → 2147483647',
+    value: 6442450943.5,
+    tsExpr: '6442450943.5',
+    pyExpr: '6442450943.5',
+    expected: 2147483647,
+  },
 ]);
 
 /** `toUint32` carry-forward fixtures. */
@@ -290,6 +314,21 @@ export const TO_UINT32_FIXTURES: readonly IntFixture[] = Object.freeze([
     tsExpr: '2147483648',
     pyExpr: '2147483648',
     expected: 2147483648,
+  },
+  // Review hardening: precision probes mirrored from the int32 set.
+  {
+    probe: 'toUint32(1e21) → 3735027712',
+    value: 1e21,
+    tsExpr: '1e21',
+    pyExpr: '1e21',
+    expected: 3735027712,
+  },
+  {
+    probe: 'toUint32("0xFFFFFFFFFFFFFFFFFF") → 0',
+    value: '0xFFFFFFFFFFFFFFFFFF',
+    tsExpr: '"0xFFFFFFFFFFFFFFFFFF"',
+    pyExpr: "'0xFFFFFFFFFFFFFFFFFF'",
+    expected: 0,
   },
 ]);
 

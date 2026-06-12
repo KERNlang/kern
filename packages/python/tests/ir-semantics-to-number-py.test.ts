@@ -17,6 +17,8 @@
  */
 
 import { spawnSync } from 'node:child_process';
+// Battery data is intentionally NOT public API — import the fixture module
+// directly (review finding: test data must not ship in the runtime barrel).
 import {
   type IntFixture,
   TO_INT32_FIXTURES,
@@ -25,7 +27,7 @@ import {
   TO_UINT32_FIXTURES,
   type ToNumberFixture,
   UNDEFINED_INPUT,
-} from '@kernlang/core';
+} from '../../core/src/ir/semantics/to-numeric-fixtures.js';
 import { KERN_TO_NUMBER_HELPER_PY } from '../src/core/expr/index.js';
 
 const pythonAvailable = (() => {
@@ -144,7 +146,7 @@ describeIfPython('ToNumericPrimitive substrate — Python leg (emitted helper ex
       TO_INT32_FIXTURES.length +
       TO_UINT32_FIXTURES.length +
       TO_INTEGER_OR_INFINITY_FIXTURES.length;
-    expect(total).toBe(68);
+    expect(total).toBe(74);
   });
 
   it('-0.0 sign probe actually discriminates (negzero row != poszero row in Python)', () => {

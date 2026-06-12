@@ -9,21 +9,25 @@
  */
 
 import {
-  type IntFixture,
   numberToInt32,
   numberToUint32,
   stringToNumber,
+  toInt32,
+  toIntegerOrInfinity,
+  toNumber,
+  toUint32,
+} from '../src/index.js';
+// Battery data is intentionally NOT public API — import the fixture module
+// directly (review finding: test data must not ship in the runtime barrel).
+import {
+  type IntFixture,
   TO_INT32_FIXTURES,
   TO_INTEGER_OR_INFINITY_FIXTURES,
   TO_NUMBER_FIXTURES,
   TO_UINT32_FIXTURES,
   type ToNumberFixture,
-  toInt32,
-  toIntegerOrInfinity,
-  toNumber,
-  toUint32,
   UNDEFINED_INPUT,
-} from '../src/index.js';
+} from '../src/ir/semantics/to-numeric-fixtures.js';
 
 /** Map a fixture's semantic input to the actual value the kernel receives. */
 function kernelInput(value: unknown): unknown {
@@ -82,6 +86,28 @@ describe('ToNumericPrimitive kernel — toNumber primitive domain (vs native Num
     } else {
       // Object.is distinguishes -0 from +0, matching the sign-probe contract.
       expect(Object.is(got, oracle)).toBe(true);
+    }
+  });
+});
+
+describe('ToNumericPrimitive kernel — tsExpr column is live (review fix: declared JS source is verified)', () => {
+  // Evaluate each row's declared JS source and run the SAME contract on it, so
+  // a drifted/wrong tsExpr cannot silently coexist with a correct `value`.
+  it.each(TO_NUMBER_FIXTURES.map((f) => [f.probe, f] as const))('%s', (_p, fixture: ToNumberFixture) => {
+    // biome-ignore lint/security/noGlobalEval: test-only — fixtures are first-party source strings; evaluating tsExpr IS the differential column under test
+    const evaluated: unknown = (0, eval)(`(${fixture.tsExpr})`);
+    if (fixture.value === UNDEFINED_INPUT) {
+      expect(evaluated).toBeUndefined();
+    }
+    const fromExpr = toNumber(evaluated);
+    const fromValue = toNumber(kernelInput(fixture.value));
+    expect(fromExpr.ok).toBe(fromValue.ok);
+    if (fromExpr.ok && fromValue.ok) {
+      if (Number.isNaN(fromValue.value)) {
+        expect(Number.isNaN(fromExpr.value)).toBe(true);
+      } else {
+        expect(Object.is(fromExpr.value, fromValue.value)).toBe(true);
+      }
     }
   });
 });
