@@ -17,8 +17,8 @@ describe('Python Ground Layer: per-module helper prelude dedup', () => {
   test('emits a shared Array.fill helper block exactly once across two ground statements', () => {
     const output = emitModule([
       'module name=demo',
-      "  firstTruthy name=a values=\"arr.fill(v), 'x'\"",
-      "  firstTruthy name=b values=\"arr2.fill(w), 'y'\"",
+      '  firstTruthy name=a values="arr.fill(v), \'x\'"',
+      '  firstTruthy name=b values="arr2.fill(w), \'y\'"',
     ]);
 
     // The helper def must appear once, not once per statement.
@@ -36,7 +36,7 @@ describe('Python Ground Layer: per-module helper prelude dedup', () => {
   });
 
   test('keeps a single ground statement that needs a helper unchanged (no dedup regression)', () => {
-    const output = emitModule(['module name=solo', "  firstTruthy name=a values=\"arr.fill(v), 'x'\""]);
+    const output = emitModule(['module name=solo', '  firstTruthy name=a values="arr.fill(v), \'x\'"']);
 
     expect(output.match(/^def _kern_js_fill\(/gmu) ?? []).toHaveLength(1);
     expect(output).toContain('a = _kern_js_fill(arr, v, 0, _KERN_JS_FILL_ABSENT) or "x"');

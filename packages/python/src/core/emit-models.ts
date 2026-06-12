@@ -1,5 +1,6 @@
 import type { IRNode } from '@kernlang/core';
 import { generatePythonCoreNode } from '../codegen-python.js';
+import { dedupeGroundPrelude } from '../generators/ground.js';
 
 function findServerNode(root: IRNode): IRNode | undefined {
   if (root.type === 'server') return root;
@@ -97,8 +98,11 @@ export function emitModels(
     }
   }
 
+  // Top-level ground statements inline their helper/import prelude per-statement
+  // (a `module` wrapper dedupes in generateModule); collapse repeats across the
+  // assembled top-level bodies so each helper block appears once in the module.
   return {
-    code: lines.join('\n'),
+    code: dedupeGroundPrelude(lines).join('\n'),
     bodies,
   };
 }
