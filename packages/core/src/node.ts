@@ -9,8 +9,15 @@
  *
  *    import { typescriptClosureClassifier } from '@kernlang/core/node';
  *
- *  Importing the barrel (`@kernlang/core`) or the parser never reaches any of
- *  these modules, keeping `typescript` out of the spine. */
+ *  Importing the PARSER subpath never reaches any of these modules, keeping
+ *  `typescript` out of the browser spine. (The root barrel retains pinned
+ *  deprecated re-exports from here until 5.0 — see index.ts.)
+ *
+ *  NOTE (r3 review, codex 0.94): `typescript` is an optional peer dependency of
+ *  this package. This entrypoint REQUIRES it — importing `@kernlang/core/node`
+ *  without `typescript` installed fails at module resolution. That is the
+ *  intended contract for the Node/codegen side; browser consumers never load
+ *  this module and need no `typescript` install. */
 
 import {
   classifyHandlerBody as classifyHandlerBodyWith,

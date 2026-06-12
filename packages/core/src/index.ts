@@ -7,13 +7,15 @@ export {
   isSupportedAssignOperator,
   SUPPORTED_ASSIGN_OPERATORS,
 } from './assignment-operators.js';
-// Slice 0.9 — `supportedCompoundAssignmentOperator` (ts.SyntaxKind-based) moved
-// to the Node subpath `@kernlang/core/node` to keep this barrel typescript-free.
-// Slice 0.9 (browser spine cut) — the v1 closure gate, the Python lowerer, and
-// the TypeScript-backed closure classifier all transitively import `typescript`
-// (~10MB). They are intentionally NOT re-exported from this browser-safe barrel
-// so importing `@kernlang/core` or the parser never drags in `typescript`.
-// Node/codegen callers import them from the dedicated subpath instead:
+// Slice 0.9 (browser spine cut) — the BROWSER-SAFE surface is the PARSER
+// subpath (`dist/parser-expression.js` / `dist/parser.js`), proven
+// typescript-free by `browser-spine-import-graph.test.ts`. This ROOT BARREL is
+// NOT typescript-free (r3 review fix — the earlier comment overclaimed): it
+// retains sanctioned `typescript` edges through the Node-only TS-codegen
+// re-parse path (`./codegen/body-ts.js`) and the DEPRECATED 4.x-compatibility
+// re-exports from `./node.js` at the bottom of this file (both pinned by the
+// import-graph test; both scheduled to shrink in 5.0). Browser consumers must
+// import the parser subpath, not this barrel. Node/codegen callers use:
 //   import { ... } from '@kernlang/core/node';
 // The browser-safe closure-classifier seam (interface + dependency-free default)
 // lives in `closure-classifier.ts` and is safe to re-export from the barrel.
