@@ -10,6 +10,11 @@ const PREC: Record<string, number> = {
   '??': 1,
   '||': 2,
   '&&': 3,
+  // Slice 6 — bitwise OR/XOR/AND sit between `&&` and equality (JS order:
+  // `|` < `^` < `&` < `==`). The gap (4..6 free) leaves room above `&&`.
+  '|': 7,
+  '^': 8,
+  '&': 9,
   '==': 10,
   '!=': 10,
   '===': 10,
@@ -19,6 +24,10 @@ const PREC: Record<string, number> = {
   '>': 11,
   '>=': 11,
   instanceof: 11,
+  // Slice 6 — shift sits between relational (11) and additive (13).
+  '<<': 12,
+  '>>': 12,
+  '>>>': 12,
   '+': 13,
   '-': 13,
   '*': 14,

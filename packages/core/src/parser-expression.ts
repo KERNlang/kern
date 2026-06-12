@@ -32,6 +32,12 @@ export type ExprTokenKind =
   | 'and'
   | 'pipe'
   | 'amp'
+  // Slice 6 — bitwise / shift operators on the ToInt32 substrate.
+  | 'caret' // ^ (bitwise XOR)
+  | 'tilde' // ~ (bitwise NOT, unary prefix)
+  | 'shl' // << (left shift)
+  | 'shr' // >> (signed right shift)
+  | 'ushr' // >>> (unsigned/zero-fill right shift)
   | 'lparen'
   | 'rparen'
   | 'lbrace'
@@ -113,6 +119,8 @@ const EXPR_START_KINDS: ReadonlySet<ExprTokenKind> = new Set<ExprTokenKind>([
   'spread',
   'bang',
   'minus',
+  // Slice 6 — `~x` can begin an expression (e.g. ternary consequent `c ? ~x : y`).
+  'tilde',
 ]);
 
 function isExprStartKind(kind: ExprTokenKind): boolean {
@@ -363,6 +371,13 @@ function canStartRegex(tokens: ExprToken[]): boolean {
     prev.kind === 'and' ||
     prev.kind === 'pipe' ||
     prev.kind === 'amp' ||
+    // Slice 6 — a regex literal may follow a bitwise/shift operator or unary
+    // `~` (operator position), e.g. `flags & /re/.source`.
+    prev.kind === 'caret' ||
+    prev.kind === 'shl' ||
+    prev.kind === 'shr' ||
+    prev.kind === 'ushr' ||
+    prev.kind === 'tilde' ||
     prev.kind === 'eq' ||
     prev.kind === 'neq' ||
     prev.kind === 'strictEq' ||
@@ -494,6 +509,26 @@ export function tokenizeExpression(input: string): ExprToken[] {
       i++;
       continue;
     }
+    // Slice 6 — shift operators. Longest-match: `<<` before `<=`/`<`; and on
+    // the `>` side `>>>` before `>>` before `>=`/`>`. (Shift compound-assign
+    // `<<=`/`>>=`/`>>>=` is out of slice scope — KERN expressions have no
+    // assignment — so `<< =` would lex as `shl` then `eq`, and the parser
+    // rejects it downstream, which is the intended fail-closed behavior.)
+    if (ch === '<' && input[i + 1] === '<') {
+      tokens.push({ kind: 'shl', value: '<<', pos: i });
+      i += 2;
+      continue;
+    }
+    if (ch === '>' && input[i + 1] === '>' && input[i + 2] === '>') {
+      tokens.push({ kind: 'ushr', value: '>>>', pos: i });
+      i += 3;
+      continue;
+    }
+    if (ch === '>' && input[i + 1] === '>') {
+      tokens.push({ kind: 'shr', value: '>>', pos: i });
+      i += 2;
+      continue;
+    }
     // Slice 2c — relational. Multi-char first so `<=` / `>=` win over bare `<` / `>`.
     if (ch === '<' && input[i + 1] === '=') {
       tokens.push({ kind: 'lte', value: '<=', pos: i });
@@ -566,6 +601,18 @@ export function tokenizeExpression(input: string): ExprToken[] {
     }
     if (ch === '&') {
       tokens.push({ kind: 'amp', value: '&', pos: i });
+      i++;
+      continue;
+    }
+    // Slice 6 — bitwise XOR `^` and bitwise NOT `~` (unary prefix). KERN has no
+    // `^=`/`~=` (no assignment in expressions), so single-char is the only form.
+    if (ch === '^') {
+      tokens.push({ kind: 'caret', value: '^', pos: i });
+      i++;
+      continue;
+    }
+    if (ch === '~') {
+      tokens.push({ kind: 'tilde', value: '~', pos: i });
       i++;
       continue;
     }
@@ -945,11 +992,47 @@ class Parser {
   }
 
   private parseAnd(): ValueIR {
-    let left = this.parseEquality();
+    let left = this.parseBitOr();
     while (this.peek().kind === 'and') {
       this.advance();
-      const right = this.parseEquality();
+      const right = this.parseBitOr();
       left = { kind: 'binary', op: '&&', left, right };
+    }
+    return left;
+  }
+
+  // Slice 6 — bitwise OR `|`, left-associative. JS precedence: BELOW `&&`,
+  // ABOVE `^`. So `1 | 2 && 0` parses `(1 | 2) && 0` (parseAnd wraps this) and
+  // `1 ^ 3 | 4` parses `(1 ^ 3) | 4`.
+  private parseBitOr(): ValueIR {
+    let left = this.parseBitXor();
+    while (this.peek().kind === 'pipe') {
+      this.advance();
+      const right = this.parseBitXor();
+      left = { kind: 'binary', op: '|', left, right };
+    }
+    return left;
+  }
+
+  // Slice 6 — bitwise XOR `^`, left-associative. Between `|` and `&`.
+  private parseBitXor(): ValueIR {
+    let left = this.parseBitAnd();
+    while (this.peek().kind === 'caret') {
+      this.advance();
+      const right = this.parseBitAnd();
+      left = { kind: 'binary', op: '^', left, right };
+    }
+    return left;
+  }
+
+  // Slice 6 — bitwise AND `&`, left-associative. ABOVE `^`, BELOW equality, so
+  // `1 & 3 === 1` parses `1 & (3 === 1)` (the equality binds tighter).
+  private parseBitAnd(): ValueIR {
+    let left = this.parseEquality();
+    while (this.peek().kind === 'amp') {
+      this.advance();
+      const right = this.parseEquality();
+      left = { kind: 'binary', op: '&', left, right };
     }
     return left;
   }
@@ -974,18 +1057,33 @@ class Parser {
   // in operator position after a complete operand, an `ident` named
   // `instanceof` can only be the operator.
   private parseRelational(): ValueIR {
-    let left = this.parseAdditive();
+    let left = this.parseShift();
     while (true) {
       const t = this.peek();
       if (t.kind === 'ident' && t.value === 'instanceof') {
         this.advance();
-        const right = this.parseAdditive();
+        const right = this.parseShift();
         left = { kind: 'binary', op: 'instanceof', left, right };
         continue;
       }
       const k = t.kind;
       if (k !== 'lt' && k !== 'lte' && k !== 'gt' && k !== 'gte') break;
       const op = this.advance().value as '<' | '<=' | '>' | '>=';
+      const right = this.parseShift();
+      left = { kind: 'binary', op, left, right };
+    }
+    return left;
+  }
+
+  // Slice 6 — shift (<<, >>, >>>), left-associative. JS precedence: ABOVE
+  // additive, BELOW relational. So `1 + 2 << 3` parses `(1 + 2) << 3` and
+  // `1 << 2 < 8` parses `(1 << 2) < 8`.
+  private parseShift(): ValueIR {
+    let left = this.parseAdditive();
+    while (true) {
+      const k = this.peek().kind;
+      if (k !== 'shl' && k !== 'shr' && k !== 'ushr') break;
+      const op = this.advance().value as '<<' | '>>' | '>>>';
       const right = this.parseAdditive();
       left = { kind: 'binary', op, left, right };
     }
@@ -1030,6 +1128,12 @@ class Parser {
     if (this.peek().kind === 'minus') {
       this.advance();
       return { kind: 'unary', op: '-', argument: this.parseUnary() };
+    }
+    // Slice 6 — bitwise NOT `~`, same precedence level as the other unary
+    // prefixes, right-recursive (so `~~x` and `~await f()` nest correctly).
+    if (this.peek().kind === 'tilde') {
+      this.advance();
+      return { kind: 'unary', op: '~', argument: this.parseUnary() };
     }
     if (this.peek().kind === 'ident' && this.peek().value === 'typeof') {
       this.advance();
