@@ -45,26 +45,8 @@ describe('S6 tokenizer — bitwise/shift operators', () => {
 
   test('longest-match: >>> before >> before >=/>; << before <=/<', () => {
     // `>>>` must win over `>>` and `>`; `>>=`-style is out of scope.
-    expect(kinds('a >>> b >> c > d')).toEqual([
-      'ident',
-      'ushr',
-      'ident',
-      'shr',
-      'ident',
-      'gt',
-      'ident',
-      'eof',
-    ]);
-    expect(kinds('a << b <= c < d')).toEqual([
-      'ident',
-      'shl',
-      'ident',
-      'lte',
-      'ident',
-      'lt',
-      'ident',
-      'eof',
-    ]);
+    expect(kinds('a >>> b >> c > d')).toEqual(['ident', 'ushr', 'ident', 'shr', 'ident', 'gt', 'ident', 'eof']);
+    expect(kinds('a << b <= c < d')).toEqual(['ident', 'shl', 'ident', 'lte', 'ident', 'lt', 'ident', 'eof']);
   });
 
   test('|| still wins over |, && over &', () => {
