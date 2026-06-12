@@ -26,6 +26,9 @@ export {
   KERN_JS_HELPER_PY,
   KERN_JS_OBJECT_HELPERS_PY,
   KERN_JS_STRING_HELPERS_PY,
+  // Slice S7 — dual-sentinel nullish/equality substrate
+  // (`_kern_is_nullish` / `_kern_strict_equal` / `_kern_loose_equal`).
+  KERN_NULLISH_HELPER_PY,
   KERN_PAIR_HELPERS_PY,
   KERN_TMOD_HELPER_PY,
   // Slice-0.75 ToNumericPrimitive substrate. PURE ADDITION: not yet wired into

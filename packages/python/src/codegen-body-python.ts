@@ -64,6 +64,7 @@ import {
   KERN_FMT_HELPER_PY,
   KERN_JS_ARRAY_HELPERS_PY,
   KERN_JS_HELPER_PY,
+  KERN_NULLISH_HELPER_PY,
   KERN_PAIR_HELPERS_PY,
   KERN_TMOD_HELPER_PY,
   KERN_TO_NUMBER_HELPER_PY,
@@ -2178,6 +2179,24 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
         }
         const tmp = `__k_nc${++ctx.gensymCounter}`;
         return `(${tmp} if ((${tmp} := ${left}) is not None and ${tmp} is not _KERN_UNDEFINED) else ${right})`;
+      }
+
+      // Slice S7 — split loose (`==`/`!=`) and strict (`===`/`!==`) equality so
+      // the null/undefined boundary matches JS: `undefined == null` is True (both
+      // nullish), `undefined === null` is False (distinct identities). Pre-S7
+      // both lowered to Python `==`, which on the sentinel/None pair is False —
+      // wrong for the loose op. Routed through the helper pair only in native
+      // (coerce) bodies; the helper-less Ground/React layer keeps the raw
+      // `==`/`!=` mapping (it never materializes the sentinel, so the nullish
+      // crossing cannot arise there). Function-call form sidesteps Python's
+      // comparison-chaining entirely, so no chain-paren handling is needed for
+      // the equality ops themselves; chained comparison CHILDREN still recurse
+      // through `emitPyExprCtx` and self-parenthesize as before.
+      if (ctx.coerceJsValues && (node.op === '===' || node.op === '!==' || node.op === '==' || node.op === '!=')) {
+        ctx.helpers.add(KERN_NULLISH_HELPER_PY);
+        const fn = node.op === '===' || node.op === '!==' ? '_kern_strict_equal' : '_kern_loose_equal';
+        const call = `${fn}(${left}, ${right})`;
+        return node.op === '!==' || node.op === '!=' ? `(not ${call})` : call;
       }
 
       const forceLeft = needsComparisonChainParens(node.left, node.op);

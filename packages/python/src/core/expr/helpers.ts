@@ -1,3 +1,50 @@
+// Slice S7 — dual-sentinel nullish/equality substrate. `_KERN_UNDEFINED` is a
+// FIRST-CLASS Python value distinct from `None`: `undefined` is nullish with
+// `null` (loose `==` crossing TRUE, `??`/`?.` treat both as nullish) but is NOT
+// strictly equal to `null` (`===` FALSE). The two equality helpers split the JS
+// `==` (loose) and `===` (strict) operators that previously both lowered to
+// Python `==`:
+//   _kern_is_nullish(x)      -> x is None or x is _KERN_UNDEFINED
+//   _kern_strict_equal(a, b) -> SameValue-ish: a nullish operand is equal only
+//                               to the SAME nullish identity (undefined===undefined,
+//                               null===null, but undefined!==null); otherwise `==`.
+//   _kern_loose_equal(a, b)  -> both-nullish crossing is TRUE; else strict.
+// The sentinel is matched by IDENTITY (`is`), never by value, so the undefined
+// `__bool__ = False` override never leaks into the equality semantics. The block
+// self-defines `_KERN_UNDEFINED` via the same idempotent `try/except NameError`
+// guard the fmt/array/js helper blocks use, so it stands alone if registered
+// without them.
+export const KERN_NULLISH_HELPER_PY = [
+  'try:',
+  '    _KERN_UNDEFINED',
+  'except NameError:',
+  '    class _KernUndefined:',
+  '        def __bool__(self): return False',
+  "        def __repr__(self): return 'undefined'",
+  "        def __str__(self): return 'undefined'",
+  '    _KERN_UNDEFINED = _KernUndefined()',
+  '',
+  'def _kern_is_nullish(x):',
+  '    return x is None or x is _KERN_UNDEFINED',
+  '',
+  'def _kern_strict_equal(a, b):',
+  '    if a is _KERN_UNDEFINED or b is _KERN_UNDEFINED:',
+  '        return a is b',
+  '    if a is None or b is None:',
+  '        return a is b',
+  // Python `bool` subclasses `int`, so `0 == False` / `1 == True` are True — but
+  // JS `0 === false` / `1 === true` are FALSE. Reject a bool-vs-non-bool pair
+  // before the value compare so the numeric/boolean type distinction survives.
+  '    if (type(a) is bool) != (type(b) is bool):',
+  '        return False',
+  '    return a == b',
+  '',
+  'def _kern_loose_equal(a, b):',
+  '    if _kern_is_nullish(a) and _kern_is_nullish(b):',
+  '        return True',
+  '    return _kern_strict_equal(a, b)',
+].join('\n');
+
 export const KERN_PAIR_HELPERS_PY = [
   'def _kern_pairs(__k_v):',
   '    return __k_v.items() if hasattr(__k_v, "items") else iter(__k_v)',
@@ -321,6 +368,19 @@ export const KERN_JS_ARRAY_HELPERS_PY = [
 ].join('\n');
 
 export const KERN_JS_OBJECT_HELPERS_PY = [
+  // Slice S7 — `Object.keys/values/entries` must throw TypeError parity for BOTH
+  // null and the undefined sentinel (JS `Object.keys(undefined)` throws). The
+  // sentinel is defined here via the idempotent guard so the identity check is
+  // safe even when this block is registered without the fmt/nullish blocks.
+  'try:',
+  '    _KERN_UNDEFINED',
+  'except NameError:',
+  '    class _KernUndefined:',
+  '        def __bool__(self): return False',
+  "        def __repr__(self): return 'undefined'",
+  "        def __str__(self): return 'undefined'",
+  '    _KERN_UNDEFINED = _KernUndefined()',
+  '',
   'def _kern_js_is_array_index(__k_key):',
   '    __k_s = str(__k_key)',
   '    if not __k_s.isdigit(): return False',
@@ -329,7 +389,7 @@ export const KERN_JS_OBJECT_HELPERS_PY = [
   '    return 0 <= __k_n < 4294967295 and __k_s == str(__k_n)',
   '',
   'def _kern_js_property_items(__k_obj):',
-  '    if __k_obj is None:',
+  '    if __k_obj is None or __k_obj is _KERN_UNDEFINED:',
   '        raise TypeError("Cannot convert undefined or null to object")',
   '    if hasattr(__k_obj, "items"):',
   '        __k_raw = list(__k_obj.items())',
