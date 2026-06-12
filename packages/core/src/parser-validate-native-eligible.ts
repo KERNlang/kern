@@ -17,25 +17,32 @@
  *  filter the code out at the consumer site.
  */
 
-import { classifyHandlerBody, isExplicitForeignRawBody } from './native-eligibility.js';
+import { classifyHandlerBody, type HandlerBodyClassifier, isExplicitForeignRawBody } from './native-eligibility.js';
 import { createParseState, emitDiagnostic, type ParseState } from './parser-diagnostics.js';
 import type { IRNode, ParseDiagnostic } from './types.js';
 
-export function validateNativeEligible(state: ParseState, root: IRNode): void {
-  walk(state, root);
+/** Slice 0.9 — the `NATIVE_KERN_ELIGIBLE` advisory hint requires the
+ *  TypeScript-AST eligibility classifier. To keep the parser browser-safe, the
+ *  classifier is INJECTED (Node/codegen callers pass `classifyHandlerBodyAst`
+ *  via `@kernlang/core/node`). When absent (browser/default parse), the advisory
+ *  hint is simply skipped — it is a non-essential migration nudge, not a
+ *  correctness diagnostic. */
+export function validateNativeEligible(state: ParseState, root: IRNode, classify?: HandlerBodyClassifier): void {
+  if (!classify) return;
+  walk(state, root, classify);
 }
 
 /** Test-friendly wrapper — runs the validator over a hand-built IRNode and
  *  returns the collected diagnostics. Used by the unit test that exercises
  *  the `lang="kern"` skip path, which the parser cannot produce end-to-end
  *  (the parser drops raw bodies on `lang="kern" <<< … >>>`). */
-export function collectNativeEligibleHints(root: IRNode): ParseDiagnostic[] {
+export function collectNativeEligibleHints(root: IRNode, classify: HandlerBodyClassifier): ParseDiagnostic[] {
   const state = createParseState();
-  validateNativeEligible(state, root);
+  validateNativeEligible(state, root, classify);
   return state.diagnostics;
 }
 
-function walk(state: ParseState, node: IRNode): void {
+function walk(state: ParseState, node: IRNode, classify: HandlerBodyClassifier): void {
   if (node.type === 'handler') {
     const props = node.props ?? {};
     const code = props.code;
@@ -50,7 +57,7 @@ function walk(state: ParseState, node: IRNode): void {
       ) {
         // Explicit foreign boundaries are reviewed as interop, not migration gaps.
       } else {
-        const result = classifyHandlerBody(code);
+        const result = classifyHandlerBody(classify, code);
         if (result.eligible) {
           const loc = node.loc ?? { line: 1, col: 1, endCol: 2 };
           emitDiagnostic(
@@ -67,6 +74,6 @@ function walk(state: ParseState, node: IRNode): void {
     }
   }
   if (node.children) {
-    for (const child of node.children) walk(state, child);
+    for (const child of node.children) walk(state, child, classify);
   }
 }

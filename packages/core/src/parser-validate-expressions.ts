@@ -2,13 +2,14 @@
  *  schema kind is 'expression'. Failures become INVALID_EXPRESSION diagnostics.
  *  Does NOT change codegen — strings flow through unchanged on success. */
 
+import type { ClosureClassifier } from './closure-classifier.js';
 import type { ParseState } from './parser-diagnostics.js';
 import { emitDiagnostic } from './parser-diagnostics.js';
 import { parseExpression } from './parser-expression.js';
 import { NODE_SCHEMAS } from './schema.js';
 import { type IRNode, isExprObject } from './types.js';
 
-function validateNode(state: ParseState, node: IRNode): void {
+function validateNode(state: ParseState, node: IRNode, closureClassifier?: ClosureClassifier): void {
   const schema = NODE_SCHEMAS[node.type as string];
   if (schema?.props && node.props) {
     const quoted = node.__quotedProps;
@@ -21,7 +22,7 @@ function validateNode(state: ParseState, node: IRNode): void {
       // string literals, not expressions, even though the schema says expression.
       if (quoted?.includes(propName)) continue;
       try {
-        parseExpression(val);
+        parseExpression(val, { closureClassifier });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         const detail = val.includes('<<<')
@@ -40,10 +41,10 @@ function validateNode(state: ParseState, node: IRNode): void {
     }
   }
   if (node.children) {
-    for (const child of node.children) validateNode(state, child);
+    for (const child of node.children) validateNode(state, child, closureClassifier);
   }
 }
 
-export function validateExpressions(state: ParseState, root: IRNode): void {
-  validateNode(state, root);
+export function validateExpressions(state: ParseState, root: IRNode, closureClassifier?: ClosureClassifier): void {
+  validateNode(state, root, closureClassifier);
 }

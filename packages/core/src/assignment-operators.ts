@@ -1,5 +1,8 @@
 // Facade. Source of truth: packages/core/src/kern/utils/assignment-operators.kern.
-import ts from 'typescript';
+// NOTE (slice 0.9): the `ts.SyntaxKind`-based `supportedCompoundAssignmentOperator`
+// was split into `assignment-operators-ts.ts` (Node/TS side) so this module — and
+// the browser-safe `@kernlang/core` barrel that re-exports its string predicates —
+// stays free of the `typescript` import.
 import type { PostfixMutationOperator, SupportedAssignOperator } from './generated/utils/assignment-operators.js';
 import {
   SUPPORTED_ASSIGN_OPERATORS as GENERATED_SUPPORTED_ASSIGN_OPERATORS,
@@ -20,33 +23,4 @@ export function isSupportedAssignOperator(op: string): op is SupportedAssignOper
 
 export function isPostfixMutationOperator(op: string): op is PostfixMutationOperator {
   return isGeneratedPostfixMutationOperator(op);
-}
-
-export function supportedCompoundAssignmentOperator(kind: ts.SyntaxKind): SupportedAssignOperator | null {
-  switch (kind) {
-    case ts.SyntaxKind.PlusEqualsToken:
-      return '+=';
-    case ts.SyntaxKind.MinusEqualsToken:
-      return '-=';
-    case ts.SyntaxKind.AsteriskEqualsToken:
-      return '*=';
-    case ts.SyntaxKind.SlashEqualsToken:
-      return '/=';
-    case ts.SyntaxKind.PercentEqualsToken:
-      return '%=';
-    case ts.SyntaxKind.AsteriskAsteriskEqualsToken:
-      return '**=';
-    case ts.SyntaxKind.AmpersandEqualsToken:
-      return '&=';
-    case ts.SyntaxKind.BarEqualsToken:
-      return '|=';
-    case ts.SyntaxKind.CaretEqualsToken:
-      return '^=';
-    case ts.SyntaxKind.LessThanLessThanEqualsToken:
-      return '<<=';
-    case ts.SyntaxKind.GreaterThanGreaterThanEqualsToken:
-      return '>>=';
-    default:
-      return null;
-  }
 }
