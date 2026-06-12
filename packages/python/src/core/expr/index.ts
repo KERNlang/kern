@@ -28,6 +28,11 @@ export {
   KERN_JS_STRING_HELPERS_PY,
   KERN_PAIR_HELPERS_PY,
   KERN_TMOD_HELPER_PY,
+  // Slice-0.75 ToNumericPrimitive substrate. PURE ADDITION: not yet wired into
+  // any prelude/helper-block registry and not routed through production — the
+  // differential battery (ir-semantics-to-number-py.test.ts) is its only
+  // consumer until the future routing slice.
+  KERN_TO_NUMBER_HELPER_PY,
 } from './helpers.js';
 
 // Quoted strings absorbed by the alternation; only literal `===`/`!==`

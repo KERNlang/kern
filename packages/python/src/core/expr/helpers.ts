@@ -95,6 +95,127 @@ export const KERN_I32_HELPER_PY = [
   '    return ((val & 0xFFFFFFFF) ^ 0x80000000) - 0x80000000',
 ].join('\n');
 
+/**
+ * ToNumericPrimitive substrate (slice 0.75) — Python twin of the
+ * `@kernlang/core` `to-numeric` decision kernel.
+ *
+ * Single Python-side source of numeric coercion truth for the FROZEN primitive
+ * domain (numbers, ECMA numeric strings, booleans, null, undefined sentinel).
+ * The emitted Python encodes the ECMA-262 StringNumericLiteral grammar
+ * EXPLICITLY rather than delegating to `float(...)`, because `float()` diverges
+ * from JS `Number()` on three load-bearing cases: it accepts numeric separators
+ * (`float('1_000') == 1000.0`), case-insensitive infinity/NaN words
+ * (`float('infinity')`, `float('nan')`), and raises on `0x`/`0b`/`0o` prefixes.
+ *
+ * Return-type contract (tribunal amendments 1 & 2):
+ *   - `_kern_to_number(x)`            -> Python `float` for EVERY numeric output
+ *     (bool/null/hex/binary/octal inputs included); `-0.0` sign survives; NaN
+ *     and ±inf preserved.
+ *   - `_kern_string_to_number(text)` -> `float` (NaN for any non-grammar string).
+ *   - `_kern_number_to_int32(n)`     -> `int`   (signed 32-bit, shift-mask domain).
+ *   - `_kern_number_to_uint32(n)`    -> `int`   (unsigned 32-bit).
+ *   - `_kern_to_int32(x)`            -> `int`   = int32(to_number(x)).
+ *   - `_kern_to_uint32(x)`           -> `int`   = uint32(to_number(x)).
+ *   - `_kern_to_integer_or_infinity(x)` -> `float` (int-valued, or ±inf).
+ *
+ * Fail-closed: objects/arrays/functions/symbols/custom-valueOf RAISE
+ * `_KernNumericCoercionError` (the caller decides) — full ToPrimitive deferred.
+ *
+ * Single-source-of-int32 note: this block is the coercion-correct int32 path
+ * going forward. The legacy `_i32` (KERN_I32_HELPER_PY) embeds its OWN
+ * float()-based coercion and is still wired to production
+ * (codegen-body-python.ts ToInt32 lowering). Slice 0.75 is a PURE ADDITION —
+ * nothing is rerouted here, so both coexist; the future routing slice retires
+ * `_i32` in favor of `_kern_to_int32` once the fallback count hits zero.
+ *
+ * The ECMA whitespace string below is the exact `StrWhiteSpace` set
+ * (`WhiteSpace` + `LineTerminator`) JS trims from a StringNumericLiteral, kept
+ * byte-aligned with `ECMA_STR_WHITESPACE` in the TS kernel.
+ */
+export const KERN_TO_NUMBER_HELPER_PY = [
+  'import math',
+  'import re',
+  '',
+  'try:',
+  '    _KERN_UNDEFINED',
+  'except NameError:',
+  '    class _KernUndefined:',
+  '        def __bool__(self): return False',
+  "        def __repr__(self): return 'undefined'",
+  "        def __str__(self): return 'undefined'",
+  '    _KERN_UNDEFINED = _KernUndefined()',
+  '',
+  'class _KernNumericCoercionError(TypeError):',
+  '    pass',
+  '',
+  // ECMA StrWhiteSpace = WhiteSpace + LineTerminator. Encoded as \u escapes so
+  // the emitted source stays ASCII; Python materializes the real code points.
+  "_KERN_ECMA_WS = '\\t\\n\\x0b\\x0c\\r \\xa0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff'",
+  "_KERN_DECIMAL_RE = re.compile(r'^[+-]?(?:(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?|[0-9]+)$')",
+  "_KERN_HEX_RE = re.compile(r'^0[xX][0-9a-fA-F]+$')",
+  "_KERN_BIN_RE = re.compile(r'^0[bB][01]+$')",
+  "_KERN_OCT_RE = re.compile(r'^0[oO][0-7]+$')",
+  '',
+  'def _kern_string_to_number(text):',
+  '    s = text.strip(_KERN_ECMA_WS)',
+  "    if s == '':",
+  '        return 0.0',
+  "    if s == 'Infinity' or s == '+Infinity':",
+  "        return float('inf')",
+  "    if s == '-Infinity':",
+  "        return float('-inf')",
+  '    if _KERN_HEX_RE.match(s):',
+  '        return float(int(s[2:], 16))',
+  '    if _KERN_BIN_RE.match(s):',
+  '        return float(int(s[2:], 2))',
+  '    if _KERN_OCT_RE.match(s):',
+  '        return float(int(s[2:], 8))',
+  '    if not _KERN_DECIMAL_RE.match(s):',
+  "        return float('nan')",
+  '    try:',
+  '        return float(s)',
+  '    except ValueError:',
+  "        return float('nan')",
+  '',
+  'def _kern_to_number(x):',
+  '    if x is _KERN_UNDEFINED:',
+  "        return float('nan')",
+  '    if x is None:',
+  '        return 0.0',
+  '    if isinstance(x, bool):',
+  '        return 1.0 if x else 0.0',
+  '    if isinstance(x, (int, float)):',
+  '        return float(x)',
+  '    if isinstance(x, str):',
+  '        return _kern_string_to_number(x)',
+  "    raise _KernNumericCoercionError('KERN ToNumber supports only primitive values (slice-0.75); full ToPrimitive deferred')",
+  '',
+  'def _kern_number_to_int32(n):',
+  "    if n != n or n == 0 or n in (float('inf'), float('-inf')):",
+  '        return 0',
+  '    i = math.trunc(n)',
+  '    return ((i & 0xFFFFFFFF) ^ 0x80000000) - 0x80000000',
+  '',
+  'def _kern_number_to_uint32(n):',
+  "    if n != n or n == 0 or n in (float('inf'), float('-inf')):",
+  '        return 0',
+  '    return math.trunc(n) & 0xFFFFFFFF',
+  '',
+  'def _kern_to_int32(x):',
+  '    return _kern_number_to_int32(_kern_to_number(x))',
+  '',
+  'def _kern_to_uint32(x):',
+  '    return _kern_number_to_uint32(_kern_to_number(x))',
+  '',
+  'def _kern_to_integer_or_infinity(x):',
+  '    n = _kern_to_number(x)',
+  '    if n != n:',
+  '        return 0.0',
+  "    if n in (float('inf'), float('-inf')):",
+  '        return n',
+  '    return float(math.trunc(n))',
+].join('\n');
+
 export const KERN_TMOD_HELPER_PY = [
   'import math',
   'def _tmod(a, b):',

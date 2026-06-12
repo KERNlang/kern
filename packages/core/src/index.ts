@@ -331,6 +331,24 @@ export {
   snapshotRegistry,
   tracesEqual,
 } from './ir/semantics/index.js';
+// ToNumericPrimitive decision kernel — slice-0.75 substrate (browser-safe).
+export type { KernNumericInput, NumericResult } from './ir/semantics/to-numeric.js';
+export {
+  ECMA_STR_WHITESPACE,
+  KERN_UNDEFINED_SENTINEL,
+  numberToInt32,
+  numberToIntegerOrInfinity,
+  numberToUint32,
+  stringToNumber,
+  toInt32,
+  toIntegerOrInfinity,
+  toNumber,
+  toUint32,
+} from './ir/semantics/to-numeric.js';
+// NOTE: the to-numeric differential FIXTURE arrays are deliberately NOT
+// exported from this public barrel (review finding: battery data is not
+// shipped runtime API). Test legs import './ir/semantics/to-numeric-fixtures.js'
+// (or its dist path) directly.
 export type { GapCategory, GapClassification } from './migrate-literals.js';
 export { classifyHandlerGap, isInlineSafeExpression, isInlineSafeLiteral } from './migrate-literals.js';
 // Native KERN handler eligibility (slice 5a) — heuristic classifier used by
