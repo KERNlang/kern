@@ -5,6 +5,7 @@ import {
   type CoreFixtureValue,
   evaluateCoreContractOperation,
 } from '../core-contracts/index.js';
+import { numberToInt32, numberToUint32 } from '../ir/semantics/to-numeric.js';
 import { parseExpression } from '../parser-expression.js';
 import { splitPortableExpressionList } from '../portable-expression-list.js';
 import type { IRNode } from '../types.js';
@@ -466,6 +467,14 @@ function evalUnary(node: Extract<ValueIR, { kind: 'unary' }>, env: CoreRuntimeEn
     if (arg.kind !== 'number') throw new Error(`KERN core runtime unary ${node.op} requires a number.`);
     return node.op === '-' ? dispatchCoreContractOperation('Number.negate', [arg.value]) : arg;
   }
+  // Slice 6 — bitwise NOT `~`: ToInt32(operand), bitwise-not, Int32 result.
+  // The operand is already an evaluated number here; ToInt32 = numberToInt32.
+  if (node.op === '~') {
+    if (arg.kind !== 'number') throw new Error('KERN core runtime unary ~ requires a number.');
+    // `~x === -(x+1)` on the Int32 value; recompute through numberToInt32 so
+    // the result stays in signed-32 range (matches JS `~`).
+    return kNumber(numberToInt32(~numberToInt32(arg.value)));
+  }
   throw new Error(`KERN core runtime unsupported unary operator: ${node.op}`);
 }
 
@@ -510,8 +519,56 @@ function evalBinary(node: Extract<ValueIR, { kind: 'binary' }>, env: CoreRuntime
     case '>':
     case '>=':
       return evalOrderedComparison(node.op, left, right);
+    // Slice 6 — bitwise / shift on the ToInt32 substrate. Operands are already
+    // evaluated numbers; ToInt32/ToUint32 = numberToInt32/numberToUint32.
+    case '&':
+    case '|':
+    case '^':
+    case '<<':
+    case '>>':
+    case '>>>':
+      return evalBitwiseBinary(node.op, left, right);
     default:
       throw new Error(`KERN core runtime unsupported binary operator: ${node.op}`);
+  }
+}
+
+/**
+ * Slice 6 — JS bitwise/shift semantics on the slice-0.75 ToInt32 substrate.
+ *
+ *   & | ^      ToInt32(a) <op> ToInt32(b) -> Int32
+ *   << >>      ToInt32(a) <op> (ToUint32(b) & 31) -> Int32
+ *   >>>        ToUint32(a) >> (ToUint32(b) & 31) -> Uint32 (zero-fill)
+ *
+ * The converted operands are already in signed/unsigned-32 range, so the native
+ * JS operators applied to them reproduce the spec exactly; the final
+ * numberToInt32/numberToUint32 re-normalizes (and, for `>>>`, lifts the result
+ * out of JS's signed-`>>` range into the 0..2^32-1 Uint32 codomain).
+ */
+function evalBitwiseBinary(op: string, left: KernValue, right: KernValue): KernValue {
+  if (left.kind !== 'number' || right.kind !== 'number') {
+    throw new Error(`KERN core runtime ${op} requires two numbers.`);
+  }
+  const a32 = numberToInt32(left.value);
+  switch (op) {
+    case '&':
+      return kNumber(numberToInt32(a32 & numberToInt32(right.value)));
+    case '|':
+      return kNumber(numberToInt32(a32 | numberToInt32(right.value)));
+    case '^':
+      return kNumber(numberToInt32(a32 ^ numberToInt32(right.value)));
+    case '<<':
+      return kNumber(numberToInt32(a32 << (numberToUint32(right.value) & 31)));
+    case '>>':
+      return kNumber(numberToInt32(a32 >> (numberToUint32(right.value) & 31)));
+    case '>>>': {
+      // Zero-fill: operate on the UNSIGNED left operand. JS `>>>` already yields
+      // a Uint32; numberToUint32 keeps it in the 0..2^32-1 codomain.
+      const shifted = numberToUint32(left.value) >>> (numberToUint32(right.value) & 31);
+      return kNumber(numberToUint32(shifted));
+    }
+    default:
+      throw new Error(`KERN core runtime unsupported bitwise operator: ${op}`);
   }
 }
 

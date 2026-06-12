@@ -62,11 +62,11 @@ import {
 import { buildPythonParamList } from './codegen-helpers.js';
 import {
   KERN_FMT_HELPER_PY,
-  KERN_I32_HELPER_PY,
   KERN_JS_ARRAY_HELPERS_PY,
   KERN_JS_HELPER_PY,
   KERN_PAIR_HELPERS_PY,
   KERN_TMOD_HELPER_PY,
+  KERN_TO_NUMBER_HELPER_PY,
 } from './core/expr/index.js';
 import {
   isSharedPortableArrayMethod,
@@ -2050,17 +2050,21 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       return out;
     }
     case 'binary': {
-      if (
-        node.op === '|' ||
-        node.op === '&' ||
-        node.op === '^' ||
-        node.op === '<<' ||
-        node.op === '>>' ||
-        node.op === '%'
-      ) {
+      // Slice 6 — bitwise / shift on the slice-0.75 ToInt32 substrate. Emitted
+      // DIRECTLY as helper-wrapped strings (operands recurse through
+      // `emitPyExprCtx`), so nested bitwise ops compose without the double-
+      // dispatch recursion an AST-rewrite-then-re-emit would cause.
+      if (node.op === '|' || node.op === '&' || node.op === '^' || node.op === '<<' || node.op === '>>') {
+        return emitBitwiseShiftPy(node.op, node.left, node.right, ctx);
+      }
+      if (node.op === '>>>') {
+        return emitUnsignedShiftPy(node.left, node.right, ctx);
+      }
+      if (node.op === '%') {
+        // Modulo keeps the existing `_tmod` lowering (orthogonal to S6).
         const transformed = lowerBitwiseAndModuloAST(node);
         registerHelpers(transformed, ctx);
-        return emitPyExprCtx(transformed, ctx);
+        return emitLoweredBitwisePy(transformed, ctx);
       }
       // Slice 2c — arithmetic / comparison / logical lowering for Python.
       // Use precedence-aware paren-wrapping so `a + b * c` doesn't redundantly
@@ -2185,9 +2189,9 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
     }
     case 'unary': {
       if (node.op === '~') {
-        const transformed = lowerBitwiseAndModuloAST(node);
-        registerHelpers(transformed, ctx);
-        return emitPyExprCtx(transformed, ctx);
+        // ~a  ->  _kern_to_int32(~_kern_to_int32(a))
+        ctx.helpers.add(KERN_TO_NUMBER_HELPER_PY);
+        return `_kern_to_int32(~_kern_to_int32(${emitPyExprCtx(node.argument, ctx)}))`;
       }
       // Slice 2c — `!x` → `not x`, `-x` → `-x`.
       // Slice typeof — expose the now-eligible native KERN `typeof` shape on
@@ -3515,33 +3519,142 @@ function lowerListLambdaPython(
   }
 }
 
+/** Slice 6 — Python bitwise/shift operator precedence (higher binds tighter).
+ *  Matches CPython's grammar: `|` < `^` < `&` < shift < unary `~`. Used to
+ *  parenthesize the LOWERED tree so the emitted Python reproduces the JS-shaped
+ *  grouping (e.g. `a << (b & 31)` must keep the mask parens, since Python's
+ *  `<<` binds tighter than `&`). */
+const PY_BITWISE_PREC: Record<string, number> = { '|': 1, '^': 2, '&': 3, '<<': 4, '>>': 4 };
+
+/**
+ * Slice 6 — emit an ALREADY-LOWERED bitwise/shift tree to a Python string.
+ *
+ * The tree produced by `lowerBitwiseAndModuloAST` contains FINAL Python
+ * operators (`| & ^ << >>` and unary `~`) whose operands are already wrapped in
+ * `_kern_to_int32` / `_kern_to_uint32` calls. Re-routing those operators back
+ * through `emitPyExprCtx`'s bitwise branch would re-lower them and recurse
+ * forever, so this dedicated emitter renders the bitwise/shift `binary` and the
+ * `~` `unary` verbatim (with precedence-correct parens) and delegates every
+ * other node kind (the leaves: calls, idents, literals, …) to `emitPyExprCtx`.
+ */
+function emitLoweredBitwisePy(node: ValueIR, ctx: BodyEmitContext): string {
+  // The lowering's own wrapper calls (`_kern_to_int32` / `_kern_to_uint32` /
+  // `_tmod`) must stay in THIS emit path: their argument is an already-lowered
+  // bitwise/shift subtree, and handing the whole call to `emitPyExprCtx` would
+  // re-route that inner subtree back into the bitwise branch and recurse
+  // forever. Emit the wrapper directly and recurse through its argument here.
+  if (
+    node.kind === 'call' &&
+    node.callee.kind === 'ident' &&
+    (node.callee.name === '_kern_to_int32' || node.callee.name === '_kern_to_uint32' || node.callee.name === '_tmod')
+  ) {
+    const args = node.args.map((a) => emitLoweredBitwisePy(a, ctx)).join(', ');
+    return `${node.callee.name}(${args})`;
+  }
+  if (node.kind === 'binary' && node.op in PY_BITWISE_PREC) {
+    const parentPrec = PY_BITWISE_PREC[node.op];
+    const emitChild = (child: ValueIR, isRight: boolean): string => {
+      const s = emitLoweredBitwisePy(child, ctx);
+      if (child.kind === 'binary' && child.op in PY_BITWISE_PREC) {
+        const childPrec = PY_BITWISE_PREC[child.op];
+        // Lower-precedence child always needs parens; an equal-precedence child
+        // on the RIGHT needs parens to preserve left-associative grouping.
+        if (childPrec < parentPrec || (childPrec === parentPrec && isRight)) return `(${s})`;
+      }
+      return s;
+    };
+    return `${emitChild(node.left, false)} ${node.op} ${emitChild(node.right, true)}`;
+  }
+  if (node.kind === 'unary' && node.op === '~') {
+    const inner = emitLoweredBitwisePy(node.argument, ctx);
+    // `~` binds tighter than every binary bitwise/shift op, so a binary argument
+    // must be parenthesized (e.g. `~(a | b)`).
+    const wrapped = node.argument.kind === 'binary' && node.argument.op in PY_BITWISE_PREC ? `(${inner})` : inner;
+    return `~${wrapped}`;
+  }
+  // Leaf / non-bitwise node — hand back to the main expression emitter.
+  return emitPyExprCtx(node, ctx);
+}
+
+/**
+ * Slice 6 — emit a binary bitwise/shift op `a <op> b` (op ∈ `| & ^ << >>`) on
+ * the slice-0.75 ToInt32 substrate, per the S6 emission contract:
+ *
+ *   a | b   ->  _kern_to_int32(_kern_to_int32(a) | _kern_to_int32(b))
+ *   a << b  ->  _kern_to_int32(_kern_to_int32(a) << (_kern_to_uint32(b) & 31))
+ *
+ * Each operand subexpression appears EXACTLY ONCE, so Python evaluates each side
+ * once, left-to-right — matching JS evaluation-once order with no temporaries.
+ */
+function emitBitwiseShiftPy(
+  op: '|' | '&' | '^' | '<<' | '>>',
+  left: ValueIR,
+  right: ValueIR,
+  ctx: BodyEmitContext,
+): string {
+  ctx.helpers.add(KERN_TO_NUMBER_HELPER_PY);
+  const l = `_kern_to_int32(${emitPyExprCtx(left, ctx)})`;
+  if (op === '<<' || op === '>>') {
+    // Shift count: ToUint32 then `& 31`.
+    const count = `(_kern_to_uint32(${emitPyExprCtx(right, ctx)}) & 31)`;
+    return `_kern_to_int32(${l} ${op} ${count})`;
+  }
+  const r = `_kern_to_int32(${emitPyExprCtx(right, ctx)})`;
+  return `_kern_to_int32(${l} ${op} ${r})`;
+}
+
+/**
+ * Slice 6 — emit `a >>> b` (unsigned/zero-fill right shift):
+ *
+ *   a >>> b  ->  _kern_to_uint32(_kern_to_uint32(a) >> (_kern_to_uint32(b) & 31))
+ *
+ * Both operands are non-negative after `_kern_to_uint32`, so Python's raw `>>`
+ * is zero-fill (it NEVER sign-extends here); the outer `_kern_to_uint32` keeps
+ * the result in the 0..2**32-1 Uint32 codomain. Raw signed `>>` on the original
+ * value would sign-extend and is therefore never used.
+ */
+function emitUnsignedShiftPy(left: ValueIR, right: ValueIR, ctx: BodyEmitContext): string {
+  ctx.helpers.add(KERN_TO_NUMBER_HELPER_PY);
+  const l = `_kern_to_uint32(${emitPyExprCtx(left, ctx)})`;
+  const count = `(_kern_to_uint32(${emitPyExprCtx(right, ctx)}) & 31)`;
+  return `_kern_to_uint32(${l} >> ${count})`;
+}
+
 export function lowerBitwiseAndModuloAST(node: ValueIR): ValueIR {
   switch (node.kind) {
     case 'binary': {
       const left = lowerBitwiseAndModuloAST(node.left);
       const right = lowerBitwiseAndModuloAST(node.right);
-      if (node.op === '|' || node.op === '&' || node.op === '^' || node.op === '<<' || node.op === '>>') {
-        let rewrittenRight = right;
-        if (node.op === '<<' || node.op === '>>') {
-          const i32Right = wrapInI32(right);
-          rewrittenRight = {
-            kind: 'binary',
-            op: '&',
-            left: i32Right,
-            right: { kind: 'numLit', value: 31, raw: '31' },
-          };
-        } else {
-          rewrittenRight = wrapInI32(right);
-        }
-        const i32Left = wrapInI32(left);
-        const bitwiseNode: ValueIR = {
+      // Slice 6 — bitwise / shift on the landed slice-0.75 ToInt32 substrate.
+      // Each operand expression appears EXACTLY ONCE in the lowered form (the
+      // helper call wraps it inline), so Python evaluates each side once,
+      // left-to-right — matching JS evaluation-once order without temporaries.
+      if (node.op === '|' || node.op === '&' || node.op === '^') {
+        // a <op> b  ->  _kern_to_int32(_kern_to_int32(a) <op> _kern_to_int32(b))
+        return wrapInToInt32({ kind: 'binary', op: node.op, left: wrapInToInt32(left), right: wrapInToInt32(right) });
+      }
+      if (node.op === '<<' || node.op === '>>') {
+        // a <op> b  ->  _kern_to_int32(_kern_to_int32(a) <op> (_kern_to_uint32(b) & 31))
+        return wrapInToInt32({
           kind: 'binary',
           op: node.op,
-          left: i32Left,
-          right: rewrittenRight,
-        };
-        return wrapInI32(bitwiseNode);
-      } else if (node.op === '%') {
+          left: wrapInToInt32(left),
+          right: maskShiftCount(right),
+        });
+      }
+      if (node.op === '>>>') {
+        // a >>> b  ->  _kern_to_uint32(_kern_to_uint32(a) >> (_kern_to_uint32(b) & 31))
+        // Both operands are non-negative after _kern_to_uint32, so Python's raw
+        // `>>` is zero-fill (NEVER sign-extends); the outer _kern_to_uint32 keeps
+        // the result in the 0..2**32-1 Uint32 codomain.
+        return wrapInToUint32({
+          kind: 'binary',
+          op: '>>',
+          left: wrapInToUint32(left),
+          right: maskShiftCount(right),
+        });
+      }
+      if (node.op === '%') {
         return {
           kind: 'call',
           callee: { kind: 'ident', name: '_tmod' },
@@ -3554,13 +3667,8 @@ export function lowerBitwiseAndModuloAST(node: ValueIR): ValueIR {
     case 'unary': {
       const argument = lowerBitwiseAndModuloAST(node.argument);
       if (node.op === '~') {
-        const i32Arg = wrapInI32(argument);
-        const unaryNode: ValueIR = {
-          kind: 'unary',
-          op: '~',
-          argument: i32Arg,
-        };
-        return wrapInI32(unaryNode);
+        // ~a  ->  _kern_to_int32(~_kern_to_int32(a))
+        return wrapInToInt32({ kind: 'unary', op: '~', argument: wrapInToInt32(argument) });
       }
       return { ...node, argument };
     }
@@ -3616,12 +3724,25 @@ export function lowerBitwiseAndModuloAST(node: ValueIR): ValueIR {
   }
 }
 
-function wrapInI32(node: ValueIR): ValueIR {
+/** Slice 6 — wrap `node` in a `_kern_to_int32(...)` call (the landed slice-0.75
+ *  ToInt32 helper). Emits the operator-level coercion the S6 contract mandates. */
+function wrapInToInt32(node: ValueIR): ValueIR {
+  return { kind: 'call', callee: { kind: 'ident', name: '_kern_to_int32' }, args: [node], optional: false };
+}
+
+/** Slice 6 — wrap `node` in a `_kern_to_uint32(...)` call (slice-0.75 ToUint32). */
+function wrapInToUint32(node: ValueIR): ValueIR {
+  return { kind: 'call', callee: { kind: 'ident', name: '_kern_to_uint32' }, args: [node], optional: false };
+}
+
+/** Slice 6 — JS masks every shift count with `& 31` after ToUint32. Emits
+ *  `(_kern_to_uint32(count) & 31)`. The `count` subexpression appears once. */
+function maskShiftCount(count: ValueIR): ValueIR {
   return {
-    kind: 'call',
-    callee: { kind: 'ident', name: '_i32' },
-    args: [node],
-    optional: false,
+    kind: 'binary',
+    op: '&',
+    left: wrapInToUint32(count),
+    right: { kind: 'numLit', value: 31, raw: '31' },
   };
 }
 
@@ -3629,8 +3750,9 @@ export function registerHelpers(node: ValueIR, ctx: BodyEmitContext) {
   switch (node.kind) {
     case 'call':
       if (node.callee.kind === 'ident') {
-        if (node.callee.name === '_i32') {
-          ctx.helpers.add(KERN_I32_HELPER_PY);
+        if (node.callee.name === '_kern_to_int32' || node.callee.name === '_kern_to_uint32') {
+          // Slice 6 — both helpers live in the single slice-0.75 helper block.
+          ctx.helpers.add(KERN_TO_NUMBER_HELPER_PY);
         } else if (node.callee.name === '_tmod') {
           ctx.helpers.add(KERN_TMOD_HELPER_PY);
         }
