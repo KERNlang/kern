@@ -105,6 +105,40 @@ describe('KERN core runtime values and expressions', () => {
     expect(toHostValue(evalCoreExpression('a === b', env))).toBe(false);
   });
 
+  // Slice S7 — loose (`==`) and strict (`===`) equality split. The ONLY
+  // divergence is the null/undefined crossing: `undefined == null` is TRUE (both
+  // nullish) but `undefined === null` is FALSE (distinct kinds). Pre-S7 a single
+  // `kernEquals` served both, making `undefined == null` wrongly false. This is
+  // the TS/core leg of the same split implemented on the Python target.
+  test('loose vs strict equality on the null/undefined boundary', () => {
+    const env = createCoreRuntimeEnv({ globals: { u: undefined, n: null, z: 0, s: '' } });
+    // loose nullish crossing → true
+    expect(toHostValue(evalCoreExpression('u == n', env))).toBe(true);
+    expect(toHostValue(evalCoreExpression('n == u', env))).toBe(true);
+    expect(toHostValue(evalCoreExpression('u != n', env))).toBe(false);
+    // strict nullish crossing → false
+    expect(toHostValue(evalCoreExpression('u === n', env))).toBe(false);
+    expect(toHostValue(evalCoreExpression('u !== n', env))).toBe(true);
+    // same nullish identity → equal under both
+    expect(toHostValue(evalCoreExpression('u == u', env))).toBe(true);
+    expect(toHostValue(evalCoreExpression('u === u', env))).toBe(true);
+    expect(toHostValue(evalCoreExpression('n === n', env))).toBe(true);
+    // nullish is NOT loosely equal to falsy non-nullish (scoped to the crossing)
+    expect(toHostValue(evalCoreExpression('u == z', env))).toBe(false);
+    expect(toHostValue(evalCoreExpression('n == z', env))).toBe(false);
+    expect(toHostValue(evalCoreExpression('u == s', env))).toBe(false);
+  });
+
+  test('loose and strict agree on non-nullish values', () => {
+    const env = createCoreRuntimeEnv({ globals: { a: 1, b: 1, c: 2, s: 'x', t: 'x' } });
+    expect(toHostValue(evalCoreExpression('a == b', env))).toBe(true);
+    expect(toHostValue(evalCoreExpression('a === b', env))).toBe(true);
+    expect(toHostValue(evalCoreExpression('a == c', env))).toBe(false);
+    expect(toHostValue(evalCoreExpression('a === c', env))).toBe(false);
+    expect(toHostValue(evalCoreExpression('s == t', env))).toBe(true);
+    expect(toHostValue(evalCoreExpression('s === t', env))).toBe(true);
+  });
+
   test('string index misses return KERN undefined', () => {
     const env = createCoreRuntimeEnv({ globals: { label: 'ab' } });
     expect(toHostValue(evalCoreExpression('label[1]', env))).toBe('b');
