@@ -27,9 +27,16 @@ describe('Python Ground Layer: per-module helper prelude dedup', () => {
     expect(output.match(/^_KERN_JS_FILL_ABSENT = object\(\)$/gmu) ?? []).toHaveLength(1);
     expect(output.match(/^def _kern_js_relative_index\(/gmu) ?? []).toHaveLength(1);
 
-    // Both statements still emit, and each uses the (single) helper.
-    expect(output).toContain('a = _kern_js_fill(arr, v, 0, _KERN_JS_FILL_ABSENT) or "x"');
-    expect(output).toContain('b = _kern_js_fill(arr2, w, 0, _KERN_JS_FILL_ABSENT) or "y"');
+    // Both statements still emit, and each uses the (single) helper. Slice S4 —
+    // `firstTruthy` lowers to a `_kern_truthy`-gated walrus chain; the shared
+    // `KERN_JS_HELPER_PY` block (def _kern_truthy/js_truthy) is also deduped once.
+    expect(output.match(/^def _kern_truthy\(/gmu) ?? []).toHaveLength(1);
+    expect(output).toContain(
+      'a = (__k_ft_a_0 if _kern_truthy(__k_ft_a_0 := _kern_js_fill(arr, v, 0, _KERN_JS_FILL_ABSENT)) else "x")',
+    );
+    expect(output).toContain(
+      'b = (__k_ft_b_0 if _kern_truthy(__k_ft_b_0 := _kern_js_fill(arr2, w, 0, _KERN_JS_FILL_ABSENT)) else "y")',
+    );
 
     // Determinism + scope: the single helper def precedes its first use.
     expect(output.indexOf('def _kern_js_fill(')).toBeLessThan(output.indexOf('a ='));
@@ -54,7 +61,10 @@ describe('Python Ground Layer: per-module helper prelude dedup', () => {
     const output = emitModule(['module name=solo', '  firstTruthy name=a values="arr.fill(v), \'x\'"']);
 
     expect(output.match(/^def _kern_js_fill\(/gmu) ?? []).toHaveLength(1);
-    expect(output).toContain('a = _kern_js_fill(arr, v, 0, _KERN_JS_FILL_ABSENT) or "x"');
+    // Slice S4 — single ground `firstTruthy` lowers to the `_kern_truthy`-gated chain.
+    expect(output).toContain(
+      'a = (__k_ft_a_0 if _kern_truthy(__k_ft_a_0 := _kern_js_fill(arr, v, 0, _KERN_JS_FILL_ABSENT)) else "x")',
+    );
     expect(output.indexOf('def _kern_js_fill(')).toBeLessThan(output.indexOf('a ='));
   });
 });

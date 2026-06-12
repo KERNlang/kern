@@ -34,8 +34,9 @@ describe('emitNativeKernBodyPython — elif chain collapse', () => {
       },
     ]);
     const out = emitNativeKernBodyPython(handler);
-    expect(out).toContain('if a:');
-    expect(out).toContain('elif b:');
+    // Slice S4 — `if`/`elif` conditions wrap in `_kern_truthy(...)`.
+    expect(out).toContain('if _kern_truthy(a):');
+    expect(out).toContain('elif _kern_truthy(b):');
     expect(out).not.toContain('else:\n  if');
     expect(out).not.toContain('else:\n    if');
   });
@@ -76,9 +77,10 @@ describe('emitNativeKernBodyPython — elif chain collapse', () => {
       },
     ]);
     const out = emitNativeKernBodyPython(handler);
-    expect(out).toContain('if a:');
-    expect(out).toContain('elif b:');
-    expect(out).toContain('elif c:');
+    // Slice S4 — `if`/`elif` conditions wrap in `_kern_truthy(...)`.
+    expect(out).toContain('if _kern_truthy(a):');
+    expect(out).toContain('elif _kern_truthy(b):');
+    expect(out).toContain('elif _kern_truthy(c):');
     expect(out).toContain('else:');
     expect(out).toContain('return 4');
   });
