@@ -24,12 +24,12 @@ function makeHandler(children: IRNode[]): IRNode {
 // lowers one carries the coercion helper prelude (derived from the source const
 // so it can never drift). Expression-only `emitPyExpression` returns just the
 // expression — no prelude — since it discards the collected helper set.
-const PY_PRELUDE = `${KERN_FMT_HELPER_PY}\n\n`;
-// Slice S4 — a body whose `if cond=`/ternary/`!` touches the truthiness helper
-// surfaces `KERN_JS_HELPER_PY` too. It is added to the helpers Set FIRST (the
-// `if` statement is emitted before the body's coercion fmt helper), so the
-// combined prelude is the JS helper, then the fmt helper.
-const PY_PRELUDE_WITH_TRUTHY = `${KERN_JS_HELPER_PY}\n\n${KERN_FMT_HELPER_PY}\n\n`;
+//
+// Slice S7 — the prior `PY_PRELUDE` / `PY_PRELUDE_WITH_TRUTHY` constants were
+// only used by the `typeof value === "string"` body tests, which now route the
+// `===` through the nullish helper; those usages moved to the
+// `PY_PRELUDE_TYPEOF_EQ*` constants below (the fmt/truthy bases compose into
+// them), so the standalone prelude constants are no longer referenced.
 
 const TYPEOF_VALUE_PY =
   '("undefined" if (__k_typeof1 := value) is _KERN_UNDEFINED else "object" if __k_typeof1 is None else "boolean" if isinstance(__k_typeof1, bool) else "number" if isinstance(__k_typeof1, (int, float)) else "string" if isinstance(__k_typeof1, str) else "function" if callable(__k_typeof1) else "object")';
