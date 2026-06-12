@@ -621,9 +621,11 @@ fn name=probe returns=number
 fn name=probe returns=number[]
   handler
     return value="new Box().oob()"`,
-    // [10,20].at(9) is undefined in JS / None in Python -> wrapped as [null]. Kills a
-    // bare `recv[n]` impl (IndexError on Python). The array-wrap makes the null
-    // observable as JSON `[null]` on both targets.
+    // [10,20].at(9) is `undefined` in JS and the `_KERN_UNDEFINED` sentinel in
+    // Python (S7 value-site ratchet). Wrapped in an array, JSON.stringify maps the
+    // undefined element to `null` on both targets (the Python harness mirrors this
+    // via its sentinel-aware serialize default). Kills a bare `recv[n]` impl
+    // (IndexError on Python). The array-wrap makes the null observable as `[null]`.
     expected: [null],
   },
   {
@@ -1834,8 +1836,21 @@ for (let i = 0; i < FIXTURES.length; i++) {
     const tsFile = join(dir, `mod-${i}.mjs`);
     writeFileSync(tsFile, transpileTs(tsCompiler, tsSource));
 
-    // Python module
-    const pySource = `import json\n${topNodes.map((n) => generatePythonCoreNode(n).join('\n')).join('\n\n')}\nprint(json.dumps(probe()))`;
+    // Python module.
+    // Slice S7 — `Array.at` out-of-range (and other value-site misses) now yield
+    // the `_KERN_UNDEFINED` sentinel, which raw `json.dumps` cannot serialize.
+    // JS `JSON.stringify` maps an `undefined` ARRAY element to `null`, so the
+    // harness's serialization mirrors that with a `default` hook keyed on the
+    // class NAME (the sentinel may not be defined in modules that never use it,
+    // so an isinstance check would NameError — name-match is module-agnostic).
+    const pyProbeSerialize = [
+      'def _kern_conformance_default(__k_o):',
+      "    if type(__k_o).__name__ == '_KernUndefined':",
+      '        return None',
+      "    raise TypeError(f'Object of type {type(__k_o).__name__} is not JSON serializable')",
+      'print(json.dumps(probe(), default=_kern_conformance_default))',
+    ].join('\n');
+    const pySource = `import json\n${topNodes.map((n) => generatePythonCoreNode(n).join('\n')).join('\n\n')}\n${pyProbeSerialize}`;
     const pyFile = join(dir, `mod-${i}.py`);
     writeFileSync(pyFile, pySource);
 
