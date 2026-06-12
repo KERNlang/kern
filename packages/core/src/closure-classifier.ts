@@ -57,3 +57,23 @@ export const unavailableClosureClassifier: ClosureClassifier = {
     return CLOSURE_PARSER_UNAVAILABLE_REASON;
   },
 };
+
+/** Analysis-only classifier: ACCEPTS every block-bodied arrow without
+ *  validating it (review fix, slice 0.9 r2). For re-parse-for-shape-analysis
+ *  sites — the semantic validator and the `super(...)`-detection predicate —
+ *  which inspect the expression STRUCTURE around a block arrow in text the
+ *  main parse pipeline has already gated. Without it, those sites' swallowing
+ *  catches turned a block-bodied arrow into silently-skipped diagnostics /
+ *  misclassified constructors. The lambda IR it produces is NOT
+ *  emission-trusted: never inject this where the parsed result flows to a
+ *  code generator — emitters keep the real (TypeScript-backed) classifier. */
+export const analysisClosureClassifier: ClosureClassifier = {
+  available: true,
+  parseBlock(raw: string): unknown | null {
+    // Opaque non-null: shape analysis never reads the parsed block itself.
+    return raw;
+  },
+  classifyBlock(): string | null {
+    return null;
+  },
+};

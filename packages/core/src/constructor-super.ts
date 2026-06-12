@@ -25,6 +25,7 @@
  *    whether it runs on every path is a separate discipline concern).
  */
 
+import { analysisClosureClassifier } from './closure-classifier.js';
 import { parseExpression } from './parser-expression.js';
 import type { IRNode } from './types.js';
 
@@ -101,7 +102,11 @@ function statementContainsSuperCtorCall(node: IRNode, isRoot: boolean): boolean 
     const code = expressionCode(node.props?.[prop]);
     if (code === undefined) continue;
     try {
-      if (valueContainsSuperCtorCall(parseExpression(code))) return true;
+      // Slice 0.9 review fix (codex blocking, r2): analysis classifier so a
+      // block-bodied arrow inside super(...) args cannot fail the parse and
+      // misclassify an EXPLICIT super constructor as implicit-super mode.
+      if (valueContainsSuperCtorCall(parseExpression(code, { closureClassifier: analysisClosureClassifier })))
+        return true;
     } catch {
       // Unparseable expression text can't be a structural super call — ignore.
     }

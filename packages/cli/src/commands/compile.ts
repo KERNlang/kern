@@ -12,7 +12,6 @@ import {
   isCoreNode,
   isTemplateNode,
   KernParseError,
-  parseStrict,
   parseWithDiagnostics,
   resolveConfig,
   sourceComment,
@@ -101,7 +100,12 @@ const NODE_PARSE_CAPS = {
 } as const;
 
 function parseStrictWithOptions(source: string, parseOptions?: import('@kernlang/core').ParseOptions): IRNode {
-  const opts = { ...NODE_PARSE_CAPS, ...parseOptions };
+  // Review fix (kimi 0.85): ignore explicit undefined so caller options can
+  // never strip the Node capabilities and fail-close block-bodied arrows.
+  const opts: Record<string, unknown> = { ...NODE_PARSE_CAPS };
+  for (const [k, v] of Object.entries(parseOptions ?? {})) {
+    if (v !== undefined) opts[k] = v;
+  }
   const { root, diagnostics } = parseWithDiagnostics(source, undefined, opts);
   const errors = diagnostics.filter((d) => d.severity === 'error');
   if (errors.length > 0) {
