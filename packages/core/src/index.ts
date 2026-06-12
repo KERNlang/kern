@@ -6,17 +6,25 @@ export {
   isPostfixMutationOperator,
   isSupportedAssignOperator,
   SUPPORTED_ASSIGN_OPERATORS,
-  supportedCompoundAssignmentOperator,
 } from './assignment-operators.js';
-// v1 closure gate — shared eligibility predicate + emission precondition for
-// block-bodied arrows (slices 0+1). Single owner consumed by parser, migrator
-// eligibility classifier, and the Python lowerer.
-export { classifyClosureBlock, collectFreeIdentifierNames, parseClosureBlockAst } from './closure-eligibility.js';
-export type {
-  LowerJsClosureBodyToPythonOptions,
-  LowerJsClosureBodyToPythonResult,
-} from './closure-python-lowering.js';
-export { lowerJsClosureBodyToPython } from './closure-python-lowering.js';
+// Slice 0.9 (browser spine cut) — the BROWSER-SAFE surface is the PARSER
+// subpath (`dist/parser-expression.js` / `dist/parser.js`), proven
+// typescript-free by `browser-spine-import-graph.test.ts`. This ROOT BARREL is
+// NOT typescript-free (r3 review fix — the earlier comment overclaimed): it
+// retains sanctioned `typescript` edges through the Node-only TS-codegen
+// re-parse path (`./codegen/body-ts.js`) and the DEPRECATED 4.x-compatibility
+// re-exports from `./node.js` at the bottom of this file (both pinned by the
+// import-graph test; both scheduled to shrink in 5.0). Browser consumers must
+// import the parser subpath, not this barrel. Node/codegen callers use:
+//   import { ... } from '@kernlang/core/node';
+// The browser-safe closure-classifier seam (interface + dependency-free default)
+// lives in `closure-classifier.ts` and is safe to re-export from the barrel.
+export type { ClosureClassifier } from './closure-classifier.js';
+export {
+  CLOSURE_PARSER_UNAVAILABLE_MESSAGE,
+  CLOSURE_PARSER_UNAVAILABLE_REASON,
+  unavailableClosureClassifier,
+} from './closure-classifier.js';
 export type { BodyEmitOptions, BodyEmitResult } from './codegen/body-ts.js';
 export { emitNativeKernBodyTS, emitNativeKernBodyTSWithImports } from './codegen/body-ts.js';
 export type { StdlibEntry } from './codegen/kern-stdlib.js';
@@ -280,9 +288,10 @@ export {
   validateCapabilityMetadata,
   validateImportMetadata,
 } from './import-metadata.js';
-// TS → .kern importer
-export type { ImportResult } from './importer.js';
-export { escapeKernString, importTypeScript } from './importer.js';
+// Slice 0.9 — the TS → .kern importer (`importer.ts`) statically imports
+// `typescript`, so it moved to the Node subpath `@kernlang/core/node` to keep
+// this barrel typescript-free. `ImportResult`/`escapeKernString`/`importTypeScript`
+// are re-exported from there.
 export type { InstanceofRhsRejectReason } from './instanceof-rhs.js';
 export {
   INSTANCEOF_RHS_BUILTIN_REJECT,
@@ -351,29 +360,48 @@ export {
 // (or its dist path) directly.
 export type { GapCategory, GapClassification } from './migrate-literals.js';
 export { classifyHandlerGap, isInlineSafeExpression, isInlineSafeLiteral } from './migrate-literals.js';
-// Native KERN handler eligibility (slice 5a) — heuristic classifier used by
-// the diagnostic layer and the future `kern migrate native-handlers` CLI.
-export type { EligibilityResult, FileEligibilityReport, RawBody } from './native-eligibility.js';
-export {
-  classifyHandlerBody,
-  extractRawBodies,
-  isExplicitForeignRawBody,
-  scanFileForEligibility,
-} from './native-eligibility.js';
-// Slice α-3: AST-walker classifier + shared helpers (migrator imports these).
-export type { AstEligibilityResult } from './native-eligibility-ast.js';
+// Native KERN handler eligibility (slice 5a) — browser-safe fence/regex layer.
+// `extractRawBodies`/`isExplicitForeignRawBody` are dependency-free; the
+// TypeScript-AST classifier (`classifyHandlerBody`/`scanFileForEligibility` bound
+// to the walker, plus `classifyHandlerBodyAst` and the migrator helpers) lives
+// at `@kernlang/core/node` to keep this barrel typescript-free (slice 0.9).
+export type { EligibilityResult, FileEligibilityReport, HandlerBodyClassifier, RawBody } from './native-eligibility.js';
+export { extractRawBodies, isExplicitForeignRawBody } from './native-eligibility.js';
+// ── DEPRECATED root-barrel compatibility (slice 0.9 review fix) ─────────────
+// These APIs moved to the `@kernlang/core/node` subpath (the single
+// TypeScript-dependent entrypoint). They are re-exported here ONLY so the move
+// is not a semver break inside the 4.x line — importing ANY of them from the
+// root barrel drags `typescript` (~10MB) into the consumer's module graph.
+// Browser consumers must use the parser subpath / barrel WITHOUT these names.
+/** @deprecated import from `@kernlang/core/node` instead — scheduled for removal in 5.0. */
+export type {
+  AstEligibilityResult,
+  ImportResult,
+  LowerJsClosureBodyToPythonOptions,
+  LowerJsClosureBodyToPythonResult,
+} from './node.js';
+/** @deprecated import from `@kernlang/core/node` instead — scheduled for removal in 5.0. */
 export {
   canonicalKernExpression,
   canonicalObjectEntriesSource,
+  classifyClosureBlock,
+  classifyHandlerBody,
   classifyHandlerBodyAst,
+  collectFreeIdentifierNames,
+  escapeKernString,
   hasComments,
   hasOnlyMigratableComments,
   hasTsOnlyTemplateEscape,
+  importTypeScript,
   isValidKernAssignmentTarget,
   isValidKernAssignmentValue,
   isValidKernExpression,
   isValidKernTypeAnnotation,
-} from './native-eligibility-ast.js';
+  lowerJsClosureBodyToPython,
+  parseClosureBlockAst,
+  scanFileForEligibility,
+  supportedCompoundAssignmentOperator,
+} from './node.js';
 export type {
   ActionProps,
   AssumeProps,
@@ -441,6 +469,7 @@ export {
 } from './parser.js';
 export type { ParseOptions } from './parser-core.js';
 // Native KERN handler bodies (slice 1) — expression parsing + body emit
+export type { ParseExpressionOptions } from './parser-expression.js';
 export { parseExpression } from './parser-expression.js';
 // Exported so unit tests can drive the validator directly with hand-built IR
 // (the parser drops `lang="kern" <<< raw >>>` bodies, so the lang-skip branch

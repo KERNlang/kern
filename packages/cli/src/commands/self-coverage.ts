@@ -1,12 +1,15 @@
-import {
-  classifyHandlerBody,
-  type IRNode,
-  isExplicitForeignRawBody,
-  parseDocumentWithDiagnostics,
-} from '@kernlang/core';
+import { type IRNode, isExplicitForeignRawBody, parseDocumentWithDiagnostics } from '@kernlang/core';
+import { classifyHandlerBody, nativeEligibilityClassifier, typescriptClosureClassifier } from '@kernlang/core/node';
 import { existsSync, readFileSync, statSync } from 'fs';
 import { relative, resolve } from 'path';
 import { findKernFiles, hasFlag } from '../shared.js';
+
+// Slice 0.9 — Node-side: inject the TypeScript-backed classifiers so block-bodied
+// arrows in expression props keep parsing (instead of fail-closing).
+const NODE_PARSE_CAPS = {
+  closureClassifier: typescriptClosureClassifier,
+  nativeEligibilityClassifier,
+} as const;
 
 const SKIP_DIRS = new Set(['build', '.kern-gaps', 'coverage', '.next', '.turbo', '.vercel', 'generated']);
 const EXCLUDED_REASONS = new Set(['foreign-by-design']);
@@ -124,7 +127,7 @@ export function collectSelfCoverage(rootDir: string, opts?: { canonicalizeBraces
     } catch {
       continue;
     }
-    const { root, diagnostics } = parseDocumentWithDiagnostics(source);
+    const { root, diagnostics } = parseDocumentWithDiagnostics(source, undefined, NODE_PARSE_CAPS);
     for (const diagnostic of diagnostics) {
       if (diagnostic.severity !== 'error') continue;
       filesWithParseErrors.add(rel);

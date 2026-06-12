@@ -28,7 +28,7 @@ import {
   isValidKernAssignmentValue,
   isValidKernTypeAnnotation,
   supportedCompoundAssignmentOperator,
-} from '@kernlang/core';
+} from '@kernlang/core/node';
 import ts from 'typescript';
 
 export interface NativeHandlerHit {

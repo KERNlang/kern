@@ -22,7 +22,17 @@
  *  classifier (`classifyHandlerBody`) uses the AST walker.
  */
 
-import { classifyHandlerBodyAst } from './native-eligibility-ast.js';
+// Slice 0.9 — this module is the browser-safe fence/regex layer. The actual
+// eligibility verdict comes from the TypeScript-AST walker in
+// `native-eligibility-ast.ts`, which is INJECTED as a `HandlerBodyClassifier`
+// rather than statically imported, so this module — and the `@kernlang/core`
+// barrel that re-exports it — stays free of the `typescript` import. Node/codegen
+// callers inject `classifyHandlerBodyAst` (via `@kernlang/core/node`).
+
+/** A capability that classifies a raw handler body for `lang="kern"`
+ *  eligibility. Browser-safe signature (no `ts.*` types). Implemented by the
+ *  TypeScript-AST walker `classifyHandlerBodyAst`. */
+export type HandlerBodyClassifier = (rawBody: string, opts?: { allowNonBlock?: boolean }) => EligibilityResult;
 
 /** Result of classifying a single handler body. */
 export interface EligibilityResult {
@@ -195,9 +205,16 @@ export function isExplicitForeignRawBody(body: Pick<RawBody, 'declaredLang' | 'd
 }
 
 /** Classify a single raw body. Slice α-3: delegates to the AST walker so
- *  eligibility ≡ migrate-success by construction. */
-export function classifyHandlerBody(rawBody: string, opts?: { allowNonBlock?: boolean }): EligibilityResult {
-  return classifyHandlerBodyAst(rawBody, opts);
+ *  eligibility ≡ migrate-success by construction. Slice 0.9: the AST walker is
+ *  injected (`classify`) instead of statically imported, keeping this module
+ *  browser-safe. Node callers pass `classifyHandlerBodyAst`; the convenience
+ *  binding lives at `@kernlang/core/node`. */
+export function classifyHandlerBody(
+  classify: HandlerBodyClassifier,
+  rawBody: string,
+  opts?: { allowNonBlock?: boolean },
+): EligibilityResult {
+  return classify(rawBody, opts);
 }
 
 /** Walk a `.kern` source file's text and pull out every `<<< … >>>` body,
@@ -262,13 +279,13 @@ export function extractRawBodies(content: string): RawBody[] {
 /** Convenience: classify every raw body in a file's content and aggregate
  *  the totals. Pure function — no FS access; callers (scanners, the CLI)
  *  pass the file text. */
-export function scanFileForEligibility(content: string): FileEligibilityReport {
+export function scanFileForEligibility(classify: HandlerBodyClassifier, content: string): FileEligibilityReport {
   const raw = extractRawBodies(content);
   let eligibleBodies = 0;
   const bodies = raw.map((body) => {
     const result = isExplicitForeignRawBody(body)
       ? { eligible: false, reason: 'explicit-foreign' }
-      : classifyHandlerBody(body.text);
+      : classifyHandlerBody(classify, body.text);
     if (result.eligible) eligibleBodies++;
     return { ...body, ...result };
   });

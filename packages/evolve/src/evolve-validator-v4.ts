@@ -7,12 +7,17 @@
 
 import type { IRNode } from '@kernlang/core';
 import { KERN_RESERVED, parse, registerParserHints, unregisterParserHints } from '@kernlang/core';
+import { nativeEligibilityClassifier, typescriptClosureClassifier } from '@kernlang/core/node';
 import { ts } from 'ts-morph';
 import { checkDedup } from './evolve-dedup.js';
 import type { EvolveNodeProposal, EvolveV4ValidationResult } from './evolved-types.js';
 import { compareGoldenOutput } from './golden-test-runner.js';
 import { compileCodegenToJS } from './graduation.js';
 import { compileSandboxedGenerator } from './sandboxed-generator.js';
+
+// Slice 0.9 — Node-side: inject the TypeScript-backed classifiers so block-bodied
+// arrows in expression props keep parsing (instead of fail-closing).
+const NODE_PARSE_CAPS = { closureClassifier: typescriptClosureClassifier, nativeEligibilityClassifier } as const;
 
 /**
  * Run the full 9-step validation pipeline on a node proposal.
@@ -51,7 +56,7 @@ export function validateEvolveProposal(
     // Step 3: Parse check — parse once, reuse AST for steps 5-7
     let ast: IRNode | null = null;
     try {
-      const parsed = parse(proposal.kernExample);
+      const parsed = parse(proposal.kernExample, undefined, NODE_PARSE_CAPS);
       if (!parsed?.type) {
         result.errors.push('kernExample parsed to empty AST');
         result.parseOk = false;

@@ -11,8 +11,13 @@
 
 import type { IRNode } from '@kernlang/core';
 import { clearTemplates, expandTemplateNode, parse, registerTemplate } from '@kernlang/core';
+import { nativeEligibilityClassifier, typescriptClosureClassifier } from '@kernlang/core/node';
 import { Project } from 'ts-morph';
 import type { TemplateProposal, ValidationResult } from './types.js';
+
+// Slice 0.9 — Node-side: inject the TypeScript-backed classifiers so block-bodied
+// arrows in expression props keep parsing (instead of fail-closing).
+const NODE_PARSE_CAPS = { closureClassifier: typescriptClosureClassifier, nativeEligibilityClassifier } as const;
 
 /**
  * Validate a template proposal through the 5-step pipeline.
@@ -33,7 +38,7 @@ export function validateProposal(proposal: TemplateProposal, tsconfigPath?: stri
   // Step 1: Parse the .kern source
   let ast: IRNode;
   try {
-    ast = parse(proposal.kernSource);
+    ast = parse(proposal.kernSource, undefined, NODE_PARSE_CAPS);
     result.parseOk = true;
   } catch (err) {
     result.errors.push(`Parse error: ${(err as Error).message}`);

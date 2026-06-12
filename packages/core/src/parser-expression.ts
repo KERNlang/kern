@@ -14,7 +14,11 @@
  *  require shape changes the body emitter doesn't have, so the parser
  *  deliberately rejects them. */
 
-import { classifyClosureBlock, parseClosureBlockAst } from './closure-eligibility.js';
+import {
+  CLOSURE_PARSER_UNAVAILABLE_MESSAGE,
+  type ClosureClassifier,
+  unavailableClosureClassifier,
+} from './closure-classifier.js';
 import type { ValueIR } from './value-ir.js';
 
 // ── Tokenizer ────────────────────────────────────────────────────────────
@@ -761,6 +765,7 @@ class Parser {
   constructor(
     private tokens: ExprToken[],
     private input: string,
+    private closureClassifier: ClosureClassifier = unavailableClosureClassifier,
   ) {}
 
   private peek(offset = 0): ExprToken {
@@ -808,8 +813,12 @@ class Parser {
 
   /** Build a block-bodied arrow lambda (slices 0+1). Consumes the
    *  `closureBlock` token and validates the raw block at parse time:
-   *   1. `parseClosureBlockAst` must succeed (TS parse) — else fail-closed.
-   *   2. The v1 closure gate (`classifyClosureBlock`) must accept it — else
+   *   0. A closure-classifier capability must be injected — else fail closed
+   *      with the target-agnostic `closure-parser-unavailable` diagnostic. The
+   *      default browser-safe parser has none, keeping `typescript` out of the
+   *      import spine (slice 0.9).
+   *   1. `classifier.parseBlock` must succeed (TS parse) — else fail-closed.
+   *   2. The v1 closure gate (`classifier.classifyBlock`) must accept it — else
    *      fail-closed. A lambda with `bodyBlock` existing in the IR therefore
    *      implies it passed the gate; downstream emitters can trust it. */
   private buildBlockLambda(
@@ -819,12 +828,15 @@ class Parser {
   ): ValueIR {
     const tok = this.advance(); // closureBlock
     const raw = tok.value;
-    if (parseClosureBlockAst(raw) === null) {
+    if (!this.closureClassifier.available) {
+      throw new Error(CLOSURE_PARSER_UNAVAILABLE_MESSAGE);
+    }
+    if (this.closureClassifier.parseBlock(raw) === null) {
       throw new Error(
         `Unsupported closure body: the block at column ${tok.pos + 1} does not parse as a statement block.`,
       );
     }
-    const reason = classifyClosureBlock(raw);
+    const reason = this.closureClassifier.classifyBlock(raw);
     if (reason !== null) {
       throw new Error(`Unsupported closure body (${reason}) at column ${tok.pos + 1}.`);
     }
@@ -1597,7 +1609,11 @@ class Parser {
         const exprEnd = findMatchingBrace(this.input, pos);
         const exprSrc = this.input.slice(pos, exprEnd);
         const innerTokens = tokenizeExpression(exprSrc);
-        const innerParser = new Parser(innerTokens, exprSrc);
+        // Thread the closure classifier into the interpolation sub-parser so a
+        // block-bodied arrow inside `${…}` parses identically to a top-level one
+        // (slice 0.9 — without this the inner parser would fail closed even when
+        // a classifier is injected).
+        const innerParser = new Parser(innerTokens, exprSrc, this.closureClassifier);
         expressions.push(innerParser.parse());
         pos = exprEnd + 1;
         continue;
@@ -1704,8 +1720,16 @@ function findMatchingBrace(input: string, start: number): number {
   throw new Error(`Unclosed \${...} substitution starting at column ${start + 1}`);
 }
 
-export function parseExpression(input: string): ValueIR {
+/** Options for `parseExpression`. The closure-classifier capability lets a
+ *  Node/codegen caller inject the TypeScript-AST gate so block-bodied arrows
+ *  parse; without it (the browser-safe default) block-bodied arrows fail closed
+ *  with `closure-parser-unavailable` (slice 0.9). */
+export interface ParseExpressionOptions {
+  closureClassifier?: ClosureClassifier;
+}
+
+export function parseExpression(input: string, options?: ParseExpressionOptions): ValueIR {
   const tokens = tokenizeExpression(input);
-  const parser = new Parser(tokens, input);
+  const parser = new Parser(tokens, input, options?.closureClassifier ?? unavailableClosureClassifier);
   return parser.parse();
 }

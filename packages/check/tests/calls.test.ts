@@ -98,6 +98,23 @@ describe('checkCalls — POSITIVE corpus (resolvable violations fire)', () => {
       program(fnAnimal('outer'), fnDog(), 'do value="outer(h(new Cat()))"'),
       ['check-call-arg-type'],
     ],
+    [
+      // Slice 0.9 regression (codex blocking): without the injected closure
+      // classifier the bare parse THREW on the block-bodied arrow and the
+      // swallowing catch silently dropped the Cat→Dog diagnostic.
+      'block-bodied arrow in the same expression does not suppress diagnostics',
+      program(
+        [
+          'fn name=pair returns=string',
+          '  param name=a type=Dog',
+          '  param name=cb',
+          '  handler lang=kern',
+          '    return value="\'x\'"',
+        ].join('\n'),
+        'do value="pair(new Cat(), (n) => { return n; })"',
+      ),
+      ['check-call-arg-type'],
+    ],
   ];
   for (const [label, source, expected] of POSITIVE) {
     test(`fires: ${label}`, () => {

@@ -78,8 +78,8 @@ export function getParseDiagnostics(runtime?: KernRuntime): ParseDiagnostic[] {
  * @see {@link parseWithDiagnostics} to also receive parse diagnostics
  * @see {@link parseStrict} to throw on errors
  */
-export function parse(source: string, runtime?: KernRuntime): IRNode {
-  return parseInternal(source, false, runtime).root;
+export function parse(source: string, runtime?: KernRuntime, options?: ParseOptions): IRNode {
+  return parseInternal(source, false, runtime, options).root;
 }
 
 /**
@@ -87,8 +87,8 @@ export function parse(source: string, runtime?: KernRuntime): IRNode {
  * Unlike parse(), this always returns a `document` root so multiple
  * top-level nodes (e.g., multiple `rule` definitions) are siblings.
  */
-export function parseDocument(source: string, runtime?: KernRuntime): IRNode {
-  return parseInternal(source, true, runtime).root;
+export function parseDocument(source: string, runtime?: KernRuntime, options?: ParseOptions): IRNode {
+  return parseInternal(source, true, runtime, options).root;
 }
 
 /**
@@ -129,8 +129,8 @@ export function parseDocumentWithDiagnostics(
  * @throws {KernParseError} When the source contains errors or schema violations.
  *   The error includes a code frame and the full diagnostics array.
  */
-export function parseStrict(source: string, runtime?: KernRuntime): IRNode {
-  const { root, diagnostics } = parseWithDiagnostics(source, runtime);
+export function parseStrict(source: string, runtime?: KernRuntime, options?: ParseOptions): IRNode {
+  const { root, diagnostics } = parseWithDiagnostics(source, runtime, options);
   const errors = diagnostics.filter((d) => d.severity === 'error');
   if (errors.length > 0) {
     const first = errors[0];
@@ -150,8 +150,8 @@ export function parseStrict(source: string, runtime?: KernRuntime): IRNode {
 }
 
 /** Strict document parse — throws KernParseError if any diagnostic has severity=error or schema violation. */
-export function parseDocumentStrict(source: string, runtime?: KernRuntime): IRNode {
-  const { root, diagnostics } = parseDocumentWithDiagnostics(source, runtime);
+export function parseDocumentStrict(source: string, runtime?: KernRuntime, options?: ParseOptions): IRNode {
+  const { root, diagnostics } = parseDocumentWithDiagnostics(source, runtime, options);
   const errors = diagnostics.filter((d) => d.severity === 'error');
   if (errors.length > 0) {
     const first = errors[0];

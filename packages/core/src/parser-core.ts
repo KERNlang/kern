@@ -1002,6 +1002,18 @@ function computeEndSpans(node: IRNode): void {
  *  recognition for `?`/`!` propagation against fns imported via `use`. */
 export interface ParseOptions {
   resolveImport?: import('./parser-validate-propagation.js').ImportResolver;
+  /** Slice 0.9 — closure-classifier capability for block-bodied arrow
+   *  expression props. Browser/default callers omit it and any block-bodied
+   *  arrow in an expression prop fails closed; Node/codegen callers inject
+   *  `typescriptClosureClassifier` (from `@kernlang/core/node`) to keep current
+   *  behavior. The type is browser-safe (no `typescript` dependency). */
+  closureClassifier?: import('./closure-classifier.js').ClosureClassifier;
+  /** Slice 0.9 — native-eligibility classifier for the advisory
+   *  `NATIVE_KERN_ELIGIBLE` hint on raw `<<<…>>>` handler bodies. Requires the
+   *  TypeScript-AST walker, so browser/default callers omit it (the advisory
+   *  hint is skipped) and Node callers inject `classifyHandlerBodyAst` (from
+   *  `@kernlang/core/node`). Browser-safe type (no `typescript` dependency). */
+  nativeEligibilityClassifier?: import('./native-eligibility.js').HandlerBodyClassifier;
 }
 
 /** @internal Single internal entry that wires parseLines → buildTree → computeEndSpans. */
@@ -1043,13 +1055,13 @@ export function parseInternal(
   canonicalizeFirstClassFunctionBodies(state, root);
   root = canonicalizeFirstClassModuleImportNode(root);
   computeEndSpans(root);
-  validateExpressions(state, root);
+  validateExpressions(state, root, options?.closureClassifier);
   validateEffects(state, root);
   validateUnionKind(state, root);
   validateAndRewritePropagation(state, root, options?.resolveImport);
   canonicalizeImplicitKernHandlerLang(root);
   validateBodyStatements(state, root);
-  validateNativeEligible(state, root);
+  validateNativeEligible(state, root, options?.nativeEligibilityClassifier);
   commitParseState(state, rt);
 
   // Count __error nodes for partial compilation support
