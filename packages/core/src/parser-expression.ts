@@ -161,10 +161,32 @@ function isTypeArgumentTokenKind(kind: ExprTokenKind): boolean {
     kind === 'comma' ||
     kind === 'lt' ||
     kind === 'gt' ||
+    // Slice 6 — nested generics close with `>>`/`>>>` (e.g. `Foo<Bar<Baz>>`),
+    // which the tokenizer lexes as a single `shr`/`ushr`; `<<` (`shl`) can open
+    // two levels. These count as angle brackets inside a type-argument list.
+    kind === 'shr' ||
+    kind === 'ushr' ||
+    kind === 'shl' ||
     kind === 'lbracket' ||
     kind === 'rbracket' ||
     kind === 'qmark'
   );
+}
+
+/** Slice 6 — how many `>` angle brackets a token carries (TS lexes `>>`/`>>>`
+ *  greedily, but in a TYPE-ARGUMENT context they close nested generics). */
+function angleCloseCount(kind: ExprTokenKind): number {
+  if (kind === 'gt') return 1;
+  if (kind === 'shr') return 2;
+  if (kind === 'ushr') return 3;
+  return 0;
+}
+
+/** Slice 6 — how many `<` angle brackets a token opens (`<<` opens two). */
+function angleOpenCount(kind: ExprTokenKind): number {
+  if (kind === 'lt') return 1;
+  if (kind === 'shl') return 2;
+  return 0;
 }
 
 const KEYWORDS: Record<string, ExprTokenKind> = {
@@ -817,11 +839,21 @@ class Parser {
           let typeDepth = 0;
           for (let k = j + 2; k < this.tokens.length; k++) {
             const tk = this.tokens[k];
-            if (tk.kind === 'lparen' || tk.kind === 'lbracket' || tk.kind === 'lbrace' || tk.kind === 'lt') {
+            // Slice 6 — `<<`/`>>`/`>>>` carry multiple angle brackets when they
+            // appear inside a return-type's nested generics (`Foo<Bar<Baz>>`).
+            const opens = angleOpenCount(tk.kind);
+            const closes = angleCloseCount(tk.kind);
+            if (tk.kind === 'lparen' || tk.kind === 'lbracket' || tk.kind === 'lbrace') {
               typeDepth++;
-            } else if (tk.kind === 'rparen' || tk.kind === 'rbracket' || tk.kind === 'rbrace' || tk.kind === 'gt') {
+            } else if (opens > 0) {
+              typeDepth += opens;
+            } else if (tk.kind === 'rparen' || tk.kind === 'rbracket' || tk.kind === 'rbrace') {
               if (typeDepth === 0) return false;
               typeDepth--;
+            } else if (closes > 0) {
+              if (typeDepth === 0) return false;
+              typeDepth -= closes;
+              if (typeDepth < 0) typeDepth = 0;
             } else if (tk.kind === 'arrow' && typeDepth === 0) {
               return true;
             } else if (tk.kind === 'eof' || (tk.kind === 'comma' && typeDepth === 0)) {
@@ -887,10 +919,12 @@ class Parser {
       else if (t.kind === 'rbrace') {
         if (braceDepth === 0) break;
         braceDepth--;
-      } else if (t.kind === 'lt') angleDepth++;
-      else if (t.kind === 'gt') {
+      } else if (angleOpenCount(t.kind) > 0) angleDepth += angleOpenCount(t.kind);
+      else if (angleCloseCount(t.kind) > 0) {
+        // Slice 6 — `>>`/`>>>` close several nested generics at once.
         if (angleDepth === 0) break;
-        angleDepth--;
+        angleDepth -= angleCloseCount(t.kind);
+        if (angleDepth < 0) angleDepth = 0;
       }
       const advanced = this.advance();
       end = tokenEnd(advanced);
@@ -932,10 +966,12 @@ class Parser {
       else if (t.kind === 'rbrace') {
         if (braceDepth === 0) break;
         braceDepth--;
-      } else if (t.kind === 'lt') angleDepth++;
-      else if (t.kind === 'gt') {
+      } else if (angleOpenCount(t.kind) > 0) angleDepth += angleOpenCount(t.kind);
+      else if (angleCloseCount(t.kind) > 0) {
+        // Slice 6 — `>>`/`>>>` close several nested generics at once.
         if (angleDepth === 0) break;
-        angleDepth--;
+        angleDepth -= angleCloseCount(t.kind);
+        if (angleDepth < 0) angleDepth = 0;
       }
       const advanced = this.advance();
       end = tokenEnd(advanced);
@@ -1214,8 +1250,12 @@ class Parser {
       }
       if (parenDepth === 0 && bracketDepth === 0 && braceDepth === 0 && angleDepth === 0) {
         if (t.kind === 'ident' && t.value === 'as') break;
-        if (t.kind === 'lte' || t.kind === 'gte' || t.kind === 'gt') break;
-        if (t.kind === 'lt' && end !== t.pos) break;
+        // Slice 6 — at the top level `>`/`>=`/`<=` and the shift tokens `>>`/`>>>`
+        // are operator boundaries, not type punctuation. `<<` can't legally open
+        // a type at top level here either, but a top-level `<` (when text already
+        // started) is a comparison boundary, so the same rule covers `<<`.
+        if (t.kind === 'lte' || t.kind === 'gte' || t.kind === 'gt' || t.kind === 'shr' || t.kind === 'ushr') break;
+        if ((t.kind === 'lt' || t.kind === 'shl') && end !== t.pos) break;
       }
       if (t.kind === 'lparen') parenDepth++;
       else if (t.kind === 'rparen') {
@@ -1229,10 +1269,12 @@ class Parser {
       else if (t.kind === 'rbrace') {
         if (braceDepth === 0) break;
         braceDepth--;
-      } else if (t.kind === 'lt') angleDepth++;
-      else if (t.kind === 'gt') {
+      } else if (angleOpenCount(t.kind) > 0) angleDepth += angleOpenCount(t.kind);
+      else if (angleCloseCount(t.kind) > 0) {
+        // Multi-`>` token closes several nested generics (`Map<K, Set<V>>`).
         if (angleDepth === 0) break;
-        angleDepth--;
+        angleDepth -= angleCloseCount(t.kind);
+        if (angleDepth < 0) angleDepth = 0;
       }
       const advanced = this.advance();
       end = tokenEnd(advanced);
@@ -1298,10 +1340,14 @@ class Parser {
     let angleDepth = 0;
     for (let j = this.i; j < this.tokens.length; j++) {
       const t = this.tokens[j];
-      if (t.kind === 'lt') angleDepth++;
-      else if (t.kind === 'gt') {
-        angleDepth--;
-        if (angleDepth === 0) return this.tokens[j + 1]?.kind === 'lparen';
+      // Slice 6 — `<<`/`>>`/`>>>` carry multiple angle brackets in a type
+      // context (e.g. `Foo<Bar<Baz>>`); count them, not one apiece.
+      const opens = angleOpenCount(t.kind);
+      const closes = angleCloseCount(t.kind);
+      if (opens > 0) angleDepth += opens;
+      else if (closes > 0) {
+        angleDepth -= closes;
+        if (angleDepth <= 0) return this.tokens[j + 1]?.kind === 'lparen';
       } else if (angleDepth > 0 && !isTypeArgumentTokenKind(t.kind)) {
         return false;
       } else if (t.kind === 'eof' || t.kind === 'rparen' || t.kind === 'rbracket' || t.kind === 'rbrace') {
@@ -1319,14 +1365,21 @@ class Parser {
     while (true) {
       const t = this.peek();
       if (t.kind === 'eof') throw new Error(`Unclosed type argument list at column ${startTok.pos + 1}`);
-      if (t.kind === 'lt') angleDepth++;
-      else if (t.kind === 'gt') {
-        angleDepth--;
-        if (angleDepth === 0) {
-          end = t.pos;
+      const opens = angleOpenCount(t.kind);
+      const closes = angleCloseCount(t.kind);
+      if (opens > 0) {
+        angleDepth += opens;
+      } else if (closes > 0) {
+        // A multi-`>` token (`>>`/`>>>`) closes several nested generics at once.
+        // The text ends BEFORE the `>` that returns depth to 0: of this token's
+        // `>`s, the inner `(angleDepth - 1)` belong to the text and the last one
+        // is the (excluded) closing bracket. (Single `>`, depth 1 -> `t.pos`.)
+        if (closes >= angleDepth) {
+          end = t.pos + (angleDepth - 1);
           this.advance();
           break;
         }
+        angleDepth -= closes;
       }
       if (angleDepth > 0) {
         const advanced = this.advance();
