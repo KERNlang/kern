@@ -326,6 +326,96 @@ describe('KERN core runtime statements', () => {
     expect(toHostValue(result.completion.value)).toEqual({ a: 'ok', b: 'ok' });
   });
 
+  // Slice S5 — logical `&&` / `||` are RESULT-VALUE operators on the KERN core
+  // runtime (the executable TS-side oracle): they return the SELECTED original
+  // operand, decided by KERN ToBoolean (`kernTruthy`), and short-circuit the
+  // unselected branch. NaN is unreachable here (`kNumber` rejects non-finite),
+  // so the NaN-falsy rows are proven on the Python leg (float('nan')) and TS.
+  describe('logical && / || result-value semantics', () => {
+    function ev(expr: string): unknown {
+      return toHostValue(evalCoreExpression(expr, createCoreRuntimeEnv()));
+    }
+
+    test('&& returns the original left operand when it is KERN-falsy', () => {
+      expect(ev('0 && "right"')).toBe(0);
+      expect(ev('"" && "right"')).toBe('');
+      expect(ev('false && "right"')).toBe(false);
+      expect(ev('null && "right"')).toBeNull();
+    });
+
+    test('&& returns the right operand when the left is KERN-truthy', () => {
+      // `"0"`, `" "`, `[]`, `{}` are all KERN-truthy (ToBoolean, not ToNumber /
+      // Python len), so `&&` proceeds to the right operand.
+      expect(ev('"0" && "right"')).toBe('right');
+      expect(ev('" " && "right"')).toBe('right');
+      expect(ev('[] && "right"')).toBe('right');
+      expect(ev('({}) && "right"')).toBe('right');
+      expect(ev('1 && 2')).toBe(2);
+    });
+
+    test('|| returns the original left operand when it is KERN-truthy', () => {
+      // The `[]`/`{}` rows are the Python-divergence killers: Python `[] or x`
+      // returns x, but KERN returns the container itself.
+      expect(ev('"0" || "fallback"')).toBe('0');
+      expect(ev('" " || "fallback"')).toBe(' ');
+      expect(ev('[] || "fallback"')).toEqual([]);
+      expect(ev('[] || "x"')).toEqual([]);
+      expect(ev('({}) || "fallback"')).toEqual({});
+      expect(ev('1 || 2')).toBe(1);
+    });
+
+    test('|| returns the right operand when the left is KERN-falsy', () => {
+      expect(ev('0 || "fallback"')).toBe('fallback');
+      expect(ev('"" || "fallback"')).toBe('fallback');
+      expect(ev('false || "fallback"')).toBe('fallback');
+      expect(ev('null || "fallback"')).toBe('fallback');
+    });
+
+    test('chained && / || obey precedence and left-to-right associativity', () => {
+      // `&&` binds tighter than `||`; `"0"` is truthy → whole thing is "right".
+      expect(ev('"" || "0" && "right"')).toBe('right');
+      // `("left" && 0)` returns 0, then `0 || "fallback"`.
+      expect(ev('"left" && 0 || "fallback"')).toBe('fallback');
+      // `[]` is truthy, so the outer `||` returns it.
+      expect(ev('"left" && [] || "fallback"')).toEqual([]);
+      // `NaN || [] || "fallback"` is covered on the Python/TS legs (NaN).
+      expect(ev('{} && "" || "fallback"')).toBe('fallback');
+    });
+
+    test('&& / || short-circuit: the unselected operand is never evaluated', () => {
+      // `boom` is an UNBOUND identifier — evaluating it throws "binding not
+      // found". If the operator short-circuits, the throw never happens. This is
+      // the same dead-branch idiom the coalesce/firstTruthy test uses.
+      const env = createCoreRuntimeEnv();
+      // Falsy left: `&&` returns left, never touches `boom`.
+      expect(toHostValue(evalCoreExpression('0 && boom', env))).toBe(0);
+      // Truthy left: `||` returns left, never touches `boom`.
+      expect(toHostValue(evalCoreExpression('1 || boom', env))).toBe(1);
+      // `[]` is truthy → `||` returns it, `boom` not evaluated.
+      expect(toHostValue(evalCoreExpression('[] || boom', env))).toEqual([]);
+      // And the contrapositive: when the dead branch WOULD run, it does throw,
+      // proving the test above is a real short-circuit and not a no-op.
+      expect(() => evalCoreExpression('1 && boom', env)).toThrow(/not found/);
+      expect(() => evalCoreExpression('0 || boom', env)).toThrow(/not found/);
+    });
+
+    test('|| selects on truthiness; ?? selects on nullishness (boundary contrast)', () => {
+      // `0`/`""`/`false` are falsy-but-defined: `||` falls through, `??` keeps them.
+      expect(ev('0 || "fallback"')).toBe('fallback');
+      expect(ev('0 ?? "fallback"')).toBe(0);
+      expect(ev('"" || "fallback"')).toBe('fallback');
+      expect(ev('"" ?? "fallback"')).toBe('');
+      expect(ev('false || "fallback"')).toBe('fallback');
+      expect(ev('false ?? "fallback"')).toBe(false);
+      // `[]`/`{}` are truthy AND defined: both operators keep them.
+      expect(ev('[] ?? "fallback"')).toEqual([]);
+      expect(ev('({}) ?? "fallback"')).toEqual({});
+      // Nullish: `??` coalesces, `||` also falls through (null is falsy too).
+      expect(ev('null ?? "fallback"')).toBe('fallback');
+      expect(ev('null || "fallback"')).toBe('fallback');
+    });
+  });
+
   test('executes user-defined classes with fields constructors methods and getters', () => {
     const root = parse(
       [
