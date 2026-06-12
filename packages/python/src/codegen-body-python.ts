@@ -44,7 +44,6 @@
 import type { ExprObject, IRNode, ValueIR } from '@kernlang/core';
 import {
   applyTemplate,
-  collectFreeIdentifierNames,
   emitStringKeyArray,
   instanceofRhsPythonType,
   instanceofRhsRejectReasonForName,
@@ -52,13 +51,20 @@ import {
   isSupportedAssignOperator,
   KERN_STDLIB_MODULES,
   lookupStdlib,
-  lowerJsClosureBodyToPython,
   needsArgParens,
   needsBinaryParens,
   parseExpression,
   parseKeys,
   suggestStdlibMethod,
 } from '@kernlang/core';
+// Slice 0.9 — the TypeScript-AST closure helpers + classifier live on the Node
+// subpath (the barrel is browser-safe). Python codegen is Node-side and parses
+// block-bodied arrows, so it injects `typescriptClosureClassifier`.
+import {
+  collectFreeIdentifierNames,
+  lowerJsClosureBodyToPython,
+  typescriptClosureClassifier,
+} from '@kernlang/core/node';
 import { buildPythonParamList } from './codegen-helpers.js';
 import {
   KERN_FMT_HELPER_PY,
@@ -76,6 +82,17 @@ import {
   sharedPortableMethodRequiresPureReceiver,
 } from './core/expr/list-ops.js';
 import { mapTsTypeToPython } from './type-map.js';
+
+/** Parse options for Python codegen — always inject the TypeScript-backed
+ *  closure classifier so block-bodied arrows parse (slice 0.9). */
+const TS_PARSE_OPTS = { closureClassifier: typescriptClosureClassifier };
+
+/** Local `parseExpression` binding for Python codegen that always injects the
+ *  TypeScript closure classifier (slice 0.9). All `parseExpr(...)` calls in this
+ *  module route through here. */
+function parseExpr(input: string): ReturnType<typeof parseExpression> {
+  return parseExpression(input, TS_PARSE_OPTS);
+}
 
 /** Slice 3e — caller-provided options for the Python body emitter.
  *  Currently only `symbolMap`; future slices may add diagnostics, source-map
@@ -540,7 +557,7 @@ function emitChildrenPy(
         for (const line of emitReturnPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'if') {
         const condRaw = String(child.props?.cond ?? '');
-        const condIR = parseExpression(condRaw);
+        const condIR = parseExpr(condRaw);
         // Slice-2 review fix: reject propagation `?` in `if cond=` (parallel to TS side).
         if (condIR.kind === 'propagate') {
           throw new Error(
@@ -566,7 +583,7 @@ function emitChildrenPy(
           if (isChainable) {
             const ifNode = ec[0];
             const nestedCondRaw = String(ifNode.props?.cond ?? '');
-            const nestedCondIR = parseExpression(nestedCondRaw);
+            const nestedCondIR = parseExpr(nestedCondRaw);
             if (nestedCondIR.kind === 'propagate') {
               throw new Error(
                 "Propagation '?' is not allowed in `if cond=` — bind the call to a `let` first, then test the bound name.",
@@ -590,7 +607,7 @@ function emitChildrenPy(
         throw new Error('`else` must immediately follow an `if` sibling. Found orphan `else` in handler body.');
       } else if (child.type === 'while') {
         const condRaw = String(child.props?.cond ?? '');
-        const condIR = parseExpression(condRaw);
+        const condIR = parseExpr(condRaw);
         if (condIR.kind === 'propagate') {
           throw new Error(
             "Propagation '?' is not allowed in `while cond=` — bind the call to a `let` first, then test the bound name.",
@@ -684,7 +701,7 @@ function emitChildrenPy(
         // Slice 4c+4d review fix (Codex P1) — read schema-compliant
         // `name`/`in` props (legacy `list`/`as` accepted as fallback).
         const listRaw = String(child.props?.in ?? child.props?.list ?? '[]');
-        const listIR = parseExpression(listRaw);
+        const listIR = parseExpr(listRaw);
         const pairKey = child.props?.pairKey;
         const pairValue = child.props?.pairValue;
         const entryKey = child.props?.entryKey;
@@ -927,9 +944,9 @@ function emitRangeForPy(node: IRNode, ctx: BodyEmitContext, indent: string): str
   validateIntegerRangeBound(String(rawFrom), 'from');
   validateIntegerRangeBound(String(rawTo), 'to');
   validatePositiveRangeStep(rawStep);
-  const fromIR = parseExpression(String(rawFrom));
-  const toIR = parseExpression(String(rawTo));
-  const stepIR = parseExpression(rawStep);
+  const fromIR = parseExpr(String(rawFrom));
+  const toIR = parseExpr(String(rawTo));
+  const stepIR = parseExpr(rawStep);
   if (fromIR.kind === 'propagate' || toIR.kind === 'propagate' || stepIR.kind === 'propagate') {
     throw new Error(
       "Propagation '?' is not allowed in `for from=`/`to=`/`step=` — bind the value to a `let` before the loop.",
@@ -996,7 +1013,7 @@ function emitWithPy(node: IRNode, ctx: BodyEmitContext, indent: string): string[
   }
 
   const name = String(rawName);
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   if (valueIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in `with value=` — bind to `let` first.");
   }
@@ -1011,7 +1028,7 @@ function emitWithPy(node: IRNode, ctx: BodyEmitContext, indent: string): string[
     return lines;
   }
 
-  const cleanupIR = parseExpression(String(rawCleanup));
+  const cleanupIR = parseExpr(String(rawCleanup));
   if (cleanupIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in `with cleanup=` — bind to `let` first.");
   }
@@ -1064,7 +1081,7 @@ function emitBranchPy(node: IRNode, ctx: BodyEmitContext, indent: string): strin
   if (onRaw === '') {
     throw new Error('`branch` requires an `on=` expression in body-statement context.');
   }
-  const onIR = parseExpression(onRaw);
+  const onIR = parseExpr(onRaw);
   const subjectVar = `__k_branch_${++ctx.gensymCounter}`;
   const out: string[] = [];
   out.push(`${indent}${subjectVar} = ${emitPyExprCtx(onIR, ctx)}`);
@@ -1164,7 +1181,7 @@ function emitCellPy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawInitial === undefined || rawInitial === '') {
     return [`${pythonName} = None`];
   }
-  const initialIR = parseExpression(String(rawInitial));
+  const initialIR = parseExpr(String(rawInitial));
   return [`${pythonName} = ${emitPyExprCtx(initialIR, ctx)}`];
 }
 
@@ -1180,7 +1197,7 @@ function emitSetPy(node: IRNode, ctx: BodyEmitContext): string[] {
   }
   const name = String(rawName);
   const pythonName = ctx.symbolMap[name] ?? name;
-  const valueIR = parseExpression(String(rawTo));
+  const valueIR = parseExpr(String(rawTo));
   if (valueIR.kind === 'propagate') {
     throw new Error(
       `Propagation \`${valueIR.op}\` is not supported in \`set to=\` — bind to \`let\` first, then call set.`,
@@ -1205,7 +1222,7 @@ function emitLetPy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawValue === undefined || rawValue === '') {
     return [`${name} = None`];
   }
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   setRegexBinding(ctx, userName, valueIR.kind === 'regexLit' ? valueIR : null);
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
@@ -1283,9 +1300,9 @@ function emitClampPy(node: IRNode, ctx: BodyEmitContext): string[] {
   const rawMax = unwrapBodyExpr(props.max);
   if (rawMax === undefined || rawMax === '') throw new Error('body-statement `clamp` requires `max=`.');
 
-  const valueIR = parseExpression(rawValue);
-  const minIR = parseExpression(rawMin);
-  const maxIR = parseExpression(rawMax);
+  const valueIR = parseExpr(rawValue);
+  const minIR = parseExpr(rawMin);
+  const maxIR = parseExpr(rawMax);
   if (valueIR.kind === 'propagate' || minIR.kind === 'propagate' || maxIR.kind === 'propagate') {
     throw new Error(
       "Propagation '?' is not allowed in `clamp value=`/`min=`/`max=` — bind the value to a `let` first.",
@@ -1314,7 +1331,7 @@ function emitFirstTruthyPy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (values.length < 2) throw new Error('body-statement `firstTruthy` requires at least two value expressions.');
 
   const emitted = values.map((value) => {
-    const valueIR = parseExpression(value);
+    const valueIR = parseExpr(value);
     if (valueIR.kind === 'propagate') {
       throw new Error("Propagation '?' is not allowed in `firstTruthy values=` — bind the value to a `let` first.");
     }
@@ -1342,7 +1359,7 @@ function emitCoalescePy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (values.length < 2) throw new Error(`body-statement \`${type}\` requires at least two value expressions.`);
 
   const valueIRs = values.map((value) => {
-    const valueIR = parseExpression(value);
+    const valueIR = parseExpr(value);
     if (valueIR.kind === 'propagate') {
       throw new Error(`Propagation '?' is not allowed in \`${type} values=\` — bind the value to a \`let\` first.`);
     }
@@ -1384,7 +1401,7 @@ function emitObjectMergePy(node: IRNode, ctx: BodyEmitContext): string[] {
     if (source.startsWith('...')) {
       throw new Error('body-statement `objectMerge` sources imply spreading; omit leading `...`.');
     }
-    const sourceIR = parseExpression(source);
+    const sourceIR = parseExpr(source);
     if (sourceIR.kind === 'propagate') {
       throw new Error("Propagation '?' is not allowed in `objectMerge sources=` — bind the value to a `let` first.");
     }
@@ -1412,7 +1429,7 @@ function emitObjectPickPy(node: IRNode, ctx: BodyEmitContext): string[] {
     throw new Error('body-statement `objectPick` requires `keys=`.');
   }
 
-  const inIR = parseExpression(rawIn);
+  const inIR = parseExpr(rawIn);
   if (inIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in `objectPick in=` — bind the value to a `let` first.");
   }
@@ -1444,7 +1461,7 @@ function emitObjectOmitPy(node: IRNode, ctx: BodyEmitContext): string[] {
     throw new Error('body-statement `objectOmit` requires `keys=`.');
   }
 
-  const inIR = parseExpression(rawIn);
+  const inIR = parseExpr(rawIn);
   if (inIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in `objectOmit in=` — bind the value to a `let` first.");
   }
@@ -1487,7 +1504,7 @@ function emitAssignPy(node: IRNode, ctx: BodyEmitContext): string[] {
     // mirrors this; the emitter check is defense-in-depth for direct IR.
     throw new Error(`body-statement \`assign op="${rawOp}"\` is value-less; remove \`value=\`.`);
   }
-  const targetIR = parseExpression(String(rawTarget));
+  const targetIR = parseExpr(String(rawTarget));
   if (!isAssignableTarget(targetIR)) {
     throw new Error('body-statement `assign target=` must be an identifier, member access, or index access.');
   }
@@ -1500,7 +1517,7 @@ function emitAssignPy(node: IRNode, ctx: BodyEmitContext): string[] {
     const baseOp = rawOp === '++' ? '+=' : '-=';
     return [`${emitPyExprCtx(targetIR, ctx)} ${baseOp} 1`];
   }
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   if (valueIR.kind === 'propagate') {
     throw new Error(
       `Propagation \`${valueIR.op}\` is not supported in \`assign value=\` — bind to \`let\` first, then assign.`,
@@ -1596,7 +1613,7 @@ function emitDestructurePy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawSource === undefined || rawSource === '') {
     throw new Error('body-statement `destructure` requires `source=`.');
   }
-  const source = emitPyExprCtx(parseExpression(String(rawSource)), ctx);
+  const source = emitPyExprCtx(parseExpr(String(rawSource)), ctx);
   const children = node.children ?? [];
   const bindings = children.filter((c) => c.type === 'binding');
   const elements = children.filter((c) => c.type === 'element');
@@ -1749,7 +1766,7 @@ function templateToPyFString(template: string, ctx: BodyEmitContext): string {
         throw new Error('body-statement `fmt`: unterminated `${...}` in template.');
       }
       const inner = template.slice(i + 2, j);
-      const exprIR = parseExpression(inner);
+      const exprIR = parseExpr(inner);
       if (exprIR.kind === 'propagate') {
         throw new Error("Propagation '?' is not allowed inside an `fmt` template — bind via `let` first.");
       }
@@ -1798,7 +1815,7 @@ function emitReturnPy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawValue === undefined || rawValue === '') {
     return [`return`];
   }
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
@@ -1815,7 +1832,7 @@ function emitThrowPy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawValue === undefined || rawValue === '') {
     return [`raise Exception()`];
   }
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
@@ -1840,7 +1857,7 @@ function emitDoPy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawValue === undefined || rawValue === '') {
     return [];
   }
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
@@ -2286,12 +2303,12 @@ function emitLambdaPy(node: Extract<ValueIR, { kind: 'lambda' }>, ctx: BodyEmitC
  *
  *  The closure body is lowered through `lowerJsClosureBodyToPython`, reusing
  *  the class-path expression/condition callbacks:
- *   - `lowerExpression(raw)` = `emitPyExprCtx(parseExpression(raw), ctx)` —
+ *   - `lowerExpression(raw)` = `emitPyExprCtx(parseExpr(raw), ctx)` —
  *     identical to every other native-body expression emit, so a captured
  *     RENAMED outer variable resolves through `ctx` (the rename stack /
  *     symbolMap) exactly as it does outside the closure.
  *   - `lowerCondition(raw)` mirrors the class/native if-emitter, which lowers a
- *     condition as the bare `emitPyExprCtx(parseExpression(cond), ctx)` (NO
+ *     condition as the bare `emitPyExprCtx(parseExpr(cond), ctx)` (NO
  *     js_truthy wrapper). Matching it EXACTLY means a condition inside a
  *     closure lowers identically to the same condition outside one.
  *
@@ -2306,11 +2323,11 @@ function emitBlockClosurePy(node: Extract<ValueIR, { kind: 'lambda' }>, names: s
   for (const name of names) ctx.shadowedSymbols.add(name);
   try {
     const lowered = lowerJsClosureBodyToPython(node.bodyBlock!.raw, {
-      lowerExpression: (raw) => emitPyExprCtx(parseExpression(raw), ctx),
+      lowerExpression: (raw) => emitPyExprCtx(parseExpr(raw), ctx),
       // Mirror the native/class if-emitter EXACTLY (bare expression, no
       // js_truthy) so a condition inside the closure matches the same
       // condition outside it.
-      lowerCondition: (raw) => emitPyExprCtx(parseExpression(raw), ctx),
+      lowerCondition: (raw) => emitPyExprCtx(parseExpr(raw), ctx),
       // The closure's own params are def-locals, never `nonlocal`: a write to a
       // param (`(x) => { x = x + 1 }`) must not be reported as a written FREE
       // name. The lowerer excludes both params and block-locals.
@@ -3500,7 +3517,7 @@ function emitExpressionV1Py(node: IRNode, ctx: BodyEmitContext): string[] {
   if (exprSource === undefined || exprSource === '') {
     throw new Error('body-statement `expression-v1` requires `expr=`.');
   }
-  const exprIR = parseExpression(exprSource);
+  const exprIR = parseExpr(exprSource);
   declareLocalBinding(ctx, userName, 'const');
   const name = maybeRenameOnShadow(ctx, userName);
   setRegexBinding(ctx, userName, exprIR.kind === 'regexLit' ? exprIR : null);

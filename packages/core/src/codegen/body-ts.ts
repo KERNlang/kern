@@ -48,7 +48,17 @@ import { isPostfixMutationOperator, isSupportedAssignOperator } from '../assignm
 import { emitExpression } from '../codegen-expression.js';
 import { parseExpression } from '../parser-expression.js';
 import type { ExprObject, IRNode } from '../types.js';
+import { typescriptClosureClassifier } from '../typescript-closure-classifier.js';
 import type { ValueIR } from '../value-ir.js';
+
+// Slice 0.9 — TS codegen is Node-only; it re-parses raw block-bodied arrow prop
+// values, so it injects the TypeScript-backed closure classifier. `parseExpr` is
+// the local binding all `parseExpression` calls in this module route through.
+const TS_PARSE_OPTS = { closureClassifier: typescriptClosureClassifier };
+function parseExpr(input: string): ReturnType<typeof parseExpression> {
+  return parseExpression(input, TS_PARSE_OPTS);
+}
+
 import { emitFmtTemplate, emitIdentifier, emitTypeAnnotation } from './emitters.js';
 import { emitStringKeyArray, parseKeys } from './ground-layer.js';
 import { emitParamList } from './type-system.js';
@@ -218,7 +228,7 @@ function emitChildrenTS(
         for (const line of emitReturnTS(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'if') {
         const condRaw = String(child.props?.cond ?? '');
-        const condIR = parseExpression(condRaw);
+        const condIR = parseExpr(condRaw);
         // Slice-2 review fix: propagation `?` in an `if` condition has no
         // sensible single-line lowering; reject early with a clear message
         // pointing users at the let-bind workaround.
@@ -245,7 +255,7 @@ function emitChildrenTS(
           if (isChainable) {
             const ifNode = ec[0];
             const nestedCondRaw = String(ifNode.props?.cond ?? '');
-            const nestedCondIR = parseExpression(nestedCondRaw);
+            const nestedCondIR = parseExpr(nestedCondRaw);
             if (nestedCondIR.kind === 'propagate') {
               throw new Error(
                 "Propagation '?' is not allowed in `if cond=` — bind the call to a `let` first, then test the bound name.",
@@ -269,7 +279,7 @@ function emitChildrenTS(
         throw new Error('`else` must immediately follow an `if` sibling. Found orphan `else` in handler body.');
       } else if (child.type === 'while') {
         const condRaw = String(child.props?.cond ?? '');
-        const condIR = parseExpression(condRaw);
+        const condIR = parseExpr(condRaw);
         if (condIR.kind === 'propagate') {
           throw new Error(
             "Propagation '?' is not allowed in `while cond=` — bind the call to a `let` first, then test the bound name.",
@@ -383,7 +393,7 @@ function emitChildrenTS(
         // Read schema-compliant `name`/`in` first; accept legacy
         // `list`/`as` as a fallback for tests that pre-date this fix.
         const listRaw = String(child.props?.in ?? child.props?.list ?? '[]');
-        const listIR = parseExpression(listRaw);
+        const listIR = parseExpr(listRaw);
         // 2026-05-06 — pair-mode (`pairKey=k pairValue=v`) emits Map/iterable-of-pairs
         // destructuring `for (const [k, v] of m)`. Index-mode (`index=i`) emits
         // `for (const [i, x] of xs.entries())`. Default form is `for (const x of xs)`.
@@ -531,9 +541,9 @@ function emitRangeForTS(node: IRNode, ctx: BodyEmitContext, indent: string): str
   validateIntegerRangeBound(String(rawFrom), 'from');
   validateIntegerRangeBound(String(rawTo), 'to');
   validatePositiveRangeStep(rawStep);
-  const fromIR = parseExpression(String(rawFrom));
-  const toIR = parseExpression(String(rawTo));
-  const stepIR = parseExpression(rawStep);
+  const fromIR = parseExpr(String(rawFrom));
+  const toIR = parseExpr(String(rawTo));
+  const stepIR = parseExpr(rawStep);
   if (fromIR.kind === 'propagate' || toIR.kind === 'propagate' || stepIR.kind === 'propagate') {
     throw new Error(
       "Propagation '?' is not allowed in `for from=`/`to=`/`step=` — bind the value to a `let` before the loop.",
@@ -580,8 +590,8 @@ function emitWithTS(node: IRNode, ctx: BodyEmitContext, indent: string): string[
   const name = emitIdentifier(String(rawName), 'with', node);
   declareLocalBinding(ctx, name, 'const');
 
-  const valueIR = parseExpression(String(rawValue));
-  const cleanupIR = parseExpression(String(rawCleanup));
+  const valueIR = parseExpr(String(rawValue));
+  const cleanupIR = parseExpr(String(rawCleanup));
   if (valueIR.kind === 'propagate' || cleanupIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in `with value=` or `with cleanup=` — bind to `let` first.");
   }
@@ -630,7 +640,7 @@ function emitBranchTS(node: IRNode, ctx: BodyEmitContext, indent: string): strin
   if (onRaw === '') {
     throw new Error('`branch` requires an `on=` expression in body-statement context.');
   }
-  const onIR = parseExpression(onRaw);
+  const onIR = parseExpr(onRaw);
   const out: string[] = [];
   out.push(`${indent}switch (${emitExpression(onIR)}) {`);
   const inner = indent + INDENT_STEP;
@@ -699,7 +709,7 @@ function emitLetTS(node: IRNode, ctx: BodyEmitContext): string[] {
     }
     return [`${bindingKind} ${name}${typeAnn};`];
   }
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
@@ -773,9 +783,9 @@ function emitClampTS(node: IRNode, ctx: BodyEmitContext): string[] {
   const rawMax = unwrapBodyExpr(props.max);
   if (rawMax === undefined || rawMax === '') throw new Error('body-statement `clamp` requires `max=`.');
 
-  const valueIR = parseExpression(rawValue);
-  const minIR = parseExpression(rawMin);
-  const maxIR = parseExpression(rawMax);
+  const valueIR = parseExpr(rawValue);
+  const minIR = parseExpr(rawMin);
+  const maxIR = parseExpr(rawMax);
   if (valueIR.kind === 'propagate' || minIR.kind === 'propagate' || maxIR.kind === 'propagate') {
     throw new Error(
       "Propagation '?' is not allowed in `clamp value=`/`min=`/`max=` — bind the value to a `let` first.",
@@ -804,7 +814,7 @@ function emitFirstTruthyTS(node: IRNode, ctx: BodyEmitContext): string[] {
   if (values.length < 2) throw new Error('body-statement `firstTruthy` requires at least two value expressions.');
 
   const emitted = values.map((value) => {
-    const valueIR = parseExpression(value);
+    const valueIR = parseExpr(value);
     if (valueIR.kind === 'propagate') {
       throw new Error("Propagation '?' is not allowed in `firstTruthy values=` — bind the value to a `let` first.");
     }
@@ -832,7 +842,7 @@ function emitCoalesceTS(node: IRNode, ctx: BodyEmitContext): string[] {
   if (values.length < 2) throw new Error(`body-statement \`${type}\` requires at least two value expressions.`);
 
   const emitted = values.map((value) => {
-    const valueIR = parseExpression(value);
+    const valueIR = parseExpr(value);
     if (valueIR.kind === 'propagate') {
       throw new Error(`Propagation '?' is not allowed in \`${type} values=\` — bind the value to a \`let\` first.`);
     }
@@ -872,7 +882,7 @@ function emitObjectMergeTS(node: IRNode, ctx: BodyEmitContext): string[] {
     if (source.startsWith('...')) {
       throw new Error('body-statement `objectMerge` sources imply spreading; omit leading `...`.');
     }
-    const sourceIR = parseExpression(source);
+    const sourceIR = parseExpr(source);
     if (sourceIR.kind === 'propagate') {
       throw new Error("Propagation '?' is not allowed in `objectMerge sources=` — bind the value to a `let` first.");
     }
@@ -900,7 +910,7 @@ function emitObjectPickTS(node: IRNode, ctx: BodyEmitContext): string[] {
     throw new Error('body-statement `objectPick` requires `keys=`.');
   }
 
-  const inIR = parseExpression(rawIn);
+  const inIR = parseExpr(rawIn);
   if (inIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in `objectPick in=` — bind the value to a `let` first.");
   }
@@ -932,7 +942,7 @@ function emitObjectOmitTS(node: IRNode, ctx: BodyEmitContext): string[] {
     throw new Error('body-statement `objectOmit` requires `keys=`.');
   }
 
-  const inIR = parseExpression(rawIn);
+  const inIR = parseExpr(rawIn);
   if (inIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in `objectOmit in=` — bind the value to a `let` first.");
   }
@@ -979,7 +989,7 @@ function emitAssignTS(node: IRNode, ctx: BodyEmitContext): string[] {
     // mirrors this; the emitter check is defense-in-depth for direct IR.
     throw new Error(`body-statement \`assign op="${rawOp}"\` is value-less; remove \`value=\`.`);
   }
-  const targetIR = parseExpression(String(rawTarget));
+  const targetIR = parseExpr(String(rawTarget));
   if (!isAssignableTarget(targetIR)) {
     throw new Error('body-statement `assign target=` must be an identifier, member access, or index access.');
   }
@@ -996,7 +1006,7 @@ function emitAssignTS(node: IRNode, ctx: BodyEmitContext): string[] {
       const baseOp = rawOp === '++' ? '+' : '-';
       return [`${setter}((prev) => prev ${baseOp} 1);`];
     }
-    const valueIR = parseExpression(String(rawValue));
+    const valueIR = parseExpr(String(rawValue));
     if (valueIR.kind === 'propagate') {
       throw new Error(
         `Propagation \`${valueIR.op}\` is not supported in \`assign value=\` — bind to \`let\` first, then assign.`,
@@ -1018,7 +1028,7 @@ function emitAssignTS(node: IRNode, ctx: BodyEmitContext): string[] {
   if (isPostfix) {
     return [`${emitExpression(targetIR)}${rawOp};`];
   }
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   if (valueIR.kind === 'propagate') {
     throw new Error(
       `Propagation \`${valueIR.op}\` is not supported in \`assign value=\` — bind to \`let\` first, then assign.`,
@@ -1048,7 +1058,7 @@ function emitCellTS(node: IRNode, ctx: BodyEmitContext): string[] {
   const typeArg = type ? `<${emitTypeAnnotation(type, 'unknown', node)}>` : '';
   const rawInitial = props.initial;
   const initialEmitted =
-    rawInitial === undefined || rawInitial === '' ? 'undefined' : emitExpression(parseExpression(String(rawInitial)));
+    rawInitial === undefined || rawInitial === '' ? 'undefined' : emitExpression(parseExpr(String(rawInitial)));
   return [`const [${name}, ${setter}] = useState${typeArg}(${initialEmitted});`];
 }
 
@@ -1069,7 +1079,7 @@ function emitSetTS(node: IRNode, ctx: BodyEmitContext): string[] {
   // We don't gate on lookupLocalBinding because the cell may be declared in
   // a parent scope outside this emitter's visibility.
   const setter = cellSetterName(name);
-  const valueIR = parseExpression(String(rawTo));
+  const valueIR = parseExpr(String(rawTo));
   if (valueIR.kind === 'propagate') {
     throw new Error(
       `Propagation \`${valueIR.op}\` is not supported in \`set to=\` — bind to \`let\` first, then call set.`,
@@ -1203,7 +1213,7 @@ function emitDestructureTS(node: IRNode, ctx: BodyEmitContext): string[] {
   const pattern = formatBodyDestructurePattern(node);
   const kind = props.kind === 'let' ? 'let' : 'const';
   const typeAnn = props.type ? `: ${emitTypeAnnotation(String(props.type), 'unknown', node)}` : '';
-  const sourceIR = parseExpression(String(rawSource));
+  const sourceIR = parseExpr(String(rawSource));
   if (sourceIR.kind === 'propagate' && sourceIR.op === '?') rejectPropagationInsideTry(ctx);
   return [`${kind} ${pattern}${typeAnn} = ${emitExpression(sourceIR)};`];
 }
@@ -1260,7 +1270,7 @@ function emitReturnTS(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawValue === undefined || rawValue === '') {
     return [`return;`];
   }
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
@@ -1276,7 +1286,7 @@ function emitThrowTS(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawValue === undefined || rawValue === '') {
     return [`throw new Error();`];
   }
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
@@ -1292,7 +1302,7 @@ function emitDoTS(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawValue === undefined || rawValue === '') {
     return [];
   }
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
@@ -1342,7 +1352,7 @@ function emitExpressionV1TS(node: IRNode, ctx: BodyEmitContext): string[] {
   if (exprSource === undefined || exprSource === '') {
     throw new Error('body-statement `expression-v1` requires `expr=`.');
   }
-  const exprIR = parseExpression(exprSource);
+  const exprIR = parseExpr(exprSource);
   declareLocalBinding(ctx, name, 'const');
   const lines = [`const ${name}${typeAnn} = ${emitExpression(exprIR)};`];
   if (ctx.traceHooks?.letAssign) lines.push(letAssignTraceTS(name));
