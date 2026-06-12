@@ -26,6 +26,8 @@ export {
   KERN_JS_HELPER_PY,
   KERN_JS_OBJECT_HELPERS_PY,
   KERN_JS_STRING_HELPERS_PY,
+  // Slice S7 — sentinel-aware Json.stringify shim (`_kern_json_stringify`).
+  KERN_JSON_STRINGIFY_SHIM_PY,
   // Slice S7 — dual-sentinel nullish/equality substrate
   // (`_kern_is_nullish` / `_kern_strict_equal` / `_kern_loose_equal`).
   KERN_NULLISH_HELPER_PY,

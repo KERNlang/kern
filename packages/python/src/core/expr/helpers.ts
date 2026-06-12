@@ -45,6 +45,50 @@ export const KERN_NULLISH_HELPER_PY = [
   '    return _kern_strict_equal(a, b)',
 ].join('\n');
 
+// Slice S7 — sentinel-aware `Json.stringify` / `JSON.stringify` shim. Raw
+// `json.dumps` cannot model JS `JSON.stringify`'s undefined handling, so the
+// Python target routes through `_kern_json_stringify`:
+//   - top-level `_KERN_UNDEFINED` → returns the sentinel itself (host-observed
+//     `undefined`), matching JS `JSON.stringify(undefined) === undefined`.
+//   - object property whose value is the sentinel → key OMITTED.
+//   - array element that is the sentinel → JSON `null`.
+//   - rules apply recursively into nested objects/arrays.
+//   - `None` stays JSON `null`; compact separators + ensure_ascii=False
+//     preserve the existing byte-for-byte parity for sentinel-free inputs.
+// `_kern_json_prepare` returns a sentinel-free structure that `json.dumps` can
+// serialize; the top-level sentinel is short-circuited before dumps runs. The
+// block self-defines `_KERN_UNDEFINED` via the idempotent guard so it stands
+// alone. It references `__k_json`, which the emitter supplies via the stdlib
+// table's `requires.py: 'json'` → `import json as __k_json` (kept, NOT
+// self-imported here, so a body that ALSO calls `Json.parse` shares one import).
+export const KERN_JSON_STRINGIFY_SHIM_PY = [
+  'try:',
+  '    _KERN_UNDEFINED',
+  'except NameError:',
+  '    class _KernUndefined:',
+  '        def __bool__(self): return False',
+  "        def __repr__(self): return 'undefined'",
+  "        def __str__(self): return 'undefined'",
+  '    _KERN_UNDEFINED = _KernUndefined()',
+  '',
+  'def _kern_json_prepare(__k_v):',
+  '    if isinstance(__k_v, dict):',
+  '        __k_out = {}',
+  '        for __k_k, __k_val in __k_v.items():',
+  '            if __k_val is _KERN_UNDEFINED:',
+  '                continue',
+  '            __k_out[__k_k] = _kern_json_prepare(__k_val)',
+  '        return __k_out',
+  '    if isinstance(__k_v, (list, tuple)):',
+  '        return [None if __k_e is _KERN_UNDEFINED else _kern_json_prepare(__k_e) for __k_e in __k_v]',
+  '    return __k_v',
+  '',
+  'def _kern_json_stringify(__k_v):',
+  '    if __k_v is _KERN_UNDEFINED:',
+  '        return _KERN_UNDEFINED',
+  '    return __k_json.dumps(_kern_json_prepare(__k_v), separators=(",", ":"), ensure_ascii=False)',
+].join('\n');
+
 export const KERN_PAIR_HELPERS_PY = [
   'def _kern_pairs(__k_v):',
   '    return __k_v.items() if hasattr(__k_v, "items") else iter(__k_v)',

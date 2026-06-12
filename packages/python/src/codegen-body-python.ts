@@ -64,6 +64,7 @@ import {
   KERN_FMT_HELPER_PY,
   KERN_JS_ARRAY_HELPERS_PY,
   KERN_JS_HELPER_PY,
+  KERN_JSON_STRINGIFY_SHIM_PY,
   KERN_NULLISH_HELPER_PY,
   KERN_PAIR_HELPERS_PY,
   KERN_TMOD_HELPER_PY,
@@ -3571,6 +3572,16 @@ function applyStdlibLoweringPython(call: Extract<ValueIR, { kind: 'call' }>, ctx
     const emitted = emitPyExprCtx(a, ctx);
     return needsArgParens(a) ? `(${emitted})` : emitted;
   });
+  // Slice S7 — `Json.stringify` on Python routes through the sentinel-aware shim
+  // (single-source `KERN_JSON_STRINGIFY_SHIM_PY`) instead of raw `__k_json.dumps`,
+  // so `JSON.stringify(undefined)` is host-undefined, an object key whose value
+  // is the sentinel is omitted, and a sentinel array element becomes JSON null —
+  // matching JS. The shim references `__k_json`, supplied by the table's
+  // `requires.py: 'json'` import registered above (one import shared with parse).
+  if (moduleName === 'Json' && methodName === 'stringify') {
+    ctx.helpers.add(KERN_JSON_STRINGIFY_SHIM_PY);
+    return `_kern_json_stringify(${args[0]})`;
+  }
   return applyTemplate(entry.py, args);
 }
 

@@ -107,12 +107,12 @@ describe('emitPyExpression — KERN-stdlib dispatch (Json module)', () => {
     expect(emitPyExpression(parseExpression('Json.parse(s)'))).toBe('__k_json.loads(s)');
   });
 
-  test('Json.stringify(obj) lowers to Python __k_json.dumps with compact separators + literal Unicode', () => {
-    // Slice review fix (Codex): default `json.dumps` inserts `", "` / `": "`
-    // separators and ASCII-escapes non-ASCII; force the JS-compatible form.
-    expect(emitPyExpression(parseExpression('Json.stringify(obj)'))).toBe(
-      '__k_json.dumps(obj, separators=(",", ":"), ensure_ascii=False)',
-    );
+  test('Json.stringify(obj) lowers to the sentinel-aware _kern_json_stringify shim', () => {
+    // Slice S7: raw `__k_json.dumps` cannot model JS `JSON.stringify`'s undefined
+    // handling (omit object keys, sentinel→null in arrays, top-level undefined).
+    // The shim wraps `__k_json.dumps(..., separators=(",", ":"), ensure_ascii=False)`
+    // and preserves byte-parity for sentinel-free inputs.
+    expect(emitPyExpression(parseExpression('Json.stringify(obj)'))).toBe('_kern_json_stringify(obj)');
   });
 
   test('nested Json+Text composes in Python form', () => {
@@ -150,10 +150,12 @@ describe('Json/Path — Python imports collection', () => {
     expect([...imports]).toEqual(['json']);
   });
 
-  test('Json.stringify adds `json` to imports set and emits compact-separator form', () => {
+  test('Json.stringify adds `json` to imports set and emits the sentinel shim call', () => {
     const handler = makeJsonHandler([{ type: 'return', props: { value: 'Json.stringify(obj)' } }]);
     const { code, imports } = emitNativeKernBodyPythonWithImports(handler);
-    expect(code).toBe('return __k_json.dumps(obj, separators=(",", ":"), ensure_ascii=False)');
+    // Slice S7 — shim call; the shim references `__k_json` supplied by the `json`
+    // import (shared with `Json.parse` when both appear).
+    expect(code).toBe('return _kern_json_stringify(obj)');
     expect([...imports]).toEqual(['json']);
   });
 
@@ -205,14 +207,12 @@ describe('Json/Path — Python imports collection', () => {
     expect(joined).toContain('return __k_posixpath.basename(parsed)');
   });
 
-  test('Json.stringify byte-parity with JSON.stringify on plain objects', () => {
-    // Codex review fix: ensure the emitted Python literally produces
-    // `dumps(x, separators=(",", ":"), ensure_ascii=False)`. Verifying the
-    // *string* shape only; the runtime parity with JS is implicit in the
-    // separators+ensure_ascii flags chosen.
+  test('Json.stringify routes through the sentinel-aware shim', () => {
+    // Slice S7 — emitted body calls the shim; byte-parity for sentinel-free
+    // inputs is preserved inside the shim (separators+ensure_ascii on dumps).
     const handler = makeJsonHandler([{ type: 'return', props: { value: 'Json.stringify(value)' } }]);
     const { code } = emitNativeKernBodyPythonWithImports(handler);
-    expect(code).toBe('return __k_json.dumps(value, separators=(",", ":"), ensure_ascii=False)');
+    expect(code).toBe('return _kern_json_stringify(value)');
   });
 
   test('user-defined `json` ident in body does not collide with stdlib import', () => {
@@ -227,8 +227,8 @@ describe('Json/Path — Python imports collection', () => {
     const joined = lines.join('\n');
     expect(joined).toContain('import json as __k_json');
     // The body references the user's `json` param (not the module).
-    // Codex review fix: Python form now carries separators+ensure_ascii.
-    expect(joined).toContain('return __k_json.dumps(json, separators=(",", ":"), ensure_ascii=False)');
+    // Slice S7 — Python form routes through the sentinel-aware shim.
+    expect(joined).toContain('return _kern_json_stringify(json)');
   });
 });
 
@@ -240,15 +240,14 @@ describe('Cross-target parity — Json/Path slice', () => {
     expect(emitPyExpression(parseExpression(src))).toBe('__k_json.loads(s)');
   });
 
-  test('Json.stringify(x) parity — JSON.stringify vs __k_json.dumps with compact form', async () => {
+  test('Json.stringify(x) parity — TS JSON.stringify vs Python sentinel shim', async () => {
     const { emitExpression } = await import('@kernlang/core');
     const src = 'Json.stringify(obj)';
+    // TS keeps host `JSON.stringify` (already JS-faithful for undefined); Python
+    // routes through the S7 sentinel-aware shim so the two match at runtime,
+    // including undefined-omission and top-level undefined.
     expect(emitExpression(parseExpression(src))).toBe('JSON.stringify(obj)');
-    // Codex review fix: Python form must include separators+ensure_ascii so
-    // the *runtime* string output matches JS for plain objects/arrays.
-    expect(emitPyExpression(parseExpression(src))).toBe(
-      '__k_json.dumps(obj, separators=(",", ":"), ensure_ascii=False)',
-    );
+    expect(emitPyExpression(parseExpression(src))).toBe('_kern_json_stringify(obj)');
   });
 
   test('Path.basename(p) parity — TS split-pop vs Python posixpath.basename', async () => {
