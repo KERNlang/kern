@@ -7,12 +7,20 @@
 
 import type { ConceptMap, IRNode } from '@kernlang/core';
 import { parseDocument } from '@kernlang/core';
+import { nativeEligibilityClassifier, typescriptClosureClassifier } from '@kernlang/core/node';
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import type { KernLintRule } from './kern-lint.js';
 import { buildRuleIndex, evaluateRule } from './rule-eval.js';
 import type { ReviewFinding } from './types.js';
+
+// Slice 0.9 — Node-side: inject the TypeScript-backed classifiers so block-bodied
+// arrows in expression props keep parsing (instead of fail-closing).
+const NODE_PARSE_CAPS = {
+  closureClassifier: typescriptClosureClassifier,
+  nativeEligibilityClassifier,
+} as const;
 
 // ── Validation ──────────────────────────────────────────────────────────
 
@@ -87,7 +95,7 @@ function loadRulesFromFile(
 
   try {
     const source = readFileSync(absPath, 'utf-8');
-    const doc = parseDocument(source);
+    const doc = parseDocument(source, undefined, NODE_PARSE_CAPS);
     const children = doc.children || [];
 
     // Resolve imports first (relative to importing file)

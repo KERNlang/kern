@@ -33,6 +33,7 @@ import {
   VALID_TARGETS,
   VALUE_SHORTHANDS,
 } from '@kernlang/core';
+import { nativeEligibilityClassifier, typescriptClosureClassifier } from '@kernlang/core/node';
 import { transpileExpress } from '@kernlang/express';
 import { transpileMCP, transpileMCPPython } from '@kernlang/mcp';
 import { transpileFastAPI } from '@kernlang/python';
@@ -69,6 +70,13 @@ const server = new McpServer(
 );
 
 // ── Helpers ─────────────────────────────────────────────────────────────
+
+// Slice 0.9 — Node-side: inject the TypeScript-backed classifiers so block-bodied
+// arrows in expression props keep parsing (instead of fail-closing).
+const NODE_PARSE_CAPS = {
+  closureClassifier: typescriptClosureClassifier,
+  nativeEligibilityClassifier,
+} as const;
 
 function log(event: string, details: Record<string, unknown> = {}): void {
   console.error(JSON.stringify({ level: 'info', event, ...details, ts: new Date().toISOString() }));
@@ -321,7 +329,7 @@ server.tool(
   async ({ source, target, structure }) => {
     log('tool:compile', { target, structure, len: source.length });
     try {
-      const ast = unwrapSingleDocumentNode(parseDocument(source));
+      const ast = unwrapSingleDocumentNode(parseDocument(source, undefined, NODE_PARSE_CAPS));
       const config = resolveConfig({ target: target as KernTarget, structure: structure as KernStructure });
       const result = transpile(ast, target as KernTarget, config);
       const structureSuffix = structure !== 'flat' ? ` / ${structure}` : '';
@@ -474,7 +482,7 @@ server.tool(
   async ({ source }) => {
     log('tool:parse', { len: source.length });
     try {
-      const ast = parse(source);
+      const ast = parse(source, undefined, NODE_PARSE_CAPS);
       const ir = serializeIR(ast);
       return { content: [{ type: 'text', text: `// ${countTokens(ir)} IR tokens, ${countNodes(ast)} nodes\n${ir}` }] };
     } catch (e) {
@@ -491,7 +499,7 @@ server.tool(
   async ({ source }) => {
     log('tool:decompile', { len: source.length });
     try {
-      const ast = parse(source);
+      const ast = parse(source, undefined, NODE_PARSE_CAPS);
       const result = decompile(ast);
       return { content: [{ type: 'text', text: result.code }] };
     } catch (e) {
@@ -507,7 +515,7 @@ server.tool(
   { source: z.string().describe('.kern source code') },
   async ({ source }) => {
     try {
-      const ast = parse(source);
+      const ast = parse(source, undefined, NODE_PARSE_CAPS);
       return { content: [{ type: 'text', text: `Valid .kern — ${countNodes(ast)} node(s) parsed.` }] };
     } catch (e) {
       return { isError: true, content: [{ type: 'text', text: `Syntax error: ${fmtError(e)}` }] };
@@ -704,7 +712,7 @@ server.tool(
   async ({ source, target, structure }) => {
     log('tool:compile-json', { target, structure, len: source.length });
     try {
-      const result = parseDocumentWithDiagnostics(source);
+      const result = parseDocumentWithDiagnostics(source, undefined, NODE_PARSE_CAPS);
       const ast = unwrapSingleDocumentNode(result.root);
       const config = resolveConfig({ target: target as KernTarget, structure: structure as KernStructure });
       const compiled = transpile(ast, target as KernTarget, config);
@@ -736,7 +744,7 @@ server.tool(
   async ({ source, target }) => {
     log('tool:compile-and-review', { target, len: source.length });
     try {
-      const ast = parse(source);
+      const ast = parse(source, undefined, NODE_PARSE_CAPS);
       const config = resolveConfig({ target: 'mcp' as KernTarget });
       const compiled = target === 'python' ? transpileMCPPython(ast, config) : transpileMCP(ast, config);
 
@@ -857,7 +865,7 @@ server.tool(
   async ({ source, serverImportPath }) => {
     log('tool:generate-security-tests', { len: source.length });
     try {
-      const ast = parse(source);
+      const ast = parse(source, undefined, NODE_PARSE_CAPS);
       const suites = generateTestSuites(ast);
 
       if (suites.length === 0) {

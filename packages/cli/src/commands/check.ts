@@ -1,10 +1,18 @@
 import type { CallCheckDiagnostic, CheckDiagnostic, ReturnCheckDiagnostic } from '@kernlang/check';
 import { checkCalls, checkProgram, checkReturns } from '@kernlang/check';
 import { parseDocumentWithDiagnostics, validateSemantics } from '@kernlang/core';
+import { nativeEligibilityClassifier, typescriptClosureClassifier } from '@kernlang/core/node';
 import { existsSync, readFileSync, statSync } from 'fs';
 import { dirname, join, relative, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { findKernFiles, hasFlag } from '../shared.js';
+
+// Slice 0.9 — Node-side: inject the TypeScript-backed classifiers so block-bodied
+// arrows in expression props keep parsing (instead of fail-closing).
+const NODE_PARSE_CAPS = {
+  closureClassifier: typescriptClosureClassifier,
+  nativeEligibilityClassifier,
+} as const;
 
 // Mirror the discovery filter used by `commands/self-coverage.ts`.
 const SKIP_DIRS = new Set(['build', '.kern-gaps', 'coverage', '.next', '.turbo', '.vercel', 'generated']);
@@ -185,7 +193,7 @@ export function collectCheck(target: string, opts: RunCheckOptions): CheckReport
       throw new Error(`kern check: cannot read file '${file}': ${(err as Error).message}`);
     }
 
-    const { root, diagnostics: parseDiagnostics } = parseDocumentWithDiagnostics(source);
+    const { root, diagnostics: parseDiagnostics } = parseDocumentWithDiagnostics(source, undefined, NODE_PARSE_CAPS);
 
     let fileHasParseError = false;
     for (const diagnostic of parseDiagnostics) {

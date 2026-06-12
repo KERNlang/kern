@@ -37,6 +37,7 @@ import {
   validateSemantics,
   writeCoverageGaps,
 } from '@kernlang/core';
+import { nativeEligibilityClassifier, typescriptClosureClassifier } from '@kernlang/core/node';
 import { emitInterfaces, transpileExpress } from '@kernlang/express';
 import { transpileGo } from '@kernlang/go';
 import { transpileMCP } from '@kernlang/mcp';
@@ -596,13 +597,23 @@ export function surfaceValidationDiagnostics(root: IRNode, file?: string): { err
   return { errors: violations.length, warnings: 0 };
 }
 
+/** Slice 0.9 — the CLI is Node-side, so every CLI parse injects the
+ *  TypeScript-backed closure + native-eligibility classifiers by default. This
+ *  keeps block-bodied arrows in expression props parsing and the
+ *  `NATIVE_KERN_ELIGIBLE` hint firing exactly as before the browser-spine cut.
+ *  Caller-supplied options (e.g. `resolveImport`) override / extend these. */
+const NODE_PARSE_CAPS = {
+  closureClassifier: typescriptClosureClassifier,
+  nativeEligibilityClassifier,
+} as const;
+
 export function parseAndSurface(
   source: string,
   file?: string,
   options?: import('@kernlang/core').ParseOptions,
   surfaceValidation = false,
 ): IRNode {
-  const result = parseWithDiagnostics(source, undefined, options);
+  const result = parseWithDiagnostics(source, undefined, { ...NODE_PARSE_CAPS, ...options });
   surfaceParseDiagnostics(result.diagnostics, file);
   if (surfaceValidation) surfaceValidationDiagnostics(result.root, file);
   return result.root;
@@ -628,7 +639,7 @@ export function parseWithJSONDiagnostics(
   file: string,
   options?: import('@kernlang/core').ParseOptions,
 ): { root: IRNode; json: FileDiagnosticsJSON } {
-  const result = parseWithDiagnostics(source, undefined, options);
+  const result = parseWithDiagnostics(source, undefined, { ...NODE_PARSE_CAPS, ...options });
   const schemaViolations = validationViolations(result.root);
   const hasErrors = result.diagnostics.some((d) => d.severity === 'error') || schemaViolations.length > 0;
 

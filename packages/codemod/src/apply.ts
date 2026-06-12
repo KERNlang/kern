@@ -24,12 +24,17 @@
  */
 
 import { expandTemplateNode, type IRNode, parse } from '@kernlang/core';
+import { nativeEligibilityClassifier, typescriptClosureClassifier } from '@kernlang/core/node';
 import { detectTemplates, type TemplateMatch } from '@kernlang/review';
 import type { Project } from 'ts-morph';
 import { getAdapter } from './adapter-registry.js';
 import { runAffectedSetDiagnostics, runWholeProgramDiagnostics, snapshotWholeProgram } from './diagnostics.js';
 import { ensureTemplate } from './template-loader.js';
 import type { ApplyOptions, ApplyResult } from './types.js';
+
+// Slice 0.9 — Node-side: inject the TypeScript-backed classifiers so block-bodied
+// arrows in expression props keep parsing (instead of fail-closing).
+const NODE_PARSE_CAPS = { closureClassifier: typescriptClosureClassifier, nativeEligibilityClassifier } as const;
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -147,7 +152,7 @@ export function applyMatch(input: ApplyFileInput, options: ApplyOptions = {}): A
 
   let irNode: IRNode;
   try {
-    const ast = parse(match.suggestedKern);
+    const ast = parse(match.suggestedKern, undefined, NODE_PARSE_CAPS);
     if (ast.type === match.templateName) {
       irNode = ast;
     } else if (ast.children && ast.children.length === 1 && ast.children[0].type === match.templateName) {

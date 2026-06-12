@@ -35,7 +35,7 @@
  * type of the const, because the const had no useful type to begin with.
  */
 
-import { escapeKernString } from '@kernlang/core';
+import { escapeKernString } from '@kernlang/core/node';
 import ts from 'typescript';
 
 export interface ClassBodyHit {
