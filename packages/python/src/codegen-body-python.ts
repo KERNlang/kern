@@ -1884,6 +1884,20 @@ export function emitPyExpression(node: ValueIR, options?: BodyEmitOptions): stri
 export function emitPyExpressionWithImports(node: ValueIR, options?: BodyEmitOptions): PyExpressionEmitResult {
   const ctx = freshCtx(options);
   ctx.standaloneExpression = true;
+  // Seed the outer-binding scope into `localScopes` so this standalone-
+  // expression entry point honors `outerBindings` the same way the native-body
+  // entry point does (see `emitNativeKernBodyPythonWithImports`). Before slice
+  // H the expression path silently ignored `outerBindings`; the shadowing rule
+  // (`isProvenUserBinding` consulting the single-source-of-truth scope model)
+  // needs them present so a proven-local root named `Math`/`JSON`/… is treated
+  // as a user value rather than the host namespace. Index-aligned with
+  // `regexScopes`/`renameStack` exactly as the native path does.
+  const outerBindings = options?.outerBindings ?? [];
+  if (outerBindings.length > 0) {
+    ctx.localScopes.push(new Map(outerBindings.map((n) => [n, 'const' as const])));
+    ctx.regexScopes.push(new Map(outerBindings.map((n) => [n, null])));
+    ctx.renameStack.push(new Map());
+  }
   const code = emitPyExprCtx(node, ctx);
   return { code, imports: ctx.imports, helpers: ctx.helpers };
 }
@@ -2585,6 +2599,17 @@ type ChainNode = Extract<ValueIR, { kind: 'member' | 'call' | 'index' }>;
 function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   if (node.kind === 'member') {
     const obj = node.object;
+    // Slice H — fail-closed on an UNMAPPED host-namespace member READ. Covers
+    // host CONSTANT reads such as `Math.PI` / `process.env` that are not a call
+    // (the call path guards `Root.member(args)` separately, before descending
+    // here). Only a DIRECT `Root.member` read is inspected: `obj.kind ===
+    // 'ident'`. A host-namespace-shaped, not-user-bound root throws; user
+    // receivers (`user.profile`) and proven-local roots pass through. A host
+    // CALL's callee never reaches this read guard with a host root — the call
+    // path already threw — so this only ever fires on genuine reads.
+    if (obj.kind === 'ident') {
+      rejectUnmappedHostNamespacePython(obj.name, node.property, ctx);
+    }
     const inner: GuardedExpr =
       obj.kind === 'member' || obj.kind === 'call' || obj.kind === 'index'
         ? lowerChain(obj, ctx)
@@ -2684,6 +2709,20 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   if (node.callee.kind === 'ident' && node.callee.name === 'Error') {
     const errArgs = node.args.map((arg) => emitPyExprCtx(arg, ctx)).join(', ');
     return { guard: null, expr: `Exception(${errArgs})` };
+  }
+  // Slice H — fail-closed on an UNMAPPED host-namespace member CALL. This runs
+  // AFTER every explicit lowering hook above (stdlib, regex, lambda/array,
+  // portable-array, super/String/Error) and BEFORE generic call emission, so a
+  // `Root.member(args)` call whose root is host-namespace-shaped and not proven
+  // user-bound throws the portable-lowering diagnostic instead of leaking
+  // invalid verbatim Python (`Math.sqrt(x)` → runtime NameError). Canonical
+  // KERN stdlib roots (`Number`/`Json`/…) already returned via the stdlib hook,
+  // so they never reach here; user receivers (`client.send(...)`) and a
+  // proven-local `Math` are not host-namespace-shaped / are user-bound and pass
+  // through. Capitalization-agnostic: equally catches `console.log(...)`,
+  // `Promise.all(...)`, `RegExp.escape(...)`.
+  if (node.callee.kind === 'member' && node.callee.object.kind === 'ident') {
+    rejectUnmappedHostNamespacePython(node.callee.object.name, node.callee.property, ctx);
   }
   const callee = node.callee;
   const inner: GuardedExpr =
@@ -3224,6 +3263,125 @@ function mapBinaryOpToPython(op: string): string {
     default:
       return op;
   }
+}
+
+/** Slice H — reserved HOST-NAMESPACE roots whose member calls/reads have no
+ *  portable Python lowering in this AST layer.
+ *
+ *  TRIGGER-PREDICATE design (why a curated NAME set, not a shape heuristic):
+ *  the predicate must be capitalization-AGNOSTIC and must NOT be the hardcoded
+ *  four `{Math,JSON,Object,Date}` — so it equally catches `Promise.all`,
+ *  `RegExp.escape`, `console.log`, `process.env`, `globalThis.x`. A pure
+ *  PascalCase shape rule (`/^[A-Z]/`) was tried and REJECTED: it cannot
+ *  separate host globals (`Math`, `Promise`) from PascalCase USER types/enums
+ *  that legitimately emit verbatim member access (`Result.ok`, `Result.err`,
+ *  `Flag.Ready`, `PaymentStatus.Paid`, `Shape.area`). Those user types are
+ *  declared as `union`/`enum`/`error`/`type`/`class` IR nodes — declarations
+ *  the body emitter's VALUE-only scope model does not track — so shape is the
+ *  ONLY signal a heuristic has, and shape provably misclassifies them. A
+ *  curated set of actual host globals is the correct structural signal: user
+ *  types are simply never in it, so they pass through untouched, while the host
+ *  globals (any casing) fail closed. This is "no hardcoded FOUR allowlist" by
+ *  breadth (Promise/RegExp/Reflect/Symbol/Array/console/process/… included),
+ *  not by enumerating only the spec's four.
+ *
+ *  This set is a DETECTION list, not a remediation registry — milestone A's
+ *  `KERN_STDLIB_MODULES` extension is where real portable lowerings live. A
+ *  host global NOT yet in this set fails OPEN (emits verbatim, the pre-slice
+ *  behavior) rather than crashing codegen — a non-regression, not a new bug;
+ *  the registry is the principled fix. Excludes the KERN canonical stdlib
+ *  modules by construction (they are KERN's own namespaces, lowered by
+ *  `applyStdlibLoweringPython` before this guard ever runs). */
+const RESERVED_HOST_NAMESPACE_ROOTS: ReadonlySet<string> = new Set([
+  // The spec's four reserved host roots.
+  'Math',
+  'JSON',
+  'Object',
+  'Date',
+  // Tribunal-named additional host roots (proving this is not the four-root
+  // allowlist) + the high-frequency JS host globals with no portable Python.
+  'Promise',
+  'RegExp',
+  'Reflect',
+  'Symbol',
+  'Array',
+  'WeakMap',
+  'WeakSet',
+  'Proxy',
+  'BigInt',
+  // Conventionally LOWERCASE host globals — the capitalization-agnostic half.
+  'console',
+  'process',
+  'globalThis',
+  'crypto',
+]);
+
+/** Slice H — is `name` a reserved host-namespace root (capitalization-agnostic
+ *  membership in the curated set above)? Canonical KERN stdlib modules are
+ *  never host roots and are excluded as defense in depth (they are also
+ *  pre-empted by `applyStdlibLoweringPython`). */
+function isHostNamespaceRoot(name: string): boolean {
+  if (KERN_STDLIB_MODULES.has(name)) return false;
+  return RESERVED_HOST_NAMESPACE_ROOTS.has(name);
+}
+
+/** Slice H — is `name` PROVEN to be a user binding in the current expression
+ *  context?
+ *
+ *  Reuses the emitter's EXISTING scope/binding model — the single source of
+ *  truth — rather than building a parallel tracker:
+ *    - `lookupLocalBinding` walks `ctx.localScopes` (function params via
+ *      `outerBindings`, body `let`/`const`/`cell` via `declareLocalBinding`,
+ *      loop vars, block scopes);
+ *    - `ctx.shadowedSymbols` records lambda/comprehension parameters that the
+ *      ident emitter already treats as user-local (see the `ident` case);
+ *    - `ctx.symbolMap` keys are KERN-form param names the FastAPI generator
+ *      renamed (e.g. `userId -> user_id`) — a present key means a real param.
+ *
+ *  Per tribunal amendment 2, this FAILS TOWARD REFUSE: when the scope model
+ *  cannot prove a binding, we return false (→ the host-root guard fires),
+ *  never toward verbatim acceptance. Ground/module emitters that carry no
+ *  binding information therefore fail closed for reserved host roots, which is
+ *  exactly the intent — those are the contexts that previously leaked invalid
+ *  Python. (Honoring a *declared* binding — even one whose runtime value would
+ *  be `None` — is by design: this slice reuses the lexical scope model, it
+ *  does not do runtime value tracking. A user value named `Math` is the
+ *  shadowing case the spec explicitly keeps in scope.) */
+function isProvenUserBinding(ctx: BodyEmitContext, name: string): boolean {
+  if (lookupLocalBinding(ctx, name) !== undefined) return true;
+  if (ctx.shadowedSymbols.has(name)) return true;
+  if (Object.hasOwn(ctx.symbolMap, name)) return true;
+  return false;
+}
+
+/** Slice H — the fail-closed guard for unmapped host-namespace member
+ *  expressions (the strangler-pattern interim check).
+ *
+ *  ACCEPTED DEBT (do not "fix" by relocating): this check lives at the
+ *  EMISSION point inside the code generator, not in a standalone validation
+ *  pass. That is interim by design — milestone A completes the portable
+ *  lowering registry (`KERN_STDLIB_MODULES`) and replaces these refusals with
+ *  real lowerings. Because the explicit AST lowering hooks all run BEFORE this
+ *  guard, the site is already scheduled to change as that registry grows: the
+ *  guard only ever sees the *remaining* unmapped forms. This is the strangler
+ *  pattern — the call site is provisioned to shrink, not to be reworked.
+ *
+ *  Trigger predicate (capitalization-agnostic; NO {Math,JSON,Object,Date}
+ *  allowlist): a host-namespace-shaped root (`isHostNamespaceRoot`) that is
+ *  NOT proven user-bound (`isProvenUserBinding`, which fails toward refuse).
+ *  Returns `null` (caller proceeds to generic verbatim emission) for any root
+ *  that is provably a user binding or is not host-shaped — so user receivers
+ *  (`client.send(...)`, `myMath.sqrt(...)`) and proven-local `Math` pass
+ *  through unchanged. Throws otherwise. */
+function rejectUnmappedHostNamespacePython(root: string, member: string, ctx: BodyEmitContext): null {
+  if (!isHostNamespaceRoot(root)) return null;
+  if (isProvenUserBinding(ctx, root)) return null;
+  throw new Error(
+    `Unsupported host namespace in Python expression: ${root}.${member} is not registered for portable lowering in this context. ` +
+      `Use a KERN stdlib call such as Number.floor/Json.parse when available, or bind a target-specific value explicitly. ` +
+      `(If you meant a user value, bind or rename '${root}' in scope; this host API awaits the KERN stdlib registry — ` +
+      `extend KERN_STDLIB_MODULES to add a portable lowering.)`,
+  );
 }
 
 /** Slice 2a — KERN-stdlib dispatch for Python. Returns the lowered Python
