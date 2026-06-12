@@ -331,6 +331,28 @@ export {
   snapshotRegistry,
   tracesEqual,
 } from './ir/semantics/index.js';
+// ToNumericPrimitive decision kernel — slice-0.75 substrate (browser-safe).
+export type { KernNumericInput, NumericResult } from './ir/semantics/to-numeric.js';
+export {
+  ECMA_STR_WHITESPACE,
+  KERN_UNDEFINED_SENTINEL,
+  numberToInt32,
+  numberToIntegerOrInfinity,
+  numberToUint32,
+  stringToNumber,
+  toInt32,
+  toIntegerOrInfinity,
+  toNumber,
+  toUint32,
+} from './ir/semantics/to-numeric.js';
+export type { ExpectedNumber, IntFixture, ToNumberFixture } from './ir/semantics/to-numeric-fixtures.js';
+export {
+  TO_INT32_FIXTURES,
+  TO_INTEGER_OR_INFINITY_FIXTURES,
+  TO_NUMBER_FIXTURES,
+  TO_UINT32_FIXTURES,
+  UNDEFINED_INPUT,
+} from './ir/semantics/to-numeric-fixtures.js';
 export type { GapCategory, GapClassification } from './migrate-literals.js';
 export { classifyHandlerGap, isInlineSafeExpression, isInlineSafeLiteral } from './migrate-literals.js';
 // Native KERN handler eligibility (slice 5a) — heuristic classifier used by
