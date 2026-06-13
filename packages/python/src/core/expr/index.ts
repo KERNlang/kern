@@ -23,8 +23,10 @@ import {
 export {
   KERN_FMT_HELPER_PY,
   KERN_I32_HELPER_PY,
+  KERN_JS_ARRAY_FROM_HELPER_PY,
   KERN_JS_ARRAY_HELPERS_PY,
   KERN_JS_HELPER_PY,
+  KERN_JS_MATH_HELPERS_PY,
   KERN_JS_OBJECT_HELPERS_PY,
   KERN_JS_STRING_HELPERS_PY,
   // Slice S7 — sentinel-aware Json.stringify shim (`_kern_json_stringify`).
@@ -999,7 +1001,7 @@ function lowerMathBuiltinCalls(expr: string, imports?: Set<string>): string {
             break;
           case 'round':
             imports?.add('import math as __k_math');
-            out += `__k_math.floor(${arg} + 0.5)`;
+            out += legacyJsRoundExpr(arg);
             break;
           case 'abs':
             out += `abs(${arg})`;
@@ -1084,6 +1086,10 @@ function lowerMathBuiltinCalls(expr: string, imports?: Set<string>): string {
     i += 1;
   }
   return out;
+}
+
+function legacyJsRoundExpr(arg: string): string {
+  return `(lambda __k_n: __k_n if __k_n != __k_n or __k_n in (float("inf"), float("-inf")) or __k_n == 0 else (lambda __k_floor: (lambda __k_r: -0.0 if __k_r == 0 and __k_n < 0 else __k_r)(__k_floor + (1 if __k_n - __k_floor >= 0.5 else 0)))(__k_math.floor(__k_n)))(${arg})`;
 }
 
 // Find the start of the JS expression that ends just before the current position.

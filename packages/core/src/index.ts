@@ -27,12 +27,15 @@ export {
 } from './closure-classifier.js';
 export type { BodyEmitOptions, BodyEmitResult } from './codegen/body-ts.js';
 export { emitNativeKernBodyTS, emitNativeKernBodyTSWithImports } from './codegen/body-ts.js';
-export type { StdlibEntry } from './codegen/kern-stdlib.js';
+export type { StdlibCallEntry, StdlibEntry, StdlibPropertyEntry } from './codegen/kern-stdlib.js';
 export {
   applyTemplate,
   KERN_STDLIB,
   KERN_STDLIB_MODULES,
   lookupStdlib,
+  lookupStdlibCall,
+  lookupStdlibProperty,
+  suggestStdlibMember,
   suggestStdlibMethod,
 } from './codegen/kern-stdlib.js';
 export type {
