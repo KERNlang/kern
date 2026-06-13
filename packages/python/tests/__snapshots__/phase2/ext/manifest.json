@@ -1,0 +1,1122 @@
+{
+  "version": 1,
+  "generatedBy": "scripts/phase2-gate-ext.mjs",
+  "normalization": [
+    "lf",
+    "strip-trailing-space",
+    "final-newline"
+  ],
+  "normalizerSha256": "f71535fc30f029236065c6358c41b3f505d77d816a396d1c4d857b61e7964e82",
+  "corpusSha256": "28be42ebeb67e380d87990900a1e52994818718ac633e09eb2ae5b9785372b5c",
+  "discriminatorVersion": "census-v3",
+  "discriminatorSha256": "cd77da0135cecf6e43fa52ff2f83f6e810560c5767dd195049410da74b0f6278",
+  "sourceTreeSha256": "ead45126a989c4d8632a6cc828ff25723414a062467aa29a83be120c64a55cda",
+  "routeTableSha256": "1e9ed2ed4900a9393cc0ad04cf55784c07b506808ae83de82de394cc6062a4b9",
+  "caseCount": 30,
+  "cases": [
+    {
+      "id": "bitwise-or-sign-bit",
+      "kind": "expr",
+      "sourceKind": "conformance:expr",
+      "routes": [
+        "bitwise"
+      ],
+      "tags": [
+        "bitwise",
+        "int32",
+        "sign-bit",
+        "conformance"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/bitwise-or-sign-bit/entry.py",
+          "kind": "entry",
+          "sha256": "5e55345aa46a91cd981908ba4226156f45d81a379b532f1ca4b85a7e60e3a148"
+        },
+        {
+          "path": "artifacts/bitwise-or-sign-bit/imports.py",
+          "kind": "imports",
+          "sha256": "748a47a69b68d74ae30883ede57de7e0797eb9ef297b40ccb9530c69b3d4db4d"
+        }
+      ],
+      "importsSha256": "748a47a69b68d74ae30883ede57de7e0797eb9ef297b40ccb9530c69b3d4db4d",
+      "helperBytesSha256": "748a47a69b68d74ae30883ede57de7e0797eb9ef297b40ccb9530c69b3d4db4d",
+      "runtime": {
+        "status": "pass",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"-2147483648\"},\"calls\":[]}",
+        "pyCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"-2147483648\"},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"-2147483648\"},\"calls\":[]}",
+        "matchesReference": true
+      }
+    },
+    {
+      "id": "bitwise-shr-large-to-zero",
+      "kind": "expr",
+      "sourceKind": "conformance:expr",
+      "routes": [
+        "bitwise"
+      ],
+      "tags": [
+        "bitwise",
+        "shift",
+        "toint32-left",
+        "conformance"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/bitwise-shr-large-to-zero/entry.py",
+          "kind": "entry",
+          "sha256": "9031b243bd2c6ff25950e0b9cbaf3b7abd15761f9d5ba31ee15e57c0205fbbea"
+        },
+        {
+          "path": "artifacts/bitwise-shr-large-to-zero/imports.py",
+          "kind": "imports",
+          "sha256": "748a47a69b68d74ae30883ede57de7e0797eb9ef297b40ccb9530c69b3d4db4d"
+        }
+      ],
+      "importsSha256": "748a47a69b68d74ae30883ede57de7e0797eb9ef297b40ccb9530c69b3d4db4d",
+      "helperBytesSha256": "748a47a69b68d74ae30883ede57de7e0797eb9ef297b40ccb9530c69b3d4db4d",
+      "runtime": {
+        "status": "pass",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"0\"},\"calls\":[]}",
+        "pyCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"0\"},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"0\"},\"calls\":[]}",
+        "matchesReference": true
+      }
+    },
+    {
+      "id": "bitwise-shl-count-mask",
+      "kind": "expr",
+      "sourceKind": "conformance:expr",
+      "routes": [
+        "bitwise"
+      ],
+      "tags": [
+        "bitwise",
+        "shift",
+        "count-mask",
+        "conformance"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/bitwise-shl-count-mask/entry.py",
+          "kind": "entry",
+          "sha256": "8a5bbfe5beb2e22134237e13c27f5f1d35aec07d03d551e799e4935408b5506b"
+        },
+        {
+          "path": "artifacts/bitwise-shl-count-mask/imports.py",
+          "kind": "imports",
+          "sha256": "748a47a69b68d74ae30883ede57de7e0797eb9ef297b40ccb9530c69b3d4db4d"
+        }
+      ],
+      "importsSha256": "748a47a69b68d74ae30883ede57de7e0797eb9ef297b40ccb9530c69b3d4db4d",
+      "helperBytesSha256": "748a47a69b68d74ae30883ede57de7e0797eb9ef297b40ccb9530c69b3d4db4d",
+      "runtime": {
+        "status": "pass",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"2\"},\"calls\":[]}",
+        "pyCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"2\"},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"2\"},\"calls\":[]}",
+        "matchesReference": true
+      }
+    },
+    {
+      "id": "bitwise-computed-sum-or-wrap",
+      "kind": "expr",
+      "sourceKind": "conformance:expr",
+      "routes": [
+        "bitwise"
+      ],
+      "tags": [
+        "bitwise",
+        "computed-left",
+        "wraparound",
+        "conformance"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/bitwise-computed-sum-or-wrap/entry.py",
+          "kind": "entry",
+          "sha256": "8cb60674635da945d36cec6f55149e9cbf6d0b0b5787f37ec2694301f137b018"
+        },
+        {
+          "path": "artifacts/bitwise-computed-sum-or-wrap/imports.py",
+          "kind": "imports",
+          "sha256": "748a47a69b68d74ae30883ede57de7e0797eb9ef297b40ccb9530c69b3d4db4d"
+        }
+      ],
+      "importsSha256": "748a47a69b68d74ae30883ede57de7e0797eb9ef297b40ccb9530c69b3d4db4d",
+      "helperBytesSha256": "748a47a69b68d74ae30883ede57de7e0797eb9ef297b40ccb9530c69b3d4db4d",
+      "runtime": {
+        "status": "pass",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"-2147483648\"},\"calls\":[]}",
+        "pyCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"-2147483648\"},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"-2147483648\"},\"calls\":[]}",
+        "matchesReference": true
+      }
+    },
+    {
+      "id": "bitwise-not-string-float",
+      "kind": "expr",
+      "sourceKind": "conformance:expr",
+      "routes": [
+        "bitwise"
+      ],
+      "tags": [
+        "bitwise",
+        "unary",
+        "tonumber",
+        "string-float",
+        "conformance"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/bitwise-not-string-float/entry.py",
+          "kind": "entry",
+          "sha256": "1349b8069d325df689617fc39a697828c78e9e521f1188436ecf49fa05d68e96"
+        },
+        {
+          "path": "artifacts/bitwise-not-string-float/imports.py",
+          "kind": "imports",
+          "sha256": "748a47a69b68d74ae30883ede57de7e0797eb9ef297b40ccb9530c69b3d4db4d"
+        }
+      ],
+      "importsSha256": "748a47a69b68d74ae30883ede57de7e0797eb9ef297b40ccb9530c69b3d4db4d",
+      "helperBytesSha256": "748a47a69b68d74ae30883ede57de7e0797eb9ef297b40ccb9530c69b3d4db4d",
+      "runtime": {
+        "status": "pass",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"2\"},\"calls\":[]}",
+        "pyCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"2\"},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"2\"},\"calls\":[]}",
+        "matchesReference": true
+      }
+    },
+    {
+      "id": "bitwise-ushr-negative-zero-shift",
+      "kind": "expr",
+      "sourceKind": "conformance:expr",
+      "routes": [
+        "bitwise"
+      ],
+      "tags": [
+        "bitwise",
+        "unsigned-shift",
+        "uint32-result",
+        "conformance"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/bitwise-ushr-negative-zero-shift/entry.py",
+          "kind": "entry",
+          "sha256": "02ae6ab0fe064f6c089b04d58c8fb8fc8190e0058ccee8877d4cc48c79ddb861"
+        },
+        {
+          "path": "artifacts/bitwise-ushr-negative-zero-shift/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "pass",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"4294967295\"},\"calls\":[]}",
+        "pyCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"4294967295\"},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"4294967295\"},\"calls\":[]}",
+        "matchesReference": true
+      }
+    },
+    {
+      "id": "bitwise-precedence-or-before-andand",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "bitwise",
+        "logical"
+      ],
+      "tags": [
+        "bitwise",
+        "logical-boundary",
+        "precedence",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/bitwise-precedence-or-before-andand/entry.py",
+          "kind": "entry",
+          "sha256": "cf5a1e4ca48d448efeb367c9cbef59cdb1835ee0d81166c7ee748926178657a6"
+        },
+        {
+          "path": "artifacts/bitwise-precedence-or-before-andand/imports.py",
+          "kind": "imports",
+          "sha256": "748a47a69b68d74ae30883ede57de7e0797eb9ef297b40ccb9530c69b3d4db4d"
+        }
+      ],
+      "importsSha256": "748a47a69b68d74ae30883ede57de7e0797eb9ef297b40ccb9530c69b3d4db4d",
+      "helperBytesSha256": "748a47a69b68d74ae30883ede57de7e0797eb9ef297b40ccb9530c69b3d4db4d",
+      "runtime": {
+        "status": "blocked",
+        "blockedCode": "py:syntax-error",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"0\"},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"0\"},\"calls\":[]}"
+      }
+    },
+    {
+      "id": "bitwise-eval-once-ushr-or-log",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "bitwise"
+      ],
+      "tags": [
+        "bitwise",
+        "unsigned-shift",
+        "eval-once",
+        "left-to-right",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/bitwise-eval-once-ushr-or-log/entry.py",
+          "kind": "entry",
+          "sha256": "a295cf6ca3a3120496802324d328722f884fe14800b9cf8b240f8e4f85184579"
+        },
+        {
+          "path": "artifacts/bitwise-eval-once-ushr-or-log/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "pass",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"-1\"},\"calls\":[\"a\",\"b\",\"c\"]}",
+        "pyCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"4294967295\"},\"calls\":[\"a\",\"b\",\"c\"]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"-1\"},\"calls\":[\"a\",\"b\",\"c\"]}",
+        "matchesReference": false
+      }
+    },
+    {
+      "id": "bitwise-nested-mod-ushr-composition",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "bitwise"
+      ],
+      "tags": [
+        "bitwise",
+        "modulo",
+        "unsigned-shift",
+        "composition",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/bitwise-nested-mod-ushr-composition/entry.py",
+          "kind": "entry",
+          "sha256": "42faca132fb979399088261ed8a8cf625afedc44e9011b3e12641a982cb702cb"
+        },
+        {
+          "path": "artifacts/bitwise-nested-mod-ushr-composition/imports.py",
+          "kind": "imports",
+          "sha256": "4cb14ba29fee92f053043e90c1e4d846ce44caa60b45acc284b3165efe6c3a9e"
+        }
+      ],
+      "importsSha256": "4cb14ba29fee92f053043e90c1e4d846ce44caa60b45acc284b3165efe6c3a9e",
+      "helperBytesSha256": "4cb14ba29fee92f053043e90c1e4d846ce44caa60b45acc284b3165efe6c3a9e",
+      "runtime": {
+        "status": "blocked",
+        "blockedCode": "py:typeerror",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"-1\"},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"-1\"},\"calls\":[]}"
+      }
+    },
+    {
+      "id": "bitwise-generic-surplus-gt-boundary",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "bitwise"
+      ],
+      "tags": [
+        "bitwise",
+        "parser-boundary",
+        "generics",
+        "surplus-gt",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/bitwise-generic-surplus-gt-boundary/entry.py",
+          "kind": "entry",
+          "sha256": "ee91389ab1581a7df32d601cd8fee40a131502b732307347c3d302ef7f96c061"
+        },
+        {
+          "path": "artifacts/bitwise-generic-surplus-gt-boundary/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "blocked",
+        "blockedCode": "py:nameerror",
+        "tsCanon": null,
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"object\",\"entries\":[[\"parseShape\",{\"kind\":\"string\",\"value\":\"not-call-with-typeArgs\"}]]},\"calls\":[]}"
+      }
+    },
+    {
+      "id": "logical-and-basic-expression",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "logical"
+      ],
+      "tags": [
+        "logical",
+        "and",
+        "result-value",
+        "existing-test"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/logical-and-basic-expression/entry.py",
+          "kind": "entry",
+          "sha256": "eff504cfc19f99b575b567373ba9e2e90e5343de252af0f41236c117c2d91a43"
+        },
+        {
+          "path": "artifacts/logical-and-basic-expression/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "blocked",
+        "blockedCode": "py:syntax-error",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"right\"},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"right\"},\"calls\":[]}"
+      }
+    },
+    {
+      "id": "logical-or-basic-expression",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "logical"
+      ],
+      "tags": [
+        "logical",
+        "or",
+        "result-value",
+        "existing-test"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/logical-or-basic-expression/entry.py",
+          "kind": "entry",
+          "sha256": "ed13f376e257168f9e0718c58ba6d97065a5a623fb51bb1a0e08591e73f03050"
+        },
+        {
+          "path": "artifacts/logical-or-basic-expression/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "blocked",
+        "blockedCode": "py:syntax-error",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"fallback\"},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"fallback\"},\"calls\":[]}"
+      }
+    },
+    {
+      "id": "logical-precedence-or-and",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "logical"
+      ],
+      "tags": [
+        "logical",
+        "or",
+        "and",
+        "precedence",
+        "existing-test"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/logical-precedence-or-and/entry.py",
+          "kind": "entry",
+          "sha256": "58ff33f255b9137ecb94eee90d31c3bd1105d51a7d07b282e34be7984994eb89"
+        },
+        {
+          "path": "artifacts/logical-precedence-or-and/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "blocked",
+        "blockedCode": "py:syntax-error",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"right\"},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"right\"},\"calls\":[]}"
+      }
+    },
+    {
+      "id": "logical-call-child-parenthesized",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "logical"
+      ],
+      "tags": [
+        "logical",
+        "or",
+        "call-child",
+        "parentheses",
+        "existing-test"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/logical-call-child-parenthesized/entry.py",
+          "kind": "entry",
+          "sha256": "60dd2efff77fb01cc47701bed3106d2cc5e37863ee4fbb45b7e458150bbd8ecc"
+        },
+        {
+          "path": "artifacts/logical-call-child-parenthesized/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "blocked",
+        "blockedCode": "py:syntax-error",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"callable-result\"},\"calls\":[\"fallback\"]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"callable-result\"},\"calls\":[\"fallback\"]}"
+      }
+    },
+    {
+      "id": "logical-container-or-legacy-bug",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "logical"
+      ],
+      "tags": [
+        "logical",
+        "or",
+        "result-value",
+        "container-truthy",
+        "legacy-bug",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/logical-container-or-legacy-bug/entry.py",
+          "kind": "entry",
+          "sha256": "ed13f376e257168f9e0718c58ba6d97065a5a623fb51bb1a0e08591e73f03050"
+        },
+        {
+          "path": "artifacts/logical-container-or-legacy-bug/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "blocked",
+        "blockedCode": "py:syntax-error",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[]},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[]},\"calls\":[]}"
+      }
+    },
+    {
+      "id": "logical-nan-and-legacy-bug",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "logical"
+      ],
+      "tags": [
+        "logical",
+        "and",
+        "nan-falsy",
+        "legacy-bug",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/logical-nan-and-legacy-bug/entry.py",
+          "kind": "entry",
+          "sha256": "eff504cfc19f99b575b567373ba9e2e90e5343de252af0f41236c117c2d91a43"
+        },
+        {
+          "path": "artifacts/logical-nan-and-legacy-bug/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "blocked",
+        "blockedCode": "py:syntax-error",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"NaN\"},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"NaN\"},\"calls\":[]}"
+      }
+    },
+    {
+      "id": "logical-precedence-calls-log",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "logical"
+      ],
+      "tags": [
+        "logical",
+        "or",
+        "and",
+        "precedence",
+        "eval-once",
+        "call-log",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/logical-precedence-calls-log/entry.py",
+          "kind": "entry",
+          "sha256": "2f2dc5cb800b47ad234ccaded9dcafb0a2fd2856478e3943b6803dc978debb44"
+        },
+        {
+          "path": "artifacts/logical-precedence-calls-log/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "blocked",
+        "blockedCode": "py:syntax-error",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"right\"},\"calls\":[\"A\",\"B\",\"C\"]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"right\"},\"calls\":[\"A\",\"B\",\"C\"]}"
+      }
+    },
+    {
+      "id": "logical-impure-member-left-single-eval",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "logical"
+      ],
+      "tags": [
+        "logical",
+        "or",
+        "member-left",
+        "eval-once",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/logical-impure-member-left-single-eval/entry.py",
+          "kind": "entry",
+          "sha256": "58d58e11bc0476dd3c72bd0080a6ce2640784cf6dcf5e219c804f22eeae9c2a7"
+        },
+        {
+          "path": "artifacts/logical-impure-member-left-single-eval/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "blocked",
+        "blockedCode": "py:syntax-error",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"fallback\"},\"calls\":[\"getObj\",\"R\"]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"fallback\"},\"calls\":[\"getObj\",\"R\"]}"
+      }
+    },
+    {
+      "id": "logical-impure-index-left-single-eval",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "logical"
+      ],
+      "tags": [
+        "logical",
+        "or",
+        "index-left",
+        "container-truthy",
+        "eval-once",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/logical-impure-index-left-single-eval/entry.py",
+          "kind": "entry",
+          "sha256": "a3a355f6ef46b670e6e2b0005336687054be57e8baa6fccdb9600922691d5ada"
+        },
+        {
+          "path": "artifacts/logical-impure-index-left-single-eval/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "blocked",
+        "blockedCode": "py:syntax-error",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[]},\"calls\":[\"I\"]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[]},\"calls\":[\"I\"]}"
+      }
+    },
+    {
+      "id": "logical-nullish-boundary-zero",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "logical",
+        "nullish"
+      ],
+      "tags": [
+        "logical",
+        "nullish-boundary",
+        "or",
+        "existing-test"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/logical-nullish-boundary-zero/entry.py",
+          "kind": "entry",
+          "sha256": "5a1b3c0264a5098bab7df4108db5b5e8b84b34a90595ce343c5fd014b3d18aba"
+        },
+        {
+          "path": "artifacts/logical-nullish-boundary-zero/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "blocked",
+        "blockedCode": "py:syntax-error",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"fallback\"},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"fallback\"},\"calls\":[]}"
+      }
+    },
+    {
+      "id": "logical-ternary-consumer-container",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "logical",
+        "truthy"
+      ],
+      "tags": [
+        "logical",
+        "and",
+        "truthy-consumer",
+        "ternary",
+        "container-truthy",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/logical-ternary-consumer-container/entry.py",
+          "kind": "entry",
+          "sha256": "16daa04436fd1ac2cd31f3b3478a1a1e929249c3b3640d445ba7a7326fa7b45b"
+        },
+        {
+          "path": "artifacts/logical-ternary-consumer-container/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "blocked",
+        "blockedCode": "py:syntax-error",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"then\"},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"then\"},\"calls\":[]}"
+      }
+    },
+    {
+      "id": "logical-iterable-map-empty-list-or",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "logical",
+        "array-map"
+      ],
+      "tags": [
+        "logical",
+        "iterable-position",
+        "map-source",
+        "container-truthy",
+        "legacy-bug",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/logical-iterable-map-empty-list-or/entry.py",
+          "kind": "entry",
+          "sha256": "7efa06a295d06ef9e16a7e41a410128ea809f5fd8a9f1049132c4cd679fe69a2"
+        },
+        {
+          "path": "artifacts/logical-iterable-map-empty-list-or/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "blocked",
+        "blockedCode": "py:syntax-error",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[]},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[]},\"calls\":[]}"
+      }
+    },
+    {
+      "id": "logical-iterable-map-empty-string-or",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "logical",
+        "array-map"
+      ],
+      "tags": [
+        "logical",
+        "iterable-position",
+        "map-source",
+        "runtime-equal",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/logical-iterable-map-empty-string-or/entry.py",
+          "kind": "entry",
+          "sha256": "cbb942aa9a19cb4f2aacd377a46468ac0b2cade9ed766b9fb3f687ab53a726de"
+        },
+        {
+          "path": "artifacts/logical-iterable-map-empty-string-or/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "blocked",
+        "blockedCode": "py:syntax-error",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"6\"},{\"kind\":\"number\",\"value\":\"8\"}]},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"6\"},{\"kind\":\"number\",\"value\":\"8\"}]},\"calls\":[]}"
+      }
+    },
+    {
+      "id": "logical-iterable-filter-container-or",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "logical",
+        "array-filter"
+      ],
+      "tags": [
+        "logical",
+        "iterable-position",
+        "filter-source",
+        "container-truthy",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/logical-iterable-filter-container-or/entry.py",
+          "kind": "entry",
+          "sha256": "ed065837d6cc21b127165b2387d55793906915d2fe5bc76065be3f538c9ae4c1"
+        },
+        {
+          "path": "artifacts/logical-iterable-filter-container-or/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "blocked",
+        "blockedCode": "py:syntax-error",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"1\"},{\"kind\":\"number\",\"value\":\"2\"}]},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"1\"},{\"kind\":\"number\",\"value\":\"2\"}]},\"calls\":[]}"
+      }
+    },
+    {
+      "id": "logical-iterable-join-logical-receiver",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "logical",
+        "array-join"
+      ],
+      "tags": [
+        "logical",
+        "iterable-position",
+        "join-receiver",
+        "container-truthy",
+        "legacy-bug",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/logical-iterable-join-logical-receiver/entry.py",
+          "kind": "entry",
+          "sha256": "2167250bd4daa69d77fbf95bcd547d293ab1b5b73d376503cde9bbcb8eb7e799"
+        },
+        {
+          "path": "artifacts/logical-iterable-join-logical-receiver/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "blocked",
+        "blockedCode": "py:syntax-error",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"\"},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"\"},\"calls\":[]}"
+      }
+    },
+    {
+      "id": "logical-iterable-flat-logical-receiver",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "logical",
+        "array-flat"
+      ],
+      "tags": [
+        "logical",
+        "iterable-position",
+        "flat-receiver",
+        "container-truthy",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/logical-iterable-flat-logical-receiver/entry.py",
+          "kind": "entry",
+          "sha256": "50292dd9ac8fe892d0490b37368277a241f8e07404db1f16cde45da015695400"
+        },
+        {
+          "path": "artifacts/logical-iterable-flat-logical-receiver/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "blocked",
+        "blockedCode": "py:syntax-error",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"1\"},{\"kind\":\"number\",\"value\":\"2\"},{\"kind\":\"number\",\"value\":\"3\"}]},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"1\"},{\"kind\":\"number\",\"value\":\"2\"},{\"kind\":\"number\",\"value\":\"3\"}]},\"calls\":[]}"
+      }
+    },
+    {
+      "id": "logical-iterable-map-nullish-source",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "logical",
+        "nullish",
+        "array-map"
+      ],
+      "tags": [
+        "logical",
+        "iterable-position",
+        "nullish-boundary",
+        "map-source",
+        "eval-once",
+        "call-log",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/logical-iterable-map-nullish-source/entry.py",
+          "kind": "entry",
+          "sha256": "103cdced7c89d7d0c7dd7ccb1bd0b0cbb1e28acd846066b473e348bafa618cfb"
+        },
+        {
+          "path": "artifacts/logical-iterable-map-nullish-source/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "blocked",
+        "blockedCode": "py:syntax-error",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"10\"}]},\"calls\":[\"F\"]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"10\"}]},\"calls\":[\"F\"]}"
+      }
+    },
+    {
+      "id": "logical-iterable-map-typeof-source",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "logical",
+        "typeof",
+        "array-map"
+      ],
+      "tags": [
+        "logical",
+        "iterable-position",
+        "typeof-boundary",
+        "map-source",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/logical-iterable-map-typeof-source/entry.py",
+          "kind": "entry",
+          "sha256": "9d107cb4da5ce442b50f99e1944862ab788cde6480409478215058bde4a33530"
+        },
+        {
+          "path": "artifacts/logical-iterable-map-typeof-source/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "blocked",
+        "blockedCode": "py:syntax-error",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"string\",\"value\":\"n\"},{\"kind\":\"string\",\"value\":\"u\"},{\"kind\":\"string\",\"value\":\"m\"},{\"kind\":\"string\",\"value\":\"b\"},{\"kind\":\"string\",\"value\":\"e\"},{\"kind\":\"string\",\"value\":\"r\"}]},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"string\",\"value\":\"n\"},{\"kind\":\"string\",\"value\":\"u\"},{\"kind\":\"string\",\"value\":\"m\"},{\"kind\":\"string\",\"value\":\"b\"},{\"kind\":\"string\",\"value\":\"e\"},{\"kind\":\"string\",\"value\":\"r\"}]},\"calls\":[]}"
+      }
+    },
+    {
+      "id": "logical-iterable-map-ternary-source",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "logical",
+        "truthy",
+        "array-map"
+      ],
+      "tags": [
+        "logical",
+        "iterable-position",
+        "ternary-source",
+        "parenthesized-source",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/logical-iterable-map-ternary-source/entry.py",
+          "kind": "entry",
+          "sha256": "7e92b80516c41e5f94fdb8852f89011b940f1b9cc194e3459be2df609a178e4a"
+        },
+        {
+          "path": "artifacts/logical-iterable-map-ternary-source/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "blocked",
+        "blockedCode": "py:syntax-error",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"20\"},{\"kind\":\"number\",\"value\":\"30\"}]},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"20\"},{\"kind\":\"number\",\"value\":\"30\"}]},\"calls\":[]}"
+      }
+    },
+    {
+      "id": "logical-iterable-map-call-log",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "logical",
+        "array-map"
+      ],
+      "tags": [
+        "logical",
+        "iterable-position",
+        "map-source",
+        "eval-once",
+        "call-log",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/logical-iterable-map-call-log/entry.py",
+          "kind": "entry",
+          "sha256": "9c1a7dce5061ac6871808f86beaedee988935e8c88b9df14f3592bd4c69be415"
+        },
+        {
+          "path": "artifacts/logical-iterable-map-call-log/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "blocked",
+        "blockedCode": "py:syntax-error",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"1\"}]},\"calls\":[\"A\",\"B\",\"C\"]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"1\"}]},\"calls\":[\"A\",\"B\",\"C\"]}"
+      }
+    }
+  ],
+  "adjudications": []
+}

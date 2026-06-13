@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "discriminatorVersion": "census-v3",
+  "rawOccurrences": 30,
+  "expressionDenominator": 30,
+  "proseNotExpr": 0,
+  "escapedArtifacts": 0,
+  "buckets": {
+    "sentence-punctuation": 0,
+    "prose-symbol": 0,
+    "identifier-code-label": 0,
+    "title-case-label": 0,
+    "bare-prose-words": 0
+  }
+}
