@@ -74,9 +74,9 @@ describe('KERN-stdlib expansion — Python target', () => {
     ['Map.size(m)', 'len(m)'],
     // Number — slice 3 review fix (Gemini): aliased to `__k_math` to avoid
     // shadowing when the user has a local binding or param named `math`.
-    // Slice 3c flips Number.round to `__k_math.floor(n + 0.5)` to match JS
-    // Math.round semantics (round-half-toward-+∞).
-    ['Number.round(n)', '__k_math.floor(n + 0.5)'],
+    // Number.round uses the same JS-parity helper as the Math.round alias so
+    // NaN, infinities, and negative zero match JavaScript.
+    ['Number.round(n)', '_kern_math_round(n)'],
     ['Number.floor(n)', '__k_math.floor(n)'],
     ['Number.ceil(n)', '__k_math.ceil(n)'],
     ['Number.abs(n)', 'abs(n)'],

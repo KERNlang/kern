@@ -97,12 +97,13 @@ describe('slice 4a — FastAPI route lang=kern dispatch', () => {
     expect(content).toContain('r = __k_math.floor(0.5)');
   });
 
-  test('Number.round JS-parity: `__k_math.floor(x + 0.5)` not banker round', () => {
+  test('Number.round JS-parity: helper-backed, not banker round', () => {
     const route = makeRoute({ method: 'get', path: '/round/:x' }, [
       { type: 'return', props: { value: '{ rounded: Number.round(x) }' } },
     ]);
     const content = buildArtifactContent(route);
-    expect(content).toContain('return {"rounded": __k_math.floor(x + 0.5)}');
+    expect(content).toContain('def _kern_math_round(__k_x):');
+    expect(content).toContain('return {"rounded": _kern_math_round(x)}');
   });
 
   test('optional chain ?. continues across the trailing access (slice 3 review fix)', () => {

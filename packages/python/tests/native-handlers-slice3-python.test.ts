@@ -220,10 +220,11 @@ describe('slice 3b — Python import collection for stdlib lowerings', () => {
     expect([...imports]).toEqual(['math']);
   });
 
-  test('Number.round adds math (slice 3c lowers via math.floor)', () => {
+  test('Number.round adds JS-parity math helper', () => {
     const handler = makeHandler([{ type: 'return', props: { value: 'Number.round(x)' } }]);
-    const { imports } = emitNativeKernBodyPythonWithImports(handler);
-    expect([...imports]).toEqual(['math']);
+    const { helpers, imports } = emitNativeKernBodyPythonWithImports(handler);
+    expect([...imports]).toEqual([]);
+    expect([...helpers].join('\n')).toContain('def _kern_math_round(__k_x):');
   });
 
   test('Number.abs does NOT require math (built-in `abs`)', () => {
@@ -262,16 +263,15 @@ describe('slice 3b — Python import collection for stdlib lowerings', () => {
     expect([...imports]).toEqual(['math']);
   });
 
-  test('end-to-end via generateFunction: aliased import math is injected at top of body', () => {
+  test('end-to-end via generateFunction: Number.round helper is injected at top of body', () => {
     const fn = makeFn({ name: 'roundIt', params: 'x:number', returns: 'number' }, [
       { type: 'return', props: { value: 'Number.round(x)' } },
     ]);
     const lines = generateFunction(fn);
     const joined = lines.join('\n');
     expect(joined).toContain('def round_it(x: float) -> float:');
-    // Slice 3 review fix (Gemini): aliased to `__k_math` to avoid shadowing
-    // when the user has a local binding or param named `math`.
-    expect(joined).toMatch(/import math as __k_math[\s\S]*__k_math\.floor\(x \+ 0\.5\)/);
+    expect(joined).toContain('def _kern_math_round(__k_x):');
+    expect(joined).toContain('return _kern_math_round(x)');
   });
 
   test('handlers without math-dependent stdlib emit no extra import', () => {
@@ -301,14 +301,12 @@ describe('slice 3b — Python import collection for stdlib lowerings', () => {
 // ── 3c: Number.round JS-parity ────────────────────────────────────────────
 
 describe('slice 3c — Number.round JS-parity on Python', () => {
-  test('Number.round(x) lowers to __k_math.floor(x + 0.5)', () => {
-    expect(emitPyExpression(parseExpression('Number.round(x)'))).toBe('__k_math.floor(x + 0.5)');
+  test('Number.round(x) lowers to the JS-parity helper', () => {
+    expect(emitPyExpression(parseExpression('Number.round(x)'))).toBe('_kern_math_round(x)');
   });
 
   test('paren-wrapped binary arg preserved through template substitution', () => {
-    // Number.round(a - b) — receiver is binary, gets paren-wrapped to `(a - b)`,
-    // then the `+ 0.5` is appended at template-substitution time.
-    expect(emitPyExpression(parseExpression('Number.round(a - b)'))).toBe('__k_math.floor((a - b) + 0.5)');
+    expect(emitPyExpression(parseExpression('Number.round(a - b)'))).toBe('_kern_math_round((a - b))');
   });
 
   test('TS lowering remains Math.round (no banker compensation needed on TS)', () => {

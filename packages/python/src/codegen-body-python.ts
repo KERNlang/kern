@@ -50,7 +50,8 @@ import {
   isPostfixMutationOperator,
   isSupportedAssignOperator,
   KERN_STDLIB_MODULES,
-  lookupStdlib,
+  lookupStdlibCall,
+  lookupStdlibProperty,
   needsArgParens,
   needsBinaryParens,
   parseExpression,
@@ -68,8 +69,12 @@ import {
 import { buildPythonParamList } from './codegen-helpers.js';
 import {
   KERN_FMT_HELPER_PY,
+  KERN_JS_ARRAY_FROM_HELPER_PY,
   KERN_JS_ARRAY_HELPERS_PY,
   KERN_JS_HELPER_PY,
+  KERN_JS_MATH_HELPERS_PY,
+  KERN_JS_NUMBER_HELPERS_PY,
+  KERN_JS_OBJECT_HELPERS_PY,
   KERN_JSON_STRINGIFY_SHIM_PY,
   KERN_NULLISH_HELPER_PY,
   KERN_PAIR_HELPERS_PY,
@@ -2003,6 +2008,8 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       ctx.imports.add('re');
       return `__k_re.compile(${pyRegexPattern(node)}, ${pyRegexFlags(node.flags, { allowGlobal: true })})`;
     case 'ident': {
+      if (node.name === 'NaN') return 'float("nan")';
+      if (node.name === 'Infinity') return 'float("inf")';
       // Block-scope rename takes precedence — an inner `let x` that shadows
       // an outer binding was emitted with a gensym (`__k_shadow_x_N`) and
       // every in-block reference must use the same gensym. Walk renameStack
@@ -2335,6 +2342,7 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
         ctx.helpers.add(KERN_JS_HELPER_PY);
         return `(not _kern_truthy(${arg}))`;
       }
+      if (node.op === '-' && node.argument.kind === 'numLit' && Number(node.argument.raw) === 0) return '-0.0';
       if (node.op === '-') return `-${wrapped}`;
       if (node.op === '+') return `+${wrapped}`;
       throw new Error(`emitPyExpression: unary op '${node.op}' has no Python equivalent in slice-2c.`);
@@ -2870,6 +2878,8 @@ type ChainNode = Extract<ValueIR, { kind: 'member' | 'call' | 'index' }>;
 function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   if (node.kind === 'member') {
     const obj = node.object;
+    const stdlibProperty = applyStdlibPropertyLoweringPython(node, ctx);
+    if (stdlibProperty !== null) return { guard: null, expr: stdlibProperty };
     // Slice H — fail-closed on an UNMAPPED host-namespace member READ. Covers
     // host CONSTANT reads such as `Math.PI` / `process.env` that are not a call
     // (the call path guards `Root.member(args)` separately, before descending
@@ -2928,6 +2938,7 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
     // as unmapped — the label degrades to `[computed]`.
     if (obj.kind === 'ident') {
       const label = node.index.kind === 'strLit' ? node.index.value : '[computed]';
+      rejectKnownStdlibIndexPython(obj.name, label);
       rejectUnmappedHostNamespacePython(obj.name, label, ctx);
     }
     const inner: GuardedExpr =
@@ -3804,6 +3815,34 @@ function rejectUnmappedHostNamespacePython(root: string, member: string, ctx: Bo
  *  Slice 3b — when the matched entry declares `requires.py`, the import
  *  identifier is added to the per-handler ctx.imports set so the FastAPI
  *  generator can emit `import math` (etc.) at the top of the function body. */
+function applyStdlibPropertyLoweringPython(
+  member: Extract<ValueIR, { kind: 'member' }>,
+  ctx: BodyEmitContext,
+): string | null {
+  if (member.optional) return null;
+  if (member.object.kind !== 'ident') return null;
+  const moduleName = member.object.name;
+  if (!KERN_STDLIB_MODULES.has(moduleName)) return null;
+  const propertyName = member.property;
+  const entry = lookupStdlibProperty(moduleName, propertyName);
+  if (entry === null) {
+    const callEntry = lookupStdlibCall(moduleName, propertyName);
+    if (callEntry !== null) {
+      throw new Error(
+        `KERN-stdlib method '${moduleName}.${propertyName}' cannot be referenced as a value in portable Python lowering; call it directly.`,
+      );
+    }
+    throwUnknownStdlibMemberPython(moduleName, propertyName);
+  }
+  registerStdlibRequirementPython(entry.requires?.py, ctx);
+  return entry.py;
+}
+
+function rejectKnownStdlibIndexPython(root: string, member: string): void {
+  if (!KERN_STDLIB_MODULES.has(root)) return;
+  throwUnknownStdlibMemberPython(root, member);
+}
+
 function applyStdlibLoweringPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: BodyEmitContext): string | null {
   const callee = call.callee;
   if (callee.kind !== 'member') return null;
@@ -3811,25 +3850,26 @@ function applyStdlibLoweringPython(call: Extract<ValueIR, { kind: 'call' }>, ctx
   const moduleName = callee.object.name;
   if (!KERN_STDLIB_MODULES.has(moduleName)) return null;
   const methodName = callee.property;
-  const entry = lookupStdlib(moduleName, methodName);
+  const entry = lookupStdlibCall(moduleName, methodName);
   if (entry === null) {
-    const suggestion = suggestStdlibMethod(moduleName, methodName);
-    const hint = suggestion ? ` Did you mean '${moduleName}.${suggestion}'?` : '';
-    throw new Error(`Unknown KERN-stdlib method '${moduleName}.${methodName}'.${hint}`);
+    const propertyEntry = lookupStdlibProperty(moduleName, methodName);
+    if (propertyEntry !== null) {
+      throw new Error(`KERN-stdlib property '${moduleName}.${methodName}' is not callable.`);
+    }
+    throwUnknownStdlibMemberPython(moduleName, methodName);
   }
   // Slice-2 review fix: enforce declared arity (matches TS-side check).
-  if (call.args.length !== entry.arity) {
-    throw new Error(
-      `KERN-stdlib '${moduleName}.${methodName}' takes ${entry.arity} arg${entry.arity === 1 ? '' : 's'}, got ${call.args.length}.`,
-    );
+  validateStdlibCallArityPython(moduleName, methodName, entry, call.args.length);
+  if (moduleName === 'Array' && methodName === 'from' && call.args.some((arg) => arg.kind === 'spread')) {
+    throw new Error('Array.from portable lowering does not accept spread arguments; pass source and mapper directly.');
   }
   const listLambda = lowerListLambdaPython(moduleName, methodName, call, ctx);
   if (listLambda !== null) return listLambda;
   // Slice 3b — register required imports (e.g., `Number.floor` ⇒ `import math`).
-  if (entry.requires?.py) ctx.imports.add(entry.requires.py);
+  registerStdlibRequirementPython(entry.requires?.py, ctx);
   const args = call.args.map((a) => {
     const emitted = emitPyExprCtx(a, ctx);
-    return needsArgParens(a) ? `(${emitted})` : emitted;
+    return a.kind !== 'spread' && needsArgParens(a) ? `(${emitted})` : emitted;
   });
   // Slice S7 — `Json.stringify` on Python routes through the sentinel-aware shim
   // (single-source `KERN_JSON_STRINGIFY_SHIM_PY`) instead of raw `__k_json.dumps`,
@@ -3837,11 +3877,59 @@ function applyStdlibLoweringPython(call: Extract<ValueIR, { kind: 'call' }>, ctx
   // is the sentinel is omitted, and a sentinel array element becomes JSON null —
   // matching JS. The shim references `__k_json`, supplied by the table's
   // `requires.py: 'json'` import registered above (one import shared with parse).
-  if (moduleName === 'Json' && methodName === 'stringify') {
+  if ((moduleName === 'Json' || moduleName === 'JSON') && methodName === 'stringify') {
     ctx.helpers.add(KERN_JSON_STRINGIFY_SHIM_PY);
     return `_kern_json_stringify(${args[0]})`;
   }
-  return applyTemplate(entry.py, args);
+  return typeof entry.py === 'function' ? entry.py(args) : applyTemplate(entry.py, args);
+}
+
+function throwUnknownStdlibMemberPython(moduleName: string, memberName: string): never {
+  const suggestion = suggestStdlibMethod(moduleName, memberName);
+  const hint = suggestion ? ` Did you mean '${moduleName}.${suggestion}'?` : '';
+  throw new Error(`Unknown KERN-stdlib method/member '${moduleName}.${memberName}'.${hint}`);
+}
+
+function validateStdlibCallArityPython(
+  moduleName: string,
+  methodName: string,
+  entry: NonNullable<ReturnType<typeof lookupStdlibCall>>,
+  got: number,
+): void {
+  if (entry.arity !== undefined && got !== entry.arity) {
+    throw new Error(
+      `KERN-stdlib '${moduleName}.${methodName}' takes ${entry.arity} arg${entry.arity === 1 ? '' : 's'}, got ${got}.`,
+    );
+  }
+  if (entry.minArity !== undefined && got < entry.minArity) {
+    throw new Error(`KERN-stdlib '${moduleName}.${methodName}' takes at least ${entry.minArity} args, got ${got}.`);
+  }
+  if (entry.maxArity !== undefined && got > entry.maxArity) {
+    throw new Error(`KERN-stdlib '${moduleName}.${methodName}' takes at most ${entry.maxArity} args, got ${got}.`);
+  }
+}
+
+function registerStdlibRequirementPython(requirement: string | undefined, ctx: BodyEmitContext): void {
+  if (!requirement) return;
+  if (requirement === 'math-host') {
+    ctx.helpers.add(KERN_TO_NUMBER_HELPER_PY);
+    ctx.helpers.add(KERN_JS_MATH_HELPERS_PY);
+    return;
+  }
+  if (requirement === 'array-host') {
+    ctx.helpers.add(KERN_TO_NUMBER_HELPER_PY);
+    ctx.helpers.add(KERN_JS_ARRAY_FROM_HELPER_PY);
+    return;
+  }
+  if (requirement === 'object-host') {
+    ctx.helpers.add(KERN_JS_OBJECT_HELPERS_PY);
+    return;
+  }
+  if (requirement === 'number-host') {
+    ctx.helpers.add(KERN_JS_NUMBER_HELPERS_PY);
+    return;
+  }
+  ctx.imports.add(requirement);
 }
 
 function lowerListLambdaPython(

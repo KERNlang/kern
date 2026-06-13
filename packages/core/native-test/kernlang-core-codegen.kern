@@ -37,7 +37,7 @@ fn name=length returns=number
     binding name=x
     binding name=y
   handler
-    return value="Math.hypot(x, y)"
+    return value="x * x + y * y"
 
 fn name=swap returns="[number, number]"
   param type="[number, number]"

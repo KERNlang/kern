@@ -263,7 +263,7 @@ function stdlibOperationSummaries(): KernSemanticStdlibOperation[] {
         id: `stdlib.${module}.${method}`,
         module,
         method,
-        arity: entry.arity,
+        arity: entry.kind === 'property' ? 0 : (entry.arity ?? entry.minArity ?? 0),
         support: {
           ts: entry.ts ? 'stable' : 'unsupported',
           python: entry.py ? 'stable' : 'unsupported',

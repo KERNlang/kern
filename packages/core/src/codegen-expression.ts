@@ -1,6 +1,13 @@
 /** Serialize ValueIR to a TypeScript expression string. */
 
-import { applyTemplate, KERN_STDLIB_MODULES, lookupStdlib, suggestStdlibMethod } from './codegen/kern-stdlib.js';
+import type { StdlibCallEntry } from './codegen/kern-stdlib.js';
+import {
+  applyTemplate,
+  KERN_STDLIB_MODULES,
+  lookupStdlibCall,
+  lookupStdlibProperty,
+  suggestStdlibMethod,
+} from './codegen/kern-stdlib.js';
 import type { ValueIR } from './value-ir.js';
 
 // Slice 2c — extended precedence table covering equality, relational,
@@ -64,11 +71,14 @@ export function emitExpression(node: ValueIR): string {
     case 'ident':
       return node.name;
     case 'member': {
+      const stdlib = applyStdlibPropertyLoweringTS(node);
+      if (stdlib !== null) return stdlib;
       const obj = emitExpression(node.object);
       const wrapped = needsReceiverParens(node.object) ? `(${obj})` : obj;
       return `${wrapped}${node.optional ? '?.' : '.'}${node.property}`;
     }
     case 'index': {
+      rejectKnownStdlibIndexTS(node);
       const obj = emitExpression(node.object);
       const wrapped = needsReceiverParens(node.object) ? `(${obj})` : obj;
       return `${wrapped}${node.optional ? '?.' : ''}[${emitExpression(node.index)}]`;
@@ -81,7 +91,7 @@ export function emitExpression(node: ValueIR): string {
       if (stdlib !== null) return stdlib;
       const callee = emitExpression(node.callee);
       const wrapped = needsReceiverParens(node.callee) ? `(${callee})` : callee;
-      const args = node.args.map(emitExpression).join(', ');
+      const args = node.args.map((arg) => emitExpression(arg)).join(', ');
       const typeArgs = node.typeArgs ? `<${node.typeArgs}>` : '';
       return node.optional ? `${wrapped}?.${typeArgs}(${args})` : `${wrapped}${typeArgs}(${args})`;
     }
@@ -152,7 +162,7 @@ export function emitExpression(node: ValueIR): string {
       return `{ ${entries.join(', ')} }`;
     }
     case 'arrayLit':
-      return `[${node.items.map(emitExpression).join(', ')}]`;
+      return `[${node.items.map((item) => emitExpression(item)).join(', ')}]`;
     case 'conditional': {
       // Slice α-2: ternary `test ? consequent : alternate`. Right-associative
       // and lower precedence than every binary op — paren-wrap any non-atomic
@@ -287,6 +297,32 @@ function isValidJSIdent(s: string): boolean {
  *  Args whose ValueIR is `binary`/`unary`/`spread` are wrapped in parens
  *  before template substitution so templates like `'$0.length'` produce
  *  correct precedence even when `$0` is `a + b` (→ `(a + b).length`). */
+function applyStdlibPropertyLoweringTS(member: Extract<ValueIR, { kind: 'member' }>): string | null {
+  if (member.optional) return null;
+  if (member.object.kind !== 'ident') return null;
+  const moduleName = member.object.name;
+  if (!KERN_STDLIB_MODULES.has(moduleName)) return null;
+  const entry = lookupStdlibProperty(moduleName, member.property);
+  if (entry === null) {
+    const callEntry = lookupStdlibCall(moduleName, member.property);
+    if (callEntry !== null) {
+      throw new Error(
+        `KERN-stdlib method '${moduleName}.${member.property}' cannot be referenced as a value in portable expression lowering; call it directly.`,
+      );
+    }
+    throwUnknownStdlibMember(moduleName, member.property);
+  }
+  return entry.ts;
+}
+
+function rejectKnownStdlibIndexTS(index: Extract<ValueIR, { kind: 'index' }>): void {
+  if (index.object.kind !== 'ident') return;
+  const moduleName = index.object.name;
+  if (!KERN_STDLIB_MODULES.has(moduleName)) return;
+  const member = index.index.kind === 'strLit' ? index.index.value : '[computed]';
+  throwUnknownStdlibMember(moduleName, member);
+}
+
 function applyStdlibLoweringTS(call: Extract<ValueIR, { kind: 'call' }>): string | null {
   const callee = call.callee;
   if (callee.kind !== 'member') return null;
@@ -294,27 +330,60 @@ function applyStdlibLoweringTS(call: Extract<ValueIR, { kind: 'call' }>): string
   const moduleName = callee.object.name;
   if (!KERN_STDLIB_MODULES.has(moduleName)) return null;
   const methodName = callee.property;
-  const entry = lookupStdlib(moduleName, methodName);
+  const entry = lookupStdlibCall(moduleName, methodName);
   if (entry === null) {
-    const suggestion = suggestStdlibMethod(moduleName, methodName);
-    const hint = suggestion ? ` Did you mean '${moduleName}.${suggestion}'?` : '';
-    throw new Error(`Unknown KERN-stdlib method '${moduleName}.${methodName}'.${hint}`);
+    const propertyEntry = lookupStdlibProperty(moduleName, methodName);
+    if (propertyEntry !== null) {
+      throw new Error(`KERN-stdlib property '${moduleName}.${methodName}' is not callable.`);
+    }
+    throwUnknownStdlibMember(moduleName, methodName);
   }
   // Slice-2 review fix: enforce declared arity. Silently ignoring extra args
   // hides bugs (`Text.upper(s, extra)` would emit `s.toUpperCase()` and drop
   // `extra` without warning).
-  if (call.args.length !== entry.arity) {
-    throw new Error(
-      `KERN-stdlib '${moduleName}.${methodName}' takes ${entry.arity} arg${entry.arity === 1 ? '' : 's'}, got ${call.args.length}.`,
-    );
+  validateStdlibCallArity(moduleName, methodName, entry, call.args.length);
+  if (moduleName === 'Array' && methodName === 'from' && call.args.some((arg) => arg.kind === 'spread')) {
+    throw new Error('Array.from portable lowering does not accept spread arguments; pass source and mapper directly.');
   }
   const listLambda = lowerListLambdaTS(moduleName, methodName, call);
   if (listLambda !== null) return listLambda;
-  const args = call.args.map((a) => {
+  const args = call.args.map((a, index) => {
     const emitted = emitExpression(a);
-    return needsArgParens(a) ? `(${emitted})` : emitted;
+    return needsStdlibArgParens(a, entry.ts, index) ? `(${emitted})` : emitted;
   });
-  return applyTemplate(entry.ts, args);
+  return typeof entry.ts === 'function' ? entry.ts(args) : applyTemplate(entry.ts, args);
+}
+
+function needsStdlibArgParens(arg: ValueIR, template: StdlibCallEntry['ts'], index: number): boolean {
+  if (arg.kind === 'spread') return false;
+  if (arg.kind !== 'typeAssert') return needsArgParens(arg);
+  if (typeof template === 'function') return true;
+  return new RegExp(`\\$${index}(?:\\.|\\[)`).test(template);
+}
+
+function throwUnknownStdlibMember(moduleName: string, memberName: string): never {
+  const suggestion = suggestStdlibMethod(moduleName, memberName);
+  const hint = suggestion ? ` Did you mean '${moduleName}.${suggestion}'?` : '';
+  throw new Error(`Unknown KERN-stdlib method/member '${moduleName}.${memberName}'.${hint}`);
+}
+
+function validateStdlibCallArity(
+  moduleName: string,
+  methodName: string,
+  entry: NonNullable<ReturnType<typeof lookupStdlibCall>>,
+  got: number,
+): void {
+  if (entry.arity !== undefined && got !== entry.arity) {
+    throw new Error(
+      `KERN-stdlib '${moduleName}.${methodName}' takes ${entry.arity} arg${entry.arity === 1 ? '' : 's'}, got ${got}.`,
+    );
+  }
+  if (entry.minArity !== undefined && got < entry.minArity) {
+    throw new Error(`KERN-stdlib '${moduleName}.${methodName}' takes at least ${entry.minArity} args, got ${got}.`);
+  }
+  if (entry.maxArity !== undefined && got > entry.maxArity) {
+    throw new Error(`KERN-stdlib '${moduleName}.${methodName}' takes at most ${entry.maxArity} args, got ${got}.`);
+  }
 }
 
 function lowerListLambdaTS(

@@ -34,10 +34,14 @@
  *  throws with a Levenshtein did-you-mean. Calls into modules NOT in this
  *  table fall through to the default emit path (passthrough). */
 
-export interface StdlibEntry {
-  arity: number;
-  ts: string;
-  py: string;
+export interface StdlibCallEntry {
+  kind?: 'call';
+  arity?: number;
+  minArity?: number;
+  maxArity?: number;
+  variadic?: boolean;
+  ts: string | ((args: string[]) => string);
+  py: string | ((args: string[]) => string);
   /** Slice 3b — per-target imports required when this lowering is used.
    *  The body emitter collects these into a per-handler import set so the
    *  generator can emit `import math` (etc.) at the top of the function
@@ -45,6 +49,15 @@ export interface StdlibEntry {
    *  identifier (`'math'` ⇒ `import math`). Undefined when none required. */
   requires?: { ts?: string; py?: string };
 }
+
+export interface StdlibPropertyEntry {
+  kind: 'property';
+  ts: string;
+  py: string;
+  requires?: { ts?: string; py?: string };
+}
+
+export type StdlibEntry = StdlibCallEntry | StdlibPropertyEntry;
 
 export const KERN_STDLIB: Record<string, Record<string, StdlibEntry>> = {
   Text: {
@@ -101,7 +114,7 @@ export const KERN_STDLIB: Record<string, Record<string, StdlibEntry>> = {
     // when the user has a body-local binding or param named `math`. The
     // FastAPI generator emits `import math as __k_math` for any handler
     // that references these.
-    round: { arity: 1, ts: 'Math.round($0)', py: '__k_math.floor($0 + 0.5)', requires: { py: 'math' } },
+    round: { arity: 1, ts: 'Math.round($0)', py: '_kern_math_round($0)', requires: { py: 'math-host' } },
     floor: { arity: 1, ts: 'Math.floor($0)', py: '__k_math.floor($0)', requires: { py: 'math' } },
     ceil: { arity: 1, ts: 'Math.ceil($0)', py: '__k_math.ceil($0)', requires: { py: 'math' } },
     abs: { arity: 1, ts: 'Math.abs($0)', py: 'abs($0)' },
@@ -116,6 +129,74 @@ export const KERN_STDLIB: Record<string, Record<string, StdlibEntry>> = {
     // coercion). Python's `math.isnan` matches that strict shape. Use `Number`
     // (not the global `isNaN`) so the TS output is the strict, type-safe form.
     isNaN: { arity: 1, ts: 'Number.isNaN($0)', py: '__k_math.isnan($0)', requires: { py: 'math' } },
+    // `Number.isInteger($0)` / `Number.isSafeInteger($0)` do NO coercion — a
+    // non-number argument is always false. The TS lowering uses the type-safe
+    // `Number.*` forms; the Python helpers reject `bool` explicitly (Python's
+    // `bool` subclasses `int`, so `Number.isInteger(true)` must be false) and
+    // treat NaN/±∞ as non-integers. `isSafeInteger` adds `abs(x) <= 2**53 - 1`.
+    isInteger: {
+      arity: 1,
+      ts: 'Number.isInteger($0)',
+      py: '_kern_number_is_integer($0)',
+      requires: { py: 'number-host' },
+    },
+    isSafeInteger: {
+      arity: 1,
+      ts: 'Number.isSafeInteger($0)',
+      py: '_kern_number_is_safe_integer($0)',
+      requires: { py: 'number-host' },
+    },
+  },
+  Math: {
+    PI: { kind: 'property', ts: 'Math.PI', py: '__k_math.pi', requires: { py: 'math' } },
+    E: { kind: 'property', ts: 'Math.E', py: '__k_math.e', requires: { py: 'math' } },
+    max: {
+      minArity: 0,
+      variadic: true,
+      ts: (args) => `Math.max(${args.join(', ')})`,
+      py: (args) => `_kern_math_max(${args.join(', ')})`,
+      requires: { py: 'math-host' },
+    },
+    min: {
+      minArity: 0,
+      variadic: true,
+      ts: (args) => `Math.min(${args.join(', ')})`,
+      py: (args) => `_kern_math_min(${args.join(', ')})`,
+      requires: { py: 'math-host' },
+    },
+    round: { arity: 1, ts: 'Math.round($0)', py: '_kern_math_round($0)', requires: { py: 'math-host' } },
+    floor: { arity: 1, ts: 'Math.floor($0)', py: '_kern_math_floor($0)', requires: { py: 'math-host' } },
+    sign: { arity: 1, ts: 'Math.sign($0)', py: '_kern_math_sign($0)', requires: { py: 'math-host' } },
+    trunc: { arity: 1, ts: 'Math.trunc($0)', py: '_kern_math_trunc($0)', requires: { py: 'math-host' } },
+  },
+  Array: {
+    isArray: { arity: 1, ts: 'Array.isArray($0)', py: 'isinstance($0, list)' },
+    from: {
+      minArity: 1,
+      maxArity: 2,
+      ts: (args) => `Array.from(${args.join(', ')})`,
+      py: (args) => `_kern_array_from(${args.join(', ')})`,
+      requires: { py: 'array-host' },
+    },
+  },
+  Object: {
+    keys: { arity: 1, ts: 'Object.keys($0)', py: '_kern_js_object_keys($0)', requires: { py: 'object-host' } },
+    assign: {
+      minArity: 1,
+      variadic: true,
+      ts: (args) => `Object.assign(${args.join(', ')})`,
+      py: (args) => `_kern_js_object_assign(${args.join(', ')})`,
+      requires: { py: 'object-host' },
+    },
+  },
+  JSON: {
+    parse: { arity: 1, ts: 'JSON.parse($0)', py: '__k_json.loads($0)', requires: { py: 'json' } },
+    stringify: {
+      arity: 1,
+      ts: 'JSON.stringify($0)',
+      py: '__k_json.dumps($0, separators=(",", ":"), ensure_ascii=False)',
+      requires: { py: 'json' },
+    },
   },
   // Json + Path — pure/sync stdlib slice. Json relies on globals on TS (`JSON`)
   // and the stdlib `json` module on Python. Path covers the most common pure
@@ -204,6 +285,18 @@ export function lookupStdlib(module: string, method: string): StdlibEntry | null
   return moduleEntries[method] ?? null;
 }
 
+export function lookupStdlibCall(module: string, method: string): StdlibCallEntry | null {
+  const entry = lookupStdlib(module, method);
+  if (!entry) return null;
+  return entry.kind === 'property' ? null : entry;
+}
+
+export function lookupStdlibProperty(module: string, property: string): StdlibPropertyEntry | null {
+  const entry = lookupStdlib(module, property);
+  if (!entry) return null;
+  return entry.kind === 'property' ? entry : null;
+}
+
 /** Suggest the closest method name on a known module via simple Levenshtein
  *  membership. Used in error messages. Returns null if no close match exists. */
 export function suggestStdlibMethod(module: string, method: string): string | null {
@@ -221,6 +314,8 @@ export function suggestStdlibMethod(module: string, method: string): string | nu
   }
   return bestDist <= 2 ? best : null;
 }
+
+export const suggestStdlibMember = suggestStdlibMethod;
 
 /** Substitute `$0`, `$1`, … placeholders in a template with the corresponding
  *  args. Throws on out-of-range index — that's a programming error in the
