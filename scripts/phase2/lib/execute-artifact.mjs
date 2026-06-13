@@ -30,12 +30,25 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { canonicalizeRuntime, PHASE2_PY_CANON_SRC } from './canonicalize.mjs';
 
-const RESULT_PREFIX = '__PHASE2_RESULT__';
+/**
+ * E1: the result line prefix carries a per-execution random nonce so a USER
+ * EXPRESSION cannot spoof the result by printing a matching marker line. The
+ * harness mints the nonce, injects it into the wrapper, and only that exact
+ * prefix is recognized by `extractResult`. A fixed prefix (the old
+ * `__PHASE2_RESULT__`) is forgeable: an expression that emits the literal line
+ * would corrupt the captured result.
+ * @param {string} [nonce]
+ * @returns {string}
+ */
+function resultPrefix(nonce) {
+  return `__PHASE2_RESULT_${nonce ?? randomUUID()}__`;
+}
 
 const DETERMINISTIC_ENV = {
   ...process.env,
@@ -185,11 +198,30 @@ const getObj = () => { CALLS.push('getObj'); return { flag: '', truthy: 'truthy'
 const callable = (label, value) => (...args) => { CALLS.push(String(label)); return value; };
 const callableFallback = (...args) => { CALLS.push('fallback'); return 'callable-result'; };
 const fallback = callableFallback;
-const List = {
-  map: (arr, fn) => Array.prototype.map.call(arr, (x) => fn(x)),
-  filter: (arr, fn) => Array.prototype.filter.call(arr, (x) => fn(x)),
-  reduce: (arr, fn, init) => Array.prototype.reduce.call(arr, (a, x) => fn(a, x), init),
+const __listImpl = {
+  // E3(a): forward ALL callback args (element, index, array), not just element,
+  // so a TS reference like List.map(xs, (x, i) => i) matches the production
+  // semantics instead of silently dropping index/array. reduce forwards
+  // (acc, element, index, array) and honors whether an initial value was given.
+  map: (arr, fn) => Array.prototype.map.call(arr, fn),
+  filter: (arr, fn) => Array.prototype.filter.call(arr, fn),
+  reduce: (arr, fn, ...rest) =>
+    rest.length > 0
+      ? Array.prototype.reduce.call(arr, fn, rest[0])
+      : Array.prototype.reduce.call(arr, fn),
 };
+// E3(b): a MISSING List method must fail LOUD (an identifiable error category),
+// never silently kill the TS reference and degrade the row to a byte-only
+// verdict. The Proxy throws a tagged error for any unshimmed property so
+// classifyTsError surfaces it as a real reference defect.
+const List = new Proxy(__listImpl, {
+  get(target, prop, receiver) {
+    if (prop in target || typeof prop === 'symbol') {
+      return Reflect.get(target, prop, receiver);
+    }
+    throw new Error('Phase2ListShimError: unshimmed List method "' + String(prop) + '"');
+  },
+});
 `;
 
 /**
@@ -205,24 +237,27 @@ function normBindings(bindings) {
 }
 
 /**
- * Extract the single `__PHASE2_RESULT__` line from stdout. Fails if zero, or if
- * more than one DISTINCT result line exists.
+ * Extract the single nonce-prefixed result line from stdout. Fails if zero, or
+ * if more than one DISTINCT result line exists. The prefix carries the
+ * per-execution nonce (E1), so a user expression that prints a marker with the
+ * WRONG nonce is ignored — it cannot spoof or corrupt the real result.
  * @param {string} stdout
+ * @param {string} prefix the exact nonce-bearing prefix the wrapper emitted
  * @returns {string} the canon-json after the prefix
  */
-function extractResult(stdout) {
+function extractResult(stdout, prefix) {
   const lines = stdout.split('\n');
   const results = new Set();
   let last = null;
   for (const line of lines) {
-    if (line.startsWith(RESULT_PREFIX)) {
-      const payload = line.slice(RESULT_PREFIX.length);
+    if (line.startsWith(prefix)) {
+      const payload = line.slice(prefix.length);
       results.add(payload);
       last = payload;
     }
   }
-  if (results.size === 0) throw new Error('no __PHASE2_RESULT__ line in output');
-  if (results.size > 1) throw new Error(`multiple distinct __PHASE2_RESULT__ lines (${results.size})`);
+  if (results.size === 0) throw new Error('no result line in output');
+  if (results.size > 1) throw new Error(`multiple distinct result lines (${results.size})`);
   return /** @type {string} */ (last);
 }
 
@@ -230,9 +265,11 @@ function extractResult(stdout) {
  * Build the Python wrapper source for an emitted expression.
  * @param {{ code: string, imports: Iterable<string>, helpers: Iterable<string> }} emit
  * @param {object} bindings
+ * @param {string} [prefix] the nonce-bearing result prefix (E1); defaults to a
+ *   fresh random prefix so a direct caller still gets a non-forgeable marker.
  * @returns {string}
  */
-export function buildPyWrapper(emit, bindings) {
+export function buildPyWrapper(emit, bindings, prefix = resultPrefix()) {
   const { locals } = normBindings(bindings);
   const lines = [];
   // Production prelude: imports first, then helpers (they self-define
@@ -253,9 +290,10 @@ export function buildPyWrapper(emit, bindings) {
   for (const [k, v] of Object.entries(locals)) {
     lines.push(`${k} = ${decodeLocal(v).py}`);
   }
-  // Evaluate and print exactly one result line.
+  // Evaluate and print exactly one result line, prefixed with the per-execution
+  // nonce so user-expression stdout cannot forge it (E1).
   lines.push(`__phase2_result = (${emit.code})`);
-  lines.push(`print(${pyStr(RESULT_PREFIX)} + phase2_canon_json(__phase2_result, CALLS))`);
+  lines.push(`print(${pyStr(prefix)} + phase2_canon_json(__phase2_result, CALLS))`);
   return lines.join('\n');
 }
 
@@ -263,21 +301,22 @@ export function buildPyWrapper(emit, bindings) {
  * Build the TS reference wrapper for an Express-portable JS expression.
  * @param {string} jsExpr
  * @param {object} bindings
+ * @param {string} [prefix] the nonce-bearing result prefix (E1).
  * @returns {string}
  */
-function buildTsWrapper(jsExpr, bindings) {
+function buildTsWrapper(jsExpr, bindings, prefix = resultPrefix()) {
   const { locals } = normBindings(bindings);
   const localLines = Object.entries(locals)
     .map(([k, v]) => `const ${k} = ${jsLiteral(decodeLocal(v).js)};`)
     .join('\n');
   // The reference canonicalizes via the SAME encoder the gate uses by importing
-  // it; we pass the value + CALLS back out as one __PHASE2_RESULT__ line.
+  // it; we pass the value + CALLS back out as one nonce-prefixed result line.
   const canonPath = new URL('./canonicalize.mjs', import.meta.url).pathname;
   return `import { canonicalizeRuntime } from ${JSON.stringify(canonPath)};
 ${TS_RUNNER_PRELUDE}
 ${localLines}
 const __phase2_result = (${jsExpr});
-process.stdout.write(${JSON.stringify(RESULT_PREFIX)} + canonicalizeRuntime(__phase2_result, CALLS.slice()) + "\\n");
+process.stdout.write(${JSON.stringify(prefix)} + canonicalizeRuntime(__phase2_result, CALLS.slice()) + "\\n");
 `;
 }
 
@@ -290,8 +329,9 @@ process.stdout.write(${JSON.stringify(RESULT_PREFIX)} + canonicalizeRuntime(__ph
 export function executePython(emit, bindings) {
   const tmp = mkdtempSync(join(tmpdir(), 'phase2-py-'));
   const file = join(tmp, 'run.py');
+  const prefix = resultPrefix();
   try {
-    writeFileSync(file, buildPyWrapper(emit, bindings));
+    writeFileSync(file, buildPyWrapper(emit, bindings, prefix));
     let out;
     try {
       out = execFileSync('python3', [file], {
@@ -304,12 +344,18 @@ export function executePython(emit, bindings) {
       });
     } catch (err) {
       const stderr = String(err.stderr ?? err.message ?? err);
-      const category = stderr.includes('SyntaxError') ? 'runtime' : 'runtime';
+      // E2: the four-category taxonomy must be DISTINGUISHABLE. A legacy
+      // SyntaxError (the legacy string path emitted invalid Python — an EMIT
+      // defect) must NOT collapse into the same category as an AST NameError (a
+      // genuine RUNTIME exception), or two structurally different blocks key as
+      // BOTH_BLOCKED_SAME in blockedVerdict. SyntaxError -> 'emit'; every other
+      // Python exception -> 'runtime'.
+      const category = stderr.includes('SyntaxError') ? 'emit' : 'runtime';
       const code = classifyPyError(stderr);
       return { status: 'error', code, category };
     }
     try {
-      const runtimeCanon = extractResult(out);
+      const runtimeCanon = extractResult(out, prefix);
       return { status: 'ok', runtimeCanon };
     } catch (err) {
       return { status: 'error', code: `runner:${String(err.message ?? err)}`, category: 'runner' };
@@ -328,8 +374,9 @@ export function executePython(emit, bindings) {
 export function executeTs(jsExpr, bindings) {
   const tmp = mkdtempSync(join(tmpdir(), 'phase2-ts-'));
   const file = join(tmp, 'run.mjs');
+  const prefix = resultPrefix();
   try {
-    writeFileSync(file, buildTsWrapper(jsExpr, bindings));
+    writeFileSync(file, buildTsWrapper(jsExpr, bindings, prefix));
     let out;
     try {
       out = execFileSync('node', [file], {
@@ -343,7 +390,7 @@ export function executeTs(jsExpr, bindings) {
       return { status: 'error', code: classifyTsError(stderr), category: 'runtime' };
     }
     try {
-      const runtimeCanon = extractResult(out);
+      const runtimeCanon = extractResult(out, prefix);
       return { status: 'ok', runtimeCanon };
     } catch (err) {
       return { status: 'error', code: `runner:${String(err.message ?? err)}`, category: 'runner' };
