@@ -12,8 +12,19 @@
  *     -> `emitPyExpressionWithImports(ir, { coerceJsValues: true })`
  *     (packages/python/dist/codegen-body-python.js).
  *
- * Consistency oracle (`verifyLegacyFidelity`): for every EXPRESSION case it
- * proves TWO things, NOT a cross-shipment byte diff:
+ * SLICE-0 TRUTH (read this before trusting a green run): every slice-0 corpus
+ * case is a BARE EXPRESSION with EMPTY framing (no path, no body), so
+ * production's legacy bytes ARE `rewriteExpr(expr)` by construction — and so is
+ * the capture. capture==production is therefore TRUE BY CONSTRUCTION and is NOT
+ * independently falsifiable on this corpus. A green run here is NOT a proof of
+ * capture fidelity. The framing-consistency check below only becomes load-bearing
+ * once framing is NON-EMPTY (route/path cases), and the genuine cross-path
+ * fidelity proof is the DEFERRED route-replay (see NOTE). This function is named
+ * for what it checks — the call CONVENTION — not "fidelity", precisely so a
+ * passing run is never mistaken for a verified production-byte diff.
+ *
+ * Call-convention consistency check (`verifyCaptureConvention`): for every
+ * EXPRESSION case it proves TWO things, NOT a cross-shipment byte diff:
  *   1. The capture uses production's DOCUMENTED `rewriteExpr` call convention
  *      (conformance.mjs:1903): `captureLegacy` and the oracle both go through
  *      that same `rewriteExpr(expr, pathParams, bodyFields, authUser, imports)`
@@ -199,10 +210,11 @@ export async function captureTs(c, repoRoot) {
 }
 
 /**
- * Call-convention consistency oracle. For every EXPRESSION case it proves the
+ * Call-convention consistency check. For every EXPRESSION case it proves the
  * capture uses production's documented `rewriteExpr` call convention AND that the
  * framing derivation is independently consistent — see the file header for what
- * this does and does NOT prove (it is NOT a cross-shipment byte diff).
+ * this does and does NOT prove (it is NOT a cross-shipment byte diff, and on the
+ * empty-framing slice-0 corpus it is true by construction — not a fidelity proof).
  *
  * For each case it:
  *   1. Re-derives the framing tuple INDEPENDENTLY (`framingIndependent`, NOT the
@@ -222,7 +234,7 @@ export async function captureTs(c, repoRoot) {
  *   self-test can prove the oracle catches the resulting framing/byte divergence.
  * @returns {Promise<{ ok:boolean, rows:Array<{id:string, match:boolean, framingMatch:boolean, capturedSha:string|null, oracleSha:string|null, legacyRunnable:boolean, note:string}> }>}
  */
-export async function verifyLegacyFidelity(cases, repoRoot, opts = {}) {
+export async function verifyCaptureConvention(cases, repoRoot, opts = {}) {
   const { rewriteExpr } = await mods(repoRoot);
   const { createHash } = await import('node:crypto');
   const sha = (s) => createHash('sha256').update(s).digest('hex');

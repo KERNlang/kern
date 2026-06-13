@@ -34,7 +34,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, readdirSync, writeFileSync
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertBuildFresh, routeTableSha256, sourceTreeSha256 } from './phase2/lib/build-state.mjs';
-import { captureLegacy, captureTs, verifyLegacyFidelity } from './phase2/lib/capture.mjs';
+import { captureLegacy, captureTs, verifyCaptureConvention } from './phase2/lib/capture.mjs';
 import { executePython, executeTs } from './phase2/lib/execute-artifact.mjs';
 import { decodeExpected, serializeEnvelope } from './phase2/lib/canonicalize.mjs';
 import { PHASE2_CORPUS, assertUniqueIds, selectCases } from './phase2/lib/corpus.mjs';
@@ -91,11 +91,15 @@ try {
 
 assertUniqueIds();
 
-// ── byte-equivalence oracle (hard precondition, shared with Gate-INT) ─────────
-const fidelity = await verifyLegacyFidelity(PHASE2_CORPUS, REPO);
-if (!fidelity.ok) {
-  const bad = fidelity.rows.filter((r) => !r.match).map((r) => `${r.id}: ${r.note}`);
-  fail('EXT_MANIFEST_DRIFT', `legacy byte-equivalence oracle FAILED:\n  ${bad.join('\n  ')}`);
+// ── capture call-convention consistency check (hard precondition) ─────────────
+// NOT a fidelity proof: on the empty-framing slice-0 corpus, capture==production
+// is true BY CONSTRUCTION (production legacy bytes ARE rewriteExpr(expr)). This
+// asserts the documented call convention + an independent framing re-derivation;
+// the genuine cross-path proof is the deferred route-replay (see capture.mjs).
+const convention = await verifyCaptureConvention(PHASE2_CORPUS, REPO);
+if (!convention.ok) {
+  const bad = convention.rows.filter((r) => !r.match).map((r) => `${r.id}: ${r.note}`);
+  fail('EXT_MANIFEST_DRIFT', `legacy call-convention consistency check FAILED:\n  ${bad.join('\n  ')}`);
 }
 
 // ── selection ─────────────────────────────────────────────────────────────────

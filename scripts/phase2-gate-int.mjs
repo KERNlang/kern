@@ -34,7 +34,7 @@ import { dirname, join } from 'node:path';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { assertBuildFresh, routeTableSha256, sourceTreeSha256 } from './phase2/lib/build-state.mjs';
-import { captureAst, captureLegacy, captureTs, verifyLegacyFidelity } from './phase2/lib/capture.mjs';
+import { captureAst, captureLegacy, captureTs, verifyCaptureConvention } from './phase2/lib/capture.mjs';
 import { executePython, executeTs } from './phase2/lib/execute-artifact.mjs';
 import { decodeExpected, serializeEnvelope } from './phase2/lib/canonicalize.mjs';
 import { PHASE2_CORPUS, assertUniqueIds, selectCases } from './phase2/lib/corpus.mjs';
@@ -102,19 +102,29 @@ try {
 
 assertUniqueIds();
 
-// ── call-convention consistency oracle (hard precondition) ───────────────────
+// ── call-convention consistency check (hard precondition) ────────────────────
 // Prove the legacy capture uses production's documented `rewriteExpr` call
 // convention (conformance.mjs:1903) AND that the framing derivation is
 // independently consistent (a separate re-derivation agrees on the tuple + the
-// bytes). This is NOT a cross-shipment byte diff — a full production-route-replay
-// cross-check is deferred to the route-corpus slice (see capture.mjs header). A
-// failure here means a framing bug or a broken call convention, so no verdict is
-// trustworthy.
-const fidelity = await verifyLegacyFidelity(PHASE2_CORPUS, REPO);
-if (!fidelity.ok) {
-  const bad = fidelity.rows.filter((r) => !r.match).map((r) => `${r.id}: ${r.note}`);
-  fail('INT_CAPTURE_ERROR', `legacy call-convention consistency oracle FAILED:\n  ${bad.join('\n  ')}`);
+// bytes). A failure means a framing bug or a broken call convention.
+//
+// HONESTY (do not over-read a pass): every slice-0 case is a bare expression
+// with EMPTY framing, so production's legacy bytes ARE `rewriteExpr(expr)` by
+// construction — capture==production is true by construction here, NOT an
+// independent fidelity proof. The framing check only bites once framing is
+// non-empty (route cases). The genuine cross-path fidelity proof is the DEFERRED
+// production-route-replay (see capture.mjs header). This is why the check is
+// named for the CONVENTION, not "fidelity".
+const convention = await verifyCaptureConvention(PHASE2_CORPUS, REPO);
+if (!convention.ok) {
+  const bad = convention.rows.filter((r) => !r.match).map((r) => `${r.id}: ${r.note}`);
+  fail('INT_CAPTURE_ERROR', `legacy call-convention consistency check FAILED:\n  ${bad.join('\n  ')}`);
 }
+console.log(
+  `Gate-INT: capture call-convention consistent over ${convention.rows.length} expr cases ` +
+    '(structural invariant on empty-framing slice-0 corpus — NOT a production-byte fidelity proof; ' +
+    'route-replay cross-check deferred to the route-corpus slice).',
+);
 
 // ── selection ─────────────────────────────────────────────────────────────────
 const filterRoute = valOf('--filter') ?? valOf('--candidate-route');

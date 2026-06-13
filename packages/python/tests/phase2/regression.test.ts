@@ -29,7 +29,7 @@
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { verifyLegacyFidelity } from '../../../../scripts/phase2/lib/capture.mjs';
+import { verifyCaptureConvention } from '../../../../scripts/phase2/lib/capture.mjs';
 import { executePython, executeTs } from '../../../../scripts/phase2/lib/execute-artifact.mjs';
 import { checkRegression, deriveVerdict } from '../../../../scripts/phase2/lib/ratchet.mjs';
 
@@ -221,29 +221,64 @@ if (pythonAvailable) {
     });
   });
 
-  describe('C1 — the legacy consistency oracle is non-tautological', () => {
-    test('a mutated capture framing is CAUGHT by the independent re-derivation', async () => {
+  describe('C1 — the capture-convention check, scoped honestly', () => {
+    // HONESTY: on the empty-framing slice-0 corpus this check is true BY
+    // CONSTRUCTION (production legacy bytes ARE rewriteExpr(expr)); it is NOT a
+    // fidelity proof there. These tests exercise the framing-consistency
+    // mechanism on NON-EMPTY framing — where it actually bites — so it is
+    // proven ready to guard the future route-corpus slice (and a hand-translation
+    // drift between the two derivations would surface), both directions.
+
+    test('independent re-derivation AGREES with framing() on a realistic multi-param path', async () => {
+      // If framingIndependent() were a buggy hand-translation of framing(), a
+      // multi-param path is where it would diverge (segment boundaries, ordering).
       const c = {
-        id: 'c1-divergence',
+        id: 'c1-multiparam-agree',
+        kind: 'expr',
+        source: 'a | z',
+        path: '/a/:id/b/:slug',
+        authUser: true,
+        bindings: { locals: { a: 1, z: 0 }, body: { field1: 1, field2: 2 } },
+      };
+      const r = await verifyCaptureConvention([c], REPO);
+      expect(r.ok).toBe(true);
+      expect(r.rows[0].framingMatch).toBe(true);
+    });
+
+    test('a CAPTURE-side framing divergence is caught (capture has extra params)', async () => {
+      const c = {
+        id: 'c1-divergence-capture',
         kind: 'expr',
         source: 'a | z',
         path: '/u/:id',
         bindings: { locals: { a: 1, z: 0 } },
       };
-      const good = await verifyLegacyFidelity([c], REPO);
-      expect(good.ok).toBe(true);
-      expect(good.rows[0].framingMatch).toBe(true);
-
-      // Inject a DIVERGENT framing on the capture side; the oracle derives its
-      // own framing independently and must report the mismatch. (Note: the bytes
-      // can coincide when the expr ignores path params, which is exactly why the
-      // framing-TUPLE comparison — not just bytes — is the load-bearing check.)
-      const bad = await verifyLegacyFidelity([c], REPO, {
+      // The bytes can coincide when the expr ignores path params, which is exactly
+      // why the framing-TUPLE comparison — not just bytes — is load-bearing.
+      const bad = await verifyCaptureConvention([c], REPO, {
         captureFramingOverride: () => ({ pathParams: ['BOGUS'], bodyFields: new Set(['x']), authUser: true }),
       });
       expect(bad.ok).toBe(false);
       expect(bad.rows[0].framingMatch).toBe(false);
-      expect(bad.rows[0].match).toBe(false);
+      expect(bad.rows[0].note).toContain('FRAMING DIVERGENCE');
+    });
+
+    test('the OTHER direction is caught too (capture is missing a param the path has)', async () => {
+      // Production-contracts direction: the path declares :id but the capture
+      // framing drops it. The independent derivation still finds :id, so the
+      // tuple diverges and the check bites — not just the capture-adds direction.
+      const c = {
+        id: 'c1-divergence-contract',
+        kind: 'expr',
+        source: 'a | z',
+        path: '/u/:id',
+        bindings: { locals: { a: 1, z: 0 } },
+      };
+      const bad = await verifyCaptureConvention([c], REPO, {
+        captureFramingOverride: () => ({ pathParams: [], bodyFields: new Set(), authUser: false }),
+      });
+      expect(bad.ok).toBe(false);
+      expect(bad.rows[0].framingMatch).toBe(false);
       expect(bad.rows[0].note).toContain('FRAMING DIVERGENCE');
     });
   });
