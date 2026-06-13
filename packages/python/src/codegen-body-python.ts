@@ -2788,6 +2788,17 @@ function containsLambdaCapturingIdent(node: ValueIR, name: string): boolean {
 interface GuardedExpr {
   guard: string | null;
   expr: string;
+  /** S7 review fix — set ONLY in a comprehension-iterable position (`ctx.banWalrus`)
+   *  when a NON-pure optional-chain receiver would otherwise bind via `:=`. CPython
+   *  REJECTS the walrus anywhere inside a comprehension iterable expression, so the
+   *  receiver is bound as a lambda PARAMETER instead: `wrapGuardIfAny` wraps the whole
+   *  guarded conditional in `(lambda <param>: <conditional>)(<arg>)`. The guard and the
+   *  branch already reference `<param>` (the bare temp), so single-eval is preserved —
+   *  `<arg>` (the receiver) is evaluated exactly once as the call argument. At most one
+   *  per chain: a second non-pure link under an existing guard throws (see
+   *  `lowerOptionalLink`), so this field is set at most once and propagated unchanged
+   *  through the trailing `.prop`/`[idx]`/`(args)` links. */
+  lambdaBind?: { param: string; arg: string };
 }
 
 /** Slice S7 — the presence test an optional `?.`/`?.[]` link contributes to the
@@ -2810,6 +2821,9 @@ function optionalPresenceTest(ref: string, ctx: BodyEmitContext): string {
 interface OptionalLink {
   guard: string;
   branchRef: string;
+  /** See `GuardedExpr.lambdaBind` — set when the walrus is banned (comprehension
+   *  iterable position) and a non-pure receiver is bound as a lambda parameter. */
+  lambdaBind?: { param: string; arg: string };
 }
 
 /** Slice S7 — build the guard + branch-receiver reference for one optional link.
@@ -2835,6 +2849,18 @@ function lowerOptionalLink(inner: GuardedExpr, objectNode: ValueIR, ctx: BodyEmi
     );
   }
   const tmp = `__k_oc${++ctx.gensymCounter}`;
+  if (ctx.banWalrus) {
+    // Comprehension-iterable position (see BodyEmitContext.banWalrus): CPython
+    // rejects the `:=` walrus anywhere inside a comprehension iterable, so the
+    // non-pure receiver cannot be bound via `(__k_ocN := RECV)`. Bind it as a
+    // lambda PARAMETER instead — the presence test + branch reference the bare
+    // `__k_ocN` (the parameter), and `wrapGuardIfAny` wraps the whole guarded
+    // conditional in `(lambda __k_ocN: <conditional>)(RECV)`. Same contract as
+    // the walrus form: RECV evaluated exactly once (as the call argument), the
+    // short-circuit branch yields the sentinel, single-eval preserved.
+    const presence = optionalPresenceTest(tmp, ctx);
+    return { guard: presence, branchRef: tmp, lambdaBind: { param: tmp, arg: inner.expr } };
+  }
   const presence = optionalPresenceTest(`${tmp} := ${inner.expr}`, ctx);
   return { guard: presence, branchRef: tmp };
 }
@@ -2885,12 +2911,12 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
       const linkExpr = isSharedPortableArrayProperty(node.property)
         ? (lowerPortableArrayPropertyPy(opt.branchRef, node.property) ?? `${opt.branchRef}.${node.property}`)
         : `${opt.branchRef}.${node.property}`;
-      return { guard: opt.guard, expr: linkExpr };
+      return { guard: opt.guard, expr: linkExpr, lambdaBind: opt.lambdaBind };
     }
     const linkExpr = isSharedPortableArrayProperty(node.property)
       ? (lowerPortableArrayPropertyPy(inner.expr, node.property) ?? `${inner.expr}.${node.property}`)
       : `${inner.expr}.${node.property}`;
-    return { guard: inner.guard, expr: linkExpr };
+    return { guard: inner.guard, expr: linkExpr, lambdaBind: inner.lambdaBind };
   }
   if (node.kind === 'index') {
     const obj = node.object;
@@ -2914,10 +2940,10 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
       // A non-pure receiver is bound once; the index expression appears only in
       // the selected branch, matching JS `?.[]`.
       const opt = lowerOptionalLink(inner, node.object, ctx);
-      return { guard: opt.guard, expr: `${opt.branchRef}[${index}]` };
+      return { guard: opt.guard, expr: `${opt.branchRef}[${index}]`, lambdaBind: opt.lambdaBind };
     }
     const wrapped = needsIndexReceiverParens(node.object) ? `(${inner.expr})` : inner.expr;
-    return { guard: inner.guard, expr: `${wrapped}[${index}]` };
+    return { guard: inner.guard, expr: `${wrapped}[${index}]`, lambdaBind: inner.lambdaBind };
   }
   // node.kind === 'call'
   if (node.optional) {
@@ -2985,7 +3011,7 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
       ? lowerChain(callee, ctx)
       : { guard: null, expr: emitPyExprCtx(callee, ctx) };
   const args = node.args.map((a) => emitPyExprCtx(a, ctx)).join(', ');
-  return { guard: inner.guard, expr: `${inner.expr}(${args})` };
+  return { guard: inner.guard, expr: `${inner.expr}(${args})`, lambdaBind: inner.lambdaBind };
 }
 
 /**
@@ -3462,11 +3488,23 @@ function wrapGuardIfAny(g: GuardedExpr, ctx: BodyEmitContext): string {
   // result participates in `??`/`===` nullish semantics. The helper-less
   // Ground/React layer (which never materializes the sentinel) keeps the
   // pre-slice `else None` short-circuit.
+  let conditional: string;
   if (ctx.coerceJsValues) {
     ctx.helpers.add(KERN_NULLISH_HELPER_PY);
-    return `(${g.expr} if ${g.guard} else _KERN_UNDEFINED)`;
+    conditional = `(${g.expr} if ${g.guard} else _KERN_UNDEFINED)`;
+  } else {
+    conditional = `(${g.expr} if ${g.guard} else None)`;
   }
-  return `(${g.expr} if ${g.guard} else None)`;
+  // S7 review fix — in a comprehension-iterable position the non-pure receiver was
+  // bound as a lambda PARAMETER instead of a `:=` walrus (CPython rejects the walrus
+  // anywhere inside a comprehension iterable expression — see BodyEmitContext.banWalrus
+  // and lowerOptionalLink). The guard + branch already reference the bare parameter, so
+  // wrapping the whole conditional in `(lambda <param>: <conditional>)(<arg>)` keeps the
+  // exact contract: <arg> (the receiver) evaluated exactly once, lazy short-circuit branch.
+  if (g.lambdaBind) {
+    return `(lambda ${g.lambdaBind.param}: ${conditional})(${g.lambdaBind.arg})`;
+  }
+  return conditional;
 }
 
 /** Slice S5 — does the LEFT operand of a `&&`/`||` walrus binding

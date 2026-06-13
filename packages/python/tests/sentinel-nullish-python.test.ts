@@ -373,6 +373,142 @@ describeIfPython('S7 — boundary fail-closed (Object.keys/values/entries on und
   });
 });
 
+describeIfPython('S7 — optional-chain walrus BANNED in comprehension-iterable positions', () => {
+  // S7 review fix — S5 established that CPython REJECTS the `:=` walrus anywhere
+  // inside a comprehension iterable expression ("assignment expression cannot be
+  // used in a comprehension iterable expression"). `ast.parse` does NOT catch this;
+  // only `compile()`/execution does. S7's optional-chain `__k_oc` producer added a
+  // NEW walrus that did not honor the ban, so a non-pure optional-chain receiver in
+  // a `List.map`/`List.filter` source (the comprehension generator head) emitted an
+  // uncompilable `:=`. The fix routes the receiver through a lambda PARAMETER form
+  // `(lambda __k_ocN: (… else _KERN_UNDEFINED))(RECV)` instead — same single-eval +
+  // lazy short-circuit, no walrus in the iterable.
+
+  /** Compile-only probe: prove the emitted body is accepted by CPython's full
+   *  symtable pass (the walrus-in-iterable rejection is a compile-time check that
+   *  `ast.parse` misses). Imports are threaded so a `requires.py` helper is real. */
+  function assertCompiles(expr: string, extraDefs = ''): void {
+    const { code, helpers, imports } = emit(expr);
+    const importLines = imports.map((mod) => `import ${mod} as __k_${mod}`).join('\n');
+    const program = [importLines, helpers, extraDefs, code].filter(Boolean).join('\n');
+    const check = `import json\nsrc = ${JSON.stringify(program)}\ncompile(src, '<t>', 'exec')\nprint('COMPILE_OK')`;
+    const { status, stdout, stderr } = runPy(check);
+    if (status !== 0 || stdout.trim() !== 'COMPILE_OK') {
+      throw new Error(`expected compile OK for ${expr}, got status=${status}\nstderr=${stderr}\nprogram=\n${program}`);
+    }
+  }
+
+  // [expr, emitted-string substring that must appear, substring that must NOT appear]
+  const pins: [string, string, string?][] = [
+    // List.map source = non-pure optional chain → lambda-parameter form, no `:=`.
+    [
+      'List.map(getRow()?.items, x => x + 1)',
+      '(lambda __k_oc1: (__k_oc1.items if (not _kern_is_nullish(__k_oc1)) else _KERN_UNDEFINED))(getRow())',
+      ':=',
+    ],
+    // List.filter source — same ban.
+    [
+      'List.filter(getRow()?.items, x => x > 0)',
+      '(lambda __k_oc1: (__k_oc1.items if (not _kern_is_nullish(__k_oc1)) else _KERN_UNDEFINED))(getRow())',
+      ':=',
+    ],
+    // Non-lambda callback (List.map → list(map(cb, <source>))): source still emitted
+    // under the ban, so the optional chain stays walrus-free here too.
+    [
+      'List.map(getRow()?.items, cb)',
+      '(lambda __k_oc1: (__k_oc1.items if (not _kern_is_nullish(__k_oc1)) else _KERN_UNDEFINED))(getRow())',
+      ':=',
+    ],
+    // Optional chain followed by an index link in the branch.
+    [
+      'List.map(getRow()?.items[0], x => x)',
+      '(lambda __k_oc1: (__k_oc1.items[0] if (not _kern_is_nullish(__k_oc1)) else _KERN_UNDEFINED))(getRow())',
+      ':=',
+    ],
+    // Nested: pure trailing member after a non-pure optional root — single lambda bind.
+    [
+      'List.map(getRow()?.data.rows, x => x)',
+      '(lambda __k_oc1: (__k_oc1.data.rows if (not _kern_is_nullish(__k_oc1)) else _KERN_UNDEFINED))(getRow())',
+      ':=',
+    ],
+  ];
+  for (const [expr, mustInclude, mustExclude] of pins) {
+    test(`emit pin: ${expr} → lambda-parameter form (no walrus)`, () => {
+      const { code } = emit(expr);
+      expect(code).toContain(mustInclude);
+      if (mustExclude) expect(code).not.toContain(mustExclude);
+    });
+    test(`compiles under CPython: ${expr}`, () => {
+      assertCompiles(expr);
+    });
+  }
+
+  // await-receiver optional chain in an iterable position — `await` is only legal
+  // inside an `async def`, so wrap the emitted body and confirm it still compiles
+  // (the lambda form keeps the await as the single call argument).
+  test('compiles under CPython: await-receiver optional chain in List.map source', () => {
+    const { code, helpers, imports } = emit('List.map((await fetchRow())?.items, x => x)');
+    const importLines = imports.map((mod) => `import ${mod} as __k_${mod}`).join('\n');
+    const indented = code
+      .split('\n')
+      .map((l) => `    ${l}`)
+      .join('\n');
+    const program = [importLines, helpers, 'async def fetchRow():\n    return None', `async def _h():\n${indented}`]
+      .filter(Boolean)
+      .join('\n');
+    const check = `src = ${JSON.stringify(program)}\ncompile(src, '<t>', 'exec')\nprint('COMPILE_OK')`;
+    const { status, stdout, stderr } = runPy(check);
+    expect(stderr).toBe('');
+    expect(status).toBe(0);
+    expect(stdout.trim()).toBe('COMPILE_OK');
+    // and the lambda form (not a walrus) is what made it compile
+    expect(code).toContain('(lambda __k_oc1: (__k_oc1.items if (not _kern_is_nullish(__k_oc1)) else _KERN_UNDEFINED))');
+    expect(code).not.toContain(':=');
+  });
+
+  // EXECUTION + single-eval CALLS probe: the lambda form must run the side-effecting
+  // receiver EXACTLY ONCE (no double-eval) and short-circuit to the sentinel on null,
+  // map to the items on a present receiver. This is the real oracle — string pins
+  // alone missed the walrus-in-iterable SyntaxError class before.
+  const MARK = ['_log = []', 'def markRow(v):', '    _log.append("row")', '    return v'].join('\n');
+
+  test('present receiver: List.map(markRow(obj)?.items, x => x + 1) maps + calls once', () => {
+    const { code, helpers, imports } = emit('List.map(markRow(obj)?.items, x => x + 1)');
+    const importLines = imports.map((mod) => `import ${mod} as __k_${mod}`).join('\n');
+    const setup = `${MARK}\nclass _O:\n    items = [1, 2, 3]\nobj = _O()`;
+    const program = [importLines, helpers, setup, code, 'print(repr(r))', 'print(_log)'].filter(Boolean).join('\n');
+    const { status, stdout, stderr } = runPy(program);
+    if (status !== 0) throw new Error(`python3 failed:\n${stderr}\n${program}`);
+    const [result, log] = stdout.trim().split('\n');
+    expect(result).toBe('[2, 3, 4]');
+    expect(log).toBe("['row']"); // receiver evaluated EXACTLY once
+  });
+
+  test('null receiver short-circuits to sentinel (would raise if walrus mis-bound)', () => {
+    // `List.map(markRow(null)?.items, …)` short-circuits the source to the sentinel
+    // BEFORE the comprehension iterates. A None/sentinel is not iterable, so JS-parity
+    // here is a TypeError — the point of THIS row is that the receiver still ran once
+    // and the body COMPILED (no SyntaxError); the iteration error is the runtime
+    // surface, not a compile failure.
+    const { code, helpers, imports } = emit('List.map(markRow(null)?.items, x => x + 1)');
+    const importLines = imports.map((mod) => `import ${mod} as __k_${mod}`).join('\n');
+    const program = [importLines, helpers, MARK, code, 'print(_log)'].filter(Boolean).join('\n');
+    const { status, stderr } = runPy(program);
+    // It compiled (no SyntaxError) and reached the runtime "not iterable" error.
+    expect(stderr).not.toMatch(/SyntaxError/);
+    expect(stderr).toMatch(/TypeError/);
+    expect(status).not.toBe(0);
+  });
+
+  // SCOPED-BAN CONTROL: a NON-iterable optional chain must STILL use the walrus form
+  // (the ban is scoped to comprehension iterables, not global). Pin both shapes.
+  test('control: non-iterable optional chain KEEPS the walrus form', () => {
+    const { code } = emit('getRow()?.items');
+    expect(code).toContain('__k_oc1 := getRow()');
+    expect(code).not.toContain('lambda __k_oc1');
+  });
+});
+
 describeIfPython('S7 — DEFERRED parity gaps (documented, NOT silently wrong)', () => {
   // `({}).missing` — a dynamic member read on an empty record literal lowers to
   // Python attribute access on a dict, which raises AttributeError at runtime.
