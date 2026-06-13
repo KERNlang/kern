@@ -129,6 +129,23 @@ export const KERN_STDLIB: Record<string, Record<string, StdlibEntry>> = {
     // coercion). Python's `math.isnan` matches that strict shape. Use `Number`
     // (not the global `isNaN`) so the TS output is the strict, type-safe form.
     isNaN: { arity: 1, ts: 'Number.isNaN($0)', py: '__k_math.isnan($0)', requires: { py: 'math' } },
+    // `Number.isInteger($0)` / `Number.isSafeInteger($0)` do NO coercion — a
+    // non-number argument is always false. The TS lowering uses the type-safe
+    // `Number.*` forms; the Python helpers reject `bool` explicitly (Python's
+    // `bool` subclasses `int`, so `Number.isInteger(true)` must be false) and
+    // treat NaN/±∞ as non-integers. `isSafeInteger` adds `abs(x) <= 2**53 - 1`.
+    isInteger: {
+      arity: 1,
+      ts: 'Number.isInteger($0)',
+      py: '_kern_number_is_integer($0)',
+      requires: { py: 'number-host' },
+    },
+    isSafeInteger: {
+      arity: 1,
+      ts: 'Number.isSafeInteger($0)',
+      py: '_kern_number_is_safe_integer($0)',
+      requires: { py: 'number-host' },
+    },
   },
   Math: {
     PI: { kind: 'property', ts: 'Math.PI', py: '__k_math.pi', requires: { py: 'math' } },

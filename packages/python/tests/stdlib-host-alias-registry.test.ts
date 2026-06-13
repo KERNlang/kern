@@ -203,6 +203,26 @@ describeIfPython('Milestone A stdlib host aliases — executable TS/Python parit
     }
   });
 
+  test('Number.isInteger / isSafeInteger match JS and reject booleans (no coercion)', () => {
+    // The bool rows are the kill fixtures: Python's bool subclasses int, so a
+    // naive isinstance(x, int) would wrongly return True for `true`.
+    const cases = [
+      'Number.isInteger(5)',
+      'Number.isInteger(5.5)',
+      'Number.isInteger(true)',
+      'Number.isInteger(NaN)',
+      'Number.isInteger(Infinity)',
+      'Number.isSafeInteger(9007199254740991)',
+      'Number.isSafeInteger(9007199254740992)',
+      'Number.isSafeInteger(true)',
+    ];
+    for (const expr of cases) {
+      const expected = nodeOracle(expr);
+      expect(emittedTs(expr)).toEqual(expected);
+      expect(emittedPy(expr)).toEqual(expected);
+    }
+  });
+
   test('Array.from evaluates source before mapper calls and only once', () => {
     const jsSetup = 'const calls = []; function mark(label, value) { calls.push(label); return value; }';
     const pySetup = 'calls = []\ndef mark(label, value):\n    calls.append(label)\n    return value';

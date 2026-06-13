@@ -509,6 +509,28 @@ export const KERN_JS_OBJECT_HELPERS_PY = [
   '    return __k_out',
 ].join('\n');
 
+// `Number.isInteger` / `Number.isSafeInteger` do NO coercion — a non-number
+// argument (incl. a boolean) is ALWAYS false (`Number.isInteger("5")` → false,
+// `Number.isInteger(true)` → false). Python's `bool` subclasses `int`, so the
+// integer test MUST reject `bool` explicitly or `Number.isInteger(true)` wrongly
+// returns True. NaN/±Infinity are non-integers. `isSafeInteger` additionally
+// requires `abs(x) <= 2**53 - 1`.
+export const KERN_JS_NUMBER_HELPERS_PY = [
+  'def _kern_number_is_integer(__k_x):',
+  '    if isinstance(__k_x, bool):',
+  '        return False',
+  '    if isinstance(__k_x, int):',
+  '        return True',
+  '    if isinstance(__k_x, float):',
+  '        return __k_x == __k_x and __k_x not in (float("inf"), float("-inf")) and __k_x.is_integer()',
+  '    return False',
+  '',
+  'def _kern_number_is_safe_integer(__k_x):',
+  '    if not _kern_number_is_integer(__k_x):',
+  '        return False',
+  '    return abs(__k_x) <= 9007199254740991',
+].join('\n');
+
 export const KERN_JS_MATH_HELPERS_PY = [
   'import math',
   '',

@@ -73,6 +73,7 @@ import {
   KERN_JS_ARRAY_HELPERS_PY,
   KERN_JS_HELPER_PY,
   KERN_JS_MATH_HELPERS_PY,
+  KERN_JS_NUMBER_HELPERS_PY,
   KERN_JS_OBJECT_HELPERS_PY,
   KERN_JSON_STRINGIFY_SHIM_PY,
   KERN_NULLISH_HELPER_PY,
@@ -3922,6 +3923,10 @@ function registerStdlibRequirementPython(requirement: string | undefined, ctx: B
   }
   if (requirement === 'object-host') {
     ctx.helpers.add(KERN_JS_OBJECT_HELPERS_PY);
+    return;
+  }
+  if (requirement === 'number-host') {
+    ctx.helpers.add(KERN_JS_NUMBER_HELPERS_PY);
     return;
   }
   ctx.imports.add(requirement);

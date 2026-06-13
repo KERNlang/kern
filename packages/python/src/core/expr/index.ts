@@ -27,6 +27,7 @@ export {
   KERN_JS_ARRAY_HELPERS_PY,
   KERN_JS_HELPER_PY,
   KERN_JS_MATH_HELPERS_PY,
+  KERN_JS_NUMBER_HELPERS_PY,
   KERN_JS_OBJECT_HELPERS_PY,
   KERN_JS_STRING_HELPERS_PY,
   // Slice S7 — sentinel-aware Json.stringify shim (`_kern_json_stringify`).
