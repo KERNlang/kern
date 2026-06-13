@@ -20,11 +20,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import {
-  CanonError,
-  PHASE2_PY_CANON_SRC,
-  canonicalizeRuntime,
-} from '../../../../scripts/phase2/lib/canonicalize.mjs';
+import { CanonError, canonicalizeRuntime, PHASE2_PY_CANON_SRC } from '../../../../scripts/phase2/lib/canonicalize.mjs';
 
 const pythonAvailable = (() => {
   try {
@@ -131,24 +127,21 @@ const ROWS: Row[] = [
     name: 'python tuple (1,2) == array [1,2]',
     js: () => [1, 2],
     pyValue: '(1, 2)',
-    valueJson:
-      '{"kind":"array","items":[{"kind":"number","value":"1"},{"kind":"number","value":"2"}]}',
+    valueJson: '{"kind":"array","items":[{"kind":"number","value":"1"},{"kind":"number","value":"2"}]}',
     kills: 'failing list-vs-tuple normalization',
   },
   {
     name: '{b:2,a:1} entries sorted a,b',
     js: () => ({ b: 2, a: 1 }),
     pyValue: '{"b": 2, "a": 1}',
-    valueJson:
-      '{"kind":"object","entries":[["a",{"kind":"number","value":"1"}],["b",{"kind":"number","value":"2"}]]}',
+    valueJson: '{"kind":"object","entries":[["a",{"kind":"number","value":"1"}],["b",{"kind":"number","value":"2"}]]}',
     kills: 'dict insertion-order leak',
   },
   {
     name: '{a:1,b:2} canon == {b:2,a:1} canon',
     js: () => ({ a: 1, b: 2 }),
     pyValue: '{"a": 1, "b": 2}',
-    valueJson:
-      '{"kind":"object","entries":[["a",{"kind":"number","value":"1"}],["b",{"kind":"number","value":"2"}]]}',
+    valueJson: '{"kind":"object","entries":[["a",{"kind":"number","value":"1"}],["b",{"kind":"number","value":"2"}]]}',
     kills: 'treating raw object canon as insertion-order-sensitive',
   },
   {
