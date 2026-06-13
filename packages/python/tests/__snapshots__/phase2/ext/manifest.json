@@ -7,12 +7,12 @@
     "final-newline"
   ],
   "normalizerSha256": "f71535fc30f029236065c6358c41b3f505d77d816a396d1c4d857b61e7964e82",
-  "corpusSha256": "28be42ebeb67e380d87990900a1e52994818718ac633e09eb2ae5b9785372b5c",
+  "corpusSha256": "d0e2b0d629d9b133c67e3a434b86c6e9ed329d7d6206ae79dbf6298268a1fe5f",
   "discriminatorVersion": "census-v3",
   "discriminatorSha256": "cd77da0135cecf6e43fa52ff2f83f6e810560c5767dd195049410da74b0f6278",
   "sourceTreeSha256": "1918e9b95070c26ef7ca43c8f42943593c3869f9ed6beb407ae59a14cbf51f0c",
   "routeTableSha256": "1e9ed2ed4900a9393cc0ad04cf55784c07b506808ae83de82de394cc6062a4b9",
-  "caseCount": 30,
+  "caseCount": 38,
   "cases": [
     {
       "id": "bitwise-or-sign-bit",
@@ -1115,6 +1115,294 @@
         "blockedCode": "py:syntax-error",
         "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"1\"}]},\"calls\":[\"A\",\"B\",\"C\"]}",
         "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"1\"}]},\"calls\":[\"A\",\"B\",\"C\"]}"
+      }
+    },
+    {
+      "id": "strict-num-bool-zero-false",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "strict-eq"
+      ],
+      "tags": [
+        "strict-eq",
+        "number-bool-crossing",
+        "legacy-bug",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/strict-num-bool-zero-false/entry.py",
+          "kind": "entry",
+          "sha256": "c5207bab0fdfe742b2d10ec33ef2cd3980d9dee1dbbe098c1783afeab3958670"
+        },
+        {
+          "path": "artifacts/strict-num-bool-zero-false/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "pass",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+        "pyCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+        "matchesReference": false
+      }
+    },
+    {
+      "id": "strict-num-bool-one-true",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "strict-eq"
+      ],
+      "tags": [
+        "strict-eq",
+        "number-bool-crossing",
+        "legacy-bug",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/strict-num-bool-one-true/entry.py",
+          "kind": "entry",
+          "sha256": "c5207bab0fdfe742b2d10ec33ef2cd3980d9dee1dbbe098c1783afeab3958670"
+        },
+        {
+          "path": "artifacts/strict-num-bool-one-true/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "pass",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+        "pyCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+        "matchesReference": false
+      }
+    },
+    {
+      "id": "strict-neq-num-bool",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "strict-eq"
+      ],
+      "tags": [
+        "strict-eq",
+        "not-equal",
+        "number-bool-crossing",
+        "legacy-bug",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/strict-neq-num-bool/entry.py",
+          "kind": "entry",
+          "sha256": "a5bf75d74e5d89799607e7263b7e925eaf77254023cb26e1be1d483fe12a7c80"
+        },
+        {
+          "path": "artifacts/strict-neq-num-bool/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "pass",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+        "pyCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+        "matchesReference": false
+      }
+    },
+    {
+      "id": "strict-string-num",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "strict-eq"
+      ],
+      "tags": [
+        "strict-eq",
+        "string-number",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/strict-string-num/entry.py",
+          "kind": "entry",
+          "sha256": "c5207bab0fdfe742b2d10ec33ef2cd3980d9dee1dbbe098c1783afeab3958670"
+        },
+        {
+          "path": "artifacts/strict-string-num/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "pass",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+        "pyCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+        "matchesReference": true
+      }
+    },
+    {
+      "id": "strict-nan-self",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "strict-eq"
+      ],
+      "tags": [
+        "strict-eq",
+        "nan",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/strict-nan-self/entry.py",
+          "kind": "entry",
+          "sha256": "c5207bab0fdfe742b2d10ec33ef2cd3980d9dee1dbbe098c1783afeab3958670"
+        },
+        {
+          "path": "artifacts/strict-nan-self/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "pass",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+        "pyCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+        "matchesReference": true
+      }
+    },
+    {
+      "id": "strict-same-int",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "strict-eq"
+      ],
+      "tags": [
+        "strict-eq",
+        "same-kind",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/strict-same-int/entry.py",
+          "kind": "entry",
+          "sha256": "c5207bab0fdfe742b2d10ec33ef2cd3980d9dee1dbbe098c1783afeab3958670"
+        },
+        {
+          "path": "artifacts/strict-same-int/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "pass",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+        "pyCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+        "matchesReference": true
+      }
+    },
+    {
+      "id": "strict-same-string",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "strict-eq"
+      ],
+      "tags": [
+        "strict-eq",
+        "same-kind",
+        "string",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/strict-same-string/entry.py",
+          "kind": "entry",
+          "sha256": "c5207bab0fdfe742b2d10ec33ef2cd3980d9dee1dbbe098c1783afeab3958670"
+        },
+        {
+          "path": "artifacts/strict-same-string/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "pass",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+        "pyCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+        "matchesReference": true
+      }
+    },
+    {
+      "id": "strict-eval-once-calls",
+      "kind": "expr",
+      "sourceKind": "hand-authored",
+      "routes": [
+        "strict-eq"
+      ],
+      "tags": [
+        "strict-eq",
+        "number-bool-crossing",
+        "eval-once",
+        "call-log",
+        "legacy-bug",
+        "hand-authored-edge"
+      ],
+      "denominator": "EXPRESSION",
+      "artifacts": [
+        {
+          "path": "artifacts/strict-eval-once-calls/entry.py",
+          "kind": "entry",
+          "sha256": "e3560b21f62adc179b1e2171901e992d99bc7f9635912a442da739a7ad1dac6d"
+        },
+        {
+          "path": "artifacts/strict-eval-once-calls/imports.py",
+          "kind": "imports",
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ],
+      "importsSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "helperBytesSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "runtime": {
+        "status": "pass",
+        "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[\"A\",\"B\"]}",
+        "pyCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[\"A\",\"B\"]}",
+        "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[\"A\",\"B\"]}",
+        "matchesReference": false
       }
     }
   ],

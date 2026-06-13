@@ -495,8 +495,142 @@ export const LOGICAL_ITERABLE_CASES = [
   },
 ];
 
+/**
+ * Strict-equality (`===` / `!==`) route — the first PRODUCTION FLIP target
+ * (see .agon-goals/phase2-flip1-strict-equality-spec). Legacy lowers `===` to
+ * NAIVE Python `==` (JS-UNFAITHFUL: `0 === false` → `0 == False` → Python True,
+ * WRONG); the AST path routes to S7 `_kern_strict_equal` (correct — guards the
+ * bool⊂int crossing). So number↔bool crossings are LEGACY_BLOCKED (AST correct,
+ * legacy buggy) and same-kind/agree cases are RUNTIME_EQUAL_BYTE_DIFF. Captured
+ * here PRE-FLIP to PROVE the divergences the flip will fix; production still
+ * routes strict-eq via legacy until the flip lands (post-milestone-A).
+ * @type {Phase2Case[]}
+ */
+export const STRICT_EQ_CASES = [
+  {
+    id: 'strict-num-bool-zero-false',
+    kind: 'expr',
+    source: 'a === b',
+    sourceKind: 'hand-authored',
+    location: 'phase2-flip1-strict-equality-spec',
+    bindings: { locals: { a: 0, b: false } },
+    expected: false,
+    tags: ['strict-eq', 'number-bool-crossing', 'legacy-bug', 'hand-authored-edge'],
+    routes: ['strict-eq'],
+    deterministic: true,
+    denominator: 'EXPRESSION',
+    expectedFirstCapture: 'LEGACY_BLOCKED',
+    notes: 'KILLER: legacy `0 == False` → Python True (WRONG); JS `0 === false` is false; AST `_kern_strict_equal` correct.',
+  },
+  {
+    id: 'strict-num-bool-one-true',
+    kind: 'expr',
+    source: 'a === b',
+    sourceKind: 'hand-authored',
+    location: 'phase2-flip1-strict-equality-spec',
+    bindings: { locals: { a: 1, b: true } },
+    expected: false,
+    tags: ['strict-eq', 'number-bool-crossing', 'legacy-bug', 'hand-authored-edge'],
+    routes: ['strict-eq'],
+    deterministic: true,
+    denominator: 'EXPRESSION',
+    expectedFirstCapture: 'LEGACY_BLOCKED',
+    notes: 'legacy `1 == True` → Python True (WRONG); JS `1 === true` is false.',
+  },
+  {
+    id: 'strict-neq-num-bool',
+    kind: 'expr',
+    source: 'a !== b',
+    sourceKind: 'hand-authored',
+    location: 'phase2-flip1-strict-equality-spec',
+    bindings: { locals: { a: 0, b: false } },
+    expected: true,
+    tags: ['strict-eq', 'not-equal', 'number-bool-crossing', 'legacy-bug', 'hand-authored-edge'],
+    routes: ['strict-eq'],
+    deterministic: true,
+    denominator: 'EXPRESSION',
+    expectedFirstCapture: 'LEGACY_BLOCKED',
+    notes: 'legacy `0 != False` → Python False (WRONG); JS `0 !== false` is true.',
+  },
+  {
+    id: 'strict-string-num',
+    kind: 'expr',
+    source: 'a === b',
+    sourceKind: 'hand-authored',
+    location: 'phase2-flip1-strict-equality-spec',
+    bindings: { locals: { a: '1', b: 1 } },
+    expected: false,
+    tags: ['strict-eq', 'string-number', 'hand-authored-edge'],
+    routes: ['strict-eq'],
+    deterministic: true,
+    denominator: 'EXPRESSION',
+    expectedFirstCapture: 'RUNTIME_EQUAL_BYTE_DIFF',
+    notes: 'Both false (Python `"1" == 1` False; JS `"1" === 1` false); bytes differ (== vs helper).',
+  },
+  {
+    id: 'strict-nan-self',
+    kind: 'expr',
+    source: 'a === b',
+    sourceKind: 'hand-authored',
+    location: 'phase2-flip1-strict-equality-spec',
+    bindings: { locals: { a: { kind: 'number', value: 'NaN' }, b: { kind: 'number', value: 'NaN' } } },
+    expected: false,
+    tags: ['strict-eq', 'nan', 'hand-authored-edge'],
+    routes: ['strict-eq'],
+    deterministic: true,
+    denominator: 'EXPRESSION',
+    expectedFirstCapture: 'RUNTIME_EQUAL_BYTE_DIFF',
+    notes: 'NaN === NaN is false on both (nan != nan); typed canon preserves NaN; bytes differ.',
+  },
+  {
+    id: 'strict-same-int',
+    kind: 'expr',
+    source: 'a === b',
+    sourceKind: 'hand-authored',
+    location: 'phase2-flip1-strict-equality-spec',
+    bindings: { locals: { a: 5, b: 5 } },
+    expected: true,
+    tags: ['strict-eq', 'same-kind', 'hand-authored-edge'],
+    routes: ['strict-eq'],
+    deterministic: true,
+    denominator: 'EXPRESSION',
+    expectedFirstCapture: 'RUNTIME_EQUAL_BYTE_DIFF',
+    notes: 'Same-kind equal: both true; bytes differ.',
+  },
+  {
+    id: 'strict-same-string',
+    kind: 'expr',
+    source: 'a === b',
+    sourceKind: 'hand-authored',
+    location: 'phase2-flip1-strict-equality-spec',
+    bindings: { locals: { a: 'x', b: 'x' } },
+    expected: true,
+    tags: ['strict-eq', 'same-kind', 'string', 'hand-authored-edge'],
+    routes: ['strict-eq'],
+    deterministic: true,
+    denominator: 'EXPRESSION',
+    expectedFirstCapture: 'RUNTIME_EQUAL_BYTE_DIFF',
+    notes: 'Same string equal: both true; bytes differ.',
+  },
+  {
+    id: 'strict-eval-once-calls',
+    kind: 'expr',
+    source: 'mark("A", 0) === mark("B", false)',
+    sourceKind: 'hand-authored',
+    location: 'phase2-flip1-strict-equality-spec',
+    bindings: { helpers: ['mark'], locals: {} },
+    expected: { value: false, calls: ['A', 'B'] },
+    tags: ['strict-eq', 'number-bool-crossing', 'eval-once', 'call-log', 'legacy-bug', 'hand-authored-edge'],
+    routes: ['strict-eq'],
+    deterministic: true,
+    denominator: 'EXPRESSION',
+    expectedFirstCapture: 'LEGACY_BLOCKED',
+    notes: 'Value divergence (legacy True / AST false) AND left-to-right call log [A,B]; both operands evaluated once.',
+  },
+];
+
 /** The full Phase-2 slice-0 corpus. */
-export const PHASE2_CORPUS = [...BITWISE_CASES, ...LOGICAL_CASES, ...LOGICAL_ITERABLE_CASES];
+export const PHASE2_CORPUS = [...BITWISE_CASES, ...LOGICAL_CASES, ...LOGICAL_ITERABLE_CASES, ...STRICT_EQ_CASES];
 
 /**
  * Select corpus cases by route and denominator.

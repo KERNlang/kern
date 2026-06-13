@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "baselineTag": "VOLATILE_PRE_STDREGISTRY_9c1b09d7",
-  "sourceTreeSha256": "ead45126a989c4d8632a6cc828ff25723414a062467aa29a83be120c64a55cda",
+  "baselineTag": "VOLATILE_PRE_STDREGISTRY_d9d35718",
+  "sourceTreeSha256": "1918e9b95070c26ef7ca43c8f42943593c3869f9ed6beb407ae59a14cbf51f0c",
   "routeTableSha256": "1e9ed2ed4900a9393cc0ad04cf55784c07b506808ae83de82de394cc6062a4b9",
   "routeTableSchemaSha256": "4fa98f32598688d1c9aebb1d4483f2f8bebe9afca82689bf0c3981eb68650b9b",
-  "corpusSha256": "28be42ebeb67e380d87990900a1e52994818718ac633e09eb2ae5b9785372b5c",
+  "corpusSha256": "d0e2b0d629d9b133c67e3a434b86c6e9ed329d7d6206ae79dbf6298268a1fe5f",
   "discriminatorVersion": "census-v3",
   "discriminatorSha256": "cd77da0135cecf6e43fa52ff2f83f6e810560c5767dd195049410da74b0f6278",
   "selectedCaseIds": [
@@ -37,13 +37,21 @@
     "logical-iterable-map-nullish-source",
     "logical-iterable-map-typeof-source",
     "logical-iterable-map-ternary-source",
-    "logical-iterable-map-call-log"
+    "logical-iterable-map-call-log",
+    "strict-num-bool-zero-false",
+    "strict-num-bool-one-true",
+    "strict-neq-num-bool",
+    "strict-string-num",
+    "strict-nan-self",
+    "strict-same-int",
+    "strict-same-string",
+    "strict-eval-once-calls"
   ],
   "summary": {
-    "selectedCaseCount": 30,
-    "ratchetCount": 6,
+    "selectedCaseCount": 38,
+    "ratchetCount": 10,
     "byteEqualCount": 0,
-    "runtimeEqualByteDiffCount": 6,
+    "runtimeEqualByteDiffCount": 10,
     "semanticBothWrongCount": 0,
     "fallbackCount": 0
   },
@@ -239,7 +247,7 @@
         "runtimeCanon": null,
         "error": {
           "code": "py:syntax-error",
-          "category": "runtime"
+          "category": "emit"
         }
       },
       "pyAst": {
@@ -370,7 +378,7 @@
         "runtimeCanon": null,
         "error": {
           "code": "py:syntax-error",
-          "category": "runtime"
+          "category": "emit"
         }
       },
       "pyAst": {
@@ -402,7 +410,7 @@
         "runtimeCanon": null,
         "error": {
           "code": "py:syntax-error",
-          "category": "runtime"
+          "category": "emit"
         }
       },
       "pyAst": {
@@ -435,7 +443,7 @@
         "runtimeCanon": null,
         "error": {
           "code": "py:syntax-error",
-          "category": "runtime"
+          "category": "emit"
         }
       },
       "pyAst": {
@@ -468,7 +476,7 @@
         "runtimeCanon": null,
         "error": {
           "code": "py:syntax-error",
-          "category": "runtime"
+          "category": "emit"
         }
       },
       "pyAst": {
@@ -502,7 +510,7 @@
         "runtimeCanon": null,
         "error": {
           "code": "py:syntax-error",
-          "category": "runtime"
+          "category": "emit"
         }
       },
       "pyAst": {
@@ -535,7 +543,7 @@
         "runtimeCanon": null,
         "error": {
           "code": "py:syntax-error",
-          "category": "runtime"
+          "category": "emit"
         }
       },
       "pyAst": {
@@ -570,7 +578,7 @@
         "runtimeCanon": null,
         "error": {
           "code": "py:syntax-error",
-          "category": "runtime"
+          "category": "emit"
         }
       },
       "pyAst": {
@@ -603,7 +611,7 @@
         "runtimeCanon": null,
         "error": {
           "code": "py:syntax-error",
-          "category": "runtime"
+          "category": "emit"
         }
       },
       "pyAst": {
@@ -637,7 +645,7 @@
         "runtimeCanon": null,
         "error": {
           "code": "py:syntax-error",
-          "category": "runtime"
+          "category": "emit"
         }
       },
       "pyAst": {
@@ -669,7 +677,7 @@
         "runtimeCanon": null,
         "error": {
           "code": "py:syntax-error",
-          "category": "runtime"
+          "category": "emit"
         }
       },
       "pyAst": {
@@ -703,7 +711,7 @@
         "runtimeCanon": null,
         "error": {
           "code": "py:syntax-error",
-          "category": "runtime"
+          "category": "emit"
         }
       },
       "pyAst": {
@@ -737,7 +745,7 @@
         "runtimeCanon": null,
         "error": {
           "code": "py:syntax-error",
-          "category": "runtime"
+          "category": "emit"
         }
       },
       "pyAst": {
@@ -770,7 +778,7 @@
         "runtimeCanon": null,
         "error": {
           "code": "py:syntax-error",
-          "category": "runtime"
+          "category": "emit"
         }
       },
       "pyAst": {
@@ -803,7 +811,7 @@
         "runtimeCanon": null,
         "error": {
           "code": "py:syntax-error",
-          "category": "runtime"
+          "category": "emit"
         }
       },
       "pyAst": {
@@ -837,7 +845,7 @@
         "runtimeCanon": null,
         "error": {
           "code": "py:syntax-error",
-          "category": "runtime"
+          "category": "emit"
         }
       },
       "pyAst": {
@@ -870,7 +878,7 @@
         "runtimeCanon": null,
         "error": {
           "code": "py:syntax-error",
-          "category": "runtime"
+          "category": "emit"
         }
       },
       "pyAst": {
@@ -905,7 +913,7 @@
         "runtimeCanon": null,
         "error": {
           "code": "py:syntax-error",
-          "category": "runtime"
+          "category": "emit"
         }
       },
       "pyAst": {
@@ -938,7 +946,7 @@
         "runtimeCanon": null,
         "error": {
           "code": "py:syntax-error",
-          "category": "runtime"
+          "category": "emit"
         }
       },
       "pyAst": {
@@ -971,7 +979,7 @@
         "runtimeCanon": null,
         "error": {
           "code": "py:syntax-error",
-          "category": "runtime"
+          "category": "emit"
         }
       },
       "pyAst": {
@@ -1005,7 +1013,7 @@
         "runtimeCanon": null,
         "error": {
           "code": "py:syntax-error",
-          "category": "runtime"
+          "category": "emit"
         }
       },
       "pyAst": {
@@ -1018,6 +1026,238 @@
       "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"1\"}]},\"calls\":[\"A\",\"B\",\"C\"]}",
       "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"1\"}]},\"calls\":[\"A\",\"B\",\"C\"]}",
       "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "strict-num-bool-zero-false",
+      "route": "strict-eq",
+      "tags": [
+        "strict-eq",
+        "number-bool-crossing",
+        "legacy-bug",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "4263e7675812304480565e755f6baff2ec2579a14fd1660bf3b0729a10ab05a8",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "9208254b5f8a8481376dd121a6de35a219435d80c1e200f6ab40d6b8356d67bf",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+        "error": null
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "f8a45f05c74179d2d234479837a4e40bcb1d08e52908089a1c9060a5944bb544",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+      "expectedFirstCapture": "LEGACY_BLOCKED",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "strict-num-bool-one-true",
+      "route": "strict-eq",
+      "tags": [
+        "strict-eq",
+        "number-bool-crossing",
+        "legacy-bug",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "4263e7675812304480565e755f6baff2ec2579a14fd1660bf3b0729a10ab05a8",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "9208254b5f8a8481376dd121a6de35a219435d80c1e200f6ab40d6b8356d67bf",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+        "error": null
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "f8a45f05c74179d2d234479837a4e40bcb1d08e52908089a1c9060a5944bb544",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+      "expectedFirstCapture": "LEGACY_BLOCKED",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "strict-neq-num-bool",
+      "route": "strict-eq",
+      "tags": [
+        "strict-eq",
+        "not-equal",
+        "number-bool-crossing",
+        "legacy-bug",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "3cf11f8790169c3f4e93eec8cfaba225b9201955683cc99d899704fc77e47ed5",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "7e88047a36603238b73ca1782d50305f89ab6a6d9421806e2e440e80aaa18d6d",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+        "error": null
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "e759cf605e5f3c7c861d76909aabe36fa614f88219bb738c9c65174ad9877205",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+      "expectedFirstCapture": "LEGACY_BLOCKED",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "strict-string-num",
+      "route": "strict-eq",
+      "tags": [
+        "strict-eq",
+        "string-number",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "4263e7675812304480565e755f6baff2ec2579a14fd1660bf3b0729a10ab05a8",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "9208254b5f8a8481376dd121a6de35a219435d80c1e200f6ab40d6b8356d67bf",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+        "error": null
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "f8a45f05c74179d2d234479837a4e40bcb1d08e52908089a1c9060a5944bb544",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "RUNTIME_EQUAL_BYTE_DIFF",
+      "triage": null
+    },
+    {
+      "caseId": "strict-nan-self",
+      "route": "strict-eq",
+      "tags": [
+        "strict-eq",
+        "nan",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "4263e7675812304480565e755f6baff2ec2579a14fd1660bf3b0729a10ab05a8",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "9208254b5f8a8481376dd121a6de35a219435d80c1e200f6ab40d6b8356d67bf",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+        "error": null
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "f8a45f05c74179d2d234479837a4e40bcb1d08e52908089a1c9060a5944bb544",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "RUNTIME_EQUAL_BYTE_DIFF",
+      "triage": null
+    },
+    {
+      "caseId": "strict-same-int",
+      "route": "strict-eq",
+      "tags": [
+        "strict-eq",
+        "same-kind",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "4263e7675812304480565e755f6baff2ec2579a14fd1660bf3b0729a10ab05a8",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "9208254b5f8a8481376dd121a6de35a219435d80c1e200f6ab40d6b8356d67bf",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+        "error": null
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "f8a45f05c74179d2d234479837a4e40bcb1d08e52908089a1c9060a5944bb544",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "RUNTIME_EQUAL_BYTE_DIFF",
+      "triage": null
+    },
+    {
+      "caseId": "strict-same-string",
+      "route": "strict-eq",
+      "tags": [
+        "strict-eq",
+        "same-kind",
+        "string",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "4263e7675812304480565e755f6baff2ec2579a14fd1660bf3b0729a10ab05a8",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "9208254b5f8a8481376dd121a6de35a219435d80c1e200f6ab40d6b8356d67bf",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+        "error": null
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "f8a45f05c74179d2d234479837a4e40bcb1d08e52908089a1c9060a5944bb544",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "RUNTIME_EQUAL_BYTE_DIFF",
+      "triage": null
+    },
+    {
+      "caseId": "strict-eval-once-calls",
+      "route": "strict-eq",
+      "tags": [
+        "strict-eq",
+        "number-bool-crossing",
+        "eval-once",
+        "call-log",
+        "legacy-bug",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "08e02e5cfdd0eaba964c0160ed5b0dfaa5d5c97fd60bc2410c2a5c2970038cad",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "eada17d9b6aa63077a9adbce55d4f0b69261b33a62f369b29f8c211dbf81a772",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[\"A\",\"B\"]}",
+        "error": null
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "34261fcc390299994a0e98cb57ce2eef740204e030363375d93de52f2ac990c0",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[\"A\",\"B\"]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[\"A\",\"B\"]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[\"A\",\"B\"]}",
+      "expectedFirstCapture": "LEGACY_BLOCKED",
       "verdict": "LEGACY_BLOCKED",
       "triage": "legacy-bug"
     }
