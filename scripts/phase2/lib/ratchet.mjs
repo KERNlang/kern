@@ -109,7 +109,21 @@ export function deriveVerdict(input) {
     if (!legacyGood && !astGood) {
       // If both ran AND produced (different) values, that is RUNTIME_DIVERGE.
       if (legacyRan && astRan) return { verdict: 'RUNTIME_DIVERGE', triage: 'both-bug' };
-      // Otherwise at least one route is blocked (failed capture or failed run);
+      // R6: exactly one route RAN-but-wrong while the other is blocked. The
+      // generic blocked classification below would mislabel this (e.g.
+      // AST_BLOCKED when legacy actually ran wrong). This is SAFE (a *_BLOCKED
+      // verdict is not ratchet progress, so it can never false-green), but the
+      // triage/note should record that one route ran wrong. Annotate the
+      // blocked verdict instead of silently dropping the ran-wrong signal.
+      const blocked = blockedVerdict(
+        effectiveBlock(legacyCapture, legacyRun),
+        effectiveBlock(astCapture, astRun),
+      );
+      const ranWrong = legacyRan ? 'legacy' : astRan ? 'ast' : null;
+      if (ranWrong) {
+        return { verdict: blocked.verdict, triage: `${ranWrong}-ran-wrong+other-blocked` };
+      }
+      // Otherwise both are blocked (failed capture or failed run);
       // fall through to the blocked classification below.
     }
     // Both good -> proceed to byte comparison (step 6).
@@ -117,10 +131,16 @@ export function deriveVerdict(input) {
       return byteVerdict(legacyCapture, astCapture);
     }
   } else {
-    // No reference at all (e.g. parse-boundary rows with no executable expected).
-    // Use capture/byte verdicts only.
-    if (legacyCaptured && astCaptured && legacyRan && astRan && legacyCanon === astCanon) {
-      return byteVerdict(legacyCapture, astCapture);
+    // R2/G1: NO reference (tsCanon null AND expectedCanon null). If the case is
+    // EXECUTABLE (both routes ran) we CANNOT call it BYTE_EQUAL — two agreeing-
+    // but-wrong python routes would otherwise score ratchet progress against a
+    // dead reference (e.g. a captureTs/executeTs failure nulled tsCanon and the
+    // case has no `expected`). An executable-but-unjudgeable row is a hard
+    // CAPTURE_ERROR with a 'no-reference' note, NEVER the byte path. Only
+    // genuinely-blocked rows (at least one route did not run) may use the
+    // blocked classification below.
+    if (legacyRan && astRan) {
+      return { verdict: 'CAPTURE_ERROR', triage: 'no-reference' };
     }
   }
 
@@ -239,24 +259,42 @@ export function summarize(records) {
  * Monotonic ratchet regression check vs a saved baseline.
  * Fails (returns violations) if:
  *   - any individual case verdict is WORSE than the baseline's,
+ *   - a baseline case has DISAPPEARED from current (R1: deleting a row must not
+ *     be a way to drop a bad verdict to go green),
+ *   - any current verdict is SEMANTIC_BOTH_WRONG, regardless of baseline (R4/G3:
+ *     new cases bypass the per-case rank check, so this is enforced flat),
  *   - aggregate ratchetCount drops,
  *   - aggregate byteEqualCount drops,
- *   - aggregate fallbackCount rises.
+ *   - aggregate fallbackCount rises (delta scoped to baseline-present cases —
+ *     R3: a NEW case is explicitly allowed and must not push the aggregate up).
  * New cases (absent from baseline) are allowed (no prior verdict to regress).
- * @param {{records:Array<{caseId:string,verdict:string}>, summary:object}} current
- * @param {{records:Array<{caseId:string,verdict:string}>, summary:object}} baseline
+ * @param {{records:Array<{caseId:string,verdict:string,fallbackUsed?:boolean}>, summary:object}} current
+ * @param {{records:Array<{caseId:string,verdict:string,fallbackUsed?:boolean}>, summary:object}} baseline
  * @returns {string[]} violations (empty = pass)
  */
 export function checkRegression(current, baseline) {
   const violations = [];
   const baseByCase = new Map(baseline.records.map((r) => [r.caseId, r.verdict]));
+  const curIds = new Set(current.records.map((r) => r.caseId));
   for (const r of current.records) {
+    // R4/G3: SEMANTIC_BOTH_WRONG is a hard violation for EVERY current record,
+    // baseline or not — new cases bypass the per-case rank check below.
+    if (r.verdict === 'SEMANTIC_BOTH_WRONG') {
+      violations.push(`INT_RATCHET_REGRESSION: ${r.caseId} is SEMANTIC_BOTH_WRONG (always CI-failing)`);
+    }
     const prev = baseByCase.get(r.caseId);
     if (prev === undefined) continue;
     if (rank(r.verdict) > rank(prev)) {
       violations.push(
         `INT_RATCHET_REGRESSION: ${r.caseId} verdict regressed ${prev} -> ${r.verdict}`,
       );
+    }
+  }
+  // R1: reverse check — every baseline case must still exist in current.
+  // A dropped case cannot be a green path for a SEMANTIC_BOTH_WRONG (or any) row.
+  for (const [caseId] of baseByCase) {
+    if (!curIds.has(caseId)) {
+      violations.push(`INT_RATCHET_REGRESSION: case ${caseId} disappeared`);
     }
   }
   const cs = current.summary;
@@ -267,7 +305,24 @@ export function checkRegression(current, baseline) {
   if (typeof bs.byteEqualCount === 'number' && cs.byteEqualCount < bs.byteEqualCount) {
     violations.push(`INT_RATCHET_REGRESSION: byteEqualCount dropped ${bs.byteEqualCount} -> ${cs.byteEqualCount}`);
   }
-  if (typeof bs.fallbackCount === 'number' && cs.fallbackCount > bs.fallbackCount) {
+  // R3: scope the fallbackCount delta to cases PRESENT IN THE BASELINE. A new
+  // case's fallbackUsed must not, by itself, push the aggregate over baseline.
+  // If per-record fallbackUsed flags are available on both sides, compare the
+  // baseline-intersection counts; otherwise fall back to the summary aggregate.
+  const haveCurrentFlags = current.records.some((r) => typeof r.fallbackUsed === 'boolean');
+  const haveBaselineFlags = baseline.records.some((r) => typeof r.fallbackUsed === 'boolean');
+  if (haveCurrentFlags && haveBaselineFlags) {
+    const baseIds = new Set(baseline.records.map((r) => r.caseId));
+    const curFallbackOnBaseline = current.records.filter(
+      (r) => baseIds.has(r.caseId) && r.fallbackUsed,
+    ).length;
+    const baseFallback = baseline.records.filter((r) => r.fallbackUsed).length;
+    if (curFallbackOnBaseline > baseFallback) {
+      violations.push(
+        `INT_FALLBACK_COUNT_REGRESSION: fallbackCount rose ${baseFallback} -> ${curFallbackOnBaseline} (baseline-scoped)`,
+      );
+    }
+  } else if (typeof bs.fallbackCount === 'number' && cs.fallbackCount > bs.fallbackCount) {
     violations.push(`INT_FALLBACK_COUNT_REGRESSION: fallbackCount rose ${bs.fallbackCount} -> ${cs.fallbackCount}`);
   }
   return violations;
