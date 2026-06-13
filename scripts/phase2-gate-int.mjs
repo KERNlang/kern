@@ -102,13 +102,18 @@ try {
 
 assertUniqueIds();
 
-// ── byte-equivalence oracle (hard precondition) ──────────────────────────────
-// Prove the legacy capture is FAITHFUL to production-shipped bytes before any
-// verdict is trusted. A mismatch means the ratchet is measuring a fiction.
+// ── call-convention consistency oracle (hard precondition) ───────────────────
+// Prove the legacy capture uses production's documented `rewriteExpr` call
+// convention (conformance.mjs:1903) AND that the framing derivation is
+// independently consistent (a separate re-derivation agrees on the tuple + the
+// bytes). This is NOT a cross-shipment byte diff — a full production-route-replay
+// cross-check is deferred to the route-corpus slice (see capture.mjs header). A
+// failure here means a framing bug or a broken call convention, so no verdict is
+// trustworthy.
 const fidelity = await verifyLegacyFidelity(PHASE2_CORPUS, REPO);
 if (!fidelity.ok) {
   const bad = fidelity.rows.filter((r) => !r.match).map((r) => `${r.id}: ${r.note}`);
-  fail('INT_CAPTURE_ERROR', `legacy byte-equivalence oracle FAILED:\n  ${bad.join('\n  ')}`);
+  fail('INT_CAPTURE_ERROR', `legacy call-convention consistency oracle FAILED:\n  ${bad.join('\n  ')}`);
 }
 
 // ── selection ─────────────────────────────────────────────────────────────────
