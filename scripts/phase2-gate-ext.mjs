@@ -237,7 +237,9 @@ if (has('--rebaseline')) {
     const oldCase = old.cases.find((x) => x.id === c.id);
     if (!oldCase) fail('EXT_REBASELINE_DENIED', `${c.id}: no old baseline case`);
     const oldEntry = readSnapshot(c.id, 'entry.py');
-    const newEntry = c.artifacts.find((a) => a.kind === 'entry').bytes;
+    const newEntryArtifact = c.artifacts.find((a) => a.kind === 'entry');
+    if (!newEntryArtifact) fail('EXT_REBASELINE_DENIED', `${c.id}: no entry artifact to rebaseline`);
+    const newEntry = newEntryArtifact.bytes;
     const tsCanon = c.runtime.tsCanon;
     const res = adjudicateRebaseline({
       caseId: c.id,
