@@ -513,7 +513,7 @@ export const REGEX_NONLITERAL_FAILCLOSE =
  *
  * Arity/position conditions MIRROR the lowering shapes EXACTLY (so the detector
  * never fires on a shape the lowering would have left as a plain host call):
- *   - receiver position: `re.test(s)` (1 arg), `re.exec(s)`
+ *   - receiver position: `re.test(s)` (1 arg), `re.exec(s)` (1 arg)
  *   - first-arg position: `s.match(re)` / `s.matchAll(re)` (1 arg),
  *     `s.split(re)` (>=1 arg), `s.replace(re,r)` / `s.replaceAll(re,r)` (2 args)
  * ------------------------------------------------------------------------- */
@@ -529,9 +529,12 @@ export function regexMethodRegexArgIdent(call: Extract<ValueIR, { kind: 'call' }
   if (callee.optional) return null; // `?.match(…)` — left to plain emit
   const property = callee.property;
 
-  // Receiver-positioned regex: `re.test(s)` (1 arg), `re.exec(s)`.
+  // Receiver-positioned regex: `re.test(s)` (1 arg), `re.exec(s)` (1 arg).
+  // `RegExp.prototype.test`/`exec` each take exactly one argument; the arity
+  // guard mirrors the canonical lowering shape on BOTH so the detector never
+  // fires on a non-canonical call the lowering would leave as a plain host call.
   if (REGEX_RECEIVER_METHODS.has(property)) {
-    if (property === 'test' && call.args.length !== 1) return null;
+    if ((property === 'test' || property === 'exec') && call.args.length !== 1) return null;
     if (callee.object.kind === 'ident') return callee.object.name;
     return null;
   }

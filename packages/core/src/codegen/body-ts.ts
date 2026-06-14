@@ -44,7 +44,9 @@
  *  `if`/`else` branches indent correctly. The caller adds the leading indent
  *  for the surrounding function body. */
 
+import ts from 'typescript';
 import { isPostfixMutationOperator, isSupportedAssignOperator } from '../assignment-operators.js';
+import { parseClosureBlockAst } from '../closure-eligibility.js';
 import { emitExpression } from '../codegen-expression.js';
 import { parseExpression } from '../parser-expression.js';
 import type { ExprObject, IRNode } from '../types.js';
@@ -1211,7 +1213,19 @@ function emitValueTS(node: ValueIR, ctx: BodyEmitContext): string {
  *  ident KNOWN to be regex-bound in scope. Mirrors the per-call-node fail-close
  *  the Python emitter makes inside `lowerRegexCallPython`, so the rejection is
  *  symmetric at any nesting depth. Direct regex literals are never idents, so
- *  the canonical Slice-3 lowering is untouched. */
+ *  the canonical Slice-3 lowering is untouched.
+ *
+ *  Slice-3d (TS/Python parity fix): a block-bodied arrow (`x => { … }`) carries
+ *  its body as OPAQUE raw text (`lambda.bodyBlock`) re-emitted verbatim on TS —
+ *  so a bound-regex method INSIDE the block (`x => { return s.match(re); }`)
+ *  slipped through the `ValueIR` walk and emitted RAW, while the Python emitter
+ *  RE-PARSES every block-closure expression (`emitPyExprCtx(parseExpr(raw),ctx)`
+ *  → `lowerRegexCallPython`) and FAIL-CLOSED the same construct — a SILENT
+ *  cross-target divergence. We close it by descending into `bodyBlock` through
+ *  the SAME closure-AST path the rest of the pipeline uses
+ *  (`parseClosureBlockAst`) and applying the SAME `ValueIR` detector to every
+ *  call inside it (re-parsed via the SAME `parseExpr` the Python lowerer uses),
+ *  so the fail-close decision is byte-for-byte symmetric. */
 function assertNoBoundRegexMethodTS(node: ValueIR, ctx: BodyEmitContext): void {
   if (node.kind === 'call') {
     const argName = regexMethodRegexArgIdent(node);
@@ -1219,14 +1233,57 @@ function assertNoBoundRegexMethodTS(node: ValueIR, ctx: BodyEmitContext): void {
       throw new Error(REGEX_NONLITERAL_FAILCLOSE);
     }
   }
+  if (node.kind === 'lambda' && node.bodyBlock) {
+    assertNoBoundRegexMethodInBlockTS(node.bodyBlock.raw, ctx);
+  }
   forEachValueIRChild(node, (child) => assertNoBoundRegexMethodTS(child, ctx));
+}
+
+/** Fail-close a bound-regex method called anywhere inside a block-bodied
+ *  arrow's raw body — the TS half of the Slice-3d parity fix.
+ *
+ *  Parses the raw block via the shared `parseClosureBlockAst` (the closure-AST
+ *  path every other consumer reads — never a fresh regex-text scanner), then
+ *  walks it for CALL expressions. Each call's source text is re-parsed into
+ *  `ValueIR` through the SAME `parseExpr` the Python block-closure lowerer uses
+ *  (`emitPyExprCtx(parseExpr(expr.getText(sf)), ctx)`), and run through the SAME
+ *  `regexMethodRegexArgIdent` + `lookupRegexBinding(ctx, …)` detector. A
+ *  known-regex-bound ident in the regex position throws the SAME shared
+ *  `REGEX_NONLITERAL_FAILCLOSE` — making the rejection byte-for-byte symmetric
+ *  with Python. A string-/unknown-bound ident (`s.match(strVar)`) is NOT flagged
+ *  and stays a plain host method on both targets.
+ *
+ *  Binding resolution uses the SAME `ctx` (the body's regex-binding table) the
+ *  Python lowerer consults: a closure PARAM that shadows an outer regex name is
+ *  conservatively still flagged on BOTH targets (Python's `lookupRegexBinding`
+ *  also ignores `shadowedSymbols`) — over-rejection is SAFE and symmetric; the
+ *  silent divergence is not. If the block does not parse cleanly the gate
+ *  already rejected it upstream, so this is a defensive no-op. */
+function assertNoBoundRegexMethodInBlockTS(raw: string, ctx: BodyEmitContext): void {
+  const block = parseClosureBlockAst(raw);
+  if (block === null) return;
+  const visit = (tsNode: ts.Node): void => {
+    if (ts.isCallExpression(tsNode)) {
+      const callIR = parseExpr(tsNode.getText());
+      if (callIR.kind === 'call') {
+        const argName = regexMethodRegexArgIdent(callIR);
+        if (argName !== null && lookupRegexBinding(ctx, argName) !== null) {
+          throw new Error(REGEX_NONLITERAL_FAILCLOSE);
+        }
+      }
+    }
+    ts.forEachChild(tsNode, visit);
+  };
+  ts.forEachChild(block, visit);
 }
 
 /** Visit each immediate child `ValueIR` of `node`. Covers every variant of the
  *  value AST so the regex-method walk reaches calls nested inside any operand
  *  (args, members, binaries, conditionals, template exprs, object/array
  *  literals, …). `lambda.bodyBlock` is opaque raw TS text with no parsed IR, so
- *  it has no child nodes to visit. */
+ *  it has no child `ValueIR` nodes here — its bound-regex methods are reached
+ *  separately by `assertNoBoundRegexMethodInBlockTS` (called from
+ *  `assertNoBoundRegexMethodTS` on the lambda), which parses the raw block. */
 function forEachValueIRChild(node: ValueIR, visit: (child: ValueIR) => void): void {
   switch (node.kind) {
     case 'member':

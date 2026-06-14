@@ -410,6 +410,76 @@ describe('Slice 3c — let-bound regex method DETECT-and-fail-close (drop the fr
     expect(() => tsBody(children)).toThrow(NONLIT);
     expect(() => pyBody(children)).toThrow(NONLIT);
   });
+
+  // Slice-3d (TS/Python PARITY): a bound-regex method INSIDE a block-bodied arrow
+  // (`x => { return s.match(re); }`) must fail-close on BOTH targets. Python
+  // re-parses every block-closure expression through the full expression path
+  // (`emitPyExprCtx(parseExpr(raw), ctx)` → `lowerRegexCallPython`) and already
+  // fail-closed it; TS re-emits the raw block verbatim, so it USED to slip
+  // through and emit `s.match(re)` RAW — a silent cross-target divergence. The TS
+  // walk now descends into `bodyBlock` via the shared `parseClosureBlockAst`
+  // closure-AST path and applies the SAME detector, so both fail-close.
+  // REVERT-CHECK vs 149f9638: without the block descent, `tsBody` returns OK (raw
+  // `s.match(re)`) while `pyBody` throws — the divergence this row guards.
+  test('let re = /a/; arr.map(x => { return s.match(re); }) → fail-close inside BLOCK body (both targets)', () => {
+    const children = [
+      { type: 'let', props: { name: 're', kind: 'const', value: '/([0-9]+)/' } } as IRNode,
+      { type: 'do', props: { value: 'arr.map(x => { return s.match(re); })' } } as IRNode,
+    ];
+    expect(() => tsBody(children)).toThrow(NONLIT);
+    expect(() => pyBody(children)).toThrow(NONLIT);
+  });
+
+  // The STRING-bound counterpart inside the SAME block shape stays a PLAIN host
+  // method on BOTH targets — the block descent must NOT over-reject a non-regex
+  // ident in the regex position (the `s.match(strVar)` common case).
+  test('let strVar = "ab"; arr.map(x => { return s.match(strVar); }) → stays PLAIN inside block (both targets)', () => {
+    const children = [
+      { type: 'let', props: { name: 'strVar', kind: 'const', value: '"ab"' } } as IRNode,
+      { type: 'do', props: { value: 'arr.map(x => { return s.match(strVar); })' } } as IRNode,
+    ];
+    const tsOut = tsBody(children);
+    const pyOut = pyBody(children);
+    expect(tsOut).toContain('s.match(strVar)');
+    expect(tsOut).not.toContain('__m'); // not the canonical regex adapter
+    expect(pyOut).toContain('s.match(strVar)');
+    expect(pyOut).not.toContain('_kern_regex_match'); // not the regex helper
+  });
+
+  // A DIRECT regex literal inside the block still lowers canonically on both
+  // targets (the block descent only fail-closes BOUND-ident regex positions).
+  test('let re = /a/; arr.map(x => { return s.match(/lit/); }) → canonical inside block, NOT fail-close (both)', () => {
+    const children = [
+      { type: 'let', props: { name: 're', kind: 'const', value: '/([0-9]+)/' } } as IRNode,
+      { type: 'do', props: { value: 'arr.map(x => { return s.match(/lit/); })' } } as IRNode,
+    ];
+    expect(() => tsBody(children)).not.toThrow();
+    const pyOut = pyBody(children);
+    expect(pyOut).toContain('_kern_regex_match("lit"');
+  });
+
+  // FIX B (exec arity guard): `RegExp.prototype.exec` takes exactly 1 arg, so the
+  // shared `regexMethodRegexArgIdent` detector now arity-guards `exec` the SAME
+  // way it already guards `test`. A bound-regex `rg.exec(s)` (1 arg) fail-closes
+  // on both targets; a non-canonical 2-arg `rg.exec(s, 5)` is NOT a regex-method
+  // shape, so the detector returns null and it stays a PLAIN host call on both.
+  // REVERT-CHECK vs 149f9638: without the guard, `regexMethodRegexArgIdent` would
+  // return "rg" for the 2-arg form and wrongly fail-close it.
+  test('let rg = /a/; rg.exec(s) (1-arg) → fail-close; rg.exec(s, 5) (2-arg) → stays PLAIN (both targets)', () => {
+    const oneArg = [
+      { type: 'let', props: { name: 'rg', kind: 'const', value: '/a/' } } as IRNode,
+      { type: 'do', props: { value: 'rg.exec(s)' } } as IRNode,
+    ];
+    expect(() => tsBody(oneArg)).toThrow(NONLIT);
+    expect(() => pyBody(oneArg)).toThrow(NONLIT);
+
+    const twoArg = [
+      { type: 'let', props: { name: 'rg', kind: 'const', value: '/a/' } } as IRNode,
+      { type: 'do', props: { value: 'rg.exec(s, 5)' } } as IRNode,
+    ];
+    expect(tsBody(twoArg)).toContain('rg.exec(s, 5)');
+    expect(pyBody(twoArg)).toContain('rg.exec(s, 5)');
+  });
 });
 
 describe('Slice 3b FIX 4 — Math.match(/a/g) fails closed (stdlib member rejection precedes regex lowering)', () => {
