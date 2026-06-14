@@ -5376,6 +5376,16 @@ function collectModuleVisibleNames(moduleNode: IRNode, externalImports: External
   return names;
 }
 
+export function moduleRuntimeBindingNames(moduleNode: IRNode): Set<string> {
+  const emptyExternalImports: ExternalImportSymbolTable = {
+    symbols: [],
+    byLocalName: new Map(),
+    byPackage: new Map(),
+    conflicts: [],
+  };
+  return new Set(collectModuleVisibleNames(moduleNode, emptyExternalImports).values);
+}
+
 function addUntypedLocalVisibleName(names: ModuleVisibleNames, name: string): void {
   names.all.add(name);
   names.untypedLocal.add(name);

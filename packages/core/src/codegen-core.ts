@@ -14,6 +14,7 @@
 import { KernCodegenError } from './errors.js';
 import { propsOf } from './node-props.js';
 import { defaultRuntime, type KernRuntime } from './runtime.js';
+import { moduleRuntimeBindingNames } from './semantic-validator.js';
 import { expandTemplateNode, isTemplateNode } from './template-engine.js';
 import type { ExprObject, IRNode } from './types.js';
 
@@ -381,7 +382,8 @@ export function generateModule(node: IRNode): string[] {
   const props = propsOf<'module'>(node);
   const name = emitTemplateSafe(props.name || 'unknown');
   const lines: string[] = [];
-  const moduleUserBindings = new Set<string>();
+  const moduleRuntimeBindings = moduleRuntimeBindingNames(node);
+  const emittedRuntimeBindings = new Set<string>();
 
   lines.push(`// ── Module: ${name} ──`);
   lines.push('');
@@ -401,32 +403,66 @@ export function generateModule(node: IRNode): string[] {
   for (const child of kids(node)) {
     if (child.type === 'export') continue;
     if (isLoosePythonSidecarImportNode(child)) continue;
+    for (const boundName of topLevelRuntimeBindingNames(child, moduleRuntimeBindings)) {
+      emittedRuntimeBindings.add(boundName);
+    }
     if (child.type === 'const') {
-      lines.push(...generateConst(child, { userBindings: moduleUserBindings }));
+      lines.push(...generateConst(child, { userBindings: emittedRuntimeBindings }));
     } else if (child.type === 'class') {
-      lines.push(...generateClass(child, { userBindings: moduleUserBindings }));
+      lines.push(...generateClass(child, { userBindings: emittedRuntimeBindings }));
     } else if (child.type === 'service') {
-      lines.push(...generateService(child, { userBindings: moduleUserBindings }));
+      lines.push(...generateService(child, { userBindings: emittedRuntimeBindings }));
     } else if (child.type === 'fn') {
-      lines.push(...generateFunction(child, { userBindings: moduleUserBindings }));
+      lines.push(...generateFunction(child, { userBindings: emittedRuntimeBindings }));
     } else {
       lines.push(...generateCoreNode(child));
     }
-    const boundName = topLevelRuntimeBindingName(child);
-    if (boundName) moduleUserBindings.add(boundName);
     lines.push('');
   }
 
   return lines;
 }
 
-function topLevelRuntimeBindingName(node: IRNode): string | null {
-  if (node.type !== 'const' && node.type !== 'class' && node.type !== 'service' && node.type !== 'fn') return null;
+function topLevelRuntimeBindingNames(node: IRNode, runtimeBindings: ReadonlySet<string>): string[] {
+  const out: string[] = [];
   const props = getProps(node);
-  if (typeof props.name === 'string' && props.name.length > 0) {
-    return props.name;
+  if (typeof props.name === 'string' && props.name.length > 0 && runtimeBindings.has(props.name)) {
+    out.push(props.name);
   }
-  return null;
+  if (node.type === 'import') {
+    for (const name of importLocalBindingNames(node)) {
+      if (runtimeBindings.has(name)) out.push(name);
+    }
+  }
+  if (node.type === 'extern') {
+    for (const name of importLocalBindingNames(node)) {
+      if (runtimeBindings.has(name)) out.push(name);
+    }
+    for (const child of node.children ?? []) {
+      if (child.type !== 'import') continue;
+      for (const name of importLocalBindingNames(child)) {
+        if (runtimeBindings.has(name)) out.push(name);
+      }
+    }
+  }
+  return out;
+}
+
+function importLocalBindingNames(node: IRNode): string[] {
+  const props = getProps(node);
+  const out: string[] = [];
+  const defaultName = props.default;
+  if (typeof defaultName === 'string' && defaultName.length > 0 && defaultName !== 'true') out.push(defaultName);
+  const names = props.names;
+  if (typeof names === 'string') {
+    for (const raw of names.split(',')) {
+      const name = raw.trim();
+      const aliasMatch = /^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/u.exec(name);
+      if (aliasMatch) out.push(aliasMatch[2] ?? aliasMatch[1]);
+      else if (/^[A-Za-z_$][\w$]*$/u.test(name)) out.push(name);
+    }
+  }
+  return out;
 }
 
 // ── Each (ground-layer, calls generateCoreNode) ─────────────────────────

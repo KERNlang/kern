@@ -128,6 +128,12 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       // lowering table instead of the default emit path.
       const stdlib = applyStdlibLoweringTS(node, ctx);
       if (stdlib !== null) return stdlib;
+      if (node.callee.kind === 'ident') {
+        if (!isUserBinding(ctx, node.callee.name) && (node.callee.name === 'Array' || node.callee.name === 'Object')) {
+          throwUnknownStdlibMember(node.callee.name, 'call');
+        }
+        if (node.callee.name === 'Date') rejectUnmappedHostNamespaceTS(node.callee.name, 'call', ctx);
+      }
       if (node.callee.kind === 'member') {
         const receiverRoot = hostNamespaceReceiverRoot(node.callee.object);
         if (receiverRoot) rejectUnmappedHostNamespaceTS(receiverRoot, hostNamespaceMemberLabel(node.callee.object, node.callee.property), ctx);

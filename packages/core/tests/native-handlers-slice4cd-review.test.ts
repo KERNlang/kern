@@ -297,6 +297,17 @@ describe('host namespace checks in top-level TypeScript expression props', () =>
     expect(lines.join('\n')).toContain('ts = Date.now();');
   });
 
+  test('class self-name shadows a reserved host root in its own field value', () => {
+    const lines = generateCoreNode({
+      type: 'module',
+      props: { name: 'class-self-shadow-host-root' },
+      children: [
+        { type: 'class', props: { name: 'Date' }, children: [{ type: 'field', props: { name: 'ts', value: 'Date.now()' } }] },
+      ],
+    });
+    expect(lines.join('\n')).toContain('ts = Date.now();');
+  });
+
   test('module runtime binding shadows a reserved host root in parameter defaults', () => {
     const lines = generateCoreNode({
       type: 'module',
@@ -316,6 +327,48 @@ describe('host namespace checks in top-level TypeScript expression props', () =>
     expect(lines.join('\n')).toContain('function stamp(ts: number = Date.now())');
   });
 
+  test('function self-name shadows a reserved host root in its own parameter default', () => {
+    const lines = generateCoreNode({
+      type: 'module',
+      props: { name: 'fn-self-shadow-host-root' },
+      children: [
+        {
+          type: 'fn',
+          props: { name: 'Date', returns: 'number' },
+          children: [
+            { type: 'param', props: { name: 'ts', type: 'number', value: 'Date.now()' } },
+            { type: 'handler', props: { code: 'return ts;' } },
+          ],
+        },
+      ],
+    });
+    expect(lines.join('\n')).toContain('function Date(ts: number = Date.now())');
+  });
+
+  test('host import shadows a reserved host root in later module expressions', () => {
+    const lines = generateCoreNode({
+      type: 'module',
+      props: { name: 'host-import-shadow-host-root' },
+      children: [
+        { type: 'import', props: { from: './clock.js', names: 'Date', registry: 'host' } },
+        { type: 'const', props: { name: 'r', value: 'Date.now()' } },
+      ],
+    });
+    expect(lines.join('\n')).toContain('const r = Date.now();');
+  });
+
+  test('enum shadows a reserved host root as a runtime value in later module expressions', () => {
+    const lines = generateCoreNode({
+      type: 'module',
+      props: { name: 'enum-shadow-host-root' },
+      children: [
+        { type: 'enum', props: { name: 'Date', values: 'Now|Later' } },
+        { type: 'const', props: { name: 'r', value: 'Date.Now' } },
+      ],
+    });
+    expect(lines.join('\n')).toContain('const r = Date.Now;');
+  });
+
   test.each([
     'new Date.factory()',
     'new Date["factory"]()',
@@ -333,5 +386,14 @@ describe('host namespace checks in top-level TypeScript expression props', () =>
         props: { name: 'bad', value: 'Date.now(]' },
       }),
     ).toThrow(/Unsupported host namespace in TypeScript expression: Date\.now .*not registered/);
+  });
+
+  test.each([
+    ['Date()', /Unsupported host namespace in TypeScript expression: Date\.call .*not registered/],
+    ['Array(5)', /Unknown KERN-stdlib method\/member 'Array\.call'/],
+    ['Object(null)', /Unknown KERN-stdlib method\/member 'Object\.call'/],
+  ])('%s rejects parsed bare host-root calls', (value, message) => {
+    const handler = makeHandler([{ type: 'let', props: { name: 'out', value } }]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(message);
   });
 });

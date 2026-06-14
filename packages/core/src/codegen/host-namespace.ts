@@ -9,7 +9,9 @@
 import { KERN_STDLIB_MODULES } from './kern-stdlib.js';
 
 export const HOST_NAMESPACE_EXEMPT_ROOTS: ReadonlySet<string> = new Set([
-  // Milestone C will move regex onto KERN's own portable regex surface.
+  // RegExp stays usable as a host escape hatch in Milestone B. Milestone C
+  // will move regex onto KERN's own portable regex surface, then remove this
+  // exemption so regex behavior is fail-closed and cross-target owned.
   'RegExp',
 ]);
 
