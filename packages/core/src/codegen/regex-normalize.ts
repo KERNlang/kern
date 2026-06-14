@@ -59,14 +59,89 @@ export function normalizeRegexClasses(pattern: string): string {
  * newline). On the `/m` path, keep `$`/`^` verbatim — `re.MULTILINE` (added by
  * the flag emitter) makes them line-based, identical to JS `/m`.
  *
- * Note: `String.prototype.replaceAll` is used (not `.replace`) to match
- * Python's `str.replace`, which replaces ALL occurrences — keeping the two
- * targets' residual patterns byte-identical when an anchor appears more than
- * once.
+ * CLASS- AND ESCAPE-AWARE (single forward pass): only a `^`/`$` that is a TRUE
+ * anchor is lowered — one that is at `classDepth === 0` AND is NOT escaped (not
+ * immediately preceded by an unescaped backslash). A `^`/`$` that is INSIDE a
+ * `[...]` character class, or escaped (`\^`/`\$`), is a literal/negation marker —
+ * NOT an anchor — and is left VERBATIM. The old crude `replaceAll` rewrote those
+ * too, emitting Python that CRASHED at compile (`/[^a]/`→`[\Aa]` and
+ * `/[a$]/`→`[a\Z]` both raise `re.error: bad escape`) or silently corrupted an
+ * escaped literal (`/a\^b/`→`a\Ab`). This pass uses the same escape/`classDepth`
+ * bookkeeping (and the literal-`]`-first-aware {@link scanCharClass}) as
+ * {@link expandRegexIFold}, so a class's open/close is honored exactly (`[]]`,
+ * `[^]]`, `[]$]` do not close early and an in-class `^`/`$` stays verbatim).
+ *
+ * Parity: the TS emitter never calls this (JS `$`/`^` without `/m` already mean
+ * input-end/start, the parity target), so the TS side keeps `^`/`$` verbatim.
+ * Runs AFTER {@link normalizeRegexClasses} + {@link expandRegexIFold}, mirroring
+ * the prior call order.
  */
 export function lowerRegexAnchorsPython(pattern: string, flags: string): string {
   if (flags.includes('m')) return pattern;
-  return pattern.replaceAll('$', '\\Z').replaceAll('^', '\\A');
+
+  const chars = Array.from(pattern);
+  let out = '';
+  // `classDepth` is 0 outside any `[...]`, 1 inside (classes do not nest — an
+  // inner `[` is a literal). `classCloseIdx` is the index of the current class's
+  // MATCHING `]` (from {@link scanCharClass}); we close ONLY there, so a literal
+  // `]`-first member (`[]]`, `[^]]`, `[]$]`) does not close the class early.
+  // `escaped` tracks whether the current char follows an unescaped backslash.
+  let classDepth = 0;
+  let classCloseIdx = -1;
+  let escaped = false;
+
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i];
+
+    // The char after a backslash is passed through verbatim — an escaped `\^`/`\$`
+    // (or any escaped char) is a literal, never an anchor, and the escape also
+    // suppresses class-bracket bookkeeping so `\[`/`\]` are not delimiters.
+    if (escaped) {
+      out += ch;
+      escaped = false;
+      continue;
+    }
+    if (ch === '\\') {
+      out += ch;
+      escaped = true;
+      continue;
+    }
+
+    // Unescaped `[` that OPENS a class. Record its matching `]` so the in-class
+    // `^`/`$` below are left verbatim and the close is literal-`]`-first-aware.
+    if (ch === '[' && classDepth === 0) {
+      const scanned = scanCharClass(chars, i);
+      classDepth = 1;
+      classCloseIdx = scanned.closeIdx;
+      out += ch;
+      continue;
+    }
+    // The class's MATCHING `]` (a `]` before it is a literal `]`-first member and
+    // falls through to be emitted verbatim).
+    if (classDepth > 0 && i === classCloseIdx) {
+      classDepth = 0;
+      classCloseIdx = -1;
+      out += ch;
+      continue;
+    }
+
+    // TRUE anchor: an unescaped `^`/`$` at classDepth 0. Inside a class it is a
+    // negation marker (`[^…]`) or a literal `$`/`^` member — left verbatim.
+    if (classDepth === 0) {
+      if (ch === '$') {
+        out += '\\Z';
+        continue;
+      }
+      if (ch === '^') {
+        out += '\\A';
+        continue;
+      }
+    }
+
+    out += ch;
+  }
+
+  return out;
 }
 
 /* ----------------------------------------------------------------------------

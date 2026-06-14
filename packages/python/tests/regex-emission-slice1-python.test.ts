@@ -76,6 +76,81 @@ describe('Slice 1 regex emission — Python-only anchor lowering ($→\\Z, ^→\
   });
 });
 
+describe('Slice 1 regex emission — anchor lowering is CLASS- and ESCAPE-AWARE (negated-class crash fix)', () => {
+  // The PRE-FIX `lowerRegexAnchorsPython` did a blind
+  //   pattern.replaceAll('$','\\Z').replaceAll('^','\\A')
+  // which rewrote EVERY `^`/`$` — including ones inside a `[...]` class or escaped.
+  // That emitted Python that CRASHES at re.compile (`re.error: bad escape`) or
+  // silently corrupts an escaped literal. These rows pin the class/escape-aware
+  // predicate: lower ONLY a true anchor (classDepth 0, unescaped); keep an
+  // in-class or escaped `^`/`$` VERBATIM. Each asserts the EXACT Python emission,
+  // so the old blind impl FAILS them (revert-check: `/[^a]/` row emits `[\Aa]`).
+  // The TS side keeps `^`/`$` verbatim (JS input-anchors without /m).
+
+  // TRUE anchors at classDepth 0 are still lowered (no regression).
+  test('/^a$/ → both anchors lowered \\Aa\\Z on Python', () => {
+    expect(ts('/^a$/')).toBe('/^a$/');
+    expect(py('/^a$/')).toBe('__k_re.compile("\\\\Aa\\\\Z", __k_re.ASCII)');
+  });
+
+  // Anchors lowered, but the IN-CLASS `^` (negation marker) is PRESERVED.
+  test('/^[^a]$/ → \\A[^a]\\Z (anchors lowered, in-class ^ kept)', () => {
+    expect(ts('/^[^a]$/')).toBe('/^[^a]$/');
+    expect(py('/^[^a]$/')).toBe('__k_re.compile("\\\\A[^a]\\\\Z", __k_re.ASCII)');
+  });
+
+  // A `^` mid-pattern at classDepth 0 IS an anchor — still lowered to `\A`.
+  test('/a^b/ → a\\Ab (caret mid-pattern is an anchor)', () => {
+    expect(ts('/a^b/')).toBe('/a^b/');
+    expect(py('/a^b/')).toBe('__k_re.compile("a\\\\Ab", __k_re.ASCII)');
+  });
+
+  // CRASH FIX — negated class. Old impl emitted `[\Aa]` → re.error: bad escape \A.
+  // REVERT-CHECK ROW: this fails against 48163a4c (blind replaceAll).
+  test('/[^a]/ → [^a] VERBATIM (was [\\Aa] crash)', () => {
+    expect(ts('/[^a]/')).toBe('/[^a]/');
+    expect(py('/[^a]/')).toBe('__k_re.compile("[^a]", __k_re.ASCII)');
+  });
+
+  // CRASH FIX — literal `$` in class. Old impl emitted `[a\Z]` → re.error.
+  test('/[a$]/ → [a$] VERBATIM (was [a\\Z] crash)', () => {
+    expect(ts('/[a$]/')).toBe('/[a$]/');
+    expect(py('/[a$]/')).toBe('__k_re.compile("[a$]", __k_re.ASCII)');
+  });
+
+  // Literal `^` (not first) in class stays a literal caret member.
+  test('/[a^]/ → [a^] VERBATIM (was [a\\A] crash)', () => {
+    expect(ts('/[a^]/')).toBe('/[a^]/');
+    expect(py('/[a^]/')).toBe('__k_re.compile("[a^]", __k_re.ASCII)');
+  });
+
+  // Escaped caret is a literal `^`, NOT an anchor — kept as `a\^b`.
+  test('/a\\^b/ → a\\^b (escaped caret kept, was a\\Ab corruption)', () => {
+    expect(ts('/a\\^b/')).toBe('/a\\^b/');
+    expect(py('/a\\^b/')).toBe('__k_re.compile("a\\\\^b", __k_re.ASCII)');
+  });
+
+  // Escaped dollar is a literal `$`, NOT an anchor — kept as `a\$b`.
+  test('/a\\$b/ → a\\$b (escaped dollar kept, was a\\Zb corruption)', () => {
+    expect(ts('/a\\$b/')).toBe('/a\\$b/');
+    expect(py('/a\\$b/')).toBe('__k_re.compile("a\\\\$b", __k_re.ASCII)');
+  });
+
+  // Combo: negated class + class-normalized `\d`→[0-9], no anchor mangling.
+  test('/[^a]+\\d/ → [^a]+[0-9] (negated class + shorthand, no anchor touch)', () => {
+    expect(ts('/[^a]+\\d/')).toBe('/[^a]+[0-9]/');
+    expect(py('/[^a]+\\d/')).toBe('__k_re.compile("[^a]+[0-9]", __k_re.ASCII)');
+  });
+
+  // Class with an ESCAPED `]` member then a TRUE trailing anchor `$`. Proves the
+  // escape-aware scan closes the class at the right `]` and only the post-class
+  // `$` lowers to `\Z` (the in-class `$` would stay literal if present).
+  test('/[\\]a]$/ → [\\]a]\\Z (escaped-] class closes correctly, trailing $ lowers)', () => {
+    expect(ts('/[\\]a]$/')).toBe('/[\\]a]$/');
+    expect(py('/[\\]a]$/')).toBe('__k_re.compile("[\\\\]a]\\\\Z", __k_re.ASCII)');
+  });
+});
+
 describe('Slice 1 regex emission — re.ASCII injection (load-bearing for \\b)', () => {
   // kills: naive_passthrough, no_re_ascii — without re.ASCII, Python `\b` is
   // Unicode-aware and the boundary spans `café`; JS (no /u) → no match. re.ASCII
@@ -105,6 +180,14 @@ describe('Slice 1 regex emission — /m path PRESERVES anchors with re.M (no ove
   test('/x$/m → $ kept + MULTILINE | ASCII', () => {
     expect(ts('/x$/m')).toBe('/x$/m');
     expect(py('/x$/m')).toBe('__k_re.compile("x$", __k_re.MULTILINE | __k_re.ASCII)');
+  });
+
+  // /m path is wholly unchanged even with a negated class + anchors present:
+  // anchors stay `^`/`$` (re.M makes them line-based) and the in-class `^` is
+  // untouched — the class/escape-aware pass only runs on the non-/m branch.
+  test('/^[^a]$/m → ^[^a]$ kept verbatim + MULTILINE | ASCII', () => {
+    expect(ts('/^[^a]$/m')).toBe('/^[^a]$/m');
+    expect(py('/^[^a]$/m')).toBe('__k_re.compile("^[^a]$", __k_re.MULTILINE | __k_re.ASCII)');
   });
 });
 
