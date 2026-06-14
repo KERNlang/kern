@@ -3494,7 +3494,7 @@ function pyRegexPattern(node: Extract<ValueIR, { kind: 'regexLit' }>): string {
   //      `re.M` are handled in pyRegexFlags). On the `/m` path anchors are kept.
   const classed = normalizeRegexClasses(unescaped);
   const folded = expandRegexIFold(classed, node.flags);
-  if ('failClose' in folded) throw new Error(regexIFoldFailMessage(folded.char));
+  if ('failClose' in folded) throw new Error(regexIFoldFailMessage(folded.char, folded.reason));
   const normalized = lowerRegexAnchorsPython(folded.pattern, node.flags);
   return JSON.stringify(normalized);
 }

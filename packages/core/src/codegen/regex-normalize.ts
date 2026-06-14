@@ -103,24 +103,66 @@ export function lowerRegexAnchorsPython(pattern: string, flags: string): string 
 
 import { SET_A_MEMBERS, SET_B } from './regex-fold-table.js';
 
+/**
+ * Discriminates WHY {@link expandRegexIFold} fail-closed, so the shared message
+ * builder emits the right (target-symmetric) diagnostic:
+ *   - `'setB'`          : a length-changing / declined fold (ß, ligatures,
+ *                         titlecase) — no single-codepoint partner, can't be a class.
+ *   - `'backref'`       : `/i` + a backreference + a non-ASCII Set(A) letter. JS `/i`
+ *                         folds the backreference too, but the emitted explicit-class
+ *                         expansion under `re.ASCII` does NOT fold the `\N` backref's
+ *                         non-ASCII referent — a SILENT cross-engine divergence.
+ *   - `'rangeEndpoint'` : a Set(A) letter is a `[...]` RANGE endpoint (`X-é` / `é-X`).
+ *                         Expanding the letter in place corrupts the range bounds
+ *                         (`a-é` → `a-É` + `é` drops U+00CA..U+00E8) — a SILENT divergence.
+ */
+export type RegexIFoldFailReason = 'setB' | 'backref' | 'rangeEndpoint';
+
 /** Result of {@link expandRegexIFold}: an expanded pattern, or a fail-close. */
-export type RegexIFoldResult = { pattern: string } | { failClose: true; char: string };
+export type RegexIFoldResult = { pattern: string } | { failClose: true; char: string; reason: RegexIFoldFailReason };
 
 const isAsciiCodePoint = (cp: number): boolean => cp < 0x80;
 
+const codePointHex = (char: string): string =>
+  `U+${(char.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, '0')}`;
+
 /**
- * Build the (target-agnostic) compile-error message for a Set(B) `/i` fail-close.
- * Both emitters throw this identical text so the refusal is observably symmetric.
+ * Build the (target-agnostic) compile-error message for a `/i` fail-close. Both
+ * emitters throw this identical text (selected by {@link RegexIFoldFailReason}) so
+ * the refusal is observably symmetric across TS and Python.
+ *
+ * `reason` defaults to `'setB'` for backward compatibility with the original
+ * single-`char` signature.
  */
-export function regexIFoldFailMessage(char: string): string {
-  const cp = char.codePointAt(0) ?? 0;
-  const hex = `U+${cp.toString(16).toUpperCase().padStart(4, '0')}`;
+export function regexIFoldFailMessage(char: string, reason: RegexIFoldFailReason = 'setB'): string {
+  const hex = codePointHex(char);
+  if (reason === 'backref') {
+    return (
+      `Regex /i with a backreference and a non-ASCII letter ('${char}' ${hex}) cannot be ` +
+      `lowered portably: JS /i case-folds the backreference's referent but the portable ` +
+      `explicit-class lowering cannot reproduce that fold for a backreference. ` +
+      `Remove /i, the backreference, or the non-ASCII letter.`
+    );
+  }
+  if (reason === 'rangeEndpoint') {
+    return (
+      `Regex /i with the non-ASCII letter '${char}' (${hex}) as a character-class range ` +
+      `endpoint cannot be lowered portably: expanding its case-fold would corrupt the ` +
+      `range bounds. Remove /i or replace the range with explicit class members.`
+    );
+  }
   return (
     `Regex /i over '${char}' (${hex}) cannot be lowered portably: its case-fold is ` +
     `length-changing/declined and has no single-codepoint partner, so it cannot be ` +
     `expressed as a character class. Remove /i or rewrite the letter explicitly.`
   );
 }
+
+/**
+ * Test whether the char `c` is a digit `1`–`9` (the body of a `\1`–`\9` numeric
+ * backreference; `\0` is a NUL escape, never a backreference).
+ */
+const isBackrefDigit = (c: string | undefined): boolean => c !== undefined && c >= '1' && c <= '9';
 
 /**
  * Expand non-ASCII Set(A) letters under `/i` into explicit fold-class characters,
@@ -137,23 +179,57 @@ export function regexIFoldFailMessage(char: string): string {
  * characters that are neither Set(A) nor Set(B) are emitted verbatim — those are
  * letters that do not fold to any other single codepoint under non-`/u` /i (they
  * match only themselves on both engines), so keeping them raw is parity-safe.
+ *
+ * Two further fail-closes guard SILENT cross-engine divergences the class
+ * expansion alone cannot make portable (verified empirically, node v22.22.0 /
+ * python3 3.12.7):
+ *
+ *   - BACKREF (`/(é)\1/i`): JS `/i` case-folds the backreference's referent too, so
+ *     `/(é)\1/i` matches `"Éé"`; but the emitted `([Éé])\1` under `re.ASCII`
+ *     suppresses the non-ASCII fold of the `\1` referent → MISS on Python. Detected
+ *     LEXICALLY and CONSERVATIVELY: any backreference token (`\1`–`\9`, or a named
+ *     `\k<name>`) ANYWHERE in the pattern, combined with ANY non-ASCII Set(A) letter
+ *     present, fail-closes. Over-rejecting a backref that happens to target an
+ *     ASCII-only group is intentional and parity-safe; precise group→backref
+ *     analysis is out of scope (§HOLE-1).
+ *   - RANGE ENDPOINT (`/[a-é]/i`): a Set(A) letter as a `[...]` range bound (`X-é`
+ *     or `é-X`). Expanding it in place rewrites the range — `a-é` (U+0061..U+00E9)
+ *     becomes `a-É` (U+0061..U+00C9) + a literal `é`, silently dropping
+ *     U+00CA..U+00E8 → divergence vs JS. Detected by checking the unescaped `-`
+ *     neighbours of the Set(A) letter; a plain class MEMBER (`/[xé]/i`→`[xÉé]`) is
+ *     NOT a range endpoint and still expands (§HOLE-2).
+ *
+ * Both new fail-closes throw the SAME message on TS and Python (the emitters share
+ * this function), so the refusal is observably symmetric.
  */
 export function expandRegexIFold(pattern: string, flags: string): RegexIFoldResult {
   if (!flags.includes('i')) return { pattern };
+
+  // Code-point array so range-endpoint lookbehind/lookahead can inspect neighbours.
+  const chars = Array.from(pattern);
+
+  // HOLE 1 (backref) is decided over the WHOLE pattern: a backref token and a
+  // non-ASCII Set(A) letter may appear in either order, so we record both during
+  // the single pass and fail-close at the end if both were seen.
+  let sawBackref = false;
+  let firstSetALetter: string | undefined;
 
   let out = '';
   let classDepth = 0;
   let escaped = false;
 
-  for (const ch of pattern) {
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i];
     const cp = ch.codePointAt(0) ?? 0;
 
     // Pass through the character after a backslash verbatim (an escaped letter is
     // not a valid fold escape in either engine; this also avoids treating an
     // escaped `\[`/`\]` as a class delimiter). Mirrors the oracle's char-walk:
     // the escape only suppresses the bracket-depth bookkeeping, never expansion of
-    // a *bare* (unescaped) Set(A) letter.
+    // a *bare* (unescaped) Set(A) letter. While here we also detect a backref:
+    // `\1`–`\9` (numeric) or `\k<...>` (named).
     if (escaped) {
+      if (isBackrefDigit(ch) || (ch === 'k' && chars[i + 1] === '<')) sawBackref = true;
       out += ch;
       escaped = false;
       continue;
@@ -182,11 +258,31 @@ export function expandRegexIFold(pattern: string, flags: string): RegexIFoldResu
     }
 
     if (SET_B.has(ch)) {
-      return { failClose: true, char: ch };
+      return { failClose: true, char: ch, reason: 'setB' };
     }
 
     const members = SET_A_MEMBERS.get(ch);
     if (members !== undefined) {
+      if (firstSetALetter === undefined) firstSetALetter = ch;
+
+      // HOLE 2: inside a class, a Set(A) letter that is a RANGE ENDPOINT corrupts
+      // the range if expanded in place. Detect an adjacent unescaped `-` that forms
+      // a range:
+      //   high endpoint `X-é`: prev char is `-`, the `-` is unescaped (char before
+      //                        it is not a `\`) and is preceded by a class member
+      //                        that is not the opening `[`.
+      //   low endpoint  `é-X`: next char is `-` (unescaped — the char before it is
+      //                        this Set(A) letter, not a `\`) followed by a member
+      //                        that is not the closing `]`.
+      if (classDepth > 0) {
+        const isHighEndpoint =
+          chars[i - 1] === '-' && chars[i - 2] !== undefined && chars[i - 2] !== '[' && chars[i - 2] !== '\\';
+        const isLowEndpoint = chars[i + 1] === '-' && chars[i + 2] !== undefined && chars[i + 2] !== ']';
+        if (isHighEndpoint || isLowEndpoint) {
+          return { failClose: true, char: ch, reason: 'rangeEndpoint' };
+        }
+      }
+
       // Inside an existing `[...]` set, emit bare members (a nested class would be
       // invalid on JS and a literal `[` on Python); otherwise wrap in a new class.
       out += classDepth > 0 ? members : `[${members}]`;
@@ -195,6 +291,11 @@ export function expandRegexIFold(pattern: string, flags: string): RegexIFoldResu
 
     // Non-ASCII, non-folding letter (or non-letter): pass through verbatim.
     out += ch;
+  }
+
+  // HOLE 1: a backref + any non-ASCII Set(A) letter cannot be lowered portably.
+  if (sawBackref && firstSetALetter !== undefined) {
+    return { failClose: true, char: firstSetALetter, reason: 'backref' };
   }
 
   return { pattern: out };

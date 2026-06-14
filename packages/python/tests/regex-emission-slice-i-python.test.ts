@@ -116,6 +116,95 @@ describe('Slice-/i regex emission — Set(B) length-changing fail-close (identic
   });
 });
 
+describe('Slice-/i regex emission — HARDENING fail-closes (non-ASCII backref + range endpoint)', () => {
+  // HOLE 1 — non-ASCII backreference under /i. JS /(é)\1/i case-folds the
+  // backreference's referent, so it matches "Éé"; but the emitted explicit-class
+  // form `([Éé])\1` under re.ASCII does NOT fold the \1 referent → MISS on Python.
+  // This SILENTLY DIVERGES, so the portable contract requires a fail-close. The
+  // predicate is conservative+lexical: any backref token + any non-ASCII Set(A)
+  // letter under /i. The message is byte-identical on TS and Python.
+  const FAIL_BACKREF =
+    /Regex \/i with a backreference and a non-ASCII letter \('é' U\+00E9\) cannot be lowered portably/;
+  test('/(é)\\1/i → fail-close with identical message on TS and Python', () => {
+    expect(() => ts('/(é)\\1/i')).toThrow(FAIL_BACKREF);
+    expect(() => py('/(é)\\1/i')).toThrow(FAIL_BACKREF);
+    let tsMsg = '';
+    let pyMsg = '';
+    try {
+      ts('/(é)\\1/i');
+    } catch (e) {
+      tsMsg = (e as Error).message;
+    }
+    try {
+      py('/(é)\\1/i');
+    } catch (e) {
+      pyMsg = (e as Error).message;
+    }
+    expect(tsMsg).toBe(pyMsg);
+    expect(tsMsg).not.toBe('');
+  });
+
+  // A named backreference (\k<name>) with a non-ASCII Set(A) letter fail-closes too.
+  test('/(?<g>é)\\k<g>/i → fail-close on both targets (named backref form)', () => {
+    expect(() => ts('/(?<g>é)\\k<g>/i')).toThrow(FAIL_BACKREF);
+    expect(() => py('/(?<g>é)\\k<g>/i')).toThrow(FAIL_BACKREF);
+  });
+
+  // POSITIVE CONTROL (HOLE 1): an ASCII backreference must STILL emit + work — the
+  // backref fail-close fires ONLY when a non-ASCII Set(A) letter is also present.
+  // /(a)\1/i matches "aA" on both engines (ASCII /i folds the referent natively).
+  test('/(a)\\1/i → ASCII backref still emits (no fail-close)', () => {
+    expect(ts('/(a)\\1/i')).toBe('/(a)\\1/i');
+    expect(py('/(a)\\1/i')).toBe('__k_re.compile("(a)\\\\1", __k_re.IGNORECASE | __k_re.ASCII)');
+  });
+
+  // POSITIVE CONTROL (HOLE 1): a backref with NO non-ASCII Set(A) letter is fine.
+  test('/(ab)\\1/i → backref over an ASCII group still emits (no fail-close)', () => {
+    expect(ts('/(ab)\\1/i')).toBe('/(ab)\\1/i');
+    expect(py('/(ab)\\1/i')).toBe('__k_re.compile("(ab)\\\\1", __k_re.IGNORECASE | __k_re.ASCII)');
+  });
+
+  // HOLE 2 — Set(A) letter as a [...] RANGE ENDPOINT under /i. /[a-é]/i would expand
+  // to [a-Éé], silently changing the range a-é (U+0061..U+00E9) to a-É
+  // (U+0061..U+00C9) + literal é, dropping U+00CA..U+00E8 → divergence vs JS. KERN
+  // fail-closes instead of corrupting the range. Identical message on both targets.
+  const FAIL_RANGE =
+    /Regex \/i with the non-ASCII letter 'é' \(U\+00E9\) as a character-class range endpoint cannot be lowered portably/;
+  test('/[a-é]/i → fail-close (range endpoint) with identical message on TS and Python', () => {
+    expect(() => ts('/[a-é]/i')).toThrow(FAIL_RANGE);
+    expect(() => py('/[a-é]/i')).toThrow(FAIL_RANGE);
+    let tsMsg = '';
+    let pyMsg = '';
+    try {
+      ts('/[a-é]/i');
+    } catch (e) {
+      tsMsg = (e as Error).message;
+    }
+    try {
+      py('/[a-é]/i');
+    } catch (e) {
+      pyMsg = (e as Error).message;
+    }
+    expect(tsMsg).toBe(pyMsg);
+    expect(tsMsg).not.toBe('');
+  });
+
+  // /[é-z]/i is a JS syntax error at runtime (range out of order), but our LEXICAL
+  // endpoint check fires at EMIT time on the other endpoint orientation (é-X) — it
+  // must fail-close cleanly, not crash. (Guards the é-X branch + no-crash.)
+  test('/[é-z]/i → fail-close (range endpoint, low-side) without crashing', () => {
+    expect(() => ts('/[é-z]/i')).toThrow(FAIL_RANGE);
+    expect(() => py('/[é-z]/i')).toThrow(FAIL_RANGE);
+  });
+
+  // POSITIVE CONTROL (HOLE 2): a Set(A) letter that is a plain class MEMBER (not a
+  // range endpoint) must STILL expand — /[xé]/i → [xÉé] is NOT a regression.
+  test('/[xé]/i → plain-member expansion still works (not a range endpoint)', () => {
+    expect(ts('/[xé]/i')).toBe('/[xÉé]/i');
+    expect(py('/[xé]/i')).toBe('__k_re.compile("[xÉé]", __k_re.IGNORECASE | __k_re.ASCII)');
+  });
+});
+
 describe('Slice-/i regex emission — Slice-1 regressions / scope boundaries (untouched)', () => {
   // Pure-ASCII /i is Slice-1 territory and must NOT be touched (no fail-close, no
   // class rewrite). (oracle: ctrl_ascii_i_unchanged)

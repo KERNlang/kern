@@ -55,6 +55,7 @@ export {
 } from './codegen/portable-logic-primitives.js';
 export type { ReactHookDep } from './codegen/react-hook-imports.js';
 export { detectReactHookDeps, injectReactHookImports } from './codegen/react-hook-imports.js';
+export type { RegexIFoldFailReason, RegexIFoldResult } from './codegen/regex-normalize.js';
 // Milestone C, Slices 1 + /i — shared regex emission-normalization, consumed by
 // the TS emitter (here in core) and the Python emitter (@kernlang/python) so the
 // `\d \w \s` class transform AND the non-ASCII `/i` fold-class expansion are

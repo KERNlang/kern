@@ -74,7 +74,7 @@ export function emitExpression(node: ValueIR): string {
       // kept in the flags.
       const classed = normalizeRegexClasses(node.pattern);
       const folded = expandRegexIFold(classed, node.flags);
-      if ('failClose' in folded) throw new Error(regexIFoldFailMessage(folded.char));
+      if ('failClose' in folded) throw new Error(regexIFoldFailMessage(folded.char, folded.reason));
       return `/${folded.pattern}/${node.flags}`;
     }
     case 'tmplLit': {
