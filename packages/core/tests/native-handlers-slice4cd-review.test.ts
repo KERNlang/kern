@@ -16,6 +16,7 @@
 import { emitNativeKernBodyTS } from '../src/codegen/body-ts.js';
 import { emitExpression } from '../src/codegen-expression.js';
 import { generateCoreNode } from '../src/codegen-core.js';
+import { emitParamList } from '../src/codegen/type-system.js';
 import { parseExpression } from '../src/parser-expression.js';
 import { typescriptClosureClassifier } from '../src/typescript-closure-classifier.js';
 import type { IRNode } from '../src/types.js';
@@ -369,6 +370,223 @@ describe('host namespace checks in top-level TypeScript expression props', () =>
     expect(lines.join('\n')).toContain('const r = Date.Now;');
   });
 
+  test('legacy params string defaults fail-close before raw parameter emission', () => {
+    expect(() =>
+      generateCoreNode({
+        type: 'fn',
+        props: { name: 'stamp', params: 'ts:number=Date.now()', returns: 'number' },
+        children: [{ type: 'handler', props: { code: 'return ts;' } }],
+      }),
+    ).toThrow(/Unsupported host namespace in TypeScript expression: Date\.now .*not registered/);
+  });
+
+  test('module runtime binding shadows host root in config field value emission', () => {
+    const lines = generateCoreNode({
+      type: 'module',
+      props: { name: 'config-shadow-host-root' },
+      children: [
+        { type: 'const', props: { name: 'Date', value: 'clock' } },
+        {
+          type: 'config',
+          props: { name: 'ClockConfig' },
+          children: [{ type: 'field', props: { name: 'startedAt', type: 'number', value: 'Date.now()' } }],
+        },
+      ],
+    });
+    expect(lines.join('\n')).toContain('startedAt: Date.now(),');
+  });
+
+  test('module runtime binding shadows host root in repository legacy params', () => {
+    const lines = generateCoreNode({
+      type: 'module',
+      props: { name: 'repo-shadow-host-root' },
+      children: [
+        { type: 'const', props: { name: 'Date', value: 'clock' } },
+        {
+          type: 'repository',
+          props: { name: 'ClockRepo', model: 'Clock' },
+          children: [
+            {
+              type: 'method',
+              props: { name: 'find', params: 'ts:number=Date.now()', returns: 'Clock' },
+              children: [{ type: 'handler', props: { code: 'return {} as Clock;' } }],
+            },
+          ],
+        },
+      ],
+    });
+    expect(lines.join('\n')).toContain('find(ts: number = Date.now())');
+  });
+
+  test('module runtime binding shadows host root in action legacy params', () => {
+    const lines = generateCoreNode({
+      type: 'module',
+      props: { name: 'action-shadow-host-root' },
+      children: [
+        { type: 'const', props: { name: 'Date', value: 'clock' } },
+        {
+          type: 'action',
+          props: { name: 'send', params: 'ts:number=Date.now()', returns: 'void' },
+          children: [{ type: 'handler', props: { code: 'return;' } }],
+        },
+      ],
+    });
+    expect(lines.join('\n')).toContain('async function send(ts: number = Date.now())');
+  });
+
+  test('module runtime binding shadows host root in nested class method param defaults', () => {
+    const lines = generateCoreNode({
+      type: 'module',
+      props: { name: 'nested-param-shadow-host-root' },
+      children: [
+        { type: 'const', props: { name: 'Date', value: 'clock' } },
+        {
+          type: 'class',
+          props: { name: 'Clock' },
+          children: [
+            {
+              type: 'method',
+              props: { name: 'tick', returns: 'number' },
+              children: [
+                { type: 'param', props: { name: 'ts', type: 'number', value: 'Date.now()' } },
+                { type: 'handler', props: { code: 'return ts;' } },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    expect(lines.join('\n')).toContain('tick(ts: number = Date.now())');
+  });
+
+  test('param-default block lambdas fail-close raw host roots', () => {
+    expect(() =>
+      generateCoreNode({
+        type: 'fn',
+        props: { name: 'withDefault', returns: 'void' },
+        children: [
+          {
+            type: 'param',
+            props: { name: 'mapper', type: '(item: number) => number', value: '(item) => { return Date.now(); }' },
+          },
+          { type: 'handler', props: { code: 'return;' } },
+        ],
+      }),
+    ).toThrow(/Unsupported host namespace in TypeScript expression: Date\.now .*not registered/);
+  });
+
+  test('structured param defaults can reference a preceding host-named parameter', () => {
+    const lines = generateCoreNode({
+      type: 'fn',
+      props: { name: 'useDate', returns: 'number' },
+      children: [
+        { type: 'param', props: { name: 'Date', type: '{ now(): number }' } },
+        { type: 'param', props: { name: 'ts', type: 'number', value: 'Date.now()' } },
+        { type: 'handler', props: { code: 'return ts;' } },
+      ],
+    });
+    expect(lines.join('\n')).toContain('function useDate(Date: { now(): number }, ts: number = Date.now())');
+  });
+
+  test('destructured param bindings enter scope for later parameter defaults', () => {
+    const lines = generateCoreNode({
+      type: 'fn',
+      props: { name: 'useDestructuredDate', returns: 'number' },
+      children: [
+        {
+          type: 'param',
+          props: { name: 'ignored', type: '{ Date: { now(): number } }' },
+          children: [{ type: 'binding', props: { name: 'Date' } }],
+        },
+        { type: 'param', props: { name: 'ts', type: 'number', value: 'Date.now()' } },
+        { type: 'handler', props: { code: 'return ts;' } },
+      ],
+    });
+    expect(lines.join('\n')).toContain('function useDestructuredDate({ Date }: { Date: { now(): number } }, ts: number = Date.now())');
+  });
+
+  test('destructure statement bindings shadow host roots for later body expressions', () => {
+    expect(() =>
+      generateCoreNode({
+        type: 'handler',
+        props: { lang: 'kern' },
+        children: [
+          {
+            type: 'destructure',
+            props: { source: 'clock' },
+            children: [{ type: 'binding', props: { name: 'Date' } }],
+          },
+          { type: 'return', props: { value: 'Date.now()' } },
+        ],
+      }),
+    ).not.toThrow();
+  });
+
+  test('loop and resource bindings shadow host roots for nested body expressions', () => {
+    expect(() =>
+      generateCoreNode({
+        type: 'fn',
+        props: { name: 'loopShadow', returns: 'number' },
+        children: [
+          {
+            type: 'handler',
+            props: { lang: 'kern' },
+            children: [
+              {
+                type: 'each',
+                props: { name: 'Date', in: 'items' },
+                children: [{ type: 'do', props: { value: 'Date.now()' } }],
+              },
+              {
+                type: 'for',
+                props: { name: 'Date', from: '0', to: '1' },
+                children: [{ type: 'do', props: { value: 'Date.toString()' } }],
+              },
+              {
+                type: 'with',
+                props: { name: 'Date', value: 'clock', cleanup: 'cleanup(Date)' },
+                children: [{ type: 'do', props: { value: 'Date.now()' } }],
+              },
+              { type: 'return', props: { value: '0' } },
+            ],
+          },
+        ],
+      }),
+    ).not.toThrow();
+  });
+
+  test('validation scope is not memoized across standalone reuse of an IR node', () => {
+    const child: IRNode = { type: 'const', props: { name: 'r', value: 'Date.now()' } };
+    expect(() =>
+      generateCoreNode({
+        type: 'module',
+        props: { name: 'reuse-shadow-host-root' },
+        children: [{ type: 'const', props: { name: 'Date', value: 'clock' } }, child],
+      }),
+    ).not.toThrow();
+    expect(() => generateCoreNode(child)).toThrow(
+      /Unsupported host namespace in TypeScript expression: Date\.now .*not registered/,
+    );
+  });
+
+  test('direct legacy param-list emission fails closed for host defaults', () => {
+    expect(() =>
+      emitParamList({
+        type: 'method',
+        props: { name: 'direct', params: 'ts:number=Date.now()' },
+      }),
+    ).toThrow(/Unsupported host namespace in TypeScript expression: Date\.now .*not registered/);
+  });
+
+  test('chained host namespace access fails-close before emission', () => {
+    expect(() =>
+      generateCoreNode({
+        type: 'const',
+        props: { name: 'bad', value: 'Date.now().toString()' },
+      }),
+    ).toThrow(/Unsupported host namespace in TypeScript expression: Date\.now .*not registered/);
+  });
+
   test.each([
     'new Date.factory()',
     'new Date["factory"]()',
@@ -395,5 +613,17 @@ describe('host namespace checks in top-level TypeScript expression props', () =>
   ])('%s rejects parsed bare host-root calls', (value, message) => {
     const handler = makeHandler([{ type: 'let', props: { name: 'out', value } }]);
     expect(() => emitNativeKernBodyTS(handler)).toThrow(message);
+  });
+
+  test.each([
+    ['Array(5)', /Unknown KERN-stdlib method\/member 'Array\.call'/],
+    ['Object(null)', /Unknown KERN-stdlib method\/member 'Object\.call'/],
+  ])('%s rejects in the pre-emission IR validation pass', (value, message) => {
+    expect(() =>
+      generateCoreNode({
+        type: 'const',
+        props: { name: 'bad', value },
+      }),
+    ).toThrow(message);
   });
 });

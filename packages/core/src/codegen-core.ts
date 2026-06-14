@@ -12,6 +12,7 @@
  */
 
 import { KernCodegenError } from './errors.js';
+import { beginIRHostNamespacesValidatedTS, endIRHostNamespacesValidatedTS } from './codegen/host-namespace-ir.js';
 import { propsOf } from './node-props.js';
 import { defaultRuntime, type KernRuntime } from './runtime.js';
 import { moduleRuntimeBindingNames } from './semantic-validator.js';
@@ -379,48 +380,53 @@ export function generateExport(node: IRNode): string[] {
 }
 
 export function generateModule(node: IRNode): string[] {
-  const props = propsOf<'module'>(node);
-  const name = emitTemplateSafe(props.name || 'unknown');
-  const lines: string[] = [];
-  const moduleRuntimeBindings = moduleRuntimeBindingNames(node);
-  const emittedRuntimeBindings = new Set<string>();
+  const didValidate = beginIRHostNamespacesValidatedTS(node);
+  try {
+    const props = propsOf<'module'>(node);
+    const name = emitTemplateSafe(props.name || 'unknown');
+    const lines: string[] = [];
+    const moduleRuntimeBindings = moduleRuntimeBindingNames(node);
+    const emittedRuntimeBindings = new Set<string>();
 
-  lines.push(`// ── Module: ${name} ──`);
-  lines.push('');
-
-  // 'export' children don't have a typed interface in NodePropsMap
-  for (const exp of kids(node, 'export')) {
-    lines.push(...generateExport(exp));
-  }
-
-  const loosePythonImports = kids(node).filter(isLoosePythonSidecarImportNode);
-  if (loosePythonImports.length > 0) {
-    lines.push(...generateLoosePythonSidecarImports(loosePythonImports));
+    lines.push(`// ── Module: ${name} ──`);
     lines.push('');
-  }
 
-  // Inline child definitions
-  for (const child of kids(node)) {
-    if (child.type === 'export') continue;
-    if (isLoosePythonSidecarImportNode(child)) continue;
-    for (const boundName of topLevelRuntimeBindingNames(child, moduleRuntimeBindings)) {
-      emittedRuntimeBindings.add(boundName);
+    // 'export' children don't have a typed interface in NodePropsMap
+    for (const exp of kids(node, 'export')) {
+      lines.push(...generateExport(exp));
     }
-    if (child.type === 'const') {
-      lines.push(...generateConst(child, { userBindings: emittedRuntimeBindings }));
-    } else if (child.type === 'class') {
-      lines.push(...generateClass(child, { userBindings: emittedRuntimeBindings }));
-    } else if (child.type === 'service') {
-      lines.push(...generateService(child, { userBindings: emittedRuntimeBindings }));
-    } else if (child.type === 'fn') {
-      lines.push(...generateFunction(child, { userBindings: emittedRuntimeBindings }));
-    } else {
-      lines.push(...generateCoreNode(child));
-    }
-    lines.push('');
-  }
 
-  return lines;
+    const loosePythonImports = kids(node).filter(isLoosePythonSidecarImportNode);
+    if (loosePythonImports.length > 0) {
+      lines.push(...generateLoosePythonSidecarImports(loosePythonImports));
+      lines.push('');
+    }
+
+    // Inline child definitions
+    for (const child of kids(node)) {
+      if (child.type === 'export') continue;
+      if (isLoosePythonSidecarImportNode(child)) continue;
+      for (const boundName of topLevelRuntimeBindingNames(child, moduleRuntimeBindings)) {
+        emittedRuntimeBindings.add(boundName);
+      }
+      if (child.type === 'const') {
+        lines.push(...generateConst(child, { userBindings: emittedRuntimeBindings }));
+      } else if (child.type === 'class') {
+        lines.push(...generateClass(child, { userBindings: emittedRuntimeBindings }));
+      } else if (child.type === 'service') {
+        lines.push(...generateService(child, { userBindings: emittedRuntimeBindings }));
+      } else if (child.type === 'fn') {
+        lines.push(...generateFunction(child, { userBindings: emittedRuntimeBindings }));
+      } else {
+        lines.push(...generateCoreNode(child));
+      }
+      lines.push('');
+    }
+
+    return lines;
+  } finally {
+    endIRHostNamespacesValidatedTS(node, didValidate);
+  }
 }
 
 function topLevelRuntimeBindingNames(node: IRNode, runtimeBindings: ReadonlySet<string>): string[] {
@@ -833,8 +839,10 @@ export function isCoreNode(type: string): boolean {
  * @throws {KernCodegenError} For nodes with invalid/missing required props
  */
 export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRuntime): string[] {
-  const rt = runtime ?? defaultRuntime;
-  switch (node.type) {
+  const didValidate = beginIRHostNamespacesValidatedTS(node);
+  try {
+    const rt = runtime ?? defaultRuntime;
+    switch (node.type) {
     case 'type':
       return generateType(node);
     case 'interface':
@@ -1175,5 +1183,8 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       if (isTemplateNode(node.type, rt)) return expandTemplateNode(node, 0, rt);
       return [];
     }
+    }
+  } finally {
+    endIRHostNamespacesValidatedTS(node, didValidate);
   }
 }

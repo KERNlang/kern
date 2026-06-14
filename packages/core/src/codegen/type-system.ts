@@ -7,6 +7,11 @@
 import { emitExpression, validateRawHostNamespacesTS } from '../codegen-expression.js';
 import type { ExprEmitContext } from '../codegen-expression.js';
 import { hasDirectSuperCtorCall } from '../constructor-super.js';
+import {
+  beginIRHostNamespacesValidatedTS,
+  endIRHostNamespacesValidatedTS,
+  validatedHostNamespaceBindingsFor,
+} from './host-namespace-ir.js';
 import { propsOf } from '../node-props.js';
 import { parseExpression } from '../parser-expression.js';
 import { typescriptClosureClassifier, validateClosureBlockHostNamespacesTS } from '../typescript-closure-classifier.js';
@@ -718,6 +723,7 @@ export function emitConstValue(
   propName = 'value',
   exprCtx: ExprEmitContext = TOP_LEVEL_EXPR_CONTEXT,
 ): string {
+  exprCtx = expressionContextWithValidatedBindings(node, propName, exprCtx);
   if (isExprObject(rawValue)) return rawValue.code;
   if (typeof rawValue !== 'string') return String(rawValue);
   if (node.__quotedProps?.includes(propName)) return JSON.stringify(rawValue);
@@ -733,6 +739,21 @@ export function emitConstValue(
     return rawValue;
   }
   return emitExpression(parsed, exprCtx);
+}
+
+function expressionContextWithValidatedBindings(
+  node: IRNode,
+  propName: string,
+  exprCtx: ExprEmitContext,
+): ExprEmitContext {
+  const bindings = validatedHostNamespaceBindingsFor(node, propName);
+  if (!bindings || bindings.size === 0) return exprCtx;
+  return {
+    isUserBinding(name: string): boolean {
+      return bindings.has(name) || exprCtx.isUserBinding(name);
+    },
+    validateRawBlock: exprCtx.validateRawBlock,
+  };
 }
 
 /**
@@ -812,11 +833,16 @@ export function parseParamListFromChildren(paramNodes: IRNode[], options?: Param
  * per signature; consumers don't need to reconcile partial states.
  */
 export function emitParamList(node: IRNode, options?: ParamListOptions): string {
-  const paramChildren = kids(node, 'param');
-  if (paramChildren.length > 0) {
-    return parseParamListFromChildren(paramChildren, options);
+  const didValidate = beginIRHostNamespacesValidatedTS(node);
+  try {
+    const paramChildren = kids(node, 'param');
+    if (paramChildren.length > 0) {
+      return parseParamListFromChildren(paramChildren, options);
+    }
+    const params = (p(node).params as string | undefined) ?? '';
+    if (params) return parseParamList(params, options);
+    return options?.fallback ?? '';
+  } finally {
+    endIRHostNamespacesValidatedTS(node, didValidate);
   }
-  const params = (p(node).params as string | undefined) ?? '';
-  if (params) return parseParamList(params, options);
-  return options?.fallback ?? '';
 }
