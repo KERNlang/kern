@@ -106,10 +106,72 @@ function emittedPy(expr: string, setup = ''): unknown {
   return runPython(program);
 }
 
+function indentPython(code: string): string {
+  return code
+    .split('\n')
+    .map((line) => `    ${line}`)
+    .join('\n');
+}
+
+function nodeRuntimeError(expr: string): unknown {
+  return runNode(
+    [
+      JS_ENCODER,
+      'try {',
+      `  const r = (${expr});`,
+      '  console.log(JSON.stringify({ threw: false, value: encode(r) }));',
+      '} catch (error) {',
+      '  console.log(JSON.stringify({ threw: true, name: error?.name, message: String(error?.message) }));',
+      '}',
+    ].join('\n'),
+  );
+}
+
+function emittedTsRuntimeError(expr: string): unknown {
+  const code = emitNativeKernBodyTSWithImports(letHandler(expr)).code;
+  return runNode(
+    [
+      JS_ENCODER,
+      'try {',
+      code,
+      '  console.log(JSON.stringify({ threw: false, value: encode(r) }));',
+      '} catch (error) {',
+      '  console.log(JSON.stringify({ threw: true, name: error?.name, message: String(error?.message) }));',
+      '}',
+    ].join('\n'),
+  );
+}
+
+function emittedPyRuntimeError(expr: string): unknown {
+  const result = emitNativeKernBodyPythonWithImports(letHandler(expr));
+  const importLines = [...result.imports].sort().map((mod) => `import ${mod} as __k_${mod}`);
+  const program = [
+    ...importLines,
+    [...result.helpers].join('\n\n'),
+    PY_ENCODER,
+    'import json',
+    'try:',
+    indentPython(result.code),
+    '    print(json.dumps({"threw": False, "value": encode(r)}, separators=(",", ":")))',
+    'except Exception as error:',
+    '    print(json.dumps({"threw": True, "name": type(error).__name__, "message": str(error)}, separators=(",", ":")))',
+  ]
+    .filter(Boolean)
+    .join('\n');
+  return runPython(program);
+}
+
 function expectParity(expr: string, setup: { js?: string; py?: string } = {}): void {
   const expected = nodeOracle(expr, setup.js ?? '');
   expect(emittedTs(expr, setup.js ?? '')).toEqual(expected);
   expect(emittedPy(expr, setup.py ?? '')).toEqual(expected);
+}
+
+function expectThrowParity(expr: string): void {
+  const expected = nodeRuntimeError(expr);
+  expect(expected).toEqual({ threw: true, name: 'RangeError', message: 'Invalid array length' });
+  expect(emittedTsRuntimeError(expr)).toEqual(expected);
+  expect(emittedPyRuntimeError(expr)).toEqual(expected);
 }
 
 describeIfPython('Milestone A stdlib host aliases — executable TS/Python parity', () => {
@@ -246,6 +308,13 @@ describeIfPython('Milestone A stdlib host aliases — executable TS/Python parit
     );
     expect(ts).toEqual({ value: nodeOracle(expr, jsSetup), calls: ['S', 'M0', 'M1'] });
     expect(py).toEqual(ts);
+  });
+
+  test('Array.from length validation matches Node before materialization', () => {
+    expectParity('Array.from({ length: 3 }, (_, i) => i)');
+    expectParity('Array.from({ length: NaN })');
+    expectThrowParity('Array.from({ length: Infinity })');
+    expectThrowParity('Array.from({ length: 9007199254740992 })');
   });
 });
 
