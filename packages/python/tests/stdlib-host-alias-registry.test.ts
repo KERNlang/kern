@@ -414,7 +414,10 @@ describeIfPython('Array.from route-path length guard (rewriteExpr) — JS parity
   // throw a validation error — so the boundary lives in the helper, not the
   // comprehension).
   function lengthGuard(value: string): unknown {
-    const { helpers } = rewriteRoute('Array.from({length: 1}, (_, i) => i)');
+    // Source the guard helper from a NON-literal count: a literal count (e.g.
+    // `{length: 1}`) now takes the clean fast-path and emits NO helper, so use an
+    // identifier to force the `_kern_array_like_length` definition into scope.
+    const { helpers } = rewriteRoute('Array.from({length: n}, (_, i) => i)');
     const program = [
       helpers,
       'import json',
@@ -427,11 +430,22 @@ describeIfPython('Array.from route-path length guard (rewriteExpr) — JS parity
   }
 
   test('the route path no longer emits an unguarded range()', () => {
-    // Killer rows: the buggy impl emitted these verbatim.
+    // Killer rows: the buggy impl emitted these verbatim. These are NON-literal /
+    // non-finite counts, so they take the validated guard path (not the fast-path).
     expect(rewriteRoute('Array.from({length: Infinity}, (_, i) => i)').code).not.toContain('range(Infinity)');
     expect(rewriteRoute('Array.from({length: NaN}, (_, i) => i)').code).not.toContain('range(NaN)');
-    // Every guarded form routes the count through the validated length helper.
-    expect(rewriteRoute('Array.from({length: 3}, (_, i) => i)').code).toContain('_kern_array_like_length');
+    // A non-literal (identifier) count still routes through the validated helper.
+    expect(rewriteRoute('Array.from({length: n}, (_, i) => i)').code).toContain('_kern_array_like_length');
+  });
+
+  test('a safe integer-literal length takes the clean range() fast-path (no helper)', () => {
+    // `3` is a valid JS array length (<= 2**32-1); the fast-path emits the clean
+    // `range(3)` form with NO `_kern_array_like_length` helper and NO normalize
+    // pass — exact parity with JS and the original golden output, zero cold-start.
+    const { code, helpers } = rewriteRoute('Array.from({length: 3}, (_, i) => i)');
+    expect(code).toContain('range(3)');
+    expect(code).not.toContain('_kern_array_like_length');
+    expect(helpers).toBe('');
   });
 
   test('Infinity length throws RangeError (not a Python NameError)', () => {
@@ -463,12 +477,23 @@ describeIfPython('Array.from route-path length guard (rewriteExpr) — JS parity
     // 2**53 must ALSO throw — a "guard only at 2**53" boundary would wrongly let
     // 4294967296 through.
     expect(lengthGuard('2**53')).toEqual({ threw: true, name: 'RangeError', message: 'Invalid array length' });
+    // A LITERAL `> 2**32-1` must NOT take the clean fast-path — it has to route
+    // through the validated guard so it throws (never `range(4294967296)`).
+    const code = rewriteRoute('Array.from({length: 4294967296}, (_, i) => i)').code;
+    expect(code).toContain('_kern_array_like_length');
+    expect(code).not.toContain('range(4294967296)');
   });
 
   test('2**32-1 is the boundary-exact OK case (no validation throw)', () => {
     // JS does NOT throw a validation error at 4294967295 — it accepts the length
     // (and would OOM materializing). The guard returns the int unchanged.
     expect(lengthGuard('4294967295')).toEqual({ threw: false, value: 4294967295 });
+    // At the route level, `4294967295` (<= 2**32-1) is on the clean fast-path:
+    // assert the EMITTED CONTENT is `range(4294967295)` (do NOT execute it — JS
+    // would also OOM materializing 4 billion elements; this is content-only).
+    const code = rewriteRoute('Array.from({length: 4294967295}, (_, i) => i)').code;
+    expect(code).toContain('range(4294967295)');
+    expect(code).not.toContain('_kern_array_like_length');
   });
 
   test('a finite in-range length still produces the mapped array', () => {
@@ -483,11 +508,13 @@ describeIfPython('Array.from route-path length guard (rewriteExpr) — JS parity
     expect(runRoutePy('Array.from({length: 3}, (_, i) => i)', true)).toEqual({ threw: false, value: [0, 1, 2] });
   });
 
-  test('nested Array.from guards the inner length too', () => {
+  test('nested Array.from lowers the inner length too (literal fast-path)', () => {
     const expr = 'Array.from({length: 2}, (_, i) => Array.from({length: 2}, (_, j) => i * 2 + j))';
-    // Inner comprehension is also guarded — not a single outer-only fix.
+    // Both literal lengths take the clean fast-path; the inner comprehension is
+    // still recursively lowered (not a single outer-only fix).
     const code = rewriteRoute(expr).code;
-    expect((code.match(/_kern_array_like_length/g) || []).length).toBe(2);
+    expect((code.match(/range\(2\)/g) || []).length).toBe(2);
+    expect(code).not.toContain('_kern_array_like_length');
     expect(runRoutePy(expr, true)).toEqual({
       threw: false,
       value: [
@@ -497,32 +524,14 @@ describeIfPython('Array.from route-path length guard (rewriteExpr) — JS parity
     });
   });
 
-  // Execute the route-emitted comprehension and map non-finite floats in the
-  // result to JSON-safe tokens (`json.dumps([float('inf')])` → `[Infinity]`,
-  // which is NOT valid JSON for the test harness's `JSON.parse`). This lets the
-  // body-`Infinity`/`NaN` lowering be asserted by VALUE without a serialization
-  // false-positive. Reports `{threw, value}` on success.
-  function runRouteBodyValues(expr: string): unknown {
-    const { code, helpers } = rewriteRoute(expr);
-    const program = [
-      helpers,
-      'import json, math',
-      'def _tok(x):',
-      '    if isinstance(x, float) and math.isinf(x):',
-      '        return "inf" if x > 0 else "-inf"',
-      '    if isinstance(x, float) and math.isnan(x):',
-      '        return "nan"',
-      '    return x',
-      'try:',
-      `    __r = (${code})`,
-      '    print(json.dumps({"threw": False, "value": [_tok(x) for x in __r]}, separators=(",", ":")))',
-      'except Exception as error:',
-      '    print(json.dumps({"threw": True, "name": type(error).__name__, "message": str(error)}, separators=(",", ":")))',
-    ]
-      .filter(Boolean)
-      .join('\n');
-    return runPython(program);
-  }
+  test('a nested NON-literal inner length still routes through the guard', () => {
+    // Outer literal `2` → fast-path; inner identifier `n` → validated guard. The
+    // recursive lowering must NOT swallow the inner guard when the outer is clean.
+    const expr = 'Array.from({length: 2}, (_, i) => Array.from({length: n}, (_, j) => i + j))';
+    const code = rewriteRoute(expr).code;
+    expect((code.match(/_kern_array_like_length/g) || []).length).toBe(1);
+    expect(code).toContain('range(2)');
+  });
 
   test('-Infinity length yields an empty array (no throw, no bare range(-Infinity))', () => {
     // JS oracle: Array.from({length: -Infinity}, …) === []. The negative-infinity
@@ -541,43 +550,34 @@ describeIfPython('Array.from route-path length guard (rewriteExpr) — JS parity
     expect(runRoutePy('Array.from({length: -1}, (_,i)=>i)', true)).toEqual({ threw: false, value: [] });
   });
 
-  test('bare Infinity in the mapper BODY lowers to float(inf) (no NameError)', () => {
-    // JS oracle: Array.from({length: 3}, () => Infinity) === [Infinity×3].
-    // Task-2 proof: before the body-normalize wrap this emitted `[Infinity for …]`
-    // → Python NameError. The body must now lower to `float('inf')`.
-    const code = rewriteRoute('Array.from({length: 3}, () => Infinity)').code;
-    expect(code).toContain("float('inf')");
-    expect(code).not.toContain('[Infinity ');
-    expect(runRouteBodyValues('Array.from({length: 3}, () => Infinity)')).toEqual({
-      threw: false,
-      value: ['inf', 'inf', 'inf'],
-    });
+  test('an object-literal KEY named Infinity in the body is NOT corrupted (regression)', () => {
+    // REGRESSION GUARD: running `normalizeNumericWordLiterals` over the mapper
+    // BODY corrupted a JS object-literal KEY `Infinity` into the Python float
+    // `float('inf')` (`{float('inf'): 1}`), a SILENT cross-target divergence —
+    // JS keeps the string key `"Infinity"`. The body is therefore NO LONGER
+    // normalized (deliberate, fail-loud: a bare body `Infinity` instead emits a
+    // Python NameError, which is loud, not silent corruption). String-level
+    // normalization cannot tell an object-key `:` from a ternary `:`.
+    const body = rewriteRoute('Array.from({length: 1}, () => ({Infinity: 1}))').code;
+    expect(body).not.toContain("float('inf')");
+    // The literal key survives — the JS string key, not a Python float.
+    expect(body).toContain('Infinity');
   });
 
-  test('bare NaN in the mapper BODY lowers to float(nan) (no NameError)', () => {
-    // JS oracle: Array.from({length: 2}, () => NaN) === [NaN, NaN].
-    const code = rewriteRoute('Array.from({length: 2}, () => NaN)').code;
-    expect(code).toContain("float('nan')");
-    expect(code).not.toContain('[NaN ');
-    expect(runRouteBodyValues('Array.from({length: 2}, () => NaN)')).toEqual({
-      threw: false,
-      value: ['nan', 'nan'],
-    });
-  });
-
-  test('spaced member access (obj . Infinity) is preserved, not rewritten', () => {
-    // Task-1 proof: the spaced member-access form must NOT be mistaken for a bare
-    // `Infinity` literal. Before the backward-whitespace scan this emitted
-    // `obj . float('inf')` (invalid Python, wrong semantics). The property access
-    // must survive in BOTH count and body positions; emitted-content assertion
-    // (a runnable `obj` is out of scope for this pure-lowering check).
+  test('spaced member access (obj . Infinity) is preserved in the COUNT, not rewritten', () => {
+    // The spaced member-access form must NOT be mistaken for a bare `Infinity`
+    // literal in the (normalized) COUNT position. Before the backward-whitespace
+    // scan this emitted `obj . float('inf')` (invalid Python, wrong semantics).
+    // The property access must survive; emitted-content assertion (a runnable
+    // `obj` is out of scope for this pure-lowering check). The BODY is never
+    // normalized now, so `obj . Infinity` there is trivially preserved.
     const countCode = rewriteRoute('Array.from({length: obj . Infinity}, (_,i)=>i)').code;
     expect(countCode).toContain('obj . Infinity');
     expect(countCode).not.toContain("float('inf')");
     const bodyCode = rewriteRoute('Array.from({length: 2}, () => obj . Infinity)').code;
     expect(bodyCode).toContain('obj . Infinity');
     expect(bodyCode).not.toContain("float('inf')");
-    // The compact form was already preserved — guard the regression both ways.
+    // The compact form was already preserved — guard the count regression both ways.
     const compactCode = rewriteRoute('Array.from({length: obj.Infinity}, (_,i)=>i)').code;
     expect(compactCode).toContain('obj.Infinity');
     expect(compactCode).not.toContain("float('inf')");

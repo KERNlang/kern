@@ -2,17 +2,22 @@
  * SPEC — JS `Array.from({ length: N }, (_, i) => BODY)` → Python comprehension.
  *
  * The length-object form of Array.from is a range generator and a frequent
- * reason a handler stays raw `<<<JS>>>`. It lowers to
- * `[BODY for i in range(_kern_array_like_length({"length": N}))]` on the Python
- * target (Express keeps Array.from — valid JS). The arrow's SECOND parameter is
- * the index (Array.from calls fn(element, index); for the length form the
- * element is undefined), so it becomes the loop variable.
+ * reason a handler stays raw `<<<JS>>>`. The arrow's SECOND parameter is the
+ * index (Array.from calls fn(element, index); for the length form the element is
+ * undefined), so it becomes the loop variable. (Express keeps Array.from — it is
+ * valid JS.)
  *
- * The count is routed through the SAME validated length helper the native-body
- * path uses (`_kern_array_like_length`) rather than a raw `range(N)`: an invalid
- * length (Infinity, > 2**32-1) must throw a RangeError and NaN/≤0 must yield an
- * empty array, exactly as JS does — never a Python NameError for a bare
- * `Infinity` token, and never a multi-billion-element materialization (DoS).
+ * Lowering has two emission shapes by COUNT kind:
+ *   - A statically-safe non-negative INTEGER literal `<= 2**32-1` (e.g. 3) takes
+ *     the clean fast-path `[BODY for i in range(N)]` — no length helper, no
+ *     normalize pass. These are valid JS array lengths (JS materializes them
+ *     too), so emitting `range(N)` is exact parity at zero cold-start cost.
+ *   - Anything else — an identifier/member-access/arithmetic count, a literal
+ *     `> 2**32-1`, or a non-finite (`Infinity`/`NaN`) — is routed through the
+ *     validated `_kern_array_like_length` guard: an invalid length (Infinity,
+ *     > 2**32-1) must throw a RangeError and NaN/≤0 must yield an empty array,
+ *     exactly as JS does — never a Python NameError for a bare `Infinity` token,
+ *     and never a multi-billion-element materialization (DoS).
  * See stdlib-host-alias-registry.test.ts for the executable JS-parity battery.
  *
  * Verified end-to-end (Python result == Express result) by
@@ -42,7 +47,8 @@ describe('Array.from(length, arrow) → Python comprehension', () => {
       '    respond 200 json=nums',
     ]);
     const code = routeContent(result, 'range');
-    expect(code).toContain('[i * 2 for i in range(_kern_array_like_length({"length": 3}))]');
+    // Literal length → clean `range(3)` fast-path (no length helper / normalize).
+    expect(code).toContain('[i * 2 for i in range(3)]');
     // The user's `Array.from(...)` CALL must be gone (lowered). The substring
     // `Array.from` still appears once inside the injected `_kern_array_from`
     // helper's TypeError message, so assert against the live call form `(`.
@@ -70,7 +76,7 @@ describe('Array.from(length, arrow) → Python comprehension', () => {
       '    respond 200 json=labels',
     ]);
     const code = routeContent(result, 'labels');
-    expect(code).toContain('["item-{}".format(i + 1) for i in range(_kern_array_like_length({"length": 2}))]');
+    expect(code).toContain('["item-{}".format(i + 1) for i in range(2)]');
   });
 
   test('a 0-parameter arrow iterates an anonymous loop variable', async () => {
@@ -81,7 +87,7 @@ describe('Array.from(length, arrow) → Python comprehension', () => {
       '    respond 200 json=zs',
     ]);
     const code = routeContent(result, 'zeros');
-    expect(code).toContain('[0 for _ in range(_kern_array_like_length({"length": 4}))]');
+    expect(code).toContain('[0 for _ in range(4)]');
   });
 
   test('nested Array.from lowers recursively', async () => {
@@ -92,9 +98,8 @@ describe('Array.from(length, arrow) → Python comprehension', () => {
       '    respond 200 json=m',
     ]);
     const code = routeContent(result, 'matrix');
-    expect(code).toContain(
-      '[[i * 2 + j for j in range(_kern_array_like_length({"length": 2}))] for i in range(_kern_array_like_length({"length": 2}))]',
-    );
+    // Both literal lengths take the clean fast-path; nested lowering still works.
+    expect(code).toContain('[[i * 2 + j for j in range(2)] for i in range(2)]');
   });
 
   test('a shorthand length object is recognised after shorthand expansion', async () => {
@@ -120,8 +125,8 @@ describe('Array.from(length, arrow) → Python comprehension', () => {
     const code = routeContent(result, 'single');
     // index is the 2nd param; with only the element param present the loop var
     // is the throwaway `_`, never `x` (which is undefined in JS for length form).
-    expect(code).toContain('for _ in range(_kern_array_like_length({"length": 3}))');
-    expect(code).not.toContain('for x in range(_kern_array_like_length({"length": 3}))');
+    expect(code).toContain('for _ in range(3)');
+    expect(code).not.toContain('for x in range(3)');
   });
 
   test('Array.from followed by a method chain is left raw (not malformed)', async () => {

@@ -1663,22 +1663,43 @@ function tryLowerArrayFrom(args: string[], imports?: Set<string>): string | null
     const inner = body.slice(1, -1).trim();
     if (inner.startsWith('{')) body = inner;
   }
-  // Route the `{length: N}` count through the SAME validated length helper the
-  // native-body path uses (`_kern_array_like_length`) instead of emitting a raw
-  // `range(N)`. Without this guard the route path diverges from JS (and from the
-  // already-correct native-body path): `Array.from({length: Infinity}, …)` must
-  // throw a RangeError (not emit a Python NameError for `Infinity`), a length
-  // above 2**32-1 must throw, and `NaN`/≤0 must yield an empty array — never a
-  // 4-billion-element materialization (DoS). `_kern_array_like_length` self-
-  // defines `RangeError`/`_KERN_UNDEFINED` via its idempotent guards but calls
-  // `_kern_to_number`, so BOTH helper blocks are required (mirrors the
-  // `array-host` requirement pairing in codegen-body-python).
+  // The body is lowered for nested `Array.from`/stdlib calls but is NOT run
+  // through `normalizeNumericWordLiterals`. KNOWN LIMITATION (deliberate,
+  // fail-loud): a bare `Infinity`/`NaN` token in a mapper body — or an
+  // object-literal KEY named `Infinity`/`NaN` (e.g. `() => ({Infinity: 1})`) —
+  // emits a Python `NameError` (fail-loud) rather than being silently rewritten.
+  // String-level normalization cannot distinguish a value position from an
+  // object-literal key, because the object-key `:` is indistinguishable from a
+  // ternary `:`. Rewriting the body therefore corrupts the JS string key
+  // `"Infinity"` into `{float('inf'): 1}` (silent cross-target divergence), so
+  // we choose the loud NameError over silent corruption. `normalizeNumericWordLiterals`
+  // still runs on the COUNT below, where the position is unambiguous.
+  const loweredBody = lowerArrayFromCalls(body, imports);
+  // Fast-path for a statically-safe non-negative INTEGER literal count: emit the
+  // clean `range(<literal>)` form with NO length helper and NO normalize pass.
+  // `4294967295` (2**32-1) and below are valid JS array lengths (JS would also
+  // materialize them), so `range(<literal>)` is correct parity and the common
+  // case (`Array.from({length: 3}, …)`) pays zero helper/cold-start cost. A
+  // literal `> 4294967295` (e.g. `9007199254740992`) MUST still throw, so it is
+  // explicitly excluded here and routed through the guard below. Only a bare
+  // non-negative integer qualifies — NOT floats (`3.5`), NOT signed (`-1`), NOT
+  // identifiers/member-access/arithmetic/`Infinity`/`NaN`, all of which need the
+  // `_kern_array_like_length` validation.
+  const trimmedCount = count.trim();
+  if (/^\d+$/.test(trimmedCount) && Number(trimmedCount) <= 4294967295) {
+    return `[${loweredBody} for ${idxVar} in range(${trimmedCount})]`;
+  }
+  // Otherwise route the `{length: N}` count through the SAME validated length
+  // helper the native-body path uses (`_kern_array_like_length`) instead of
+  // emitting a raw `range(N)`. Without this guard the route path diverges from JS
+  // (and from the already-correct native-body path): `Array.from({length:
+  // Infinity}, …)` must throw a RangeError (not emit a Python NameError for
+  // `Infinity`), a length above 2**32-1 must throw, and `NaN`/≤0 must yield an
+  // empty array — never a 4-billion-element materialization (DoS).
+  // `_kern_array_like_length` self-defines `RangeError`/`_KERN_UNDEFINED` via its
+  // idempotent guards but calls `_kern_to_number`, so BOTH helper blocks are
+  // required (mirrors the `array-host` requirement pairing in codegen-body-python).
   const loweredCount = normalizeNumericWordLiterals(lowerArrayFromCalls(count, imports));
-  // Normalize bare `Infinity`/`NaN` in the mapper body too: without this an
-  // `Array.from({length: 3}, () => Infinity)` emits `[Infinity for …]` →
-  // Python NameError. The hardened member-access guard inside
-  // `normalizeNumericWordLiterals` preserves `.Infinity` property access here.
-  const loweredBody = normalizeNumericWordLiterals(lowerArrayFromCalls(body, imports));
   imports?.add(KERN_TO_NUMBER_HELPER_PY);
   imports?.add(KERN_JS_ARRAY_FROM_HELPER_PY);
   return `[${loweredBody} for ${idxVar} in range(_kern_array_like_length({"length": ${loweredCount}}))]`;
