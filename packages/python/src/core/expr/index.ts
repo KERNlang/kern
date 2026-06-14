@@ -7,11 +7,13 @@ import { lowerJsClosureBodyToPython } from '@kernlang/core/node';
 import { toSnakeCase } from '../../type-map.js';
 import {
   KERN_I32_HELPER_PY,
+  KERN_JS_ARRAY_FROM_HELPER_PY,
   KERN_JS_ARRAY_HELPERS_PY,
   KERN_JS_HELPER_PY,
   KERN_JS_OBJECT_HELPERS_PY,
   KERN_JS_STRING_HELPERS_PY,
   KERN_TMOD_HELPER_PY,
+  KERN_TO_NUMBER_HELPER_PY,
 } from './helpers.js';
 import {
   isSharedPortableArrayMethod,
@@ -1561,8 +1563,60 @@ function lowerObjectArrayDateBuiltinCalls(expr: string, imports?: Set<string>): 
   return out;
 }
 
+// Normalize JS numeric word-literals (`Infinity`, `-Infinity`, `NaN`) that
+// reach the route-path Array.from `{length}` argument into their Python float
+// equivalents, respecting string/quote boundaries. The route pipeline's
+// `JS_LITERAL_RE` only rewrites `undefined|null|true|false`, so a bare
+// `Infinity`/`NaN` token survives to the emitted module as a Python NameError.
+// The Array.from length guard below feeds the count to `_kern_array_like_length`
+// via `{"length": <count>}`, so the count must be a valid Python value first.
+function normalizeNumericWordLiterals(expr: string): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    const rest = expr.slice(i);
+    const prev = expr[i - 1];
+    // Member access (`obj.Infinity`) must not be rewritten.
+    const wordOk = !(prev && /[\w.$]/.test(prev));
+    const infM = wordOk ? rest.match(/^Infinity\b/) : null;
+    if (infM && !/[\w$]/.test(expr[i + infM[0].length] ?? '')) {
+      out += "float('inf')";
+      i += infM[0].length;
+      continue;
+    }
+    const nanM = wordOk ? rest.match(/^NaN\b/) : null;
+    if (nanM && !/[\w$]/.test(expr[i + nanM[0].length] ?? '')) {
+      out += "float('nan')";
+      i += nanM[0].length;
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
 // Build the Python comprehension for one `Array.from(...)` call's argument list.
-function tryLowerArrayFrom(args: string[]): string | null {
+function tryLowerArrayFrom(args: string[], imports?: Set<string>): string | null {
   if (args.length < 2) return null;
   const arg0 = args[0].trim();
   if (!arg0.startsWith('{') || matchBalancedParen(arg0, 0) !== arg0.length - 1) return null;
@@ -1599,7 +1653,20 @@ function tryLowerArrayFrom(args: string[]): string | null {
     const inner = body.slice(1, -1).trim();
     if (inner.startsWith('{')) body = inner;
   }
-  return `[${lowerArrayFromCalls(body)} for ${idxVar} in range(${lowerArrayFromCalls(count)})]`;
+  // Route the `{length: N}` count through the SAME validated length helper the
+  // native-body path uses (`_kern_array_like_length`) instead of emitting a raw
+  // `range(N)`. Without this guard the route path diverges from JS (and from the
+  // already-correct native-body path): `Array.from({length: Infinity}, …)` must
+  // throw a RangeError (not emit a Python NameError for `Infinity`), a length
+  // above 2**32-1 must throw, and `NaN`/≤0 must yield an empty array — never a
+  // 4-billion-element materialization (DoS). `_kern_array_like_length` self-
+  // defines `RangeError`/`_KERN_UNDEFINED` via its idempotent guards but calls
+  // `_kern_to_number`, so BOTH helper blocks are required (mirrors the
+  // `array-host` requirement pairing in codegen-body-python).
+  const loweredCount = normalizeNumericWordLiterals(lowerArrayFromCalls(count, imports));
+  imports?.add(KERN_TO_NUMBER_HELPER_PY);
+  imports?.add(KERN_JS_ARRAY_FROM_HELPER_PY);
+  return `[${lowerArrayFromCalls(body, imports)} for ${idxVar} in range(_kern_array_like_length({"length": ${loweredCount}}))]`;
 }
 
 // Expand JS object-literal shorthand properties to explicit `key: key`.
@@ -1647,7 +1714,7 @@ function expandObjectShorthand(expr: string): string {
 }
 
 // Lower `Array.from({ length: N }, (_, i) => BODY)` to a Python list comprehension.
-function lowerArrayFromCalls(expr: string): string {
+function lowerArrayFromCalls(expr: string, imports?: Set<string>): string {
   let out = '';
   let i = 0;
   let quote: string | null = null;
@@ -1676,7 +1743,7 @@ function lowerArrayFromCalls(expr: string): string {
       const openIdx = i + m[0].length - 1;
       const closeIdx = matchBalancedParen(expr, openIdx);
       if (closeIdx !== -1 && expr[closeIdx + 1] !== '.') {
-        const lowered = tryLowerArrayFrom(splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)));
+        const lowered = tryLowerArrayFrom(splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)), imports);
         if (lowered !== null) {
           out += lowered;
           i = closeIdx + 1;
@@ -2168,7 +2235,7 @@ export function rewriteExpr(
   let result = maskedExpr;
   result = lowerSpreadElements(result);
   result = expandObjectShorthand(result);
-  result = lowerArrayFromCalls(result);
+  result = lowerArrayFromCalls(result, imports);
   for (const param of pathParams) {
     result = result.replace(new RegExp(`\\bparams\\.${param}\\b`, 'g'), param);
   }

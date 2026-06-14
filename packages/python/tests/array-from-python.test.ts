@@ -2,10 +2,18 @@
  * SPEC — JS `Array.from({ length: N }, (_, i) => BODY)` → Python comprehension.
  *
  * The length-object form of Array.from is a range generator and a frequent
- * reason a handler stays raw `<<<JS>>>`. It lowers to `[BODY for i in range(N)]`
- * on the Python target (Express keeps Array.from — valid JS). The arrow's
- * SECOND parameter is the index (Array.from calls fn(element, index); for the
- * length form the element is undefined), so it becomes the loop variable.
+ * reason a handler stays raw `<<<JS>>>`. It lowers to
+ * `[BODY for i in range(_kern_array_like_length({"length": N}))]` on the Python
+ * target (Express keeps Array.from — valid JS). The arrow's SECOND parameter is
+ * the index (Array.from calls fn(element, index); for the length form the
+ * element is undefined), so it becomes the loop variable.
+ *
+ * The count is routed through the SAME validated length helper the native-body
+ * path uses (`_kern_array_like_length`) rather than a raw `range(N)`: an invalid
+ * length (Infinity, > 2**32-1) must throw a RangeError and NaN/≤0 must yield an
+ * empty array, exactly as JS does — never a Python NameError for a bare
+ * `Infinity` token, and never a multi-billion-element materialization (DoS).
+ * See stdlib-host-alias-registry.test.ts for the executable JS-parity battery.
  *
  * Verified end-to-end (Python result == Express result) by
  * scripts/conformance.mjs; these assert the generated Python shape.
@@ -34,8 +42,11 @@ describe('Array.from(length, arrow) → Python comprehension', () => {
       '    respond 200 json=nums',
     ]);
     const code = routeContent(result, 'range');
-    expect(code).toContain('[i * 2 for i in range(3)]');
-    expect(code).not.toContain('Array.from');
+    expect(code).toContain('[i * 2 for i in range(_kern_array_like_length({"length": 3}))]');
+    // The user's `Array.from(...)` CALL must be gone (lowered). The substring
+    // `Array.from` still appears once inside the injected `_kern_array_from`
+    // helper's TypeError message, so assert against the live call form `(`.
+    expect(code).not.toContain('Array.from(');
     expect(code).not.toContain('=>');
   });
 
@@ -48,7 +59,7 @@ describe('Array.from(length, arrow) → Python comprehension', () => {
       '    respond 200 json=cells',
     ]);
     const code = routeContent(result, 'grid');
-    expect(code).toContain('[{"idx": i, "base": n} for i in range(n)]');
+    expect(code).toContain('[{"idx": i, "base": n} for i in range(_kern_array_like_length({"length": n}))]');
   });
 
   test('template-literal body lowers inside the comprehension', async () => {
@@ -59,7 +70,7 @@ describe('Array.from(length, arrow) → Python comprehension', () => {
       '    respond 200 json=labels',
     ]);
     const code = routeContent(result, 'labels');
-    expect(code).toContain('["item-{}".format(i + 1) for i in range(2)]');
+    expect(code).toContain('["item-{}".format(i + 1) for i in range(_kern_array_like_length({"length": 2}))]');
   });
 
   test('a 0-parameter arrow iterates an anonymous loop variable', async () => {
@@ -70,7 +81,7 @@ describe('Array.from(length, arrow) → Python comprehension', () => {
       '    respond 200 json=zs',
     ]);
     const code = routeContent(result, 'zeros');
-    expect(code).toContain('[0 for _ in range(4)]');
+    expect(code).toContain('[0 for _ in range(_kern_array_like_length({"length": 4}))]');
   });
 
   test('nested Array.from lowers recursively', async () => {
@@ -81,7 +92,9 @@ describe('Array.from(length, arrow) → Python comprehension', () => {
       '    respond 200 json=m',
     ]);
     const code = routeContent(result, 'matrix');
-    expect(code).toContain('[[i * 2 + j for j in range(2)] for i in range(2)]');
+    expect(code).toContain(
+      '[[i * 2 + j for j in range(_kern_array_like_length({"length": 2}))] for i in range(_kern_array_like_length({"length": 2}))]',
+    );
   });
 
   test('a shorthand length object is recognised after shorthand expansion', async () => {
@@ -93,8 +106,8 @@ describe('Array.from(length, arrow) → Python comprehension', () => {
       '    respond 200 json=xs',
     ]);
     const code = routeContent(result, 'shortlen');
-    expect(code).toContain('[i for i in range(length)]');
-    expect(code).not.toContain('Array.from');
+    expect(code).toContain('[i for i in range(_kern_array_like_length({"length": length}))]');
+    expect(code).not.toContain('Array.from(');
   });
 
   test('a single-param arrow does NOT promote the element to the index var', async () => {
@@ -107,8 +120,8 @@ describe('Array.from(length, arrow) → Python comprehension', () => {
     const code = routeContent(result, 'single');
     // index is the 2nd param; with only the element param present the loop var
     // is the throwaway `_`, never `x` (which is undefined in JS for length form).
-    expect(code).toContain('for _ in range(3)');
-    expect(code).not.toContain('for x in range(3)');
+    expect(code).toContain('for _ in range(_kern_array_like_length({"length": 3}))');
+    expect(code).not.toContain('for x in range(_kern_array_like_length({"length": 3}))');
   });
 
   test('Array.from followed by a method chain is left raw (not malformed)', async () => {
