@@ -282,6 +282,12 @@ describeIfPython('Milestone A stdlib host aliases — reserved namespace and fai
     expect(() => emitNativeKernBodyPythonWithImports(letHandler(expr))).toThrow(message);
   });
 
+  test('new Date() fails closed on the TypeScript target', () => {
+    expect(() => emitNativeKernBodyTSWithImports(letHandler('new Date()'))).toThrow(
+      /Unsupported host namespace in TypeScript expression: Date\.constructor .*not registered/,
+    );
+  });
+
   test.each([
     [
       'const.value',
@@ -306,6 +312,15 @@ describeIfPython('Milestone A stdlib host aliases — reserved namespace and fai
     expect(() => generateCoreNode(node as IRNode)).toThrow(
       /Unsupported host namespace in TypeScript expression: Date\.now .*not registered/,
     );
+  });
+
+  test('const.value block-bodied lambda does not bypass TS host-namespace rejection', () => {
+    expect(() =>
+      generateCoreNode({
+        type: 'const',
+        props: { name: 'out', value: 'items.map(item => { return Date.now(); })' },
+      } as IRNode),
+    ).toThrow(/Unsupported host namespace in TypeScript expression: Date\.now .*not registered/);
   });
 
   test.each([

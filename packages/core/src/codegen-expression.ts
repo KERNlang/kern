@@ -174,6 +174,8 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       return `await ${wrapped}`;
     }
     case 'new': {
+      const ctorRoot = newExpressionRootIdentifier(node.argument);
+      if (ctorRoot) rejectUnmappedHostNamespaceTS(ctorRoot, 'constructor', ctx);
       const arg = emitExpression(node.argument, ctx);
       const wrapped = needsPrefixArgParens(node.argument) ? `(${arg})` : arg;
       return `new ${wrapped}`;
@@ -221,6 +223,12 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
           `Mid-expression \`${node.op}\` (e.g., \`Text.upper(call()${node.op})\`) is rejected — bind the call to a \`let\` first, then use the bound name.`,
       );
   }
+}
+
+function newExpressionRootIdentifier(node: ValueIR): string | null {
+  if (node.kind === 'ident') return node.name;
+  if (node.kind === 'call' && node.callee.kind === 'ident') return node.callee.name;
+  return null;
 }
 
 /** Precedence-aware paren-wrap predicate for binary children — exported so

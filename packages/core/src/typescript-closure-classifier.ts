@@ -14,7 +14,6 @@
 import type { ClosureClassifier } from './closure-classifier.js';
 import {
   classifyClosureBlock,
-  collectClosureBlockLocalBindingNames,
   collectClosureBlockMemberAccesses,
   parseClosureBlockAst,
 } from './closure-eligibility.js';
@@ -37,11 +36,8 @@ export function validateClosureBlockHostNamespacesTS(
   rawBlock: string,
   isUserBinding: (name: string) => boolean,
 ): void {
-  const localBindings = collectClosureBlockLocalBindingNames(rawBlock);
-  const isShadowed = (name: string): boolean => localBindings.has(name) || isUserBinding(name);
-
   for (const access of collectClosureBlockMemberAccesses(rawBlock)) {
-    if (!isShadowed(access.root)) {
+    if (!access.locallyShadowed && !isUserBinding(access.root)) {
       rejectRawBlockHostNamespaceTS(access.root, access.member);
     }
   }

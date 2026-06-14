@@ -94,6 +94,7 @@ function collectLocalDeclaredNames(block: ts.Block): Set<string> {
 export interface ClosureBlockMemberAccess {
   root: string;
   member: string;
+  locallyShadowed: boolean;
 }
 
 export function collectClosureBlockLocalBindingNames(raw: string): Set<string> {
@@ -105,19 +106,37 @@ export function collectClosureBlockMemberAccesses(raw: string): ClosureBlockMemb
   const block = parseClosureBlockAst(raw);
   if (block === null) return [];
   const accesses: ClosureBlockMemberAccess[] = [];
+  const scopes: Array<Set<string>> = [new Set()];
+
+  const isLocal = (name: string): boolean => scopes.some((scope) => scope.has(name));
+  const declareLocal = (name: string): void => {
+    scopes[scopes.length - 1].add(name);
+  };
 
   const visit = (node: ts.Node): void => {
+    if (ts.isBlock(node)) {
+      const isRootBlock = node === block;
+      if (!isRootBlock) scopes.push(new Set());
+      for (const statement of node.statements) visit(statement);
+      if (!isRootBlock) scopes.pop();
+      return;
+    }
+    if (ts.isVariableDeclaration(node)) {
+      if (node.initializer) visit(node.initializer);
+      if (ts.isIdentifier(node.name)) declareLocal(node.name.text);
+      return;
+    }
     if (ts.isPropertyAccessExpression(node)) {
       const root = leftmostIdentifierName(node.expression);
-      if (root) accesses.push({ root, member: propertyAccessMemberLabel(node) });
+      if (root) accesses.push({ root, member: propertyAccessMemberLabel(node), locallyShadowed: isLocal(root) });
     } else if (ts.isElementAccessExpression(node)) {
       const root = leftmostIdentifierName(node.expression);
-      if (root) accesses.push({ root, member: elementAccessMemberLabel(node.argumentExpression) });
+      if (root) accesses.push({ root, member: elementAccessMemberLabel(node.argumentExpression), locallyShadowed: isLocal(root) });
     }
     ts.forEachChild(node, visit);
   };
 
-  ts.forEachChild(block, visit);
+  visit(block);
   return accesses;
 }
 

@@ -5,9 +5,11 @@
  */
 
 import { emitExpression } from '../codegen-expression.js';
+import type { ExprEmitContext } from '../codegen-expression.js';
 import { hasDirectSuperCtorCall } from '../constructor-super.js';
 import { propsOf } from '../node-props.js';
 import { parseExpression } from '../parser-expression.js';
+import { typescriptClosureClassifier, validateClosureBlockHostNamespacesTS } from '../typescript-closure-classifier.js';
 import { type IRNode, isExprObject } from '../types.js';
 import { emitNativeKernBodyTS } from './body-ts.js';
 import { emitIdentifier, emitTemplateSafe, emitTypeAnnotation } from './emitters.js';
@@ -20,6 +22,12 @@ import {
   handlerCode,
   parseParamList,
 } from './helpers.js';
+
+const TS_PARSE_OPTS = { closureClassifier: typescriptClosureClassifier };
+const TOP_LEVEL_EXPR_CONTEXT: ExprEmitContext = {
+  isUserBinding: () => false,
+  validateRawBlock: validateClosureBlockHostNamespacesTS,
+};
 
 /** Slice 4b — native KERN method body dispatch. Methods on `class` and
  *  `service` (both go through `emitClassBody`) get the same `lang=kern`
@@ -697,13 +705,13 @@ export function emitConstValue(node: IRNode, rawValue: unknown, propName = 'valu
   if (node.__quotedProps?.includes(propName)) return JSON.stringify(rawValue);
   const parsed = (() => {
     try {
-      return parseExpression(rawValue);
+      return parseExpression(rawValue, TS_PARSE_OPTS);
     } catch {
       return null;
     }
   })();
   if (parsed === null) return rawValue;
-  return emitExpression(parsed);
+  return emitExpression(parsed, TOP_LEVEL_EXPR_CONTEXT);
 }
 
 /**

@@ -184,4 +184,20 @@ describe('host namespace checks in block-bodied lambda expressions (TS)', () => 
     ]);
     expect(emitNativeKernBodyTS(handler)).toContain('const out = items.map(Date => { return Date.now(); });');
   });
+
+  test('block-local host-root shadowing does not leak outside the block', () => {
+    const handler = makeHandler([
+      { type: 'let', props: { name: 'out', value: 'items.map(item => { if (item) { const Date = clock; } return Date.now(); })' } },
+    ]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(
+      /Unsupported host namespace in TypeScript expression: Date\.now .*not registered/,
+    );
+  });
+
+  test('block-local host-root shadowing applies after declaration in the same block', () => {
+    const handler = makeHandler([
+      { type: 'let', props: { name: 'out', value: 'items.map(item => { const Date = clock; return Date.now(); })' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toContain('return Date.now();');
+  });
 });
