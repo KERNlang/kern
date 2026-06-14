@@ -99,18 +99,18 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
     case 'member': {
       const stdlib = applyStdlibPropertyLoweringTS(node);
       if (stdlib !== null) return stdlib;
-      if (node.object.kind === 'ident') {
-        rejectUnmappedHostNamespaceTS(node.object.name, node.property, ctx);
-      }
+      const receiverRoot = hostNamespaceReceiverRoot(node.object);
+      if (receiverRoot) rejectUnmappedHostNamespaceTS(receiverRoot, hostNamespaceMemberLabel(node.object, node.property), ctx);
       const obj = emitExpression(node.object, ctx);
       const wrapped = needsReceiverParens(node.object) ? `(${obj})` : obj;
       return `${wrapped}${node.optional ? '?.' : '.'}${node.property}`;
     }
     case 'index': {
       rejectKnownStdlibIndexTS(node);
-      if (node.object.kind === 'ident') {
+      const receiverRoot = hostNamespaceReceiverRoot(node.object);
+      if (receiverRoot) {
         const label = node.index.kind === 'strLit' ? node.index.value : '[computed]';
-        rejectUnmappedHostNamespaceTS(node.object.name, label, ctx);
+        rejectUnmappedHostNamespaceTS(receiverRoot, hostNamespaceMemberLabel(node.object, label), ctx);
       }
       const obj = emitExpression(node.object, ctx);
       const wrapped = needsReceiverParens(node.object) ? `(${obj})` : obj;
@@ -122,8 +122,9 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       // lowering table instead of the default emit path.
       const stdlib = applyStdlibLoweringTS(node, ctx);
       if (stdlib !== null) return stdlib;
-      if (node.callee.kind === 'member' && node.callee.object.kind === 'ident') {
-        rejectUnmappedHostNamespaceTS(node.callee.object.name, node.callee.property, ctx);
+      if (node.callee.kind === 'member') {
+        const receiverRoot = hostNamespaceReceiverRoot(node.callee.object);
+        if (receiverRoot) rejectUnmappedHostNamespaceTS(receiverRoot, hostNamespaceMemberLabel(node.callee.object, node.callee.property), ctx);
       }
       const callee = emitExpression(node.callee, ctx);
       const wrapped = needsReceiverParens(node.callee) ? `(${callee})` : callee;
@@ -228,6 +229,29 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
 function newExpressionRootIdentifier(node: ValueIR): string | null {
   if (node.kind === 'ident') return node.name;
   if (node.kind === 'call' && node.callee.kind === 'ident') return node.callee.name;
+  if (node.kind === 'typeAssert' || node.kind === 'nonNull') return newExpressionRootIdentifier(node.expression);
+  return null;
+}
+
+function hostNamespaceReceiverRoot(node: ValueIR): string | null {
+  if (node.kind === 'ident') return node.name;
+  if (node.kind === 'member' || node.kind === 'index') return hostNamespaceReceiverRoot(node.object);
+  if (node.kind === 'typeAssert' || node.kind === 'nonNull') return hostNamespaceReceiverRoot(node.expression);
+  return null;
+}
+
+function hostNamespaceMemberLabel(receiver: ValueIR, fallback: string): string {
+  return firstMemberAfterRoot(receiver) ?? fallback;
+}
+
+function firstMemberAfterRoot(node: ValueIR): string | null {
+  if (node.kind === 'ident') return null;
+  if (node.kind === 'typeAssert' || node.kind === 'nonNull') return firstMemberAfterRoot(node.expression);
+  if (node.kind === 'member') return firstMemberAfterRoot(node.object) ?? node.property;
+  if (node.kind === 'index') {
+    const label = node.index.kind === 'strLit' ? node.index.value : '[computed]';
+    return firstMemberAfterRoot(node.object) ?? label;
+  }
   return null;
 }
 

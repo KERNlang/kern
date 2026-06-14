@@ -14,6 +14,7 @@
  */
 
 import { emitNativeKernBodyTS } from '../src/codegen/body-ts.js';
+import { generateCoreNode } from '../src/codegen-core.js';
 import type { IRNode } from '../src/types.js';
 
 function makeHandler(children: IRNode[]): IRNode {
@@ -166,6 +167,29 @@ describe('host namespace scope tracking in body-statement try/catch (TS)', () =>
     ]);
     expect(emitNativeKernBodyTS(handler)).toContain('return Date.now();');
   });
+
+  test('catch binding remains assignable like JavaScript and TypeScript catch parameters', () => {
+    const handler = makeHandler([
+      {
+        type: 'try',
+        props: {},
+        children: [
+          { type: 'throw', props: { value: '1' } },
+          {
+            type: 'catch',
+            props: { name: 'e' },
+            children: [
+              { type: 'assign', props: { target: 'e', value: '2' } },
+              { type: 'return', props: { value: 'e' } },
+            ],
+          },
+        ],
+      },
+    ]);
+    const code = emitNativeKernBodyTS(handler);
+    expect(code).toContain('e = 2;');
+    expect(new Function(`return (() => {\n${code}\n})();`)()).toBe(2);
+  });
 });
 
 describe('host namespace checks in block-bodied lambda expressions (TS)', () => {
@@ -175,6 +199,16 @@ describe('host namespace checks in block-bodied lambda expressions (TS)', () => 
     ]);
     expect(() => emitNativeKernBodyTS(handler)).toThrow(
       /Unsupported host namespace in TypeScript expression: Date\.now .*not registered/,
+    );
+  });
+
+  test.each([
+    'items.map((item) => new Date())',
+    'items.map((item) => { return new Date(); })',
+  ])('%s rejects unmapped constructor host roots', (value) => {
+    const handler = makeHandler([{ type: 'let', props: { name: 'out', value } }]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(
+      /Unsupported host namespace in TypeScript expression: Date\.constructor .*not registered/,
     );
   });
 
@@ -199,5 +233,30 @@ describe('host namespace checks in block-bodied lambda expressions (TS)', () => 
       { type: 'let', props: { name: 'out', value: 'items.map(item => { const Date = clock; return Date.now(); })' } },
     ]);
     expect(emitNativeKernBodyTS(handler)).toContain('return Date.now();');
+  });
+});
+
+describe('host namespace checks in top-level TypeScript expression props', () => {
+  test('top-level user binding shadows a reserved host root for later const values', () => {
+    const lines = generateCoreNode({
+      type: 'module',
+      props: { name: 'shadow-host-root' },
+      children: [
+        { type: 'const', props: { name: 'Date', value: 'clock' } },
+        { type: 'const', props: { name: 'r', value: 'Date.now()' } },
+      ],
+    });
+    expect(lines.join('\n')).toContain('const r = Date.now();');
+  });
+
+  test.each([
+    '(Date as any).now()',
+    'Date!.now()',
+    '(Date as any)["now"]()',
+  ])('%s rejects wrapped unmapped host-root receivers', (value) => {
+    const handler = makeHandler([{ type: 'let', props: { name: 'out', value } }]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(
+      /Unsupported host namespace in TypeScript expression: Date\.(now|\[computed\]) .*not registered/,
+    );
   });
 });

@@ -132,6 +132,9 @@ export function collectClosureBlockMemberAccesses(raw: string): ClosureBlockMemb
     } else if (ts.isElementAccessExpression(node)) {
       const root = leftmostIdentifierName(node.expression);
       if (root) accesses.push({ root, member: elementAccessMemberLabel(node.argumentExpression), locallyShadowed: isLocal(root) });
+    } else if (ts.isNewExpression(node)) {
+      const root = leftmostIdentifierName(node.expression);
+      if (root) accesses.push({ root, member: 'constructor', locallyShadowed: isLocal(root) });
     }
     ts.forEachChild(node, visit);
   };
@@ -149,6 +152,10 @@ function leftmostIdentifierName(node: ts.Expression): string | null {
       continue;
     }
     if (ts.isParenthesizedExpression(current)) {
+      current = current.expression;
+      continue;
+    }
+    if (ts.isAsExpression(current) || ts.isTypeAssertionExpression(current) || ts.isNonNullExpression(current)) {
       current = current.expression;
       continue;
     }

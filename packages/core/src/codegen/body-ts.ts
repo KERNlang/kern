@@ -361,7 +361,7 @@ function emitChildrenTS(
             return `: ${t}`;
           })();
           lines.push(`${indent}} catch (${errName}${errType}) {`);
-          for (const cl of emitChildrenTS(catchNode.children ?? [], ctx, indent + INDENT_STEP, [[errName, 'const']])) {
+          for (const cl of emitChildrenTS(catchNode.children ?? [], ctx, indent + INDENT_STEP, [[errName, 'let']])) {
             lines.push(cl);
           }
         }

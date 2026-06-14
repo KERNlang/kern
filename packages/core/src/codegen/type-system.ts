@@ -29,6 +29,19 @@ const TOP_LEVEL_EXPR_CONTEXT: ExprEmitContext = {
   validateRawBlock: validateClosureBlockHostNamespacesTS,
 };
 
+export interface TopLevelExpressionOptions {
+  userBindings?: ReadonlySet<string>;
+}
+
+function topLevelExprContext(options?: TopLevelExpressionOptions): ExprEmitContext {
+  const userBindings = options?.userBindings;
+  if (!userBindings || userBindings.size === 0) return TOP_LEVEL_EXPR_CONTEXT;
+  return {
+    isUserBinding: (name: string) => userBindings.has(name),
+    validateRawBlock: validateClosureBlockHostNamespacesTS,
+  };
+}
+
 /** Slice 4b — native KERN method body dispatch. Methods on `class` and
  *  `service` (both go through `emitClassBody`) get the same `lang=kern`
  *  opt-in as `fn` (slice 1). The handler is resolved off the method's
@@ -471,7 +484,7 @@ export function generateEnum(node: IRNode): string[] {
 
 // ── Const ───────────────────────────────────────────────────────────────
 
-export function generateConst(node: IRNode): string[] {
+export function generateConst(node: IRNode, options?: TopLevelExpressionOptions): string[] {
   const props = propsOf<'const'>(node);
   const name = emitIdentifier(props.name, 'unknownConst', node);
   const constType = props.type;
@@ -486,7 +499,7 @@ export function generateConst(node: IRNode): string[] {
     return [...docs, `${exp}const ${name}${typeAnnotation} = ${code.trim()};`];
   }
   if (rawValue !== undefined && rawValue !== '') {
-    const value = emitConstValue(node, rawValue);
+    const value = emitConstValue(node, rawValue, 'value', topLevelExprContext(options));
     return [...docs, `${exp}const ${name}${typeAnnotation} = ${value};`];
   }
   return [...docs, `${exp}const ${name}${typeAnnotation};`];
@@ -699,7 +712,12 @@ export function generateSetLit(node: IRNode): string[] {
  *  Slice 3e — `propName` parameter (default 'value') lets non-`value` props
  *  participate in the same quoted-vs-bare distinction. `mapEntry.key` and
  *  `mapEntry.value` both flow through this with their own __quotedProps key. */
-export function emitConstValue(node: IRNode, rawValue: unknown, propName = 'value'): string {
+export function emitConstValue(
+  node: IRNode,
+  rawValue: unknown,
+  propName = 'value',
+  exprCtx: ExprEmitContext = TOP_LEVEL_EXPR_CONTEXT,
+): string {
   if (isExprObject(rawValue)) return rawValue.code;
   if (typeof rawValue !== 'string') return String(rawValue);
   if (node.__quotedProps?.includes(propName)) return JSON.stringify(rawValue);
@@ -711,7 +729,7 @@ export function emitConstValue(node: IRNode, rawValue: unknown, propName = 'valu
     }
   })();
   if (parsed === null) return rawValue;
-  return emitExpression(parsed, TOP_LEVEL_EXPR_CONTEXT);
+  return emitExpression(parsed, exprCtx);
 }
 
 /**

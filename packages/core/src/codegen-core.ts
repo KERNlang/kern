@@ -381,6 +381,7 @@ export function generateModule(node: IRNode): string[] {
   const props = propsOf<'module'>(node);
   const name = emitTemplateSafe(props.name || 'unknown');
   const lines: string[] = [];
+  const moduleUserBindings = new Set<string>();
 
   lines.push(`// ── Module: ${name} ──`);
   lines.push('');
@@ -400,11 +401,25 @@ export function generateModule(node: IRNode): string[] {
   for (const child of kids(node)) {
     if (child.type === 'export') continue;
     if (isLoosePythonSidecarImportNode(child)) continue;
-    lines.push(...generateCoreNode(child));
+    if (child.type === 'const') {
+      lines.push(...generateConst(child, { userBindings: moduleUserBindings }));
+    } else {
+      lines.push(...generateCoreNode(child));
+    }
+    const boundName = topLevelRuntimeBindingName(child);
+    if (boundName) moduleUserBindings.add(boundName);
     lines.push('');
   }
 
   return lines;
+}
+
+function topLevelRuntimeBindingName(node: IRNode): string | null {
+  const props = getProps(node);
+  if (typeof props.name === 'string' && props.name.length > 0) {
+    return props.name;
+  }
+  return null;
 }
 
 // ── Each (ground-layer, calls generateCoreNode) ─────────────────────────
