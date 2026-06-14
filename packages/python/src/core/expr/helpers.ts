@@ -722,3 +722,51 @@ export const KERN_JS_STRING_HELPERS_PY = [
   '        __k_pos = __k_end',
   '    return "".join(__k_parts)',
 ].join('\n');
+
+// Milestone C, Slice 3 — portable regex MATCH-SET result helpers. JS `RegExp`
+// methods and Python `re` differ in RESULT SHAPE (not just pattern); these two
+// helpers normalize the Python `re.Match` surface into the canonical
+// target-neutral KERN shapes the TS emitter produces natively from a
+// `RegExpMatchArray`. They are byte-for-byte the lowering the Slice-3 oracle
+// (`.agon-goals/regex-slice3/oracle/run_py.py::canon_match_obj` / `lower_matchAll`)
+// certifies against node.
+//
+//   _kern_regex_match(pat, s, flags) -> `.match(s)` WITHOUT /g
+//     JS `String.match` (non-global) returns a match-array carrying `.index` and
+//     `.groups`, or `null` on no match. Python `re.search` returns a `re.Match`
+//     OBJECT (a DIFFERENT surface: `m[0]` raises, no `.index` attr) or `None`.
+//     We converge both onto `{full, groups, index, named}` | None — so a
+//     downstream `m["full"]` / `m["index"]` / `m["named"]` reads identically on
+//     each target. (THE load-bearing portability fix — spec §4.1, killer row
+//     `match_no_g_groups_KILLER`.)
+//
+//   _kern_regex_matchall(pat, s, flags) -> `.matchAll(s)` (/g required)
+//     JS `[...s.matchAll(re)]` yields match objects {full, g1.., index}; Python
+//     `re.finditer` yields `re.Match`es. We shape both to
+//     `[{full, groups, index}, ...]`, INCLUDING zero-width advances (e.g. `/x*/g`
+//     over "abc" -> 4 empty matches at 0..3) which `re.finditer` already enumerates
+//     identically to JS on modern engines (killer row `matchAll_empty_KILLER`).
+export const KERN_REGEX_MATCH_HELPER_PY = [
+  'def _kern_regex_match(__k_pat, __k_s, __k_flags):',
+  '    __k_m = __k_re.search(__k_pat, __k_s, __k_flags)',
+  '    if __k_m is None:',
+  '        return None',
+  '    return {',
+  '        "full": __k_m.group(0),',
+  '        "groups": [__k_g for __k_g in __k_m.groups()],',
+  '        "index": __k_m.start(),',
+  '        "named": dict(__k_m.groupdict()),',
+  '    }',
+].join('\n');
+
+export const KERN_REGEX_MATCHALL_HELPER_PY = [
+  'def _kern_regex_matchall(__k_pat, __k_s, __k_flags):',
+  '    return [',
+  '        {',
+  '            "full": __k_m.group(0),',
+  '            "groups": [__k_g for __k_g in __k_m.groups()],',
+  '            "index": __k_m.start(),',
+  '        }',
+  '        for __k_m in __k_re.finditer(__k_pat, __k_s, __k_flags)',
+  '    ]',
+].join('\n');

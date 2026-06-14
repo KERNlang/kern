@@ -463,3 +463,250 @@ export function expandRegexIFold(pattern: string, flags: string): RegexIFoldResu
 
   return { pattern: out };
 }
+
+/* ----------------------------------------------------------------------------
+ * Milestone C, Slice 3 — SHARED regex-method fail-close diagnostics.
+ *
+ * Where a JS `RegExp` method shape has NO portable Python `re` analog, KERN
+ * fail-closes at lowering time. The refusal text MUST be byte-identical across
+ * the TS emitter (core) and the Python emitter (@kernlang/python), so both import
+ * these single-source constants and throw the exact same string. (The Python
+ * target re-exports them; see codegen-body-python.ts.)
+ * ------------------------------------------------------------------------- */
+export const REGEX_TEST_G_FAILCLOSE =
+  "Python target does not lower RegExp.test with the 'g' flag: JS mutates lastIndex across calls while re.search is stateless. Use .matchAll (global) for stateful iteration.";
+export const REGEX_EXEC_FAILCLOSE =
+  'Python target does not lower RegExp.exec: it relies on JS’s stateful lastIndex, which has no portable re analog. Use .matchAll (global) for iteration.';
+export const REGEX_MATCHALL_NO_G_FAILCLOSE =
+  "matchAll requires the 'g' flag (a non-global matchAll throws TypeError in JS).";
+export const REGEX_REPLACEALL_NO_G_FAILCLOSE =
+  "replaceAll requires the 'g' flag (a non-global replaceAll throws TypeError in JS).";
+export const REGEX_SPLIT_ZEROWIDTH_FAILCLOSE =
+  'Python target does not lower String.split with a zero-width-capable pattern: JS drops empty edge segments while re.split keeps them. Use a pattern that cannot match the empty string.';
+export const REGEX_SPLIT_LIMIT_FAILCLOSE =
+  'Python target does not lower String.split with a limit argument: JS truncates the result while Python maxsplit keeps the unsplit remainder.';
+
+/* ----------------------------------------------------------------------------
+ * Milestone C, Slice 3 — SYNTACTIC zero-width-capable predicate.
+ *
+ * `String.split(re)` is portable across JS `str.split` and Python `re.split`
+ * EXCEPT when the splitter pattern can match the EMPTY string at some position:
+ * there JS drops empty edge segments while Python `re.split` keeps them
+ * (`"abc".split(/x` + `*` + `/)` -> JS `["a","b","c"]` vs Python
+ * `["","a","b","c",""]`; an optional capture diverges far more). KERN
+ * FAIL-CLOSES `.split` on a
+ * zero-width-capable pattern (and emits the SAME refusal on both targets), so the
+ * decision must be made by a SYNTACTIC scan of the pattern — NEVER by running a
+ * host engine, which would make the result Unicode-DB/host-version dependent (the
+ * frozen-fold-table lesson). A host probe would also differ TS-vs-Python and break
+ * the byte-identical-refusal contract.
+ *
+ * The predicate is CONSERVATIVE: any pattern it cannot confidently prove is
+ * always-non-empty is treated as zero-width-capable (-> fail-close, the SAFE
+ * direction — over-rejection strands an exotic pattern but never ships a silent
+ * divergence). RED-TEAMED against node v22 `str.split` vs python3.12 `re.split`
+ * over a 60-pattern battery (`.agon-goals/regex-slice3` red-team): every diverging
+ * pattern fail-closes (0 leaks) and every always-non-empty pattern stays in-core
+ * (0 over-rejection), including the adversarial `\b`/lookaround/`x*a`/`(ab)*c`/
+ * `(foo)|(bar)?` cases.
+ *
+ * Definition: a pattern is zero-width-capable iff its top-level ALTERNATION is
+ * NULLABLE (some alternative can match empty). An alternative (a concatenation)
+ * is nullable iff EVERY atom is nullable. An atom is nullable iff it is
+ *   - a quantifier allowing zero reps (`*`, `?`, `{0,…}`, `{0}`, lazy variants), OR
+ *   - a zero-width assertion (`^`, `$`, `\b`, `\B`, any lookaround `(?=…)`/`(?!…)`/
+ *     `(?<=…)`/`(?<!…)`), OR
+ *   - a group whose body alternation is itself nullable, OR
+ *   - the empty subexpression (`a|` has an empty 2nd branch).
+ * A literal, `.`, a `\d`/`\w`/… escape, or a `[...]` class WITHOUT a zero-rep
+ * quantifier consumes >= 1 char and is NON-nullable.
+ *
+ * Runs on the RAW (pre-normalization) pattern: the Slice-1/`/i` transforms
+ * (`\d`->`[0-9]`, `\Z`/`\A` anchors, fold-class expansion) preserve
+ * zero-width-capability for every construct above (a non-null class stays
+ * non-null; an anchor stays zero-width), so the decision is order-stable.
+ */
+export function isZeroWidthCapableRegex(pattern: string): boolean {
+  try {
+    return parseZwAlternation(pattern, 0, pattern.length).nullable;
+  } catch {
+    // Un-parseable by this scanner -> conservative fail-close.
+    return true;
+  }
+}
+
+/** Nullable iff ANY top-level alternative (split on depth-0, non-class `|`) is nullable. */
+function parseZwAlternation(src: string, i: number, end: number): { nullable: boolean } {
+  const alts: Array<[number, number]> = [];
+  let start = i;
+  let depth = 0;
+  let inClass = false;
+  for (let p = i; p < end; p++) {
+    const ch = src[p];
+    if (ch === '\\') {
+      p++;
+      continue;
+    }
+    if (inClass) {
+      if (ch === ']') inClass = false;
+      continue;
+    }
+    if (ch === '[') {
+      inClass = true;
+      continue;
+    }
+    if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+    else if (ch === '|' && depth === 0) {
+      alts.push([start, p]);
+      start = p + 1;
+    }
+  }
+  alts.push([start, end]);
+  let nullable = false;
+  for (const [a, b] of alts) {
+    if (parseZwConcat(src, a, b).nullable) nullable = true;
+  }
+  return { nullable };
+}
+
+/** Nullable iff EVERY atom is nullable (an empty concatenation is nullable). */
+function parseZwConcat(src: string, i: number, end: number): { nullable: boolean } {
+  let p = i;
+  let allNullable = true;
+  let sawAtom = false;
+  while (p < end) {
+    const atom = parseZwAtom(src, p, end);
+    sawAtom = true;
+    if (!atom.nullable) allNullable = false;
+    p = atom.next;
+  }
+  if (!sawAtom) return { nullable: true };
+  return { nullable: allNullable };
+}
+
+/** Parse one atom (base + optional quantifier). Returns its nullability and next index. */
+function parseZwAtom(src: string, p: number, end: number): { nullable: boolean; next: number } {
+  const ch = src[p];
+  let baseNullable: boolean;
+  let q: number;
+
+  if (ch === '\\') {
+    // `\b`/`\B` are zero-width boundary assertions; every other escape consumes 1.
+    const nxt = src[p + 1];
+    baseNullable = nxt === 'b' || nxt === 'B';
+    q = p + 2;
+  } else if (ch === '^' || ch === '$') {
+    baseNullable = true; // anchor: zero-width
+    q = p + 1;
+  } else if (ch === '[') {
+    // Character class: consumes >= 1 char -> non-nullable. Skip to the matching `]`
+    // (a leading `]` after `[` or `[^` is a literal member, not the terminator).
+    let r = p + 1;
+    if (src[r] === '^') r++;
+    if (src[r] === ']') r++;
+    while (r < end && src[r] !== ']') {
+      if (src[r] === '\\') r++;
+      r++;
+    }
+    if (r >= end) throw new Error('unterminated class');
+    baseNullable = false;
+    q = r + 1;
+  } else if (ch === '(') {
+    // Group: distinguish a lookaround (zero-width) from a capturing/non-capturing
+    // group (nullable iff its body alternation is nullable).
+    let r = p + 1;
+    let isLookaround = false;
+    if (src[r] === '?') {
+      const k = src[r + 1];
+      if (k === '=' || k === '!') {
+        isLookaround = true;
+        r += 2;
+      } else if (k === '<' && (src[r + 2] === '=' || src[r + 2] === '!')) {
+        isLookaround = true;
+        r += 3;
+      } else if (k === ':') {
+        r += 2;
+      } else if (k === '<') {
+        // named capture (?<name>...): skip to the closing `>`.
+        r += 2;
+        while (r < end && src[r] !== '>') r++;
+        r++;
+      } else {
+        r += 1;
+      }
+    }
+    let depth = 1;
+    let inClass = false;
+    const bodyStart = r;
+    let bodyEnd = -1;
+    while (r < end) {
+      const c = src[r];
+      if (c === '\\') {
+        r += 2;
+        continue;
+      }
+      if (inClass) {
+        if (c === ']') inClass = false;
+        r++;
+        continue;
+      }
+      if (c === '[') {
+        inClass = true;
+        r++;
+        continue;
+      }
+      if (c === '(') depth++;
+      else if (c === ')') {
+        depth--;
+        if (depth === 0) {
+          bodyEnd = r;
+          break;
+        }
+      }
+      r++;
+    }
+    if (bodyEnd < 0) throw new Error('unterminated group');
+    baseNullable = isLookaround ? true : parseZwAlternation(src, bodyStart, bodyEnd).nullable;
+    q = bodyEnd + 1;
+  } else {
+    // Literal char (incl. `.`): consumes 1.
+    baseNullable = false;
+    q = p + 1;
+  }
+
+  const quant = parseZwQuantifier(src, q, end);
+  if (quant) {
+    return { nullable: baseNullable || quant.min === 0, next: quant.next };
+  }
+  return { nullable: baseNullable, next: q };
+}
+
+/** Parse `*` `+` `?` `{n}` `{n,}` `{n,m}` (+ lazy `?`). Returns `{ min, next }` or null. */
+function parseZwQuantifier(src: string, p: number, end: number): { min: number; next: number } | null {
+  const ch = src[p];
+  if (ch === '*') return { min: 0, next: skipZwLazy(src, p + 1) };
+  if (ch === '+') return { min: 1, next: skipZwLazy(src, p + 1) };
+  if (ch === '?') return { min: 0, next: skipZwLazy(src, p + 1) };
+  if (ch === '{') {
+    let r = p + 1;
+    let num = '';
+    while (r < end && src[r] >= '0' && src[r] <= '9') {
+      num += src[r];
+      r++;
+    }
+    if (num === '' && src[r] !== ',') return null; // literal `{`
+    const min = num === '' ? 0 : Number.parseInt(num, 10);
+    if (src[r] === ',') {
+      r++;
+      while (r < end && src[r] >= '0' && src[r] <= '9') r++;
+    }
+    if (src[r] !== '}') return null; // literal `{`
+    return { min, next: skipZwLazy(src, r + 1) };
+  }
+  return null;
+}
+
+function skipZwLazy(src: string, p: number): number {
+  return src[p] === '?' ? p + 1 : p;
+}

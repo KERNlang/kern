@@ -62,8 +62,20 @@ export type { RegexIFoldFailReason, RegexIFoldResult } from './codegen/regex-nor
 // byte-identical across both targets.
 export {
   expandRegexIFold,
+  // Milestone C, Slice 3 — shared SYNTACTIC zero-width-capable predicate, used by
+  // BOTH the TS emitter and the Python emitter to make the IDENTICAL `.split`
+  // fail-close decision (no host-engine probe).
+  isZeroWidthCapableRegex,
   lowerRegexAnchorsPython,
   normalizeRegexClasses,
+  // Milestone C, Slice 3 — shared regex-method fail-close diagnostics (thrown
+  // byte-identically by both emitters).
+  REGEX_EXEC_FAILCLOSE,
+  REGEX_MATCHALL_NO_G_FAILCLOSE,
+  REGEX_REPLACEALL_NO_G_FAILCLOSE,
+  REGEX_SPLIT_LIMIT_FAILCLOSE,
+  REGEX_SPLIT_ZEROWIDTH_FAILCLOSE,
+  REGEX_TEST_G_FAILCLOSE,
   regexIFoldFailMessage,
 } from './codegen/regex-normalize.js';
 export type { KernStdlibUsage } from './codegen/stdlib-preamble.js';

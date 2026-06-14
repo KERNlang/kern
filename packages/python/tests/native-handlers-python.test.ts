@@ -120,9 +120,17 @@ describe('emitPyExpression — slice 1 lowering rules', () => {
   });
 
   test('regex lowering rejects JS-only match and flag semantics on Python target', () => {
-    expect(() => emitPyExpression(parseExpression('value.match(/x/g)'))).toThrow(/String\.match/);
+    // Milestone C, Slice 3 — `.match(/.../g)` is now IN-CORE (was fail-close): it
+    // lowers to `finditer.group(0)` full matches (D2). The remaining stateful and
+    // flag rejections stay.
+    expect(emitPyExpression(parseExpression('value.match(/x/g)'))).toBe(
+      '([__k_m.group(0) for __k_m in __k_re.finditer("x", value, __k_re.ASCII)] or None)',
+    );
     expect(() => emitPyExpression(parseExpression('/x/g.test(value)'))).toThrow(/RegExp\.test/);
     expect(() => emitPyExpression(parseExpression('/x/y.test(value)'))).toThrow(/regex flag/);
+    // `.matchAll` WITHOUT /g still fail-closes (JS throws TypeError) — the new
+    // Slice-3 symmetric reject.
+    expect(() => emitPyExpression(parseExpression('value.matchAll(/x/)'))).toThrow(/matchAll requires the 'g' flag/);
   });
 
   test('strLit emits with double-quoted Python string', () => {

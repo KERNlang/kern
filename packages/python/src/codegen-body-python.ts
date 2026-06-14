@@ -50,6 +50,7 @@ import {
   instanceofRhsRejectReasonForName,
   isPostfixMutationOperator,
   isSupportedAssignOperator,
+  isZeroWidthCapableRegex,
   KERN_STDLIB_MODULES,
   lookupStdlibCall,
   lookupStdlibProperty,
@@ -59,6 +60,12 @@ import {
   normalizeRegexClasses,
   parseExpression,
   parseKeys,
+  REGEX_EXEC_FAILCLOSE,
+  REGEX_MATCHALL_NO_G_FAILCLOSE,
+  REGEX_REPLACEALL_NO_G_FAILCLOSE,
+  REGEX_SPLIT_LIMIT_FAILCLOSE,
+  REGEX_SPLIT_ZEROWIDTH_FAILCLOSE,
+  REGEX_TEST_G_FAILCLOSE,
   regexIFoldFailMessage,
   suggestStdlibMethod,
 } from '@kernlang/core';
@@ -82,6 +89,8 @@ import {
   KERN_JSON_STRINGIFY_SHIM_PY,
   KERN_NULLISH_HELPER_PY,
   KERN_PAIR_HELPERS_PY,
+  KERN_REGEX_MATCH_HELPER_PY,
+  KERN_REGEX_MATCHALL_HELPER_PY,
   KERN_TMOD_HELPER_PY,
   KERN_TO_NUMBER_HELPER_PY,
 } from './core/expr/index.js';
@@ -3435,33 +3444,87 @@ function parenthesizeIterable(expr: string): string {
 function lowerRegexCallPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: BodyEmitContext): string | null {
   const callee = call.callee;
   if (callee.kind !== 'member') return null;
+
+  // --- Receiver-is-regex shapes: `regex.test(s)`, `regex.exec(s)` ---
   const receiverRegex = resolveRegexExpr(callee.object, ctx);
   if (callee.property === 'test' && receiverRegex !== null) {
     if (call.args.length !== 1) return null;
     if (receiverRegex.flags.includes('g')) {
-      throw new Error(
-        "Python target does not lower RegExp.test with the 'g' flag because JS mutates lastIndex while Python re.search is stateless. Use Regex.contains once the KERN stdlib grows that cross-target shape.",
-      );
+      // .test(/g) is STATEFUL (lastIndex advances+wraps); no portable re analog.
+      throw new Error(REGEX_TEST_G_FAILCLOSE);
     }
     ctx.imports.add('re');
     return `(__k_re.search(${pyRegexPattern(receiverRegex)}, ${emitPyExprCtx(call.args[0], ctx)}, ${pyRegexFlags(receiverRegex.flags)}) is not None)`;
   }
-  const matchRegex = call.args.length === 1 ? resolveRegexExpr(call.args[0], ctx) : null;
-  if (callee.property === 'match' && matchRegex !== null) {
-    if (matchRegex.flags.includes('g')) {
-      throw new Error(
-        'Python target does not lower String.match(/.../g) because JS returns an array of matches while Python re.search returns a Match object. Use Regex.findAll once the KERN stdlib grows that cross-target shape.',
-      );
+  if (callee.property === 'exec' && receiverRegex !== null) {
+    // .exec drives a JS-only stateful `while ((m = re.exec(s)))` loop; fail-close
+    // and redirect to the portable `.matchAll` iteration (D4) rather than silently
+    // rewrite a loop whose body may mutate lastIndex.
+    throw new Error(REGEX_EXEC_FAILCLOSE);
+  }
+
+  // --- Receiver-is-string shapes: arg[0] is the regex ---
+  const firstArgRegex = call.args.length >= 1 ? resolveRegexExpr(call.args[0], ctx) : null;
+
+  // `.match(s)` — no /g: canonical {full,groups,index,named}|None shape (the
+  // load-bearing portability fix, D2). With /g: full matches only via
+  // finditer.group(0) (NEVER re.findall, which returns tuples when >1 group),
+  // or None when empty.
+  if (callee.property === 'match' && firstArgRegex !== null && call.args.length === 1) {
+    ctx.imports.add('re');
+    const pat = pyRegexPattern(firstArgRegex);
+    const subject = emitPyExprCtx(callee.object, ctx);
+    if (firstArgRegex.flags.includes('g')) {
+      const flags = pyRegexFlags(firstArgRegex.flags, { allowGlobal: true });
+      return `([__k_m.group(0) for __k_m in __k_re.finditer(${pat}, ${subject}, ${flags})] or None)`;
+    }
+    ctx.helpers.add(KERN_REGEX_MATCH_HELPER_PY);
+    return `_kern_regex_match(${pat}, ${subject}, ${pyRegexFlags(firstArgRegex.flags)})`;
+  }
+
+  // `.matchAll(s)` — requires /g (a non-global matchAll throws TypeError in JS).
+  // Shapes finditer into [{full,groups,index}, …], incl. zero-width advances.
+  if (callee.property === 'matchAll' && firstArgRegex !== null && call.args.length === 1) {
+    if (!firstArgRegex.flags.includes('g')) {
+      throw new Error(REGEX_MATCHALL_NO_G_FAILCLOSE);
     }
     ctx.imports.add('re');
-    return `__k_re.search(${pyRegexPattern(matchRegex)}, ${emitPyExprCtx(callee.object, ctx)}, ${pyRegexFlags(matchRegex.flags)})`;
+    ctx.helpers.add(KERN_REGEX_MATCHALL_HELPER_PY);
+    return `_kern_regex_matchall(${pyRegexPattern(firstArgRegex)}, ${emitPyExprCtx(callee.object, ctx)}, ${pyRegexFlags(firstArgRegex.flags, { allowGlobal: true })})`;
   }
+
+  // `.split(s)` — IN-CORE for a non-zero-width pattern with NO limit arg (capture
+  // groups interleave portably). FAIL-CLOSE on a zero-width-capable pattern
+  // (empty-edge divergence) or any limit/2nd arg (truncate vs remainder).
+  if (callee.property === 'split' && firstArgRegex !== null) {
+    if (call.args.length > 1) {
+      throw new Error(REGEX_SPLIT_LIMIT_FAILCLOSE);
+    }
+    if (isZeroWidthCapableRegex(firstArgRegex.pattern)) {
+      throw new Error(REGEX_SPLIT_ZEROWIDTH_FAILCLOSE);
+    }
+    ctx.imports.add('re');
+    return `__k_re.split(${pyRegexPattern(firstArgRegex)}, ${emitPyExprCtx(callee.object, ctx)}, flags=${pyRegexFlags(firstArgRegex.flags, { allowGlobal: true })})`;
+  }
+
+  // `.replace(s, r)` — no /g: FIRST match only (count=1); /g: ALL (count=0).
   const replaceRegex = call.args.length === 2 ? resolveRegexExpr(call.args[0], ctx) : null;
   if (callee.property === 'replace' && replaceRegex !== null) {
     ctx.imports.add('re');
     const count = replaceRegex.flags.includes('g') ? '0' : '1';
     return `__k_re.sub(${pyRegexPattern(replaceRegex)}, ${emitPyExprCtx(call.args[1], ctx)}, ${emitPyExprCtx(callee.object, ctx)}, count=${count}, flags=${pyRegexFlags(replaceRegex.flags, { allowGlobal: true })})`;
   }
+
+  // `.replaceAll(s, r)` — requires /g (a non-global replaceAll throws TypeError in
+  // JS); otherwise identical to `.replace` /g (count=0, ALL matches replaced).
+  if (callee.property === 'replaceAll' && replaceRegex !== null) {
+    if (!replaceRegex.flags.includes('g')) {
+      throw new Error(REGEX_REPLACEALL_NO_G_FAILCLOSE);
+    }
+    ctx.imports.add('re');
+    return `__k_re.sub(${pyRegexPattern(replaceRegex)}, ${emitPyExprCtx(call.args[1], ctx)}, ${emitPyExprCtx(callee.object, ctx)}, count=0, flags=${pyRegexFlags(replaceRegex.flags, { allowGlobal: true })})`;
+  }
+
   return null;
 }
 
