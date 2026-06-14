@@ -116,13 +116,13 @@ describe('Slice-/i regex emission — Set(B) length-changing fail-close (identic
   });
 });
 
-describe('Slice-/i regex emission — HARDENING fail-closes (non-ASCII backref + range endpoint)', () => {
+describe('Slice-/i regex emission — HARDENING fail-closes (classDepth-0 backref + COMPLEX class)', () => {
   // HOLE 1 — non-ASCII backreference under /i. JS /(é)\1/i case-folds the
   // backreference's referent, so it matches "Éé"; but the emitted explicit-class
   // form `([Éé])\1` under re.ASCII does NOT fold the \1 referent → MISS on Python.
   // This SILENTLY DIVERGES, so the portable contract requires a fail-close. The
-  // predicate is conservative+lexical: any backref token + any non-ASCII Set(A)
-  // letter under /i. The message is byte-identical on TS and Python.
+  // predicate is conservative+lexical: a backref token AT classDepth 0 + any
+  // non-ASCII Set(A) letter under /i. The message is byte-identical on TS and Python.
   const FAIL_BACKREF =
     /Regex \/i with a backreference and a non-ASCII letter \('é' U\+00E9\) cannot be lowered portably/;
   test('/(é)\\1/i → fail-close with identical message on TS and Python', () => {
@@ -164,15 +164,25 @@ describe('Slice-/i regex emission — HARDENING fail-closes (non-ASCII backref +
     expect(py('/(ab)\\1/i')).toBe('__k_re.compile("(ab)\\\\1", __k_re.IGNORECASE | __k_re.ASCII)');
   });
 
-  // HOLE 2 — Set(A) letter as a [...] RANGE ENDPOINT under /i. /[a-é]/i would expand
-  // to [a-Éé], silently changing the range a-é (U+0061..U+00E9) to a-É
-  // (U+0061..U+00C9) + literal é, dropping U+00CA..U+00E8 → divergence vs JS. KERN
-  // fail-closes instead of corrupting the range. Identical message on both targets.
-  const FAIL_RANGE =
-    /Regex \/i with the non-ASCII letter 'é' \(U\+00E9\) as a character-class range endpoint cannot be lowered portably/;
-  test('/[a-é]/i → fail-close (range endpoint) with identical message on TS and Python', () => {
-    expect(() => ts('/[a-é]/i')).toThrow(FAIL_RANGE);
-    expect(() => py('/[a-é]/i')).toThrow(FAIL_RANGE);
+  // POSITIVE CONTROL (HOLE 1, classDepth gate): a `\1`/`\k<` INSIDE a character class
+  // is NOT a backreference (in either engine it is a literal/octal). The classDepth-0
+  // backref gate means a SIMPLE class with a digit-escape-looking member does not
+  // trip the fail-close on the OUTER non-ASCII letter. `/é[\d]/i` has a `\d` (which
+  // class-normalizes to [0-9] before /i lowering) — the é expands, no backref.
+  test('/é[0-9]/i → no spurious backref fail-close (digit class, é expands)', () => {
+    expect(ts('/é[0-9]/i')).toBe('/[Éé][0-9]/i');
+    expect(py('/é[0-9]/i')).toBe('__k_re.compile("[Éé][0-9]", __k_re.IGNORECASE | __k_re.ASCII)');
+  });
+
+  // HOLE 2 (now: COMPLEX CLASS) — a Set(A) letter inside a `[...]` class whose body
+  // uses a range `-` or a `\` escape cannot be expanded portably (expanding in place
+  // would corrupt the range bound or mishandle the escape chain). KERN classifies the
+  // WHOLE class COMPLEX and fail-closes. Identical message on both targets.
+  const FAIL_COMPLEX =
+    /Regex \/i with the non-ASCII letter 'é' \(U\+00E9\) inside a character class that uses a range or an escape cannot be lowered portably/;
+  test('/[a-é]/i → fail-close (COMPLEX class: range) with identical message on TS and Python', () => {
+    expect(() => ts('/[a-é]/i')).toThrow(FAIL_COMPLEX);
+    expect(() => py('/[a-é]/i')).toThrow(FAIL_COMPLEX);
     let tsMsg = '';
     let pyMsg = '';
     try {
@@ -189,19 +199,95 @@ describe('Slice-/i regex emission — HARDENING fail-closes (non-ASCII backref +
     expect(tsMsg).not.toBe('');
   });
 
-  // /[é-z]/i is a JS syntax error at runtime (range out of order), but our LEXICAL
-  // endpoint check fires at EMIT time on the other endpoint orientation (é-X) — it
-  // must fail-close cleanly, not crash. (Guards the é-X branch + no-crash.)
-  test('/[é-z]/i → fail-close (range endpoint, low-side) without crashing', () => {
-    expect(() => ts('/[é-z]/i')).toThrow(FAIL_RANGE);
-    expect(() => py('/[é-z]/i')).toThrow(FAIL_RANGE);
+  // /[é-z]/i is a JS syntax error at runtime (range out of order), but the LEXICAL
+  // whole-class classifier sees a range `-` and fail-closes at EMIT time — it must
+  // refuse cleanly, never reach RegExp construction / crash. (low-side endpoint.)
+  test('/[é-z]/i → fail-close (COMPLEX class: range, low-side) without crashing', () => {
+    expect(() => ts('/[é-z]/i')).toThrow(FAIL_COMPLEX);
+    expect(() => py('/[é-z]/i')).toThrow(FAIL_COMPLEX);
   });
 
-  // POSITIVE CONTROL (HOLE 2): a Set(A) letter that is a plain class MEMBER (not a
-  // range endpoint) must STILL expand — /[xé]/i → [xÉé] is NOT a regression.
-  test('/[xé]/i → plain-member expansion still works (not a range endpoint)', () => {
+  // SILENT-DIVERGENCE FIX: `/[\\-é]/i` is `[ \ \ - é ]` — an ESCAPED backslash (a
+  // literal `\`) followed by a REAL range `\`..`é`. The OLD per-`-`-neighbour
+  // heuristic mis-read `chars[i-2]==='\\'` as "escaped hyphen" and EXPANDED é,
+  // silently CORRUPTING the range (dropping U+00CA..U+00E8). The new whole-class
+  // classifier sees a `\` in the body → COMPLEX → fail-close. THIS is the under-reject
+  // (silent-divergence) fix; it FAILS against the old commit.
+  test('/[\\\\-é]/i → fail-close (COMPLEX class: backslash) — the silent-divergence fix', () => {
+    expect(() => ts('/[\\\\-é]/i')).toThrow(FAIL_COMPLEX);
+    expect(() => py('/[\\\\-é]/i')).toThrow(FAIL_COMPLEX);
+  });
+
+  // Same family with a leading member: `[a\\-é]` → `a`, escaped `\`, range `\`..`é`.
+  test('/[a\\\\-é]/i → fail-close (COMPLEX class: backslash, with leading member)', () => {
+    expect(() => ts('/[a\\\\-é]/i')).toThrow(FAIL_COMPLEX);
+    expect(() => py('/[a\\\\-é]/i')).toThrow(FAIL_COMPLEX);
+  });
+
+  // CONSERVATIVE-BOUNDARY (intentional regression vs the old expand): `[\1é]` has a
+  // `\` escape in the body → COMPLEX → fail-close. The old code expanded it to
+  // `[\1Éé]`; refusing is SAFE (no silent divergence) — the accepted conservative cost
+  // of eliminating the escape-adjacency edge class. `\1` inside a class is a literal/
+  // octal, NOT a backref, so this fail-closes as complexClass (not backref).
+  test('/[\\1é]/i → fail-close (COMPLEX class: backslash escape in class body)', () => {
+    expect(() => ts('/[\\1é]/i')).toThrow(FAIL_COMPLEX);
+    expect(() => py('/[\\1é]/i')).toThrow(FAIL_COMPLEX);
+  });
+
+  // minimax 0.60 — `[[-é]-z]`: the class scan from the first `[` closes at the first
+  // `]`, so the body is `[-é` (inner `[` literal first member, `-` in range position).
+  // Range `-` → COMPLEX → fail-close.
+  test('/[[-é]-z]/i → fail-close (COMPLEX class: inner-bracket range body)', () => {
+    expect(() => ts('/[[-é]-z]/i')).toThrow(FAIL_COMPLEX);
+    expect(() => py('/[[-é]-z]/i')).toThrow(FAIL_COMPLEX);
+  });
+
+  // POSITIVE CONTROL (SIMPLE class): a Set(A) letter as a plain class MEMBER (no range,
+  // no escape) must STILL expand — /[xé]/i → [xÉé] is NOT a regression.
+  test('/[xé]/i → plain-member expansion still works (SIMPLE class)', () => {
     expect(ts('/[xé]/i')).toBe('/[xÉé]/i');
     expect(py('/[xé]/i')).toBe('__k_re.compile("[xÉé]", __k_re.IGNORECASE | __k_re.ASCII)');
+  });
+
+  // POSITIVE CONTROL (SIMPLE class): multiple members, still SIMPLE → expands.
+  test('/[abé]/i → [abÉé] (SIMPLE class, multiple ASCII members + Set(A) letter)', () => {
+    expect(ts('/[abé]/i')).toBe('/[abÉé]/i');
+    expect(py('/[abé]/i')).toBe('__k_re.compile("[abÉé]", __k_re.IGNORECASE | __k_re.ASCII)');
+  });
+
+  // POSITIVE CONTROL (SIMPLE class): a LEADING `-` is a literal hyphen (not a range op)
+  // → SIMPLE → expands. Guards the first-char-hyphen branch of the classifier.
+  test('/[-é]/i → [-Éé] (leading hyphen is literal → SIMPLE)', () => {
+    expect(ts('/[-é]/i')).toBe('/[-Éé]/i');
+    expect(py('/[-é]/i')).toBe('__k_re.compile("[-Éé]", __k_re.IGNORECASE | __k_re.ASCII)');
+  });
+
+  // POSITIVE CONTROL (SIMPLE class): a TRAILING `-` is a literal hyphen → SIMPLE →
+  // expands. Guards the last-char-hyphen branch.
+  test('/[é-]/i → [Éé-] (trailing hyphen is literal → SIMPLE)', () => {
+    expect(ts('/[é-]/i')).toBe('/[Éé-]/i');
+    expect(py('/[é-]/i')).toBe('__k_re.compile("[Éé-]", __k_re.IGNORECASE | __k_re.ASCII)');
+  });
+
+  // SCAN GUARD (literal `]`-first member): `[]]` and `[^]]` have a literal `]` as the
+  // first body char (NOT the class terminator). The matching-`]` scan must find the
+  // SECOND `]` as the close, so these pass through verbatim on TS (no Set(A) letter,
+  // no crash, no mis-rewrite). NOTE: on Python the `[^...]` form additionally hits the
+  // PRE-EXISTING Slice-1 crude `^`→`\A` anchor transform (documented in
+  // regex-normalize.ts) which is OUT OF SCOPE for this slice — so we assert the
+  // non-negated forms on Python and the negated form on TS only.
+  test('/[]]/i and /[^]]/i → literal `]`-first member does not break the scan (TS verbatim)', () => {
+    expect(ts('/[]]/i')).toBe('/[]]/i');
+    expect(ts('/[^]]/i')).toBe('/[^]]/i');
+    expect(py('/[]]/i')).toBe('__k_re.compile("[]]", __k_re.IGNORECASE | __k_re.ASCII)');
+  });
+  // A `]`-first class with an in-class Set(A) letter must scan correctly (close at the
+  // SECOND `]`) and expand the é inside the (correctly-bounded) SIMPLE class — proving
+  // the literal-`]` scan does not truncate the class early. Non-negated form so the
+  // Python output is clean of the pre-existing `^`→`\A` transform; byte-identical on both.
+  test('/[]é]/i → []Éé] (Set(A) expands inside a `]`-first SIMPLE class — scan bounds correct)', () => {
+    expect(ts('/[]é]/i')).toBe('/[]Éé]/i');
+    expect(py('/[]é]/i')).toBe('__k_re.compile("[]Éé]", __k_re.IGNORECASE | __k_re.ASCII)');
   });
 });
 

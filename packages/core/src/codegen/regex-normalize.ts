@@ -112,11 +112,17 @@ import { SET_A_MEMBERS, SET_B } from './regex-fold-table.js';
  *                         folds the backreference too, but the emitted explicit-class
  *                         expansion under `re.ASCII` does NOT fold the `\N` backref's
  *                         non-ASCII referent — a SILENT cross-engine divergence.
- *   - `'rangeEndpoint'` : a Set(A) letter is a `[...]` RANGE endpoint (`X-é` / `é-X`).
- *                         Expanding the letter in place corrupts the range bounds
- *                         (`a-é` → `a-É` + `é` drops U+00CA..U+00E8) — a SILENT divergence.
+ *   - `'complexClass'`  : a Set(A) letter appears inside a `[...]` class whose body
+ *                         is COMPLEX — it contains a backslash escape OR a `-` in a
+ *                         range position. Expanding a member in place would corrupt
+ *                         a range bound (`[a-é]` → `[a-Éé]` drops U+00CA..U+00E8) or
+ *                         mis-handle an escape chain (`[\\-é]` is a REAL range `\`..`é`,
+ *                         not an escaped hyphen) — both SILENT divergences. We refuse
+ *                         the whole class rather than guess, so the fragile per-`-`
+ *                         escape-adjacency heuristic (which mis-read those chains)
+ *                         is gone. (SIMPLE classes — no `\`, no range `-` — still expand.)
  */
-export type RegexIFoldFailReason = 'setB' | 'backref' | 'rangeEndpoint';
+export type RegexIFoldFailReason = 'setB' | 'backref' | 'complexClass';
 
 /** Result of {@link expandRegexIFold}: an expanded pattern, or a fail-close. */
 export type RegexIFoldResult = { pattern: string } | { failClose: true; char: string; reason: RegexIFoldFailReason };
@@ -144,11 +150,11 @@ export function regexIFoldFailMessage(char: string, reason: RegexIFoldFailReason
       `Remove /i, the backreference, or the non-ASCII letter.`
     );
   }
-  if (reason === 'rangeEndpoint') {
+  if (reason === 'complexClass') {
     return (
-      `Regex /i with the non-ASCII letter '${char}' (${hex}) as a character-class range ` +
-      `endpoint cannot be lowered portably: expanding its case-fold would corrupt the ` +
-      `range bounds. Remove /i or replace the range with explicit class members.`
+      `Regex /i with the non-ASCII letter '${char}' (${hex}) inside a character class that ` +
+      `uses a range or an escape cannot be lowered portably — use the bare letter or list ` +
+      `explicit class members.`
     );
   }
   return (
@@ -163,6 +169,74 @@ export function regexIFoldFailMessage(char: string, reason: RegexIFoldFailReason
  * backreference; `\0` is a NUL escape, never a backreference).
  */
 const isBackrefDigit = (c: string | undefined): boolean => c !== undefined && c >= '1' && c <= '9';
+
+/**
+ * Scan a `[...]` character class starting at the opening `[` (`chars[openIdx] === '['`)
+ * to its MATCHING unescaped `]`, escape-aware. Returns the class BODY (the chars
+ * between the open and the close, excluding a leading `^` negation) and the index
+ * of the closing `]`.
+ *
+ * Engine quirk handled: a `]` that is the FIRST body character (immediately after
+ * `[` or `[^`) is a LITERAL `]`, NOT the class terminator (`[]]`, `[^]]`). So the
+ * scan only treats a `]` as the close once at least one body char has been seen.
+ *
+ * If the class is unterminated (no matching `]`), `closeIdx` is `-1` and `body`
+ * runs to the end of the input — the caller still classifies it (conservatively
+ * COMPLEX-or-not by content), and the malformed pattern surfaces at emit anyway.
+ */
+function scanCharClass(chars: string[], openIdx: number): { body: string[]; closeIdx: number } {
+  let i = openIdx + 1;
+  if (chars[i] === '^') i++; // skip negation; it is not part of the body
+  const bodyStart = i;
+  let first = true; // a `]` while `first` is still true is a literal `]`
+  let escaped = false;
+  for (; i < chars.length; i++) {
+    const c = chars[i];
+    if (escaped) {
+      escaped = false;
+      first = false;
+      continue;
+    }
+    if (c === '\\') {
+      escaped = true;
+      first = false;
+      continue;
+    }
+    if (c === ']' && !first) {
+      return { body: chars.slice(bodyStart, i), closeIdx: i };
+    }
+    first = false;
+  }
+  return { body: chars.slice(bodyStart), closeIdx: -1 };
+}
+
+/**
+ * Classify a `[...]` class BODY (the array from {@link scanCharClass}) as COMPLEX
+ * or SIMPLE — a WHOLE-class decision with NO per-neighbour escape heuristic, so the
+ * escape-chain edge bugs the old adjacency check had cannot occur.
+ *
+ * COMPLEX iff the body contains:
+ *   - ANY backslash `\` (an escape — e.g. `[\\-é]` is a REAL `\`..`é` range, `[\1é]`,
+ *     `[\d é]`), OR
+ *   - a `-` in a RANGE position: a `-` that is neither the first nor the last body
+ *     char and is not itself escaped (`[a-é]`, `[é-z]`, `[[-é` from `[[-é]-z]`).
+ * Otherwise SIMPLE (a `-` that is the first or last body char is a literal hyphen:
+ * `[-é]`, `[é-]`). A Set(A) letter in a SIMPLE class expands; in a COMPLEX class it
+ * fail-closes (`'complexClass'`).
+ */
+function isComplexClassBody(body: string[]): boolean {
+  let escaped = false;
+  for (let j = 0; j < body.length; j++) {
+    const c = body[j];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (c === '\\') return true; // any escape ⇒ COMPLEX
+    if (c === '-' && j !== 0 && j !== body.length - 1) return true; // range `-` ⇒ COMPLEX
+  }
+  return false;
+}
 
 /**
  * Expand non-ASCII Set(A) letters under `/i` into explicit fold-class characters,
@@ -187,17 +261,20 @@ const isBackrefDigit = (c: string | undefined): boolean => c !== undefined && c 
  *   - BACKREF (`/(é)\1/i`): JS `/i` case-folds the backreference's referent too, so
  *     `/(é)\1/i` matches `"Éé"`; but the emitted `([Éé])\1` under `re.ASCII`
  *     suppresses the non-ASCII fold of the `\1` referent → MISS on Python. Detected
- *     LEXICALLY and CONSERVATIVELY: any backreference token (`\1`–`\9`, or a named
- *     `\k<name>`) ANYWHERE in the pattern, combined with ANY non-ASCII Set(A) letter
- *     present, fail-closes. Over-rejecting a backref that happens to target an
- *     ASCII-only group is intentional and parity-safe; precise group→backref
- *     analysis is out of scope (§HOLE-1).
- *   - RANGE ENDPOINT (`/[a-é]/i`): a Set(A) letter as a `[...]` range bound (`X-é`
- *     or `é-X`). Expanding it in place rewrites the range — `a-é` (U+0061..U+00E9)
- *     becomes `a-É` (U+0061..U+00C9) + a literal `é`, silently dropping
- *     U+00CA..U+00E8 → divergence vs JS. Detected by checking the unescaped `-`
- *     neighbours of the Set(A) letter; a plain class MEMBER (`/[xé]/i`→`[xÉé]`) is
- *     NOT a range endpoint and still expands (§HOLE-2).
+ *     LEXICALLY and CONSERVATIVELY: a backreference token (`\1`–`\9`, or a named
+ *     `\k<name>`) seen AT `classDepth === 0` (a `\1`/`\k<` INSIDE a `[...]` class is
+ *     NOT a backreference in either engine — it is a literal/octal — so it never sets
+ *     the flag), combined with ANY non-ASCII Set(A) letter present, fail-closes.
+ *     Over-rejecting a backref that happens to target an ASCII-only group is
+ *     intentional and parity-safe; precise group→backref analysis is out of scope.
+ *   - COMPLEX CLASS (`/[a-é]/i`, `/[\\-é]/i`): a Set(A) letter inside a `[...]` class
+ *     expands ONLY IF its enclosing class is SIMPLE — no backslash escape and no `-`
+ *     in a range position. Otherwise the whole class fail-closes (`'complexClass'`).
+ *     This replaces the old per-`-` escape-adjacency heuristic (which mis-read escape
+ *     chains: it treated `[\\-é]`'s real `\`..`é` range as an escaped hyphen and
+ *     expanded `é`, silently corrupting the range). Classifying the WHOLE class ONCE
+ *     ({@link scanCharClass} + {@link isComplexClassBody}) removes that edge class
+ *     entirely. SIMPLE members (`/[xé]/i`→`[xÉé]`, `/[-é]/i`, `/[é-]/i`) still expand.
  *
  * Both new fail-closes throw the SAME message on TS and Python (the emitters share
  * this function), so the refusal is observably symmetric.
@@ -205,7 +282,8 @@ const isBackrefDigit = (c: string | undefined): boolean => c !== undefined && c 
 export function expandRegexIFold(pattern: string, flags: string): RegexIFoldResult {
   if (!flags.includes('i')) return { pattern };
 
-  // Code-point array so range-endpoint lookbehind/lookahead can inspect neighbours.
+  // Code-point array (so surrogate pairs are one unit) — also lets the class scanner
+  // slice out a `[...]` body for whole-class SIMPLE/COMPLEX classification.
   const chars = Array.from(pattern);
 
   // HOLE 1 (backref) is decided over the WHOLE pattern: a backref token and a
@@ -215,7 +293,15 @@ export function expandRegexIFold(pattern: string, flags: string): RegexIFoldResu
   let firstSetALetter: string | undefined;
 
   let out = '';
+  // `classDepth` is 0 outside any class, 1 inside (JS/Python char classes do not
+  // nest — an inner `[` is a literal). `inComplexClass` records whether the class we
+  // are CURRENTLY inside was classified COMPLEX by {@link isComplexClassBody}; it is
+  // set when we open a class and cleared at its close. `classCloseIdx` is the index
+  // of the current class's MATCHING `]` (from {@link scanCharClass}); we close ONLY
+  // there, so a literal `]`-first member (`[]]`, `[]é]`) does not close early.
   let classDepth = 0;
+  let inComplexClass = false;
+  let classCloseIdx = -1;
   let escaped = false;
 
   for (let i = 0; i < chars.length; i++) {
@@ -224,12 +310,14 @@ export function expandRegexIFold(pattern: string, flags: string): RegexIFoldResu
 
     // Pass through the character after a backslash verbatim (an escaped letter is
     // not a valid fold escape in either engine; this also avoids treating an
-    // escaped `\[`/`\]` as a class delimiter). Mirrors the oracle's char-walk:
-    // the escape only suppresses the bracket-depth bookkeeping, never expansion of
-    // a *bare* (unescaped) Set(A) letter. While here we also detect a backref:
-    // `\1`–`\9` (numeric) or `\k<...>` (named).
+    // escaped `\[`/`\]` as a class delimiter). The escape only suppresses the
+    // bracket-depth bookkeeping, never expansion of a *bare* (unescaped) Set(A)
+    // letter. While here we also detect a backref — `\1`–`\9` (numeric) or
+    // `\k<...>` (named) — but ONLY at classDepth 0: a `\1`/`\k<` INSIDE a `[...]`
+    // class is NOT a backreference in either engine (it is a literal/octal escape),
+    // so it must not set the flag.
     if (escaped) {
-      if (isBackrefDigit(ch) || (ch === 'k' && chars[i + 1] === '<')) sawBackref = true;
+      if (classDepth === 0 && (isBackrefDigit(ch) || (ch === 'k' && chars[i + 1] === '<'))) sawBackref = true;
       out += ch;
       escaped = false;
       continue;
@@ -240,20 +328,30 @@ export function expandRegexIFold(pattern: string, flags: string): RegexIFoldResu
       continue;
     }
 
-    // Bracket-depth bookkeeping (unescaped only).
-    if (ch === '[') {
-      classDepth++;
+    // Unescaped `[` that OPENS a class (classes do not nest, so an inner `[` is a
+    // literal handled by the ASCII branch below). Classify the WHOLE class once —
+    // SIMPLE vs COMPLEX — and record its matching `]` so the in-class Set(A) handling
+    // needs no per-neighbour heuristic and the close is escape-/literal-`]`-aware.
+    if (ch === '[' && classDepth === 0) {
+      const scanned = scanCharClass(chars, i);
+      classDepth = 1;
+      inComplexClass = isComplexClassBody(scanned.body);
+      classCloseIdx = scanned.closeIdx;
       out += ch;
       continue;
     }
-    if (ch === ']') {
-      if (classDepth > 0) classDepth--;
+    // The class's MATCHING `]` (a `]` before it — e.g. a literal `]`-first member in
+    // `[]]`/`[]é]` — falls through to the ASCII branch and is emitted verbatim).
+    if (classDepth > 0 && i === classCloseIdx) {
+      classDepth = 0;
+      inComplexClass = false;
+      classCloseIdx = -1;
       out += ch;
       continue;
     }
 
     if (isAsciiCodePoint(cp)) {
-      out += ch; // ASCII letters rely on the kept /i fold.
+      out += ch; // ASCII letters rely on the kept /i fold (incl. a literal `[`/`]` inside a class).
       continue;
     }
 
@@ -265,22 +363,12 @@ export function expandRegexIFold(pattern: string, flags: string): RegexIFoldResu
     if (members !== undefined) {
       if (firstSetALetter === undefined) firstSetALetter = ch;
 
-      // HOLE 2: inside a class, a Set(A) letter that is a RANGE ENDPOINT corrupts
-      // the range if expanded in place. Detect an adjacent unescaped `-` that forms
-      // a range:
-      //   high endpoint `X-é`: prev char is `-`, the `-` is unescaped (char before
-      //                        it is not a `\`) and is preceded by a class member
-      //                        that is not the opening `[`.
-      //   low endpoint  `é-X`: next char is `-` (unescaped — the char before it is
-      //                        this Set(A) letter, not a `\`) followed by a member
-      //                        that is not the closing `]`.
-      if (classDepth > 0) {
-        const isHighEndpoint =
-          chars[i - 1] === '-' && chars[i - 2] !== undefined && chars[i - 2] !== '[' && chars[i - 2] !== '\\';
-        const isLowEndpoint = chars[i + 1] === '-' && chars[i + 2] !== undefined && chars[i + 2] !== ']';
-        if (isHighEndpoint || isLowEndpoint) {
-          return { failClose: true, char: ch, reason: 'rangeEndpoint' };
-        }
+      // Inside a COMPLEX class (any `\` escape or a range `-`), expanding a member in
+      // place could corrupt a range bound or mishandle an escape chain — fail-close
+      // the whole class rather than guess. SIMPLE classes (and the no-class case)
+      // expand normally.
+      if (classDepth > 0 && inComplexClass) {
+        return { failClose: true, char: ch, reason: 'complexClass' };
       }
 
       // Inside an existing `[...]` set, emit bare members (a nested class would be
