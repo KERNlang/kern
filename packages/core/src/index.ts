@@ -27,6 +27,11 @@ export {
 } from './closure-classifier.js';
 export type { BodyEmitOptions, BodyEmitResult } from './codegen/body-ts.js';
 export { emitNativeKernBodyTS, emitNativeKernBodyTSWithImports } from './codegen/body-ts.js';
+export {
+  HOST_NAMESPACE_EXEMPT_ROOTS,
+  isHostNamespaceRoot,
+  unmappedHostNamespaceMessage,
+} from './codegen/host-namespace.js';
 export type { StdlibCallEntry, StdlibEntry, StdlibPropertyEntry } from './codegen/kern-stdlib.js';
 export {
   applyTemplate,

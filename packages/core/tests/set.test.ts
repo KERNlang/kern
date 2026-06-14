@@ -31,12 +31,12 @@ describe('set inside `on` event', () => {
   it('emits multiple setters in source order', () => {
     const onNode = mk('on', { event: 'click' }, [
       mk('set', { name: 'count', to: 'count + 1' }),
-      mk('set', { name: 'lastClickAt', to: 'Date.now()' }),
+      mk('set', { name: 'lastClickAt', to: 'lastClickAt + 1' }),
     ]);
     const code = generateOn(onNode).join('\n');
 
     const firstSet = code.indexOf('setCount(count + 1);');
-    const secondSet = code.indexOf('setLastClickAt(Date.now());');
+    const secondSet = code.indexOf('setLastClickAt(lastClickAt + 1);');
     expect(firstSet).toBeGreaterThan(-1);
     expect(secondSet).toBeGreaterThan(firstSet);
   });
@@ -155,7 +155,7 @@ describe('set — full parse pipeline', () => {
   const source = [
     'on event=click',
     '  set name=count to="count + 1"',
-    '  set name=lastClickAt to="Date.now()"',
+    '  set name=lastClickAt to="lastClickAt + 1"',
     '',
   ].join('\n');
 
@@ -168,6 +168,6 @@ describe('set — full parse pipeline', () => {
 
     const code = generateCoreNode(onNode as IRNode).join('\n');
     expect(code).toContain('setCount(count + 1);');
-    expect(code).toContain('setLastClickAt(Date.now());');
+    expect(code).toContain('setLastClickAt(lastClickAt + 1);');
   });
 });

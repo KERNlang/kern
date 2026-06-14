@@ -46,6 +46,7 @@
 
 import { isPostfixMutationOperator, isSupportedAssignOperator } from '../assignment-operators.js';
 import { emitExpression } from '../codegen-expression.js';
+import type { ExprEmitContext } from '../codegen-expression.js';
 import { parseExpression } from '../parser-expression.js';
 import type { ExprObject, IRNode } from '../types.js';
 import { typescriptClosureClassifier } from '../typescript-closure-classifier.js';
@@ -1121,8 +1122,12 @@ function lookupLocalBinding(ctx: BodyEmitContext, name: string): 'const' | 'let'
   return undefined;
 }
 
-function emitValueTS(node: ValueIR, _ctx: BodyEmitContext): string {
-  return emitExpression(node);
+function emitValueTS(node: ValueIR, ctx: BodyEmitContext): string {
+  return emitExpression(node, exprCtxFor(ctx));
+}
+
+function exprCtxFor(ctx: BodyEmitContext): ExprEmitContext {
+  return { isUserBinding: (name: string) => lookupLocalBinding(ctx, name) !== undefined };
 }
 
 function isAssignableTarget(node: ValueIR): boolean {

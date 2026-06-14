@@ -1,5 +1,6 @@
 /** Serialize ValueIR to a TypeScript expression string. */
 
+import { isHostNamespaceRoot, unmappedHostNamespaceMessage } from './codegen/host-namespace.js';
 import type { StdlibCallEntry } from './codegen/kern-stdlib.js';
 import {
   applyTemplate,
@@ -9,6 +10,26 @@ import {
   suggestStdlibMethod,
 } from './codegen/kern-stdlib.js';
 import type { ValueIR } from './value-ir.js';
+
+export interface ExprEmitContext {
+  isUserBinding(name: string): boolean;
+}
+
+function rejectUnmappedHostNamespaceTS(root: string, member: string, ctx: ExprEmitContext | undefined): void {
+  if (!isHostNamespaceRoot(root)) return;
+  if (ctx?.isUserBinding(root)) return;
+  throw new Error(unmappedHostNamespaceMessage('TypeScript', root, member));
+}
+
+function withAdditionalUserBindings(ctx: ExprEmitContext | undefined, names: string[]): ExprEmitContext | undefined {
+  if (names.length === 0) return ctx;
+  const local = new Set(names);
+  return {
+    isUserBinding(name: string): boolean {
+      return local.has(name) || ctx?.isUserBinding(name) === true;
+    },
+  };
+}
 
 // Slice 2c — extended precedence table covering equality, relational,
 // additive, multiplicative ops alongside the existing nullish/logical.
@@ -42,7 +63,7 @@ const PREC: Record<string, number> = {
   '%': 14,
 };
 
-export function emitExpression(node: ValueIR): string {
+export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
   switch (node.kind) {
     case 'numLit':
       return node.raw;
@@ -63,7 +84,7 @@ export function emitExpression(node: ValueIR): string {
       let out = '`';
       for (let i = 0; i < node.quasis.length; i++) {
         out += escapeTemplateQuasi(node.quasis[i]);
-        if (i < node.expressions.length) out += `\${${emitExpression(node.expressions[i])}}`;
+        if (i < node.expressions.length) out += `\${${emitExpression(node.expressions[i], ctx)}}`;
       }
       out += '`';
       return out;
@@ -73,25 +94,35 @@ export function emitExpression(node: ValueIR): string {
     case 'member': {
       const stdlib = applyStdlibPropertyLoweringTS(node);
       if (stdlib !== null) return stdlib;
-      const obj = emitExpression(node.object);
+      if (node.object.kind === 'ident') {
+        rejectUnmappedHostNamespaceTS(node.object.name, node.property, ctx);
+      }
+      const obj = emitExpression(node.object, ctx);
       const wrapped = needsReceiverParens(node.object) ? `(${obj})` : obj;
       return `${wrapped}${node.optional ? '?.' : '.'}${node.property}`;
     }
     case 'index': {
       rejectKnownStdlibIndexTS(node);
-      const obj = emitExpression(node.object);
+      if (node.object.kind === 'ident') {
+        const label = node.index.kind === 'strLit' ? node.index.value : '[computed]';
+        rejectUnmappedHostNamespaceTS(node.object.name, label, ctx);
+      }
+      const obj = emitExpression(node.object, ctx);
       const wrapped = needsReceiverParens(node.object) ? `(${obj})` : obj;
-      return `${wrapped}${node.optional ? '?.' : ''}[${emitExpression(node.index)}]`;
+      return `${wrapped}${node.optional ? '?.' : ''}[${emitExpression(node.index, ctx)}]`;
     }
     case 'call': {
       // Slice 2a — KERN-stdlib dispatch. When the callee is `Module.method`
       // and `Module` is a known stdlib module, route through the per-target
       // lowering table instead of the default emit path.
-      const stdlib = applyStdlibLoweringTS(node);
+      const stdlib = applyStdlibLoweringTS(node, ctx);
       if (stdlib !== null) return stdlib;
-      const callee = emitExpression(node.callee);
+      if (node.callee.kind === 'member' && node.callee.object.kind === 'ident') {
+        rejectUnmappedHostNamespaceTS(node.callee.object.name, node.callee.property, ctx);
+      }
+      const callee = emitExpression(node.callee, ctx);
       const wrapped = needsReceiverParens(node.callee) ? `(${callee})` : callee;
-      const args = node.args.map((arg) => emitExpression(arg)).join(', ');
+      const args = node.args.map((arg) => emitExpression(arg, ctx)).join(', ');
       const typeArgs = node.typeArgs ? `<${node.typeArgs}>` : '';
       return node.optional ? `${wrapped}?.${typeArgs}(${args})` : `${wrapped}${typeArgs}(${args})`;
     }
@@ -101,6 +132,10 @@ export function emitExpression(node: ValueIR): string {
           ? node.params[0].name
           : `(${node.params.map((p) => (p.type ? `${p.name}: ${p.type}` : p.name)).join(', ')})`;
       const returnType = node.returnType ? `: ${node.returnType}` : '';
+      const lambdaCtx = withAdditionalUserBindings(
+        ctx,
+        node.params.map((p) => p.name),
+      );
       // Block-bodied arrow (slices 0+1): re-emit the raw block verbatim. The
       // raw text INCLUDES the outer braces, so emission adds nothing inside it
       // and `parse(emit(x))` reproduces `raw` byte-identically — the round-trip
@@ -108,11 +143,11 @@ export function emitExpression(node: ValueIR): string {
       if (node.bodyBlock) {
         return `${params}${returnType} => ${node.bodyBlock.raw}`;
       }
-      return `${params}${returnType} => ${emitExpression(node.body as ValueIR)}`;
+      return `${params}${returnType} => ${emitExpression(node.body as ValueIR, lambdaCtx)}`;
     }
     case 'binary': {
-      const left = emitExpression(node.left);
-      const right = emitExpression(node.right);
+      const left = emitExpression(node.left, ctx);
+      const right = emitExpression(node.right, ctx);
       const lp = needsParens(node.left, node.op, 'left') ? `(${left})` : left;
       const rp = needsParens(node.right, node.op, 'right') ? `(${right})` : right;
       return `${lp} ${node.op} ${rp}`;
@@ -120,30 +155,30 @@ export function emitExpression(node: ValueIR): string {
     case 'unary': {
       // Slice-2 review fix: wrap binary/unary/spread args in parens to preserve
       // unary's tight binding. `!(a === b)` would otherwise emit `!a === b`.
-      const arg = emitExpression(node.argument);
+      const arg = emitExpression(node.argument, ctx);
       const wrapped = needsArgParens(node.argument) ? `(${arg})` : arg;
       const sep = node.op === 'typeof' || node.op === 'void' ? ' ' : '';
       return `${node.op}${sep}${wrapped}`;
     }
     case 'spread':
-      return `...${emitExpression(node.argument)}`;
+      return `...${emitExpression(node.argument, ctx)}`;
     case 'await': {
-      const arg = emitExpression(node.argument);
+      const arg = emitExpression(node.argument, ctx);
       const wrapped = needsPrefixArgParens(node.argument) ? `(${arg})` : arg;
       return `await ${wrapped}`;
     }
     case 'new': {
-      const arg = emitExpression(node.argument);
+      const arg = emitExpression(node.argument, ctx);
       const wrapped = needsPrefixArgParens(node.argument) ? `(${arg})` : arg;
       return `new ${wrapped}`;
     }
     case 'typeAssert': {
-      const expr = emitExpression(node.expression);
+      const expr = emitExpression(node.expression, ctx);
       const wrapped = needsTypeAssertionParens(node.expression) ? `(${expr})` : expr;
       return `${wrapped} as ${node.type}`;
     }
     case 'nonNull': {
-      const expr = emitExpression(node.expression);
+      const expr = emitExpression(node.expression, ctx);
       const wrapped = needsTypeAssertionParens(node.expression) ? `(${expr})` : expr;
       return `${wrapped}!`;
     }
@@ -153,23 +188,23 @@ export function emitExpression(node: ValueIR): string {
       if (node.entries.length === 0) return '{}';
       const entries = node.entries.map((e) => {
         if ('kind' in e && (e as any).kind === 'spread') {
-          return `...${emitExpression((e as any).argument)}`;
+          return `...${emitExpression((e as any).argument, ctx)}`;
         }
         const prop = e as { key: string; rawKey?: string; value: ValueIR };
         const k = prop.rawKey ?? (isValidJSIdent(prop.key) ? prop.key : JSON.stringify(prop.key));
-        return `${k}: ${emitExpression(prop.value)}`;
+        return `${k}: ${emitExpression(prop.value, ctx)}`;
       });
       return `{ ${entries.join(', ')} }`;
     }
     case 'arrayLit':
-      return `[${node.items.map((item) => emitExpression(item)).join(', ')}]`;
+      return `[${node.items.map((item) => emitExpression(item, ctx)).join(', ')}]`;
     case 'conditional': {
       // Slice α-2: ternary `test ? consequent : alternate`. Right-associative
       // and lower precedence than every binary op — paren-wrap any non-atomic
       // child to keep the round-tripped TS unambiguous to humans and tools.
-      const test = emitExpression(node.test);
-      const consequent = emitExpression(node.consequent);
-      const alternate = emitExpression(node.alternate);
+      const test = emitExpression(node.test, ctx);
+      const consequent = emitExpression(node.consequent, ctx);
+      const alternate = emitExpression(node.alternate, ctx);
       const wrap = (child: ValueIR, emitted: string): string =>
         needsConditionalChildParens(child) ? `(${emitted})` : emitted;
       return `${wrap(node.test, test)} ? ${wrap(node.consequent, consequent)} : ${wrap(node.alternate, alternate)}`;
@@ -323,7 +358,7 @@ function rejectKnownStdlibIndexTS(index: Extract<ValueIR, { kind: 'index' }>): v
   throwUnknownStdlibMember(moduleName, member);
 }
 
-function applyStdlibLoweringTS(call: Extract<ValueIR, { kind: 'call' }>): string | null {
+function applyStdlibLoweringTS(call: Extract<ValueIR, { kind: 'call' }>, ctx?: ExprEmitContext): string | null {
   const callee = call.callee;
   if (callee.kind !== 'member') return null;
   if (callee.object.kind !== 'ident') return null;
@@ -345,10 +380,10 @@ function applyStdlibLoweringTS(call: Extract<ValueIR, { kind: 'call' }>): string
   if (moduleName === 'Array' && methodName === 'from' && call.args.some((arg) => arg.kind === 'spread')) {
     throw new Error('Array.from portable lowering does not accept spread arguments; pass source and mapper directly.');
   }
-  const listLambda = lowerListLambdaTS(moduleName, methodName, call);
+  const listLambda = lowerListLambdaTS(moduleName, methodName, call, ctx);
   if (listLambda !== null) return listLambda;
   const args = call.args.map((a, index) => {
-    const emitted = emitExpression(a);
+    const emitted = emitExpression(a, ctx);
     return needsStdlibArgParens(a, entry.ts, index) ? `(${emitted})` : emitted;
   });
   return typeof entry.ts === 'function' ? entry.ts(args) : applyTemplate(entry.ts, args);
@@ -390,14 +425,15 @@ function lowerListLambdaTS(
   moduleName: string,
   methodName: string,
   call: Extract<ValueIR, { kind: 'call' }>,
+  ctx?: ExprEmitContext,
 ): string | null {
   if (moduleName !== 'List') return null;
   if (methodName !== 'map' && methodName !== 'filter') return null;
   const callback = call.args[1];
   if (callback.kind !== 'lambda') return null;
-  const source = emitExpression(call.args[0]);
+  const source = emitExpression(call.args[0], ctx);
   const wrappedSource = needsArgParens(call.args[0]) ? `(${source})` : source;
-  return `${wrappedSource}.${methodName}(${emitExpression(callback)})`;
+  return `${wrappedSource}.${methodName}(${emitExpression(callback, ctx)})`;
 }
 
 /** Slice 2b helper — wrap an arg in parens when it's structurally a binary,

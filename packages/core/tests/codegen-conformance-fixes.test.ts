@@ -138,11 +138,11 @@ describe('state-binding assign auto-lowers to setter (Bug 1.B)', () => {
   });
 
   test('reads of state inside an effect body are not rewritten', () => {
-    // Reading `count` in a `do value="console.log(count)"` must stay a
-    // read; only writes get the setter treatment.
-    const handler = makeHandler([{ type: 'do', props: { value: "console.log('val', count)" } }]);
+    // Reading `count` in a `do value="count"` must stay a read; only writes
+    // get the setter treatment.
+    const handler = makeHandler([{ type: 'do', props: { value: 'count' } }]);
     const out = emitNativeKernBodyTS(handler, { stateBindings: ['count'] });
-    expect(out).toBe("console.log('val', count);");
+    expect(out).toBe('count;');
   });
 });
 
@@ -152,7 +152,7 @@ describe('class positional-name shorthand (Bug 1.C)', () => {
       'class NativeClass',
       '  constructor',
       '    handler lang=kern',
-      '      do value="console.log(\'init\')"',
+      '      do value="0"',
     ].join('\n');
     const out = compileTopLevel(src);
     expect(out).toContain('class NativeClass');

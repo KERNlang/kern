@@ -30,9 +30,9 @@ describe('field.value — slice 3b (native ValueIR form)', () => {
     });
 
     it('bare expression value canonicalises through ValueIR', () => {
-      // `Date.now` parses as a member-access ValueIR node and re-emits canonically.
-      const code = gen('class name=Stamp\n  field name=ts type=number value=Date.now');
-      expect(code).toContain('ts: number = Date.now;');
+      // `clock.now` parses as a member-access ValueIR node and re-emits canonically.
+      const code = gen('class name=Stamp\n  field name=ts type=number value=clock.now');
+      expect(code).toContain('ts: number = clock.now;');
     });
 
     it('{{ expr }} ExprObject form is emitted raw (escape hatch)', () => {
@@ -40,11 +40,11 @@ describe('field.value — slice 3b (native ValueIR form)', () => {
         mk('field', {
           name: 'ts',
           type: 'number',
-          value: { __expr: true, code: 'Date.now()' },
+          value: { __expr: true, code: 'clock.now()' },
         }),
       ]);
       const code = generateCoreNode(node).join('\n');
-      expect(code).toContain('ts: number = Date.now();');
+      expect(code).toContain('ts: number = clock.now();');
     });
 
     it('quoted-string value (__quotedProps tracks "value") emits as JSON literal', () => {
@@ -93,12 +93,12 @@ describe('field.value — slice 3b (native ValueIR form)', () => {
         mk('field', {
           name: 'now',
           type: 'number',
-          value: { __expr: true, code: 'Date.now()' },
+          value: { __expr: true, code: 'clock.now()' },
         }),
       ]);
       const code = generateCoreNode(node).join('\n');
       expect(code).toContain('now?: number;');
-      expect(code).toContain('now: Date.now(),');
+      expect(code).toContain('now: clock.now(),');
     });
   });
 
@@ -227,14 +227,14 @@ describe('field.value — slice 3b (native ValueIR form)', () => {
       const fieldNode = mk('field', {
         name: 'now',
         type: 'number',
-        value: { __expr: true, code: 'Date.now()' },
+        value: { __expr: true, code: 'clock.now()' },
       });
       const text = decompile(fieldNode).code;
       // Generic JSON.stringify would emit `value={"__expr":true,...}`; renderField
-      // emits `value={{Date.now()}}` — re-parseable.
-      expect(text).toContain('value={{Date.now()}}');
+      // emits `value={{clock.now()}}` - re-parseable.
+      expect(text).toContain('value={{clock.now()}}');
       const reCode = fieldRoundTripCode(fieldNode);
-      expect(reCode).toContain('now: number = Date.now();');
+      expect(reCode).toContain('now: number = clock.now();');
     });
 
     it('field with default={{ expr }} round-trips through decompile', () => {

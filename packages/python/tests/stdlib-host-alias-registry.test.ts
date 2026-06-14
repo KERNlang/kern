@@ -1,5 +1,10 @@
 import { spawnSync } from 'node:child_process';
-import { emitExpression, emitNativeKernBodyTSWithImports, parseExpression } from '@kernlang/core';
+import {
+  HOST_NAMESPACE_EXEMPT_ROOTS,
+  emitExpression,
+  emitNativeKernBodyTSWithImports,
+  parseExpression,
+} from '@kernlang/core';
 import { emitNativeKernBodyPythonWithImports, emitPyExpressionWithImports } from '../src/codegen-body-python.js';
 
 const pythonAvailable = (() => {
@@ -265,13 +270,42 @@ describeIfPython('Milestone A stdlib host aliases — reserved namespace and fai
   });
 
   test.each([
-    'Date.now()',
-    'console.log("x")',
-    'process.env.HOME',
+    ['Date.now()', /Unsupported host namespace in (TypeScript|Python) expression: Date\.now .*not registered/],
+    ['console.log("x")', /Unsupported host namespace in (TypeScript|Python) expression: console\.log .*not registered/],
+    ['process.env.HOME', /Unsupported host namespace in (TypeScript|Python) expression: process\.env .*not registered/],
+    ['Promise.all(ps)', /Unsupported host namespace in (TypeScript|Python) expression: Promise\.all .*not registered/],
+    ['globalThis.location', /Unsupported host namespace in (TypeScript|Python) expression: globalThis\.location .*not registered/],
+    ['console["log"]("x")', /Unsupported host namespace in (TypeScript|Python) expression: console\.log .*not registered/],
+  ])('%s fails closed on both emitted targets', (expr, message) => {
+    expect(() => emitNativeKernBodyTSWithImports(letHandler(expr))).toThrow(message);
+    expect(() => emitNativeKernBodyPythonWithImports(letHandler(expr))).toThrow(message);
+  });
+
+  test.each([
     'Math.random()',
     'Math["random"]()',
-  ])('%s stays fail-closed', (expr) => {
-    expect(() => emitNativeKernBodyPythonWithImports(letHandler(expr))).toThrow();
+  ])('%s stays reserved to the stdlib registry on both emitted targets', (expr) => {
+    expect(() => emitNativeKernBodyTSWithImports(letHandler(expr))).toThrow(/Unknown KERN-stdlib method\/member/);
+    expect(() => emitNativeKernBodyPythonWithImports(letHandler(expr))).toThrow(/Unknown KERN-stdlib method\/member/);
+  });
+
+  test('RegExp remains exempt from host-namespace fail-closing on both emitted targets', () => {
+    expect(HOST_NAMESPACE_EXEMPT_ROOTS.has('RegExp')).toBe(true);
+    expect(emitNativeKernBodyTSWithImports(letHandler('RegExp.escape(s)')).code).toContain('RegExp.escape(s)');
+    expect(emitNativeKernBodyPythonWithImports(letHandler('RegExp.escape(s)')).code).toContain('RegExp.escape(s)');
+  });
+
+  test('user bindings named like host roots shadow the host namespace on both targets', () => {
+    const handler: IRNode = {
+      type: 'handler',
+      props: { lang: 'kern' },
+      children: [
+        { type: 'let', props: { name: 'Date', value: 'clock' } },
+        { type: 'let', props: { name: 'r', value: 'Date.now()' } },
+      ],
+    };
+    expect(emitNativeKernBodyTSWithImports(handler).code).toContain('const r = Date.now();');
+    expect(emitNativeKernBodyPythonWithImports(handler).code).toContain('r = Date.now()');
   });
 
   test.each([

@@ -47,6 +47,7 @@ import {
   emitStringKeyArray,
   instanceofRhsPythonType,
   instanceofRhsRejectReasonForName,
+  isHostNamespaceRoot,
   isPostfixMutationOperator,
   isSupportedAssignOperator,
   KERN_STDLIB_MODULES,
@@ -57,6 +58,7 @@ import {
   parseExpression,
   parseKeys,
   suggestStdlibMethod,
+  unmappedHostNamespaceMessage,
 } from '@kernlang/core';
 // Slice 0.9 — the TypeScript-AST closure helpers + classifier live on the Node
 // subpath (the barrel is browser-safe). Python codegen is Node-side and parses
@@ -3012,7 +3014,7 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   // so they never reach here; user receivers (`client.send(...)`) and a
   // proven-local `Math` are not host-namespace-shaped / are user-bound and pass
   // through. Capitalization-agnostic: equally catches `console.log(...)`,
-  // `Promise.all(...)`, `RegExp.escape(...)`.
+  // `Promise.all(...)`, and lowercase host roots such as `process.env`.
   if (node.callee.kind === 'member' && node.callee.object.kind === 'ident') {
     rejectUnmappedHostNamespacePython(node.callee.object.name, node.callee.property, ctx);
   }
@@ -3683,70 +3685,10 @@ function mapBinaryOpToPython(op: string): string {
   }
 }
 
-/** Slice H — reserved HOST-NAMESPACE roots whose member calls/reads have no
- *  portable Python lowering in this AST layer.
- *
- *  TRIGGER-PREDICATE design (why a curated NAME set, not a shape heuristic):
- *  the predicate must be capitalization-AGNOSTIC and must NOT be the hardcoded
- *  four `{Math,JSON,Object,Date}` — so it equally catches `Promise.all`,
- *  `RegExp.escape`, `console.log`, `process.env`, `globalThis.x`. A pure
- *  PascalCase shape rule (`/^[A-Z]/`) was tried and REJECTED: it cannot
- *  separate host globals (`Math`, `Promise`) from PascalCase USER types/enums
- *  that legitimately emit verbatim member access (`Result.ok`, `Result.err`,
- *  `Flag.Ready`, `PaymentStatus.Paid`, `Shape.area`). Those user types are
- *  declared as `union`/`enum`/`error`/`type`/`class` IR nodes — declarations
- *  the body emitter's VALUE-only scope model does not track — so shape is the
- *  ONLY signal a heuristic has, and shape provably misclassifies them. A
- *  curated set of actual host globals is the correct structural signal: user
- *  types are simply never in it, so they pass through untouched, while the host
- *  globals (any casing) fail closed. This is "no hardcoded FOUR allowlist" by
- *  breadth (Promise/RegExp/Reflect/Symbol/Array/console/process/… included),
- *  not by enumerating only the spec's four.
- *
- *  This set is a DETECTION list, not a remediation registry — milestone A's
- *  `KERN_STDLIB_MODULES` extension is where real portable lowerings live. A
- *  host global NOT yet in this set fails OPEN (emits verbatim, the pre-slice
- *  behavior) rather than crashing codegen — a non-regression, not a new bug;
- *  the registry is the principled fix. Excludes the KERN canonical stdlib
- *  modules by construction (they are KERN's own namespaces, lowered by
- *  `applyStdlibLoweringPython` before this guard ever runs). */
-const RESERVED_HOST_NAMESPACE_ROOTS: ReadonlySet<string> = new Set([
-  // The spec's four reserved host roots.
-  'Math',
-  'JSON',
-  'Object',
-  'Date',
-  // Tribunal-named additional host roots (proving this is not the four-root
-  // allowlist) + the high-frequency JS host globals with no portable Python.
-  'Promise',
-  'RegExp',
-  'Reflect',
-  'Symbol',
-  'Array',
-  'WeakMap',
-  'WeakSet',
-  'Proxy',
-  'BigInt',
-  // Conventionally LOWERCASE host globals — the capitalization-agnostic half.
-  'console',
-  'process',
-  'globalThis',
-  'crypto',
-  // Review hardening (codex 0.95): host static-API roots named by review as
-  // still failing open. Same curated-set discipline — added by evidence, not
-  // by shape heuristic.
-  'Intl',
-  'URL',
-]);
-
-/** Slice H — is `name` a reserved host-namespace root (capitalization-agnostic
- *  membership in the curated set above)? Canonical KERN stdlib modules are
- *  never host roots and are excluded as defense in depth (they are also
- *  pre-empted by `applyStdlibLoweringPython`). */
-function isHostNamespaceRoot(name: string): boolean {
-  if (KERN_STDLIB_MODULES.has(name)) return false;
-  return RESERVED_HOST_NAMESPACE_ROOTS.has(name);
-}
+/** Slice H — the host-namespace root set and diagnostic now live in core's
+ *  shared codegen module so TS and Python reject the same unmapped host roots
+ *  in lockstep. RegExp is intentionally exempt in that shared set for
+ *  Milestone B. */
 
 /** Slice H — is `name` PROVEN to be a user binding in the current expression
  *  context?
@@ -3799,12 +3741,7 @@ function isProvenUserBinding(ctx: BodyEmitContext, name: string): boolean {
 function rejectUnmappedHostNamespacePython(root: string, member: string, ctx: BodyEmitContext): null {
   if (!isHostNamespaceRoot(root)) return null;
   if (isProvenUserBinding(ctx, root)) return null;
-  throw new Error(
-    `Unsupported host namespace in Python expression: ${root}.${member} is not registered for portable lowering in this context. ` +
-      `Use a KERN stdlib call such as Number.floor/Json.parse when available, or bind a target-specific value explicitly. ` +
-      `(If you meant a user value, bind or rename '${root}' in scope; this host API awaits the KERN stdlib registry — ` +
-      `extend KERN_STDLIB_MODULES to add a portable lowering.)`,
-  );
+  throw new Error(unmappedHostNamespaceMessage('Python', root, member));
 }
 
 /** Slice 2a — KERN-stdlib dispatch for Python. Returns the lowered Python

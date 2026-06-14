@@ -3004,7 +3004,7 @@ describe('native kern test runner', () => {
       join(tmpDir, 'roundtrip.kern'),
       [
         'param name=attempts type=number value=3',
-        'param name=ts type=number value={{Date.now()}}',
+        'param name=ts type=number value=7',
         'param name=name type=string value="world"',
         `param name=kind type="'draft'|'done'"`,
         'param name=salutation type=string optional=true',
@@ -3026,7 +3026,7 @@ describe('native kern test runner', () => {
         'test name="Roundtrip assertions" target="./roundtrip.kern"',
         '  it name="checks decompiled source"',
         '    expect decompile contains="param name=attempts type=number value=3"',
-        '    expect decompile contains="value={{Date.now()}}"',
+        '    expect decompile contains="value=7"',
         '    expect decompile contains="value=\\"world\\""',
         '    expect decompile contains="type=\\"\'draft\'|\'done\'\\""',
         '    expect decompile contains="optional=true"',
