@@ -301,58 +301,114 @@ describe('Slice 3b FIX 2 — .match named-group `undefined -> null` normalizatio
   });
 });
 
-describe('Slice 3b FIX 3 — let-bound regex lowers IDENTICALLY to a direct literal (both targets)', () => {
-  // BODY-level: a `let re = /…/; s.match(re)` must resolve `re` to its literal and
-  // lower through the SAME canonical adapter as a direct `s.match(/…/)`. Python
-  // already resolved the binding (`regexScopes`); the TS body emitter now does too
-  // (the Slice-3b parity fix). Approach taken: thread a regex-binding table into
-  // the TS body emitter and resolve the ident at the body level — Approach B
-  // (Python ALSO emits raw) was rejected because Python's str has no `.match`, so
-  // "both raw" would CRASH Python, not achieve parity.
-  // REVERT-CHECK vs 7bd5b2dc: TS emitted raw `s.match(re)` (no adapter) for the
-  // let-bound case while Python lowered canonically.
-  test('let re = /(g1)-(g2)/; s.match(re) → canonical adapter (TS) == direct literal', () => {
-    const letBound = tsBody([
-      { type: 'let', props: { name: 're', kind: 'const', value: '/([0-9]+)-([0-9]+)/' } } as IRNode,
-      { type: 'do', props: { value: 's.match(re)' } } as IRNode,
-    ]);
-    const direct = ts('s.match(/([0-9]+)-([0-9]+)/)');
-    // the let-bound body lowers the call exactly like the direct literal.
-    expect(letBound).toContain(direct);
-    // and NOT the raw `s.match(re)` (the pre-fix divergent shape).
-    expect(letBound).not.toContain('s.match(re)');
-  });
+describe('Slice 3c — let-bound regex method DETECT-and-fail-close (drop the fragile resolve-to-literal)', () => {
+  // BODY-level CONTRACT (Slice-3c, replaces the Slice-3b "resolve-to-literal" FIX 3):
+  // a regex method on a variable KNOWN to hold a regex (`let re = /…/; s.match(re)`)
+  // is NOT portable, so BOTH targets DETECT the case (via the shared
+  // `regexMethodRegexArgIdent` shape detector + each target's binding table) and
+  // throw the SAME `REGEX_NONLITERAL_FAILCLOSE` — symmetric, no substitution, no
+  // stale-literal emission. A DIRECT literal still lowers canonically; a
+  // string-/unknown-bound ident stays a PLAIN host method (NOT fail-closed).
+  // WHY the change: the old resolve-to-literal substitution emitted a STALE pattern
+  // after a reassignment (`let re=/a/; re=/b/; s.match(re)` wrongly lowered `/a/`)
+  // and risked fail-closing common string methods.
+  const NONLIT =
+    'Portable regex methods (.match/.matchAll/.replace/.replaceAll/.split/.test/.exec) require a DIRECT regex literal (`/…/`) in the regex position; a variable bound to a regex is not portable across targets — inline the literal at the call site.';
 
-  // Python side already canonical-lowered let-bound regexes; assert it still does
-  // (the parity invariant is "both do the same thing").
-  test('let re = /…/; s.match(re) → _kern_regex_match helper (Python)', () => {
-    const out = pyBody([
-      { type: 'let', props: { name: 're', kind: 'const', value: '/([0-9]+)-([0-9]+)/' } } as IRNode,
-      { type: 'do', props: { value: 's.match(re)' } } as IRNode,
-    ]);
-    expect(out).toContain('_kern_regex_match("([0-9]+)-([0-9]+)", s, __k_re.ASCII)');
-  });
-
-  // let-bound zero-width `.split` fail-closes IDENTICALLY on both targets.
-  test('let rx = /x*/; s.split(rx) → symmetric fail-close (both targets)', () => {
+  // kills: naive_bound_resolve — an impl that RESOLVES the let-bound ident to its
+  // literal (the old FIX 3) and lowers canonically instead of fail-closing.
+  test('let re = /(g1)-(g2)/; s.match(re) → symmetric fail-close (both targets)', () => {
     const children = [
-      { type: 'let', props: { name: 'rx', kind: 'const', value: '/x*/' } } as IRNode,
-      { type: 'do', props: { value: 's.split(rx)' } } as IRNode,
+      { type: 'let', props: { name: 're', kind: 'const', value: '/([0-9]+)-([0-9]+)/' } } as IRNode,
+      { type: 'do', props: { value: 's.match(re)' } } as IRNode,
     ];
-    expect(() => tsBody(children)).toThrow(ZW_SPLIT);
-    expect(() => pyBody(children)).toThrow(ZW_SPLIT);
+    expect(() => tsBody(children)).toThrow(NONLIT);
+    expect(() => pyBody(children)).toThrow(NONLIT);
   });
 
-  // let-bound `.test(/g)` fail-closes IDENTICALLY on both targets.
-  test('let rg = /a/g; rg.test(s) → symmetric fail-close (both targets)', () => {
+  // A DIRECT regex literal in the same body still lowers canonically (unchanged).
+  test('s.match(/(g1)-(g2)/) direct literal → canonical lowering, NOT fail-close (both targets)', () => {
+    const tsOut = tsBody([{ type: 'do', props: { value: 's.match(/([0-9]+)-([0-9]+)/)' } } as IRNode]);
+    expect(tsOut).toContain(ts('s.match(/([0-9]+)-([0-9]+)/)'));
+    const pyOut = pyBody([{ type: 'do', props: { value: 's.match(/([0-9]+)-([0-9]+)/)' } } as IRNode]);
+    expect(pyOut).toContain('_kern_regex_match("([0-9]+)-([0-9]+)", s, __k_re.ASCII)');
+  });
+
+  // THE REGRESSION the prior agent caught: a STRING/UNKNOWN-bound ident in the
+  // regex position is NOT a regex method — it stays a PLAIN host method on BOTH
+  // targets. `let needle = getX(); s.match(needle)` must NOT fail-close and must
+  // NOT be canonical-lowered.
+  test('let needle = getX(); s.match(needle) (unknown binding) → stays PLAIN s.match(needle) (both targets)', () => {
     const children = [
-      { type: 'let', props: { name: 'rg', kind: 'const', value: '/a/g' } } as IRNode,
+      { type: 'let', props: { name: 'needle', kind: 'const', value: 'getX()' } } as IRNode,
+      { type: 'do', props: { value: 's.match(needle)' } } as IRNode,
+    ];
+    // No throw on either target.
+    const tsOut = tsBody(children);
+    const pyOut = pyBody(children);
+    // Plain host method, ident passed through verbatim — NOT the canonical adapter.
+    expect(tsOut).toContain('s.match(needle);');
+    expect(tsOut).not.toContain('__m');
+    expect(pyOut).toContain('s.match(needle)');
+    expect(pyOut).not.toContain('_kern_regex_match');
+  });
+
+  // A STRING-literal-bound ident is likewise a plain string method (not regex).
+  test('let needle = "ab"; s.match(needle) (string binding) → stays PLAIN (both targets)', () => {
+    const children = [
+      { type: 'let', props: { name: 'needle', kind: 'const', value: '"ab"' } } as IRNode,
+      { type: 'do', props: { value: 's.match(needle)' } } as IRNode,
+    ];
+    expect(tsBody(children)).toContain('s.match(needle);');
+    expect(pyBody(children)).toContain('s.match(needle)');
+    expect(pyBody(children)).not.toContain('_kern_regex_match');
+  });
+
+  // REASSIGN-INVALIDATION: `let re=/a/; re=/b/; s.match(re)` keeps `re` a regex
+  // binding (reassigned to another literal), so it STILL fail-closes — and never
+  // emits the stale `/a/` literal the old resolve-to-literal approach would have.
+  test('let re=/a/; re=/b/; s.match(re) → STILL fail-close, no stale literal (both targets)', () => {
+    const children = [
+      { type: 'let', props: { name: 're', kind: 'let', value: '/a/' } } as IRNode,
+      { type: 'assign', props: { target: 're', value: '/b/' } } as IRNode,
+      { type: 'do', props: { value: 's.match(re)' } } as IRNode,
+    ];
+    expect(() => tsBody(children)).toThrow(NONLIT);
+    expect(() => pyBody(children)).toThrow(NONLIT);
+  });
+
+  // REASSIGN to a NON-regex UNMARKS the binding: `let re=/a/; re=getX(); s.match(re)`
+  // is no longer a known regex → stays a PLAIN host method (no fail-close, no stale).
+  test('let re=/a/; re=getX(); s.match(re) → reassign to non-regex UNMARKS → stays PLAIN (both targets)', () => {
+    const children = [
+      { type: 'let', props: { name: 're', kind: 'let', value: '/a/' } } as IRNode,
+      { type: 'assign', props: { target: 're', value: 'getX()' } } as IRNode,
+      { type: 'do', props: { value: 's.match(re)' } } as IRNode,
+    ];
+    expect(tsBody(children)).toContain('s.match(re);');
+    expect(pyBody(children)).toContain('s.match(re)');
+    expect(pyBody(children)).not.toContain('_kern_regex_match');
+  });
+
+  // Receiver-positioned regex method on a bound regex ident also fail-closes.
+  test('let rg = /a/; rg.test(s) → symmetric fail-close (both targets)', () => {
+    const children = [
+      { type: 'let', props: { name: 'rg', kind: 'const', value: '/a/' } } as IRNode,
       { type: 'do', props: { value: 'rg.test(s)' } } as IRNode,
     ];
-    const TEST_G =
-      "Python target does not lower RegExp.test with the 'g' flag: JS mutates lastIndex across calls while re.search is stateless. Use .matchAll (global) for stateful iteration.";
-    expect(() => tsBody(children)).toThrow(TEST_G);
-    expect(() => pyBody(children)).toThrow(TEST_G);
+    expect(() => tsBody(children)).toThrow(NONLIT);
+    expect(() => pyBody(children)).toThrow(NONLIT);
+  });
+
+  // Nested-position fail-close: a regex method on a bound regex ident nested inside
+  // a larger expression is still detected (the recursive walk reaches it).
+  test('let re = /a/; let m = f(s.match(re)) → fail-close (nested, both targets)', () => {
+    const children = [
+      { type: 'let', props: { name: 're', kind: 'const', value: '/a/' } } as IRNode,
+      { type: 'let', props: { name: 'm', kind: 'const', value: 'f(s.match(re))' } } as IRNode,
+    ];
+    expect(() => tsBody(children)).toThrow(NONLIT);
+    expect(() => pyBody(children)).toThrow(NONLIT);
   });
 });
 

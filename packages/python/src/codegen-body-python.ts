@@ -62,11 +62,13 @@ import {
   parseKeys,
   REGEX_EXEC_FAILCLOSE,
   REGEX_MATCHALL_NO_G_FAILCLOSE,
+  REGEX_NONLITERAL_FAILCLOSE,
   REGEX_REPLACEALL_NO_G_FAILCLOSE,
   REGEX_SPLIT_LIMIT_FAILCLOSE,
   REGEX_SPLIT_ZEROWIDTH_FAILCLOSE,
   REGEX_TEST_G_FAILCLOSE,
   regexIFoldFailMessage,
+  regexMethodRegexArgIdent,
   suggestStdlibMethod,
 } from '@kernlang/core';
 // Slice 0.9 — the TypeScript-AST closure helpers + classifier live on the Node
@@ -1585,7 +1587,16 @@ function emitAssignPy(node: IRNode, ctx: BodyEmitContext): string[] {
       `Propagation \`${valueIR.op}\` is not supported in \`assign value=\` — bind to \`let\` first, then assign.`,
     );
   }
+  // Emit FIRST (its `emitPyExprCtx` lowering fail-closes a regex method on a
+  // bound regex ident) so the RHS is checked against the PRE-reassignment table
+  // (`re = s.match(re)` must still see `re` as a regex). Mirrors the TS leg.
   const stmt = `${emitPyExprCtx(targetIR, ctx)} ${rawOp} ${emitPyExprCtx(valueIR, ctx)}`;
+  // Reassign-invalidation (Slice-3c): keep the regex-binding table honest. A
+  // plain `=` to a direct regex literal stays a regex binding (still
+  // fail-closed); any compound op (`+=`, …) or non-regex RHS UNMARKS it.
+  if (targetIR.kind === 'ident') {
+    rebindRegexOnReassign(ctx, targetIR.name, rawOp === '=' ? valueIR : { kind: 'undefLit' });
+  }
   // Differential-harness opt-in (see BodyEmitOptions.traceHooks.letAssign): the
   // `assign` contract observes a reassignment via the same `{op:"assign"}` event
   // a `let` declaration emits. Scoped to identifier targets — the contract
@@ -1620,6 +1631,23 @@ function lookupRegexBinding(ctx: BodyEmitContext, name: string): Extract<ValueIR
     if (scope.has(name)) return scope.get(name) ?? null;
   }
   return null;
+}
+
+/** Reassign-invalidation: when a tracked ident is REASSIGNED (`assign
+ *  target=re value=…`), update its regex marking IN THE SCOPE THAT OWNS IT (not
+ *  the innermost scope — that would shadow and leak past the inner block).
+ *  Reassigned to a direct `regexLit` → stays a regex binding (still fail-closed);
+ *  reassigned to anything else → UNMARK. Mirrors the TS `rebindRegexOnReassign`,
+ *  so the stale-binding class dies symmetrically on both targets. */
+function rebindRegexOnReassign(ctx: BodyEmitContext, name: string, valueIR: ValueIR): void {
+  const next = valueIR.kind === 'regexLit' ? valueIR : null;
+  for (let i = ctx.regexScopes.length - 1; i >= 0; i--) {
+    const scope = ctx.regexScopes[i];
+    if (scope.has(name)) {
+      scope.set(name, next);
+      return;
+    }
+  }
 }
 
 function assertAssignableLocalTarget(target: ValueIR, ctx: BodyEmitContext): void {
@@ -3456,6 +3484,16 @@ function lowerRegexCallPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: Bod
     return null;
   }
 
+  // Slice-3c DETECT-and-fail-close: a regex method whose regex position holds an
+  // ident KNOWN to be regex-bound (`let re = /…/; s.match(re)`) is NOT portable —
+  // throw the SAME shared `REGEX_NONLITERAL_FAILCLOSE` the TS target throws (see
+  // `assertNoBoundRegexMethodTS` in body-ts.ts). A string-/unknown-bound ident is
+  // NOT flagged: it falls through to the plain host method below (`s.match(needle)`).
+  const regexArgIdent = regexMethodRegexArgIdent(call);
+  if (regexArgIdent !== null && lookupRegexBinding(ctx, regexArgIdent) !== null) {
+    throw new Error(REGEX_NONLITERAL_FAILCLOSE);
+  }
+
   // --- Receiver-is-regex shapes: `regex.test(s)`, `regex.exec(s)` ---
   const receiverRegex = resolveRegexExpr(callee.object, ctx);
   if (callee.property === 'test' && receiverRegex !== null) {
@@ -3539,9 +3577,15 @@ function lowerRegexCallPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: Bod
   return null;
 }
 
-function resolveRegexExpr(node: ValueIR, ctx: BodyEmitContext): Extract<ValueIR, { kind: 'regexLit' }> | null {
+function resolveRegexExpr(node: ValueIR, _ctx: BodyEmitContext): Extract<ValueIR, { kind: 'regexLit' }> | null {
+  // Slice-3c: ONLY a DIRECT regex literal lowers canonically. A let-bound regex
+  // ident no longer RESOLVES to its literal here (the old `lookupRegexBinding`
+  // resolution emitted a STALE pattern when the binding was reassigned and was
+  // fragile to track). The fail-close for a known-regex-bound ident is made by
+  // `lowerRegexCallPython` via the shared `regexMethodRegexArgIdent` detector —
+  // symmetric with the TS target. A string-/unknown-bound ident returns null
+  // and stays a plain host method (the `s.match(stringVar)` case).
   if (node.kind === 'regexLit') return node;
-  if (node.kind === 'ident') return lookupRegexBinding(ctx, node.name);
   return null;
 }
 

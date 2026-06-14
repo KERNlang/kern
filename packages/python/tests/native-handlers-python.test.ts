@@ -96,7 +96,6 @@ describe('emitPyExpression — slice 1 lowering rules', () => {
       { type: 'let', props: { name: 'pattern', value: '/^ok$/i' } },
       { type: 'let', props: { name: 'ok', value: '/^ok$/i.test(value)' } },
       { type: 'let', props: { name: 'negated', value: '!/^ok$/i.test(value)' } },
-      { type: 'let', props: { name: 'bound', value: 'pattern.test(value)' } },
       { type: 'let', props: { name: 'clean', value: 'value.replace(/\\s+/g, " ")' } },
     ]);
     const result = emitNativeKernBodyPythonWithImports(h);
@@ -106,17 +105,30 @@ describe('emitPyExpression — slice 1 lowering rules', () => {
     // `\Aok\Z` with `IGNORECASE | ASCII`, and `/\s+/g` normalizes `\s`→ the ASCII
     // whitespace class with `ASCII` flags (the `g` becomes count=0 in re.sub).
     expect(result.code).toContain('pattern = __k_re.compile("\\\\Aok\\\\Z", __k_re.IGNORECASE | __k_re.ASCII)');
+    // DIRECT literal `.test` — lowers canonically (unchanged Slice-1/3 behavior).
     expect(result.code).toContain('__k_re.search("\\\\Aok\\\\Z", value, __k_re.IGNORECASE | __k_re.ASCII) is not None');
     // Slice S4 — `!x` consumes KERN ToBoolean: `(not _kern_truthy(...))`.
     expect(result.code).toContain(
       '(not _kern_truthy((__k_re.search("\\\\Aok\\\\Z", value, __k_re.IGNORECASE | __k_re.ASCII) is not None)))',
     );
     expect(result.code).toContain(
-      'bound = (__k_re.search("\\\\Aok\\\\Z", value, __k_re.IGNORECASE | __k_re.ASCII) is not None)',
-    );
-    expect(result.code).toContain(
       '__k_re.sub("[ \\\\t\\\\n\\\\r\\\\f\\\\v]+", " ", value, count=0, flags=__k_re.ASCII)',
     );
+  });
+
+  test('Slice-3c — a regex method on a LET-BOUND regex ident fails closed (was resolve-to-literal)', () => {
+    // Slice-3c contract change: `let pattern = /^ok$/i; pattern.test(value)` is a
+    // regex method on a variable KNOWN to hold a regex — NOT portable. It now
+    // DETECT-and-fail-closes (symmetric with TS) instead of resolving `pattern`
+    // back to its literal and lowering canonically (the dropped, fragile FIX-3
+    // that emitted a STALE pattern after a reassignment).
+    const NONLIT =
+      'Portable regex methods (.match/.matchAll/.replace/.replaceAll/.split/.test/.exec) require a DIRECT regex literal (`/…/`) in the regex position; a variable bound to a regex is not portable across targets — inline the literal at the call site.';
+    const h = makeHandler([
+      { type: 'let', props: { name: 'pattern', value: '/^ok$/i' } },
+      { type: 'let', props: { name: 'bound', value: 'pattern.test(value)' } },
+    ]);
+    expect(() => emitNativeKernBodyPythonWithImports(h)).toThrow(NONLIT);
   });
 
   test('regex lowering rejects JS-only match and flag semantics on Python target', () => {

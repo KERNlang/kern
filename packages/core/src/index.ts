@@ -72,11 +72,15 @@ export {
   // byte-identically by both emitters).
   REGEX_EXEC_FAILCLOSE,
   REGEX_MATCHALL_NO_G_FAILCLOSE,
+  // Milestone C, Slice 3c — let-bound regex detect-and-fail-close (shared
+  // message + shared shape detector, used symmetrically by both emitters).
+  REGEX_NONLITERAL_FAILCLOSE,
   REGEX_REPLACEALL_NO_G_FAILCLOSE,
   REGEX_SPLIT_LIMIT_FAILCLOSE,
   REGEX_SPLIT_ZEROWIDTH_FAILCLOSE,
   REGEX_TEST_G_FAILCLOSE,
   regexIFoldFailMessage,
+  regexMethodRegexArgIdent,
 } from './codegen/regex-normalize.js';
 export type { KernStdlibUsage } from './codegen/stdlib-preamble.js';
 // Slice 4 layer 2 — Result / Option compact form preamble (TS-family targets)

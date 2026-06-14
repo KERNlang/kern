@@ -176,6 +176,7 @@ export function lowerRegexAnchorsPython(pattern: string, flags: string): string 
  * pattern so the expansion is byte-identical across targets by construction.
  * ------------------------------------------------------------------------- */
 
+import type { ValueIR } from '../value-ir.js';
 import { SET_A_MEMBERS, SET_B } from './regex-fold-table.js';
 
 /**
@@ -485,6 +486,64 @@ export const REGEX_SPLIT_ZEROWIDTH_FAILCLOSE =
   'Python target does not lower String.split with a zero-width-capable pattern: JS drops empty edge segments while re.split keeps them. Use a pattern that cannot match the empty string.';
 export const REGEX_SPLIT_LIMIT_FAILCLOSE =
   'Python target does not lower String.split with a limit argument: JS truncates the result while Python maxsplit keeps the unsplit remainder.';
+export const REGEX_NONLITERAL_FAILCLOSE =
+  'Portable regex methods (.match/.matchAll/.replace/.replaceAll/.split/.test/.exec) require a DIRECT regex literal (`/…/`) in the regex position; a variable bound to a regex is not portable across targets — inline the literal at the call site.';
+
+/* ----------------------------------------------------------------------------
+ * Milestone C, Slice 3c — let-bound regex DETECTOR (drop the fragile
+ * resolve-to-literal).
+ *
+ * The Slice-3 regex lowering only knows how to lower a DIRECT regex literal in
+ * the regex position. A regex bound to a variable (`let re = /…/; s.match(re)`)
+ * was previously RESOLVED back to its literal (TS via a node-clone substitution,
+ * Python via `resolveRegexExpr` following the ident) so it would lower
+ * canonically — but that substitution emits a STALE pattern when the binding is
+ * later reassigned and is fragile to track. We instead DETECT the case and
+ * fail-close SYMMETRICALLY on both targets.
+ *
+ * {@link regexMethodRegexArgIdent} returns the NAME of the identifier sitting in
+ * the regex POSITION of a regex-method call — but ONLY when that position holds
+ * a bare ident (not a literal, not an arbitrary expression). The caller then
+ * asks ITS OWN binding table whether that name is a known regex binding:
+ *   - known regex binding  -> throw `REGEX_NONLITERAL_FAILCLOSE` (symmetric).
+ *   - string/unknown ident -> stays a plain host method (the `s.match(needle)`
+ *     string-method case the resolve-to-literal approach must NOT break).
+ * A direct regex literal never reaches this helper (returns null), so the
+ * canonical Slice-3 lowering is unaffected.
+ *
+ * Arity/position conditions MIRROR the lowering shapes EXACTLY (so the detector
+ * never fires on a shape the lowering would have left as a plain host call):
+ *   - receiver position: `re.test(s)` (1 arg), `re.exec(s)`
+ *   - first-arg position: `s.match(re)` / `s.matchAll(re)` (1 arg),
+ *     `s.split(re)` (>=1 arg), `s.replace(re,r)` / `s.replaceAll(re,r)` (2 args)
+ * ------------------------------------------------------------------------- */
+const REGEX_RECEIVER_METHODS = new Set(['test', 'exec']);
+
+/** If `call` is a regex-method shape whose regex position is a bare IDENT,
+ *  return that ident's name; otherwise null. Pure structural peek — no binding
+ *  table, no resolution. Shared by both targets so the fail-close decision is
+ *  made from the SAME shape analysis on each side. */
+export function regexMethodRegexArgIdent(call: Extract<ValueIR, { kind: 'call' }>): string | null {
+  const callee = call.callee;
+  if (callee.kind !== 'member') return null;
+  if (callee.optional) return null; // `?.match(…)` — left to plain emit
+  const property = callee.property;
+
+  // Receiver-positioned regex: `re.test(s)` (1 arg), `re.exec(s)`.
+  if (REGEX_RECEIVER_METHODS.has(property)) {
+    if (property === 'test' && call.args.length !== 1) return null;
+    if (callee.object.kind === 'ident') return callee.object.name;
+    return null;
+  }
+
+  // First-arg-positioned regex: arg[0] is the regex.
+  const arg0 = call.args[0];
+  if (arg0 === undefined || arg0.kind !== 'ident') return null;
+  if ((property === 'match' || property === 'matchAll') && call.args.length === 1) return arg0.name;
+  if (property === 'split') return arg0.name;
+  if ((property === 'replace' || property === 'replaceAll') && call.args.length === 2) return arg0.name;
+  return null;
+}
 
 /* ----------------------------------------------------------------------------
  * Milestone C, Slice 3 — SYNTACTIC zero-width-capable predicate.

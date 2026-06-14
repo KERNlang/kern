@@ -64,6 +64,7 @@ function parseExpr(input: string): ReturnType<typeof parseExpression> {
 
 import { emitFmtTemplate, emitIdentifier, emitTypeAnnotation } from './emitters.js';
 import { emitStringKeyArray, parseKeys } from './ground-layer.js';
+import { REGEX_NONLITERAL_FAILCLOSE, regexMethodRegexArgIdent } from './regex-normalize.js';
 import { emitParamList } from './type-system.js';
 
 /** Slice 3e — caller-provided options, parity with the Python body emitter.
@@ -1059,7 +1060,16 @@ function emitAssignTS(node: IRNode, ctx: BodyEmitContext): string[] {
       `Propagation \`${valueIR.op}\` is not supported in \`assign value=\` — bind to \`let\` first, then assign.`,
     );
   }
+  // Emit the statement FIRST (its `emitValueTS` walk fail-closes any regex
+  // method on a bound regex ident) so the RHS is checked against the
+  // PRE-reassignment table (`re = s.match(re)` must still see `re` as a regex).
   const stmt = `${emitValueTS(targetIR, ctx)} ${rawOp} ${emitValueTS(valueIR, ctx)};`;
+  // Reassign-invalidation (Slice-3c): keep the regex-binding table honest. A
+  // plain `=` to a direct regex literal stays a regex binding (still
+  // fail-closed); any compound op (`+=`, …) or non-regex RHS UNMARKS it.
+  if (targetIR.kind === 'ident') {
+    rebindRegexOnReassign(ctx, targetIR.name, rawOp === '=' ? valueIR : { kind: 'undefLit' });
+  }
   // Differential-harness opt-in (see BodyEmitOptions.traceHooks.letAssign): the
   // `assign` contract observes a reassignment via the same `{op:"assign"}` event
   // a `let` declaration emits. Scoped to identifier targets — the contract
@@ -1146,6 +1156,24 @@ function lookupRegexBinding(ctx: BodyEmitContext, name: string): RegexLitIR | nu
   return null;
 }
 
+/** Reassign-invalidation: when a tracked ident is REASSIGNED (`assign
+ *  target=re value=…`), update its regex marking IN THE SCOPE THAT OWNS IT
+ *  (not the innermost scope — that would shadow, leaking past the inner block).
+ *  Reassigned to a direct `regexLit` → stays a regex binding (still fail-closed);
+ *  reassigned to anything else → UNMARK (no longer fail-closed). This kills the
+ *  stale-binding class: a `re = /b/` after `let re = /a/` never lets a prior
+ *  literal leak, and a `re = someString` correctly drops the regex marking. */
+function rebindRegexOnReassign(ctx: BodyEmitContext, name: string, valueIR: ValueIR): void {
+  const next = valueIR.kind === 'regexLit' ? valueIR : null;
+  for (let i = ctx.regexScopes.length - 1; i >= 0; i--) {
+    const scope = ctx.regexScopes[i];
+    if (scope.has(name)) {
+      scope.set(name, next);
+      return;
+    }
+  }
+}
+
 function assertAssignableLocalTarget(target: ValueIR, ctx: BodyEmitContext): void {
   if (target.kind !== 'ident') return;
   const bindingKind = lookupLocalBinding(ctx, target.name);
@@ -1165,48 +1193,94 @@ function lookupLocalBinding(ctx: BodyEmitContext, name: string): 'const' | 'let'
 }
 
 function emitValueTS(node: ValueIR, ctx: BodyEmitContext): string {
-  // Slice-3b parity: the pure-expression TS emitter (`emitExpression`) has no
-  // binding table, so a regex method called on a let-bound regex IDENT
-  // (`let re = /…/; s.match(re)`) would emit raw `s.match(re)` while the Python
-  // target resolved the binding and lowered canonically — a cross-target
-  // divergence. We resolve the ident to its bound `regexLit` HERE (where the
-  // table lives) and substitute it into the call's regex position, so the
-  // existing `lowerRegexCallTS` adapter/fail-close fires identically to a direct
-  // `s.match(/…/)`. Pure pre-pass: returns the node unchanged when there's
-  // nothing to resolve.
-  return emitExpression(resolveRegexBindingInCall(node, ctx));
+  // Slice-3c: DETECT-and-fail-close a regex method called on a let-bound regex
+  // IDENT (`let re = /…/; s.match(re)`). The pure-expression TS emitter
+  // (`emitExpression`) only lowers a DIRECT regex literal in the regex
+  // position; an ident there falls through to a plain host method. The Python
+  // emitter makes the SAME decision (see `lowerRegexCallPython`), so we walk the
+  // IR HERE (where the binding table lives) and throw the SAME shared
+  // `REGEX_NONLITERAL_FAILCLOSE` whenever a regex method's regex position is an
+  // ident the table knows is regex-bound. A string-/unknown-bound ident is NOT
+  // flagged — it stays a plain host method (e.g. `s.match(stringVar)`), the
+  // common case the old resolve-to-literal substitution must never have broken.
+  assertNoBoundRegexMethodTS(node, ctx);
+  return emitExpression(node);
 }
 
-/** Method names where the regex argument is positioned differently. */
-const REGEX_RECEIVER_METHODS = new Set(['test', 'exec']);
-const REGEX_FIRSTARG_METHODS = new Set(['match', 'matchAll', 'split', 'replace', 'replaceAll']);
+/** Recursively reject any regex-method call whose regex-position operand is an
+ *  ident KNOWN to be regex-bound in scope. Mirrors the per-call-node fail-close
+ *  the Python emitter makes inside `lowerRegexCallPython`, so the rejection is
+ *  symmetric at any nesting depth. Direct regex literals are never idents, so
+ *  the canonical Slice-3 lowering is untouched. */
+function assertNoBoundRegexMethodTS(node: ValueIR, ctx: BodyEmitContext): void {
+  if (node.kind === 'call') {
+    const argName = regexMethodRegexArgIdent(node);
+    if (argName !== null && lookupRegexBinding(ctx, argName) !== null) {
+      throw new Error(REGEX_NONLITERAL_FAILCLOSE);
+    }
+  }
+  forEachValueIRChild(node, (child) => assertNoBoundRegexMethodTS(child, ctx));
+}
 
-/** If `node` is a regex method `call` whose regex position is an IDENT bound to
- *  a regex literal in scope, return a shallow-cloned call with that ident
- *  replaced by the bound `regexLit` IR (so `lowerRegexCallTS` resolves it).
- *  Otherwise return `node` unchanged. Mirrors Python's `resolveRegexExpr`. */
-function resolveRegexBindingInCall(node: ValueIR, ctx: BodyEmitContext): ValueIR {
-  if (node.kind !== 'call') return node;
-  const callee = node.callee;
-  if (callee.kind !== 'member') return node;
-  const property = callee.property;
-  // Receiver-positioned regex: `re.test(s)` / `re.exec(s)`.
-  if (REGEX_RECEIVER_METHODS.has(property) && callee.object.kind === 'ident') {
-    const bound = lookupRegexBinding(ctx, callee.object.name);
-    if (bound !== null) {
-      return { ...node, callee: { ...callee, object: bound } };
-    }
+/** Visit each immediate child `ValueIR` of `node`. Covers every variant of the
+ *  value AST so the regex-method walk reaches calls nested inside any operand
+ *  (args, members, binaries, conditionals, template exprs, object/array
+ *  literals, …). `lambda.bodyBlock` is opaque raw TS text with no parsed IR, so
+ *  it has no child nodes to visit. */
+function forEachValueIRChild(node: ValueIR, visit: (child: ValueIR) => void): void {
+  switch (node.kind) {
+    case 'member':
+      visit(node.object);
+      return;
+    case 'index':
+      visit(node.object);
+      visit(node.index);
+      return;
+    case 'call':
+      visit(node.callee);
+      for (const a of node.args) visit(a);
+      return;
+    case 'lambda':
+      if (node.body) visit(node.body);
+      return;
+    case 'binary':
+      visit(node.left);
+      visit(node.right);
+      return;
+    case 'unary':
+    case 'spread':
+    case 'await':
+    case 'new':
+      visit(node.argument);
+      return;
+    case 'typeAssert':
+    case 'nonNull':
+      visit(node.expression);
+      return;
+    case 'propagate':
+      visit(node.argument);
+      return;
+    case 'tmplLit':
+      for (const e of node.expressions) visit(e);
+      return;
+    case 'objectLit':
+      for (const entry of node.entries) {
+        if ('kind' in entry && entry.kind === 'spread') visit(entry.argument);
+        else visit((entry as { value: ValueIR }).value);
+      }
+      return;
+    case 'arrayLit':
+      for (const item of node.items) visit(item);
+      return;
+    case 'conditional':
+      visit(node.test);
+      visit(node.consequent);
+      visit(node.alternate);
+      return;
+    default:
+      // Leaf nodes (numLit/strLit/boolLit/nullLit/undefLit/regexLit/ident): no children.
+      return;
   }
-  // First-arg-positioned regex: `s.match(re)` / `s.split(re)` / `s.replace(re,r)` / …
-  if (REGEX_FIRSTARG_METHODS.has(property) && node.args.length >= 1 && node.args[0].kind === 'ident') {
-    const bound = lookupRegexBinding(ctx, node.args[0].name);
-    if (bound !== null) {
-      const args = node.args.slice();
-      args[0] = bound;
-      return { ...node, args };
-    }
-  }
-  return node;
 }
 
 function isAssignableTarget(node: ValueIR): boolean {
