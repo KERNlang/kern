@@ -45,6 +45,7 @@ import type { ExprObject, IRNode, ValueIR } from '@kernlang/core';
 import {
   applyTemplate,
   emitStringKeyArray,
+  expandRegexIFold,
   instanceofRhsPythonType,
   instanceofRhsRejectReasonForName,
   isPostfixMutationOperator,
@@ -58,6 +59,7 @@ import {
   normalizeRegexClasses,
   parseExpression,
   parseKeys,
+  regexIFoldFailMessage,
   suggestStdlibMethod,
 } from '@kernlang/core';
 // Slice 0.9 — the TypeScript-AST closure helpers + classifier live on the Node
@@ -3477,10 +3479,23 @@ function pyRegexPattern(node: Extract<ValueIR, { kind: 'regexLit' }>): string {
   // for the class transform, so it is byte-identical across targets):
   //   1. `\d \w \s` → explicit ASCII classes (same `normalizeRegexClasses` both
   //      targets), so Python's Unicode-aware shorthand matches JS's ASCII.
-  //   2. Python-only anchor lowering: on the non-`/m` path `$`→`\Z`, `^`→`\A`
+  //   2. Slice-/i: class-expand non-ASCII Set(A) letters under /i into explicit
+  //      fold classes (Set(B) → throw an identical-to-TS compile error). Runs on
+  //      the SAME shared `expandRegexIFold` the TS emitter calls, AFTER class
+  //      normalization (Slice-1 classes are pure-ASCII → untouched by the fold
+  //      scan) and BEFORE anchor lowering (anchors are ASCII → untouched). Order
+  //      is class → fold → anchors; each touches a disjoint character set, so it
+  //      is parity-safe and byte-identical to TS. `re.IGNORECASE | re.ASCII` is
+  //      kept (handled in pyRegexFlags) — `re.ASCII` is the load-bearing invariant
+  //      that makes KEEP-i safe (it suppresses any Python re-fold of the explicit
+  //      non-ASCII class members).
+  //   3. Python-only anchor lowering: on the non-`/m` path `$`→`\Z`, `^`→`\A`
   //      so Python anchors match JS's input-end/start semantics (`re.ASCII` and
   //      `re.M` are handled in pyRegexFlags). On the `/m` path anchors are kept.
-  const normalized = lowerRegexAnchorsPython(normalizeRegexClasses(unescaped), node.flags);
+  const classed = normalizeRegexClasses(unescaped);
+  const folded = expandRegexIFold(classed, node.flags);
+  if ('failClose' in folded) throw new Error(regexIFoldFailMessage(folded.char));
+  const normalized = lowerRegexAnchorsPython(folded.pattern, node.flags);
   return JSON.stringify(normalized);
 }
 

@@ -12,7 +12,7 @@ import {
 // transform (`\d \w \s` → ASCII classes) must be byte-identical across the TS
 // and Python emitters, so both import it from this one core module. Anchor
 // lowering is Python-only (JS `$`/`^` without `/m` already mean input-end/start).
-import { normalizeRegexClasses } from './codegen/regex-normalize.js';
+import { expandRegexIFold, normalizeRegexClasses, regexIFoldFailMessage } from './codegen/regex-normalize.js';
 import type { ValueIR } from './value-ir.js';
 
 // Slice 2c — extended precedence table covering equality, relational,
@@ -62,12 +62,21 @@ export function emitExpression(node: ValueIR): string {
       return 'null';
     case 'undefLit':
       return 'undefined';
-    case 'regexLit':
+    case 'regexLit': {
       // Slice 1: normalize `\d \w \s` to explicit ASCII classes. Anchors and
       // flags are kept verbatim on TS (JS `$`/`^` without `/m` are already
       // input-anchored; JS shorthand `\d`/`\w` are already ASCII — the `\s`
       // narrowing is the one match-affecting rewrite here).
-      return `/${normalizeRegexClasses(node.pattern)}/${node.flags}`;
+      // Slice-/i: class-expand non-ASCII Set(A) letters under /i (Set(B) → throw),
+      // applied AFTER class-normalization (Slice-1 classes are pure-ASCII, so the
+      // fold scan leaves them untouched) and on the SAME shared transform Python
+      // uses, so the residual pattern is byte-identical across targets. `/i` is
+      // kept in the flags.
+      const classed = normalizeRegexClasses(node.pattern);
+      const folded = expandRegexIFold(classed, node.flags);
+      if ('failClose' in folded) throw new Error(regexIFoldFailMessage(folded.char));
+      return `/${folded.pattern}/${node.flags}`;
+    }
     case 'tmplLit': {
       let out = '`';
       for (let i = 0; i < node.quasis.length; i++) {
