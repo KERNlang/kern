@@ -321,7 +321,10 @@ function emitClassBody(node: IRNode, lines: string[], options?: TopLevelExpressi
   const ctorNode = firstChild(node, 'constructor');
   if (ctorNode) {
     const ctorProps = propsOf<'constructor'>(ctorNode);
-    const ctorParams = emitParamList(ctorNode, { exprCtx: topLevelExprContext(options) });
+    const ctorParams = emitParamList(ctorNode, {
+      exprCtx: topLevelExprContext(options),
+      userBindings: options?.userBindings,
+    });
     const generics = ctorProps.generics ? emitTypeAnnotation(ctorProps.generics, '', ctorNode) : '';
     const ctorCode = classMemberBodyCode(ctorNode);
     lines.push('');
@@ -351,7 +354,7 @@ function emitClassBody(node: IRNode, lines: string[], options?: TopLevelExpressi
   for (const method of kids(node, 'method')) {
     const mp = propsOf<'method'>(method);
     const mname = emitIdentifier(mp.name, 'method', method);
-    const mparams = emitParamList(method, { exprCtx: topLevelExprContext(options) });
+    const mparams = emitParamList(method, { exprCtx: topLevelExprContext(options), userBindings: options?.userBindings });
     const generics = mp.generics ? emitTypeAnnotation(mp.generics, '', method) : '';
     const isAsync = mp.async === 'true' || mp.async === true;
     const isStream = mp.stream === 'true' || mp.stream === true;
@@ -414,7 +417,11 @@ function emitClassBody(node: IRNode, lines: string[], options?: TopLevelExpressi
     const sname = emitIdentifier(sp.name, 'setter', setter);
     const svis = sp.private === 'true' || sp.private === true ? 'private ' : '';
     const sstatic = sp.static === 'true' || sp.static === true ? 'static ' : '';
-    const sparams = emitParamList(setter, { fallback: 'value: unknown', exprCtx: topLevelExprContext(options) });
+    const sparams = emitParamList(setter, {
+      fallback: 'value: unknown',
+      exprCtx: topLevelExprContext(options),
+      userBindings: options?.userBindings,
+    });
     const scode =
       isAbstractClass && isHandlerless(setter) ? abstractThrow('setter', sname) : classMemberBodyCode(setter);
     lines.push('');
@@ -782,6 +789,7 @@ export interface ParamListOptions {
   stripDefaults?: boolean;
   fallback?: string;
   exprCtx?: ExprEmitContext;
+  userBindings?: ReadonlySet<string>;
 }
 
 export function parseParamListFromChildren(paramNodes: IRNode[], options?: ParamListOptions): string {
@@ -833,7 +841,7 @@ export function parseParamListFromChildren(paramNodes: IRNode[], options?: Param
  * per signature; consumers don't need to reconcile partial states.
  */
 export function emitParamList(node: IRNode, options?: ParamListOptions): string {
-  const didValidate = beginIRHostNamespacesValidatedTS(node);
+  const didValidate = beginIRHostNamespacesValidatedTS(node, { userBindings: options?.userBindings });
   try {
     const paramChildren = kids(node, 'param');
     if (paramChildren.length > 0) {

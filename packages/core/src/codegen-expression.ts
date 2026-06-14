@@ -16,6 +16,21 @@ export interface ExprEmitContext {
   validateRawBlock?(rawBlock: string, isUserBinding: (name: string) => boolean): void;
 }
 
+const DIRECT_HOST_CALL_ROOTS: ReadonlySet<string> = new Set([
+  'Date',
+  'Map',
+  'Set',
+  'Promise',
+  'Reflect',
+  'Symbol',
+  'WeakMap',
+  'WeakSet',
+  'Proxy',
+  'BigInt',
+  'Intl',
+  'URL',
+]);
+
 function rejectUnmappedHostNamespaceTS(root: string, member: string, ctx: ExprEmitContext | undefined): void {
   if (!isHostNamespaceRoot(root)) return;
   if (isUserBinding(ctx, root)) return;
@@ -132,7 +147,7 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
         if (!isUserBinding(ctx, node.callee.name) && (node.callee.name === 'Array' || node.callee.name === 'Object')) {
           throwUnknownStdlibMember(node.callee.name, 'call');
         }
-        if (node.callee.name === 'Date') rejectUnmappedHostNamespaceTS(node.callee.name, 'call', ctx);
+        if (DIRECT_HOST_CALL_ROOTS.has(node.callee.name)) rejectUnmappedHostNamespaceTS(node.callee.name, 'call', ctx);
       }
       if (node.callee.kind === 'member') {
         const receiverRoot = hostNamespaceReceiverRoot(node.callee.object);
@@ -188,7 +203,9 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
     }
     case 'new': {
       const ctorRoot = newExpressionRootIdentifier(node.argument);
-      if (ctorRoot) rejectUnmappedHostNamespaceTS(ctorRoot, 'constructor', ctx);
+      if (ctorRoot && !(ctorRoot === 'Error' && isSimpleErrorConstructor(node.argument))) {
+        rejectUnmappedHostNamespaceTS(ctorRoot, 'constructor', ctx);
+      }
       const arg = emitExpression(node.argument, ctx);
       const wrapped = needsPrefixArgParens(node.argument) ? `(${arg})` : arg;
       return `new ${wrapped}`;
@@ -246,6 +263,13 @@ function newExpressionRootIdentifier(node: ValueIR): string | null {
   return null;
 }
 
+function isSimpleErrorConstructor(node: ValueIR): boolean {
+  return (
+    (node.kind === 'ident' && node.name === 'Error') ||
+    (node.kind === 'call' && node.callee.kind === 'ident' && node.callee.name === 'Error')
+  );
+}
+
 function hostNamespaceReceiverRoot(node: ValueIR): string | null {
   if (node.kind === 'ident') return node.name;
   if (node.kind === 'member' || node.kind === 'index') return hostNamespaceReceiverRoot(node.object);
@@ -289,6 +313,8 @@ function collectRawHostNamespaceAccesses(source: string): Array<{ root: string; 
     'JSON',
     'Object',
     'Array',
+    'Map',
+    'Set',
     'Date',
     'RegExp',
     'Promise',
@@ -298,6 +324,11 @@ function collectRawHostNamespaceAccesses(source: string): Array<{ root: string; 
     'WeakSet',
     'Proxy',
     'BigInt',
+    'Error',
+    'Number',
+    'String',
+    'Boolean',
+    'Function',
     'console',
     'process',
     'globalThis',
@@ -315,9 +346,15 @@ function collectRawHostNamespaceAccesses(source: string): Array<{ root: string; 
   const callRe = new RegExp(`(?<![\\w$.])(${rootAlt})\\s*\\(`, 'g');
   let callMatch: RegExpExecArray | null;
   while ((callMatch = callRe.exec(source)) !== null) {
+    if (callMatch[1] === 'Error' && isRawNewErrorCall(source, callMatch.index)) continue;
     accesses.push({ root: callMatch[1], member: 'call' });
   }
   return accesses;
+}
+
+function isRawNewErrorCall(source: string, rootIndex: number): boolean {
+  const prefix = source.slice(0, rootIndex).trimEnd();
+  return /\bnew$/.test(prefix);
 }
 
 function escapeRegExp(value: string): string {

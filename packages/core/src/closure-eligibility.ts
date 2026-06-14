@@ -77,13 +77,13 @@ function parseClosureBlockUncached(trimmed: string): ts.Block | null {
 /** Collect identifier names bound by `let`/`const` declarations directly inside
  *  the closure block (including inside nested if/else branches the gate
  *  accepts). Used to distinguish a free-variable write (rejected) from an
- *  assignment to a closure-local (allowed). v1 only admits identifier-named
- *  declarations, so destructured names never enter this set. */
+ *  assignment to a closure-local (allowed). Binding patterns contribute every
+ *  identifier they declare. */
 function collectLocalDeclaredNames(block: ts.Block): Set<string> {
   const names = new Set<string>();
   const visit = (node: ts.Node): void => {
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
-      names.add(node.name.text);
+    if (ts.isVariableDeclaration(node)) {
+      for (const name of bindingPatternIdentifierNames(node.name)) names.add(name);
     }
     ts.forEachChild(node, visit);
   };
@@ -123,7 +123,7 @@ export function collectClosureBlockMemberAccesses(raw: string): ClosureBlockMemb
     }
     if (ts.isVariableDeclaration(node)) {
       if (node.initializer) visit(node.initializer);
-      if (ts.isIdentifier(node.name)) declareLocal(node.name.text);
+      for (const name of bindingPatternIdentifierNames(node.name)) declareLocal(name);
       return;
     }
     if (ts.isPropertyAccessExpression(node)) {
@@ -143,6 +143,16 @@ export function collectClosureBlockMemberAccesses(raw: string): ClosureBlockMemb
 
   visit(block);
   return accesses;
+}
+
+function bindingPatternIdentifierNames(name: ts.BindingName): string[] {
+  if (ts.isIdentifier(name)) return [name.text];
+  const out: string[] = [];
+  for (const element of name.elements) {
+    if (ts.isOmittedExpression(element)) continue;
+    out.push(...bindingPatternIdentifierNames(element.name));
+  }
+  return out;
 }
 
 function leftmostIdentifierName(node: ts.Expression): string | null {

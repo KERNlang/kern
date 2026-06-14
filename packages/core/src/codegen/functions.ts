@@ -68,7 +68,7 @@ export function generateFunction(node: IRNode, options?: TopLevelExpressionOptio
   const overloadChildren = kids(node, 'overload');
   for (const ov of overloadChildren) {
     const op = propsOf<'overload'>(ov);
-    const oParams = emitParamList(ov, { stripDefaults: true });
+    const oParams = emitParamList(ov, { stripDefaults: true, userBindings: options?.userBindings });
     const oRet = op.returns ? `: ${emitTypeAnnotation(op.returns, 'unknown', ov)}` : '';
     // Slice 2f — overloads may declare their own generics independent of the impl.
     // Fall back to the parent fn's generics if the overload doesn't specify its own.
@@ -82,7 +82,7 @@ export function generateFunction(node: IRNode, options?: TopLevelExpressionOptio
   // string. Children flow through emitConstValue for ValueIR canonicalisation.
   const userBindings = options?.userBindings;
   const exprCtx = userBindings && userBindings.size > 0 ? { isUserBinding: (binding: string) => userBindings.has(binding) } : undefined;
-  const paramList = emitParamList(node, { exprCtx });
+  const paramList = emitParamList(node, { exprCtx, userBindings });
 
   // stream=true → async generator function
   if (isStream) {

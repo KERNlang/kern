@@ -1,6 +1,6 @@
 import { validateRawHostNamespacesTS } from '../codegen-expression.js';
 import { isHostNamespaceRoot, unmappedHostNamespaceMessage } from './host-namespace.js';
-import { moduleRuntimeBindingNames } from '../semantic-validator.js';
+import { moduleAmbientRuntimeBindingNames } from '../semantic-validator.js';
 import { NODE_SCHEMAS } from '../schema.js';
 import { parseExpression } from '../parser-expression.js';
 import { typescriptClosureClassifier, validateClosureBlockHostNamespacesTS } from '../typescript-closure-classifier.js';
@@ -16,10 +16,14 @@ const TS_PARSE_OPTS = { closureClassifier: typescriptClosureClassifier };
 const validatedNodes = new WeakMap<IRNode, number>();
 const expressionScopes = new WeakMap<IRNode, Map<string, ReadonlySet<string>>>();
 
-export function beginIRHostNamespacesValidatedTS(root: IRNode): boolean {
+export interface IRHostNamespaceValidationOptions {
+  userBindings?: ReadonlySet<string>;
+}
+
+export function beginIRHostNamespacesValidatedTS(root: IRNode, options?: IRHostNamespaceValidationOptions): boolean {
   if ((validatedNodes.get(root) ?? 0) > 0) return false;
-  const moduleBindings = root.type === 'module' ? moduleRuntimeBindingNames(root) : new Set<string>();
-  validateNode(root, { moduleBindings, locals: new Set() });
+  const moduleBindings = root.type === 'module' ? moduleAmbientRuntimeBindingNames(root) : new Set<string>();
+  validateNode(root, { moduleBindings, locals: new Set(options?.userBindings ?? []) });
   markValidated(root);
   return true;
 }
@@ -100,9 +104,18 @@ function validateExpressionProps(node: IRNode, scope: ValidationScope): void {
     const raw = node.props[propName];
     if (raw === undefined || raw === '') continue;
     if (typeof raw === 'string' && node.__quotedProps?.includes(propName)) continue;
-    recordExpressionScope(node, propName, scope);
-    validateExpressionValue(raw, scope);
+    const propScope = expressionPropScope(node, propName, scope);
+    recordExpressionScope(node, propName, propScope);
+    validateExpressionValue(raw, propScope);
   }
+}
+
+function expressionPropScope(node: IRNode, propName: string, scope: ValidationScope): ValidationScope {
+  if (node.type === 'with' && propName === 'cleanup') {
+    const name = stringName(node.props?.name);
+    return name ? scopeWithNames(scope, [name]) : scope;
+  }
+  return scope;
 }
 
 function validateExpressionValue(raw: unknown, scope: ValidationScope): void {
@@ -176,8 +189,10 @@ function validateValueIR(node: ValueIR, scope: ValidationScope): void {
       return;
     case 'new': {
       const root = newExpressionRootIdentifier(node.argument);
-      if (root) rejectUnboundHostNamespace(root, 'constructor', scope);
-      validateValueIR(node.argument, scope);
+      if (root && !(root === 'Error' && isSimpleErrorConstructor(node.argument))) {
+        rejectUnboundHostNamespace(root, 'constructor', scope);
+      }
+      validateNewArgument(node.argument, scope);
       return;
     }
     case 'typeAssert':
@@ -201,6 +216,15 @@ function validateValueIR(node: ValueIR, scope: ValidationScope): void {
     default:
       throw new Error(`Unsupported ValueIR kind in host namespace validation: ${(node as { kind?: string }).kind}`);
   }
+}
+
+function validateNewArgument(node: ValueIR, scope: ValidationScope): void {
+  if (node.kind === 'call') {
+    if (!(node.callee.kind === 'ident' && node.callee.name === 'Error')) validateCallCallee(node.callee, scope);
+    for (const arg of node.args) validateValueIR(arg, scope);
+    return;
+  }
+  validateValueIR(node, scope);
 }
 
 function validateCallCallee(callee: ValueIR, scope: ValidationScope): void {
@@ -264,6 +288,7 @@ function selfBindingNames(node: IRNode): string[] {
 function isSelfBindingNode(node: IRNode): boolean {
   return (
     node.type === 'class' ||
+    node.type === 'repository' ||
     node.type === 'service' ||
     node.type === 'fn' ||
     node.type === 'function' ||
@@ -278,7 +303,21 @@ function catchBindingNames(node: IRNode): string[] {
 
 function postStatementBindingNames(node: IRNode): string[] {
   if (node.type === 'destructure') return bindingNamesFromPatternChildren(node);
-  if (node.type !== 'let' && node.type !== 'const' && node.type !== 'fn' && node.type !== 'function') return [];
+  if (
+    node.type !== 'let' &&
+    node.type !== 'const' &&
+    node.type !== 'fn' &&
+    node.type !== 'function' &&
+    node.type !== 'class' &&
+    node.type !== 'enum' &&
+    node.type !== 'service' &&
+    node.type !== 'screen' &&
+    node.type !== 'action' &&
+    node.type !== 'repository' &&
+    node.type !== 'cache'
+  ) {
+    return [];
+  }
   const name = node.props?.name;
   return typeof name === 'string' && name.length > 0 ? [name] : [];
 }
@@ -342,8 +381,9 @@ function paramChildNames(node: IRNode): string[] {
 
 function bindingNamesFromPatternChildren(node: IRNode): string[] {
   const names: string[] = [];
+  const hasPatternChildren = (node.children ?? []).some((child) => child.type === 'binding' || child.type === 'element');
   const ownName = stringName(node.props?.name);
-  if (ownName) names.push(ownName);
+  if (ownName && !hasPatternChildren) names.push(ownName);
   for (const child of node.children ?? []) {
     if (child.type !== 'binding' && child.type !== 'element') continue;
     const name = stringName(child.props?.name);
@@ -443,6 +483,13 @@ function newExpressionRootIdentifier(node: ValueIR): string | null {
   if (node.kind === 'member' || node.kind === 'index') return hostNamespaceReceiverRoot(node);
   if (node.kind === 'typeAssert' || node.kind === 'nonNull') return newExpressionRootIdentifier(node.expression);
   return null;
+}
+
+function isSimpleErrorConstructor(node: ValueIR): boolean {
+  return (
+    (node.kind === 'ident' && node.name === 'Error') ||
+    (node.kind === 'call' && node.callee.kind === 'ident' && node.callee.name === 'Error')
+  );
 }
 
 function hostNamespaceReceiverRoot(node: ValueIR): string | null {
