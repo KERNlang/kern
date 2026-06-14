@@ -512,8 +512,11 @@ export const REGEX_NONLITERAL_FAILCLOSE =
  * canonical Slice-3 lowering is unaffected.
  *
  * Arity/position conditions MIRROR the lowering shapes EXACTLY (so the detector
- * never fires on a shape the lowering would have left as a plain host call):
- *   - receiver position: `re.test(s)` (1 arg), `re.exec(s)` (1 arg)
+ * never fires on a shape the lowering would have left as a plain host call),
+ * EXCEPT `exec` which fail-closes at ANY arity (it has no portable Python analog
+ * at all — `re.Pattern` has no `.exec` — so even a non-canonical `re.exec(s, x)`
+ * must refuse rather than leak to a Python-crashing plain host call):
+ *   - receiver position: `re.test(s)` (1 arg), `re.exec(…)` (ANY arity)
  *   - first-arg position: `s.match(re)` / `s.matchAll(re)` (1 arg),
  *     `s.split(re)` (>=1 arg), `s.replace(re,r)` / `s.replaceAll(re,r)` (2 args)
  * ------------------------------------------------------------------------- */
@@ -529,12 +532,17 @@ export function regexMethodRegexArgIdent(call: Extract<ValueIR, { kind: 'call' }
   if (callee.optional) return null; // `?.match(…)` — left to plain emit
   const property = callee.property;
 
-  // Receiver-positioned regex: `re.test(s)` (1 arg), `re.exec(s)` (1 arg).
-  // `RegExp.prototype.test`/`exec` each take exactly one argument; the arity
-  // guard mirrors the canonical lowering shape on BOTH so the detector never
-  // fires on a non-canonical call the lowering would leave as a plain host call.
+  // Receiver-positioned regex: `re.test(s)` (1 arg), `re.exec(s)` (ANY arity).
+  // `test` has a portable Python analog (`re.search`) that takes exactly one
+  // argument, so its arity guard mirrors the canonical 1-arg lowering shape on
+  // BOTH targets (a non-canonical `re.test(s, x)` is left a plain host call).
+  // `exec` has NO portable analog at all: `re.Pattern` in Python has no `.exec`
+  // method, so a 2-arg `re.exec(s, 5)` (which TS silently ignores) would CRASH
+  // Python if left plain. `exec` therefore FAILS-CLOSE at ANY arity (Slice-3
+  // redirects it to `.matchAll`), so the detector must fire regardless of
+  // `call.args.length`.
   if (REGEX_RECEIVER_METHODS.has(property)) {
-    if ((property === 'test' || property === 'exec') && call.args.length !== 1) return null;
+    if (property === 'test' && call.args.length !== 1) return null;
     if (callee.object.kind === 'ident') return callee.object.name;
     return null;
   }

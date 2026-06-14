@@ -458,14 +458,20 @@ describe('Slice 3c — let-bound regex method DETECT-and-fail-close (drop the fr
     expect(pyOut).toContain('_kern_regex_match("lit"');
   });
 
-  // FIX B (exec arity guard): `RegExp.prototype.exec` takes exactly 1 arg, so the
-  // shared `regexMethodRegexArgIdent` detector now arity-guards `exec` the SAME
-  // way it already guards `test`. A bound-regex `rg.exec(s)` (1 arg) fail-closes
-  // on both targets; a non-canonical 2-arg `rg.exec(s, 5)` is NOT a regex-method
-  // shape, so the detector returns null and it stays a PLAIN host call on both.
-  // REVERT-CHECK vs 149f9638: without the guard, `regexMethodRegexArgIdent` would
-  // return "rg" for the 2-arg form and wrongly fail-close it.
-  test('let rg = /a/; rg.exec(s) (1-arg) → fail-close; rg.exec(s, 5) (2-arg) → stays PLAIN (both targets)', () => {
+  // exec FAILS-CLOSE at ANY arity: unlike `test` (whose portable Python analog
+  // `re.search` takes exactly one arg, so `test` arity-guards to its canonical
+  // 1-arg shape), `exec` has NO portable analog — `re.Pattern` in Python has no
+  // `.exec` method at all. A non-canonical 2-arg `rg.exec(s, 5)` is silently
+  // ignored by JS (TS runs fine) but would CRASH Python at runtime if left a
+  // plain host call (`AttributeError: 're.Pattern' object has no attribute
+  // 'exec'`). So the shared `regexMethodRegexArgIdent` detector fires for `exec`
+  // regardless of `call.args.length` — Slice-3 redirects every `.exec` to the
+  // portable `.matchAll`. A bound-regex `rg.exec(s)`, `rg.exec(s, 5)`, and
+  // `rg.exec()` ALL fail-close symmetrically on both targets.
+  // REGRESSION-GUARD: the prior `exec` arity guard (`property === 'exec' &&
+  // call.args.length !== 1` returning null) let the 2-arg/0-arg forms LEAK to a
+  // plain host call → TS-runs/Python-crashes divergence.
+  test('let rg = /a/; rg.exec(s)/rg.exec(s, 5)/rg.exec() → fail-close at ANY arity (both targets)', () => {
     const oneArg = [
       { type: 'let', props: { name: 'rg', kind: 'const', value: '/a/' } } as IRNode,
       { type: 'do', props: { value: 'rg.exec(s)' } } as IRNode,
@@ -477,8 +483,15 @@ describe('Slice 3c — let-bound regex method DETECT-and-fail-close (drop the fr
       { type: 'let', props: { name: 'rg', kind: 'const', value: '/a/' } } as IRNode,
       { type: 'do', props: { value: 'rg.exec(s, 5)' } } as IRNode,
     ];
-    expect(tsBody(twoArg)).toContain('rg.exec(s, 5)');
-    expect(pyBody(twoArg)).toContain('rg.exec(s, 5)');
+    expect(() => tsBody(twoArg)).toThrow(NONLIT);
+    expect(() => pyBody(twoArg)).toThrow(NONLIT);
+
+    const zeroArg = [
+      { type: 'let', props: { name: 'rg', kind: 'const', value: '/a/' } } as IRNode,
+      { type: 'do', props: { value: 'rg.exec()' } } as IRNode,
+    ];
+    expect(() => tsBody(zeroArg)).toThrow(NONLIT);
+    expect(() => pyBody(zeroArg)).toThrow(NONLIT);
   });
 });
 
