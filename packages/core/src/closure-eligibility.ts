@@ -91,6 +91,66 @@ function collectLocalDeclaredNames(block: ts.Block): Set<string> {
   return names;
 }
 
+export interface ClosureBlockMemberAccess {
+  root: string;
+  member: string;
+}
+
+export function collectClosureBlockLocalBindingNames(raw: string): Set<string> {
+  const block = parseClosureBlockAst(raw);
+  return block === null ? new Set<string>() : collectLocalDeclaredNames(block);
+}
+
+export function collectClosureBlockMemberAccesses(raw: string): ClosureBlockMemberAccess[] {
+  const block = parseClosureBlockAst(raw);
+  if (block === null) return [];
+  const accesses: ClosureBlockMemberAccess[] = [];
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isPropertyAccessExpression(node)) {
+      const root = leftmostIdentifierName(node.expression);
+      if (root) accesses.push({ root, member: propertyAccessMemberLabel(node) });
+    } else if (ts.isElementAccessExpression(node)) {
+      const root = leftmostIdentifierName(node.expression);
+      if (root) accesses.push({ root, member: elementAccessMemberLabel(node.argumentExpression) });
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  ts.forEachChild(block, visit);
+  return accesses;
+}
+
+function leftmostIdentifierName(node: ts.Expression): string | null {
+  let current: ts.Expression = node;
+  while (true) {
+    if (ts.isIdentifier(current)) return current.text;
+    if (ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current)) {
+      current = current.expression;
+      continue;
+    }
+    if (ts.isParenthesizedExpression(current)) {
+      current = current.expression;
+      continue;
+    }
+    return null;
+  }
+}
+
+function propertyAccessMemberLabel(node: ts.PropertyAccessExpression): string {
+  const parts: string[] = [node.name.text];
+  let current: ts.Expression = node.expression;
+  while (ts.isPropertyAccessExpression(current)) {
+    parts.unshift(current.name.text);
+    current = current.expression;
+  }
+  return parts.join('.');
+}
+
+function elementAccessMemberLabel(argument: ts.Expression | undefined): string {
+  return argument && ts.isStringLiteralLike(argument) ? argument.text : '[computed]';
+}
+
 /** Collect the set of free identifier NAMES referenced in a closure block —
  *  identifiers used in the block that are NOT declared inside the block and
  *  NOT in `paramNames` (the closure's own parameters). These are exactly the

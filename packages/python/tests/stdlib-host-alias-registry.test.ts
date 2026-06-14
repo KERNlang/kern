@@ -3,6 +3,7 @@ import {
   HOST_NAMESPACE_EXEMPT_ROOTS,
   emitExpression,
   emitNativeKernBodyTSWithImports,
+  generateCoreNode,
   parseExpression,
 } from '@kernlang/core';
 import { emitNativeKernBodyPythonWithImports, emitPyExpressionWithImports } from '../src/codegen-body-python.js';
@@ -279,6 +280,32 @@ describeIfPython('Milestone A stdlib host aliases — reserved namespace and fai
   ])('%s fails closed on both emitted targets', (expr, message) => {
     expect(() => emitNativeKernBodyTSWithImports(letHandler(expr))).toThrow(message);
     expect(() => emitNativeKernBodyPythonWithImports(letHandler(expr))).toThrow(message);
+  });
+
+  test.each([
+    [
+      'const.value',
+      { type: 'const', props: { name: 'startedAt', value: 'Date.now()' } },
+    ],
+    [
+      'field.value',
+      { type: 'class', props: { name: 'Stamp' }, children: [{ type: 'field', props: { name: 'ts', value: 'Date.now()' } }] },
+    ],
+    [
+      'param.value',
+      {
+        type: 'fn',
+        props: { name: 'stamp', returns: 'number' },
+        children: [
+          { type: 'param', props: { name: 'ts', type: 'number', value: 'Date.now()' } },
+          { type: 'handler', props: { code: 'return ts;' } },
+        ],
+      },
+    ],
+  ])('%s does not fall back to raw TypeScript after host-namespace rejection', (_label, node) => {
+    expect(() => generateCoreNode(node as IRNode)).toThrow(
+      /Unsupported host namespace in TypeScript expression: Date\.now .*not registered/,
+    );
   });
 
   test.each([

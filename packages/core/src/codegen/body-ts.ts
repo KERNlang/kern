@@ -49,7 +49,7 @@ import { emitExpression } from '../codegen-expression.js';
 import type { ExprEmitContext } from '../codegen-expression.js';
 import { parseExpression } from '../parser-expression.js';
 import type { ExprObject, IRNode } from '../types.js';
-import { typescriptClosureClassifier } from '../typescript-closure-classifier.js';
+import { typescriptClosureClassifier, validateClosureBlockHostNamespacesTS } from '../typescript-closure-classifier.js';
 import type { ValueIR } from '../value-ir.js';
 
 // Slice 0.9 — TS codegen is Node-only; it re-parses raw block-bodied arrow prop
@@ -361,7 +361,9 @@ function emitChildrenTS(
             return `: ${t}`;
           })();
           lines.push(`${indent}} catch (${errName}${errType}) {`);
-          for (const cl of emitChildrenTS(catchNode.children ?? [], ctx, indent + INDENT_STEP)) lines.push(cl);
+          for (const cl of emitChildrenTS(catchNode.children ?? [], ctx, indent + INDENT_STEP, [[errName, 'const']])) {
+            lines.push(cl);
+          }
         }
         if (finallyNode !== null) {
           lines.push(`${indent}} finally {`);
@@ -1127,7 +1129,10 @@ function emitValueTS(node: ValueIR, ctx: BodyEmitContext): string {
 }
 
 function exprCtxFor(ctx: BodyEmitContext): ExprEmitContext {
-  return { isUserBinding: (name: string) => lookupLocalBinding(ctx, name) !== undefined };
+  return {
+    isUserBinding: (name: string) => lookupLocalBinding(ctx, name) !== undefined,
+    validateRawBlock: validateClosureBlockHostNamespacesTS,
+  };
 }
 
 function isAssignableTarget(node: ValueIR): boolean {

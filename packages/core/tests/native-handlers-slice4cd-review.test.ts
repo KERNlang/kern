@@ -151,3 +151,37 @@ describe('slice 4c+4d review fix — `?` propagation inside `try` rejection (TS)
     expect(out).toContain('const __k_t1 = call();');
   });
 });
+
+describe('host namespace scope tracking in body-statement try/catch (TS)', () => {
+  test('catch binding shadows a reserved host root inside catch body', () => {
+    const handler = makeHandler([
+      {
+        type: 'try',
+        props: {},
+        children: [
+          { type: 'do', props: { value: 'work()' } },
+          { type: 'catch', props: { name: 'Date' }, children: [{ type: 'return', props: { value: 'Date.now()' } }] },
+        ],
+      },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toContain('return Date.now();');
+  });
+});
+
+describe('host namespace checks in block-bodied lambda expressions (TS)', () => {
+  test('block-bodied lambda rejects unmapped host roots before raw block passthrough', () => {
+    const handler = makeHandler([
+      { type: 'let', props: { name: 'out', value: 'items.map((item) => { return Date.now(); })' } },
+    ]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(
+      /Unsupported host namespace in TypeScript expression: Date\.now .*not registered/,
+    );
+  });
+
+  test('block-bodied lambda parameter shadows a reserved host root', () => {
+    const handler = makeHandler([
+      { type: 'let', props: { name: 'out', value: 'items.map(Date => { return Date.now(); })' } },
+    ]);
+    expect(emitNativeKernBodyTS(handler)).toContain('const out = items.map(Date => { return Date.now(); });');
+  });
+});

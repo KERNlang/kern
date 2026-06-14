@@ -13,6 +13,7 @@ import type { ValueIR } from './value-ir.js';
 
 export interface ExprEmitContext {
   isUserBinding(name: string): boolean;
+  validateRawBlock?(rawBlock: string, isUserBinding: (name: string) => boolean): void;
 }
 
 function rejectUnmappedHostNamespaceTS(root: string, member: string, ctx: ExprEmitContext | undefined): void {
@@ -24,11 +25,15 @@ function rejectUnmappedHostNamespaceTS(root: string, member: string, ctx: ExprEm
 function withAdditionalUserBindings(ctx: ExprEmitContext | undefined, names: string[]): ExprEmitContext | undefined {
   if (names.length === 0) return ctx;
   const local = new Set(names);
-  return {
+  const next: ExprEmitContext = {
     isUserBinding(name: string): boolean {
       return local.has(name) || ctx?.isUserBinding(name) === true;
     },
+    validateRawBlock(rawBlock: string, isUserBinding: (name: string) => boolean): void {
+      ctx?.validateRawBlock?.(rawBlock, isUserBinding);
+    },
   };
+  return next;
 }
 
 // Slice 2c — extended precedence table covering equality, relational,
@@ -141,6 +146,7 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       // and `parse(emit(x))` reproduces `raw` byte-identically — the round-trip
       // invariant `canonicalKernExpression` relies on.
       if (node.bodyBlock) {
+        lambdaCtx?.validateRawBlock?.(node.bodyBlock.raw, lambdaCtx.isUserBinding);
         return `${params}${returnType} => ${node.bodyBlock.raw}`;
       }
       return `${params}${returnType} => ${emitExpression(node.body as ValueIR, lambdaCtx)}`;

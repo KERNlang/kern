@@ -684,8 +684,9 @@ export function generateSetLit(node: IRNode): string[] {
  *  - `<prop>={{ expr }}` (ExprObject) — emit `.code` raw (escape hatch for arbitrary TS).
  *  - `<prop>="literal"` (quoted, tracked in __quotedProps) — emit as JSON-quoted string
  *    so output is valid TS even when the literal contains expression-illegal characters.
- *  - bare `<prop>=...` — try ValueIR parse + emit for canonicalization. Fall back to raw
- *    string on parse failure (validator emits INVALID_EXPRESSION but codegen still ships).
+ *  - bare `<prop>=...` — try ValueIR parse, then emit for canonicalization. Fall back to raw
+ *    string only on parse failure (validator emits INVALID_EXPRESSION but codegen still ships);
+ *    emission errors from a successfully parsed ValueIR must stay loud.
  *
  *  Slice 3e — `propName` parameter (default 'value') lets non-`value` props
  *  participate in the same quoted-vs-bare distinction. `mapEntry.key` and
@@ -694,11 +695,15 @@ export function emitConstValue(node: IRNode, rawValue: unknown, propName = 'valu
   if (isExprObject(rawValue)) return rawValue.code;
   if (typeof rawValue !== 'string') return String(rawValue);
   if (node.__quotedProps?.includes(propName)) return JSON.stringify(rawValue);
-  try {
-    return emitExpression(parseExpression(rawValue));
-  } catch {
-    return rawValue;
-  }
+  const parsed = (() => {
+    try {
+      return parseExpression(rawValue);
+    } catch {
+      return null;
+    }
+  })();
+  if (parsed === null) return rawValue;
+  return emitExpression(parsed);
 }
 
 /**

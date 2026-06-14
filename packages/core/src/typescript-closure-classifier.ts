@@ -12,7 +12,13 @@
  *  `parseExpression(input, { closureClassifier: typescriptClosureClassifier })`. */
 
 import type { ClosureClassifier } from './closure-classifier.js';
-import { classifyClosureBlock, parseClosureBlockAst } from './closure-eligibility.js';
+import {
+  classifyClosureBlock,
+  collectClosureBlockLocalBindingNames,
+  collectClosureBlockMemberAccesses,
+  parseClosureBlockAst,
+} from './closure-eligibility.js';
+import { isHostNamespaceRoot, unmappedHostNamespaceMessage } from './codegen/host-namespace.js';
 
 /** The full-fidelity closure classifier: the TypeScript-AST gate that has
  *  always validated block-bodied arrows. Injecting this restores byte-identical
@@ -26,3 +32,22 @@ export const typescriptClosureClassifier: ClosureClassifier = {
     return classifyClosureBlock(raw);
   },
 };
+
+export function validateClosureBlockHostNamespacesTS(
+  rawBlock: string,
+  isUserBinding: (name: string) => boolean,
+): void {
+  const localBindings = collectClosureBlockLocalBindingNames(rawBlock);
+  const isShadowed = (name: string): boolean => localBindings.has(name) || isUserBinding(name);
+
+  for (const access of collectClosureBlockMemberAccesses(rawBlock)) {
+    if (!isShadowed(access.root)) {
+      rejectRawBlockHostNamespaceTS(access.root, access.member);
+    }
+  }
+}
+
+function rejectRawBlockHostNamespaceTS(root: string, member: string): void {
+  if (!isHostNamespaceRoot(root)) return;
+  throw new Error(unmappedHostNamespaceMessage('TypeScript', root, member));
+}
