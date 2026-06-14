@@ -496,4 +496,90 @@ describeIfPython('Array.from route-path length guard (rewriteExpr) — JS parity
       ],
     });
   });
+
+  // Execute the route-emitted comprehension and map non-finite floats in the
+  // result to JSON-safe tokens (`json.dumps([float('inf')])` → `[Infinity]`,
+  // which is NOT valid JSON for the test harness's `JSON.parse`). This lets the
+  // body-`Infinity`/`NaN` lowering be asserted by VALUE without a serialization
+  // false-positive. Reports `{threw, value}` on success.
+  function runRouteBodyValues(expr: string): unknown {
+    const { code, helpers } = rewriteRoute(expr);
+    const program = [
+      helpers,
+      'import json, math',
+      'def _tok(x):',
+      '    if isinstance(x, float) and math.isinf(x):',
+      '        return "inf" if x > 0 else "-inf"',
+      '    if isinstance(x, float) and math.isnan(x):',
+      '        return "nan"',
+      '    return x',
+      'try:',
+      `    __r = (${code})`,
+      '    print(json.dumps({"threw": False, "value": [_tok(x) for x in __r]}, separators=(",", ":")))',
+      'except Exception as error:',
+      '    print(json.dumps({"threw": True, "name": type(error).__name__, "message": str(error)}, separators=(",", ":")))',
+    ]
+      .filter(Boolean)
+      .join('\n');
+    return runPython(program);
+  }
+
+  test('-Infinity length yields an empty array (no throw, no bare range(-Infinity))', () => {
+    // JS oracle: Array.from({length: -Infinity}, …) === []. The negative-infinity
+    // count lowers to `-float('inf')`; `_kern_array_like_length` returns 0 for
+    // `__k_num <= 0` → range(0) → []. NEVER a bare `range(-Infinity)` (NameError).
+    expect(nodeOracle('Array.from({length: -Infinity}, (_,i)=>i)')).toEqual({ kind: 'array', items: [] });
+    const code = rewriteRoute('Array.from({length: -Infinity}, (_,i)=>i)').code;
+    expect(code).not.toContain('range(-Infinity)');
+    expect(code).toContain("-float('inf')");
+    expect(runRoutePy('Array.from({length: -Infinity}, (_,i)=>i)', true)).toEqual({ threw: false, value: [] });
+  });
+
+  test('a negative finite length yields an empty array', () => {
+    // JS oracle: Array.from({length: -1}, …) === [].
+    expect(nodeOracle('Array.from({length: -1}, (_,i)=>i)')).toEqual({ kind: 'array', items: [] });
+    expect(runRoutePy('Array.from({length: -1}, (_,i)=>i)', true)).toEqual({ threw: false, value: [] });
+  });
+
+  test('bare Infinity in the mapper BODY lowers to float(inf) (no NameError)', () => {
+    // JS oracle: Array.from({length: 3}, () => Infinity) === [Infinity×3].
+    // Task-2 proof: before the body-normalize wrap this emitted `[Infinity for …]`
+    // → Python NameError. The body must now lower to `float('inf')`.
+    const code = rewriteRoute('Array.from({length: 3}, () => Infinity)').code;
+    expect(code).toContain("float('inf')");
+    expect(code).not.toContain('[Infinity ');
+    expect(runRouteBodyValues('Array.from({length: 3}, () => Infinity)')).toEqual({
+      threw: false,
+      value: ['inf', 'inf', 'inf'],
+    });
+  });
+
+  test('bare NaN in the mapper BODY lowers to float(nan) (no NameError)', () => {
+    // JS oracle: Array.from({length: 2}, () => NaN) === [NaN, NaN].
+    const code = rewriteRoute('Array.from({length: 2}, () => NaN)').code;
+    expect(code).toContain("float('nan')");
+    expect(code).not.toContain('[NaN ');
+    expect(runRouteBodyValues('Array.from({length: 2}, () => NaN)')).toEqual({
+      threw: false,
+      value: ['nan', 'nan'],
+    });
+  });
+
+  test('spaced member access (obj . Infinity) is preserved, not rewritten', () => {
+    // Task-1 proof: the spaced member-access form must NOT be mistaken for a bare
+    // `Infinity` literal. Before the backward-whitespace scan this emitted
+    // `obj . float('inf')` (invalid Python, wrong semantics). The property access
+    // must survive in BOTH count and body positions; emitted-content assertion
+    // (a runnable `obj` is out of scope for this pure-lowering check).
+    const countCode = rewriteRoute('Array.from({length: obj . Infinity}, (_,i)=>i)').code;
+    expect(countCode).toContain('obj . Infinity');
+    expect(countCode).not.toContain("float('inf')");
+    const bodyCode = rewriteRoute('Array.from({length: 2}, () => obj . Infinity)').code;
+    expect(bodyCode).toContain('obj . Infinity');
+    expect(bodyCode).not.toContain("float('inf')");
+    // The compact form was already preserved — guard the regression both ways.
+    const compactCode = rewriteRoute('Array.from({length: obj.Infinity}, (_,i)=>i)').code;
+    expect(compactCode).toContain('obj.Infinity');
+    expect(compactCode).not.toContain("float('inf')");
+  });
 });

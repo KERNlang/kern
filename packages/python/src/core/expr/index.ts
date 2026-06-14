@@ -1595,8 +1595,18 @@ function normalizeNumericWordLiterals(expr: string): string {
     }
     const rest = expr.slice(i);
     const prev = expr[i - 1];
-    // Member access (`obj.Infinity`) must not be rewritten.
-    const wordOk = !(prev && /[\w.$]/.test(prev));
+    // Member access (`obj.Infinity`) must not be rewritten. The immediately-
+    // previous char rules out the compact form; for the spaced form
+    // (`obj . Infinity`) scan BACKWARD past contiguous whitespace and treat the
+    // token as member access when the first non-whitespace char found is `.`.
+    // A token at string-start (only whitespace before it) is NOT member access.
+    let memberAccess = !!(prev && /[\w.$]/.test(prev));
+    if (!memberAccess && prev !== undefined && /\s/.test(prev)) {
+      let k = i - 1;
+      while (k >= 0 && /\s/.test(expr[k])) k -= 1;
+      if (k >= 0 && expr[k] === '.') memberAccess = true;
+    }
+    const wordOk = !memberAccess;
     const infM = wordOk ? rest.match(/^Infinity\b/) : null;
     if (infM && !/[\w$]/.test(expr[i + infM[0].length] ?? '')) {
       out += "float('inf')";
@@ -1664,9 +1674,14 @@ function tryLowerArrayFrom(args: string[], imports?: Set<string>): string | null
   // `_kern_to_number`, so BOTH helper blocks are required (mirrors the
   // `array-host` requirement pairing in codegen-body-python).
   const loweredCount = normalizeNumericWordLiterals(lowerArrayFromCalls(count, imports));
+  // Normalize bare `Infinity`/`NaN` in the mapper body too: without this an
+  // `Array.from({length: 3}, () => Infinity)` emits `[Infinity for …]` →
+  // Python NameError. The hardened member-access guard inside
+  // `normalizeNumericWordLiterals` preserves `.Infinity` property access here.
+  const loweredBody = normalizeNumericWordLiterals(lowerArrayFromCalls(body, imports));
   imports?.add(KERN_TO_NUMBER_HELPER_PY);
   imports?.add(KERN_JS_ARRAY_FROM_HELPER_PY);
-  return `[${lowerArrayFromCalls(body, imports)} for ${idxVar} in range(_kern_array_like_length({"length": ${loweredCount}}))]`;
+  return `[${loweredBody} for ${idxVar} in range(_kern_array_like_length({"length": ${loweredCount}}))]`;
 }
 
 // Expand JS object-literal shorthand properties to explicit `key: key`.
