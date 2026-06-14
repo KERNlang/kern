@@ -101,12 +101,22 @@ describe('emitPyExpression — slice 1 lowering rules', () => {
     ]);
     const result = emitNativeKernBodyPythonWithImports(h);
     expect(result.imports).toContain('re');
-    expect(result.code).toContain('pattern = __k_re.compile("^ok$", __k_re.IGNORECASE)');
-    expect(result.code).toContain('__k_re.search("^ok$", value, __k_re.IGNORECASE) is not None');
+    // Milestone C, Slice 1 — emission-normalization now lowers `^`→`\A` / `$`→`\Z`
+    // on the non-/m path and always injects `re.ASCII`. `/^ok$/i` therefore emits
+    // `\Aok\Z` with `IGNORECASE | ASCII`, and `/\s+/g` normalizes `\s`→ the ASCII
+    // whitespace class with `ASCII` flags (the `g` becomes count=0 in re.sub).
+    expect(result.code).toContain('pattern = __k_re.compile("\\\\Aok\\\\Z", __k_re.IGNORECASE | __k_re.ASCII)');
+    expect(result.code).toContain('__k_re.search("\\\\Aok\\\\Z", value, __k_re.IGNORECASE | __k_re.ASCII) is not None');
     // Slice S4 — `!x` consumes KERN ToBoolean: `(not _kern_truthy(...))`.
-    expect(result.code).toContain('(not _kern_truthy((__k_re.search("^ok$", value, __k_re.IGNORECASE) is not None)))');
-    expect(result.code).toContain('bound = (__k_re.search("^ok$", value, __k_re.IGNORECASE) is not None)');
-    expect(result.code).toContain('__k_re.sub("\\\\s+", " ", value, count=0, flags=0)');
+    expect(result.code).toContain(
+      '(not _kern_truthy((__k_re.search("\\\\Aok\\\\Z", value, __k_re.IGNORECASE | __k_re.ASCII) is not None)))',
+    );
+    expect(result.code).toContain(
+      'bound = (__k_re.search("\\\\Aok\\\\Z", value, __k_re.IGNORECASE | __k_re.ASCII) is not None)',
+    );
+    expect(result.code).toContain(
+      '__k_re.sub("[ \\\\t\\\\n\\\\r\\\\f\\\\v]+", " ", value, count=0, flags=__k_re.ASCII)',
+    );
   });
 
   test('regex lowering rejects JS-only match and flag semantics on Python target', () => {

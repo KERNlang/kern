@@ -8,6 +8,11 @@ import {
   lookupStdlibProperty,
   suggestStdlibMethod,
 } from './codegen/kern-stdlib.js';
+// Milestone C, Slice 1 — shared regex emission-normalization. The class
+// transform (`\d \w \s` → ASCII classes) must be byte-identical across the TS
+// and Python emitters, so both import it from this one core module. Anchor
+// lowering is Python-only (JS `$`/`^` without `/m` already mean input-end/start).
+import { normalizeRegexClasses } from './codegen/regex-normalize.js';
 import type { ValueIR } from './value-ir.js';
 
 // Slice 2c — extended precedence table covering equality, relational,
@@ -58,7 +63,11 @@ export function emitExpression(node: ValueIR): string {
     case 'undefLit':
       return 'undefined';
     case 'regexLit':
-      return `/${node.pattern}/${node.flags}`;
+      // Slice 1: normalize `\d \w \s` to explicit ASCII classes. Anchors and
+      // flags are kept verbatim on TS (JS `$`/`^` without `/m` are already
+      // input-anchored; JS shorthand `\d`/`\w` are already ASCII — the `\s`
+      // narrowing is the one match-affecting rewrite here).
+      return `/${normalizeRegexClasses(node.pattern)}/${node.flags}`;
     case 'tmplLit': {
       let out = '`';
       for (let i = 0; i < node.quasis.length; i++) {

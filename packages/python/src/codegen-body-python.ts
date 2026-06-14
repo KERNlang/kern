@@ -52,8 +52,10 @@ import {
   KERN_STDLIB_MODULES,
   lookupStdlibCall,
   lookupStdlibProperty,
+  lowerRegexAnchorsPython,
   needsArgParens,
   needsBinaryParens,
+  normalizeRegexClasses,
   parseExpression,
   parseKeys,
   suggestStdlibMethod,
@@ -3470,7 +3472,16 @@ function resolveRegexExpr(node: ValueIR, ctx: BodyEmitContext): Extract<ValueIR,
 function pyRegexPattern(node: Extract<ValueIR, { kind: 'regexLit' }>): string {
   // JS escapes `/` because it delimits the literal; Python string regexes do not
   // treat `/` specially, so preserve the semantic pattern without that escape.
-  return JSON.stringify(node.pattern.replace(/\\\//g, '/'));
+  const unescaped = node.pattern.replace(/\\\//g, '/');
+  // Milestone C, Slice 1 — emission-normalization (shared with the TS emitter
+  // for the class transform, so it is byte-identical across targets):
+  //   1. `\d \w \s` → explicit ASCII classes (same `normalizeRegexClasses` both
+  //      targets), so Python's Unicode-aware shorthand matches JS's ASCII.
+  //   2. Python-only anchor lowering: on the non-`/m` path `$`→`\Z`, `^`→`\A`
+  //      so Python anchors match JS's input-end/start semantics (`re.ASCII` and
+  //      `re.M` are handled in pyRegexFlags). On the `/m` path anchors are kept.
+  const normalized = lowerRegexAnchorsPython(normalizeRegexClasses(unescaped), node.flags);
+  return JSON.stringify(normalized);
 }
 
 function pyRegexFlags(flags: string, options: { allowGlobal?: boolean } = {}): string {
@@ -3489,7 +3500,11 @@ function pyRegexFlags(flags: string, options: { allowGlobal?: boolean } = {}): s
   if (flags.includes('i')) parts.push('__k_re.IGNORECASE');
   if (flags.includes('m')) parts.push('__k_re.MULTILINE');
   if (flags.includes('s')) parts.push('__k_re.DOTALL');
-  return parts.length > 0 ? parts.join(' | ') : '0';
+  // Milestone C, Slice 1 — always inject `re.ASCII` so Python `\b` and the
+  // emitted ASCII classes match JS (without `/u`) semantics. This is the
+  // load-bearing flag for word-boundary parity (see the `\bcafé\b` killer row).
+  parts.push('__k_re.ASCII');
+  return parts.join(' | ');
 }
 
 function wrapGuardIfAny(g: GuardedExpr, ctx: BodyEmitContext): string {

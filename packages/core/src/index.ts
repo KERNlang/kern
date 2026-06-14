@@ -55,6 +55,10 @@ export {
 } from './codegen/portable-logic-primitives.js';
 export type { ReactHookDep } from './codegen/react-hook-imports.js';
 export { detectReactHookDeps, injectReactHookImports } from './codegen/react-hook-imports.js';
+// Milestone C, Slice 1 — shared regex emission-normalization, consumed by the
+// TS emitter (here in core) and the Python emitter (@kernlang/python) so the
+// `\d \w \s` class transform is byte-identical across both targets.
+export { lowerRegexAnchorsPython, normalizeRegexClasses } from './codegen/regex-normalize.js';
 export type { KernStdlibUsage } from './codegen/stdlib-preamble.js';
 // Slice 4 layer 2 — Result / Option compact form preamble (TS-family targets)
 export {
