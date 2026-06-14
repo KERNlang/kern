@@ -18,8 +18,12 @@ export interface ExprEmitContext {
 
 function rejectUnmappedHostNamespaceTS(root: string, member: string, ctx: ExprEmitContext | undefined): void {
   if (!isHostNamespaceRoot(root)) return;
-  if (ctx?.isUserBinding(root)) return;
+  if (isUserBinding(ctx, root)) return;
   throw new Error(unmappedHostNamespaceMessage('TypeScript', root, member));
+}
+
+function isUserBinding(ctx: ExprEmitContext | undefined, name: string): boolean {
+  return ctx?.isUserBinding(name) === true;
 }
 
 function withAdditionalUserBindings(ctx: ExprEmitContext | undefined, names: string[]): ExprEmitContext | undefined {
@@ -29,10 +33,12 @@ function withAdditionalUserBindings(ctx: ExprEmitContext | undefined, names: str
     isUserBinding(name: string): boolean {
       return local.has(name) || ctx?.isUserBinding(name) === true;
     },
-    validateRawBlock(rawBlock: string, isUserBinding: (name: string) => boolean): void {
-      ctx?.validateRawBlock?.(rawBlock, isUserBinding);
-    },
   };
+  if (ctx?.validateRawBlock) {
+    next.validateRawBlock = (rawBlock: string, isUserBinding: (name: string) => boolean): void => {
+      ctx.validateRawBlock?.(rawBlock, isUserBinding);
+    };
+  }
   return next;
 }
 
@@ -147,7 +153,7 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       // and `parse(emit(x))` reproduces `raw` byte-identically — the round-trip
       // invariant `canonicalKernExpression` relies on.
       if (node.bodyBlock) {
-        lambdaCtx?.validateRawBlock?.(node.bodyBlock.raw, lambdaCtx.isUserBinding);
+        validateRawBlockHostNamespacesTS(node.bodyBlock.raw, lambdaCtx);
         return `${params}${returnType} => ${node.bodyBlock.raw}`;
       }
       return `${params}${returnType} => ${emitExpression(node.body as ValueIR, lambdaCtx)}`;
@@ -229,6 +235,7 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
 function newExpressionRootIdentifier(node: ValueIR): string | null {
   if (node.kind === 'ident') return node.name;
   if (node.kind === 'call' && node.callee.kind === 'ident') return node.callee.name;
+  if (node.kind === 'member' || node.kind === 'index') return hostNamespaceReceiverRoot(node);
   if (node.kind === 'typeAssert' || node.kind === 'nonNull') return newExpressionRootIdentifier(node.expression);
   return null;
 }
@@ -253,6 +260,62 @@ function firstMemberAfterRoot(node: ValueIR): string | null {
     return firstMemberAfterRoot(node.object) ?? label;
   }
   return null;
+}
+
+export function validateRawHostNamespacesTS(source: string, ctx?: ExprEmitContext): void {
+  for (const access of collectRawHostNamespaceAccesses(source)) {
+    rejectUnmappedHostNamespaceTS(access.root, access.member, ctx);
+  }
+}
+
+function validateRawBlockHostNamespacesTS(rawBlock: string, ctx: ExprEmitContext | undefined): void {
+  if (ctx?.validateRawBlock) {
+    ctx.validateRawBlock(rawBlock, ctx.isUserBinding);
+    return;
+  }
+  validateRawHostNamespacesTS(rawBlock, ctx);
+}
+
+function collectRawHostNamespaceAccesses(source: string): Array<{ root: string; member: string }> {
+  const accesses: Array<{ root: string; member: string }> = [];
+  const roots = [
+    'Math',
+    'JSON',
+    'Object',
+    'Array',
+    'Date',
+    'RegExp',
+    'Promise',
+    'Reflect',
+    'Symbol',
+    'WeakMap',
+    'WeakSet',
+    'Proxy',
+    'BigInt',
+    'console',
+    'process',
+    'globalThis',
+    'crypto',
+    'Intl',
+    'URL',
+  ].filter(isHostNamespaceRoot);
+  if (roots.length === 0) return accesses;
+  const rootAlt = roots.map(escapeRegExp).join('|');
+  const memberRe = new RegExp(`(?<![\\w$])(${rootAlt})(?:\\s*(?:as\\s+[^.\\[)!]+|!))*\\s*(?:\\.\\s*([A-Za-z_$][\\w$]*)|\\[\\s*(['"])([^'"]+)\\3\\s*\\])`, 'g');
+  let memberMatch: RegExpExecArray | null;
+  while ((memberMatch = memberRe.exec(source)) !== null) {
+    accesses.push({ root: memberMatch[1], member: memberMatch[2] ?? memberMatch[4] ?? '[computed]' });
+  }
+  const callRe = new RegExp(`(?<![\\w$.])(${rootAlt})\\s*\\(`, 'g');
+  let callMatch: RegExpExecArray | null;
+  while ((callMatch = callRe.exec(source)) !== null) {
+    accesses.push({ root: callMatch[1], member: 'call' });
+  }
+  return accesses;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
 }
 
 /** Precedence-aware paren-wrap predicate for binary children — exported so

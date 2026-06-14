@@ -14,7 +14,10 @@
  */
 
 import { emitNativeKernBodyTS } from '../src/codegen/body-ts.js';
+import { emitExpression } from '../src/codegen-expression.js';
 import { generateCoreNode } from '../src/codegen-core.js';
+import { parseExpression } from '../src/parser-expression.js';
+import { typescriptClosureClassifier } from '../src/typescript-closure-classifier.js';
 import type { IRNode } from '../src/types.js';
 
 function makeHandler(children: IRNode[]): IRNode {
@@ -203,12 +206,21 @@ describe('host namespace checks in block-bodied lambda expressions (TS)', () => 
   });
 
   test.each([
+    'items.map((item) => { return Date.now(); })',
+    'items.map((item) => { return new Date(); })',
+    'items.map((item) => { return Date(); })',
+  ])('no-context emitExpression fail-closes raw block host roots: %s', (value) => {
+    const parsed = parseExpression(value, { closureClassifier: typescriptClosureClassifier });
+    expect(() => emitExpression(parsed)).toThrow(/Unsupported host namespace in TypeScript expression: Date\.(now|call|constructor) .*not registered/);
+  });
+
+  test.each([
     'items.map((item) => new Date())',
     'items.map((item) => { return new Date(); })',
   ])('%s rejects unmapped constructor host roots', (value) => {
     const handler = makeHandler([{ type: 'let', props: { name: 'out', value } }]);
     expect(() => emitNativeKernBodyTS(handler)).toThrow(
-      /Unsupported host namespace in TypeScript expression: Date\.constructor .*not registered/,
+      /Unsupported host namespace in TypeScript expression: Date\.(factory|constructor) .*not registered/,
     );
   });
 
@@ -258,5 +270,68 @@ describe('host namespace checks in top-level TypeScript expression props', () =>
     expect(() => emitNativeKernBodyTS(handler)).toThrow(
       /Unsupported host namespace in TypeScript expression: Date\.(now|\[computed\]) .*not registered/,
     );
+  });
+
+  test('type-only declarations do not shadow reserved host roots for later const values', () => {
+    expect(() =>
+      generateCoreNode({
+        type: 'module',
+        props: { name: 'type-only-host-root' },
+        children: [
+          { type: 'type', props: { name: 'Date', alias: 'unknown' } },
+          { type: 'const', props: { name: 'r', value: 'Date.now()' } },
+        ],
+      }),
+    ).toThrow(/Unsupported host namespace in TypeScript expression: Date\.now .*not registered/);
+  });
+
+  test('module runtime binding shadows a reserved host root in class field values', () => {
+    const lines = generateCoreNode({
+      type: 'module',
+      props: { name: 'field-shadow-host-root' },
+      children: [
+        { type: 'const', props: { name: 'Date', value: 'clock' } },
+        { type: 'class', props: { name: 'Stamp' }, children: [{ type: 'field', props: { name: 'ts', value: 'Date.now()' } }] },
+      ],
+    });
+    expect(lines.join('\n')).toContain('ts = Date.now();');
+  });
+
+  test('module runtime binding shadows a reserved host root in parameter defaults', () => {
+    const lines = generateCoreNode({
+      type: 'module',
+      props: { name: 'param-shadow-host-root' },
+      children: [
+        { type: 'const', props: { name: 'Date', value: 'clock' } },
+        {
+          type: 'fn',
+          props: { name: 'stamp', returns: 'number' },
+          children: [
+            { type: 'param', props: { name: 'ts', type: 'number', value: 'Date.now()' } },
+            { type: 'handler', props: { code: 'return ts;' } },
+          ],
+        },
+      ],
+    });
+    expect(lines.join('\n')).toContain('function stamp(ts: number = Date.now())');
+  });
+
+  test.each([
+    'new Date.factory()',
+    'new Date["factory"]()',
+  ])('%s rejects constructor expressions rooted in reserved host namespaces', (value) => {
+    const handler = makeHandler([{ type: 'let', props: { name: 'out', value } }]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(
+      /Unsupported host namespace in TypeScript expression: Date\.(factory|constructor) .*not registered/,
+    );
+  });
+
+  test('parse-failure fallback does not raw-emit reserved host namespace access', () => {
+    expect(() =>
+      generateCoreNode({
+        type: 'const',
+        props: { name: 'bad', value: 'Date.now(]' },
+      }),
+    ).toThrow(/Unsupported host namespace in TypeScript expression: Date\.now .*not registered/);
   });
 });

@@ -135,6 +135,8 @@ export function collectClosureBlockMemberAccesses(raw: string): ClosureBlockMemb
     } else if (ts.isNewExpression(node)) {
       const root = leftmostIdentifierName(node.expression);
       if (root) accesses.push({ root, member: 'constructor', locallyShadowed: isLocal(root) });
+    } else if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      accesses.push({ root: node.expression.text, member: 'call', locallyShadowed: isLocal(node.expression.text) });
     }
     ts.forEachChild(node, visit);
   };

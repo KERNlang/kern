@@ -403,6 +403,12 @@ export function generateModule(node: IRNode): string[] {
     if (isLoosePythonSidecarImportNode(child)) continue;
     if (child.type === 'const') {
       lines.push(...generateConst(child, { userBindings: moduleUserBindings }));
+    } else if (child.type === 'class') {
+      lines.push(...generateClass(child, { userBindings: moduleUserBindings }));
+    } else if (child.type === 'service') {
+      lines.push(...generateService(child, { userBindings: moduleUserBindings }));
+    } else if (child.type === 'fn') {
+      lines.push(...generateFunction(child, { userBindings: moduleUserBindings }));
     } else {
       lines.push(...generateCoreNode(child));
     }
@@ -415,6 +421,7 @@ export function generateModule(node: IRNode): string[] {
 }
 
 function topLevelRuntimeBindingName(node: IRNode): string | null {
+  if (node.type !== 'const' && node.type !== 'class' && node.type !== 'service' && node.type !== 'fn') return null;
   const props = getProps(node);
   if (typeof props.name === 'string' && props.name.length > 0) {
     return props.name;

@@ -4,7 +4,7 @@
  * Extracted from codegen-core.ts for modular codegen architecture.
  */
 
-import { emitExpression } from '../codegen-expression.js';
+import { emitExpression, validateRawHostNamespacesTS } from '../codegen-expression.js';
 import type { ExprEmitContext } from '../codegen-expression.js';
 import { hasDirectSuperCtorCall } from '../constructor-super.js';
 import { propsOf } from '../node-props.js';
@@ -234,21 +234,21 @@ function emitClassHeader(
   };
 }
 
-export function generateClass(node: IRNode): string[] {
+export function generateClass(node: IRNode, options?: TopLevelExpressionOptions): string[] {
   const { exp, name, header, docs } = emitClassHeader(node, 'UnknownClass');
   const lines: string[] = [...docs];
   lines.push(header);
-  emitClassBody(node, lines);
+  emitClassBody(node, lines, options);
   lines.push('}');
   emitSingletons(node, lines, name, exp);
   return lines;
 }
 
-export function generateService(node: IRNode): string[] {
+export function generateService(node: IRNode, options?: TopLevelExpressionOptions): string[] {
   const { exp, name, header, docs } = emitClassHeader(node, 'UnknownService');
   const lines: string[] = [...docs];
   lines.push(header);
-  emitClassBody(node, lines);
+  emitClassBody(node, lines, options);
   lines.push('}');
   emitSingletons(node, lines, name, exp);
   return lines;
@@ -264,7 +264,7 @@ function emitSingletons(node: IRNode, lines: string[], className: string, exp: s
   }
 }
 
-function emitClassBody(node: IRNode, lines: string[]): void {
+function emitClassBody(node: IRNode, lines: string[], options?: TopLevelExpressionOptions): void {
   // Abstract members — handler-less methods/getters/setters under an
   // `abstract=true` class — emit a fail-fast `throw` body, identical to the
   // Python `raise`, so an un-overridden abstract member fails the same way on
@@ -303,7 +303,7 @@ function emitClassBody(node: IRNode, lines: string[]): void {
     const valuePresent = rawValue !== undefined && (rawValue !== '' || field.__quotedProps?.includes('value') === true);
     const init = (() => {
       if (valuePresent) {
-        return ` = ${emitConstValue(field, rawValue)}`;
+        return ` = ${emitConstValue(field, rawValue, 'value', topLevelExprContext(options))}`;
       }
       if (rawDefault === undefined || rawDefault === '') return '';
       if (isExprObject(rawDefault)) return ` = ${rawDefault.code}`;
@@ -316,7 +316,7 @@ function emitClassBody(node: IRNode, lines: string[]): void {
   const ctorNode = firstChild(node, 'constructor');
   if (ctorNode) {
     const ctorProps = propsOf<'constructor'>(ctorNode);
-    const ctorParams = emitParamList(ctorNode);
+    const ctorParams = emitParamList(ctorNode, { exprCtx: topLevelExprContext(options) });
     const generics = ctorProps.generics ? emitTypeAnnotation(ctorProps.generics, '', ctorNode) : '';
     const ctorCode = classMemberBodyCode(ctorNode);
     lines.push('');
@@ -346,7 +346,7 @@ function emitClassBody(node: IRNode, lines: string[]): void {
   for (const method of kids(node, 'method')) {
     const mp = propsOf<'method'>(method);
     const mname = emitIdentifier(mp.name, 'method', method);
-    const mparams = emitParamList(method);
+    const mparams = emitParamList(method, { exprCtx: topLevelExprContext(options) });
     const generics = mp.generics ? emitTypeAnnotation(mp.generics, '', method) : '';
     const isAsync = mp.async === 'true' || mp.async === true;
     const isStream = mp.stream === 'true' || mp.stream === true;
@@ -409,7 +409,7 @@ function emitClassBody(node: IRNode, lines: string[]): void {
     const sname = emitIdentifier(sp.name, 'setter', setter);
     const svis = sp.private === 'true' || sp.private === true ? 'private ' : '';
     const sstatic = sp.static === 'true' || sp.static === true ? 'static ' : '';
-    const sparams = emitParamList(setter, { fallback: 'value: unknown' });
+    const sparams = emitParamList(setter, { fallback: 'value: unknown', exprCtx: topLevelExprContext(options) });
     const scode =
       isAbstractClass && isHandlerless(setter) ? abstractThrow('setter', sname) : classMemberBodyCode(setter);
     lines.push('');
@@ -728,7 +728,10 @@ export function emitConstValue(
       return null;
     }
   })();
-  if (parsed === null) return rawValue;
+  if (parsed === null) {
+    validateRawHostNamespacesTS(rawValue, exprCtx);
+    return rawValue;
+  }
   return emitExpression(parsed, exprCtx);
 }
 
@@ -754,7 +757,13 @@ export function emitConstValue(
  * signatures — the implementation alone may carry defaults. Same flag as
  * the sibling `parseParamList`.
  */
-export function parseParamListFromChildren(paramNodes: IRNode[], options?: { stripDefaults?: boolean }): string {
+export interface ParamListOptions {
+  stripDefaults?: boolean;
+  fallback?: string;
+  exprCtx?: ExprEmitContext;
+}
+
+export function parseParamListFromChildren(paramNodes: IRNode[], options?: ParamListOptions): string {
   if (paramNodes.length === 0) return '';
   return paramNodes
     .map((paramNode) => {
@@ -781,7 +790,7 @@ export function parseParamListFromChildren(paramNodes: IRNode[], options?: { str
         rawValue !== undefined && (rawValue !== '' || paramNode.__quotedProps?.includes('value') === true);
 
       if (valuePresent) {
-        return `${pname}${optional}${typeAnn} = ${emitConstValue(paramNode, rawValue)}`;
+        return `${pname}${optional}${typeAnn} = ${emitConstValue(paramNode, rawValue, 'value', options?.exprCtx)}`;
       }
       if (rawDefault === undefined || rawDefault === '') return `${pname}${optional}${typeAnn}`;
       if (isExprObject(rawDefault)) return `${pname}${optional}${typeAnn} = ${rawDefault.code}`;
@@ -802,7 +811,7 @@ export function parseParamListFromChildren(paramNodes: IRNode[], options?: { str
  * Producers (importer, migrate-class-body) emit children all-or-nothing
  * per signature; consumers don't need to reconcile partial states.
  */
-export function emitParamList(node: IRNode, options?: { stripDefaults?: boolean; fallback?: string }): string {
+export function emitParamList(node: IRNode, options?: ParamListOptions): string {
   const paramChildren = kids(node, 'param');
   if (paramChildren.length > 0) {
     return parseParamListFromChildren(paramChildren, options);
