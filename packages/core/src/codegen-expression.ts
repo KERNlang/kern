@@ -462,10 +462,19 @@ function lowerRegexCallTS(call: Extract<ValueIR, { kind: 'call' }>): string | nu
     }
     // Inline `null`-safe adapter mirroring the oracle's canonMatchObj. `__m` is a
     // local arrow param (no collision with user names).
+    //
+    // NAMED-GROUP normalization (Slice-3b parity fix): an UNMATCHED optional
+    // named group is `undefined` on the native `RegExpMatchArray.groups`, but
+    // Python's `re.Match.groupdict()` returns `None` (= KERN null) for the same
+    // key. Copying `.groups` verbatim would diverge the canonical shape for
+    // optional named captures (`/(?<a>x)(?<b>y)?/` on "x" → TS `{a:"x"}` vs
+    // Python `{a:"x", b:null}`). We map each named value `undefined → null` the
+    // SAME way positional groups are normalized, so `named` is shape-identical
+    // across targets.
     return (
       `((__m) => __m === null ? null : ` +
       `{ full: __m[0], groups: Array.from(__m).slice(1).map((g) => g === undefined ? null : g), ` +
-      `index: __m.index, named: __m.groups ? { ...__m.groups } : {} })(${subject()}.match(${re}))`
+      `index: __m.index, named: __m.groups ? Object.fromEntries(Object.entries(__m.groups).map(([__k, __v]) => [__k, __v === undefined ? null : __v])) : {} })(${subject()}.match(${re}))`
     );
   }
 

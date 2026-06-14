@@ -528,11 +528,124 @@ export const REGEX_SPLIT_LIMIT_FAILCLOSE =
  */
 export function isZeroWidthCapableRegex(pattern: string): boolean {
   try {
+    // Conservative fail-close on any `.split`-UNSAFE escape, regardless of
+    // structural nullability. `.split` diverges whenever node's `str.split`
+    // and python3's `re.split` disagree, and escapes are the dominant source:
+    //   (a) a BACKREFERENCE — `\1`..`\9`, `\k<…>`. Two divergence modes: a
+    //       NULLABLE referenced group makes it zero-width-capable (`/(a?)\1/` —
+    //       node keeps empty edges, `re.split` doesn't), AND a reference to a
+    //       NON-EXISTENT group (`/a\1/`, `/\8/`) makes `re.split` THROW while JS
+    //       treats it as octal/literal and succeeds. We do NOT do group
+    //       nullability/existence analysis (over-rejecting a valid never-empty
+    //       backref's `.split` is SAFE; a silent divergence is not).
+    //   (b) an escape PYTHON `re` REJECTS but JS accepts — `\c`X control, `\u{…}`
+    //       braced, `\p`/`\P` property, and the JS identity-escape letters
+    //       (`\e \g \h …`). `re.split` errors, `str.split` succeeds.
+    //   (c) an escape with DIFFERENT MEANING across engines — `\A`/`\Z` (python
+    //       anchors vs JS identity `A`/`Z`), `\a` (python BEL vs JS identity).
+    // So we allowlist only the escapes both engines accept with the SAME meaning
+    // (see `isSplitSafeEscape`) and fail-close on every other escape.
+    if (containsSplitUnsafeEscape(pattern)) return true;
     return parseZwAlternation(pattern, 0, pattern.length).nullable;
   } catch {
     // Un-parseable by this scanner -> conservative fail-close.
     return true;
   }
+}
+
+/** Escape characters that node `RegExp` and python `re` BOTH accept with the
+ *  SAME meaning, so a `.split` over them is portable: shorthand classes,
+ *  boundary assertions (handled as zero-width elsewhere), the C-style control
+ *  literals, and `\xHH`/`\uHHHH`/octal numeric escapes (validated separately).
+ *  Punctuation/symbol identity-escapes (`\.`, `\\`, `\/`, `\*`, …) are portable
+ *  too and handled by the `nxt is non-alphanumeric` branch. */
+const SPLIT_SAFE_ESCAPE_LETTERS = new Set([
+  // shorthand classes (portable; the Slice-1 transform maps these identically)
+  'd',
+  'D',
+  'w',
+  'W',
+  's',
+  'S',
+  // boundary assertions
+  'b',
+  'B',
+  // C-style control literals (same code point in both engines)
+  'n',
+  'r',
+  't',
+  'f',
+  'v',
+]);
+
+/** True iff the pattern contains any `.split`-UNSAFE escape (see the allowlist
+ *  above). Scans raw, honoring `[...]` classes (an escape inside a class is a
+ *  class member; backrefs and anchors don't apply there, but a Python-rejected
+ *  escape like `[\c]` still diverges, so we apply the same allowlist there) and
+ *  consuming every escape as a unit via `scanZwEscape` so a multi-char escape's
+ *  trailing bytes are never re-scanned as a stray escape. */
+function containsSplitUnsafeEscape(pattern: string): boolean {
+  let p = 0;
+  const end = pattern.length;
+  let inClass = false;
+  while (p < end) {
+    const ch = pattern[p];
+    if (ch === '\\') {
+      const nxt = pattern[p + 1];
+      if (nxt === undefined) return false; // trailing lone backslash — handled upstream
+      // Backreferences (only outside a class; inside `[…]` `\1` is a literal,
+      // but `\1` as a literal still parses on both, so don't flag there).
+      if (!inClass && nxt >= '1' && nxt <= '9') return true;
+      if (!inClass && nxt === 'k' && pattern[p + 2] === '<') return true;
+      // `\xHH` / `\uHHHH` / `\u{…}` / `\cX` / octal `\0…`: classify by form.
+      if (nxt === 'x' || nxt === 'u' || nxt === 'c' || nxt === '0') {
+        if (!isMultiCharEscapeSplitSafe(pattern, p)) return true;
+        p = scanZwEscape(pattern, p, end).next;
+        continue;
+      }
+      // Letter escapes: only the allowlisted ones are portable. Everything else
+      // (`\A \Z \a \e \g … \p \P`) errors or means something different in `re`.
+      if (/[A-Za-z]/.test(nxt)) {
+        if (!SPLIT_SAFE_ESCAPE_LETTERS.has(nxt)) return true;
+        p += 2;
+        continue;
+      }
+      // Non-alphanumeric escape (`\.`, `\\`, `\/`, `\*`, `\$`, …): portable
+      // identity escape on both engines.
+      p += 2;
+      continue;
+    }
+    if (inClass) {
+      if (ch === ']') inClass = false;
+      p++;
+      continue;
+    }
+    if (ch === '[') inClass = true;
+    p++;
+  }
+  return false;
+}
+
+/** `\xHH` / `\uHHHH` / octal `\0…` are portable; `\u{…}` braced and `\cX`
+ *  control are NOT (python `re` rejects both). Malformed `\x`/`\u` (too few hex
+ *  digits) are also rejected by python, so they're unsafe too. */
+function isMultiCharEscapeSplitSafe(src: string, p: number): boolean {
+  const nxt = src[p + 1];
+  if (nxt === 'c') return false; // `\cX` — python `re` has no control escape
+  if (nxt === '0') return true; // octal `\0…` — portable
+  if (nxt === 'x') {
+    return HEX_RE.test(src[p + 2] ?? '') && HEX_RE.test(src[p + 3] ?? '');
+  }
+  if (nxt === 'u') {
+    if (src[p + 2] === '{') return false; // braced `\u{…}` — python `re` rejects
+    return (
+      HEX_RE.test(src[p + 2] ?? '') &&
+      HEX_RE.test(src[p + 3] ?? '') &&
+      HEX_RE.test(src[p + 4] ?? '') &&
+      HEX_RE.test(src[p + 5] ?? '')
+    );
+  }
+  return false;
 }
 
 /** Nullable iff ANY top-level alternative (split on depth-0, non-class `|`) is nullable. */
@@ -592,10 +705,16 @@ function parseZwAtom(src: string, p: number, end: number): { nullable: boolean; 
   let q: number;
 
   if (ch === '\\') {
-    // `\b`/`\B` are zero-width boundary assertions; every other escape consumes 1.
-    const nxt = src[p + 1];
-    baseNullable = nxt === 'b' || nxt === 'B';
-    q = p + 2;
+    // Escape-robust scan. A NAIVE `q = p + 2` mis-attributes a following
+    // quantifier for any MULTI-char escape (`\xHH`, `\uHHHH`, `\u{…}`, `\cX`,
+    // octal `\0…`): e.g. `\x41*` would parse as `\x` `4` `1*`, leaving `1*`
+    // (nullable) as the last atom and a non-null prefix — so the concat reads
+    // NON-null and `.split` LEAKS (the engines actually diverge on the empty
+    // edges of `\x41*`). We consume the WHOLE escape as one atom so the
+    // quantifier attaches to the right base.
+    const esc = scanZwEscape(src, p, end);
+    baseNullable = esc.nullable;
+    q = esc.next;
   } else if (ch === '^' || ch === '$') {
     baseNullable = true; // anchor: zero-width
     q = p + 1;
@@ -680,6 +799,93 @@ function parseZwAtom(src: string, p: number, end: number): { nullable: boolean; 
     return { nullable: baseNullable || quant.min === 0, next: quant.next };
   }
   return { nullable: baseNullable, next: q };
+}
+
+const HEX_RE = /[0-9a-fA-F]/;
+
+/**
+ * Consume ONE backslash escape starting at `src[p] === '\\'` and report its
+ * zero-width nullability + the index just past it. Recognizing MULTI-char
+ * escapes as single atoms is what makes the predicate escape-robust: a naive
+ * "consume 1 char after the backslash" mis-attributes a following quantifier
+ * (the `\x41*` / `\uHHHH*` / `\cA*` / `\0*` LEAK class).
+ *
+ * Nullability rules:
+ *   - `\b` / `\B`            -> zero-width boundary assertion  -> NULLABLE.
+ *   - any BACKREFERENCE      -> CONSERVATIVELY NULLABLE (fail-close `.split`).
+ *       `\1`..`\9` (+ trailing digits) and `\k<name>`: a backref matches EMPTY
+ *       when its referenced group matched empty (`/(a?)\1/`), so the whole
+ *       pattern can be zero-width-capable. We do NOT attempt group-nullability
+ *       analysis — over-rejecting a never-empty backref's `.split` is SAFE; a
+ *       silent divergence is not. (`\1` also outright ERRORS under `re.split`
+ *       in some shapes, another reason to fail-close.)
+ *   - `\xHH` / `\uHHHH` / `\u{…}` / `\cX` / octal `\0…` / any single-char class
+ *     escape (`\d \w \s …`) or literal escape -> consumes >= 1 char -> NON-null.
+ *
+ * Always advances past the FULL escape so the caller's quantifier scan attaches
+ * to the correct base atom.
+ */
+function scanZwEscape(src: string, p: number, end: number): { nullable: boolean; next: number } {
+  const nxt = src[p + 1];
+  if (nxt === undefined) {
+    // Trailing lone backslash — treat as a 1-char non-null atom (and don't run
+    // off the end); the upstream emitters reject this separately.
+    return { nullable: false, next: p + 1 };
+  }
+  // Zero-width boundary assertions.
+  if (nxt === 'b' || nxt === 'B') return { nullable: true, next: p + 2 };
+  // Numeric backreference `\1`..`\9` (consume the full run of digits) — conservative NULLABLE.
+  if (nxt >= '1' && nxt <= '9') {
+    let r = p + 2;
+    while (r < end && src[r] >= '0' && src[r] <= '9') r++;
+    return { nullable: true, next: r };
+  }
+  // Named backreference `\k<name>` — conservative NULLABLE.
+  if (nxt === 'k' && src[p + 2] === '<') {
+    let r = p + 3;
+    while (r < end && src[r] !== '>') r++;
+    return { nullable: true, next: r < end ? r + 1 : r };
+  }
+  // `\xHH` — two hex digits (fall back to consuming `\x` if malformed).
+  if (nxt === 'x') {
+    if (HEX_RE.test(src[p + 2] ?? '') && HEX_RE.test(src[p + 3] ?? '')) {
+      return { nullable: false, next: p + 4 };
+    }
+    return { nullable: false, next: p + 2 };
+  }
+  // `\uHHHH` or `\u{H..H}`.
+  if (nxt === 'u') {
+    if (src[p + 2] === '{') {
+      let r = p + 3;
+      while (r < end && src[r] !== '}') r++;
+      return { nullable: false, next: r < end ? r + 1 : r };
+    }
+    if (
+      HEX_RE.test(src[p + 2] ?? '') &&
+      HEX_RE.test(src[p + 3] ?? '') &&
+      HEX_RE.test(src[p + 4] ?? '') &&
+      HEX_RE.test(src[p + 5] ?? '')
+    ) {
+      return { nullable: false, next: p + 6 };
+    }
+    return { nullable: false, next: p + 2 };
+  }
+  // `\cX` control escape — one letter after `\c`.
+  if (nxt === 'c' && /[A-Za-z]/.test(src[p + 2] ?? '')) {
+    return { nullable: false, next: p + 3 };
+  }
+  // Octal `\0` (+ up to 2 more octal digits). `\0` alone is NUL; `\012` is octal.
+  if (nxt === '0') {
+    let r = p + 2;
+    let count = 0;
+    while (r < end && count < 2 && src[r] >= '0' && src[r] <= '7') {
+      r++;
+      count++;
+    }
+    return { nullable: false, next: r };
+  }
+  // Every other escape (`\d \w \s \. \\ \/ …`) consumes 1 char -> non-null.
+  return { nullable: false, next: p + 2 };
 }
 
 /** Parse `*` `+` `?` `{n}` `{n,}` `{n,m}` (+ lazy `?`). Returns `{ min, next }` or null. */

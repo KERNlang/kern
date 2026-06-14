@@ -51,6 +51,9 @@ import type { ExprObject, IRNode } from '../types.js';
 import { typescriptClosureClassifier } from '../typescript-closure-classifier.js';
 import type { ValueIR } from '../value-ir.js';
 
+/** A regex-literal IR node — the value recorded in the TS regex-binding table. */
+type RegexLitIR = Extract<ValueIR, { kind: 'regexLit' }>;
+
 // Slice 0.9 — TS codegen is Node-only; it re-parses raw block-bodied arrow prop
 // values, so it injects the TypeScript-backed closure classifier. `parseExpr` is
 // the local binding all `parseExpression` calls in this module route through.
@@ -106,6 +109,15 @@ export interface BodyEmitResult {
 interface BodyEmitContext {
   gensymCounter: number;
   localScopes: Array<Map<string, 'const' | 'let' | 'cell'>>;
+  /** Slice-3b parity fix — per-scope regex-literal binding table, index-aligned
+   *  with `localScopes`. Mirrors the Python target's `regexScopes`: when a `let`
+   *  binds a direct regex literal (`let re = /…/`), we record the `regexLit` IR
+   *  so a downstream `s.match(re)` can resolve the ident to its literal and lower
+   *  through the SAME canonical adapter/fail-close a direct `s.match(/…/)` uses.
+   *  Without this, TS emitted raw `s.match(re)` while Python canonical-lowered
+   *  the let-bound regex — a cross-target divergence. A non-regex `let` (or a
+   *  reassignment to a non-regex) records `null`, masking any outer binding. */
+  regexScopes: Array<Map<string, RegexLitIR | null>>;
   /** Slice 4c review fix (OpenCode + Gemini critical) — depth of nested
    *  `try` blocks the emitter is currently inside. Propagation `?` lowers
    *  to a `return` that exits the function — that bypasses the enclosing
@@ -143,6 +155,7 @@ export function emitNativeKernBodyTSWithImports(handlerNode: IRNode, options?: B
   const ctx: BodyEmitContext = {
     gensymCounter: 0,
     localScopes: [],
+    regexScopes: [],
     tryDepth: 0,
     finallyDepth: 0,
     traceHooks: options?.traceHooks,
@@ -154,6 +167,11 @@ export function emitNativeKernBodyTSWithImports(handlerNode: IRNode, options?: B
     const outer = new Map<string, 'const' | 'let' | 'cell'>();
     for (const name of options.stateBindings) outer.set(name, 'cell');
     ctx.localScopes.push(outer);
+    // Index-align `regexScopes` with `localScopes`: state bindings are never
+    // regex literals (they come from `state name=…`), so seed them as null.
+    const outerRegex = new Map<string, RegexLitIR | null>();
+    for (const name of options.stateBindings) outerRegex.set(name, null);
+    ctx.regexScopes.push(outerRegex);
   }
   const code = emitChildrenTS(handlerNode.children ?? [], ctx, '').join('\n');
   return { code, imports: new Set<string>() };
@@ -190,6 +208,8 @@ function emitChildrenTS(
 ): string[] {
   const lines: string[] = [];
   ctx.localScopes.push(new Map(initialBindings));
+  // Index-aligned regex-binding scope (initial bindings are never regex literals).
+  ctx.regexScopes.push(new Map(initialBindings.map(([name]) => [name, null])));
   try {
     for (let i = 0; i < children.length; i++) {
       const child = children[i];
@@ -524,6 +544,7 @@ function emitChildrenTS(
     }
   } finally {
     ctx.localScopes.pop();
+    ctx.regexScopes.pop();
   }
   return lines;
 }
@@ -710,6 +731,10 @@ function emitLetTS(node: IRNode, ctx: BodyEmitContext): string[] {
     return [`${bindingKind} ${name}${typeAnn};`];
   }
   const valueIR = parseExpr(String(rawValue));
+  // Slice-3b parity: record a direct regex-literal binding so a later
+  // `s.match(re)` resolves the ident to its literal and lowers canonically
+  // (matches Python's `setRegexBinding(ctx, userName, regexLit|null)`).
+  setRegexBinding(ctx, name, valueIR.kind === 'regexLit' ? valueIR : null);
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
@@ -1101,6 +1126,24 @@ function declareLocalBinding(ctx: BodyEmitContext, name: string, kind: 'const' |
     throw new Error(`body-statement local binding \`${name}\` is already declared in this scope.`);
   }
   scope.set(name, kind);
+  // Declare the regex binding as null by default (mirrors Python's
+  // `declareLocalBinding` → `setRegexBinding(ctx, name, null)`); `emitLetTS`
+  // overwrites it with the regex literal when the initializer is a `regexLit`.
+  setRegexBinding(ctx, name, null);
+}
+
+/** Record (or clear) the regex-literal bound to `name` in the current scope. */
+function setRegexBinding(ctx: BodyEmitContext, name: string, regex: RegexLitIR | null): void {
+  ctx.regexScopes.at(-1)?.set(name, regex);
+}
+
+/** Resolve an ident to its bound regex literal, walking enclosing scopes. */
+function lookupRegexBinding(ctx: BodyEmitContext, name: string): RegexLitIR | null {
+  for (let i = ctx.regexScopes.length - 1; i >= 0; i--) {
+    const scope = ctx.regexScopes[i];
+    if (scope.has(name)) return scope.get(name) ?? null;
+  }
+  return null;
 }
 
 function assertAssignableLocalTarget(target: ValueIR, ctx: BodyEmitContext): void {
@@ -1121,8 +1164,49 @@ function lookupLocalBinding(ctx: BodyEmitContext, name: string): 'const' | 'let'
   return undefined;
 }
 
-function emitValueTS(node: ValueIR, _ctx: BodyEmitContext): string {
-  return emitExpression(node);
+function emitValueTS(node: ValueIR, ctx: BodyEmitContext): string {
+  // Slice-3b parity: the pure-expression TS emitter (`emitExpression`) has no
+  // binding table, so a regex method called on a let-bound regex IDENT
+  // (`let re = /…/; s.match(re)`) would emit raw `s.match(re)` while the Python
+  // target resolved the binding and lowered canonically — a cross-target
+  // divergence. We resolve the ident to its bound `regexLit` HERE (where the
+  // table lives) and substitute it into the call's regex position, so the
+  // existing `lowerRegexCallTS` adapter/fail-close fires identically to a direct
+  // `s.match(/…/)`. Pure pre-pass: returns the node unchanged when there's
+  // nothing to resolve.
+  return emitExpression(resolveRegexBindingInCall(node, ctx));
+}
+
+/** Method names where the regex argument is positioned differently. */
+const REGEX_RECEIVER_METHODS = new Set(['test', 'exec']);
+const REGEX_FIRSTARG_METHODS = new Set(['match', 'matchAll', 'split', 'replace', 'replaceAll']);
+
+/** If `node` is a regex method `call` whose regex position is an IDENT bound to
+ *  a regex literal in scope, return a shallow-cloned call with that ident
+ *  replaced by the bound `regexLit` IR (so `lowerRegexCallTS` resolves it).
+ *  Otherwise return `node` unchanged. Mirrors Python's `resolveRegexExpr`. */
+function resolveRegexBindingInCall(node: ValueIR, ctx: BodyEmitContext): ValueIR {
+  if (node.kind !== 'call') return node;
+  const callee = node.callee;
+  if (callee.kind !== 'member') return node;
+  const property = callee.property;
+  // Receiver-positioned regex: `re.test(s)` / `re.exec(s)`.
+  if (REGEX_RECEIVER_METHODS.has(property) && callee.object.kind === 'ident') {
+    const bound = lookupRegexBinding(ctx, callee.object.name);
+    if (bound !== null) {
+      return { ...node, callee: { ...callee, object: bound } };
+    }
+  }
+  // First-arg-positioned regex: `s.match(re)` / `s.split(re)` / `s.replace(re,r)` / …
+  if (REGEX_FIRSTARG_METHODS.has(property) && node.args.length >= 1 && node.args[0].kind === 'ident') {
+    const bound = lookupRegexBinding(ctx, node.args[0].name);
+    if (bound !== null) {
+      const args = node.args.slice();
+      args[0] = bound;
+      return { ...node, args };
+    }
+  }
+  return node;
 }
 
 function isAssignableTarget(node: ValueIR): boolean {
@@ -1358,6 +1442,9 @@ function emitExpressionV1TS(node: IRNode, ctx: BodyEmitContext): string[] {
   }
   const exprIR = parseExpr(exprSource);
   declareLocalBinding(ctx, name, 'const');
+  // Slice-3b parity: record a direct regex-literal binding (mirrors Python's
+  // `expression-v1` `setRegexBinding(ctx, userName, regexLit|null)`).
+  setRegexBinding(ctx, name, exprIR.kind === 'regexLit' ? exprIR : null);
   const lines = [`const ${name}${typeAnn} = ${emitValueTS(exprIR, ctx)};`];
   if (ctx.traceHooks?.letAssign) lines.push(letAssignTraceTS(name));
   return lines;

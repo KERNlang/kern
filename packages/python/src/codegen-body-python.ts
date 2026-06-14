@@ -3445,6 +3445,17 @@ function lowerRegexCallPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: Bod
   const callee = call.callee;
   if (callee.kind !== 'member') return null;
 
+  // Slice-3b FIX 4 (parity): a call whose receiver is a KERN-stdlib NAMESPACE
+  // (`Math.match(/a/g)`, `JSON.split(/,/)`) is NOT a string regex method —
+  // defer to `applyStdlibLoweringPython`, which rejects the unknown stdlib
+  // member exactly like the TS emitter (where `applyStdlibLoweringTS` runs
+  // BEFORE the regex lowering). Without this, the regex path mis-claimed the
+  // namespace as the SUBJECT and emitted broken `…finditer("a", Math, …)`
+  // while TS fail-closed — a cross-target divergence.
+  if (callee.object.kind === 'ident' && KERN_STDLIB_MODULES.has(callee.object.name)) {
+    return null;
+  }
+
   // --- Receiver-is-regex shapes: `regex.test(s)`, `regex.exec(s)` ---
   const receiverRegex = resolveRegexExpr(callee.object, ctx);
   if (callee.property === 'test' && receiverRegex !== null) {

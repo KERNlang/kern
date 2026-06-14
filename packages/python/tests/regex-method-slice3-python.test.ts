@@ -28,17 +28,30 @@
  *  tests lock the EMISSION so a regression is caught without running both hosts.
  */
 
-import { emitExpression, parseExpression } from '@kernlang/core';
-import { emitPyExpression } from '../src/codegen-body-python.js';
+import type { IRNode } from '@kernlang/core';
+import { emitExpression, emitNativeKernBodyTS, parseExpression } from '@kernlang/core';
+import { emitNativeKernBodyPythonWithImports, emitPyExpression } from '../src/codegen-body-python.js';
 
 const ts = (src: string): string => emitExpression(parseExpression(src));
 const py = (src: string): string => emitPyExpression(parseExpression(src));
 
+// Body-level emitters (Slice-3b FIX 3 — let-bound regex parity). The expression
+// emitters above have no binding table; a `let re = /…/; s.match(re)` only
+// exercises the regex-binding resolution at the BODY level.
+function makeHandler(children: IRNode[]): IRNode {
+  return { type: 'handler', props: {}, children } as IRNode;
+}
+const tsBody = (children: IRNode[]): string => emitNativeKernBodyTS(makeHandler(children));
+const pyBody = (children: IRNode[]): string => emitNativeKernBodyPythonWithImports(makeHandler(children)).code;
+
 // The TS-side `.match` (no /g) canonical adapter — asserted in full once, then
 // referenced by `.toContain` shape-fragments elsewhere. Mirrors the oracle's
-// `canonMatchObj` (run_js.mjs).
+// `canonMatchObj` (run_js.mjs). Slice-3b FIX 2: the `named` map normalizes each
+// value `undefined -> null` (an unmatched optional named group is `undefined` on
+// the native RegExpMatchArray.groups but `None` on Python's groupdict()), so the
+// canonical `named` shape is byte/shape-identical across targets.
 const TS_MATCH_ADAPTER_HEAD =
-  '((__m) => __m === null ? null : { full: __m[0], groups: Array.from(__m).slice(1).map((g) => g === undefined ? null : g), index: __m.index, named: __m.groups ? { ...__m.groups } : {} })';
+  '((__m) => __m === null ? null : { full: __m[0], groups: Array.from(__m).slice(1).map((g) => g === undefined ? null : g), index: __m.index, named: __m.groups ? Object.fromEntries(Object.entries(__m.groups).map(([__k, __v]) => [__k, __v === undefined ? null : __v])) : {} })';
 
 describe('Slice 3 — .match WITHOUT /g lowers to the canonical {full,groups,index,named} shape', () => {
   // kills: naive_match_object — Python today emits a bare `re.search` Match OBJECT
@@ -211,5 +224,151 @@ describe('Slice 3 — .test(/g) and .exec FAIL-CLOSE (stateful lastIndex has no 
     expect(() => py('/a/g.exec(s)')).toThrow(expected);
     // the redirect names the portable alternative.
     expect(() => ts('/a/.exec(s)')).toThrow('Use .matchAll');
+  });
+});
+
+const ZW_SPLIT =
+  'Python target does not lower String.split with a zero-width-capable pattern: JS drops empty edge segments while re.split keeps them. Use a pattern that cannot match the empty string.';
+
+describe('Slice 3b FIX 1 — escape-robust zero-width predicate (.split fail-close)', () => {
+  // A backref to a NULLABLE group matches EMPTY (`/(a?)\1/` is zero-width-capable)
+  // → node `str.split` keeps non-empty edges, `re.split` keeps empty ones → DIVERGE.
+  // The escape-robust predicate fail-closes on ANY backref (conservative).
+  // REVERT-CHECK vs 7bd5b2dc: the OLD predicate treated `\1` as a 1-char
+  // consuming atom and let `/(a?)\1/.split` go IN-CORE (silent divergence).
+  test('s.split(/(a?)\\1/) (nullable backref) → symmetric fail-close', () => {
+    expect(() => ts('s.split(/(a?)\\1/)')).toThrow(ZW_SPLIT);
+    expect(() => py('s.split(/(a?)\\1/)')).toThrow(ZW_SPLIT);
+  });
+
+  // A MULTI-CHAR escape is ONE atom: `\x41*` is `(\x41)*`, zero-width-capable.
+  // The OLD scanner read `\x` as the atom then `41` as literals, so `*` attached
+  // to `1` (`1*`, nullable) BEHIND a non-null prefix → the concat read non-null
+  // → `/\x41*/.split` LEAKED in-core. The escape-robust scanner consumes the
+  // whole `\x41` so `*` attaches correctly → zero-width → fail-close.
+  test('s.split(/\\x41*/) (\\xHH escape + *) → symmetric fail-close (was a LEAK)', () => {
+    expect(() => ts('s.split(/\\x41*/)')).toThrow(ZW_SPLIT);
+    expect(() => py('s.split(/\\x41*/)')).toThrow(ZW_SPLIT);
+  });
+
+  // Same for the 4-hex `\uHHHH` form.
+  test('s.split(/\\u0041*/) (\\uHHHH escape + *) → symmetric fail-close (was a LEAK)', () => {
+    expect(() => ts('s.split(/\\u0041*/)')).toThrow(ZW_SPLIT);
+    expect(() => py('s.split(/\\u0041*/)')).toThrow(ZW_SPLIT);
+  });
+
+  // `\cX` control + octal `\0` escapes are multi-char atoms too; `*` makes them
+  // zero-width-capable (and python `re` rejects `\c` outright) → fail-close.
+  test('s.split(/\\cA*/) and s.split(/\\0*/) → symmetric fail-close', () => {
+    expect(() => ts('s.split(/\\cA*/)')).toThrow(ZW_SPLIT);
+    expect(() => py('s.split(/\\cA*/)')).toThrow(ZW_SPLIT);
+    expect(() => ts('s.split(/\\0*/)')).toThrow(ZW_SPLIT);
+    expect(() => py('s.split(/\\0*/)')).toThrow(ZW_SPLIT);
+  });
+
+  // REGRESSION: a multi-char escape WITHOUT a zero-rep quantifier still consumes
+  // >= 1 char → IN-CORE. `\x41a` (escape then literal) and `\d+` stay portable.
+  test('s.split(/\\x41a/) and s.split(/\\d+/) (non-nullable escapes) → IN-CORE', () => {
+    expect(py('s.split(/\\x41a/)')).toBe('__k_re.split("\\\\x41a", s, flags=__k_re.ASCII)');
+    expect(ts('s.split(/\\x41a/)')).toBe('s.split(/\\x41a/)');
+    expect(() => py('s.split(/\\d+/)')).not.toThrow();
+  });
+});
+
+describe('Slice 3b FIX 2 — .match named-group `undefined -> null` normalization', () => {
+  // An UNMATCHED optional named group is `undefined` on `m.groups` (TS) but
+  // `None` (KERN null) on Python's groupdict(). The TS adapter normalizes each
+  // named value `undefined -> null` so the canonical `named` map is shape-
+  // identical across targets. Behavioral proof: running the emitted TS adapter
+  // for `/(?<a>x)(?<b>y)?/` on "x" yields `named:{a:"x", b:null}`.
+  // REVERT-CHECK vs 7bd5b2dc: the OLD adapter copied `{ ...__m.groups }` verbatim
+  // → `b` stayed `undefined` while Python had `None` (a silent shape divergence).
+  test('TS adapter normalizes named values (no raw spread of m.groups)', () => {
+    const out = ts('s.match(/(?<a>x)(?<b>y)?/)');
+    expect(out).toContain('Object.fromEntries(Object.entries(__m.groups)');
+    expect(out).toContain('__v === undefined ? null : __v');
+    expect(out).not.toContain('{ ...__m.groups }'); // the old verbatim-copy shape
+  });
+
+  test('emitted TS adapter run on "x" yields named:{a:"x", b:null}', () => {
+    const emitted = ts('s.match(/(?<a>x)(?<b>y)?/)');
+    // Run the EXACT emitted adapter with `s = "x"` as a function param (avoids a
+    // bare `eval`); evaluating the emitted string IS the behavioral parity column.
+    const run = new Function('s', `return ${emitted};`) as (s: string) => { named: Record<string, string | null> };
+    const result = run('x');
+    expect(result.named).toEqual({ a: 'x', b: null });
+    expect(result.named.b).toBeNull();
+  });
+});
+
+describe('Slice 3b FIX 3 — let-bound regex lowers IDENTICALLY to a direct literal (both targets)', () => {
+  // BODY-level: a `let re = /…/; s.match(re)` must resolve `re` to its literal and
+  // lower through the SAME canonical adapter as a direct `s.match(/…/)`. Python
+  // already resolved the binding (`regexScopes`); the TS body emitter now does too
+  // (the Slice-3b parity fix). Approach taken: thread a regex-binding table into
+  // the TS body emitter and resolve the ident at the body level — Approach B
+  // (Python ALSO emits raw) was rejected because Python's str has no `.match`, so
+  // "both raw" would CRASH Python, not achieve parity.
+  // REVERT-CHECK vs 7bd5b2dc: TS emitted raw `s.match(re)` (no adapter) for the
+  // let-bound case while Python lowered canonically.
+  test('let re = /(g1)-(g2)/; s.match(re) → canonical adapter (TS) == direct literal', () => {
+    const letBound = tsBody([
+      { type: 'let', props: { name: 're', kind: 'const', value: '/([0-9]+)-([0-9]+)/' } } as IRNode,
+      { type: 'do', props: { value: 's.match(re)' } } as IRNode,
+    ]);
+    const direct = ts('s.match(/([0-9]+)-([0-9]+)/)');
+    // the let-bound body lowers the call exactly like the direct literal.
+    expect(letBound).toContain(direct);
+    // and NOT the raw `s.match(re)` (the pre-fix divergent shape).
+    expect(letBound).not.toContain('s.match(re)');
+  });
+
+  // Python side already canonical-lowered let-bound regexes; assert it still does
+  // (the parity invariant is "both do the same thing").
+  test('let re = /…/; s.match(re) → _kern_regex_match helper (Python)', () => {
+    const out = pyBody([
+      { type: 'let', props: { name: 're', kind: 'const', value: '/([0-9]+)-([0-9]+)/' } } as IRNode,
+      { type: 'do', props: { value: 's.match(re)' } } as IRNode,
+    ]);
+    expect(out).toContain('_kern_regex_match("([0-9]+)-([0-9]+)", s, __k_re.ASCII)');
+  });
+
+  // let-bound zero-width `.split` fail-closes IDENTICALLY on both targets.
+  test('let rx = /x*/; s.split(rx) → symmetric fail-close (both targets)', () => {
+    const children = [
+      { type: 'let', props: { name: 'rx', kind: 'const', value: '/x*/' } } as IRNode,
+      { type: 'do', props: { value: 's.split(rx)' } } as IRNode,
+    ];
+    expect(() => tsBody(children)).toThrow(ZW_SPLIT);
+    expect(() => pyBody(children)).toThrow(ZW_SPLIT);
+  });
+
+  // let-bound `.test(/g)` fail-closes IDENTICALLY on both targets.
+  test('let rg = /a/g; rg.test(s) → symmetric fail-close (both targets)', () => {
+    const children = [
+      { type: 'let', props: { name: 'rg', kind: 'const', value: '/a/g' } } as IRNode,
+      { type: 'do', props: { value: 'rg.test(s)' } } as IRNode,
+    ];
+    const TEST_G =
+      "Python target does not lower RegExp.test with the 'g' flag: JS mutates lastIndex across calls while re.search is stateless. Use .matchAll (global) for stateful iteration.";
+    expect(() => tsBody(children)).toThrow(TEST_G);
+    expect(() => pyBody(children)).toThrow(TEST_G);
+  });
+});
+
+describe('Slice 3b FIX 4 — Math.match(/a/g) fails closed (stdlib member rejection precedes regex lowering)', () => {
+  // A regex method called on a KERN-stdlib namespace is NOT a string method.
+  // `applyStdlibLoweringTS`/`...Python` runs BEFORE the regex-call lowering and
+  // rejects `Math.match` as an unknown stdlib member — so the regex path never
+  // mis-claims it. (This restores, on the Slice-3 branch, the validation that
+  // Milestone B's single-pass refactor will also cover IR-wide.)
+  test('Math.match(/a/g) → throws unknown-stdlib-member (both targets)', () => {
+    expect(() => ts('Math.match(/a/g)')).toThrow(/Math\.match/);
+    expect(() => py('Math.match(/a/g)')).toThrow(/Math\.match/);
+  });
+
+  // a non-namespace receiver (`s.match`) is unaffected — still the regex method.
+  test('s.match(/a/g) (string receiver) → native /g array shape (TS), NOT rejected', () => {
+    expect(ts('s.match(/a/g)')).toBe('s.match(/a/g)');
   });
 });
