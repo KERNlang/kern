@@ -1,5 +1,5 @@
 import type { IRNode } from '@kernlang/core';
-import { execSync, spawn } from 'child_process';
+import { execFileSync, execSync, spawn } from 'child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -636,241 +636,322 @@ function findResponse(responses: MCPResponse[], id: number, stderr = ''): MCPRes
 // Some local Python environments have an mcp/pydantic combination that imports
 // successfully but crashes during @mcp.tool() registration.
 let hasPythonMCP = false;
+let hasPythonTypedToolMCP = false;
+let hasPythonPromptMCP = false;
 try {
-  execSync(
-    [
-      'python3 -c "',
-      'from mcp.server.fastmcp import FastMCP\\n',
-      "mcp = FastMCP(\\'probe\\')\\n",
-      '@mcp.tool()\\n',
-      'def ping(value: str) -> str:\\n',
-      '    return value\\n',
-      '"',
-    ].join(''),
-    { stdio: 'pipe', timeout: 10000 },
-  );
+  execFileSync('python3', ['-c', 'from mcp.server.fastmcp import FastMCP'], { stdio: 'pipe', timeout: 10000 });
   hasPythonMCP = true;
 } catch {
-  /* python3/mcp missing, or FastMCP cannot register typed tools */
+  /* python3/mcp missing */
+}
+
+try {
+  if (!hasPythonMCP) throw new Error('python mcp unavailable');
+  execFileSync(
+    'python3',
+    [
+      '-c',
+      [
+        'from mcp.server.fastmcp import FastMCP',
+        "mcp = FastMCP('probe')",
+        '@mcp.tool()',
+        'def ping(value: str) -> str:',
+        '    return value',
+      ].join('\n'),
+    ],
+    { stdio: 'pipe', timeout: 10000 },
+  );
+  hasPythonTypedToolMCP = true;
+} catch {
+  /* FastMCP cannot register typed tools */
+}
+
+try {
+  if (!hasPythonMCP) throw new Error('python mcp unavailable');
+  execFileSync(
+    'python3',
+    [
+      '-c',
+      [
+        'from mcp.server.fastmcp import FastMCP',
+        "mcp = FastMCP('probe')",
+        '@mcp.prompt()',
+        'def review(value: str) -> str:',
+        '    return value',
+      ].join('\n'),
+    ],
+    { stdio: 'pipe', timeout: 10000 },
+  );
+  hasPythonPromptMCP = true;
+} catch {
+  /* FastMCP cannot register typed prompts */
 }
 
 const describeE2E = hasPythonMCP ? describe : describe.skip;
+const itToolE2E = hasPythonTypedToolMCP ? it : it.skip;
+const itPromptE2E = hasPythonPromptMCP ? it : it.skip;
 
 describeE2E('transpileMCPPython runtime E2E', () => {
   // 1. Basic tool call with Python handler
-  it('should handle a tool call at runtime with lang=python handler', async () => {
-    const ast = node('mcp', { name: 'GreetPyE2E' }, [
-      node('tool', { name: 'greet' }, [
-        node('description', { text: 'Say hello' }),
-        node('param', { name: 'name', type: 'string', required: 'true' }),
-        node('handler', { lang: 'python', code: 'return f"Hello {name}"' }),
-      ]),
-    ]);
+  itToolE2E(
+    'should handle a tool call at runtime with lang=python handler',
+    async () => {
+      const ast = node('mcp', { name: 'GreetPyE2E' }, [
+        node('tool', { name: 'greet' }, [
+          node('description', { text: 'Say hello' }),
+          node('param', { name: 'name', type: 'string', required: 'true' }),
+          node('handler', { lang: 'python', code: 'return f"Hello {name}"' }),
+        ]),
+      ]);
 
-    const result = transpileMCPPython(ast);
-    const { responses } = await runPythonMCP(result.code, [
-      ...initMessages(),
-      rpc('tools/call', { name: 'greet', arguments: { name: 'World' } }, 2),
-    ]);
+      const result = transpileMCPPython(ast);
+      const { responses } = await runPythonMCP(result.code, [
+        ...initMessages(),
+        rpc('tools/call', { name: 'greet', arguments: { name: 'World' } }, 2),
+      ]);
 
-    const toolResponse = findResponse(responses, 2);
-    const content = (toolResponse.result as any).content;
-    expect(content[0].text).toBe('Hello World');
-  }, 30000);
+      const toolResponse = findResponse(responses, 2);
+      const content = (toolResponse.result as any).content;
+      expect(content[0].text).toBe('Hello World');
+    },
+    30000,
+  );
 
   // 2. Default handler — tool without Python handler gets stub
-  it('should return default stub for tool without Python handler', async () => {
-    const ast = node('mcp', { name: 'DefaultPyE2E' }, [
-      node('tool', { name: 'action' }, [node('description', { text: 'Do something' })]),
-    ]);
+  itToolE2E(
+    'should return default stub for tool without Python handler',
+    async () => {
+      const ast = node('mcp', { name: 'DefaultPyE2E' }, [
+        node('tool', { name: 'action' }, [node('description', { text: 'Do something' })]),
+      ]);
 
-    const result = transpileMCPPython(ast);
-    const { responses, stderr } = await runPythonMCP(result.code, [
-      ...initMessages(),
-      rpc('tools/call', { name: 'action', arguments: {} }, 2),
-    ]);
+      const result = transpileMCPPython(ast);
+      const { responses, stderr } = await runPythonMCP(result.code, [
+        ...initMessages(),
+        rpc('tools/call', { name: 'action', arguments: {} }, 2),
+      ]);
 
-    const toolResponse = findResponse(responses, 2, stderr);
-    const text = (toolResponse.result as any).content[0].text;
-    expect(text).toBe('action completed');
-  }, 30000);
+      const toolResponse = findResponse(responses, 2, stderr);
+      const text = (toolResponse.result as any).content[0].text;
+      expect(text).toBe('action completed');
+    },
+    30000,
+  );
 
   // 3. Tool listing
-  it('should list tools in Python server', async () => {
-    const ast = node('mcp', { name: 'ListPyE2E' }, [
-      node('tool', { name: 'alpha' }, [
-        node('description', { text: 'Tool A' }),
-        node('param', { name: 'x', type: 'string' }),
-      ]),
-      node('tool', { name: 'beta' }, [node('description', { text: 'Tool B' })]),
-    ]);
+  itToolE2E(
+    'should list tools in Python server',
+    async () => {
+      const ast = node('mcp', { name: 'ListPyE2E' }, [
+        node('tool', { name: 'alpha' }, [
+          node('description', { text: 'Tool A' }),
+          node('param', { name: 'x', type: 'string' }),
+        ]),
+        node('tool', { name: 'beta' }, [node('description', { text: 'Tool B' })]),
+      ]);
 
-    const result = transpileMCPPython(ast);
-    const { responses } = await runPythonMCP(result.code, [...initMessages(), rpc('tools/list', {}, 2)]);
+      const result = transpileMCPPython(ast);
+      const { responses } = await runPythonMCP(result.code, [...initMessages(), rpc('tools/list', {}, 2)]);
 
-    const listResponse = findResponse(responses, 2);
-    const tools = (listResponse.result as any).tools;
-    const names = tools.map((t: { name: string }) => t.name);
-    expect(names).toContain('alpha');
-    expect(names).toContain('beta');
-  }, 30000);
+      const listResponse = findResponse(responses, 2);
+      const tools = (listResponse.result as any).tools;
+      const names = tools.map((t: { name: string }) => t.name);
+      expect(names).toContain('alpha');
+      expect(names).toContain('beta');
+    },
+    30000,
+  );
 
   // 4. Typed parameters — number param works correctly
-  it('should handle typed parameters in Python', async () => {
-    const ast = node('mcp', { name: 'TypedPyE2E' }, [
-      node('tool', { name: 'multiply' }, [
-        node('param', { name: 'a', type: 'number', required: 'true' }),
-        node('param', { name: 'b', type: 'number', required: 'true' }),
-        node('handler', { lang: 'python', code: 'return str(a * b)' }),
-      ]),
-    ]);
+  itToolE2E(
+    'should handle typed parameters in Python',
+    async () => {
+      const ast = node('mcp', { name: 'TypedPyE2E' }, [
+        node('tool', { name: 'multiply' }, [
+          node('param', { name: 'a', type: 'number', required: 'true' }),
+          node('param', { name: 'b', type: 'number', required: 'true' }),
+          node('handler', { lang: 'python', code: 'return str(a * b)' }),
+        ]),
+      ]);
 
-    const result = transpileMCPPython(ast);
-    const { responses } = await runPythonMCP(result.code, [
-      ...initMessages(),
-      rpc('tools/call', { name: 'multiply', arguments: { a: 7, b: 6 } }, 2),
-    ]);
+      const result = transpileMCPPython(ast);
+      const { responses } = await runPythonMCP(result.code, [
+        ...initMessages(),
+        rpc('tools/call', { name: 'multiply', arguments: { a: 7, b: 6 } }, 2),
+      ]);
 
-    const toolResponse = findResponse(responses, 2);
-    expect((toolResponse.result as any).content[0].text).toBe('42.0');
-  }, 30000);
+      const toolResponse = findResponse(responses, 2);
+      expect((toolResponse.result as any).content[0].text).toBe('42.0');
+    },
+    30000,
+  );
 
   // 5. Auth guard — rejects without env var
-  it('should enforce auth guard in Python', async () => {
-    const ast = node('mcp', { name: 'AuthPyE2E' }, [
-      node('tool', { name: 'secret' }, [
-        node('guard', { type: 'auth', env: 'KERN_PY_E2E_SECRET_DOES_NOT_EXIST' }),
-        node('handler', { lang: 'python', code: 'return "secret data"' }),
-      ]),
-    ]);
+  itToolE2E(
+    'should enforce auth guard in Python',
+    async () => {
+      const ast = node('mcp', { name: 'AuthPyE2E' }, [
+        node('tool', { name: 'secret' }, [
+          node('guard', { type: 'auth', env: 'KERN_PY_E2E_SECRET_DOES_NOT_EXIST' }),
+          node('handler', { lang: 'python', code: 'return "secret data"' }),
+        ]),
+      ]);
 
-    const result = transpileMCPPython(ast);
-    const { responses } = await runPythonMCP(result.code, [
-      ...initMessages(),
-      rpc('tools/call', { name: 'secret', arguments: {} }, 2),
-    ]);
+      const result = transpileMCPPython(ast);
+      const { responses } = await runPythonMCP(result.code, [
+        ...initMessages(),
+        rpc('tools/call', { name: 'secret', arguments: {} }, 2),
+      ]);
 
-    const toolResponse = findResponse(responses, 2);
-    expect((toolResponse.result as any)?.isError).toBe(true);
-  }, 30000);
+      const toolResponse = findResponse(responses, 2);
+      expect((toolResponse.result as any)?.isError).toBe(true);
+    },
+    30000,
+  );
 
   // 6. Sanitize guard — strips dangerous input
-  it('should sanitize input in Python', async () => {
-    const ast = node('mcp', { name: 'SanitizePyE2E' }, [
-      node('tool', { name: 'echo' }, [
-        node('param', { name: 'input', type: 'string', required: 'true' }),
-        node('guard', { type: 'sanitize', param: 'input', pattern: '[^\\w./ -]' }),
-        node('handler', { lang: 'python', code: 'return str(input)' }),
-      ]),
-    ]);
+  itToolE2E(
+    'should sanitize input in Python',
+    async () => {
+      const ast = node('mcp', { name: 'SanitizePyE2E' }, [
+        node('tool', { name: 'echo' }, [
+          node('param', { name: 'input', type: 'string', required: 'true' }),
+          node('guard', { type: 'sanitize', param: 'input', pattern: '[^\\w./ -]' }),
+          node('handler', { lang: 'python', code: 'return str(input)' }),
+        ]),
+      ]);
 
-    const result = transpileMCPPython(ast);
-    const { responses } = await runPythonMCP(result.code, [
-      ...initMessages(),
-      rpc('tools/call', { name: 'echo', arguments: { input: '<script>alert(1)</script>' } }, 2),
-    ]);
+      const result = transpileMCPPython(ast);
+      const { responses } = await runPythonMCP(result.code, [
+        ...initMessages(),
+        rpc('tools/call', { name: 'echo', arguments: { input: '<script>alert(1)</script>' } }, 2),
+      ]);
 
-    const toolResponse = findResponse(responses, 2);
-    const text = (toolResponse.result as any).content[0].text;
-    expect(text).not.toContain('<script>');
-  }, 30000);
+      const toolResponse = findResponse(responses, 2);
+      const text = (toolResponse.result as any).content[0].text;
+      expect(text).not.toContain('<script>');
+    },
+    30000,
+  );
 
   // 7. TS handler is skipped — doesn't crash Python
-  it('should not crash when TS-only handler is present', async () => {
-    const ast = node('mcp', { name: 'SkipTSPyE2E' }, [
-      node('tool', { name: 'greet' }, [
-        node('param', { name: 'name', type: 'string', required: 'true' }),
-        // TS handler — should be skipped by Python transpiler
-        node('handler', { code: 'return { content: [{ type: "text", text: "Hello " + args.name }] };' }),
-      ]),
-    ]);
+  itToolE2E(
+    'should not crash when TS-only handler is present',
+    async () => {
+      const ast = node('mcp', { name: 'SkipTSPyE2E' }, [
+        node('tool', { name: 'greet' }, [
+          node('param', { name: 'name', type: 'string', required: 'true' }),
+          // TS handler — should be skipped by Python transpiler
+          node('handler', { code: 'return { content: [{ type: "text", text: "Hello " + args.name }] };' }),
+        ]),
+      ]);
 
-    const result = transpileMCPPython(ast);
-    const { responses, stderr } = await runPythonMCP(result.code, [
-      ...initMessages(),
-      rpc('tools/call', { name: 'greet', arguments: { name: 'Test' } }, 2),
-    ]);
+      const result = transpileMCPPython(ast);
+      const { responses, stderr } = await runPythonMCP(result.code, [
+        ...initMessages(),
+        rpc('tools/call', { name: 'greet', arguments: { name: 'Test' } }, 2),
+      ]);
 
-    const toolResponse = findResponse(responses, 2, stderr);
-    // Should get the default stub, not a crash
-    expect((toolResponse.result as any).content[0].text).toBe('greet completed');
-  }, 30000);
+      const toolResponse = findResponse(responses, 2, stderr);
+      // Should get the default stub, not a crash
+      expect((toolResponse.result as any).content[0].text).toBe('greet completed');
+    },
+    30000,
+  );
 
   // 8. PathContainment guard — blocks traversal in Python
-  it('should block directory traversal in Python', async () => {
-    const ast = node('mcp', { name: 'PathPyE2E' }, [
-      node('tool', { name: 'readFile' }, [
-        node('param', { name: 'filePath', type: 'string', required: 'true' }),
-        node('guard', { type: 'pathContainment', param: 'filePath', allowlist: '/tmp/safe' }),
-        node('handler', { lang: 'python', code: 'return f"read: {filePath}"' }),
-      ]),
-    ]);
+  itToolE2E(
+    'should block directory traversal in Python',
+    async () => {
+      const ast = node('mcp', { name: 'PathPyE2E' }, [
+        node('tool', { name: 'readFile' }, [
+          node('param', { name: 'filePath', type: 'string', required: 'true' }),
+          node('guard', { type: 'pathContainment', param: 'filePath', allowlist: '/tmp/safe' }),
+          node('handler', { lang: 'python', code: 'return f"read: {filePath}"' }),
+        ]),
+      ]);
 
-    const result = transpileMCPPython(ast);
-    const { responses } = await runPythonMCP(result.code, [
-      ...initMessages(),
-      rpc('tools/call', { name: 'readFile', arguments: { filePath: '../../../etc/passwd' } }, 2),
-    ]);
+      const result = transpileMCPPython(ast);
+      const { responses } = await runPythonMCP(result.code, [
+        ...initMessages(),
+        rpc('tools/call', { name: 'readFile', arguments: { filePath: '../../../etc/passwd' } }, 2),
+      ]);
 
-    const toolResponse = findResponse(responses, 2);
-    expect((toolResponse.result as any)?.isError).toBe(true);
-  }, 30000);
+      const toolResponse = findResponse(responses, 2);
+      expect((toolResponse.result as any)?.isError).toBe(true);
+    },
+    30000,
+  );
 
   // 9. Validate guard — rejects out-of-range in Python
-  it('should reject out-of-range values in Python', async () => {
-    const ast = node('mcp', { name: 'ValidatePyE2E' }, [
-      node('tool', { name: 'setCount' }, [
-        node('param', { name: 'count', type: 'number', required: 'true' }),
-        node('guard', { type: 'validate', param: 'count', min: '1', max: '100' }),
-        node('handler', { lang: 'python', code: 'return f"count={count}"' }),
-      ]),
-    ]);
+  itToolE2E(
+    'should reject out-of-range values in Python',
+    async () => {
+      const ast = node('mcp', { name: 'ValidatePyE2E' }, [
+        node('tool', { name: 'setCount' }, [
+          node('param', { name: 'count', type: 'number', required: 'true' }),
+          node('guard', { type: 'validate', param: 'count', min: '1', max: '100' }),
+          node('handler', { lang: 'python', code: 'return f"count={count}"' }),
+        ]),
+      ]);
 
-    const result = transpileMCPPython(ast);
-    const { responses } = await runPythonMCP(result.code, [
-      ...initMessages(),
-      rpc('tools/call', { name: 'setCount', arguments: { count: 0 } }, 2),
-    ]);
+      const result = transpileMCPPython(ast);
+      const { responses } = await runPythonMCP(result.code, [
+        ...initMessages(),
+        rpc('tools/call', { name: 'setCount', arguments: { count: 0 } }, 2),
+      ]);
 
-    const toolResponse = findResponse(responses, 2);
-    expect((toolResponse.result as any)?.isError).toBe(true);
-  }, 30000);
+      const toolResponse = findResponse(responses, 2);
+      expect((toolResponse.result as any)?.isError).toBe(true);
+    },
+    30000,
+  );
 
   // 10. SizeLimit guard — rejects oversized input in Python
-  it('should reject oversized input in Python', async () => {
-    const ast = node('mcp', { name: 'SizePyE2E' }, [
-      node('tool', { name: 'upload' }, [
-        node('param', { name: 'data', type: 'string', required: 'true' }),
-        node('guard', { type: 'sizeLimit', param: 'data', max: '50' }),
-        node('handler', { lang: 'python', code: 'return "uploaded"' }),
-      ]),
-    ]);
+  itToolE2E(
+    'should reject oversized input in Python',
+    async () => {
+      const ast = node('mcp', { name: 'SizePyE2E' }, [
+        node('tool', { name: 'upload' }, [
+          node('param', { name: 'data', type: 'string', required: 'true' }),
+          node('guard', { type: 'sizeLimit', param: 'data', max: '50' }),
+          node('handler', { lang: 'python', code: 'return "uploaded"' }),
+        ]),
+      ]);
 
-    const result = transpileMCPPython(ast);
-    const { responses } = await runPythonMCP(result.code, [
-      ...initMessages(),
-      rpc('tools/call', { name: 'upload', arguments: { data: 'x'.repeat(200) } }, 2),
-    ]);
+      const result = transpileMCPPython(ast);
+      const { responses } = await runPythonMCP(result.code, [
+        ...initMessages(),
+        rpc('tools/call', { name: 'upload', arguments: { data: 'x'.repeat(200) } }, 2),
+      ]);
 
-    const toolResponse = findResponse(responses, 2);
-    expect((toolResponse.result as any)?.isError).toBe(true);
-  }, 30000);
+      const toolResponse = findResponse(responses, 2);
+      expect((toolResponse.result as any)?.isError).toBe(true);
+    },
+    30000,
+  );
 
   // 11. Error handling — Python handler that raises produces error response
-  it('should catch Python handler errors gracefully', async () => {
-    const ast = node('mcp', { name: 'ErrorPyE2E' }, [
-      node('tool', { name: 'crasher' }, [node('handler', { lang: 'python', code: 'raise ValueError("intentional")' })]),
-    ]);
+  itToolE2E(
+    'should catch Python handler errors gracefully',
+    async () => {
+      const ast = node('mcp', { name: 'ErrorPyE2E' }, [
+        node('tool', { name: 'crasher' }, [
+          node('handler', { lang: 'python', code: 'raise ValueError("intentional")' }),
+        ]),
+      ]);
 
-    const result = transpileMCPPython(ast);
-    const { responses } = await runPythonMCP(result.code, [
-      ...initMessages(),
-      rpc('tools/call', { name: 'crasher', arguments: {} }, 2),
-    ]);
+      const result = transpileMCPPython(ast);
+      const { responses } = await runPythonMCP(result.code, [
+        ...initMessages(),
+        rpc('tools/call', { name: 'crasher', arguments: {} }, 2),
+      ]);
 
-    const toolResponse = findResponse(responses, 2);
-    expect((toolResponse.result as any)?.isError).toBe(true);
-  }, 30000);
+      const toolResponse = findResponse(responses, 2);
+      expect((toolResponse.result as any)?.isError).toBe(true);
+    },
+    30000,
+  );
 
   // 12. Resource handler at runtime
   it('should serve a resource in Python', async () => {
@@ -894,26 +975,30 @@ describeE2E('transpileMCPPython runtime E2E', () => {
   }, 30000);
 
   // 13. Prompt handler at runtime
-  it('should serve a prompt in Python', async () => {
-    const ast = node('mcp', { name: 'PromptPyE2E' }, [
-      node('prompt', { name: 'review' }, [
-        node('description', { text: 'Review code' }),
-        node('param', { name: 'code', type: 'string', required: 'true' }),
-        node('handler', { lang: 'python', code: 'return f"Please review: {code}"' }),
-      ]),
-    ]);
+  itPromptE2E(
+    'should serve a prompt in Python',
+    async () => {
+      const ast = node('mcp', { name: 'PromptPyE2E' }, [
+        node('prompt', { name: 'review' }, [
+          node('description', { text: 'Review code' }),
+          node('param', { name: 'code', type: 'string', required: 'true' }),
+          node('handler', { lang: 'python', code: 'return f"Please review: {code}"' }),
+        ]),
+      ]);
 
-    const result = transpileMCPPython(ast);
-    const { responses } = await runPythonMCP(result.code, [
-      ...initMessages(),
-      rpc('prompts/get', { name: 'review', arguments: { code: 'def f(): pass' } }, 2),
-    ]);
+      const result = transpileMCPPython(ast);
+      const { responses } = await runPythonMCP(result.code, [
+        ...initMessages(),
+        rpc('prompts/get', { name: 'review', arguments: { code: 'def f(): pass' } }, 2),
+      ]);
 
-    const promptResponse = findResponse(responses, 2);
-    expect(promptResponse.result).toBeDefined();
-    const messages = (promptResponse.result as any).messages;
-    expect(messages[0].content.text).toContain('def f(): pass');
-  }, 30000);
+      const promptResponse = findResponse(responses, 2);
+      expect(promptResponse.result).toBeDefined();
+      const messages = (promptResponse.result as any).messages;
+      expect(messages[0].content.text).toContain('def f(): pass');
+    },
+    30000,
+  );
 
   // 14. Resource listing
   it('should list resources in Python', async () => {
