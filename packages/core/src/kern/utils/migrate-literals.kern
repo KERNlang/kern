@@ -1,8 +1,6 @@
 type name=GapCategory alias="'detected' | 'migratable' | 'blocked-by-parser' | 'blocked-by-codegen' | 'needs-new-node'"
 type name=GapClassification alias="{ category: GapCategory; migration?: string }"
 
-const name=INLINE_SAFE_NUMBER_PATTERN value={{"^-?(?:0x[0-9a-fA-F][0-9a-fA-F_]*|0b[01][01_]*|0o[0-7][0-7_]*|\\d[\\d_]*(?:\\.\\d[\\d_]*)?(?:[eE][+-]?\\d[\\d_]*)?)$"}}
-
 fn name=isInlineSafeLiteral params="text:string" returns=boolean export=true
   handler
     let name=t value="text.trim()"
@@ -10,7 +8,7 @@ fn name=isInlineSafeLiteral params="text:string" returns=boolean export=true
       return value="false"
     if cond="t === 'true' || t === 'false' || t === 'null' || t === 'undefined'"
       return value="true"
-    return value="new RegExp(INLINE_SAFE_NUMBER_PATTERN).test(t)"
+    return value="/^-?(?:0x[0-9a-fA-F][0-9a-fA-F_]*|0b[01][01_]*|0o[0-7][0-7_]*|[0-9][0-9_]*(?:\.[0-9][0-9_]*)?(?:[eE][+-]?[0-9][0-9_]*)?)$/.test(t)"
 
 fn name=isInlineSafeExpression params="text:string" returns=boolean export=true
   handler

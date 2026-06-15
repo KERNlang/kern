@@ -5,9 +5,6 @@ export type GapCategory = 'detected' | 'migratable' | 'blocked-by-parser' | 'blo
 export type GapClassification = { category: GapCategory; migration?: string };
 
 // @kern-source: migrate-literals:4
-export const INLINE_SAFE_NUMBER_PATTERN = "^-?(?:0x[0-9a-fA-F][0-9a-fA-F_]*|0b[01][01_]*|0o[0-7][0-7_]*|\\d[\\d_]*(?:\\.\\d[\\d_]*)?(?:[eE][+-]?\\d[\\d_]*)?)$";
-
-// @kern-source: migrate-literals:6
 export function isInlineSafeLiteral(text: string): boolean {
   const t = text.trim();
   if (t.length === 0) {
@@ -16,10 +13,10 @@ export function isInlineSafeLiteral(text: string): boolean {
   if (t === 'true' || t === 'false' || t === 'null' || t === 'undefined') {
     return true;
   }
-  return new RegExp(INLINE_SAFE_NUMBER_PATTERN).test(t);
+  return /^-?(?:0x[0-9a-fA-F][0-9a-fA-F_]*|0b[01][01_]*|0o[0-7][0-7_]*|[0-9][0-9_]*(?:\.[0-9][0-9_]*)?(?:[eE][+-]?[0-9][0-9_]*)?)$/.test(t);
 }
 
-// @kern-source: migrate-literals:15
+// @kern-source: migrate-literals:13
 export function isInlineSafeExpression(text: string): boolean {
   const t = text.trim();
   if (t.length === 0) {
@@ -31,7 +28,7 @@ export function isInlineSafeExpression(text: string): boolean {
   return true;
 }
 
-// @kern-source: migrate-literals:24
+// @kern-source: migrate-literals:22
 export function classifyHandlerGap(parentType: string | undefined, body: string): GapClassification {
   const trimmed = body.trim();
   if (trimmed.length === 0 || trimmed.includes('\n')) {

@@ -22,14 +22,23 @@ import { REGEX_HOST_REGEXP_FAILCLOSE } from '../src/codegen/regex-normalize.js';
 import { emitExpression } from '../src/codegen-expression.js';
 import { parseExpression } from '../src/parser-expression.js';
 import type { IRNode } from '../src/types.js';
-import { typescriptClosureClassifier } from '../src/typescript-closure-classifier.js';
+import {
+  typescriptClosureClassifier,
+  validateClosureBlockHostNamespacesTS,
+} from '../src/typescript-closure-classifier.js';
 
 const parseExpr = (input: string): ReturnType<typeof parseExpression> =>
   parseExpression(input, { closureClassifier: typescriptClosureClassifier });
 
-/** TS-emit leg — no user binding (top-level). Returns the thrown message or null. */
+/** TS-emit leg — no user binding (top-level). Returns the thrown message or null.
+ *  Injects `validateRawBlock` exactly as real codegen does (body-ts.ts /
+ *  type-system.ts), so block-bodied arrows are validated through the same
+ *  TS-AST closure classifier the production path uses. */
 function emitTS(src: string, userBound: string[] = []): { ok: boolean; message: string } {
-  const ctx = { isUserBinding: (n: string) => userBound.includes(n) };
+  const ctx = {
+    isUserBinding: (n: string) => userBound.includes(n),
+    validateRawBlock: validateClosureBlockHostNamespacesTS,
+  };
   try {
     return { ok: true, message: emitExpression(parseExpr(src), ctx) };
   } catch (err) {
@@ -130,6 +139,58 @@ describe('Slice 2 — FAIL-CLOSE on the host `RegExp` constructor/global (TS emi
     expect(val.ok).toBe(false);
     expect(val.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
   });
+
+  // REVIEW FIX #1 — the BRACKET (`index`) form of a regex-literal property read.
+  // `/x/["source"]` / `/x/["flags"]` launder the pattern/flags to a string exactly
+  // like the dotted `/x/.source` form; `/x/["test"](s)` is a bracket-called
+  // host-only method. The `index` branch previously did NOT screen these (only the
+  // `member` branch did), so they BYPASSED Slice 2 entirely — verified against the
+  // built code. They now fail-close byte-identically on BOTH legs. A COMPUTED
+  // index (`/x/[k]`) is unknowable and also fails-close.
+  test.each([
+    '/x/["source"]',
+    '/x/["flags"]',
+    '/x/["test"](s)',
+    '/abc/gi["source"]',
+  ])('regex-literal BRACKET read %s fails-closed with the shared regex message on both legs', (src) => {
+    const emit = emitTS(src);
+    expect(emit.ok).toBe(false);
+    expect(emit.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    const val = validateIR(src);
+    expect(val.ok).toBe(false);
+    expect(val.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+  });
+
+  // REVIEW FIX #2 — BLOCK-BODIED arrows. The bare-value guard and the
+  // regex-literal-read guard previously fired only OUTSIDE block bodies: a
+  // block-bodied arrow delegated to raw block scanners that inspect only
+  // MEMBER/CALL-shaped host accesses, so a bare `RegExp` value reference and a
+  // regex-literal bracket read inside a block PASSED both TS emit and IR validate
+  // (verified against the built code). The alias-soundness claim was FALSE inside
+  // blocks. They now fail-close with the regex-specific message on BOTH legs.
+  test.each([
+    '() => { return RegExp; }',
+    '() => { const R = RegExp; return R; }',
+    '() => { return /x/["source"]; }',
+    '() => { return /x/.flags; }',
+    '() => { const f = /x/["test"]; return f; }',
+  ])('block-bodied arrow %s fails-closed with the shared regex message on both legs', (src) => {
+    const emit = emitTS(src);
+    expect(emit.ok).toBe(false);
+    expect(emit.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    const val = validateIR(src);
+    expect(val.ok).toBe(false);
+    expect(val.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+  });
+
+  // REVIEW FIX #2 (must-not-over-fire) — a block-bodied arrow that SHADOWS RegExp
+  // with a block-local binding uses the user's value, so the bare reference must
+  // NOT fire (it is a scope-aware AST walk, not a textual name-check). A genuine
+  // host member on a non-RegExp root still goes through the generic scan.
+  test('block-bodied arrow with a LOCAL `const RegExp` shadow does NOT fire', () => {
+    const emit = emitTS('() => { const RegExp = 1; return RegExp; }');
+    expect(emit.ok).toBe(true);
+  });
 });
 
 describe('Slice 2 — MUST-NOT-FIRE (resolver, not a textual name-check)', () => {
@@ -158,6 +219,19 @@ describe('Slice 2 — MUST-NOT-FIRE (resolver, not a textual name-check)', () =>
     's.split(/,/)',
   ])('in-core literal method %s still transpiles (TS emit)', (src) => {
     expect(emitTS(src).ok).toBe(true);
+  });
+});
+
+describe('Slice 2 — non-portable literal-receiver METHOD pins the regex message', () => {
+  // NIT — when `lowerRegexCallTS` returns null for a non-portable literal-receiver
+  // method (`/x/.compile(...)`), emit falls through to the member-callee path,
+  // which sees `object.kind === 'regexLit'` with a non-portable property and
+  // throws the regex-specific `REGEX_HOST_REGEXP_FAILCLOSE`. Pinned here so the
+  // message can't silently drift to the generic host-namespace diagnostic.
+  test('`/x/.compile(...)` (non-portable literal method) throws the shared regex message', () => {
+    const emit = emitTS('/x/.compile("y")');
+    expect(emit.ok).toBe(false);
+    expect(emit.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
   });
 });
 

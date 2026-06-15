@@ -86,6 +86,7 @@ import {
 // subpath (the barrel is browser-safe). Python codegen is Node-side and parses
 // block-bodied arrows, so it injects `typescriptClosureClassifier`.
 import {
+  collectClosureBlockLocalBindingNames,
   collectFreeIdentifierNames,
   lowerJsClosureBodyToPython,
   typescriptClosureClassifier,
@@ -2589,6 +2590,16 @@ function emitBlockClosurePy(node: Extract<ValueIR, { kind: 'lambda' }>, names: s
   const closureName = `__kern_closure_${ctx.closureSeq++}`;
   const previous = new Set(ctx.shadowedSymbols);
   for (const name of names) ctx.shadowedSymbols.add(name);
+  // Slice 2 review-fix parity — a block-LOCAL `const`/`let` declared INSIDE the
+  // closure body shadows any outer binding of that name, so a host-`RegExp`
+  // value guard (`rejectHostRegExpValuePython`) must NOT fire on a reference to
+  // such a local. The TS leg already honors this (its TS-AST closure walk tracks
+  // block-locals via `isLocal`); register the same block-local names here so
+  // `isProvenUserBinding` treats them as user values, matching TS. This mirrors
+  // the param registration one line above (params are also block-scope locals)
+  // and does not affect loop-pinning, which operates on FREE names only
+  // (`collectFreeIdentifierNames` excludes block-locals).
+  for (const name of collectClosureBlockLocalBindingNames(node.bodyBlock!.raw)) ctx.shadowedSymbols.add(name);
   try {
     const lowered = lowerJsClosureBodyToPython(node.bodyBlock!.raw, {
       lowerExpression: (raw) => emitPyExprCtx(parseExpr(raw), ctx),
@@ -3007,6 +3018,19 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   }
   if (node.kind === 'index') {
     const obj = node.object;
+    // Slice 2 review fix — the bracket (`index`) form of a regex-literal
+    // property access (`/x/["source"]`, `/x/["flags"]`, `/x/["test"](s)`)
+    // launders the pattern/flags back to a string exactly like the dotted
+    // `/x/.source` member form, so it fails-close identically and BEFORE the
+    // host-ident guard below. A STRING-literal index goes through the same
+    // (empty) portable-property allowlist; a COMPUTED / non-literal index is
+    // unknowable and also fails-close. Mirrors the TS emit + IR-validate index
+    // screens — byte-identical regex message across all three legs.
+    if (obj.kind === 'regexLit') {
+      if (node.index.kind !== 'strLit' || !isPortableRegexLiteralProperty(node.index.value)) {
+        throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
+      }
+    }
     // Slice H review fix — bracket access must not bypass the fail-closed
     // guard: `Math["sqrt"]` / `Math["sqrt"](x)` is the same unmapped
     // host-namespace access as `Math.sqrt`, only spelled as an index node.

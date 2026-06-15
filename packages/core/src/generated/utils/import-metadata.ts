@@ -56,7 +56,7 @@ export function splitCapabilityList(value: unknown): string[] {
   if (unwrapped === '') {
     return [];
   }
-  return unwrapped.split(',').map((part) => part.trim().replace(new RegExp('^["\\x27]|["\\x27]$', 'gu'), '')).filter(Boolean);
+  return unwrapped.split(',').map((part) => part.trim().replace(/^["']|["']$/gu, '')).filter(Boolean);
 }
 
 // @kern-source: import-metadata:29

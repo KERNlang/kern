@@ -199,6 +199,93 @@ export function collectClosureBlockMemberAccesses(raw: string): ClosureBlockMemb
   return accesses;
 }
 
+/** Slice 2 review fix — a regex-host violation found INSIDE a block-bodied arrow.
+ *  Two shapes the generic member-access scan (`collectClosureBlockMemberAccesses`)
+ *  misses, because they are not `Root.member` host accesses with an IDENTIFIER
+ *  root:
+ *   - `bare-regexp` — a bare VALUE reference to `RegExp` (`return RegExp`,
+ *     `const R = RegExp`). It is an identifier with no member root, so it never
+ *     reached the member scan. The `root` is the identifier text (`'RegExp'`),
+ *     `locallyShadowed` reports a block-LOCAL re-declaration so the caller's
+ *     scope check can also honor outer user bindings.
+ *   - `regex-literal-prop` — a property/element READ on a regex LITERAL
+ *     (`/x/.source`, `/x/["flags"]`, `/x/["test"](s)`). The receiver is a
+ *     `RegularExpressionLiteral`, not an identifier, so `leftmostIdentifierName`
+ *     returned null and the member scan recorded nothing. These NEVER honor a
+ *     user binding (the receiver is a literal), so `locallyShadowed` is always
+ *     false. */
+export interface ClosureBlockRegexHostViolation {
+  kind: 'bare-regexp' | 'regex-literal-prop';
+  root: string;
+  locallyShadowed: boolean;
+}
+
+/** Walk a closure block's TS AST and collect the regex-host violations the
+ *  generic member-access scan cannot see (bare `RegExp` value references and
+ *  regex-literal property/element reads). Uses the SAME block-scope tracking as
+ *  `collectClosureBlockMemberAccesses` so a block-local `const RegExp = …` marks
+ *  a bare reference `locallyShadowed`. A parse failure yields an empty list (the
+ *  gate already rejected such bodies). */
+export function collectClosureBlockRegexHostViolations(raw: string): ClosureBlockRegexHostViolation[] {
+  const block = parseClosureBlockAst(raw);
+  if (block === null) return [];
+  const violations: ClosureBlockRegexHostViolation[] = [];
+  const scopes: Array<Set<string>> = [new Set()];
+  const isLocal = (name: string): boolean => scopes.some((scope) => scope.has(name));
+  const declareLocal = (name: string): void => {
+    scopes[scopes.length - 1].add(name);
+  };
+
+  // A bare `RegExp` IDENTIFIER is a VALUE reference only when it is not the
+  // `.name` side of a member access, not a property KEY, and not a declaration
+  // name — exactly the exclusions `collectFreeIdentifierNames` applies. Anything
+  // else (`obj.RegExp`, `{ RegExp: 1 }`, `const RegExp = …` LHS) is NOT a host
+  // value reference and must not fire.
+  const isRegExpValueReference = (node: ts.Identifier): boolean => {
+    if (node.text !== 'RegExp') return false;
+    const parent = node.parent;
+    if (parent && ts.isPropertyAccessExpression(parent) && parent.name === node) return false;
+    if (parent && ts.isQualifiedName(parent) && parent.right === node) return false;
+    if (parent && ts.isPropertyAssignment(parent) && parent.name === node) return false;
+    if (parent && ts.isShorthandPropertyAssignment(parent) && parent.name === node) return false;
+    if (parent && ts.isVariableDeclaration(parent) && parent.name === node) return false;
+    if (parent && ts.isBindingElement(parent) && parent.name === node) return false;
+    if (parent && ts.isBindingElement(parent) && parent.propertyName === node) return false;
+    if (parent && ts.isParameter(parent) && parent.name === node) return false;
+    return true;
+  };
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isBlock(node)) {
+      const isRootBlock = node === block;
+      if (!isRootBlock) scopes.push(new Set());
+      for (const statement of node.statements) visit(statement);
+      if (!isRootBlock) scopes.pop();
+      return;
+    }
+    if (ts.isVariableDeclaration(node)) {
+      if (node.initializer) visit(node.initializer);
+      for (const name of bindingPatternIdentifierNames(node.name)) declareLocal(name);
+      return;
+    }
+    // `/x/.source` / `/x/["flags"]` / `/x/["test"](s)` — a property OR element
+    // READ whose receiver is a regex LITERAL launders the pattern/flags back to
+    // a string. The receiver is a literal (never user-bindable), so this always
+    // fails-close.
+    if (ts.isPropertyAccessExpression(node) && ts.isRegularExpressionLiteral(node.expression)) {
+      violations.push({ kind: 'regex-literal-prop', root: 'RegExp', locallyShadowed: false });
+    } else if (ts.isElementAccessExpression(node) && ts.isRegularExpressionLiteral(node.expression)) {
+      violations.push({ kind: 'regex-literal-prop', root: 'RegExp', locallyShadowed: false });
+    } else if (ts.isIdentifier(node) && isRegExpValueReference(node)) {
+      violations.push({ kind: 'bare-regexp', root: node.text, locallyShadowed: isLocal(node.text) });
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  visit(block);
+  return violations;
+}
+
 /** Peel the wrapper layers a call callee may carry until reaching the underlying
  *  expression: parenthesized, `as`, legacy `<T>` type-assertion, non-null `!`,
  *  and `satisfies` forms, plus the right operand of a comma (sequence) operator.

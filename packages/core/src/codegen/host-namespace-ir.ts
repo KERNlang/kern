@@ -186,6 +186,17 @@ function validateValueIR(node: ValueIR, scope: ValidationScope): void {
       return;
     }
     case 'index': {
+      // Slice 2 review fix — the bracket (`index`) form of a regex-literal
+      // property access (`/x/["source"]`, `/x/["test"]`) launders the
+      // pattern/flags back to a string exactly like the dotted member form, so
+      // it fails-close identically. A STRING-literal index goes through the same
+      // (empty) portable-property allowlist; a COMPUTED / non-literal index is
+      // unknowable and also fails-close. Mirrors the emit-path index screen.
+      if (node.object.kind === 'regexLit') {
+        if (node.index.kind !== 'strLit' || !isPortableRegexLiteralProperty(node.index.value)) {
+          throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
+        }
+      }
       const root = hostNamespaceReceiverRoot(node.object);
       if (root) {
         rejectUnboundHostNamespace(

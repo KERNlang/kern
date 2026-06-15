@@ -208,6 +208,19 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
     }
     case 'index': {
       rejectKnownStdlibIndexTS(node);
+      // Slice 2 review fix — the bracket (`index`) form of a regex-literal
+      // property access (`/x/["source"]`, `/x/["flags"]`, `/x/["test"](s)`)
+      // must fail-close IDENTICALLY to the dotted member form. A STRING-literal
+      // index is the same launder-the-pattern-to-a-string read the member case
+      // screens against the (empty) portable-property allowlist; a COMPUTED /
+      // non-literal index is even worse — the property is unknowable, so it is a
+      // laundering risk and also fails-close. Throws the regex-specific message,
+      // not the generic host one.
+      if (node.object.kind === 'regexLit') {
+        if (node.index.kind !== 'strLit' || !isPortableRegexLiteralProperty(node.index.value)) {
+          throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
+        }
+      }
       const receiverRoot = hostNamespaceReceiverRoot(node.object);
       if (receiverRoot) {
         const label = node.index.kind === 'strLit' ? node.index.value : '[computed]';

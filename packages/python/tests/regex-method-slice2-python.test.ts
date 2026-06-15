@@ -108,6 +108,74 @@ describe('Slice 2 — host-root statics, value-position, and literal-property re
     expect(p.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
     expect(p.message).toBe(t.message);
   });
+
+  // REVIEW FIX #1 — the BRACKET (`index`) form of a regex-literal read. The Python
+  // `lowerChain` `index` branch previously lowered `/x/["source"]` to
+  // `__k_re.compile("x", …)["source"]` (invalid at runtime) — a verified bypass on
+  // BOTH targets. Now fails-close byte-identically with the shared regex message.
+  test.each([
+    '/x/["source"]',
+    '/x/["flags"]',
+    '/x/["test"](s)',
+  ])('regex-literal BRACKET read %s fails-close symmetrically (shared regex message)', (src) => {
+    const t = ts(src);
+    const p = py(src);
+    expect(t.ok).toBe(false);
+    expect(p.ok).toBe(false);
+    expect(t.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    expect(p.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    expect(p.message).toBe(t.message);
+  });
+});
+
+describe('Slice 2 — BLOCK-BODIED arrow bypass (review fix #2)', () => {
+  // The bare-value guard + regex-literal-read guard previously fired only OUTSIDE
+  // block bodies: block-bodied arrows delegated to raw block scanners that inspect
+  // only MEMBER/CALL-shaped host accesses, so a bare `RegExp` value reference and a
+  // regex-literal read inside a block PASSED TS emit + IR validate (and the Python
+  // regex-bracket case PASSED Python too). They now fail-close with the
+  // regex-specific message on BOTH targets, byte-identically.
+  //
+  // Block-bodied arrows need the TS-AST closure classifier to PARSE, which real
+  // codegen injects through the BODY emitters (`emitNativeKernBodyTS` /
+  // `...Python`). The expression-level `ts`/`py` helpers above intentionally lack
+  // the classifier (parser-spine isolation), so these run at body level via a
+  // `let f = <arrow>` handler — exactly the production emit path.
+  const bodyEmitTS = (arrow: string): { ok: boolean; message: string } => {
+    try {
+      return { ok: true, message: tsBody([{ type: 'let', props: { name: 'f', value: arrow } } as IRNode]) };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  };
+  const bodyEmitPy = (arrow: string): { ok: boolean; message: string } => {
+    try {
+      return { ok: true, message: pyBody([{ type: 'let', props: { name: 'f', value: arrow } } as IRNode]) };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  };
+
+  test.each([
+    '() => { return RegExp; }',
+    '() => { const R = RegExp; return R; }',
+    '() => { return /x/["source"]; }',
+    '() => { return /x/.flags; }',
+  ])('block-bodied arrow %s fails-close symmetrically with the shared regex message', (src) => {
+    const t = bodyEmitTS(src);
+    const p = bodyEmitPy(src);
+    expect(t.ok).toBe(false);
+    expect(p.ok).toBe(false);
+    expect(t.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    expect(p.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    expect(p.message).toBe(t.message);
+  });
+
+  // must-not-over-fire — a block-LOCAL `const RegExp` shadow is the user's value.
+  test('block-bodied arrow with a LOCAL `const RegExp` shadow does NOT fire on either target', () => {
+    expect(bodyEmitTS('() => { const RegExp = 1; return RegExp; }').ok).toBe(true);
+    expect(bodyEmitPy('() => { const RegExp = 1; return RegExp; }').ok).toBe(true);
+  });
 });
 
 describe('Slice 2 — MUST-NOT-FIRE (resolver, not a textual name-check)', () => {
