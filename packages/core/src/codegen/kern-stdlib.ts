@@ -320,6 +320,43 @@ export const KERN_STDLIB: Record<string, Record<string, StdlibEntry>> = {
       py: '($0 + $1)',
       requires: { ts: 'decimal.js' },
     },
+    // DECIMAL Slice 2 (item 4) — explicit safe arithmetic, each mirroring `add`'s
+    // dual lowering: TS uses a self-delimiting decimal.js method call (no wrap),
+    // Python parenthesizes the native operator so nesting stays correct-by-
+    // construction for the non-associative ops (`sub`). Both legs render through
+    // the canonical stringifier (decimal.js `.toString()` on TS; `_kern_decimal_str`
+    // on Python — wired in via `_kern_fmt` + the contract). These four carry ZERO
+    // new divergence axis under the pinned 28-digit / ROUND_HALF_EVEN context.
+    // `div`/`mod`/`pow` are DEFERRED (own divergence axes: div-by-zero, rounding,
+    // non-terminating quotients) per the Slice-2 spec.
+    sub: {
+      arity: 2,
+      ts: '$0.minus($1)',
+      py: '($0 - $1)',
+      requires: { ts: 'decimal.js' },
+    },
+    mul: {
+      arity: 2,
+      ts: '$0.times($1)',
+      py: '($0 * $1)',
+      requires: { ts: 'decimal.js' },
+    },
+    neg: {
+      arity: 1,
+      ts: '$0.neg()',
+      // Parenthesized unary minus keeps the form self-delimiting when nested as an
+      // arg to an outer Decimal op (e.g. `Decimal.add(Decimal.neg(a), b)` →
+      // `((-a) + b)`).
+      py: '(-$0)',
+      requires: { ts: 'decimal.js' },
+    },
+    abs: {
+      arity: 1,
+      ts: '$0.abs()',
+      // Python `abs(...)` is already a self-delimiting call — no extra wrap needed.
+      py: 'abs($0)',
+      requires: { ts: 'decimal.js' },
+    },
   },
 };
 

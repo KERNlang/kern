@@ -170,3 +170,89 @@ export function decimalBareConstructionFailMessage(): string {
     `\`+\` can dispatch to decimal.js .plus() on the TS leg).`
   );
 }
+
+/** DECIMAL Slice 2 (item 3) — fail-close prefix for the `+`/`-`/`*` operator on
+ *  syntactically-proven Decimal operands. Today `Decimal.of("1.5") + Decimal.of("2.5")`
+ *  would emit `a + b` on both legs — and on TS, decimal.js's `+` invokes `.valueOf()`
+ *  and DEGRADES TO FLOAT (silent precision loss + a TS↔Python divergence). We block
+ *  it at compile time with a byte-identical diagnostic on both targets. This is the
+ *  syntactic SEED of slice-3's `provenType:'decimal'` typed-IR work; it is
+ *  deliberately CONSERVATIVE — see {@link isSyntacticDecimalProducer}. */
+export const DECIMAL_OPERATOR_FAILCLOSE = 'Decimal does not support the arithmetic operator';
+
+/** Operators the fail-close covers. `/`/`%` are NOT here (Decimal.div/mod are a
+ *  later slice with their own divergence axes); comparison operators are a later
+ *  slice too. */
+const DECIMAL_BLOCKED_OPERATORS = new Set(['+', '-', '*']);
+
+/** The safe-method redirect for each blocked operator. */
+const DECIMAL_OPERATOR_REDIRECT: Record<string, string> = {
+  '+': 'Decimal.add(a, b)',
+  '-': 'Decimal.sub(a, b)',
+  '*': 'Decimal.mul(a, b)',
+};
+
+/** Build the byte-identical compile-error for a blocked Decimal operator. Selected
+ *  only by the offending operator, so the refusal is observably symmetric across
+ *  TS and Python (both legs throw this exact text). */
+export function decimalOperatorFailMessage(op: string): string {
+  const redirect = DECIMAL_OPERATOR_REDIRECT[op] ?? 'Decimal.add(a, b)';
+  return (
+    `${DECIMAL_OPERATOR_FAILCLOSE} \`${op}\` — JS \`${op}\` on a decimal.js value calls .valueOf() and ` +
+    `silently degrades to a binary float (losing precision and diverging from the Python leg). ` +
+    `Use ${redirect} instead, which lowers to decimal.js on the TS leg and Python's stdlib decimal ` +
+    `on the Python leg with byte-exact parity. (Natural operators on Decimal values are deferred to ` +
+    `a later slice that carries a type-tagged IR.)`
+  );
+}
+
+/** A MINIMAL structural view of a value node, satisfied by the shared `ValueIR`
+ *  union without importing it (keeps `decimal-contract.ts` dependency-free and
+ *  callable from both the core TS emitter and the Python emitter). Only the fields
+ *  the syntactic Decimal-producer check reads are modelled. */
+interface DecimalProbeNode {
+  kind: string;
+  callee?: { kind: string; object?: { kind: string; name?: string }; property?: string };
+}
+
+/** True iff `node` is, BY SYNTAX ALONE, unambiguously a Decimal-producing call:
+ *  a call whose callee is a member access `Decimal.<method>` on the literal `Decimal`
+ *  namespace identifier (`Decimal.of(...)`, `Decimal.add(...)`, `Decimal.sub(...)`, …).
+ *
+ *  CONSERVATIVE BY DESIGN (the critical soundness property): it fires ONLY on this
+ *  exact shape. It does NOT track types through variables, params, returns, or
+ *  member chains — a `let d = Decimal.of("1.5"); d + x` is NOT caught here (that
+ *  needs the typed IR of slice 3; a `// SLICE 3:` note marks the generalization).
+ *  It therefore can NEVER false-fire on ordinary numeric `+`/`-`/`*` (a `numLit`,
+ *  `ident`, plain `call`, member-read, etc. all return false). */
+export function isSyntacticDecimalProducer(node: unknown): boolean {
+  if (typeof node !== 'object' || node === null) return false;
+  const n = node as DecimalProbeNode;
+  if (n.kind !== 'call') return false;
+  const callee = n.callee;
+  if (!callee || callee.kind !== 'member') return false;
+  const obj = callee.object;
+  // The receiver MUST be the bare `Decimal` namespace identifier — NOT a user
+  // binding named `decimal`, NOT a member chain. (User-binding shadowing of the
+  // `Decimal` namespace is already fail-closed at construction by slice 1, so a
+  // syntactic `Decimal.<m>(...)` here is genuinely the stdlib namespace.)
+  return obj?.kind === 'ident' && obj.name === 'Decimal';
+}
+
+/** DECIMAL Slice 2 (item 3) — throw the symmetric operator fail-close when a binary
+ *  `+`/`-`/`*` has an operand that is a syntactically-proven Decimal producer. A
+ *  no-op for every other operator and for operands that are not the proven shape, so
+ *  ordinary numeric arithmetic is completely unaffected. Called from BOTH legs'
+ *  binary-emit site with the SAME `{op, left, right}` shape, so the refusal is
+ *  byte-identical.
+ *
+ *  SLICE 3: generalize the operand test from `isSyntacticDecimalProducer` (syntax
+ *  only) to a typed-IR `provenType === 'decimal'` check so Decimal values that flow
+ *  through a binding/param/return are also caught — and `+`/`-`/`*` can then be
+ *  lowered (dispatched to `.plus()`/`.minus()`/`.times()` on TS) rather than refused. */
+export function assertNoDecimalOperator(node: { op: string; left: unknown; right: unknown }): void {
+  if (!DECIMAL_BLOCKED_OPERATORS.has(node.op)) return;
+  if (isSyntacticDecimalProducer(node.left) || isSyntacticDecimalProducer(node.right)) {
+    throw new Error(decimalOperatorFailMessage(node.op));
+  }
+}

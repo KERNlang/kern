@@ -44,6 +44,7 @@
 import type { ExprObject, IRNode, ValueIR } from '@kernlang/core';
 import {
   applyTemplate,
+  assertNoDecimalOperator,
   classifyRegexLiteralIndexReadFailClose,
   classifyRegexLiteralMemberReadFailClose,
   decimalBareConstructionFailMessage,
@@ -2173,6 +2174,12 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       return out;
     }
     case 'binary': {
+      // DECIMAL Slice 2 (item 3) — fail closed on `+`/`-`/`*` over a syntactically-
+      // proven Decimal operand (`Decimal.of(...)`/`Decimal.<m>(...)`), the SAME
+      // decision the TS leg makes (shared `assertNoDecimalOperator` + message), so
+      // the refusal is byte-identical across targets. Conservative: a no-op for plain
+      // numeric arithmetic and for every non-`+`/`-`/`*` operator below.
+      assertNoDecimalOperator(node);
       // Slice 6 — bitwise / shift on the slice-0.75 ToInt32 substrate. Emitted
       // DIRECTLY as helper-wrapped strings (operands recurse through
       // `emitPyExprCtx`), so nested bitwise ops compose without the double-

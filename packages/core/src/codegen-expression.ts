@@ -1,6 +1,7 @@
 /** Serialize ValueIR to a TypeScript expression string. */
 
 import {
+  assertNoDecimalOperator,
   assertPortableDecimalLiteral,
   decimalBareConstructionFailMessage,
   decimalNonStringLiteralFailMessage,
@@ -378,6 +379,12 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       return `${params}${returnType} => ${emitExpression(node.body as ValueIR, lambdaCtx)}`;
     }
     case 'binary': {
+      // DECIMAL Slice 2 (item 3) — fail closed on `+`/`-`/`*` over a syntactically-
+      // proven Decimal operand (`Decimal.of(...)`/`Decimal.<m>(...)`). decimal.js's
+      // `+` calls .valueOf() → float (silent precision loss + TS↔Python divergence).
+      // Conservative: a no-op for plain numeric arithmetic. The Python leg makes the
+      // identical decision with the same shared message, so the refusal is symmetric.
+      assertNoDecimalOperator(node);
       const left = emitExpression(node.left, ctx);
       const right = emitExpression(node.right, ctx);
       const lp = needsParens(node.left, node.op, 'left') ? `(${left})` : left;
