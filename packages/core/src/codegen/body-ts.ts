@@ -44,9 +44,8 @@
  *  `if`/`else` branches indent correctly. The caller adds the leading indent
  *  for the surrounding function body. */
 
-import ts from 'typescript';
 import { isPostfixMutationOperator, isSupportedAssignOperator } from '../assignment-operators.js';
-import { parseClosureBlockAst } from '../closure-eligibility.js';
+import { collectClosureBlockCallTexts } from '../closure-eligibility.js';
 import { emitExpression } from '../codegen-expression.js';
 import { parseExpression } from '../parser-expression.js';
 import type { ExprObject, IRNode } from '../types.js';
@@ -1242,9 +1241,11 @@ function assertNoBoundRegexMethodTS(node: ValueIR, ctx: BodyEmitContext): void {
 /** Fail-close a bound-regex method called anywhere inside a block-bodied
  *  arrow's raw body — the TS half of the Slice-3d parity fix.
  *
- *  Parses the raw block via the shared `parseClosureBlockAst` (the closure-AST
- *  path every other consumer reads — never a fresh regex-text scanner), then
- *  walks it for CALL expressions. Each call's source text is re-parsed into
+ *  Collects every CALL expression's source text from the raw block via the
+ *  shared `collectClosureBlockCallTexts` (the closure-AST path every other
+ *  consumer reads — never a fresh regex-text scanner; the `ts` AST walk stays
+ *  quarantined in `closure-eligibility.ts` so this module imports no
+ *  `typescript`). Each call's source text is re-parsed into
  *  `ValueIR` through the SAME `parseExpr` the Python block-closure lowerer uses
  *  (`emitPyExprCtx(parseExpr(expr.getText(sf)), ctx)`), and run through the SAME
  *  `regexMethodRegexArgIdent` + `lookupRegexBinding(ctx, …)` detector. A
@@ -1260,21 +1261,15 @@ function assertNoBoundRegexMethodTS(node: ValueIR, ctx: BodyEmitContext): void {
  *  silent divergence is not. If the block does not parse cleanly the gate
  *  already rejected it upstream, so this is a defensive no-op. */
 function assertNoBoundRegexMethodInBlockTS(raw: string, ctx: BodyEmitContext): void {
-  const block = parseClosureBlockAst(raw);
-  if (block === null) return;
-  const visit = (tsNode: ts.Node): void => {
-    if (ts.isCallExpression(tsNode)) {
-      const callIR = parseExpr(tsNode.getText());
-      if (callIR.kind === 'call') {
-        const argName = regexMethodRegexArgIdent(callIR);
-        if (argName !== null && lookupRegexBinding(ctx, argName) !== null) {
-          throw new Error(REGEX_NONLITERAL_FAILCLOSE);
-        }
+  for (const callText of collectClosureBlockCallTexts(raw)) {
+    const callIR = parseExpr(callText);
+    if (callIR.kind === 'call') {
+      const argName = regexMethodRegexArgIdent(callIR);
+      if (argName !== null && lookupRegexBinding(ctx, argName) !== null) {
+        throw new Error(REGEX_NONLITERAL_FAILCLOSE);
       }
     }
-    ts.forEachChild(tsNode, visit);
-  };
-  ts.forEachChild(block, visit);
+  }
 }
 
 /** Visit each immediate child `ValueIR` of `node`. Covers every variant of the
