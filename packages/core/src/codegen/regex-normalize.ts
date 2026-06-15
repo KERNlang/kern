@@ -490,6 +490,185 @@ export const REGEX_NONLITERAL_FAILCLOSE =
   'Portable regex methods (.match/.matchAll/.replace/.replaceAll/.split/.test/.exec) require a DIRECT regex literal (`/…/`) in the regex position; a variable bound to a regex is not portable across targets — inline the literal at the call site.';
 
 /* ----------------------------------------------------------------------------
+ * Milestone C, Slice 5 — astral (non-BMP) fail-close.
+ *
+ * KERN's certified portable regex subset is BMP only (U+0000..U+FFFF). A non-BMP
+ * (astral, codepoint >= U+10000) construct in the PATTERN SOURCE is NOT portable
+ * and fail-closes with a symmetric, byte-identical diagnostic on BOTH targets.
+ *
+ * ROOT divergence (surrogate width, empirically probed node v22 vs python3 3.12):
+ * JS `RegExp` indexes the subject by UTF-16 code UNIT; Python `re` by CODEPOINT.
+ * An astral char is a surrogate PAIR (2 units) in JS but 1 codepoint in Python, so
+ * width-sensitive operators diverge on astral PATTERN data:
+ *   - `.`-count over `"a😀b"`: JS 4 (units) vs Python 3 (codepoints).
+ *   - `/^.$/` over `"😀"`:     JS false (2u) vs Python true (1cp).
+ * `/u` would align JS `.` to codepoints but conflicts with the frozen non-`/u`
+ * `/i` fold-class expansion, so "always add /u" is rejected — BMP-subset + astral
+ * fail-close is the council-chosen path.
+ *
+ * The boundary is EXACT `>= 0x10000`: U+FFFF (last BMP) stays IN-CORE — it is one
+ * UTF-16 unit AND one codepoint, so the two width models agree. The gate is
+ * /i-INDEPENDENT (fires regardless of flags): a literal astral char never folds on
+ * either engine, so this is a pure surrogate-width gate, not a fold concern.
+ * ------------------------------------------------------------------------- */
+export const REGEX_ASTRAL_FAILCLOSE_PREFIX = 'Regex with a non-BMP (astral) construct';
+
+/** Build the (target-agnostic) compile-error message for a Slice-5 astral
+ *  fail-close. Both emitters throw this identical text — selected only by the
+ *  offending astral codepoint (named via {@link codePointHex}) — so the refusal
+ *  is observably symmetric across TS and Python. */
+export function regexAstralFailMessage(char: string): string {
+  const hex = codePointHex(char);
+  return (
+    `${REGEX_ASTRAL_FAILCLOSE_PREFIX} (${hex}) cannot be lowered portably: KERN's certified ` +
+    `regex subset is BMP only (U+0000..U+FFFF). JS RegExp indexes the subject by UTF-16 code ` +
+    `unit while Python re indexes by codepoint, so an astral codepoint (>= U+10000) diverges ` +
+    `by surrogate width across targets. Remove the astral construct or restrict the pattern to BMP.`
+  );
+}
+
+/**
+ * Slice-5 astral scanner. Walk the regex PATTERN SOURCE by CODE POINT (reusing the
+ * SAME class-aware, escape-aware codepoint loop as {@link expandRegexIFold} and the
+ * literal-`]`-first-aware {@link scanCharClass}) and return the FIRST offending
+ * non-BMP codepoint as `{ char }`, or `null` if the pattern is fully BMP.
+ *
+ * CODEPOINT-AWARE, NOT UNIT-BLIND: the loop iterates `Array.from(pattern)`, which
+ * splits the source by Unicode codepoint — a raw astral char (a surrogate PAIR in
+ * the UTF-16 source) becomes ONE array element whose `codePointAt(0)` is its FULL
+ * codepoint (`/a😀b/` → the `😀` element decodes to U+1F600 >= 0x10000, fired by
+ * rule 1 BECAUSE the codepoint is astral, not incidentally), and the index advances
+ * past the whole pair in one step. A naive `String.match(/\\uD[89AB].../)` over the
+ * raw text would FALSE-POSITIVE on a literal backslash-u-D800 (`\\uD800` is `\` `u`
+ * `D` `8` `0` `0`, NOT a lone surrogate) — we avoid that by being escape-aware:
+ * a `\u`/`\u{}` astral is detected via the escape branch, never via raw text match.
+ *
+ * The FIVE rules form a COMPLETE partition of "astral in the pattern source"
+ * (validated by a 6-engine tribunal: no over-reach, no missing construct):
+ *   1. Raw astral codepoint literal: any source codepoint >= 0x10000, anywhere
+ *      INCLUDING inside `[...]` (class-awareness does NOT suppress the scan; it is
+ *      only carried for diagnostic context — every position is checked).
+ *   2. `\u{HHHHH}` escape whose decoded value >= 0x10000.
+ *   3. Astral character-class RANGE `[x-y]` where EITHER endpoint decodes to
+ *      >= 0x10000 — subsumed by rules 1+2, which fire on the offending endpoint
+ *      regardless of class/range position. (This does NOT subsume `[\uD800-\uDFFF]`:
+ *      pure surrogates are < 0x10000 and are caught by rule 5, below.)
+ *   4. Surrogate-PAIR escape: `\uD800-\uDBFF` IMMEDIATELY followed by
+ *      `\uDC00-\uDFFF` recombines to an astral codepoint (>= 0x10000). Context: in a
+ *      SEQUENCE it is an astral pair; inside a class or when SPLIT the two are lone
+ *      surrogates caught by rule 5 — every branch fails-close (safety is
+ *      unconditional; the pair-recombination is only for DIAGNOSTIC accuracy, so the
+ *      named codepoint is the recombined astral char, not a bare surrogate).
+ *   5. Lone surrogate escape `\uD800-\uDFFF` not forming a pair — non-portable
+ *      (a lone surrogate is rejected/treated differently across engines).
+ *
+ * Runs on the RAW pattern BEFORE class-/fold-/anchor-normalization (like
+ * {@link isZeroWidthCapableRegex}) on BOTH the TS and Python paths, so the same
+ * decision and the same `{ char }` are produced from the same input on each side.
+ */
+export function scanRegexAstral(pattern: string): { char: string } | null {
+  const chars = Array.from(pattern);
+  const n = chars.length;
+  let escaped = false;
+  // `classDepth` mirrors the {@link expandRegexIFold} bookkeeping (0 outside any
+  // `[...]`, 1 inside) and `classCloseIdx` the matching `]` from {@link scanCharClass}
+  // so the loop tracks class context the same way — though astral detection itself
+  // applies at EVERY position (rule 1/2 are not class-suppressed); the context is
+  // only carried for parity with the shared scanner shape.
+  let classDepth = 0;
+  let classCloseIdx = -1;
+
+  for (let i = 0; i < n; i++) {
+    const ch = chars[i];
+
+    if (escaped) {
+      // The char after a backslash. A `\u…` escape is decoded HERE (rules 2/4/5);
+      // any other escaped char is a literal and only its raw codepoint matters
+      // (rule 1 — an escaped astral char `\😀` is still an astral codepoint).
+      escaped = false;
+      if (ch === 'u') {
+        // `\u{HHHHH}` (rule 2) — decode the brace body.
+        if (chars[i + 1] === '{') {
+          let j = i + 2;
+          let hex = '';
+          while (j < n && chars[j] !== '}') {
+            hex += chars[j];
+            j++;
+          }
+          if (j < n && chars[j] === '}') {
+            const v = Number.parseInt(hex, 16);
+            if (Number.isFinite(v) && v >= 0x10000) {
+              // Clamp to the max valid codepoint (U+10FFFF) for the diagnostic char:
+              // a `\u{HHHHH}` body above U+10FFFF is malformed and still fails-close,
+              // but `String.fromCodePoint` throws on an out-of-range value, so we name
+              // the max astral codepoint rather than crash. (Both targets share this
+              // function, so even the malformed case fails symmetrically.)
+              return { char: String.fromCodePoint(Math.min(v, 0x10ffff)) };
+            }
+            i = j; // skip past the closing `}`
+            continue;
+          }
+          // Malformed `\u{` with no close — fall through; surfaces at emit anyway.
+          continue;
+        }
+        // `\uHHHH` — decode the four hex digits.
+        const hex = chars.slice(i + 1, i + 5).join('');
+        if (hex.length === 4 && /^[0-9a-fA-F]{4}$/.test(hex)) {
+          const v1 = Number.parseInt(hex, 16);
+          // Rule 4: high surrogate IMMEDIATELY followed by a `\uLLLL` low surrogate
+          // recombines to an astral codepoint. Detect the pair BEFORE rule 5 so the
+          // diagnostic names the recombined astral char, not a bare surrogate.
+          if (v1 >= 0xd800 && v1 <= 0xdbff && chars[i + 5] === '\\' && chars[i + 6] === 'u') {
+            const hex2 = chars.slice(i + 7, i + 11).join('');
+            if (hex2.length === 4 && /^[0-9a-fA-F]{4}$/.test(hex2)) {
+              const v2 = Number.parseInt(hex2, 16);
+              if (v2 >= 0xdc00 && v2 <= 0xdfff) {
+                const cp = (v1 - 0xd800) * 0x400 + (v2 - 0xdc00) + 0x10000;
+                return { char: String.fromCodePoint(cp) };
+              }
+            }
+          }
+          // Rule 5: lone surrogate `\uD800-\uDFFF` (high or low) not forming a pair.
+          if (v1 >= 0xd800 && v1 <= 0xdfff) {
+            // Report a surrogate codepoint directly so the message names U+D800-U+DFFF.
+            return { char: String.fromCharCode(v1) };
+          }
+          i += 4; // skip the four hex digits (the `u` was consumed by the escape)
+          continue;
+        }
+      }
+      // Any other escaped char: only a RAW astral codepoint matters (rule 1).
+      if ((ch.codePointAt(0) ?? 0) >= 0x10000) return { char: ch };
+      continue;
+    }
+
+    if (ch === '\\') {
+      escaped = true;
+      continue;
+    }
+
+    // Rule 1: a raw astral codepoint literal anywhere (including inside `[...]`).
+    // `Array.from` already split a surrogate pair into ONE element decoding to its
+    // full codepoint, so this is a codepoint test, never a code-unit test.
+    if ((ch.codePointAt(0) ?? 0) >= 0x10000) return { char: ch };
+
+    // Class bookkeeping (parity with the shared scanner; detection is not gated by it).
+    if (ch === '[' && classDepth === 0) {
+      const scanned = scanCharClass(chars, i);
+      classDepth = 1;
+      classCloseIdx = scanned.closeIdx;
+      continue;
+    }
+    if (classDepth > 0 && i === classCloseIdx) {
+      classDepth = 0;
+      classCloseIdx = -1;
+    }
+  }
+
+  return null;
+}
+
+/* ----------------------------------------------------------------------------
  * Milestone C, Slice 3c — let-bound regex DETECTOR (drop the fragile
  * resolve-to-literal).
  *

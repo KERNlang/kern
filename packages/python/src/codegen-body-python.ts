@@ -70,9 +70,11 @@ import {
   REGEX_SPLIT_LIMIT_FAILCLOSE,
   REGEX_SPLIT_ZEROWIDTH_FAILCLOSE,
   REGEX_TEST_G_FAILCLOSE,
+  regexAstralFailMessage,
   regexCaptureMeta,
   regexIFoldFailMessage,
   regexMethodRegexArgIdent,
+  scanRegexAstral,
   suggestStdlibMethod,
   translateReplStringToPython,
   unmappedHostNamespaceMessage,
@@ -3630,6 +3632,12 @@ function resolveRegexExpr(node: ValueIR, _ctx: BodyEmitContext): Extract<ValueIR
 }
 
 function pyRegexPattern(node: Extract<ValueIR, { kind: 'regexLit' }>): string {
+  // Slice 5: fail-close any non-BMP (astral) construct in the PATTERN before any
+  // normalization, on the RAW pattern — the IDENTICAL decision + message the TS
+  // emitter makes (the `\/`→`/` un-escape below does not touch any astral
+  // construct, so scanning the raw `node.pattern` here is byte-symmetric with TS).
+  const astral = scanRegexAstral(node.pattern);
+  if (astral !== null) throw new Error(regexAstralFailMessage(astral.char));
   // FIX 2: a non-portable named group (`(?<café>…)`, `(?<$x>…)`, `(?<>…)`) is
   // refused on BOTH targets (the same validator runs in the TS regex-literal emit
   // chokepoints), instead of emitting `(?P<café>…)` / a JS-form `(?<café>…)` that

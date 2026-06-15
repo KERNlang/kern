@@ -24,8 +24,10 @@ import {
   REGEX_SPLIT_LIMIT_FAILCLOSE,
   REGEX_SPLIT_ZEROWIDTH_FAILCLOSE,
   REGEX_TEST_G_FAILCLOSE,
+  regexAstralFailMessage,
   regexCaptureMeta,
   regexIFoldFailMessage,
+  scanRegexAstral,
   validateRegexNamedGroupsPortable,
   validateReplStringForTS,
 } from './codegen/regex-normalize.js';
@@ -134,6 +136,10 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       // fold scan leaves them untouched) and on the SAME shared transform Python
       // uses, so the residual pattern is byte-identical across targets. `/i` is
       // kept in the flags.
+      // Slice 5: fail-close any non-BMP (astral) construct in the PATTERN before
+      // class/fold normalization, on the RAW pattern (same decision both targets).
+      const astral = scanRegexAstral(node.pattern);
+      if (astral !== null) throw new Error(regexAstralFailMessage(astral.char));
       // FIX 2: a non-portable named group (`(?<café>…)`) fail-closes on BOTH
       // targets (Python `pyRegexPattern` runs the same validator), so a bare regex
       // literal with a Unicode/illegal group name is refused symmetrically.
@@ -596,6 +602,11 @@ function resolveRegexLitTS(node: ValueIR): Extract<ValueIR, { kind: 'regexLit' }
  *  same class/`/i`-fold transform the bare-`regexLit` emit path applies, so a
  *  regex used as a method arg lowers byte-identically to a standalone literal. */
 function emitTsRegexLiteral(node: Extract<ValueIR, { kind: 'regexLit' }>): string {
+  // Slice 5: fail-close a non-BMP (astral) construct symmetrically with the
+  // Python target, so every TS regex-method path (.test/.match/.split/.replace/…)
+  // refuses an astral codepoint identically to a standalone literal.
+  const astral = scanRegexAstral(node.pattern);
+  if (astral !== null) throw new Error(regexAstralFailMessage(astral.char));
   // FIX 2: refuse a non-portable named group symmetrically with the Python target
   // (the same validator runs in `pyRegexPattern`), so every TS regex-method path
   // (.test/.match/.split/.replace/…) fail-closes a Unicode/illegal group name.
