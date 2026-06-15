@@ -384,9 +384,17 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       // `+` calls .valueOf() → float (silent precision loss + TS↔Python divergence).
       // Conservative: a no-op for plain numeric arithmetic. The Python leg makes the
       // identical decision with the same shared message, so the refusal is symmetric.
-      assertNoDecimalOperator(node);
+      //
+      // Slice-2 remediation (Finding 2): lower the operands FIRST, then assert. An
+      // operand that is a bad Decimal call — an unknown member (`Decimal.nope(...)`)
+      // or a non-canonical literal (`Decimal.of("1.10")`) — throws its OWN specific
+      // diagnostic during lowering, instead of being masked by the generic operator
+      // error. Lowering a VALID Decimal producer (`Decimal.of("1")`) succeeds, so the
+      // operator fail-close below still fires for real Decimal arithmetic. The Python
+      // leg mirrors this lower-then-assert order for symmetric diagnostics.
       const left = emitExpression(node.left, ctx);
       const right = emitExpression(node.right, ctx);
+      assertNoDecimalOperator(node);
       const lp = needsParens(node.left, node.op, 'left') ? `(${left})` : left;
       const rp = needsParens(node.right, node.op, 'right') ? `(${right})` : right;
       return `${lp} ${node.op} ${rp}`;

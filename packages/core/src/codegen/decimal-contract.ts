@@ -215,22 +215,42 @@ interface DecimalProbeNode {
   callee?: { kind: string; object?: { kind: string; name?: string }; property?: string };
 }
 
+/** The EXACT set of `Decimal.<method>` calls that PRODUCE a Decimal value — the
+ *  KERN_STDLIB.Decimal surface (`packages/core/src/codegen/kern-stdlib.ts`). The
+ *  operator fail-close must fire ONLY on these, so an UNKNOWN member like
+ *  `Decimal.nope(...)` falls through to the real "unknown stdlib member"
+ *  diagnostic, and `Decimal.of("1.10") + 1` falls through to the non-canonical-
+ *  literal diagnostic — instead of both being masked by the generic operator
+ *  error (Slice-2 remediation, Finding 2). Keep in lockstep with the stdlib
+ *  Decimal entry: adding a new producing method (e.g. `div`) means adding it
+ *  here too, on BOTH legs (this single source is imported by both). */
+const DECIMAL_PRODUCER_METHODS = new Set(['of', 'add', 'sub', 'mul', 'neg', 'abs']);
+
 /** True iff `node` is, BY SYNTAX ALONE, unambiguously a Decimal-producing call:
  *  a call whose callee is a member access `Decimal.<method>` on the literal `Decimal`
- *  namespace identifier (`Decimal.of(...)`, `Decimal.add(...)`, `Decimal.sub(...)`, …).
+ *  namespace identifier AND whose method is one of the KNOWN Decimal-producing
+ *  members (`Decimal.of(...)`, `Decimal.add(...)`, `Decimal.sub(...)`, …).
  *
  *  CONSERVATIVE BY DESIGN (the critical soundness property): it fires ONLY on this
  *  exact shape. It does NOT track types through variables, params, returns, or
  *  member chains — a `let d = Decimal.of("1.5"); d + x` is NOT caught here (that
  *  needs the typed IR of slice 3; a `// SLICE 3:` note marks the generalization).
  *  It therefore can NEVER false-fire on ordinary numeric `+`/`-`/`*` (a `numLit`,
- *  `ident`, plain `call`, member-read, etc. all return false). */
+ *  `ident`, plain `call`, member-read, etc. all return false).
+ *
+ *  Finding-2 narrowing: the method MUST be a known producer. `Decimal.nope(...)`
+ *  is NOT a producer, so it returns false here and the binary-emit site lowers
+ *  its operands normally — surfacing the unknown-member / non-canonical-literal
+ *  diagnostic the operand actually has, rather than the generic operator error. */
 export function isSyntacticDecimalProducer(node: unknown): boolean {
   if (typeof node !== 'object' || node === null) return false;
   const n = node as DecimalProbeNode;
   if (n.kind !== 'call') return false;
   const callee = n.callee;
   if (!callee || callee.kind !== 'member') return false;
+  // Only the known Decimal-producing methods count. An unknown member is NOT a
+  // proven Decimal producer — let the operand lower so its real diagnostic fires.
+  if (typeof callee.property !== 'string' || !DECIMAL_PRODUCER_METHODS.has(callee.property)) return false;
   const obj = callee.object;
   // The receiver MUST be the bare `Decimal` namespace identifier — NOT a user
   // binding named `decimal`, NOT a member chain. (User-binding shadowing of the

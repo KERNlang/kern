@@ -104,6 +104,29 @@ describe('Decimal Slice 2 — symmetric +/-/* operator fail-close (item 3)', () 
   });
 });
 
+// ── Finding 2 remediation: the operator fail-close must not MASK the real
+//    diagnostic of a bad Decimal operand — and it must stay BYTE-IDENTICAL across
+//    legs (so an unknown member / non-canonical literal surfaces the same error on
+//    both targets, not the generic operator error on one and the real one on the
+//    other). ───────────────────────────────────────────────────────────────────
+describe('Decimal Slice 2 — operator fail-close does not mask the real diagnostic (Finding 2)', () => {
+  test('Decimal.nope("1") + 1 → symmetric unknown-member error (NOT the operator error)', () => {
+    assertSymmetricThrow('Decimal.nope("1") + 1', "Unknown KERN-stdlib method/member 'Decimal.nope'");
+    expect(() => ts('Decimal.nope("1") + 1')).not.toThrow(DECIMAL_OPERATOR_FAILCLOSE);
+    expect(() => py('Decimal.nope("1") + 1')).not.toThrow(DECIMAL_OPERATOR_FAILCLOSE);
+  });
+
+  test('Decimal.of("1.10") + 1 → symmetric non-canonical-literal error (NOT the operator error)', () => {
+    assertSymmetricThrow('Decimal.of("1.10") + 1', 'Decimal literal carries non-canonical scale/significance');
+    expect(() => ts('Decimal.of("1.10") + 1')).not.toThrow(DECIMAL_OPERATOR_FAILCLOSE);
+    expect(() => py('Decimal.of("1.10") + 1')).not.toThrow(DECIMAL_OPERATOR_FAILCLOSE);
+  });
+
+  test('valid producers still trip the operator fail-close symmetrically', () => {
+    assertSymmetricThrow('Decimal.of("1") + Decimal.of("2")', DECIMAL_OPERATOR_FAILCLOSE);
+  });
+});
+
 describe('Decimal Slice 2 — plain numeric +/-/* must NOT fail-close (narrowness)', () => {
   // The check is CONSERVATIVE: only a syntactically-proven Decimal operand fires
   // it. Ordinary numeric arithmetic compiles normally on both legs.

@@ -2179,7 +2179,15 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       // decision the TS leg makes (shared `assertNoDecimalOperator` + message), so
       // the refusal is byte-identical across targets. Conservative: a no-op for plain
       // numeric arithmetic and for every non-`+`/`-`/`*` operator below.
-      assertNoDecimalOperator(node);
+      //
+      // Slice-2 remediation (Finding 2): the assert is now performed AFTER the
+      // operands are lowered (see below, after `emitPyExprCtx(node.left/right)`),
+      // mirroring the TS leg's lower-then-assert order. A bad Decimal operand — an
+      // unknown member (`Decimal.nope(...)`) or a non-canonical literal
+      // (`Decimal.of("1.10")`) — then throws its OWN specific diagnostic during
+      // lowering instead of being masked by the generic operator error. The blocked
+      // operators are only `+`/`-`/`*`, so deferring the assert past the bitwise /
+      // shift / modulo branches below is safe (they never trip the Decimal check).
       // Slice 6 — bitwise / shift on the slice-0.75 ToInt32 substrate. Emitted
       // DIRECTLY as helper-wrapped strings (operands recurse through
       // `emitPyExprCtx`), so nested bitwise ops compose without the double-
@@ -2208,6 +2216,12 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       // expected `(a == b) < c` evaluation order.
       const left = emitPyExprCtx(node.left, ctx);
       const right = emitPyExprCtx(node.right, ctx);
+
+      // DECIMAL Slice 2 (item 3) — operator fail-close, now AFTER operand lowering
+      // (Finding-2 remediation) so a bad Decimal operand surfaces its own diagnostic
+      // first. No-op for every operator except `+`/`-`/`*`, so it never affects the
+      // bitwise/shift/modulo paths handled above or the comparison/logical paths below.
+      assertNoDecimalOperator(node);
 
       if (node.op === 'instanceof') {
         // JS `a instanceof B` → Python `isinstance(a, B)`. Emitting `instanceof`
