@@ -45,12 +45,16 @@
  *  for the surrounding function body. */
 
 import { isPostfixMutationOperator, isSupportedAssignOperator } from '../assignment-operators.js';
+import { collectClosureBlockCallTexts } from '../closure-eligibility.js';
 import type { ExprEmitContext } from '../codegen-expression.js';
 import { emitExpression } from '../codegen-expression.js';
 import { parseExpression } from '../parser-expression.js';
 import type { ExprObject, IRNode } from '../types.js';
 import { typescriptClosureClassifier, validateClosureBlockHostNamespacesTS } from '../typescript-closure-classifier.js';
 import type { ValueIR } from '../value-ir.js';
+
+/** A regex-literal IR node — the value recorded in the TS regex-binding table. */
+type RegexLitIR = Extract<ValueIR, { kind: 'regexLit' }>;
 
 // Slice 0.9 — TS codegen is Node-only; it re-parses raw block-bodied arrow prop
 // values, so it injects the TypeScript-backed closure classifier. `parseExpr` is
@@ -62,6 +66,7 @@ function parseExpr(input: string): ReturnType<typeof parseExpression> {
 
 import { emitFmtTemplate, emitIdentifier, emitTypeAnnotation } from './emitters.js';
 import { emitStringKeyArray, parseKeys } from './ground-layer.js';
+import { REGEX_NONLITERAL_FAILCLOSE, regexMethodRegexArgIdent } from './regex-normalize.js';
 import { emitParamList } from './type-system.js';
 
 /** Slice 3e — caller-provided options, parity with the Python body emitter.
@@ -107,6 +112,15 @@ export interface BodyEmitResult {
 interface BodyEmitContext {
   gensymCounter: number;
   localScopes: Array<Map<string, 'const' | 'let' | 'cell'>>;
+  /** Slice-3b parity fix — per-scope regex-literal binding table, index-aligned
+   *  with `localScopes`. Mirrors the Python target's `regexScopes`: when a `let`
+   *  binds a direct regex literal (`let re = /…/`), we record the `regexLit` IR
+   *  so a downstream `s.match(re)` can resolve the ident to its literal and lower
+   *  through the SAME canonical adapter/fail-close a direct `s.match(/…/)` uses.
+   *  Without this, TS emitted raw `s.match(re)` while Python canonical-lowered
+   *  the let-bound regex — a cross-target divergence. A non-regex `let` (or a
+   *  reassignment to a non-regex) records `null`, masking any outer binding. */
+  regexScopes: Array<Map<string, RegexLitIR | null>>;
   /** Slice 4c review fix (OpenCode + Gemini critical) — depth of nested
    *  `try` blocks the emitter is currently inside. Propagation `?` lowers
    *  to a `return` that exits the function — that bypasses the enclosing
@@ -144,6 +158,7 @@ export function emitNativeKernBodyTSWithImports(handlerNode: IRNode, options?: B
   const ctx: BodyEmitContext = {
     gensymCounter: 0,
     localScopes: [],
+    regexScopes: [],
     tryDepth: 0,
     finallyDepth: 0,
     traceHooks: options?.traceHooks,
@@ -155,6 +170,11 @@ export function emitNativeKernBodyTSWithImports(handlerNode: IRNode, options?: B
     const outer = new Map<string, 'const' | 'let' | 'cell'>();
     for (const name of options.stateBindings) outer.set(name, 'cell');
     ctx.localScopes.push(outer);
+    // Index-align `regexScopes` with `localScopes`: state bindings are never
+    // regex literals (they come from `state name=…`), so seed them as null.
+    const outerRegex = new Map<string, RegexLitIR | null>();
+    for (const name of options.stateBindings) outerRegex.set(name, null);
+    ctx.regexScopes.push(outerRegex);
   }
   const code = emitChildrenTS(handlerNode.children ?? [], ctx, '').join('\n');
   return { code, imports: new Set<string>() };
@@ -191,6 +211,8 @@ function emitChildrenTS(
 ): string[] {
   const lines: string[] = [];
   ctx.localScopes.push(new Map(initialBindings));
+  // Index-aligned regex-binding scope (initial bindings are never regex literals).
+  ctx.regexScopes.push(new Map(initialBindings.map(([name]) => [name, null])));
   try {
     for (let i = 0; i < children.length; i++) {
       const child = children[i];
@@ -527,6 +549,7 @@ function emitChildrenTS(
     }
   } finally {
     ctx.localScopes.pop();
+    ctx.regexScopes.pop();
   }
   return lines;
 }
@@ -719,6 +742,10 @@ function emitLetTS(node: IRNode, ctx: BodyEmitContext): string[] {
     return [`${bindingKind} ${name}${typeAnn};`];
   }
   const valueIR = parseExpr(String(rawValue));
+  // Slice-3b parity: record a direct regex-literal binding so a later
+  // `s.match(re)` resolves the ident to its literal and lowers canonically
+  // (matches Python's `setRegexBinding(ctx, userName, regexLit|null)`).
+  setRegexBinding(ctx, name, valueIR.kind === 'regexLit' ? valueIR : null);
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
@@ -1043,7 +1070,16 @@ function emitAssignTS(node: IRNode, ctx: BodyEmitContext): string[] {
       `Propagation \`${valueIR.op}\` is not supported in \`assign value=\` — bind to \`let\` first, then assign.`,
     );
   }
+  // Emit the statement FIRST (its `emitValueTS` walk fail-closes any regex
+  // method on a bound regex ident) so the RHS is checked against the
+  // PRE-reassignment table (`re = s.match(re)` must still see `re` as a regex).
   const stmt = `${emitValueTS(targetIR, ctx)} ${rawOp} ${emitValueTS(valueIR, ctx)};`;
+  // Reassign-invalidation (Slice-3c): keep the regex-binding table honest. A
+  // plain `=` to a direct regex literal stays a regex binding (still
+  // fail-closed); any compound op (`+=`, …) or non-regex RHS UNMARKS it.
+  if (targetIR.kind === 'ident') {
+    rebindRegexOnReassign(ctx, targetIR.name, rawOp === '=' ? valueIR : { kind: 'undefLit' });
+  }
   // Differential-harness opt-in (see BodyEmitOptions.traceHooks.letAssign): the
   // `assign` contract observes a reassignment via the same `{op:"assign"}` event
   // a `let` declaration emits. Scoped to identifier targets — the contract
@@ -1110,6 +1146,42 @@ function declareLocalBinding(ctx: BodyEmitContext, name: string, kind: 'const' |
     throw new Error(`body-statement local binding \`${name}\` is already declared in this scope.`);
   }
   scope.set(name, kind);
+  // Declare the regex binding as null by default (mirrors Python's
+  // `declareLocalBinding` → `setRegexBinding(ctx, name, null)`); `emitLetTS`
+  // overwrites it with the regex literal when the initializer is a `regexLit`.
+  setRegexBinding(ctx, name, null);
+}
+
+/** Record (or clear) the regex-literal bound to `name` in the current scope. */
+function setRegexBinding(ctx: BodyEmitContext, name: string, regex: RegexLitIR | null): void {
+  ctx.regexScopes.at(-1)?.set(name, regex);
+}
+
+/** Resolve an ident to its bound regex literal, walking enclosing scopes. */
+function lookupRegexBinding(ctx: BodyEmitContext, name: string): RegexLitIR | null {
+  for (let i = ctx.regexScopes.length - 1; i >= 0; i--) {
+    const scope = ctx.regexScopes[i];
+    if (scope.has(name)) return scope.get(name) ?? null;
+  }
+  return null;
+}
+
+/** Reassign-invalidation: when a tracked ident is REASSIGNED (`assign
+ *  target=re value=…`), update its regex marking IN THE SCOPE THAT OWNS IT
+ *  (not the innermost scope — that would shadow, leaking past the inner block).
+ *  Reassigned to a direct `regexLit` → stays a regex binding (still fail-closed);
+ *  reassigned to anything else → UNMARK (no longer fail-closed). This kills the
+ *  stale-binding class: a `re = /b/` after `let re = /a/` never lets a prior
+ *  literal leak, and a `re = someString` correctly drops the regex marking. */
+function rebindRegexOnReassign(ctx: BodyEmitContext, name: string, valueIR: ValueIR): void {
+  const next = valueIR.kind === 'regexLit' ? valueIR : null;
+  for (let i = ctx.regexScopes.length - 1; i >= 0; i--) {
+    const scope = ctx.regexScopes[i];
+    if (scope.has(name)) {
+      scope.set(name, next);
+      return;
+    }
+  }
 }
 
 function assertAssignableLocalTarget(target: ValueIR, ctx: BodyEmitContext): void {
@@ -1131,6 +1203,17 @@ function lookupLocalBinding(ctx: BodyEmitContext, name: string): 'const' | 'let'
 }
 
 function emitValueTS(node: ValueIR, ctx: BodyEmitContext): string {
+  // Slice-3c: DETECT-and-fail-close a regex method called on a let-bound regex
+  // IDENT (`let re = /…/; s.match(re)`). The pure-expression TS emitter
+  // (`emitExpression`) only lowers a DIRECT regex literal in the regex
+  // position; an ident there falls through to a plain host method. The Python
+  // emitter makes the SAME decision (see `lowerRegexCallPython`), so we walk the
+  // IR HERE (where the binding table lives) and throw the SAME shared
+  // `REGEX_NONLITERAL_FAILCLOSE` whenever a regex method's regex position is an
+  // ident the table knows is regex-bound. A string-/unknown-bound ident is NOT
+  // flagged — it stays a plain host method (e.g. `s.match(stringVar)`), the
+  // common case the old resolve-to-literal substitution must never have broken.
+  assertNoBoundRegexMethodTS(node, ctx);
   return emitExpression(node, exprCtxFor(ctx));
 }
 
@@ -1139,6 +1222,133 @@ function exprCtxFor(ctx: BodyEmitContext): ExprEmitContext {
     isUserBinding: (name: string) => lookupLocalBinding(ctx, name) !== undefined,
     validateRawBlock: validateClosureBlockHostNamespacesTS,
   };
+}
+
+/** Recursively reject any regex-method call whose regex-position operand is an
+ *  ident KNOWN to be regex-bound in scope. Mirrors the per-call-node fail-close
+ *  the Python emitter makes inside `lowerRegexCallPython`, so the rejection is
+ *  symmetric at any nesting depth. Direct regex literals are never idents, so
+ *  the canonical Slice-3 lowering is untouched.
+ *
+ *  Slice-3d (TS/Python parity fix): a block-bodied arrow (`x => { … }`) carries
+ *  its body as OPAQUE raw text (`lambda.bodyBlock`) re-emitted verbatim on TS —
+ *  so a bound-regex method INSIDE the block (`x => { return s.match(re); }`)
+ *  slipped through the `ValueIR` walk and emitted RAW, while the Python emitter
+ *  RE-PARSES every block-closure expression (`emitPyExprCtx(parseExpr(raw),ctx)`
+ *  → `lowerRegexCallPython`) and FAIL-CLOSED the same construct — a SILENT
+ *  cross-target divergence. We close it by descending into `bodyBlock` through
+ *  the SAME closure-AST path the rest of the pipeline uses
+ *  (`parseClosureBlockAst`) and applying the SAME `ValueIR` detector to every
+ *  call inside it (re-parsed via the SAME `parseExpr` the Python lowerer uses),
+ *  so the fail-close decision is byte-for-byte symmetric. */
+function assertNoBoundRegexMethodTS(node: ValueIR, ctx: BodyEmitContext): void {
+  if (node.kind === 'call') {
+    const argName = regexMethodRegexArgIdent(node);
+    if (argName !== null && lookupRegexBinding(ctx, argName) !== null) {
+      throw new Error(REGEX_NONLITERAL_FAILCLOSE);
+    }
+  }
+  if (node.kind === 'lambda' && node.bodyBlock) {
+    assertNoBoundRegexMethodInBlockTS(node.bodyBlock.raw, ctx);
+  }
+  forEachValueIRChild(node, (child) => assertNoBoundRegexMethodTS(child, ctx));
+}
+
+/** Fail-close a bound-regex method called anywhere inside a block-bodied
+ *  arrow's raw body — the TS half of the Slice-3d parity fix.
+ *
+ *  Collects every CALL expression's source text from the raw block via the
+ *  shared `collectClosureBlockCallTexts` (the closure-AST path every other
+ *  consumer reads — never a fresh regex-text scanner; the `ts` AST walk stays
+ *  quarantined in `closure-eligibility.ts` so this module imports no
+ *  `typescript`). Each call's source text is re-parsed into
+ *  `ValueIR` through the SAME `parseExpr` the Python block-closure lowerer uses
+ *  (`emitPyExprCtx(parseExpr(expr.getText(sf)), ctx)`), and run through the SAME
+ *  `regexMethodRegexArgIdent` + `lookupRegexBinding(ctx, …)` detector. A
+ *  known-regex-bound ident in the regex position throws the SAME shared
+ *  `REGEX_NONLITERAL_FAILCLOSE` — making the rejection byte-for-byte symmetric
+ *  with Python. A string-/unknown-bound ident (`s.match(strVar)`) is NOT flagged
+ *  and stays a plain host method on both targets.
+ *
+ *  Binding resolution uses the SAME `ctx` (the body's regex-binding table) the
+ *  Python lowerer consults: a closure PARAM that shadows an outer regex name is
+ *  conservatively still flagged on BOTH targets (Python's `lookupRegexBinding`
+ *  also ignores `shadowedSymbols`) — over-rejection is SAFE and symmetric; the
+ *  silent divergence is not. If the block does not parse cleanly the gate
+ *  already rejected it upstream, so this is a defensive no-op. */
+function assertNoBoundRegexMethodInBlockTS(raw: string, ctx: BodyEmitContext): void {
+  for (const callText of collectClosureBlockCallTexts(raw)) {
+    const callIR = parseExpr(callText);
+    if (callIR.kind === 'call') {
+      const argName = regexMethodRegexArgIdent(callIR);
+      if (argName !== null && lookupRegexBinding(ctx, argName) !== null) {
+        throw new Error(REGEX_NONLITERAL_FAILCLOSE);
+      }
+    }
+  }
+}
+
+/** Visit each immediate child `ValueIR` of `node`. Covers every variant of the
+ *  value AST so the regex-method walk reaches calls nested inside any operand
+ *  (args, members, binaries, conditionals, template exprs, object/array
+ *  literals, …). `lambda.bodyBlock` is opaque raw TS text with no parsed IR, so
+ *  it has no child `ValueIR` nodes here — its bound-regex methods are reached
+ *  separately by `assertNoBoundRegexMethodInBlockTS` (called from
+ *  `assertNoBoundRegexMethodTS` on the lambda), which parses the raw block. */
+function forEachValueIRChild(node: ValueIR, visit: (child: ValueIR) => void): void {
+  switch (node.kind) {
+    case 'member':
+      visit(node.object);
+      return;
+    case 'index':
+      visit(node.object);
+      visit(node.index);
+      return;
+    case 'call':
+      visit(node.callee);
+      for (const a of node.args) visit(a);
+      return;
+    case 'lambda':
+      if (node.body) visit(node.body);
+      return;
+    case 'binary':
+      visit(node.left);
+      visit(node.right);
+      return;
+    case 'unary':
+    case 'spread':
+    case 'await':
+    case 'new':
+      visit(node.argument);
+      return;
+    case 'typeAssert':
+    case 'nonNull':
+      visit(node.expression);
+      return;
+    case 'propagate':
+      visit(node.argument);
+      return;
+    case 'tmplLit':
+      for (const e of node.expressions) visit(e);
+      return;
+    case 'objectLit':
+      for (const entry of node.entries) {
+        if ('kind' in entry && entry.kind === 'spread') visit(entry.argument);
+        else visit((entry as { value: ValueIR }).value);
+      }
+      return;
+    case 'arrayLit':
+      for (const item of node.items) visit(item);
+      return;
+    case 'conditional':
+      visit(node.test);
+      visit(node.consequent);
+      visit(node.alternate);
+      return;
+    default:
+      // Leaf nodes (numLit/strLit/boolLit/nullLit/undefLit/regexLit/ident): no children.
+      return;
+  }
 }
 
 function isAssignableTarget(node: ValueIR): boolean {
@@ -1374,6 +1584,9 @@ function emitExpressionV1TS(node: IRNode, ctx: BodyEmitContext): string[] {
   }
   const exprIR = parseExpr(exprSource);
   declareLocalBinding(ctx, name, 'const');
+  // Slice-3b parity: record a direct regex-literal binding (mirrors Python's
+  // `expression-v1` `setRegexBinding(ctx, userName, regexLit|null)`).
+  setRegexBinding(ctx, name, exprIR.kind === 'regexLit' ? exprIR : null);
   const lines = [`const ${name}${typeAnn} = ${emitValueTS(exprIR, ctx)};`];
   if (ctx.traceHooks?.letAssign) lines.push(letAssignTraceTS(name));
   return lines;

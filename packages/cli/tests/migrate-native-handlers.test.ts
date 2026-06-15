@@ -366,7 +366,7 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(ts).toContain('const seen = new Set<string>();');
     expect(ts).toContain('const value = data[1]!;');
     expect(ts).toContain('if (/^ok$/i.test(value))');
-    expect(ts).toContain('return value.replace(/\\s+/g, " ");');
+    expect(ts).toContain('return value.replace(/[ \\t\\n\\r\\f\\v]+/g, " ");');
   });
 
   test('migrates while block to while body-statement', () => {

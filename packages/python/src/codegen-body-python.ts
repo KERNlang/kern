@@ -45,18 +45,31 @@ import type { ExprObject, IRNode, ValueIR } from '@kernlang/core';
 import {
   applyTemplate,
   emitStringKeyArray,
+  expandRegexIFold,
   instanceofRhsPythonType,
   instanceofRhsRejectReasonForName,
   isHostNamespaceRoot,
   isPostfixMutationOperator,
   isSupportedAssignOperator,
+  isZeroWidthCapableRegex,
   KERN_STDLIB_MODULES,
   lookupStdlibCall,
   lookupStdlibProperty,
+  lowerRegexAnchorsPython,
   needsArgParens,
   needsBinaryParens,
+  normalizeRegexClasses,
   parseExpression,
   parseKeys,
+  REGEX_EXEC_FAILCLOSE,
+  REGEX_MATCHALL_NO_G_FAILCLOSE,
+  REGEX_NONLITERAL_FAILCLOSE,
+  REGEX_REPLACEALL_NO_G_FAILCLOSE,
+  REGEX_SPLIT_LIMIT_FAILCLOSE,
+  REGEX_SPLIT_ZEROWIDTH_FAILCLOSE,
+  REGEX_TEST_G_FAILCLOSE,
+  regexIFoldFailMessage,
+  regexMethodRegexArgIdent,
   suggestStdlibMethod,
   unmappedHostNamespaceMessage,
 } from '@kernlang/core';
@@ -80,6 +93,8 @@ import {
   KERN_JSON_STRINGIFY_SHIM_PY,
   KERN_NULLISH_HELPER_PY,
   KERN_PAIR_HELPERS_PY,
+  KERN_REGEX_MATCH_HELPER_PY,
+  KERN_REGEX_MATCHALL_HELPER_PY,
   KERN_TMOD_HELPER_PY,
   KERN_TO_NUMBER_HELPER_PY,
 } from './core/expr/index.js';
@@ -1574,7 +1589,16 @@ function emitAssignPy(node: IRNode, ctx: BodyEmitContext): string[] {
       `Propagation \`${valueIR.op}\` is not supported in \`assign value=\` — bind to \`let\` first, then assign.`,
     );
   }
+  // Emit FIRST (its `emitPyExprCtx` lowering fail-closes a regex method on a
+  // bound regex ident) so the RHS is checked against the PRE-reassignment table
+  // (`re = s.match(re)` must still see `re` as a regex). Mirrors the TS leg.
   const stmt = `${emitPyExprCtx(targetIR, ctx)} ${rawOp} ${emitPyExprCtx(valueIR, ctx)}`;
+  // Reassign-invalidation (Slice-3c): keep the regex-binding table honest. A
+  // plain `=` to a direct regex literal stays a regex binding (still
+  // fail-closed); any compound op (`+=`, …) or non-regex RHS UNMARKS it.
+  if (targetIR.kind === 'ident') {
+    rebindRegexOnReassign(ctx, targetIR.name, rawOp === '=' ? valueIR : { kind: 'undefLit' });
+  }
   // Differential-harness opt-in (see BodyEmitOptions.traceHooks.letAssign): the
   // `assign` contract observes a reassignment via the same `{op:"assign"}` event
   // a `let` declaration emits. Scoped to identifier targets — the contract
@@ -1609,6 +1633,23 @@ function lookupRegexBinding(ctx: BodyEmitContext, name: string): Extract<ValueIR
     if (scope.has(name)) return scope.get(name) ?? null;
   }
   return null;
+}
+
+/** Reassign-invalidation: when a tracked ident is REASSIGNED (`assign
+ *  target=re value=…`), update its regex marking IN THE SCOPE THAT OWNS IT (not
+ *  the innermost scope — that would shadow and leak past the inner block).
+ *  Reassigned to a direct `regexLit` → stays a regex binding (still fail-closed);
+ *  reassigned to anything else → UNMARK. Mirrors the TS `rebindRegexOnReassign`,
+ *  so the stale-binding class dies symmetrically on both targets. */
+function rebindRegexOnReassign(ctx: BodyEmitContext, name: string, valueIR: ValueIR): void {
+  const next = valueIR.kind === 'regexLit' ? valueIR : null;
+  for (let i = ctx.regexScopes.length - 1; i >= 0; i--) {
+    const scope = ctx.regexScopes[i];
+    if (scope.has(name)) {
+      scope.set(name, next);
+      return;
+    }
+  }
 }
 
 function assertAssignableLocalTarget(target: ValueIR, ctx: BodyEmitContext): void {
@@ -3433,46 +3474,149 @@ function parenthesizeIterable(expr: string): string {
 function lowerRegexCallPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: BodyEmitContext): string | null {
   const callee = call.callee;
   if (callee.kind !== 'member') return null;
+
+  // Slice-3b FIX 4 (parity): a call whose receiver is a KERN-stdlib NAMESPACE
+  // (`Math.match(/a/g)`, `JSON.split(/,/)`) is NOT a string regex method —
+  // defer to `applyStdlibLoweringPython`, which rejects the unknown stdlib
+  // member exactly like the TS emitter (where `applyStdlibLoweringTS` runs
+  // BEFORE the regex lowering). Without this, the regex path mis-claimed the
+  // namespace as the SUBJECT and emitted broken `…finditer("a", Math, …)`
+  // while TS fail-closed — a cross-target divergence.
+  if (callee.object.kind === 'ident' && KERN_STDLIB_MODULES.has(callee.object.name)) {
+    return null;
+  }
+
+  // Slice-3c DETECT-and-fail-close: a regex method whose regex position holds an
+  // ident KNOWN to be regex-bound (`let re = /…/; s.match(re)`) is NOT portable —
+  // throw the SAME shared `REGEX_NONLITERAL_FAILCLOSE` the TS target throws (see
+  // `assertNoBoundRegexMethodTS` in body-ts.ts). A string-/unknown-bound ident is
+  // NOT flagged: it falls through to the plain host method below (`s.match(needle)`).
+  const regexArgIdent = regexMethodRegexArgIdent(call);
+  if (regexArgIdent !== null && lookupRegexBinding(ctx, regexArgIdent) !== null) {
+    throw new Error(REGEX_NONLITERAL_FAILCLOSE);
+  }
+
+  // --- Receiver-is-regex shapes: `regex.test(s)`, `regex.exec(s)` ---
   const receiverRegex = resolveRegexExpr(callee.object, ctx);
   if (callee.property === 'test' && receiverRegex !== null) {
     if (call.args.length !== 1) return null;
     if (receiverRegex.flags.includes('g')) {
-      throw new Error(
-        "Python target does not lower RegExp.test with the 'g' flag because JS mutates lastIndex while Python re.search is stateless. Use Regex.contains once the KERN stdlib grows that cross-target shape.",
-      );
+      // .test(/g) is STATEFUL (lastIndex advances+wraps); no portable re analog.
+      throw new Error(REGEX_TEST_G_FAILCLOSE);
     }
     ctx.imports.add('re');
     return `(__k_re.search(${pyRegexPattern(receiverRegex)}, ${emitPyExprCtx(call.args[0], ctx)}, ${pyRegexFlags(receiverRegex.flags)}) is not None)`;
   }
-  const matchRegex = call.args.length === 1 ? resolveRegexExpr(call.args[0], ctx) : null;
-  if (callee.property === 'match' && matchRegex !== null) {
-    if (matchRegex.flags.includes('g')) {
-      throw new Error(
-        'Python target does not lower String.match(/.../g) because JS returns an array of matches while Python re.search returns a Match object. Use Regex.findAll once the KERN stdlib grows that cross-target shape.',
-      );
+  if (callee.property === 'exec' && receiverRegex !== null) {
+    // .exec drives a JS-only stateful `while ((m = re.exec(s)))` loop; fail-close
+    // and redirect to the portable `.matchAll` iteration (D4) rather than silently
+    // rewrite a loop whose body may mutate lastIndex.
+    throw new Error(REGEX_EXEC_FAILCLOSE);
+  }
+
+  // --- Receiver-is-string shapes: arg[0] is the regex ---
+  const firstArgRegex = call.args.length >= 1 ? resolveRegexExpr(call.args[0], ctx) : null;
+
+  // `.match(s)` — no /g: canonical {full,groups,index,named}|None shape (the
+  // load-bearing portability fix, D2). With /g: full matches only via
+  // finditer.group(0) (NEVER re.findall, which returns tuples when >1 group),
+  // or None when empty.
+  if (callee.property === 'match' && firstArgRegex !== null && call.args.length === 1) {
+    ctx.imports.add('re');
+    const pat = pyRegexPattern(firstArgRegex);
+    const subject = emitPyExprCtx(callee.object, ctx);
+    if (firstArgRegex.flags.includes('g')) {
+      const flags = pyRegexFlags(firstArgRegex.flags, { allowGlobal: true });
+      return `([__k_m.group(0) for __k_m in __k_re.finditer(${pat}, ${subject}, ${flags})] or None)`;
+    }
+    ctx.helpers.add(KERN_REGEX_MATCH_HELPER_PY);
+    return `_kern_regex_match(${pat}, ${subject}, ${pyRegexFlags(firstArgRegex.flags)})`;
+  }
+
+  // `.matchAll(s)` — requires /g (a non-global matchAll throws TypeError in JS).
+  // Shapes finditer into [{full,groups,index}, …], incl. zero-width advances.
+  if (callee.property === 'matchAll' && firstArgRegex !== null && call.args.length === 1) {
+    if (!firstArgRegex.flags.includes('g')) {
+      throw new Error(REGEX_MATCHALL_NO_G_FAILCLOSE);
     }
     ctx.imports.add('re');
-    return `__k_re.search(${pyRegexPattern(matchRegex)}, ${emitPyExprCtx(callee.object, ctx)}, ${pyRegexFlags(matchRegex.flags)})`;
+    ctx.helpers.add(KERN_REGEX_MATCHALL_HELPER_PY);
+    return `_kern_regex_matchall(${pyRegexPattern(firstArgRegex)}, ${emitPyExprCtx(callee.object, ctx)}, ${pyRegexFlags(firstArgRegex.flags, { allowGlobal: true })})`;
   }
+
+  // `.split(s)` — IN-CORE for a non-zero-width pattern with NO limit arg (capture
+  // groups interleave portably). FAIL-CLOSE on a zero-width-capable pattern
+  // (empty-edge divergence) or any limit/2nd arg (truncate vs remainder).
+  if (callee.property === 'split' && firstArgRegex !== null) {
+    if (call.args.length > 1) {
+      throw new Error(REGEX_SPLIT_LIMIT_FAILCLOSE);
+    }
+    if (isZeroWidthCapableRegex(firstArgRegex.pattern)) {
+      throw new Error(REGEX_SPLIT_ZEROWIDTH_FAILCLOSE);
+    }
+    ctx.imports.add('re');
+    return `__k_re.split(${pyRegexPattern(firstArgRegex)}, ${emitPyExprCtx(callee.object, ctx)}, flags=${pyRegexFlags(firstArgRegex.flags, { allowGlobal: true })})`;
+  }
+
+  // `.replace(s, r)` — no /g: FIRST match only (count=1); /g: ALL (count=0).
   const replaceRegex = call.args.length === 2 ? resolveRegexExpr(call.args[0], ctx) : null;
   if (callee.property === 'replace' && replaceRegex !== null) {
     ctx.imports.add('re');
     const count = replaceRegex.flags.includes('g') ? '0' : '1';
     return `__k_re.sub(${pyRegexPattern(replaceRegex)}, ${emitPyExprCtx(call.args[1], ctx)}, ${emitPyExprCtx(callee.object, ctx)}, count=${count}, flags=${pyRegexFlags(replaceRegex.flags, { allowGlobal: true })})`;
   }
+
+  // `.replaceAll(s, r)` — requires /g (a non-global replaceAll throws TypeError in
+  // JS); otherwise identical to `.replace` /g (count=0, ALL matches replaced).
+  if (callee.property === 'replaceAll' && replaceRegex !== null) {
+    if (!replaceRegex.flags.includes('g')) {
+      throw new Error(REGEX_REPLACEALL_NO_G_FAILCLOSE);
+    }
+    ctx.imports.add('re');
+    return `__k_re.sub(${pyRegexPattern(replaceRegex)}, ${emitPyExprCtx(call.args[1], ctx)}, ${emitPyExprCtx(callee.object, ctx)}, count=0, flags=${pyRegexFlags(replaceRegex.flags, { allowGlobal: true })})`;
+  }
+
   return null;
 }
 
-function resolveRegexExpr(node: ValueIR, ctx: BodyEmitContext): Extract<ValueIR, { kind: 'regexLit' }> | null {
+function resolveRegexExpr(node: ValueIR, _ctx: BodyEmitContext): Extract<ValueIR, { kind: 'regexLit' }> | null {
+  // Slice-3c: ONLY a DIRECT regex literal lowers canonically. A let-bound regex
+  // ident no longer RESOLVES to its literal here (the old `lookupRegexBinding`
+  // resolution emitted a STALE pattern when the binding was reassigned and was
+  // fragile to track). The fail-close for a known-regex-bound ident is made by
+  // `lowerRegexCallPython` via the shared `regexMethodRegexArgIdent` detector —
+  // symmetric with the TS target. A string-/unknown-bound ident returns null
+  // and stays a plain host method (the `s.match(stringVar)` case).
   if (node.kind === 'regexLit') return node;
-  if (node.kind === 'ident') return lookupRegexBinding(ctx, node.name);
   return null;
 }
 
 function pyRegexPattern(node: Extract<ValueIR, { kind: 'regexLit' }>): string {
   // JS escapes `/` because it delimits the literal; Python string regexes do not
   // treat `/` specially, so preserve the semantic pattern without that escape.
-  return JSON.stringify(node.pattern.replace(/\\\//g, '/'));
+  const unescaped = node.pattern.replace(/\\\//g, '/');
+  // Milestone C, Slice 1 — emission-normalization (shared with the TS emitter
+  // for the class transform, so it is byte-identical across targets):
+  //   1. `\d \w \s` → explicit ASCII classes (same `normalizeRegexClasses` both
+  //      targets), so Python's Unicode-aware shorthand matches JS's ASCII.
+  //   2. Slice-/i: class-expand non-ASCII Set(A) letters under /i into explicit
+  //      fold classes (Set(B) → throw an identical-to-TS compile error). Runs on
+  //      the SAME shared `expandRegexIFold` the TS emitter calls, AFTER class
+  //      normalization (Slice-1 classes are pure-ASCII → untouched by the fold
+  //      scan) and BEFORE anchor lowering (anchors are ASCII → untouched). Order
+  //      is class → fold → anchors; each touches a disjoint character set, so it
+  //      is parity-safe and byte-identical to TS. `re.IGNORECASE | re.ASCII` is
+  //      kept (handled in pyRegexFlags) — `re.ASCII` is the load-bearing invariant
+  //      that makes KEEP-i safe (it suppresses any Python re-fold of the explicit
+  //      non-ASCII class members).
+  //   3. Python-only anchor lowering: on the non-`/m` path `$`→`\Z`, `^`→`\A`
+  //      so Python anchors match JS's input-end/start semantics (`re.ASCII` and
+  //      `re.M` are handled in pyRegexFlags). On the `/m` path anchors are kept.
+  const classed = normalizeRegexClasses(unescaped);
+  const folded = expandRegexIFold(classed, node.flags);
+  if ('failClose' in folded) throw new Error(regexIFoldFailMessage(folded.char, folded.reason));
+  const normalized = lowerRegexAnchorsPython(folded.pattern, node.flags);
+  return JSON.stringify(normalized);
 }
 
 function pyRegexFlags(flags: string, options: { allowGlobal?: boolean } = {}): string {
@@ -3491,7 +3635,11 @@ function pyRegexFlags(flags: string, options: { allowGlobal?: boolean } = {}): s
   if (flags.includes('i')) parts.push('__k_re.IGNORECASE');
   if (flags.includes('m')) parts.push('__k_re.MULTILINE');
   if (flags.includes('s')) parts.push('__k_re.DOTALL');
-  return parts.length > 0 ? parts.join(' | ') : '0';
+  // Milestone C, Slice 1 — always inject `re.ASCII` so Python `\b` and the
+  // emitted ASCII classes match JS (without `/u`) semantics. This is the
+  // load-bearing flag for word-boundary parity (see the `\bcafé\b` killer row).
+  parts.push('__k_re.ASCII');
+  return parts.join(' | ');
 }
 
 function wrapGuardIfAny(g: GuardedExpr, ctx: BodyEmitContext): string {

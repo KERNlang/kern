@@ -276,6 +276,27 @@ function elementAccessMemberLabel(argument: ts.Expression | undefined): string {
   return argument && ts.isStringLiteralLike(argument) ? argument.text : '[computed]';
 }
 
+/** Collect the raw source text of every CALL expression nested anywhere in a
+ *  closure block, via the shared TS AST (`parseClosureBlockAst`) — never a
+ *  string scan. Returned to consumers that re-parse each call into their own
+ *  IR (the TS body emitter's bound-regex-method fail-close), so those callers
+ *  need no static `typescript` import of their own. Keeping the `ts` AST walk
+ *  quarantined in this Node-only module is what keeps `body-ts.js` OFF the
+ *  browser-spine TS-importer pin (`browser-spine-import-graph.test.ts`). A
+ *  parse failure yields an empty list (the gate already rejected such bodies,
+ *  so this is defensive). */
+export function collectClosureBlockCallTexts(raw: string): string[] {
+  const block = parseClosureBlockAst(raw);
+  if (block === null) return [];
+  const texts: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) texts.push(node.getText());
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(block, visit);
+  return texts;
+}
+
 /** Collect the set of free identifier NAMES referenced in a closure block —
  *  identifiers used in the block that are NOT declared inside the block and
  *  NOT in `paramNames` (the closure's own parameters). These are exactly the

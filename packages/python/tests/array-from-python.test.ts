@@ -2,10 +2,23 @@
  * SPEC — JS `Array.from({ length: N }, (_, i) => BODY)` → Python comprehension.
  *
  * The length-object form of Array.from is a range generator and a frequent
- * reason a handler stays raw `<<<JS>>>`. It lowers to `[BODY for i in range(N)]`
- * on the Python target (Express keeps Array.from — valid JS). The arrow's
- * SECOND parameter is the index (Array.from calls fn(element, index); for the
- * length form the element is undefined), so it becomes the loop variable.
+ * reason a handler stays raw `<<<JS>>>`. The arrow's SECOND parameter is the
+ * index (Array.from calls fn(element, index); for the length form the element is
+ * undefined), so it becomes the loop variable. (Express keeps Array.from — it is
+ * valid JS.)
+ *
+ * Lowering has two emission shapes by COUNT kind:
+ *   - A statically-safe non-negative INTEGER literal `<= 2**32-1` (e.g. 3) takes
+ *     the clean fast-path `[BODY for i in range(N)]` — no length helper, no
+ *     normalize pass. These are valid JS array lengths (JS materializes them
+ *     too), so emitting `range(N)` is exact parity at zero cold-start cost.
+ *   - Anything else — an identifier/member-access/arithmetic count, a literal
+ *     `> 2**32-1`, or a non-finite (`Infinity`/`NaN`) — is routed through the
+ *     validated `_kern_array_like_length` guard: an invalid length (Infinity,
+ *     > 2**32-1) must throw a RangeError and NaN/≤0 must yield an empty array,
+ *     exactly as JS does — never a Python NameError for a bare `Infinity` token,
+ *     and never a multi-billion-element materialization (DoS).
+ * See stdlib-host-alias-registry.test.ts for the executable JS-parity battery.
  *
  * Verified end-to-end (Python result == Express result) by
  * scripts/conformance.mjs; these assert the generated Python shape.
@@ -34,8 +47,12 @@ describe('Array.from(length, arrow) → Python comprehension', () => {
       '    respond 200 json=nums',
     ]);
     const code = routeContent(result, 'range');
+    // Literal length → clean `range(3)` fast-path (no length helper / normalize).
     expect(code).toContain('[i * 2 for i in range(3)]');
-    expect(code).not.toContain('Array.from');
+    // The user's `Array.from(...)` CALL must be gone (lowered). The substring
+    // `Array.from` still appears once inside the injected `_kern_array_from`
+    // helper's TypeError message, so assert against the live call form `(`.
+    expect(code).not.toContain('Array.from(');
     expect(code).not.toContain('=>');
   });
 
@@ -48,7 +65,7 @@ describe('Array.from(length, arrow) → Python comprehension', () => {
       '    respond 200 json=cells',
     ]);
     const code = routeContent(result, 'grid');
-    expect(code).toContain('[{"idx": i, "base": n} for i in range(n)]');
+    expect(code).toContain('[{"idx": i, "base": n} for i in range(_kern_array_like_length({"length": n}))]');
   });
 
   test('template-literal body lowers inside the comprehension', async () => {
@@ -81,6 +98,7 @@ describe('Array.from(length, arrow) → Python comprehension', () => {
       '    respond 200 json=m',
     ]);
     const code = routeContent(result, 'matrix');
+    // Both literal lengths take the clean fast-path; nested lowering still works.
     expect(code).toContain('[[i * 2 + j for j in range(2)] for i in range(2)]');
   });
 
@@ -93,8 +111,8 @@ describe('Array.from(length, arrow) → Python comprehension', () => {
       '    respond 200 json=xs',
     ]);
     const code = routeContent(result, 'shortlen');
-    expect(code).toContain('[i for i in range(length)]');
-    expect(code).not.toContain('Array.from');
+    expect(code).toContain('[i for i in range(_kern_array_like_length({"length": length}))]');
+    expect(code).not.toContain('Array.from(');
   });
 
   test('a single-param arrow does NOT promote the element to the index var', async () => {
