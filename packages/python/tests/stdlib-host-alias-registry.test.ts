@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process';
 import {
-  HOST_NAMESPACE_EXEMPT_ROOTS,
   emitExpression,
   emitNativeKernBodyTSWithImports,
   generateCoreNode,
+  HOST_NAMESPACE_EXEMPT_ROOTS,
   parseExpression,
 } from '@kernlang/core';
 import { emitNativeKernBodyPythonWithImports, emitPyExpressionWithImports } from '../src/codegen-body-python.js';
@@ -275,8 +275,14 @@ describeIfPython('Milestone A stdlib host aliases — reserved namespace and fai
     ['console.log("x")', /Unsupported host namespace in (TypeScript|Python) expression: console\.log .*not registered/],
     ['process.env.HOME', /Unsupported host namespace in (TypeScript|Python) expression: process\.env .*not registered/],
     ['Promise.all(ps)', /Unsupported host namespace in (TypeScript|Python) expression: Promise\.all .*not registered/],
-    ['globalThis.location', /Unsupported host namespace in (TypeScript|Python) expression: globalThis\.location .*not registered/],
-    ['console["log"]("x")', /Unsupported host namespace in (TypeScript|Python) expression: console\.log .*not registered/],
+    [
+      'globalThis.location',
+      /Unsupported host namespace in (TypeScript|Python) expression: globalThis\.location .*not registered/,
+    ],
+    [
+      'console["log"]("x")',
+      /Unsupported host namespace in (TypeScript|Python) expression: console\.log .*not registered/,
+    ],
   ])('%s fails closed on both emitted targets', (expr, message) => {
     expect(() => emitNativeKernBodyTSWithImports(letHandler(expr))).toThrow(message);
     expect(() => emitNativeKernBodyPythonWithImports(letHandler(expr))).toThrow(message);
@@ -289,13 +295,14 @@ describeIfPython('Milestone A stdlib host aliases — reserved namespace and fai
   });
 
   test.each([
-    [
-      'const.value',
-      { type: 'const', props: { name: 'startedAt', value: 'Date.now()' } },
-    ],
+    ['const.value', { type: 'const', props: { name: 'startedAt', value: 'Date.now()' } }],
     [
       'field.value',
-      { type: 'class', props: { name: 'Stamp' }, children: [{ type: 'field', props: { name: 'ts', value: 'Date.now()' } }] },
+      {
+        type: 'class',
+        props: { name: 'Stamp' },
+        children: [{ type: 'field', props: { name: 'ts', value: 'Date.now()' } }],
+      },
     ],
     [
       'param.value',

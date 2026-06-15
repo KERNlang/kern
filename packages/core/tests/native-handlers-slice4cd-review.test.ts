@@ -14,15 +14,15 @@
  */
 
 import { emitNativeKernBodyTS } from '../src/codegen/body-ts.js';
-import { emitExpression, validateRawHostNamespacesTS } from '../src/codegen-expression.js';
-import { generateCoreNode } from '../src/codegen-core.js';
 import { emitParamList } from '../src/codegen/type-system.js';
+import { generateCoreNode } from '../src/codegen-core.js';
+import { emitExpression, validateRawHostNamespacesTS } from '../src/codegen-expression.js';
 import { parseExpression } from '../src/parser-expression.js';
+import type { IRNode } from '../src/types.js';
 import {
   typescriptClosureClassifier,
   validateClosureBlockHostNamespacesTS,
 } from '../src/typescript-closure-classifier.js';
-import type { IRNode } from '../src/types.js';
 
 function makeHandler(children: IRNode[]): IRNode {
   return { type: 'handler', props: { lang: 'kern' }, children };
@@ -215,7 +215,9 @@ describe('host namespace checks in block-bodied lambda expressions (TS)', () => 
     'items.map((item) => { return Date(); })',
   ])('no-context emitExpression fail-closes raw block host roots: %s', (value) => {
     const parsed = parseExpression(value, { closureClassifier: typescriptClosureClassifier });
-    expect(() => emitExpression(parsed)).toThrow(/Unsupported host namespace in TypeScript expression: Date\.(now|call|constructor) .*not registered/);
+    expect(() => emitExpression(parsed)).toThrow(
+      /Unsupported host namespace in TypeScript expression: Date\.(now|call|constructor) .*not registered/,
+    );
   });
 
   test.each([
@@ -237,7 +239,10 @@ describe('host namespace checks in block-bodied lambda expressions (TS)', () => 
 
   test('block-local host-root shadowing does not leak outside the block', () => {
     const handler = makeHandler([
-      { type: 'let', props: { name: 'out', value: 'items.map(item => { if (item) { const Date = clock; } return Date.now(); })' } },
+      {
+        type: 'let',
+        props: { name: 'out', value: 'items.map(item => { if (item) { const Date = clock; } return Date.now(); })' },
+      },
     ]);
     expect(() => emitNativeKernBodyTS(handler)).toThrow(
       /Unsupported host namespace in TypeScript expression: Date\.now .*not registered/,
@@ -295,7 +300,11 @@ describe('host namespace checks in top-level TypeScript expression props', () =>
       props: { name: 'field-shadow-host-root' },
       children: [
         { type: 'const', props: { name: 'Date', value: 'clock' } },
-        { type: 'class', props: { name: 'Stamp' }, children: [{ type: 'field', props: { name: 'ts', value: 'Date.now()' } }] },
+        {
+          type: 'class',
+          props: { name: 'Stamp' },
+          children: [{ type: 'field', props: { name: 'ts', value: 'Date.now()' } }],
+        },
       ],
     });
     expect(lines.join('\n')).toContain('ts = Date.now();');
@@ -306,7 +315,11 @@ describe('host namespace checks in top-level TypeScript expression props', () =>
       type: 'module',
       props: { name: 'class-self-shadow-host-root' },
       children: [
-        { type: 'class', props: { name: 'Date' }, children: [{ type: 'field', props: { name: 'ts', value: 'Date.now()' } }] },
+        {
+          type: 'class',
+          props: { name: 'Date' },
+          children: [{ type: 'field', props: { name: 'ts', value: 'Date.now()' } }],
+        },
       ],
     });
     expect(lines.join('\n')).toContain('ts = Date.now();');
@@ -389,7 +402,11 @@ describe('host namespace checks in top-level TypeScript expression props', () =>
     expect(lines.join('\n')).toContain('const r = Date.Now;');
   });
 
-  test.each(['action', 'repository', 'cache'])('%s declarations shadow reserved host roots for later module expressions', (kind) => {
+  test.each([
+    'action',
+    'repository',
+    'cache',
+  ])('%s declarations shadow reserved host roots for later module expressions', (kind) => {
     const declaration =
       kind === 'repository'
         ? { type: kind, props: { name: 'Date', model: 'Clock' }, children: [] }
@@ -548,7 +565,9 @@ describe('host namespace checks in top-level TypeScript expression props', () =>
         { type: 'handler', props: { code: 'return ts;' } },
       ],
     });
-    expect(lines.join('\n')).toContain('function useDestructuredDate({ Date }: { Date: { now(): number } }, ts: number = Date.now())');
+    expect(lines.join('\n')).toContain(
+      'function useDestructuredDate({ Date }: { Date: { now(): number } }, ts: number = Date.now())',
+    );
   });
 
   test('destructure statement bindings shadow host roots for later body expressions', () => {
@@ -774,14 +793,17 @@ describe('host namespace checks in top-level TypeScript expression props', () =>
     );
   });
 
-  test.each(['Set.add(x)', 'Error.captureStackTrace(x)', 'String.raw(x)', 'Boolean.call(x)', 'Function.call(x)'])(
-    'raw fallback rejects host root %s',
-    (source) => {
-      expect(() => validateRawHostNamespacesTS(source)).toThrow(
-        /Unsupported host namespace in TypeScript expression: (Set|Error|String|Boolean|Function)\./,
-      );
-    },
-  );
+  test.each([
+    'Set.add(x)',
+    'Error.captureStackTrace(x)',
+    'String.raw(x)',
+    'Boolean.call(x)',
+    'Function.call(x)',
+  ])('raw fallback rejects host root %s', (source) => {
+    expect(() => validateRawHostNamespacesTS(source)).toThrow(
+      /Unsupported host namespace in TypeScript expression: (Set|Error|String|Boolean|Function)\./,
+    );
+  });
 
   test('raw fallback permits the simple Error constructor escape hatch', () => {
     expect(() => validateRawHostNamespacesTS('new Error("boom")')).not.toThrow();

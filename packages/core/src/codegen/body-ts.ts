@@ -45,8 +45,8 @@
  *  for the surrounding function body. */
 
 import { isPostfixMutationOperator, isSupportedAssignOperator } from '../assignment-operators.js';
-import { emitExpression } from '../codegen-expression.js';
 import type { ExprEmitContext } from '../codegen-expression.js';
+import { emitExpression } from '../codegen-expression.js';
 import { parseExpression } from '../parser-expression.js';
 import type { ExprObject, IRNode } from '../types.js';
 import { typescriptClosureClassifier, validateClosureBlockHostNamespacesTS } from '../typescript-closure-classifier.js';
@@ -1429,7 +1429,9 @@ function paramBindingsForBodyFn(node: IRNode, paramList: string): Array<[string,
 
 function bodyBindingNamesFromPatternChildren(node: IRNode): string[] {
   const names: string[] = [];
-  const hasPatternChildren = (node.children ?? []).some((child) => child.type === 'binding' || child.type === 'element');
+  const hasPatternChildren = (node.children ?? []).some(
+    (child) => child.type === 'binding' || child.type === 'element',
+  );
   const ownName = node.props?.name;
   if (typeof ownName === 'string' && ownName.length > 0 && !hasPatternChildren) names.push(ownName);
   for (const child of node.children ?? []) {

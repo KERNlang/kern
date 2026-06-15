@@ -148,12 +148,7 @@ describe('state-binding assign auto-lowers to setter (Bug 1.B)', () => {
 
 describe('class positional-name shorthand (Bug 1.C)', () => {
   test('parses `class NativeClass` with no name= and emits the declared name', () => {
-    const src = [
-      'class NativeClass',
-      '  constructor',
-      '    handler lang=kern',
-      '      do value="0"',
-    ].join('\n');
+    const src = ['class NativeClass', '  constructor', '    handler lang=kern', '      do value="0"'].join('\n');
     const out = compileTopLevel(src);
     expect(out).toContain('class NativeClass');
     expect(out).not.toContain('UnknownClass');

@@ -1,11 +1,11 @@
 import { validateRawHostNamespacesTS } from '../codegen-expression.js';
-import { isHostNamespaceRoot, unmappedHostNamespaceMessage } from './host-namespace.js';
-import { moduleAmbientRuntimeBindingNames } from '../semantic-validator.js';
-import { NODE_SCHEMAS } from '../schema.js';
 import { parseExpression } from '../parser-expression.js';
-import { typescriptClosureClassifier, validateClosureBlockHostNamespacesTS } from '../typescript-closure-classifier.js';
+import { NODE_SCHEMAS } from '../schema.js';
+import { moduleAmbientRuntimeBindingNames } from '../semantic-validator.js';
 import { type IRNode, isExprObject } from '../types.js';
+import { typescriptClosureClassifier, validateClosureBlockHostNamespacesTS } from '../typescript-closure-classifier.js';
 import type { ValueIR } from '../value-ir.js';
+import { isHostNamespaceRoot, unmappedHostNamespaceMessage } from './host-namespace.js';
 
 interface ValidationScope {
   readonly moduleBindings: ReadonlySet<string>;
@@ -70,11 +70,7 @@ function validateNode(node: IRNode, scope: ValidationScope): void {
   validateChildren(node, scopeWithNames(selfScope, paramChildNames(node)), { skipParamChildren: true });
 }
 
-function validateChildren(
-  node: IRNode,
-  scope: ValidationScope,
-  options?: { skipParamChildren?: boolean },
-): void {
+function validateChildren(node: IRNode, scope: ValidationScope, options?: { skipParamChildren?: boolean }): void {
   const children = node.children ?? [];
   if (children.length === 0) return;
   const childBaseScope = scopeWithNames(scope, childScopeBindingNames(node));
@@ -156,7 +152,11 @@ function validateValueIR(node: ValueIR, scope: ValidationScope): void {
     case 'index': {
       const root = hostNamespaceReceiverRoot(node.object);
       if (root) {
-        rejectUnboundHostNamespace(root, hostNamespaceMemberLabel(node.object, node.index.kind === 'strLit' ? node.index.value : '[computed]'), scope);
+        rejectUnboundHostNamespace(
+          root,
+          hostNamespaceMemberLabel(node.object, node.index.kind === 'strLit' ? node.index.value : '[computed]'),
+          scope,
+        );
       }
       validateValueIR(node.object, scope);
       validateValueIR(node.index, scope);
@@ -173,7 +173,8 @@ function validateValueIR(node: ValueIR, scope: ValidationScope): void {
         scope,
         node.params.map((param) => param.name),
       );
-      if (node.bodyBlock) validateClosureBlockHostNamespacesTS(node.bodyBlock.raw, exprContext(lambdaScope).isUserBinding);
+      if (node.bodyBlock)
+        validateClosureBlockHostNamespacesTS(node.bodyBlock.raw, exprContext(lambdaScope).isUserBinding);
       if (node.body) validateValueIR(node.body, lambdaScope);
       return;
     }
@@ -381,7 +382,9 @@ function paramChildNames(node: IRNode): string[] {
 
 function bindingNamesFromPatternChildren(node: IRNode): string[] {
   const names: string[] = [];
-  const hasPatternChildren = (node.children ?? []).some((child) => child.type === 'binding' || child.type === 'element');
+  const hasPatternChildren = (node.children ?? []).some(
+    (child) => child.type === 'binding' || child.type === 'element',
+  );
   const ownName = stringName(node.props?.name);
   if (ownName && !hasPatternChildren) names.push(ownName);
   for (const child of node.children ?? []) {
@@ -409,7 +412,10 @@ function parseLegacyParams(raw: string): Array<{ name: string | null; defaultVal
 }
 
 function parseParamName(raw: string): string | null {
-  const cleaned = raw.replace(/^\.\.\./u, '').replace(/\?$/u, '').trim();
+  const cleaned = raw
+    .replace(/^\.\.\./u, '')
+    .replace(/\?$/u, '')
+    .trim();
   return /^[A-Za-z_$][\w$]*$/u.test(cleaned) ? cleaned : null;
 }
 

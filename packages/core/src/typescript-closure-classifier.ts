@@ -32,10 +32,7 @@ export const typescriptClosureClassifier: ClosureClassifier = {
   },
 };
 
-export function validateClosureBlockHostNamespacesTS(
-  rawBlock: string,
-  isUserBinding: (name: string) => boolean,
-): void {
+export function validateClosureBlockHostNamespacesTS(rawBlock: string, isUserBinding: (name: string) => boolean): void {
   for (const access of collectClosureBlockMemberAccesses(rawBlock)) {
     if (!access.locallyShadowed && !isUserBinding(access.root)) {
       rejectRawBlockHostNamespaceTS(access.root, access.member);

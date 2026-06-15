@@ -131,7 +131,12 @@ export function collectClosureBlockMemberAccesses(raw: string): ClosureBlockMemb
       if (root) accesses.push({ root, member: propertyAccessMemberLabel(node), locallyShadowed: isLocal(root) });
     } else if (ts.isElementAccessExpression(node)) {
       const root = leftmostIdentifierName(node.expression);
-      if (root) accesses.push({ root, member: elementAccessMemberLabel(node.argumentExpression), locallyShadowed: isLocal(root) });
+      if (root)
+        accesses.push({
+          root,
+          member: elementAccessMemberLabel(node.argumentExpression),
+          locallyShadowed: isLocal(root),
+        });
     } else if (ts.isNewExpression(node)) {
       const root = leftmostIdentifierName(node.expression);
       if (root) accesses.push({ root, member: 'constructor', locallyShadowed: isLocal(root) });

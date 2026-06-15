@@ -4,18 +4,13 @@
  * Extracted from codegen-core.ts for modular codegen architecture.
  */
 
-import { emitExpression, validateRawHostNamespacesTS } from '../codegen-expression.js';
 import type { ExprEmitContext } from '../codegen-expression.js';
+import { emitExpression, validateRawHostNamespacesTS } from '../codegen-expression.js';
 import { hasDirectSuperCtorCall } from '../constructor-super.js';
-import {
-  beginIRHostNamespacesValidatedTS,
-  endIRHostNamespacesValidatedTS,
-  validatedHostNamespaceBindingsFor,
-} from './host-namespace-ir.js';
 import { propsOf } from '../node-props.js';
 import { parseExpression } from '../parser-expression.js';
-import { typescriptClosureClassifier, validateClosureBlockHostNamespacesTS } from '../typescript-closure-classifier.js';
 import { type IRNode, isExprObject } from '../types.js';
+import { typescriptClosureClassifier, validateClosureBlockHostNamespacesTS } from '../typescript-closure-classifier.js';
 import { emitNativeKernBodyTS } from './body-ts.js';
 import { emitIdentifier, emitTemplateSafe, emitTypeAnnotation } from './emitters.js';
 import {
@@ -27,6 +22,11 @@ import {
   handlerCode,
   parseParamList,
 } from './helpers.js';
+import {
+  beginIRHostNamespacesValidatedTS,
+  endIRHostNamespacesValidatedTS,
+  validatedHostNamespaceBindingsFor,
+} from './host-namespace-ir.js';
 
 const TS_PARSE_OPTS = { closureClassifier: typescriptClosureClassifier };
 const TOP_LEVEL_EXPR_CONTEXT: ExprEmitContext = {
@@ -354,7 +354,10 @@ function emitClassBody(node: IRNode, lines: string[], options?: TopLevelExpressi
   for (const method of kids(node, 'method')) {
     const mp = propsOf<'method'>(method);
     const mname = emitIdentifier(mp.name, 'method', method);
-    const mparams = emitParamList(method, { exprCtx: topLevelExprContext(options), userBindings: options?.userBindings });
+    const mparams = emitParamList(method, {
+      exprCtx: topLevelExprContext(options),
+      userBindings: options?.userBindings,
+    });
     const generics = mp.generics ? emitTypeAnnotation(mp.generics, '', method) : '';
     const isAsync = mp.async === 'true' || mp.async === true;
     const isStream = mp.stream === 'true' || mp.stream === true;

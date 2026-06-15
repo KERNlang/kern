@@ -11,8 +11,8 @@
  * Generators that call generateCoreNode recursively remain here to avoid circular imports.
  */
 
-import { KernCodegenError } from './errors.js';
 import { beginIRHostNamespacesValidatedTS, endIRHostNamespacesValidatedTS } from './codegen/host-namespace-ir.js';
+import { KernCodegenError } from './errors.js';
 import { propsOf } from './node-props.js';
 import { defaultRuntime, type KernRuntime } from './runtime.js';
 import { moduleRuntimeBindingNames } from './semantic-validator.js';
@@ -843,346 +843,346 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
   try {
     const rt = runtime ?? defaultRuntime;
     switch (node.type) {
-    case 'type':
-      return generateType(node);
-    case 'interface':
-      return generateInterface(node);
-    case 'union':
-      return generateUnion(node);
-    case 'enum':
-      return generateEnum(node);
-    case 'service':
-      return generateService(node);
-    case 'class':
-      return generateClass(node);
-    case 'fn':
-      return generateFunction(node);
-    case 'machine':
-      return generateMachine(node);
-    case 'screen':
-      return generateScreen(node);
-    case 'error':
-      return generateError(node);
-    case 'module':
-      return generateModule(node);
-    case 'export':
-      // Top-level `export from="..." names="..."` — schema allows it (the same
-      // node shape that `module` consumes via its `allowedChildren`), and the
-      // dispatcher must emit the JS export statement here too. Previously the
-      // case was absent and the node fell through to the default branch's
-      // `return []`, silently dropping author-intended re-exports.
-      return generateExport(node);
-    case 'config':
-      return generateConfig(node);
-    case 'store':
-      return generateStore(node);
-    case 'test':
-      return generateTest(node);
-    case 'event':
-      return generateEvent(node);
-    case 'import':
-      return generateImport(node);
-    case 'extern':
-      return generateExtern(node);
-    case 'island':
-      return generateIsland(node);
-    case 'use':
-      return generateUse(node);
-    case 'from':
-      return []; // Children of `use` — handled by generateUse, not at top level
-    case 'const':
-      return generateConst(node);
-    case 'destructure':
-      return generateDestructure(node);
-    case 'binding':
-    case 'element':
-      // Children of `destructure` — handled by generateDestructure, not at top level.
-      return [];
-    case 'mapLit':
-      return generateMapLit(node);
-    case 'setLit':
-      return generateSetLit(node);
-    case 'mapEntry':
-    case 'setItem':
-      // Children of `mapLit` / `setLit` — handled by their parent generator, not at top level.
-      return [];
-    case 'hook':
-      return []; // Handled by @kernlang/react
-    case 'on':
-      return generateOn(node);
-    case 'websocket':
-      return generateWebSocket(node);
-    // Ground layer
-    case 'derive':
-      return generateDerive(node);
-    case 'fmt':
-      return generateFmt(node);
-    case 'async':
-      return generateAsync(node);
-    case 'try':
-      return generateTry(node);
-    case 'step':
-    case 'catch':
-      // `step` and `catch` are consumed by the parent `try` walk in
-      // codegen/ground-layer.ts::generateTry. Reaching this dispatcher
-      // means the node was placed outside a `try`, so no consumer will
-      // read it — the semantic validator flags this with clearer messages.
-      throw new KernCodegenError(
-        `\`${node.type}\` reached statement-level codegen — it must be a direct child of \`try\`.`,
-        node,
-      );
-    case 'filter':
-      return generateFilter(node);
-    case 'find':
-      return generateFind(node);
-    case 'some':
-      return generateSome(node);
-    case 'every':
-      return generateEvery(node);
-    case 'findIndex':
-      return generateFindIndex(node);
-    case 'reduce':
-      return generateReduce(node);
-    case 'map':
-      return generateMap(node);
-    case 'flatMap':
-      return generateFlatMap(node);
-    case 'flat':
-      return generateFlat(node);
-    case 'slice':
-      return generateSlice(node);
-    case 'at':
-      return generateAt(node);
-    case 'clamp':
-      return generateClamp(node);
-    case 'firstTruthy':
-      return generateFirstTruthy(node);
-    case 'coalesce':
-      return generateCoalesce(node);
-    case 'firstDefined':
-      return generateFirstDefined(node);
-    case 'objectMerge':
-      return generateObjectMerge(node);
-    case 'objectOmit':
-      return generateObjectOmit(node);
-    case 'objectPick':
-      return generateObjectPick(node);
-    case 'sort':
-      return generateSort(node);
-    case 'reverse':
-      return generateReverse(node);
-    case 'join':
-      return generateJoin(node);
-    case 'includes':
-      return generateIncludes(node);
-    case 'indexOf':
-      return generateIndexOf(node);
-    case 'lastIndexOf':
-      return generateLastIndexOf(node);
-    case 'concat':
-      return generateConcat(node);
-    case 'forEach':
-      return generateForEach(node);
-    case 'compact':
-      return generateCompact(node);
-    case 'pluck':
-      return generatePluck(node);
-    case 'unique':
-      return generateUnique(node);
-    case 'uniqueBy':
-      return generateUniqueBy(node);
-    case 'groupBy':
-      return generateGroupBy(node);
-    case 'partition':
-      return generatePartition(node);
-    case 'indexBy':
-      return generateIndexBy(node);
-    case 'countBy':
-      return generateCountBy(node);
-    case 'chunk':
-      return generateChunk(node);
-    case 'zip':
-      return generateZip(node);
-    case 'range':
-      return generateRange(node);
-    case 'take':
-      return generateTake(node);
-    case 'drop':
-      return generateDrop(node);
-    case 'min':
-      return generateMin(node);
-    case 'max':
-      return generateMax(node);
-    case 'minBy':
-      return generateMinBy(node);
-    case 'maxBy':
-      return generateMaxBy(node);
-    case 'sum':
-      return generateSum(node);
-    case 'sumBy':
-      return generateSumBy(node);
-    case 'avg':
-      return generateAvg(node);
-    case 'intersect':
-      return generateIntersect(node);
-    case 'findLast':
-      return generateFindLast(node);
-    case 'findLastIndex':
-      return generateFindLastIndex(node);
-    case 'transform':
-      return generateTransform(node);
-    case 'action':
-      return generateAction(node);
-    case 'actionRegistry':
-      return generateActionRegistry(node);
-    case 'guard':
-      return generateGuard(node);
-    case 'assume':
-      return generateAssume(node);
-    case 'invariant':
-      return generateInvariant(node);
-    case 'each':
-      return generateEach(node);
-    case 'let':
-      // Consumed by the parent `each` when inside a render block (see
-      // codegen/screens.ts::generateEachJSX). Outside of that context
-      // `let` produces no standalone output — the validator rejects it.
-      return [];
-    case 'assign':
-      // Consumed only by native handler-body emitters. Outside that context
-      // the body-statement validator rejects it before codegen.
-      return [];
-    case 'collect':
-      return generateCollect(node);
-    case 'count':
-      return generateCount(node);
-    case 'branch':
-      return generateBranch(node);
-    case 'resolve':
-      return generateResolve(node);
-    case 'expect':
-      return generateExpect(node);
-    case 'recover':
-      return generateRecover(node);
-    case 'pattern':
-      return generatePattern(node);
-    case 'apply':
-      return generateApply(node);
-    // Template / structural definitions produce no output
-    case 'template':
-      return [];
-    case 'slot':
-      return [];
-    case 'body':
-      return [];
-    case 'path':
-      return [];
-    case 'candidate':
-      return [];
-    case 'discriminator':
-      return [];
-    case 'strategy':
-      return [];
-    case 'reason':
-      return [];
-    case 'evidence':
-      return [];
-    case 'needs':
-      return [];
-    // RAG declarations are semantic contracts consumed by validators,
-    // substrate, MCP/review tooling, and future adapters. They intentionally
-    // emit no JavaScript in core codegen.
-    case 'corpus':
-    case 'source':
-    case 'chunking':
-    case 'embed':
-    case 'retriever':
-    case 'rag':
-    case 'grounding':
-    case 'ragEval':
-    case 'ragCase':
-    case 'ragAssert':
-    case 'ragAnswerContract':
-    case 'answerSpan':
-      return [];
-    // Graduated nodes — backend data layer
-    case 'model':
-      return generateModel(node);
-    case 'repository':
-      return generateRepository(node);
-    case 'dependency':
-      return generateDependency(node);
-    case 'cache':
-      return generateCache(node);
-    // Graduated nodes — UI controls
-    case 'conditional':
-      return generateConditional(node);
-    case 'select':
-      return generateSelect(node);
-    case 'group':
-      // `group` is consumed by the composed-render walk in
-      // codegen/screens.ts::collectComposedPieces. Reaching this
-      // statement-level dispatcher means the node was placed outside a
-      // `render`/`group` parent, so no consumer will read it. The semantic
-      // validator flags this as `group-must-be-inside-render`; throwing
-      // here guards the same invariant when validation is bypassed.
-      throw new KernCodegenError(
-        '`group` reached statement-level codegen — it must be a direct child of `render` or another `group`. Validation rule: `group-must-be-inside-render`.',
-        node,
-      );
-    // Structural children consumed by parents
-    case 'variant':
-      return [];
-    case 'member':
-      return [];
-    case 'indexer':
-      return [];
-    case 'overload':
-      return [];
-    case 'method':
-      return [];
-    case 'singleton':
-      return [];
-    case 'constructor':
-      return [];
-    case 'signal':
-      return [];
-    case 'cleanup':
-      return [];
-    case 'column':
-      return [];
-    case 'relation':
-      return [];
-    case 'inject':
-      return [];
-    case 'entry':
-      return [];
-    case 'invalidate':
-      return [];
-    case 'option':
-      return [];
-    case '__error': {
-      const msg = (node.props?.message as string) || 'parse error at this line';
-      const raw = node.props?.raw as string;
-      return [`// TODO(kern): ${msg}`, ...(raw ? [`// Original: ${raw}`] : [])];
-    }
-    case 'doc': {
-      const text = (node.props?.text as string) || (node.props?.code as string) || '';
-      if (text.includes('\n')) {
-        return ['/**', ...text.split('\n').map((l) => ` * ${l}`), ' */'];
+      case 'type':
+        return generateType(node);
+      case 'interface':
+        return generateInterface(node);
+      case 'union':
+        return generateUnion(node);
+      case 'enum':
+        return generateEnum(node);
+      case 'service':
+        return generateService(node);
+      case 'class':
+        return generateClass(node);
+      case 'fn':
+        return generateFunction(node);
+      case 'machine':
+        return generateMachine(node);
+      case 'screen':
+        return generateScreen(node);
+      case 'error':
+        return generateError(node);
+      case 'module':
+        return generateModule(node);
+      case 'export':
+        // Top-level `export from="..." names="..."` — schema allows it (the same
+        // node shape that `module` consumes via its `allowedChildren`), and the
+        // dispatcher must emit the JS export statement here too. Previously the
+        // case was absent and the node fell through to the default branch's
+        // `return []`, silently dropping author-intended re-exports.
+        return generateExport(node);
+      case 'config':
+        return generateConfig(node);
+      case 'store':
+        return generateStore(node);
+      case 'test':
+        return generateTest(node);
+      case 'event':
+        return generateEvent(node);
+      case 'import':
+        return generateImport(node);
+      case 'extern':
+        return generateExtern(node);
+      case 'island':
+        return generateIsland(node);
+      case 'use':
+        return generateUse(node);
+      case 'from':
+        return []; // Children of `use` — handled by generateUse, not at top level
+      case 'const':
+        return generateConst(node);
+      case 'destructure':
+        return generateDestructure(node);
+      case 'binding':
+      case 'element':
+        // Children of `destructure` — handled by generateDestructure, not at top level.
+        return [];
+      case 'mapLit':
+        return generateMapLit(node);
+      case 'setLit':
+        return generateSetLit(node);
+      case 'mapEntry':
+      case 'setItem':
+        // Children of `mapLit` / `setLit` — handled by their parent generator, not at top level.
+        return [];
+      case 'hook':
+        return []; // Handled by @kernlang/react
+      case 'on':
+        return generateOn(node);
+      case 'websocket':
+        return generateWebSocket(node);
+      // Ground layer
+      case 'derive':
+        return generateDerive(node);
+      case 'fmt':
+        return generateFmt(node);
+      case 'async':
+        return generateAsync(node);
+      case 'try':
+        return generateTry(node);
+      case 'step':
+      case 'catch':
+        // `step` and `catch` are consumed by the parent `try` walk in
+        // codegen/ground-layer.ts::generateTry. Reaching this dispatcher
+        // means the node was placed outside a `try`, so no consumer will
+        // read it — the semantic validator flags this with clearer messages.
+        throw new KernCodegenError(
+          `\`${node.type}\` reached statement-level codegen — it must be a direct child of \`try\`.`,
+          node,
+        );
+      case 'filter':
+        return generateFilter(node);
+      case 'find':
+        return generateFind(node);
+      case 'some':
+        return generateSome(node);
+      case 'every':
+        return generateEvery(node);
+      case 'findIndex':
+        return generateFindIndex(node);
+      case 'reduce':
+        return generateReduce(node);
+      case 'map':
+        return generateMap(node);
+      case 'flatMap':
+        return generateFlatMap(node);
+      case 'flat':
+        return generateFlat(node);
+      case 'slice':
+        return generateSlice(node);
+      case 'at':
+        return generateAt(node);
+      case 'clamp':
+        return generateClamp(node);
+      case 'firstTruthy':
+        return generateFirstTruthy(node);
+      case 'coalesce':
+        return generateCoalesce(node);
+      case 'firstDefined':
+        return generateFirstDefined(node);
+      case 'objectMerge':
+        return generateObjectMerge(node);
+      case 'objectOmit':
+        return generateObjectOmit(node);
+      case 'objectPick':
+        return generateObjectPick(node);
+      case 'sort':
+        return generateSort(node);
+      case 'reverse':
+        return generateReverse(node);
+      case 'join':
+        return generateJoin(node);
+      case 'includes':
+        return generateIncludes(node);
+      case 'indexOf':
+        return generateIndexOf(node);
+      case 'lastIndexOf':
+        return generateLastIndexOf(node);
+      case 'concat':
+        return generateConcat(node);
+      case 'forEach':
+        return generateForEach(node);
+      case 'compact':
+        return generateCompact(node);
+      case 'pluck':
+        return generatePluck(node);
+      case 'unique':
+        return generateUnique(node);
+      case 'uniqueBy':
+        return generateUniqueBy(node);
+      case 'groupBy':
+        return generateGroupBy(node);
+      case 'partition':
+        return generatePartition(node);
+      case 'indexBy':
+        return generateIndexBy(node);
+      case 'countBy':
+        return generateCountBy(node);
+      case 'chunk':
+        return generateChunk(node);
+      case 'zip':
+        return generateZip(node);
+      case 'range':
+        return generateRange(node);
+      case 'take':
+        return generateTake(node);
+      case 'drop':
+        return generateDrop(node);
+      case 'min':
+        return generateMin(node);
+      case 'max':
+        return generateMax(node);
+      case 'minBy':
+        return generateMinBy(node);
+      case 'maxBy':
+        return generateMaxBy(node);
+      case 'sum':
+        return generateSum(node);
+      case 'sumBy':
+        return generateSumBy(node);
+      case 'avg':
+        return generateAvg(node);
+      case 'intersect':
+        return generateIntersect(node);
+      case 'findLast':
+        return generateFindLast(node);
+      case 'findLastIndex':
+        return generateFindLastIndex(node);
+      case 'transform':
+        return generateTransform(node);
+      case 'action':
+        return generateAction(node);
+      case 'actionRegistry':
+        return generateActionRegistry(node);
+      case 'guard':
+        return generateGuard(node);
+      case 'assume':
+        return generateAssume(node);
+      case 'invariant':
+        return generateInvariant(node);
+      case 'each':
+        return generateEach(node);
+      case 'let':
+        // Consumed by the parent `each` when inside a render block (see
+        // codegen/screens.ts::generateEachJSX). Outside of that context
+        // `let` produces no standalone output — the validator rejects it.
+        return [];
+      case 'assign':
+        // Consumed only by native handler-body emitters. Outside that context
+        // the body-statement validator rejects it before codegen.
+        return [];
+      case 'collect':
+        return generateCollect(node);
+      case 'count':
+        return generateCount(node);
+      case 'branch':
+        return generateBranch(node);
+      case 'resolve':
+        return generateResolve(node);
+      case 'expect':
+        return generateExpect(node);
+      case 'recover':
+        return generateRecover(node);
+      case 'pattern':
+        return generatePattern(node);
+      case 'apply':
+        return generateApply(node);
+      // Template / structural definitions produce no output
+      case 'template':
+        return [];
+      case 'slot':
+        return [];
+      case 'body':
+        return [];
+      case 'path':
+        return [];
+      case 'candidate':
+        return [];
+      case 'discriminator':
+        return [];
+      case 'strategy':
+        return [];
+      case 'reason':
+        return [];
+      case 'evidence':
+        return [];
+      case 'needs':
+        return [];
+      // RAG declarations are semantic contracts consumed by validators,
+      // substrate, MCP/review tooling, and future adapters. They intentionally
+      // emit no JavaScript in core codegen.
+      case 'corpus':
+      case 'source':
+      case 'chunking':
+      case 'embed':
+      case 'retriever':
+      case 'rag':
+      case 'grounding':
+      case 'ragEval':
+      case 'ragCase':
+      case 'ragAssert':
+      case 'ragAnswerContract':
+      case 'answerSpan':
+        return [];
+      // Graduated nodes — backend data layer
+      case 'model':
+        return generateModel(node);
+      case 'repository':
+        return generateRepository(node);
+      case 'dependency':
+        return generateDependency(node);
+      case 'cache':
+        return generateCache(node);
+      // Graduated nodes — UI controls
+      case 'conditional':
+        return generateConditional(node);
+      case 'select':
+        return generateSelect(node);
+      case 'group':
+        // `group` is consumed by the composed-render walk in
+        // codegen/screens.ts::collectComposedPieces. Reaching this
+        // statement-level dispatcher means the node was placed outside a
+        // `render`/`group` parent, so no consumer will read it. The semantic
+        // validator flags this as `group-must-be-inside-render`; throwing
+        // here guards the same invariant when validation is bypassed.
+        throw new KernCodegenError(
+          '`group` reached statement-level codegen — it must be a direct child of `render` or another `group`. Validation rule: `group-must-be-inside-render`.',
+          node,
+        );
+      // Structural children consumed by parents
+      case 'variant':
+        return [];
+      case 'member':
+        return [];
+      case 'indexer':
+        return [];
+      case 'overload':
+        return [];
+      case 'method':
+        return [];
+      case 'singleton':
+        return [];
+      case 'constructor':
+        return [];
+      case 'signal':
+        return [];
+      case 'cleanup':
+        return [];
+      case 'column':
+        return [];
+      case 'relation':
+        return [];
+      case 'inject':
+        return [];
+      case 'entry':
+        return [];
+      case 'invalidate':
+        return [];
+      case 'option':
+        return [];
+      case '__error': {
+        const msg = (node.props?.message as string) || 'parse error at this line';
+        const raw = node.props?.raw as string;
+        return [`// TODO(kern): ${msg}`, ...(raw ? [`// Original: ${raw}`] : [])];
       }
-      return [`/** ${text} */`];
-    }
-    default: {
-      // Check evolved generators (v4) — target-specific first, then default
-      const targetMap = target ? rt.evolvedTargetGenerators.get(node.type) : undefined;
-      const targetGen = targetMap && target ? targetMap.get(target) : undefined;
-      const evolvedGen = targetGen || rt.evolvedGenerators.get(node.type);
-      if (evolvedGen) return evolvedGen(node);
-      // Check if this is a template instance
-      if (isTemplateNode(node.type, rt)) return expandTemplateNode(node, 0, rt);
-      return [];
-    }
+      case 'doc': {
+        const text = (node.props?.text as string) || (node.props?.code as string) || '';
+        if (text.includes('\n')) {
+          return ['/**', ...text.split('\n').map((l) => ` * ${l}`), ' */'];
+        }
+        return [`/** ${text} */`];
+      }
+      default: {
+        // Check evolved generators (v4) — target-specific first, then default
+        const targetMap = target ? rt.evolvedTargetGenerators.get(node.type) : undefined;
+        const targetGen = targetMap && target ? targetMap.get(target) : undefined;
+        const evolvedGen = targetGen || rt.evolvedGenerators.get(node.type);
+        if (evolvedGen) return evolvedGen(node);
+        // Check if this is a template instance
+        if (isTemplateNode(node.type, rt)) return expandTemplateNode(node, 0, rt);
+        return [];
+      }
     }
   } finally {
     endIRHostNamespacesValidatedTS(node, didValidate);

@@ -121,7 +121,8 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       const stdlib = applyStdlibPropertyLoweringTS(node);
       if (stdlib !== null) return stdlib;
       const receiverRoot = hostNamespaceReceiverRoot(node.object);
-      if (receiverRoot) rejectUnmappedHostNamespaceTS(receiverRoot, hostNamespaceMemberLabel(node.object, node.property), ctx);
+      if (receiverRoot)
+        rejectUnmappedHostNamespaceTS(receiverRoot, hostNamespaceMemberLabel(node.object, node.property), ctx);
       const obj = emitExpression(node.object, ctx);
       const wrapped = needsReceiverParens(node.object) ? `(${obj})` : obj;
       return `${wrapped}${node.optional ? '?.' : '.'}${node.property}`;
@@ -151,7 +152,12 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       }
       if (node.callee.kind === 'member') {
         const receiverRoot = hostNamespaceReceiverRoot(node.callee.object);
-        if (receiverRoot) rejectUnmappedHostNamespaceTS(receiverRoot, hostNamespaceMemberLabel(node.callee.object, node.callee.property), ctx);
+        if (receiverRoot)
+          rejectUnmappedHostNamespaceTS(
+            receiverRoot,
+            hostNamespaceMemberLabel(node.callee.object, node.callee.property),
+            ctx,
+          );
       }
       const callee = emitExpression(node.callee, ctx);
       const wrapped = needsReceiverParens(node.callee) ? `(${callee})` : callee;
@@ -338,7 +344,10 @@ function collectRawHostNamespaceAccesses(source: string): Array<{ root: string; 
   ].filter(isHostNamespaceRoot);
   if (roots.length === 0) return accesses;
   const rootAlt = roots.map(escapeRegExp).join('|');
-  const memberRe = new RegExp(`(?<![\\w$])(${rootAlt})(?:\\s*(?:as\\s+[^.\\[)!]+|!))*\\s*(?:\\.\\s*([A-Za-z_$][\\w$]*)|\\[\\s*(['"])([^'"]+)\\3\\s*\\])`, 'g');
+  const memberRe = new RegExp(
+    `(?<![\\w$])(${rootAlt})(?:\\s*(?:as\\s+[^.\\[)!]+|!))*\\s*(?:\\.\\s*([A-Za-z_$][\\w$]*)|\\[\\s*(['"])([^'"]+)\\3\\s*\\])`,
+    'g',
+  );
   let memberMatch: RegExpExecArray | null;
   while ((memberMatch = memberRe.exec(source)) !== null) {
     accesses.push({ root: memberMatch[1], member: memberMatch[2] ?? memberMatch[4] ?? '[computed]' });

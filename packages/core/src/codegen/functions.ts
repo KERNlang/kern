@@ -81,7 +81,10 @@ export function generateFunction(node: IRNode, options?: TopLevelExpressionOptio
   // Slice 3c: structured `param` child nodes win over the legacy `params="..."`
   // string. Children flow through emitConstValue for ValueIR canonicalisation.
   const userBindings = options?.userBindings;
-  const exprCtx = userBindings && userBindings.size > 0 ? { isUserBinding: (binding: string) => userBindings.has(binding) } : undefined;
+  const exprCtx =
+    userBindings && userBindings.size > 0
+      ? { isUserBinding: (binding: string) => userBindings.has(binding) }
+      : undefined;
   const paramList = emitParamList(node, { exprCtx, userBindings });
 
   // stream=true → async generator function
