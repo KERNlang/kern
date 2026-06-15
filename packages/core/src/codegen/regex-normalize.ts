@@ -1089,36 +1089,51 @@ const NAMED_GROUP_OPENER_RE = /^\(\?<(?![=!])([^>]*)>/;
  * Count positional capture groups + collect named-group names over the KERN/JS
  * pattern surface (the `(?<name>)` form, BEFORE the R6 `(?P<name>)` rewrite).
  * Skips `(?:`, lookarounds, escapes, and char classes. Mirrors the oracle's
- * `capture_meta` byte-for-byte so the lowering site resolves refs identically.
+ * `capture_meta` so the lowering site resolves refs identically.
+ *
+ * MUST be called on the UN-LOWERED JS pattern (pre-{@link lowerRegexNamedGroupsPython}):
+ * it recognizes ONLY the JS opener `(?<name>`, NOT the already-lowered Python form
+ * `(?P<name>)`. Calling it after the lowering would silently count ZERO named
+ * groups. (The TS/Python emitters both pass the raw `node.pattern`, which is correct.)
  *
  * FIX 1: named-group RECOGNITION matches ALL JS-valid names (Unicode included),
  * so `(?<café>x)(b)` is COUNTED as 2 groups (and `$2` resolves to `(b)`) instead
  * of mis-counting the Unicode-named group as zero. Name PORTABILITY is enforced
  * separately by {@link validateRegexNamedGroupsPortable}.
+ *
+ * CLASS-BOUNDARY UNIFICATION (Slice-4 re-review blocker): char classes are scanned
+ * by the CANONICAL {@link scanCharClass} (literal-`]`-first-aware, code-point array),
+ * the SAME scanner {@link validateRegexNamedGroupsPortable} and
+ * {@link lowerRegexNamedGroupsPython} use. The previous inline scan closed at the
+ * FIRST `]`, which disagreed with the rewriter on a literal-`]`-first class
+ * (`/[](?<x>)]/`, `/[^]](?<x>)/`): the COUNTER read `(?<x>)` as a real group while
+ * the REWRITER kept it INSIDE the class, so count/validate/rewrite operated on
+ * different class structures — a silent parity divergence. All three now agree
+ * byte-for-byte on where every class ends.
  */
 export function regexCaptureMeta(pattern: string): RegexCaptureMeta {
   let count = 0;
   const names = new Set<string>();
+  const chars = Array.from(pattern);
+  const n = chars.length;
   let i = 0;
-  const n = pattern.length;
   while (i < n) {
-    const ch = pattern[i];
+    const ch = chars[i];
     if (ch === '\\') {
+      // Skip the escape pair so an escaped `\(` / `\[` is not read as a delimiter.
       i += 2;
       continue;
     }
     if (ch === '[') {
-      i += 1;
-      while (i < n && pattern[i] !== ']') {
-        if (pattern[i] === '\\') i += 1;
-        i += 1;
-      }
-      i += 1;
+      // Canonical class scan: close at the MATCHING `]` (a literal `]`-first member
+      // like `[]…]` / `[^]…]` does NOT terminate the class), matching the rewriter.
+      const { closeIdx } = scanCharClass(chars, i);
+      i = closeIdx < 0 ? n : closeIdx + 1; // unterminated class -> consume to end
       continue;
     }
     if (ch === '(') {
-      if (i + 1 < n && pattern[i + 1] === '?') {
-        const m = NAMED_GROUP_OPENER_RE.exec(pattern.slice(i));
+      if (i + 1 < n && chars[i + 1] === '?') {
+        const m = NAMED_GROUP_OPENER_RE.exec(chars.slice(i).join(''));
         if (m) {
           count += 1;
           names.add(m[1]);
@@ -1142,35 +1157,39 @@ export function regexCaptureMeta(pattern: string): RegexCaptureMeta {
  * regex method (match/matchAll/split/test/replace/…) — not just `.replace` — and
  * a bare regex literal all refuse a non-portable name identically.
  *
- * CLASS- AND ESCAPE-AWARE (single forward pass, mirroring {@link regexCaptureMeta}
- * and {@link lowerRegexNamedGroupsPython}): a `(?<` that is INSIDE a `[...]` char
+ * CLASS- AND ESCAPE-AWARE (single forward pass, sharing the CANONICAL
+ * {@link scanCharClass} with {@link regexCaptureMeta} and
+ * {@link lowerRegexNamedGroupsPython}): a `(?<` that is INSIDE a `[...]` char
  * class, or whose `(` is escaped (`\(?<`), is a literal — NOT a group opener — and
- * is skipped. Lookbehind `(?<=` / `(?<!` is excluded by {@link NAMED_GROUP_OPENER_RE}.
+ * is skipped. The class scan is literal-`]`-first-aware (`[]…]` / `[^]…]` does NOT
+ * close at the leading `]`), so the validator agrees byte-for-byte with the counter
+ * and the rewriter on where every class ends — a previous inline close-at-first-`]`
+ * scan disagreed on a literal-`]`-first class (`/[](?<x>)]/`), validating a group the
+ * rewriter treated as in-class (or vice versa), a silent parity divergence.
+ * Lookbehind `(?<=` / `(?<!` is excluded by {@link NAMED_GROUP_OPENER_RE}.
  *
  * Throws {@link REGEX_NAMEDGROUP_BAD_NAME_FAILCLOSE} on the first illegal name.
  */
 export function validateRegexNamedGroupsPortable(pattern: string): void {
+  const chars = Array.from(pattern);
+  const n = chars.length;
   let i = 0;
-  const n = pattern.length;
   while (i < n) {
-    const ch = pattern[i];
+    const ch = chars[i];
     if (ch === '\\') {
       // Skip the escape pair so an escaped `\(` / `\[` is not read as a delimiter.
       i += 2;
       continue;
     }
     if (ch === '[') {
-      // A `(?<` inside a char class is a literal, not a group opener — skip to `]`.
-      i += 1;
-      while (i < n && pattern[i] !== ']') {
-        if (pattern[i] === '\\') i += 1;
-        i += 1;
-      }
-      i += 1;
+      // A `(?<` inside a char class is a literal, not a group opener — skip past the
+      // class via the canonical (literal-`]`-first-aware) scan, matching the rewriter.
+      const { closeIdx } = scanCharClass(chars, i);
+      i = closeIdx < 0 ? n : closeIdx + 1; // unterminated class -> consume to end
       continue;
     }
-    if (ch === '(' && i + 1 < n && pattern[i + 1] === '?') {
-      const m = NAMED_GROUP_OPENER_RE.exec(pattern.slice(i));
+    if (ch === '(' && i + 1 < n && chars[i + 1] === '?') {
+      const m = NAMED_GROUP_OPENER_RE.exec(chars.slice(i).join(''));
       if (m && !PY_LEGAL_NAME_RE.test(m[1])) {
         throw new Error(REGEX_NAMEDGROUP_BAD_NAME_FAILCLOSE);
       }
