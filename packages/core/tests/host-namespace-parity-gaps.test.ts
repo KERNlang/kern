@@ -17,7 +17,10 @@ import { emitConstValue } from '../src/codegen/type-system.js';
 import { emitExpression } from '../src/codegen-expression.js';
 import { parseExpression } from '../src/parser-expression.js';
 import type { IRNode } from '../src/types.js';
-import { typescriptClosureClassifier } from '../src/typescript-closure-classifier.js';
+import {
+  typescriptClosureClassifier,
+  validateClosureBlockHostNamespacesTS,
+} from '../src/typescript-closure-classifier.js';
 
 const parseExpr = (input: string): ReturnType<typeof parseExpression> =>
   parseExpression(input, { closureClassifier: typescriptClosureClassifier });
@@ -88,6 +91,27 @@ describe('GAP 1 — IR-validate ↔ emit parity against the single KERN_STDLIB r
     expect(r.ok).toBe(false);
     expect(r.message).toContain("Unknown KERN-stdlib method/member 'Number.foo'");
   });
+
+  // GAP 1, shadowed-stdlib-root — the stdlib unknown-member dispatch is
+  // binding-AGNOSTIC: a user binding named `Math` does NOT make `Math.bogus`
+  // resolve to the user's value (KERN's stdlib roots are not shadowable for
+  // member dispatch). The emitter throws `Unknown KERN-stdlib member` regardless
+  // of scope; validation must REJECT identically, even with `Math` in scope.
+  // This locks the intentional no-shadowing-for-stdlib parity (validate↔emit).
+  test('an unknown stdlib member rejects even when its stdlib root is user-bound (no shadowing for stdlib)', () => {
+    expect(emitTopLevel('Math.bogus(1)').ok).toBe(false);
+    // `Math` user-bound — still REJECTED (stdlib check precedes the user-binding
+    // check), matching the binding-agnostic emit dispatch.
+    const r = validateConstIR('Math.bogus(1)', ['Math']);
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain("Unknown KERN-stdlib method/member 'Math.bogus'");
+  });
+
+  // The converse for the same root: a PORTABLE stdlib member stays valid whether
+  // or not `Math` is user-bound (the stdlib lowering fires either way).
+  test('a portable stdlib member stays valid with its stdlib root user-bound', () => {
+    expect(validateConstIR('Math.max(1, 2)', ['Math']).ok).toBe(true);
+  });
 });
 
 describe('GAP 2 — closure callee unwrap surfaces the host root through wrapper layers', () => {
@@ -110,6 +134,39 @@ describe('GAP 2 — closure callee unwrap surfaces the host root through wrapper
   test('comma-sequence callee resolves to the right (value) operand, not the left', () => {
     expect(callRoots('{ (Math, foo)(); }')).toEqual(['foo']);
   });
+
+  // GAP 2, member + new contexts — the comma/wrapped-callee unwrap is not
+  // call-only: a property/element access receiver and a `new` callee can ALSO be
+  // a parenthesized comma sequence. `(0, process).foo` and `new (0, process)()`
+  // both produce the RIGHT operand at runtime, so the host root `process` must
+  // surface (via `leftmostIdentifierName`'s shared unwrap) for member/constructor
+  // accesses too — otherwise these bypass host-namespace rejection.
+  const rootsByMember = (block: string, member: string): string[] =>
+    collectClosureBlockMemberAccesses(block)
+      .filter((a) => a.member === member)
+      .map((a) => a.root);
+
+  test('`(0, process).foo` surfaces `process` in MEMBER context', () => {
+    expect(rootsByMember('{ (0, process).foo; }', 'foo')).toContain('process');
+  });
+
+  test('`new (0, process)()` surfaces `process` in CONSTRUCTOR context', () => {
+    expect(rootsByMember('{ new (0, process)(); }', 'constructor')).toContain('process');
+  });
+
+  // End-to-end: the surfaced host root is REJECTED through the closure-block
+  // host-namespace validator (no user binding / local shadow for `process`).
+  test('`new (0, process)()` is rejected by the closure-block host-namespace validator', () => {
+    expect(() => validateClosureBlockHostNamespacesTS('{ new (0, process)(); }', () => false)).toThrow(
+      /Unsupported host namespace/,
+    );
+  });
+
+  test('`(0, process).foo` is rejected by the closure-block host-namespace validator', () => {
+    expect(() => validateClosureBlockHostNamespacesTS('{ (0, process).foo; }', () => false)).toThrow(
+      /Unsupported host namespace/,
+    );
+  });
 });
 
 describe('GAP 3 — unparseable const value ships raw verbatim (no parse-failure rejection)', () => {
@@ -120,6 +177,75 @@ describe('GAP 3 — unparseable const value ships raw verbatim (no parse-failure
     // previous parse-failure branch ran the raw scanner and threw on `process`.
     const raw = 'process.env.FOO ??';
     expect(emitConstValue(constNode, raw)).toBe(raw);
+  });
+});
+
+describe('BLOCKER 1 — the parse-failure raw passthrough is scoped to the const.value escape-hatch ONLY', () => {
+  // GAP 3 relaxed `emitConstValue` (above) to ship unparseable const values raw.
+  // That relaxation must NOT leak into the SHARED IR validator: for every OTHER
+  // expression prop (field values, legacy param defaults) an unparseable input
+  // that contains a host-namespace root must still fail-CLOSED, otherwise the
+  // validator fails OPEN and the emitter prints verbatim invalid TS. The
+  // restored screen re-runs the raw host-namespace scan on the parse-failure
+  // branch (honoring user shadowing, ignoring non-host roots).
+
+  function validateFieldValue(value: string): { ok: boolean; message: string } {
+    const mod: IRNode = {
+      type: 'module',
+      props: { name: 'M' },
+      children: [
+        {
+          type: 'class',
+          props: { name: 'C' },
+          children: [{ type: 'field', props: { name: 'f', value }, children: [] }],
+        },
+      ],
+    };
+    try {
+      beginIRHostNamespacesValidatedTS(mod);
+      return { ok: true, message: '' };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  function validateFnLegacyParamDefault(params: string): { ok: boolean; message: string } {
+    const mod: IRNode = {
+      type: 'module',
+      props: { name: 'M' },
+      children: [{ type: 'fn', props: { name: 'f', params }, children: [] }],
+    };
+    try {
+      beginIRHostNamespacesValidatedTS(mod);
+      return { ok: true, message: '' };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  test('an UNPARSEABLE field value with a host root (`Date.now(]`) is REJECTED (no fail-open)', () => {
+    const r = validateFieldValue('Date.now(]');
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('Unsupported host namespace in TypeScript');
+  });
+
+  test('an UNPARSEABLE legacy param default with a host root (`ts:number=Date.now(]`) is REJECTED', () => {
+    const r = validateFnLegacyParamDefault('ts:number=Date.now(]');
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('Unsupported host namespace in TypeScript');
+  });
+
+  test('an unparseable field value with NO host root parses-fail soft (no false rejection)', () => {
+    // `userThing.foo(]` is unparseable but `userThing` is not a host root — the
+    // restored screen must not reject it.
+    expect(validateFieldValue('userThing.foo(]').ok).toBe(true);
+  });
+
+  test('the const.value escape-hatch still SHIPS RAW on parse failure (emit path unchanged)', () => {
+    // The emit-side relaxation (GAP 3) is intact: `emitConstValue` ships an
+    // unparseable value verbatim. This is the ONLY site the relaxation applies.
+    const constNode: IRNode = { type: 'const', props: { name: 'c' }, children: [] };
+    expect(emitConstValue(constNode, 'Date.now(]')).toBe('Date.now(]');
   });
 });
 
@@ -167,5 +293,23 @@ describe('GAP 4 — legacy param defaults parsed with the real TS parser', () =>
 
   test('left-to-right scoping: an earlier param shadows the host in a later default', () => {
     expect(validateFnWithParams('process = 1, y = process.foo').ok).toBe(true);
+  });
+
+  // IMPORTANT 3 — a MALFORMED params string (`process = (`) must NOT produce a
+  // phantom recovery-AST `process` binding: the TS parser's error-recovery would
+  // otherwise emit a `process` parameter, wrongly making the body's
+  // `process.exit()` look shadowed. `parseLegacyParamSignature` returns `null`
+  // on a parse-diagnostic, so NO bindings are trusted and `process.exit()` stays
+  // fail-closed (rejected).
+  test('a MALFORMED params string does not phantom-shadow the host root (IMPORTANT 3)', () => {
+    expect(validateFnWithParams('process = (').ok).toBe(false);
+  });
+
+  // BLOCKER 1 (companion) — a host root in a MALFORMED param string's default is
+  // still rejected by the raw scan (the emitter ships the raw param verbatim).
+  test('a host root in a MALFORMED param default is still rejected (BLOCKER 1)', () => {
+    const r = validateFnWithParams('ts:number=Date.now(]');
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('Unsupported host namespace in TypeScript');
   });
 });

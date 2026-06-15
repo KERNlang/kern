@@ -1,4 +1,5 @@
-import ts from 'typescript';
+import { parseLegacyParamSignature } from '../closure-eligibility.js';
+import { validateRawHostNamespacesTS } from '../codegen-expression.js';
 import { parseExpression } from '../parser-expression.js';
 import { NODE_SCHEMAS } from '../schema.js';
 import { moduleAmbientRuntimeBindingNames } from '../semantic-validator.js';
@@ -103,8 +104,17 @@ function validateExpressionProps(node: IRNode, scope: ValidationScope): void {
     if (typeof raw === 'string' && node.__quotedProps?.includes(propName)) continue;
     const propScope = expressionPropScope(node, propName, scope);
     recordExpressionScope(node, propName, propScope);
-    validateExpressionValue(raw, propScope);
+    validateExpressionValue(raw, propScope, isConstValueEscapeHatch(node, propName));
   }
+}
+
+/** The ONE sanctioned raw-passthrough site: a `const`'s `value` prop. On a parse
+ *  FAILURE here, `emitConstValue` ships the raw text verbatim (GAP 3), so the
+ *  validator must NOT screen it — otherwise it would reject what emit ships. Every
+ *  OTHER expression prop (field values, config values, param defaults, …) is NOT
+ *  an escape hatch: an unparseable host-root in it fails CLOSED (BLOCKER 1). */
+function isConstValueEscapeHatch(node: IRNode, propName: string): boolean {
+  return node.type === 'const' && propName === 'value';
 }
 
 function expressionPropScope(node: IRNode, propName: string, scope: ValidationScope): ValidationScope {
@@ -115,7 +125,7 @@ function expressionPropScope(node: IRNode, propName: string, scope: ValidationSc
   return scope;
 }
 
-function validateExpressionValue(raw: unknown, scope: ValidationScope): void {
+function validateExpressionValue(raw: unknown, scope: ValidationScope, shipRawOnParseFailure = false): void {
   if (isExprObject(raw)) {
     return;
   }
@@ -125,6 +135,16 @@ function validateExpressionValue(raw: unknown, scope: ValidationScope): void {
     parsed = parseExpression(raw, TS_PARSE_OPTS);
   } catch (err) {
     if (isHostNamespaceValidationError(err)) throw err;
+    // BLOCKER 1 — the "ship raw on parse failure" relaxation (GAP 3) is scoped to
+    // the ONE const.value escape-hatch site (`emitConstValue` in type-system.ts):
+    // there `shipRawOnParseFailure` is true and the raw text is shipped verbatim,
+    // so the validator stays silent to match emit. This SHARED validator also runs
+    // for EVERY OTHER expression prop (field values, config values, legacy param
+    // defaults, …); for those, dropping the screen would fail-OPEN — an unparseable
+    // host-root like `Date.now(]` as a field value or param default would validate
+    // OK and emit verbatim invalid TS. Run the raw-text host-namespace scan so any
+    // host root in unparseable NON-escape-hatch input fails CLOSED.
+    if (!shipRawOnParseFailure) validateRawHostNamespacesTS(raw, exprContext(scope));
     return;
   }
   validateValueIR(parsed, scope);
@@ -391,6 +411,22 @@ function validateLegacyParams(node: IRNode, scope: ValidationScope): string[] | 
   const rawParams = node.props?.params;
   if (typeof rawParams !== 'string' || rawParams.trim() === '') return null;
   const parsed = parseLegacyParams(rawParams);
+  if (parsed === null) {
+    // BLOCKER 1 + IMPORTANT 3 — the param string is MALFORMED (the TS parser
+    // reported parse diagnostics). FAIL CLOSED on BOTH axes:
+    //  - trust NO extracted bindings (a recovery-AST `process = (` must NOT make
+    //    `process.exit()` in the body look shadowed — IMPORTANT 3), and
+    //  - the emitter (`parseParamList`) still emits the raw param string
+    //    verbatim, so a host root in the malformed default (`ts:number=Date.now(]`
+    //    → `Date.now`) must still be REJECTED (BLOCKER 1) rather than slipping
+    //    through unvalidated. The raw host-namespace scan over the whole string
+    //    surfaces exactly `Module.member` / `Module(` host accesses, honoring
+    //    user shadowing via `exprContext(scope)`.
+    // Returning `[]` (not `null`) keeps `validateNode` on the legacy-params path
+    // (this node HAS a `params` prop, so its param CHILDREN must not be used).
+    validateRawHostNamespacesTS(rawParams, exprContext(scope));
+    return [];
+  }
   let defaultScope = scope;
   for (const param of parsed) {
     if (param.defaultValue !== null) validateExpressionValue(param.defaultValue, defaultScope);
@@ -427,38 +463,20 @@ function stringName(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
-function parseLegacyParams(raw: string): Array<{ name: string | null; defaultValue: string | null }> {
-  // GAP 4 — parse the legacy `params="..."` string with the REAL TypeScript
-  // parser instead of a hand-rolled character scanner. Wrapping the raw param
-  // list in `function _(<params>){}` and reading each `ParameterDeclaration`
-  // from the resulting AST auto-handles every case the char-scanner mis-split
-  // or special-cased: `==`/`===`/`<=`/`>=` inside a default (the old
-  // `findDefaultSeparator` only guarded `=>`, so `a = b === c` split at the
-  // wrong `=`), regex literals (`/,/` slashes were treated as text and the
-  // inner comma as a separator), nested generics, and template literals. The
-  // binding name comes from `param.name`, the default from `param.initializer`.
-  // A parse failure (or non-function statement) yields an empty list, matching
-  // the prior scanner's fail-soft behavior: an unparseable param string
-  // contributes no bindings, and the validator stays fail-closed for any host
-  // root it cannot prove user-bound.
-  const source = ts.createSourceFile('_.ts', `function _(${raw}){}`, ts.ScriptTarget.Latest, true);
-  const fn = source.statements[0];
-  if (!fn || !ts.isFunctionDeclaration(fn)) return [];
-  return fn.parameters.map((param) => {
-    const defaultText = param.initializer ? param.initializer.getText(source).trim() : '';
-    return {
-      name: parameterBindingName(param.name),
-      defaultValue: defaultText.length > 0 ? defaultText : null,
-    };
-  });
-}
-
-/** Read a simple identifier binding name from a `ParameterDeclaration` name.
- *  Destructuring patterns ({a}/[a]) and other non-identifier names contribute
- *  no single legacy-param name (mirrors the old identifier-only `parseParamName`);
- *  structured destructured bindings flow through the `param` child path. */
-function parameterBindingName(name: ts.BindingName): string | null {
-  return ts.isIdentifier(name) ? name.text : null;
+function parseLegacyParams(raw: string): Array<{ name: string | null; defaultValue: string | null }> | null {
+  // GAP 4 + BLOCKER 2 — parse the legacy `params="..."` string with the REAL
+  // TypeScript parser (auto-handling `==`/`===`/`<=`/`>=`, regex literals with
+  // commas, nested generics, and template literals in defaults — every case the
+  // old char-scanner mis-split). The `ts.createSourceFile` call lives in
+  // `parseLegacyParamSignature` (closure-eligibility.ts, which already owns the
+  // `typescript` import + AST helpers) so this module stays free of a static
+  // `typescript` import — keeping the core barrel's typescript-importer pin at 5
+  // (browser-spine-import-graph.test.ts). A MALFORMED param string yields `null`
+  // (NOT a phantom recovery-AST), which `validateLegacyParams` turns into a
+  // fail-closed raw scan + zero trusted bindings — IMPORTANT 3 + BLOCKER 1.
+  const signature = parseLegacyParamSignature(raw);
+  if (signature === null) return null;
+  return signature.map((param) => ({ name: param.name, defaultValue: param.default }));
 }
 
 function newExpressionRootIdentifier(node: ValueIR): string | null {

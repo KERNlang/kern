@@ -74,6 +74,46 @@ function parseClosureBlockUncached(trimmed: string): ts.Block | null {
   return fn.body;
 }
 
+export interface LegacyParamSignature {
+  /** Simple identifier binding name, or `null` for destructuring / non-identifier
+   *  patterns (which contribute no single legacy-param name — structured bindings
+   *  flow through the `param` child path instead). */
+  name: string | null;
+  /** Default-value expression text (`param.initializer`), or `null` when absent. */
+  default: string | null;
+}
+
+/** BLOCKER 2 + IMPORTANT 3 — parse a legacy `params="..."` string with the REAL
+ *  TypeScript parser and return one entry per parameter. Owns the
+ *  `ts.createSourceFile` call (this module already statically imports
+ *  `typescript`) so `host-namespace-ir.ts` need not — that keeps the core
+ *  barrel's `typescript`-importer pin at 5 (browser-spine-import-graph.test.ts).
+ *
+ *  Wrapping the raw list in `function _(<params>){}` and reading each
+ *  `ParameterDeclaration` auto-handles every case a hand-rolled char-scanner
+ *  mis-split: `==`/`===`/`<=`/`>=` inside a default, regex literals with commas,
+ *  nested generics, template literals.
+ *
+ *  Fails CLOSED on malformed input: if `source.parseDiagnostics` is non-empty
+ *  (e.g. `params="process = ("`), returns `null` instead of producing phantom
+ *  recovery-AST bindings — so a caller never treats a host root (`process`) as
+ *  shadowed by a binding the user never actually wrote. A successful-but-empty
+ *  parse (no params) returns `[]`. */
+export function parseLegacyParamSignature(raw: string): LegacyParamSignature[] | null {
+  const sf = ts.createSourceFile('__kern_legacy_params__.ts', `function _(${raw}){}`, ts.ScriptTarget.Latest, true);
+  const diags = (sf as unknown as { parseDiagnostics?: ts.Diagnostic[] }).parseDiagnostics;
+  if (diags && diags.length > 0) return null;
+  const fn = sf.statements[0];
+  if (!fn || !ts.isFunctionDeclaration(fn)) return null;
+  return fn.parameters.map((param) => {
+    const defaultText = param.initializer ? param.initializer.getText(sf).trim() : '';
+    return {
+      name: ts.isIdentifier(param.name) ? param.name.text : null,
+      default: defaultText.length > 0 ? defaultText : null,
+    };
+  });
+}
+
 /** Collect identifier names bound by `let`/`const` declarations directly inside
  *  the closure block (including inside nested if/else branches the gate
  *  accepts). Used to distinguish a free-variable write (rejected) from an
