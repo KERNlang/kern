@@ -26,7 +26,13 @@
  *    gap 6 — codegen serialization: the translator VALUE is re-escaped into .py source.
  */
 
-import { emitExpression, parseExpression } from '@kernlang/core';
+import {
+  emitExpression,
+  lowerRegexNamedGroupsPython,
+  parseExpression,
+  regexCaptureMeta,
+  validateRegexNamedGroupsPortable,
+} from '@kernlang/core';
 import { emitPyExpression } from '../src/codegen-body-python.js';
 
 const ts = (src: string): string => emitExpression(parseExpression(src));
@@ -202,6 +208,62 @@ describe('Slice 4 REVIEW-BLOCKER FIXES — named-group recognition / portability
     expect(emitted).toContain('(?P<g>');
     expect(emitted).toContain('(?P=g)');
     expect(emitted).not.toContain('\\\\k<g>'); // the real backref WAS rewritten (not left literal)
+  });
+});
+
+describe('Slice 4 re-review BLOCKER — count/validate/rewrite agree on class boundaries', () => {
+  // The COUNT scanner (regexCaptureMeta), the VALIDATE scanner
+  // (validateRegexNamedGroupsPortable) and the REWRITE scanner
+  // (lowerRegexNamedGroupsPython) now ALL use the canonical literal-`]`-first-aware
+  // scanCharClass. Previously the count/validate scanners closed a class at the
+  // FIRST `]`, so a literal-`]`-first class disagreed with the rewriter about
+  // whether a following `(?<x>)` is INSIDE the class or a real named group — a
+  // silent parity divergence. These rows pin byte-for-byte agreement.
+
+  // The number of `(?P<…>` openers the REWRITER actually emits is the rewriter's
+  // count of TRUE (depth-0, non-class) named groups.
+  const rewriterNamedGroupCount = (pattern: string): number =>
+    (lowerRegexNamedGroupsPython(pattern).match(/\(\?P</g) ?? []).length;
+
+  test('/[](?<x>)]/ — the `]` after `[` is LITERAL, so (?<x>) is INSIDE the class → 0 named groups on ALL three', () => {
+    const pattern = '[](?<x>)]';
+    const meta = regexCaptureMeta(pattern);
+    // COUNT: the class spans the whole `[](?<x>)]`; no named group is recognized.
+    expect(meta.count).toBe(0);
+    expect([...meta.names]).toEqual([]);
+    // VALIDATE: no group opener is seen at depth 0 → no portability check fires.
+    expect(() => validateRegexNamedGroupsPortable(pattern)).not.toThrow();
+    // REWRITE: emits ZERO `(?P<…>` openers (the `(?<x>)` is a class literal, kept verbatim).
+    expect(rewriterNamedGroupCount(pattern)).toBe(0);
+    expect(lowerRegexNamedGroupsPython(pattern)).toBe('[](?<x>)]');
+    // The three agree:
+    expect(meta.names.size).toBe(rewriterNamedGroupCount(pattern));
+  });
+
+  test('/[\\]](?<x>)\\k<x>/ — escaped `]` closes the class early, so (?<x>) + \\k<x> are REAL → agree on 1 named group', () => {
+    const pattern = '[\\]](?<x>)\\k<x>';
+    const meta = regexCaptureMeta(pattern);
+    // COUNT: class is `[\]]`; `(?<x>)` is a real named group OUTSIDE it.
+    expect(meta.count).toBe(1);
+    expect([...meta.names]).toEqual(['x']);
+    // VALIDATE: the portable name `x` passes; no fail-close.
+    expect(() => validateRegexNamedGroupsPortable(pattern)).not.toThrow();
+    // REWRITE: lowers the group to `(?P<x>)` and the backref to `(?P=x)`.
+    const lowered = lowerRegexNamedGroupsPython(pattern);
+    expect(lowered).toBe('[\\]](?P<x>)(?P=x)');
+    expect(rewriterNamedGroupCount(pattern)).toBe(1);
+    // The three agree:
+    expect(meta.names.size).toBe(rewriterNamedGroupCount(pattern));
+  });
+
+  test('/[^]](?<z>)/ — `]` right after `^` is literal, class is `[^]]`, so (?<z>) is a REAL named group on ALL three', () => {
+    const pattern = '[^]](?<z>)';
+    const meta = regexCaptureMeta(pattern);
+    expect(meta.count).toBe(1);
+    expect([...meta.names]).toEqual(['z']);
+    expect(() => validateRegexNamedGroupsPortable(pattern)).not.toThrow();
+    expect(lowerRegexNamedGroupsPython(pattern)).toBe('[^]](?P<z>)');
+    expect(meta.names.size).toBe(rewriterNamedGroupCount(pattern));
   });
 });
 
