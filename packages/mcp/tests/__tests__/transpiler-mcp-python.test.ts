@@ -1,5 +1,5 @@
 import type { IRNode } from '@kernlang/core';
-import { execFileSync, execSync, spawn } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -377,7 +377,14 @@ describe('transpileMCPPython syntax verification', () => {
     const pyFile = join(dir, 'server.py');
     try {
       writeFileSync(pyFile, code);
-      execSync(`python3 -c "import ast; ast.parse(open('${pyFile}').read())"`, { timeout: 5000, stdio: 'pipe' });
+      execFileSync(
+        'python3',
+        ['-c', 'import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text())', pyFile],
+        {
+          timeout: 5000,
+          stdio: 'pipe',
+        },
+      );
     } catch (e) {
       const msg = e instanceof Error && 'stderr' in e ? (e as { stderr: Buffer }).stderr?.toString() : String(e);
       throw new Error(`Generated Python for "${label}" has syntax errors:\n${msg}`);
@@ -638,6 +645,7 @@ function findResponse(responses: MCPResponse[], id: number, stderr = ''): MCPRes
 let hasPythonMCP = false;
 let hasPythonTypedToolMCP = false;
 let hasPythonPromptMCP = false;
+let hasPythonResourceMCP = false;
 try {
   execFileSync('python3', ['-c', 'from mcp.server.fastmcp import FastMCP'], { stdio: 'pipe', timeout: 10000 });
   hasPythonMCP = true;
@@ -687,9 +695,31 @@ try {
   /* FastMCP cannot register typed prompts */
 }
 
+try {
+  if (!hasPythonMCP) throw new Error('python mcp unavailable');
+  execFileSync(
+    'python3',
+    [
+      '-c',
+      [
+        'from mcp.server.fastmcp import FastMCP',
+        "mcp = FastMCP('probe')",
+        '@mcp.resource("probe://value")',
+        'def read_probe() -> str:',
+        "    return 'ok'",
+      ].join('\n'),
+    ],
+    { stdio: 'pipe', timeout: 10000 },
+  );
+  hasPythonResourceMCP = true;
+} catch {
+  /* FastMCP cannot register resources */
+}
+
 const describeE2E = hasPythonMCP ? describe : describe.skip;
 const itToolE2E = hasPythonTypedToolMCP ? it : it.skip;
 const itPromptE2E = hasPythonPromptMCP ? it : it.skip;
+const itResourceE2E = hasPythonResourceMCP ? it : it.skip;
 
 describeE2E('transpileMCPPython runtime E2E', () => {
   // 1. Basic tool call with Python handler
@@ -954,25 +984,29 @@ describeE2E('transpileMCPPython runtime E2E', () => {
   );
 
   // 12. Resource handler at runtime
-  it('should serve a resource in Python', async () => {
-    const ast = node('mcp', { name: 'ResourcePyE2E' }, [
-      node('resource', { name: 'readme', uri: 'docs://readme' }, [
-        node('description', { text: 'The readme' }),
-        node('handler', { lang: 'python', code: 'return "# Welcome to KERN"' }),
-      ]),
-    ]);
+  itResourceE2E(
+    'should serve a resource in Python',
+    async () => {
+      const ast = node('mcp', { name: 'ResourcePyE2E' }, [
+        node('resource', { name: 'readme', uri: 'docs://readme' }, [
+          node('description', { text: 'The readme' }),
+          node('handler', { lang: 'python', code: 'return "# Welcome to KERN"' }),
+        ]),
+      ]);
 
-    const result = transpileMCPPython(ast);
-    const { responses } = await runPythonMCP(result.code, [
-      ...initMessages(),
-      rpc('resources/read', { uri: 'docs://readme' }, 2),
-    ]);
+      const result = transpileMCPPython(ast);
+      const { responses } = await runPythonMCP(result.code, [
+        ...initMessages(),
+        rpc('resources/read', { uri: 'docs://readme' }, 2),
+      ]);
 
-    const resourceResponse = findResponse(responses, 2);
-    expect(resourceResponse.result).toBeDefined();
-    const contents = (resourceResponse.result as any).contents;
-    expect(contents[0].text).toContain('Welcome to KERN');
-  }, 30000);
+      const resourceResponse = findResponse(responses, 2);
+      expect(resourceResponse.result).toBeDefined();
+      const contents = (resourceResponse.result as any).contents;
+      expect(contents[0].text).toContain('Welcome to KERN');
+    },
+    30000,
+  );
 
   // 13. Prompt handler at runtime
   itPromptE2E(
@@ -1001,19 +1035,23 @@ describeE2E('transpileMCPPython runtime E2E', () => {
   );
 
   // 14. Resource listing
-  it('should list resources in Python', async () => {
-    const ast = node('mcp', { name: 'ResourceListPyE2E' }, [
-      node('resource', { name: 'config', uri: 'app://config' }, [node('description', { text: 'App config' })]),
-      node('resource', { name: 'status', uri: 'app://status' }, [node('description', { text: 'App status' })]),
-    ]);
+  itResourceE2E(
+    'should list resources in Python',
+    async () => {
+      const ast = node('mcp', { name: 'ResourceListPyE2E' }, [
+        node('resource', { name: 'config', uri: 'app://config' }, [node('description', { text: 'App config' })]),
+        node('resource', { name: 'status', uri: 'app://status' }, [node('description', { text: 'App status' })]),
+      ]);
 
-    const result = transpileMCPPython(ast);
-    const { responses } = await runPythonMCP(result.code, [...initMessages(), rpc('resources/list', {}, 2)]);
+      const result = transpileMCPPython(ast);
+      const { responses } = await runPythonMCP(result.code, [...initMessages(), rpc('resources/list', {}, 2)]);
 
-    const listResponse = findResponse(responses, 2);
-    const resources = (listResponse.result as any).resources;
-    const uris = resources.map((r: { uri: string }) => r.uri);
-    expect(uris).toContain('app://config');
-    expect(uris).toContain('app://status');
-  }, 30000);
+      const listResponse = findResponse(responses, 2);
+      const resources = (listResponse.result as any).resources;
+      const uris = resources.map((r: { uri: string }) => r.uri);
+      expect(uris).toContain('app://config');
+      expect(uris).toContain('app://status');
+    },
+    30000,
+  );
 });
