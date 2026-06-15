@@ -270,13 +270,22 @@ function validateValueIR(node: ValueIR, scope: ValidationScope): void {
       validateValueIR(node.right, scope);
       return;
     case 'unary':
-      // `typeof RegExp` (round-5 over-rejection fix) yields the string
-      // `"function"` and launders no host value, so it must NOT trip the
-      // bare-`RegExp` value reject. Skip validating a `typeof <bare ident>`
-      // operand (the only check there is the bare-`RegExp` reject); any other
-      // operand shape (`typeof RegExp.prototype` — a member) still descends and
-      // fails-close. Mirrors the TS-emit + closure-walk `typeof` carve-outs.
-      if (node.op === 'typeof' && node.argument.kind === 'ident') return;
+      // Round-6 fix — `typeof <bare host-namespace root>` fails-close (mirrors the
+      // TS-emit + Python-emit + closure-walk legs). The round-5 carve-out skipped
+      // ALL `typeof <bare ident>` operands, re-opening reserved host roots
+      // (`typeof Date`/`typeof process` are non-portable: the Python leg lowers
+      // `typeof` to a runtime `isinstance` ladder over a Python name that does not
+      // exist). Validate ONLY the host-root reject for a bare-ident operand
+      // (`RegExp` → regex message, every other host root → generic host message);
+      // an ORDINARY `typeof userLocal` takes no reject (it would otherwise trip the
+      // `ident` case's bare-`RegExp`-only screen, which is a no-op for it anyway,
+      // but routing through the dedicated reject keeps the three legs in lockstep).
+      // A `typeof RegExp.prototype` operand is a `member`, so it still descends and
+      // fails-close.
+      if (node.op === 'typeof' && node.argument.kind === 'ident') {
+        rejectTypeofHostRootIR(node.argument.name, scope);
+        return;
+      }
       validateValueIR(node.argument, scope);
       return;
     case 'spread':
@@ -381,6 +390,21 @@ function rejectHostRegExpValueIR(name: string, scope: ValidationScope): void {
   if (name !== 'RegExp') return;
   if (isUserBinding(scope, name)) return;
   throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
+}
+
+/** Round-6 fix — `typeof <bare host-namespace root>` fails-close (IR-validate
+ *  leg). Mirror of `rejectTypeofHostRootTS` in codegen-expression.ts so the
+ *  TS-emit, IR-validate, and Python-emit legs reject `typeof Date`/`typeof
+ *  process`/`typeof RegExp` byte-identically. `RegExp` keeps the shared regex
+ *  message (matching the bare-value reject); every other reserved host root takes
+ *  the generic host message with a synthetic `typeof` member. A non-host operand
+ *  (`typeof userLocal`) and a user-shadowed host name are accepted. Bare VALUE
+ *  refs (`const c = Date`) are deliberately untouched — out of this slice. */
+function rejectTypeofHostRootIR(name: string, scope: ValidationScope): void {
+  if (isUserBinding(scope, name)) return;
+  if (name === 'RegExp') throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
+  if (!isHostNamespaceRoot(name)) return;
+  throw new Error(unmappedHostNamespaceMessage('TypeScript', name, 'typeof'));
 }
 
 /** Mirror of the emit path's `throwUnknownStdlibMember` so the same diagnostic

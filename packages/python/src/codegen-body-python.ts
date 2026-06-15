@@ -2472,15 +2472,25 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
 }
 
 function emitPyTypeof(argument: ValueIR, ctx: BodyEmitContext): string {
-  // `typeof RegExp` (round-5 over-rejection fix) — on JS this is the compile-time
-  // constant `"function"` (`RegExp` is the constructor global), and it launders no
-  // host value, so it must NOT fail-close. Python has no `RegExp` binding, so the
-  // PARITY-correct lowering is the literal `"function"` constant — byte-identical
-  // RESULT to TS `typeof RegExp` without evaluating a non-existent Python name.
-  // Only the EXACT bare-`RegExp` operand (not a proven user binding) takes this
-  // path; `typeof RegExp.prototype` is a `member` operand and still fails-close.
-  if (argument.kind === 'ident' && argument.name === 'RegExp' && !isProvenUserBinding(ctx, 'RegExp')) {
-    return '"function"';
+  // Round-6 fix — `typeof <bare host-namespace root>` fails-close on BOTH targets.
+  // The round-5 carve-out lowered `typeof RegExp` to the constant `"function"`
+  // on the theory that it was byte-identical to TS's native `typeof RegExp`. But
+  // the carve-out's siblings on the TS/IR legs blanket-accepted EVERY bare
+  // `typeof` operand, re-opening reserved host roots: `typeof Date`/`typeof
+  // process` lowered HERE to a runtime `isinstance` ladder over the Python names
+  // `Date`/`process`, which do NOT exist → NameError, while TS emits the native
+  // `typeof Date`. That is a genuine TS↔Python divergence, so `typeof <host root>`
+  // must fail-close. `RegExp` keeps the shared regex message (matching the
+  // bare-value reject + the TS/IR legs); every other reserved host root takes the
+  // generic host message with a synthetic `typeof` member. A non-host operand
+  // (`typeof userLocal`, `typeof undeclaredFeatureFlag`) and a proven user binding
+  // fall through to the runtime ladder below, unchanged. `typeof RegExp.prototype`
+  // is a `member` operand and still fails-close via the generic guards.
+  if (argument.kind === 'ident' && !isProvenUserBinding(ctx, argument.name)) {
+    if (argument.name === 'RegExp') throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
+    if (isHostNamespaceRoot(argument.name)) {
+      throw new Error(unmappedHostNamespaceMessage('Python', argument.name, 'typeof'));
+    }
   }
   switch (argument.kind) {
     case 'strLit':

@@ -85,6 +85,29 @@ function rejectHostRegExpValueTS(name: string, ctx: ExprEmitContext | undefined)
   throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
 }
 
+/** Round-6 fix — `typeof <bare host-namespace root>` fails-close. The round-5
+ *  carve-out special-cased `typeof <ANY bare ident>` to dodge the bare-`RegExp`
+ *  reject, but that over-broadly RE-OPENED reserved host roots: `typeof Date`,
+ *  `typeof process` are NON-PORTABLE — TS emits the native `typeof Date` (JS
+ *  reads the host `Date` global → "function"), but the Python leg lowers `typeof`
+ *  to a runtime `isinstance` ladder over the Python name `Date`, which does not
+ *  exist (NameError). So `typeof <host root>` is a genuine TS↔Python divergence
+ *  and must fail-close on BOTH targets. This is the TARGETED replacement: it fires
+ *  ONLY when the operand is a reserved host-namespace root (and not user-bound),
+ *  so an ORDINARY `typeof userLocal` / `typeof undeclaredFeatureFlag` (the
+ *  feature-detection idiom — `window`/`document`/`setTimeout` are NOT host roots)
+ *  stays accepted. `RegExp` keeps the regex-specific message (matching the
+ *  bare-value reject); every other host root takes the generic host message with a
+ *  synthetic `typeof` member (same shape as the `call`/`constructor` sentinels).
+ *  Bare VALUE refs (`const c = Date`) are DELIBERATELY left accepted here — that is
+ *  a wider, separately-charted slice; this fix closes only the typeof divergence. */
+function rejectTypeofHostRootTS(name: string, ctx: ExprEmitContext | undefined): void {
+  if (isUserBinding(ctx, name)) return;
+  if (name === 'RegExp') throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
+  if (!isHostNamespaceRoot(name)) return;
+  throw new Error(unmappedHostNamespaceMessage('TypeScript', name, 'typeof'));
+}
+
 function isUserBinding(ctx: ExprEmitContext | undefined, name: string): boolean {
   return ctx?.isUserBinding(name) === true;
 }
@@ -307,15 +330,18 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       return `${lp} ${node.op} ${rp}`;
     }
     case 'unary': {
-      // `typeof RegExp` (round-5 over-rejection fix) yields the string
-      // `"function"` — it captures NO host value and launders nothing, so it must
-      // NOT trip the bare-`RegExp` value reject the `ident` case applies. For the
-      // EXACT `typeof <bare ident>` shape, emit the operand name directly
-      // (bypassing the `ident` recursion that would throw on `RegExp`); the result
-      // is the same `typeof <name>` for a user binding too. `typeof RegExp.prototype`
-      // is a `member` operand, so it is unaffected and still fails-close. `typeof X`
-      // is identical across the TS and Python lowerings, so this stays parity-safe.
+      // Round-6 fix — `typeof <bare ident>` whose operand is a reserved
+      // host-namespace root fails-close (`typeof RegExp`/`typeof Date`/
+      // `typeof process` are non-portable; see `rejectTypeofHostRootTS`). The
+      // round-5 carve-out blanket-accepted EVERY bare `typeof` operand, which
+      // re-opened those reserved roots. A non-host operand (`typeof userLocal`,
+      // `typeof undeclaredFeatureFlag`) takes no host reject and emits the native
+      // `typeof <name>` directly — bypassing the `ident` recursion so an ordinary
+      // identifier never trips a value-position screen. `typeof RegExp.prototype`
+      // is a `member` operand (not an `ident`), so it is owned by the recursion
+      // below and still fails-close.
       if (node.op === 'typeof' && node.argument.kind === 'ident') {
+        rejectTypeofHostRootTS(node.argument.name, ctx);
         return `typeof ${node.argument.name}`;
       }
       // Slice-2 review fix: wrap binary/unary/spread args in parens to preserve

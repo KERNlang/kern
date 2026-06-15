@@ -16,6 +16,7 @@ import {
   classifyClosureBlock,
   collectClosureBlockMemberAccesses,
   collectClosureBlockRegexHostViolations,
+  collectClosureBlockTypeofOperands,
   parseClosureBlockAst,
 } from './closure-eligibility.js';
 import { isHostNamespaceRoot, unmappedHostNamespaceMessage } from './codegen/host-namespace.js';
@@ -63,6 +64,21 @@ export function validateClosureBlockHostNamespacesTS(rawBlock: string, isUserBin
   for (const access of collectClosureBlockMemberAccesses(rawBlock)) {
     if (!access.locallyShadowed && !isUserBinding(access.root)) {
       rejectRawBlockHostNamespaceTS(access.root, access.member);
+    }
+  }
+  // Round-6 fix — `typeof <bare host-namespace root>` inside a block fails-close,
+  // keeping the closure-walk leg byte-aligned with the expression legs (and with
+  // the Python block lowering, which routes `typeof Date` through `emitPyTypeof` →
+  // the same fail-close). `RegExp` is intentionally EXCLUDED here: a bare `RegExp`
+  // in `typeof` position is already a value reference caught by the regex walk
+  // above with the regex-specific message (round-6 removed its `typeof` exemption).
+  // Non-RegExp host roots (`typeof Date`/`typeof process`) take the generic host
+  // message. A block-LOCAL shadow or an OUTER user binding makes the name the
+  // user's value (no reject); a non-host operand (`typeof userLocal`) is untouched.
+  for (const operand of collectClosureBlockTypeofOperands(rawBlock)) {
+    if (operand.name === 'RegExp') continue;
+    if (!operand.locallyShadowed && !isUserBinding(operand.name)) {
+      rejectRawBlockHostNamespaceTS(operand.name, 'typeof');
     }
   }
 }

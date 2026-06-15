@@ -477,18 +477,53 @@ describe('Slice 2 — WRAPPED regex-literal receiver, cross-target (round 5)', (
   });
 });
 
-describe('Slice 2 — OVER-REJECTION fixes, cross-target (round 5)', () => {
-  // `typeof RegExp` is the string "function" on JS and launders no host value, so
-  // it must NOT fail-close. PARITY: TS emits native `typeof RegExp` (→"function");
-  // Python has no `RegExp` binding, so it emits the constant `"function"` — the
-  // byte-identical RESULT without evaluating a nonexistent Python name.
-  test('`typeof RegExp` does NOT fail-close on either target (TS native / Python "function")', () => {
+describe('Slice 2 — `typeof <host root>` fail-close SYMMETRICALLY (round 6)', () => {
+  // ROUND-6 REGRESSION FIX. The round-5 carve-out lowered `typeof RegExp` to the
+  // Python constant `"function"` (and its TS/IR siblings blanket-accepted every
+  // bare `typeof` operand), which RE-OPENED reserved host roots. `typeof RegExp`
+  // is non-portable: TS emits native `typeof RegExp`, but the Python `typeof`
+  // ladder evaluates the Python name `RegExp`, which does not exist → NameError.
+  // So `typeof RegExp` now FAILS-CLOSE on BOTH targets, with the byte-identical
+  // shared regex message (the parity invariant).
+  test('`typeof RegExp` FAILS-CLOSE with the SAME regex message on TS and Python', () => {
     const t = ts('typeof RegExp');
     const p = py('typeof RegExp');
-    expect(t.ok).toBe(true);
-    expect(p.ok).toBe(true);
-    expect(t.message).toBe('typeof RegExp');
-    expect(p.message).toBe('"function"');
+    expect(t.ok).toBe(false);
+    expect(p.ok).toBe(false);
+    expect(t.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    expect(p.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    expect(t.message).toBe(p.message);
+  });
+
+  // `typeof Date` / `typeof process` (other reserved host roots) DIVERGE the same
+  // way (Python `typeof` ladder over a nonexistent name) and now fail-close with
+  // the GENERIC host message on both targets — byte-identical modulo the target
+  // LABEL (`TypeScript` vs `Python`), the only intended per-target difference.
+  test.each([
+    'typeof Date',
+    'typeof process',
+    'typeof console',
+  ])('%s FAILS-CLOSE with the generic host message on both targets', (src) => {
+    const t = ts(src);
+    const p = py(src);
+    expect(t.ok).toBe(false);
+    expect(p.ok).toBe(false);
+    expect(t.message).toMatch(/Unsupported host namespace/);
+    expect(p.message).toMatch(/Unsupported host namespace/);
+    // Same diagnostic on both legs apart from the target label.
+    expect(t.message.replace('TypeScript', 'X')).toBe(p.message.replace('Python', 'X'));
+  });
+
+  // A NON-host-root operand keeps working on both targets (feature detection):
+  // `window`/`document` are NOT host roots, so the SSR `typeof window` idiom and a
+  // plain user local are not over-rejected.
+  test.each([
+    'typeof userLocal',
+    'typeof window',
+    'typeof document',
+  ])('%s is NOT over-rejected on either target', (src) => {
+    expect(ts(src).ok).toBe(true);
+    expect(py(src).ok).toBe(true);
   });
 
   // …but `typeof RegExp.prototype` reads a MEMBER (a launder) and still
@@ -497,7 +532,9 @@ describe('Slice 2 — OVER-REJECTION fixes, cross-target (round 5)', () => {
     expect(ts('typeof RegExp.prototype').ok).toBe(false);
     expect(py('typeof RegExp.prototype').ok).toBe(false);
   });
+});
 
+describe('Slice 2 — OVER-REJECTION fixes, cross-target (round 5)', () => {
   // A wrapped NON-regex receiver is unaffected — emits/validates as an ordinary
   // member read on both targets (no regex fail-close, no message substitution).
   test.each([

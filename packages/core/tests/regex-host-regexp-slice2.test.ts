@@ -16,7 +16,10 @@
  *  bare-value reference at the initializer SUBSUMES alias-following — `new R(...)`
  *  can never silently diverge because the binding is refused up front. */
 
-import { collectClosureBlockRegexHostViolations } from '../src/closure-eligibility.js';
+import {
+  collectClosureBlockMemberAccesses,
+  collectClosureBlockRegexHostViolations,
+} from '../src/closure-eligibility.js';
 import { isHostNamespaceRoot } from '../src/codegen/host-namespace.js';
 import { beginIRHostNamespacesValidatedTS } from '../src/codegen/host-namespace-ir.js';
 import {
@@ -537,30 +540,105 @@ describe('Slice 2 — WRAPPED regex-literal receiver fails-close (round 5)', () 
   });
 });
 
-describe('Slice 2 — OVER-REJECTION fixes (round 5)', () => {
-  // `typeof RegExp` yields the string "function" and launders no host value, so it
-  // must NOT fail-close — on TS-emit (native `typeof RegExp`) NOR IR-validate NOR
-  // the block-body closure walk. (The Python-emit constant `"function"` parity is
-  // pinned in the python slice-2 test.)
-  test('`typeof RegExp` does NOT fail-close (TS-emit + IR-validate)', () => {
+describe('Slice 2 — `typeof <host root>` fail-close (round 6 — the round-5 carve-out was too broad)', () => {
+  // ROUND-6 REGRESSION FIX. The round-5 carve-out special-cased `typeof <ANY bare
+  // ident>` to dodge the bare-`RegExp` reject — but that re-opened reserved host
+  // roots. `typeof RegExp` is NOT portable: TS emits the native `typeof RegExp`
+  // (JS reads the host global), but the Python leg lowers `typeof` to a runtime
+  // `isinstance` ladder over the Python name `RegExp`, which does not exist
+  // (NameError). So `typeof RegExp` is a genuine TS↔Python divergence and now
+  // fails-close — with the SAME message a bare `RegExp` value reference uses (the
+  // Python-emit parity is pinned in the python slice-2 test).
+  test('`typeof RegExp` now FAILS-CLOSE (regex message) on TS-emit + IR-validate', () => {
     const emit = emitTS('typeof RegExp');
+    expect(emit.ok).toBe(false);
+    expect(emit.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    const val = validateIR('typeof RegExp');
+    expect(val.ok).toBe(false);
+    expect(val.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+  });
+
+  // The round-5 carve-out also accepted `typeof Date` / `typeof process` (other
+  // reserved host roots). These DIVERGE identically (Python `typeof` ladder over a
+  // nonexistent name) and now fail-close with the GENERIC host message on both
+  // legs. (Bare VALUE refs `const c = Date` are deliberately left accepted — a
+  // wider, separately-charted slice; this fix closes only the `typeof` divergence.)
+  test.each([
+    'typeof Date',
+    'typeof process',
+    'typeof console',
+  ])('%s FAILS-CLOSE with the generic host message on TS-emit + IR-validate', (src) => {
+    const emit = emitTS(src);
+    expect(emit.ok).toBe(false);
+    expect(emit.message).toMatch(/Unsupported host namespace/);
+    const val = validateIR(src);
+    expect(val.ok).toBe(false);
+    expect(val.message).toMatch(/Unsupported host namespace/);
+    // The two legs emit the BYTE-IDENTICAL diagnostic (parity property).
+    expect(emit.message).toBe(val.message);
+  });
+
+  // A NON-host-root operand (a user local / an undeclared feature-detection flag)
+  // must NOT be over-rejected — `window`/`document`/`setTimeout` are not host
+  // roots, so the canonical `typeof window === 'undefined'` SSR idiom keeps working.
+  test.each([
+    'typeof userLocal',
+    'typeof undeclaredFeatureFlag',
+    'typeof window',
+    'typeof document',
+  ])('%s is NOT over-rejected (emits native typeof) on TS-emit + IR-validate', (src) => {
+    const emit = emitTS(src);
     expect(emit.ok).toBe(true);
-    expect(emit.message).toBe('typeof RegExp'); // native typeof, no reject
-    expect(validateIR('typeof RegExp').ok).toBe(true);
+    expect(emit.message).toBe(src); // native typeof, no reject
+    expect(validateIR(src).ok).toBe(true);
   });
 
-  test('`typeof RegExp` inside a block body does NOT fire the bare-value screen', () => {
-    expect(emitTS('() => { return typeof RegExp; }').ok).toBe(true);
-    expect(collectClosureBlockRegexHostViolations('{ return typeof RegExp; }')).toHaveLength(0);
+  // User shadowing — a `const Date = …` binding makes `Date` the user's value, so
+  // `typeof Date` is accepted (honored identically on both legs).
+  test('`typeof Date` with a user binding of `Date` is accepted on both legs', () => {
+    expect(emitTS('typeof Date', ['Date']).ok).toBe(true);
+    expect(validateIR('typeof Date', ['Date']).ok).toBe(true);
   });
 
-  // …but `typeof RegExp.prototype` reads a MEMBER (a launder), so it still
-  // fails-close — `typeof` does not blanket-exempt a member access.
+  // `typeof <host root>` inside a BLOCK body fails-close identically — RegExp with
+  // the regex message (the regex walk now sees the bare `RegExp` value reference
+  // since the `typeof` exemption was removed), other host roots with the generic
+  // message — so the closure-walk leg stays byte-aligned with the expression legs.
+  test('`typeof RegExp` inside a block body NOW fires the bare-value (regex) screen', () => {
+    const emit = emitTS('() => { return typeof RegExp; }');
+    expect(emit.ok).toBe(false);
+    expect(emit.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    expect(collectClosureBlockRegexHostViolations('{ return typeof RegExp; }')).toHaveLength(1);
+  });
+
+  test.each([
+    '() => { return typeof Date; }',
+    '() => { return typeof process; }',
+  ])('%s inside a block body fails-close with the generic host message', (src) => {
+    const emit = emitTS(src);
+    expect(emit.ok).toBe(false);
+    expect(emit.message).toMatch(/Unsupported host namespace/);
+  });
+
+  // …but a block-LOCAL shadow of a host root makes `typeof <name>` the user value
+  // (accepted), and a non-host `typeof userLocal` inside a block is untouched.
+  test.each([
+    '() => { const Date = x; return typeof Date; }',
+    '() => { return typeof userLocal; }',
+  ])('%s inside a block body is accepted (shadowed / non-host operand)', (src) => {
+    expect(emitTS(src).ok).toBe(true);
+  });
+
+  // …and `typeof RegExp.prototype` reads a MEMBER (a launder), so it still
+  // fails-close via the member-root screen — `typeof` does not blanket-exempt a
+  // member access (it emits the GENERIC host message, one diagnostic per site).
   test('`typeof RegExp.prototype` still fails-close (member read, not a bare ident)', () => {
     expect(emitTS('typeof RegExp.prototype').ok).toBe(false);
     expect(validateIR('typeof RegExp.prototype').ok).toBe(false);
   });
+});
 
+describe('Slice 2 — OVER-REJECTION fixes (round 5)', () => {
   // A wrapped NON-regex receiver (`(someVar).source`) is unaffected — no regex
   // fail-close; it emits/validates as an ordinary member read.
   test.each([
@@ -570,5 +648,44 @@ describe('Slice 2 — OVER-REJECTION fixes (round 5)', () => {
   ])('wrapped NON-regex receiver %s is unaffected (no regex fail-close)', (src) => {
     expect(emitTS(src).ok).toBe(true);
     expect(validateIR(src).ok).toBe(true);
+  });
+});
+
+describe('Slice 2 — block-scope-aware member scan (round 6 — close the TS↔Python divergence)', () => {
+  // ROUND-6 REGRESSION FIX. The generic `collectClosureBlockMemberAccesses` used
+  // to declare a block-local only AFTER visiting its initializer, so a host-root
+  // access in a PRIOR initializer was seen as the host namespace even though a
+  // block-local of the same name shadows the WHOLE block. TS rejected while the
+  // Python lowerer (which predeclares block locals via `enterBlockScope`) accepted
+  // → a fresh TS↔Python divergence for non-RegExp host roots. The scan now
+  // PREDECLARES each block's top-level bindings before visiting its refs (matching
+  // the regex walk + the Python `enterBlockScope`), so a block-local shadow is
+  // honored for the whole block.
+  test('`{ let x = process.cwd(); const process = fake; return x; }` sees `process` as the block-local', () => {
+    const accesses = collectClosureBlockMemberAccesses('{ let x = process.cwd(); const process = fake; return x; }');
+    expect(accesses).toEqual([{ root: 'process', member: 'cwd', locallyShadowed: true }]);
+    // …so the block-bodied arrow is ACCEPTED (the block-local `process` is the
+    // user's value; identical to the Python leg, which also accepts it).
+    expect(emitTS('() => { let x = process.cwd(); const process = fake; return x; }').ok).toBe(true);
+  });
+
+  test('`{ return process.cwd(); }` (no shadow) still fails-close on both legs', () => {
+    const accesses = collectClosureBlockMemberAccesses('{ return process.cwd(); }');
+    expect(accesses).toEqual([{ root: 'process', member: 'cwd', locallyShadowed: false }]);
+    const emit = emitTS('() => { return process.cwd(); }');
+    expect(emit.ok).toBe(false);
+    expect(emit.message).toMatch(/Unsupported host namespace/);
+  });
+
+  // A block-local declared in a NESTED block must NOT shadow the OUTER block's
+  // host-root access (real block-scoping): the outer `process.cwd()` still
+  // fails-close even though an inner block redeclares `process`.
+  test('a nested-block `process` shadow does NOT cover an outer-block host access', () => {
+    const accesses = collectClosureBlockMemberAccesses(
+      '{ const r = process.cwd(); if (c) { const process = fake; } return r; }',
+    );
+    const outer = accesses.find((a) => a.root === 'process' && a.member === 'cwd');
+    expect(outer).toBeDefined();
+    expect(outer?.locallyShadowed).toBe(false);
   });
 });

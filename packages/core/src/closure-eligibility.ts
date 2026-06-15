@@ -147,24 +147,32 @@ export function collectClosureBlockMemberAccesses(raw: string): ClosureBlockMemb
   const block = parseClosureBlockAst(raw);
   if (block === null) return [];
   const accesses: ClosureBlockMemberAccess[] = [];
-  const scopes: Array<Set<string>> = [new Set()];
+  const scopes: Array<Set<string>> = [];
 
   const isLocal = (name: string): boolean => scopes.some((scope) => scope.has(name));
-  const declareLocal = (name: string): void => {
-    scopes[scopes.length - 1].add(name);
-  };
 
   const visit = (node: ts.Node): void => {
     if (ts.isBlock(node)) {
-      const isRootBlock = node === block;
-      if (!isRootBlock) scopes.push(new Set());
+      // Round-6 fix — REAL JS block scope: a block-scoped name shadows its WHOLE
+      // block, including any initializer that lexically PRECEDES the declarator
+      // (TDZ aside). PREDECLARE this block's top-level let/const/function/class
+      // names BEFORE visiting its statements, so `{ let x = process.cwd(); const
+      // process = fake; }` treats `process` in `x`'s initializer as the block-local
+      // (`locallyShadowed: true`). Previously the `VariableDeclaration` case
+      // declared the name only AFTER visiting its initializer, so the access in a
+      // PRIOR initializer was seen as the host root — TS REJECTED while the Python
+      // lowerer (which predeclares via `enterBlockScope`) ACCEPTED → a fresh
+      // TS↔Python divergence for non-RegExp host roots. This matches the regex
+      // walk's `collectClosureBlockRegexHostViolations` predeclaration exactly.
+      scopes.push(new Set(topLevelBlockDeclaredNames(node.statements)));
       for (const statement of node.statements) visit(statement);
-      if (!isRootBlock) scopes.pop();
+      scopes.pop();
       return;
     }
     if (ts.isVariableDeclaration(node)) {
+      // Names are predeclared on block entry (above); only the initializer needs a
+      // visit. The declarator name itself is not a member/call/new access.
       if (node.initializer) visit(node.initializer);
-      for (const name of bindingPatternIdentifierNames(node.name)) declareLocal(name);
       return;
     }
     if (ts.isPropertyAccessExpression(node)) {
@@ -309,14 +317,16 @@ function isRegExpNonValuePosition(node: ts.Identifier): boolean {
   if ((ts.isFunctionDeclaration(parent) || ts.isClassDeclaration(parent)) && parent.name === node) return true;
   // A reference inside a TYPE NODE is erased (`const x: RegExp = /a/`).
   if (isInTypePosition(node)) return true;
-  // `typeof RegExp` (round-5 over-rejection fix) — the operand of a `typeof`
-  // expression yields the host-agnostic string `"function"`, NOT the host
-  // `RegExp` value. It launders NOTHING (no constructor/global is captured), so
-  // the bare-`RegExp` screen must NOT fire. (`typeof X` is identical across JS and
-  // Python's KERN lowering, so this is portable.) The reference must be the DIRECT
-  // operand of the `typeof` — `typeof RegExp.prototype` reads a member and is
-  // owned by the member-OBJECT branch above, not by this one.
-  if (ts.isTypeOfExpression(parent) && parent.expression === node) return true;
+  // Round-6 fix — the round-5 carve-out exempted `typeof RegExp` here, which (with
+  // its TS/IR-emit siblings) re-opened reserved host roots. `typeof RegExp` is NOT
+  // portable (the Python leg lowers `typeof` to a runtime `isinstance` ladder over
+  // the Python name `RegExp`, which does not exist), so it MUST fail-close — and
+  // it does so through this bare-`RegExp` screen, which fires inside a `typeof`
+  // operand just like any other value reference. (`typeof RegExp.prototype` is a
+  // member read, owned by the member-OBJECT branch above, so it is unaffected.)
+  // Non-RegExp host roots in `typeof` position (`typeof Date`/`typeof process`)
+  // are caught by `collectClosureBlockTypeofHostRoots` with the generic host
+  // message, keeping the closure-walk leg in lockstep with the expression legs.
   return false;
 }
 
@@ -404,6 +414,54 @@ export function collectClosureBlockRegexHostViolations(raw: string): ClosureBloc
   // The root closure block is a `ts.Block`; `visit` pushes its top-level scope.
   visit(block);
   return violations;
+}
+
+/** A bare-identifier operand of a `typeof` expression found inside a closure
+ *  block (`typeof Date`, `typeof process`). The host-root decision is made by the
+ *  CONSUMER (`typescript-closure-classifier.ts`), so this collector stays free of
+ *  host-namespace coupling — it only reports the operand `name` and whether a
+ *  block-scope local shadows it. RegExp is NOT special-cased here: a bare `RegExp`
+ *  in `typeof` position is already a value reference caught by
+ *  `collectClosureBlockRegexHostViolations` (round-6 removed the `typeof` exemption
+ *  in `isRegExpNonValuePosition`), so it fails-close there with the regex message.
+ *  This collector covers the OTHER reserved host roots with the generic message. */
+export interface ClosureBlockTypeofOperand {
+  name: string;
+  locallyShadowed: boolean;
+}
+
+/** Walk a closure block and collect every `typeof <bare identifier>` operand,
+ *  tracking REAL JS block scope identically to
+ *  {@link collectClosureBlockRegexHostViolations}: each block predeclares its
+ *  top-level let/const/function/class names (incl. destructuring) BEFORE visiting
+ *  its refs, so a block-local shadow is honored for the whole block. Only the
+ *  DIRECT bare-identifier operand of a `typeof` is reported — `typeof Date.now`
+ *  (a member operand) is owned by the generic member-access scan, and
+ *  `typeof (x)` / any non-identifier operand records nothing. A parse failure
+ *  yields an empty list (the gate already rejected such bodies). */
+export function collectClosureBlockTypeofOperands(raw: string): ClosureBlockTypeofOperand[] {
+  const block = parseClosureBlockAst(raw);
+  if (block === null) return [];
+  const operands: ClosureBlockTypeofOperand[] = [];
+  const scopes: Array<Set<string>> = [];
+  const isLocal = (name: string): boolean => scopes.some((scope) => scope.has(name));
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isBlock(node)) {
+      scopes.push(new Set(topLevelBlockDeclaredNames(node.statements)));
+      for (const statement of node.statements) visit(statement);
+      scopes.pop();
+      return;
+    }
+    if (ts.isTypeOfExpression(node) && ts.isIdentifier(node.expression)) {
+      operands.push({ name: node.expression.text, locallyShadowed: isLocal(node.expression.text) });
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  // The root closure block is a `ts.Block`; `visit` pushes its top-level scope.
+  visit(block);
+  return operands;
 }
 
 /** The portable property NAME of a regex-literal property/element access, or
