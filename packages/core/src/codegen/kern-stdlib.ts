@@ -357,6 +357,58 @@ export const KERN_STDLIB: Record<string, Record<string, StdlibEntry>> = {
       py: 'abs($0)',
       requires: { ts: 'decimal.js' },
     },
+    // DECIMAL Slice 3 — div/mod/pow lower to KERN-emitted GUARDED helpers on BOTH
+    // legs (single-sourced in `decimal-contract.ts`, rendered into each leg's
+    // decimal preamble/prelude). The helper call is the SAME shape on both targets
+    // (`__k_decimal_div(a, b)` / `__k_decimal_mod(...)` / `__k_decimal_pow_int(...)`),
+    // so the divergent-op divisor/zero/pow guard lives at ONE byte-identical
+    // diagnostic site per op. The call form is already self-delimiting (a function
+    // call), so no parenthesize wrap is needed on either leg. The empirical
+    // differential probe proved non-terminating div (1/3, 10/3, …) and negative-
+    // operand mod (-5.5%2, 5.5%-2, …) are byte-IDENTICAL across decimal.js 10.6.0
+    // and CPython `decimal` under the pinned prec-28 / ROUND_HALF_EVEN context, so
+    // all are SHIPPED (not fail-closed). `requires.py: 'decimal-ops'` registers the
+    // Python helper block; the TS preamble renders its twin via `decimalOpsHelpersTS`.
+    div: {
+      arity: 2,
+      ts: '__k_decimal_div($0, $1)',
+      py: '__k_decimal_div($0, $1)',
+      requires: { ts: 'decimal.js', py: 'decimal-ops' },
+    },
+    mod: {
+      arity: 2,
+      ts: '__k_decimal_mod($0, $1)',
+      py: '__k_decimal_mod($0, $1)',
+      requires: { ts: 'decimal.js', py: 'decimal-ops' },
+    },
+    // INTEGER-exponent, non-negative-base ONLY — the dispatch site runs
+    // `assertPortableDecimalPow` (shared, byte-identical on both legs) which
+    // compile-time fail-closes a non-integer / non-literal exponent or a negative
+    // base. The helper additionally guards 0**0 (→1) and 0**neg (zero-error).
+    pow: {
+      arity: 2,
+      ts: '__k_decimal_pow_int($0, $1)',
+      py: '__k_decimal_pow_int($0, $1)',
+      requires: { ts: 'decimal.js', py: 'decimal-ops' },
+    },
+    // DECIMAL Slice 3 — comparison/ordering. Lower to NATIVE decimal.js comparison
+    // methods (TS) and native Python comparison operators (Python). Results are
+    // plain `boolean`/`bool` (eq/ne/lt/lte/gt/gte) or plain int -1|0|1 (cmp) — NOT
+    // Decimal-typed, so they are NEVER routed through `_kern_decimal_str`. No
+    // non-finite Decimal can reach a comparator (div/mod are zero-guarded, pow is
+    // integer-only with a guarded 0**neg), so comparison is TOTAL and needs no
+    // guard. `-0 ≡ 0` on both legs (empirically verified). Python `Decimal.compare`
+    // returns a Decimal, so `cmp` wraps it in `int(...)` to yield a plain int that
+    // matches the JS `.cmp()` number. No `requires` — native operators/methods, no
+    // import or helper (the operand Decimals already pulled in `decimal.js` via
+    // their own `Decimal.of` producer's requirement).
+    eq: { arity: 2, ts: '$0.eq($1)', py: '($0 == $1)' },
+    ne: { arity: 2, ts: '!$0.eq($1)', py: '($0 != $1)' },
+    lt: { arity: 2, ts: '$0.lt($1)', py: '($0 < $1)' },
+    lte: { arity: 2, ts: '$0.lte($1)', py: '($0 <= $1)' },
+    gt: { arity: 2, ts: '$0.gt($1)', py: '($0 > $1)' },
+    gte: { arity: 2, ts: '$0.gte($1)', py: '($0 >= $1)' },
+    cmp: { arity: 2, ts: '$0.cmp($1)', py: 'int($0.compare($1))' },
   },
 };
 
