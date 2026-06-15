@@ -57,7 +57,10 @@ describe('Decimal Slice 2 — operator fail-close no longer masks the real diagn
 
     test('known producers return true', () => {
       for (const method of ['of', 'add', 'sub', 'mul', 'neg', 'abs']) {
-        const src = method === 'of' || method === 'neg' || method === 'abs' ? `Decimal.${method}("1")` : `Decimal.${method}(a, b)`;
+        const src =
+          method === 'of' || method === 'neg' || method === 'abs'
+            ? `Decimal.${method}("1")`
+            : `Decimal.${method}(a, b)`;
         expect(isSyntacticDecimalProducer(call(src))).toBe(true);
       }
     });

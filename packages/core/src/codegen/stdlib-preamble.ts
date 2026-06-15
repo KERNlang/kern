@@ -29,6 +29,7 @@
  *      every target. */
 
 import type { IRNode } from '../types.js';
+import { decimalImportLineTS } from './decimal-contract.js';
 
 export interface KernStdlibUsage {
   /** Module references `Result<…>` somewhere in a type annotation. */
@@ -39,6 +40,16 @@ export interface KernStdlibUsage {
    *  rewriter when a user wrote `expr!`. Optional for back-compat with
    *  callers who only construct the result/option flags. */
   unwrap?: boolean;
+  /** DECIMAL Slice 2 (Finding 1) — a `lang="kern"` handler body in this module
+   *  constructs/operates on a Decimal via the KERN_STDLIB.Decimal surface
+   *  (`Decimal.of`/`Decimal.add`/…). The TS leg lowers those to `decimal.js`
+   *  (`new Decimal(...)` / `.plus()` / …) — an EXTERNAL npm package, NOT a global
+   *  — so the generated TS file needs the `import Decimal from 'decimal.js'` line
+   *  PLUS the one-time `Decimal.set({...})` canonical-context preamble at file
+   *  top-level. This flag drives that injection in {@link kernStdlibPreamble}.
+   *  Optional for back-compat with callers that only build the result/option
+   *  flags. */
+  decimal?: boolean;
 }
 
 /** Regex anchored on word boundary + opening angle so a user identifier
@@ -55,10 +66,69 @@ const OPTION_REGEX = /\bOption\s*</;
  *  the only case where the auto-emitted definition is needed. */
 const UNWRAP_REGEX = /\bnew\s+KernUnwrapError\s*\(/;
 
+/** DECIMAL Slice 2 (Finding 1) — match a call to the KERN_STDLIB.Decimal surface
+ *  (`Decimal.of(`, `Decimal.add(`, … — the exact producing methods, kept in
+ *  lockstep with `DECIMAL_PRODUCER_METHODS` in `decimal-contract.ts`). Anchored on
+ *  a word boundary + the bare `Decimal` namespace ident + a known method + `(` so a
+ *  user identifier like `MyDecimal` or a member read `x.Decimal` does NOT trip it,
+ *  and a non-producing member (`Decimal.div(`, which is fail-closed) does NOT pull
+ *  in an import for code that will not compile anyway. Detection runs ONLY inside a
+ *  `lang="kern"` handler subtree (see `scanDecimalInKernHandlers`) — a raw
+ *  `lang="ts"` handler that itself imports `decimal.js` is the author's own concern
+ *  and must not be force-injected with the KERN canonical-context preamble. */
+const DECIMAL_PRODUCER_REGEX = /\bDecimal\.(?:of|add|sub|mul|neg|abs)\s*\(/;
+
 function scanString(s: string, usage: KernStdlibUsage): void {
   if (!usage.result && RESULT_REGEX.test(s)) usage.result = true;
   if (!usage.option && OPTION_REGEX.test(s)) usage.option = true;
   if (UNWRAP_REGEX.test(s)) usage.unwrap = true;
+}
+
+/** DECIMAL Slice 2 (Finding 1) — true iff any string prop in `node`'s subtree
+ *  references a Decimal producer. Scans the WHOLE subtree (a Decimal call can live
+ *  in any body-statement prop — `let value=…`, `return value=…`, `if cond=…`, an
+ *  `expression-v1`, etc.), and recurses through nested control-flow children. */
+function subtreeUsesDecimalProducer(node: IRNode): boolean {
+  if (node.props) {
+    for (const value of Object.values(node.props)) {
+      if (typeof value === 'string' && DECIMAL_PRODUCER_REGEX.test(value)) return true;
+      // The `{{ … }}` ExprObject escape hatch carries its source in `.code`.
+      if (
+        value !== null &&
+        typeof value === 'object' &&
+        (value as { __expr?: unknown }).__expr === true &&
+        typeof (value as { code?: unknown }).code === 'string' &&
+        DECIMAL_PRODUCER_REGEX.test((value as { code: string }).code)
+      ) {
+        return true;
+      }
+    }
+  }
+  if (node.children) {
+    for (const child of node.children) {
+      if (subtreeUsesDecimalProducer(child)) return true;
+    }
+  }
+  return false;
+}
+
+/** DECIMAL Slice 2 (Finding 1) — walk the IR for `handler lang="kern"` nodes and
+ *  flag `usage.decimal` when any such handler body uses a Decimal producer. Gated
+ *  on `lang="kern"` so the auto-injected `decimal.js` import + canonical-context
+ *  preamble is rendered ONLY when KERN itself lowered the Decimal call (raw
+ *  `lang="ts"`/`lang="python"` handlers own their imports). */
+function scanDecimalInKernHandlers(node: IRNode, usage: KernStdlibUsage): void {
+  if (usage.decimal) return;
+  if (node.type === 'handler' && node.props?.lang === 'kern' && subtreeUsesDecimalProducer(node)) {
+    usage.decimal = true;
+    return;
+  }
+  if (node.children) {
+    for (const child of node.children) {
+      scanDecimalInKernHandlers(child, usage);
+      if (usage.decimal) return;
+    }
+  }
 }
 
 function scanProps(props: Record<string, unknown> | undefined, usage: KernStdlibUsage): void {
@@ -75,9 +145,9 @@ function scanProps(props: Record<string, unknown> | undefined, usage: KernStdlib
 }
 
 export function detectKernStdlibUsage(root: IRNode): KernStdlibUsage {
-  // `unwrap` stays absent (rather than `false`) when not detected, so
-  // strict `toEqual({ result, option })` callers from the slice 4 layer 2
-  // test suite continue to match without requiring updates.
+  // `unwrap` (and `decimal`) stay absent (rather than `false`) when not detected,
+  // so strict `toEqual({ result, option })` callers from the slice 4 layer 2 test
+  // suite continue to match without requiring updates.
   const usage: KernStdlibUsage = { result: false, option: false };
 
   function walk(node: IRNode): void {
@@ -92,6 +162,10 @@ export function detectKernStdlibUsage(root: IRNode): KernStdlibUsage {
   }
 
   walk(root);
+  // DECIMAL Slice 2 (Finding 1) — separate pass so the result/option/unwrap
+  // short-circuit above can't skip a `lang="kern"` Decimal handler. Scoped to
+  // `lang="kern"` handler subtrees (raw `lang="ts"` handlers own their imports).
+  scanDecimalInKernHandlers(root, usage);
   return usage;
 }
 
@@ -152,9 +226,25 @@ const UNWRAP_ERROR_CLASS = [
 ];
 
 export function kernStdlibPreamble(usage: KernStdlibUsage): string[] {
-  if (!usage.result && !usage.option && !usage.unwrap) return [];
+  if (!usage.result && !usage.option && !usage.unwrap && !usage.decimal) return [];
 
-  const lines: string[] = ['// ── KERN stdlib (auto-emitted) ──────────────────────────────────────'];
+  const lines: string[] = [];
+  // DECIMAL Slice 2 (Finding 1) — the `decimal.js` import + canonical-context
+  // preamble lead the block: an `import` declaration must precede the type-alias /
+  // companion-object statements below (and the injector places this whole block
+  // after any hashbang / `'use client'` directive, where a top-level ESM import is
+  // legal). This is the TS twin of the Python leg's inline `import decimal as
+  // __k_decimal` (rendered per-function in `fnBodyCodePython`); ESM imports cannot
+  // live inside a function, so the TS leg surfaces it once at file top-level here.
+  if (usage.decimal) {
+    lines.push('// ── KERN Decimal runtime (auto-emitted) ─────────────────────────────');
+    lines.push(...decimalImportLineTS().split('\n'));
+    lines.push('');
+  }
+
+  if (usage.result || usage.option || usage.unwrap) {
+    lines.push('// ── KERN stdlib (auto-emitted) ──────────────────────────────────────');
+  }
   if (usage.result) {
     lines.push("type Result<T, E> = { kind: 'ok'; value: T } | { kind: 'err'; error: E };");
     lines.push(...RESULT_HELPERS);

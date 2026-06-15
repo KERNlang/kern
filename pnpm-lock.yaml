@@ -144,6 +144,9 @@ importers:
 
   packages/core:
     dependencies:
+      decimal.js:
+        specifier: ^10.6.0
+        version: 10.6.0
       typescript:
         specifier: ^6.0.3
         version: 6.0.3

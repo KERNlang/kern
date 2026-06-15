@@ -11,7 +11,7 @@ import { propsOf } from '../node-props.js';
 import { parseExpression } from '../parser-expression.js';
 import { type IRNode, isExprObject } from '../types.js';
 import { typescriptClosureClassifier, validateClosureBlockHostNamespacesTS } from '../typescript-closure-classifier.js';
-import { emitNativeKernBodyTS } from './body-ts.js';
+import { emitNativeKernBodyTSWithImports } from './body-ts.js';
 import { emitIdentifier, emitTemplateSafe, emitTypeAnnotation } from './emitters.js';
 import {
   emitDocComment,
@@ -56,7 +56,9 @@ function topLevelExprContext(options?: TopLevelExpressionOptions): ExprEmitConte
 function methodBodyCode(method: IRNode): string {
   const handler = getFirstChild(method, 'handler');
   if (handler && getProps(handler).lang === 'kern') {
-    return emitNativeKernBodyTS(handler);
+    // DECIMAL Slice 2 (Finding 1) — import-aware entry; the file-level decimal.js
+    // import is rendered by the post-transpile stdlib-preamble pass (top-level).
+    return emitNativeKernBodyTSWithImports(handler).code;
   }
   return handlerCode(method);
 }
@@ -68,7 +70,9 @@ function methodBodyCode(method: IRNode): string {
 function classMemberBodyCode(node: IRNode): string {
   const handler = getFirstChild(node, 'handler');
   if (handler && getProps(handler).lang === 'kern') {
-    return emitNativeKernBodyTS(handler);
+    // DECIMAL Slice 2 (Finding 1) — import-aware entry; the file-level decimal.js
+    // import is rendered by the post-transpile stdlib-preamble pass (top-level).
+    return emitNativeKernBodyTSWithImports(handler).code;
   }
   return handlerCode(node);
 }
