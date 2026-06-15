@@ -71,6 +71,9 @@ export {
   // repl ref resolves on the Python target.
   lowerRegexNamedGroupsPython,
   normalizeRegexClasses,
+  // Milestone C, Slice 5 — shared astral (non-BMP) fail-close (scanner + message),
+  // thrown byte-identically by both emitters.
+  REGEX_ASTRAL_FAILCLOSE_PREFIX,
   // Milestone C, Slice 3 — shared regex-method fail-close diagnostics (thrown
   // byte-identically by both emitters).
   REGEX_EXEC_FAILCLOSE,
@@ -91,11 +94,18 @@ export {
   REGEX_SPLIT_LIMIT_FAILCLOSE,
   REGEX_SPLIT_ZEROWIDTH_FAILCLOSE,
   REGEX_TEST_G_FAILCLOSE,
+  // Milestone C, Slice 5 — astral (non-BMP) compile-time fail-close diagnostic
+  // message, thrown byte-identically by both emitters when a regex literal
+  // contains a non-BMP codepoint.
+  regexAstralFailMessage,
   // Milestone C, Slice 4 — shared replacement-string capture metadata (group
   // count + named set) consumed by both emitters at the .replace lowering site.
   regexCaptureMeta,
   regexIFoldFailMessage,
   regexMethodRegexArgIdent,
+  // Milestone C, Slice 5 — shared astral (non-BMP) scanner used by both emitters
+  // to detect-and-fail-close regex literals containing a non-BMP codepoint.
+  scanRegexAstral,
   // Milestone C, Slice 4 — shared replacement-string translator (Python rewrite)
   // + the TS-side validator (verbatim-but-validate, lockstep symmetric).
   translateReplStringToPython,
