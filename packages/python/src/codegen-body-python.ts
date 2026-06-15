@@ -55,6 +55,7 @@ import {
   lookupStdlibCall,
   lookupStdlibProperty,
   lowerRegexAnchorsPython,
+  lowerRegexNamedGroupsPython,
   needsArgParens,
   needsBinaryParens,
   normalizeRegexClasses,
@@ -63,13 +64,16 @@ import {
   REGEX_EXEC_FAILCLOSE,
   REGEX_MATCHALL_NO_G_FAILCLOSE,
   REGEX_NONLITERAL_FAILCLOSE,
+  REGEX_REPLACE_NONLITERAL_REPL_FAILCLOSE,
   REGEX_REPLACEALL_NO_G_FAILCLOSE,
   REGEX_SPLIT_LIMIT_FAILCLOSE,
   REGEX_SPLIT_ZEROWIDTH_FAILCLOSE,
   REGEX_TEST_G_FAILCLOSE,
+  regexCaptureMeta,
   regexIFoldFailMessage,
   regexMethodRegexArgIdent,
   suggestStdlibMethod,
+  translateReplStringToPython,
 } from '@kernlang/core';
 // Slice 0.9 — the TypeScript-AST closure helpers + classifier live on the Node
 // subpath (the barrel is browser-safe). Python codegen is Node-side and parses
@@ -3561,7 +3565,8 @@ function lowerRegexCallPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: Bod
   if (callee.property === 'replace' && replaceRegex !== null) {
     ctx.imports.add('re');
     const count = replaceRegex.flags.includes('g') ? '0' : '1';
-    return `__k_re.sub(${pyRegexPattern(replaceRegex)}, ${emitPyExprCtx(call.args[1], ctx)}, ${emitPyExprCtx(callee.object, ctx)}, count=${count}, flags=${pyRegexFlags(replaceRegex.flags, { allowGlobal: true })})`;
+    const repl = emitPyReplArg(call.args[1], replaceRegex, ctx);
+    return `__k_re.sub(${pyRegexPattern(replaceRegex)}, ${repl}, ${emitPyExprCtx(callee.object, ctx)}, count=${count}, flags=${pyRegexFlags(replaceRegex.flags, { allowGlobal: true })})`;
   }
 
   // `.replaceAll(s, r)` — requires /g (a non-global replaceAll throws TypeError in
@@ -3571,10 +3576,42 @@ function lowerRegexCallPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: Bod
       throw new Error(REGEX_REPLACEALL_NO_G_FAILCLOSE);
     }
     ctx.imports.add('re');
-    return `__k_re.sub(${pyRegexPattern(replaceRegex)}, ${emitPyExprCtx(call.args[1], ctx)}, ${emitPyExprCtx(callee.object, ctx)}, count=0, flags=${pyRegexFlags(replaceRegex.flags, { allowGlobal: true })})`;
+    const repl = emitPyReplArg(call.args[1], replaceRegex, ctx);
+    return `__k_re.sub(${pyRegexPattern(replaceRegex)}, ${repl}, ${emitPyExprCtx(callee.object, ctx)}, count=0, flags=${pyRegexFlags(replaceRegex.flags, { allowGlobal: true })})`;
   }
 
   return null;
+}
+
+/**
+ * Milestone C, Slice 4 — emit the Python `re.sub` REPLACEMENT argument for a
+ * `.replace`/`.replaceAll` whose regex position is a literal.
+ *
+ * A STRING-LITERAL replacement is translated from the JS `$`-surface to the
+ * Python repl VALUE via the shared `translateReplStringToPython`, then serialized
+ * back to `.py` SOURCE through a synthetic `strLit` node so the ordinary
+ * string-literal escaper double-escapes the backslashes correctly (gap 6: the
+ * translator yields the runtime VALUE `\g<1>` / `\\` — the serializer turns those
+ * into the source `"\\g<1>"` / `"\\\\"` that evaluates back to that value). A
+ * NON-LITERAL replacement (a variable / computed string) cannot be translated
+ * statically and FAILS-CLOSE symmetrically with the TS target.
+ */
+function emitPyReplArg(
+  arg: ValueIR,
+  replaceRegex: Extract<ValueIR, { kind: 'regexLit' }>,
+  ctx: BodyEmitContext,
+): string {
+  if (arg.kind !== 'strLit') {
+    throw new Error(REGEX_REPLACE_NONLITERAL_REPL_FAILCLOSE);
+  }
+  // Capture metadata is read from the KERN/JS `(?<name>)` surface (BEFORE R6's
+  // `(?P<name>)` rewrite), matching the way `$<name>` refs are written.
+  const meta = regexCaptureMeta(replaceRegex.pattern);
+  const pyReplValue = translateReplStringToPython(arg.value, meta);
+  // Serialize the translated VALUE to `.py` source via the normal strLit path
+  // (gap 6 — keep translation and serialization layers separate).
+  const synthetic: ValueIR = { kind: 'strLit', value: pyReplValue, quote: '"' };
+  return emitPyExprCtx(synthetic, ctx);
 }
 
 function resolveRegexExpr(node: ValueIR, _ctx: BodyEmitContext): Extract<ValueIR, { kind: 'regexLit' }> | null {
@@ -3614,7 +3651,18 @@ function pyRegexPattern(node: Extract<ValueIR, { kind: 'regexLit' }>): string {
   const folded = expandRegexIFold(classed, node.flags);
   if ('failClose' in folded) throw new Error(regexIFoldFailMessage(folded.char, folded.reason));
   const normalized = lowerRegexAnchorsPython(folded.pattern, node.flags);
-  return JSON.stringify(normalized);
+  // Milestone C, Slice 4 — R6: named-group PATTERN syntax (`(?<name>)` /
+  // `\k<name>`) → Python `re` syntax (`(?P<name>)` / `(?P=name)`). PYTHON-ONLY
+  // (JS keeps the original form). Python rejects the JS named-group syntax
+  // outright, so this rewrite is load-bearing for ANY named-group pattern on the
+  // Python target — and required for a `$<name>` repl ref to resolve. Run LAST,
+  // AFTER the `/i` fold expansion: `expandRegexIFold`'s HOLE-1 fail-close depends
+  // on seeing the ORIGINAL `\k<name>` backref token (`/(?<g>é)\k<g>/i` must still
+  // fail-close), so R6 must NOT consume `\k<` before the fold scan. The fold/class/
+  // anchor passes leave the ASCII `(?<` / `\k<` group syntax untouched, so applying
+  // R6 here is order-stable and parity-safe.
+  const named = lowerRegexNamedGroupsPython(normalized);
+  return JSON.stringify(named);
 }
 
 function pyRegexFlags(flags: string, options: { allowGlobal?: boolean } = {}): string {

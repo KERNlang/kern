@@ -986,3 +986,266 @@ function parseZwQuantifier(src: string, p: number, end: number): { min: number; 
 function skipZwLazy(src: string, p: number): number {
   return src[p] === '?' ? p + 1 : p;
 }
+
+/* ============================================================================
+ * Milestone C, Slice 4 — replacement-STRING translation (.replace / .replaceAll)
+ *
+ * Slice 3 made the pattern and the method count/shape byte-identical but emitted
+ * the JS `$`-surface replacement string VERBATIM on both targets. That is a
+ * latent parity bug: a JS repl like `"$1"`, `"$&"`, `"$$"`, or one containing a
+ * literal `\` does NOT mean the same thing to Python `re.sub`.
+ *
+ * Slice 4 translates the KERN/JS `$`-surface to each target's native repl syntax:
+ *   - TS  : IDENTITY (the surface IS JS-native) — only the SHARED fail-close
+ *           validator runs ({@link validateReplStringForTS}), so both targets
+ *           reject the SAME inputs. No byte rewrite.
+ *   - PY  : single-pass `$`→`\g`-syntax rewrite ({@link translateReplStringToPython}),
+ *           returning the RUNTIME repl VALUE `re.sub` consumes (e.g. `\g<1>`, with
+ *           literal `\` doubled to `\\`). The caller serializes that value to `.py`
+ *           SOURCE via the ordinary string-literal escaper (gap 6 — do NOT conflate
+ *           the translation layer with the serialization layer).
+ *
+ * The single-pass design is tribunal-validated: always-braced `\g<n>` +
+ * unconditional `\`-doubling make every emitted token self-delimiting in Python's
+ * re.sub repl grammar, so no token's parse boundary depends on what follows.
+ *
+ * Numbered-ref resolution mirrors JS EXACTLY (empirically pinned against node):
+ *   - Read up to 2 digits after `$`.
+ *   - 2-digit value in 1..groupCount  -> that group (consume 2). `$05` on 5 groups
+ *     -> group 5 (zero-padded 2-digit DOES resolve).
+ *   - else single-digit value in 1..groupCount -> that group (consume 1), the
+ *     trailing digit is a LITERAL. `$12` on 1 group -> `\g<1>` + literal `2`.
+ *   - else if the single digit is `0` (a leading-zero token that resolves to group
+ *     0, which never exists) -> LITERAL `$` + all digits read. `$0`/`$00`/`$09`
+ *     are literal `"$0"`/`"$00"`/`"$09"` — NEVER whole-match (gap 1).
+ *   - else (single digit >= 1 but > groupCount, a genuine out-of-range typo) ->
+ *     FAIL-CLOSE (gap 4 — kept conservative; JS would emit literal but it is almost
+ *     certainly a user bug, consistent with the Slice-3 fail-close discipline).
+ * ============================================================================ */
+
+export const REGEX_REPLACE_NONLITERAL_REPL_FAILCLOSE =
+  'Portable .replace/.replaceAll with a regex literal requires a STRING-LITERAL replacement (the JS `$`-surface can only be lowered to the Python re.sub syntax when known at compile time); a computed/variable replacement is not portable across targets — inline a string literal at the call site.';
+
+export const REGEX_REPLACE_BEFORE_AFTER_FAILCLOSE =
+  "Python re.sub has no analog for the `$\\`` (text before match) / `$'` (text after match) replacement tokens; KERN fail-closes them on BOTH targets.";
+
+export const REGEX_REPLACE_OOR_REF_FAILCLOSE =
+  'Out-of-range numbered group reference in a .replace/.replaceAll replacement string: JS would emit the literal text while Python re.sub raises re.error — KERN fail-closes this likely-typo on BOTH targets. (A literal `$0` is allowed; groups start at 1.)';
+
+export const REGEX_REPLACE_BAD_NAME_FAILCLOSE =
+  'Reference to an unknown or Python-illegal named group in a .replace/.replaceAll replacement string. KERN fail-closes on BOTH targets (the named group must exist in the pattern and be a legal Python identifier `[A-Za-z_]\\w*`).';
+
+/** Thrown internally by the scanner; the public entry points convert it to one of
+ *  the exported fail-close messages so TS and Python raise the SAME error. */
+class ReplFailClose extends Error {}
+
+/** Python-legal named-group identifier: `[A-Za-z_]\w*` (ASCII `\w` here — the
+ *  fail-close domain, gap 3). JS named groups admit Unicode ID-start chars that
+ *  Python `\g<name>` rejects, so the name domain is validated before emit. */
+const PY_LEGAL_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** A `$<name>` token at the scan head: capture the name chars up to `>`. The name
+ *  is the broadest run so an ILLEGAL name (e.g. with a `-` or Unicode) is still
+ *  captured and then rejected by {@link PY_LEGAL_NAME_RE} (gap 3) rather than
+ *  silently falling through to a lone-`$` literal. */
+const REPL_NAME_TOKEN_RE = /^\$<([^>]*)>/;
+
+export interface RegexCaptureMeta {
+  readonly count: number;
+  readonly names: ReadonlySet<string>;
+}
+
+/**
+ * Count positional capture groups + collect named-group names over the KERN/JS
+ * pattern surface (the `(?<name>)` form, BEFORE the R6 `(?P<name>)` rewrite).
+ * Skips `(?:`, lookarounds, escapes, and char classes. Mirrors the oracle's
+ * `capture_meta` byte-for-byte so the lowering site resolves refs identically.
+ */
+export function regexCaptureMeta(pattern: string): RegexCaptureMeta {
+  let count = 0;
+  const names = new Set<string>();
+  let i = 0;
+  const n = pattern.length;
+  while (i < n) {
+    const ch = pattern[i];
+    if (ch === '\\') {
+      i += 2;
+      continue;
+    }
+    if (ch === '[') {
+      i += 1;
+      while (i < n && pattern[i] !== ']') {
+        if (pattern[i] === '\\') i += 1;
+        i += 1;
+      }
+      i += 1;
+      continue;
+    }
+    if (ch === '(') {
+      if (i + 1 < n && pattern[i + 1] === '?') {
+        const m = /^\(\?<([A-Za-z_][A-Za-z0-9_]*)>/.exec(pattern.slice(i));
+        if (m) {
+          count += 1;
+          names.add(m[1]);
+        }
+        // (?: (?= (?! (?<= (?<! -> non-capturing
+      } else {
+        count += 1;
+      }
+    }
+    i += 1;
+  }
+  return { count, names };
+}
+
+/**
+ * R6 — KERN/JS named-group PATTERN syntax -> Python `re` syntax, so a `$<name>`
+ * repl ref (and any in-pattern backreference) resolves on the Python side:
+ *   `(?<name>...)` -> `(?P<name>...)` ; `\k<name>` -> `(?P=name)`.
+ * Python rejects the JS `(?<name>)` / `\k<name>` forms outright, so this rewrite
+ * is load-bearing for ANY named-group pattern on the Python target — it had no
+ * prior lowering (the Slice-3 `.match` path never exercised a named PATTERN on
+ * Python). PYTHON-ONLY: the TS target keeps the JS form verbatim.
+ */
+export function lowerRegexNamedGroupsPython(pattern: string): string {
+  return pattern
+    .replace(/\(\?<([A-Za-z_][A-Za-z0-9_]*)>/g, '(?P<$1>')
+    .replace(/\\k<([A-Za-z_][A-Za-z0-9_]*)>/g, '(?P=$1)');
+}
+
+/** JS greedy-2-then-1 numbered-ref resolution (gaps 1/2/4). Returns:
+ *   { kind: 'group', n, consumed }     — resolved to group `n` (1..count)
+ *   { kind: 'literal' }                — leading-zero token (`$0`/`$00`/`$09`): the
+ *                                        whole `$`+digits is literal text
+ *   { kind: 'oor' }                    — single digit >= 1 but > count: fail-close
+ */
+type NumberedRefResolution = { kind: 'group'; n: number; consumed: number } | { kind: 'literal' } | { kind: 'oor' };
+
+function resolveNumberedRef(digits: string, count: number): NumberedRefResolution {
+  if (digits.length === 2) {
+    const two = Number.parseInt(digits, 10);
+    if (two >= 1 && two <= count) return { kind: 'group', n: two, consumed: 2 };
+    // else fall through to the single-digit attempt
+  }
+  const one = Number.parseInt(digits[0], 10);
+  if (one >= 1 && one <= count) return { kind: 'group', n: one, consumed: 1 };
+  // Leading-zero token (resolves to group 0, which never exists) -> literal `$0…`
+  // (gap 1). A non-zero single digit that exceeds groupCount is a likely typo
+  // -> out-of-range fail-close (gap 4).
+  if (one === 0) return { kind: 'literal' };
+  return { kind: 'oor' };
+}
+
+/**
+ * Single-pass KERN `$`-surface -> Python `re.sub` repl VALUE (gaps 1-6).
+ *
+ * Returns the RUNTIME string `re.sub` consumes (e.g. `\g<1>` with a single
+ * backslash; a literal `\` in the input doubled to `\\`). The CALLER serializes
+ * this to `.py` source via the ordinary string-literal escaper — keeping the
+ * translation layer and the serialization layer separate (gap 6).
+ *
+ * Throws on a non-portable token; the public wrappers convert to the shared
+ * fail-close messages so TS and Python reject the SAME inputs.
+ */
+function scanReplToPython(repl: string, meta: RegexCaptureMeta): string {
+  const out: string[] = [];
+  let i = 0;
+  const n = repl.length;
+  while (i < n) {
+    const ch = repl[i];
+    if (ch === '$') {
+      const nxt = i + 1 < n ? repl[i + 1] : '';
+
+      // $$ -> literal $ (consumed as ONE token, not re-scanned).
+      if (nxt === '$') {
+        out.push('$');
+        i += 2;
+        continue;
+      }
+      // $& -> whole match -> \g<0> (gap: NOT $0, which is literal).
+      if (nxt === '&') {
+        out.push('\\g<0>');
+        i += 2;
+        continue;
+      }
+      // $` / $' -> no Python analog -> FAIL-CLOSE.
+      if (nxt === '`' || nxt === "'") {
+        throw new ReplFailClose(REGEX_REPLACE_BEFORE_AFTER_FAILCLOSE);
+      }
+      // $<name> -> \g<name>. Validate the name domain (gap 3) + existence.
+      if (nxt === '<') {
+        const m = REPL_NAME_TOKEN_RE.exec(repl.slice(i));
+        if (m) {
+          const name = m[1];
+          if (!PY_LEGAL_NAME_RE.test(name) || !meta.names.has(name)) {
+            throw new ReplFailClose(REGEX_REPLACE_BAD_NAME_FAILCLOSE);
+          }
+          out.push(`\\g<${name}>`);
+          i += m[0].length;
+          continue;
+        }
+        // `$<` not closing a legal name token -> lone `$` literal (fall through).
+      }
+      // $n / $nn numbered ref (greedy-2-then-1).
+      const dm = /^\$([0-9]{1,2})/.exec(repl.slice(i));
+      if (dm) {
+        const digits = dm[1];
+        const r = resolveNumberedRef(digits, meta.count);
+        if (r.kind === 'oor') {
+          throw new ReplFailClose(REGEX_REPLACE_OOR_REF_FAILCLOSE);
+        }
+        if (r.kind === 'literal') {
+          // `$0`/`$00`/`$09` -> literal `$` + every digit read (gap 1).
+          out.push('$');
+          out.push(digits);
+          i += 1 + digits.length;
+          continue;
+        }
+        out.push(`\\g<${r.n}>`);
+        // any un-consumed trailing digit is a literal (the JS rule).
+        out.push(digits.slice(r.consumed));
+        i += 1 + digits.length;
+        continue;
+      }
+      // lone / unknown `$` -> literal `$` (gap 5: `$`-at-EOF, `$x` non-special).
+      out.push('$');
+      i += 1;
+      continue;
+    }
+    if (ch === '\\') {
+      // literal backslash -> ESCAPE for Python's special-`\` repl syntax (gap 6
+      // translation layer: a bare `\b` would be a BACKSPACE to re.sub). `\` is NOT
+      // an escape in JS replacements, so it is handled independently of `$`.
+      out.push('\\\\');
+      i += 1;
+      continue;
+    }
+    out.push(ch);
+    i += 1;
+  }
+  return out.join('');
+}
+
+/**
+ * Translate a JS `$`-surface replacement STRING to the Python `re.sub` repl VALUE.
+ * `meta` is the capture metadata of the (un-lowered KERN/JS) pattern. Throws one
+ * of the `REGEX_REPLACE_*` fail-close messages on a non-portable token.
+ */
+export function translateReplStringToPython(repl: string, meta: RegexCaptureMeta): string {
+  try {
+    return scanReplToPython(repl, meta);
+  } catch (e) {
+    if (e instanceof ReplFailClose) throw new Error(e.message);
+    throw e;
+  }
+}
+
+/**
+ * TS-side validator: the JS `$`-surface is already native, so the TS target emits
+ * the repl string VERBATIM — but it must reject the SAME non-portable tokens the
+ * Python translator rejects, so both targets fail-close symmetrically (the
+ * ts-python-parity lockstep). Runs the identical scan and discards the output.
+ */
+export function validateReplStringForTS(repl: string, meta: RegexCaptureMeta): void {
+  translateReplStringToPython(repl, meta);
+}
