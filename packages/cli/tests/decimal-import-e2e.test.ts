@@ -103,6 +103,65 @@ describe('Decimal Slice 2 — TS import channel renders end-to-end (Finding 1)',
   });
 });
 
+const DECIMAL_DIV_MODULE = [
+  'fn name=ratio returns=Decimal export=true',
+  '  handler lang="kern"',
+  '    let name=q value="Decimal.div(Decimal.of(\\"10\\"), Decimal.of(\\"3\\"))"',
+  '    return value=q',
+].join('\n');
+
+describe('Decimal Slice 3 — the guarded div/mod/pow helpers render end-to-end (TS leg)', () => {
+  test('a lang="kern" Decimal.div handler emits the import + guarded helpers + the helper call', () => {
+    const code = compile(DECIMAL_DIV_MODULE, 'lib');
+    // import + canonical context (same seam slice 2 built).
+    expect(code).toContain("import Decimal from 'decimal.js';");
+    expect(code).toContain('Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_EVEN });');
+    // the three guarded helper DEFINITIONS ride the same preamble block.
+    expect(code).toContain('function __k_decimal_div(');
+    expect(code).toContain('function __k_decimal_mod(');
+    expect(code).toContain('function __k_decimal_pow_int(');
+    // the symmetric zero-guard diagnostic text.
+    expect(code).toContain('KERN Decimal division by zero');
+    // the body lowering itself calls the helper.
+    expect(code).toContain('__k_decimal_div(new Decimal("10"), new Decimal("3"))');
+    // the helper DEFINITION must precede its CALL in the body.
+    expect(code.indexOf('function __k_decimal_div(')).toBeLessThan(code.indexOf('__k_decimal_div(new Decimal("10")'));
+  });
+
+  test('the guarded helpers appear exactly ONCE per file (no duplication)', () => {
+    const code = compile(DECIMAL_DIV_MODULE, 'lib');
+    expect(code.match(/function __k_decimal_div\(/g)?.length).toBe(1);
+    expect(code.match(/function __k_decimal_pow_int\(/g)?.length).toBe(1);
+  });
+});
+
+describe('Decimal Slice 3 — the guarded helpers render end-to-end (Python leg)', () => {
+  test('the same Decimal.div handler on the Python (fastapi) target renders the guarded ops helper', () => {
+    const fastapiSrc = [
+      'server name=Calc',
+      '  route method=GET path="/ratio"',
+      '    handler lang="kern"',
+      '      let name=q value="Decimal.div(Decimal.of(\\"10\\"), Decimal.of(\\"3\\"))"',
+      '      return value=q',
+    ].join('\n');
+    const result = compileResult(fastapiSrc, 'fastapi');
+    const allPy = [result.code, ...(result.artifacts ?? []).map((a) => a.content)].join('\n');
+    // the guarded ops helper block (def + the byte-identical KERN zero diagnostic).
+    expect(allPy).toContain('def __k_decimal_div(');
+    expect(allPy).toContain("raise Exception('KERN Decimal division by zero')");
+    // the decimal import + the body call.
+    expect(/\bimport decimal\b/.test(allPy)).toBe(true);
+    expect(allPy).toContain('__k_decimal_div(__k_decimal.Decimal("10"), __k_decimal.Decimal("3"))');
+    // the helper DEFINITION must precede its CALL (Python defines before use).
+    expect(allPy.indexOf('def __k_decimal_div(')).toBeLessThan(
+      allPy.indexOf('__k_decimal_div(__k_decimal.Decimal("10")'),
+    );
+    // the TS-only decimal.js import + Decimal.set(...) must NOT leak into Python.
+    expect(allPy).not.toContain('decimal.js');
+    expect(allPy).not.toContain('Decimal.set(');
+  });
+});
+
 describe('Decimal Slice 2 — Python twin renders its runtime import end-to-end (Finding 1)', () => {
   test('the same Decimal handler on the Python (fastapi) target renders import decimal', () => {
     // The Python leg injects `import decimal as __k_decimal` inline in the function

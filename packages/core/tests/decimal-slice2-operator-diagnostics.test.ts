@@ -56,7 +56,10 @@ describe('Decimal Slice 2 — operator fail-close no longer masks the real diagn
     const call = (src: string): unknown => parseExpression(src);
 
     test('known producers return true', () => {
-      for (const method of ['of', 'add', 'sub', 'mul', 'neg', 'abs']) {
+      // Slice 3 promoted div/mod/pow to real Decimal producers (they return a
+      // Decimal). The comparators (eq/ne/lt/lte/gt/gte/cmp) are deliberately NOT
+      // producers — they return bool/int — so they are absent here.
+      for (const method of ['of', 'add', 'sub', 'mul', 'neg', 'abs', 'div', 'mod', 'pow']) {
         const src =
           method === 'of' || method === 'neg' || method === 'abs'
             ? `Decimal.${method}("1")`
@@ -67,7 +70,9 @@ describe('Decimal Slice 2 — operator fail-close no longer masks the real diagn
 
     test('an UNKNOWN Decimal member is NOT a proven producer', () => {
       expect(isSyntacticDecimalProducer(call('Decimal.nope("1")'))).toBe(false);
-      expect(isSyntacticDecimalProducer(call('Decimal.div(a, b)'))).toBe(false);
+      // A comparator is a KNOWN method but NOT a producer (bool/int result), so it
+      // must NOT be treated as a Decimal producer by the operator fail-close.
+      expect(isSyntacticDecimalProducer(call('Decimal.eq(a, b)'))).toBe(false);
       expect(isSyntacticDecimalProducer(call('Decimal.toString()'))).toBe(false);
     });
 
