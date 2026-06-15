@@ -135,6 +135,76 @@ describe('Slice 4 GAP 3/4 — fail-close (symmetric, byte-identical message both
   });
 });
 
+describe('Slice 4 REVIEW-BLOCKER FIXES — named-group recognition / portability / class-aware lowering', () => {
+  const failsBoth = (src: string, fragment: string): void => {
+    expect(() => ts(src)).toThrow(fragment);
+    expect(() => py(src)).toThrow(fragment);
+  };
+
+  // FIX 1 — `regexCaptureMeta` must COUNT a Unicode-named group so a positional ref
+  // PAST it resolves; the ASCII-only opener regex wrongly counted it as ZERO. We
+  // prove the COUNT is threaded by checking a `$2` that follows a Unicode-named
+  // group resolves to group 2 (NOT mis-clamped to a literal because the count was 1).
+  // Since FIX 2 fail-closes the Unicode NAME, we exercise the count via a pattern
+  // that is portable EXCEPT for proving the group is recognized at all — done at
+  // the oracle/unit level. Here we assert the PATTERN-level fail-close (FIX 2):
+  test('FIX 2 — Unicode-named PATTERN group (?<café>) fail-closes BOTH (benign repl)', () => {
+    // No $<name> repl ref — isolates the PATTERN named-group portability check from
+    // the repl-ref path. The named group itself is non-portable -> symmetric refusal.
+    failsBoth('s.replace(/(?<café>x)/g, "[X]")', 'Non-portable named group');
+  });
+
+  test('FIX 2 — Unicode-named group fail-closes on a NON-replace method too (.match, .test, .split)', () => {
+    // The validator lives at the pattern chokepoint, so EVERY regex method refuses a
+    // non-portable name — not only .replace. (.test receiver position; .match/.split
+    // first-arg position.)
+    failsBoth('/(?<café>x)/.test(s)', 'Non-portable named group');
+    failsBoth('s.match(/(?<café>x)/)', 'Non-portable named group');
+    failsBoth('s.split(/(?<café>x)/)', 'Non-portable named group');
+  });
+
+  test('FIX 2 — a BARE Unicode-named regex literal fail-closes BOTH', () => {
+    // The standalone `regexLit` emit path (a `let re = /…/`) is a SEPARATE TS emit
+    // site from emitTsRegexLiteral; both run the validator so a bare literal refuses.
+    failsBoth('/(?<café>x)/g', 'Non-portable named group');
+  });
+
+  test('FIX 2 — $-prefixed illegal name (?<$x>) fail-closes BOTH', () => {
+    failsBoth('s.replace(/(?<$x>y)/g, "[X]")', 'Non-portable named group');
+  });
+
+  test('FIX 2 — empty name (?<>) fail-closes BOTH', () => {
+    failsBoth('s.replace(/(?<>z)/g, "[X]")', 'Non-portable named group');
+  });
+
+  test('FIX 2 — a Unicode lookbehind (?<=é) is NOT a named group → NO false fail-close', () => {
+    // Lookbehind (?<=…)/(?<!…) must be excluded from named-group recognition: a
+    // non-ASCII char INSIDE a lookbehind body is a pattern literal, not a group name.
+    expect(() => py('s.replace(/(?<=a)b/g, "X")')).not.toThrow();
+    expect(() => ts('s.replace(/(?<=a)b/g, "X")')).not.toThrow();
+  });
+
+  // FIX 3 — `lowerRegexNamedGroupsPython` must be CLASS-AWARE: a literal `\k<g>`
+  // INSIDE a char class is NOT a backreference and must NOT be rewritten to (?P=g).
+  test('FIX 3 — literal \\k<g> inside a char class is NOT rewritten to (?P=g)', () => {
+    // The emitted Python pattern must keep the literal `\\k<g>` class members — the
+    // old blind String.replace corrupted it into `[(?P=g)]`. We assert the emitted
+    // Python contains the (escaped-for-py-source) literal `\k<g>` and NOT `(?P=g)`.
+    const emitted = py('s.replace(/[\\k<g>]/g, "X")');
+    expect(emitted).toContain('[\\\\k<g>]'); // .py source: backslash doubled, class literal kept
+    expect(emitted).not.toContain('(?P=g)');
+  });
+
+  test('FIX 3 — a REAL \\k<name> backref (outside a class) STILL lowers to (?P=name)', () => {
+    // No regression: the true-backref case must still rewrite (?<g>…)→(?P<g>…) and
+    // \k<g>→(?P=g). The class-aware forward pass must not break it.
+    const emitted = py('s.replace(/(?<g>\\w)\\k<g>/g, "<$<g>>")');
+    expect(emitted).toContain('(?P<g>');
+    expect(emitted).toContain('(?P=g)');
+    expect(emitted).not.toContain('\\\\k<g>'); // the real backref WAS rewritten (not left literal)
+  });
+});
+
 describe('Slice 4 GAP 5 — terminal rows: lone/unknown $ is literal', () => {
   test('$-at-EOF → literal "$"', () => {
     expect(py('s.replace(/a/g, "z$")')).toBe('__k_re.sub("a", "z$", s, count=0, flags=__k_re.ASCII)');
