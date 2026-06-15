@@ -18,11 +18,15 @@ import {
   normalizeRegexClasses,
   REGEX_EXEC_FAILCLOSE,
   REGEX_MATCHALL_NO_G_FAILCLOSE,
+  REGEX_REPLACE_NONLITERAL_REPL_FAILCLOSE,
   REGEX_REPLACEALL_NO_G_FAILCLOSE,
   REGEX_SPLIT_LIMIT_FAILCLOSE,
   REGEX_SPLIT_ZEROWIDTH_FAILCLOSE,
   REGEX_TEST_G_FAILCLOSE,
+  regexCaptureMeta,
   regexIFoldFailMessage,
+  validateRegexNamedGroupsPortable,
+  validateReplStringForTS,
 } from './codegen/regex-normalize.js';
 import type { ValueIR } from './value-ir.js';
 
@@ -83,6 +87,10 @@ export function emitExpression(node: ValueIR): string {
       // fold scan leaves them untouched) and on the SAME shared transform Python
       // uses, so the residual pattern is byte-identical across targets. `/i` is
       // kept in the flags.
+      // FIX 2: a non-portable named group (`(?<café>…)`) fail-closes on BOTH
+      // targets (Python `pyRegexPattern` runs the same validator), so a bare regex
+      // literal with a Unicode/illegal group name is refused symmetrically.
+      validateRegexNamedGroupsPortable(node.pattern);
       const classed = normalizeRegexClasses(node.pattern);
       const folded = expandRegexIFold(classed, node.flags);
       if ('failClose' in folded) throw new Error(regexIFoldFailMessage(folded.char, folded.reason));
@@ -400,6 +408,10 @@ function resolveRegexLitTS(node: ValueIR): Extract<ValueIR, { kind: 'regexLit' }
  *  same class/`/i`-fold transform the bare-`regexLit` emit path applies, so a
  *  regex used as a method arg lowers byte-identically to a standalone literal. */
 function emitTsRegexLiteral(node: Extract<ValueIR, { kind: 'regexLit' }>): string {
+  // FIX 2: refuse a non-portable named group symmetrically with the Python target
+  // (the same validator runs in `pyRegexPattern`), so every TS regex-method path
+  // (.test/.match/.split/.replace/…) fail-closes a Unicode/illegal group name.
+  validateRegexNamedGroupsPortable(node.pattern);
   const classed = normalizeRegexClasses(node.pattern);
   const folded = expandRegexIFold(classed, node.flags);
   if ('failClose' in folded) throw new Error(regexIFoldFailMessage(folded.char, folded.reason));
@@ -499,18 +511,44 @@ function lowerRegexCallTS(call: Extract<ValueIR, { kind: 'call' }>): string | nu
 
   // `.replace(s, r)` / `.replaceAll(s, r)` — native methods produce the right
   // string both with and without /g; `.replaceAll` additionally requires /g.
+  //
+  // Milestone C, Slice 4 — the JS `$`-surface replacement string IS native on the
+  // TS target, so it is emitted VERBATIM (no byte rewrite). But the SHARED
+  // fail-close validator runs so the TS target rejects the SAME non-portable
+  // tokens the Python translator rejects (`$\``/`$'`, out-of-range numbered ref,
+  // unknown/illegal named ref, and a non-literal replacement) — the ts-python
+  // lockstep, both targets refuse the same inputs.
   const replaceRegex = call.args.length === 2 ? resolveRegexLitTS(call.args[0]) : null;
   if (callee.property === 'replace' && replaceRegex !== null) {
+    validateReplArgTS(call.args[1], replaceRegex);
     const re = emitTsRegexLiteral(replaceRegex);
     return `${subject()}.replace(${re}, ${emitExpression(call.args[1])})`;
   }
   if (callee.property === 'replaceAll' && replaceRegex !== null) {
     if (!replaceRegex.flags.includes('g')) throw new Error(REGEX_REPLACEALL_NO_G_FAILCLOSE);
+    validateReplArgTS(call.args[1], replaceRegex);
     const re = emitTsRegexLiteral(replaceRegex);
     return `${subject()}.replaceAll(${re}, ${emitExpression(call.args[1])})`;
   }
 
   return null;
+}
+
+/**
+ * Milestone C, Slice 4 — TS-side replacement-argument validation (no rewrite).
+ *
+ * A STRING-LITERAL replacement is run through the shared validator so a
+ * non-portable token (`$\``/`$'`, out-of-range numbered ref, unknown/illegal
+ * named ref) fail-closes byte-identically with the Python target. A NON-LITERAL
+ * replacement fail-closes symmetrically (it cannot be statically translated on
+ * Python). The repl string is otherwise emitted verbatim — JS is the native
+ * surface — so there is no byte rewrite here.
+ */
+function validateReplArgTS(arg: ValueIR, replaceRegex: Extract<ValueIR, { kind: 'regexLit' }>): void {
+  if (arg.kind !== 'strLit') {
+    throw new Error(REGEX_REPLACE_NONLITERAL_REPL_FAILCLOSE);
+  }
+  validateReplStringForTS(arg.value, regexCaptureMeta(replaceRegex.pattern));
 }
 
 function needsStdlibArgParens(arg: ValueIR, template: StdlibCallEntry['ts'], index: number): boolean {
