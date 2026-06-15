@@ -78,6 +78,41 @@ const UNWRAP_REGEX = /\bnew\s+KernUnwrapError\s*\(/;
  *  and must not be force-injected with the KERN canonical-context preamble. */
 const DECIMAL_PRODUCER_REGEX = /\bDecimal\.(?:of|add|sub|mul|neg|abs)\s*\(/;
 
+/** DECIMAL Slice 2 (Finding 1 — remediation) — blank out comment and
+ *  string/template-literal CONTENT before applying {@link DECIMAL_PRODUCER_REGEX}
+ *  to a raw `lang="kern"` body, so a `Decimal.of(` mention that lives ONLY inside a
+ *  line/block comment or a `"…"` / `'…'` / `` `…` `` literal does NOT trip the
+ *  detector into injecting a spurious `decimal.js` import + `Decimal.set(...)`
+ *  preamble into a module that never actually lowers a Decimal.
+ *
+ *  This is the offset-preserving mask used by `parser-validate-effects.ts` /
+ *  `parser-validate-propagation.ts` (replace content with spaces, keep length), kept
+ *  byte-identical so the comment/string surface this detector ignores is exactly the
+ *  one the rest of the compiler already treats as non-code.
+ *
+ *  SOUNDNESS (the load-bearing property): it ONLY blanks content that cannot host a
+ *  real producer call — a genuine `Decimal.of("1.5")` keeps `Decimal.of(` intact
+ *  (only the `"1.5"` argument is masked to `"   "`), so the regex still matches and
+ *  a real producer is NEVER missed (no false NEGATIVE → no reintroduced missing
+ *  import). Block comments are stripped before line comments before strings — the
+ *  same precedence the shared helper uses. */
+function maskCommentsAndStrings(code: string): string {
+  return code
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => ' '.repeat(m.length))
+    .replace(/\/\/[^\n]*/g, (m) => ' '.repeat(m.length))
+    .replace(/"(?:[^"\\\n]|\\.)*"/g, (m) => `"${' '.repeat(Math.max(0, m.length - 2))}"`)
+    .replace(/'(?:[^'\\\n]|\\.)*'/g, (m) => `'${' '.repeat(Math.max(0, m.length - 2))}'`)
+    .replace(/`(?:[^`\\]|\\.)*`/g, (m) => `\`${' '.repeat(Math.max(0, m.length - 2))}\``);
+}
+
+/** True iff `code` references a Decimal producer in REAL code (comment/string
+ *  mentions masked out first). The single choke point both the string-prop and the
+ *  ExprObject (`{{ … }}`) `.code` paths route through, so the false-positive fix is
+ *  applied uniformly. */
+function codeUsesDecimalProducer(code: string): boolean {
+  return DECIMAL_PRODUCER_REGEX.test(maskCommentsAndStrings(code));
+}
+
 function scanString(s: string, usage: KernStdlibUsage): void {
   if (!usage.result && RESULT_REGEX.test(s)) usage.result = true;
   if (!usage.option && OPTION_REGEX.test(s)) usage.option = true;
@@ -91,14 +126,16 @@ function scanString(s: string, usage: KernStdlibUsage): void {
 function subtreeUsesDecimalProducer(node: IRNode): boolean {
   if (node.props) {
     for (const value of Object.values(node.props)) {
-      if (typeof value === 'string' && DECIMAL_PRODUCER_REGEX.test(value)) return true;
+      // Mask comment / string-literal mentions before matching so a `Decimal.of(`
+      // that lives ONLY in a comment or string does not force a spurious import.
+      if (typeof value === 'string' && codeUsesDecimalProducer(value)) return true;
       // The `{{ … }}` ExprObject escape hatch carries its source in `.code`.
       if (
         value !== null &&
         typeof value === 'object' &&
         (value as { __expr?: unknown }).__expr === true &&
         typeof (value as { code?: unknown }).code === 'string' &&
-        DECIMAL_PRODUCER_REGEX.test((value as { code: string }).code)
+        codeUsesDecimalProducer((value as { code: string }).code)
       ) {
         return true;
       }
@@ -239,7 +276,11 @@ export function kernStdlibPreamble(usage: KernStdlibUsage): string[] {
   if (usage.decimal) {
     lines.push('// ── KERN Decimal runtime (auto-emitted) ─────────────────────────────');
     lines.push(...decimalImportLineTS().split('\n'));
-    lines.push('');
+    // Separator blank ONLY when a Result/Option/unwrap stdlib block follows — the
+    // shared trailing `push('')` below already supplies the single blank line that
+    // separates a decimal-ONLY preamble from user code. Pushing it here too produced
+    // a stray DOUBLE blank line in the decimal-only path (Slice 2 nit fix).
+    if (usage.result || usage.option || usage.unwrap) lines.push('');
   }
 
   if (usage.result || usage.option || usage.unwrap) {

@@ -81,8 +81,8 @@ describe('Decimal Slice 2 — TS import channel renders end-to-end (Finding 1)',
     expect(code).toContain('export function add2');
   });
 
-  test('every TS-family target renders the import (mcp / express / terminal share the seam)', () => {
-    for (const target of ['lib', 'express', 'terminal'] as KernTarget[]) {
+  test('every TS-family target renders the import (lib / mcp / express / terminal share the seam)', () => {
+    for (const target of ['lib', 'mcp', 'express', 'terminal'] as KernTarget[]) {
       const code = compile(DECIMAL_MODULE, target);
       expect(code).toContain("import Decimal from 'decimal.js';");
       expect(code).toContain('Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_EVEN });');
