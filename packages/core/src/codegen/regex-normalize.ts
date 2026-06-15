@@ -26,18 +26,33 @@
  *   3. `re.ASCII` injection happens in the Python flag emitter (not here) so
  *      Python `\b` and the ASCII classes behave like JS.
  *
- * DELIBERATE SLICE-1 LIMITATION (do NOT "fix" this here — it is the certified
- * contract): the transforms are crude string replacements over the raw pattern.
- * A literal `\\d` (escaped backslash + `d`), a `\d` inside a `[...]` set, or a
- * `$`/`^` inside a char class / escaped as `\$` is rewritten the same crude way.
- * This is parity-SAFE precisely because the SAME function runs on both targets:
- * an identical string transform yields an identical residual pattern, so a crude
- * edge can never *diverge* between TS and Python (even if it is "wrong", it is
- * wrong identically). A tokenizing normalizer is a later hardening, not Slice 1.
- * The certified oracle (`.agon-goals/regex-slice1-oracle/`) does not exercise
- * those edges; matching the oracle's reference transform byte-for-byte IS the
- * spec, so keeping this crude is required for byte-identity.
+ * CLASS-/ESCAPE-AWARE NORMALIZERS (hardening over the original Slice-1 crude
+ * `replaceAll`): both {@link normalizeRegexClasses} and {@link lowerRegexAnchorsPython}
+ * now walk the pattern with `classDepth` + escape bookkeeping (the shared
+ * {@link scanCharClass} helper) instead of blind string replacement, so:
+ *   - `\d`/`\w`/`\s` INSIDE a `[...]` set expand to the BARE body (`[\d_]`→`[0-9_]`),
+ *     not the INVALID nested class `[[0-9]_]` the old `replaceAll` produced;
+ *   - a LITERAL `\\d` (escaped backslash + `d`) and an escaped `\$`/`\^` are left
+ *     VERBATIM (only an ACTIVE, unescaped shorthand/anchor is transformed).
+ * Parity is still by *construction*: the SAME function runs on both targets, so a
+ * given input yields a byte-identical residual pattern on each side. Both emitters
+ * feed the same (modulo the Python `\/`→`/` un-escape, which touches only `/`)
+ * input, so the shorthand expansion is identical across TS and Python.
  */
+
+/**
+ * The ASCII character-class CONTENTS that the shorthand classes `\d \w \s` expand
+ * to (the BARE range body, with NO surrounding `[...]`). Out of a class these are
+ * wrapped in fresh brackets (`[0-9]`); inside an existing `[...]` they are emitted
+ * BARE (`0-9`) so the class is not invalidly nested. The exact content is the
+ * certified Slice-1 contract (the `\s` set is a deliberate parity NARROWING that
+ * drops Unicode whitespace such as NBSP) — do NOT change what these expand to.
+ */
+const SHORTHAND_CLASS_BODY: Record<string, string> = {
+  d: '0-9',
+  w: 'A-Za-z0-9_',
+  s: ' \\t\\n\\r\\f\\v',
+};
 
 /**
  * Rewrite the shorthand classes `\d \w \s` to explicit ASCII character classes.
@@ -47,9 +62,95 @@
  * ASCII) but is emitted anyway so both emitters read from ONE normalizer; the
  * `\s` normalization on TS is load-bearing (it narrows JS `\s` to drop Unicode
  * whitespace such as NBSP).
+ *
+ * CLASS- AND ESCAPE-AWARE (single forward pass). The expansion FORM depends on
+ * whether the shorthand sits inside a `[...]` character class:
+ *   - OUT of a class (classDepth 0): `\d`→`[0-9]`, `\w`→`[A-Za-z0-9_]`,
+ *     `\s`→`[ \t\n\r\f\v]` (a fresh bracketed class).
+ *   - INSIDE a class (classDepth > 0): `\d`→`0-9`, `\w`→`A-Za-z0-9_`,
+ *     `\s`→` \t\n\r\f\v` — the BARE body, NO brackets. The old blind `replaceAll`
+ *     turned `/[\d_]/` into the INVALID nested class `[[0-9]_]`; the bare form
+ *     keeps it the valid `[0-9_]`.
+ * A `\d`/`\w`/`\s` is only expanded when its `\` is an ACTIVE shorthand backslash
+ * (an UNescaped `\`). A `\\d` (escaped backslash, then a LITERAL `d`) leaves the
+ * `d` untouched — the old `replaceAll('\\d', …)` wrongly rewrote it. The matching
+ * `]` of each class is found via the literal-`]`-first-aware {@link scanCharClass}
+ * (an unterminated class passes through VERBATIM without expansion).
+ *
+ * ORDERING INVARIANT (codified): this pass runs FIRST in the regex pipeline —
+ * before {@link expandRegexIFold} and {@link lowerRegexAnchorsPython} on both
+ * targets (TS: codegen-expression.ts; Python: codegen-body-python.ts). It is the
+ * ONLY pass that EMITS `[`/`]` from shorthand expansion; every downstream pass
+ * re-scans char classes with {@link scanCharClass}, so the brackets it introduces
+ * are honored exactly. Do NOT reorder the pipeline and do NOT add a second
+ * `[`/`]`-emitting normalizer.
  */
 export function normalizeRegexClasses(pattern: string): string {
-  return pattern.replaceAll('\\d', '[0-9]').replaceAll('\\w', '[A-Za-z0-9_]').replaceAll('\\s', '[ \\t\\n\\r\\f\\v]');
+  const chars = Array.from(pattern);
+  let out = '';
+  // `classDepth` is 0 outside any `[...]`, 1 inside (classes do not nest — an
+  // inner `[` is a literal). `classCloseIdx` is the index of the current class's
+  // MATCHING `]` (from {@link scanCharClass}); we close ONLY there, so a literal
+  // `]`-first member (`[]]`, `[^]]`, `[]d]`) does not close the class early.
+  // `escaped` tracks whether the current char follows an unescaped backslash.
+  let classDepth = 0;
+  let classCloseIdx = -1;
+  let escaped = false;
+
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i];
+
+    // The char after a backslash. A shorthand `\d`/`\w`/`\s` is expanded HERE (the
+    // `\` was an ACTIVE, unescaped backslash). Any other escaped char — including a
+    // LITERAL `d`/`w`/`s` after an ESCAPED backslash (`\\d`) — is emitted verbatim,
+    // so `\\d` is never rewritten. The escape also suppressed `[`/`]` bookkeeping
+    // (handled by the `ch === '\\'` branch toggling `escaped`), so `\[`/`\]` are
+    // not class delimiters.
+    if (escaped) {
+      const body = SHORTHAND_CLASS_BODY[ch];
+      if (body !== undefined) {
+        out = out.slice(0, -1); // drop the active `\` we already emitted
+        out += classDepth > 0 ? body : `[${body}]`;
+      } else {
+        out += ch;
+      }
+      escaped = false;
+      continue;
+    }
+    if (ch === '\\') {
+      out += ch;
+      escaped = true;
+      continue;
+    }
+
+    // Unescaped `[` that OPENS a class. Record its matching `]` so the shorthand
+    // expansion above emits the BARE body while inside, and the close is
+    // literal-`]`-first-aware. DEFENSIVE: an UNTERMINATED class (`closeIdx === -1`)
+    // is NOT entered — we emit the `[` verbatim and keep scanning at depth 0 so the
+    // malformed pattern passes through (and surfaces at emit) rather than silently
+    // switching every following shorthand to the bare in-class form.
+    if (ch === '[' && classDepth === 0) {
+      const scanned = scanCharClass(chars, i);
+      if (scanned.closeIdx !== -1) {
+        classDepth = 1;
+        classCloseIdx = scanned.closeIdx;
+      }
+      out += ch;
+      continue;
+    }
+    // The class's MATCHING `]` (a `]` before it is a literal `]`-first member and
+    // falls through to be emitted verbatim).
+    if (classDepth > 0 && i === classCloseIdx) {
+      classDepth = 0;
+      classCloseIdx = -1;
+      out += ch;
+      continue;
+    }
+
+    out += ch;
+  }
+
+  return out;
 }
 
 /**
