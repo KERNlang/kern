@@ -534,6 +534,140 @@ describe('Slice 2 — `typeof <host root>` fail-close SYMMETRICALLY (round 6)', 
   });
 });
 
+describe('Slice 2 — WRAPPED `typeof <host root>` fail-close, cross-target (round 7)', () => {
+  // ROUND-7 REGRESSION FIX. The round-6 `typeof <host root>` reject fired only on a
+  // DIRECT `ident` operand. A WRAPPED operand (`typeof (Date as any)`, `typeof
+  // (Date!)`, parenthesized `typeof (Date)`, nested `typeof (Date as any as
+  // unknown)`) arrived as a `typeAssert`/`nonNull` node and BYPASSED the reject: TS
+  // emitted the wrapper verbatim while Python lowered a runtime Date/process lookup
+  // (NameError) → divergence. The fix recursively peels the transparent wrappers via
+  // the round-5 `unwrapTransparentReceiverIR` before the host-root check on every
+  // leg, so a wrapped operand fails-close identically to the bare form.
+
+  // Date / process / nested double-assertion → generic host message, byte-identical
+  // modulo the target label (`TypeScript` vs `Python`).
+  test.each([
+    'typeof (Date)',
+    'typeof (Date as any)',
+    'typeof (Date!)',
+    'typeof (process as any)',
+    'typeof (Date as any as unknown)', // nested — fixpoint unwrap collapses
+  ])('%s FAILS-CLOSE with the generic host message on both targets', (src) => {
+    const t = ts(src);
+    const p = py(src);
+    expect(t.ok).toBe(false);
+    expect(p.ok).toBe(false);
+    expect(t.message).toMatch(/Unsupported host namespace/);
+    expect(p.message).toMatch(/Unsupported host namespace/);
+    expect(t.message.replace('TypeScript', 'X')).toBe(p.message.replace('Python', 'X'));
+  });
+
+  // Wrapped `RegExp` → the shared regex message on both targets.
+  test.each([
+    'typeof (RegExp)',
+    'typeof (RegExp as any)',
+    'typeof (RegExp!)',
+  ])('%s FAILS-CLOSE with the SAME regex message on TS and Python', (src) => {
+    const t = ts(src);
+    const p = py(src);
+    expect(t.ok).toBe(false);
+    expect(p.ok).toBe(false);
+    expect(t.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    expect(p.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    expect(t.message).toBe(p.message);
+  });
+
+  // A wrapped NON-host operand is NOT over-rejected on either target.
+  test.each([
+    'typeof (userLocal)',
+    'typeof (userLocal as any)',
+    'typeof (window)',
+    'typeof (window as any)',
+  ])('%s is NOT over-rejected on either target', (src) => {
+    expect(ts(src).ok).toBe(true);
+    expect(py(src).ok).toBe(true);
+  });
+});
+
+describe('Slice 2 — block-scope `RegExp` shadow honored IDENTICALLY (round 7 — block-scope hook now REQUIRED)', () => {
+  // ROUND-7 HOOK-WIRING REGRESSION GUARD. The Python leg's block-scope hooks
+  // (`enterBlockScope`/`exitBlockScope`) keep its block-local shadow stack in
+  // lockstep with the TS-AST closure walk. They were silently OPTIONAL (`?`), so a
+  // consumer that forgot to wire them would make the Python leg no-op block-scope
+  // tracking → fail-OPEN on a block-local `RegExp` shadow while TS stayed closed.
+  // Round-7 makes the hooks REQUIRED in `LowerJsClosureBodyToPythonOptions` (a
+  // missing wire is now a COMPILE ERROR; the route path opts out with explicit
+  // no-ops). These tests prove a block-local `RegExp` shadow — including inside a
+  // NESTED block — is honored IDENTICALLY on both legs (no Python fail-open).
+  //
+  // NOTE on destructuring: a DESTRUCTURED shadow (`const { RegExp } = x`) is gated
+  // out as `closure-destructure` BEFORE the host screen on both legs (asserted at
+  // the end), so it cannot exercise the hook; the hook is exercised by a PLAIN
+  // block-local `const RegExp = …` declaration, which the gate accepts.
+  const bodyEmitTS = (arrow: string): { ok: boolean; message: string } => {
+    try {
+      return { ok: true, message: tsBody([{ type: 'let', props: { name: 'f', value: arrow } } as IRNode]) };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  };
+  const bodyEmitPy = (arrow: string): { ok: boolean; message: string } => {
+    try {
+      return { ok: true, message: pyBody([{ type: 'let', props: { name: 'f', value: arrow } } as IRNode]) };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  };
+
+  // A block-local `const RegExp = 1` shadows the host root for the whole block —
+  // accepted on BOTH targets (the `enterBlockScope` hook pushes the shadow). This is
+  // the canonical hook-exercising shape; the REQUIRED hooks guarantee the Python leg
+  // cannot silently regress to a no-op shadow stack (fail-open).
+  test('top-level block-local `const RegExp = 1` shadow → accepted IDENTICALLY on both legs', () => {
+    const src = '() => { const RegExp = 1; return RegExp; }';
+    expect(bodyEmitTS(src).ok).toBe(true);
+    expect(bodyEmitPy(src).ok).toBe(true);
+  });
+
+  // A shadow declared inside a NESTED block, referenced INSIDE that block → accepted
+  // on both targets (real per-block scope: the hook pushes the nested boundary).
+  test('nested-block `const RegExp = 1` + IN-BLOCK ref → accepted IDENTICALLY on both legs', () => {
+    const src = '() => { if (ok) { const RegExp = 1; return RegExp; } return 2; }';
+    expect(bodyEmitTS(src).ok).toBe(true);
+    expect(bodyEmitPy(src).ok).toBe(true);
+  });
+
+  // …and a shadow declared ONLY inside a nested block must NOT shadow an OUTER
+  // `return RegExp` — fails-close on BOTH targets (the `exitBlockScope` hook POPS the
+  // nested boundary, so the outer reference sees the host root). This is the exact
+  // divergence shape that fail-OPENED on Python before the round-3 fix; the now-
+  // REQUIRED hooks structurally guarantee the Python leg cannot regress to it.
+  test('nested-block `const RegExp = 1` + OUTER ref → fails-close IDENTICALLY on both legs', () => {
+    const src = '() => { if (ok) { const RegExp = 1; } return RegExp; }';
+    const t = bodyEmitTS(src);
+    const p = bodyEmitPy(src);
+    expect(t.ok).toBe(false);
+    expect(p.ok).toBe(false);
+    expect(t.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    expect(p.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    expect(p.message).toBe(t.message);
+  });
+
+  // PARITY of the gate itself — a DESTRUCTURED `const { RegExp } = x` shadow is
+  // rejected as `closure-destructure` BEFORE the host screen, byte-identically on
+  // BOTH legs (so the Python leg never silently fail-opens on a destructured shadow:
+  // it is gate-rejected in lockstep, not screened then mis-shadowed).
+  test('destructured `const { RegExp } = x` is gate-rejected IDENTICALLY on both legs', () => {
+    const src = '() => { const { RegExp } = x; return RegExp; }';
+    const t = bodyEmitTS(src);
+    const p = bodyEmitPy(src);
+    expect(t.ok).toBe(false);
+    expect(p.ok).toBe(false);
+    expect(t.message).toMatch(/closure-destructure/);
+    expect(p.message).toBe(t.message);
+  });
+});
+
 describe('Slice 2 — OVER-REJECTION fixes, cross-target (round 5)', () => {
   // A wrapped NON-regex receiver is unaffected — emits/validates as an ordinary
   // member read on both targets (no regex fail-close, no message substitution).

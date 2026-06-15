@@ -82,6 +82,7 @@ import {
   suggestStdlibMethod,
   translateReplStringToPython,
   unmappedHostNamespaceMessage,
+  unwrapTransparentReceiverIR,
   validateRegexNamedGroupsPortable,
 } from '@kernlang/core';
 // Slice 0.9 — the TypeScript-AST closure helpers + classifier live on the Node
@@ -2486,10 +2487,22 @@ function emitPyTypeof(argument: ValueIR, ctx: BodyEmitContext): string {
   // (`typeof userLocal`, `typeof undeclaredFeatureFlag`) and a proven user binding
   // fall through to the runtime ladder below, unchanged. `typeof RegExp.prototype`
   // is a `member` operand and still fails-close via the generic guards.
-  if (argument.kind === 'ident' && !isProvenUserBinding(ctx, argument.name)) {
-    if (argument.name === 'RegExp') throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
-    if (isHostNamespaceRoot(argument.name)) {
-      throw new Error(unmappedHostNamespaceMessage('Python', argument.name, 'typeof'));
+  //
+  // Round-7 fix — a WRAPPED operand (`typeof (Date as any)`, `typeof (Date!)`)
+  // arrived as `typeAssert`/`nonNull`, NOT an `ident`, so the round-6 reject was
+  // bypassed and Python lowered a runtime Date/process lookup (NameError) while
+  // the (now-corrected) TS leg emits `typeof Date`. Peel the transparent wrappers
+  // via the round-5 `unwrapTransparentReceiverIR` (fixpoint over
+  // `typeAssert`/`nonNull`) and apply the host-root reject to the UNWRAPPED
+  // operand, identically to the TS-emit + IR-validate legs. The runtime-ladder
+  // fall-through below still operates on the ORIGINAL `argument`, so an accepted
+  // wrapped operand (`typeof (userLocal as any)`) emits the wrapper's value
+  // unchanged.
+  const typeofOperand = unwrapTransparentReceiverIR(argument);
+  if (typeofOperand.kind === 'ident' && !isProvenUserBinding(ctx, typeofOperand.name)) {
+    if (typeofOperand.name === 'RegExp') throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
+    if (isHostNamespaceRoot(typeofOperand.name)) {
+      throw new Error(unmappedHostNamespaceMessage('Python', typeofOperand.name, 'typeof'));
     }
   }
   switch (argument.kind) {

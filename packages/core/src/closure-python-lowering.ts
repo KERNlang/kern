@@ -32,9 +32,19 @@ export interface LowerJsClosureBodyToPythonOptions {
    *  `exitBlockScope` is called after, with the SAME names. The consumer uses
    *  them to push/pop block-local shadows so a `RegExp` reference fails-close
    *  ONLY when no in-scope block-local/param shadows it — byte-aligned with the
-   *  TS-AST closure walk. Omitted = no block-scope tracking (route path). */
-  enterBlockScope?(names: string[]): void;
-  exitBlockScope?(names: string[]): void;
+   *  TS-AST closure walk.
+   *
+   *  REQUIRED (round-7 — was silently `?`-optional). An optional hook let a
+   *  consumer omit the wire and the lowerer silently no-op the block-scope
+   *  tracking → the Python leg would FAIL-OPEN on a destructured / nested-block
+   *  `RegExp` shadow while the TS leg stayed closed, a one-target divergence the
+   *  type system could not catch. Making both REQUIRED turns a missing wire into
+   *  a COMPILE ERROR. A consumer that genuinely wants NO block-scope tracking
+   *  (the route path, which screens host names through a different rewriter and
+   *  has no per-block shadow stack) passes EXPLICIT no-op (identity) functions —
+   *  an intentional opt-out that is visible at the call site, not an accident. */
+  enterBlockScope(names: string[]): void;
+  exitBlockScope(names: string[]): void;
 }
 
 export interface LowerJsClosureBodyToPythonResult {
@@ -315,7 +325,7 @@ export function lowerJsClosureBodyToPython(
     // statements (JS hoisting), pop after — so a `RegExp` reference inside a
     // nested block sees the nested local, while a reference OUTSIDE it does not.
     const scopeNames = blockTopLevelDeclaredNames(b);
-    opts.enterBlockScope?.(scopeNames);
+    opts.enterBlockScope(scopeNames);
     try {
       const lines: string[] = [];
       for (const stmt of b.statements) {
@@ -325,7 +335,7 @@ export function lowerJsClosureBodyToPython(
       }
       return lines;
     } finally {
-      opts.exitBlockScope?.(scopeNames);
+      opts.exitBlockScope(scopeNames);
     }
   };
 

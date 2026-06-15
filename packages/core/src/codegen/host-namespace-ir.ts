@@ -14,6 +14,7 @@ import {
   classifyRegexLiteralValueIRCallCalleeFailClose,
   REGEX_HOST_REGEXP_FAILCLOSE,
   regexLiteralReceiverIR,
+  unwrapTransparentReceiverIR,
 } from './regex-normalize.js';
 
 interface ValidationScope {
@@ -282,9 +283,20 @@ function validateValueIR(node: ValueIR, scope: ValidationScope): void {
       // but routing through the dedicated reject keeps the three legs in lockstep).
       // A `typeof RegExp.prototype` operand is a `member`, so it still descends and
       // fails-close.
-      if (node.op === 'typeof' && node.argument.kind === 'ident') {
-        rejectTypeofHostRootIR(node.argument.name, scope);
-        return;
+      //
+      // Round-7 fix — a WRAPPED operand (`typeof (Date as any)`, `typeof (Date!)`)
+      // arrived as `typeAssert`/`nonNull`, NOT an `ident`, so the round-6 reject was
+      // bypassed and IR-validate accepted it (diverging from the corrected emit
+      // legs). Peel the transparent wrappers via the round-5
+      // `unwrapTransparentReceiverIR` (fixpoint over `typeAssert`/`nonNull`) and
+      // reject the UNWRAPPED operand, identically to the TS-emit and Python-emit
+      // legs. A wrapped non-ident operand still descends through `validateValueIR`.
+      if (node.op === 'typeof') {
+        const operand = unwrapTransparentReceiverIR(node.argument);
+        if (operand.kind === 'ident') {
+          rejectTypeofHostRootIR(operand.name, scope);
+          return;
+        }
       }
       validateValueIR(node.argument, scope);
       return;

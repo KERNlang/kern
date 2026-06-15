@@ -19,6 +19,7 @@
 import {
   collectClosureBlockMemberAccesses,
   collectClosureBlockRegexHostViolations,
+  collectClosureBlockTypeofOperands,
 } from '../src/closure-eligibility.js';
 import { isHostNamespaceRoot } from '../src/codegen/host-namespace.js';
 import { beginIRHostNamespacesValidatedTS } from '../src/codegen/host-namespace-ir.js';
@@ -635,6 +636,121 @@ describe('Slice 2 — `typeof <host root>` fail-close (round 6 — the round-5 c
   test('`typeof RegExp.prototype` still fails-close (member read, not a bare ident)', () => {
     expect(emitTS('typeof RegExp.prototype').ok).toBe(false);
     expect(validateIR('typeof RegExp.prototype').ok).toBe(false);
+  });
+});
+
+describe('Slice 2 — WRAPPED `typeof <host root>` fail-close (round 7 — close the wrapped-operand bypass)', () => {
+  // ROUND-7 REGRESSION FIX. The round-6 `typeof <host root>` reject only fired when
+  // the operand was a DIRECT `ident` (`node.argument.kind === 'ident'`). A WRAPPED
+  // operand — parenthesized `typeof (Date)`, asserted `typeof (Date as any)`,
+  // non-null `typeof (Date!)`, nested `typeof (Date as any as unknown)` — arrived as
+  // a `typeAssert`/`nonNull` node and BYPASSED the reject: TS emitted the wrapper
+  // verbatim while the Python leg lowered a runtime Date/process lookup → divergence.
+  // The fix RECURSIVELY peels the transparent wrappers via the round-5
+  // `unwrapTransparentReceiverIR` (fixpoint over `typeAssert`/`nonNull`) BEFORE the
+  // host-root check on ALL legs, so a wrapped operand screens exactly like the bare
+  // form. (The TS-AST closure leg uses the round-5 `unwrapRegexReceiverTS` twin.)
+
+  // Date / process / a NESTED double-assertion all fail-close with the GENERIC host
+  // message on both legs — byte-identical (the parity property), exactly like the
+  // bare `typeof Date` round-6 case.
+  test.each([
+    'typeof (Date)',
+    'typeof (Date as any)',
+    'typeof (Date!)',
+    'typeof (process as any)',
+    'typeof (process!)',
+    'typeof (Date as any as unknown)', // nested — fixpoint unwrap must collapse
+  ])('%s FAILS-CLOSE with the generic host message on TS-emit + IR-validate (identical)', (src) => {
+    const emit = emitTS(src);
+    expect(emit.ok).toBe(false);
+    expect(emit.message).toMatch(/Unsupported host namespace/);
+    const val = validateIR(src);
+    expect(val.ok).toBe(false);
+    expect(val.message).toMatch(/Unsupported host namespace/);
+    expect(emit.message).toBe(val.message);
+  });
+
+  // A wrapped `RegExp` operand fails-close with the REGEX message (matching the bare
+  // `typeof RegExp` round-6 case), not the generic host one.
+  test.each([
+    'typeof (RegExp)',
+    'typeof (RegExp as any)',
+    'typeof (RegExp!)',
+  ])('%s FAILS-CLOSE with the regex message on TS-emit + IR-validate', (src) => {
+    const emit = emitTS(src);
+    expect(emit.ok).toBe(false);
+    expect(emit.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    const val = validateIR(src);
+    expect(val.ok).toBe(false);
+    expect(val.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+  });
+
+  // A wrapped NON-host operand must NOT be over-rejected — the wrappers are peeled,
+  // the bare `userLocal`/`window` is accepted, and the emitted TS is `typeof <name>`
+  // (the no-runtime-value wrappers stripped → byte-equivalent across both legs).
+  test.each([
+    ['typeof (userLocal)', 'typeof userLocal'],
+    ['typeof (userLocal as any)', 'typeof userLocal'],
+    ['typeof (window)', 'typeof window'],
+    ['typeof (window as any)', 'typeof window'],
+  ])('%s is NOT over-rejected (emits native typeof) on TS-emit + IR-validate', (src, emitted) => {
+    const emit = emitTS(src);
+    expect(emit.ok).toBe(true);
+    expect(emit.message).toBe(emitted);
+    expect(validateIR(src).ok).toBe(true);
+  });
+
+  // User shadowing survives the unwrap — a `const Date` binding makes the wrapped
+  // `typeof (Date as any)` the user's value (accepted on both legs).
+  test('wrapped `typeof (Date as any)` with a user binding of `Date` is accepted on both legs', () => {
+    expect(emitTS('typeof (Date as any)', ['Date']).ok).toBe(true);
+    expect(validateIR('typeof (Date as any)', ['Date']).ok).toBe(true);
+  });
+
+  // CLOSURE-WALK leg — the operand collector now unwraps the transparent TS-AST
+  // wrappers, so a wrapped operand records the UNDERLYING name (Date/process/RegExp/
+  // userLocal), matching the ValueIR legs. (The consumer rejects Date/process via
+  // the generic host message; RegExp is owned by the regex walk, hence skipped here.)
+  test('closure-walk records the UNWRAPPED operand name for wrapped `typeof`', () => {
+    expect(collectClosureBlockTypeofOperands('{ return typeof (Date as any); }')).toEqual([
+      { name: 'Date', locallyShadowed: false },
+    ]);
+    expect(collectClosureBlockTypeofOperands('{ return typeof (process!); }')).toEqual([
+      { name: 'process', locallyShadowed: false },
+    ]);
+    expect(collectClosureBlockTypeofOperands('{ return typeof (Date as any as unknown); }')).toEqual([
+      { name: 'Date', locallyShadowed: false },
+    ]);
+    expect(collectClosureBlockTypeofOperands('{ return typeof (userLocal as any); }')).toEqual([
+      { name: 'userLocal', locallyShadowed: false },
+    ]);
+  });
+
+  // …and the block-bodied emit path fails-close on the wrapped operand: Date/process
+  // with the generic host message, RegExp with the regex message (the regex walk
+  // catches the wrapped `RegExp`), while a wrapped non-host / block-local-shadowed
+  // operand is accepted.
+  test.each([
+    '() => { return typeof (Date as any); }',
+    '() => { return typeof (process!); }',
+  ])('block-bodied %s fails-close with the generic host message', (src) => {
+    const emit = emitTS(src);
+    expect(emit.ok).toBe(false);
+    expect(emit.message).toMatch(/Unsupported host namespace/);
+  });
+
+  test('block-bodied wrapped `typeof (RegExp as any)` fails-close with the regex message', () => {
+    const emit = emitTS('() => { return typeof (RegExp as any); }');
+    expect(emit.ok).toBe(false);
+    expect(emit.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+  });
+
+  test.each([
+    '() => { return typeof (userLocal as any); }',
+    '() => { const Date = x; return typeof (Date as any); }',
+  ])('block-bodied %s is accepted (non-host / shadowed wrapped operand)', (src) => {
+    expect(emitTS(src).ok).toBe(true);
   });
 });
 

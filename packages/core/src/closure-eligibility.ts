@@ -435,10 +435,16 @@ export interface ClosureBlockTypeofOperand {
  *  {@link collectClosureBlockRegexHostViolations}: each block predeclares its
  *  top-level let/const/function/class names (incl. destructuring) BEFORE visiting
  *  its refs, so a block-local shadow is honored for the whole block. Only the
- *  DIRECT bare-identifier operand of a `typeof` is reported — `typeof Date.now`
- *  (a member operand) is owned by the generic member-access scan, and
- *  `typeof (x)` / any non-identifier operand records nothing. A parse failure
- *  yields an empty list (the gate already rejected such bodies). */
+ *  bare-identifier operand of a `typeof` is reported, AFTER recursively peeling
+ *  the transparent TS-AST wrappers via {@link unwrapRegexReceiverTS} — so a
+ *  WRAPPED operand (`typeof (Date as any)`, `typeof (Date!)`, parenthesized
+ *  `typeof (Date)`, nested `typeof (Date as any as unknown)`) records the
+ *  underlying `Date` name, identically to the ValueIR legs that peel
+ *  `typeAssert`/`nonNull` via `unwrapTransparentReceiverIR` (round-7 closes the
+ *  wrapped-operand bypass on this leg too). `typeof Date.now` (a member operand)
+ *  is owned by the generic member-access scan, and any operand that does NOT
+ *  unwrap to a bare identifier records nothing. A parse failure yields an empty
+ *  list (the gate already rejected such bodies). */
 export function collectClosureBlockTypeofOperands(raw: string): ClosureBlockTypeofOperand[] {
   const block = parseClosureBlockAst(raw);
   if (block === null) return [];
@@ -453,8 +459,15 @@ export function collectClosureBlockTypeofOperands(raw: string): ClosureBlockType
       scopes.pop();
       return;
     }
-    if (ts.isTypeOfExpression(node) && ts.isIdentifier(node.expression)) {
-      operands.push({ name: node.expression.text, locallyShadowed: isLocal(node.expression.text) });
+    if (ts.isTypeOfExpression(node)) {
+      // Round-7 — peel the transparent TS-AST wrappers (paren/`as`/`<T>`/`!`/
+      // `satisfies`) via the round-5 `unwrapRegexReceiverTS` (fixpoint) BEFORE the
+      // bare-identifier check, so a WRAPPED operand (`typeof (Date as any)`) is
+      // recorded as the underlying `Date` — matching the ValueIR legs' unwrap.
+      const operand = unwrapRegexReceiverTS(node.expression);
+      if (ts.isIdentifier(operand)) {
+        operands.push({ name: operand.text, locallyShadowed: isLocal(operand.text) });
+      }
     }
     ts.forEachChild(node, visit);
   };

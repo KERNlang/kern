@@ -32,6 +32,7 @@ import {
   regexIFoldFailMessage,
   regexLiteralReceiverIR,
   scanRegexAstral,
+  unwrapTransparentReceiverIR,
   validateRegexNamedGroupsPortable,
   validateReplStringForTS,
 } from './codegen/regex-normalize.js';
@@ -340,9 +341,23 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       // identifier never trips a value-position screen. `typeof RegExp.prototype`
       // is a `member` operand (not an `ident`), so it is owned by the recursion
       // below and still fails-close.
-      if (node.op === 'typeof' && node.argument.kind === 'ident') {
-        rejectTypeofHostRootTS(node.argument.name, ctx);
-        return `typeof ${node.argument.name}`;
+      //
+      // Round-7 fix — a WRAPPED operand (`typeof (Date as any)`, `typeof (Date!)`,
+      // parenthesized `typeof (Date)`) reached this site as a `typeAssert`/`nonNull`
+      // node, NOT an `ident`, so the round-6 reject was bypassed: TS emitted the
+      // wrapper verbatim while Python lowered a runtime Date/process lookup →
+      // divergence. We RECURSIVELY peel the transparent wrappers via the round-5
+      // `unwrapTransparentReceiverIR` (fixpoint over `typeAssert`/`nonNull`, so
+      // nested `typeof (Date as any as unknown)` also collapses) and apply the
+      // host-root reject to the UNWRAPPED operand. The wrappers carry no runtime
+      // value on either target, so emitting `typeof <unwrapped>` for an accepted
+      // operand (`typeof (userLocal as any)`) is byte-equivalent across both legs.
+      if (node.op === 'typeof') {
+        const operand = unwrapTransparentReceiverIR(node.argument);
+        if (operand.kind === 'ident') {
+          rejectTypeofHostRootTS(operand.name, ctx);
+          return `typeof ${operand.name}`;
+        }
       }
       // Slice-2 review fix: wrap binary/unary/spread args in parens to preserve
       // unary's tight binding. `!(a === b)` would otherwise emit `!a === b`.

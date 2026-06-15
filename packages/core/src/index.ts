@@ -134,6 +134,11 @@ export {
   // Milestone C, Slice 4 — shared replacement-string translator (Python rewrite)
   // + the TS-side validator (verbatim-but-validate, lockstep symmetric).
   translateReplStringToPython,
+  // Slice 2 round 7 — shared transparent-receiver UNWRAP (`typeAssert`/`nonNull`
+  // fixpoint), re-exported so the Python `typeof` host-root fail-close peels a
+  // WRAPPED operand (`typeof (Date as any)`) identically to the TS-emit + IR
+  // legs before applying the host-root reject.
+  unwrapTransparentReceiverIR,
   // FIX 2 — shared pattern-level named-group portability validator, called at the
   // TS regex-literal emit chokepoints AND the Python `pyRegexPattern` lowering so
   // a non-portable group name fail-closes symmetrically across targets.
