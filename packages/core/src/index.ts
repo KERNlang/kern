@@ -75,6 +75,9 @@ export {
   // byte-identically by both emitters).
   REGEX_EXEC_FAILCLOSE,
   REGEX_MATCHALL_NO_G_FAILCLOSE,
+  // FIX 2 — shared pattern-level fail-close for a non-portable named group
+  // (`(?<café>…)`), thrown byte-identically by both emitters.
+  REGEX_NAMEDGROUP_BAD_NAME_FAILCLOSE,
   // Milestone C, Slice 3c — let-bound regex detect-and-fail-close (shared
   // message + shared shape detector, used symmetrically by both emitters).
   REGEX_NONLITERAL_FAILCLOSE,
@@ -96,6 +99,10 @@ export {
   // Milestone C, Slice 4 — shared replacement-string translator (Python rewrite)
   // + the TS-side validator (verbatim-but-validate, lockstep symmetric).
   translateReplStringToPython,
+  // FIX 2 — shared pattern-level named-group portability validator, called at the
+  // TS regex-literal emit chokepoints AND the Python `pyRegexPattern` lowering so
+  // a non-portable group name fail-closes symmetrically across targets.
+  validateRegexNamedGroupsPortable,
   validateReplStringForTS,
 } from './codegen/regex-normalize.js';
 export type { KernStdlibUsage } from './codegen/stdlib-preamble.js';

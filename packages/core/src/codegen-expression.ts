@@ -25,6 +25,7 @@ import {
   REGEX_TEST_G_FAILCLOSE,
   regexCaptureMeta,
   regexIFoldFailMessage,
+  validateRegexNamedGroupsPortable,
   validateReplStringForTS,
 } from './codegen/regex-normalize.js';
 import type { ValueIR } from './value-ir.js';
@@ -86,6 +87,10 @@ export function emitExpression(node: ValueIR): string {
       // fold scan leaves them untouched) and on the SAME shared transform Python
       // uses, so the residual pattern is byte-identical across targets. `/i` is
       // kept in the flags.
+      // FIX 2: a non-portable named group (`(?<café>…)`) fail-closes on BOTH
+      // targets (Python `pyRegexPattern` runs the same validator), so a bare regex
+      // literal with a Unicode/illegal group name is refused symmetrically.
+      validateRegexNamedGroupsPortable(node.pattern);
       const classed = normalizeRegexClasses(node.pattern);
       const folded = expandRegexIFold(classed, node.flags);
       if ('failClose' in folded) throw new Error(regexIFoldFailMessage(folded.char, folded.reason));
@@ -403,6 +408,10 @@ function resolveRegexLitTS(node: ValueIR): Extract<ValueIR, { kind: 'regexLit' }
  *  same class/`/i`-fold transform the bare-`regexLit` emit path applies, so a
  *  regex used as a method arg lowers byte-identically to a standalone literal. */
 function emitTsRegexLiteral(node: Extract<ValueIR, { kind: 'regexLit' }>): string {
+  // FIX 2: refuse a non-portable named group symmetrically with the Python target
+  // (the same validator runs in `pyRegexPattern`), so every TS regex-method path
+  // (.test/.match/.split/.replace/…) fail-closes a Unicode/illegal group name.
+  validateRegexNamedGroupsPortable(node.pattern);
   const classed = normalizeRegexClasses(node.pattern);
   const folded = expandRegexIFold(classed, node.flags);
   if ('failClose' in folded) throw new Error(regexIFoldFailMessage(folded.char, folded.reason));

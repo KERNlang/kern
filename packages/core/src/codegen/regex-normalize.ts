@@ -1035,6 +1035,20 @@ export const REGEX_REPLACE_OOR_REF_FAILCLOSE =
 export const REGEX_REPLACE_BAD_NAME_FAILCLOSE =
   'Reference to an unknown or Python-illegal named group in a .replace/.replaceAll replacement string. KERN fail-closes on BOTH targets (the named group must exist in the pattern and be a legal Python identifier `[A-Za-z_]\\w*`).';
 
+/**
+ * FIX 2 — a named group in the PATTERN (`(?<name>…)`) whose NAME is OUTSIDE KERN's
+ * certified-portable ASCII identifier subset `[A-Za-z_][A-Za-z0-9_]*`. JS admits
+ * Unicode ID-start chars in group names and Python `re` accepts a different
+ * Unicode-identifier set (CPython uses `str.isidentifier`), so a non-ASCII name
+ * like `(?<café>…)` is a SILENT cross-target divergence risk — and the legacy
+ * Python lowering emitted the JS form `(?<café>…)` verbatim, which Python `re`
+ * REJECTS at compile (`unknown extension ?<c`). KERN fail-closes such a name on
+ * BOTH targets (symmetric refusal) rather than emit invalid/divergent codegen.
+ * Over-rejection of a non-ASCII name is SAFE; silent divergence is FORBIDDEN.
+ */
+export const REGEX_NAMEDGROUP_BAD_NAME_FAILCLOSE =
+  'Non-portable named group in the regex PATTERN. KERN fail-closes on BOTH targets: a named group `(?<name>…)` must use the portable ASCII identifier subset `[A-Za-z_][A-Za-z0-9_]*` (a Unicode or otherwise-illegal name is not portable across the TS and Python targets).';
+
 /** Thrown internally by the scanner; the public entry points convert it to one of
  *  the exported fail-close messages so TS and Python raise the SAME error. */
 class ReplFailClose extends Error {}
@@ -1056,10 +1070,31 @@ export interface RegexCaptureMeta {
 }
 
 /**
+ * Match a named-group OPENER `(?<NAME>` where NAME is ANY run up to the closing
+ * `>` that is NOT a lookbehind (`(?<=` / `(?<!`). The name is captured as the
+ * broadest run (`[^>]*`) so a JS-valid Unicode group name (`(?<café>`) — or an
+ * empty / `$x` illegal name — is RECOGNIZED here, COUNTED as a capture, and its
+ * name COLLECTED. The Python-legality of the name is a SEPARATE concern, decided
+ * by {@link validateRegexNamedGroupsPortable} (fail-close), NOT by recognition:
+ * if recognition were ASCII-only, a Unicode-named group would be MIS-counted as
+ * ZERO captures and silently break `$n`/groupCount resolution for the WHOLE
+ * pattern (gap: FIX 1).
+ *
+ * The negative-lookahead `(?![=!])` rejects ONLY `(?<=`/`(?<!`; every other char
+ * after `(?<` starts a named group. `[^>]*` then reads to the first `>`.
+ */
+const NAMED_GROUP_OPENER_RE = /^\(\?<(?![=!])([^>]*)>/;
+
+/**
  * Count positional capture groups + collect named-group names over the KERN/JS
  * pattern surface (the `(?<name>)` form, BEFORE the R6 `(?P<name>)` rewrite).
  * Skips `(?:`, lookarounds, escapes, and char classes. Mirrors the oracle's
  * `capture_meta` byte-for-byte so the lowering site resolves refs identically.
+ *
+ * FIX 1: named-group RECOGNITION matches ALL JS-valid names (Unicode included),
+ * so `(?<café>x)(b)` is COUNTED as 2 groups (and `$2` resolves to `(b)`) instead
+ * of mis-counting the Unicode-named group as zero. Name PORTABILITY is enforced
+ * separately by {@link validateRegexNamedGroupsPortable}.
  */
 export function regexCaptureMeta(pattern: string): RegexCaptureMeta {
   let count = 0;
@@ -1083,7 +1118,7 @@ export function regexCaptureMeta(pattern: string): RegexCaptureMeta {
     }
     if (ch === '(') {
       if (i + 1 < n && pattern[i + 1] === '?') {
-        const m = /^\(\?<([A-Za-z_][A-Za-z0-9_]*)>/.exec(pattern.slice(i));
+        const m = NAMED_GROUP_OPENER_RE.exec(pattern.slice(i));
         if (m) {
           count += 1;
           names.add(m[1]);
@@ -1099,6 +1134,52 @@ export function regexCaptureMeta(pattern: string): RegexCaptureMeta {
 }
 
 /**
+ * FIX 2 — fail-close any named group in the PATTERN whose NAME is OUTSIDE KERN's
+ * portable ASCII identifier subset `[A-Za-z_][A-Za-z0-9_]*` (Unicode like `café`,
+ * an empty name `(?<>…)`, or a `$`-prefixed name `(?<$x>…)`). Shared by BOTH
+ * targets so the refusal is observably symmetric: it is called at the TS regex-
+ * literal emit chokepoints AND in the Python `pyRegexPattern` lowering, so EVERY
+ * regex method (match/matchAll/split/test/replace/…) — not just `.replace` — and
+ * a bare regex literal all refuse a non-portable name identically.
+ *
+ * CLASS- AND ESCAPE-AWARE (single forward pass, mirroring {@link regexCaptureMeta}
+ * and {@link lowerRegexNamedGroupsPython}): a `(?<` that is INSIDE a `[...]` char
+ * class, or whose `(` is escaped (`\(?<`), is a literal — NOT a group opener — and
+ * is skipped. Lookbehind `(?<=` / `(?<!` is excluded by {@link NAMED_GROUP_OPENER_RE}.
+ *
+ * Throws {@link REGEX_NAMEDGROUP_BAD_NAME_FAILCLOSE} on the first illegal name.
+ */
+export function validateRegexNamedGroupsPortable(pattern: string): void {
+  let i = 0;
+  const n = pattern.length;
+  while (i < n) {
+    const ch = pattern[i];
+    if (ch === '\\') {
+      // Skip the escape pair so an escaped `\(` / `\[` is not read as a delimiter.
+      i += 2;
+      continue;
+    }
+    if (ch === '[') {
+      // A `(?<` inside a char class is a literal, not a group opener — skip to `]`.
+      i += 1;
+      while (i < n && pattern[i] !== ']') {
+        if (pattern[i] === '\\') i += 1;
+        i += 1;
+      }
+      i += 1;
+      continue;
+    }
+    if (ch === '(' && i + 1 < n && pattern[i + 1] === '?') {
+      const m = NAMED_GROUP_OPENER_RE.exec(pattern.slice(i));
+      if (m && !PY_LEGAL_NAME_RE.test(m[1])) {
+        throw new Error(REGEX_NAMEDGROUP_BAD_NAME_FAILCLOSE);
+      }
+    }
+    i += 1;
+  }
+}
+
+/**
  * R6 — KERN/JS named-group PATTERN syntax -> Python `re` syntax, so a `$<name>`
  * repl ref (and any in-pattern backreference) resolves on the Python side:
  *   `(?<name>...)` -> `(?P<name>...)` ; `\k<name>` -> `(?P=name)`.
@@ -1106,11 +1187,106 @@ export function regexCaptureMeta(pattern: string): RegexCaptureMeta {
  * is load-bearing for ANY named-group pattern on the Python target — it had no
  * prior lowering (the Slice-3 `.match` path never exercised a named PATTERN on
  * Python). PYTHON-ONLY: the TS target keeps the JS form verbatim.
+ *
+ * FIX 3 — CLASS- AND ESCAPE-AWARE (single forward pass, NOT a blind global
+ * `String.replace`). A literal `\k<g>` that appears INSIDE a `[...]` char class
+ * (`/[\k<g>]/`) or whose backslash is itself escaped (`\\k<g>` = a literal `\` +
+ * `k<g>`) is NOT a backreference and must NOT be rewritten — the old blind
+ * `replace(/\\k<…>/g, …)` rewrote those too, corrupting the pattern. We track
+ * `[...]` class depth (literal-`]`-first-aware, via the same {@link scanCharClass}
+ * the other normalizers use) and the escape state, and rewrite ONLY a TRUE
+ * `(?<name>` group opener at classDepth 0 and a TRUE `\k<name>` backref at
+ * classDepth 0 whose backslash is unescaped. Names are restricted to the portable
+ * ASCII subset (any non-portable name has already been refused upstream by
+ * {@link validateRegexNamedGroupsPortable}, so a non-matching `(?<…>`/`\k<…>` here
+ * is a non-backref / in-class literal and is left verbatim).
  */
 export function lowerRegexNamedGroupsPython(pattern: string): string {
-  return pattern
-    .replace(/\(\?<([A-Za-z_][A-Za-z0-9_]*)>/g, '(?P<$1>')
-    .replace(/\\k<([A-Za-z_][A-Za-z0-9_]*)>/g, '(?P=$1)');
+  const chars = Array.from(pattern);
+  let out = '';
+  let classDepth = 0;
+  let classCloseIdx = -1;
+  let escaped = false;
+
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i];
+
+    if (escaped) {
+      // `\k<name>` backref: ONLY at classDepth 0 and only for a portable ASCII
+      // name. Inside a class a `\k<…>` is a literal, not a backref (left verbatim).
+      // We are AT the `k`; the `\` was already emitted (last char of `out`).
+      if (classDepth === 0 && ch === 'k' && chars[i + 1] === '<') {
+        const name = matchAsciiGroupName(chars, i + 2);
+        if (name !== null) {
+          out = `${out.slice(0, -1)}(?P=${name.value})`;
+          i = name.endIdx; // advance to the closing `>` (loop's i++ steps past it)
+          escaped = false;
+          continue;
+        }
+      }
+      out += ch;
+      escaped = false;
+      continue;
+    }
+    if (ch === '\\') {
+      out += ch;
+      escaped = true;
+      continue;
+    }
+
+    // Open a char class — record its matching `]` (literal-`]`-first-aware).
+    if (ch === '[' && classDepth === 0) {
+      const scanned = scanCharClass(chars, i);
+      classDepth = 1;
+      classCloseIdx = scanned.closeIdx;
+      out += ch;
+      continue;
+    }
+    if (classDepth > 0 && i === classCloseIdx) {
+      classDepth = 0;
+      classCloseIdx = -1;
+      out += ch;
+      continue;
+    }
+
+    // `(?<name>` group opener: ONLY at classDepth 0 and only for a portable ASCII
+    // name. A `(?<` inside a class is a literal sequence (left verbatim).
+    if (ch === '(' && classDepth === 0 && chars[i + 1] === '?' && chars[i + 2] === '<') {
+      const name = matchAsciiGroupName(chars, i + 3);
+      if (name !== null) {
+        out += `(?P<${name.value}>`;
+        i = name.endIdx; // advance to the closing `>` (loop's i++ steps past it)
+        continue;
+      }
+    }
+
+    out += ch;
+  }
+
+  return out;
+}
+
+/**
+ * Read a portable ASCII group name `[A-Za-z_][A-Za-z0-9_]*` from `chars` starting
+ * at `start`, requiring a closing `>`. Returns the name VALUE and the index of the
+ * closing `>` (so the caller's loop `i++` resumes after it), or null if the run at
+ * `start` is not a legal ASCII name followed by `>`. Operates purely on the
+ * code-point `chars` array (no `string.slice` / UTF-16-index mixing) so a non-ASCII
+ * literal earlier in the pattern body cannot misalign the scan.
+ */
+function matchAsciiGroupName(chars: string[], start: number): { value: string; endIdx: number } | null {
+  let j = start;
+  const isStart = (c: string | undefined): boolean => c !== undefined && /^[A-Za-z_]$/.test(c);
+  const isPart = (c: string | undefined): boolean => c !== undefined && /^[A-Za-z0-9_]$/.test(c);
+  if (!isStart(chars[j])) return null;
+  let value = chars[j];
+  j += 1;
+  while (isPart(chars[j])) {
+    value += chars[j];
+    j += 1;
+  }
+  if (chars[j] !== '>') return null;
+  return { value, endIdx: j };
 }
 
 /** JS greedy-2-then-1 numbered-ref resolution (gaps 1/2/4). Returns:

@@ -74,6 +74,7 @@ import {
   regexMethodRegexArgIdent,
   suggestStdlibMethod,
   translateReplStringToPython,
+  validateRegexNamedGroupsPortable,
 } from '@kernlang/core';
 // Slice 0.9 — the TypeScript-AST closure helpers + classifier live on the Node
 // subpath (the barrel is browser-safe). Python codegen is Node-side and parses
@@ -3627,6 +3628,12 @@ function resolveRegexExpr(node: ValueIR, _ctx: BodyEmitContext): Extract<ValueIR
 }
 
 function pyRegexPattern(node: Extract<ValueIR, { kind: 'regexLit' }>): string {
+  // FIX 2: a non-portable named group (`(?<café>…)`, `(?<$x>…)`, `(?<>…)`) is
+  // refused on BOTH targets (the same validator runs in the TS regex-literal emit
+  // chokepoints), instead of emitting `(?P<café>…)` / a JS-form `(?<café>…)` that
+  // diverges or crashes Python `re`. Run BEFORE any rewrite so the refusal is over
+  // the original surface (the same surface `regexCaptureMeta` and the TS side see).
+  validateRegexNamedGroupsPortable(node.pattern);
   // JS escapes `/` because it delimits the literal; Python string regexes do not
   // treat `/` specially, so preserve the semantic pattern without that escape.
   const unescaped = node.pattern.replace(/\\\//g, '/');
