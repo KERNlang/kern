@@ -86,7 +86,6 @@ import {
 // subpath (the barrel is browser-safe). Python codegen is Node-side and parses
 // block-bodied arrows, so it injects `typescriptClosureClassifier`.
 import {
-  collectClosureBlockLocalBindingNames,
   collectFreeIdentifierNames,
   lowerJsClosureBodyToPython,
   typescriptClosureClassifier,
@@ -2590,16 +2589,20 @@ function emitBlockClosurePy(node: Extract<ValueIR, { kind: 'lambda' }>, names: s
   const closureName = `__kern_closure_${ctx.closureSeq++}`;
   const previous = new Set(ctx.shadowedSymbols);
   for (const name of names) ctx.shadowedSymbols.add(name);
-  // Slice 2 review-fix parity — a block-LOCAL `const`/`let` declared INSIDE the
-  // closure body shadows any outer binding of that name, so a host-`RegExp`
-  // value guard (`rejectHostRegExpValuePython`) must NOT fire on a reference to
-  // such a local. The TS leg already honors this (its TS-AST closure walk tracks
-  // block-locals via `isLocal`); register the same block-local names here so
-  // `isProvenUserBinding` treats them as user values, matching TS. This mirrors
-  // the param registration one line above (params are also block-scope locals)
-  // and does not affect loop-pinning, which operates on FREE names only
-  // (`collectFreeIdentifierNames` excludes block-locals).
-  for (const name of collectClosureBlockLocalBindingNames(node.bodyBlock!.raw)) ctx.shadowedSymbols.add(name);
+  // Slice 2 review-fix parity (round 3) — a block-LOCAL `const`/`let`/function/
+  // class shadows any outer binding of that name WITHIN ITS OWN BLOCK (and
+  // nested blocks) only, so a host-`RegExp` value guard
+  // (`rejectHostRegExpValuePython`) must fire on an OUTER reference but NOT on an
+  // in-scope one. The old code registered EVERY declared name (incl. names
+  // declared only in a NESTED block) into `shadowedSymbols` for the WHOLE
+  // closure — fail-OPEN on `() => { if (ok) { const RegExp = 1; } return RegExp; }`
+  // (the outer `return RegExp` was wrongly treated as the local), DIVERGING from
+  // the TS leg. The lowerer FLATTENS nested blocks, so it now reports block
+  // boundaries via `enterBlockScope`/`exitBlockScope`; we push/pop block-local
+  // shadows exactly like the TS-AST closure walk's `scopes` stack. Only names
+  // NOT already shadowed are pushed/popped, so an outer binding of the same name
+  // survives the inner block's pop.
+  const blockScopeAdded: Array<Set<string>> = [];
   try {
     const lowered = lowerJsClosureBodyToPython(node.bodyBlock!.raw, {
       lowerExpression: (raw) => emitPyExprCtx(parseExpr(raw), ctx),
@@ -2617,6 +2620,23 @@ function emitBlockClosurePy(node: Extract<ValueIR, { kind: 'lambda' }>, names: s
       // wrong-values without this). Params/block-locals are never renamed, so
       // the resolver is identity for them.
       lowerAssignTarget: (name) => resolveLocalRename(ctx, name),
+      // Block-scope shadowing — push a block's top-level locals on entry, pop on
+      // exit, so a `RegExp` value reference fails-close ONLY when no in-scope
+      // block-local/param shadows it (byte-aligned with the TS-AST walk).
+      enterBlockScope: (scopeNames) => {
+        const added = new Set<string>();
+        for (const name of scopeNames) {
+          if (!ctx.shadowedSymbols.has(name)) {
+            ctx.shadowedSymbols.add(name);
+            added.add(name);
+          }
+        }
+        blockScopeAdded.push(added);
+      },
+      exitBlockScope: () => {
+        const added = blockScopeAdded.pop();
+        if (added) for (const name of added) ctx.shadowedSymbols.delete(name);
+      },
     });
     if (!lowered.ok) {
       // The commit-A gate already accepted this block, so a lowering failure

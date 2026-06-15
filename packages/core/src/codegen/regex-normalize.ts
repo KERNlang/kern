@@ -645,6 +645,48 @@ export function isPortableRegexLiteralProperty(_property: string): boolean {
   return false;
 }
 
+/** SHARED, target-agnostic classifier for a property/element access whose
+ *  receiver is a REGEX LITERAL (`/x/.<prop>`, `/x/["<prop>"]`, optionally the
+ *  callee of a call `/x/.<prop>(…)`). This is the SINGLE source of truth for the
+ *  "is this regex-literal access portable, and if not, which message?" decision,
+ *  consulted by BOTH the value-emit/IR-validate paths' intent AND the
+ *  block-bodied-arrow TS-AST walk (`collectClosureBlockRegexHostViolations`),
+ *  so the two legs agree BY CONSTRUCTION instead of by parallel heuristics.
+ *
+ *  It MIRRORS `lowerRegexCallTS`' regex-LITERAL-RECEIVER branches exactly. NOTE
+ *  `lowerRegexCallTS` only lowers a DOTTED method call (`callee.kind ===
+ *  'member'`), so ONLY the dotted form is ever portable — a BRACKET-form call
+ *  (`/x/["test"](s)`) is NOT lowered and falls through to the index fail-close,
+ *  exactly like a bare bracket read. Hence the `isDottedCallee` parameter (the
+ *  access is a `/x/.<prop>` PROPERTY access AND the callee of a call):
+ *   - `isDottedCallee` + `.test` → portable, EXCEPT a `/g` literal throws
+ *     `REGEX_TEST_G_FAILCLOSE` (JS mutates lastIndex; Python `re.search` is
+ *     stateless).
+ *   - `isDottedCallee` + `.exec` → `REGEX_EXEC_FAILCLOSE` (stateful lastIndex).
+ *   - EVERYTHING else — any other property, OR `.test`/`.exec` NOT a dotted
+ *     callee (a bare read `/x/.test`/`/x/["test"]`, or a BRACKET call
+ *     `/x/["test"](s)`), OR any non-portable read (`/x/.source`, `/x/["source"]`),
+ *     OR a receiver-call to a non-portable method (`/x/.match(…)`,
+ *     `/x/.compile(…)`) — launders the pattern/flags back to a host-only surface
+ *     and fails-close with the shared `REGEX_HOST_REGEXP_FAILCLOSE`.
+ *
+ *  Returns `null` when the access is PORTABLE (emit verbatim), or the exact
+ *  fail-close MESSAGE otherwise. `property` is null for a COMPUTED element index
+ *  (`/x/[k]`) — unknowable, so it fails-close. */
+export function classifyRegexLiteralAccessFailClose(
+  property: string | null,
+  isDottedCallee: boolean,
+  flags: string,
+): string | null {
+  if (isDottedCallee && property === 'test') {
+    return flags.includes('g') ? REGEX_TEST_G_FAILCLOSE : null;
+  }
+  if (isDottedCallee && property === 'exec') {
+    return REGEX_EXEC_FAILCLOSE;
+  }
+  return REGEX_HOST_REGEXP_FAILCLOSE;
+}
+
 /* ----------------------------------------------------------------------------
  * Milestone C, Slice 5 — astral (non-BMP) fail-close.
  *

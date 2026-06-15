@@ -191,6 +191,93 @@ describe('Slice 2 — FAIL-CLOSE on the host `RegExp` constructor/global (TS emi
     const emit = emitTS('() => { const RegExp = 1; return RegExp; }');
     expect(emit.ok).toBe(true);
   });
+
+  // REVIEW FIX #2 (round 3) — value-position shapes the bare-`RegExp` screen must
+  // ALSO catch inside a block body: an object PROPERTY VALUE and a SHORTHAND
+  // property are value references (the expression-level path fails-close both).
+  test.each([
+    '() => ({ x: RegExp })',
+    '() => ({ RegExp })',
+  ])('block-bodied arrow %s (RegExp in value/shorthand position) fails-closed', (src) => {
+    const emit = emitTS(src);
+    expect(emit.ok).toBe(false);
+    expect(emit.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    const val = validateIR(src);
+    expect(val.ok).toBe(false);
+    expect(val.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+  });
+
+  // REVIEW FIX #2 (round 3) — NESTED-block shadow scoping. A `const RegExp`
+  // declared ONLY inside a nested block shadows references WITHIN that block,
+  // but an OUTER reference still sees the host root → fails-close. (This is the
+  // case the old global-registration walk got wrong on the Python leg: it
+  // treated the nested local as a whole-closure shadow and fail-OPENED the outer
+  // `return RegExp`. The TS leg now uses real per-block scope.)
+  test('nested-block `const RegExp` does NOT shadow an OUTER reference (fails-closed)', () => {
+    const emit = emitTS('() => { if (ok) { const RegExp = 1; } return RegExp; }');
+    expect(emit.ok).toBe(false);
+    expect(emit.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+  });
+
+  // …but a reference INSIDE the nested block DOES see the nested local → OK.
+  test('nested-block `const RegExp` DOES shadow an in-block reference (does not fire)', () => {
+    expect(emitTS('() => { if (ok) { const RegExp = 1; return RegExp; } return 2; }').ok).toBe(true);
+  });
+
+  // REVIEW FIX #2 (round 3) — TDZ / lexical hoisting. JS block-scoping hoists a
+  // block's `const`/`let` for the WHOLE block, so a reference lexically BEFORE
+  // the declarator is still the block-local, not the host. The walk must NOT
+  // over-reject `let x = RegExp; const RegExp = 1`.
+  test('block-local TDZ reference `let x = RegExp; const RegExp = 1` does NOT fire', () => {
+    expect(emitTS('() => { let x = RegExp; const RegExp = 1; return x; }').ok).toBe(true);
+  });
+
+  // REVIEW FIX #2 (round 3) — a portable METHOD CALLEE on a regex literal
+  // (`/x/.test(s)`) is handled by the call path and must NOT be over-rejected by
+  // the block walk. A TYPE-ANNOTATION reference (`const x: RegExp = /a/`) is an
+  // erased type, not a value use, and must NOT fire either.
+  test.each([
+    '() => { return /x/.test(s); }',
+    '() => { const x: RegExp = /a/; return x; }',
+  ])('block-bodied arrow %s does NOT fire (portable method / erased type)', (src) => {
+    expect(emitTS(src).ok).toBe(true);
+  });
+
+  // REVIEW FIX #2 (round 3) — ONLY the DOTTED method call is portable. A
+  // BRACKET-form call (`/x/["test"](s)`) is NOT lowered by `lowerRegexCallTS`
+  // (which lowers `callee.kind === 'member'` only), so it fails-close exactly
+  // like a bare bracket read — matching the expression-level index screen.
+  test('block-bodied arrow `/x/["test"](s)` (bracket call) fails-closed (only DOTTED is portable)', () => {
+    const emit = emitTS('() => { return /x/["test"](s); }');
+    expect(emit.ok).toBe(false);
+    expect(emit.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    // …byte-identical to the expression-level bracket-call message.
+    expect(emit.message).toBe(emitTS('/x/["test"](s)').message);
+  });
+
+  // REVIEW FIX #2 (round 3) — MESSAGE CONSISTENCY: `RegExp.prototype` inside a
+  // block uses the GENERIC host-namespace message (the member-object position is
+  // owned by the generic scan), NOT the regex-specific message — identical to
+  // the expression-level member-receiver path.
+  test('block-bodied arrow `RegExp.prototype` uses the GENERIC host message (not regex)', () => {
+    const emit = emitTS('() => { return RegExp.prototype; }');
+    expect(emit.ok).toBe(false);
+    expect(emit.message).toMatch(/Unsupported host namespace/);
+    expect(emit.message).not.toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    // …and matches the expression-level message for the same access, byte-for-byte.
+    expect(emit.message).toBe(emitTS('RegExp.prototype').message);
+  });
+
+  // REVIEW FIX #2 (round 3) — the `.exec` and `/g`-`.test` callees carry their
+  // OWN Slice-3 messages (NOT the regex-host one), matching expression-level.
+  test('block-bodied arrow `/x/.exec(s)` / `/x/g.test(s)` carry the expression-level method message', () => {
+    const exec = emitTS('() => { return /x/.exec(s); }');
+    expect(exec.ok).toBe(false);
+    expect(exec.message).toBe(emitTS('/x/.exec(s)').message);
+    const testG = emitTS('() => { return /x/g.test(s); }');
+    expect(testG.ok).toBe(false);
+    expect(testG.message).toBe(emitTS('/x/g.test(s)').message);
+  });
 });
 
 describe('Slice 2 — MUST-NOT-FIRE (resolver, not a textual name-check)', () => {

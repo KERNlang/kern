@@ -19,7 +19,6 @@ import {
   parseClosureBlockAst,
 } from './closure-eligibility.js';
 import { isHostNamespaceRoot, unmappedHostNamespaceMessage } from './codegen/host-namespace.js';
-import { REGEX_HOST_REGEXP_FAILCLOSE } from './codegen/regex-normalize.js';
 
 /** The full-fidelity closure classifier: the TypeScript-AST gate that has
  *  always validated block-bodied arrows. Injecting this restores byte-identical
@@ -49,11 +48,16 @@ export function validateClosureBlockHostNamespacesTS(rawBlock: string, isUserBin
   // the user's value. Regex-literal reads never honor a binding (the receiver is
   // a literal), so they always fail-close.
   for (const violation of collectClosureBlockRegexHostViolations(rawBlock)) {
-    if (violation.kind === 'regex-literal-prop') {
-      throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
+    if (violation.kind === 'regexLiteralAccess') {
+      // A regex-LITERAL access never honors a user binding (the receiver is a
+      // literal). The walk already classified the exact message (regex-host /
+      // .exec / `/g`-`.test`), so throw it verbatim.
+      throw new Error(violation.message);
     }
+    // A bare `RegExp` VALUE reference fails-close unless a block-scope local or
+    // an OUTER user binding shadows it.
     if (!violation.locallyShadowed && !isUserBinding(violation.root)) {
-      throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
+      throw new Error(violation.message);
     }
   }
   for (const access of collectClosureBlockMemberAccesses(rawBlock)) {

@@ -18,6 +18,19 @@ export interface LowerJsClosureBodyToPythonOptions {
    *  `writtenFreeNames` still reports SOURCE names; the consumer resolves
    *  again when building its `nonlocal` line. */
   lowerAssignTarget?(name: string): string;
+  /** BLOCK-SCOPE hooks (Slice 2 review fix, round 3). The lowerer FLATTENS
+   *  nested blocks into one Python suite, so the consumer's per-expression
+   *  guards (e.g. the host-`RegExp` value screen) lose the lexical block scope
+   *  unless told the boundaries. `enterBlockScope` is called with a block's
+   *  TOP-LEVEL let/const/function/class names just BEFORE its statements lower
+   *  (JS hoists them for the whole block, so a reference anywhere inside —
+   *  even lexically before the declarator — sees the block-local); the matching
+   *  `exitBlockScope` is called after, with the SAME names. The consumer uses
+   *  them to push/pop block-local shadows so a `RegExp` reference fails-close
+   *  ONLY when no in-scope block-local/param shadows it — byte-aligned with the
+   *  TS-AST closure walk. Omitted = no block-scope tracking (route path). */
+  enterBlockScope?(names: string[]): void;
+  exitBlockScope?(names: string[]): void;
 }
 
 export interface LowerJsClosureBodyToPythonResult {
@@ -268,14 +281,42 @@ export function lowerJsClosureBodyToPython(
     return emitStatement(stmt, indent);
   };
 
-  const emitBlock = (b: ts.Block, indent: string): string[] | null => {
-    const lines: string[] = [];
+  // The TOP-LEVEL let/const/function/class names of a block (its DIRECT
+  // statement children only). JS block-scoping hoists these to the whole block,
+  // so they are pushed as block-local shadows for the entire block body.
+  const blockTopLevelDeclaredNames = (b: ts.Block): string[] => {
+    const names: string[] = [];
     for (const stmt of b.statements) {
-      const emitted = emitStatement(stmt, indent);
-      if (!emitted) return null;
-      lines.push(...emitted);
+      if (ts.isVariableStatement(stmt)) {
+        for (const decl of stmt.declarationList.declarations) {
+          if (ts.isIdentifier(decl.name)) names.push(decl.name.text);
+        }
+      } else if (ts.isFunctionDeclaration(stmt) && stmt.name) {
+        names.push(stmt.name.text);
+      } else if (ts.isClassDeclaration(stmt) && stmt.name) {
+        names.push(stmt.name.text);
+      }
     }
-    return lines;
+    return names;
+  };
+
+  const emitBlock = (b: ts.Block, indent: string): string[] | null => {
+    // Push this block's top-level locals as shadows BEFORE lowering its
+    // statements (JS hoisting), pop after — so a `RegExp` reference inside a
+    // nested block sees the nested local, while a reference OUTSIDE it does not.
+    const scopeNames = blockTopLevelDeclaredNames(b);
+    opts.enterBlockScope?.(scopeNames);
+    try {
+      const lines: string[] = [];
+      for (const stmt of b.statements) {
+        const emitted = emitStatement(stmt, indent);
+        if (!emitted) return null;
+        lines.push(...emitted);
+      }
+      return lines;
+    } finally {
+      opts.exitBlockScope?.(scopeNames);
+    }
   };
 
   const nonEmptyBody = (lines: string[], indent: string): string[] => (lines.length > 0 ? lines : [`${indent}pass`]);

@@ -176,6 +176,85 @@ describe('Slice 2 — BLOCK-BODIED arrow bypass (review fix #2)', () => {
     expect(bodyEmitTS('() => { const RegExp = 1; return RegExp; }').ok).toBe(true);
     expect(bodyEmitPy('() => { const RegExp = 1; return RegExp; }').ok).toBe(true);
   });
+
+  // ROUND 3 — THE DIVERGENCE CASE. A `const RegExp` declared ONLY inside a
+  // NESTED block must NOT shadow an OUTER `return RegExp`. The old Python leg
+  // registered EVERY block-local (incl. nested) into the whole-closure shadow
+  // set, so it fail-OPENED (emitted `RegExp`) while TS fail-closed — a silent
+  // TS↔Python divergence (and a possible UnboundLocalError). Both targets now
+  // fail-close symmetrically.
+  test('nested-block `const RegExp` + OUTER ref fails-close on BOTH targets (no divergence)', () => {
+    const src = '() => { if (ok) { const RegExp = 1; } return RegExp; }';
+    const t = bodyEmitTS(src);
+    const p = bodyEmitPy(src);
+    expect(t.ok).toBe(false);
+    expect(p.ok).toBe(false);
+    expect(t.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    expect(p.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    expect(p.message).toBe(t.message);
+  });
+
+  // …but a reference INSIDE the nested block DOES see the nested local on BOTH
+  // targets → OK (proves real per-block scope, not over-rejection).
+  test('nested-block `const RegExp` + IN-BLOCK ref does NOT fire on either target', () => {
+    const src = '() => { if (ok) { const RegExp = 1; return RegExp; } return 2; }';
+    expect(bodyEmitTS(src).ok).toBe(true);
+    expect(bodyEmitPy(src).ok).toBe(true);
+  });
+
+  // ROUND 3 — value-position shapes (property value + shorthand) fail-close on
+  // BOTH targets, byte-identically.
+  test.each([
+    '() => ({ x: RegExp })',
+    '() => ({ RegExp })',
+  ])('block-bodied arrow %s (value/shorthand) fails-close symmetrically', (src) => {
+    const t = bodyEmitTS(src);
+    const p = bodyEmitPy(src);
+    expect(t.ok).toBe(false);
+    expect(p.ok).toBe(false);
+    expect(t.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    expect(p.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    expect(p.message).toBe(t.message);
+  });
+
+  // ROUND 3 — MUST-NOT-OVER-FIRE on EITHER target: a portable method callee, a
+  // block-local TDZ reference, and an erased type annotation.
+  test.each([
+    '() => { return /x/.test(s); }',
+    '() => { let x = RegExp; const RegExp = 1; return x; }',
+    '() => { const x: RegExp = /a/; return x; }',
+  ])('block-bodied arrow %s does NOT fail-close on either target', (src) => {
+    expect(bodyEmitTS(src).ok).toBe(true);
+    expect(bodyEmitPy(src).ok).toBe(true);
+  });
+
+  // ROUND 3 — ONLY the DOTTED regex method call is portable; a BRACKET-form
+  // call (`/x/["test"](s)`) fails-close on BOTH targets, byte-identically.
+  test('block-bodied arrow `/x/["test"](s)` (bracket call) fails-close symmetrically', () => {
+    const src = '() => { return /x/["test"](s); }';
+    const t = bodyEmitTS(src);
+    const p = bodyEmitPy(src);
+    expect(t.ok).toBe(false);
+    expect(p.ok).toBe(false);
+    expect(t.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    expect(p.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    expect(p.message).toBe(t.message);
+  });
+
+  // ROUND 3 — MESSAGE CONSISTENCY across targets for the member-object position.
+  // `RegExp.prototype` uses the GENERIC host message (target-named, so
+  // symmetric-in-shape, not byte-identical) on BOTH targets, never the
+  // regex-specific message.
+  test('block-bodied arrow `RegExp.prototype` uses the GENERIC host message on both targets', () => {
+    const t = bodyEmitTS('() => { return RegExp.prototype; }');
+    const p = bodyEmitPy('() => { return RegExp.prototype; }');
+    expect(t.ok).toBe(false);
+    expect(p.ok).toBe(false);
+    expect(t.message).not.toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    expect(p.message).not.toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    expect(t.message).toMatch(/Unsupported host namespace in TypeScript expression: RegExp\.prototype/);
+    expect(p.message).toMatch(/Unsupported host namespace in Python expression: RegExp\.prototype/);
+  });
 });
 
 describe('Slice 2 — MUST-NOT-FIRE (resolver, not a textual name-check)', () => {
