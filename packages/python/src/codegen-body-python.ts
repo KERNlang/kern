@@ -46,6 +46,7 @@ import {
   applyTemplate,
   classifyRegexLiteralIndexReadFailClose,
   classifyRegexLiteralMemberReadFailClose,
+  decimalBareConstructionFailMessage,
   emitStringKeyArray,
   expandRegexIFold,
   instanceofRhsPythonType,
@@ -83,6 +84,7 @@ import {
   translateReplStringToPython,
   unmappedHostNamespaceMessage,
   unwrapTransparentReceiverIR,
+  validateDecimalConstructionArg,
   validateRegexNamedGroupsPortable,
 } from '@kernlang/core';
 // Slice 0.9 — the TypeScript-AST closure helpers + classifier live on the Node
@@ -3173,6 +3175,12 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   if (node.callee.kind === 'ident') {
     rejectHostRegExpValuePython(node.callee.name, ctx);
   }
+  // DECIMAL Slice 1 — bare `Decimal(...)` (ident callee) fail-closes
+  // SYMMETRICALLY with the TS leg. Only `Decimal.of`/`Decimal.add` (member
+  // callees, handled by `applyStdlibLoweringPython` above) are portable. A
+  // proven user binding named `Decimal` is left alone.
+  if (node.callee.kind === 'ident' && node.callee.name === 'Decimal' && !isProvenUserBinding(ctx, 'Decimal')) {
+    throw new Error(decimalBareConstructionFailMessage());
   // Slice H — fail-closed on an UNMAPPED host-namespace member CALL. This runs
   // AFTER every explicit lowering hook above (stdlib, regex, lambda/array,
   // portable-array, super/String/Error) and BEFORE generic call emission, so a
@@ -4157,6 +4165,10 @@ function applyStdlibLoweringPython(call: Extract<ValueIR, { kind: 'call' }>, ctx
   if (moduleName === 'Array' && methodName === 'from' && call.args.some((arg) => arg.kind === 'spread')) {
     throw new Error('Array.from portable lowering does not accept spread arguments; pass source and mapper directly.');
   }
+  // DECIMAL Slice 1 — `Decimal.of(arg)` string-literal + canonical-scale check,
+  // running the SAME shared-core validator the TS leg runs, so the fail-close is
+  // byte-identical across targets.
+  validateDecimalConstructionArg(moduleName, methodName, call);
   const listLambda = lowerListLambdaPython(moduleName, methodName, call, ctx);
   if (listLambda !== null) return listLambda;
   // Slice 3b — register required imports (e.g., `Number.floor` ⇒ `import math`).

@@ -271,6 +271,56 @@ export const KERN_STDLIB: Record<string, Record<string, StdlibEntry>> = {
       requires: { py: 'posixpath' },
     },
   },
+  // DECIMAL — first-class member, Slice 1 (feasibility foundation). KERN's
+  // arbitrary-precision decimal surface lowers to decimal.js on the TS leg and
+  // Python's stdlib `decimal` module on the Python leg. This is the FIRST stdlib
+  // entry to populate `requires.ts` (an EXTERNAL npm package, not a global) — the
+  // TS leg auto-injects `import Decimal from 'decimal.js'` + a one-time context
+  // configuration (precision 28, ROUND_HALF_EVEN, matching CPython's default
+  // context) via the new TS imports channel, mirroring how `requires.py: 'math'`
+  // auto-injects `import math as __k_math` on the Python leg.
+  //
+  // Surface (Slice 1, minimal): construction from a string literal + addition.
+  //   - `Decimal.of("1.5")`     — construct. TS `new Decimal("1.5")`, PY
+  //     `__k_decimal.Decimal("1.5")`. The string-literal arg is validated against
+  //     the canonical-scale contract (`assertPortableDecimalLiteral`) so a
+  //     significance-divergent literal (`"1.10"`, `"1E+2"`, `"-0"`) fails closed
+  //     SYMMETRICALLY on both legs — see `decimal-contract.ts`.
+  //   - `Decimal.add(a, b)`     — add. TS `$0.plus($1)` (NOT `$0 + $1`: JS `+`
+  //     on decimal.js objects calls `.valueOf()` → float, losing precision), PY
+  //     `$0 + $1` (native `Decimal.__add__` is exact). Both render `0.3` for
+  //     `Decimal.add(Decimal.of("0.1"), Decimal.of("0.2"))`.
+  //
+  // The `Decimal.of` arg-literal scale validation is enforced at the dispatch
+  // site (codegen-expression.ts / codegen-body-python.ts), not expressible as a
+  // template, because it inspects the arg IR (string-literal-only + canonical).
+  //
+  // DEFERRED past Slice 1 (documented in the slice report): the bare `Decimal(...)`
+  // construction sugar and the `+` OPERATOR on Decimal values — both need a
+  // type-carrying IR / typed-value pass so `+` can dispatch to `.plus()` on the TS
+  // leg when an operand is a Decimal that flowed through a variable/param/return.
+  // Bare `Decimal(...)` is fail-closed (not registered as a portable lowering) so
+  // it never verbatim-emits an undefined global.
+  Decimal: {
+    of: {
+      arity: 1,
+      ts: 'new Decimal($0)',
+      py: '__k_decimal.Decimal($0)',
+      requires: { ts: 'decimal.js', py: 'decimal' },
+    },
+    add: {
+      arity: 2,
+      ts: '$0.plus($1)',
+      // Parenthesized so the lowered binary `+` is SELF-DELIMITING when nested as
+      // an arg to an outer Decimal op (e.g. `Decimal.add(a, Decimal.add(b, c))` →
+      // `a + (b + c)`, not `a + b + c`). Addition is associative so the value is
+      // identical either way, but the parens keep the form correct-by-construction
+      // for the non-associative ops (`sub`/`div`) a later slice will add. The TS
+      // leg needs no wrap — `.plus()` is already a self-delimiting method call.
+      py: '($0 + $1)',
+      requires: { ts: 'decimal.js' },
+    },
+  },
 };
 
 export const KERN_STDLIB_MODULES = new Set(Object.keys(KERN_STDLIB));

@@ -531,6 +531,52 @@ export const KERN_JS_NUMBER_HELPERS_PY = [
   '    return abs(__k_x) <= 9007199254740991',
 ].join('\n');
 
+/** DECIMAL Slice 1 — KERN-owned canonical Decimal stringifier (Python leg).
+ *
+ *  KERN's parity invariant requires `str(decimalValue)` to render byte-identically
+ *  on both legs. Python's stdlib `decimal` PRESERVES scale (`Decimal("1.5") +
+ *  Decimal("2.5")` renders `"4.0"`, and a literal `Decimal("300")` renders `"300"`
+ *  but `.normalize()` → `"3E+2"`), whereas decimal.js has NO scale concept and
+ *  renders the significance-free form (`"4"`, `"300"`). To make the Python leg
+ *  match decimal.js's `toString()` byte-for-byte, this helper re-renders a Python
+ *  Decimal from its (sign, digits, exponent) tuple under decimal.js's exact
+ *  notation rule (precision 28, toExpNeg=-7, toExpPos=21):
+ *    - drop trailing-zero scale (normalize significance)
+ *    - PLAIN decimal notation iff the adjusted exponent `adj` satisfies
+ *      `-7 < adj < 21`; else LOWERCASE-`e`, signed sci notation (`1e-8`, `1e+21`)
+ *    - `-0` / `0.0` / `+0` all render `"0"` (decimal.js drops the sign of zero)
+ *
+ *  Validated byte-for-byte against decimal.js 10.6.0 across 225/226 cross-cases
+ *  (literals + pairwise sums); the single outlier is a >28-significant-digit input,
+ *  which is OUTSIDE KERN's certified 28-digit precision envelope. Both engines are
+ *  configured to precision 28 / ROUND_HALF_EVEN so ARITHMETIC values agree before
+ *  rendering; this helper only canonicalizes the RENDERING of an agreed value. */
+export const KERN_DECIMAL_STR_HELPER_PY = [
+  'from decimal import Decimal as _KernDecimal',
+  '',
+  'def _kern_decimal_str(__k_d):',
+  '    if __k_d.is_zero():',
+  '        return "0"',
+  '    __k_n = __k_d.normalize()',
+  '    __k_sign, __k_digits, __k_exp = __k_n.as_tuple()',
+  '    __k_adj = __k_exp + len(__k_digits) - 1',
+  '    __k_ds = "".join(map(str, __k_digits))',
+  '    __k_neg = "-" if __k_sign else ""',
+  '    if -7 < __k_adj < 21:',
+  '        if __k_exp >= 0:',
+  '            __k_body = __k_ds + ("0" * __k_exp)',
+  '        else:',
+  '            __k_point = len(__k_ds) + __k_exp',
+  '            if __k_point <= 0:',
+  '                __k_body = "0." + ("0" * (-__k_point)) + __k_ds',
+  '            else:',
+  '                __k_body = __k_ds[:__k_point] + "." + __k_ds[__k_point:]',
+  '        return __k_neg + __k_body',
+  '    __k_mant = __k_ds[0] + ("." + __k_ds[1:] if len(__k_ds) > 1 else "")',
+  '    __k_esign = "+" if __k_adj >= 0 else "-"',
+  '    return f"{__k_neg}{__k_mant}e{__k_esign}{abs(__k_adj)}"',
+].join('\n');
+
 export const KERN_JS_MATH_HELPERS_PY = [
   'import math',
   '',

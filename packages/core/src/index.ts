@@ -27,6 +27,18 @@ export {
 } from './closure-classifier.js';
 export type { BodyEmitOptions, BodyEmitResult } from './codegen/body-ts.js';
 export { emitNativeKernBodyTS, emitNativeKernBodyTSWithImports } from './codegen/body-ts.js';
+// DECIMAL Slice 1 — shared canonical-scale contract (single-sourced fail-close
+// + portability predicate consumed by BOTH the TS and Python emitters).
+export {
+  assertPortableDecimalLiteral,
+  DECIMAL_BARE_CONSTRUCTION_FAILCLOSE,
+  DECIMAL_SCALE_FAILCLOSE,
+  decimalBareConstructionFailMessage,
+  decimalImportLineTS,
+  decimalNonStringLiteralFailMessage,
+  decimalScaleFailMessage,
+  isPortableDecimalLiteral,
+} from './codegen/decimal-contract.js';
 export {
   HOST_NAMESPACE_EXEMPT_ROOTS,
   isHostNamespaceRoot,
@@ -205,7 +217,15 @@ export {
 // cross-target method dispatch. `applyTemplate` is the shared placeholder
 // substitution; `needsBinaryParens` is the shared precedence-aware paren
 // predicate so Python codegen reuses the same rule.
-export { emitExpression, needsArgParens, needsBinaryParens } from './codegen-expression.js';
+export {
+  type ExprEmitContext,
+  type ExpressionEmitResult,
+  emitExpression,
+  emitExpressionWithImports,
+  needsArgParens,
+  needsBinaryParens,
+  validateDecimalConstructionArg,
+} from './codegen-expression.js';
 export type {
   CallPayload,
   ConceptEdge,

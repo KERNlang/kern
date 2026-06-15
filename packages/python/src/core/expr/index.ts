@@ -23,6 +23,8 @@ import {
 } from './list-ops.js';
 
 export {
+  // DECIMAL Slice 1 — KERN-owned canonical Decimal stringifier (`_kern_decimal_str`).
+  KERN_DECIMAL_STR_HELPER_PY,
   KERN_FMT_HELPER_PY,
   KERN_I32_HELPER_PY,
   KERN_JS_ARRAY_FROM_HELPER_PY,

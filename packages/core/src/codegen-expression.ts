@@ -1,5 +1,10 @@
 /** Serialize ValueIR to a TypeScript expression string. */
 
+import {
+  assertPortableDecimalLiteral,
+  decimalBareConstructionFailMessage,
+  decimalNonStringLiteralFailMessage,
+} from './codegen/decimal-contract.js';
 import { isHostNamespaceRoot, unmappedHostNamespaceMessage } from './codegen/host-namespace.js';
 import type { StdlibCallEntry } from './codegen/kern-stdlib.js';
 import {
@@ -41,6 +46,22 @@ import type { ValueIR } from './value-ir.js';
 export interface ExprEmitContext {
   isUserBinding(name: string): boolean;
   validateRawBlock?(rawBlock: string, isUserBinding: (name: string) => boolean): void;
+  /** DECIMAL Slice 1 — TS-leg import-requirement sink, the additive mirror of the
+   *  Python expression emitter's `ctx.imports`. When a stdlib lowering declares
+   *  `requires.ts` (currently only the Decimal namespace, which needs the EXTERNAL
+   *  `decimal.js` npm package — not a global like Math/JSON/RegExp), the emitter
+   *  records the requirement key here so a caller using `emitExpressionWithImports`
+   *  can render the corresponding `import` line. `emitExpression` (legacy
+   *  string-only entry point) passes no sink, so the existing global-only lowerings
+   *  are completely unaffected. */
+  imports?: Set<string>;
+}
+
+/** DECIMAL Slice 1 — public return shape for the TS expression emitter, parity
+ *  with the Python `emitPyExpressionWithImports` `{ code, imports }`. */
+export interface ExpressionEmitResult {
+  code: string;
+  imports: Set<string>;
 }
 
 const DIRECT_HOST_CALL_ROOTS: ReadonlySet<string> = new Set([
@@ -160,6 +181,33 @@ const PREC: Record<string, number> = {
   '/': 14,
   '%': 14,
 };
+
+/** DECIMAL Slice 1 — context-aware entry point returning `{ code, imports }`.
+ *  Mirrors the Python `emitPyExpressionWithImports`: lowers `node` to TS and
+ *  collects any external-package import requirements (e.g. `decimal.js` for the
+ *  Decimal namespace) into the returned `imports` set. `emitExpression` is the
+ *  legacy code-only wrapper; it discards imports, which is correct for every
+ *  global-backed lowering (Math/JSON/Object/Array/Number/RegExp). */
+export function emitExpressionWithImports(node: ValueIR, ctx?: ExprEmitContext): ExpressionEmitResult {
+  const imports = ctx?.imports ?? new Set<string>();
+  const next: ExprEmitContext = {
+    isUserBinding: (name: string) => ctx?.isUserBinding(name) === true,
+    imports,
+  };
+  if (ctx?.validateRawBlock) next.validateRawBlock = ctx.validateRawBlock;
+  const code = emitExpression(node, next);
+  return { code, imports };
+}
+
+/** DECIMAL Slice 1 — record a TS-side `requires.ts` import requirement into the
+ *  context sink, when present. The requirement key (e.g. `'decimal.js'`) is the
+ *  npm package the caller must import; rendering the actual `import` line is the
+ *  caller's job (see `decimalImportLineTS`). No-op when no sink is threaded, so
+ *  the string-only `emitExpression` path is unaffected. */
+function registerStdlibRequirementTS(requirement: string | undefined, ctx: ExprEmitContext | undefined): void {
+  if (!requirement) return;
+  ctx?.imports?.add(requirement);
+}
 
 export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
   switch (node.kind) {
@@ -281,6 +329,12 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
         // member-callee screen below misses it, and RegExp is not in
         // DIRECT_HOST_CALL_ROOTS) fails-close with the shared regex message.
         rejectHostRegExpValueTS(node.callee.name, ctx);
+        // DECIMAL Slice 1 — bare `Decimal(...)` (ident callee) fail-closes
+        // symmetrically. Only the namespace forms `Decimal.of`/`Decimal.add`
+        // (member callees, handled by `applyStdlibLoweringTS` above) are portable.
+        if (!isUserBinding(ctx, node.callee.name) && node.callee.name === 'Decimal') {
+          throw new Error(decimalBareConstructionFailMessage());
+        }
         if (DIRECT_HOST_CALL_ROOTS.has(node.callee.name)) rejectUnmappedHostNamespaceTS(node.callee.name, 'call', ctx);
       }
       if (node.callee.kind === 'member') {
@@ -712,8 +766,16 @@ function applyStdlibLoweringTS(call: Extract<ValueIR, { kind: 'call' }>, ctx?: E
   if (moduleName === 'Array' && methodName === 'from' && call.args.some((arg) => arg.kind === 'spread')) {
     throw new Error('Array.from portable lowering does not accept spread arguments; pass source and mapper directly.');
   }
+  // DECIMAL Slice 1 — `Decimal.of(arg)` accepts ONLY a portable string literal:
+  // reject a non-string-literal arg AND any literal carrying scale/significance
+  // the two engines render divergently. The SAME shared-core checks run on the
+  // Python leg, so the refusal is byte-identical across targets.
+  validateDecimalConstructionArg(moduleName, methodName, call);
   const listLambda = lowerListLambdaTS(moduleName, methodName, call, ctx);
   if (listLambda !== null) return listLambda;
+  // DECIMAL Slice 1 — record the external-package import requirement (e.g.
+  // `decimal.js`) into the context sink, mirroring the Python `requires.py` path.
+  registerStdlibRequirementTS(entry.requires?.ts, ctx);
   const args = call.args.map((a, index) => {
     const emitted = emitExpression(a, ctx);
     return needsStdlibArgParens(a, entry.ts, index) ? `(${emitted})` : emitted;
@@ -896,6 +958,24 @@ function throwUnknownStdlibMember(moduleName: string, memberName: string): never
   const suggestion = suggestStdlibMethod(moduleName, memberName);
   const hint = suggestion ? ` Did you mean '${moduleName}.${suggestion}'?` : '';
   throw new Error(`Unknown KERN-stdlib method/member '${moduleName}.${memberName}'.${hint}`);
+}
+
+/** DECIMAL Slice 1 — validate the `Decimal.of(arg)` argument: it must be a STRING
+ *  literal carrying canonical (non-divergent) scale. Throws the shared-core
+ *  fail-close (identical text on both legs) otherwise. No-op for any other
+ *  module/method. Called from BOTH `applyStdlibLoweringTS` and its Python twin. */
+export function validateDecimalConstructionArg(
+  moduleName: string,
+  methodName: string,
+  call: Extract<ValueIR, { kind: 'call' }>,
+): void {
+  if (moduleName !== 'Decimal' || methodName !== 'of') return;
+  const arg = call.args[0];
+  // Arity (1) is enforced by the table; guard defensively for the 0-arg case.
+  if (arg === undefined || arg.kind !== 'strLit') {
+    throw new Error(decimalNonStringLiteralFailMessage());
+  }
+  assertPortableDecimalLiteral(arg.value);
 }
 
 function validateStdlibCallArity(
