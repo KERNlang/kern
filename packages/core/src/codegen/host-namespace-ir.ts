@@ -1,4 +1,4 @@
-import { validateRawHostNamespacesTS } from '../codegen-expression.js';
+import ts from 'typescript';
 import { parseExpression } from '../parser-expression.js';
 import { NODE_SCHEMAS } from '../schema.js';
 import { moduleAmbientRuntimeBindingNames } from '../semantic-validator.js';
@@ -6,6 +6,7 @@ import { type IRNode, isExprObject } from '../types.js';
 import { typescriptClosureClassifier, validateClosureBlockHostNamespacesTS } from '../typescript-closure-classifier.js';
 import type { ValueIR } from '../value-ir.js';
 import { isHostNamespaceRoot, unmappedHostNamespaceMessage } from './host-namespace.js';
+import { isPortableStdlibMember, KERN_STDLIB_MODULES, suggestStdlibMember } from './kern-stdlib.js';
 
 interface ValidationScope {
   readonly moduleBindings: ReadonlySet<string>;
@@ -124,7 +125,6 @@ function validateExpressionValue(raw: unknown, scope: ValidationScope): void {
     parsed = parseExpression(raw, TS_PARSE_OPTS);
   } catch (err) {
     if (isHostNamespaceValidationError(err)) throw err;
-    validateRawHostNamespacesTS(raw, exprContext(scope));
     return;
   }
   validateValueIR(parsed, scope);
@@ -243,9 +243,37 @@ function validateCallCallee(callee: ValueIR, scope: ValidationScope): void {
 }
 
 function rejectUnboundHostNamespace(root: string, member: string, scope: ValidationScope): void {
+  // GAP 1 — unify the IR-validation path with the emit path against the ONE
+  // KERN_STDLIB registry, but ONLY for real `Module.member` access/calls. The
+  // emitter's stdlib dispatch (`applyStdlibLoweringTS`/`...PropertyLowering`)
+  // fires on `Module.method` whose `Module` is a registered stdlib root WITHOUT
+  // consulting user shadowing — `Math.floor` lowers, `Math.bogus` throws
+  // `Unknown KERN-stdlib member` even when a user binding named `Math` is in
+  // scope. Mirroring that here keeps validate<->emit in lockstep (a divergence
+  // would let the validator silently pass `Math.bogus` that the emitter throws
+  // on). The synthetic `'constructor'`/`'call'` sentinels are EXCLUDED: the
+  // emitter does NOT route `new Map(...)` / bare `Map()` / `new Number(5)`
+  // through stdlib unknown-member dispatch (those construct/call the host
+  // value), so a stdlib root in those positions must fall through to the host-
+  // root check below — which passes for stdlib modules, matching emit. (Bare
+  // `Array()`/`Object()` are already special-cased by the caller.)
+  if (KERN_STDLIB_MODULES.has(root) && member !== 'constructor' && member !== 'call') {
+    if (isPortableStdlibMember(root, member)) return;
+    throwUnknownStdlibMemberIR(root, member);
+  }
+  // Non-stdlib host roots (console/process/String/…) honor user shadowing: a
+  // user binding of the same name is the user's value, not the host namespace.
   if (isUserBinding(scope, root)) return;
   if (!isHostNamespaceRoot(root)) return;
   throw new Error(unmappedHostNamespaceMessage('TypeScript', root, member));
+}
+
+/** Mirror of the emit path's `throwUnknownStdlibMember` so the same diagnostic
+ *  (with the same did-you-mean suggestion) surfaces from the validation pass. */
+function throwUnknownStdlibMemberIR(moduleName: string, memberName: string): never {
+  const suggestion = suggestStdlibMember(moduleName, memberName);
+  const hint = suggestion ? ` Did you mean '${moduleName}.${suggestion}'?` : '';
+  throw new Error(`Unknown KERN-stdlib method/member '${moduleName}.${memberName}'.${hint}`);
 }
 
 function isHostNamespaceValidationError(err: unknown): boolean {
@@ -400,87 +428,37 @@ function stringName(value: unknown): string | null {
 }
 
 function parseLegacyParams(raw: string): Array<{ name: string | null; defaultValue: string | null }> {
-  return splitTopLevel(raw, ',').map((part) => {
-    const trimmed = part.trim();
-    const colonIdx = findTopLevelSeparator(trimmed, ':');
-    const lhs = colonIdx === -1 ? trimmed : trimmed.slice(0, colonIdx).trim();
-    const rest = colonIdx === -1 ? '' : trimmed.slice(colonIdx + 1).trim();
-    const eqIdx = findDefaultSeparator(rest);
-    const defaultValue = eqIdx === -1 ? null : rest.slice(eqIdx + 1).trim();
-    return { name: parseParamName(lhs), defaultValue: defaultValue && defaultValue.length > 0 ? defaultValue : null };
+  // GAP 4 — parse the legacy `params="..."` string with the REAL TypeScript
+  // parser instead of a hand-rolled character scanner. Wrapping the raw param
+  // list in `function _(<params>){}` and reading each `ParameterDeclaration`
+  // from the resulting AST auto-handles every case the char-scanner mis-split
+  // or special-cased: `==`/`===`/`<=`/`>=` inside a default (the old
+  // `findDefaultSeparator` only guarded `=>`, so `a = b === c` split at the
+  // wrong `=`), regex literals (`/,/` slashes were treated as text and the
+  // inner comma as a separator), nested generics, and template literals. The
+  // binding name comes from `param.name`, the default from `param.initializer`.
+  // A parse failure (or non-function statement) yields an empty list, matching
+  // the prior scanner's fail-soft behavior: an unparseable param string
+  // contributes no bindings, and the validator stays fail-closed for any host
+  // root it cannot prove user-bound.
+  const source = ts.createSourceFile('_.ts', `function _(${raw}){}`, ts.ScriptTarget.Latest, true);
+  const fn = source.statements[0];
+  if (!fn || !ts.isFunctionDeclaration(fn)) return [];
+  return fn.parameters.map((param) => {
+    const defaultText = param.initializer ? param.initializer.getText(source).trim() : '';
+    return {
+      name: parameterBindingName(param.name),
+      defaultValue: defaultText.length > 0 ? defaultText : null,
+    };
   });
 }
 
-function parseParamName(raw: string): string | null {
-  const cleaned = raw
-    .replace(/^\.\.\./u, '')
-    .replace(/\?$/u, '')
-    .trim();
-  return /^[A-Za-z_$][\w$]*$/u.test(cleaned) ? cleaned : null;
-}
-
-function splitTopLevel(raw: string, delimiter: string): string[] {
-  const parts: string[] = [];
-  let current = '';
-  let depth = 0;
-  let quote: '"' | "'" | '`' | '' = '';
-  let escaped = false;
-  for (let i = 0; i < raw.length; i++) {
-    const ch = raw[i];
-    if (quote) {
-      current += ch;
-      if (escaped) escaped = false;
-      else if (ch === '\\') escaped = true;
-      else if (ch === quote) quote = '';
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === '`') {
-      quote = ch;
-      current += ch;
-      continue;
-    }
-    if (ch === '<' || ch === '(' || ch === '{' || ch === '[') depth++;
-    else if ((ch === '>' || ch === ')' || ch === '}' || ch === ']') && depth > 0) depth--;
-    if (ch === delimiter && depth === 0) {
-      if (current.trim()) parts.push(current);
-      current = '';
-    } else {
-      current += ch;
-    }
-  }
-  if (current.trim()) parts.push(current);
-  return parts;
-}
-
-function findTopLevelSeparator(raw: string, separator: string): number {
-  return findTopLevel(raw, (ch) => ch === separator);
-}
-
-function findDefaultSeparator(raw: string): number {
-  return findTopLevel(raw, (ch, index) => ch === '=' && raw[index + 1] !== '>');
-}
-
-function findTopLevel(raw: string, match: (ch: string, index: number) => boolean): number {
-  let depth = 0;
-  let quote: '"' | "'" | '`' | '' = '';
-  let escaped = false;
-  for (let i = 0; i < raw.length; i++) {
-    const ch = raw[i];
-    if (quote) {
-      if (escaped) escaped = false;
-      else if (ch === '\\') escaped = true;
-      else if (ch === quote) quote = '';
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === '`') {
-      quote = ch;
-      continue;
-    }
-    if (ch === '<' || ch === '(' || ch === '{' || ch === '[') depth++;
-    else if ((ch === '>' || ch === ')' || ch === '}' || ch === ']') && depth > 0) depth--;
-    else if (depth === 0 && match(ch, i)) return i;
-  }
-  return -1;
+/** Read a simple identifier binding name from a `ParameterDeclaration` name.
+ *  Destructuring patterns ({a}/[a]) and other non-identifier names contribute
+ *  no single legacy-param name (mirrors the old identifier-only `parseParamName`);
+ *  structured destructured bindings flow through the `param` child path. */
+function parameterBindingName(name: ts.BindingName): string | null {
+  return ts.isIdentifier(name) ? name.text : null;
 }
 
 function newExpressionRootIdentifier(node: ValueIR): string | null {

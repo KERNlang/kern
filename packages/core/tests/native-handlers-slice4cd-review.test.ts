@@ -748,13 +748,15 @@ describe('host namespace checks in top-level TypeScript expression props', () =>
     );
   });
 
-  test('parse-failure fallback does not raw-emit reserved host namespace access', () => {
-    expect(() =>
-      generateCoreNode({
-        type: 'const',
-        props: { name: 'bad', value: 'Date.now(]' },
-      }),
-    ).toThrow(/Unsupported host namespace in TypeScript expression: Date\.now .*not registered/);
+  test('parse-failure fallback ships unparseable raw text verbatim (GAP 3)', () => {
+    // GAP 3 — the const-value parse-FAILURE branch no longer runs the raw
+    // host-namespace scanner: there is no parsed AST to validate, and the
+    // scanner threw on legitimately-unparseable escape-hatch input (a
+    // regression). An unparseable value such as `Date.now(]` now ships raw,
+    // identical to the Python const-value path which emits `value` unvalidated.
+    expect(generateCoreNode({ type: 'const', props: { name: 'bad', value: 'Date.now(]' } })).toEqual([
+      'export const bad = Date.now(];',
+    ]);
   });
 
   test.each([

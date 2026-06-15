@@ -5,7 +5,7 @@
  */
 
 import type { ExprEmitContext } from '../codegen-expression.js';
-import { emitExpression, validateRawHostNamespacesTS } from '../codegen-expression.js';
+import { emitExpression } from '../codegen-expression.js';
 import { hasDirectSuperCtorCall } from '../constructor-super.js';
 import { propsOf } from '../node-props.js';
 import { parseExpression } from '../parser-expression.js';
@@ -745,7 +745,13 @@ export function emitConstValue(
     }
   })();
   if (parsed === null) {
-    validateRawHostNamespacesTS(rawValue, exprCtx);
+    // GAP 3 — parse-FAILURE branch (escape-hatch raw text). We CANNOT run
+    // `validateRawHostNamespacesTS` here: there is no parsed AST to validate,
+    // and the regex-scanner threw on legitimately-unparseable raw input — a
+    // real regression, since valid escape-hatch values the user supplies
+    // verbatim were being rejected. Ship the raw text identically to the
+    // Python const-value path (which emits `value` unvalidated). The success
+    // path below is unchanged and still validates the parsed AST in full.
     return rawValue;
   }
   return emitExpression(parsed, exprCtx);

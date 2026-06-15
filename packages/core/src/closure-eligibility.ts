@@ -140,14 +140,51 @@ export function collectClosureBlockMemberAccesses(raw: string): ClosureBlockMemb
     } else if (ts.isNewExpression(node)) {
       const root = leftmostIdentifierName(node.expression);
       if (root) accesses.push({ root, member: 'constructor', locallyShadowed: isLocal(root) });
-    } else if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
-      accesses.push({ root: node.expression.text, member: 'call', locallyShadowed: isLocal(node.expression.text) });
+    } else if (ts.isCallExpression(node)) {
+      // GAP 2 — the callee may be wrapped in paren/as/satisfies/non-null/legacy
+      // type-assert forms, or be the right operand of a comma (sequence)
+      // expression — e.g. `(Math as any)()`, `(0, process)()`. NORMALIZE the
+      // callee to its underlying identifier so the host-namespace root is still
+      // detected (escalate-safe: an unwrapped non-identifier callee records
+      // nothing, exactly as the prior bare-identifier guard did).
+      const callee = unwrapCallCalleeExpression(node.expression);
+      if (ts.isIdentifier(callee)) {
+        accesses.push({ root: callee.text, member: 'call', locallyShadowed: isLocal(callee.text) });
+      }
     }
     ts.forEachChild(node, visit);
   };
 
   visit(block);
   return accesses;
+}
+
+/** Peel the wrapper layers a call callee may carry until reaching the underlying
+ *  expression: parenthesized, `as`, legacy `<T>` type-assertion, non-null `!`,
+ *  and `satisfies` forms, plus the right operand of a comma (sequence) operator.
+ *  Fixpoint loop — NOT a single unwrap — so stacked wrappers like
+ *  `((process satisfies T) as any)!` collapse to `process`. */
+function unwrapCallCalleeExpression(expr: ts.Expression): ts.Expression {
+  let current: ts.Expression = expr;
+  while (true) {
+    if (
+      ts.isParenthesizedExpression(current) ||
+      ts.isAsExpression(current) ||
+      ts.isTypeAssertionExpression(current) ||
+      ts.isNonNullExpression(current) ||
+      ts.isSatisfiesExpression(current)
+    ) {
+      current = current.expression;
+      continue;
+    }
+    // `(a, b)` sequence — the produced value is the RIGHT operand, so
+    // `(0, process)()` targets `process`.
+    if (ts.isBinaryExpression(current) && current.operatorToken.kind === ts.SyntaxKind.CommaToken) {
+      current = current.right;
+      continue;
+    }
+    return current;
+  }
 }
 
 function bindingPatternIdentifierNames(name: ts.BindingName): string[] {
@@ -161,18 +198,23 @@ function bindingPatternIdentifierNames(name: ts.BindingName): string[] {
 }
 
 function leftmostIdentifierName(node: ts.Expression): string | null {
-  let current: ts.Expression = node;
+  let current: ts.Expression = unwrapCallCalleeExpression(node);
   while (true) {
     if (ts.isIdentifier(current)) return current.text;
     if (ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current)) {
-      current = current.expression;
+      current = unwrapCallCalleeExpression(current.expression);
       continue;
     }
     if (ts.isParenthesizedExpression(current)) {
       current = current.expression;
       continue;
     }
-    if (ts.isAsExpression(current) || ts.isTypeAssertionExpression(current) || ts.isNonNullExpression(current)) {
+    if (
+      ts.isAsExpression(current) ||
+      ts.isTypeAssertionExpression(current) ||
+      ts.isNonNullExpression(current) ||
+      ts.isSatisfiesExpression(current)
+    ) {
       current = current.expression;
       continue;
     }
