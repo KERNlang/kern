@@ -60,7 +60,7 @@ export {
 } from './codegen/portable-logic-primitives.js';
 export type { ReactHookDep } from './codegen/react-hook-imports.js';
 export { detectReactHookDeps, injectReactHookImports } from './codegen/react-hook-imports.js';
-export type { RegexIFoldFailReason, RegexIFoldResult } from './codegen/regex-normalize.js';
+export type { RegexCaptureMeta, RegexIFoldFailReason, RegexIFoldResult } from './codegen/regex-normalize.js';
 // Milestone C, Slices 1 + /i — shared regex emission-normalization, consumed by
 // the TS emitter (here in core) and the Python emitter (@kernlang/python) so the
 // `\d \w \s` class transform AND the non-ASCII `/i` fold-class expansion are
@@ -72,20 +72,43 @@ export {
   // fail-close decision (no host-engine probe).
   isZeroWidthCapableRegex,
   lowerRegexAnchorsPython,
+  // Milestone C, Slice 4 — shared named-group PATTERN lowering (R6) so a `$<name>`
+  // repl ref resolves on the Python target.
+  lowerRegexNamedGroupsPython,
   normalizeRegexClasses,
   // Milestone C, Slice 3 — shared regex-method fail-close diagnostics (thrown
   // byte-identically by both emitters).
   REGEX_EXEC_FAILCLOSE,
   REGEX_MATCHALL_NO_G_FAILCLOSE,
+  // FIX 2 — shared pattern-level fail-close for a non-portable named group
+  // (`(?<café>…)`), thrown byte-identically by both emitters.
+  REGEX_NAMEDGROUP_BAD_NAME_FAILCLOSE,
   // Milestone C, Slice 3c — let-bound regex detect-and-fail-close (shared
   // message + shared shape detector, used symmetrically by both emitters).
   REGEX_NONLITERAL_FAILCLOSE,
+  // Milestone C, Slice 4 — shared .replace/.replaceAll replacement-string
+  // fail-close diagnostics (thrown byte-identically by both emitters).
+  REGEX_REPLACE_BAD_NAME_FAILCLOSE,
+  REGEX_REPLACE_BEFORE_AFTER_FAILCLOSE,
+  REGEX_REPLACE_NONLITERAL_REPL_FAILCLOSE,
+  REGEX_REPLACE_OOR_REF_FAILCLOSE,
   REGEX_REPLACEALL_NO_G_FAILCLOSE,
   REGEX_SPLIT_LIMIT_FAILCLOSE,
   REGEX_SPLIT_ZEROWIDTH_FAILCLOSE,
   REGEX_TEST_G_FAILCLOSE,
+  // Milestone C, Slice 4 — shared replacement-string capture metadata (group
+  // count + named set) consumed by both emitters at the .replace lowering site.
+  regexCaptureMeta,
   regexIFoldFailMessage,
   regexMethodRegexArgIdent,
+  // Milestone C, Slice 4 — shared replacement-string translator (Python rewrite)
+  // + the TS-side validator (verbatim-but-validate, lockstep symmetric).
+  translateReplStringToPython,
+  // FIX 2 — shared pattern-level named-group portability validator, called at the
+  // TS regex-literal emit chokepoints AND the Python `pyRegexPattern` lowering so
+  // a non-portable group name fail-closes symmetrically across targets.
+  validateRegexNamedGroupsPortable,
+  validateReplStringForTS,
 } from './codegen/regex-normalize.js';
 export type { KernStdlibUsage } from './codegen/stdlib-preamble.js';
 // Slice 4 layer 2 — Result / Option compact form preamble (TS-family targets)
