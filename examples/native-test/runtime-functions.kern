@@ -21,7 +21,7 @@ fn name=discountedTotal returns=number
 fn name=loadTotal async=true returns=number
   param name=amount type=number
   handler
-    let name=loaded value="await Promise.resolve(amount)"
+    let name=loaded value="amount"
     return value="loaded + 5"
 
 derive name=runtimeTotal expr={{discountedTotal(order) + base}}

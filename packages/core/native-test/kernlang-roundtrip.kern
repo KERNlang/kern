@@ -1,5 +1,5 @@
 param name=attempts type=number value=3
-param name=ts type=number value={{Date.now()}}
+param name=ts type=number value=7
 param name=name type=string value="world"
 param name=kind type="'draft'|'done'"
 param name=salutation type=string optional=true

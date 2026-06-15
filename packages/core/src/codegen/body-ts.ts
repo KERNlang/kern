@@ -46,10 +46,11 @@
 
 import { isPostfixMutationOperator, isSupportedAssignOperator } from '../assignment-operators.js';
 import { collectClosureBlockCallTexts } from '../closure-eligibility.js';
+import type { ExprEmitContext } from '../codegen-expression.js';
 import { emitExpression } from '../codegen-expression.js';
 import { parseExpression } from '../parser-expression.js';
 import type { ExprObject, IRNode } from '../types.js';
-import { typescriptClosureClassifier } from '../typescript-closure-classifier.js';
+import { typescriptClosureClassifier, validateClosureBlockHostNamespacesTS } from '../typescript-closure-classifier.js';
 import type { ValueIR } from '../value-ir.js';
 
 /** A regex-literal IR node — the value recorded in the TS regex-binding table. */
@@ -382,7 +383,9 @@ function emitChildrenTS(
             return `: ${t}`;
           })();
           lines.push(`${indent}} catch (${errName}${errType}) {`);
-          for (const cl of emitChildrenTS(catchNode.children ?? [], ctx, indent + INDENT_STEP)) lines.push(cl);
+          for (const cl of emitChildrenTS(catchNode.children ?? [], ctx, indent + INDENT_STEP, [[errName, 'let']])) {
+            lines.push(cl);
+          }
         }
         if (finallyNode !== null) {
           lines.push(`${indent}} finally {`);
@@ -611,17 +614,23 @@ function emitWithTS(node: IRNode, ctx: BodyEmitContext, indent: string): string[
   const isAsync = props.async === true || props.async === 'true';
 
   const name = emitIdentifier(String(rawName), 'with', node);
-  declareLocalBinding(ctx, name, 'const');
 
   const valueIR = parseExpr(String(rawValue));
+  if (valueIR.kind === 'propagate') {
+    throw new Error("Propagation '?' is not allowed in `with value=` or `with cleanup=` — bind to `let` first.");
+  }
+  const acquirePrefix = isAsync ? 'await ' : '';
+  const acquireExpr = emitValueTS(valueIR, ctx);
+
+  declareLocalBinding(ctx, name, 'const');
+
   const cleanupIR = parseExpr(String(rawCleanup));
-  if (valueIR.kind === 'propagate' || cleanupIR.kind === 'propagate') {
+  if (cleanupIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in `with value=` or `with cleanup=` — bind to `let` first.");
   }
 
-  const acquirePrefix = isAsync ? 'await ' : '';
   const cleanupPrefix = isAsync ? 'await ' : '';
-  const lines = [`${indent}const ${name} = ${acquirePrefix}${emitValueTS(valueIR, ctx)};`, `${indent}try {`];
+  const lines = [`${indent}const ${name} = ${acquirePrefix}${acquireExpr};`, `${indent}try {`];
   for (const sl of emitChildrenTS(node.children ?? [], ctx, indent + INDENT_STEP, [[name, 'const']])) lines.push(sl);
   lines.push(`${indent}} finally {`);
   lines.push(`${indent}${INDENT_STEP}${cleanupPrefix}${emitValueTS(cleanupIR, ctx)};`);
@@ -1205,7 +1214,14 @@ function emitValueTS(node: ValueIR, ctx: BodyEmitContext): string {
   // flagged — it stays a plain host method (e.g. `s.match(stringVar)`), the
   // common case the old resolve-to-literal substitution must never have broken.
   assertNoBoundRegexMethodTS(node, ctx);
-  return emitExpression(node);
+  return emitExpression(node, exprCtxFor(ctx));
+}
+
+function exprCtxFor(ctx: BodyEmitContext): ExprEmitContext {
+  return {
+    isUserBinding: (name: string) => lookupLocalBinding(ctx, name) !== undefined,
+    validateRawBlock: validateClosureBlockHostNamespacesTS,
+  };
 }
 
 /** Recursively reject any regex-method call whose regex-position operand is an
@@ -1590,7 +1606,8 @@ function emitFnTS(node: IRNode, ctx: BodyEmitContext, indent: string): string[] 
   if (props.params && node.children?.some((c) => c.type === 'param')) {
     throw new Error('body-statement `fn` cannot mix legacy `params=` with structured `param` children.');
   }
-  const paramList = emitParamList(node);
+  const bodyBindings = bodyContextBindingNames(ctx);
+  const paramList = emitParamList(node, { exprCtx: exprCtxFor(ctx), userBindings: bodyBindings });
 
   const lines: string[] = [];
   lines.push(`${indent}${asyncKw}function ${name}(${paramList})${retClause} {`);
@@ -1599,11 +1616,43 @@ function emitFnTS(node: IRNode, ctx: BodyEmitContext, indent: string): string[] 
   const bodyNodes = handlerNode ? (handlerNode.children ?? []) : (node.children ?? []);
   const stmtNodes = bodyNodes.filter((c) => c.type !== 'param' && c.type !== 'decorator');
 
-  for (const sl of emitChildrenTS(stmtNodes, ctx, indent + INDENT_STEP, paramBindingsFromSignature(paramList))) {
+  for (const sl of emitChildrenTS(stmtNodes, ctx, indent + INDENT_STEP, paramBindingsForBodyFn(node, paramList))) {
     lines.push(sl);
   }
   lines.push(`${indent}}`);
   return lines;
+}
+
+function bodyContextBindingNames(ctx: BodyEmitContext): ReadonlySet<string> {
+  const names = new Set<string>();
+  for (const scope of ctx.localScopes) {
+    for (const name of scope.keys()) names.add(name);
+  }
+  return names;
+}
+
+function paramBindingsForBodyFn(node: IRNode, paramList: string): Array<[string, 'const']> {
+  const names = new Set(paramBindingsFromSignature(paramList).map(([name]) => name));
+  for (const child of node.children ?? []) {
+    if (child.type !== 'param') continue;
+    for (const name of bodyBindingNamesFromPatternChildren(child)) names.add(name);
+  }
+  return [...names].map((name) => [name, 'const']);
+}
+
+function bodyBindingNamesFromPatternChildren(node: IRNode): string[] {
+  const names: string[] = [];
+  const hasPatternChildren = (node.children ?? []).some(
+    (child) => child.type === 'binding' || child.type === 'element',
+  );
+  const ownName = node.props?.name;
+  if (typeof ownName === 'string' && ownName.length > 0 && !hasPatternChildren) names.push(ownName);
+  for (const child of node.children ?? []) {
+    if (child.type !== 'binding' && child.type !== 'element') continue;
+    const name = child.props?.name;
+    if (typeof name === 'string' && name.length > 0) names.push(name);
+  }
+  return names;
 }
 
 function paramBindingsFromSignature(paramList: string): Array<[string, 'const']> {

@@ -2,8 +2,9 @@
  * THE ZERO-FP ACCEPTANCE WALL — the package's acceptance gate (slice 4 §1b).
  *
  * Walks EVERY `*.kern` file in the repository (excluding node_modules/.git/
- * dist, deterministic sorted order) and asserts the whole @kernlang/check
- * checker suite is zero-false-positive against the real corpus:
+ * dist/local agent worktrees, deterministic sorted order) and asserts the
+ * whole @kernlang/check checker suite is zero-false-positive against the real
+ * corpus:
  *
  *   - Files that fail to parse (a thrown parse OR an ERROR-severity parse
  *     diagnostic — warnings are advisory and do not exclude a file) are
@@ -45,7 +46,7 @@ import { checkProgram } from '../dist/walk.js';
 const HERE = dirname(fileURLToPath(import.meta.url));
 /** Repo root: packages/check/tests → ../../.. */
 const REPO_ROOT = join(HERE, '..', '..', '..');
-const EXCLUDE_DIRS = new Set(['node_modules', '.git', 'dist']);
+const EXCLUDE_DIRS = new Set(['node_modules', '.git', 'dist', '.claude']);
 
 /** Deterministic (sorted) recursive walk for `*.kern` FILES (not directories —
  *  `.kern` directories exist in the repo and must NOT be collected). */

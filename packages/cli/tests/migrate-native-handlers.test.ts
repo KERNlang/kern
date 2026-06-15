@@ -346,7 +346,7 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     const source = [
       'fn name=clean returns=string',
       '  handler <<<',
-      '    const seen = new Set<string>();',
+      '    const seen = makeSet<string>();',
       '    const value = data[1]!;',
       '    if (/^ok$/i.test(value)) {',
       '      return value.replace(/\\s+/g, " ");',
@@ -357,13 +357,13 @@ describe('rewriteNativeHandlers — supported statement types', () => {
 
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(1);
-    expect(result.output).toContain('let name=seen value="new Set<string>()"');
+    expect(result.output).toContain('let name=seen value="makeSet<string>()"');
     expect(result.output).toContain('let name=value value="data[1]!"');
     expect(result.output).toContain('if cond="/^ok$/i.test(value)"');
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
     const handler = findHandler(parseDocumentStrict(result.output));
     const ts = emitNativeKernBodyTS(handler as IRNode);
-    expect(ts).toContain('const seen = new Set<string>();');
+    expect(ts).toContain('const seen = makeSet<string>();');
     expect(ts).toContain('const value = data[1]!;');
     expect(ts).toContain('if (/^ok$/i.test(value))');
     expect(ts).toContain('return value.replace(/[ \\t\\n\\r\\f\\v]+/g, " ");');

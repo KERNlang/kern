@@ -5376,6 +5376,54 @@ function collectModuleVisibleNames(moduleNode: IRNode, externalImports: External
   return names;
 }
 
+export function moduleRuntimeBindingNames(moduleNode: IRNode): Set<string> {
+  const emptyExternalImports: ExternalImportSymbolTable = {
+    symbols: [],
+    byLocalName: new Map(),
+    byPackage: new Map(),
+    conflicts: [],
+  };
+  return new Set(collectModuleVisibleNames(moduleNode, emptyExternalImports).values);
+}
+
+export function moduleAmbientRuntimeBindingNames(moduleNode: IRNode): Set<string> {
+  const names: ModuleVisibleNames = {
+    all: new Set(),
+    untypedLocal: new Set(),
+    values: new Set(),
+    types: new Set(),
+  };
+  for (const child of moduleNode.children ?? []) {
+    if (child.type === 'use') {
+      for (const fromChild of child.children ?? []) {
+        if (fromChild.type !== 'from') continue;
+        const importedName = fromChild.props?.name;
+        const alias = fromChild.props?.as;
+        const localName =
+          typeof alias === 'string' && alias.length > 0
+            ? alias
+            : typeof importedName === 'string' && importedName.length > 0
+              ? importedName
+              : null;
+        if (localName) addUseVisibleName(names, fromChild, localName);
+      }
+    }
+
+    if (child.type === 'import' && !isExternalImportNode(child)) {
+      addHostImportBindings(names, child);
+    }
+
+    if (child.type === 'extern' && isHostExternNode(child)) {
+      addHostExternBindings(names, child);
+    }
+
+    if (child.type === 'island') {
+      addIslandVisibleNames(names, child);
+    }
+  }
+  return new Set(names.values);
+}
+
 function addUntypedLocalVisibleName(names: ModuleVisibleNames, name: string): void {
   names.all.add(name);
   names.untypedLocal.add(name);
@@ -5405,6 +5453,9 @@ function addDeclaredVisibleName(names: ModuleVisibleNames, nodeType: string, nam
     case 'fn':
     case 'function':
     case 'screen':
+    case 'action':
+    case 'repository':
+    case 'cache':
       addKindedVisibleName(names, name, 'value');
       return;
     default:
@@ -5431,6 +5482,9 @@ function addUseVisibleName(names: ModuleVisibleNames, fromNode: IRNode, name: st
     case 'fn':
     case 'function':
     case 'screen':
+    case 'action':
+    case 'repository':
+    case 'cache':
       addKindedVisibleName(names, name, 'value');
       return;
     default:

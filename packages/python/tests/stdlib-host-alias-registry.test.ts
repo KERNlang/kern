@@ -1,5 +1,11 @@
 import { spawnSync } from 'node:child_process';
-import { emitExpression, emitNativeKernBodyTSWithImports, parseExpression } from '@kernlang/core';
+import {
+  emitExpression,
+  emitNativeKernBodyTSWithImports,
+  generateCoreNode,
+  HOST_NAMESPACE_EXEMPT_ROOTS,
+  parseExpression,
+} from '@kernlang/core';
 import { emitNativeKernBodyPythonWithImports, emitPyExpressionWithImports } from '../src/codegen-body-python.js';
 import { rewriteExpr } from '../src/core/expr/index.js';
 
@@ -335,13 +341,90 @@ describeIfPython('Milestone A stdlib host aliases — reserved namespace and fai
   });
 
   test.each([
-    'Date.now()',
-    'console.log("x")',
-    'process.env.HOME',
+    ['Date.now()', /Unsupported host namespace in (TypeScript|Python) expression: Date\.now .*not registered/],
+    ['console.log("x")', /Unsupported host namespace in (TypeScript|Python) expression: console\.log .*not registered/],
+    ['process.env.HOME', /Unsupported host namespace in (TypeScript|Python) expression: process\.env .*not registered/],
+    ['Promise.all(ps)', /Unsupported host namespace in (TypeScript|Python) expression: Promise\.all .*not registered/],
+    [
+      'globalThis.location',
+      /Unsupported host namespace in (TypeScript|Python) expression: globalThis\.location .*not registered/,
+    ],
+    [
+      'console["log"]("x")',
+      /Unsupported host namespace in (TypeScript|Python) expression: console\.log .*not registered/,
+    ],
+  ])('%s fails closed on both emitted targets', (expr, message) => {
+    expect(() => emitNativeKernBodyTSWithImports(letHandler(expr))).toThrow(message);
+    expect(() => emitNativeKernBodyPythonWithImports(letHandler(expr))).toThrow(message);
+  });
+
+  test('new Date() fails closed on the TypeScript target', () => {
+    expect(() => emitNativeKernBodyTSWithImports(letHandler('new Date()'))).toThrow(
+      /Unsupported host namespace in TypeScript expression: Date\.constructor .*not registered/,
+    );
+  });
+
+  test.each([
+    ['const.value', { type: 'const', props: { name: 'startedAt', value: 'Date.now()' } }],
+    [
+      'field.value',
+      {
+        type: 'class',
+        props: { name: 'Stamp' },
+        children: [{ type: 'field', props: { name: 'ts', value: 'Date.now()' } }],
+      },
+    ],
+    [
+      'param.value',
+      {
+        type: 'fn',
+        props: { name: 'stamp', returns: 'number' },
+        children: [
+          { type: 'param', props: { name: 'ts', type: 'number', value: 'Date.now()' } },
+          { type: 'handler', props: { code: 'return ts;' } },
+        ],
+      },
+    ],
+  ])('%s does not fall back to raw TypeScript after host-namespace rejection', (_label, node) => {
+    expect(() => generateCoreNode(node as IRNode)).toThrow(
+      /Unsupported host namespace in TypeScript expression: Date\.now .*not registered/,
+    );
+  });
+
+  test('const.value block-bodied lambda does not bypass TS host-namespace rejection', () => {
+    expect(() =>
+      generateCoreNode({
+        type: 'const',
+        props: { name: 'out', value: 'items.map(item => { return Date.now(); })' },
+      } as IRNode),
+    ).toThrow(/Unsupported host namespace in TypeScript expression: Date\.now .*not registered/);
+  });
+
+  test.each([
     'Math.random()',
     'Math["random"]()',
-  ])('%s stays fail-closed', (expr) => {
-    expect(() => emitNativeKernBodyPythonWithImports(letHandler(expr))).toThrow();
+  ])('%s stays reserved to the stdlib registry on both emitted targets', (expr) => {
+    expect(() => emitNativeKernBodyTSWithImports(letHandler(expr))).toThrow(/Unknown KERN-stdlib method\/member/);
+    expect(() => emitNativeKernBodyPythonWithImports(letHandler(expr))).toThrow(/Unknown KERN-stdlib method\/member/);
+  });
+
+  test('RegExp remains exempt from host-namespace fail-closing on both emitted targets', () => {
+    expect(HOST_NAMESPACE_EXEMPT_ROOTS.has('RegExp')).toBe(true);
+    expect(emitNativeKernBodyTSWithImports(letHandler('RegExp.escape(s)')).code).toContain('RegExp.escape(s)');
+    expect(emitNativeKernBodyPythonWithImports(letHandler('RegExp.escape(s)')).code).toContain('RegExp.escape(s)');
+  });
+
+  test('user bindings named like host roots shadow the host namespace on both targets', () => {
+    const handler: IRNode = {
+      type: 'handler',
+      props: { lang: 'kern' },
+      children: [
+        { type: 'let', props: { name: 'Date', value: 'clock' } },
+        { type: 'let', props: { name: 'r', value: 'Date.now()' } },
+      ],
+    };
+    expect(emitNativeKernBodyTSWithImports(handler).code).toContain('const r = Date.now();');
+    expect(emitNativeKernBodyPythonWithImports(handler).code).toContain('r = Date.now()');
   });
 
   test.each([

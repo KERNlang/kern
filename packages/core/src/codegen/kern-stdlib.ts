@@ -317,6 +317,19 @@ export function suggestStdlibMethod(module: string, method: string): string | nu
 
 export const suggestStdlibMember = suggestStdlibMethod;
 
+/** GAP 1 — single source of truth for \"is `module.member` a portable lowering?\".
+ *  A member is portable iff `module` is a registered KERN stdlib module AND
+ *  `member` resolves to either a call entry or a property entry in the table.
+ *  The TS-emit path (`applyStdlibLoweringTS`/`applyStdlibPropertyLoweringTS`),
+ *  the Python-emit path, and the IR-validation pass all consult THIS predicate
+ *  so an unknown member (`Number.foo`) is treated identically — rejected — by
+ *  validation and by emission, instead of the validator silently passing what
+ *  the emitter later throws on. */
+export function isPortableStdlibMember(module: string, member: string): boolean {
+  if (!KERN_STDLIB_MODULES.has(module)) return false;
+  return lookupStdlib(module, member) !== null;
+}
+
 /** Substitute `$0`, `$1`, … placeholders in a template with the corresponding
  *  args. Throws on out-of-range index — that's a programming error in the
  *  KERN_STDLIB table, not user input. */

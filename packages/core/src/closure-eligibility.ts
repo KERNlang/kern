@@ -74,21 +74,206 @@ function parseClosureBlockUncached(trimmed: string): ts.Block | null {
   return fn.body;
 }
 
+export interface LegacyParamSignature {
+  /** Simple identifier binding name, or `null` for destructuring / non-identifier
+   *  patterns (which contribute no single legacy-param name — structured bindings
+   *  flow through the `param` child path instead). */
+  name: string | null;
+  /** Default-value expression text (`param.initializer`), or `null` when absent. */
+  default: string | null;
+}
+
+/** BLOCKER 2 + IMPORTANT 3 — parse a legacy `params="..."` string with the REAL
+ *  TypeScript parser and return one entry per parameter. Owns the
+ *  `ts.createSourceFile` call (this module already statically imports
+ *  `typescript`) so `host-namespace-ir.ts` need not — that keeps the core
+ *  barrel's `typescript`-importer pin at 5 (browser-spine-import-graph.test.ts).
+ *
+ *  Wrapping the raw list in `function _(<params>){}` and reading each
+ *  `ParameterDeclaration` auto-handles every case a hand-rolled char-scanner
+ *  mis-split: `==`/`===`/`<=`/`>=` inside a default, regex literals with commas,
+ *  nested generics, template literals.
+ *
+ *  Fails CLOSED on malformed input: if `source.parseDiagnostics` is non-empty
+ *  (e.g. `params="process = ("`), returns `null` instead of producing phantom
+ *  recovery-AST bindings — so a caller never treats a host root (`process`) as
+ *  shadowed by a binding the user never actually wrote. A successful-but-empty
+ *  parse (no params) returns `[]`. */
+export function parseLegacyParamSignature(raw: string): LegacyParamSignature[] | null {
+  const sf = ts.createSourceFile('__kern_legacy_params__.ts', `function _(${raw}){}`, ts.ScriptTarget.Latest, true);
+  const diags = (sf as unknown as { parseDiagnostics?: ts.Diagnostic[] }).parseDiagnostics;
+  if (diags && diags.length > 0) return null;
+  const fn = sf.statements[0];
+  if (!fn || !ts.isFunctionDeclaration(fn)) return null;
+  return fn.parameters.map((param) => {
+    const defaultText = param.initializer ? param.initializer.getText(sf).trim() : '';
+    return {
+      name: ts.isIdentifier(param.name) ? param.name.text : null,
+      default: defaultText.length > 0 ? defaultText : null,
+    };
+  });
+}
+
 /** Collect identifier names bound by `let`/`const` declarations directly inside
  *  the closure block (including inside nested if/else branches the gate
  *  accepts). Used to distinguish a free-variable write (rejected) from an
- *  assignment to a closure-local (allowed). v1 only admits identifier-named
- *  declarations, so destructured names never enter this set. */
+ *  assignment to a closure-local (allowed). Binding patterns contribute every
+ *  identifier they declare. */
 function collectLocalDeclaredNames(block: ts.Block): Set<string> {
   const names = new Set<string>();
   const visit = (node: ts.Node): void => {
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
-      names.add(node.name.text);
+    if (ts.isVariableDeclaration(node)) {
+      for (const name of bindingPatternIdentifierNames(node.name)) names.add(name);
     }
     ts.forEachChild(node, visit);
   };
   ts.forEachChild(block, visit);
   return names;
+}
+
+export interface ClosureBlockMemberAccess {
+  root: string;
+  member: string;
+  locallyShadowed: boolean;
+}
+
+export function collectClosureBlockLocalBindingNames(raw: string): Set<string> {
+  const block = parseClosureBlockAst(raw);
+  return block === null ? new Set<string>() : collectLocalDeclaredNames(block);
+}
+
+export function collectClosureBlockMemberAccesses(raw: string): ClosureBlockMemberAccess[] {
+  const block = parseClosureBlockAst(raw);
+  if (block === null) return [];
+  const accesses: ClosureBlockMemberAccess[] = [];
+  const scopes: Array<Set<string>> = [new Set()];
+
+  const isLocal = (name: string): boolean => scopes.some((scope) => scope.has(name));
+  const declareLocal = (name: string): void => {
+    scopes[scopes.length - 1].add(name);
+  };
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isBlock(node)) {
+      const isRootBlock = node === block;
+      if (!isRootBlock) scopes.push(new Set());
+      for (const statement of node.statements) visit(statement);
+      if (!isRootBlock) scopes.pop();
+      return;
+    }
+    if (ts.isVariableDeclaration(node)) {
+      if (node.initializer) visit(node.initializer);
+      for (const name of bindingPatternIdentifierNames(node.name)) declareLocal(name);
+      return;
+    }
+    if (ts.isPropertyAccessExpression(node)) {
+      const root = leftmostIdentifierName(node.expression);
+      if (root) accesses.push({ root, member: propertyAccessMemberLabel(node), locallyShadowed: isLocal(root) });
+    } else if (ts.isElementAccessExpression(node)) {
+      const root = leftmostIdentifierName(node.expression);
+      if (root)
+        accesses.push({
+          root,
+          member: elementAccessMemberLabel(node.argumentExpression),
+          locallyShadowed: isLocal(root),
+        });
+    } else if (ts.isNewExpression(node)) {
+      const root = leftmostIdentifierName(node.expression);
+      if (root) accesses.push({ root, member: 'constructor', locallyShadowed: isLocal(root) });
+    } else if (ts.isCallExpression(node)) {
+      // GAP 2 — the callee may be wrapped in paren/as/satisfies/non-null/legacy
+      // type-assert forms, or be the right operand of a comma (sequence)
+      // expression — e.g. `(Math as any)()`, `(0, process)()`. NORMALIZE the
+      // callee to its underlying identifier so the host-namespace root is still
+      // detected (escalate-safe: an unwrapped non-identifier callee records
+      // nothing, exactly as the prior bare-identifier guard did).
+      const callee = unwrapCallCalleeExpression(node.expression);
+      if (ts.isIdentifier(callee)) {
+        accesses.push({ root: callee.text, member: 'call', locallyShadowed: isLocal(callee.text) });
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  visit(block);
+  return accesses;
+}
+
+/** Peel the wrapper layers a call callee may carry until reaching the underlying
+ *  expression: parenthesized, `as`, legacy `<T>` type-assertion, non-null `!`,
+ *  and `satisfies` forms, plus the right operand of a comma (sequence) operator.
+ *  Fixpoint loop — NOT a single unwrap — so stacked wrappers like
+ *  `((process satisfies T) as any)!` collapse to `process`. */
+function unwrapCallCalleeExpression(expr: ts.Expression): ts.Expression {
+  let current: ts.Expression = expr;
+  while (true) {
+    if (
+      ts.isParenthesizedExpression(current) ||
+      ts.isAsExpression(current) ||
+      ts.isTypeAssertionExpression(current) ||
+      ts.isNonNullExpression(current) ||
+      ts.isSatisfiesExpression(current)
+    ) {
+      current = current.expression;
+      continue;
+    }
+    // `(a, b)` sequence — the produced value is the RIGHT operand, so
+    // `(0, process)()` targets `process`.
+    if (ts.isBinaryExpression(current) && current.operatorToken.kind === ts.SyntaxKind.CommaToken) {
+      current = current.right;
+      continue;
+    }
+    return current;
+  }
+}
+
+function bindingPatternIdentifierNames(name: ts.BindingName): string[] {
+  if (ts.isIdentifier(name)) return [name.text];
+  const out: string[] = [];
+  for (const element of name.elements) {
+    if (ts.isOmittedExpression(element)) continue;
+    out.push(...bindingPatternIdentifierNames(element.name));
+  }
+  return out;
+}
+
+function leftmostIdentifierName(node: ts.Expression): string | null {
+  let current: ts.Expression = unwrapCallCalleeExpression(node);
+  while (true) {
+    if (ts.isIdentifier(current)) return current.text;
+    if (ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current)) {
+      current = unwrapCallCalleeExpression(current.expression);
+      continue;
+    }
+    if (ts.isParenthesizedExpression(current)) {
+      current = current.expression;
+      continue;
+    }
+    if (
+      ts.isAsExpression(current) ||
+      ts.isTypeAssertionExpression(current) ||
+      ts.isNonNullExpression(current) ||
+      ts.isSatisfiesExpression(current)
+    ) {
+      current = current.expression;
+      continue;
+    }
+    return null;
+  }
+}
+
+function propertyAccessMemberLabel(node: ts.PropertyAccessExpression): string {
+  const parts: string[] = [node.name.text];
+  let current: ts.Expression = node.expression;
+  while (ts.isPropertyAccessExpression(current)) {
+    parts.unshift(current.name.text);
+    current = current.expression;
+  }
+  return parts.join('.');
+}
+
+function elementAccessMemberLabel(argument: ts.Expression | undefined): string {
+  return argument && ts.isStringLiteralLike(argument) ? argument.text : '[computed]';
 }
 
 /** Collect the raw source text of every CALL expression nested anywhere in a
