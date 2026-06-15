@@ -74,8 +74,14 @@ const SHORTHAND_CLASS_BODY: Record<string, string> = {
  * A `\d`/`\w`/`\s` is only expanded when its `\` is an ACTIVE shorthand backslash
  * (an UNescaped `\`). A `\\d` (escaped backslash, then a LITERAL `d`) leaves the
  * `d` untouched — the old `replaceAll('\\d', …)` wrongly rewrote it. The matching
- * `]` of each class is found via the literal-`]`-first-aware {@link scanCharClass}
- * (an unterminated class passes through VERBATIM without expansion).
+ * `]` of each class is found via the literal-`]`-first-aware {@link scanCharClass}.
+ * An unterminated `[` is UNREACHABLE for a parsed `regexLit` — the regex scanner
+ * (`consumeRegex` in parser-expression.ts) only ends a literal on a `/` seen at
+ * `!inClass`, so every parsed pattern has balanced `[...]` (an unbalanced `[`
+ * throws "Unclosed regex literal" at parse time). The `closeIdx === -1` branch is
+ * therefore belt-and-suspenders: the `[` is emitted as-is and scanning continues
+ * at depth 0, so a LATER shorthand still expands bracketed (NOT a verbatim
+ * pass-through of the rest) — fine, because such input can never reach here.
  *
  * ORDERING INVARIANT (codified): this pass runs FIRST in the regex pipeline —
  * before {@link expandRegexIFold} and {@link lowerRegexAnchorsPython} on both

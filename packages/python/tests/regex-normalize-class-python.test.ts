@@ -178,3 +178,23 @@ describe('normalizeRegexClasses — TS-vs-Python BYTE-PARITY of the emitted patt
     expect(py('/a\\/\\db/')).toBe('__k_re.compile("a/[0-9]b", __k_re.ASCII)');
   });
 });
+
+// REACHABILITY GUARD — the `closeIdx === -1` (unterminated `[`) branch in
+// normalizeRegexClasses is belt-and-suspenders: `consumeRegex` only ends a regex
+// literal on a `/` seen OUTSIDE a class, so an unbalanced `[` swallows the closing
+// `/` and the scan throws "Unclosed regex literal" at PARSE time. A parsed
+// `regexLit.pattern` therefore always has balanced `[...]`; the defensive branch
+// can never fire on real input. These tests pin that contract so the dead branch
+// stays dead (and review noise about its behaviour stays moot).
+describe('normalizeRegexClasses — unterminated `[` is unreachable (parser rejects it)', () => {
+  test('an unterminated `[` regex literal throws "Unclosed regex literal" at parse time', () => {
+    expect(() => parseExpression('/[abc/')).toThrow(/Unclosed regex literal/);
+    expect(() => parseExpression('/x[\\d/')).toThrow(/Unclosed regex literal/);
+  });
+
+  test('a balanced class containing a `/` parses fine (the class swallows the slash)', () => {
+    // `[/]` is a valid class matching a literal slash — proves the scanner tracks
+    // class depth, which is exactly why every parsed pattern has balanced `[...]`.
+    expect(ts('/[/]/')).toBe('/[/]/');
+  });
+});
