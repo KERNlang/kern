@@ -18,11 +18,14 @@ import {
   normalizeRegexClasses,
   REGEX_EXEC_FAILCLOSE,
   REGEX_MATCHALL_NO_G_FAILCLOSE,
+  REGEX_REPLACE_NONLITERAL_REPL_FAILCLOSE,
   REGEX_REPLACEALL_NO_G_FAILCLOSE,
   REGEX_SPLIT_LIMIT_FAILCLOSE,
   REGEX_SPLIT_ZEROWIDTH_FAILCLOSE,
   REGEX_TEST_G_FAILCLOSE,
+  regexCaptureMeta,
   regexIFoldFailMessage,
+  validateReplStringForTS,
 } from './codegen/regex-normalize.js';
 import type { ValueIR } from './value-ir.js';
 
@@ -499,18 +502,44 @@ function lowerRegexCallTS(call: Extract<ValueIR, { kind: 'call' }>): string | nu
 
   // `.replace(s, r)` / `.replaceAll(s, r)` — native methods produce the right
   // string both with and without /g; `.replaceAll` additionally requires /g.
+  //
+  // Milestone C, Slice 4 — the JS `$`-surface replacement string IS native on the
+  // TS target, so it is emitted VERBATIM (no byte rewrite). But the SHARED
+  // fail-close validator runs so the TS target rejects the SAME non-portable
+  // tokens the Python translator rejects (`$\``/`$'`, out-of-range numbered ref,
+  // unknown/illegal named ref, and a non-literal replacement) — the ts-python
+  // lockstep, both targets refuse the same inputs.
   const replaceRegex = call.args.length === 2 ? resolveRegexLitTS(call.args[0]) : null;
   if (callee.property === 'replace' && replaceRegex !== null) {
+    validateReplArgTS(call.args[1], replaceRegex);
     const re = emitTsRegexLiteral(replaceRegex);
     return `${subject()}.replace(${re}, ${emitExpression(call.args[1])})`;
   }
   if (callee.property === 'replaceAll' && replaceRegex !== null) {
     if (!replaceRegex.flags.includes('g')) throw new Error(REGEX_REPLACEALL_NO_G_FAILCLOSE);
+    validateReplArgTS(call.args[1], replaceRegex);
     const re = emitTsRegexLiteral(replaceRegex);
     return `${subject()}.replaceAll(${re}, ${emitExpression(call.args[1])})`;
   }
 
   return null;
+}
+
+/**
+ * Milestone C, Slice 4 — TS-side replacement-argument validation (no rewrite).
+ *
+ * A STRING-LITERAL replacement is run through the shared validator so a
+ * non-portable token (`$\``/`$'`, out-of-range numbered ref, unknown/illegal
+ * named ref) fail-closes byte-identically with the Python target. A NON-LITERAL
+ * replacement fail-closes symmetrically (it cannot be statically translated on
+ * Python). The repl string is otherwise emitted verbatim — JS is the native
+ * surface — so there is no byte rewrite here.
+ */
+function validateReplArgTS(arg: ValueIR, replaceRegex: Extract<ValueIR, { kind: 'regexLit' }>): void {
+  if (arg.kind !== 'strLit') {
+    throw new Error(REGEX_REPLACE_NONLITERAL_REPL_FAILCLOSE);
+  }
+  validateReplStringForTS(arg.value, regexCaptureMeta(replaceRegex.pattern));
 }
 
 function needsStdlibArgParens(arg: ValueIR, template: StdlibCallEntry['ts'], index: number): boolean {
