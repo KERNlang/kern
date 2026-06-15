@@ -349,15 +349,24 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       // divergence. We RECURSIVELY peel the transparent wrappers via the round-5
       // `unwrapTransparentReceiverIR` (fixpoint over `typeAssert`/`nonNull`, so
       // nested `typeof (Date as any as unknown)` also collapses) and apply the
-      // host-root reject to the UNWRAPPED operand. The wrappers carry no runtime
-      // value on either target, so emitting `typeof <unwrapped>` for an accepted
-      // operand (`typeof (userLocal as any)`) is byte-equivalent across both legs.
+      // host-root reject to the UNWRAPPED operand.
+      //
+      // Round-8 fix — the unwrapped operand is used ONLY to DECIDE the host-root
+      // reject; it must NOT be the emitted form. Round-7 emitted `typeof
+      // <unwrapped.name>`, which STRIPPED the wrappers from ACCEPTED operands
+      // (`typeof (x as string)` → `typeof x`, `typeof (x!)` → `typeof x`) — that
+      // breaks emitter round-tripping (the `as`/`!`/parens carry valid syntax on
+      // the TS leg). For an accepted operand we FALL THROUGH to the normal unary
+      // emission below, which re-emits from the ORIGINAL `node.argument` and so
+      // preserves every wrapper. Only the reject decision keys off the unwrapped
+      // root.
       if (node.op === 'typeof') {
         const operand = unwrapTransparentReceiverIR(node.argument);
         if (operand.kind === 'ident') {
           rejectTypeofHostRootTS(operand.name, ctx);
-          return `typeof ${operand.name}`;
         }
+        // accepted operands fall through to the normal unary emission below,
+        // preserving the original wrappers (`as`/`!`/parens/`satisfies`).
       }
       // Slice-2 review fix: wrap binary/unary/spread args in parens to preserve
       // unary's tight binding. `!(a === b)` would otherwise emit `!a === b`.

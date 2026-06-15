@@ -686,14 +686,17 @@ describe('Slice 2 — WRAPPED `typeof <host root>` fail-close (round 7 — close
     expect(val.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
   });
 
-  // A wrapped NON-host operand must NOT be over-rejected — the wrappers are peeled,
-  // the bare `userLocal`/`window` is accepted, and the emitted TS is `typeof <name>`
-  // (the no-runtime-value wrappers stripped → byte-equivalent across both legs).
+  // A wrapped NON-host operand must NOT be over-rejected — the wrappers are peeled
+  // ONLY to DECIDE the host-root reject; the bare `userLocal`/`window` is accepted,
+  // and the emitter re-emits from the ORIGINAL argument so the `as`/`!` wrappers are
+  // PRESERVED (round-8 fix — stripping them broke emitter round-tripping). Bare
+  // parens around a plain ident carry no syntax (the parser discards them), so
+  // `typeof (userLocal)` correctly emits `typeof userLocal`.
   test.each([
     ['typeof (userLocal)', 'typeof userLocal'],
-    ['typeof (userLocal as any)', 'typeof userLocal'],
+    ['typeof (userLocal as any)', 'typeof (userLocal as any)'],
     ['typeof (window)', 'typeof window'],
-    ['typeof (window as any)', 'typeof window'],
+    ['typeof (window as any)', 'typeof (window as any)'],
   ])('%s is NOT over-rejected (emits native typeof) on TS-emit + IR-validate', (src, emitted) => {
     const emit = emitTS(src);
     expect(emit.ok).toBe(true);
