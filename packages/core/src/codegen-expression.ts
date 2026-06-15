@@ -8,6 +8,22 @@ import {
   lookupStdlibProperty,
   suggestStdlibMethod,
 } from './codegen/kern-stdlib.js';
+// Milestone C, Slice 1 — shared regex emission-normalization. The class
+// transform (`\d \w \s` → ASCII classes) must be byte-identical across the TS
+// and Python emitters, so both import it from this one core module. Anchor
+// lowering is Python-only (JS `$`/`^` without `/m` already mean input-end/start).
+import {
+  expandRegexIFold,
+  isZeroWidthCapableRegex,
+  normalizeRegexClasses,
+  REGEX_EXEC_FAILCLOSE,
+  REGEX_MATCHALL_NO_G_FAILCLOSE,
+  REGEX_REPLACEALL_NO_G_FAILCLOSE,
+  REGEX_SPLIT_LIMIT_FAILCLOSE,
+  REGEX_SPLIT_ZEROWIDTH_FAILCLOSE,
+  REGEX_TEST_G_FAILCLOSE,
+  regexIFoldFailMessage,
+} from './codegen/regex-normalize.js';
 import type { ValueIR } from './value-ir.js';
 
 // Slice 2c — extended precedence table covering equality, relational,
@@ -57,8 +73,21 @@ export function emitExpression(node: ValueIR): string {
       return 'null';
     case 'undefLit':
       return 'undefined';
-    case 'regexLit':
-      return `/${node.pattern}/${node.flags}`;
+    case 'regexLit': {
+      // Slice 1: normalize `\d \w \s` to explicit ASCII classes. Anchors and
+      // flags are kept verbatim on TS (JS `$`/`^` without `/m` are already
+      // input-anchored; JS shorthand `\d`/`\w` are already ASCII — the `\s`
+      // narrowing is the one match-affecting rewrite here).
+      // Slice-/i: class-expand non-ASCII Set(A) letters under /i (Set(B) → throw),
+      // applied AFTER class-normalization (Slice-1 classes are pure-ASCII, so the
+      // fold scan leaves them untouched) and on the SAME shared transform Python
+      // uses, so the residual pattern is byte-identical across targets. `/i` is
+      // kept in the flags.
+      const classed = normalizeRegexClasses(node.pattern);
+      const folded = expandRegexIFold(classed, node.flags);
+      if ('failClose' in folded) throw new Error(regexIFoldFailMessage(folded.char, folded.reason));
+      return `/${folded.pattern}/${node.flags}`;
+    }
     case 'tmplLit': {
       let out = '`';
       for (let i = 0; i < node.quasis.length; i++) {
@@ -89,6 +118,11 @@ export function emitExpression(node: ValueIR): string {
       // lowering table instead of the default emit path.
       const stdlib = applyStdlibLoweringTS(node);
       if (stdlib !== null) return stdlib;
+      // Milestone C, Slice 3 — portable regex match-set methods. Adapt `.match`
+      // (no /g) to the canonical KERN shape and fail-close the non-portable
+      // shapes IDENTICALLY to the Python target (shared messages + predicate).
+      const regexMethod = lowerRegexCallTS(node);
+      if (regexMethod !== null) return regexMethod;
       const callee = emitExpression(node.callee);
       const wrapped = needsReceiverParens(node.callee) ? `(${callee})` : callee;
       const args = node.args.map((arg) => emitExpression(arg)).join(', ');
@@ -352,6 +386,131 @@ function applyStdlibLoweringTS(call: Extract<ValueIR, { kind: 'call' }>): string
     return needsStdlibArgParens(a, entry.ts, index) ? `(${emitted})` : emitted;
   });
   return typeof entry.ts === 'function' ? entry.ts(args) : applyTemplate(entry.ts, args);
+}
+
+/** Resolve a node to a regex literal IR, mirroring the Python `resolveRegexExpr`.
+ *  The pure-expression TS emitter has no binding table, so only a direct
+ *  `regexLit` is resolved (the Python target additionally follows an ident
+ *  binding; the lowered shapes/fail-closes are otherwise identical). */
+function resolveRegexLitTS(node: ValueIR): Extract<ValueIR, { kind: 'regexLit' }> | null {
+  return node.kind === 'regexLit' ? node : null;
+}
+
+/** Emit the normalized TS regex literal (`/pat/flags`) for a regexLit IR — the
+ *  same class/`/i`-fold transform the bare-`regexLit` emit path applies, so a
+ *  regex used as a method arg lowers byte-identically to a standalone literal. */
+function emitTsRegexLiteral(node: Extract<ValueIR, { kind: 'regexLit' }>): string {
+  const classed = normalizeRegexClasses(node.pattern);
+  const folded = expandRegexIFold(classed, node.flags);
+  if ('failClose' in folded) throw new Error(regexIFoldFailMessage(folded.char, folded.reason));
+  return `/${folded.pattern}/${node.flags}`;
+}
+
+/**
+ * Milestone C, Slice 3 — portable regex match-set method lowering (TS side).
+ *
+ * The TS target uses NATIVE `RegExp` methods, whose results already align with
+ * the canonical KERN shapes for `.test` / `.replace` / `.split` / `.matchAll`
+ * (boolean / string / array / match-object iterator). The ONE shape that needs a
+ * TS-side adapter is `.match` WITHOUT `/g`: native `String.match` returns a
+ * `RegExpMatchArray` (`m[0]`, `m[1..n]`, `m.index`, `m.groups`) which carries the
+ * same data as the canonical `{full, groups, index, named}` but on a different
+ * surface — so a downstream `m.full` / `m.named` would break across targets. We
+ * adapt it inline (mirroring the Slice-3 oracle `canonMatchObj`), `null`-safe.
+ *
+ * Every fail-close decision is made HERE with the SAME shared predicate +
+ * messages the Python emitter uses, so the rejection is byte-identical across
+ * targets (the parity contract): `.test(/g)`, `.exec`, `.matchAll`/`.replaceAll`
+ * without `/g`, and `.split` with a zero-width-capable pattern or a limit arg.
+ *
+ * Returns `null` when the call is not a regex match-set method on a resolvable
+ * regex literal (falls through to the default call emit — e.g. `s.replace(str,…)`
+ * with a string first arg is plain `String.replace`, not a regex method).
+ */
+function lowerRegexCallTS(call: Extract<ValueIR, { kind: 'call' }>): string | null {
+  const callee = call.callee;
+  if (callee.kind !== 'member') return null;
+  if (callee.optional) return null; // `?.match(...)` — leave to default emit
+
+  // --- Receiver-is-regex shapes: `regex.test(s)`, `regex.exec(s)` ---
+  const receiverRegex = resolveRegexLitTS(callee.object);
+  if (callee.property === 'test' && receiverRegex !== null && call.args.length === 1) {
+    if (receiverRegex.flags.includes('g')) throw new Error(REGEX_TEST_G_FAILCLOSE);
+    const re = emitTsRegexLiteral(receiverRegex);
+    const arg = emitExpression(call.args[0]);
+    const wrapped = needsArgParens(call.args[0]) ? `(${arg})` : arg;
+    return `${re}.test(${wrapped})`;
+  }
+  if (callee.property === 'exec' && receiverRegex !== null) {
+    throw new Error(REGEX_EXEC_FAILCLOSE);
+  }
+
+  // --- Receiver-is-string shapes: arg[0] is the regex ---
+  const firstArgRegex = call.args.length >= 1 ? resolveRegexLitTS(call.args[0]) : null;
+  const subject = (): string => {
+    const obj = emitExpression(callee.object);
+    return needsReceiverParens(callee.object) ? `(${obj})` : obj;
+  };
+
+  // `.match(s)` — no /g: adapt to the canonical {full,groups,index,named}|null
+  // shape (the load-bearing portability fix). With /g: native `String.match`
+  // already yields the array of full-match strings | null — emit it verbatim.
+  if (callee.property === 'match' && firstArgRegex !== null && call.args.length === 1) {
+    const re = emitTsRegexLiteral(firstArgRegex);
+    if (firstArgRegex.flags.includes('g')) {
+      return `${subject()}.match(${re})`;
+    }
+    // Inline `null`-safe adapter mirroring the oracle's canonMatchObj. `__m` is a
+    // local arrow param (no collision with user names).
+    //
+    // NAMED-GROUP normalization (Slice-3b parity fix): an UNMATCHED optional
+    // named group is `undefined` on the native `RegExpMatchArray.groups`, but
+    // Python's `re.Match.groupdict()` returns `None` (= KERN null) for the same
+    // key. Copying `.groups` verbatim would diverge the canonical shape for
+    // optional named captures (`/(?<a>x)(?<b>y)?/` on "x" → TS `{a:"x"}` vs
+    // Python `{a:"x", b:null}`). We map each named value `undefined → null` the
+    // SAME way positional groups are normalized, so `named` is shape-identical
+    // across targets.
+    return (
+      `((__m) => __m === null ? null : ` +
+      `{ full: __m[0], groups: Array.from(__m).slice(1).map((g) => g === undefined ? null : g), ` +
+      `index: __m.index, named: __m.groups ? Object.fromEntries(Object.entries(__m.groups).map(([__k, __v]) => [__k, __v === undefined ? null : __v])) : {} })(${subject()}.match(${re}))`
+    );
+  }
+
+  // `.matchAll(s)` — requires /g (non-global throws TypeError in JS). Shape the
+  // native iterator into [{full,groups,index}, …], incl. zero-width advances.
+  if (callee.property === 'matchAll' && firstArgRegex !== null && call.args.length === 1) {
+    if (!firstArgRegex.flags.includes('g')) throw new Error(REGEX_MATCHALL_NO_G_FAILCLOSE);
+    const re = emitTsRegexLiteral(firstArgRegex);
+    return (
+      `[...${subject()}.matchAll(${re})].map((__m) => ` +
+      `({ full: __m[0], groups: Array.from(__m).slice(1).map((g) => g === undefined ? null : g), index: __m.index }))`
+    );
+  }
+
+  // `.split(s)` — IN-CORE for a non-zero-width pattern with no limit arg.
+  // FAIL-CLOSE on a zero-width-capable pattern or any limit/2nd arg.
+  if (callee.property === 'split' && firstArgRegex !== null) {
+    if (call.args.length > 1) throw new Error(REGEX_SPLIT_LIMIT_FAILCLOSE);
+    if (isZeroWidthCapableRegex(firstArgRegex.pattern)) throw new Error(REGEX_SPLIT_ZEROWIDTH_FAILCLOSE);
+    return `${subject()}.split(${emitTsRegexLiteral(firstArgRegex)})`;
+  }
+
+  // `.replace(s, r)` / `.replaceAll(s, r)` — native methods produce the right
+  // string both with and without /g; `.replaceAll` additionally requires /g.
+  const replaceRegex = call.args.length === 2 ? resolveRegexLitTS(call.args[0]) : null;
+  if (callee.property === 'replace' && replaceRegex !== null) {
+    const re = emitTsRegexLiteral(replaceRegex);
+    return `${subject()}.replace(${re}, ${emitExpression(call.args[1])})`;
+  }
+  if (callee.property === 'replaceAll' && replaceRegex !== null) {
+    if (!replaceRegex.flags.includes('g')) throw new Error(REGEX_REPLACEALL_NO_G_FAILCLOSE);
+    const re = emitTsRegexLiteral(replaceRegex);
+    return `${subject()}.replaceAll(${re}, ${emitExpression(call.args[1])})`;
+  }
+
+  return null;
 }
 
 function needsStdlibArgParens(arg: ValueIR, template: StdlibCallEntry['ts'], index: number): boolean {

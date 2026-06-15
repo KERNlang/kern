@@ -96,23 +96,53 @@ describe('emitPyExpression — slice 1 lowering rules', () => {
       { type: 'let', props: { name: 'pattern', value: '/^ok$/i' } },
       { type: 'let', props: { name: 'ok', value: '/^ok$/i.test(value)' } },
       { type: 'let', props: { name: 'negated', value: '!/^ok$/i.test(value)' } },
-      { type: 'let', props: { name: 'bound', value: 'pattern.test(value)' } },
       { type: 'let', props: { name: 'clean', value: 'value.replace(/\\s+/g, " ")' } },
     ]);
     const result = emitNativeKernBodyPythonWithImports(h);
     expect(result.imports).toContain('re');
-    expect(result.code).toContain('pattern = __k_re.compile("^ok$", __k_re.IGNORECASE)');
-    expect(result.code).toContain('__k_re.search("^ok$", value, __k_re.IGNORECASE) is not None');
+    // Milestone C, Slice 1 — emission-normalization now lowers `^`→`\A` / `$`→`\Z`
+    // on the non-/m path and always injects `re.ASCII`. `/^ok$/i` therefore emits
+    // `\Aok\Z` with `IGNORECASE | ASCII`, and `/\s+/g` normalizes `\s`→ the ASCII
+    // whitespace class with `ASCII` flags (the `g` becomes count=0 in re.sub).
+    expect(result.code).toContain('pattern = __k_re.compile("\\\\Aok\\\\Z", __k_re.IGNORECASE | __k_re.ASCII)');
+    // DIRECT literal `.test` — lowers canonically (unchanged Slice-1/3 behavior).
+    expect(result.code).toContain('__k_re.search("\\\\Aok\\\\Z", value, __k_re.IGNORECASE | __k_re.ASCII) is not None');
     // Slice S4 — `!x` consumes KERN ToBoolean: `(not _kern_truthy(...))`.
-    expect(result.code).toContain('(not _kern_truthy((__k_re.search("^ok$", value, __k_re.IGNORECASE) is not None)))');
-    expect(result.code).toContain('bound = (__k_re.search("^ok$", value, __k_re.IGNORECASE) is not None)');
-    expect(result.code).toContain('__k_re.sub("\\\\s+", " ", value, count=0, flags=0)');
+    expect(result.code).toContain(
+      '(not _kern_truthy((__k_re.search("\\\\Aok\\\\Z", value, __k_re.IGNORECASE | __k_re.ASCII) is not None)))',
+    );
+    expect(result.code).toContain(
+      '__k_re.sub("[ \\\\t\\\\n\\\\r\\\\f\\\\v]+", " ", value, count=0, flags=__k_re.ASCII)',
+    );
+  });
+
+  test('Slice-3c — a regex method on a LET-BOUND regex ident fails closed (was resolve-to-literal)', () => {
+    // Slice-3c contract change: `let pattern = /^ok$/i; pattern.test(value)` is a
+    // regex method on a variable KNOWN to hold a regex — NOT portable. It now
+    // DETECT-and-fail-closes (symmetric with TS) instead of resolving `pattern`
+    // back to its literal and lowering canonically (the dropped, fragile FIX-3
+    // that emitted a STALE pattern after a reassignment).
+    const NONLIT =
+      'Portable regex methods (.match/.matchAll/.replace/.replaceAll/.split/.test/.exec) require a DIRECT regex literal (`/…/`) in the regex position; a variable bound to a regex is not portable across targets — inline the literal at the call site.';
+    const h = makeHandler([
+      { type: 'let', props: { name: 'pattern', value: '/^ok$/i' } },
+      { type: 'let', props: { name: 'bound', value: 'pattern.test(value)' } },
+    ]);
+    expect(() => emitNativeKernBodyPythonWithImports(h)).toThrow(NONLIT);
   });
 
   test('regex lowering rejects JS-only match and flag semantics on Python target', () => {
-    expect(() => emitPyExpression(parseExpression('value.match(/x/g)'))).toThrow(/String\.match/);
+    // Milestone C, Slice 3 — `.match(/.../g)` is now IN-CORE (was fail-close): it
+    // lowers to `finditer.group(0)` full matches (D2). The remaining stateful and
+    // flag rejections stay.
+    expect(emitPyExpression(parseExpression('value.match(/x/g)'))).toBe(
+      '([__k_m.group(0) for __k_m in __k_re.finditer("x", value, __k_re.ASCII)] or None)',
+    );
     expect(() => emitPyExpression(parseExpression('/x/g.test(value)'))).toThrow(/RegExp\.test/);
     expect(() => emitPyExpression(parseExpression('/x/y.test(value)'))).toThrow(/regex flag/);
+    // `.matchAll` WITHOUT /g still fail-closes (JS throws TypeError) — the new
+    // Slice-3 symmetric reject.
+    expect(() => emitPyExpression(parseExpression('value.matchAll(/x/)'))).toThrow(/matchAll requires the 'g' flag/);
   });
 
   test('strLit emits with double-quoted Python string', () => {

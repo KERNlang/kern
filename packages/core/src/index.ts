@@ -55,6 +55,33 @@ export {
 } from './codegen/portable-logic-primitives.js';
 export type { ReactHookDep } from './codegen/react-hook-imports.js';
 export { detectReactHookDeps, injectReactHookImports } from './codegen/react-hook-imports.js';
+export type { RegexIFoldFailReason, RegexIFoldResult } from './codegen/regex-normalize.js';
+// Milestone C, Slices 1 + /i — shared regex emission-normalization, consumed by
+// the TS emitter (here in core) and the Python emitter (@kernlang/python) so the
+// `\d \w \s` class transform AND the non-ASCII `/i` fold-class expansion are
+// byte-identical across both targets.
+export {
+  expandRegexIFold,
+  // Milestone C, Slice 3 — shared SYNTACTIC zero-width-capable predicate, used by
+  // BOTH the TS emitter and the Python emitter to make the IDENTICAL `.split`
+  // fail-close decision (no host-engine probe).
+  isZeroWidthCapableRegex,
+  lowerRegexAnchorsPython,
+  normalizeRegexClasses,
+  // Milestone C, Slice 3 — shared regex-method fail-close diagnostics (thrown
+  // byte-identically by both emitters).
+  REGEX_EXEC_FAILCLOSE,
+  REGEX_MATCHALL_NO_G_FAILCLOSE,
+  // Milestone C, Slice 3c — let-bound regex detect-and-fail-close (shared
+  // message + shared shape detector, used symmetrically by both emitters).
+  REGEX_NONLITERAL_FAILCLOSE,
+  REGEX_REPLACEALL_NO_G_FAILCLOSE,
+  REGEX_SPLIT_LIMIT_FAILCLOSE,
+  REGEX_SPLIT_ZEROWIDTH_FAILCLOSE,
+  REGEX_TEST_G_FAILCLOSE,
+  regexIFoldFailMessage,
+  regexMethodRegexArgIdent,
+} from './codegen/regex-normalize.js';
 export type { KernStdlibUsage } from './codegen/stdlib-preamble.js';
 // Slice 4 layer 2 — Result / Option compact form preamble (TS-family targets)
 export {

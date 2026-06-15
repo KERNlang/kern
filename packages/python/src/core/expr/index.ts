@@ -38,6 +38,10 @@ export {
   // (`_kern_is_nullish` / `_kern_strict_equal` / `_kern_loose_equal`).
   KERN_NULLISH_HELPER_PY,
   KERN_PAIR_HELPERS_PY,
+  // Milestone C, Slice 3 — portable regex match-set result-shape helpers
+  // (`_kern_regex_match` / `_kern_regex_matchall`).
+  KERN_REGEX_MATCH_HELPER_PY,
+  KERN_REGEX_MATCHALL_HELPER_PY,
   KERN_TMOD_HELPER_PY,
   // Slice-0.75 ToNumericPrimitive substrate. PURE ADDITION: not yet wired into
   // any prelude/helper-block registry and not routed through production — the
