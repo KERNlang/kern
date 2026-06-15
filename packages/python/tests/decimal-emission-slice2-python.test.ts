@@ -21,14 +21,13 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
 import {
   DECIMAL_OPERATOR_FAILCLOSE,
+  decimalImportLineTS,
   emitExpression,
   emitExpressionWithImports,
   parseExpression,
 } from '@kernlang/core';
-import { decimalImportLineTS } from '@kernlang/core';
 import { emitPyExpression, emitPyExpressionWithImports } from '../src/codegen-body-python.js';
 import { KERN_DECIMAL_STR_HELPER_PY, KERN_FMT_HELPER_PY } from '../src/core/expr/index.js';
 
@@ -276,10 +275,9 @@ execDescribe('Decimal Slice 2 — _kern_fmt canonicalizes Decimals (Finding B, d
     const file = join(dir, 'raw.py');
     writeFileSync(
       file,
-      [
-        'import decimal as __k_decimal',
-        'print(str(__k_decimal.Decimal("1.5") + __k_decimal.Decimal("2.5")))',
-      ].join('\n'),
+      ['import decimal as __k_decimal', 'print(str(__k_decimal.Decimal("1.5") + __k_decimal.Decimal("2.5")))'].join(
+        '\n',
+      ),
     );
     const raw = execFileSync('python3', [file], { encoding: 'utf8', timeout: 10_000 }).trim();
     expect(raw).toBe('4.0'); // the divergence _kern_fmt now fixes
