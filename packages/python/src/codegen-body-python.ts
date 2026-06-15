@@ -44,12 +44,13 @@
 import type { ExprObject, IRNode, ValueIR } from '@kernlang/core';
 import {
   applyTemplate,
+  classifyRegexLiteralIndexReadFailClose,
+  classifyRegexLiteralMemberReadFailClose,
   emitStringKeyArray,
   expandRegexIFold,
   instanceofRhsPythonType,
   instanceofRhsRejectReasonForName,
   isHostNamespaceRoot,
-  isPortableRegexLiteralProperty,
   isPostfixMutationOperator,
   isSupportedAssignOperator,
   isZeroWidthCapableRegex,
@@ -2977,14 +2978,15 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   if (node.kind === 'member') {
     const obj = node.object;
     // Slice 2 — a bare property READ on a DIRECT regex LITERAL (`/x/.source`,
-    // `/x/.flags`) launders the pattern/flags back into a string; not on the
-    // (empty) portable-property allowlist → fail-close, byte-identical to the TS
-    // emit + IR-validate. The portable METHODS (.test/.exec/…) are CALLS routed
-    // by the call path before reaching here, and a LET-BOUND regex read
-    // (`r.source`) has an `ident` object (owned by Slice 3), so only a direct
-    // literal read is closed here.
-    if (obj.kind === 'regexLit' && !isPortableRegexLiteralProperty(node.property)) {
-      throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
+    // `/x/.flags`) launders the pattern/flags back into a string. Routed through
+    // the SHARED classifier (via the ValueIR adapter) so this site agrees with
+    // the TS emit + IR-validate legs and the closure walk BY CONSTRUCTION. The
+    // portable METHODS (.test/.exec/…) are CALLS routed by the call path before
+    // reaching here, and a LET-BOUND regex read (`r.source`) has an `ident`
+    // object (owned by Slice 3), so only a direct literal read is closed here.
+    if (obj.kind === 'regexLit') {
+      const message = classifyRegexLiteralMemberReadFailClose(node);
+      if (message !== null) throw new Error(message);
     }
     const stdlibProperty = applyStdlibPropertyLoweringPython(node, ctx);
     if (stdlibProperty !== null) return { guard: null, expr: stdlibProperty };
@@ -3047,9 +3049,11 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
     // unknowable and also fails-close. Mirrors the TS emit + IR-validate index
     // screens — byte-identical regex message across all three legs.
     if (obj.kind === 'regexLit') {
-      if (node.index.kind !== 'strLit' || !isPortableRegexLiteralProperty(node.index.value)) {
-        throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
-      }
+      // Routed through the SHARED classifier (a STRING index classifies like the
+      // dotted read; a COMPUTED index is unknowable → fail-close), byte-identical
+      // to the TS emit + IR-validate index screens and the closure walk.
+      const message = classifyRegexLiteralIndexReadFailClose(node);
+      if (message !== null) throw new Error(message);
     }
     // Slice H review fix — bracket access must not bypass the fail-closed
     // guard: `Math["sqrt"]` / `Math["sqrt"](x)` is the same unmapped

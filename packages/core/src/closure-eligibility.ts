@@ -270,6 +270,9 @@ function topLevelBlockDeclaredNames(statements: readonly ts.Statement[]): string
  *     matching the expression-level member-receiver screen;
  *   - an object property KEY (`{ RegExp: 1 }`) — but NOT a shorthand
  *     (`{ RegExp }`), which IS a value reference;
+ *   - an object-literal METHOD / GETTER / SETTER name or a class PROPERTY name
+ *     (`{ RegExp() {} }`, `{ get RegExp() {} }`, `{ set RegExp(v) {} }`,
+ *     `class { RegExp = … }`) — a member key, not a host value reference;
  *   - any DECLARATION name (variable/binding/parameter/enum-member/class/function);
  *   - a TYPE-ANNOTATION reference (`const x: RegExp = …`) — types are erased and
  *     are never a value use. */
@@ -284,6 +287,20 @@ function isRegExpNonValuePosition(node: ts.Identifier): boolean {
   if (ts.isElementAccessExpression(parent) && parent.expression === node) return true;
   // Object property KEY (NOT shorthand — shorthand is a value reference).
   if (ts.isPropertyAssignment(parent) && parent.name === node) return true;
+  // Object-literal METHOD / GETTER / SETTER NAMES, and a class PROPERTY name
+  // (`{ RegExp() {} }`, `{ get RegExp() {} }`, `{ set RegExp(v) {} }`,
+  // `class { RegExp = … }`). The NAME is a member key, NOT a value reference to
+  // the host `RegExp` global — emitting the object/class never reads the host
+  // root, so the bare-`RegExp` screen must NOT fire on it (over-rejection fix).
+  if (
+    (ts.isMethodDeclaration(parent) ||
+      ts.isGetAccessorDeclaration(parent) ||
+      ts.isSetAccessorDeclaration(parent) ||
+      ts.isPropertyDeclaration(parent)) &&
+    parent.name === node
+  ) {
+    return true;
+  }
   // Declaration names of every flavor.
   if (ts.isVariableDeclaration(parent) && parent.name === node) return true;
   if (ts.isBindingElement(parent) && (parent.name === node || parent.propertyName === node)) return true;
@@ -349,10 +366,14 @@ export function collectClosureBlockRegexHostViolations(raw: string): ClosureBloc
       if (message !== null) {
         violations.push({ kind: 'regexLiteralAccess', root: 'RegExp', locallyShadowed: false, message });
       }
-      // Still recurse — a regex literal inside the index expression, or an outer
-      // chain, may carry its own violation. (The literal receiver itself has no
-      // child violation.)
-      ts.forEachChild(node, visit);
+      // Do NOT blindly `forEachChild` into this already-classified access: the
+      // regexLit RECEIVER (`node.expression`) has no child violation, and
+      // re-descending the access node as a whole risks re-visiting it. Descend
+      // ONLY into a computed element INDEX (`/x/[k]`) so the index EXPRESSION is
+      // still checked for its OWN host violations (`/x/[someObj.RegExp]`,
+      // `/x/[/y/.source]`) — a property access (`/x/.source`) has only the static
+      // member key, nothing value-bearing to recurse into.
+      if (ts.isElementAccessExpression(node)) visit(node.argumentExpression);
       return;
     }
     if (ts.isIdentifier(node) && node.text === 'RegExp' && !isRegExpNonValuePosition(node)) {
@@ -417,7 +438,14 @@ function unwrapCallCalleeExpression(expr: ts.Expression): ts.Expression {
   }
 }
 
-function bindingPatternIdentifierNames(name: ts.BindingName): string[] {
+/** Flatten a binding NAME (plain identifier OR an object/array destructuring
+ *  pattern) to the identifier names it binds. `const { RegExp } = x` →
+ *  `['RegExp']`, `const [a, , b] = arr` → `['a','b']`. Exported so the Python
+ *  closure lowerer's block-scope tracker (`blockTopLevelDeclaredNames` in
+ *  closure-python-lowering.ts) extracts shadow names the SAME way as the TS-AST
+ *  closure walk here — a destructured `RegExp` shadow is then honored
+ *  symmetrically on both legs (no fail-open on one target). */
+export function bindingPatternIdentifierNames(name: ts.BindingName): string[] {
   if (ts.isIdentifier(name)) return [name.text];
   const out: string[] = [];
   for (const element of name.elements) {

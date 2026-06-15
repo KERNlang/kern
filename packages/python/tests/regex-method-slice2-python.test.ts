@@ -23,7 +23,14 @@
  */
 
 import type { IRNode } from '@kernlang/core';
-import { emitExpression, emitNativeKernBodyTS, parseExpression, REGEX_HOST_REGEXP_FAILCLOSE } from '@kernlang/core';
+import {
+  emitExpression,
+  emitNativeKernBodyTS,
+  parseExpression,
+  REGEX_EXEC_FAILCLOSE,
+  REGEX_HOST_REGEXP_FAILCLOSE,
+  REGEX_TEST_G_FAILCLOSE,
+} from '@kernlang/core';
 import { emitNativeKernBodyPythonWithImports, emitPyExpression } from '../src/codegen-body-python.js';
 
 const ts = (src: string): { ok: boolean; message: string } => {
@@ -329,5 +336,44 @@ describe('Slice 2/3 interaction — construction-first, no double-diagnose', () 
     }
     expect(tsMsg).not.toBe(REGEX_HOST_REGEXP_FAILCLOSE);
     expect(pyMsg).not.toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+  });
+});
+
+describe('Slice 2 — CONVERGENT classifier unification, cross-target (round 4)', () => {
+  // The common portable `/x/.test(s)` transpiles on BOTH targets — the parity
+  // surface stays open. (TS native `.test`, Python `re.search`.) This is the
+  // accept side of the BLOCKING fix asserted across legs.
+  test.each(['/x/.test(s)', '/lit/.test(input)'])('portable `%s` transpiles on BOTH targets', (src) => {
+    expect(ts(src).ok).toBe(true);
+    expect(py(src).ok).toBe(true);
+  });
+
+  // The non-portable dotted methods + every regex-host read fail-close with a
+  // BYTE-IDENTICAL message across TS and Python (the classifier carries the exact
+  // message, so the unification preserves the parity-of-refusal contract).
+  test.each([
+    ['/x/.exec(s)', REGEX_EXEC_FAILCLOSE],
+    ['/x/g.test(s)', REGEX_TEST_G_FAILCLOSE],
+    ['/x/.source', REGEX_HOST_REGEXP_FAILCLOSE],
+    ['/x/["source"]', REGEX_HOST_REGEXP_FAILCLOSE],
+    ['/x/["test"](s)', REGEX_HOST_REGEXP_FAILCLOSE],
+    ['/x/[k]', REGEX_HOST_REGEXP_FAILCLOSE],
+    ['new (RegExp)()', REGEX_HOST_REGEXP_FAILCLOSE],
+  ])('`%s` fails-close with the SAME message on TS and Python', (src, expected) => {
+    const t = ts(src);
+    const p = py(src);
+    expect(t.ok).toBe(false);
+    expect(p.ok).toBe(false);
+    expect(t.message).toBe(expected);
+    expect(p.message).toBe(expected);
+    expect(p.message).toBe(t.message); // the parity invariant, asserted directly
+  });
+
+  // `new someObj.RegExp()` — the new-callee root is `someObj` (member chain), NOT
+  // host `RegExp`, on BOTH targets, so it accepts symmetrically (not a host-RegExp
+  // construction). Asserted to lock the new-callee root resolution in lockstep.
+  test('`new someObj.RegExp()` accepts on BOTH targets (root is `someObj`, not host RegExp)', () => {
+    expect(ts('new someObj.RegExp()').ok).toBe(true);
+    expect(py('new someObj.RegExp()').ok).toBe(true);
   });
 });

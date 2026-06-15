@@ -14,8 +14,9 @@ import {
 // and Python emitters, so both import it from this one core module. Anchor
 // lowering is Python-only (JS `$`/`^` without `/m` already mean input-end/start).
 import {
+  classifyRegexLiteralIndexReadFailClose,
+  classifyRegexLiteralMemberReadFailClose,
   expandRegexIFold,
-  isPortableRegexLiteralProperty,
   isZeroWidthCapableRegex,
   normalizeRegexClasses,
   REGEX_EXEC_FAILCLOSE,
@@ -192,12 +193,15 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       const stdlib = applyStdlibPropertyLoweringTS(node);
       if (stdlib !== null) return stdlib;
       // Slice 2 — a bare property READ on a regex LITERAL (`/x/.source`,
-      // `/x/.flags`) launders the pattern/flags back into a string; not on the
-      // (empty) portable-property allowlist → fail-close, byte-identical to
-      // Python. The portable METHODS (.test/.exec/…) are routed by the CALL path
-      // and never reach this bare-read site.
-      if (node.object.kind === 'regexLit' && !isPortableRegexLiteralProperty(node.property)) {
-        throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
+      // `/x/.flags`) launders the pattern/flags back into a string. Routed through
+      // the SHARED classifier (via the ValueIR adapter) so this site agrees with
+      // the IR-validate + Python emit legs and the closure walk BY CONSTRUCTION.
+      // The portable METHODS (.test/.exec/…) are routed by the CALL path (which
+      // returns BEFORE this bare-read member emit), so this only ever sees a
+      // genuine bare read (always non-null today — the empty read allowlist).
+      if (node.object.kind === 'regexLit') {
+        const message = classifyRegexLiteralMemberReadFailClose(node);
+        if (message !== null) throw new Error(message);
       }
       const receiverRoot = hostNamespaceReceiverRoot(node.object);
       if (receiverRoot)
@@ -217,9 +221,12 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       // laundering risk and also fails-close. Throws the regex-specific message,
       // not the generic host one.
       if (node.object.kind === 'regexLit') {
-        if (node.index.kind !== 'strLit' || !isPortableRegexLiteralProperty(node.index.value)) {
-          throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
-        }
+        // Routed through the SHARED classifier (a STRING index classifies like the
+        // dotted read; a COMPUTED index is unknowable → fail-close), so the bracket
+        // form (`/x/["source"]`, `/x/["test"](s)` — a bracket call whose callee is
+        // this `index`) agrees with the dotted member form and the other legs.
+        const message = classifyRegexLiteralIndexReadFailClose(node);
+        if (message !== null) throw new Error(message);
       }
       const receiverRoot = hostNamespaceReceiverRoot(node.object);
       if (receiverRoot) {

@@ -66,9 +66,18 @@ export type { RegexCaptureMeta, RegexIFoldFailReason, RegexIFoldResult } from '.
 // `\d \w \s` class transform AND the non-ASCII `/i` fold-class expansion are
 // byte-identical across both targets.
 export {
+  // Milestone C, Slice 2 — SHARED ValueIR adapters for the regex-literal-access
+  // classifier. Every ValueIR consumer (TS-emit core, Python-emit, IR-validate)
+  // routes a `/x/.<prop>` read / `/x/[idx]` read / `/x/.<m>(…)` dotted call
+  // through these so the fail-close decision (and message) is made by the ONE
+  // classifier, agreeing with the closure-block TS-AST walk by construction.
+  classifyRegexLiteralIndexReadFailClose,
+  classifyRegexLiteralMemberReadFailClose,
+  classifyRegexLiteralValueIRCallCalleeFailClose,
   expandRegexIFold,
   // Milestone C, Slice 2 — shared host-`RegExp` fail-close diagnostic + the
-  // regex-literal portable-property predicate, both thrown/consulted byte-
+  // regex-literal portable-property predicate (the empty read allowlist, the ONE
+  // seam to widen for a future portable read), both thrown/consulted byte-
   // identically by the TS and Python emitters.
   isPortableRegexLiteralProperty,
   // Milestone C, Slice 3 — shared SYNTACTIC zero-width-capable predicate, used by

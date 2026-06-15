@@ -8,7 +8,12 @@ import { typescriptClosureClassifier, validateClosureBlockHostNamespacesTS } fro
 import type { ValueIR } from '../value-ir.js';
 import { isHostNamespaceRoot, unmappedHostNamespaceMessage } from './host-namespace.js';
 import { isPortableStdlibMember, KERN_STDLIB_MODULES, suggestStdlibMember } from './kern-stdlib.js';
-import { isPortableRegexLiteralProperty, REGEX_HOST_REGEXP_FAILCLOSE } from './regex-normalize.js';
+import {
+  classifyRegexLiteralIndexReadFailClose,
+  classifyRegexLiteralMemberReadFailClose,
+  classifyRegexLiteralValueIRCallCalleeFailClose,
+  REGEX_HOST_REGEXP_FAILCLOSE,
+} from './regex-normalize.js';
 
 interface ValidationScope {
   readonly moduleBindings: ReadonlySet<string>;
@@ -175,10 +180,16 @@ function validateValueIR(node: ValueIR, scope: ValidationScope): void {
       return;
     case 'member': {
       // Slice 2 — `/x/.source` / `/x/.flags`: a bare property READ on a regex
-      // LITERAL launders the pattern/flags to a string; not on the (empty)
-      // portable-property allowlist → fail-close, byte-identical to emit.
-      if (node.object.kind === 'regexLit' && !isPortableRegexLiteralProperty(node.property)) {
-        throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
+      // LITERAL launders the pattern/flags to a string. Routed through the SHARED
+      // classifier (via the ValueIR adapter) so this site agrees with the TS/
+      // Python emit legs and the closure walk BY CONSTRUCTION (always non-null
+      // today — the empty portable-read allowlist — but one classifier owns the
+      // truth). A portable DOTTED method CALLEE (`/x/.test`) never reaches here as
+      // a bare member: the `call` case classifies the callee first and skips this
+      // re-validation, so this read fail-close is only ever a genuine bare read.
+      if (node.object.kind === 'regexLit') {
+        const message = classifyRegexLiteralMemberReadFailClose(node);
+        if (message !== null) throw new Error(message);
       }
       const root = hostNamespaceReceiverRoot(node.object);
       if (root) rejectUnboundHostNamespace(root, hostNamespaceMemberLabel(node.object, node.property), scope);
@@ -193,9 +204,13 @@ function validateValueIR(node: ValueIR, scope: ValidationScope): void {
       // (empty) portable-property allowlist; a COMPUTED / non-literal index is
       // unknowable and also fails-close. Mirrors the emit-path index screen.
       if (node.object.kind === 'regexLit') {
-        if (node.index.kind !== 'strLit' || !isPortableRegexLiteralProperty(node.index.value)) {
-          throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
-        }
+        // Routed through the SHARED classifier (a STRING index classifies like the
+        // dotted read; a COMPUTED index is `property = null` → fail-close), so the
+        // bracket form agrees with the dotted member form and the other legs by
+        // construction. A bracket call `/x/["test"](s)` lands here (its callee is
+        // an `index`, not a `member`) and fails-close exactly like a bare read.
+        const message = classifyRegexLiteralIndexReadFailClose(node);
+        if (message !== null) throw new Error(message);
       }
       const root = hostNamespaceReceiverRoot(node.object);
       if (root) {
@@ -206,12 +221,32 @@ function validateValueIR(node: ValueIR, scope: ValidationScope): void {
         );
       }
       validateValueIR(node.object, scope);
+      // A regex-literal receiver was already fully classified above (and threw if
+      // non-portable), so it never reaches `validateValueIR(object)`. The index
+      // expression is still validated for ITS OWN host violations.
       validateValueIR(node.index, scope);
       return;
     }
     case 'call': {
       validateCallCallee(node.callee, scope);
-      validateValueIR(node.callee, scope);
+      // BLOCKING fix — a DOTTED regex-literal method call (`/x/.test(s)`,
+      // `/x/.exec(s)`, `/x/.compile(y)`) is classified by the SHARED classifier
+      // here, the SAME decision the TS-emit (`lowerRegexCallTS`) + Python-emit
+      // (`lowerRegexCallPython`) legs and the closure walk make. Without this, the
+      // blanket `validateValueIR(node.callee)` below re-validated the callee as a
+      // bare member READ and threw `REGEX_HOST_REGEXP_FAILCLOSE` on the COMMON
+      // portable `/x/.test(s)` — an internal divergence from emit (which accepts
+      // it). `undefined` = not a regex-literal dotted call → fall through to the
+      // normal callee validation; `null` = PORTABLE (`/x/.test` non-`/g`) → skip
+      // the callee re-validation (only the args still need checks); a string =
+      // the precise fail-close message (`.exec`/`/g`-`.test`/non-portable method),
+      // byte-identical to the emit legs.
+      const regexCallee = classifyRegexLiteralValueIRCallCalleeFailClose(node);
+      if (regexCallee === undefined) {
+        validateValueIR(node.callee, scope);
+      } else if (regexCallee !== null) {
+        throw new Error(regexCallee);
+      }
       for (const arg of node.args) validateValueIR(arg, scope);
       return;
     }

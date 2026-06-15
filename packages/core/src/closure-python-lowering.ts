@@ -1,5 +1,9 @@
 import ts from 'typescript';
-import { CLOSURE_ASSIGN_OPERATORS, parseClosureBlockAst } from './closure-eligibility.js';
+import {
+  bindingPatternIdentifierNames,
+  CLOSURE_ASSIGN_OPERATORS,
+  parseClosureBlockAst,
+} from './closure-eligibility.js';
 
 export interface LowerJsClosureBodyToPythonOptions {
   lowerExpression(expr: string): string;
@@ -289,7 +293,13 @@ export function lowerJsClosureBodyToPython(
     for (const stmt of b.statements) {
       if (ts.isVariableStatement(stmt)) {
         for (const decl of stmt.declarationList.declarations) {
-          if (ts.isIdentifier(decl.name)) names.push(decl.name.text);
+          // Use the SAME binding-pattern extraction as the TS-AST closure walk
+          // (`topLevelBlockDeclaredNames`/`bindingPatternIdentifierNames`) so a
+          // DESTRUCTURED shadow (`const { RegExp } = x`, `const [RegExp] = arr`)
+          // registers its bound names as block-locals on the Python leg too —
+          // honoring the shadow symmetrically (the plain-`isIdentifier` check
+          // missed destructured names, fail-OPENING on Python while TS shadowed).
+          names.push(...bindingPatternIdentifierNames(decl.name));
         }
       } else if (ts.isFunctionDeclaration(stmt) && stmt.name) {
         names.push(stmt.name.text);

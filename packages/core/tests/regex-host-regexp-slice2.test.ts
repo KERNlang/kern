@@ -16,9 +16,14 @@
  *  bare-value reference at the initializer SUBSUMES alias-following — `new R(...)`
  *  can never silently diverge because the binding is refused up front. */
 
+import { collectClosureBlockRegexHostViolations } from '../src/closure-eligibility.js';
 import { isHostNamespaceRoot } from '../src/codegen/host-namespace.js';
 import { beginIRHostNamespacesValidatedTS } from '../src/codegen/host-namespace-ir.js';
-import { REGEX_HOST_REGEXP_FAILCLOSE } from '../src/codegen/regex-normalize.js';
+import {
+  REGEX_EXEC_FAILCLOSE,
+  REGEX_HOST_REGEXP_FAILCLOSE,
+  REGEX_TEST_G_FAILCLOSE,
+} from '../src/codegen/regex-normalize.js';
 import { emitExpression } from '../src/codegen-expression.js';
 import { parseExpression } from '../src/parser-expression.js';
 import type { IRNode } from '../src/types.js';
@@ -328,5 +333,111 @@ describe('Slice 2 — shared fail-close message contract', () => {
     expect(REGEX_HOST_REGEXP_FAILCLOSE).toContain('new RegExp');
     expect(REGEX_HOST_REGEXP_FAILCLOSE).toContain('.source');
     expect(REGEX_HOST_REGEXP_FAILCLOSE).toContain('/…/'); // points users at the literal form
+  });
+});
+
+describe('Slice 2 — CONVERGENT classifier unification (round 4)', () => {
+  // BLOCKING fix — the COMMON `/x/.test(s)` was over-rejected by IR-validate: its
+  // `call` case re-validated the callee as a bare member READ and threw the
+  // host-RegExp message, while TS-emit (via `lowerRegexCallTS`) ACCEPTED it — an
+  // internal divergence on a very common method. IR-validate now consults the
+  // SHARED classifier for the callee, so it accepts the portable dotted method.
+  test('IR-validate ACCEPTS the common `/x/.test(s)` (BLOCKING fix), matching TS-emit', () => {
+    expect(validateIR('/x/.test(s)').ok).toBe(true);
+    expect(emitTS('/x/.test(s)').ok).toBe(true);
+    // the same portable dotted methods on a literal, also accepted by both legs
+    expect(validateIR('/lit/.test(input)').ok).toBe(true);
+  });
+
+  // `.exec` / `/g`-`.test` are NON-portable dotted methods. IR-validate now emits
+  // the PRECISE Slice-3 message (not the generic host-RegExp one), byte-identical
+  // to the TS-emit leg — the unification carries the message, not just the verdict.
+  test('IR-validate emits the PRECISE `.exec` / `/g`-`.test` messages, matching TS-emit', () => {
+    const exec = validateIR('/x/.exec(s)');
+    expect(exec.ok).toBe(false);
+    expect(exec.message).toBe(REGEX_EXEC_FAILCLOSE);
+    expect(exec.message).toBe(emitTS('/x/.exec(s)').message);
+
+    const testG = validateIR('/x/g.test(s)');
+    expect(testG.ok).toBe(false);
+    expect(testG.message).toBe(REGEX_TEST_G_FAILCLOSE);
+    expect(testG.message).toBe(emitTS('/x/g.test(s)').message);
+  });
+
+  // EXACT accept/reject + message AGREEMENT between TS-emit and IR-validate over the
+  // whole regex-host surface — the convergence property the unification guarantees.
+  test.each([
+    ['/x/.test(s)', true],
+    ['/lit/.test(input)', true],
+    ['/x/.exec(s)', false],
+    ['/x/g.test(s)', false],
+    ['/x/.compile("y")', false],
+    ['/x/.source', false],
+    ['/x/["source"]', false],
+    ['/x/["test"](s)', false],
+    ['/x/[k]', false],
+    ['new (RegExp)()', false],
+    ['new RegExp("a")', false],
+    ['RegExp', false],
+  ])('TS-emit and IR-validate AGREE on %s (accept + message)', (src, expectOk) => {
+    const e = emitTS(src);
+    const v = validateIR(src);
+    expect(e.ok).toBe(expectOk);
+    expect(v.ok).toBe(expectOk);
+    if (!expectOk) {
+      // byte-identical fail-close message across the two legs
+      expect(v.message).toBe(e.message);
+    }
+  });
+
+  // `new someObj.RegExp()` — the new-callee ROOT resolves to `someObj` (a member
+  // chain), NOT the host `RegExp`, on BOTH legs (the receiver-root resolution is
+  // shared). So it ACCEPTS symmetrically; it is NOT a host-RegExp construction.
+  test('`new someObj.RegExp()` resolves root to `someObj` and accepts on both legs', () => {
+    expect(emitTS('new someObj.RegExp()').ok).toBe(true);
+    expect(validateIR('new someObj.RegExp()').ok).toBe(true);
+  });
+
+  // OVER-REJECTION fix — an object-literal METHOD / GETTER / SETTER named `RegExp`
+  // (and a class PROPERTY named `RegExp`) is a member KEY, not a host VALUE
+  // reference, so the bare-`RegExp` closure screen must NOT fire on it. Driven
+  // directly through the AST walk (the KERN parser/gate rejects these bodies
+  // upstream for unrelated reasons, so the walk is the unit under test).
+  test.each([
+    '{ return { RegExp() {} }; }',
+    '{ return { get RegExp() { return 1; } }; }',
+    '{ return { set RegExp(v) {} }; }',
+    '{ class C { RegExp = 1; } return C; }',
+  ])('object/class member named `RegExp` does NOT fire the bare-value screen: %s', (raw) => {
+    const firing = collectClosureBlockRegexHostViolations(raw).filter((v) => !v.locallyShadowed);
+    expect(firing).toHaveLength(0);
+  });
+
+  // …but a SHORTHAND `({ RegExp })` IS a value reference and MUST still fire.
+  test('shorthand `({ RegExp })` is a value reference and still fires', () => {
+    const firing = collectClosureBlockRegexHostViolations('{ return ({ RegExp }); }').filter((v) => !v.locallyShadowed);
+    expect(firing).toHaveLength(1);
+  });
+
+  // DESTRUCTURING shadow — a `const { RegExp } = x` / `const [RegExp] = arr` binds
+  // a block-local `RegExp`, so a later `return RegExp` reference is the local (NOT
+  // the host) and must NOT fire. The TS walk honors it via the shared
+  // binding-pattern extraction.
+  test.each([
+    '{ const { RegExp } = x; return RegExp; }',
+    '{ const [RegExp] = arr; return RegExp; }',
+  ])('destructured `RegExp` shadow does NOT fire the bare-value screen: %s', (raw) => {
+    const firing = collectClosureBlockRegexHostViolations(raw).filter((v) => !v.locallyShadowed);
+    expect(firing).toHaveLength(0);
+  });
+
+  // `/x/[k]` — the access itself fails-close ONCE (computed index), but the index
+  // EXPRESSION `k` is still walked for its OWN host violations (no double-reject of
+  // the access, no skipped index). `/x/[/y/.source]` ⇒ 2 violations (outer access
+  // + the inner regex-literal read in the index); `/x/[k]` ⇒ exactly 1.
+  test('computed index `/x/[k]` fails-close ONCE and still validates the index expr', () => {
+    expect(collectClosureBlockRegexHostViolations('{ return /x/[k]; }')).toHaveLength(1);
+    // the index expr carries its own regex-literal violation → 2 total
+    expect(collectClosureBlockRegexHostViolations('{ return /x/[/y/.source]; }')).toHaveLength(2);
   });
 });

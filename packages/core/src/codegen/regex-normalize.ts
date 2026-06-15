@@ -642,6 +642,16 @@ export const REGEX_HOST_REGEXP_FAILCLOSE =
  *  a regex literal is fail-closed. (Kept as a named predicate so a future portable
  *  read — if one is ever certified cross-target — has one obvious seam to widen.) */
 export function isPortableRegexLiteralProperty(_property: string): boolean {
+  // INTENTIONAL fail-close-all: this is an allowlist that is EMPTY ON PURPOSE,
+  // NOT accidental dead code. Every bare property read on a regex literal
+  // (`/x/.source`, `/x/.flags`, `/x/.global`, …) launders the certified
+  // pattern/flags back into a host-only string/accessor with no portable
+  // cross-target analog, so NO property is portable — hence `false` for every
+  // input. Do NOT "simplify" this to a constant or delete it: the named
+  // predicate is the ONE seam to widen if a portable cross-target read is ever
+  // certified. (The portable METHODS — .test/.exec/… — are routed by the CALL
+  // path via `classifyRegexLiteralAccessFailClose`, never through this read
+  // allowlist.)
   return false;
 }
 
@@ -685,6 +695,68 @@ export function classifyRegexLiteralAccessFailClose(
     return REGEX_EXEC_FAILCLOSE;
   }
   return REGEX_HOST_REGEXP_FAILCLOSE;
+}
+
+/* ----------------------------------------------------------------------------
+ * ValueIR adapters for {@link classifyRegexLiteralAccessFailClose}.
+ *
+ * These translate a `member` / `index` / `call` ValueIR node into the
+ * (`property`, `isDottedCallee`, `flags`) tuple the shared classifier consumes,
+ * so EVERY ValueIR consumer (IR-validate, TS-emit, Python-emit) decides a
+ * regex-LITERAL-receiver access through the ONE classifier — agreeing with the
+ * TS-AST closure walk (`collectClosureBlockRegexHostViolations`, which feeds the
+ * same classifier the same tuple) BY CONSTRUCTION rather than by re-deriving the
+ * `isPortableRegexLiteralProperty` truth table at each site. Each returns the
+ * exact fail-close MESSAGE, or `null` when the access is PORTABLE (the only
+ * portable case is a DOTTED `.test`/`.exec`-callee that the classifier blesses —
+ * today just `/x/.test(s)` on a non-`/g` literal).
+ * ------------------------------------------------------------------------- */
+
+/** A `member` access whose receiver is a REGEX LITERAL is a bare property READ
+ *  (`/x/.source`) — NEVER a dotted callee here (the callee-of-a-call case is the
+ *  `call` node, routed by {@link classifyRegexLiteralValueIRCallCalleeFailClose}).
+ *  Returns the classifier verdict; always non-null today (the empty portable-read
+ *  allowlist), but routed through the classifier so a future portable read widens
+ *  in ONE place. */
+export function classifyRegexLiteralMemberReadFailClose(member: Extract<ValueIR, { kind: 'member' }>): string | null {
+  const flags = member.object.kind === 'regexLit' ? member.object.flags : '';
+  return classifyRegexLiteralAccessFailClose(member.property, false, flags);
+}
+
+/** An `index` access whose receiver is a REGEX LITERAL is a bracket property READ
+ *  (`/x/["source"]`, `/x/[k]`). A STRING-literal index yields its value so it
+ *  classifies like the dotted-read form; a COMPUTED / non-string index is
+ *  `property = null` (unknowable) → fail-close. Bracket reads are NEVER a portable
+ *  dotted callee (`lowerRegexCall*` lowers `callee.kind === 'member'` only), so a
+ *  BRACKET call `/x/["test"](s)` also fails-close here exactly like a bare read. */
+export function classifyRegexLiteralIndexReadFailClose(index: Extract<ValueIR, { kind: 'index' }>): string | null {
+  const flags = index.object.kind === 'regexLit' ? index.object.flags : '';
+  const property = index.index.kind === 'strLit' ? index.index.value : null;
+  return classifyRegexLiteralAccessFailClose(property, false, flags);
+}
+
+/** The CALLEE of a `call` whose callee is a DOTTED member access on a REGEX
+ *  LITERAL (`/x/.test(s)`, `/x/.exec(s)`, `/x/.compile(y)`). This is the seam
+ *  that fixes the IR-validate over-rejection of the common `/x/.test(s)`: the
+ *  classifier blesses a non-`/g` `.test` callee (returns `null` = PORTABLE), and
+ *  gives the PRECISE `.exec`/`/g`-`.test` message for those — matching the TS/
+ *  Python emit legs and the closure walk, instead of the blanket member-read
+ *  fail-close the IR-validate `call` case used to hit by re-validating the callee.
+ *
+ *  Returns `null` (PORTABLE) ONLY for a blessed dotted method callee; returns the
+ *  fail-close message for a non-portable dotted method (`/x/.compile`, `.match`,
+ *  …). Returns `undefined` when this call's callee is NOT a dotted regex-literal
+ *  member access (so the caller falls through to its normal callee handling) —
+ *  this is distinct from `null` (a PORTABLE regex-literal call). A BRACKET-form
+ *  call `/x/["test"](s)` has an `index` callee (not `member`), so it returns
+ *  `undefined` here and is owned by the `index` read fail-close above. */
+export function classifyRegexLiteralValueIRCallCalleeFailClose(
+  call: Extract<ValueIR, { kind: 'call' }>,
+): string | null | undefined {
+  const callee = call.callee;
+  if (callee.kind !== 'member') return undefined;
+  if (callee.object.kind !== 'regexLit') return undefined;
+  return classifyRegexLiteralAccessFailClose(callee.property, true, callee.object.flags);
 }
 
 /* ----------------------------------------------------------------------------
