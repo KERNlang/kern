@@ -15,9 +15,11 @@ import {
 // lowering is Python-only (JS `$`/`^` without `/m` already mean input-end/start).
 import {
   expandRegexIFold,
+  isPortableRegexLiteralProperty,
   isZeroWidthCapableRegex,
   normalizeRegexClasses,
   REGEX_EXEC_FAILCLOSE,
+  REGEX_HOST_REGEXP_FAILCLOSE,
   REGEX_MATCHALL_NO_G_FAILCLOSE,
   REGEX_REPLACE_NONLITERAL_REPL_FAILCLOSE,
   REGEX_REPLACEALL_NO_G_FAILCLOSE,
@@ -57,6 +59,28 @@ function rejectUnmappedHostNamespaceTS(root: string, member: string, ctx: ExprEm
   if (!isHostNamespaceRoot(root)) return;
   if (isUserBinding(ctx, root)) return;
   throw new Error(unmappedHostNamespaceMessage('TypeScript', root, member));
+}
+
+/** Milestone C, Slice 2 — host-`RegExp` fail-close (TS emit). Closes the residual
+ *  RegExp positions the generic `Module.member` host-namespace screen does NOT
+ *  cover, with the SAME shared message the Python emitter throws:
+ *   - a BARE-VALUE reference (`const R = RegExp`, `RegExp` passed as an argument):
+ *     `isHostNamespaceRoot('RegExp')` is now true, so a non-user-bound `RegExp`
+ *     ident is the host root. Rejecting it at the value site SUBSUMES alias
+ *     following — `const R = RegExp` is refused at the initializer, so `new R(...)`
+ *     can never silently diverge.
+ *   - a BARE CALL `RegExp(p, f)` (callee is an ident, not a `Module.member`, so the
+ *     existing member-callee screen misses it; `RegExp` is also not in
+ *     `DIRECT_HOST_CALL_ROOTS`).
+ *  Honors user shadowing via `isUserBinding` (so `const RegExp = x; RegExp` is the
+ *  user value). `new RegExp(...)` and `RegExp.prototype`/`RegExp.$1` already
+ *  fail-close through the existing `new`/`member` host-root screens once RegExp is
+ *  reserved — they emit the generic host-namespace message and are not re-routed
+ *  here (one diagnostic per site). */
+function rejectHostRegExpValueTS(name: string, ctx: ExprEmitContext | undefined): void {
+  if (name !== 'RegExp') return;
+  if (isUserBinding(ctx, name)) return;
+  throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
 }
 
 function isUserBinding(ctx: ExprEmitContext | undefined, name: string): boolean {
@@ -159,10 +183,22 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       return out;
     }
     case 'ident':
+      // Slice 2 — a BARE-VALUE host `RegExp` reference (not a member receiver,
+      // which the `member`/`call`/`new` cases own) fails-close. This is the
+      // alias-soundness site: `const R = RegExp` is refused at the initializer.
+      rejectHostRegExpValueTS(node.name, ctx);
       return node.name;
     case 'member': {
       const stdlib = applyStdlibPropertyLoweringTS(node);
       if (stdlib !== null) return stdlib;
+      // Slice 2 — a bare property READ on a regex LITERAL (`/x/.source`,
+      // `/x/.flags`) launders the pattern/flags back into a string; not on the
+      // (empty) portable-property allowlist → fail-close, byte-identical to
+      // Python. The portable METHODS (.test/.exec/…) are routed by the CALL path
+      // and never reach this bare-read site.
+      if (node.object.kind === 'regexLit' && !isPortableRegexLiteralProperty(node.property)) {
+        throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
+      }
       const receiverRoot = hostNamespaceReceiverRoot(node.object);
       if (receiverRoot)
         rejectUnmappedHostNamespaceTS(receiverRoot, hostNamespaceMemberLabel(node.object, node.property), ctx);
@@ -191,6 +227,10 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
         if (!isUserBinding(ctx, node.callee.name) && (node.callee.name === 'Array' || node.callee.name === 'Object')) {
           throwUnknownStdlibMember(node.callee.name, 'call');
         }
+        // Slice 2 — a bare `RegExp(p, f)` call (callee is an ident, so the
+        // member-callee screen below misses it, and RegExp is not in
+        // DIRECT_HOST_CALL_ROOTS) fails-close with the shared regex message.
+        rejectHostRegExpValueTS(node.callee.name, ctx);
         if (DIRECT_HOST_CALL_ROOTS.has(node.callee.name)) rejectUnmappedHostNamespaceTS(node.callee.name, 'call', ctx);
       }
       if (node.callee.kind === 'member') {
@@ -257,6 +297,10 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
     }
     case 'new': {
       const ctorRoot = newExpressionRootIdentifier(node.argument);
+      // Slice 2 — `new RegExp(p)` throws the regex-specific message (BEFORE the
+      // generic constructor reject) so construction fails-close byte-identically
+      // across the TS emit, the IR-validate pass, and the Python target.
+      if (ctorRoot === 'RegExp') rejectHostRegExpValueTS(ctorRoot, ctx);
       if (ctorRoot && !(ctorRoot === 'Error' && isSimpleErrorConstructor(node.argument))) {
         rejectUnmappedHostNamespaceTS(ctorRoot, 'constructor', ctx);
       }

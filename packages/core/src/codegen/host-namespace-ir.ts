@@ -8,6 +8,7 @@ import { typescriptClosureClassifier, validateClosureBlockHostNamespacesTS } fro
 import type { ValueIR } from '../value-ir.js';
 import { isHostNamespaceRoot, unmappedHostNamespaceMessage } from './host-namespace.js';
 import { isPortableStdlibMember, KERN_STDLIB_MODULES, suggestStdlibMember } from './kern-stdlib.js';
+import { isPortableRegexLiteralProperty, REGEX_HOST_REGEXP_FAILCLOSE } from './regex-normalize.js';
 
 interface ValidationScope {
   readonly moduleBindings: ReadonlySet<string>;
@@ -158,12 +159,27 @@ function validateValueIR(node: ValueIR, scope: ValidationScope): void {
     case 'nullLit':
     case 'undefLit':
     case 'regexLit':
+      return;
     case 'ident':
+      // Slice 2 — a BARE-VALUE host `RegExp` reference fails-close at the value
+      // site (e.g. a `const R = RegExp` initializer). This is the alias-soundness
+      // gate: rejecting `RegExp` here means `new R(...)` can never silently
+      // diverge. Member/call/new receivers are handled by their own cases below
+      // (they recurse into `validateValueIR(object)` only AFTER their own host-
+      // root screen, so a rejected member never reaches a misleading value
+      // diagnostic). Honors user shadowing via `isUserBinding`.
+      rejectHostRegExpValueIR(node.name, scope);
       return;
     case 'tmplLit':
       for (const expr of node.expressions) validateValueIR(expr, scope);
       return;
     case 'member': {
+      // Slice 2 — `/x/.source` / `/x/.flags`: a bare property READ on a regex
+      // LITERAL launders the pattern/flags to a string; not on the (empty)
+      // portable-property allowlist → fail-close, byte-identical to emit.
+      if (node.object.kind === 'regexLit' && !isPortableRegexLiteralProperty(node.property)) {
+        throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
+      }
       const root = hostNamespaceReceiverRoot(node.object);
       if (root) rejectUnboundHostNamespace(root, hostNamespaceMemberLabel(node.object, node.property), scope);
       validateValueIR(node.object, scope);
@@ -210,6 +226,10 @@ function validateValueIR(node: ValueIR, scope: ValidationScope): void {
       return;
     case 'new': {
       const root = newExpressionRootIdentifier(node.argument);
+      // Slice 2 — `new RegExp(p)` throws the regex-specific message (BEFORE the
+      // generic constructor reject) so construction fails-close byte-identically
+      // across emit + validate + the Python target.
+      if (root === 'RegExp') rejectHostRegExpValueIR(root, scope);
       if (root && !(root === 'Error' && isSimpleErrorConstructor(node.argument))) {
         rejectUnboundHostNamespace(root, 'constructor', scope);
       }
@@ -253,6 +273,10 @@ function validateCallCallee(callee: ValueIR, scope: ValidationScope): void {
     if (!isUserBinding(scope, callee.name) && (callee.name === 'Array' || callee.name === 'Object')) {
       throw new Error(`Unknown KERN-stdlib method/member '${callee.name}.call'.`);
     }
+    // Slice 2 — a bare `RegExp(p, f)` call throws the regex-specific message
+    // (BEFORE the generic host-root reject below) so its diagnostic matches the
+    // emit path and the Python target, byte-identical.
+    rejectHostRegExpValueIR(callee.name, scope);
     rejectUnboundHostNamespace(callee.name, 'call', scope);
     return;
   }
@@ -286,6 +310,17 @@ function rejectUnboundHostNamespace(root: string, member: string, scope: Validat
   if (isUserBinding(scope, root)) return;
   if (!isHostNamespaceRoot(root)) return;
   throw new Error(unmappedHostNamespaceMessage('TypeScript', root, member));
+}
+
+/** Slice 2 — host-`RegExp` fail-close (IR-validate path). Throws the shared
+ *  `REGEX_HOST_REGEXP_FAILCLOSE` for a bare-value / bare-call / `new` host
+ *  `RegExp` reference, honoring user shadowing (a `const RegExp = x` local is the
+ *  user's value). Mirrors `rejectHostRegExpValueTS` in codegen-expression.ts so
+ *  the emit and validation paths fail-close identically. */
+function rejectHostRegExpValueIR(name: string, scope: ValidationScope): void {
+  if (name !== 'RegExp') return;
+  if (isUserBinding(scope, name)) return;
+  throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
 }
 
 /** Mirror of the emit path's `throwUnknownStdlibMember` so the same diagnostic

@@ -67,6 +67,10 @@ export type { RegexCaptureMeta, RegexIFoldFailReason, RegexIFoldResult } from '.
 // byte-identical across both targets.
 export {
   expandRegexIFold,
+  // Milestone C, Slice 2 — shared host-`RegExp` fail-close diagnostic + the
+  // regex-literal portable-property predicate, both thrown/consulted byte-
+  // identically by the TS and Python emitters.
+  isPortableRegexLiteralProperty,
   // Milestone C, Slice 3 — shared SYNTACTIC zero-width-capable predicate, used by
   // BOTH the TS emitter and the Python emitter to make the IDENTICAL `.split`
   // fail-close decision (no host-engine probe).
@@ -82,6 +86,7 @@ export {
   // Milestone C, Slice 3 — shared regex-method fail-close diagnostics (thrown
   // byte-identically by both emitters).
   REGEX_EXEC_FAILCLOSE,
+  REGEX_HOST_REGEXP_FAILCLOSE,
   REGEX_MATCHALL_NO_G_FAILCLOSE,
   // FIX 2 — shared pattern-level fail-close for a non-portable named group
   // (`(?<café>…)`), thrown byte-identically by both emitters.

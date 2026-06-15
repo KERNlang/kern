@@ -49,6 +49,7 @@ import {
   instanceofRhsPythonType,
   instanceofRhsRejectReasonForName,
   isHostNamespaceRoot,
+  isPortableRegexLiteralProperty,
   isPostfixMutationOperator,
   isSupportedAssignOperator,
   isZeroWidthCapableRegex,
@@ -63,6 +64,7 @@ import {
   parseExpression,
   parseKeys,
   REGEX_EXEC_FAILCLOSE,
+  REGEX_HOST_REGEXP_FAILCLOSE,
   REGEX_MATCHALL_NO_G_FAILCLOSE,
   REGEX_NONLITERAL_FAILCLOSE,
   REGEX_REPLACE_NONLITERAL_REPL_FAILCLOSE,
@@ -2060,6 +2062,11 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
     case 'ident': {
       if (node.name === 'NaN') return 'float("nan")';
       if (node.name === 'Infinity') return 'float("inf")';
+      // Slice 2 — a BARE-VALUE host `RegExp` reference (not a member/call
+      // receiver, which their own cases own) fails-close. This is the
+      // alias-soundness site: `let R = RegExp` is refused at the initializer, so
+      // `R(...)` / `new R(...)` can never silently diverge. Honors user shadowing.
+      rejectHostRegExpValuePython(node.name, ctx);
       // Block-scope rename takes precedence — an inner `let x` that shadows
       // an outer binding was emitted with a gensym (`__k_shadow_x_N`) and
       // every in-block reference must use the same gensym. Walk renameStack
@@ -2119,6 +2126,16 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       // NameError (agon review, claude/zai convergence).
       if (arg.kind === 'ident' && arg.name === 'Error') {
         return 'Exception()';
+      }
+      // Slice 2 — `new RegExp(p)` (with or without parens) fails-close BEFORE the
+      // fall-through, with the shared regex message (the TS emitter + IR-validate
+      // throw the same string). Without this the Python `new` case falls through
+      // to a verbatim `RegExp(...)` NameError instead of a compile-time refusal.
+      // Honors user shadowing via `isProvenUserBinding`.
+      if (arg.kind === 'call' && arg.callee.kind === 'ident') {
+        rejectHostRegExpValuePython(arg.callee.name, ctx);
+      } else if (arg.kind === 'ident') {
+        rejectHostRegExpValuePython(arg.name, ctx);
       }
       return emitPyExprCtx(arg, ctx);
     }
@@ -2928,6 +2945,16 @@ type ChainNode = Extract<ValueIR, { kind: 'member' | 'call' | 'index' }>;
 function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   if (node.kind === 'member') {
     const obj = node.object;
+    // Slice 2 — a bare property READ on a DIRECT regex LITERAL (`/x/.source`,
+    // `/x/.flags`) launders the pattern/flags back into a string; not on the
+    // (empty) portable-property allowlist → fail-close, byte-identical to the TS
+    // emit + IR-validate. The portable METHODS (.test/.exec/…) are CALLS routed
+    // by the call path before reaching here, and a LET-BOUND regex read
+    // (`r.source`) has an `ident` object (owned by Slice 3), so only a direct
+    // literal read is closed here.
+    if (obj.kind === 'regexLit' && !isPortableRegexLiteralProperty(node.property)) {
+      throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
+    }
     const stdlibProperty = applyStdlibPropertyLoweringPython(node, ctx);
     if (stdlibProperty !== null) return { guard: null, expr: stdlibProperty };
     // Slice H — fail-closed on an UNMAPPED host-namespace member READ. Covers
@@ -3051,6 +3078,13 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   if (node.callee.kind === 'ident' && node.callee.name === 'Error') {
     const errArgs = node.args.map((arg) => emitPyExprCtx(arg, ctx)).join(', ');
     return { guard: null, expr: `Exception(${errArgs})` };
+  }
+  // Slice 2 — a bare `RegExp(p, f)` call (callee is an ident, missed by the
+  // member-callee guard below) fails-close with the shared regex message,
+  // BEFORE generic call emission would leak a verbatim `RegExp(...)` NameError.
+  // Honors user shadowing via `isProvenUserBinding`.
+  if (node.callee.kind === 'ident') {
+    rejectHostRegExpValuePython(node.callee.name, ctx);
   }
   // Slice H — fail-closed on an UNMAPPED host-namespace member CALL. This runs
   // AFTER every explicit lowering hook above (stdlib, regex, lambda/array,
@@ -3953,6 +3987,26 @@ function rejectUnmappedHostNamespacePython(root: string, member: string, ctx: Bo
   if (!isHostNamespaceRoot(root)) return null;
   if (isProvenUserBinding(ctx, root)) return null;
   throw new Error(unmappedHostNamespaceMessage('Python', root, member));
+}
+
+/** Slice 2 — host-`RegExp` fail-close (Python emit). Closes the residual RegExp
+ *  positions the generic `Module.member` guard above does NOT cover, throwing the
+ *  SAME shared `REGEX_HOST_REGEXP_FAILCLOSE` the TS emitter + IR-validate pass
+ *  throw (byte-identical across targets):
+ *   - a BARE-VALUE reference (`const R = RegExp`, `RegExp` passed as a value),
+ *   - a BARE CALL `RegExp(p, f)` (callee is an ident, missed by the member-callee
+ *     guard), and
+ *   - `new RegExp(p)` (the Python `new` case otherwise falls through to a verbatim
+ *     `RegExp(...)` NameError).
+ *  Honors user shadowing via `isProvenUserBinding` (fails toward refuse when a
+ *  binding cannot be proven, matching the host-namespace guard's intent), so
+ *  `const RegExp = myThing; RegExp` is the user value. `RegExp.prototype`/
+ *  `RegExp.$1` already fail-close through the generic member guard (one
+ *  diagnostic per site). */
+function rejectHostRegExpValuePython(name: string, ctx: BodyEmitContext): void {
+  if (name !== 'RegExp') return;
+  if (isProvenUserBinding(ctx, name)) return;
+  throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
 }
 
 /** Slice 2a — KERN-stdlib dispatch for Python. Returns the lowered Python

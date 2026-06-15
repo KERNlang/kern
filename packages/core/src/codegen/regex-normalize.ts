@@ -597,6 +597,55 @@ export const REGEX_NONLITERAL_FAILCLOSE =
   'Portable regex methods (.match/.matchAll/.replace/.replaceAll/.split/.test/.exec) require a DIRECT regex literal (`/…/`) in the regex position; a variable bound to a regex is not portable across targets — inline the literal at the call site.';
 
 /* ----------------------------------------------------------------------------
+ * Milestone C, Slice 2 — host-`RegExp` fail-close (the FINAL regex parity slice).
+ *
+ * Milestone B left `RegExp` usable as a host escape hatch (it was carried in
+ * `HOST_NAMESPACE_EXEMPT_ROOTS`, so `isHostNamespaceRoot('RegExp')` returned
+ * false). Slice 2 CLOSES that exemption: the host `RegExp` constructor/global is
+ * NOT a portable cross-target surface, so any reference to it fails-close.
+ *
+ * WHY host `RegExp` cannot lower portably (over-rejection is correct here):
+ *   - CONSTRUCTION takes a STRING pattern, so KERN's literal-only escape pipeline
+ *     never runs — `new RegExp("\\d")` already collapsed `"\\d"` → `\d` at the JS
+ *     string layer, where the Python target would have lowered a `/\d/` LITERAL
+ *     through the certified class-normalizer. The two paths diverge before KERN
+ *     ever sees the pattern, even for a CONSTANT string.
+ *   - The runtime SyntaxError model for a bad dynamic pattern differs (JS throws
+ *     a `SyntaxError`, Python `re` an `re.error`), and flag handling (`g`/`y`
+ *     statefulness, `u` width) has no portable analog.
+ *   - Legacy statics (`RegExp.$1`, `RegExp.prototype`) and value-position uses
+ *     (passing `RegExp` as a value, `x instanceof RegExp`) are host-only.
+ * So the certified portable regex surface is the LITERAL `/…/` form (owned by
+ * Slices 1/3/4/5); host `RegExp` in EVERY position is fail-closed.
+ *
+ * The diagnostic MUST be byte-identical across the TS emitter (core) and the
+ * Python emitter (@kernlang/python). Both import this single-source constant and
+ * throw the exact same string — the same shared-const discipline every prior
+ * regex slice uses (the Python target re-exports it; see codegen-body-python.ts).
+ *
+ * SCOPE NOTE (residual, NOT introduced by this slice): the fail-close fires on a
+ * DIRECT host-`RegExp` reference resolved through the #432 scope-aware resolver
+ * (so `const R = RegExp` is rejected at the initializer — `new R(...)` can never
+ * silently diverge). A user-renamed re-export under a foreign name is already a
+ * non-portable host reference handled by the broader host-namespace contract; it
+ * is not a regex-specific concern and is out of Slice 2's scope. */
+export const REGEX_HOST_REGEXP_FAILCLOSE =
+  "Host 'RegExp' is not portable across targets and is fail-closed: construction (`new RegExp(p)` / `RegExp(p, f)`) takes a STRING pattern, so KERN's certified literal escape/class pipeline never runs (`new RegExp(\"\\\\d\")` already collapsed to `\\d` at the string layer, diverging from a `/\\d/` literal), and the runtime SyntaxError/flag model differs across JS and Python. Legacy statics (`RegExp.$1`, `RegExp.prototype`), value-position uses, and `.source`/`.flags` on a literal (which launders the pattern back to a string) have no portable analog either. Use a DIRECT regex literal (`/…/`) and the portable methods (.test/.exec/.match/.matchAll/.replace/.replaceAll/.split).";
+
+/** The property allowlist for a REGEX LITERAL (`/…/`) member READ. The portable
+ *  match-set METHODS (.test/.exec/.match/.matchAll/.replace/.replaceAll/.split)
+ *  are routed by the CALL path (Slices 3/4) and never reach a bare property read.
+ *  A bare property READ on a literal — `/x/.source`, `/x/.flags`, `/x/.global`,
+ *  `RegExp`-prototype Symbol accessors — launders the pattern/flags back into a
+ *  STRING (or exposes a host-only accessor), which is exactly the non-portable
+ *  surface this slice closes. The allowlist is EMPTY: every bare property read on
+ *  a regex literal is fail-closed. (Kept as a named predicate so a future portable
+ *  read — if one is ever certified cross-target — has one obvious seam to widen.) */
+export function isPortableRegexLiteralProperty(_property: string): boolean {
+  return false;
+}
+
+/* ----------------------------------------------------------------------------
  * Milestone C, Slice 5 — astral (non-BMP) fail-close.
  *
  * KERN's certified portable regex subset is BMP only (U+0000..U+FFFF). A non-BMP
