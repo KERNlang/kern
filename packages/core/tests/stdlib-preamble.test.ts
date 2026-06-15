@@ -189,6 +189,56 @@ describe('detectKernStdlibUsage', () => {
     );
     expect(detectKernStdlibUsage(ast).decimal).toBe(true);
   });
+
+  // ── DECIMAL Slice 2 (BLOCKING — single-pass mask) — a `//` or `/*` marker that
+  //    lives INSIDE a string literal (e.g. a URL) must NOT be misread as a comment
+  //    that blanks out the real `Decimal.of(` producer that follows it on the same
+  //    line. The prior sequential `.replace()` chain stripped line comments BEFORE
+  //    masking strings, so `"http://x"; Decimal.of(…)` was read as having NO producer
+  //    → the decimal.js import was omitted → runtime ReferenceError. ──────────────
+
+  test('STILL flags decimal when a URL string (`"http://x"`) precedes the producer on the same line', () => {
+    // The `//` inside `"http://x"` must be consumed as part of the STRING token, not
+    // read as a line comment that blanks the trailing `Decimal.of(`.
+    const ast = parseDocument(
+      [
+        'fn name=urlBefore returns=Decimal export=true',
+        '  handler lang="kern"',
+        '    let name=x value="\\"http://x\\"; Decimal.of(\\"1.5\\")"',
+        '    return value=x',
+      ].join('\n'),
+    );
+    expect(detectKernStdlibUsage(ast).decimal).toBe(true);
+  });
+
+  test('STILL flags decimal when a URL TEMPLATE literal (`` `url://x` ``) precedes the producer', () => {
+    // Same hazard via a template literal — the `//` inside `` `url://x` `` must be
+    // consumed by the template-string token, not treated as a comment.
+    const ast = parseDocument(
+      [
+        'fn name=tplBefore returns=Decimal export=true',
+        '  handler lang="kern"',
+        '    let name=x value="`url://x`; Decimal.of(\\"1.5\\")"',
+        '    return value=x',
+      ].join('\n'),
+    );
+    expect(detectKernStdlibUsage(ast).decimal).toBe(true);
+  });
+
+  test('STILL flags decimal when a block-comment marker lives INSIDE a string before the producer', () => {
+    // `let prefix = "/*"` — the `/*` is inside a string and must NOT open a block
+    // comment that swallows the real `Decimal.of(` producer that follows. The trailing
+    // `/* real comment */` is a genuine comment and is irrelevant to detection.
+    const ast = parseDocument(
+      [
+        'fn name=blockMarkerInString returns=Decimal export=true',
+        '  handler lang="kern"',
+        '    let name=v value="let prefix = \\"/*\\"; let v = Decimal.of(\\"1.5\\"); /* real comment */"',
+        '    return value=v',
+      ].join('\n'),
+    );
+    expect(detectKernStdlibUsage(ast).decimal).toBe(true);
+  });
 });
 
 describe('kernStdlibPreamble', () => {

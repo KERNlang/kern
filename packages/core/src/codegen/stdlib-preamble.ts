@@ -94,15 +94,38 @@ const DECIMAL_PRODUCER_REGEX = /\bDecimal\.(?:of|add|sub|mul|neg|abs)\s*\(/;
  *  real producer call — a genuine `Decimal.of("1.5")` keeps `Decimal.of(` intact
  *  (only the `"1.5"` argument is masked to `"   "`), so the regex still matches and
  *  a real producer is NEVER missed (no false NEGATIVE → no reintroduced missing
- *  import). Block comments are stripped before line comments before strings — the
- *  same precedence the shared helper uses. */
+ *  import).
+ *
+ *  SINGLE-PASS TOKENIZER (the load-bearing CORRECTNESS fix): comments and string /
+ *  template literals are matched by ONE left-to-right alternation, so a `//` or `/*`
+ *  marker that lives INSIDE a string (e.g. a URL `"http://x"`) is consumed as part of
+ *  the string token and is NEVER misread as a comment that blanks the rest of the
+ *  line. The prior sequential-`.replace()` chain stripped line comments BEFORE masking
+ *  strings, so a string-internal `//` blanked out the real `Decimal.of(` producer that
+ *  followed it on the same line — a false NEGATIVE that reintroduced the very
+ *  missing-import bug this mask exists to prevent. The first alternative that matches
+ *  at each position wins: a comment opener only fires when the cursor is OUTSIDE any
+ *  string (the string alternatives have already consumed string bodies).
+ *
+ *  OFFSET- AND QUOTE-PRESERVING: each token is replaced with an equal-length run so
+ *  offset-dependent callers stay correct; for string/template literals the surrounding
+ *  quote chars are kept (`"…"`→`"   "`, `` `…` ``→`` `   ` ``) to match the byte-shape
+ *  the shared `parser-validate-*` masks produce. Comments are blanked whole. */
 function maskCommentsAndStrings(code: string): string {
-  return code
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => ' '.repeat(m.length))
-    .replace(/\/\/[^\n]*/g, (m) => ' '.repeat(m.length))
-    .replace(/"(?:[^"\\\n]|\\.)*"/g, (m) => `"${' '.repeat(Math.max(0, m.length - 2))}"`)
-    .replace(/'(?:[^'\\\n]|\\.)*'/g, (m) => `'${' '.repeat(Math.max(0, m.length - 2))}'`)
-    .replace(/`(?:[^`\\]|\\.)*`/g, (m) => `\`${' '.repeat(Math.max(0, m.length - 2))}\``);
+  // Order matters: block comment, line comment, then the three string/template
+  // forms. Because alternation is leftmost-longest-by-alternative-order and the
+  // scan is left-to-right, a `//` or `/*` inside an already-open string literal is
+  // never reached as a comment — the string alternative consumes it first.
+  const tokenRegex = /\/\*[\s\S]*?\*\/|\/\/[^\n]*|"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
+  return code.replace(tokenRegex, (m) => {
+    const first = m[0];
+    // String / template literal — preserve the surrounding quote chars, blank the body.
+    if (first === '"' || first === "'" || first === '`') {
+      return `${first}${' '.repeat(Math.max(0, m.length - 2))}${first}`;
+    }
+    // Line / block comment — blank the whole token.
+    return ' '.repeat(m.length);
+  });
 }
 
 /** True iff `code` references a Decimal producer in REAL code (comment/string
