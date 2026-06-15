@@ -57,7 +57,9 @@ describe('Decimal Slice 2 — TS import channel renders end-to-end (Finding 1)',
     // The runtime import lands at file top-level (legal ESM).
     expect(code).toContain("import Decimal from 'decimal.js';");
     // The one-time canonical-context preamble (matches CPython's default decimal context).
-    expect(code).toContain('Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_EVEN });');
+    expect(code).toContain(
+      'Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_EVEN, modulo: Decimal.ROUND_DOWN });',
+    );
     // The body lowering itself.
     expect(code).toContain('new Decimal("1.5")');
     expect(code).toContain('.plus(new Decimal("2.5"))');
@@ -85,7 +87,9 @@ describe('Decimal Slice 2 — TS import channel renders end-to-end (Finding 1)',
     for (const target of ['lib', 'mcp', 'express', 'terminal'] as KernTarget[]) {
       const code = compile(DECIMAL_MODULE, target);
       expect(code).toContain("import Decimal from 'decimal.js';");
-      expect(code).toContain('Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_EVEN });');
+      expect(code).toContain(
+        'Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_EVEN, modulo: Decimal.ROUND_DOWN });',
+      );
     }
   });
 
@@ -115,7 +119,9 @@ describe('Decimal Slice 3 — the guarded div/mod/pow helpers render end-to-end 
     const code = compile(DECIMAL_DIV_MODULE, 'lib');
     // import + canonical context (same seam slice 2 built).
     expect(code).toContain("import Decimal from 'decimal.js';");
-    expect(code).toContain('Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_EVEN });');
+    expect(code).toContain(
+      'Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_EVEN, modulo: Decimal.ROUND_DOWN });',
+    );
     // the three guarded helper DEFINITIONS ride the same preamble block.
     expect(code).toContain('function __k_decimal_div(');
     expect(code).toContain('function __k_decimal_mod(');

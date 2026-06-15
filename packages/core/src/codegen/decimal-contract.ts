@@ -59,7 +59,13 @@ export const DECIMAL_TS_PACKAGE = 'decimal.js';
 export function decimalImportLineTS(): string {
   return [
     `import Decimal from '${DECIMAL_TS_PACKAGE}';`,
-    'Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_EVEN });',
+    // `modulo: ROUND_DOWN` = TRUNCATED remainder = the sign-of-dividend convention
+    // Python's `Decimal.__mod__` uses (`Decimal("-5.5") % Decimal("2")` → `-1.5` on
+    // BOTH legs). This is the load-bearing `Decimal.mod` sign parity. ROUND_DOWN
+    // happens to be decimal.js's DEFAULT modulo mode today, so pinning it is a
+    // behavioural no-op — but it converts a COINCIDENTAL default into an EXPLICIT
+    // cross-version guarantee, exactly as `rounding` is pinned for arithmetic parity.
+    'Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_EVEN, modulo: Decimal.ROUND_DOWN });',
   ].join('\n');
 }
 
@@ -269,11 +275,35 @@ export function decimalPowFailMessage(reason: string): string {
 }
 
 /** The shared zero-divide diagnostic for a SYNTACTICALLY-ZERO divisor/modulus
- *  literal caught at COMPILE time (the optional early-error nicety): the SAME
- *  message the runtime helper would throw, so literal `Decimal.div(x, Decimal.of("0"))`
- *  fails closed identically whether caught at compile or run time. */
+ *  literal caught at COMPILE time (the early-error nicety): the SAME message the
+ *  runtime helper would throw, so literal `Decimal.div(x, Decimal.of("0"))` fails
+ *  closed identically whether caught at compile or run time. Wired into the dispatch
+ *  by {@link assertNonZeroDecimalDivisor}. */
 export function decimalZeroDivisorFailMessage(op: 'div' | 'mod'): string {
   return op === 'div' ? DECIMAL_DIV_ZERO_FAILCLOSE : DECIMAL_MOD_ZERO_FAILCLOSE;
+}
+
+/** COMPILE-TIME fail-close for a SYNTACTICALLY-ZERO `Decimal.div`/`Decimal.mod`
+ *  divisor literal (analogous to {@link assertPortableDecimalPow} for pow). When the
+ *  divisor is a direct `Decimal.of("0")` literal — the ONLY canonical zero form, since
+ *  `"0.0"`/`"-0"` are already refused by `assertPortableDecimalLiteral` upstream — the
+ *  zero divide is provable at compile time, so we throw the byte-identical
+ *  {@link decimalZeroDivisorFailMessage} on BOTH legs rather than waiting for the
+ *  emitted runtime helper's `b.isZero()` guard to fire. A DYNAMIC zero (a variable, a
+ *  computed Decimal) cannot be proven here and is left to that runtime guard — the
+ *  compile-time check is a strict, sound NARROWING of the runtime one, never a
+ *  replacement. `divisor` is the SECOND arg node of the `Decimal.div`/`Decimal.mod`
+ *  call. No-op unless `op` is `div`/`mod`. Called from BOTH legs' dispatch site with
+ *  the SAME divisor node, so the refusal is symmetric. */
+export function assertNonZeroDecimalDivisor(op: string, divisor: unknown): void {
+  if (op !== 'div' && op !== 'mod') return;
+  const lit = decimalOfLiteralValue(divisor);
+  // The canonical grammar admits exactly one zero form (`"0"`); `"0.0"`/`"-0"` etc.
+  // are non-portable and already fail-closed at the `Decimal.of` construction site,
+  // so they can never reach here as a `Decimal.of` literal value.
+  if (lit === '0') {
+    throw new Error(decimalZeroDivisorFailMessage(op));
+  }
 }
 
 /** TS-leg helper functions for the divergent Decimal ops, single-sourced here and
@@ -358,6 +388,99 @@ interface DecimalProbeNode {
   kind: string;
   callee?: { kind: string; object?: { kind: string; name?: string }; property?: string };
   args?: Array<{ kind: string; value?: string }>;
+}
+
+/** The provably-NON-Decimal literal node kinds. A `Decimal` binary/unary op
+ *  (`Decimal.add/sub/mul/div/mod/pow`, `Decimal.neg/abs`, the comparators) takes
+ *  ONLY Decimal operands; an operand of one of these kinds is, BY SYNTAX ALONE, a
+ *  host number/string/bool/null/object/array/regex — NOT a Decimal — and would
+ *  lower to a SILENT cross-target divergence (see {@link decimalNonDecimalOperandFailMessage}).
+ *  The set is the {@link ValueIR} literal kinds whose VALUE can never be a Decimal:
+ *    - `numLit`  — `Decimal.eq(Decimal.of("1"), 0.1)` → TS `.eq(0.1)` coerces the
+ *      clean string `0.1`, Python `== 0.1` compares the EXACT binary float
+ *      (`0.1000…0055`) → silent boolean divergence; a num as FIRST operand
+ *      (`Decimal.eq(0.1, …)`) is even a TS runtime `TypeError` (`0.1.eq`).
+ *    - `strLit`/`tmplLit`/`boolLit`/`nullLit`/`undefLit`/`regexLit`/`objectLit`/
+ *      `arrayLit` — likewise never a Decimal value.
+ *  NOT listed (and therefore PASS THROUGH, the conservative/sound default): `ident`,
+ *  `call`, `member`, `binary`, `index`, … — a variable/param/return or a nested
+ *  `Decimal.of(…)`/`Decimal.add(…)` producer may legitimately BE a Decimal, and KERN
+ *  has no typed IR yet to prove otherwise. Requiring positive Decimal proof would
+ *  reject the common `let d = Decimal.of("1.5"); Decimal.eq(d, e)` case — so we
+ *  reject only operands that are provably NOT Decimal, mirroring how `Decimal.of`
+ *  rejects a non-string-literal arg and how the `+`/`-`/`*` fail-close fires only on
+ *  the syntactic producer shape. */
+const NON_DECIMAL_OPERAND_LITERAL_KINDS = new Set([
+  'numLit',
+  'strLit',
+  'tmplLit',
+  'boolLit',
+  'nullLit',
+  'undefLit',
+  'regexLit',
+  'objectLit',
+  'arrayLit',
+]);
+
+/** Diagnostic prefix when a `Decimal.<op>` argument is a provably-non-Decimal
+ *  literal. Both legs throw this identical text (single-sourced), so the refusal is
+ *  byte-identical across TS and Python. */
+export const DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE = 'Decimal operation requires Decimal operands';
+
+/** Build the byte-identical compile-error for a non-Decimal operand passed to a
+ *  Decimal binary/unary op. Selected only by the offending method + operand kind,
+ *  so the refusal is observably symmetric across TS and Python. */
+export function decimalNonDecimalOperandFailMessage(method: string, operandKind: string): string {
+  return (
+    `${DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE}: Decimal.${method}(...) was passed a ${operandKind} operand, ` +
+    `which is a host value (number/string/bool/…), NOT a Decimal. Mixing a Decimal with a raw host number ` +
+    `silently diverges across targets — the TS leg (decimal.js) coerces it via its clean decimal string while ` +
+    `Python's stdlib decimal compares/operates against the EXACT binary float (e.g. 0.1 → ` +
+    `0.1000000000000000055511151231257827), so the two legs would disagree with NO error on either side. ` +
+    `Wrap the operand in Decimal.of("...") (e.g. Decimal.${method}(x, Decimal.of("0.1"))) so both legs operate ` +
+    `on the identical Decimal value.`
+  );
+}
+
+/** The provably-non-Decimal kind of an operand node, unwrapping any `unary` prefix
+ *  chain, or null if the operand is not provably a non-Decimal literal.
+ *
+ *  UNARY UNWRAP (the load-bearing soundness step): the parser represents a SIGNED
+ *  numeric literal as `unary(op:'-'|'+', argument: numLit)` — `-0.1` is NOT a bare
+ *  `numLit`. A unary sign/logical-not prefix cannot turn a non-Decimal literal INTO
+ *  a Decimal, so `-0.1` / `+5` / `!true` are still provably non-Decimal and must be
+ *  caught (without the unwrap, `Decimal.eq(Decimal.of("1"), -0.1)` would slip the
+ *  literal guard and silently diverge — TS coerces the clean `-0.1`, Python compares
+ *  the exact binary float). We DO NOT unwrap `typeAssert` (`x as Decimal`) — that is
+ *  the author's explicit type claim and the future typed-IR escape hatch — nor any
+ *  non-`unary` wrapper. The unwrap stops at the first non-`unary` node. */
+function nonDecimalOperandKind(node: unknown): string | null {
+  let cur: unknown = node;
+  // Bound the unwrap to the unary chain; `unary.argument` is the only field followed.
+  while (typeof cur === 'object' && cur !== null && (cur as { kind?: unknown }).kind === 'unary') {
+    cur = (cur as { argument?: unknown }).argument;
+  }
+  if (typeof cur !== 'object' || cur === null) return null;
+  const kind = (cur as { kind?: unknown }).kind;
+  return typeof kind === 'string' && NON_DECIMAL_OPERAND_LITERAL_KINDS.has(kind) ? kind : null;
+}
+
+/** Throw the symmetric non-Decimal-operand fail-close when any argument of a
+ *  `Decimal.<method>` call (other than the `Decimal.of` constructor, whose arg is a
+ *  validated STRING literal) is a provably-non-Decimal literal — including a
+ *  unary-signed one (`-0.1`), see {@link nonDecimalOperandKind}. Called from BOTH
+ *  legs' dispatch site with the SAME `{method, args}`, so the refusal is byte-
+ *  identical. A no-op for `of` and for operands that are not a provably-non-Decimal
+ *  literal (idents/calls/members flow through — they MAY be a Decimal; KERN has no
+ *  typed IR to prove otherwise, the conservative/sound default). */
+export function assertDecimalOperands(method: string, args: ReadonlyArray<unknown>): void {
+  if (method === 'of') return;
+  for (const arg of args) {
+    const kind = nonDecimalOperandKind(arg);
+    if (kind !== null) {
+      throw new Error(decimalNonDecimalOperandFailMessage(method, kind));
+    }
+  }
 }
 
 /** Extract the literal STRING value `s` of a `Decimal.of("s")` call node, or null

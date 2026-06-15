@@ -87,6 +87,8 @@ import {
   unmappedHostNamespaceMessage,
   unwrapTransparentReceiverIR,
   validateDecimalConstructionArg,
+  validateDecimalDivModArgs,
+  validateDecimalOperands,
   validateDecimalPowArgs,
   validateRegexNamedGroupsPortable,
 } from '@kernlang/core';
@@ -4195,6 +4197,15 @@ function applyStdlibLoweringPython(call: Extract<ValueIR, { kind: 'call' }>, ctx
   // DECIMAL Slice 3 — same shared compile-time pow fail-close the TS leg runs, so a
   // non-integer / non-literal exponent or a negative base is refused byte-identically.
   validateDecimalPowArgs(moduleName, methodName, call);
+  // DECIMAL Slice 3 (robustness) — same shared non-Decimal-operand fail-close the TS
+  // leg runs: a provably-non-Decimal LITERAL operand (a host number/string/…) passed
+  // to any Decimal op but `of` is refused byte-identically, closing the silent
+  // cross-target divergence a raw `0.1` operand would otherwise emit.
+  validateDecimalOperands(moduleName, methodName, call);
+  // DECIMAL Slice 3 — same shared compile-time zero-divisor fail-close: a literal
+  // `Decimal.of("0")` divisor to `Decimal.div`/`Decimal.mod` is refused byte-
+  // identically with the runtime guard's message (a dynamic zero stays runtime-caught).
+  validateDecimalDivModArgs(moduleName, methodName, call);
   const listLambda = lowerListLambdaPython(moduleName, methodName, call, ctx);
   if (listLambda !== null) return listLambda;
   // Slice 3b — register required imports (e.g., `Number.floor` ⇒ `import math`).

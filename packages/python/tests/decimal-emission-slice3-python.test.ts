@@ -28,6 +28,7 @@ import { join } from 'node:path';
 import {
   DECIMAL_DIV_ZERO_FAILCLOSE,
   DECIMAL_MOD_ZERO_FAILCLOSE,
+  DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE,
   DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE,
   DECIMAL_POW_ZERO_NEGATIVE_EXP_FAILCLOSE,
   decimalImportLineTS,
@@ -147,6 +148,60 @@ describe('Decimal Slice 3 — symmetric compile-time pow fail-close', () => {
     expect(() => ts('Decimal.pow(Decimal.of("2"), Decimal.of("3"))')).not.toThrow();
     expect(() => py('Decimal.pow(Decimal.of("2"), Decimal.of("-1"))')).not.toThrow();
     expect(() => ts('Decimal.pow(Decimal.of("0"), Decimal.of("0"))')).not.toThrow();
+  });
+});
+
+// ── FIX 2 (remediation) — literal-zero div/mod divisor: SYMMETRIC compile-time refusal
+describe('Decimal Slice 3 (remediation) — literal-zero divisor fails closed symmetrically', () => {
+  test('Decimal.div(x, Decimal.of("0")) — byte-identical refusal across legs', () => {
+    assertSymmetricThrow('Decimal.div(Decimal.of("1"), Decimal.of("0"))', DECIMAL_DIV_ZERO_FAILCLOSE);
+  });
+  test('Decimal.mod(x, Decimal.of("0")) — byte-identical refusal across legs', () => {
+    assertSymmetricThrow('Decimal.mod(Decimal.of("1"), Decimal.of("0"))', DECIMAL_MOD_ZERO_FAILCLOSE);
+  });
+  test('a non-zero / dynamic divisor still ships on both legs', () => {
+    expect(() => ts('Decimal.div(Decimal.of("1"), Decimal.of("3"))')).not.toThrow();
+    expect(() => py('Decimal.div(Decimal.of("1"), Decimal.of("3"))')).not.toThrow();
+    expect(() => ts('Decimal.div(Decimal.of("1"), d)')).not.toThrow();
+    expect(() => py('Decimal.div(Decimal.of("1"), d)')).not.toThrow();
+  });
+});
+
+// ── FIX 3 (remediation) — non-Decimal LITERAL operand: SYMMETRIC compile-time refusal.
+//    This is the slice's load-bearing parity guard: WITHOUT it, the two legs would
+//    SILENTLY diverge (no exception either side) on `Decimal.eq(Decimal.of("1"), 0.1)`.
+describe('Decimal Slice 3 (remediation) — non-Decimal operand fails closed symmetrically', () => {
+  test('number-literal operand — comparator / arithmetic / div / mod / unary', () => {
+    assertSymmetricThrow('Decimal.eq(Decimal.of("1"), 0.1)', DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+    assertSymmetricThrow('Decimal.add(Decimal.of("1"), 0.1)', DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+    assertSymmetricThrow('Decimal.div(Decimal.of("1"), 0.1)', DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+    assertSymmetricThrow('Decimal.mod(Decimal.of("1"), 0.1)', DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+    assertSymmetricThrow('Decimal.neg(0.1)', DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+  });
+  test('number literal as FIRST operand — symmetric', () => {
+    assertSymmetricThrow('Decimal.eq(0.1, Decimal.of("1"))', DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+  });
+  test('UNARY-signed number literal (-0.1) — symmetric (parses as unary(numLit))', () => {
+    assertSymmetricThrow('Decimal.eq(Decimal.of("1"), -0.1)', DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+    assertSymmetricThrow('Decimal.add(Decimal.of("1"), -5)', DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+  });
+  test('bool / string literal operand — symmetric', () => {
+    assertSymmetricThrow('Decimal.eq(Decimal.of("1"), true)', DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+    assertSymmetricThrow('Decimal.lt(Decimal.of("1"), "x")', DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+  });
+  test('LEGITIMATE Decimal operands still ship on both legs (no false-fire on var / nested producer)', () => {
+    expect(() => ts('Decimal.eq(d, e)')).not.toThrow();
+    expect(() => py('Decimal.eq(d, e)')).not.toThrow();
+    expect(() => ts('Decimal.add(d, Decimal.of("2"))')).not.toThrow();
+    expect(() => py('Decimal.add(d, Decimal.of("2"))')).not.toThrow();
+  });
+});
+
+// ── FIX 4 (remediation) — arity precedes the positional pow read on the PYTHON leg too
+describe('Decimal Slice 3 (remediation) — pow arity ordering on the Python leg', () => {
+  test('Decimal.pow with one arg yields the arity error, not the pow-integer message', () => {
+    expect(() => py('Decimal.pow(Decimal.of("2"))')).toThrow("Decimal.pow' takes 2 args, got 1");
+    expect(() => py('Decimal.pow(Decimal.of("2"))')).not.toThrow(DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE);
   });
 });
 
@@ -394,9 +449,19 @@ execDescribe('Decimal Slice 3 — DIFFERENTIAL fail-close (byte-identical runtim
   }
 
   // [KERN source, the exact KERN diagnostic both legs must raise]
+  //
+  // FIX 2 (remediation) note: a SYNTACTICALLY-ZERO `Decimal.of("0")` divisor is now
+  // fail-closed at COMPILE time (see the symmetric compile-time suite above), so it
+  // can no longer reach the RUNTIME helper. To keep proving the RUNTIME guard — whose
+  // job is exactly the DYNAMIC zero the compile-time check cannot see — we feed it a
+  // computed zero `Decimal.sub(Decimal.of("1"), Decimal.of("1"))` (a `call` node, not a
+  // `Decimal.of` literal, so it passes the compile-time check) that evaluates to 0 on
+  // BOTH legs and trips the helper's `b.isZero()` guard at runtime. `0**-1` likewise
+  // exercises the runtime `0**neg` guard (base/exp are valid literals; no compile gate).
+  const dynZero = 'Decimal.sub(Decimal.of("1"), Decimal.of("1"))';
   const cases: Array<[string, string]> = [
-    ['Decimal.div(Decimal.of("1"), Decimal.of("0"))', DECIMAL_DIV_ZERO_FAILCLOSE],
-    ['Decimal.mod(Decimal.of("7"), Decimal.of("0"))', DECIMAL_MOD_ZERO_FAILCLOSE],
+    [`Decimal.div(Decimal.of("1"), ${dynZero})`, DECIMAL_DIV_ZERO_FAILCLOSE],
+    [`Decimal.mod(Decimal.of("7"), ${dynZero})`, DECIMAL_MOD_ZERO_FAILCLOSE],
     ['Decimal.pow(Decimal.of("0"), Decimal.of("-1"))', DECIMAL_POW_ZERO_NEGATIVE_EXP_FAILCLOSE],
   ];
 
@@ -410,12 +475,13 @@ execDescribe('Decimal Slice 3 — DIFFERENTIAL fail-close (byte-identical runtim
     });
   }
 
-  // SANITY: confirm the guard actually pre-empts the engine's native behaviour —
+  // SANITY: confirm the RUNTIME guard actually pre-empts the engine's native behaviour —
   // without the helper, decimal.js would yield Infinity (not throw) for x/0, and
   // Python would raise its OWN DivisionByZero. Our KERN string proves the guard ran.
+  // (Uses the DYNAMIC zero so it reaches the runtime helper, post-FIX-2.)
   test('the guarded helper, not the engine, produces the diagnostic (sanity)', () => {
-    expect(runTsErr('Decimal.div(Decimal.of("1"), Decimal.of("0"))')).toBe(DECIMAL_DIV_ZERO_FAILCLOSE);
-    expect(runTsErr('Decimal.div(Decimal.of("1"), Decimal.of("0"))')).not.toContain('Infinity');
+    expect(runTsErr(`Decimal.div(Decimal.of("1"), ${dynZero})`)).toBe(DECIMAL_DIV_ZERO_FAILCLOSE);
+    expect(runTsErr(`Decimal.div(Decimal.of("1"), ${dynZero})`)).not.toContain('Infinity');
   });
 });
 

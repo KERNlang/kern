@@ -30,24 +30,29 @@ export { emitNativeKernBodyTS, emitNativeKernBodyTSWithImports } from './codegen
 // DECIMAL Slice 1 — shared canonical-scale contract (single-sourced fail-close
 // + portability predicate consumed by BOTH the TS and Python emitters).
 export {
+  assertDecimalOperands,
   assertNoDecimalOperator,
+  assertNonZeroDecimalDivisor,
   assertPortableDecimalLiteral,
   assertPortableDecimalPow,
   DECIMAL_BARE_CONSTRUCTION_FAILCLOSE,
   DECIMAL_DIV_ZERO_FAILCLOSE,
   DECIMAL_MOD_ZERO_FAILCLOSE,
+  DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE,
   DECIMAL_OPERATOR_FAILCLOSE,
   DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE,
   DECIMAL_POW_ZERO_NEGATIVE_EXP_FAILCLOSE,
   DECIMAL_SCALE_FAILCLOSE,
   decimalBareConstructionFailMessage,
   decimalImportLineTS,
+  decimalNonDecimalOperandFailMessage,
   decimalNonStringLiteralFailMessage,
   decimalOfLiteralValue,
   decimalOperatorFailMessage,
   decimalOpsHelpersTS,
   decimalPowFailMessage,
   decimalScaleFailMessage,
+  decimalZeroDivisorFailMessage,
   isPortableDecimalLiteral,
   isSyntacticDecimalProducer,
   KERN_DECIMAL_OPS_HELPER_PY,
@@ -238,6 +243,8 @@ export {
   needsArgParens,
   needsBinaryParens,
   validateDecimalConstructionArg,
+  validateDecimalDivModArgs,
+  validateDecimalOperands,
   validateDecimalPowArgs,
 } from './codegen-expression.js';
 export type {

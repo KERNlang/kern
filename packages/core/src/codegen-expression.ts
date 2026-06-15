@@ -1,7 +1,9 @@
 /** Serialize ValueIR to a TypeScript expression string. */
 
 import {
+  assertDecimalOperands,
   assertNoDecimalOperator,
+  assertNonZeroDecimalDivisor,
   assertPortableDecimalLiteral,
   assertPortableDecimalPow,
   decimalBareConstructionFailMessage,
@@ -792,6 +794,19 @@ function applyStdlibLoweringTS(call: Extract<ValueIR, { kind: 'call' }>, ctx?: E
   // non-literal exponent or a negative base with the byte-identical message the
   // Python leg throws.
   validateDecimalPowArgs(moduleName, methodName, call);
+  // DECIMAL Slice 3 (robustness) — a Decimal binary/unary op (add/sub/mul/div/mod/
+  // pow, neg/abs, the comparators — everything but `of`) takes ONLY Decimal
+  // operands. Reject a provably-non-Decimal LITERAL operand (a host number/string/…)
+  // with the byte-identical shared diagnostic, closing the silent cross-target
+  // divergence `Decimal.eq(Decimal.of("1"), 0.1)` would otherwise emit (TS coerces
+  // `0.1`, Python compares the exact binary float). Variables/calls flow through —
+  // they MAY be a Decimal (no typed IR yet), the conservative/sound default.
+  validateDecimalOperands(moduleName, methodName, call);
+  // DECIMAL Slice 3 — a SYNTACTICALLY-ZERO `Decimal.div`/`Decimal.mod` divisor literal
+  // (`Decimal.of("0")`) is a provable zero-divide: fail it closed at COMPILE time with
+  // the same byte-identical diagnostic the emitted runtime guard throws (a dynamic
+  // zero is still caught at runtime). The early-error twin of `assertPortableDecimalPow`.
+  validateDecimalDivModArgs(moduleName, methodName, call);
   const listLambda = lowerListLambdaTS(moduleName, methodName, call, ctx);
   if (listLambda !== null) return listLambda;
   // DECIMAL Slice 1 — record the external-package import requirement (e.g.
@@ -1012,6 +1027,36 @@ export function validateDecimalPowArgs(
   if (moduleName !== 'Decimal' || methodName !== 'pow') return;
   // Arity (2) is enforced by the table before this runs; read positionally.
   assertPortableDecimalPow(call.args[0], call.args[1]);
+}
+
+/** DECIMAL Slice 3 (robustness) — reject a provably-non-Decimal LITERAL operand
+ *  passed to a Decimal binary/unary op (everything but the `Decimal.of` string
+ *  constructor). Delegates to the shared `assertDecimalOperands` (byte-identical
+ *  message on both legs). No-op for any other module/method. Called from BOTH
+ *  `applyStdlibLoweringTS` and its Python twin so the fail-close is symmetric. */
+export function validateDecimalOperands(
+  moduleName: string,
+  methodName: string,
+  call: Extract<ValueIR, { kind: 'call' }>,
+): void {
+  if (moduleName !== 'Decimal') return;
+  assertDecimalOperands(methodName, call.args);
+}
+
+/** DECIMAL Slice 3 — compile-time fail-close for a SYNTACTICALLY-ZERO `Decimal.div`/
+ *  `Decimal.mod` divisor literal (`Decimal.of("0")`): the early-error twin of the
+ *  emitted runtime `b.isZero()` guard. Delegates to the shared
+ *  `assertNonZeroDecimalDivisor` (byte-identical message on both legs). A dynamic
+ *  zero is still caught by the runtime helper. No-op for any other module/method.
+ *  Called from BOTH `applyStdlibLoweringTS` and its Python twin. */
+export function validateDecimalDivModArgs(
+  moduleName: string,
+  methodName: string,
+  call: Extract<ValueIR, { kind: 'call' }>,
+): void {
+  if (moduleName !== 'Decimal') return;
+  // Arity (2) is enforced by the table before this runs; the divisor is arg[1].
+  assertNonZeroDecimalDivisor(methodName, call.args[1]);
 }
 
 function validateStdlibCallArity(
