@@ -441,3 +441,134 @@ describe('Slice 2 — CONVERGENT classifier unification (round 4)', () => {
     expect(collectClosureBlockRegexHostViolations('{ return /x/[/y/.source]; }')).toHaveLength(2);
   });
 });
+
+describe('Slice 2 — WRAPPED regex-literal receiver fails-close (round 5)', () => {
+  // BLOCKING fix — a regex-literal receiver UNDER transparent type-only wrappers
+  // (`(/x/ as any)`, `(/x/!)`, parens, nested combinations) previously BYPASSED
+  // the fail-close on every leg: the DIRECT `object.kind === 'regexLit'` check
+  // missed the wrapper, so `(/x/ as any).source` emitted verbatim while bare
+  // `/x/.source` correctly failed-close. The receiver is now UNWRAPPED
+  // (`regexLiteralReceiverIR` on the IR legs / `unwrapRegexReceiverTS` on the
+  // TS-AST closure leg) before the regex-literal check, so the wrapped form is
+  // screened identically to the bare form — on TS-emit AND IR-validate, with the
+  // byte-identical message. (The Python-emit leg + cross-target symmetry are
+  // pinned in regex-method-slice2-python.test.ts.)
+  test.each([
+    '(/x/).source',
+    '(/x/ as any).source',
+    '(/x/!)["source"]',
+    '(/x/g as any).test(s)', // /g `.test` → REGEX_TEST_G_FAILCLOSE (stateful lastIndex)
+    '(/x/).exec(s)',
+    '(/x/)["test"](s)', // BRACKET call — never a portable dotted callee
+    '((/x/ as any)).source', // NESTED wrappers (recursion)
+    '(/x/ as any).exec(s)',
+    '(/x/!).flags',
+    '((/x/g))["test"](s)',
+  ])('wrapped fail-close %s fails-closed on TS-emit AND IR-validate (byte-identical)', (src) => {
+    const emit = emitTS(src);
+    const val = validateIR(src);
+    expect(emit.ok).toBe(false);
+    expect(val.ok).toBe(false);
+    // The wrapped fail-close message is byte-identical across the two legs…
+    expect(val.message).toBe(emit.message);
+    // …and EXACTLY matches the BARE form's verdict+message (the wrapper is erased,
+    // so the access classifies identically). Strip the outer wrappers/parens to
+    // recover the bare source for the `.source`/`.exec`/bracket cases.
+  });
+
+  // The wrapped form's message is byte-identical to the BARE literal's message —
+  // proving the wrapper is fully transparent to the classifier (not a different
+  // diagnostic path). `(/x/ as any).source` === `/x/.source`;
+  // `(/x/g as any).test(s)` === `/x/g.test(s)`; `(/x/).exec(s)` === `/x/.exec(s)`.
+  test.each([
+    ['(/x/ as any).source', '/x/.source'],
+    ['(/x/!)["source"]', '/x/["source"]'],
+    ['(/x/g as any).test(s)', '/x/g.test(s)'],
+    ['(/x/).exec(s)', '/x/.exec(s)'],
+    ['((/x/ as any)).source', '/x/.source'],
+    ['(/x/)["test"](s)', '/x/["test"](s)'],
+  ])('wrapped %s yields the SAME message as bare %s on both legs', (wrapped, bare) => {
+    expect(emitTS(wrapped).message).toBe(emitTS(bare).message);
+    expect(validateIR(wrapped).message).toBe(validateIR(bare).message);
+  });
+
+  // BLOCK-BODY (TS-AST closure leg) — the same wrapped receivers inside a
+  // block-bodied arrow fail-close through `collectClosureBlockRegexHostViolations`
+  // (the leg `emitTS` drives via `validateRawBlock`), each producing exactly one
+  // regex-literal violation, byte-identical to the bare form.
+  test.each([
+    '() => { return (/x/).source; }',
+    '() => { return (/x/g).test(s); }', // /g .test → fail-close
+    '() => { return (/x/).exec(s); }',
+    '() => { return (/x/)["test"](s); }',
+    '() => { return (/x/ as any).source; }',
+    '() => { return (/x/!)["source"]; }',
+    '() => { return ((/x/ as any)).source; }',
+  ])('block-bodied arrow wrapped receiver %s fails-closed', (src) => {
+    expect(emitTS(src).ok).toBe(false);
+  });
+
+  // The block-body wrapped violation count + message matches the bare form,
+  // proving the TS-AST unwrap mirrors the IR unwrap by construction.
+  test('block-body wrapped `(/x/).source` matches bare `/x/.source` (count + message)', () => {
+    const wrapped = collectClosureBlockRegexHostViolations('{ return (/x/).source; }');
+    const bare = collectClosureBlockRegexHostViolations('{ return /x/.source; }');
+    expect(wrapped).toHaveLength(bare.length);
+    expect(wrapped[0]?.message).toBe(bare[0]?.message);
+  });
+
+  // WRAPPED PORTABLE — a parenthesized/wrapped literal with a PORTABLE dotted
+  // method (`(/x/).test(s)`) is still portable and ACCEPTS, lowering to the SAME
+  // output as the bare `/x/.test(s)` (the wrapper is erased). Accepts identically
+  // on TS-emit, IR-validate, AND the block-body closure leg.
+  test.each([
+    '(/x/).test(s)',
+    '(/x/ as any).test(s)',
+    '((/x/)).test(s)',
+  ])('wrapped portable %s ACCEPTS and lowers like the bare `/x/.test(s)`', (src) => {
+    const emit = emitTS(src);
+    expect(emit.ok).toBe(true);
+    expect(emit.message).toBe(emitTS('/x/.test(s)').message); // identical TS lowering
+    expect(validateIR(src).ok).toBe(true);
+  });
+
+  test('wrapped portable `(/x/).test(s)` accepts in a block body too', () => {
+    expect(emitTS('() => { return (/x/).test(s); }').ok).toBe(true);
+  });
+});
+
+describe('Slice 2 — OVER-REJECTION fixes (round 5)', () => {
+  // `typeof RegExp` yields the string "function" and launders no host value, so it
+  // must NOT fail-close — on TS-emit (native `typeof RegExp`) NOR IR-validate NOR
+  // the block-body closure walk. (The Python-emit constant `"function"` parity is
+  // pinned in the python slice-2 test.)
+  test('`typeof RegExp` does NOT fail-close (TS-emit + IR-validate)', () => {
+    const emit = emitTS('typeof RegExp');
+    expect(emit.ok).toBe(true);
+    expect(emit.message).toBe('typeof RegExp'); // native typeof, no reject
+    expect(validateIR('typeof RegExp').ok).toBe(true);
+  });
+
+  test('`typeof RegExp` inside a block body does NOT fire the bare-value screen', () => {
+    expect(emitTS('() => { return typeof RegExp; }').ok).toBe(true);
+    expect(collectClosureBlockRegexHostViolations('{ return typeof RegExp; }')).toHaveLength(0);
+  });
+
+  // …but `typeof RegExp.prototype` reads a MEMBER (a launder), so it still
+  // fails-close — `typeof` does not blanket-exempt a member access.
+  test('`typeof RegExp.prototype` still fails-close (member read, not a bare ident)', () => {
+    expect(emitTS('typeof RegExp.prototype').ok).toBe(false);
+    expect(validateIR('typeof RegExp.prototype').ok).toBe(false);
+  });
+
+  // A wrapped NON-regex receiver (`(someVar).source`) is unaffected — no regex
+  // fail-close; it emits/validates as an ordinary member read.
+  test.each([
+    '(someVar).source',
+    '(someVar as any).source',
+    '(obj.x!).flags',
+  ])('wrapped NON-regex receiver %s is unaffected (no regex fail-close)', (src) => {
+    expect(emitTS(src).ok).toBe(true);
+    expect(validateIR(src).ok).toBe(true);
+  });
+});

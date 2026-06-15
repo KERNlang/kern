@@ -377,3 +377,134 @@ describe('Slice 2 — CONVERGENT classifier unification, cross-target (round 4)'
     expect(py('new someObj.RegExp()').ok).toBe(true);
   });
 });
+
+describe('Slice 2 — WRAPPED regex-literal receiver, cross-target (round 5)', () => {
+  // BLOCKING fix — a regex-literal receiver UNDER transparent type-only wrappers
+  // (`(/x/ as any)`, `(/x/!)`, parens, nested) previously BYPASSED the fail-close
+  // on EVERY leg. The verified Python bypass: `(/x/ as any).source` lowered to the
+  // impossible `__k_re.compile("x", __k_re.ASCII).source` instead of a compile-time
+  // fail-close. The receiver is now UNWRAPPED (`regexLiteralReceiverIR`, the shared
+  // core helper used by the TS-emit, IR-validate, and Python-emit legs) before the
+  // regex-literal check, so the wrapped form fails-close byte-identically to the
+  // bare form on BOTH targets.
+  //
+  // kills: naive_py_wrapped_verbatim — a Python impl that only checks
+  // `obj.kind === 'regexLit'` and lets `(/x/ as any).source` /
+  // `(/x/g as any).test(s)` emit a runtime-broken `.compile(...).source` /
+  // verbatim call instead of fail-closing.
+  test.each([
+    ['(/x/ as any).source', REGEX_HOST_REGEXP_FAILCLOSE],
+    ['(/x/).source', REGEX_HOST_REGEXP_FAILCLOSE],
+    ['(/x/!)["source"]', REGEX_HOST_REGEXP_FAILCLOSE],
+    ['((/x/ as any)).source', REGEX_HOST_REGEXP_FAILCLOSE], // nested wrappers
+    ['(/x/)["test"](s)', REGEX_HOST_REGEXP_FAILCLOSE], // bracket call
+    ['(/x/).exec(s)', REGEX_EXEC_FAILCLOSE],
+    ['(/x/ as any).exec(s)', REGEX_EXEC_FAILCLOSE],
+    ['(/x/g as any).test(s)', REGEX_TEST_G_FAILCLOSE], // /g .test → stateful
+  ])('wrapped `%s` fails-close with the SAME message on TS and Python', (src, expected) => {
+    const t = ts(src);
+    const p = py(src);
+    expect(t.ok).toBe(false);
+    expect(p.ok).toBe(false);
+    expect(t.message).toBe(expected);
+    expect(p.message).toBe(expected);
+    expect(p.message).toBe(t.message); // the parity invariant, asserted directly
+  });
+
+  // The wrapped fail-close message equals the BARE form's message on each target —
+  // proving the wrapper is fully transparent (erased) to the classifier.
+  test.each([
+    ['(/x/ as any).source', '/x/.source'],
+    ['(/x/g as any).test(s)', '/x/g.test(s)'],
+    ['(/x/).exec(s)', '/x/.exec(s)'],
+    ['(/x/)["test"](s)', '/x/["test"](s)'],
+  ])('wrapped %s yields the same message as bare %s on both targets', (wrapped, bare) => {
+    expect(ts(wrapped).message).toBe(ts(bare).message);
+    expect(py(wrapped).message).toBe(py(bare).message);
+  });
+
+  // WRAPPED PORTABLE — `(/x/).test(s)` / `(/x/ as any).test(s)` stay portable and
+  // ACCEPT, lowering IDENTICALLY to the bare `/x/.test(s)` on each target (the
+  // wrapper is type-only and erased). TS → `/x/.test(s)`, Python → `re.search`.
+  test.each([
+    '(/x/).test(s)',
+    '(/x/ as any).test(s)',
+    '((/x/)).test(s)',
+  ])('wrapped portable %s ACCEPTS and lowers like bare `/x/.test(s)` on both targets', (src) => {
+    const t = ts(src);
+    const p = py(src);
+    expect(t.ok).toBe(true);
+    expect(p.ok).toBe(true);
+    expect(t.message).toBe(ts('/x/.test(s)').message);
+    expect(p.message).toBe(py('/x/.test(s)').message);
+  });
+
+  // Block-body parity for the wrapped forms (the TS-AST closure leg).
+  const wrapBodyTS = (arrow: string): { ok: boolean; message: string } => {
+    try {
+      return { ok: true, message: tsBody([{ type: 'let', props: { name: 'f', value: arrow } } as IRNode]) };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  };
+  const wrapBodyPy = (arrow: string): { ok: boolean; message: string } => {
+    try {
+      return { ok: true, message: pyBody([{ type: 'let', props: { name: 'f', value: arrow } } as IRNode]) };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  };
+
+  test.each([
+    '() => { return (/x/).source; }',
+    '() => { return (/x/ as any).source; }',
+    '() => { return (/x/!)["source"]; }',
+    '() => { return ((/x/ as any)).source; }',
+    '() => { return (/x/)["test"](s); }',
+  ])('block-bodied wrapped receiver %s fails-close on BOTH targets (byte-identical)', (src) => {
+    const t = wrapBodyTS(src);
+    const p = wrapBodyPy(src);
+    expect(t.ok).toBe(false);
+    expect(p.ok).toBe(false);
+    expect(t.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    expect(p.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    expect(p.message).toBe(t.message);
+  });
+
+  test('block-bodied wrapped portable `(/x/).test(s)` ACCEPTS on BOTH targets', () => {
+    expect(wrapBodyTS('() => { return (/x/).test(s); }').ok).toBe(true);
+    expect(wrapBodyPy('() => { return (/x/).test(s); }').ok).toBe(true);
+  });
+});
+
+describe('Slice 2 — OVER-REJECTION fixes, cross-target (round 5)', () => {
+  // `typeof RegExp` is the string "function" on JS and launders no host value, so
+  // it must NOT fail-close. PARITY: TS emits native `typeof RegExp` (→"function");
+  // Python has no `RegExp` binding, so it emits the constant `"function"` — the
+  // byte-identical RESULT without evaluating a nonexistent Python name.
+  test('`typeof RegExp` does NOT fail-close on either target (TS native / Python "function")', () => {
+    const t = ts('typeof RegExp');
+    const p = py('typeof RegExp');
+    expect(t.ok).toBe(true);
+    expect(p.ok).toBe(true);
+    expect(t.message).toBe('typeof RegExp');
+    expect(p.message).toBe('"function"');
+  });
+
+  // …but `typeof RegExp.prototype` reads a MEMBER (a launder) and still
+  // fails-close on both targets — `typeof` does not blanket-exempt member reads.
+  test('`typeof RegExp.prototype` still fails-close on both targets', () => {
+    expect(ts('typeof RegExp.prototype').ok).toBe(false);
+    expect(py('typeof RegExp.prototype').ok).toBe(false);
+  });
+
+  // A wrapped NON-regex receiver is unaffected — emits/validates as an ordinary
+  // member read on both targets (no regex fail-close, no message substitution).
+  test.each([
+    '(someVar).source',
+    '(someVar as any).source',
+  ])('wrapped NON-regex receiver %s is unaffected on both targets', (src) => {
+    expect(ts(src).ok).toBe(true);
+    expect(py(src).ok).toBe(true);
+  });
+});

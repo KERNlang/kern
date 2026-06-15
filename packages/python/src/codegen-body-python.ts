@@ -76,6 +76,7 @@ import {
   regexAstralFailMessage,
   regexCaptureMeta,
   regexIFoldFailMessage,
+  regexLiteralReceiverIR,
   regexMethodRegexArgIdent,
   scanRegexAstral,
   suggestStdlibMethod,
@@ -2471,6 +2472,16 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
 }
 
 function emitPyTypeof(argument: ValueIR, ctx: BodyEmitContext): string {
+  // `typeof RegExp` (round-5 over-rejection fix) — on JS this is the compile-time
+  // constant `"function"` (`RegExp` is the constructor global), and it launders no
+  // host value, so it must NOT fail-close. Python has no `RegExp` binding, so the
+  // PARITY-correct lowering is the literal `"function"` constant — byte-identical
+  // RESULT to TS `typeof RegExp` without evaluating a non-existent Python name.
+  // Only the EXACT bare-`RegExp` operand (not a proven user binding) takes this
+  // path; `typeof RegExp.prototype` is a `member` operand and still fails-close.
+  if (argument.kind === 'ident' && argument.name === 'RegExp' && !isProvenUserBinding(ctx, 'RegExp')) {
+    return '"function"';
+  }
   switch (argument.kind) {
     case 'strLit':
       return '"string"';
@@ -2984,7 +2995,10 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
     // portable METHODS (.test/.exec/…) are CALLS routed by the call path before
     // reaching here, and a LET-BOUND regex read (`r.source`) has an `ident`
     // object (owned by Slice 3), so only a direct literal read is closed here.
-    if (obj.kind === 'regexLit') {
+    // The receiver is UNWRAPPED first so a wrapped read `(/x/ as any).source` /
+    // `(/x/!).source` fails-close identically to the bare `/x/.source` and to the
+    // TS-emit + IR-validate legs (round-5 wrapped-receiver fix).
+    if (regexLiteralReceiverIR(obj) !== null) {
       const message = classifyRegexLiteralMemberReadFailClose(node);
       if (message !== null) throw new Error(message);
     }
@@ -3047,8 +3061,10 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
     // host-ident guard below. A STRING-literal index goes through the same
     // (empty) portable-property allowlist; a COMPUTED / non-literal index is
     // unknowable and also fails-close. Mirrors the TS emit + IR-validate index
-    // screens — byte-identical regex message across all three legs.
-    if (obj.kind === 'regexLit') {
+    // screens — byte-identical regex message across all three legs. The receiver
+    // is UNWRAPPED first so a wrapped bracket read `(/x/!)["source"]` /
+    // `(/x/ as any)["test"](s)` fails-close identically (round-5 wrapped fix).
+    if (regexLiteralReceiverIR(obj) !== null) {
       // Routed through the SHARED classifier (a STRING index classifies like the
       // dotted read; a COMPUTED index is unknowable → fail-close), byte-identical
       // to the TS emit + IR-validate index screens and the closure walk.
@@ -3709,8 +3725,13 @@ function resolveRegexExpr(node: ValueIR, _ctx: BodyEmitContext): Extract<ValueIR
   // `lowerRegexCallPython` via the shared `regexMethodRegexArgIdent` detector —
   // symmetric with the TS target. A string-/unknown-bound ident returns null
   // and stays a plain host method (the `s.match(stringVar)` case).
-  if (node.kind === 'regexLit') return node;
-  return null;
+  //
+  // Transparent wrappers (`as`/`!`) are peeled via `regexLiteralReceiverIR` —
+  // mirroring the TS `resolveRegexLitTS` — so a wrapped portable receiver call
+  // `(/x/).test(s)` / `(/x/ as any).test(s)` lowers, and a wrapped non-portable
+  // one `(/x/ as any).exec(s)` fails-close through `lowerRegexCallPython` (round-5
+  // wrapped-receiver fix), identically to the TS leg.
+  return regexLiteralReceiverIR(node);
 }
 
 function pyRegexPattern(node: Extract<ValueIR, { kind: 'regexLit' }>): string {

@@ -309,6 +309,14 @@ function isRegExpNonValuePosition(node: ts.Identifier): boolean {
   if ((ts.isFunctionDeclaration(parent) || ts.isClassDeclaration(parent)) && parent.name === node) return true;
   // A reference inside a TYPE NODE is erased (`const x: RegExp = /a/`).
   if (isInTypePosition(node)) return true;
+  // `typeof RegExp` (round-5 over-rejection fix) — the operand of a `typeof`
+  // expression yields the host-agnostic string `"function"`, NOT the host
+  // `RegExp` value. It launders NOTHING (no constructor/global is captured), so
+  // the bare-`RegExp` screen must NOT fire. (`typeof X` is identical across JS and
+  // Python's KERN lowering, so this is portable.) The reference must be the DIRECT
+  // operand of the `typeof` — `typeof RegExp.prototype` reads a member and is
+  // owned by the member-OBJECT branch above, not by this one.
+  if (ts.isTypeOfExpression(parent) && parent.expression === node) return true;
   return false;
 }
 
@@ -349,19 +357,25 @@ export function collectClosureBlockRegexHostViolations(raw: string): ClosureBloc
       scopes.pop();
       return;
     }
-    // A property/element access whose receiver is a regex LITERAL. The shared
+    // A property/element access whose receiver is a regex LITERAL, possibly under
+    // transparent type-only wrappers (`(/x/ as any).source`, `(/x/!)["source"]`,
+    // nested `((/x/ as any)).source`). The receiver is UNWRAPPED first
+    // (`unwrapRegexReceiverTS`) so a wrapped literal is screened identically to the
+    // bare form — and to the IR legs, which peel the matching `typeAssert`/
+    // `nonNull` IR wrappers (round-5 wrapped-receiver fail-close fix). The shared
     // classifier returns the exact message (or null = portable, e.g. `/x/.test`).
     if (
       (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
-      ts.isRegularExpressionLiteral(node.expression)
+      ts.isRegularExpressionLiteral(unwrapRegexReceiverTS(node.expression))
     ) {
+      const receiver = unwrapRegexReceiverTS(node.expression) as ts.RegularExpressionLiteral;
       const property = regexLiteralAccessPropertyName(node);
       // Only a DOTTED property access can be the callee of a portable regex
       // method call — `lowerRegexCallTS` lowers `callee.kind === 'member'` only,
       // so a BRACKET-form call (`/x/["test"](s)`) is NOT portable.
       const isDottedCallee =
         ts.isPropertyAccessExpression(node) && ts.isCallExpression(node.parent) && node.parent.expression === node;
-      const flags = regexLiteralFlags(node.expression);
+      const flags = regexLiteralFlags(receiver);
       const message = classifyRegexLiteralAccessFailClose(property, isDottedCallee, flags);
       if (message !== null) {
         violations.push({ kind: 'regexLiteralAccess', root: 'RegExp', locallyShadowed: false, message });
@@ -403,11 +417,57 @@ function regexLiteralAccessPropertyName(node: ts.PropertyAccessExpression | ts.E
   return null;
 }
 
-/** Extract the flags substring of a regex literal token (`/x/gi` → `gi`). */
+/** Recursively peel the transparent TS-AST wrappers off a regex-literal access
+ *  RECEIVER until the underlying expression: `ParenthesizedExpression` (`(/x/)`),
+ *  `AsExpression` (`/x/ as any`), `TypeAssertionExpression` (legacy `<any>/x/`),
+ *  `NonNullExpression` (`/x/!`), and `SatisfiesExpression` (`/x/ satisfies T`).
+ *  Fixpoint loop (not a single unwrap) so nested wrappers like `((/x/ as any))!`
+ *  collapse to the `/x/` literal. This is the TS-AST projection of the IR-leg
+ *  {@link unwrapTransparentReceiverIR} (which peels `typeAssert`/`nonNull`): the
+ *  SAME logical wrapper set on each node universe, so a wrapped regex-literal
+ *  access screens identically across the TS-AST closure leg and the ValueIR legs.
+ *
+ *  DELIBERATELY does NOT peel a comma-sequence `(0, /x/)`: KERN's value IR has no
+ *  comma/sequence node, so the IR legs can never SEE that shape — peeling it on
+ *  the TS-AST leg only would CREATE a one-target divergence, the opposite of the
+ *  lockstep this round closes. (A comma-sequence regex-literal receiver is a
+ *  vanishingly rare host shape; leaving it un-unwrapped is the parity-safe choice.) */
+function unwrapRegexReceiverTS(expr: ts.Expression): ts.Expression {
+  let current: ts.Expression = expr;
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isTypeAssertionExpression(current) ||
+    ts.isNonNullExpression(current) ||
+    ts.isSatisfiesExpression(current)
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
+/** Extract the flags substring of a regex literal token (`/x/gi` → `gi`).
+ *
+ *  DEFENSIVE GUARD (round-5 over-rejection/soundness fix): a well-formed regex
+ *  literal text is `/…/flags`, so the flags are everything after the LAST `/`.
+ *  But if the token text is malformed (no closing slash, or a leading-slash-only
+ *  shape where the only `/` is the opener at index 0), `lastIndexOf('/')` would
+ *  return `-1` or `0` and we would mis-read the body AS flags — silently passing a
+ *  pattern that should be screened. A malformed literal must never launder
+ *  flags: when there is no closing `/` at index > 0, we FAIL SAFE by returning a
+ *  `'g'`-bearing sentinel so the classifier takes the most-restrictive (`/g`)
+ *  branch (`/x/.test` → `REGEX_TEST_G_FAILCLOSE`; every other access already
+ *  fails-close flag-independently) — fail-CLOSE rather than fail-open. A real
+ *  regex literal always has its closing slash at index > 0, so this never affects
+ *  valid input; `ts` would not even produce a `RegularExpressionLiteral` token
+ *  for an unterminated literal, but the guard is the cheap, sound belt-and-braces. */
 function regexLiteralFlags(literal: ts.RegularExpressionLiteral): string {
   const text = literal.text;
   const lastSlash = text.lastIndexOf('/');
-  return lastSlash >= 0 ? text.slice(lastSlash + 1) : '';
+  // Valid `/…/flags` always has its closing slash at index > 0 (index 0 is the
+  // opener). `<= 0` means no closing slash was found — fail SAFE with `/g`.
+  if (lastSlash <= 0) return 'g';
+  return text.slice(lastSlash + 1);
 }
 
 /** Peel the wrapper layers a call callee may carry until reaching the underlying

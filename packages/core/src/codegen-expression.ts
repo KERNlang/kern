@@ -30,6 +30,7 @@ import {
   regexAstralFailMessage,
   regexCaptureMeta,
   regexIFoldFailMessage,
+  regexLiteralReceiverIR,
   scanRegexAstral,
   validateRegexNamedGroupsPortable,
   validateReplStringForTS,
@@ -199,7 +200,10 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       // The portable METHODS (.test/.exec/…) are routed by the CALL path (which
       // returns BEFORE this bare-read member emit), so this only ever sees a
       // genuine bare read (always non-null today — the empty read allowlist).
-      if (node.object.kind === 'regexLit') {
+      // The receiver is UNWRAPPED first (`regexLiteralReceiverIR`) so a wrapped
+      // read `(/x/ as any).source` / `(/x/!).source` fails-close identically to
+      // the bare `/x/.source`.
+      if (regexLiteralReceiverIR(node.object) !== null) {
         const message = classifyRegexLiteralMemberReadFailClose(node);
         if (message !== null) throw new Error(message);
       }
@@ -220,7 +224,9 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       // non-literal index is even worse — the property is unknowable, so it is a
       // laundering risk and also fails-close. Throws the regex-specific message,
       // not the generic host one.
-      if (node.object.kind === 'regexLit') {
+      // Receiver UNWRAPPED first so a wrapped bracket read `(/x/!)["source"]` /
+      // `(/x/ as any)["test"](s)` fails-close identically to the bare bracket form.
+      if (regexLiteralReceiverIR(node.object) !== null) {
         // Routed through the SHARED classifier (a STRING index classifies like the
         // dotted read; a COMPUTED index is unknowable → fail-close), so the bracket
         // form (`/x/["source"]`, `/x/["test"](s)` — a bracket call whose callee is
@@ -301,6 +307,17 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       return `${lp} ${node.op} ${rp}`;
     }
     case 'unary': {
+      // `typeof RegExp` (round-5 over-rejection fix) yields the string
+      // `"function"` — it captures NO host value and launders nothing, so it must
+      // NOT trip the bare-`RegExp` value reject the `ident` case applies. For the
+      // EXACT `typeof <bare ident>` shape, emit the operand name directly
+      // (bypassing the `ident` recursion that would throw on `RegExp`); the result
+      // is the same `typeof <name>` for a user binding too. `typeof RegExp.prototype`
+      // is a `member` operand, so it is unaffected and still fails-close. `typeof X`
+      // is identical across the TS and Python lowerings, so this stays parity-safe.
+      if (node.op === 'typeof' && node.argument.kind === 'ident') {
+        return `typeof ${node.argument.name}`;
+      }
       // Slice-2 review fix: wrap binary/unary/spread args in parens to preserve
       // unary's tight binding. `!(a === b)` would otherwise emit `!a === b`.
       const arg = emitExpression(node.argument, ctx);
@@ -655,11 +672,15 @@ function applyStdlibLoweringTS(call: Extract<ValueIR, { kind: 'call' }>, ctx?: E
 }
 
 /** Resolve a node to a regex literal IR, mirroring the Python `resolveRegexExpr`.
- *  The pure-expression TS emitter has no binding table, so only a direct
- *  `regexLit` is resolved (the Python target additionally follows an ident
- *  binding; the lowered shapes/fail-closes are otherwise identical). */
+ *  The pure-expression TS emitter has no binding table, so only a direct (or
+ *  transparently-wrapped) `regexLit` is resolved (the Python target additionally
+ *  follows an ident binding; the lowered shapes/fail-closes are otherwise
+ *  identical). Transparent wrappers (`as`/`!`) are peeled via
+ *  `regexLiteralReceiverIR` so a wrapped portable call `(/x/).test(s)` /
+ *  `(/x/ as any).test(s)` lowers, and a wrapped non-portable one
+ *  `(/x/ as any).exec(s)` fails-close through `lowerRegexCallTS`. */
 function resolveRegexLitTS(node: ValueIR): Extract<ValueIR, { kind: 'regexLit' }> | null {
-  return node.kind === 'regexLit' ? node : null;
+  return regexLiteralReceiverIR(node);
 }
 
 /** Emit the normalized TS regex literal (`/pat/flags`) for a regexLit IR — the

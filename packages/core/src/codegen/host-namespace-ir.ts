@@ -13,6 +13,7 @@ import {
   classifyRegexLiteralMemberReadFailClose,
   classifyRegexLiteralValueIRCallCalleeFailClose,
   REGEX_HOST_REGEXP_FAILCLOSE,
+  regexLiteralReceiverIR,
 } from './regex-normalize.js';
 
 interface ValidationScope {
@@ -187,7 +188,9 @@ function validateValueIR(node: ValueIR, scope: ValidationScope): void {
       // truth). A portable DOTTED method CALLEE (`/x/.test`) never reaches here as
       // a bare member: the `call` case classifies the callee first and skips this
       // re-validation, so this read fail-close is only ever a genuine bare read.
-      if (node.object.kind === 'regexLit') {
+      // The receiver is UNWRAPPED first so a wrapped read `(/x/ as any).source`
+      // fails-close identically to the bare `/x/.source` (round-5 wrapped fix).
+      if (regexLiteralReceiverIR(node.object) !== null) {
         const message = classifyRegexLiteralMemberReadFailClose(node);
         if (message !== null) throw new Error(message);
       }
@@ -202,8 +205,10 @@ function validateValueIR(node: ValueIR, scope: ValidationScope): void {
       // pattern/flags back to a string exactly like the dotted member form, so
       // it fails-close identically. A STRING-literal index goes through the same
       // (empty) portable-property allowlist; a COMPUTED / non-literal index is
-      // unknowable and also fails-close. Mirrors the emit-path index screen.
-      if (node.object.kind === 'regexLit') {
+      // unknowable and also fails-close. Mirrors the emit-path index screen. The
+      // receiver is UNWRAPPED first so a wrapped bracket read `(/x/!)["source"]`
+      // fails-close identically to the bare form (round-5 wrapped fix).
+      if (regexLiteralReceiverIR(node.object) !== null) {
         // Routed through the SHARED classifier (a STRING index classifies like the
         // dotted read; a COMPUTED index is `property = null` → fail-close), so the
         // bracket form agrees with the dotted member form and the other legs by
@@ -265,6 +270,15 @@ function validateValueIR(node: ValueIR, scope: ValidationScope): void {
       validateValueIR(node.right, scope);
       return;
     case 'unary':
+      // `typeof RegExp` (round-5 over-rejection fix) yields the string
+      // `"function"` and launders no host value, so it must NOT trip the
+      // bare-`RegExp` value reject. Skip validating a `typeof <bare ident>`
+      // operand (the only check there is the bare-`RegExp` reject); any other
+      // operand shape (`typeof RegExp.prototype` — a member) still descends and
+      // fails-close. Mirrors the TS-emit + closure-walk `typeof` carve-outs.
+      if (node.op === 'typeof' && node.argument.kind === 'ident') return;
+      validateValueIR(node.argument, scope);
+      return;
     case 'spread':
     case 'await':
     case 'propagate':

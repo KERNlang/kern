@@ -121,6 +121,12 @@ export {
   // count + named set) consumed by both emitters at the .replace lowering site.
   regexCaptureMeta,
   regexIFoldFailMessage,
+  // Slice 2 round 5 — shared transparent-receiver UNWRAP predicate. Resolves a
+  // (possibly-wrapped) `regexLit` receiver through `typeAssert`/`nonNull`, so the
+  // TS-emit, IR-validate, and Python-emit legs all screen a wrapped regex-literal
+  // access (`(/x/ as any).source`, `(/x/!)["test"](s)`) identically to the bare
+  // form — closing the wrapped-receiver fail-close bypass by construction.
+  regexLiteralReceiverIR,
   regexMethodRegexArgIdent,
   // Milestone C, Slice 5 — shared astral (non-BMP) scanner used by both emitters
   // to detect-and-fail-close regex literals containing a non-BMP codepoint.
