@@ -632,13 +632,26 @@ function findResponse(responses: MCPResponse[], id: number, stderr = ''): MCPRes
   return r;
 }
 
-// Check if Python + mcp package are available — skip E2E tests if not
+// Check if Python + mcp package are available and can register typed tools.
+// Some local Python environments have an mcp/pydantic combination that imports
+// successfully but crashes during @mcp.tool() registration.
 let hasPythonMCP = false;
 try {
-  execSync('python3 -c "from mcp.server.fastmcp import FastMCP"', { stdio: 'pipe', timeout: 10000 });
+  execSync(
+    [
+      'python3 -c "',
+      'from mcp.server.fastmcp import FastMCP\\n',
+      "mcp = FastMCP(\\'probe\\')\\n",
+      '@mcp.tool()\\n',
+      'def ping(value: str) -> str:\\n',
+      '    return value\\n',
+      '"',
+    ].join(''),
+    { stdio: 'pipe', timeout: 10000 },
+  );
   hasPythonMCP = true;
 } catch {
-  /* python3 or mcp not installed */
+  /* python3/mcp missing, or FastMCP cannot register typed tools */
 }
 
 const describeE2E = hasPythonMCP ? describe : describe.skip;
