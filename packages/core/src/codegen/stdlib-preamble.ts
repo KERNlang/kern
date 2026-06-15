@@ -29,7 +29,7 @@
  *      every target. */
 
 import type { IRNode } from '../types.js';
-import { decimalImportLineTS } from './decimal-contract.js';
+import { decimalImportLineTS, decimalOpsHelpersTS } from './decimal-contract.js';
 
 export interface KernStdlibUsage {
   /** Module references `Result<…>` somewhere in a type annotation. */
@@ -66,17 +66,21 @@ const OPTION_REGEX = /\bOption\s*</;
  *  the only case where the auto-emitted definition is needed. */
 const UNWRAP_REGEX = /\bnew\s+KernUnwrapError\s*\(/;
 
-/** DECIMAL Slice 2 (Finding 1) — match a call to the KERN_STDLIB.Decimal surface
- *  (`Decimal.of(`, `Decimal.add(`, … — the exact producing methods, kept in
- *  lockstep with `DECIMAL_PRODUCER_METHODS` in `decimal-contract.ts`). Anchored on
- *  a word boundary + the bare `Decimal` namespace ident + a known method + `(` so a
- *  user identifier like `MyDecimal` or a member read `x.Decimal` does NOT trip it,
- *  and a non-producing member (`Decimal.div(`, which is fail-closed) does NOT pull
- *  in an import for code that will not compile anyway. Detection runs ONLY inside a
- *  `lang="kern"` handler subtree (see `scanDecimalInKernHandlers`) — a raw
- *  `lang="ts"` handler that itself imports `decimal.js` is the author's own concern
- *  and must not be force-injected with the KERN canonical-context preamble. */
-const DECIMAL_PRODUCER_REGEX = /\bDecimal\.(?:of|add|sub|mul|neg|abs)\s*\(/;
+/** DECIMAL Slice 2 (Finding 1) / Slice 3 — match a call to the KERN_STDLIB.Decimal
+ *  surface that needs the `decimal.js` import + canonical-context preamble on the TS
+ *  leg. This is EVERY Decimal method that lowers to decimal.js: the producers
+ *  (`of`/`add`/`sub`/`mul`/`neg`/`abs` + Slice-3 `div`/`mod`/`pow`) AND the Slice-3
+ *  comparators (`eq`/`ne`/`lt`/`lte`/`gt`/`gte`/`cmp`), which lower to native
+ *  decimal.js methods (`.eq()`/`.cmp()`/…) and so equally require the import.
+ *  Anchored on a word boundary + the bare `Decimal` namespace ident + a known method
+ *  + `(` so a user identifier like `MyDecimal` or a member read `x.Decimal` does NOT
+ *  trip it. Detection runs ONLY inside a `lang="kern"` handler subtree (see
+ *  `scanDecimalInKernHandlers`) — a raw `lang="ts"` handler that itself imports
+ *  `decimal.js` is the author's own concern and must not be force-injected with the
+ *  KERN canonical-context preamble. Kept in lockstep with the KERN_STDLIB.Decimal
+ *  table — div/mod/pow additionally need the guarded-ops HELPERS, which ride the
+ *  same `usage.decimal` preamble block (see `kernStdlibPreamble`). */
+const DECIMAL_PRODUCER_REGEX = /\bDecimal\.(?:of|add|sub|mul|neg|abs|div|mod|pow|eq|ne|lt|lte|gt|gte|cmp)\s*\(/;
 
 /** DECIMAL Slice 2 (Finding 1 — remediation) — blank out comment and
  *  string/template-literal CONTENT before applying {@link DECIMAL_PRODUCER_REGEX}
@@ -299,6 +303,16 @@ export function kernStdlibPreamble(usage: KernStdlibUsage): string[] {
   if (usage.decimal) {
     lines.push('// ── KERN Decimal runtime (auto-emitted) ─────────────────────────────');
     lines.push(...decimalImportLineTS().split('\n'));
+    // DECIMAL Slice 3 — the guarded div/mod/pow helpers (single-sourced in
+    // `decimal-contract.ts`) ride the SAME `usage.decimal` block as the import, so
+    // a `Decimal.div(a,b)` lowering's `__k_decimal_div(...)` call resolves at file
+    // top-level. They are emitted UNCONDITIONALLY whenever any Decimal method is
+    // used — the helpers are tiny, only reference the already-imported `Decimal`,
+    // and a module that uses Decimal at all is overwhelmingly likely to want them;
+    // gating per-op would add a second AST scan for no real payoff. (A comparator-
+    // only module carries three unused helper functions — dead but harmless, the
+    // same trade-off the Result/Option companion objects already make.)
+    lines.push(...decimalOpsHelpersTS().split('\n'));
     // Separator blank ONLY when a Result/Option/unwrap stdlib block follows — the
     // shared trailing `push('')` below already supplies the single blank line that
     // separates a decimal-ONLY preamble from user code. Pushing it here too produced

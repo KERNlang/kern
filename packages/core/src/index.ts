@@ -32,16 +32,25 @@ export { emitNativeKernBodyTS, emitNativeKernBodyTSWithImports } from './codegen
 export {
   assertNoDecimalOperator,
   assertPortableDecimalLiteral,
+  assertPortableDecimalPow,
   DECIMAL_BARE_CONSTRUCTION_FAILCLOSE,
+  DECIMAL_DIV_ZERO_FAILCLOSE,
+  DECIMAL_MOD_ZERO_FAILCLOSE,
   DECIMAL_OPERATOR_FAILCLOSE,
+  DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE,
+  DECIMAL_POW_ZERO_NEGATIVE_EXP_FAILCLOSE,
   DECIMAL_SCALE_FAILCLOSE,
   decimalBareConstructionFailMessage,
   decimalImportLineTS,
   decimalNonStringLiteralFailMessage,
+  decimalOfLiteralValue,
   decimalOperatorFailMessage,
+  decimalOpsHelpersTS,
+  decimalPowFailMessage,
   decimalScaleFailMessage,
   isPortableDecimalLiteral,
   isSyntacticDecimalProducer,
+  KERN_DECIMAL_OPS_HELPER_PY,
 } from './codegen/decimal-contract.js';
 export {
   HOST_NAMESPACE_EXEMPT_ROOTS,
@@ -229,6 +238,7 @@ export {
   needsArgParens,
   needsBinaryParens,
   validateDecimalConstructionArg,
+  validateDecimalPowArgs,
 } from './codegen-expression.js';
 export type {
   CallPayload,

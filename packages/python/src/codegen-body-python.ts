@@ -56,6 +56,7 @@ import {
   isPostfixMutationOperator,
   isSupportedAssignOperator,
   isZeroWidthCapableRegex,
+  KERN_DECIMAL_OPS_HELPER_PY,
   KERN_STDLIB_MODULES,
   lookupStdlibCall,
   lookupStdlibProperty,
@@ -86,6 +87,7 @@ import {
   unmappedHostNamespaceMessage,
   unwrapTransparentReceiverIR,
   validateDecimalConstructionArg,
+  validateDecimalPowArgs,
   validateRegexNamedGroupsPortable,
 } from '@kernlang/core';
 // Slice 0.9 — the TypeScript-AST closure helpers + classifier live on the Node
@@ -4190,6 +4192,9 @@ function applyStdlibLoweringPython(call: Extract<ValueIR, { kind: 'call' }>, ctx
   // running the SAME shared-core validator the TS leg runs, so the fail-close is
   // byte-identical across targets.
   validateDecimalConstructionArg(moduleName, methodName, call);
+  // DECIMAL Slice 3 — same shared compile-time pow fail-close the TS leg runs, so a
+  // non-integer / non-literal exponent or a negative base is refused byte-identically.
+  validateDecimalPowArgs(moduleName, methodName, call);
   const listLambda = lowerListLambdaPython(moduleName, methodName, call, ctx);
   if (listLambda !== null) return listLambda;
   // Slice 3b — register required imports (e.g., `Number.floor` ⇒ `import math`).
@@ -4254,6 +4259,19 @@ function registerStdlibRequirementPython(requirement: string | undefined, ctx: B
   }
   if (requirement === 'number-host') {
     ctx.helpers.add(KERN_JS_NUMBER_HELPERS_PY);
+    return;
+  }
+  // DECIMAL Slice 3 — `Decimal.div/mod/pow` register the guarded-ops helper block
+  // (single-sourced in `decimal-contract.ts`) AND the `decimal` import (the helper
+  // body references `_KernDecimal` for the `0**0 → 1` special-case). The block's
+  // own `from decimal import Decimal as _KernDecimal` line supplies that binding;
+  // we still register the `decimal` module import so the Decimal VALUES the helper
+  // operates on (`__k_decimal.Decimal(...)` from their `Decimal.of` producers) keep
+  // their existing import path — and so a div/mod/pow used WITHOUT a co-located
+  // `Decimal.of` literal still imports decimal.
+  if (requirement === 'decimal-ops') {
+    ctx.helpers.add(KERN_DECIMAL_OPS_HELPER_PY);
+    ctx.imports.add('decimal');
     return;
   }
   ctx.imports.add(requirement);

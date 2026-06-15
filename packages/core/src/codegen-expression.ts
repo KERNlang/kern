@@ -3,6 +3,7 @@
 import {
   assertNoDecimalOperator,
   assertPortableDecimalLiteral,
+  assertPortableDecimalPow,
   decimalBareConstructionFailMessage,
   decimalNonStringLiteralFailMessage,
 } from './codegen/decimal-contract.js';
@@ -786,6 +787,11 @@ function applyStdlibLoweringTS(call: Extract<ValueIR, { kind: 'call' }>, ctx?: E
   // the two engines render divergently. The SAME shared-core checks run on the
   // Python leg, so the refusal is byte-identical across targets.
   validateDecimalConstructionArg(moduleName, methodName, call);
+  // DECIMAL Slice 3 — `Decimal.pow(base, exp)` ships INTEGER exponent on a
+  // non-negative base ONLY; the shared validator fail-closes a non-integer /
+  // non-literal exponent or a negative base with the byte-identical message the
+  // Python leg throws.
+  validateDecimalPowArgs(moduleName, methodName, call);
   const listLambda = lowerListLambdaTS(moduleName, methodName, call, ctx);
   if (listLambda !== null) return listLambda;
   // DECIMAL Slice 1 — record the external-package import requirement (e.g.
@@ -991,6 +997,21 @@ export function validateDecimalConstructionArg(
     throw new Error(decimalNonStringLiteralFailMessage());
   }
   assertPortableDecimalLiteral(arg.value);
+}
+
+/** DECIMAL Slice 3 — compile-time fail-close for `Decimal.pow(base, exp)`: only an
+ *  integer-literal exponent on a non-negative base is portable across the two
+ *  engines. Delegates to the shared `assertPortableDecimalPow` (byte-identical
+ *  message on both legs). No-op for any other module/method. Called from BOTH
+ *  `applyStdlibLoweringTS` and its Python twin. */
+export function validateDecimalPowArgs(
+  moduleName: string,
+  methodName: string,
+  call: Extract<ValueIR, { kind: 'call' }>,
+): void {
+  if (moduleName !== 'Decimal' || methodName !== 'pow') return;
+  // Arity (2) is enforced by the table before this runs; read positionally.
+  assertPortableDecimalPow(call.args[0], call.args[1]);
 }
 
 function validateStdlibCallArity(
