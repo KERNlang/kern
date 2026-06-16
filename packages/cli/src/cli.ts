@@ -10,6 +10,7 @@ import { runGaps } from './commands/gaps.js';
 import { runImport } from './commands/import.js';
 import { runInit } from './commands/init.js';
 import { runMigrate } from './commands/migrate.js';
+import { runRag } from './commands/rag.js';
 import { runReview } from './commands/review.js';
 import { runInitTemplates, runScan } from './commands/scan.js';
 import { runSchema } from './commands/schema.js';
@@ -34,6 +35,7 @@ const COMMANDS: Record<string, (args: string[]) => void | Promise<void>> = {
   'init-templates': runInitTemplates,
   import: runImport,
   migrate: runMigrate,
+  rag: runRag,
   review: runReview,
   context: runContext,
   apply: runApply,
