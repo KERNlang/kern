@@ -8,9 +8,9 @@ import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv
 import {
   evalDecimalExpression,
   evalPortableValue,
-  isCanonicalDecimalLiteralFailure,
   isDecimalValueExpression,
   isPortableBindingName,
+  isRunnerNativeDecimalFailClose,
   makeDecimalValue,
 } from './portable-scalar.js';
 import type { Trace } from './trace.js';
@@ -72,7 +72,7 @@ function expressionV1Preconditions(ir: IRNode, env: SemanticEnv): boolean {
         evalDecimalExpression(parsed, env);
         return true;
       } catch (error) {
-        if (isCanonicalDecimalLiteralFailure(error)) return true;
+        if (isRunnerNativeDecimalFailClose(error)) return true;
         return false;
       }
     }

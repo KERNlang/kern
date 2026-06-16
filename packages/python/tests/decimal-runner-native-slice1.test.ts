@@ -249,8 +249,10 @@ describe('Decimal Slice 1 — isDecimalExpression recursive structural predicate
     // Arity violations.
     expect(isDecimalExpression(parseExpression('Decimal.of("1", "2")'))).toBe(false);
     expect(isDecimalExpression(parseExpression('Decimal.add(Decimal.of("1"))'))).toBe(false);
-    // Out-of-slice method.
-    expect(isDecimalExpression(parseExpression('Decimal.div(Decimal.of("1"), Decimal.of("2"))'))).toBe(false);
+    // Out-of-slice method — `sqrt` exists on decimal.js but the runner deliberately
+    // doesn't recognize it. (div/mod/pow became IN-slice as of slice-3's producer path,
+    // so they are no longer valid "rejected" examples here.)
+    expect(isDecimalExpression(parseExpression('Decimal.sqrt(Decimal.of("4"))'))).toBe(false);
     // Not a Decimal namespace call at all.
     expect(isDecimalExpression(parseExpression('String(n)'))).toBe(false);
     expect(isDecimalExpression(parseExpression('1 + 2'))).toBe(false);
