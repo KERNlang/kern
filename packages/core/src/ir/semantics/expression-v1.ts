@@ -38,6 +38,16 @@ function expressionSource(expr: unknown): string | undefined {
   return String(expr);
 }
 
+/** The runner evaluates `Decimal.*` natively ONLY when `Decimal` is the builtin
+ *  namespace — NOT when the user has shadowed it (`let Decimal = …`). This mirrors
+ *  the emitter's `!isUserBinding(ctx, 'Decimal')` guard (codegen-expression.ts): a
+ *  shadowed `Decimal.of(…)` routes to the portable evaluator (→ unsupported call →
+ *  abstain) instead of the runner misjudging it as the builtin and diverging from
+ *  the emitted legs, which honor the user binding. */
+function routesToNativeDecimal(parsed: ReturnType<typeof parseExpression>, env: SemanticEnv): boolean {
+  return isDecimalExpression(parsed) && !env.bindings.has('Decimal');
+}
+
 function expressionV1Preconditions(ir: IRNode, env: SemanticEnv): boolean {
   const props = asExpressionV1Props(ir);
   if (!isPortableBindingName(props.name)) return false;
@@ -56,7 +66,9 @@ function expressionV1Preconditions(ir: IRNode, env: SemanticEnv): boolean {
     // compile the call but refuse at the lowering boundary. Routing on the
     // structural predicate (not on a trial evaluation) is what preserves that
     // message instead of collapsing it into a generic precondition failure.
-    if (isDecimalExpression(parsed)) return true;
+    // A user-shadowed `Decimal` (see routesToNativeDecimal) is NOT native — it
+    // falls through to the portable trial below and abstains.
+    if (routesToNativeDecimal(parsed, env)) return true;
     // Trial-evaluate the portable expression: a DOWNSTREAM read of a Decimal
     // binding (`d === "1"`) hits `assertPortableScalar` on the tagged Decimal
     // value, which throws → the runner ABSTAINS (Slice-1 boundary; Slice-2 gives
@@ -89,8 +101,9 @@ function expressionV1Effects(ir: IRNode, env: SemanticEnv): Trace {
   // ABSTAINS rather than producing a divergent value. Full downstream Decimal
   // value semantics (matching the emitters' false/"1") is SLICE-2.
   // A non-canonical `Decimal.of` literal throws the shared canonical fail-close
-  // here, which `referenceRun` propagates verbatim.
-  if (isDecimalExpression(parsed)) {
+  // here, which `referenceRun` propagates verbatim. A user-shadowed `Decimal`
+  // (see routesToNativeDecimal) is NOT native — it falls through to portable eval.
+  if (routesToNativeDecimal(parsed, env)) {
     const str = evalDecimalExpression(parsed);
     env.bindings.set(name, makeDecimalValue(str));
     return { events: [{ op: 'assign', target: name, value: str }], completion: { kind: 'normal' } };

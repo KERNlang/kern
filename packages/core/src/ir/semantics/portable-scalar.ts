@@ -306,6 +306,22 @@ export function evalOrderedComparison(op: string, left: string | number, right: 
 /** The Slice-1 Decimal namespace methods the runner evaluates natively. */
 const RUNNER_DECIMAL_METHODS = new Set(['of', 'add', 'mul']);
 
+/** Strip TYPE-LEVEL transparent wrappers — a non-null assertion (`expr!`) and a
+ *  type assertion (`expr as T`) — down to the runtime expression they wrap. Both
+ *  are erased at runtime (TS drops them; the Python emitter never emits them), so
+ *  `Decimal.of("1")!` and `Decimal.of("1") as Decimal` have the IDENTICAL runtime
+ *  value as `Decimal.of("1")`. The emitters lower these by recursively emitting the
+ *  inner producer (`new Decimal("1")!`), so the runner must unwrap them too to
+ *  recognize the same Decimal surface — otherwise it would abstain on a form both
+ *  emitters accept. (Mirrors the slice-3 transparent-wrapper handling.) */
+function unwrapTransparent(node: ValueIR): ValueIR {
+  let n: ValueIR = node;
+  while (n.kind === 'nonNull' || n.kind === 'typeAssert') {
+    n = n.expression;
+  }
+  return n;
+}
+
 /** True iff `node` is a `Decimal.<method>(...)` member-call on the bare `Decimal`
  *  namespace identifier — the EXACT recognition shape the emitters use
  *  (`callee.kind === 'member'`, `callee.object` is `ident 'Decimal'`). A user
@@ -339,20 +355,23 @@ function isDecimalNamespaceCall(node: ValueIR): node is Extract<ValueIR, { kind:
  *  `true` set; on those it either succeeds or throws ONLY the canonical
  *  `Decimal.of` fail-close. */
 function evalDecimalNode(node: ValueIR, KDecimal: KDecimalCtor): KDecimalValue {
-  if (!isDecimalNamespaceCall(node)) {
+  // Unwrap transparent type-level wrappers (`expr!`, `expr as T`) — runtime no-ops
+  // the emitters lower through — so a wrapped producer evaluates natively.
+  const inner = unwrapTransparent(node);
+  if (!isDecimalNamespaceCall(inner)) {
     throw new Error('portable-decimal: expected a Decimal.<method>(...) namespace call');
   }
   // Narrowed: callee is a member on the `Decimal` ident.
-  const method = (node.callee as Extract<ValueIR, { kind: 'member' }>).property;
+  const method = (inner.callee as Extract<ValueIR, { kind: 'member' }>).property;
   if (!RUNNER_DECIMAL_METHODS.has(method)) {
     throw new Error(`portable-decimal: Decimal.${method} is outside the runner's Slice-1 surface (of/add/mul)`);
   }
 
   if (method === 'of') {
-    if (node.args.length !== 1) {
+    if (inner.args.length !== 1) {
       throw new Error('portable-decimal: Decimal.of expects exactly 1 argument');
     }
-    const arg = node.args[0];
+    const arg = inner.args[0];
     if (arg.kind !== 'strLit') {
       throw new Error('portable-decimal: Decimal.of requires a string literal argument');
     }
@@ -362,12 +381,13 @@ function evalDecimalNode(node: ValueIR, KDecimal: KDecimalCtor): KDecimalValue {
     return new KDecimal(arg.value);
   }
 
-  // add / mul — two Decimal operands, each evaluated recursively.
-  if (node.args.length !== 2) {
+  // add / mul — two Decimal operands, each evaluated recursively (operands may be
+  // wrapped too, so the recursion unwraps each).
+  if (inner.args.length !== 2) {
     throw new Error(`portable-decimal: Decimal.${method} expects exactly 2 arguments`);
   }
-  const a = evalDecimalNode(node.args[0], KDecimal);
-  const b = evalDecimalNode(node.args[1], KDecimal);
+  const a = evalDecimalNode(inner.args[0], KDecimal);
+  const b = evalDecimalNode(inner.args[1], KDecimal);
   return method === 'add' ? a.plus(b) : a.times(b);
 }
 
@@ -392,19 +412,23 @@ function evalDecimalNode(node: ValueIR, KDecimal: KDecimalCtor): KDecimalValue {
  *  slice), `Decimal.of("1","2")` (arity), `Decimal.of()` (arity),
  *  `String(n)` / `1 + 2` (not a Decimal namespace call). */
 export function isDecimalExpression(node: ValueIR): boolean {
-  if (!isDecimalNamespaceCall(node)) return false;
+  // Transparent wrappers (`expr!`, `expr as T`) are runtime no-ops the emitters
+  // lower through, so recognize the wrapped form too.
+  const inner = unwrapTransparent(node);
+  if (!isDecimalNamespaceCall(inner)) return false;
   // Narrowed by isDecimalNamespaceCall: callee is a `member` on the Decimal ident.
-  const method = (node.callee as Extract<ValueIR, { kind: 'member' }>).property;
+  const method = (inner.callee as Extract<ValueIR, { kind: 'member' }>).property;
   if (!RUNNER_DECIMAL_METHODS.has(method)) return false;
 
   if (method === 'of') {
     // Exactly one string-literal argument (Slice-1: literal operands only).
-    return node.args.length === 1 && node.args[0].kind === 'strLit';
+    return inner.args.length === 1 && inner.args[0].kind === 'strLit';
   }
 
   // add / mul — exactly two operands, each itself a structurally-valid Decimal
-  // namespace call (recurse — closes the over-accept on `Decimal.add(1, 2)`).
-  return node.args.length === 2 && isDecimalExpression(node.args[0]) && isDecimalExpression(node.args[1]);
+  // namespace call (recurse — closes the over-accept on `Decimal.add(1, 2)`; the
+  // recursion also unwraps a wrapped operand).
+  return inner.args.length === 2 && isDecimalExpression(inner.args[0]) && isDecimalExpression(inner.args[1]);
 }
 
 /** Evaluate a `Decimal.<method>(...)` expression through the runner's native

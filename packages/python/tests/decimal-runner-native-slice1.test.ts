@@ -292,6 +292,54 @@ describe('Decimal Slice 1 — runner ABSTAINS on downstream decimal use (no dive
   });
 });
 
+// ── User-SHADOWED `Decimal` — the runner does NOT misjudge it as the builtin ──
+// `Decimal` is not a reserved name, so a program may bind it (`let Decimal = …`).
+// The emitter honors that shadow (codegen-expression.ts only lowers `Decimal.*`
+// when `!isUserBinding(ctx, 'Decimal')`), so the runner must NOT treat a shadowed
+// `Decimal.of(…)` as the builtin namespace. It routes to the portable evaluator
+// (unsupported call → throw) → the precondition catches it → referenceRun ABSTAINS,
+// rather than computing a native Decimal that diverges from the emitted legs.
+describe('Decimal Slice 1 — runner honors user shadowing of `Decimal` (no misjudge)', () => {
+  test('a __block of `let Decimal = "x"` then `Decimal.of("1")` makes referenceRun ABSTAIN', () => {
+    const child1 = { type: 'expression-v1', props: { name: 'Decimal', expr: '"x"' } };
+    const child2 = { type: 'expression-v1', props: { name: 'r', expr: 'Decimal.of("1")' } };
+    const block = { type: '__block', children: [child1, child2] };
+    // Without the shadow guard the runner would bind `r = "1"` (the builtin); it must refuse.
+    expect(() => referenceRun(block, makeEnv())).toThrow(ReferenceRunnerError);
+    expect(() => referenceRun(block, makeEnv())).toThrow('Preconditions failed');
+  });
+});
+
+// ── TRANSPARENT wrappers (`expr!`, `expr as T`) are runtime no-ops the emitters
+// lower through (`new Decimal("1")!`), so the runner evaluates the wrapped Decimal
+// NATIVELY — it must not abstain on a form both emitters accept. A wrapper is
+// value-transparent: the runner result equals the unwrapped result.
+describe('Decimal Slice 1 — runner unwraps transparent wrappers (`!`, `as T`)', () => {
+  const wrapped = (src: string): unknown => {
+    const t = referenceRun({ type: 'expression-v1', props: { name: 'w', expr: src } }, makeEnv());
+    const assign = t.events.find(
+      (e): e is Extract<typeof e, { op: 'assign' }> => e.op === 'assign' && e.target === 'w',
+    );
+    return assign?.value;
+  };
+
+  test('a non-null assertion and a type assertion are value-transparent in the runner', () => {
+    // `!` / `as T` are TS-only syntax, so they cannot run through the plain-node TS
+    // leg — the UNWRAPPED form's byte-identical 3-leg proof already covers the
+    // runtime value; here we lock that the runner treats the wrapper as a no-op.
+    expect(wrapped('Decimal.of("1")!')).toBe('1');
+    expect(wrapped('Decimal.of("1") as Decimal')).toBe('1');
+    expect(wrapped('Decimal.add(Decimal.of("1")!, Decimal.of("2"))')).toBe('3');
+    expect(wrapped('(Decimal.mul(Decimal.of("2"), Decimal.of("3")) as Decimal)')).toBe('6');
+  });
+
+  test('isDecimalExpression recognizes wrapped Decimal forms', () => {
+    expect(isDecimalExpression(parseExpression('Decimal.of("1")!'))).toBe(true);
+    expect(isDecimalExpression(parseExpression('Decimal.of("1") as Decimal'))).toBe(true);
+    expect(isDecimalExpression(parseExpression('Decimal.add(Decimal.of("1")!, Decimal.of("2"))'))).toBe(true);
+  });
+});
+
 // ── FINDING 2 — a MALFORMED expr returns a CLEAN precondition failure ─────────
 // `parseExpression` now runs INSIDE the precondition's try/catch, so a malformed
 // `expr` returns false (→ the normal "Preconditions failed …") instead of throwing
