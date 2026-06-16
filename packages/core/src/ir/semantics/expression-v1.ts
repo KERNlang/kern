@@ -5,7 +5,13 @@
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
-import { evalPortableValue, isPortableBindingName } from './portable-scalar.js';
+import {
+  evalDecimalExpression,
+  evalPortableValue,
+  isDecimalExpression,
+  isPortableBindingName,
+  makeDecimalValue,
+} from './portable-scalar.js';
 import type { Trace } from './trace.js';
 
 interface ExpressionV1Props {
@@ -32,6 +38,16 @@ function expressionSource(expr: unknown): string | undefined {
   return String(expr);
 }
 
+/** The runner evaluates `Decimal.*` natively ONLY when `Decimal` is the builtin
+ *  namespace — NOT when the user has shadowed it (`let Decimal = …`). This mirrors
+ *  the emitter's `!isUserBinding(ctx, 'Decimal')` guard (codegen-expression.ts): a
+ *  shadowed `Decimal.of(…)` routes to the portable evaluator (→ unsupported call →
+ *  abstain) instead of the runner misjudging it as the builtin and diverging from
+ *  the emitted legs, which honor the user binding. */
+function routesToNativeDecimal(parsed: ReturnType<typeof parseExpression>, env: SemanticEnv): boolean {
+  return isDecimalExpression(parsed) && !env.bindings.has('Decimal');
+}
+
 function expressionV1Preconditions(ir: IRNode, env: SemanticEnv): boolean {
   const props = asExpressionV1Props(ir);
   if (!isPortableBindingName(props.name)) return false;
@@ -39,7 +55,25 @@ function expressionV1Preconditions(ir: IRNode, env: SemanticEnv): boolean {
   const expr = expressionSource(props.expr);
   if (!Object.hasOwn(ir.props ?? {}, 'expr') || expr === undefined || expr === '') return false;
   try {
-    evalPortableValue(parseExpression(expr), env);
+    // `parseExpression` is INSIDE the try: a malformed `expr` (e.g. `'1 +'`) must
+    // return false here so `referenceRun` raises the normal "Preconditions failed
+    // …", not a raw parser error escaping out of `preconditions`.
+    const parsed = parseExpression(expr);
+    // Runner-native Decimal (Slice 1) — STRUCTURAL admit, do NOT evaluate. A
+    // structurally-valid `Decimal.of/add/mul(...)` (even with a non-canonical
+    // literal) passes the precondition so it reaches `effects`, which throws the
+    // canonical `Decimal.of` fail-close — byte-identical to the emitters, which
+    // compile the call but refuse at the lowering boundary. Routing on the
+    // structural predicate (not on a trial evaluation) is what preserves that
+    // message instead of collapsing it into a generic precondition failure.
+    // A user-shadowed `Decimal` (see routesToNativeDecimal) is NOT native — it
+    // falls through to the portable trial below and abstains.
+    if (routesToNativeDecimal(parsed, env)) return true;
+    // Trial-evaluate the portable expression: a DOWNSTREAM read of a Decimal
+    // binding (`d === "1"`) hits `assertPortableScalar` on the tagged Decimal
+    // value, which throws → the runner ABSTAINS (Slice-1 boundary; Slice-2 gives
+    // Decimal real downstream value semantics).
+    evalPortableValue(parsed, env);
     return true;
   } catch {
     return false;
@@ -53,7 +87,28 @@ function expressionV1Effects(ir: IRNode, env: SemanticEnv): Trace {
   if (expr === undefined || expr === '') {
     throw new Error('expression-v1: missing expr');
   }
-  const value = evalPortableValue(parseExpression(expr), env);
+  const parsed = parseExpression(expr);
+  // Runner-native Decimal (Slice 1) — execute natively, then SPLIT the result:
+  //   - the Trace's observable `assign.value` is the CANONICAL STRING (the
+  //     differential observable the oracle reads, byte-identical to both emitted
+  //     legs — a live decimal.js instance never enters the Trace), and
+  //   - the `env.bindings` slot holds a TAGGED Decimal VALUE, NOT the bare string.
+  // The split is intentional: a bare-string binding would let a DOWNSTREAM
+  // portable read judge a Decimal as a string (`d === "1"` → true), diverging
+  // from BOTH emitters (which emit `new Decimal("1") === "1"` → false). The tagged
+  // value is NOT a portable scalar, so any downstream portable read of it throws
+  // through `assertPortableScalar` → the precondition catches it → the runner
+  // ABSTAINS rather than producing a divergent value. Full downstream Decimal
+  // value semantics (matching the emitters' false/"1") is SLICE-2.
+  // A non-canonical `Decimal.of` literal throws the shared canonical fail-close
+  // here, which `referenceRun` propagates verbatim. A user-shadowed `Decimal`
+  // (see routesToNativeDecimal) is NOT native — it falls through to portable eval.
+  if (routesToNativeDecimal(parsed, env)) {
+    const str = evalDecimalExpression(parsed);
+    env.bindings.set(name, makeDecimalValue(str));
+    return { events: [{ op: 'assign', target: name, value: str }], completion: { kind: 'normal' } };
+  }
+  const value = evalPortableValue(parsed, env);
   env.bindings.set(name, value);
   return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
 }
