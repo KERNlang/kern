@@ -124,4 +124,24 @@ describe('EmbeddingRagIndex', () => {
     const b = new EmbeddingRagIndex(CORPUS).retrieve('refund refunds policy window', { topK: 3 });
     expect(a).toEqual(b);
   });
+
+  test('upserts duplicate chunk ids (last-write-wins, no duplicate-id crash)', () => {
+    const idx = new EmbeddingRagIndex([
+      { id: 'dup', text: 'first refund policy window', source: 'docs/a.md' },
+      { id: 'dup', text: 'second shipping courier parcel', source: 'docs/b.md' },
+    ]);
+    expect(idx.size).toBe(1);
+    const result = idx.retrieve('shipping courier parcel');
+    expect(result.chunks).toHaveLength(1);
+    expect(result.chunks[0].source).toBe('docs/b.md');
+  });
+
+  test('defensively copies chunks so caller mutation does not leak into retrieval', () => {
+    const metadata = { tag: 'v1' };
+    const chunk: RagChunkInput = { id: 'm', text: 'refund policy window', source: 'docs/m.md', metadata };
+    const idx = new EmbeddingRagIndex([chunk]);
+    metadata.tag = 'MUTATED';
+    const result = idx.retrieve('refund policy window');
+    expect((result.chunks[0].metadata as { tag: string }).tag).toBe('v1');
+  });
 });

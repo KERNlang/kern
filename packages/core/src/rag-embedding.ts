@@ -127,6 +127,7 @@ export function embeddingCosine(a: Float64Array, b: Float64Array): number {
 }
 
 function roundScore(value: number): number {
+  if (!Number.isFinite(value)) return 0;
   const rounded = Math.round(value * SCORE_SCALE) / SCORE_SCALE;
   const clamped = rounded < 0 ? 0 : rounded > 1 ? 1 : rounded;
   // Normalise signed zero (`-0 → 0`) so equality/serialisation is stable.
@@ -145,7 +146,10 @@ interface IndexedChunk {
  */
 export class EmbeddingRagIndex {
   private readonly embedder: Embedder;
-  private readonly entries: IndexedChunk[] = [];
+  // Keyed by chunk id so duplicate ids upsert (last-write-wins), matching
+  // `InMemoryRagCorpus` rather than returning duplicates that would later trip
+  // `validateRetrieveResult`'s duplicate-id guard.
+  private readonly entries = new Map<string, IndexedChunk>();
 
   constructor(chunks: Iterable<RagChunkInput> = [], options: { readonly embedder?: Embedder } = {}) {
     this.embedder = options.embedder ?? new DeterministicHashEmbedder();
@@ -153,7 +157,7 @@ export class EmbeddingRagIndex {
   }
 
   get size(): number {
-    return this.entries.length;
+    return this.entries.size;
   }
 
   /** Embedder identity, recorded in eval provenance for reproducibility. */
@@ -163,21 +167,29 @@ export class EmbeddingRagIndex {
 
   add(chunk: RagChunkInput): void {
     assertChunkInput(chunk);
-    this.entries.push({ chunk, vector: this.embedder.embed(chunk.text) });
+    // Defensive deep copy: post-construction mutation of caller-owned chunks
+    // must not leak into retrieval (mirrors InMemoryRagCorpus).
+    const stored = structuredClone(chunk);
+    this.entries.set(stored.id, { chunk: stored, vector: this.embedder.embed(stored.text) });
   }
 
   retrieve(query: string, options: RetrieveOptions = {}): RetrieveResult {
     if (typeof query !== 'string') throw new Error('KERN RAG runtime query must be a string.');
     const { topK, minScore } = normalizeEmbeddingRetrieveOptions(options);
     const queryVector = this.embedder.embed(query);
-    const chunks = this.entries
+    const chunks = Array.from(this.entries.values())
       .map((entry) => ({ chunk: entry.chunk, score: embeddingCosine(queryVector, entry.vector) }))
       .filter((candidate) => candidate.score > 0 && candidate.score >= minScore)
-      .sort((a, b) => b.score - a.score || a.chunk.id.localeCompare(b.chunk.id))
+      .sort((a, b) => b.score - a.score || compareChunkIds(a.chunk.id, b.chunk.id))
       .slice(0, topK)
       .map(({ chunk, score }) => toRetrievedChunk(chunk, score));
     return { query, chunks };
   }
+}
+
+/** Deterministic, locale-independent id tie-break (code-point order). */
+function compareChunkIds(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 /** Adapt an {@link EmbeddingRagIndex} to the `RagContractRetriever` seam consumed by eval. */
@@ -192,7 +204,7 @@ function toRetrievedChunk(chunk: RagChunkInput, score: number): RetrievedChunk {
     score,
     source: chunk.source,
     citation: chunk.citation ? { ...chunk.citation } : { uri: chunk.source },
-    ...(chunk.metadata ? { metadata: { ...chunk.metadata } } : {}),
+    ...(chunk.metadata ? { metadata: structuredClone(chunk.metadata) } : {}),
   };
 }
 

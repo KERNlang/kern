@@ -1,7 +1,7 @@
 import { evaluateRagEvalDocument, type RagChunkInput, type RagEvalDocumentReport } from '@kernlang/core';
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
-import { parseFlag, parseFlagOrNext } from '../shared.js';
+import { parseFlagOrNext } from '../shared.js';
 
 const USAGE = 'Usage: kern rag eval <file.kern> --corpus <chunks.json>';
 
@@ -17,7 +17,7 @@ export function runRag(args: string[]): void {
 }
 
 function runRagEval(args: string[]): void {
-  const corpusPath = parseFlagOrNext(args, '--corpus') ?? parseFlag(args, '--corpus');
+  const corpusPath = parseFlagOrNext(args, '--corpus');
   const filePath = args.find((arg) => !arg.startsWith('-') && arg !== corpusPath);
 
   if (!filePath) fail(`missing <file.kern>.\n${USAGE}`);
@@ -26,24 +26,52 @@ function runRagEval(args: string[]): void {
   if (!existsSync(corpusPath)) fail(`corpus not found: ${corpusPath}`);
 
   const chunks = readCorpus(corpusPath);
-  const report = evaluateRagEvalDocument(readFileSync(resolve(filePath), 'utf-8'), chunks);
+  let report: RagEvalDocumentReport;
+  try {
+    report = evaluateRagEvalDocument(readFileSync(resolve(filePath), 'utf-8'), chunks);
+  } catch (err) {
+    fail(`evaluation failed: ${(err as Error).message}`);
+  }
+
   printReport(report, filePath, chunks.length);
+  if (report.diagnostics.length > 0) process.exit(1); // invalid spec — failed closed
+  if (report.evals.length === 0) process.exit(0); // no ragEval to run is not a failure
   process.exit(report.passed ? 0 : 1);
 }
 
 function readCorpus(corpusPath: string): RagChunkInput[] {
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(readFileSync(resolve(corpusPath), 'utf-8'));
-    if (!Array.isArray(parsed)) throw new Error('corpus JSON must be an array of chunks.');
-    return parsed as RagChunkInput[];
+    parsed = JSON.parse(readFileSync(resolve(corpusPath), 'utf-8'));
   } catch (err) {
     fail(`invalid corpus JSON: ${(err as Error).message}`);
-    return []; // unreachable — fail() exits
   }
+  if (!Array.isArray(parsed)) fail('corpus JSON must be an array of chunks.');
+  parsed.forEach((chunk, index) => {
+    if (
+      typeof chunk !== 'object' ||
+      chunk === null ||
+      typeof (chunk as RagChunkInput).id !== 'string' ||
+      typeof (chunk as RagChunkInput).text !== 'string' ||
+      typeof (chunk as RagChunkInput).source !== 'string'
+    ) {
+      fail(`corpus chunk at index ${index} must have string id, text, and source.`);
+    }
+  });
+  return parsed as RagChunkInput[];
 }
 
 function printReport(report: RagEvalDocumentReport, file: string, chunkCount: number): void {
   console.log(`kern rag eval ${file}  (embedder=${report.embedderId}, ${chunkCount} chunks)`);
+  if (report.diagnostics.length > 0) {
+    console.log(`  invalid RAG spec — ${report.diagnostics.length} violation(s):`);
+    for (const diagnostic of report.diagnostics) {
+      const where = diagnostic.line ? ` (line ${diagnostic.line})` : '';
+      console.log(`    ✗ ${diagnostic.rule}${where}: ${diagnostic.message}`);
+    }
+    console.log('\nINVALID');
+    return;
+  }
   if (report.evals.length === 0) {
     console.log('  no ragEval declared — nothing to run.');
     return;

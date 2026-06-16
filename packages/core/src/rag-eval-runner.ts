@@ -14,14 +14,19 @@
  */
 
 import { parseDocument } from './parser.js';
-import { createEmbeddingRetriever, type Embedder, EmbeddingRagIndex } from './rag-embedding.js';
+import {
+  createEmbeddingRetriever,
+  DEFAULT_HASH_EMBEDDER_ID,
+  type Embedder,
+  EmbeddingRagIndex,
+} from './rag-embedding.js';
 import {
   evaluateRagEvalContract,
   type RagChunkInput,
   type RagEvalContractOptions,
   type RagEvalContractResult,
 } from './rag-runtime.js';
-import { collectRagSemanticFacts } from './semantic-validator.js';
+import { collectRagSemanticFacts, type SemanticViolation, validateRagSemantics } from './semantic-validator.js';
 
 export interface RagEvalDocumentOptions extends RagEvalContractOptions {
   /** Embedder behind the retrieval seam. Defaults to the deterministic hash embedder. */
@@ -37,14 +42,20 @@ export interface RagEvalDocumentEntry {
 export interface RagEvalDocumentReport {
   /** Identity of the embedder used, recorded for reproducibility. */
   readonly embedderId: string;
+  /** RAG semantic violations. Non-empty ⇒ the spec is invalid and no eval ran (fail-closed). */
+  readonly diagnostics: readonly SemanticViolation[];
   readonly evals: readonly RagEvalDocumentEntry[];
-  /** True only when at least one eval ran and every eval passed. */
+  /** True only when the spec is valid, at least one eval ran, and every eval passed. */
   readonly passed: boolean;
 }
 
 /**
  * Parse `source`, build a cosine retriever over `chunks`, and execute every
  * `ragEval` contract declared in the document against it.
+ *
+ * Fails closed: if the RAG graph is semantically invalid (unresolved/duplicate
+ * declarations, out-of-range params, …) no eval runs and `passed` is false —
+ * running a contract against a broken spec would report a meaningless verdict.
  */
 export function evaluateRagEvalDocument(
   source: string,
@@ -52,6 +63,16 @@ export function evaluateRagEvalDocument(
   options: RagEvalDocumentOptions = {},
 ): RagEvalDocumentReport {
   const root = parseDocument(source);
+  const diagnostics = validateRagSemantics(root);
+  if (diagnostics.length > 0) {
+    return {
+      embedderId: options.embedder?.id ?? DEFAULT_HASH_EMBEDDER_ID,
+      diagnostics,
+      evals: [],
+      passed: false,
+    };
+  }
+
   const facts = collectRagSemanticFacts(root);
   const index = new EmbeddingRagIndex(chunks, { embedder: options.embedder });
   const retriever = createEmbeddingRetriever(index);
@@ -66,6 +87,7 @@ export function evaluateRagEvalDocument(
 
   return {
     embedderId: index.embedderId,
+    diagnostics,
     evals,
     passed: evals.length > 0 && evals.every((entry) => entry.result.passed),
   };

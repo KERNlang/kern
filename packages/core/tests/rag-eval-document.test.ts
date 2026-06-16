@@ -51,4 +51,21 @@ describe('evaluateRagEvalDocument (P1.2 end-to-end)', () => {
     expect(report.evals).toHaveLength(0);
     expect(report.passed).toBe(false);
   });
+
+  test('a valid spec reports no diagnostics', () => {
+    expect(evaluateRagEvalDocument(DOC, CORPUS).diagnostics).toEqual([]);
+  });
+
+  test('fails closed on a semantically invalid RAG spec (unresolved refs)', () => {
+    const badDoc = `retriever name=DocsSearch corpus=Missing embed=MissingEmbed mode=hybrid topK=4 minScore=0.5
+rag name=AnswerDocs retriever=DocsSearch citations=true
+  ragEval name=Faithfulness metric=faithfulness threshold=0.85 mode=contract
+    ragCase name=c query="refund refunds policy window" topK=1
+      ragAssert kind=citesRequired
+`;
+    const report = evaluateRagEvalDocument(badDoc, CORPUS);
+    expect(report.diagnostics.length).toBeGreaterThan(0);
+    expect(report.evals).toHaveLength(0);
+    expect(report.passed).toBe(false);
+  });
 });
