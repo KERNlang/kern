@@ -3206,6 +3206,7 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   // proven user binding named `Decimal` is left alone.
   if (node.callee.kind === 'ident' && node.callee.name === 'Decimal' && !isProvenUserBinding(ctx, 'Decimal')) {
     throw new Error(decimalBareConstructionFailMessage());
+  }
   // Slice H — fail-closed on an UNMAPPED host-namespace member CALL. This runs
   // AFTER every explicit lowering hook above (stdlib, regex, lambda/array,
   // portable-array, super/String/Error) and BEFORE generic call emission, so a
