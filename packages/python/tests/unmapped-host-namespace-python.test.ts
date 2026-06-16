@@ -12,8 +12,8 @@
  *  lowercase host global like `console`/`process`) that is in MEMBER-CALL (or
  *  host-constant member-read) position, is NOT proven user-bound in the
  *  emitter's existing scope model, and has no explicit AST lowering. So it
- *  equally catches `console.log`, `Promise.all`, etc. RegExp is intentionally
- *  exempt until Milestone C.
+ *  equally catches `console.log`, `Promise.all`, etc. (Milestone C, Slice 2:
+ *  host `RegExp` is now reserved too — the last exemption was removed.)
  *
  *  These fixtures are the discriminating kill-set from the slice spec, plus the
  *  tribunal-mandated lowercase repro (`console.log`) proving the predicate is
@@ -97,8 +97,14 @@ describe('Slice H — capitalization-agnostic predicate (lowercase host globals)
     );
   });
 
-  test('RegExp remains exempt from host-namespace fail-closing for Milestone B', () => {
-    expect(emitPyExpression(parseExpression('RegExp.escape(s)'))).toBe('RegExp.escape(s)');
+  // Milestone C, Slice 2 — host `RegExp` is no longer exempt. A `RegExp.<member>()`
+  // call closes through the SAME generic host-namespace machinery as every other
+  // reserved root (the regex-specific message is reserved for the construction /
+  // value / literal-property positions the generic screen does not see).
+  test('RegExp.escape(s) is now fail-closed (Slice 2 closed the Milestone-B exemption)', () => {
+    expect(() => emitPyExpression(parseExpression('RegExp.escape(s)'))).toThrow(
+      /Unsupported host namespace in Python expression: RegExp\.escape .*not registered/,
+    );
   });
 });
 

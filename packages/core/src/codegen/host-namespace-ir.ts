@@ -8,6 +8,14 @@ import { typescriptClosureClassifier, validateClosureBlockHostNamespacesTS } fro
 import type { ValueIR } from '../value-ir.js';
 import { isHostNamespaceRoot, unmappedHostNamespaceMessage } from './host-namespace.js';
 import { isPortableStdlibMember, KERN_STDLIB_MODULES, suggestStdlibMember } from './kern-stdlib.js';
+import {
+  classifyRegexLiteralIndexReadFailClose,
+  classifyRegexLiteralMemberReadFailClose,
+  classifyRegexLiteralValueIRCallCalleeFailClose,
+  REGEX_HOST_REGEXP_FAILCLOSE,
+  regexLiteralReceiverIR,
+  unwrapTransparentReceiverIR,
+} from './regex-normalize.js';
 
 interface ValidationScope {
   readonly moduleBindings: ReadonlySet<string>;
@@ -158,18 +166,58 @@ function validateValueIR(node: ValueIR, scope: ValidationScope): void {
     case 'nullLit':
     case 'undefLit':
     case 'regexLit':
+      return;
     case 'ident':
+      // Slice 2 — a BARE-VALUE host `RegExp` reference fails-close at the value
+      // site (e.g. a `const R = RegExp` initializer). This is the alias-soundness
+      // gate: rejecting `RegExp` here means `new R(...)` can never silently
+      // diverge. Member/call/new receivers are handled by their own cases below
+      // (they recurse into `validateValueIR(object)` only AFTER their own host-
+      // root screen, so a rejected member never reaches a misleading value
+      // diagnostic). Honors user shadowing via `isUserBinding`.
+      rejectHostRegExpValueIR(node.name, scope);
       return;
     case 'tmplLit':
       for (const expr of node.expressions) validateValueIR(expr, scope);
       return;
     case 'member': {
+      // Slice 2 — `/x/.source` / `/x/.flags`: a bare property READ on a regex
+      // LITERAL launders the pattern/flags to a string. Routed through the SHARED
+      // classifier (via the ValueIR adapter) so this site agrees with the TS/
+      // Python emit legs and the closure walk BY CONSTRUCTION (always non-null
+      // today — the empty portable-read allowlist — but one classifier owns the
+      // truth). A portable DOTTED method CALLEE (`/x/.test`) never reaches here as
+      // a bare member: the `call` case classifies the callee first and skips this
+      // re-validation, so this read fail-close is only ever a genuine bare read.
+      // The receiver is UNWRAPPED first so a wrapped read `(/x/ as any).source`
+      // fails-close identically to the bare `/x/.source` (round-5 wrapped fix).
+      if (regexLiteralReceiverIR(node.object) !== null) {
+        const message = classifyRegexLiteralMemberReadFailClose(node);
+        if (message !== null) throw new Error(message);
+      }
       const root = hostNamespaceReceiverRoot(node.object);
       if (root) rejectUnboundHostNamespace(root, hostNamespaceMemberLabel(node.object, node.property), scope);
       validateValueIR(node.object, scope);
       return;
     }
     case 'index': {
+      // Slice 2 review fix — the bracket (`index`) form of a regex-literal
+      // property access (`/x/["source"]`, `/x/["test"]`) launders the
+      // pattern/flags back to a string exactly like the dotted member form, so
+      // it fails-close identically. A STRING-literal index goes through the same
+      // (empty) portable-property allowlist; a COMPUTED / non-literal index is
+      // unknowable and also fails-close. Mirrors the emit-path index screen. The
+      // receiver is UNWRAPPED first so a wrapped bracket read `(/x/!)["source"]`
+      // fails-close identically to the bare form (round-5 wrapped fix).
+      if (regexLiteralReceiverIR(node.object) !== null) {
+        // Routed through the SHARED classifier (a STRING index classifies like the
+        // dotted read; a COMPUTED index is `property = null` → fail-close), so the
+        // bracket form agrees with the dotted member form and the other legs by
+        // construction. A bracket call `/x/["test"](s)` lands here (its callee is
+        // an `index`, not a `member`) and fails-close exactly like a bare read.
+        const message = classifyRegexLiteralIndexReadFailClose(node);
+        if (message !== null) throw new Error(message);
+      }
       const root = hostNamespaceReceiverRoot(node.object);
       if (root) {
         rejectUnboundHostNamespace(
@@ -179,12 +227,32 @@ function validateValueIR(node: ValueIR, scope: ValidationScope): void {
         );
       }
       validateValueIR(node.object, scope);
+      // A regex-literal receiver was already fully classified above (and threw if
+      // non-portable), so it never reaches `validateValueIR(object)`. The index
+      // expression is still validated for ITS OWN host violations.
       validateValueIR(node.index, scope);
       return;
     }
     case 'call': {
       validateCallCallee(node.callee, scope);
-      validateValueIR(node.callee, scope);
+      // BLOCKING fix — a DOTTED regex-literal method call (`/x/.test(s)`,
+      // `/x/.exec(s)`, `/x/.compile(y)`) is classified by the SHARED classifier
+      // here, the SAME decision the TS-emit (`lowerRegexCallTS`) + Python-emit
+      // (`lowerRegexCallPython`) legs and the closure walk make. Without this, the
+      // blanket `validateValueIR(node.callee)` below re-validated the callee as a
+      // bare member READ and threw `REGEX_HOST_REGEXP_FAILCLOSE` on the COMMON
+      // portable `/x/.test(s)` — an internal divergence from emit (which accepts
+      // it). `undefined` = not a regex-literal dotted call → fall through to the
+      // normal callee validation; `null` = PORTABLE (`/x/.test` non-`/g`) → skip
+      // the callee re-validation (only the args still need checks); a string =
+      // the precise fail-close message (`.exec`/`/g`-`.test`/non-portable method),
+      // byte-identical to the emit legs.
+      const regexCallee = classifyRegexLiteralValueIRCallCalleeFailClose(node);
+      if (regexCallee === undefined) {
+        validateValueIR(node.callee, scope);
+      } else if (regexCallee !== null) {
+        throw new Error(regexCallee);
+      }
       for (const arg of node.args) validateValueIR(arg, scope);
       return;
     }
@@ -203,6 +271,35 @@ function validateValueIR(node: ValueIR, scope: ValidationScope): void {
       validateValueIR(node.right, scope);
       return;
     case 'unary':
+      // Round-6 fix — `typeof <bare host-namespace root>` fails-close (mirrors the
+      // TS-emit + Python-emit + closure-walk legs). The round-5 carve-out skipped
+      // ALL `typeof <bare ident>` operands, re-opening reserved host roots
+      // (`typeof Date`/`typeof process` are non-portable: the Python leg lowers
+      // `typeof` to a runtime `isinstance` ladder over a Python name that does not
+      // exist). Validate ONLY the host-root reject for a bare-ident operand
+      // (`RegExp` → regex message, every other host root → generic host message);
+      // an ORDINARY `typeof userLocal` takes no reject (it would otherwise trip the
+      // `ident` case's bare-`RegExp`-only screen, which is a no-op for it anyway,
+      // but routing through the dedicated reject keeps the three legs in lockstep).
+      // A `typeof RegExp.prototype` operand is a `member`, so it still descends and
+      // fails-close.
+      //
+      // Round-7 fix — a WRAPPED operand (`typeof (Date as any)`, `typeof (Date!)`)
+      // arrived as `typeAssert`/`nonNull`, NOT an `ident`, so the round-6 reject was
+      // bypassed and IR-validate accepted it (diverging from the corrected emit
+      // legs). Peel the transparent wrappers via the round-5
+      // `unwrapTransparentReceiverIR` (fixpoint over `typeAssert`/`nonNull`) and
+      // reject the UNWRAPPED operand, identically to the TS-emit and Python-emit
+      // legs. A wrapped non-ident operand still descends through `validateValueIR`.
+      if (node.op === 'typeof') {
+        const operand = unwrapTransparentReceiverIR(node.argument);
+        if (operand.kind === 'ident') {
+          rejectTypeofHostRootIR(operand.name, scope);
+          return;
+        }
+      }
+      validateValueIR(node.argument, scope);
+      return;
     case 'spread':
     case 'await':
     case 'propagate':
@@ -210,6 +307,10 @@ function validateValueIR(node: ValueIR, scope: ValidationScope): void {
       return;
     case 'new': {
       const root = newExpressionRootIdentifier(node.argument);
+      // Slice 2 — `new RegExp(p)` throws the regex-specific message (BEFORE the
+      // generic constructor reject) so construction fails-close byte-identically
+      // across emit + validate + the Python target.
+      if (root === 'RegExp') rejectHostRegExpValueIR(root, scope);
       if (root && !(root === 'Error' && isSimpleErrorConstructor(node.argument))) {
         rejectUnboundHostNamespace(root, 'constructor', scope);
       }
@@ -253,6 +354,10 @@ function validateCallCallee(callee: ValueIR, scope: ValidationScope): void {
     if (!isUserBinding(scope, callee.name) && (callee.name === 'Array' || callee.name === 'Object')) {
       throw new Error(`Unknown KERN-stdlib method/member '${callee.name}.call'.`);
     }
+    // Slice 2 — a bare `RegExp(p, f)` call throws the regex-specific message
+    // (BEFORE the generic host-root reject below) so its diagnostic matches the
+    // emit path and the Python target, byte-identical.
+    rejectHostRegExpValueIR(callee.name, scope);
     rejectUnboundHostNamespace(callee.name, 'call', scope);
     return;
   }
@@ -286,6 +391,32 @@ function rejectUnboundHostNamespace(root: string, member: string, scope: Validat
   if (isUserBinding(scope, root)) return;
   if (!isHostNamespaceRoot(root)) return;
   throw new Error(unmappedHostNamespaceMessage('TypeScript', root, member));
+}
+
+/** Slice 2 — host-`RegExp` fail-close (IR-validate path). Throws the shared
+ *  `REGEX_HOST_REGEXP_FAILCLOSE` for a bare-value / bare-call / `new` host
+ *  `RegExp` reference, honoring user shadowing (a `const RegExp = x` local is the
+ *  user's value). Mirrors `rejectHostRegExpValueTS` in codegen-expression.ts so
+ *  the emit and validation paths fail-close identically. */
+function rejectHostRegExpValueIR(name: string, scope: ValidationScope): void {
+  if (name !== 'RegExp') return;
+  if (isUserBinding(scope, name)) return;
+  throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
+}
+
+/** Round-6 fix — `typeof <bare host-namespace root>` fails-close (IR-validate
+ *  leg). Mirror of `rejectTypeofHostRootTS` in codegen-expression.ts so the
+ *  TS-emit, IR-validate, and Python-emit legs reject `typeof Date`/`typeof
+ *  process`/`typeof RegExp` byte-identically. `RegExp` keeps the shared regex
+ *  message (matching the bare-value reject); every other reserved host root takes
+ *  the generic host message with a synthetic `typeof` member. A non-host operand
+ *  (`typeof userLocal`) and a user-shadowed host name are accepted. Bare VALUE
+ *  refs (`const c = Date`) are deliberately untouched — out of this slice. */
+function rejectTypeofHostRootIR(name: string, scope: ValidationScope): void {
+  if (isUserBinding(scope, name)) return;
+  if (name === 'RegExp') throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
+  if (!isHostNamespaceRoot(name)) return;
+  throw new Error(unmappedHostNamespaceMessage('TypeScript', name, 'typeof'));
 }
 
 /** Mirror of the emit path's `throwUnknownStdlibMember` so the same diagnostic

@@ -12,7 +12,7 @@ export type NextjsMajor = 13 | 14 | 15 | 16;
 
 // @kern-source: version-detect:6
 export function parseMajorVersion(version: string): number {
-  const cleaned = version.replace(new RegExp('^[\\^~>=<]*', 'g'), '').trim();
+  const cleaned = version.replace(/^[\^~>=<]*/g, '').trim();
   const major = parseInt(cleaned.split('.')[0], 10);
   return Number.isNaN(major) ? 0 : major;
 }

@@ -66,7 +66,20 @@ export type { RegexCaptureMeta, RegexIFoldFailReason, RegexIFoldResult } from '.
 // `\d \w \s` class transform AND the non-ASCII `/i` fold-class expansion are
 // byte-identical across both targets.
 export {
+  // Milestone C, Slice 2 — SHARED ValueIR adapters for the regex-literal-access
+  // classifier. Every ValueIR consumer (TS-emit core, Python-emit, IR-validate)
+  // routes a `/x/.<prop>` read / `/x/[idx]` read / `/x/.<m>(…)` dotted call
+  // through these so the fail-close decision (and message) is made by the ONE
+  // classifier, agreeing with the closure-block TS-AST walk by construction.
+  classifyRegexLiteralIndexReadFailClose,
+  classifyRegexLiteralMemberReadFailClose,
+  classifyRegexLiteralValueIRCallCalleeFailClose,
   expandRegexIFold,
+  // Milestone C, Slice 2 — shared host-`RegExp` fail-close diagnostic + the
+  // regex-literal portable-property predicate (the empty read allowlist, the ONE
+  // seam to widen for a future portable read), both thrown/consulted byte-
+  // identically by the TS and Python emitters.
+  isPortableRegexLiteralProperty,
   // Milestone C, Slice 3 — shared SYNTACTIC zero-width-capable predicate, used by
   // BOTH the TS emitter and the Python emitter to make the IDENTICAL `.split`
   // fail-close decision (no host-engine probe).
@@ -82,6 +95,7 @@ export {
   // Milestone C, Slice 3 — shared regex-method fail-close diagnostics (thrown
   // byte-identically by both emitters).
   REGEX_EXEC_FAILCLOSE,
+  REGEX_HOST_REGEXP_FAILCLOSE,
   REGEX_MATCHALL_NO_G_FAILCLOSE,
   // FIX 2 — shared pattern-level fail-close for a non-portable named group
   // (`(?<café>…)`), thrown byte-identically by both emitters.
@@ -107,6 +121,12 @@ export {
   // count + named set) consumed by both emitters at the .replace lowering site.
   regexCaptureMeta,
   regexIFoldFailMessage,
+  // Slice 2 round 5 — shared transparent-receiver UNWRAP predicate. Resolves a
+  // (possibly-wrapped) `regexLit` receiver through `typeAssert`/`nonNull`, so the
+  // TS-emit, IR-validate, and Python-emit legs all screen a wrapped regex-literal
+  // access (`(/x/ as any).source`, `(/x/!)["test"](s)`) identically to the bare
+  // form — closing the wrapped-receiver fail-close bypass by construction.
+  regexLiteralReceiverIR,
   regexMethodRegexArgIdent,
   // Milestone C, Slice 5 — shared astral (non-BMP) scanner used by both emitters
   // to detect-and-fail-close regex literals containing a non-BMP codepoint.
@@ -114,6 +134,11 @@ export {
   // Milestone C, Slice 4 — shared replacement-string translator (Python rewrite)
   // + the TS-side validator (verbatim-but-validate, lockstep symmetric).
   translateReplStringToPython,
+  // Slice 2 round 7 — shared transparent-receiver UNWRAP (`typeAssert`/`nonNull`
+  // fixpoint), re-exported so the Python `typeof` host-root fail-close peels a
+  // WRAPPED operand (`typeof (Date as any)`) identically to the TS-emit + IR
+  // legs before applying the host-root reject.
+  unwrapTransparentReceiverIR,
   // FIX 2 — shared pattern-level named-group portability validator, called at the
   // TS regex-literal emit chokepoints AND the Python `pyRegexPattern` lowering so
   // a non-portable group name fail-closes symmetrically across targets.

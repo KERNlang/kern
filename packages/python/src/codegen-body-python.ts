@@ -44,6 +44,8 @@
 import type { ExprObject, IRNode, ValueIR } from '@kernlang/core';
 import {
   applyTemplate,
+  classifyRegexLiteralIndexReadFailClose,
+  classifyRegexLiteralMemberReadFailClose,
   emitStringKeyArray,
   expandRegexIFold,
   instanceofRhsPythonType,
@@ -63,6 +65,7 @@ import {
   parseExpression,
   parseKeys,
   REGEX_EXEC_FAILCLOSE,
+  REGEX_HOST_REGEXP_FAILCLOSE,
   REGEX_MATCHALL_NO_G_FAILCLOSE,
   REGEX_NONLITERAL_FAILCLOSE,
   REGEX_REPLACE_NONLITERAL_REPL_FAILCLOSE,
@@ -73,11 +76,13 @@ import {
   regexAstralFailMessage,
   regexCaptureMeta,
   regexIFoldFailMessage,
+  regexLiteralReceiverIR,
   regexMethodRegexArgIdent,
   scanRegexAstral,
   suggestStdlibMethod,
   translateReplStringToPython,
   unmappedHostNamespaceMessage,
+  unwrapTransparentReceiverIR,
   validateRegexNamedGroupsPortable,
 } from '@kernlang/core';
 // Slice 0.9 — the TypeScript-AST closure helpers + classifier live on the Node
@@ -2060,6 +2065,11 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
     case 'ident': {
       if (node.name === 'NaN') return 'float("nan")';
       if (node.name === 'Infinity') return 'float("inf")';
+      // Slice 2 — a BARE-VALUE host `RegExp` reference (not a member/call
+      // receiver, which their own cases own) fails-close. This is the
+      // alias-soundness site: `let R = RegExp` is refused at the initializer, so
+      // `R(...)` / `new R(...)` can never silently diverge. Honors user shadowing.
+      rejectHostRegExpValuePython(node.name, ctx);
       // Block-scope rename takes precedence — an inner `let x` that shadows
       // an outer binding was emitted with a gensym (`__k_shadow_x_N`) and
       // every in-block reference must use the same gensym. Walk renameStack
@@ -2119,6 +2129,16 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       // NameError (agon review, claude/zai convergence).
       if (arg.kind === 'ident' && arg.name === 'Error') {
         return 'Exception()';
+      }
+      // Slice 2 — `new RegExp(p)` (with or without parens) fails-close BEFORE the
+      // fall-through, with the shared regex message (the TS emitter + IR-validate
+      // throw the same string). Without this the Python `new` case falls through
+      // to a verbatim `RegExp(...)` NameError instead of a compile-time refusal.
+      // Honors user shadowing via `isProvenUserBinding`.
+      if (arg.kind === 'call' && arg.callee.kind === 'ident') {
+        rejectHostRegExpValuePython(arg.callee.name, ctx);
+      } else if (arg.kind === 'ident') {
+        rejectHostRegExpValuePython(arg.name, ctx);
       }
       return emitPyExprCtx(arg, ctx);
     }
@@ -2453,6 +2473,38 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
 }
 
 function emitPyTypeof(argument: ValueIR, ctx: BodyEmitContext): string {
+  // Round-6 fix — `typeof <bare host-namespace root>` fails-close on BOTH targets.
+  // The round-5 carve-out lowered `typeof RegExp` to the constant `"function"`
+  // on the theory that it was byte-identical to TS's native `typeof RegExp`. But
+  // the carve-out's siblings on the TS/IR legs blanket-accepted EVERY bare
+  // `typeof` operand, re-opening reserved host roots: `typeof Date`/`typeof
+  // process` lowered HERE to a runtime `isinstance` ladder over the Python names
+  // `Date`/`process`, which do NOT exist → NameError, while TS emits the native
+  // `typeof Date`. That is a genuine TS↔Python divergence, so `typeof <host root>`
+  // must fail-close. `RegExp` keeps the shared regex message (matching the
+  // bare-value reject + the TS/IR legs); every other reserved host root takes the
+  // generic host message with a synthetic `typeof` member. A non-host operand
+  // (`typeof userLocal`, `typeof undeclaredFeatureFlag`) and a proven user binding
+  // fall through to the runtime ladder below, unchanged. `typeof RegExp.prototype`
+  // is a `member` operand and still fails-close via the generic guards.
+  //
+  // Round-7 fix — a WRAPPED operand (`typeof (Date as any)`, `typeof (Date!)`)
+  // arrived as `typeAssert`/`nonNull`, NOT an `ident`, so the round-6 reject was
+  // bypassed and Python lowered a runtime Date/process lookup (NameError) while
+  // the (now-corrected) TS leg emits `typeof Date`. Peel the transparent wrappers
+  // via the round-5 `unwrapTransparentReceiverIR` (fixpoint over
+  // `typeAssert`/`nonNull`) and apply the host-root reject to the UNWRAPPED
+  // operand, identically to the TS-emit + IR-validate legs. The runtime-ladder
+  // fall-through below still operates on the ORIGINAL `argument`, so an accepted
+  // wrapped operand (`typeof (userLocal as any)`) emits the wrapper's value
+  // unchanged.
+  const typeofOperand = unwrapTransparentReceiverIR(argument);
+  if (typeofOperand.kind === 'ident' && !isProvenUserBinding(ctx, typeofOperand.name)) {
+    if (typeofOperand.name === 'RegExp') throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
+    if (isHostNamespaceRoot(typeofOperand.name)) {
+      throw new Error(unmappedHostNamespaceMessage('Python', typeofOperand.name, 'typeof'));
+    }
+  }
   switch (argument.kind) {
     case 'strLit':
       return '"string"';
@@ -2572,6 +2624,20 @@ function emitBlockClosurePy(node: Extract<ValueIR, { kind: 'lambda' }>, names: s
   const closureName = `__kern_closure_${ctx.closureSeq++}`;
   const previous = new Set(ctx.shadowedSymbols);
   for (const name of names) ctx.shadowedSymbols.add(name);
+  // Slice 2 review-fix parity (round 3) — a block-LOCAL `const`/`let`/function/
+  // class shadows any outer binding of that name WITHIN ITS OWN BLOCK (and
+  // nested blocks) only, so a host-`RegExp` value guard
+  // (`rejectHostRegExpValuePython`) must fire on an OUTER reference but NOT on an
+  // in-scope one. The old code registered EVERY declared name (incl. names
+  // declared only in a NESTED block) into `shadowedSymbols` for the WHOLE
+  // closure — fail-OPEN on `() => { if (ok) { const RegExp = 1; } return RegExp; }`
+  // (the outer `return RegExp` was wrongly treated as the local), DIVERGING from
+  // the TS leg. The lowerer FLATTENS nested blocks, so it now reports block
+  // boundaries via `enterBlockScope`/`exitBlockScope`; we push/pop block-local
+  // shadows exactly like the TS-AST closure walk's `scopes` stack. Only names
+  // NOT already shadowed are pushed/popped, so an outer binding of the same name
+  // survives the inner block's pop.
+  const blockScopeAdded: Array<Set<string>> = [];
   try {
     const lowered = lowerJsClosureBodyToPython(node.bodyBlock!.raw, {
       lowerExpression: (raw) => emitPyExprCtx(parseExpr(raw), ctx),
@@ -2589,6 +2655,23 @@ function emitBlockClosurePy(node: Extract<ValueIR, { kind: 'lambda' }>, names: s
       // wrong-values without this). Params/block-locals are never renamed, so
       // the resolver is identity for them.
       lowerAssignTarget: (name) => resolveLocalRename(ctx, name),
+      // Block-scope shadowing — push a block's top-level locals on entry, pop on
+      // exit, so a `RegExp` value reference fails-close ONLY when no in-scope
+      // block-local/param shadows it (byte-aligned with the TS-AST walk).
+      enterBlockScope: (scopeNames) => {
+        const added = new Set<string>();
+        for (const name of scopeNames) {
+          if (!ctx.shadowedSymbols.has(name)) {
+            ctx.shadowedSymbols.add(name);
+            added.add(name);
+          }
+        }
+        blockScopeAdded.push(added);
+      },
+      exitBlockScope: () => {
+        const added = blockScopeAdded.pop();
+        if (added) for (const name of added) ctx.shadowedSymbols.delete(name);
+      },
     });
     if (!lowered.ok) {
       // The commit-A gate already accepted this block, so a lowering failure
@@ -2928,6 +3011,20 @@ type ChainNode = Extract<ValueIR, { kind: 'member' | 'call' | 'index' }>;
 function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   if (node.kind === 'member') {
     const obj = node.object;
+    // Slice 2 — a bare property READ on a DIRECT regex LITERAL (`/x/.source`,
+    // `/x/.flags`) launders the pattern/flags back into a string. Routed through
+    // the SHARED classifier (via the ValueIR adapter) so this site agrees with
+    // the TS emit + IR-validate legs and the closure walk BY CONSTRUCTION. The
+    // portable METHODS (.test/.exec/…) are CALLS routed by the call path before
+    // reaching here, and a LET-BOUND regex read (`r.source`) has an `ident`
+    // object (owned by Slice 3), so only a direct literal read is closed here.
+    // The receiver is UNWRAPPED first so a wrapped read `(/x/ as any).source` /
+    // `(/x/!).source` fails-close identically to the bare `/x/.source` and to the
+    // TS-emit + IR-validate legs (round-5 wrapped-receiver fix).
+    if (regexLiteralReceiverIR(obj) !== null) {
+      const message = classifyRegexLiteralMemberReadFailClose(node);
+      if (message !== null) throw new Error(message);
+    }
     const stdlibProperty = applyStdlibPropertyLoweringPython(node, ctx);
     if (stdlibProperty !== null) return { guard: null, expr: stdlibProperty };
     // Slice H — fail-closed on an UNMAPPED host-namespace member READ. Covers
@@ -2980,6 +3077,23 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   }
   if (node.kind === 'index') {
     const obj = node.object;
+    // Slice 2 review fix — the bracket (`index`) form of a regex-literal
+    // property access (`/x/["source"]`, `/x/["flags"]`, `/x/["test"](s)`)
+    // launders the pattern/flags back to a string exactly like the dotted
+    // `/x/.source` member form, so it fails-close identically and BEFORE the
+    // host-ident guard below. A STRING-literal index goes through the same
+    // (empty) portable-property allowlist; a COMPUTED / non-literal index is
+    // unknowable and also fails-close. Mirrors the TS emit + IR-validate index
+    // screens — byte-identical regex message across all three legs. The receiver
+    // is UNWRAPPED first so a wrapped bracket read `(/x/!)["source"]` /
+    // `(/x/ as any)["test"](s)` fails-close identically (round-5 wrapped fix).
+    if (regexLiteralReceiverIR(obj) !== null) {
+      // Routed through the SHARED classifier (a STRING index classifies like the
+      // dotted read; a COMPUTED index is unknowable → fail-close), byte-identical
+      // to the TS emit + IR-validate index screens and the closure walk.
+      const message = classifyRegexLiteralIndexReadFailClose(node);
+      if (message !== null) throw new Error(message);
+    }
     // Slice H review fix — bracket access must not bypass the fail-closed
     // guard: `Math["sqrt"]` / `Math["sqrt"](x)` is the same unmapped
     // host-namespace access as `Math.sqrt`, only spelled as an index node.
@@ -3051,6 +3165,13 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   if (node.callee.kind === 'ident' && node.callee.name === 'Error') {
     const errArgs = node.args.map((arg) => emitPyExprCtx(arg, ctx)).join(', ');
     return { guard: null, expr: `Exception(${errArgs})` };
+  }
+  // Slice 2 — a bare `RegExp(p, f)` call (callee is an ident, missed by the
+  // member-callee guard below) fails-close with the shared regex message,
+  // BEFORE generic call emission would leak a verbatim `RegExp(...)` NameError.
+  // Honors user shadowing via `isProvenUserBinding`.
+  if (node.callee.kind === 'ident') {
+    rejectHostRegExpValuePython(node.callee.name, ctx);
   }
   // Slice H — fail-closed on an UNMAPPED host-namespace member CALL. This runs
   // AFTER every explicit lowering hook above (stdlib, regex, lambda/array,
@@ -3627,8 +3748,13 @@ function resolveRegexExpr(node: ValueIR, _ctx: BodyEmitContext): Extract<ValueIR
   // `lowerRegexCallPython` via the shared `regexMethodRegexArgIdent` detector —
   // symmetric with the TS target. A string-/unknown-bound ident returns null
   // and stays a plain host method (the `s.match(stringVar)` case).
-  if (node.kind === 'regexLit') return node;
-  return null;
+  //
+  // Transparent wrappers (`as`/`!`) are peeled via `regexLiteralReceiverIR` —
+  // mirroring the TS `resolveRegexLitTS` — so a wrapped portable receiver call
+  // `(/x/).test(s)` / `(/x/ as any).test(s)` lowers, and a wrapped non-portable
+  // one `(/x/ as any).exec(s)` fails-close through `lowerRegexCallPython` (round-5
+  // wrapped-receiver fix), identically to the TS leg.
+  return regexLiteralReceiverIR(node);
 }
 
 function pyRegexPattern(node: Extract<ValueIR, { kind: 'regexLit' }>): string {
@@ -3953,6 +4079,26 @@ function rejectUnmappedHostNamespacePython(root: string, member: string, ctx: Bo
   if (!isHostNamespaceRoot(root)) return null;
   if (isProvenUserBinding(ctx, root)) return null;
   throw new Error(unmappedHostNamespaceMessage('Python', root, member));
+}
+
+/** Slice 2 — host-`RegExp` fail-close (Python emit). Closes the residual RegExp
+ *  positions the generic `Module.member` guard above does NOT cover, throwing the
+ *  SAME shared `REGEX_HOST_REGEXP_FAILCLOSE` the TS emitter + IR-validate pass
+ *  throw (byte-identical across targets):
+ *   - a BARE-VALUE reference (`const R = RegExp`, `RegExp` passed as a value),
+ *   - a BARE CALL `RegExp(p, f)` (callee is an ident, missed by the member-callee
+ *     guard), and
+ *   - `new RegExp(p)` (the Python `new` case otherwise falls through to a verbatim
+ *     `RegExp(...)` NameError).
+ *  Honors user shadowing via `isProvenUserBinding` (fails toward refuse when a
+ *  binding cannot be proven, matching the host-namespace guard's intent), so
+ *  `const RegExp = myThing; RegExp` is the user value. `RegExp.prototype`/
+ *  `RegExp.$1` already fail-close through the generic member guard (one
+ *  diagnostic per site). */
+function rejectHostRegExpValuePython(name: string, ctx: BodyEmitContext): void {
+  if (name !== 'RegExp') return;
+  if (isProvenUserBinding(ctx, name)) return;
+  throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
 }
 
 /** Slice 2a — KERN-stdlib dispatch for Python. Returns the lowered Python

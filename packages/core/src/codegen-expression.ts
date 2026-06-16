@@ -14,10 +14,13 @@ import {
 // and Python emitters, so both import it from this one core module. Anchor
 // lowering is Python-only (JS `$`/`^` without `/m` already mean input-end/start).
 import {
+  classifyRegexLiteralIndexReadFailClose,
+  classifyRegexLiteralMemberReadFailClose,
   expandRegexIFold,
   isZeroWidthCapableRegex,
   normalizeRegexClasses,
   REGEX_EXEC_FAILCLOSE,
+  REGEX_HOST_REGEXP_FAILCLOSE,
   REGEX_MATCHALL_NO_G_FAILCLOSE,
   REGEX_REPLACE_NONLITERAL_REPL_FAILCLOSE,
   REGEX_REPLACEALL_NO_G_FAILCLOSE,
@@ -27,7 +30,9 @@ import {
   regexAstralFailMessage,
   regexCaptureMeta,
   regexIFoldFailMessage,
+  regexLiteralReceiverIR,
   scanRegexAstral,
+  unwrapTransparentReceiverIR,
   validateRegexNamedGroupsPortable,
   validateReplStringForTS,
 } from './codegen/regex-normalize.js';
@@ -57,6 +62,51 @@ function rejectUnmappedHostNamespaceTS(root: string, member: string, ctx: ExprEm
   if (!isHostNamespaceRoot(root)) return;
   if (isUserBinding(ctx, root)) return;
   throw new Error(unmappedHostNamespaceMessage('TypeScript', root, member));
+}
+
+/** Milestone C, Slice 2 — host-`RegExp` fail-close (TS emit). Closes the residual
+ *  RegExp positions the generic `Module.member` host-namespace screen does NOT
+ *  cover, with the SAME shared message the Python emitter throws:
+ *   - a BARE-VALUE reference (`const R = RegExp`, `RegExp` passed as an argument):
+ *     `isHostNamespaceRoot('RegExp')` is now true, so a non-user-bound `RegExp`
+ *     ident is the host root. Rejecting it at the value site SUBSUMES alias
+ *     following — `const R = RegExp` is refused at the initializer, so `new R(...)`
+ *     can never silently diverge.
+ *   - a BARE CALL `RegExp(p, f)` (callee is an ident, not a `Module.member`, so the
+ *     existing member-callee screen misses it; `RegExp` is also not in
+ *     `DIRECT_HOST_CALL_ROOTS`).
+ *  Honors user shadowing via `isUserBinding` (so `const RegExp = x; RegExp` is the
+ *  user value). `new RegExp(...)` and `RegExp.prototype`/`RegExp.$1` already
+ *  fail-close through the existing `new`/`member` host-root screens once RegExp is
+ *  reserved — they emit the generic host-namespace message and are not re-routed
+ *  here (one diagnostic per site). */
+function rejectHostRegExpValueTS(name: string, ctx: ExprEmitContext | undefined): void {
+  if (name !== 'RegExp') return;
+  if (isUserBinding(ctx, name)) return;
+  throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
+}
+
+/** Round-6 fix — `typeof <bare host-namespace root>` fails-close. The round-5
+ *  carve-out special-cased `typeof <ANY bare ident>` to dodge the bare-`RegExp`
+ *  reject, but that over-broadly RE-OPENED reserved host roots: `typeof Date`,
+ *  `typeof process` are NON-PORTABLE — TS emits the native `typeof Date` (JS
+ *  reads the host `Date` global → "function"), but the Python leg lowers `typeof`
+ *  to a runtime `isinstance` ladder over the Python name `Date`, which does not
+ *  exist (NameError). So `typeof <host root>` is a genuine TS↔Python divergence
+ *  and must fail-close on BOTH targets. This is the TARGETED replacement: it fires
+ *  ONLY when the operand is a reserved host-namespace root (and not user-bound),
+ *  so an ORDINARY `typeof userLocal` / `typeof undeclaredFeatureFlag` (the
+ *  feature-detection idiom — `window`/`document`/`setTimeout` are NOT host roots)
+ *  stays accepted. `RegExp` keeps the regex-specific message (matching the
+ *  bare-value reject); every other host root takes the generic host message with a
+ *  synthetic `typeof` member (same shape as the `call`/`constructor` sentinels).
+ *  Bare VALUE refs (`const c = Date`) are DELIBERATELY left accepted here — that is
+ *  a wider, separately-charted slice; this fix closes only the typeof divergence. */
+function rejectTypeofHostRootTS(name: string, ctx: ExprEmitContext | undefined): void {
+  if (isUserBinding(ctx, name)) return;
+  if (name === 'RegExp') throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
+  if (!isHostNamespaceRoot(name)) return;
+  throw new Error(unmappedHostNamespaceMessage('TypeScript', name, 'typeof'));
 }
 
 function isUserBinding(ctx: ExprEmitContext | undefined, name: string): boolean {
@@ -159,10 +209,28 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       return out;
     }
     case 'ident':
+      // Slice 2 — a BARE-VALUE host `RegExp` reference (not a member receiver,
+      // which the `member`/`call`/`new` cases own) fails-close. This is the
+      // alias-soundness site: `const R = RegExp` is refused at the initializer.
+      rejectHostRegExpValueTS(node.name, ctx);
       return node.name;
     case 'member': {
       const stdlib = applyStdlibPropertyLoweringTS(node);
       if (stdlib !== null) return stdlib;
+      // Slice 2 — a bare property READ on a regex LITERAL (`/x/.source`,
+      // `/x/.flags`) launders the pattern/flags back into a string. Routed through
+      // the SHARED classifier (via the ValueIR adapter) so this site agrees with
+      // the IR-validate + Python emit legs and the closure walk BY CONSTRUCTION.
+      // The portable METHODS (.test/.exec/…) are routed by the CALL path (which
+      // returns BEFORE this bare-read member emit), so this only ever sees a
+      // genuine bare read (always non-null today — the empty read allowlist).
+      // The receiver is UNWRAPPED first (`regexLiteralReceiverIR`) so a wrapped
+      // read `(/x/ as any).source` / `(/x/!).source` fails-close identically to
+      // the bare `/x/.source`.
+      if (regexLiteralReceiverIR(node.object) !== null) {
+        const message = classifyRegexLiteralMemberReadFailClose(node);
+        if (message !== null) throw new Error(message);
+      }
       const receiverRoot = hostNamespaceReceiverRoot(node.object);
       if (receiverRoot)
         rejectUnmappedHostNamespaceTS(receiverRoot, hostNamespaceMemberLabel(node.object, node.property), ctx);
@@ -172,6 +240,24 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
     }
     case 'index': {
       rejectKnownStdlibIndexTS(node);
+      // Slice 2 review fix — the bracket (`index`) form of a regex-literal
+      // property access (`/x/["source"]`, `/x/["flags"]`, `/x/["test"](s)`)
+      // must fail-close IDENTICALLY to the dotted member form. A STRING-literal
+      // index is the same launder-the-pattern-to-a-string read the member case
+      // screens against the (empty) portable-property allowlist; a COMPUTED /
+      // non-literal index is even worse — the property is unknowable, so it is a
+      // laundering risk and also fails-close. Throws the regex-specific message,
+      // not the generic host one.
+      // Receiver UNWRAPPED first so a wrapped bracket read `(/x/!)["source"]` /
+      // `(/x/ as any)["test"](s)` fails-close identically to the bare bracket form.
+      if (regexLiteralReceiverIR(node.object) !== null) {
+        // Routed through the SHARED classifier (a STRING index classifies like the
+        // dotted read; a COMPUTED index is unknowable → fail-close), so the bracket
+        // form (`/x/["source"]`, `/x/["test"](s)` — a bracket call whose callee is
+        // this `index`) agrees with the dotted member form and the other legs.
+        const message = classifyRegexLiteralIndexReadFailClose(node);
+        if (message !== null) throw new Error(message);
+      }
       const receiverRoot = hostNamespaceReceiverRoot(node.object);
       if (receiverRoot) {
         const label = node.index.kind === 'strLit' ? node.index.value : '[computed]';
@@ -191,6 +277,10 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
         if (!isUserBinding(ctx, node.callee.name) && (node.callee.name === 'Array' || node.callee.name === 'Object')) {
           throwUnknownStdlibMember(node.callee.name, 'call');
         }
+        // Slice 2 — a bare `RegExp(p, f)` call (callee is an ident, so the
+        // member-callee screen below misses it, and RegExp is not in
+        // DIRECT_HOST_CALL_ROOTS) fails-close with the shared regex message.
+        rejectHostRegExpValueTS(node.callee.name, ctx);
         if (DIRECT_HOST_CALL_ROOTS.has(node.callee.name)) rejectUnmappedHostNamespaceTS(node.callee.name, 'call', ctx);
       }
       if (node.callee.kind === 'member') {
@@ -241,6 +331,43 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       return `${lp} ${node.op} ${rp}`;
     }
     case 'unary': {
+      // Round-6 fix — `typeof <bare ident>` whose operand is a reserved
+      // host-namespace root fails-close (`typeof RegExp`/`typeof Date`/
+      // `typeof process` are non-portable; see `rejectTypeofHostRootTS`). The
+      // round-5 carve-out blanket-accepted EVERY bare `typeof` operand, which
+      // re-opened those reserved roots. A non-host operand (`typeof userLocal`,
+      // `typeof undeclaredFeatureFlag`) takes no host reject and emits the native
+      // `typeof <name>` directly — bypassing the `ident` recursion so an ordinary
+      // identifier never trips a value-position screen. `typeof RegExp.prototype`
+      // is a `member` operand (not an `ident`), so it is owned by the recursion
+      // below and still fails-close.
+      //
+      // Round-7 fix — a WRAPPED operand (`typeof (Date as any)`, `typeof (Date!)`,
+      // parenthesized `typeof (Date)`) reached this site as a `typeAssert`/`nonNull`
+      // node, NOT an `ident`, so the round-6 reject was bypassed: TS emitted the
+      // wrapper verbatim while Python lowered a runtime Date/process lookup →
+      // divergence. We RECURSIVELY peel the transparent wrappers via the round-5
+      // `unwrapTransparentReceiverIR` (fixpoint over `typeAssert`/`nonNull`, so
+      // nested `typeof (Date as any as unknown)` also collapses) and apply the
+      // host-root reject to the UNWRAPPED operand.
+      //
+      // Round-8 fix — the unwrapped operand is used ONLY to DECIDE the host-root
+      // reject; it must NOT be the emitted form. Round-7 emitted `typeof
+      // <unwrapped.name>`, which STRIPPED the wrappers from ACCEPTED operands
+      // (`typeof (x as string)` → `typeof x`, `typeof (x!)` → `typeof x`) — that
+      // breaks emitter round-tripping (the `as`/`!`/parens carry valid syntax on
+      // the TS leg). For an accepted operand we FALL THROUGH to the normal unary
+      // emission below, which re-emits from the ORIGINAL `node.argument` and so
+      // preserves every wrapper. Only the reject decision keys off the unwrapped
+      // root.
+      if (node.op === 'typeof') {
+        const operand = unwrapTransparentReceiverIR(node.argument);
+        if (operand.kind === 'ident') {
+          rejectTypeofHostRootTS(operand.name, ctx);
+        }
+        // accepted operands fall through to the normal unary emission below,
+        // preserving the original wrappers (`as`/`!`/parens/`satisfies`).
+      }
       // Slice-2 review fix: wrap binary/unary/spread args in parens to preserve
       // unary's tight binding. `!(a === b)` would otherwise emit `!a === b`.
       const arg = emitExpression(node.argument, ctx);
@@ -257,6 +384,10 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
     }
     case 'new': {
       const ctorRoot = newExpressionRootIdentifier(node.argument);
+      // Slice 2 — `new RegExp(p)` throws the regex-specific message (BEFORE the
+      // generic constructor reject) so construction fails-close byte-identically
+      // across the TS emit, the IR-validate pass, and the Python target.
+      if (ctorRoot === 'RegExp') rejectHostRegExpValueTS(ctorRoot, ctx);
       if (ctorRoot && !(ctorRoot === 'Error' && isSimpleErrorConstructor(node.argument))) {
         rejectUnmappedHostNamespaceTS(ctorRoot, 'constructor', ctx);
       }
@@ -591,11 +722,15 @@ function applyStdlibLoweringTS(call: Extract<ValueIR, { kind: 'call' }>, ctx?: E
 }
 
 /** Resolve a node to a regex literal IR, mirroring the Python `resolveRegexExpr`.
- *  The pure-expression TS emitter has no binding table, so only a direct
- *  `regexLit` is resolved (the Python target additionally follows an ident
- *  binding; the lowered shapes/fail-closes are otherwise identical). */
+ *  The pure-expression TS emitter has no binding table, so only a direct (or
+ *  transparently-wrapped) `regexLit` is resolved (the Python target additionally
+ *  follows an ident binding; the lowered shapes/fail-closes are otherwise
+ *  identical). Transparent wrappers (`as`/`!`) are peeled via
+ *  `regexLiteralReceiverIR` so a wrapped portable call `(/x/).test(s)` /
+ *  `(/x/ as any).test(s)` lowers, and a wrapped non-portable one
+ *  `(/x/ as any).exec(s)` fails-close through `lowerRegexCallTS`. */
 function resolveRegexLitTS(node: ValueIR): Extract<ValueIR, { kind: 'regexLit' }> | null {
-  return node.kind === 'regexLit' ? node : null;
+  return regexLiteralReceiverIR(node);
 }
 
 /** Emit the normalized TS regex literal (`/pat/flags`) for a regexLit IR — the

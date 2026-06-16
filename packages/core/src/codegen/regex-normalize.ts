@@ -597,6 +597,226 @@ export const REGEX_NONLITERAL_FAILCLOSE =
   'Portable regex methods (.match/.matchAll/.replace/.replaceAll/.split/.test/.exec) require a DIRECT regex literal (`/…/`) in the regex position; a variable bound to a regex is not portable across targets — inline the literal at the call site.';
 
 /* ----------------------------------------------------------------------------
+ * Milestone C, Slice 2 — host-`RegExp` fail-close (the FINAL regex parity slice).
+ *
+ * Milestone B left `RegExp` usable as a host escape hatch (it was carried in
+ * `HOST_NAMESPACE_EXEMPT_ROOTS`, so `isHostNamespaceRoot('RegExp')` returned
+ * false). Slice 2 CLOSES that exemption: the host `RegExp` constructor/global is
+ * NOT a portable cross-target surface, so any reference to it fails-close.
+ *
+ * WHY host `RegExp` cannot lower portably (over-rejection is correct here):
+ *   - CONSTRUCTION takes a STRING pattern, so KERN's literal-only escape pipeline
+ *     never runs — `new RegExp("\\d")` already collapsed `"\\d"` → `\d` at the JS
+ *     string layer, where the Python target would have lowered a `/\d/` LITERAL
+ *     through the certified class-normalizer. The two paths diverge before KERN
+ *     ever sees the pattern, even for a CONSTANT string.
+ *   - The runtime SyntaxError model for a bad dynamic pattern differs (JS throws
+ *     a `SyntaxError`, Python `re` an `re.error`), and flag handling (`g`/`y`
+ *     statefulness, `u` width) has no portable analog.
+ *   - Legacy statics (`RegExp.$1`, `RegExp.prototype`) and value-position uses
+ *     (passing `RegExp` as a value, `x instanceof RegExp`) are host-only.
+ * So the certified portable regex surface is the LITERAL `/…/` form (owned by
+ * Slices 1/3/4/5); host `RegExp` in EVERY position is fail-closed.
+ *
+ * The diagnostic MUST be byte-identical across the TS emitter (core) and the
+ * Python emitter (@kernlang/python). Both import this single-source constant and
+ * throw the exact same string — the same shared-const discipline every prior
+ * regex slice uses (the Python target re-exports it; see codegen-body-python.ts).
+ *
+ * SCOPE NOTE (residual, NOT introduced by this slice): the fail-close fires on a
+ * DIRECT host-`RegExp` reference resolved through the #432 scope-aware resolver
+ * (so `const R = RegExp` is rejected at the initializer — `new R(...)` can never
+ * silently diverge). A user-renamed re-export under a foreign name is already a
+ * non-portable host reference handled by the broader host-namespace contract; it
+ * is not a regex-specific concern and is out of Slice 2's scope. */
+export const REGEX_HOST_REGEXP_FAILCLOSE =
+  "Host 'RegExp' is not portable across targets and is fail-closed: construction (`new RegExp(p)` / `RegExp(p, f)`) takes a STRING pattern, so KERN's certified literal escape/class pipeline never runs (`new RegExp(\"\\\\d\")` already collapsed to `\\d` at the string layer, diverging from a `/\\d/` literal), and the runtime SyntaxError/flag model differs across JS and Python. Legacy statics (`RegExp.$1`, `RegExp.prototype`), value-position uses, and `.source`/`.flags` on a literal (which launders the pattern back to a string) have no portable analog either. Use a DIRECT regex literal (`/…/`) and the portable methods (.test/.exec/.match/.matchAll/.replace/.replaceAll/.split).";
+
+/** The property allowlist for a REGEX LITERAL (`/…/`) member READ. The portable
+ *  match-set METHODS (.test/.exec/.match/.matchAll/.replace/.replaceAll/.split)
+ *  are routed by the CALL path (Slices 3/4) and never reach a bare property read.
+ *  A bare property READ on a literal — `/x/.source`, `/x/.flags`, `/x/.global`,
+ *  `RegExp`-prototype Symbol accessors — launders the pattern/flags back into a
+ *  STRING (or exposes a host-only accessor), which is exactly the non-portable
+ *  surface this slice closes. The allowlist is EMPTY: every bare property read on
+ *  a regex literal is fail-closed. (Kept as a named predicate so a future portable
+ *  read — if one is ever certified cross-target — has one obvious seam to widen.) */
+export function isPortableRegexLiteralProperty(_property: string): boolean {
+  // INTENTIONAL fail-close-all: this is an allowlist that is EMPTY ON PURPOSE,
+  // NOT accidental dead code. Every bare property read on a regex literal
+  // (`/x/.source`, `/x/.flags`, `/x/.global`, …) launders the certified
+  // pattern/flags back into a host-only string/accessor with no portable
+  // cross-target analog, so NO property is portable — hence `false` for every
+  // input. Do NOT "simplify" this to a constant or delete it: the named
+  // predicate is the ONE seam to widen if a portable cross-target read is ever
+  // certified. (The portable METHODS — .test/.exec/… — are routed by the CALL
+  // path via `classifyRegexLiteralAccessFailClose`, never through this read
+  // allowlist.)
+  return false;
+}
+
+/** SHARED, target-agnostic classifier for a property/element access whose
+ *  receiver is a REGEX LITERAL (`/x/.<prop>`, `/x/["<prop>"]`, optionally the
+ *  callee of a call `/x/.<prop>(…)`). This is the SINGLE source of truth for the
+ *  "is this regex-literal access portable, and if not, which message?" decision,
+ *  consulted by BOTH the value-emit/IR-validate paths' intent AND the
+ *  block-bodied-arrow TS-AST walk (`collectClosureBlockRegexHostViolations`),
+ *  so the two legs agree BY CONSTRUCTION instead of by parallel heuristics.
+ *
+ *  It MIRRORS `lowerRegexCallTS`' regex-LITERAL-RECEIVER branches exactly. NOTE
+ *  `lowerRegexCallTS` only lowers a DOTTED method call (`callee.kind ===
+ *  'member'`), so ONLY the dotted form is ever portable — a BRACKET-form call
+ *  (`/x/["test"](s)`) is NOT lowered and falls through to the index fail-close,
+ *  exactly like a bare bracket read. Hence the `isDottedCallee` parameter (the
+ *  access is a `/x/.<prop>` PROPERTY access AND the callee of a call):
+ *   - `isDottedCallee` + `.test` → portable, EXCEPT a `/g` literal throws
+ *     `REGEX_TEST_G_FAILCLOSE` (JS mutates lastIndex; Python `re.search` is
+ *     stateless).
+ *   - `isDottedCallee` + `.exec` → `REGEX_EXEC_FAILCLOSE` (stateful lastIndex).
+ *   - EVERYTHING else — any other property, OR `.test`/`.exec` NOT a dotted
+ *     callee (a bare read `/x/.test`/`/x/["test"]`, or a BRACKET call
+ *     `/x/["test"](s)`), OR any non-portable read (`/x/.source`, `/x/["source"]`),
+ *     OR a receiver-call to a non-portable method (`/x/.match(…)`,
+ *     `/x/.compile(…)`) — launders the pattern/flags back to a host-only surface
+ *     and fails-close with the shared `REGEX_HOST_REGEXP_FAILCLOSE`.
+ *
+ *  Returns `null` when the access is PORTABLE (emit verbatim), or the exact
+ *  fail-close MESSAGE otherwise. `property` is null for a COMPUTED element index
+ *  (`/x/[k]`) — unknowable, so it fails-close. */
+export function classifyRegexLiteralAccessFailClose(
+  property: string | null,
+  isDottedCallee: boolean,
+  flags: string,
+): string | null {
+  if (isDottedCallee && property === 'test') {
+    return flags.includes('g') ? REGEX_TEST_G_FAILCLOSE : null;
+  }
+  if (isDottedCallee && property === 'exec') {
+    return REGEX_EXEC_FAILCLOSE;
+  }
+  return REGEX_HOST_REGEXP_FAILCLOSE;
+}
+
+/* ----------------------------------------------------------------------------
+ * Transparent-receiver UNWRAP — Slice 2 round 5 (the wrapped-receiver fail-close
+ * fix).
+ *
+ * A regex-LITERAL receiver can sit UNDER one or more transparent type-only
+ * wrappers — `(/x/ as any).source`, `(/x/!)["source"]`, the nested
+ * `((/x/ as any)).source` — that a DIRECT `object.kind === 'regexLit'` check
+ * MISSES, letting a wrapped non-portable read emit verbatim (`(/x/ as any).source`
+ * → TS verbatim, Python `… .source` on a compiled pattern) while the bare
+ * `/x/.source` correctly fails-close. We close that bypass by recursively peeling
+ * the wrappers BEFORE the regex-literal receiver check on EVERY ValueIR leg.
+ *
+ * IN THE KERN IR there are exactly TWO transparent wrapper node kinds that can be
+ * a member/index/call receiver: `typeAssert` (`x as T`) and `nonNull` (`x!`).
+ * Parens carry NO IR node (the parser flattens `( e )` to `e`; see
+ * `parser-expression.ts`), and KERN has no `satisfies`/angle-bracket-assertion/
+ * comma-sequence VALUE node, so those never appear in the IR. The TS-AST closure
+ * leg (`collectClosureBlockRegexHostViolations`) peels the matching REAL-node set
+ * (`ParenthesizedExpression`/`AsExpression`/`TypeAssertionExpression`/
+ * `NonNullExpression`/`SatisfiesExpression`) — the SAME logical set projected onto
+ * the TS-AST node universe — so after unwrap a wrapped literal classifies EXACTLY
+ * like the bare literal on both the IR and the TS-AST legs, by construction.
+ * ------------------------------------------------------------------------- */
+
+/** Recursively peel the transparent IR wrappers (`typeAssert`, `nonNull`) off a
+ *  receiver until the underlying node, so a wrapped regex literal is seen exactly
+ *  like a bare one. Fixpoint loop (not a single unwrap) so stacked wrappers like
+ *  `((/x/ as any))!` → `nonNull(typeAssert(regexLit))` collapse to `regexLit`. A
+ *  non-wrapped node is returned unchanged. */
+export function unwrapTransparentReceiverIR(node: ValueIR): ValueIR {
+  let current = node;
+  while (current.kind === 'typeAssert' || current.kind === 'nonNull') {
+    current = current.expression;
+  }
+  return current;
+}
+
+/** The regex-literal a receiver resolves to AFTER peeling transparent wrappers
+ *  (`typeAssert`/`nonNull`), or `null` when the unwrapped receiver is not a regex
+ *  literal. This is the SINGLE predicate every ValueIR leg uses to decide "is this
+ *  receiver a (possibly-wrapped) regex literal?", so the wrapped and bare forms
+ *  are screened identically on the TS-emit, IR-validate, and Python-emit paths. */
+export function regexLiteralReceiverIR(node: ValueIR): Extract<ValueIR, { kind: 'regexLit' }> | null {
+  const unwrapped = unwrapTransparentReceiverIR(node);
+  return unwrapped.kind === 'regexLit' ? unwrapped : null;
+}
+
+/* ----------------------------------------------------------------------------
+ * ValueIR adapters for {@link classifyRegexLiteralAccessFailClose}.
+ *
+ * These translate a `member` / `index` / `call` ValueIR node into the
+ * (`property`, `isDottedCallee`, `flags`) tuple the shared classifier consumes,
+ * so EVERY ValueIR consumer (IR-validate, TS-emit, Python-emit) decides a
+ * regex-LITERAL-receiver access through the ONE classifier — agreeing with the
+ * TS-AST closure walk (`collectClosureBlockRegexHostViolations`, which feeds the
+ * same classifier the same tuple) BY CONSTRUCTION rather than by re-deriving the
+ * `isPortableRegexLiteralProperty` truth table at each site. Each returns the
+ * exact fail-close MESSAGE, or `null` when the access is PORTABLE (the only
+ * portable case is a DOTTED `.test`/`.exec`-callee that the classifier blesses —
+ * today just `/x/.test(s)` on a non-`/g` literal).
+ *
+ * Each adapter unwraps a (possibly-wrapped) regex-literal receiver via
+ * {@link regexLiteralReceiverIR} before reading its flags, so a wrapped read
+ * (`(/x/ as any).source`, `(/x/g!)["test"](s)`) classifies identically to the
+ * bare form. A non-regex (or unwrapped-to-non-regex) receiver yields `''` flags
+ * and is owned by the caller's later generic-host screens, not by this regex one.
+ * ------------------------------------------------------------------------- */
+
+/** A `member` access whose receiver is a REGEX LITERAL is a bare property READ
+ *  (`/x/.source`, `(/x/ as any).source`) — NEVER a dotted callee here (the
+ *  callee-of-a-call case is the `call` node, routed by
+ *  {@link classifyRegexLiteralValueIRCallCalleeFailClose}). Returns the classifier
+ *  verdict; always non-null today (the empty portable-read allowlist), but routed
+ *  through the classifier so a future portable read widens in ONE place. */
+export function classifyRegexLiteralMemberReadFailClose(member: Extract<ValueIR, { kind: 'member' }>): string | null {
+  const regex = regexLiteralReceiverIR(member.object);
+  return classifyRegexLiteralAccessFailClose(member.property, false, regex?.flags ?? '');
+}
+
+/** An `index` access whose receiver is a REGEX LITERAL is a bracket property READ
+ *  (`/x/["source"]`, `(/x/!)["source"]`, `/x/[k]`). A STRING-literal index yields
+ *  its value so it classifies like the dotted-read form; a COMPUTED / non-string
+ *  index is `property = null` (unknowable) → fail-close. Bracket reads are NEVER a
+ *  portable dotted callee (`lowerRegexCall*` lowers `callee.kind === 'member'`
+ *  only), so a BRACKET call `/x/["test"](s)` also fails-close here exactly like a
+ *  bare read. */
+export function classifyRegexLiteralIndexReadFailClose(index: Extract<ValueIR, { kind: 'index' }>): string | null {
+  const regex = regexLiteralReceiverIR(index.object);
+  const property = index.index.kind === 'strLit' ? index.index.value : null;
+  return classifyRegexLiteralAccessFailClose(property, false, regex?.flags ?? '');
+}
+
+/** The CALLEE of a `call` whose callee is a DOTTED member access on a REGEX
+ *  LITERAL (`/x/.test(s)`, `(/x/g as any).test(s)`, `/x/.exec(s)`,
+ *  `/x/.compile(y)`). This is the seam that fixes the IR-validate over-rejection
+ *  of the common `/x/.test(s)`: the classifier blesses a non-`/g` `.test` callee
+ *  (returns `null` = PORTABLE), and gives the PRECISE `.exec`/`/g`-`.test` message
+ *  for those — matching the TS/Python emit legs and the closure walk, instead of
+ *  the blanket member-read fail-close the IR-validate `call` case used to hit by
+ *  re-validating the callee.
+ *
+ *  Returns `null` (PORTABLE) ONLY for a blessed dotted method callee; returns the
+ *  fail-close message for a non-portable dotted method (`/x/.compile`, `.match`,
+ *  …). Returns `undefined` when this call's callee is NOT a dotted regex-literal
+ *  member access (so the caller falls through to its normal callee handling) —
+ *  this is distinct from `null` (a PORTABLE regex-literal call). A BRACKET-form
+ *  call `/x/["test"](s)` has an `index` callee (not `member`), so it returns
+ *  `undefined` here and is owned by the `index` read fail-close above. The DOTTED
+ *  receiver is unwrapped, so `(/x/ as any).test(s)` classifies like `/x/.test(s)`. */
+export function classifyRegexLiteralValueIRCallCalleeFailClose(
+  call: Extract<ValueIR, { kind: 'call' }>,
+): string | null | undefined {
+  const callee = call.callee;
+  if (callee.kind !== 'member') return undefined;
+  const regex = regexLiteralReceiverIR(callee.object);
+  if (regex === null) return undefined;
+  return classifyRegexLiteralAccessFailClose(callee.property, true, regex.flags);
+}
+
+/* ----------------------------------------------------------------------------
  * Milestone C, Slice 5 — astral (non-BMP) fail-close.
  *
  * KERN's certified portable regex subset is BMP only (U+0000..U+FFFF). A non-BMP

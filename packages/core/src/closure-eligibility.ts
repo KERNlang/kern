@@ -44,6 +44,7 @@
  *  Widening the gate is a future slice. */
 
 import ts from 'typescript';
+import { classifyRegexLiteralAccessFailClose, REGEX_HOST_REGEXP_FAILCLOSE } from './codegen/regex-normalize.js';
 
 /** Memoize parsed blocks. Keyed by the raw (trimmed) source. A `null` value is
  *  a cached "does not parse / not a single block" verdict. */
@@ -146,24 +147,32 @@ export function collectClosureBlockMemberAccesses(raw: string): ClosureBlockMemb
   const block = parseClosureBlockAst(raw);
   if (block === null) return [];
   const accesses: ClosureBlockMemberAccess[] = [];
-  const scopes: Array<Set<string>> = [new Set()];
+  const scopes: Array<Set<string>> = [];
 
   const isLocal = (name: string): boolean => scopes.some((scope) => scope.has(name));
-  const declareLocal = (name: string): void => {
-    scopes[scopes.length - 1].add(name);
-  };
 
   const visit = (node: ts.Node): void => {
     if (ts.isBlock(node)) {
-      const isRootBlock = node === block;
-      if (!isRootBlock) scopes.push(new Set());
+      // Round-6 fix — REAL JS block scope: a block-scoped name shadows its WHOLE
+      // block, including any initializer that lexically PRECEDES the declarator
+      // (TDZ aside). PREDECLARE this block's top-level let/const/function/class
+      // names BEFORE visiting its statements, so `{ let x = process.cwd(); const
+      // process = fake; }` treats `process` in `x`'s initializer as the block-local
+      // (`locallyShadowed: true`). Previously the `VariableDeclaration` case
+      // declared the name only AFTER visiting its initializer, so the access in a
+      // PRIOR initializer was seen as the host root — TS REJECTED while the Python
+      // lowerer (which predeclares via `enterBlockScope`) ACCEPTED → a fresh
+      // TS↔Python divergence for non-RegExp host roots. This matches the regex
+      // walk's `collectClosureBlockRegexHostViolations` predeclaration exactly.
+      scopes.push(new Set(topLevelBlockDeclaredNames(node.statements)));
       for (const statement of node.statements) visit(statement);
-      if (!isRootBlock) scopes.pop();
+      scopes.pop();
       return;
     }
     if (ts.isVariableDeclaration(node)) {
+      // Names are predeclared on block entry (above); only the initializer needs a
+      // visit. The declarator name itself is not a member/call/new access.
       if (node.initializer) visit(node.initializer);
-      for (const name of bindingPatternIdentifierNames(node.name)) declareLocal(name);
       return;
     }
     if (ts.isPropertyAccessExpression(node)) {
@@ -199,6 +208,339 @@ export function collectClosureBlockMemberAccesses(raw: string): ClosureBlockMemb
   return accesses;
 }
 
+/** Slice 2 review fix (round 3) — a regex-host violation found INSIDE a
+ *  block-bodied arrow. Carries the EXACT fail-close `message` the EXPRESSION-level
+ *  path would emit, so the TS-verbatim block leg agrees with that path (and with
+ *  the Python leg, which lowers the body through the IR) BY CONSTRUCTION rather
+ *  than re-deriving the truth table:
+ *   - `bareRegexp` — a bare VALUE reference to `RegExp` (`return RegExp`,
+ *     `const R = RegExp`, `{ x: RegExp }`, `({ RegExp })`, `[RegExp]`, a ternary
+ *     branch, an argument). The generic member scan never sees these (no
+ *     identifier-rooted `Root.member`), so they slip the verbatim TS leg. The
+ *     MEMBER-OBJECT position (`RegExp.prototype`, `RegExp[$1]`) is deliberately
+ *     EXCLUDED — the generic scan owns it and emits the GENERIC host-namespace
+ *     message there (matching the expression-level member-receiver screen).
+ *     `message` is always `REGEX_HOST_REGEXP_FAILCLOSE`. `locallyShadowed`
+ *     reports a block-scope re-declaration so the caller can also honor an outer
+ *     user binding.
+ *   - `regexLiteralAccess` — a property/element access on a regex LITERAL
+ *     (`/x/.source`, `/x/["flags"]`, `/x/.test(s)`, `/x/.exec(s)`,
+ *     `/x/.compile(y)`). The receiver is a literal (never user-bindable), so it
+ *     never honors a binding (`locallyShadowed` is always false). `message` is
+ *     the shared classifier's verdict: `null` when the access is PORTABLE
+ *     (`/x/.test(s)` — NO violation pushed) or the exact fail-close message
+ *     otherwise (regex-host for reads/non-portable methods, `REGEX_EXEC_FAILCLOSE`
+ *     for `.exec`, `REGEX_TEST_G_FAILCLOSE` for `/g`-literal `.test`). */
+export interface ClosureBlockRegexHostViolation {
+  // NOTE: these `kind` discriminant literals are camelCase (NOT kebab-case)
+  // deliberately. The eligibility-golden drift wall mechanically extracts
+  // reason-code literals from this source file with a `'kebab-case'` regex
+  // (requiring at least one hyphen); camelCasing these internal,
+  // non-reason-code kinds keeps them from being mis-extracted as phantom
+  // eligibility reason codes — while staying biome-clean (single quotes).
+  kind: 'bareRegexp' | 'regexLiteralAccess';
+  root: string;
+  locallyShadowed: boolean;
+  /** The exact fail-close message to throw (mirrors the expression-level path). */
+  message: string;
+}
+
+/** Collect the const/let/function/class names declared at the TOP LEVEL of a
+ *  single block (its DIRECT statement children only — NOT nested blocks). JS
+ *  block-scoping hoists these to the whole enclosing block, so a reference
+ *  ANYWHERE in the block (even lexically BEFORE the declarator) resolves to the
+ *  block-local, not an outer binding. Predeclaring them before visiting the
+ *  block's refs is what makes `() => { let x = RegExp; const RegExp = 1; … }`
+ *  treat the `RegExp` in `x`'s initializer as the block-local (no false
+ *  fail-close). `var` hoists to the function, not the block, but the v1 gate
+ *  rejects `var`, so only let/const/function/class reach here. */
+function topLevelBlockDeclaredNames(statements: readonly ts.Statement[]): string[] {
+  const names: string[] = [];
+  for (const stmt of statements) {
+    if (ts.isVariableStatement(stmt)) {
+      for (const decl of stmt.declarationList.declarations) {
+        names.push(...bindingPatternIdentifierNames(decl.name));
+      }
+    } else if (ts.isFunctionDeclaration(stmt) && stmt.name) {
+      names.push(stmt.name.text);
+    } else if (ts.isClassDeclaration(stmt) && stmt.name) {
+      names.push(stmt.name.text);
+    }
+  }
+  return names;
+}
+
+/** True when this `RegExp` identifier sits in a position where it is NOT a host
+ *  VALUE use, so the bare-`RegExp` screen must NOT fire:
+ *   - the member NAME of a property access (`obj.RegExp`) or `QualifiedName`;
+ *   - the OBJECT of a member/element access (`RegExp.prototype`, `RegExp[$1]`) —
+ *     the generic member scan owns these and emits the GENERIC host message,
+ *     matching the expression-level member-receiver screen;
+ *   - an object property KEY (`{ RegExp: 1 }`) — but NOT a shorthand
+ *     (`{ RegExp }`), which IS a value reference;
+ *   - an object-literal METHOD / GETTER / SETTER name or a class PROPERTY name
+ *     (`{ RegExp() {} }`, `{ get RegExp() {} }`, `{ set RegExp(v) {} }`,
+ *     `class { RegExp = … }`) — a member key, not a host value reference;
+ *   - any DECLARATION name (variable/binding/parameter/enum-member/class/function);
+ *   - a TYPE-ANNOTATION reference (`const x: RegExp = …`) — types are erased and
+ *     are never a value use. */
+function isRegExpNonValuePosition(node: ts.Identifier): boolean {
+  const parent = node.parent;
+  if (!parent) return false;
+  // Member NAME side (`obj.RegExp`, qualified `A.RegExp`).
+  if (ts.isPropertyAccessExpression(parent) && parent.name === node) return true;
+  if (ts.isQualifiedName(parent) && parent.right === node) return true;
+  // Member OBJECT side (`RegExp.foo`, `RegExp[x]`) — generic scan owns it.
+  if (ts.isPropertyAccessExpression(parent) && parent.expression === node) return true;
+  if (ts.isElementAccessExpression(parent) && parent.expression === node) return true;
+  // Object property KEY (NOT shorthand — shorthand is a value reference).
+  if (ts.isPropertyAssignment(parent) && parent.name === node) return true;
+  // Object-literal METHOD / GETTER / SETTER NAMES, and a class PROPERTY name
+  // (`{ RegExp() {} }`, `{ get RegExp() {} }`, `{ set RegExp(v) {} }`,
+  // `class { RegExp = … }`). The NAME is a member key, NOT a value reference to
+  // the host `RegExp` global — emitting the object/class never reads the host
+  // root, so the bare-`RegExp` screen must NOT fire on it (over-rejection fix).
+  if (
+    (ts.isMethodDeclaration(parent) ||
+      ts.isGetAccessorDeclaration(parent) ||
+      ts.isSetAccessorDeclaration(parent) ||
+      ts.isPropertyDeclaration(parent)) &&
+    parent.name === node
+  ) {
+    return true;
+  }
+  // Declaration names of every flavor.
+  if (ts.isVariableDeclaration(parent) && parent.name === node) return true;
+  if (ts.isBindingElement(parent) && (parent.name === node || parent.propertyName === node)) return true;
+  if (ts.isParameter(parent) && parent.name === node) return true;
+  if (ts.isEnumMember(parent) && parent.name === node) return true;
+  if ((ts.isFunctionDeclaration(parent) || ts.isClassDeclaration(parent)) && parent.name === node) return true;
+  // A reference inside a TYPE NODE is erased (`const x: RegExp = /a/`).
+  if (isInTypePosition(node)) return true;
+  // Round-6 fix — the round-5 carve-out exempted `typeof RegExp` here, which (with
+  // its TS/IR-emit siblings) re-opened reserved host roots. `typeof RegExp` is NOT
+  // portable (the Python leg lowers `typeof` to a runtime `isinstance` ladder over
+  // the Python name `RegExp`, which does not exist), so it MUST fail-close — and
+  // it does so through this bare-`RegExp` screen, which fires inside a `typeof`
+  // operand just like any other value reference. (`typeof RegExp.prototype` is a
+  // member read, owned by the member-OBJECT branch above, so it is unaffected.)
+  // Non-RegExp host roots in `typeof` position (`typeof Date`/`typeof process`)
+  // are caught by `collectClosureBlockTypeofHostRoots` with the generic host
+  // message, keeping the closure-walk leg in lockstep with the expression legs.
+  return false;
+}
+
+/** True when the node sits anywhere inside a TypeNode (a type annotation, type
+ *  argument, type alias, etc.). Types are erased on emit, so a `RegExp` there is
+ *  never a host VALUE use. Walks parents until a TypeNode (erased) or a
+ *  value-bearing boundary (statement/block) is reached. */
+function isInTypePosition(node: ts.Node): boolean {
+  let current: ts.Node | undefined = node.parent;
+  while (current) {
+    if (ts.isTypeNode(current)) return true;
+    if (ts.isStatement(current) || ts.isBlock(current) || ts.isSourceFile(current)) return false;
+    current = current.parent;
+  }
+  return false;
+}
+
+/** Walk a closure block's TS AST and collect the regex-host violations the
+ *  generic member-access scan cannot see (bare `RegExp` VALUE references and
+ *  regex-LITERAL property/element accesses). Tracks REAL JS block scope: each
+ *  block predeclares its top-level let/const/function/class names BEFORE visiting
+ *  its refs, so a name shadows only within its own block + nested blocks. A
+ *  parse failure yields an empty list (the gate already rejected such bodies). */
+export function collectClosureBlockRegexHostViolations(raw: string): ClosureBlockRegexHostViolation[] {
+  const block = parseClosureBlockAst(raw);
+  if (block === null) return [];
+  const violations: ClosureBlockRegexHostViolation[] = [];
+  const scopes: Array<Set<string>> = [];
+  const isLocal = (name: string): boolean => scopes.some((scope) => scope.has(name));
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isBlock(node)) {
+      // JS block scope: hoist this block's top-level declarations for its WHOLE
+      // body (order-independent), then visit. Pop on exit so a sibling/outer
+      // reference no longer sees them.
+      scopes.push(new Set(topLevelBlockDeclaredNames(node.statements)));
+      for (const statement of node.statements) visit(statement);
+      scopes.pop();
+      return;
+    }
+    // A property/element access whose receiver is a regex LITERAL, possibly under
+    // transparent type-only wrappers (`(/x/ as any).source`, `(/x/!)["source"]`,
+    // nested `((/x/ as any)).source`). The receiver is UNWRAPPED first
+    // (`unwrapRegexReceiverTS`) so a wrapped literal is screened identically to the
+    // bare form — and to the IR legs, which peel the matching `typeAssert`/
+    // `nonNull` IR wrappers (round-5 wrapped-receiver fail-close fix). The shared
+    // classifier returns the exact message (or null = portable, e.g. `/x/.test`).
+    if (
+      (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
+      ts.isRegularExpressionLiteral(unwrapRegexReceiverTS(node.expression))
+    ) {
+      const receiver = unwrapRegexReceiverTS(node.expression) as ts.RegularExpressionLiteral;
+      const property = regexLiteralAccessPropertyName(node);
+      // Only a DOTTED property access can be the callee of a portable regex
+      // method call — `lowerRegexCallTS` lowers `callee.kind === 'member'` only,
+      // so a BRACKET-form call (`/x/["test"](s)`) is NOT portable.
+      const isDottedCallee =
+        ts.isPropertyAccessExpression(node) && ts.isCallExpression(node.parent) && node.parent.expression === node;
+      const flags = regexLiteralFlags(receiver);
+      const message = classifyRegexLiteralAccessFailClose(property, isDottedCallee, flags);
+      if (message !== null) {
+        violations.push({ kind: 'regexLiteralAccess', root: 'RegExp', locallyShadowed: false, message });
+      }
+      // Do NOT blindly `forEachChild` into this already-classified access: the
+      // regexLit RECEIVER (`node.expression`) has no child violation, and
+      // re-descending the access node as a whole risks re-visiting it. Descend
+      // ONLY into a computed element INDEX (`/x/[k]`) so the index EXPRESSION is
+      // still checked for its OWN host violations (`/x/[someObj.RegExp]`,
+      // `/x/[/y/.source]`) — a property access (`/x/.source`) has only the static
+      // member key, nothing value-bearing to recurse into.
+      if (ts.isElementAccessExpression(node)) visit(node.argumentExpression);
+      return;
+    }
+    if (ts.isIdentifier(node) && node.text === 'RegExp' && !isRegExpNonValuePosition(node)) {
+      violations.push({
+        kind: 'bareRegexp',
+        root: node.text,
+        locallyShadowed: isLocal(node.text),
+        message: REGEX_HOST_REGEXP_FAILCLOSE,
+      });
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  // The root closure block is a `ts.Block`; `visit` pushes its top-level scope.
+  visit(block);
+  return violations;
+}
+
+/** A bare-identifier operand of a `typeof` expression found inside a closure
+ *  block (`typeof Date`, `typeof process`). The host-root decision is made by the
+ *  CONSUMER (`typescript-closure-classifier.ts`), so this collector stays free of
+ *  host-namespace coupling — it only reports the operand `name` and whether a
+ *  block-scope local shadows it. RegExp is NOT special-cased here: a bare `RegExp`
+ *  in `typeof` position is already a value reference caught by
+ *  `collectClosureBlockRegexHostViolations` (round-6 removed the `typeof` exemption
+ *  in `isRegExpNonValuePosition`), so it fails-close there with the regex message.
+ *  This collector covers the OTHER reserved host roots with the generic message. */
+export interface ClosureBlockTypeofOperand {
+  name: string;
+  locallyShadowed: boolean;
+}
+
+/** Walk a closure block and collect every `typeof <bare identifier>` operand,
+ *  tracking REAL JS block scope identically to
+ *  {@link collectClosureBlockRegexHostViolations}: each block predeclares its
+ *  top-level let/const/function/class names (incl. destructuring) BEFORE visiting
+ *  its refs, so a block-local shadow is honored for the whole block. Only the
+ *  bare-identifier operand of a `typeof` is reported, AFTER recursively peeling
+ *  the transparent TS-AST wrappers via {@link unwrapRegexReceiverTS} — so a
+ *  WRAPPED operand (`typeof (Date as any)`, `typeof (Date!)`, parenthesized
+ *  `typeof (Date)`, nested `typeof (Date as any as unknown)`) records the
+ *  underlying `Date` name, identically to the ValueIR legs that peel
+ *  `typeAssert`/`nonNull` via `unwrapTransparentReceiverIR` (round-7 closes the
+ *  wrapped-operand bypass on this leg too). `typeof Date.now` (a member operand)
+ *  is owned by the generic member-access scan, and any operand that does NOT
+ *  unwrap to a bare identifier records nothing. A parse failure yields an empty
+ *  list (the gate already rejected such bodies). */
+export function collectClosureBlockTypeofOperands(raw: string): ClosureBlockTypeofOperand[] {
+  const block = parseClosureBlockAst(raw);
+  if (block === null) return [];
+  const operands: ClosureBlockTypeofOperand[] = [];
+  const scopes: Array<Set<string>> = [];
+  const isLocal = (name: string): boolean => scopes.some((scope) => scope.has(name));
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isBlock(node)) {
+      scopes.push(new Set(topLevelBlockDeclaredNames(node.statements)));
+      for (const statement of node.statements) visit(statement);
+      scopes.pop();
+      return;
+    }
+    if (ts.isTypeOfExpression(node)) {
+      // Round-7 — peel the transparent TS-AST wrappers (paren/`as`/`<T>`/`!`/
+      // `satisfies`) via the round-5 `unwrapRegexReceiverTS` (fixpoint) BEFORE the
+      // bare-identifier check, so a WRAPPED operand (`typeof (Date as any)`) is
+      // recorded as the underlying `Date` — matching the ValueIR legs' unwrap.
+      const operand = unwrapRegexReceiverTS(node.expression);
+      if (ts.isIdentifier(operand)) {
+        operands.push({ name: operand.text, locallyShadowed: isLocal(operand.text) });
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  // The root closure block is a `ts.Block`; `visit` pushes its top-level scope.
+  visit(block);
+  return operands;
+}
+
+/** The portable property NAME of a regex-literal property/element access, or
+ *  null when it is a COMPUTED element index (`/x/[k]`) — unknowable, so the
+ *  classifier treats it as non-portable. A STRING-literal element index
+ *  (`/x/["test"]`) yields its string value so it classifies like the dotted form. */
+function regexLiteralAccessPropertyName(node: ts.PropertyAccessExpression | ts.ElementAccessExpression): string | null {
+  if (ts.isPropertyAccessExpression(node)) return node.name.text;
+  const arg = node.argumentExpression;
+  if (ts.isStringLiteralLike(arg)) return arg.text;
+  return null;
+}
+
+/** Recursively peel the transparent TS-AST wrappers off a regex-literal access
+ *  RECEIVER until the underlying expression: `ParenthesizedExpression` (`(/x/)`),
+ *  `AsExpression` (`/x/ as any`), `TypeAssertionExpression` (legacy `<any>/x/`),
+ *  `NonNullExpression` (`/x/!`), and `SatisfiesExpression` (`/x/ satisfies T`).
+ *  Fixpoint loop (not a single unwrap) so nested wrappers like `((/x/ as any))!`
+ *  collapse to the `/x/` literal. This is the TS-AST projection of the IR-leg
+ *  {@link unwrapTransparentReceiverIR} (which peels `typeAssert`/`nonNull`): the
+ *  SAME logical wrapper set on each node universe, so a wrapped regex-literal
+ *  access screens identically across the TS-AST closure leg and the ValueIR legs.
+ *
+ *  DELIBERATELY does NOT peel a comma-sequence `(0, /x/)`: KERN's value IR has no
+ *  comma/sequence node, so the IR legs can never SEE that shape — peeling it on
+ *  the TS-AST leg only would CREATE a one-target divergence, the opposite of the
+ *  lockstep this round closes. (A comma-sequence regex-literal receiver is a
+ *  vanishingly rare host shape; leaving it un-unwrapped is the parity-safe choice.) */
+function unwrapRegexReceiverTS(expr: ts.Expression): ts.Expression {
+  let current: ts.Expression = expr;
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isTypeAssertionExpression(current) ||
+    ts.isNonNullExpression(current) ||
+    ts.isSatisfiesExpression(current)
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
+/** Extract the flags substring of a regex literal token (`/x/gi` → `gi`).
+ *
+ *  DEFENSIVE GUARD (round-5 over-rejection/soundness fix): a well-formed regex
+ *  literal text is `/…/flags`, so the flags are everything after the LAST `/`.
+ *  But if the token text is malformed (no closing slash, or a leading-slash-only
+ *  shape where the only `/` is the opener at index 0), `lastIndexOf('/')` would
+ *  return `-1` or `0` and we would mis-read the body AS flags — silently passing a
+ *  pattern that should be screened. A malformed literal must never launder
+ *  flags: when there is no closing `/` at index > 0, we FAIL SAFE by returning a
+ *  `'g'`-bearing sentinel so the classifier takes the most-restrictive (`/g`)
+ *  branch (`/x/.test` → `REGEX_TEST_G_FAILCLOSE`; every other access already
+ *  fails-close flag-independently) — fail-CLOSE rather than fail-open. A real
+ *  regex literal always has its closing slash at index > 0, so this never affects
+ *  valid input; `ts` would not even produce a `RegularExpressionLiteral` token
+ *  for an unterminated literal, but the guard is the cheap, sound belt-and-braces. */
+function regexLiteralFlags(literal: ts.RegularExpressionLiteral): string {
+  const text = literal.text;
+  const lastSlash = text.lastIndexOf('/');
+  // Valid `/…/flags` always has its closing slash at index > 0 (index 0 is the
+  // opener). `<= 0` means no closing slash was found — fail SAFE with `/g`.
+  if (lastSlash <= 0) return 'g';
+  return text.slice(lastSlash + 1);
+}
+
 /** Peel the wrapper layers a call callee may carry until reaching the underlying
  *  expression: parenthesized, `as`, legacy `<T>` type-assertion, non-null `!`,
  *  and `satisfies` forms, plus the right operand of a comma (sequence) operator.
@@ -227,7 +569,14 @@ function unwrapCallCalleeExpression(expr: ts.Expression): ts.Expression {
   }
 }
 
-function bindingPatternIdentifierNames(name: ts.BindingName): string[] {
+/** Flatten a binding NAME (plain identifier OR an object/array destructuring
+ *  pattern) to the identifier names it binds. `const { RegExp } = x` →
+ *  `['RegExp']`, `const [a, , b] = arr` → `['a','b']`. Exported so the Python
+ *  closure lowerer's block-scope tracker (`blockTopLevelDeclaredNames` in
+ *  closure-python-lowering.ts) extracts shadow names the SAME way as the TS-AST
+ *  closure walk here — a destructured `RegExp` shadow is then honored
+ *  symmetrically on both legs (no fail-open on one target). */
+export function bindingPatternIdentifierNames(name: ts.BindingName): string[] {
   if (ts.isIdentifier(name)) return [name.text];
   const out: string[] = [];
   for (const element of name.elements) {

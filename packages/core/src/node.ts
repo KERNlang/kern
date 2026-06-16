@@ -39,7 +39,12 @@ export {
 // v1 closure gate — TypeScript-AST eligibility predicate + free-variable
 // collection. Consumed by the migrator eligibility classifier and the Python
 // lowerer.
-export { classifyClosureBlock, collectFreeIdentifierNames, parseClosureBlockAst } from './closure-eligibility.js';
+export {
+  classifyClosureBlock,
+  collectClosureBlockLocalBindingNames,
+  collectFreeIdentifierNames,
+  parseClosureBlockAst,
+} from './closure-eligibility.js';
 export type {
   LowerJsClosureBodyToPythonOptions,
   LowerJsClosureBodyToPythonResult,

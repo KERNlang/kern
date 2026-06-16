@@ -5,7 +5,7 @@ type name=NextjsMajor alias="13 | 14 | 15 | 16"
 
 fn name=parseMajorVersion params="version:string" returns=number export=true
   handler
-    let name=cleaned value="version.replace(new RegExp('^[\\\\^~>=<]*', 'g'), '').trim()"
+    let name=cleaned value="version.replace(/^[\^~>=<]*/g, '').trim()"
     let name=major value="parseInt(cleaned.split('.')[0], 10)"
     return value="Number.isNaN(major) ? 0 : major"
 

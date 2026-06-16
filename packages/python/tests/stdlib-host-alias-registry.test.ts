@@ -408,10 +408,17 @@ describeIfPython('Milestone A stdlib host aliases — reserved namespace and fai
     expect(() => emitNativeKernBodyPythonWithImports(letHandler(expr))).toThrow(/Unknown KERN-stdlib method\/member/);
   });
 
-  test('RegExp remains exempt from host-namespace fail-closing on both emitted targets', () => {
-    expect(HOST_NAMESPACE_EXEMPT_ROOTS.has('RegExp')).toBe(true);
-    expect(emitNativeKernBodyTSWithImports(letHandler('RegExp.escape(s)')).code).toContain('RegExp.escape(s)');
-    expect(emitNativeKernBodyPythonWithImports(letHandler('RegExp.escape(s)')).code).toContain('RegExp.escape(s)');
+  // Milestone C, Slice 2 — host `RegExp` is no longer exempt: the exemption set is
+  // now empty and `RegExp.<member>()` fails-close on both targets like any other
+  // reserved host root.
+  test('RegExp is no longer exempt — RegExp.escape(s) fails-close on both emitted targets', () => {
+    expect(HOST_NAMESPACE_EXEMPT_ROOTS.has('RegExp')).toBe(false);
+    expect(() => emitNativeKernBodyTSWithImports(letHandler('RegExp.escape(s)'))).toThrow(
+      /Unsupported host namespace in TypeScript expression: RegExp\.escape/,
+    );
+    expect(() => emitNativeKernBodyPythonWithImports(letHandler('RegExp.escape(s)'))).toThrow(
+      /Unsupported host namespace in Python expression: RegExp\.escape/,
+    );
   });
 
   test('user bindings named like host roots shadow the host namespace on both targets', () => {

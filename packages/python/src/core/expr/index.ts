@@ -255,6 +255,14 @@ function lowerArrowBlockClosure(arrow: { params: string[]; body: string }, ctx: 
     // Closure params are def-locals (never `nonlocal`); the lowerer excludes
     // them and block-locals from the written-free set.
     paramNames: arrow.params,
+    // Round-7 — the block-scope hooks are now REQUIRED (a missing wire is a
+    // compile error, no longer a silent fail-open). The route path screens host
+    // names through the `rewriteExpr` rewriter, NOT a per-block shadow stack, so
+    // it has no block-scope tracking to maintain here: it opts OUT explicitly
+    // with no-op (identity) implementations. This is the intentional route-path
+    // opt-out the interface documents — visible at the call site, not an accident.
+    enterBlockScope: () => {},
+    exitBlockScope: () => {},
   });
   if (!result.ok) return null;
   ctx.imports?.add(KERN_JS_HELPER_PY);

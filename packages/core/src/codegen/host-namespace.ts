@@ -3,16 +3,22 @@
  * Host roots in this file name target/runtime namespaces whose member reads or
  * calls do not yet have portable KERN lowerings. The KERN stdlib registry owns
  * portable namespaces such as Math/Array/Object/JSON, so those roots are
- * excluded here by construction. RegExp is intentionally exempt for Milestone B
- * until KERN's own regex surface lands in Milestone C.
+ * excluded here by construction.
+ *
+ * Milestone C, Slice 2 — host `RegExp` is no longer exempt. KERN's certified
+ * portable regex surface is the LITERAL `/…/` form (Slices 1/3/4/5); the host
+ * `RegExp` constructor/global has no portable cross-target lowering (string-
+ * pattern construction bypasses the literal escape pipeline; the runtime
+ * SyntaxError/flag model diverges), so it is now RESERVED and fails-closed in
+ * every position. The construction/value/`.source`-`.flags` screens that the
+ * generic `Module.member` machinery does not cover live next to the regex
+ * lowerings (see `REGEX_HOST_REGEXP_FAILCLOSE` in regex-normalize.ts).
  */
 import { KERN_STDLIB_MODULES } from './kern-stdlib.js';
 
-export const HOST_NAMESPACE_EXEMPT_ROOTS: ReadonlySet<string> = new Set([
-  // RegExp stays usable as a host escape hatch in Milestone B. Milestone C
-  // will move regex onto KERN's own portable regex surface, then remove this
-  // exemption so regex behavior is fail-closed and cross-target owned.
-  'RegExp',
+export const HOST_NAMESPACE_EXEMPT_ROOTS: ReadonlySet<string> = new Set<string>([
+  // (empty) — every host root that is not a KERN stdlib module is reserved and
+  // fails-closed. `RegExp` was the last exemption; Slice 2 removed it.
 ]);
 
 const RAW_HOST_NAMESPACE_ROOTS: ReadonlySet<string> = new Set([
