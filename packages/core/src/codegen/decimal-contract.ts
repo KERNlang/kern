@@ -470,16 +470,74 @@ export function decimalUnaryOperandFailMessage(method: string, op: string): stri
   );
 }
 
+/** The TRANSPARENT-WRAPPER {@link ValueIR} kinds — nodes that re-express their
+ *  inner value verbatim with NO runtime effect on the TS leg, so they must be
+ *  UNWRAPPED before any operand-shape check, or a wrapped unary/literal slips past:
+ *    - `typeAssert` (`x as T`) — a compile-time-only cast; emits the inner expr
+ *      verbatim on both legs (`(-new Decimal("0") as Decimal)` still runs the unary).
+ *    - `nonNull`    (`x!`)     — the postfix non-null assertion; likewise erased to
+ *      the inner expr at emit, so `(-Decimal.of("0"))!` still runs the unary.
+ *  This is the EXACT set value-ir.ts defines whose `.expression` field carries the
+ *  inner node (parser-expression.ts `parsePostfix`: `as` → `typeAssert`, `!` →
+ *  `nonNull`), and the same set the three host-namespace-ir.ts root helpers unwrap.
+ *  DELIBERATELY EXCLUDED: `propagate` (`x?`/`x!`-propagate) is NOT transparent — it
+ *  short-circuits/panics at runtime and is validated via `.argument` like
+ *  `unary`/`await`; unwrapping it would be unsound. `parenthesized` is a boolean
+ *  FLAG (on `lambda`), not a wrapper kind, and preserves `kind`, so it never hides
+ *  an operand shape and needs no unwrap. */
+const TRANSPARENT_WRAPPER_KINDS = new Set(['typeAssert', 'nonNull']);
+
+/** Recursively peel every transparent wrapper (`typeAssert`/`nonNull`) off `node`,
+ *  returning the first inner node that is NOT a transparent wrapper. Closes the WHOLE
+ *  wrapper-bypass class for the Decimal operand checks: a wrapped operand
+ *  (`(-Decimal.of("0") as Decimal)` → `typeAssert(unary(call))`,
+ *  `(0.1 as any)` → `typeAssert(numLit)`, `((-Decimal.of("0") as Decimal))!` →
+ *  `nonNull(typeAssert(unary(call)))`) is unwrapped to its operative inner node so the
+ *  unary check and the non-Decimal-literal check below see the REAL shape, not the
+ *  wrapper. Handles arbitrary nesting/combinations of the two wrapper kinds. A bare
+ *  (non-wrapper) node is returned unchanged. Mirrors the slice-2 regex
+ *  transparent-receiver unwrap and the host-namespace-ir.ts root helpers — same
+ *  authoritative {@link TRANSPARENT_WRAPPER_KINDS} set, kept in lockstep with the IR.
+ *
+ *  SCOPE (deliberate): this unwraps ONLY the EMIT-ERASED transparent wrappers. It does
+ *  NOT descend into RUNTIME containers — `index`/`arrayLit` (`[-Decimal.of("0")][0]`),
+ *  `call`/`member`, `conditional`, etc. Those re-execute their inner expression at
+ *  runtime (they are not erased), so a unary/literal reached only through one is the
+ *  SAME conservative-flow-through case the validator documents for `call`/`member`/
+ *  `ident`: it MAY be a Decimal, and KERN has no typed IR to prove otherwise. ALL the
+ *  sibling syntactic Decimal checks (`assertNoDecimalOperator`, `assertNonZeroDecimalDivisor`)
+ *  share this exact boundary — closing it needs the typed-IR `provenType:'decimal'`
+ *  slice that tracks values through containers, NOT a syntactic peel. Unwrapping a
+ *  container here would be an inconsistent, incomplete band-aid (it would miss
+ *  `foo()`-returning-a-number, `(c?[a]:[b])[0]`, …). */
+function unwrapTransparentDecimalOperand(node: unknown): unknown {
+  let current = node;
+  // Bound the loop defensively to the wrapper kinds only; a malformed/cyclic IR
+  // cannot occur (the IR is a finite tree from the parser), but the `kind` guard
+  // makes termination obvious: each step strips one wrapper or stops.
+  while (
+    typeof current === 'object' &&
+    current !== null &&
+    TRANSPARENT_WRAPPER_KINDS.has((current as { kind?: unknown }).kind as string)
+  ) {
+    current = (current as { expression?: unknown }).expression;
+  }
+  return current;
+}
+
 /** The provably-non-Decimal kind of an operand node, or null if the operand is not
  *  provably a non-Decimal literal.
  *
- *  TOP-LEVEL only: a UNARY-prefixed operand (`-x`, `~x`, `!x`) is now rejected ahead
- *  of this check by {@link topLevelUnaryOp} (a unary on a Decimal degrades on the TS
- *  leg via `.valueOf()` — see {@link decimalUnaryOperandFailMessage}), so by the time
- *  this runs the node is NOT a `unary`. We therefore inspect the node's OWN kind
- *  directly: a bare `numLit`/`strLit`/`boolLit`/… is provably never a Decimal and is
- *  refused; `ident`/`call`/`member`/`binary`/… flow through (they MAY be a Decimal and
- *  KERN has no typed IR to prove otherwise — the conservative/sound default). */
+ *  POST-UNWRAP: the caller has already peeled transparent wrappers
+ *  ({@link unwrapTransparentDecimalOperand}) AND a UNARY-prefixed operand (`-x`, `~x`,
+ *  `!x`) is rejected ahead of this check by {@link topLevelUnaryOp} (a unary on a
+ *  Decimal degrades on the TS leg via `.valueOf()` — see
+ *  {@link decimalUnaryOperandFailMessage}), so by the time this runs the node is the
+ *  fully-unwrapped operative node and NOT a `unary`. We inspect that node's OWN kind
+ *  directly: a bare `numLit`/`strLit`/`boolLit`/… (incl. one revealed under a cast,
+ *  `0.1 as any` → `numLit`) is provably never a Decimal and is refused;
+ *  `ident`/`call`/`member`/`binary`/… flow through (they MAY be a Decimal and KERN has
+ *  no typed IR to prove otherwise — the conservative/sound default). */
 function nonDecimalOperandKind(node: unknown): string | null {
   if (typeof node !== 'object' || node === null) return null;
   const kind = (node as { kind?: unknown }).kind;
@@ -496,8 +554,12 @@ function nonDecimalOperandKind(node: unknown): string | null {
  *  operand (not just the unary-wrapped non-Decimal LITERAL the old unwrap caught) is
  *  the sound minimal boundary: a unary on a Decimal degrades; a unary on a non-Decimal
  *  literal (`-0.1`) was already invalid — so both fail closed here, before the more
- *  specific literal check. We do NOT treat `typeAssert` (`x as Decimal`) as unary —
- *  that is the author's explicit type claim and the future typed-IR escape hatch. */
+ *  specific literal check. The caller passes the node AFTER stripping transparent
+ *  wrappers ({@link unwrapTransparentDecimalOperand}), so a unary HIDDEN inside a cast
+ *  or non-null assertion (`(-Decimal.of("0") as Decimal)`, `(-Decimal.of("0"))!`) is
+ *  seen here as a top-level `unary` and refused — closing the wrapper bypass. (The
+ *  `as`/`!` claim does NOT make a degrading unary safe: the TS leg still emits the
+ *  inner `-new Decimal("0")`, which `.valueOf()`-coerces before any guard runs.) */
 function topLevelUnaryOp(node: unknown): string | null {
   if (typeof node !== 'object' || node === null) return null;
   if ((node as { kind?: unknown }).kind !== 'unary') return null;
@@ -519,15 +581,29 @@ function topLevelUnaryOp(node: unknown): string | null {
  *  Called from BOTH legs' dispatch site with the SAME `{method, args}`, so the refusal
  *  is byte-identical. A no-op for `of` and for operands that are neither a unary nor a
  *  provably-non-Decimal literal (idents/calls/members flow through — they MAY be a
- *  Decimal; KERN has no typed IR to prove otherwise, the conservative/sound default). */
+ *  Decimal; KERN has no typed IR to prove otherwise, the conservative/sound default).
+ *
+ *  WRAPPER-BYPASS CLOSURE: each operand is first run through
+ *  {@link unwrapTransparentDecimalOperand}, which peels every `typeAssert`/`nonNull`
+ *  transparent wrapper (recursively, in any nesting/combination), BEFORE both checks.
+ *  Without this, a wrapped operand slips past BOTH: `(-Decimal.of("0") as Decimal)`
+ *  (`typeAssert(unary(call))`) is not a top-level `unary` and not a literal kind, so it
+ *  used to emit `(-new Decimal("0") as Decimal)` on the TS leg (the unary `.valueOf()`
+ *  TypeError) while Python kept a Decimal — ASYMMETRIC; and `(0.1 as any)`
+ *  (`typeAssert(numLit)`) hid a non-Decimal literal, re-opening the silent-boolean
+ *  divergence through a cast. Both checks operate on the UNWRAPPED node, so the refusal
+ *  stays symmetric across legs (single-sourced) for every wrapper shape. */
 export function assertDecimalOperands(method: string, args: ReadonlyArray<unknown>): void {
   if (method === 'of') return;
   for (const arg of args) {
-    const unaryOp = topLevelUnaryOp(arg);
+    // Peel transparent wrappers (`x as T`, `x!`) so a unary or non-Decimal literal
+    // hidden inside a cast/non-null assertion cannot bypass the operand checks below.
+    const operand = unwrapTransparentDecimalOperand(arg);
+    const unaryOp = topLevelUnaryOp(operand);
     if (unaryOp !== null) {
       throw new Error(decimalUnaryOperandFailMessage(method, unaryOp));
     }
-    const kind = nonDecimalOperandKind(arg);
+    const kind = nonDecimalOperandKind(operand);
     if (kind !== null) {
       throw new Error(decimalNonDecimalOperandFailMessage(method, kind));
     }

@@ -230,6 +230,49 @@ describe('Decimal Slice 3 (remediation) — unary-prefixed operand fails closed 
   });
 });
 
+// ── FIX 3c (transparent-wrapper bypass) — the operand checks inspected only the TOP-LEVEL
+//    IR kind, so the transparent wrappers `typeAssert` (`x as T`) and `nonNull` (`x!`) hid a
+//    wrapped unary or non-Decimal literal and let it bypass. A cast-wrapped literal
+//    (`(0.1 as any)`) would EMIT `.eq(0.1)` on TS (decimal.js coerces the clean string) vs
+//    `== Decimal("0.1")` mismatch on Python — silent boolean divergence; a nonNull-wrapped
+//    unary (`(-Decimal.of("0"))!`) would emit the degrading `-new Decimal("0")` on TS
+//    (`.valueOf()` → host -0 → bare TypeError) vs a real Decimal on Python — asymmetric. The
+//    fix recursively unwraps the wrappers before both checks, so every wrapper shape is
+//    refused byte-identically on BOTH legs (proven here via assertSymmetricThrow).
+describe('Decimal Slice 3 (remediation) — transparent-wrapper (as / !) operand bypass, symmetric', () => {
+  test('cast-wrapped non-Decimal literal (0.1 as any) — byte-identical refusal on both legs', () => {
+    assertSymmetricThrow('Decimal.eq(Decimal.of("1"), (0.1 as any))', DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+    assertSymmetricThrow('Decimal.add(Decimal.of("1"), (0.1 as any))', DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+    assertSymmetricThrow('Decimal.div(Decimal.of("1"), (true as any))', DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+  });
+  test('nonNull-wrapped degrading unary (-Decimal.of("0"))! — byte-identical refusal', () => {
+    assertSymmetricThrow('Decimal.div(Decimal.of("1"), (-Decimal.of("0"))!)', DECIMAL_UNARY_OPERAND_FAILCLOSE);
+    assertSymmetricThrow('Decimal.eq(Decimal.of("1"), (~Decimal.of("1"))!)', DECIMAL_UNARY_OPERAND_FAILCLOSE);
+  });
+  test('nonNull-wrapped non-Decimal literal — byte-identical refusal', () => {
+    assertSymmetricThrow('Decimal.eq(Decimal.of("1"), (0.1 as any)!)', DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+  });
+  test('nested / combined wrappers (cast of cast, cast + nonNull) — symmetric', () => {
+    assertSymmetricThrow('Decimal.eq(Decimal.of("1"), ((0.1 as any) as any))', DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+    assertSymmetricThrow(
+      'Decimal.div(Decimal.of("1"), ((-Decimal.of("0") as Decimal))!)',
+      DECIMAL_UNARY_OPERAND_FAILCLOSE,
+    );
+  });
+  test('the flagship repro (-Decimal.of("0") as Decimal) — byte-identical refusal (top-level unary by precedence)', () => {
+    assertSymmetricThrow(
+      'Decimal.div(Decimal.of("1"), (-Decimal.of("0") as Decimal))',
+      DECIMAL_UNARY_OPERAND_FAILCLOSE,
+    );
+  });
+  test('SOUND: a cast of a REAL Decimal producer still emits on BOTH legs (no false-fire)', () => {
+    expect(() => ts('Decimal.div(Decimal.of("1"), (Decimal.of("2") as Decimal))')).not.toThrow();
+    expect(() => py('Decimal.div(Decimal.of("1"), (Decimal.of("2") as Decimal))')).not.toThrow();
+    expect(() => ts('Decimal.eq((Decimal.of("1"))!, Decimal.of("2"))')).not.toThrow();
+    expect(() => py('Decimal.eq((Decimal.of("1"))!, Decimal.of("2"))')).not.toThrow();
+  });
+});
+
 // ── FIX 4 (remediation) — arity precedes the positional pow read on the PYTHON leg too
 describe('Decimal Slice 3 (remediation) — pow arity ordering on the Python leg', () => {
   test('Decimal.pow with one arg yields the arity error, not the pow-integer message', () => {

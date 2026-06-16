@@ -296,6 +296,58 @@ describe('Decimal Slice 3 (remediation) — unary-prefixed operand fail-close', 
   });
 });
 
+// ── FIX 3c (transparent-wrapper bypass) — the unary check and the non-Decimal-literal
+//    check inspected only the operand's TOP-LEVEL IR kind, so KERN's transparent-wrapper
+//    kinds `typeAssert` (`x as T`) and `nonNull` (`x!`) HID a wrapped unary or literal and
+//    let it bypass BOTH checks. `(0.1 as any)` → `typeAssert(numLit)` (a cast-wrapped
+//    non-Decimal literal, re-opening the silent-boolean divergence) and `(-Decimal.of("0"))!`
+//    → `nonNull(unary(call))` (a non-null-wrapped degrading unary) both used to flow through.
+//    The fix recursively UNWRAPS `typeAssert`/`nonNull` before both checks, so every wrapper
+//    shape — incl. nested/combined (`((... as Decimal))!`) — is refused on the real inner node.
+describe('Decimal Slice 3 (remediation) — transparent-wrapper (as / !) operand bypass', () => {
+  test('cast-wrapped non-Decimal literal (0.1 as any) fails closed (was the re-opened FIX-3 bug)', () => {
+    expect(() => ts('Decimal.eq(Decimal.of("1"), (0.1 as any))')).toThrow(DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+    expect(() => ts('Decimal.add(Decimal.of("1"), (0.1 as any))')).toThrow(DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+    expect(() => ts('Decimal.div(Decimal.of("1"), (true as any))')).toThrow(DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+    expect(() => ts('Decimal.lt(Decimal.of("1"), ("x" as any))')).toThrow(DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+  });
+  test('nonNull-wrapped degrading unary (-Decimal.of("0"))! fails closed', () => {
+    // `(-Decimal.of("0"))!` parses as nonNull(unary(call)); the `!` hid the degrading unary.
+    expect(() => ts('Decimal.div(Decimal.of("1"), (-Decimal.of("0"))!)')).toThrow(DECIMAL_UNARY_OPERAND_FAILCLOSE);
+    expect(() => ts('Decimal.eq(Decimal.of("1"), (~Decimal.of("1"))!)')).toThrow(DECIMAL_UNARY_OPERAND_FAILCLOSE);
+  });
+  test('nonNull-wrapped non-Decimal literal (0.1)! fails closed', () => {
+    expect(() => ts('Decimal.eq(Decimal.of("1"), (0.1 as any)!)')).toThrow(DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+  });
+  test('nested / combined wrappers (cast of cast, cast + nonNull) all fail closed on the inner shape', () => {
+    expect(() => ts('Decimal.eq(Decimal.of("1"), ((0.1 as any) as any))')).toThrow(
+      DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE,
+    );
+    expect(() => ts('Decimal.div(Decimal.of("1"), ((-Decimal.of("0") as Decimal))!)')).toThrow(
+      DECIMAL_UNARY_OPERAND_FAILCLOSE,
+    );
+    expect(() => ts('Decimal.eq(Decimal.of("1"), (((0.1 as any))! as any))')).toThrow(
+      DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE,
+    );
+  });
+  test('the flagship repro -Decimal.of("0") as Decimal fails closed (here a TOP-LEVEL unary by precedence)', () => {
+    // `(-Decimal.of("0") as Decimal)` parses as unary(typeAssert(call)) — `as` binds inside
+    // the unary — so it is ALREADY a top-level unary; assert it fail-closes regardless.
+    expect(() => ts('Decimal.div(Decimal.of("1"), (-Decimal.of("0") as Decimal))')).toThrow(
+      DECIMAL_UNARY_OPERAND_FAILCLOSE,
+    );
+  });
+  test('SOUND: a cast of a REAL Decimal producer still flows through and emits (no false-fire)', () => {
+    expect(() => ts('Decimal.div(Decimal.of("1"), (Decimal.of("2") as Decimal))')).not.toThrow();
+    expect(ts('Decimal.div(Decimal.of("1"), (Decimal.of("2") as Decimal))')).toBe(
+      '__k_decimal_div(new Decimal("1"), new Decimal("2") as Decimal)',
+    );
+    // nonNull on a real Decimal producer, and a cast ident (may be a Decimal), also flow.
+    expect(() => ts('Decimal.eq((Decimal.of("1"))!, Decimal.of("2"))')).not.toThrow();
+    expect(() => ts('Decimal.eq(Decimal.of("1"), (d as Decimal))')).not.toThrow();
+  });
+});
+
 // ── FIX 4 (remediation) — arity validation precedes the positional pow read, so a
 //    1-arg `Decimal.pow` yields the ARITY error, NOT the misleading pow message.
 describe('Decimal Slice 3 (remediation) — pow arity ordering (FIX-4 regression)', () => {
