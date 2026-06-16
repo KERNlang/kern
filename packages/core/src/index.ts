@@ -641,6 +641,23 @@ export {
 export { parsePortableNonNegativeIntLiteral, parsePortablePathSegments } from './portable-route-collection.js';
 export type { RagAssertionKind } from './rag-assertions.js';
 export { RAG_ASSERTION_KIND_SET, RAG_ASSERTION_KINDS } from './rag-assertions.js';
+export type { Embedder } from './rag-embedding.js';
+export {
+  createEmbeddingRetriever,
+  DEFAULT_EMBEDDING_DIMS,
+  DEFAULT_HASH_EMBEDDER_ID,
+  DeterministicHashEmbedder,
+  EMBEDDING_SCORE_DECIMALS,
+  EmbeddingRagIndex,
+  embeddingCosine,
+  fnv1a32,
+} from './rag-embedding.js';
+export type {
+  RagEvalDocumentEntry,
+  RagEvalDocumentOptions,
+  RagEvalDocumentReport,
+} from './rag-eval-runner.js';
+export { evaluateRagEvalDocument } from './rag-eval-runner.js';
 export type {
   InMemoryRagRetriever,
   ProvenancedRetrieveResult,
