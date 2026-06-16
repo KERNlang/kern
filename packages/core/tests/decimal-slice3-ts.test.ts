@@ -14,6 +14,7 @@ import {
   DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE,
   DECIMAL_OPERATOR_FAILCLOSE,
   DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE,
+  DECIMAL_UNARY_OPERAND_FAILCLOSE,
   decimalImportLineTS,
   decimalOfLiteralValue,
   decimalOpsHelpersTS,
@@ -243,6 +244,55 @@ describe('Decimal Slice 3 (remediation) — non-Decimal operand fail-close', () 
     expect(() => ts('Decimal.eq(d, e)')).not.toThrow();
     expect(() => ts('Decimal.add(d, Decimal.of("2"))')).not.toThrow();
     expect(() => ts('Decimal.div(Decimal.of("1"), d)')).not.toThrow();
+  });
+});
+
+// ── FIX 3b (confirmation-review BLOCKER) — a UNARY-PREFIXED operand whose unwrapped
+//    node is NOT a non-Decimal literal (`-Decimal.of("0")` → unwraps to a `call`) used
+//    to slip the operand guard. A unary on a Decimal degrades on the TS leg only
+//    (decimal.js `.valueOf()` coerces it to a host primitive BEFORE the helper runs),
+//    so the prior code emitted `__k_decimal_div(new Decimal("1"), (-new Decimal("0")))`
+//    — which throws a bare `TypeError` on TS but the intended KERN diagnostic on
+//    Python: an asymmetric runtime divergence. The fix fail-closes ANY top-level unary
+//    operand (every method but `of`), pointing users at `Decimal.neg(x)`.
+describe('Decimal Slice 3 (remediation) — unary-prefixed operand fail-close', () => {
+  test('THE REPRO: Decimal.div(Decimal.of("1"), -Decimal.of("0")) fails closed (was emitted before)', () => {
+    expect(() => ts('Decimal.div(Decimal.of("1"), -Decimal.of("0"))')).toThrow(DECIMAL_UNARY_OPERAND_FAILCLOSE);
+  });
+  test('-Decimal.of("1") as a div operand and as a comparator operand both fail closed', () => {
+    expect(() => ts('Decimal.div(-Decimal.of("1"), Decimal.of("2"))')).toThrow(DECIMAL_UNARY_OPERAND_FAILCLOSE);
+    expect(() => ts('Decimal.eq(-Decimal.of("1"), Decimal.of("1"))')).toThrow(DECIMAL_UNARY_OPERAND_FAILCLOSE);
+    expect(() => ts('Decimal.add(Decimal.of("1"), -Decimal.of("1"))')).toThrow(DECIMAL_UNARY_OPERAND_FAILCLOSE);
+  });
+  test('other unary operators on a Decimal producer (~, !) also fail closed', () => {
+    expect(() => ts('Decimal.add(Decimal.of("1"), ~Decimal.of("1"))')).toThrow(DECIMAL_UNARY_OPERAND_FAILCLOSE);
+    expect(() => ts('Decimal.eq(Decimal.of("1"), !Decimal.of("1"))')).toThrow(DECIMAL_UNARY_OPERAND_FAILCLOSE);
+  });
+  test('the unary message points users at the portable Decimal.neg(x) form', () => {
+    expect(() => ts('Decimal.div(Decimal.of("1"), -Decimal.of("0"))')).toThrow('Decimal.neg(x)');
+  });
+  // NOTE: unary PLUS (`+Decimal.of("1")`) is rejected even EARLIER — the KERN parser
+  // does not accept a leading `+`, so it is a parse-time error, not a validator
+  // fail-close. Both are a refusal; we assert the parse-level one for completeness.
+  test('unary plus (+Decimal.of("1")) is refused at PARSE time (parser rejects leading +)', () => {
+    expect(() => parseExpression('+Decimal.of("1")')).toThrow();
+  });
+  test('REGRESSION: a unary-signed non-Decimal literal (-0.1) STILL fails closed', () => {
+    // Previously caught via the literal-unwrap; now caught by the top-level unary gate.
+    // Either way it must fail-close (the shared FAILCLOSE prefix matches both messages).
+    expect(() => ts('Decimal.eq(Decimal.of("1"), -0.1)')).toThrow(DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+    expect(() => ts('Decimal.add(Decimal.of("1"), -5)')).toThrow(DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+    expect(() => ts('Decimal.div(Decimal.of("1"), -0.5)')).toThrow(DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+  });
+  test('SOUND: the METHOD negation Decimal.neg(Decimal.of("1")) still works (it is a call, not a unary)', () => {
+    expect(() => ts('Decimal.neg(Decimal.of("1"))')).not.toThrow();
+    expect(ts('Decimal.neg(Decimal.of("1"))')).toBe('new Decimal("1").neg()');
+    // And neg as a nested operand to another op flows through (a call producer).
+    expect(() => ts('Decimal.add(Decimal.of("1"), Decimal.neg(Decimal.of("2")))')).not.toThrow();
+  });
+  test('SOUND: variables / params / nested Decimal.*(...) producers still flow through', () => {
+    expect(() => ts('Decimal.div(d, e)')).not.toThrow();
+    expect(() => ts('Decimal.eq(Decimal.add(Decimal.of("1"), Decimal.of("2")), Decimal.of("3"))')).not.toThrow();
   });
 });
 

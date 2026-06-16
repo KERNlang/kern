@@ -31,6 +31,7 @@ import {
   DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE,
   DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE,
   DECIMAL_POW_ZERO_NEGATIVE_EXP_FAILCLOSE,
+  DECIMAL_UNARY_OPERAND_FAILCLOSE,
   decimalImportLineTS,
   decimalOpsHelpersTS,
   emitExpression,
@@ -194,6 +195,38 @@ describe('Decimal Slice 3 (remediation) — non-Decimal operand fails closed sym
     expect(() => py('Decimal.eq(d, e)')).not.toThrow();
     expect(() => ts('Decimal.add(d, Decimal.of("2"))')).not.toThrow();
     expect(() => py('Decimal.add(d, Decimal.of("2"))')).not.toThrow();
+  });
+});
+
+// ── FIX 3b (confirmation-review BLOCKER) — a UNARY-PREFIXED operand unwrapping to a
+//    `call` (`-Decimal.of("0")`) used to slip the operand guard and EMIT asymmetric
+//    code: `__k_decimal_div(new Decimal("1"), (-new Decimal("0")))` on TS (decimal.js
+//    `.valueOf()` coerces the Decimal → host `-0`, helper throws a bare `TypeError`)
+//    vs `__k_decimal_div(__k_decimal.Decimal("1"), (-__k_decimal.Decimal("0")))` on
+//    Python (real Decimal, raises the intended KERN division-by-zero). The fix
+//    fail-closes ANY unary operand byte-identically on BOTH legs — proven here.
+describe('Decimal Slice 3 (remediation) — unary-prefixed operand fails closed symmetrically', () => {
+  test('THE REPRO: Decimal.div(Decimal.of("1"), -Decimal.of("0")) — byte-identical refusal (was emitted)', () => {
+    assertSymmetricThrow('Decimal.div(Decimal.of("1"), -Decimal.of("0"))', DECIMAL_UNARY_OPERAND_FAILCLOSE);
+  });
+  test('-Decimal.of("1") on div and on a comparator — symmetric', () => {
+    assertSymmetricThrow('Decimal.div(-Decimal.of("1"), Decimal.of("2"))', DECIMAL_UNARY_OPERAND_FAILCLOSE);
+    assertSymmetricThrow('Decimal.eq(-Decimal.of("1"), Decimal.of("1"))', DECIMAL_UNARY_OPERAND_FAILCLOSE);
+    assertSymmetricThrow('Decimal.add(Decimal.of("1"), -Decimal.of("1"))', DECIMAL_UNARY_OPERAND_FAILCLOSE);
+  });
+  test('other unary operators (~, !) on a Decimal producer — symmetric', () => {
+    assertSymmetricThrow('Decimal.add(Decimal.of("1"), ~Decimal.of("1"))', DECIMAL_UNARY_OPERAND_FAILCLOSE);
+    assertSymmetricThrow('Decimal.eq(Decimal.of("1"), !Decimal.of("1"))', DECIMAL_UNARY_OPERAND_FAILCLOSE);
+  });
+  test('REGRESSION: unary-signed non-Decimal literal (-0.1, -5) STILL fails closed symmetrically', () => {
+    assertSymmetricThrow('Decimal.eq(Decimal.of("1"), -0.1)', DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+    assertSymmetricThrow('Decimal.add(Decimal.of("1"), -5)', DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+  });
+  test('SOUND: METHOD negation Decimal.neg(...) still emits on BOTH legs (it is a call, not a unary)', () => {
+    expect(() => ts('Decimal.neg(Decimal.of("1"))')).not.toThrow();
+    expect(() => py('Decimal.neg(Decimal.of("1"))')).not.toThrow();
+    expect(() => ts('Decimal.add(Decimal.of("1"), Decimal.neg(Decimal.of("2")))')).not.toThrow();
+    expect(() => py('Decimal.add(Decimal.of("1"), Decimal.neg(Decimal.of("2")))')).not.toThrow();
   });
 });
 

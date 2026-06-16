@@ -427,6 +427,13 @@ const NON_DECIMAL_OPERAND_LITERAL_KINDS = new Set([
  *  byte-identical across TS and Python. */
 export const DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE = 'Decimal operation requires Decimal operands';
 
+/** Diagnostic prefix when a `Decimal.<op>` argument is a UNARY-prefixed expression
+ *  (`-Decimal.of("0")`, `~d`, `!d`). Both legs throw this identical text, so the
+ *  refusal is byte-identical across TS and Python. A separate constant from the
+ *  non-Decimal-literal family because it points users at the portable fix
+ *  (`Decimal.neg(x)`), which a raw host-number literal does not have. */
+export const DECIMAL_UNARY_OPERAND_FAILCLOSE = 'Decimal operation requires Decimal operands';
+
 /** Build the byte-identical compile-error for a non-Decimal operand passed to a
  *  Decimal binary/unary op. Selected only by the offending method + operand kind,
  *  so the refusal is observably symmetric across TS and Python. */
@@ -442,40 +449,84 @@ export function decimalNonDecimalOperandFailMessage(method: string, operandKind:
   );
 }
 
-/** The provably-non-Decimal kind of an operand node, unwrapping any `unary` prefix
- *  chain, or null if the operand is not provably a non-Decimal literal.
+/** Build the byte-identical compile-error for a UNARY-prefixed operand (`-x`, `~x`,
+ *  `!x`) passed to a Decimal binary/unary op. A unary operator on a real Decimal
+ *  silently DEGRADES on the TS leg only: JS `-new Decimal("0")` invokes decimal.js's
+ *  `.valueOf()`, coercing the Decimal to a primitive (`-0`) BEFORE the helper sees it,
+ *  so the guarded helper's `b.isZero()` throws a bare host `TypeError` instead of the
+ *  KERN diagnostic — while Python's `-Decimal("0")` keeps a real Decimal and raises the
+ *  INTENDED `KERN Decimal division by zero`. That asymmetry (same root as the natural
+ *  `+`/`-`/`*` operator fail-close: decimal.js operators degrade via `.valueOf()`, here
+ *  via UNARY minus/plus) is closed by refusing every unary-wrapped operand up front.
+ *  Both legs throw this identical text (single-sourced), so the refusal is symmetric. */
+export function decimalUnaryOperandFailMessage(method: string, op: string): string {
+  return (
+    `${DECIMAL_UNARY_OPERAND_FAILCLOSE}: Decimal.${method}(...) was passed a '${op}'-prefixed (unary) operand. ` +
+    `A unary operator on a Decimal silently diverges across targets — the TS leg (decimal.js) coerces the Decimal ` +
+    `to a primitive via its '.valueOf()' (e.g. '-new Decimal("0")' becomes the host number -0, so the helper's ` +
+    `Decimal guards throw a bare TypeError), while Python keeps a real Decimal and behaves correctly, so the two ` +
+    `legs would disagree. For negation use the portable method form Decimal.neg(x) (e.g. ` +
+    `Decimal.${method}(..., Decimal.neg(x))), which lowers to a real Decimal on BOTH legs.`
+  );
+}
+
+/** The provably-non-Decimal kind of an operand node, or null if the operand is not
+ *  provably a non-Decimal literal.
  *
- *  UNARY UNWRAP (the load-bearing soundness step): the parser represents a SIGNED
- *  numeric literal as `unary(op:'-'|'+', argument: numLit)` — `-0.1` is NOT a bare
- *  `numLit`. A unary sign/logical-not prefix cannot turn a non-Decimal literal INTO
- *  a Decimal, so `-0.1` / `+5` / `!true` are still provably non-Decimal and must be
- *  caught (without the unwrap, `Decimal.eq(Decimal.of("1"), -0.1)` would slip the
- *  literal guard and silently diverge — TS coerces the clean `-0.1`, Python compares
- *  the exact binary float). We DO NOT unwrap `typeAssert` (`x as Decimal`) — that is
- *  the author's explicit type claim and the future typed-IR escape hatch — nor any
- *  non-`unary` wrapper. The unwrap stops at the first non-`unary` node. */
+ *  TOP-LEVEL only: a UNARY-prefixed operand (`-x`, `~x`, `!x`) is now rejected ahead
+ *  of this check by {@link topLevelUnaryOp} (a unary on a Decimal degrades on the TS
+ *  leg via `.valueOf()` — see {@link decimalUnaryOperandFailMessage}), so by the time
+ *  this runs the node is NOT a `unary`. We therefore inspect the node's OWN kind
+ *  directly: a bare `numLit`/`strLit`/`boolLit`/… is provably never a Decimal and is
+ *  refused; `ident`/`call`/`member`/`binary`/… flow through (they MAY be a Decimal and
+ *  KERN has no typed IR to prove otherwise — the conservative/sound default). */
 function nonDecimalOperandKind(node: unknown): string | null {
-  let cur: unknown = node;
-  // Bound the unwrap to the unary chain; `unary.argument` is the only field followed.
-  while (typeof cur === 'object' && cur !== null && (cur as { kind?: unknown }).kind === 'unary') {
-    cur = (cur as { argument?: unknown }).argument;
-  }
-  if (typeof cur !== 'object' || cur === null) return null;
-  const kind = (cur as { kind?: unknown }).kind;
+  if (typeof node !== 'object' || node === null) return null;
+  const kind = (node as { kind?: unknown }).kind;
   return typeof kind === 'string' && NON_DECIMAL_OPERAND_LITERAL_KINDS.has(kind) ? kind : null;
 }
 
-/** Throw the symmetric non-Decimal-operand fail-close when any argument of a
- *  `Decimal.<method>` call (other than the `Decimal.of` constructor, whose arg is a
- *  validated STRING literal) is a provably-non-Decimal literal — including a
- *  unary-signed one (`-0.1`), see {@link nonDecimalOperandKind}. Called from BOTH
- *  legs' dispatch site with the SAME `{method, args}`, so the refusal is byte-
- *  identical. A no-op for `of` and for operands that are not a provably-non-Decimal
- *  literal (idents/calls/members flow through — they MAY be a Decimal; KERN has no
- *  typed IR to prove otherwise, the conservative/sound default). */
+/** The unary operator (`-`, `~`, `!`) if `node`'s TOP-LEVEL kind is `unary`, else null.
+ *  A unary-prefixed operand to any Decimal op but `of` is fail-closed (see
+ *  {@link decimalUnaryOperandFailMessage}): on the TS leg a unary operator coerces a
+ *  real Decimal to a host primitive via decimal.js's `.valueOf()` BEFORE the guarded
+ *  helper runs, so `Decimal.div(Decimal.of("1"), -Decimal.of("0"))` throws a bare
+ *  `TypeError` instead of the KERN division-by-zero diagnostic, while Python keeps a
+ *  real Decimal and raises the intended error — an asymmetry. Refusing EVERY unary
+ *  operand (not just the unary-wrapped non-Decimal LITERAL the old unwrap caught) is
+ *  the sound minimal boundary: a unary on a Decimal degrades; a unary on a non-Decimal
+ *  literal (`-0.1`) was already invalid — so both fail closed here, before the more
+ *  specific literal check. We do NOT treat `typeAssert` (`x as Decimal`) as unary —
+ *  that is the author's explicit type claim and the future typed-IR escape hatch. */
+function topLevelUnaryOp(node: unknown): string | null {
+  if (typeof node !== 'object' || node === null) return null;
+  if ((node as { kind?: unknown }).kind !== 'unary') return null;
+  const op = (node as { op?: unknown }).op;
+  return typeof op === 'string' ? op : '';
+}
+
+/** Throw the symmetric fail-close when any argument of a `Decimal.<method>` call
+ *  (other than the `Decimal.of` constructor, whose arg is a validated STRING literal)
+ *  is unsafe across targets. Two refusals, checked in order per operand:
+ *    1. UNARY-prefixed (`-Decimal.of("0")`, `~d`, `!d`) — see {@link topLevelUnaryOp}.
+ *       A unary on a Decimal degrades on the TS leg via decimal.js's `.valueOf()`
+ *       (the `Decimal.div(Decimal.of("1"), -Decimal.of("0"))` repro: TS throws a bare
+ *       `TypeError`, Python raises the KERN diagnostic). Refused with the
+ *       `Decimal.neg(x)`-pointing {@link decimalUnaryOperandFailMessage}. This ALSO
+ *       catches a unary-signed non-Decimal literal (`-0.1`), which was already invalid.
+ *    2. A provably-non-Decimal LITERAL (`0.1`, `"x"`, `true`, …) — see
+ *       {@link nonDecimalOperandKind} — refused with {@link decimalNonDecimalOperandFailMessage}.
+ *  Called from BOTH legs' dispatch site with the SAME `{method, args}`, so the refusal
+ *  is byte-identical. A no-op for `of` and for operands that are neither a unary nor a
+ *  provably-non-Decimal literal (idents/calls/members flow through — they MAY be a
+ *  Decimal; KERN has no typed IR to prove otherwise, the conservative/sound default). */
 export function assertDecimalOperands(method: string, args: ReadonlyArray<unknown>): void {
   if (method === 'of') return;
   for (const arg of args) {
+    const unaryOp = topLevelUnaryOp(arg);
+    if (unaryOp !== null) {
+      throw new Error(decimalUnaryOperandFailMessage(method, unaryOp));
+    }
     const kind = nonDecimalOperandKind(arg);
     if (kind !== null) {
       throw new Error(decimalNonDecimalOperandFailMessage(method, kind));
