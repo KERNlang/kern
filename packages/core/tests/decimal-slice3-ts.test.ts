@@ -227,10 +227,16 @@ describe('Decimal Slice 3 (remediation) — non-Decimal operand fail-close', () 
   });
   test('a UNARY-SIGNED number literal (-0.1) is refused (parses as unary(numLit), not a bare numLit)', () => {
     // The soundness hole: `-0.1` is `unary('-', numLit)`; the validator unwraps the
-    // unary chain so a signed non-Decimal literal cannot slip the guard.
-    expect(() => ts('Decimal.eq(Decimal.of("1"), -0.1)')).toThrow(DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
-    expect(() => ts('Decimal.add(Decimal.of("1"), -5)')).toThrow(DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
-    expect(() => ts('Decimal.div(Decimal.of("1"), -0.5)')).toThrow(DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+    // unary chain so a signed non-Decimal literal cannot slip the guard. DISCRIMINATING
+    // assertion (not just the shared prefix): the remediation must point at
+    // `Decimal.of("...")` (the SIGNED-HOST-LITERAL fix) and must NOT mislead the user
+    // toward `Decimal.neg` (`Decimal.neg(0.1)` is itself invalid).
+    expect(() => ts('Decimal.eq(Decimal.of("1"), -0.1)')).toThrow(/Decimal\.of\("\.\.\."\)/);
+    expect(() => ts('Decimal.eq(Decimal.of("1"), -0.1)')).not.toThrow(/Decimal\.neg/);
+    expect(() => ts('Decimal.add(Decimal.of("1"), -5)')).toThrow(/Decimal\.of\("\.\.\."\)/);
+    expect(() => ts('Decimal.add(Decimal.of("1"), -5)')).not.toThrow(/Decimal\.neg/);
+    expect(() => ts('Decimal.div(Decimal.of("1"), -0.5)')).toThrow(/Decimal\.of\("\.\.\."\)/);
+    expect(() => ts('Decimal.div(Decimal.of("1"), -0.5)')).not.toThrow(/Decimal\.neg/);
   });
   test('bool / string / null literal operands are refused', () => {
     expect(() => ts('Decimal.eq(Decimal.of("1"), true)')).toThrow(DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
@@ -268,8 +274,15 @@ describe('Decimal Slice 3 (remediation) — unary-prefixed operand fail-close', 
     expect(() => ts('Decimal.add(Decimal.of("1"), ~Decimal.of("1"))')).toThrow(DECIMAL_UNARY_OPERAND_FAILCLOSE);
     expect(() => ts('Decimal.eq(Decimal.of("1"), !Decimal.of("1"))')).toThrow(DECIMAL_UNARY_OPERAND_FAILCLOSE);
   });
-  test('the unary message points users at the portable Decimal.neg(x) form', () => {
+  test('a unary on a PRODUCER (-Decimal.of("0"), -Decimal.of("1")) points at Decimal.neg(x), NOT Decimal.of("...")', () => {
+    // DISCRIMINATING: the unary wraps a Decimal producer (a `call`), so `Decimal.neg(x)`
+    // is the correct portable fix — and the message must NOT instead suggest wrapping
+    // the operand in `Decimal.of("...")` (that advice is for a signed HOST literal).
     expect(() => ts('Decimal.div(Decimal.of("1"), -Decimal.of("0"))')).toThrow('Decimal.neg(x)');
+    expect(() => ts('Decimal.div(Decimal.of("1"), -Decimal.of("0"))')).not.toThrow(/Decimal\.of\("\.\.\."\)/);
+    // A comparator with a unary-on-a-producer operand is the same case.
+    expect(() => ts('Decimal.eq(Decimal.of("1"), -Decimal.of("1"))')).toThrow('Decimal.neg(x)');
+    expect(() => ts('Decimal.eq(Decimal.of("1"), -Decimal.of("1"))')).not.toThrow(/Decimal\.of\("\.\.\."\)/);
   });
   // NOTE: unary PLUS (`+Decimal.of("1")`) is rejected even EARLIER — the KERN parser
   // does not accept a leading `+`, so it is a parse-time error, not a validator
@@ -277,12 +290,17 @@ describe('Decimal Slice 3 (remediation) — unary-prefixed operand fail-close', 
   test('unary plus (+Decimal.of("1")) is refused at PARSE time (parser rejects leading +)', () => {
     expect(() => parseExpression('+Decimal.of("1")')).toThrow();
   });
-  test('REGRESSION: a unary-signed non-Decimal literal (-0.1) STILL fails closed', () => {
-    // Previously caught via the literal-unwrap; now caught by the top-level unary gate.
-    // Either way it must fail-close (the shared FAILCLOSE prefix matches both messages).
+  test('REGRESSION: a unary-signed non-Decimal literal (-0.1) fails closed with the Decimal.of("...") advice (NOT Decimal.neg)', () => {
+    // A signed host literal is `unary(numLit)`: it ALWAYS fails closed, but the routing
+    // inspects the unary's `.argument` and points at `Decimal.of("...")` — the real fix —
+    // never at the misleading `Decimal.neg(x)` (`Decimal.neg(0.1)` is itself invalid).
     expect(() => ts('Decimal.eq(Decimal.of("1"), -0.1)')).toThrow(DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
-    expect(() => ts('Decimal.add(Decimal.of("1"), -5)')).toThrow(DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
-    expect(() => ts('Decimal.div(Decimal.of("1"), -0.5)')).toThrow(DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+    expect(() => ts('Decimal.eq(Decimal.of("1"), -0.1)')).toThrow(/Decimal\.of\("\.\.\."\)/);
+    expect(() => ts('Decimal.eq(Decimal.of("1"), -0.1)')).not.toThrow(/Decimal\.neg/);
+    expect(() => ts('Decimal.add(Decimal.of("1"), -5)')).toThrow(/Decimal\.of\("\.\.\."\)/);
+    expect(() => ts('Decimal.add(Decimal.of("1"), -5)')).not.toThrow(/Decimal\.neg/);
+    expect(() => ts('Decimal.div(Decimal.of("1"), -0.5)')).toThrow(/Decimal\.of\("\.\.\."\)/);
+    expect(() => ts('Decimal.div(Decimal.of("1"), -0.5)')).not.toThrow(/Decimal\.neg/);
   });
   test('SOUND: the METHOD negation Decimal.neg(Decimal.of("1")) still works (it is a call, not a unary)', () => {
     expect(() => ts('Decimal.neg(Decimal.of("1"))')).not.toThrow();

@@ -554,7 +554,11 @@ function nonDecimalOperandKind(node: unknown): string | null {
  *  operand (not just the unary-wrapped non-Decimal LITERAL the old unwrap caught) is
  *  the sound minimal boundary: a unary on a Decimal degrades; a unary on a non-Decimal
  *  literal (`-0.1`) was already invalid — so both fail closed here, before the more
- *  specific literal check. The caller passes the node AFTER stripping transparent
+ *  specific literal check. (The two cases get DIFFERENT remediation text — the caller
+ *  inspects the unary's `.argument` to route a signed host literal at `Decimal.of("...")`
+ *  and a unary-on-a-producer at `Decimal.neg(x)` — but the REFUSAL itself is unconditional
+ *  for every unary, which is what this predicate decides.) The caller passes the node
+ *  AFTER stripping transparent
  *  wrappers ({@link unwrapTransparentDecimalOperand}), so a unary HIDDEN inside a cast
  *  or non-null assertion (`(-Decimal.of("0") as Decimal)`, `(-Decimal.of("0"))!`) is
  *  seen here as a top-level `unary` and refused — closing the wrapper bypass. (The
@@ -570,12 +574,18 @@ function topLevelUnaryOp(node: unknown): string | null {
 /** Throw the symmetric fail-close when any argument of a `Decimal.<method>` call
  *  (other than the `Decimal.of` constructor, whose arg is a validated STRING literal)
  *  is unsafe across targets. Two refusals, checked in order per operand:
- *    1. UNARY-prefixed (`-Decimal.of("0")`, `~d`, `!d`) — see {@link topLevelUnaryOp}.
+ *    1. UNARY-prefixed (`-Decimal.of("0")`, `~d`, `!d`, `-0.1`) — see {@link topLevelUnaryOp}.
  *       A unary on a Decimal degrades on the TS leg via decimal.js's `.valueOf()`
  *       (the `Decimal.div(Decimal.of("1"), -Decimal.of("0"))` repro: TS throws a bare
- *       `TypeError`, Python raises the KERN diagnostic). Refused with the
- *       `Decimal.neg(x)`-pointing {@link decimalUnaryOperandFailMessage}. This ALSO
- *       catches a unary-signed non-Decimal literal (`-0.1`), which was already invalid.
+ *       `TypeError`, Python raises the KERN diagnostic). ALWAYS refused, but the
+ *       remediation text is ROUTED by the unary's `.argument`: a unary that wraps a
+ *       provably-non-Decimal LITERAL is a SIGNED HOST NUMBER (`-0.1`, `-5`), whose real
+ *       fix is `Decimal.of("0.1")` — so it gets the {@link decimalNonDecimalOperandFailMessage}
+ *       ("use Decimal.of(...)"), NOT the misleading `Decimal.neg(x)` advice (`Decimal.neg(0.1)`
+ *       is itself invalid). A unary that wraps a potential Decimal PRODUCER
+ *       (`-Decimal.of("0")` → `unary(call)`, `-d` → `unary(ident)`, …) keeps the
+ *       `Decimal.neg(x)`-pointing {@link decimalUnaryOperandFailMessage}, whose
+ *       `.valueOf()`-degradation rationale actually applies.
  *    2. A provably-non-Decimal LITERAL (`0.1`, `"x"`, `true`, …) — see
  *       {@link nonDecimalOperandKind} — refused with {@link decimalNonDecimalOperandFailMessage}.
  *  Called from BOTH legs' dispatch site with the SAME `{method, args}`, so the refusal
@@ -601,7 +611,21 @@ export function assertDecimalOperands(method: string, args: ReadonlyArray<unknow
     const operand = unwrapTransparentDecimalOperand(arg);
     const unaryOp = topLevelUnaryOp(operand);
     if (unaryOp !== null) {
-      throw new Error(decimalUnaryOperandFailMessage(method, unaryOp));
+      // REMEDIATION ROUTING (slice-3 diagnostic fix): a top-level unary fails closed
+      // EITHER WAY (both legs refuse — no divergence), but the *advice* must match what
+      // the user wrote. A SIGNED HOST LITERAL (`-0.1`, `-5`) parses as `unary(numLit)`:
+      // pointing it at `Decimal.neg(x)` is WRONG (`Decimal.neg(0.1)` is still invalid) —
+      // the real fix is `Decimal.of("0.1")`. So inspect the unary's `.argument`: if the
+      // inner node is a provably-non-Decimal LITERAL, route to the `Decimal.of("...")`
+      // message; otherwise (the unary wraps a potential Decimal producer like
+      // `-Decimal.of("0")`, a `call`/`ident`/`member`/…) keep the `Decimal.neg(x)`
+      // message, whose `.valueOf()`-degradation rationale actually applies.
+      const innerKind = nonDecimalOperandKind((operand as { argument?: unknown }).argument);
+      throw new Error(
+        innerKind !== null
+          ? decimalNonDecimalOperandFailMessage(method, innerKind)
+          : decimalUnaryOperandFailMessage(method, unaryOp),
+      );
     }
     const kind = nonDecimalOperandKind(operand);
     if (kind !== null) {

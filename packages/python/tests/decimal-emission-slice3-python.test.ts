@@ -112,7 +112,14 @@ describe('Decimal Slice 3 — Python div/mod/pow/comparison emission', () => {
 });
 
 // ── Symmetric COMPILE-TIME fail-close: pow non-integer / negative-base / non-literal
-function assertSymmetricThrow(src: string, expectedSubstring: string): void {
+/** Assert BOTH legs refuse `src` with a byte-identical message containing
+ *  `expectedSubstring`. The optional `mustNotContain` discriminates the two
+ *  prefix-sharing operand fail-closes (`DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE` and
+ *  `DECIMAL_UNARY_OPERAND_FAILCLOSE` share the same PREFIX): a signed host literal
+ *  (`-0.1`) must point at `Decimal.of("...")` and must NOT mention `Decimal.neg`,
+ *  while a unary-on-a-producer (`-Decimal.of("0")`) is the reverse. Returns the
+ *  verified-symmetric message. */
+function assertSymmetricThrow(src: string, expectedSubstring: string, mustNotContain?: string): string {
   let tsMsg = '';
   let pyMsg = '';
   try {
@@ -128,7 +135,9 @@ function assertSymmetricThrow(src: string, expectedSubstring: string): void {
     pyMsg = (e as Error).message;
   }
   expect(tsMsg).toContain(expectedSubstring);
+  if (mustNotContain !== undefined) expect(tsMsg).not.toContain(mustNotContain);
   expect(tsMsg).toBe(pyMsg); // byte-identical refusal across targets
+  return tsMsg;
 }
 
 describe('Decimal Slice 3 — symmetric compile-time pow fail-close', () => {
@@ -206,8 +215,11 @@ describe('Decimal Slice 3 (remediation) — non-Decimal operand fails closed sym
 //    Python (real Decimal, raises the intended KERN division-by-zero). The fix
 //    fail-closes ANY unary operand byte-identically on BOTH legs — proven here.
 describe('Decimal Slice 3 (remediation) — unary-prefixed operand fails closed symmetrically', () => {
-  test('THE REPRO: Decimal.div(Decimal.of("1"), -Decimal.of("0")) — byte-identical refusal (was emitted)', () => {
-    assertSymmetricThrow('Decimal.div(Decimal.of("1"), -Decimal.of("0"))', DECIMAL_UNARY_OPERAND_FAILCLOSE);
+  test('THE REPRO: Decimal.div(Decimal.of("1"), -Decimal.of("0")) — byte-identical refusal points at Decimal.neg(x), NOT Decimal.of("...")', () => {
+    // A unary on a PRODUCER (a `call`): the portable fix IS `Decimal.neg(x)`, so the
+    // symmetric message must say so and must NOT misdirect to `Decimal.of("...")`.
+    assertSymmetricThrow('Decimal.div(Decimal.of("1"), -Decimal.of("0"))', 'Decimal.neg(x)', 'Decimal.of("...")');
+    assertSymmetricThrow('Decimal.eq(Decimal.of("1"), -Decimal.of("1"))', 'Decimal.neg(x)', 'Decimal.of("...")');
   });
   test('-Decimal.of("1") on div and on a comparator — symmetric', () => {
     assertSymmetricThrow('Decimal.div(-Decimal.of("1"), Decimal.of("2"))', DECIMAL_UNARY_OPERAND_FAILCLOSE);
@@ -218,9 +230,13 @@ describe('Decimal Slice 3 (remediation) — unary-prefixed operand fails closed 
     assertSymmetricThrow('Decimal.add(Decimal.of("1"), ~Decimal.of("1"))', DECIMAL_UNARY_OPERAND_FAILCLOSE);
     assertSymmetricThrow('Decimal.eq(Decimal.of("1"), !Decimal.of("1"))', DECIMAL_UNARY_OPERAND_FAILCLOSE);
   });
-  test('REGRESSION: unary-signed non-Decimal literal (-0.1, -5) STILL fails closed symmetrically', () => {
-    assertSymmetricThrow('Decimal.eq(Decimal.of("1"), -0.1)', DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
-    assertSymmetricThrow('Decimal.add(Decimal.of("1"), -5)', DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE);
+  test('REGRESSION: unary-signed non-Decimal literal (-0.1, -5) fails closed symmetrically with Decimal.of("...") advice (NOT Decimal.neg)', () => {
+    // `-0.1` / `-5` are `unary(numLit)` — a SIGNED HOST LITERAL. The routing inspects
+    // the unary's `.argument` and gives the `Decimal.of("...")` fix on BOTH legs, never
+    // the misleading `Decimal.neg` advice. (Discriminates the two prefix-sharing
+    // fail-closes; the old prefix-only assertion could not tell them apart.)
+    assertSymmetricThrow('Decimal.eq(Decimal.of("1"), -0.1)', 'Decimal.of("...")', 'Decimal.neg');
+    assertSymmetricThrow('Decimal.add(Decimal.of("1"), -5)', 'Decimal.of("...")', 'Decimal.neg');
   });
   test('SOUND: METHOD negation Decimal.neg(...) still emits on BOTH legs (it is a call, not a unary)', () => {
     expect(() => ts('Decimal.neg(Decimal.of("1"))')).not.toThrow();
