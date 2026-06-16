@@ -639,7 +639,7 @@ export function needsBinaryParens(child: ValueIR, parentOp: string, side: 'left'
 }
 
 function needsParens(child: ValueIR, parentOp: string, side: 'left' | 'right'): boolean {
-  if (child.kind === 'typeAssert') return true;
+  if (child.kind === 'typeAssert' || child.kind === 'conditional') return true;
   return needsBinaryParens(child, parentOp, side);
 }
 

@@ -2112,8 +2112,10 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       const lowered = lowerChain(node, ctx);
       return wrapGuardIfAny(lowered, ctx);
     }
-    case 'await':
-      return `await ${emitPyExprCtx(node.argument, ctx)}`;
+    case 'await': {
+      const arg = emitPyExprCtx(node.argument, ctx);
+      return `await ${needsLowPrecedenceOperandParens(node.argument) ? `(${arg})` : arg}`;
+    }
     case 'new': {
       // Host Error mapping (spec §1): `new Error(args)` → `Exception(args)` on
       // Python, since `raise Error(...)` / `isinstance(x, Error)` would
@@ -2414,8 +2416,14 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
 
       const forceLeft = needsComparisonChainParens(node.left, node.op);
       const forceRight = needsComparisonChainParens(node.right, node.op);
-      const lp = forceLeft || needsBinaryParens(node.left, node.op, 'left') ? `(${left})` : left;
-      const rp = forceRight || needsBinaryParens(node.right, node.op, 'right') ? `(${right})` : right;
+      const lp =
+        forceLeft || needsLowPrecedenceOperandParens(node.left) || needsBinaryParens(node.left, node.op, 'left')
+          ? `(${left})`
+          : left;
+      const rp =
+        forceRight || needsLowPrecedenceOperandParens(node.right) || needsBinaryParens(node.right, node.op, 'right')
+          ? `(${right})`
+          : right;
       const op = mapBinaryOpToPython(node.op);
       return `${lp} ${op} ${rp}`;
     }
@@ -3225,7 +3233,13 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   const inner: GuardedExpr =
     callee.kind === 'member' || callee.kind === 'call' || callee.kind === 'index'
       ? lowerChain(callee, ctx)
-      : { guard: null, expr: emitPyExprCtx(callee, ctx) };
+      : {
+          guard: null,
+          expr: (() => {
+            const emitted = emitPyExprCtx(callee, ctx);
+            return needsLowPrecedenceOperandParens(callee) ? `(${emitted})` : emitted;
+          })(),
+        };
   const args = node.args.map((a) => emitPyExprCtx(a, ctx)).join(', ');
   return { guard: inner.guard, expr: `${inner.expr}(${args})`, lambdaBind: inner.lambdaBind };
 }
@@ -3902,6 +3916,15 @@ function wrapGuardIfAny(g: GuardedExpr, ctx: BodyEmitContext): string {
  *  neither is wrapped here. */
 function needsWalrusOperandParens(child: ValueIR): boolean {
   return child.kind === 'conditional' || child.kind === 'lambda';
+}
+
+/** Low-precedence operand positions (`a <op> b`, `await x`, `<callee>(...)`)
+ *  must wrap a conditional child so the surrounding operator/call binds to the
+ *  whole operand instead of one ternary arm. */
+function needsLowPrecedenceOperandParens(child: ValueIR): boolean {
+  let node = child;
+  while (node.kind === 'typeAssert' || node.kind === 'nonNull') node = node.expression;
+  return node.kind === 'conditional';
 }
 
 /** S5 review fix — run `fn` with `ctx.banWalrus` set (save/restore), for
