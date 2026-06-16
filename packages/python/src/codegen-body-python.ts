@@ -3922,7 +3922,9 @@ function needsWalrusOperandParens(child: ValueIR): boolean {
  *  must wrap a conditional child so the surrounding operator/call binds to the
  *  whole operand instead of one ternary arm. */
 function needsLowPrecedenceOperandParens(child: ValueIR): boolean {
-  return child.kind === 'conditional';
+  let node = child;
+  while (node.kind === 'typeAssert' || node.kind === 'nonNull') node = node.expression;
+  return node.kind === 'conditional';
 }
 
 /** S5 review fix — run `fn` with `ctx.banWalrus` set (save/restore), for
