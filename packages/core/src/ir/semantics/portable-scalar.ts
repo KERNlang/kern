@@ -277,10 +277,18 @@ function isDecimalNamespaceCall(node: ValueIR): node is Extract<ValueIR, { kind:
  *    then constructs `new KDecimal("lit")`.
  *  - `Decimal.add(a, b)` → `a.plus(b)`; `Decimal.mul(a, b)` → `a.times(b)`.
  *
+ *  No `env` is threaded: every Slice-1 operand is itself a `Decimal.<method>(...)`
+ *  literal-rooted call, so there is nothing to look up. VARIABLE operands
+ *  (`Decimal.add(d, Decimal.of("1"))`) are SLICE-2 — when they arrive this gains
+ *  an env parameter and an `ident` operand branch.
+ *
  *  Throws on any non-Decimal-namespace node, an unknown/out-of-slice method, a
  *  wrong arity, or a non-string-literal `of` argument — the runner refuses what it
- *  cannot execute byte-identically rather than guessing. */
-function evalDecimalNode(node: ValueIR, KDecimal: KDecimalCtor, env: SemanticEnv): KDecimalValue {
+ *  cannot execute byte-identically rather than guessing. The set of inputs that
+ *  reach this WITHOUT a structural throw is exactly {@link isDecimalExpression}'s
+ *  `true` set; on those it either succeeds or throws ONLY the canonical
+ *  `Decimal.of` fail-close. */
+function evalDecimalNode(node: ValueIR, KDecimal: KDecimalCtor): KDecimalValue {
   if (!isDecimalNamespaceCall(node)) {
     throw new Error('portable-decimal: expected a Decimal.<method>(...) namespace call');
   }
@@ -308,20 +316,45 @@ function evalDecimalNode(node: ValueIR, KDecimal: KDecimalCtor, env: SemanticEnv
   if (node.args.length !== 2) {
     throw new Error(`portable-decimal: Decimal.${method} expects exactly 2 arguments`);
   }
-  const a = evalDecimalNode(node.args[0], KDecimal, env);
-  const b = evalDecimalNode(node.args[1], KDecimal, env);
+  const a = evalDecimalNode(node.args[0], KDecimal);
+  const b = evalDecimalNode(node.args[1], KDecimal);
   return method === 'add' ? a.plus(b) : a.times(b);
 }
 
-/** True iff `node` is a runner-evaluable Decimal expression — i.e. a
- *  `Decimal.of/add/mul(...)` namespace call. Lets a caller route a Decimal
- *  expression to {@link evalDecimalExpression} instead of the portable-scalar
- *  evaluator (which has no Decimal domain). */
+/** True iff `node` is a STRUCTURALLY-EVALUABLE Slice-1 Decimal expression —
+ *  i.e. a `Decimal.of/add/mul(...)` namespace call whose entire operand tree is
+ *  itself made of structurally-valid Decimal namespace calls down to
+ *  `Decimal.of("<strLit>")` leaves. This is the recursive admission predicate the
+ *  runner routes on: it must accept EXACTLY the inputs {@link evalDecimalNode}
+ *  can reach without a STRUCTURAL throw, so a `true` result guarantees
+ *  {@link evalDecimalExpression} either succeeds or throws ONLY the canonical
+ *  `Decimal.of` fail-close (never an arity / shape / out-of-slice error).
+ *
+ *  It deliberately does NOT check the literal's CANONICAL-ness: a non-canonical
+ *  `Decimal.of("1.10")` is structurally valid → `true`, and effects fails closed
+ *  with the shared canonical-scale message (mirroring the emitters, which compile
+ *  the call but throw at the lowering boundary).
+ *
+ *  Examples — `true`: `Decimal.of("1.5")`, `Decimal.of("1.10")`,
+ *  `Decimal.add(Decimal.of("1"), Decimal.of("2"))`, arbitrarily nested
+ *  `add`/`mul`. `false`: `Decimal.add(1, 2)` (non-Decimal operand),
+ *  `Decimal.of(x)` (ident, not strLit — Slice-2), `Decimal.div(...)` (out of
+ *  slice), `Decimal.of("1","2")` (arity), `Decimal.of()` (arity),
+ *  `String(n)` / `1 + 2` (not a Decimal namespace call). */
 export function isDecimalExpression(node: ValueIR): boolean {
   if (!isDecimalNamespaceCall(node)) return false;
   // Narrowed by isDecimalNamespaceCall: callee is a `member` on the Decimal ident.
-  const callee = node.callee as Extract<ValueIR, { kind: 'member' }>;
-  return RUNNER_DECIMAL_METHODS.has(callee.property);
+  const method = (node.callee as Extract<ValueIR, { kind: 'member' }>).property;
+  if (!RUNNER_DECIMAL_METHODS.has(method)) return false;
+
+  if (method === 'of') {
+    // Exactly one string-literal argument (Slice-1: literal operands only).
+    return node.args.length === 1 && node.args[0].kind === 'strLit';
+  }
+
+  // add / mul — exactly two operands, each itself a structurally-valid Decimal
+  // namespace call (recurse — closes the over-accept on `Decimal.add(1, 2)`).
+  return node.args.length === 2 && isDecimalExpression(node.args[0]) && isDecimalExpression(node.args[1]);
 }
 
 /** Evaluate a `Decimal.<method>(...)` expression through the runner's native
@@ -331,8 +364,11 @@ export function isDecimalExpression(node: ValueIR): boolean {
  *  ROUND_HALF_EVEN, modulo ROUND_DOWN) — NEVER mutating the global decimal.js
  *  constructor — and renders via the kernel's {@link kernDecimalStr}, so the output
  *  is byte-identical to both emitted legs. A non-canonical `Decimal.of` literal
- *  fails closed with the EXACT shared message. */
-export function evalDecimalExpression(node: ValueIR, env: SemanticEnv): string {
+ *  fails closed with the EXACT shared message.
+ *
+ *  Takes no `env`: Slice-1 operands are literal-rooted, so there is nothing to
+ *  resolve. Variable operands are SLICE-2 (see {@link evalDecimalNode}). */
+export function evalDecimalExpression(node: ValueIR): string {
   const KDecimal = makeKDecimal();
-  return kernDecimalStr(evalDecimalNode(node, KDecimal, env));
+  return kernDecimalStr(evalDecimalNode(node, KDecimal));
 }
