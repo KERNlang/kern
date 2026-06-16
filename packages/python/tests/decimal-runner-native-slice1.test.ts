@@ -40,6 +40,7 @@ import {
   isDecimalExpression,
   makeEnv,
   parseExpression,
+  ReferenceRunnerError,
   referenceRun,
   registerExpressionV1Contract,
 } from '@kernlang/core';
@@ -255,5 +256,50 @@ describe('Decimal Slice 1 — isDecimalExpression recursive structural predicate
     expect(isDecimalExpression(parseExpression('1 + 2'))).toBe(false);
     // One bad operand inside an otherwise-valid add poisons the whole tree.
     expect(isDecimalExpression(parseExpression('Decimal.add(Decimal.of("1"), Decimal.add(1, 2))'))).toBe(false);
+  });
+});
+
+// ── DOWNSTREAM Decimal use — the runner ABSTAINS (does NOT diverge) ───────────
+// A bound Decimal is NOT a portable scalar in the runner: `let d = Decimal.of("1")`
+// binds a TAGGED Decimal value (not the bare string "1"). So a later `d === "1"`
+// can't be judged as `string === string` (which would yield TRUE and diverge from
+// BOTH emitters, which emit `new Decimal("1") === "1"` → FALSE). Instead the
+// downstream portable read of the tagged value throws through `assertPortableScalar`
+// → the `expression-v1` precondition catches it → `referenceRun` raises the normal
+// "Preconditions failed …". The runner REFUSES rather than producing a wrong value.
+//
+// Full downstream Decimal value semantics (matching the emitters' `false` / "1") is
+// SLICE-2; SLICE-1 only requires the runner to stop producing a divergent value.
+describe('Decimal Slice 1 — runner ABSTAINS on downstream decimal use (no divergence)', () => {
+  test('a __block of `let d = Decimal.of("1")` then `d === "1"` makes referenceRun ABSTAIN', () => {
+    const child1 = { type: 'expression-v1', props: { name: 'd', expr: 'Decimal.of("1")' } };
+    const child2 = { type: 'expression-v1', props: { name: 'e', expr: 'd === "1"' } };
+    const block = { type: '__block', children: [child1, child2] };
+    // The runner refuses the downstream decimal comparison instead of binding `e = true`.
+    expect(() => referenceRun(block, makeEnv())).toThrow(ReferenceRunnerError);
+    expect(() => referenceRun(block, makeEnv())).toThrow('Preconditions failed');
+  });
+
+  test('the emitter emits a REAL comparison for `Decimal.of("1") === "1"` (runner abstain is the honest boundary)', () => {
+    // GROUND TRUTH: the emitters compile `Decimal.of("1") === "1"` to a real
+    // `new Decimal("1") === "1"` comparison (which is FALSE at runtime, NOT
+    // fail-close). The runner's abstain is therefore the honest SLICE-1 boundary —
+    // it refuses to compute a value rather than computing one that diverges from
+    // this. Matching the emitters' `false` is slice-2.
+    const code = emitExpressionWithImports(parseExpression('Decimal.of("1") === "1"')).code;
+    expect(code).toContain('=== "1"');
+    expect(code).toContain('Decimal');
+  });
+});
+
+// ── FINDING 2 — a MALFORMED expr returns a CLEAN precondition failure ─────────
+// `parseExpression` now runs INSIDE the precondition's try/catch, so a malformed
+// `expr` returns false (→ the normal "Preconditions failed …") instead of throwing
+// a raw parser error out of `preconditions`.
+describe('Decimal Slice 1 — malformed expr fails the precondition cleanly (no raw parser error)', () => {
+  test('referenceRun on a malformed `expr` throws the clean ReferenceRunnerError, NOT a parser error', () => {
+    const node = { type: 'expression-v1', props: { name: 'r', expr: '1 +' } };
+    expect(() => referenceRun(node, makeEnv())).toThrow(ReferenceRunnerError);
+    expect(() => referenceRun(node, makeEnv())).toThrow('Preconditions failed');
   });
 });

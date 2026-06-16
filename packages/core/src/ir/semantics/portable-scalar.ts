@@ -84,6 +84,56 @@ export function isPortableScalar(value: unknown): value is PortableScalar {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// TAGGED runtime Decimal VALUE — the runner's internal representation of a BOUND
+// Decimal (Slice 1). When `expression-v1` effects evaluate a `Decimal.<method>(...)`
+// expression they bind THIS tagged value into `env.bindings`, NOT a bare canonical
+// string. The Trace's observable `assign.value` is STILL the canonical string (the
+// differential observable the oracle reads); the binding carries the tag so the
+// runner can tell "this slot holds a Decimal" apart from "this slot holds the
+// string '1'".
+//
+// This is a runtime VALUE, not a new IR node type. It is DELIBERATELY not a
+// portable scalar — `isPortableScalar(makeDecimalValue(...))` is false (objects
+// never pass that guard), so any DOWNSTREAM portable expression that reads a
+// decimal binding (`d === "1"`, `d + 1`, `!d`, `String(d)`, `` `${d}` ``) makes
+// `evalPortableValue`'s `ident` case call `assertPortableScalar` on the tagged
+// value, which THROWS. The `expression-v1` precondition catches that throw and
+// returns false, so `referenceRun` ABSTAINS with the normal "Preconditions
+// failed …" instead of producing a value that diverges from BOTH emitted legs.
+//
+// SLICE-2 will give Decimal real downstream value semantics (`d === "1"` → false,
+// `String(d)` → "1"), matching the emitters. SLICE-1 only needs the runner to
+// STOP producing a divergent value — to refuse, never to misjudge.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Brand symbol marking a runtime Decimal value. Symbol-keyed so it can never
+ *  collide with a user JSON property and is dropped by structural JSON cloning. */
+export const DECIMAL_VALUE_TAG: unique symbol = Symbol('kern.decimalValue');
+
+/** The runner's tagged runtime Decimal value: a frozen object carrying the brand
+ *  and the canonical rendered STRING. NOT a portable scalar (see above). */
+export interface DecimalValue {
+  readonly [DECIMAL_VALUE_TAG]: true;
+  readonly canonical: string;
+}
+
+/** Build a tagged runtime Decimal value from its canonical rendered string. */
+export function makeDecimalValue(canonical: string): DecimalValue {
+  return Object.freeze({ [DECIMAL_VALUE_TAG]: true as const, canonical });
+}
+
+/** True iff `value` is a tagged runtime Decimal value produced by
+ *  {@link makeDecimalValue}. */
+export function isDecimalValue(value: unknown): value is DecimalValue {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { [DECIMAL_VALUE_TAG]?: unknown })[DECIMAL_VALUE_TAG] === true &&
+    typeof (value as { canonical?: unknown }).canonical === 'string'
+  );
+}
+
 export function assertPortableScalar(value: unknown, label: string): PortableScalar {
   if (isPortableScalar(value)) return value;
   throw new Error(`portable: ${label} must evaluate to a portable scalar`);
