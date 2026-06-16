@@ -93,6 +93,7 @@ function printReport(report: RagEvalDocumentReport, file: string, chunkCount: nu
 }
 
 function fail(message: string): never {
-  console.error(`kern rag eval: ${message}`);
-  process.exit(1);
+  // Throw (unambiguously `never` in every toolchain) rather than leaning on
+  // process.exit's `never` typing; cli.ts main() catches and exits 1.
+  throw new Error(`kern rag eval: ${message}`);
 }
