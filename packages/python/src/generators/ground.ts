@@ -5,6 +5,7 @@
 
 import type { ExprObject, IRNode, ValueIR } from '@kernlang/core';
 import { emitStringKeyArray, handlerCode, parseExpression, parseKeys } from '@kernlang/core';
+import { typescriptClosureClassifier } from '@kernlang/core/node';
 import { emitPyExpressionWithImports, type PyExpressionEmitResult } from '../codegen-body-python.js';
 import {
   buildPythonParamList,
@@ -14,6 +15,16 @@ import {
   kids,
   p,
 } from '../codegen-helpers.js';
+import {
+  KERN_FMT_HELPER_PY,
+  KERN_I32_HELPER_PY,
+  KERN_JS_ARRAY_HELPERS_PY,
+  KERN_JS_HELPER_PY,
+  KERN_JS_OBJECT_HELPERS_PY,
+  KERN_JS_STRING_HELPERS_PY,
+  KERN_PAIR_HELPERS_PY,
+  KERN_TMOD_HELPER_PY,
+} from '../core/expr/helpers.js';
 import { mapTsTypeToPython, toPythonBindingName, toSnakeCase } from '../type-map.js';
 
 /** Ground/React Layer generators emit module-level statements and have NO
@@ -23,6 +34,15 @@ import { mapTsTypeToPython, toPythonBindingName, toSnakeCase } from '../type-map
  *  non-coercion lowerings, such as Array.fill, surface helpers through
  *  emitGroundExpression and prepend them next to the generated statement. */
 const GROUND_EMIT = { coerceJsValues: false } as const;
+
+// Slice 0.9 review fix — ground generators are Node-only and re-parse raw
+// expression props whose value lists may contain block-bodied arrows, so they
+// inject the TypeScript-backed closure classifier. All `parseExpression` calls
+// in this module route through `parseExpr`.
+const TS_PARSE_OPTS = { closureClassifier: typescriptClosureClassifier };
+function parseExpr(input: string): ReturnType<typeof parseExpression> {
+  return parseExpression(input, TS_PARSE_OPTS);
+}
 
 function emitGroundExpression(valueIR: ValueIR): PyExpressionEmitResult {
   return emitPyExpressionWithImports(valueIR, GROUND_EMIT);
@@ -41,6 +61,87 @@ function groundExpressionPrelude(results: readonly PyExpressionEmitResult[]): st
 
 function withGroundExpressionCode(result: PyExpressionEmitResult, code: string): PyExpressionEmitResult {
   return { code, imports: result.imports, helpers: result.helpers };
+}
+
+/** The closed set of runtime helper blocks `groundExpressionPrelude` can inline
+ *  ahead of a ground statement (via `result.helpers`). Each is a self-contained
+ *  multi-line Python block; when two ground statements in the SAME module both
+ *  need one, the per-statement inlining repeats it. `dedupeGroundPrelude` uses
+ *  this registry to drop the repeats at module-assembly time. Block granularity
+ *  (not line) is required: distinct helpers share boilerplate lines
+ *  (`    try:`, `        return 0`), so line-level dedup would corrupt them. */
+const GROUND_PRELUDE_HELPER_BLOCKS: readonly string[][] = [
+  KERN_FMT_HELPER_PY,
+  KERN_I32_HELPER_PY,
+  KERN_JS_ARRAY_HELPERS_PY,
+  KERN_JS_HELPER_PY,
+  KERN_JS_OBJECT_HELPERS_PY,
+  KERN_JS_STRING_HELPERS_PY,
+  KERN_PAIR_HELPERS_PY,
+  KERN_TMOD_HELPER_PY,
+]
+  .map((block) => block.split('\n'))
+  // Longest-first so a block that happens to be a prefix of a longer one can
+  // never shadow it at a match site (none prefix-collide today; this guards
+  // the registry against future helper additions).
+  .sort((a, b) => b.length - a.length);
+
+/** `groundExpressionPrelude` surfaces module-name imports as
+ *  `import <mod> as __k_<mod>` single lines. Match them to dedupe by exact text. */
+const GROUND_PRELUDE_IMPORT_RE = /^import \S+ as __k_\S+$/;
+
+function matchesBlockAt(lines: readonly string[], start: number, block: readonly string[]): boolean {
+  if (start + block.length > lines.length) return false;
+  for (let i = 0; i < block.length; i++) {
+    if (lines[start + i] !== block[i]) return false;
+  }
+  return true;
+}
+
+/**
+ * De-duplicate ground-expression helper/import prelude blocks across the
+ * statements assembled into a single emitted Python module.
+ *
+ * Ground generators inline their prelude per-statement (so a standalone
+ * generator call still emits the helper it needs, ahead of its use). When the
+ * module assembler concatenates several such statements, identical helper
+ * blocks and `import … as __k_…` lines repeat. This pass keeps the FIRST
+ * occurrence of each unique block/import — preserving first-need order so the
+ * helper still precedes its first use — and removes every later repeat, leaving
+ * all non-prelude statement lines untouched.
+ */
+export function dedupeGroundPrelude(lines: readonly string[]): string[] {
+  const seenBlocks = new Set<string>();
+  const seenImports = new Set<string>();
+  const out: string[] = [];
+
+  for (let i = 0; i < lines.length; ) {
+    const matchedBlock = GROUND_PRELUDE_HELPER_BLOCKS.find((block) => matchesBlockAt(lines, i, block));
+    if (matchedBlock) {
+      const key = matchedBlock.join('\n');
+      if (seenBlocks.has(key)) {
+        i += matchedBlock.length;
+        continue;
+      }
+      seenBlocks.add(key);
+      for (let j = 0; j < matchedBlock.length; j++) out.push(lines[i + j]);
+      i += matchedBlock.length;
+      continue;
+    }
+
+    const line = lines[i];
+    if (GROUND_PRELUDE_IMPORT_RE.test(line)) {
+      if (seenImports.has(line)) {
+        i += 1;
+        continue;
+      }
+      seenImports.add(line);
+    }
+    out.push(line);
+    i += 1;
+  }
+
+  return out;
 }
 
 /**
@@ -159,7 +260,7 @@ export function generateFirstTruthy(node: IRNode): string[] {
   if (values.length < 2) throw new Error('firstTruthy requires at least two value expressions');
 
   const emitted = values.map((value) => {
-    const valueIR = parseExpression(value);
+    const valueIR = parseExpr(value);
     if (valueIR.kind === 'propagate') {
       throw new Error("Propagation '?' is not allowed in `firstTruthy values=` — bind the value first.");
     }
@@ -168,12 +269,34 @@ export function generateFirstTruthy(node: IRNode): string[] {
 
   const constType = props.type as string | undefined;
   const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
-  return [
-    ...todo,
-    ...annotations,
-    ...groundExpressionPrelude(emitted),
-    `${name}${typeAnnotation} = ${emitted.map((result) => result.code).join(' or ')}`,
-  ];
+  // Slice S4 — select the first KERN-truthy candidate (so `[]`/`{}` win and NaN
+  // is skipped), not the first Python-truthy one. Same `_kern_truthy`-gated,
+  // single-evaluation, lazy walrus chain as the native-body lowering. The ground
+  // layer has no per-statement helper channel, so `_kern_truthy`/`js_truthy` is
+  // surfaced through the emitted results' helpers set (prepended by the prelude).
+  const withHelper = emitted.map((result) => ({
+    ...result,
+    helpers: new Set([...result.helpers, KERN_JS_HELPER_PY]),
+  }));
+  const chain = buildGroundFirstTruthyChain(
+    withHelper.map((result) => result.code),
+    name,
+  );
+  return [...todo, ...annotations, ...groundExpressionPrelude(withHelper), `${name}${typeAnnotation} = ${chain}`];
+}
+
+/** Module-level (ground) twin of the native-body `firstTruthy` walrus chain.
+ *  No `ctx.gensymCounter` here, so temp names are seeded from the binding name
+ *  plus a positional index — stable per statement and disjoint across siblings
+ *  (each `firstTruthy` binds a distinct `name`). */
+function buildGroundFirstTruthyChain(candidates: string[], bindingName: string): string {
+  const last = candidates[candidates.length - 1];
+  let chain = last;
+  for (let i = candidates.length - 2; i >= 0; i--) {
+    const tmp = `__k_ft_${bindingName}_${i}`;
+    chain = `(${tmp} if _kern_truthy(${tmp} := ${candidates[i]}) else ${chain})`;
+  }
+  return chain;
 }
 
 function emitFirstTruthyOperandPy(valueIR: ValueIR): PyExpressionEmitResult {
@@ -195,7 +318,7 @@ export function generateCoalesce(node: IRNode): string[] {
   if (values.length < 2) throw new Error('coalesce requires at least two value expressions');
 
   const valueIRs = values.map((value) => {
-    const valueIR = parseExpression(value);
+    const valueIR = parseExpr(value);
     if (valueIR.kind === 'propagate') {
       throw new Error("Propagation '?' is not allowed in `coalesce values=` — bind the value first.");
     }
@@ -216,7 +339,7 @@ export function generateFirstDefined(node: IRNode): string[] {
   if (values.length < 2) throw new Error('firstDefined requires at least two value expressions');
 
   const valueIRs = values.map((value) => {
-    const valueIR = parseExpression(value);
+    const valueIR = parseExpr(value);
     if (valueIR.kind === 'propagate') {
       throw new Error("Propagation '?' is not allowed in `firstDefined values=` — bind the value first.");
     }
@@ -241,7 +364,7 @@ export function generateObjectMerge(node: IRNode): string[] {
   for (const source of sources) {
     if (source.startsWith('...'))
       throw new Error('objectMerge sources imply spreading; omit leading `...` in sources=');
-    const sourceIR = parseExpression(source);
+    const sourceIR = parseExpr(source);
     if (sourceIR.kind === 'propagate') {
       throw new Error("Propagation '?' is not allowed in `objectMerge sources=` — bind the value first.");
     }
@@ -269,7 +392,7 @@ export function generateObjectPick(node: IRNode): string[] {
   const rawKeys = unwrapExpr(props.keys);
   if (rawKeys === undefined || rawKeys === '') throw new Error("objectPick node requires a 'keys' prop");
 
-  const inIR = parseExpression(rawIn);
+  const inIR = parseExpr(rawIn);
   if (inIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in objectPick in=");
   }
@@ -299,7 +422,7 @@ export function generateObjectOmit(node: IRNode): string[] {
   const rawKeys = unwrapExpr(props.keys);
   if (rawKeys === undefined || rawKeys === '') throw new Error("objectOmit node requires a 'keys' prop");
 
-  const inIR = parseExpression(rawIn);
+  const inIR = parseExpr(rawIn);
   if (inIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in objectOmit in=");
   }

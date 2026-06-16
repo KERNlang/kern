@@ -9,7 +9,7 @@ import type { ExprObject, IRNode } from '../types.js';
 import { emitNativeKernBodyTS } from './body-ts.js';
 import { emitIdentifier, emitTypeAnnotation } from './emitters.js';
 import { dedent, emitDocComment, exportPrefix, getChildren, getFirstChild, getProps, handlerCode } from './helpers.js';
-import { emitParamList } from './type-system.js';
+import { emitParamList, type TopLevelExpressionOptions } from './type-system.js';
 
 /** Slice 1 — native KERN handler bodies (`handler lang=kern`).
  *  Returns the emitted body when the fn's handler child opts in via `lang=kern`,
@@ -43,7 +43,7 @@ const firstChild = getFirstChild;
 
 // ── Function ─────────────────────────────────────────────────────────────
 
-export function generateFunction(node: IRNode): string[] {
+export function generateFunction(node: IRNode, options?: TopLevelExpressionOptions): string[] {
   const props = propsOf<'fn'>(node);
   const name = emitIdentifier(props.name, 'unknownFn', node);
   const returns = props.returns;
@@ -68,7 +68,7 @@ export function generateFunction(node: IRNode): string[] {
   const overloadChildren = kids(node, 'overload');
   for (const ov of overloadChildren) {
     const op = propsOf<'overload'>(ov);
-    const oParams = emitParamList(ov, { stripDefaults: true });
+    const oParams = emitParamList(ov, { stripDefaults: true, userBindings: options?.userBindings });
     const oRet = op.returns ? `: ${emitTypeAnnotation(op.returns, 'unknown', ov)}` : '';
     // Slice 2f — overloads may declare their own generics independent of the impl.
     // Fall back to the parent fn's generics if the overload doesn't specify its own.
@@ -80,7 +80,12 @@ export function generateFunction(node: IRNode): string[] {
   // → "action: PlanAction, ws: WorkspaceSnapshot, spread: number = 8"
   // Slice 3c: structured `param` child nodes win over the legacy `params="..."`
   // string. Children flow through emitConstValue for ValueIR canonicalisation.
-  const paramList = emitParamList(node);
+  const userBindings = options?.userBindings;
+  const exprCtx =
+    userBindings && userBindings.size > 0
+      ? { isUserBinding: (binding: string) => userBindings.has(binding) }
+      : undefined;
+  const paramList = emitParamList(node, { exprCtx, userBindings });
 
   // stream=true → async generator function
   if (isStream) {

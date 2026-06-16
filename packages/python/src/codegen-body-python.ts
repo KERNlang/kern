@@ -44,29 +44,71 @@
 import type { ExprObject, IRNode, ValueIR } from '@kernlang/core';
 import {
   applyTemplate,
-  collectFreeIdentifierNames,
+  classifyRegexLiteralIndexReadFailClose,
+  classifyRegexLiteralMemberReadFailClose,
   emitStringKeyArray,
+  expandRegexIFold,
   instanceofRhsPythonType,
   instanceofRhsRejectReasonForName,
+  isHostNamespaceRoot,
   isPostfixMutationOperator,
   isSupportedAssignOperator,
+  isZeroWidthCapableRegex,
   KERN_STDLIB_MODULES,
-  lookupStdlib,
-  lowerJsClosureBodyToPython,
+  lookupStdlibCall,
+  lookupStdlibProperty,
+  lowerRegexAnchorsPython,
+  lowerRegexNamedGroupsPython,
   needsArgParens,
   needsBinaryParens,
+  normalizeRegexClasses,
   parseExpression,
   parseKeys,
+  REGEX_EXEC_FAILCLOSE,
+  REGEX_HOST_REGEXP_FAILCLOSE,
+  REGEX_MATCHALL_NO_G_FAILCLOSE,
+  REGEX_NONLITERAL_FAILCLOSE,
+  REGEX_REPLACE_NONLITERAL_REPL_FAILCLOSE,
+  REGEX_REPLACEALL_NO_G_FAILCLOSE,
+  REGEX_SPLIT_LIMIT_FAILCLOSE,
+  REGEX_SPLIT_ZEROWIDTH_FAILCLOSE,
+  REGEX_TEST_G_FAILCLOSE,
+  regexAstralFailMessage,
+  regexCaptureMeta,
+  regexIFoldFailMessage,
+  regexLiteralReceiverIR,
+  regexMethodRegexArgIdent,
+  scanRegexAstral,
   suggestStdlibMethod,
+  translateReplStringToPython,
+  unmappedHostNamespaceMessage,
+  unwrapTransparentReceiverIR,
+  validateRegexNamedGroupsPortable,
 } from '@kernlang/core';
+// Slice 0.9 — the TypeScript-AST closure helpers + classifier live on the Node
+// subpath (the barrel is browser-safe). Python codegen is Node-side and parses
+// block-bodied arrows, so it injects `typescriptClosureClassifier`.
+import {
+  collectFreeIdentifierNames,
+  lowerJsClosureBodyToPython,
+  typescriptClosureClassifier,
+} from '@kernlang/core/node';
 import { buildPythonParamList } from './codegen-helpers.js';
 import {
   KERN_FMT_HELPER_PY,
-  KERN_I32_HELPER_PY,
+  KERN_JS_ARRAY_FROM_HELPER_PY,
   KERN_JS_ARRAY_HELPERS_PY,
   KERN_JS_HELPER_PY,
+  KERN_JS_MATH_HELPERS_PY,
+  KERN_JS_NUMBER_HELPERS_PY,
+  KERN_JS_OBJECT_HELPERS_PY,
+  KERN_JSON_STRINGIFY_SHIM_PY,
+  KERN_NULLISH_HELPER_PY,
   KERN_PAIR_HELPERS_PY,
+  KERN_REGEX_MATCH_HELPER_PY,
+  KERN_REGEX_MATCHALL_HELPER_PY,
   KERN_TMOD_HELPER_PY,
+  KERN_TO_NUMBER_HELPER_PY,
 } from './core/expr/index.js';
 import {
   isSharedPortableArrayMethod,
@@ -76,6 +118,17 @@ import {
   sharedPortableMethodRequiresPureReceiver,
 } from './core/expr/list-ops.js';
 import { mapTsTypeToPython } from './type-map.js';
+
+/** Parse options for Python codegen — always inject the TypeScript-backed
+ *  closure classifier so block-bodied arrows parse (slice 0.9). */
+const TS_PARSE_OPTS = { closureClassifier: typescriptClosureClassifier };
+
+/** Local `parseExpression` binding for Python codegen that always injects the
+ *  TypeScript closure classifier (slice 0.9). All `parseExpr(...)` calls in this
+ *  module route through here. */
+function parseExpr(input: string): ReturnType<typeof parseExpression> {
+  return parseExpression(input, TS_PARSE_OPTS);
+}
 
 /** Slice 3e — caller-provided options for the Python body emitter.
  *  Currently only `symbolMap`; future slices may add diagnostics, source-map
@@ -224,6 +277,19 @@ interface BodyEmitContext {
    *  `gensymCounter` so closure names stay stable/independent of other
    *  gensym usage. */
   closureSeq: number;
+  /** S5 review fix — CPython REJECTS the walrus operator anywhere inside a
+   *  comprehension/generator ITERABLE expression ("assignment expression
+   *  cannot be used in a comprehension iterable expression", a symtable check
+   *  that NO amount of nesting — parens, calls, lambdas, list displays —
+   *  escapes). Every site that interpolates an emitted expression into a
+   *  `for … in <here>` head sets this flag (via `withWalrusBan`) while
+   *  emitting that operand; every walrus-producing lowering (`&&`/`||`,
+   *  impure-left `??`, `typeof`) checks it and emits the walrus-free
+   *  lambda-parameter form instead: `(lambda __k_N: (<body using __k_N>))(L)`
+   *  — same single-eval of L, same lazy unselected branch (the conditional
+   *  lives in the lambda body), one extra closure allocation only in these
+   *  rare positions. */
+  banWalrus?: boolean;
   /** Slice-2 loop-variable pinning. Each entry is the INDEX into `localScopes`
    *  of a scope that is a loop BODY (an `each`/`for`/`while` body). A captured
    *  name is pinned (JS per-iteration capture → Python default arg) IFF its
@@ -540,14 +606,18 @@ function emitChildrenPy(
         for (const line of emitReturnPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'if') {
         const condRaw = String(child.props?.cond ?? '');
-        const condIR = parseExpression(condRaw);
+        const condIR = parseExpr(condRaw);
         // Slice-2 review fix: reject propagation `?` in `if cond=` (parallel to TS side).
         if (condIR.kind === 'propagate') {
           throw new Error(
             "Propagation '?' is not allowed in `if cond=` — bind the call to a `let` first, then test the bound name.",
           );
         }
-        lines.push(`${indent}if ${emitPyExprCtx(condIR, ctx)}:`);
+        // Slice S4 — `if cond=` consumes KERN ToBoolean, not Python bare
+        // truthiness, so `if []:`/`if {}:` are truthy and `if NaN:` is falsy.
+        // Wrap UNCONDITIONALLY (no "looks boolean" skip-analysis in v1).
+        ctx.helpers.add(KERN_JS_HELPER_PY);
+        lines.push(`${indent}if _kern_truthy(${emitPyExprCtx(condIR, ctx)}):`);
         const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP);
         if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
         for (const sl of inner) lines.push(sl);
@@ -566,13 +636,15 @@ function emitChildrenPy(
           if (isChainable) {
             const ifNode = ec[0];
             const nestedCondRaw = String(ifNode.props?.cond ?? '');
-            const nestedCondIR = parseExpression(nestedCondRaw);
+            const nestedCondIR = parseExpr(nestedCondRaw);
             if (nestedCondIR.kind === 'propagate') {
               throw new Error(
                 "Propagation '?' is not allowed in `if cond=` — bind the call to a `let` first, then test the bound name.",
               );
             }
-            lines.push(`${indent}elif ${emitPyExprCtx(nestedCondIR, ctx)}:`);
+            // Slice S4 — `else if` chains consume KERN ToBoolean too.
+            ctx.helpers.add(KERN_JS_HELPER_PY);
+            lines.push(`${indent}elif _kern_truthy(${emitPyExprCtx(nestedCondIR, ctx)}):`);
             const ifInner = emitChildrenPy(ifNode.children ?? [], ctx, indent + INDENT_STEP);
             if (ifInner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
             for (const sl of ifInner) lines.push(sl);
@@ -590,7 +662,7 @@ function emitChildrenPy(
         throw new Error('`else` must immediately follow an `if` sibling. Found orphan `else` in handler body.');
       } else if (child.type === 'while') {
         const condRaw = String(child.props?.cond ?? '');
-        const condIR = parseExpression(condRaw);
+        const condIR = parseExpr(condRaw);
         if (condIR.kind === 'propagate') {
           throw new Error(
             "Propagation '?' is not allowed in `while cond=` — bind the call to a `let` first, then test the bound name.",
@@ -684,7 +756,7 @@ function emitChildrenPy(
         // Slice 4c+4d review fix (Codex P1) — read schema-compliant
         // `name`/`in` props (legacy `list`/`as` accepted as fallback).
         const listRaw = String(child.props?.in ?? child.props?.list ?? '[]');
-        const listIR = parseExpression(listRaw);
+        const listIR = parseExpr(listRaw);
         const pairKey = child.props?.pairKey;
         const pairValue = child.props?.pairValue;
         const entryKey = child.props?.entryKey;
@@ -927,9 +999,9 @@ function emitRangeForPy(node: IRNode, ctx: BodyEmitContext, indent: string): str
   validateIntegerRangeBound(String(rawFrom), 'from');
   validateIntegerRangeBound(String(rawTo), 'to');
   validatePositiveRangeStep(rawStep);
-  const fromIR = parseExpression(String(rawFrom));
-  const toIR = parseExpression(String(rawTo));
-  const stepIR = parseExpression(rawStep);
+  const fromIR = parseExpr(String(rawFrom));
+  const toIR = parseExpr(String(rawTo));
+  const stepIR = parseExpr(rawStep);
   if (fromIR.kind === 'propagate' || toIR.kind === 'propagate' || stepIR.kind === 'propagate') {
     throw new Error(
       "Propagation '?' is not allowed in `for from=`/`to=`/`step=` — bind the value to a `let` before the loop.",
@@ -996,7 +1068,7 @@ function emitWithPy(node: IRNode, ctx: BodyEmitContext, indent: string): string[
   }
 
   const name = String(rawName);
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   if (valueIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in `with value=` — bind to `let` first.");
   }
@@ -1011,7 +1083,7 @@ function emitWithPy(node: IRNode, ctx: BodyEmitContext, indent: string): string[
     return lines;
   }
 
-  const cleanupIR = parseExpression(String(rawCleanup));
+  const cleanupIR = parseExpr(String(rawCleanup));
   if (cleanupIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in `with cleanup=` — bind to `let` first.");
   }
@@ -1064,7 +1136,7 @@ function emitBranchPy(node: IRNode, ctx: BodyEmitContext, indent: string): strin
   if (onRaw === '') {
     throw new Error('`branch` requires an `on=` expression in body-statement context.');
   }
-  const onIR = parseExpression(onRaw);
+  const onIR = parseExpr(onRaw);
   const subjectVar = `__k_branch_${++ctx.gensymCounter}`;
   const out: string[] = [];
   out.push(`${indent}${subjectVar} = ${emitPyExprCtx(onIR, ctx)}`);
@@ -1164,7 +1236,7 @@ function emitCellPy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawInitial === undefined || rawInitial === '') {
     return [`${pythonName} = None`];
   }
-  const initialIR = parseExpression(String(rawInitial));
+  const initialIR = parseExpr(String(rawInitial));
   return [`${pythonName} = ${emitPyExprCtx(initialIR, ctx)}`];
 }
 
@@ -1180,7 +1252,7 @@ function emitSetPy(node: IRNode, ctx: BodyEmitContext): string[] {
   }
   const name = String(rawName);
   const pythonName = ctx.symbolMap[name] ?? name;
-  const valueIR = parseExpression(String(rawTo));
+  const valueIR = parseExpr(String(rawTo));
   if (valueIR.kind === 'propagate') {
     throw new Error(
       `Propagation \`${valueIR.op}\` is not supported in \`set to=\` — bind to \`let\` first, then call set.`,
@@ -1205,7 +1277,7 @@ function emitLetPy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawValue === undefined || rawValue === '') {
     return [`${name} = None`];
   }
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   setRegexBinding(ctx, userName, valueIR.kind === 'regexLit' ? valueIR : null);
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
@@ -1283,9 +1355,9 @@ function emitClampPy(node: IRNode, ctx: BodyEmitContext): string[] {
   const rawMax = unwrapBodyExpr(props.max);
   if (rawMax === undefined || rawMax === '') throw new Error('body-statement `clamp` requires `max=`.');
 
-  const valueIR = parseExpression(rawValue);
-  const minIR = parseExpression(rawMin);
-  const maxIR = parseExpression(rawMax);
+  const valueIR = parseExpr(rawValue);
+  const minIR = parseExpr(rawMin);
+  const maxIR = parseExpr(rawMax);
   if (valueIR.kind === 'propagate' || minIR.kind === 'propagate' || maxIR.kind === 'propagate') {
     throw new Error(
       "Propagation '?' is not allowed in `clamp value=`/`min=`/`max=` — bind the value to a `let` first.",
@@ -1314,16 +1386,39 @@ function emitFirstTruthyPy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (values.length < 2) throw new Error('body-statement `firstTruthy` requires at least two value expressions.');
 
   const emitted = values.map((value) => {
-    const valueIR = parseExpression(value);
+    const valueIR = parseExpr(value);
     if (valueIR.kind === 'propagate') {
       throw new Error("Propagation '?' is not allowed in `firstTruthy values=` — bind the value to a `let` first.");
     }
     return emitFirstTruthyOperandPy(valueIR, ctx);
   });
 
-  const lines = [`${name} = ${emitted.join(' or ')}`];
+  // Slice S4 — `firstTruthy` selects the first KERN-truthy candidate, NOT the
+  // first Python-truthy one. Bare `a or b` skips `[]`/`{}` (Python-falsy but
+  // JS-truthy) and keeps NaN (Python-truthy but JS-falsy), so it diverges. Lower
+  // to a `_kern_truthy`-gated walrus chain that evaluates each candidate AT MOST
+  // ONCE and only if every earlier candidate was falsy (left-to-right laziness):
+  //   (t1 if _kern_truthy(t1 := a) else (t2 if _kern_truthy(t2 := b) else c))
+  // The final candidate needs no temp/guard — it is the fallthrough value.
+  ctx.helpers.add(KERN_JS_HELPER_PY);
+  const lines = [`${name} = ${buildFirstTruthyChainPy(emitted, ctx)}`];
   if (ctx.traceHooks?.letAssign) lines.push(letAssignTracePy(name));
   return lines;
+}
+
+/** Build the `_kern_truthy`-gated, single-evaluation, lazy walrus chain for a
+ *  `firstTruthy` candidate list. The last candidate is the fallthrough (no
+ *  guard); every earlier candidate is bound once via `:=` and tested with
+ *  `_kern_truthy`. `gensymCounter`-seeded temp names avoid colliding with user
+ *  bindings or each other. */
+function buildFirstTruthyChainPy(candidates: string[], ctx: BodyEmitContext): string {
+  const last = candidates[candidates.length - 1];
+  let chain = last;
+  for (let i = candidates.length - 2; i >= 0; i--) {
+    const tmp = `__k_ft${++ctx.gensymCounter}`;
+    chain = `(${tmp} if _kern_truthy(${tmp} := ${candidates[i]}) else ${chain})`;
+  }
+  return chain;
 }
 
 function emitCoalescePy(node: IRNode, ctx: BodyEmitContext): string[] {
@@ -1342,7 +1437,7 @@ function emitCoalescePy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (values.length < 2) throw new Error(`body-statement \`${type}\` requires at least two value expressions.`);
 
   const valueIRs = values.map((value) => {
-    const valueIR = parseExpression(value);
+    const valueIR = parseExpr(value);
     if (valueIR.kind === 'propagate') {
       throw new Error(`Propagation '?' is not allowed in \`${type} values=\` — bind the value to a \`let\` first.`);
     }
@@ -1384,7 +1479,7 @@ function emitObjectMergePy(node: IRNode, ctx: BodyEmitContext): string[] {
     if (source.startsWith('...')) {
       throw new Error('body-statement `objectMerge` sources imply spreading; omit leading `...`.');
     }
-    const sourceIR = parseExpression(source);
+    const sourceIR = parseExpr(source);
     if (sourceIR.kind === 'propagate') {
       throw new Error("Propagation '?' is not allowed in `objectMerge sources=` — bind the value to a `let` first.");
     }
@@ -1412,7 +1507,7 @@ function emitObjectPickPy(node: IRNode, ctx: BodyEmitContext): string[] {
     throw new Error('body-statement `objectPick` requires `keys=`.');
   }
 
-  const inIR = parseExpression(rawIn);
+  const inIR = parseExpr(rawIn);
   if (inIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in `objectPick in=` — bind the value to a `let` first.");
   }
@@ -1444,7 +1539,7 @@ function emitObjectOmitPy(node: IRNode, ctx: BodyEmitContext): string[] {
     throw new Error('body-statement `objectOmit` requires `keys=`.');
   }
 
-  const inIR = parseExpression(rawIn);
+  const inIR = parseExpr(rawIn);
   if (inIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in `objectOmit in=` — bind the value to a `let` first.");
   }
@@ -1487,7 +1582,7 @@ function emitAssignPy(node: IRNode, ctx: BodyEmitContext): string[] {
     // mirrors this; the emitter check is defense-in-depth for direct IR.
     throw new Error(`body-statement \`assign op="${rawOp}"\` is value-less; remove \`value=\`.`);
   }
-  const targetIR = parseExpression(String(rawTarget));
+  const targetIR = parseExpr(String(rawTarget));
   if (!isAssignableTarget(targetIR)) {
     throw new Error('body-statement `assign target=` must be an identifier, member access, or index access.');
   }
@@ -1500,13 +1595,22 @@ function emitAssignPy(node: IRNode, ctx: BodyEmitContext): string[] {
     const baseOp = rawOp === '++' ? '+=' : '-=';
     return [`${emitPyExprCtx(targetIR, ctx)} ${baseOp} 1`];
   }
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   if (valueIR.kind === 'propagate') {
     throw new Error(
       `Propagation \`${valueIR.op}\` is not supported in \`assign value=\` — bind to \`let\` first, then assign.`,
     );
   }
+  // Emit FIRST (its `emitPyExprCtx` lowering fail-closes a regex method on a
+  // bound regex ident) so the RHS is checked against the PRE-reassignment table
+  // (`re = s.match(re)` must still see `re` as a regex). Mirrors the TS leg.
   const stmt = `${emitPyExprCtx(targetIR, ctx)} ${rawOp} ${emitPyExprCtx(valueIR, ctx)}`;
+  // Reassign-invalidation (Slice-3c): keep the regex-binding table honest. A
+  // plain `=` to a direct regex literal stays a regex binding (still
+  // fail-closed); any compound op (`+=`, …) or non-regex RHS UNMARKS it.
+  if (targetIR.kind === 'ident') {
+    rebindRegexOnReassign(ctx, targetIR.name, rawOp === '=' ? valueIR : { kind: 'undefLit' });
+  }
   // Differential-harness opt-in (see BodyEmitOptions.traceHooks.letAssign): the
   // `assign` contract observes a reassignment via the same `{op:"assign"}` event
   // a `let` declaration emits. Scoped to identifier targets — the contract
@@ -1541,6 +1645,23 @@ function lookupRegexBinding(ctx: BodyEmitContext, name: string): Extract<ValueIR
     if (scope.has(name)) return scope.get(name) ?? null;
   }
   return null;
+}
+
+/** Reassign-invalidation: when a tracked ident is REASSIGNED (`assign
+ *  target=re value=…`), update its regex marking IN THE SCOPE THAT OWNS IT (not
+ *  the innermost scope — that would shadow and leak past the inner block).
+ *  Reassigned to a direct `regexLit` → stays a regex binding (still fail-closed);
+ *  reassigned to anything else → UNMARK. Mirrors the TS `rebindRegexOnReassign`,
+ *  so the stale-binding class dies symmetrically on both targets. */
+function rebindRegexOnReassign(ctx: BodyEmitContext, name: string, valueIR: ValueIR): void {
+  const next = valueIR.kind === 'regexLit' ? valueIR : null;
+  for (let i = ctx.regexScopes.length - 1; i >= 0; i--) {
+    const scope = ctx.regexScopes[i];
+    if (scope.has(name)) {
+      scope.set(name, next);
+      return;
+    }
+  }
 }
 
 function assertAssignableLocalTarget(target: ValueIR, ctx: BodyEmitContext): void {
@@ -1596,7 +1717,7 @@ function emitDestructurePy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawSource === undefined || rawSource === '') {
     throw new Error('body-statement `destructure` requires `source=`.');
   }
-  const source = emitPyExprCtx(parseExpression(String(rawSource)), ctx);
+  const source = emitPyExprCtx(parseExpr(String(rawSource)), ctx);
   const children = node.children ?? [];
   const bindings = children.filter((c) => c.type === 'binding');
   const elements = children.filter((c) => c.type === 'element');
@@ -1609,17 +1730,29 @@ function emitDestructurePy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (bindings.length > 0) {
     const tmp = `__k_d${++ctx.gensymCounter}`;
     const lines = [`${tmp} = ${source}`];
+    // Slice S7 — an ABSENT destructured key is JS `undefined` (the sentinel), so
+    // `typeof missing` is "undefined" not "object". `.get(key, _KERN_UNDEFINED)`
+    // returns the sentinel for an absent key AND preserves a PRESENT key whose
+    // stored value is already the sentinel (`{ a: undefined }`) — the two stay
+    // distinct from a present `None`. Ground/React (non-coerce) keeps `.get(key)`
+    // (None default), since it never materializes the sentinel.
+    const miss = ctx.coerceJsValues ? ', _KERN_UNDEFINED' : '';
+    if (ctx.coerceJsValues) ctx.helpers.add(KERN_NULLISH_HELPER_PY);
     for (const child of bindings) {
       const cp = (child.props ?? {}) as Record<string, unknown>;
       const name = String(cp.name ?? '');
       if (!name) throw new Error('body-statement `binding` requires `name=`.');
       const key = cp.key === undefined || cp.key === '' ? name : String(cp.key);
-      lines.push(`${ctx.symbolMap[name] ?? name} = ${tmp}.get(${JSON.stringify(key)})`);
+      lines.push(`${ctx.symbolMap[name] ?? name} = ${tmp}.get(${JSON.stringify(key)}${miss})`);
     }
     return lines;
   }
 
   const tmp = `__k_d${++ctx.gensymCounter}`;
+  // Slice S7 — an out-of-range array-destructure element is JS `undefined` (the
+  // sentinel) in value mode; Ground/React keeps `None`.
+  const arrMiss = ctx.coerceJsValues ? '_KERN_UNDEFINED' : 'None';
+  if (ctx.coerceJsValues && elements.length > 0) ctx.helpers.add(KERN_NULLISH_HELPER_PY);
   return [
     `${tmp} = ${source}`,
     ...elements
@@ -1631,7 +1764,7 @@ function emitDestructurePy(node: IRNode, ctx: BodyEmitContext): string[] {
         if (Number.isNaN(index)) throw new Error('body-statement `element` requires numeric `index=`.');
         return {
           index,
-          line: `${ctx.symbolMap[name] ?? name} = (${tmp}[${index}] if len(${tmp}) > ${index} else None)`,
+          line: `${ctx.symbolMap[name] ?? name} = (${tmp}[${index}] if len(${tmp}) > ${index} else ${arrMiss})`,
         };
       })
       .sort((a, b) => a.index - b.index)
@@ -1749,7 +1882,7 @@ function templateToPyFString(template: string, ctx: BodyEmitContext): string {
         throw new Error('body-statement `fmt`: unterminated `${...}` in template.');
       }
       const inner = template.slice(i + 2, j);
-      const exprIR = parseExpression(inner);
+      const exprIR = parseExpr(inner);
       if (exprIR.kind === 'propagate') {
         throw new Error("Propagation '?' is not allowed inside an `fmt` template — bind via `let` first.");
       }
@@ -1798,7 +1931,7 @@ function emitReturnPy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawValue === undefined || rawValue === '') {
     return [`return`];
   }
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
@@ -1815,7 +1948,7 @@ function emitThrowPy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawValue === undefined || rawValue === '') {
     return [`raise Exception()`];
   }
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
@@ -1840,7 +1973,7 @@ function emitDoPy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawValue === undefined || rawValue === '') {
     return [];
   }
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
@@ -1884,6 +2017,20 @@ export function emitPyExpression(node: ValueIR, options?: BodyEmitOptions): stri
 export function emitPyExpressionWithImports(node: ValueIR, options?: BodyEmitOptions): PyExpressionEmitResult {
   const ctx = freshCtx(options);
   ctx.standaloneExpression = true;
+  // Seed the outer-binding scope into `localScopes` so this standalone-
+  // expression entry point honors `outerBindings` the same way the native-body
+  // entry point does (see `emitNativeKernBodyPythonWithImports`). Before slice
+  // H the expression path silently ignored `outerBindings`; the shadowing rule
+  // (`isProvenUserBinding` consulting the single-source-of-truth scope model)
+  // needs them present so a proven-local root named `Math`/`JSON`/… is treated
+  // as a user value rather than the host namespace. Index-aligned with
+  // `regexScopes`/`renameStack` exactly as the native path does.
+  const outerBindings = options?.outerBindings ?? [];
+  if (outerBindings.length > 0) {
+    ctx.localScopes.push(new Map(outerBindings.map((n) => [n, 'const' as const])));
+    ctx.regexScopes.push(new Map(outerBindings.map((n) => [n, null])));
+    ctx.renameStack.push(new Map());
+  }
   const code = emitPyExprCtx(node, ctx);
   return { code, imports: ctx.imports, helpers: ctx.helpers };
 }
@@ -1916,6 +2063,13 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       ctx.imports.add('re');
       return `__k_re.compile(${pyRegexPattern(node)}, ${pyRegexFlags(node.flags, { allowGlobal: true })})`;
     case 'ident': {
+      if (node.name === 'NaN') return 'float("nan")';
+      if (node.name === 'Infinity') return 'float("inf")';
+      // Slice 2 — a BARE-VALUE host `RegExp` reference (not a member/call
+      // receiver, which their own cases own) fails-close. This is the
+      // alias-soundness site: `let R = RegExp` is refused at the initializer, so
+      // `R(...)` / `new R(...)` can never silently diverge. Honors user shadowing.
+      rejectHostRegExpValuePython(node.name, ctx);
       // Block-scope rename takes precedence — an inner `let x` that shadows
       // an outer binding was emitted with a gensym (`__k_shadow_x_N`) and
       // every in-block reference must use the same gensym. Walk renameStack
@@ -1949,7 +2103,7 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       // The top-level wrapper produces `(expr if guard else None)` once
       // (or just `expr` when no `?.` was seen).
       const lowered = lowerChain(node, ctx);
-      return wrapGuardIfAny(lowered);
+      return wrapGuardIfAny(lowered, ctx);
     }
     case 'await':
       return `await ${emitPyExprCtx(node.argument, ctx)}`;
@@ -1975,6 +2129,16 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       // NameError (agon review, claude/zai convergence).
       if (arg.kind === 'ident' && arg.name === 'Error') {
         return 'Exception()';
+      }
+      // Slice 2 — `new RegExp(p)` (with or without parens) fails-close BEFORE the
+      // fall-through, with the shared regex message (the TS emitter + IR-validate
+      // throw the same string). Without this the Python `new` case falls through
+      // to a verbatim `RegExp(...)` NameError instead of a compile-time refusal.
+      // Honors user shadowing via `isProvenUserBinding`.
+      if (arg.kind === 'call' && arg.callee.kind === 'ident') {
+        rejectHostRegExpValuePython(arg.callee.name, ctx);
+      } else if (arg.kind === 'ident') {
+        rejectHostRegExpValuePython(arg.name, ctx);
       }
       return emitPyExprCtx(arg, ctx);
     }
@@ -2007,17 +2171,21 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       return out;
     }
     case 'binary': {
-      if (
-        node.op === '|' ||
-        node.op === '&' ||
-        node.op === '^' ||
-        node.op === '<<' ||
-        node.op === '>>' ||
-        node.op === '%'
-      ) {
+      // Slice 6 — bitwise / shift on the slice-0.75 ToInt32 substrate. Emitted
+      // DIRECTLY as helper-wrapped strings (operands recurse through
+      // `emitPyExprCtx`), so nested bitwise ops compose without the double-
+      // dispatch recursion an AST-rewrite-then-re-emit would cause.
+      if (node.op === '|' || node.op === '&' || node.op === '^' || node.op === '<<' || node.op === '>>') {
+        return emitBitwiseShiftPy(node.op, node.left, node.right, ctx);
+      }
+      if (node.op === '>>>') {
+        return emitUnsignedShiftPy(node.left, node.right, ctx);
+      }
+      if (node.op === '%') {
+        // Modulo keeps the existing `_tmod` lowering (orthogonal to S6).
         const transformed = lowerBitwiseAndModuloAST(node);
         registerHelpers(transformed, ctx);
-        return emitPyExprCtx(transformed, ctx);
+        return emitLoweredBitwisePy(transformed, ctx);
       }
       // Slice 2c — arithmetic / comparison / logical lowering for Python.
       // Use precedence-aware paren-wrapping so `a + b * c` doesn't redundantly
@@ -2093,6 +2261,63 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
         return `__kern_add(${left}, ${right})`;
       }
 
+      if (node.op === '&&' || node.op === '||') {
+        // Slice S5 — logical `&&` / `||` RESULT-VALUE semantics on Python.
+        //
+        // KERN `&&`/`||` are operand-selectors, not boolean operators:
+        //   `a && b` returns `a` when ToBoolean(a) is false, else `b`.
+        //   `a || b` returns `a` when ToBoolean(a) is true,  else `b`.
+        // Python's `and`/`or` use Python truthiness (`bool(x)` / `len(x)`), which
+        // diverges from KERN ToBoolean on `[]`, `{}`, `NaN`, `"0"`, `"false"`,
+        // `" "` — e.g. `[] or x` returns `x` in Python but must return `[]` in
+        // KERN. So `and`/`or` are wrong; we lower through the SAME `_kern_truthy`
+        // (KERN ToBoolean) substrate S4 routes `!`/ternary/`if cond=` through.
+        //
+        // Canonical lowering (single-eval, lazy, original-value-returning):
+        //   L && R  ->  (__k_logN if not _kern_truthy(__k_logN := L) else R)
+        //   L || R  ->  (__k_logN if     _kern_truthy(__k_logN := L) else R)
+        //
+        // The walrus binds L EXACTLY ONCE (works for calls/indexes/members/
+        // nested logicals — no double-read), `_kern_truthy` decides the branch
+        // on KERN truthiness, and the unselected operand is NEVER evaluated
+        // (Python conditional-expr branches are lazy). NO ident/pure-left fast
+        // path in this slice — conservative walrus for EVERY left operand is the
+        // single-eval law (S4 carry-forward; optimization needs its own oracle).
+        //
+        // Emitted UNCONDITIONALLY for both native (`coerceJsValues`) and Ground/
+        // React layers — mirroring S4's `!`/ternary, which also emit
+        // `_kern_truthy` regardless of the coercion flag. The `[]`/`{}`/`NaN`
+        // divergence is independent of the undefined sentinel, so a Ground-layer
+        // `a and b` would be just as wrong; parity demands one spelling.
+        // `KERN_JS_HELPER_PY` is in Ground's prelude registry, so the helper is
+        // inlined there too.
+        ctx.helpers.add(KERN_JS_HELPER_PY);
+        const tmp = `__k_log${++ctx.gensymCounter}`;
+        // `:=` (PEP 572) binds looser than almost everything, so a low-precedence
+        // left operand (conditional/lambda/walrus-bearing) must be parenthesized
+        // so `__k_logN := L` captures the WHOLE operand. A nested `&&`/`||` is
+        // already self-parenthesized, so this only fires on raw conditional/
+        // lambda left operands.
+        const leftOperand = needsWalrusOperandParens(node.left) ? `(${left})` : left;
+        // The `else` branch is a conditional-expression alternate; a bare
+        // conditional/lambda there reparses ambiguously, so wrap it. A nested
+        // logical R is self-parenthesized; only raw conditional/lambda needs it.
+        const rightOperand = needsConditionalAlternateParens(node.right) ? `(${right})` : right;
+        if (ctx.banWalrus) {
+          // Comprehension-iterable position (see BodyEmitContext.banWalrus):
+          // the walrus form is a SyntaxError here, so bind L as a lambda
+          // parameter instead. Same contract: L evaluated exactly once (as the
+          // call argument), the unselected branch never evaluated (lazy
+          // conditional inside the lambda body), original value returned.
+          const test = `_kern_truthy(${tmp})`;
+          const guarded = node.op === '&&' ? `not ${test}` : test;
+          return `(lambda ${tmp}: (${tmp} if ${guarded} else ${rightOperand}))(${left})`;
+        }
+        const test = `_kern_truthy(${tmp} := ${leftOperand})`;
+        const guarded = node.op === '&&' ? `not ${test}` : test;
+        return `(${tmp} if ${guarded} else ${rightOperand})`;
+      }
+
       if (node.op === '??') {
         // Slice 4c — nullish coalesce lowering. Two shapes:
         //
@@ -2123,6 +2348,11 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
             return `(${left} if ${left} is not None else ${right})`;
           }
           const tmp = `__k_nc${++ctx.gensymCounter}`;
+          if (ctx.banWalrus) {
+            // Comprehension-iterable position — walrus is a SyntaxError here;
+            // lambda-parameter form keeps single-eval + lazy right branch.
+            return `(lambda ${tmp}: (${tmp} if ${tmp} is not None else ${right}))(${left})`;
+          }
           return `(${tmp} if (${tmp} := ${left}) is not None else ${right})`;
         }
         ctx.helpers.add(KERN_FMT_HELPER_PY);
@@ -2130,7 +2360,29 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
           return `(${left} if (${left} is not None and ${left} is not _KERN_UNDEFINED) else ${right})`;
         }
         const tmp = `__k_nc${++ctx.gensymCounter}`;
+        if (ctx.banWalrus) {
+          // Comprehension-iterable position — see BodyEmitContext.banWalrus.
+          return `(lambda ${tmp}: (${tmp} if (${tmp} is not None and ${tmp} is not _KERN_UNDEFINED) else ${right}))(${left})`;
+        }
         return `(${tmp} if ((${tmp} := ${left}) is not None and ${tmp} is not _KERN_UNDEFINED) else ${right})`;
+      }
+
+      // Slice S7 — split loose (`==`/`!=`) and strict (`===`/`!==`) equality so
+      // the null/undefined boundary matches JS: `undefined == null` is True (both
+      // nullish), `undefined === null` is False (distinct identities). Pre-S7
+      // both lowered to Python `==`, which on the sentinel/None pair is False —
+      // wrong for the loose op. Routed through the helper pair only in native
+      // (coerce) bodies; the helper-less Ground/React layer keeps the raw
+      // `==`/`!=` mapping (it never materializes the sentinel, so the nullish
+      // crossing cannot arise there). Function-call form sidesteps Python's
+      // comparison-chaining entirely, so no chain-paren handling is needed for
+      // the equality ops themselves; chained comparison CHILDREN still recurse
+      // through `emitPyExprCtx` and self-parenthesize as before.
+      if (ctx.coerceJsValues && (node.op === '===' || node.op === '!==' || node.op === '==' || node.op === '!=')) {
+        ctx.helpers.add(KERN_NULLISH_HELPER_PY);
+        const fn = node.op === '===' || node.op === '!==' ? '_kern_strict_equal' : '_kern_loose_equal';
+        const call = `${fn}(${left}, ${right})`;
+        return node.op === '!==' || node.op === '!=' ? `(not ${call})` : call;
       }
 
       const forceLeft = needsComparisonChainParens(node.left, node.op);
@@ -2142,9 +2394,9 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
     }
     case 'unary': {
       if (node.op === '~') {
-        const transformed = lowerBitwiseAndModuloAST(node);
-        registerHelpers(transformed, ctx);
-        return emitPyExprCtx(transformed, ctx);
+        // ~a  ->  _kern_to_int32(~_kern_to_int32(a))
+        ctx.helpers.add(KERN_TO_NUMBER_HELPER_PY);
+        return `_kern_to_int32(~_kern_to_int32(${emitPyExprCtx(node.argument, ctx)}))`;
       }
       // Slice 2c — `!x` → `not x`, `-x` → `-x`.
       // Slice typeof — expose the now-eligible native KERN `typeof` shape on
@@ -2153,7 +2405,14 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       if (node.op === 'typeof') return emitPyTypeof(node.argument, ctx);
       const arg = emitPyExprCtx(node.argument, ctx);
       const wrapped = needsArgParens(node.argument) ? `(${arg})` : arg;
-      if (node.op === '!') return `not ${wrapped}`;
+      // Slice S4 — `!x` consumes KERN ToBoolean and returns a real Python bool.
+      // `not _kern_truthy(x)` gives `!""`/`!NaN` → True and `!"0"`/`![]` → False
+      // (bare `not x` would get `![]`/`!{}`/`!NaN` wrong). Wrap unconditionally.
+      if (node.op === '!') {
+        ctx.helpers.add(KERN_JS_HELPER_PY);
+        return `(not _kern_truthy(${arg}))`;
+      }
+      if (node.op === '-' && node.argument.kind === 'numLit' && Number(node.argument.raw) === 0) return '-0.0';
       if (node.op === '-') return `-${wrapped}`;
       if (node.op === '+') return `+${wrapped}`;
       throw new Error(`emitPyExpression: unary op '${node.op}' has no Python equivalent in slice-2c.`);
@@ -2195,7 +2454,12 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
             return emitted;
         }
       };
-      return `${wrap(node.consequent, consStr)} if ${wrap(node.test, testStr)} else ${wrap(node.alternate, altStr)}`;
+      // Slice S4 — the ternary condition consumes KERN ToBoolean exactly once, so
+      // `{} ? a : b`/`[] ? a : b` take the consequent and `NaN ? a : b` takes the
+      // alternate. `_kern_truthy(...)` already parenthesizes the test, so no extra
+      // `wrap` is needed on it. Wrap unconditionally (no "looks boolean" skip).
+      ctx.helpers.add(KERN_JS_HELPER_PY);
+      return `${wrap(node.consequent, consStr)} if _kern_truthy(${testStr}) else ${wrap(node.alternate, altStr)}`;
     }
     case 'spread':
       return `*${emitPyExprCtx(node.argument, ctx)}`;
@@ -2209,6 +2473,38 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
 }
 
 function emitPyTypeof(argument: ValueIR, ctx: BodyEmitContext): string {
+  // Round-6 fix — `typeof <bare host-namespace root>` fails-close on BOTH targets.
+  // The round-5 carve-out lowered `typeof RegExp` to the constant `"function"`
+  // on the theory that it was byte-identical to TS's native `typeof RegExp`. But
+  // the carve-out's siblings on the TS/IR legs blanket-accepted EVERY bare
+  // `typeof` operand, re-opening reserved host roots: `typeof Date`/`typeof
+  // process` lowered HERE to a runtime `isinstance` ladder over the Python names
+  // `Date`/`process`, which do NOT exist → NameError, while TS emits the native
+  // `typeof Date`. That is a genuine TS↔Python divergence, so `typeof <host root>`
+  // must fail-close. `RegExp` keeps the shared regex message (matching the
+  // bare-value reject + the TS/IR legs); every other reserved host root takes the
+  // generic host message with a synthetic `typeof` member. A non-host operand
+  // (`typeof userLocal`, `typeof undeclaredFeatureFlag`) and a proven user binding
+  // fall through to the runtime ladder below, unchanged. `typeof RegExp.prototype`
+  // is a `member` operand and still fails-close via the generic guards.
+  //
+  // Round-7 fix — a WRAPPED operand (`typeof (Date as any)`, `typeof (Date!)`)
+  // arrived as `typeAssert`/`nonNull`, NOT an `ident`, so the round-6 reject was
+  // bypassed and Python lowered a runtime Date/process lookup (NameError) while
+  // the (now-corrected) TS leg emits `typeof Date`. Peel the transparent wrappers
+  // via the round-5 `unwrapTransparentReceiverIR` (fixpoint over
+  // `typeAssert`/`nonNull`) and apply the host-root reject to the UNWRAPPED
+  // operand, identically to the TS-emit + IR-validate legs. The runtime-ladder
+  // fall-through below still operates on the ORIGINAL `argument`, so an accepted
+  // wrapped operand (`typeof (userLocal as any)`) emits the wrapper's value
+  // unchanged.
+  const typeofOperand = unwrapTransparentReceiverIR(argument);
+  if (typeofOperand.kind === 'ident' && !isProvenUserBinding(ctx, typeofOperand.name)) {
+    if (typeofOperand.name === 'RegExp') throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
+    if (isHostNamespaceRoot(typeofOperand.name)) {
+      throw new Error(unmappedHostNamespaceMessage('Python', typeofOperand.name, 'typeof'));
+    }
+  }
   switch (argument.kind) {
     case 'strLit':
       return '"string"';
@@ -2242,6 +2538,19 @@ function emitPyTypeof(argument: ValueIR, ctx: BodyEmitContext): string {
   // pre-slice None-first form.
   if (ctx.coerceJsValues) {
     ctx.helpers.add(KERN_FMT_HELPER_PY);
+    if (ctx.banWalrus) {
+      // Comprehension-iterable position — walrus is a SyntaxError here; bind
+      // the operand as a lambda parameter instead (single-eval preserved).
+      return (
+        `(lambda ${tmp}: ("undefined" if ${tmp} is _KERN_UNDEFINED ` +
+        `else "object" if ${tmp} is None ` +
+        `else "boolean" if isinstance(${tmp}, bool) ` +
+        `else "number" if isinstance(${tmp}, (int, float)) ` +
+        `else "string" if isinstance(${tmp}, str) ` +
+        `else "function" if callable(${tmp}) ` +
+        `else "object"))(${value})`
+      );
+    }
     return (
       `("undefined" if (${tmp} := ${wrapped}) is _KERN_UNDEFINED ` +
       `else "object" if ${tmp} is None ` +
@@ -2250,6 +2559,17 @@ function emitPyTypeof(argument: ValueIR, ctx: BodyEmitContext): string {
       `else "string" if isinstance(${tmp}, str) ` +
       `else "function" if callable(${tmp}) ` +
       `else "object")`
+    );
+  }
+  if (ctx.banWalrus) {
+    // Comprehension-iterable position — see BodyEmitContext.banWalrus.
+    return (
+      `(lambda ${tmp}: ("object" if ${tmp} is None ` +
+      `else "boolean" if isinstance(${tmp}, bool) ` +
+      `else "number" if isinstance(${tmp}, (int, float)) ` +
+      `else "string" if isinstance(${tmp}, str) ` +
+      `else "function" if callable(${tmp}) ` +
+      `else "object"))(${value})`
     );
   }
   return (
@@ -2286,12 +2606,12 @@ function emitLambdaPy(node: Extract<ValueIR, { kind: 'lambda' }>, ctx: BodyEmitC
  *
  *  The closure body is lowered through `lowerJsClosureBodyToPython`, reusing
  *  the class-path expression/condition callbacks:
- *   - `lowerExpression(raw)` = `emitPyExprCtx(parseExpression(raw), ctx)` —
+ *   - `lowerExpression(raw)` = `emitPyExprCtx(parseExpr(raw), ctx)` —
  *     identical to every other native-body expression emit, so a captured
  *     RENAMED outer variable resolves through `ctx` (the rename stack /
  *     symbolMap) exactly as it does outside the closure.
  *   - `lowerCondition(raw)` mirrors the class/native if-emitter, which lowers a
- *     condition as the bare `emitPyExprCtx(parseExpression(cond), ctx)` (NO
+ *     condition as the bare `emitPyExprCtx(parseExpr(cond), ctx)` (NO
  *     js_truthy wrapper). Matching it EXACTLY means a condition inside a
  *     closure lowers identically to the same condition outside one.
  *
@@ -2304,13 +2624,27 @@ function emitBlockClosurePy(node: Extract<ValueIR, { kind: 'lambda' }>, names: s
   const closureName = `__kern_closure_${ctx.closureSeq++}`;
   const previous = new Set(ctx.shadowedSymbols);
   for (const name of names) ctx.shadowedSymbols.add(name);
+  // Slice 2 review-fix parity (round 3) — a block-LOCAL `const`/`let`/function/
+  // class shadows any outer binding of that name WITHIN ITS OWN BLOCK (and
+  // nested blocks) only, so a host-`RegExp` value guard
+  // (`rejectHostRegExpValuePython`) must fire on an OUTER reference but NOT on an
+  // in-scope one. The old code registered EVERY declared name (incl. names
+  // declared only in a NESTED block) into `shadowedSymbols` for the WHOLE
+  // closure — fail-OPEN on `() => { if (ok) { const RegExp = 1; } return RegExp; }`
+  // (the outer `return RegExp` was wrongly treated as the local), DIVERGING from
+  // the TS leg. The lowerer FLATTENS nested blocks, so it now reports block
+  // boundaries via `enterBlockScope`/`exitBlockScope`; we push/pop block-local
+  // shadows exactly like the TS-AST closure walk's `scopes` stack. Only names
+  // NOT already shadowed are pushed/popped, so an outer binding of the same name
+  // survives the inner block's pop.
+  const blockScopeAdded: Array<Set<string>> = [];
   try {
     const lowered = lowerJsClosureBodyToPython(node.bodyBlock!.raw, {
-      lowerExpression: (raw) => emitPyExprCtx(parseExpression(raw), ctx),
+      lowerExpression: (raw) => emitPyExprCtx(parseExpr(raw), ctx),
       // Mirror the native/class if-emitter EXACTLY (bare expression, no
       // js_truthy) so a condition inside the closure matches the same
       // condition outside it.
-      lowerCondition: (raw) => emitPyExprCtx(parseExpression(raw), ctx),
+      lowerCondition: (raw) => emitPyExprCtx(parseExpr(raw), ctx),
       // The closure's own params are def-locals, never `nonlocal`: a write to a
       // param (`(x) => { x = x + 1 }`) must not be reported as a written FREE
       // name. The lowerer excludes both params and block-locals.
@@ -2321,6 +2655,23 @@ function emitBlockClosurePy(node: Extract<ValueIR, { kind: 'lambda' }>, names: s
       // wrong-values without this). Params/block-locals are never renamed, so
       // the resolver is identity for them.
       lowerAssignTarget: (name) => resolveLocalRename(ctx, name),
+      // Block-scope shadowing — push a block's top-level locals on entry, pop on
+      // exit, so a `RegExp` value reference fails-close ONLY when no in-scope
+      // block-local/param shadows it (byte-aligned with the TS-AST walk).
+      enterBlockScope: (scopeNames) => {
+        const added = new Set<string>();
+        for (const name of scopeNames) {
+          if (!ctx.shadowedSymbols.has(name)) {
+            ctx.shadowedSymbols.add(name);
+            added.add(name);
+          }
+        }
+        blockScopeAdded.push(added);
+      },
+      exitBlockScope: () => {
+        const added = blockScopeAdded.pop();
+        if (added) for (const name of added) ctx.shadowedSymbols.delete(name);
+      },
     });
     if (!lowered.ok) {
       // The commit-A gate already accepted this block, so a lowering failure
@@ -2578,6 +2929,81 @@ function containsLambdaCapturingIdent(node: ValueIR, name: string): boolean {
 interface GuardedExpr {
   guard: string | null;
   expr: string;
+  /** S7 review fix — set ONLY in a comprehension-iterable position (`ctx.banWalrus`)
+   *  when a NON-pure optional-chain receiver would otherwise bind via `:=`. CPython
+   *  REJECTS the walrus anywhere inside a comprehension iterable expression, so the
+   *  receiver is bound as a lambda PARAMETER instead: `wrapGuardIfAny` wraps the whole
+   *  guarded conditional in `(lambda <param>: <conditional>)(<arg>)`. The guard and the
+   *  branch already reference `<param>` (the bare temp), so single-eval is preserved —
+   *  `<arg>` (the receiver) is evaluated exactly once as the call argument. At most one
+   *  per chain: a second non-pure link under an existing guard throws (see
+   *  `lowerOptionalLink`), so this field is set at most once and propagated unchanged
+   *  through the trailing `.prop`/`[idx]`/`(args)` links. */
+  lambdaBind?: { param: string; arg: string };
+}
+
+/** Slice S7 — the presence test an optional `?.`/`?.[]` link contributes to the
+ *  accumulated chain guard. Native (coerce) bodies test against the full nullish
+ *  set (`None` AND the undefined sentinel) so `undefined?.x` short-circuits; the
+ *  helper-less Ground/React layer keeps the pre-slice `is not None` test (it
+ *  never materializes the sentinel). `ref` may itself be a walrus assignment
+ *  expression (`(__k_oc1 := f())`), which Python evaluates exactly once. */
+function optionalPresenceTest(ref: string, ctx: BodyEmitContext): string {
+  if (ctx.coerceJsValues) {
+    ctx.helpers.add(KERN_NULLISH_HELPER_PY);
+    return `(not _kern_is_nullish(${ref}))`;
+  }
+  // `x := f() is not None` would bind the BOOLEAN to x; parenthesize a walrus
+  // ref so the receiver (not the comparison) is what gets bound.
+  const wrapped = ref.includes(':=') ? `(${ref})` : ref;
+  return `${wrapped} is not None`;
+}
+
+interface OptionalLink {
+  guard: string;
+  branchRef: string;
+  /** See `GuardedExpr.lambdaBind` — set when the walrus is banned (comprehension
+   *  iterable position) and a non-pure receiver is bound as a lambda parameter. */
+  lambdaBind?: { param: string; arg: string };
+}
+
+/** Slice S7 — build the guard + branch-receiver reference for one optional link.
+ *  Pure receivers keep the readable double-name form (named in both the guard
+ *  and the branch — re-evaluation is side-effect-free). A NON-pure receiver is
+ *  bound ONCE via the S4 walrus idiom: the guard carries `(__k_ocN := RECV)` so
+ *  the side effect runs exactly once, and the branch references the bound name.
+ *  A non-pure receiver that is ITSELF an optional chain (`inner.guard !== null`)
+ *  cannot host the walrus and still throws — bind it to a `let` first. */
+function lowerOptionalLink(inner: GuardedExpr, objectNode: ValueIR, ctx: BodyEmitContext): OptionalLink {
+  const pure = isReceiverChainPure(objectNode);
+  if (pure) {
+    const presence = optionalPresenceTest(inner.expr, ctx);
+    return {
+      guard: inner.guard === null ? presence : `${inner.guard} and ${presence}`,
+      branchRef: inner.expr,
+    };
+  }
+  if (inner.guard !== null) {
+    throw new Error(
+      "Optional chain '?.' on Python target requires a side-effect-free receiver (identifier or pure member chain). " +
+        'Bind the call/await result to a `let` first, then use `let.field?.next` on the bound name.',
+    );
+  }
+  const tmp = `__k_oc${++ctx.gensymCounter}`;
+  if (ctx.banWalrus) {
+    // Comprehension-iterable position (see BodyEmitContext.banWalrus): CPython
+    // rejects the `:=` walrus anywhere inside a comprehension iterable, so the
+    // non-pure receiver cannot be bound via `(__k_ocN := RECV)`. Bind it as a
+    // lambda PARAMETER instead — the presence test + branch reference the bare
+    // `__k_ocN` (the parameter), and `wrapGuardIfAny` wraps the whole guarded
+    // conditional in `(lambda __k_ocN: <conditional>)(RECV)`. Same contract as
+    // the walrus form: RECV evaluated exactly once (as the call argument), the
+    // short-circuit branch yields the sentinel, single-eval preserved.
+    const presence = optionalPresenceTest(tmp, ctx);
+    return { guard: presence, branchRef: tmp, lambdaBind: { param: tmp, arg: inner.expr } };
+  }
+  const presence = optionalPresenceTest(`${tmp} := ${inner.expr}`, ctx);
+  return { guard: presence, branchRef: tmp };
 }
 
 type ChainNode = Extract<ValueIR, { kind: 'member' | 'call' | 'index' }>;
@@ -2585,10 +3011,43 @@ type ChainNode = Extract<ValueIR, { kind: 'member' | 'call' | 'index' }>;
 function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   if (node.kind === 'member') {
     const obj = node.object;
+    // Slice 2 — a bare property READ on a DIRECT regex LITERAL (`/x/.source`,
+    // `/x/.flags`) launders the pattern/flags back into a string. Routed through
+    // the SHARED classifier (via the ValueIR adapter) so this site agrees with
+    // the TS emit + IR-validate legs and the closure walk BY CONSTRUCTION. The
+    // portable METHODS (.test/.exec/…) are CALLS routed by the call path before
+    // reaching here, and a LET-BOUND regex read (`r.source`) has an `ident`
+    // object (owned by Slice 3), so only a direct literal read is closed here.
+    // The receiver is UNWRAPPED first so a wrapped read `(/x/ as any).source` /
+    // `(/x/!).source` fails-close identically to the bare `/x/.source` and to the
+    // TS-emit + IR-validate legs (round-5 wrapped-receiver fix).
+    if (regexLiteralReceiverIR(obj) !== null) {
+      const message = classifyRegexLiteralMemberReadFailClose(node);
+      if (message !== null) throw new Error(message);
+    }
+    const stdlibProperty = applyStdlibPropertyLoweringPython(node, ctx);
+    if (stdlibProperty !== null) return { guard: null, expr: stdlibProperty };
+    // Slice H — fail-closed on an UNMAPPED host-namespace member READ. Covers
+    // host CONSTANT reads such as `Math.PI` / `process.env` that are not a call
+    // (the call path guards `Root.member(args)` separately, before descending
+    // here). Only a DIRECT `Root.member` read is inspected: `obj.kind ===
+    // 'ident'`. A host-namespace-shaped, not-user-bound root throws; user
+    // receivers (`user.profile`) and proven-local roots pass through. A host
+    // CALL's callee never reaches this read guard with a host root — the call
+    // path already threw — so this only ever fires on genuine reads.
+    if (obj.kind === 'ident') {
+      rejectUnmappedHostNamespacePython(obj.name, node.property, ctx);
+    }
+    // S5 review fix — a NON-CHAIN root that lowers to a compound expression
+    // must be parenthesized before `.${property}` is appended: a bare ternary
+    // root (`b if t else c`) would otherwise bind the member to its LAST
+    // operand only (`b if t else c.prop` — silently wrong Python). Same
+    // precedence set as index receivers; lowerings that already emit a
+    // self-delimited atom (`(walrus ternary)`, `__kern_add(a, b)`) stay bare.
     const inner: GuardedExpr =
       obj.kind === 'member' || obj.kind === 'call' || obj.kind === 'index'
         ? lowerChain(obj, ctx)
-        : { guard: null, expr: emitPyExprCtx(obj, ctx) };
+        : { guard: null, expr: wrapCompoundRootExpr(obj, emitPyExprCtx(obj, ctx)) };
     // Portable Array *property* read (non-call `.length`) lowers through the
     // SAME shared list-ops hook the route emitter uses, so `this.items.length`
     // emits `len(self.items)` (not invalid `self.items.length`) — identical to
@@ -2596,48 +3055,70 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
     // link is rewritten; the accumulated optional-chain guard is left UNTOUCHED
     // and still flows through `wrapGuardIfAny`, so `items?.length` stays
     // `(len(items) if items is not None else None)`-shaped.
+    if (node.optional) {
+      // Slice S7 — single-eval optional `?.`. A pure receiver may be named twice
+      // (guard + branch) with no observable effect, so it keeps the readable
+      // double-name form. A NON-pure receiver (e.g. `markReceiver(null)?.x`) is
+      // bound ONCE via the S4 walrus idiom so its side effect runs exactly once;
+      // the BOUND name is then used in both the guard's presence test and the
+      // trailing link. Only a single optional link can host the walrus (the
+      // receiver is not itself an optional chain ⇒ `inner.guard === null`); a
+      // non-pure receiver UNDER an existing optional chain still throws below.
+      const opt = lowerOptionalLink(inner, node.object, ctx);
+      const linkExpr = isSharedPortableArrayProperty(node.property)
+        ? (lowerPortableArrayPropertyPy(opt.branchRef, node.property) ?? `${opt.branchRef}.${node.property}`)
+        : `${opt.branchRef}.${node.property}`;
+      return { guard: opt.guard, expr: linkExpr, lambdaBind: opt.lambdaBind };
+    }
     const linkExpr = isSharedPortableArrayProperty(node.property)
       ? (lowerPortableArrayPropertyPy(inner.expr, node.property) ?? `${inner.expr}.${node.property}`)
       : `${inner.expr}.${node.property}`;
-    if (node.optional) {
-      // The receiver expression names what we need to test. The expr names
-      // the receiver twice (once in test, once in branch); reject when that
-      // would re-evaluate side-effecting code.
-      if (!isReceiverChainPure(node.object)) {
-        throw new Error(
-          "Optional chain '?.' on Python target requires a side-effect-free receiver (identifier or pure member chain). " +
-            'Bind the call/await result to a `let` first, then use `let.field?.next` on the bound name.',
-        );
-      }
-      const newGuard =
-        inner.guard === null ? `${inner.expr} is not None` : `${inner.guard} and ${inner.expr} is not None`;
-      return { guard: newGuard, expr: linkExpr };
-    }
-    return { guard: inner.guard, expr: linkExpr };
+    return { guard: inner.guard, expr: linkExpr, lambdaBind: inner.lambdaBind };
   }
   if (node.kind === 'index') {
     const obj = node.object;
+    // Slice 2 review fix — the bracket (`index`) form of a regex-literal
+    // property access (`/x/["source"]`, `/x/["flags"]`, `/x/["test"](s)`)
+    // launders the pattern/flags back to a string exactly like the dotted
+    // `/x/.source` member form, so it fails-close identically and BEFORE the
+    // host-ident guard below. A STRING-literal index goes through the same
+    // (empty) portable-property allowlist; a COMPUTED / non-literal index is
+    // unknowable and also fails-close. Mirrors the TS emit + IR-validate index
+    // screens — byte-identical regex message across all three legs. The receiver
+    // is UNWRAPPED first so a wrapped bracket read `(/x/!)["source"]` /
+    // `(/x/ as any)["test"](s)` fails-close identically (round-5 wrapped fix).
+    if (regexLiteralReceiverIR(obj) !== null) {
+      // Routed through the SHARED classifier (a STRING index classifies like the
+      // dotted read; a COMPUTED index is unknowable → fail-close), byte-identical
+      // to the TS emit + IR-validate index screens and the closure walk.
+      const message = classifyRegexLiteralIndexReadFailClose(node);
+      if (message !== null) throw new Error(message);
+    }
+    // Slice H review fix — bracket access must not bypass the fail-closed
+    // guard: `Math["sqrt"]` / `Math["sqrt"](x)` is the same unmapped
+    // host-namespace access as `Math.sqrt`, only spelled as an index node.
+    // Call chains descend through this branch too, so this one site covers
+    // both the read and the call form. Non-literal keys (`Math[k]`) are just
+    // as unmapped — the label degrades to `[computed]`.
+    if (obj.kind === 'ident') {
+      const label = node.index.kind === 'strLit' ? node.index.value : '[computed]';
+      rejectKnownStdlibIndexPython(obj.name, label);
+      rejectUnmappedHostNamespacePython(obj.name, label, ctx);
+    }
     const inner: GuardedExpr =
       obj.kind === 'member' || obj.kind === 'call' || obj.kind === 'index'
         ? lowerChain(obj, ctx)
         : { guard: null, expr: emitPyExprCtx(obj, ctx) };
     const index = emitPyExprCtx(node.index, ctx);
     if (node.optional) {
-      // The Python lowering names the receiver in the guard and the branch.
-      // Keep that single-eval-safe by requiring a pure receiver. The index
-      // expression appears only in the selected branch, matching JS `?.[]`.
-      if (!isReceiverChainPure(node.object)) {
-        throw new Error(
-          "Optional element access '?.[]' on Python target requires a side-effect-free receiver. " +
-            'Bind call/await receiver results to `let` first, then index the bound name.',
-        );
-      }
-      const newGuard =
-        inner.guard === null ? `${inner.expr} is not None` : `${inner.guard} and ${inner.expr} is not None`;
-      return { guard: newGuard, expr: `${inner.expr}[${index}]` };
+      // Slice S7 — single-eval optional `?.[]` (same walrus discipline as `?.`).
+      // A non-pure receiver is bound once; the index expression appears only in
+      // the selected branch, matching JS `?.[]`.
+      const opt = lowerOptionalLink(inner, node.object, ctx);
+      return { guard: opt.guard, expr: `${opt.branchRef}[${index}]`, lambdaBind: opt.lambdaBind };
     }
     const wrapped = needsIndexReceiverParens(node.object) ? `(${inner.expr})` : inner.expr;
-    return { guard: inner.guard, expr: `${wrapped}[${index}]` };
+    return { guard: inner.guard, expr: `${wrapped}[${index}]`, lambdaBind: inner.lambdaBind };
   }
   // node.kind === 'call'
   if (node.optional) {
@@ -2685,13 +3166,34 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
     const errArgs = node.args.map((arg) => emitPyExprCtx(arg, ctx)).join(', ');
     return { guard: null, expr: `Exception(${errArgs})` };
   }
+  // Slice 2 — a bare `RegExp(p, f)` call (callee is an ident, missed by the
+  // member-callee guard below) fails-close with the shared regex message,
+  // BEFORE generic call emission would leak a verbatim `RegExp(...)` NameError.
+  // Honors user shadowing via `isProvenUserBinding`.
+  if (node.callee.kind === 'ident') {
+    rejectHostRegExpValuePython(node.callee.name, ctx);
+  }
+  // Slice H — fail-closed on an UNMAPPED host-namespace member CALL. This runs
+  // AFTER every explicit lowering hook above (stdlib, regex, lambda/array,
+  // portable-array, super/String/Error) and BEFORE generic call emission, so a
+  // `Root.member(args)` call whose root is host-namespace-shaped and not proven
+  // user-bound throws the portable-lowering diagnostic instead of leaking
+  // invalid verbatim Python (`Math.sqrt(x)` → runtime NameError). Canonical
+  // KERN stdlib roots (`Number`/`Json`/…) already returned via the stdlib hook,
+  // so they never reach here; user receivers (`client.send(...)`) and a
+  // proven-local `Math` are not host-namespace-shaped / are user-bound and pass
+  // through. Capitalization-agnostic: equally catches `console.log(...)`,
+  // `Promise.all(...)`, and lowercase host roots such as `process.env`.
+  if (node.callee.kind === 'member' && node.callee.object.kind === 'ident') {
+    rejectUnmappedHostNamespacePython(node.callee.object.name, node.callee.property, ctx);
+  }
   const callee = node.callee;
   const inner: GuardedExpr =
     callee.kind === 'member' || callee.kind === 'call' || callee.kind === 'index'
       ? lowerChain(callee, ctx)
       : { guard: null, expr: emitPyExprCtx(callee, ctx) };
   const args = node.args.map((a) => emitPyExprCtx(a, ctx)).join(', ');
-  return { guard: inner.guard, expr: `${inner.expr}(${args})` };
+  return { guard: inner.guard, expr: `${inner.expr}(${args})`, lambdaBind: inner.lambdaBind };
 }
 
 /**
@@ -2725,17 +3227,32 @@ function lowerPortableArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, 
   // wrongly skipped `makeBox().items.slice(1)` (the prior agon-review 0.97
   // finding). The optional-chain guard below still applies to ALL methods.
   if (sharedPortableMethodRequiresPureReceiver(callee.property) && !isReceiverChainPure(recvNode)) return null;
-  const recv: GuardedExpr =
+  // S5 review fix — these list-ops lowerings embed the receiver in a
+  // comprehension/generator ITERABLE (`join`: `str(__v) for __v in <recv>`;
+  // `flat`: `for __x in <recv>`; `indexOf`: `enumerate(<recv>)` inside a
+  // genexp), where CPython rejects `:=` outright. Emit the receiver under the
+  // walrus ban AND parenthesize compound receivers (a bare ternary in a
+  // generator head reads its `if` as the comprehension filter — SyntaxError).
+  const embedsReceiverInGenexp =
+    callee.property === 'join' || callee.property === 'flat' || callee.property === 'indexOf';
+  const emitRecv = (): GuardedExpr =>
     recvNode.kind === 'member' || recvNode.kind === 'call' || recvNode.kind === 'index'
       ? lowerChain(recvNode, ctx)
       : { guard: null, expr: emitPyExprCtx(recvNode, ctx) };
+  const recv: GuardedExpr = embedsReceiverInGenexp ? withWalrusBan(ctx, emitRecv) : emitRecv();
   // A pure receiver can still be an optional chain (`a?.b`), which carries a
   // None-guard the flat shim can't honor — fall through for those too.
   if (recv.guard !== null) return null;
+  const recvExpr = embedsReceiverInGenexp ? parenthesizeIterable(recv.expr) : recv.expr;
   const args = call.args.map((a) => (callee.property === 'fill' ? emitPyArrayFillArg(a, ctx) : emitPyExprCtx(a, ctx)));
-  const lowered = lowerPortableArrayMethodPy(recv.expr, callee.property, args);
+  const lowered = lowerPortableArrayMethodPy(recvExpr, callee.property, args, { sentinelMiss: ctx.coerceJsValues });
   if (lowered !== null && callee.property === 'fill') {
     ctx.helpers.add(KERN_JS_ARRAY_HELPERS_PY);
+  }
+  // Slice S7 — `Array.at` out-of-range yields the undefined sentinel in value
+  // mode; register the helper that defines `_KERN_UNDEFINED`.
+  if (lowered !== null && callee.property === 'at' && ctx.coerceJsValues) {
+    ctx.helpers.add(KERN_NULLISH_HELPER_PY);
   }
   return lowered;
 }
@@ -2877,10 +3394,15 @@ function lowerLambdaArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, ct
   // single-eval property is what makes M6 (`this.bump().map(...)` runs bump()
   // exactly once) correct.
   const recvNode = callee.object;
-  const recv: GuardedExpr =
+  // S5 review fix — the receiver lands in the comprehension's generator head
+  // (`for el in <recv>`), where CPython rejects `:=` at any nesting depth, so
+  // it is emitted under the walrus ban (logical/nullish/typeof producers at
+  // any depth switch to their lambda-parameter forms).
+  const recv: GuardedExpr = withWalrusBan(ctx, () =>
     recvNode.kind === 'member' || recvNode.kind === 'call' || recvNode.kind === 'index'
       ? lowerChain(recvNode, ctx)
-      : { guard: null, expr: emitPyExprCtx(recvNode, ctx) };
+      : { guard: null, expr: emitPyExprCtx(recvNode, ctx) },
+  );
   // An optional-chain receiver (`a?.b`) carries a None-guard the comprehension
   // can't honor — fall through unchanged for those.
   if (recv.guard !== null) return null;
@@ -3080,46 +3602,210 @@ function parenthesizeIterable(expr: string): string {
 function lowerRegexCallPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: BodyEmitContext): string | null {
   const callee = call.callee;
   if (callee.kind !== 'member') return null;
+
+  // Slice-3b FIX 4 (parity): a call whose receiver is a KERN-stdlib NAMESPACE
+  // (`Math.match(/a/g)`, `JSON.split(/,/)`) is NOT a string regex method —
+  // defer to `applyStdlibLoweringPython`, which rejects the unknown stdlib
+  // member exactly like the TS emitter (where `applyStdlibLoweringTS` runs
+  // BEFORE the regex lowering). Without this, the regex path mis-claimed the
+  // namespace as the SUBJECT and emitted broken `…finditer("a", Math, …)`
+  // while TS fail-closed — a cross-target divergence.
+  if (callee.object.kind === 'ident' && KERN_STDLIB_MODULES.has(callee.object.name)) {
+    return null;
+  }
+
+  // Slice-3c DETECT-and-fail-close: a regex method whose regex position holds an
+  // ident KNOWN to be regex-bound (`let re = /…/; s.match(re)`) is NOT portable —
+  // throw the SAME shared `REGEX_NONLITERAL_FAILCLOSE` the TS target throws (see
+  // `assertNoBoundRegexMethodTS` in body-ts.ts). A string-/unknown-bound ident is
+  // NOT flagged: it falls through to the plain host method below (`s.match(needle)`).
+  const regexArgIdent = regexMethodRegexArgIdent(call);
+  if (regexArgIdent !== null && lookupRegexBinding(ctx, regexArgIdent) !== null) {
+    throw new Error(REGEX_NONLITERAL_FAILCLOSE);
+  }
+
+  // --- Receiver-is-regex shapes: `regex.test(s)`, `regex.exec(s)` ---
   const receiverRegex = resolveRegexExpr(callee.object, ctx);
   if (callee.property === 'test' && receiverRegex !== null) {
     if (call.args.length !== 1) return null;
     if (receiverRegex.flags.includes('g')) {
-      throw new Error(
-        "Python target does not lower RegExp.test with the 'g' flag because JS mutates lastIndex while Python re.search is stateless. Use Regex.contains once the KERN stdlib grows that cross-target shape.",
-      );
+      // .test(/g) is STATEFUL (lastIndex advances+wraps); no portable re analog.
+      throw new Error(REGEX_TEST_G_FAILCLOSE);
     }
     ctx.imports.add('re');
     return `(__k_re.search(${pyRegexPattern(receiverRegex)}, ${emitPyExprCtx(call.args[0], ctx)}, ${pyRegexFlags(receiverRegex.flags)}) is not None)`;
   }
-  const matchRegex = call.args.length === 1 ? resolveRegexExpr(call.args[0], ctx) : null;
-  if (callee.property === 'match' && matchRegex !== null) {
-    if (matchRegex.flags.includes('g')) {
-      throw new Error(
-        'Python target does not lower String.match(/.../g) because JS returns an array of matches while Python re.search returns a Match object. Use Regex.findAll once the KERN stdlib grows that cross-target shape.',
-      );
+  if (callee.property === 'exec' && receiverRegex !== null) {
+    // .exec drives a JS-only stateful `while ((m = re.exec(s)))` loop; fail-close
+    // and redirect to the portable `.matchAll` iteration (D4) rather than silently
+    // rewrite a loop whose body may mutate lastIndex.
+    throw new Error(REGEX_EXEC_FAILCLOSE);
+  }
+
+  // --- Receiver-is-string shapes: arg[0] is the regex ---
+  const firstArgRegex = call.args.length >= 1 ? resolveRegexExpr(call.args[0], ctx) : null;
+
+  // `.match(s)` — no /g: canonical {full,groups,index,named}|None shape (the
+  // load-bearing portability fix, D2). With /g: full matches only via
+  // finditer.group(0) (NEVER re.findall, which returns tuples when >1 group),
+  // or None when empty.
+  if (callee.property === 'match' && firstArgRegex !== null && call.args.length === 1) {
+    ctx.imports.add('re');
+    const pat = pyRegexPattern(firstArgRegex);
+    const subject = emitPyExprCtx(callee.object, ctx);
+    if (firstArgRegex.flags.includes('g')) {
+      const flags = pyRegexFlags(firstArgRegex.flags, { allowGlobal: true });
+      return `([__k_m.group(0) for __k_m in __k_re.finditer(${pat}, ${subject}, ${flags})] or None)`;
+    }
+    ctx.helpers.add(KERN_REGEX_MATCH_HELPER_PY);
+    return `_kern_regex_match(${pat}, ${subject}, ${pyRegexFlags(firstArgRegex.flags)})`;
+  }
+
+  // `.matchAll(s)` — requires /g (a non-global matchAll throws TypeError in JS).
+  // Shapes finditer into [{full,groups,index}, …], incl. zero-width advances.
+  if (callee.property === 'matchAll' && firstArgRegex !== null && call.args.length === 1) {
+    if (!firstArgRegex.flags.includes('g')) {
+      throw new Error(REGEX_MATCHALL_NO_G_FAILCLOSE);
     }
     ctx.imports.add('re');
-    return `__k_re.search(${pyRegexPattern(matchRegex)}, ${emitPyExprCtx(callee.object, ctx)}, ${pyRegexFlags(matchRegex.flags)})`;
+    ctx.helpers.add(KERN_REGEX_MATCHALL_HELPER_PY);
+    return `_kern_regex_matchall(${pyRegexPattern(firstArgRegex)}, ${emitPyExprCtx(callee.object, ctx)}, ${pyRegexFlags(firstArgRegex.flags, { allowGlobal: true })})`;
   }
+
+  // `.split(s)` — IN-CORE for a non-zero-width pattern with NO limit arg (capture
+  // groups interleave portably). FAIL-CLOSE on a zero-width-capable pattern
+  // (empty-edge divergence) or any limit/2nd arg (truncate vs remainder).
+  if (callee.property === 'split' && firstArgRegex !== null) {
+    if (call.args.length > 1) {
+      throw new Error(REGEX_SPLIT_LIMIT_FAILCLOSE);
+    }
+    if (isZeroWidthCapableRegex(firstArgRegex.pattern)) {
+      throw new Error(REGEX_SPLIT_ZEROWIDTH_FAILCLOSE);
+    }
+    ctx.imports.add('re');
+    return `__k_re.split(${pyRegexPattern(firstArgRegex)}, ${emitPyExprCtx(callee.object, ctx)}, flags=${pyRegexFlags(firstArgRegex.flags, { allowGlobal: true })})`;
+  }
+
+  // `.replace(s, r)` — no /g: FIRST match only (count=1); /g: ALL (count=0).
   const replaceRegex = call.args.length === 2 ? resolveRegexExpr(call.args[0], ctx) : null;
   if (callee.property === 'replace' && replaceRegex !== null) {
     ctx.imports.add('re');
     const count = replaceRegex.flags.includes('g') ? '0' : '1';
-    return `__k_re.sub(${pyRegexPattern(replaceRegex)}, ${emitPyExprCtx(call.args[1], ctx)}, ${emitPyExprCtx(callee.object, ctx)}, count=${count}, flags=${pyRegexFlags(replaceRegex.flags, { allowGlobal: true })})`;
+    const repl = emitPyReplArg(call.args[1], replaceRegex, ctx);
+    return `__k_re.sub(${pyRegexPattern(replaceRegex)}, ${repl}, ${emitPyExprCtx(callee.object, ctx)}, count=${count}, flags=${pyRegexFlags(replaceRegex.flags, { allowGlobal: true })})`;
   }
+
+  // `.replaceAll(s, r)` — requires /g (a non-global replaceAll throws TypeError in
+  // JS); otherwise identical to `.replace` /g (count=0, ALL matches replaced).
+  if (callee.property === 'replaceAll' && replaceRegex !== null) {
+    if (!replaceRegex.flags.includes('g')) {
+      throw new Error(REGEX_REPLACEALL_NO_G_FAILCLOSE);
+    }
+    ctx.imports.add('re');
+    const repl = emitPyReplArg(call.args[1], replaceRegex, ctx);
+    return `__k_re.sub(${pyRegexPattern(replaceRegex)}, ${repl}, ${emitPyExprCtx(callee.object, ctx)}, count=0, flags=${pyRegexFlags(replaceRegex.flags, { allowGlobal: true })})`;
+  }
+
   return null;
 }
 
-function resolveRegexExpr(node: ValueIR, ctx: BodyEmitContext): Extract<ValueIR, { kind: 'regexLit' }> | null {
-  if (node.kind === 'regexLit') return node;
-  if (node.kind === 'ident') return lookupRegexBinding(ctx, node.name);
-  return null;
+/**
+ * Milestone C, Slice 4 — emit the Python `re.sub` REPLACEMENT argument for a
+ * `.replace`/`.replaceAll` whose regex position is a literal.
+ *
+ * A STRING-LITERAL replacement is translated from the JS `$`-surface to the
+ * Python repl VALUE via the shared `translateReplStringToPython`, then serialized
+ * back to `.py` SOURCE through a synthetic `strLit` node so the ordinary
+ * string-literal escaper double-escapes the backslashes correctly (gap 6: the
+ * translator yields the runtime VALUE `\g<1>` / `\\` — the serializer turns those
+ * into the source `"\\g<1>"` / `"\\\\"` that evaluates back to that value). A
+ * NON-LITERAL replacement (a variable / computed string) cannot be translated
+ * statically and FAILS-CLOSE symmetrically with the TS target.
+ */
+function emitPyReplArg(
+  arg: ValueIR,
+  replaceRegex: Extract<ValueIR, { kind: 'regexLit' }>,
+  ctx: BodyEmitContext,
+): string {
+  if (arg.kind !== 'strLit') {
+    throw new Error(REGEX_REPLACE_NONLITERAL_REPL_FAILCLOSE);
+  }
+  // Capture metadata is read from the KERN/JS `(?<name>)` surface (BEFORE R6's
+  // `(?P<name>)` rewrite), matching the way `$<name>` refs are written.
+  const meta = regexCaptureMeta(replaceRegex.pattern);
+  const pyReplValue = translateReplStringToPython(arg.value, meta);
+  // Serialize the translated VALUE to `.py` source via the normal strLit path
+  // (gap 6 — keep translation and serialization layers separate).
+  const synthetic: ValueIR = { kind: 'strLit', value: pyReplValue, quote: '"' };
+  return emitPyExprCtx(synthetic, ctx);
+}
+
+function resolveRegexExpr(node: ValueIR, _ctx: BodyEmitContext): Extract<ValueIR, { kind: 'regexLit' }> | null {
+  // Slice-3c: ONLY a DIRECT regex literal lowers canonically. A let-bound regex
+  // ident no longer RESOLVES to its literal here (the old `lookupRegexBinding`
+  // resolution emitted a STALE pattern when the binding was reassigned and was
+  // fragile to track). The fail-close for a known-regex-bound ident is made by
+  // `lowerRegexCallPython` via the shared `regexMethodRegexArgIdent` detector —
+  // symmetric with the TS target. A string-/unknown-bound ident returns null
+  // and stays a plain host method (the `s.match(stringVar)` case).
+  //
+  // Transparent wrappers (`as`/`!`) are peeled via `regexLiteralReceiverIR` —
+  // mirroring the TS `resolveRegexLitTS` — so a wrapped portable receiver call
+  // `(/x/).test(s)` / `(/x/ as any).test(s)` lowers, and a wrapped non-portable
+  // one `(/x/ as any).exec(s)` fails-close through `lowerRegexCallPython` (round-5
+  // wrapped-receiver fix), identically to the TS leg.
+  return regexLiteralReceiverIR(node);
 }
 
 function pyRegexPattern(node: Extract<ValueIR, { kind: 'regexLit' }>): string {
+  // Slice 5: fail-close any non-BMP (astral) construct in the PATTERN before any
+  // normalization, on the RAW pattern — the IDENTICAL decision + message the TS
+  // emitter makes (the `\/`→`/` un-escape below does not touch any astral
+  // construct, so scanning the raw `node.pattern` here is byte-symmetric with TS).
+  const astral = scanRegexAstral(node.pattern);
+  if (astral !== null) throw new Error(regexAstralFailMessage(astral.char));
+  // FIX 2: a non-portable named group (`(?<café>…)`, `(?<$x>…)`, `(?<>…)`) is
+  // refused on BOTH targets (the same validator runs in the TS regex-literal emit
+  // chokepoints), instead of emitting `(?P<café>…)` / a JS-form `(?<café>…)` that
+  // diverges or crashes Python `re`. Run BEFORE any rewrite so the refusal is over
+  // the original surface (the same surface `regexCaptureMeta` and the TS side see).
+  validateRegexNamedGroupsPortable(node.pattern);
   // JS escapes `/` because it delimits the literal; Python string regexes do not
   // treat `/` specially, so preserve the semantic pattern without that escape.
-  return JSON.stringify(node.pattern.replace(/\\\//g, '/'));
+  const unescaped = node.pattern.replace(/\\\//g, '/');
+  // Milestone C, Slice 1 — emission-normalization (shared with the TS emitter
+  // for the class transform, so it is byte-identical across targets):
+  //   1. `\d \w \s` → explicit ASCII classes (same `normalizeRegexClasses` both
+  //      targets), so Python's Unicode-aware shorthand matches JS's ASCII.
+  //   2. Slice-/i: class-expand non-ASCII Set(A) letters under /i into explicit
+  //      fold classes (Set(B) → throw an identical-to-TS compile error). Runs on
+  //      the SAME shared `expandRegexIFold` the TS emitter calls, AFTER class
+  //      normalization (Slice-1 classes are pure-ASCII → untouched by the fold
+  //      scan) and BEFORE anchor lowering (anchors are ASCII → untouched). Order
+  //      is class → fold → anchors; each touches a disjoint character set, so it
+  //      is parity-safe and byte-identical to TS. `re.IGNORECASE | re.ASCII` is
+  //      kept (handled in pyRegexFlags) — `re.ASCII` is the load-bearing invariant
+  //      that makes KEEP-i safe (it suppresses any Python re-fold of the explicit
+  //      non-ASCII class members).
+  //   3. Python-only anchor lowering: on the non-`/m` path `$`→`\Z`, `^`→`\A`
+  //      so Python anchors match JS's input-end/start semantics (`re.ASCII` and
+  //      `re.M` are handled in pyRegexFlags). On the `/m` path anchors are kept.
+  const classed = normalizeRegexClasses(unescaped);
+  const folded = expandRegexIFold(classed, node.flags);
+  if ('failClose' in folded) throw new Error(regexIFoldFailMessage(folded.char, folded.reason));
+  const normalized = lowerRegexAnchorsPython(folded.pattern, node.flags);
+  // Milestone C, Slice 4 — R6: named-group PATTERN syntax (`(?<name>)` /
+  // `\k<name>`) → Python `re` syntax (`(?P<name>)` / `(?P=name)`). PYTHON-ONLY
+  // (JS keeps the original form). Python rejects the JS named-group syntax
+  // outright, so this rewrite is load-bearing for ANY named-group pattern on the
+  // Python target — and required for a `$<name>` repl ref to resolve. Run LAST,
+  // AFTER the `/i` fold expansion: `expandRegexIFold`'s HOLE-1 fail-close depends
+  // on seeing the ORIGINAL `\k<name>` backref token (`/(?<g>é)\k<g>/i` must still
+  // fail-close), so R6 must NOT consume `\k<` before the fold scan. The fold/class/
+  // anchor passes leave the ASCII `(?<` / `\k<` group syntax untouched, so applying
+  // R6 here is order-stable and parity-safe.
+  const named = lowerRegexNamedGroupsPython(normalized);
+  return JSON.stringify(named);
 }
 
 function pyRegexFlags(flags: string, options: { allowGlobal?: boolean } = {}): string {
@@ -3138,11 +3824,117 @@ function pyRegexFlags(flags: string, options: { allowGlobal?: boolean } = {}): s
   if (flags.includes('i')) parts.push('__k_re.IGNORECASE');
   if (flags.includes('m')) parts.push('__k_re.MULTILINE');
   if (flags.includes('s')) parts.push('__k_re.DOTALL');
-  return parts.length > 0 ? parts.join(' | ') : '0';
+  // Milestone C, Slice 1 — always inject `re.ASCII` so Python `\b` and the
+  // emitted ASCII classes match JS (without `/u`) semantics. This is the
+  // load-bearing flag for word-boundary parity (see the `\bcafé\b` killer row).
+  parts.push('__k_re.ASCII');
+  return parts.join(' | ');
 }
 
-function wrapGuardIfAny(g: GuardedExpr): string {
-  return g.guard === null ? g.expr : `(${g.expr} if ${g.guard} else None)`;
+function wrapGuardIfAny(g: GuardedExpr, ctx: BodyEmitContext): string {
+  if (g.guard === null) return g.expr;
+  // Slice S7 — an optional-chain short-circuit yields the undefined SENTINEL in
+  // native (coerce) bodies, so `typeof (undefined?.x)` is "undefined" and the
+  // result participates in `??`/`===` nullish semantics. The helper-less
+  // Ground/React layer (which never materializes the sentinel) keeps the
+  // pre-slice `else None` short-circuit.
+  let conditional: string;
+  if (ctx.coerceJsValues) {
+    ctx.helpers.add(KERN_NULLISH_HELPER_PY);
+    conditional = `(${g.expr} if ${g.guard} else _KERN_UNDEFINED)`;
+  } else {
+    conditional = `(${g.expr} if ${g.guard} else None)`;
+  }
+  // S7 review fix — in a comprehension-iterable position the non-pure receiver was
+  // bound as a lambda PARAMETER instead of a `:=` walrus (CPython rejects the walrus
+  // anywhere inside a comprehension iterable expression — see BodyEmitContext.banWalrus
+  // and lowerOptionalLink). The guard + branch already reference the bare parameter, so
+  // wrapping the whole conditional in `(lambda <param>: <conditional>)(<arg>)` keeps the
+  // exact contract: <arg> (the receiver) evaluated exactly once, lazy short-circuit branch.
+  if (g.lambdaBind) {
+    return `(lambda ${g.lambdaBind.param}: ${conditional})(${g.lambdaBind.arg})`;
+  }
+  return conditional;
+}
+
+/** Slice S5 — does the LEFT operand of a `&&`/`||` walrus binding
+ *  (`__k_logN := L`) need parentheses?
+ *
+ *  The walrus sits inside a `_kern_truthy(...)` call, whose own parens already
+ *  disambiguate `L`, so this is defensive/readability wrapping for the lowest-
+ *  precedence operand shapes (a `conditional` or `lambda` left operand). A
+ *  nested `&&`/`||` left operand is already self-parenthesized by its own
+ *  lowering, and an arithmetic/comparison `binary` binds tighter than `:=`, so
+ *  neither is wrapped here. */
+function needsWalrusOperandParens(child: ValueIR): boolean {
+  return child.kind === 'conditional' || child.kind === 'lambda';
+}
+
+/** S5 review fix — run `fn` with `ctx.banWalrus` set (save/restore), for
+ *  emitting an operand that will be interpolated into a comprehension/
+ *  generator ITERABLE position, where CPython rejects `:=` outright (see
+ *  BodyEmitContext.banWalrus). Nested emissions inherit the flag through the
+ *  shared ctx, so a walrus producer at ANY depth of the operand (e.g. the
+ *  index expression in `items[i || 0]`) switches to its walrus-free form. */
+function withWalrusBan<T>(ctx: BodyEmitContext, fn: () => T): T {
+  const previous = ctx.banWalrus === true;
+  ctx.banWalrus = true;
+  try {
+    return fn();
+  } finally {
+    ctx.banWalrus = previous;
+  }
+}
+
+/** Slice S5 — does the RIGHT operand, emitted in the `else` arm of the lowered
+ *  conditional expression, need parentheses? A bare `conditional`/`lambda` in
+ *  an `else` arm parses but is ambiguous to read and brittle under further
+ *  composition, so wrap those two. A nested `&&`/`||` right operand is already
+ *  self-parenthesized. */
+function needsConditionalAlternateParens(child: ValueIR): boolean {
+  return child.kind === 'conditional' || child.kind === 'lambda';
+}
+
+/** S5 review fix — parenthesize a compound NON-CHAIN member-root expression so
+ *  the appended `.prop` link binds to the WHOLE root (`(b if t else c).prop`),
+ *  not its last operand (`b if t else c.prop` — silently wrong Python).
+ *  Low-precedence node kinds (same set as index receivers) are wrapped UNLESS
+ *  the lowering already produced a self-delimited atom: a fully-enclosing
+ *  paren pair (the `&&`/`||`/`??` walrus ternaries) or a single helper call
+ *  (`__kern_add(a, b)`), which keeps existing pinned bytes stable. */
+function wrapCompoundRootExpr(obj: ValueIR, emitted: string): string {
+  if (!needsIndexReceiverParens(obj)) return emitted;
+  if (isSelfDelimitedPyAtom(emitted)) return emitted;
+  return `(${emitted})`;
+}
+
+/** True when `expr` is one self-delimited Python atom: a fully-enclosing
+ *  bracket pair (`(...)`, `[...]`) or one identifier-headed call/index chain
+ *  whose trailing bracket closes at the very end (`__kern_add(a, b)`). A
+ *  leading unary sign (`-a`, `not x`, `await f()`) is NOT an atom. */
+function isSelfDelimitedPyAtom(expr: string): boolean {
+  if (expr.length === 0) return false;
+  // Atoms start with an identifier/literal/bracket — a leading operator or
+  // keyword (`-`, `~`, `not `, `await `) always needs wrapping.
+  if (!/^[A-Za-z_0-9"'([{]/.test(expr)) return false;
+  if (!expr.includes(' ')) return true;
+  // Walk brackets/strings; any top-level space outside brackets means the
+  // expression is compound (`b if t else c`), not an atom.
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = 0; i < expr.length; i++) {
+    const ch = expr[i];
+    if (quote) {
+      if (ch === '\\') i++;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") quote = ch;
+    else if (ch === '(' || ch === '[' || ch === '{') depth++;
+    else if (ch === ')' || ch === ']' || ch === '}') depth--;
+    else if (ch === ' ' && depth === 0) return false;
+  }
+  return depth === 0;
 }
 
 function needsIndexReceiverParens(child: ValueIR): boolean {
@@ -3170,6 +3962,10 @@ function needsIndexReceiverParens(child: ValueIR): boolean {
  *  receivers). */
 function isReceiverChainPure(node: ValueIR): boolean {
   if (node.kind === 'ident') return true;
+  // Slice S7 — `undefined`/`null` literals are constant, so an optional chain
+  // rooted at one (`undefined?.x`, `null?.x`) names a side-effect-free value and
+  // takes the readable double-name guard form (short-circuiting to the sentinel).
+  if (node.kind === 'undefLit' || node.kind === 'nullLit') return true;
   if (node.kind === 'member') return isReceiverChainPure(node.object);
   if (node.kind === 'index') return isReceiverChainPure(node.object) && isPureIndexExpression(node.index);
   return false;
@@ -3226,6 +4022,85 @@ function mapBinaryOpToPython(op: string): string {
   }
 }
 
+/** Slice H — the host-namespace root set and diagnostic now live in core's
+ *  shared codegen module so TS and Python reject the same unmapped host roots
+ *  in lockstep. RegExp is intentionally exempt in that shared set for
+ *  Milestone B. */
+
+/** Slice H — is `name` PROVEN to be a user binding in the current expression
+ *  context?
+ *
+ *  Reuses the emitter's EXISTING scope/binding model — the single source of
+ *  truth — rather than building a parallel tracker:
+ *    - `lookupLocalBinding` walks `ctx.localScopes` (function params via
+ *      `outerBindings`, body `let`/`const`/`cell` via `declareLocalBinding`,
+ *      loop vars, block scopes);
+ *    - `ctx.shadowedSymbols` records lambda/comprehension parameters that the
+ *      ident emitter already treats as user-local (see the `ident` case);
+ *    - `ctx.symbolMap` keys are KERN-form param names the FastAPI generator
+ *      renamed (e.g. `userId -> user_id`) — a present key means a real param.
+ *
+ *  Per tribunal amendment 2, this FAILS TOWARD REFUSE: when the scope model
+ *  cannot prove a binding, we return false (→ the host-root guard fires),
+ *  never toward verbatim acceptance. Ground/module emitters that carry no
+ *  binding information therefore fail closed for reserved host roots, which is
+ *  exactly the intent — those are the contexts that previously leaked invalid
+ *  Python. (Honoring a *declared* binding — even one whose runtime value would
+ *  be `None` — is by design: this slice reuses the lexical scope model, it
+ *  does not do runtime value tracking. A user value named `Math` is the
+ *  shadowing case the spec explicitly keeps in scope.) */
+function isProvenUserBinding(ctx: BodyEmitContext, name: string): boolean {
+  if (lookupLocalBinding(ctx, name) !== undefined) return true;
+  if (ctx.shadowedSymbols.has(name)) return true;
+  if (Object.hasOwn(ctx.symbolMap, name)) return true;
+  return false;
+}
+
+/** Slice H — the fail-closed guard for unmapped host-namespace member
+ *  expressions (the strangler-pattern interim check).
+ *
+ *  ACCEPTED DEBT (do not "fix" by relocating): this check lives at the
+ *  EMISSION point inside the code generator, not in a standalone validation
+ *  pass. That is interim by design — milestone A completes the portable
+ *  lowering registry (`KERN_STDLIB_MODULES`) and replaces these refusals with
+ *  real lowerings. Because the explicit AST lowering hooks all run BEFORE this
+ *  guard, the site is already scheduled to change as that registry grows: the
+ *  guard only ever sees the *remaining* unmapped forms. This is the strangler
+ *  pattern — the call site is provisioned to shrink, not to be reworked.
+ *
+ *  Trigger predicate (capitalization-agnostic; NO {Math,JSON,Object,Date}
+ *  allowlist): a host-namespace-shaped root (`isHostNamespaceRoot`) that is
+ *  NOT proven user-bound (`isProvenUserBinding`, which fails toward refuse).
+ *  Returns `null` (caller proceeds to generic verbatim emission) for any root
+ *  that is provably a user binding or is not host-shaped — so user receivers
+ *  (`client.send(...)`, `myMath.sqrt(...)`) and proven-local `Math` pass
+ *  through unchanged. Throws otherwise. */
+function rejectUnmappedHostNamespacePython(root: string, member: string, ctx: BodyEmitContext): null {
+  if (!isHostNamespaceRoot(root)) return null;
+  if (isProvenUserBinding(ctx, root)) return null;
+  throw new Error(unmappedHostNamespaceMessage('Python', root, member));
+}
+
+/** Slice 2 — host-`RegExp` fail-close (Python emit). Closes the residual RegExp
+ *  positions the generic `Module.member` guard above does NOT cover, throwing the
+ *  SAME shared `REGEX_HOST_REGEXP_FAILCLOSE` the TS emitter + IR-validate pass
+ *  throw (byte-identical across targets):
+ *   - a BARE-VALUE reference (`const R = RegExp`, `RegExp` passed as a value),
+ *   - a BARE CALL `RegExp(p, f)` (callee is an ident, missed by the member-callee
+ *     guard), and
+ *   - `new RegExp(p)` (the Python `new` case otherwise falls through to a verbatim
+ *     `RegExp(...)` NameError).
+ *  Honors user shadowing via `isProvenUserBinding` (fails toward refuse when a
+ *  binding cannot be proven, matching the host-namespace guard's intent), so
+ *  `const RegExp = myThing; RegExp` is the user value. `RegExp.prototype`/
+ *  `RegExp.$1` already fail-close through the generic member guard (one
+ *  diagnostic per site). */
+function rejectHostRegExpValuePython(name: string, ctx: BodyEmitContext): void {
+  if (name !== 'RegExp') return;
+  if (isProvenUserBinding(ctx, name)) return;
+  throw new Error(REGEX_HOST_REGEXP_FAILCLOSE);
+}
+
 /** Slice 2a — KERN-stdlib dispatch for Python. Returns the lowered Python
  *  string when the call matches `<KnownModule>.<method>(args)`, or null when
  *  it doesn't. Throws on `<KnownModule>.<unknownMethod>(...)` with a
@@ -3234,6 +4109,34 @@ function mapBinaryOpToPython(op: string): string {
  *  Slice 3b — when the matched entry declares `requires.py`, the import
  *  identifier is added to the per-handler ctx.imports set so the FastAPI
  *  generator can emit `import math` (etc.) at the top of the function body. */
+function applyStdlibPropertyLoweringPython(
+  member: Extract<ValueIR, { kind: 'member' }>,
+  ctx: BodyEmitContext,
+): string | null {
+  if (member.optional) return null;
+  if (member.object.kind !== 'ident') return null;
+  const moduleName = member.object.name;
+  if (!KERN_STDLIB_MODULES.has(moduleName)) return null;
+  const propertyName = member.property;
+  const entry = lookupStdlibProperty(moduleName, propertyName);
+  if (entry === null) {
+    const callEntry = lookupStdlibCall(moduleName, propertyName);
+    if (callEntry !== null) {
+      throw new Error(
+        `KERN-stdlib method '${moduleName}.${propertyName}' cannot be referenced as a value in portable Python lowering; call it directly.`,
+      );
+    }
+    throwUnknownStdlibMemberPython(moduleName, propertyName);
+  }
+  registerStdlibRequirementPython(entry.requires?.py, ctx);
+  return entry.py;
+}
+
+function rejectKnownStdlibIndexPython(root: string, member: string): void {
+  if (!KERN_STDLIB_MODULES.has(root)) return;
+  throwUnknownStdlibMemberPython(root, member);
+}
+
 function applyStdlibLoweringPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: BodyEmitContext): string | null {
   const callee = call.callee;
   if (callee.kind !== 'member') return null;
@@ -3241,27 +4144,86 @@ function applyStdlibLoweringPython(call: Extract<ValueIR, { kind: 'call' }>, ctx
   const moduleName = callee.object.name;
   if (!KERN_STDLIB_MODULES.has(moduleName)) return null;
   const methodName = callee.property;
-  const entry = lookupStdlib(moduleName, methodName);
+  const entry = lookupStdlibCall(moduleName, methodName);
   if (entry === null) {
-    const suggestion = suggestStdlibMethod(moduleName, methodName);
-    const hint = suggestion ? ` Did you mean '${moduleName}.${suggestion}'?` : '';
-    throw new Error(`Unknown KERN-stdlib method '${moduleName}.${methodName}'.${hint}`);
+    const propertyEntry = lookupStdlibProperty(moduleName, methodName);
+    if (propertyEntry !== null) {
+      throw new Error(`KERN-stdlib property '${moduleName}.${methodName}' is not callable.`);
+    }
+    throwUnknownStdlibMemberPython(moduleName, methodName);
   }
   // Slice-2 review fix: enforce declared arity (matches TS-side check).
-  if (call.args.length !== entry.arity) {
-    throw new Error(
-      `KERN-stdlib '${moduleName}.${methodName}' takes ${entry.arity} arg${entry.arity === 1 ? '' : 's'}, got ${call.args.length}.`,
-    );
+  validateStdlibCallArityPython(moduleName, methodName, entry, call.args.length);
+  if (moduleName === 'Array' && methodName === 'from' && call.args.some((arg) => arg.kind === 'spread')) {
+    throw new Error('Array.from portable lowering does not accept spread arguments; pass source and mapper directly.');
   }
   const listLambda = lowerListLambdaPython(moduleName, methodName, call, ctx);
   if (listLambda !== null) return listLambda;
   // Slice 3b — register required imports (e.g., `Number.floor` ⇒ `import math`).
-  if (entry.requires?.py) ctx.imports.add(entry.requires.py);
+  registerStdlibRequirementPython(entry.requires?.py, ctx);
   const args = call.args.map((a) => {
     const emitted = emitPyExprCtx(a, ctx);
-    return needsArgParens(a) ? `(${emitted})` : emitted;
+    return a.kind !== 'spread' && needsArgParens(a) ? `(${emitted})` : emitted;
   });
-  return applyTemplate(entry.py, args);
+  // Slice S7 — `Json.stringify` on Python routes through the sentinel-aware shim
+  // (single-source `KERN_JSON_STRINGIFY_SHIM_PY`) instead of raw `__k_json.dumps`,
+  // so `JSON.stringify(undefined)` is host-undefined, an object key whose value
+  // is the sentinel is omitted, and a sentinel array element becomes JSON null —
+  // matching JS. The shim references `__k_json`, supplied by the table's
+  // `requires.py: 'json'` import registered above (one import shared with parse).
+  if ((moduleName === 'Json' || moduleName === 'JSON') && methodName === 'stringify') {
+    ctx.helpers.add(KERN_JSON_STRINGIFY_SHIM_PY);
+    return `_kern_json_stringify(${args[0]})`;
+  }
+  return typeof entry.py === 'function' ? entry.py(args) : applyTemplate(entry.py, args);
+}
+
+function throwUnknownStdlibMemberPython(moduleName: string, memberName: string): never {
+  const suggestion = suggestStdlibMethod(moduleName, memberName);
+  const hint = suggestion ? ` Did you mean '${moduleName}.${suggestion}'?` : '';
+  throw new Error(`Unknown KERN-stdlib method/member '${moduleName}.${memberName}'.${hint}`);
+}
+
+function validateStdlibCallArityPython(
+  moduleName: string,
+  methodName: string,
+  entry: NonNullable<ReturnType<typeof lookupStdlibCall>>,
+  got: number,
+): void {
+  if (entry.arity !== undefined && got !== entry.arity) {
+    throw new Error(
+      `KERN-stdlib '${moduleName}.${methodName}' takes ${entry.arity} arg${entry.arity === 1 ? '' : 's'}, got ${got}.`,
+    );
+  }
+  if (entry.minArity !== undefined && got < entry.minArity) {
+    throw new Error(`KERN-stdlib '${moduleName}.${methodName}' takes at least ${entry.minArity} args, got ${got}.`);
+  }
+  if (entry.maxArity !== undefined && got > entry.maxArity) {
+    throw new Error(`KERN-stdlib '${moduleName}.${methodName}' takes at most ${entry.maxArity} args, got ${got}.`);
+  }
+}
+
+function registerStdlibRequirementPython(requirement: string | undefined, ctx: BodyEmitContext): void {
+  if (!requirement) return;
+  if (requirement === 'math-host') {
+    ctx.helpers.add(KERN_TO_NUMBER_HELPER_PY);
+    ctx.helpers.add(KERN_JS_MATH_HELPERS_PY);
+    return;
+  }
+  if (requirement === 'array-host') {
+    ctx.helpers.add(KERN_TO_NUMBER_HELPER_PY);
+    ctx.helpers.add(KERN_JS_ARRAY_FROM_HELPER_PY);
+    return;
+  }
+  if (requirement === 'object-host') {
+    ctx.helpers.add(KERN_JS_OBJECT_HELPERS_PY);
+    return;
+  }
+  if (requirement === 'number-host') {
+    ctx.helpers.add(KERN_JS_NUMBER_HELPERS_PY);
+    return;
+  }
+  ctx.imports.add(requirement);
 }
 
 function lowerListLambdaPython(
@@ -3272,7 +4234,12 @@ function lowerListLambdaPython(
 ): string | null {
   if (moduleName !== 'List') return null;
   if (methodName !== 'map' && methodName !== 'filter') return null;
-  const source = emitPyExprCtx(call.args[0], ctx);
+  // S5 review fix — the source lands in the comprehension's generator head
+  // (`for x in <source>`): walrus producers must switch to lambda-parameter
+  // forms (CPython rejects `:=` in a comprehension iterable at any depth) and
+  // a compound source (bare ternary) must be parenthesized so its `if` does
+  // not parse as the comprehension filter.
+  const source = parenthesizeIterable(withWalrusBan(ctx, () => emitPyExprCtx(call.args[0], ctx)));
   const callback = call.args[1];
   if (callback.kind !== 'lambda') {
     const fn = emitPyExprCtx(callback, ctx);
@@ -3302,33 +4269,142 @@ function lowerListLambdaPython(
   }
 }
 
+/** Slice 6 — Python bitwise/shift operator precedence (higher binds tighter).
+ *  Matches CPython's grammar: `|` < `^` < `&` < shift < unary `~`. Used to
+ *  parenthesize the LOWERED tree so the emitted Python reproduces the JS-shaped
+ *  grouping (e.g. `a << (b & 31)` must keep the mask parens, since Python's
+ *  `<<` binds tighter than `&`). */
+const PY_BITWISE_PREC: Record<string, number> = { '|': 1, '^': 2, '&': 3, '<<': 4, '>>': 4 };
+
+/**
+ * Slice 6 — emit an ALREADY-LOWERED bitwise/shift tree to a Python string.
+ *
+ * The tree produced by `lowerBitwiseAndModuloAST` contains FINAL Python
+ * operators (`| & ^ << >>` and unary `~`) whose operands are already wrapped in
+ * `_kern_to_int32` / `_kern_to_uint32` calls. Re-routing those operators back
+ * through `emitPyExprCtx`'s bitwise branch would re-lower them and recurse
+ * forever, so this dedicated emitter renders the bitwise/shift `binary` and the
+ * `~` `unary` verbatim (with precedence-correct parens) and delegates every
+ * other node kind (the leaves: calls, idents, literals, …) to `emitPyExprCtx`.
+ */
+function emitLoweredBitwisePy(node: ValueIR, ctx: BodyEmitContext): string {
+  // The lowering's own wrapper calls (`_kern_to_int32` / `_kern_to_uint32` /
+  // `_tmod`) must stay in THIS emit path: their argument is an already-lowered
+  // bitwise/shift subtree, and handing the whole call to `emitPyExprCtx` would
+  // re-route that inner subtree back into the bitwise branch and recurse
+  // forever. Emit the wrapper directly and recurse through its argument here.
+  if (
+    node.kind === 'call' &&
+    node.callee.kind === 'ident' &&
+    (node.callee.name === '_kern_to_int32' || node.callee.name === '_kern_to_uint32' || node.callee.name === '_tmod')
+  ) {
+    const args = node.args.map((a) => emitLoweredBitwisePy(a, ctx)).join(', ');
+    return `${node.callee.name}(${args})`;
+  }
+  if (node.kind === 'binary' && node.op in PY_BITWISE_PREC) {
+    const parentPrec = PY_BITWISE_PREC[node.op];
+    const emitChild = (child: ValueIR, isRight: boolean): string => {
+      const s = emitLoweredBitwisePy(child, ctx);
+      if (child.kind === 'binary' && child.op in PY_BITWISE_PREC) {
+        const childPrec = PY_BITWISE_PREC[child.op];
+        // Lower-precedence child always needs parens; an equal-precedence child
+        // on the RIGHT needs parens to preserve left-associative grouping.
+        if (childPrec < parentPrec || (childPrec === parentPrec && isRight)) return `(${s})`;
+      }
+      return s;
+    };
+    return `${emitChild(node.left, false)} ${node.op} ${emitChild(node.right, true)}`;
+  }
+  if (node.kind === 'unary' && node.op === '~') {
+    const inner = emitLoweredBitwisePy(node.argument, ctx);
+    // `~` binds tighter than every binary bitwise/shift op, so a binary argument
+    // must be parenthesized (e.g. `~(a | b)`).
+    const wrapped = node.argument.kind === 'binary' && node.argument.op in PY_BITWISE_PREC ? `(${inner})` : inner;
+    return `~${wrapped}`;
+  }
+  // Leaf / non-bitwise node — hand back to the main expression emitter.
+  return emitPyExprCtx(node, ctx);
+}
+
+/**
+ * Slice 6 — emit a binary bitwise/shift op `a <op> b` (op ∈ `| & ^ << >>`) on
+ * the slice-0.75 ToInt32 substrate, per the S6 emission contract:
+ *
+ *   a | b   ->  _kern_to_int32(_kern_to_int32(a) | _kern_to_int32(b))
+ *   a << b  ->  _kern_to_int32(_kern_to_int32(a) << (_kern_to_uint32(b) & 31))
+ *
+ * Each operand subexpression appears EXACTLY ONCE, so Python evaluates each side
+ * once, left-to-right — matching JS evaluation-once order with no temporaries.
+ */
+function emitBitwiseShiftPy(
+  op: '|' | '&' | '^' | '<<' | '>>',
+  left: ValueIR,
+  right: ValueIR,
+  ctx: BodyEmitContext,
+): string {
+  ctx.helpers.add(KERN_TO_NUMBER_HELPER_PY);
+  const l = `_kern_to_int32(${emitPyExprCtx(left, ctx)})`;
+  if (op === '<<' || op === '>>') {
+    // Shift count: ToUint32 then `& 31`.
+    const count = `(_kern_to_uint32(${emitPyExprCtx(right, ctx)}) & 31)`;
+    return `_kern_to_int32(${l} ${op} ${count})`;
+  }
+  const r = `_kern_to_int32(${emitPyExprCtx(right, ctx)})`;
+  return `_kern_to_int32(${l} ${op} ${r})`;
+}
+
+/**
+ * Slice 6 — emit `a >>> b` (unsigned/zero-fill right shift):
+ *
+ *   a >>> b  ->  _kern_to_uint32(_kern_to_uint32(a) >> (_kern_to_uint32(b) & 31))
+ *
+ * Both operands are non-negative after `_kern_to_uint32`, so Python's raw `>>`
+ * is zero-fill (it NEVER sign-extends here); the outer `_kern_to_uint32` keeps
+ * the result in the 0..2**32-1 Uint32 codomain. Raw signed `>>` on the original
+ * value would sign-extend and is therefore never used.
+ */
+function emitUnsignedShiftPy(left: ValueIR, right: ValueIR, ctx: BodyEmitContext): string {
+  ctx.helpers.add(KERN_TO_NUMBER_HELPER_PY);
+  const l = `_kern_to_uint32(${emitPyExprCtx(left, ctx)})`;
+  const count = `(_kern_to_uint32(${emitPyExprCtx(right, ctx)}) & 31)`;
+  return `_kern_to_uint32(${l} >> ${count})`;
+}
+
 export function lowerBitwiseAndModuloAST(node: ValueIR): ValueIR {
   switch (node.kind) {
     case 'binary': {
       const left = lowerBitwiseAndModuloAST(node.left);
       const right = lowerBitwiseAndModuloAST(node.right);
-      if (node.op === '|' || node.op === '&' || node.op === '^' || node.op === '<<' || node.op === '>>') {
-        let rewrittenRight = right;
-        if (node.op === '<<' || node.op === '>>') {
-          const i32Right = wrapInI32(right);
-          rewrittenRight = {
-            kind: 'binary',
-            op: '&',
-            left: i32Right,
-            right: { kind: 'numLit', value: 31, raw: '31' },
-          };
-        } else {
-          rewrittenRight = wrapInI32(right);
-        }
-        const i32Left = wrapInI32(left);
-        const bitwiseNode: ValueIR = {
+      // Slice 6 — bitwise / shift on the landed slice-0.75 ToInt32 substrate.
+      // Each operand expression appears EXACTLY ONCE in the lowered form (the
+      // helper call wraps it inline), so Python evaluates each side once,
+      // left-to-right — matching JS evaluation-once order without temporaries.
+      if (node.op === '|' || node.op === '&' || node.op === '^') {
+        // a <op> b  ->  _kern_to_int32(_kern_to_int32(a) <op> _kern_to_int32(b))
+        return wrapInToInt32({ kind: 'binary', op: node.op, left: wrapInToInt32(left), right: wrapInToInt32(right) });
+      }
+      if (node.op === '<<' || node.op === '>>') {
+        // a <op> b  ->  _kern_to_int32(_kern_to_int32(a) <op> (_kern_to_uint32(b) & 31))
+        return wrapInToInt32({
           kind: 'binary',
           op: node.op,
-          left: i32Left,
-          right: rewrittenRight,
-        };
-        return wrapInI32(bitwiseNode);
-      } else if (node.op === '%') {
+          left: wrapInToInt32(left),
+          right: maskShiftCount(right),
+        });
+      }
+      if (node.op === '>>>') {
+        // a >>> b  ->  _kern_to_uint32(_kern_to_uint32(a) >> (_kern_to_uint32(b) & 31))
+        // Both operands are non-negative after _kern_to_uint32, so Python's raw
+        // `>>` is zero-fill (NEVER sign-extends); the outer _kern_to_uint32 keeps
+        // the result in the 0..2**32-1 Uint32 codomain.
+        return wrapInToUint32({
+          kind: 'binary',
+          op: '>>',
+          left: wrapInToUint32(left),
+          right: maskShiftCount(right),
+        });
+      }
+      if (node.op === '%') {
         return {
           kind: 'call',
           callee: { kind: 'ident', name: '_tmod' },
@@ -3341,13 +4417,8 @@ export function lowerBitwiseAndModuloAST(node: ValueIR): ValueIR {
     case 'unary': {
       const argument = lowerBitwiseAndModuloAST(node.argument);
       if (node.op === '~') {
-        const i32Arg = wrapInI32(argument);
-        const unaryNode: ValueIR = {
-          kind: 'unary',
-          op: '~',
-          argument: i32Arg,
-        };
-        return wrapInI32(unaryNode);
+        // ~a  ->  _kern_to_int32(~_kern_to_int32(a))
+        return wrapInToInt32({ kind: 'unary', op: '~', argument: wrapInToInt32(argument) });
       }
       return { ...node, argument };
     }
@@ -3403,12 +4474,25 @@ export function lowerBitwiseAndModuloAST(node: ValueIR): ValueIR {
   }
 }
 
-function wrapInI32(node: ValueIR): ValueIR {
+/** Slice 6 — wrap `node` in a `_kern_to_int32(...)` call (the landed slice-0.75
+ *  ToInt32 helper). Emits the operator-level coercion the S6 contract mandates. */
+function wrapInToInt32(node: ValueIR): ValueIR {
+  return { kind: 'call', callee: { kind: 'ident', name: '_kern_to_int32' }, args: [node], optional: false };
+}
+
+/** Slice 6 — wrap `node` in a `_kern_to_uint32(...)` call (slice-0.75 ToUint32). */
+function wrapInToUint32(node: ValueIR): ValueIR {
+  return { kind: 'call', callee: { kind: 'ident', name: '_kern_to_uint32' }, args: [node], optional: false };
+}
+
+/** Slice 6 — JS masks every shift count with `& 31` after ToUint32. Emits
+ *  `(_kern_to_uint32(count) & 31)`. The `count` subexpression appears once. */
+function maskShiftCount(count: ValueIR): ValueIR {
   return {
-    kind: 'call',
-    callee: { kind: 'ident', name: '_i32' },
-    args: [node],
-    optional: false,
+    kind: 'binary',
+    op: '&',
+    left: wrapInToUint32(count),
+    right: { kind: 'numLit', value: 31, raw: '31' },
   };
 }
 
@@ -3416,8 +4500,9 @@ export function registerHelpers(node: ValueIR, ctx: BodyEmitContext) {
   switch (node.kind) {
     case 'call':
       if (node.callee.kind === 'ident') {
-        if (node.callee.name === '_i32') {
-          ctx.helpers.add(KERN_I32_HELPER_PY);
+        if (node.callee.name === '_kern_to_int32' || node.callee.name === '_kern_to_uint32') {
+          // Slice 6 — both helpers live in the single slice-0.75 helper block.
+          ctx.helpers.add(KERN_TO_NUMBER_HELPER_PY);
         } else if (node.callee.name === '_tmod') {
           ctx.helpers.add(KERN_TMOD_HELPER_PY);
         }
@@ -3500,7 +4585,7 @@ function emitExpressionV1Py(node: IRNode, ctx: BodyEmitContext): string[] {
   if (exprSource === undefined || exprSource === '') {
     throw new Error('body-statement `expression-v1` requires `expr=`.');
   }
-  const exprIR = parseExpression(exprSource);
+  const exprIR = parseExpr(exprSource);
   declareLocalBinding(ctx, userName, 'const');
   const name = maybeRenameOnShadow(ctx, userName);
   setRegexBinding(ctx, userName, exprIR.kind === 'regexLit' ? exprIR : null);

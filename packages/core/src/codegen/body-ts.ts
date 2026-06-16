@@ -45,12 +45,28 @@
  *  for the surrounding function body. */
 
 import { isPostfixMutationOperator, isSupportedAssignOperator } from '../assignment-operators.js';
+import { collectClosureBlockCallTexts } from '../closure-eligibility.js';
+import type { ExprEmitContext } from '../codegen-expression.js';
 import { emitExpression } from '../codegen-expression.js';
 import { parseExpression } from '../parser-expression.js';
 import type { ExprObject, IRNode } from '../types.js';
+import { typescriptClosureClassifier, validateClosureBlockHostNamespacesTS } from '../typescript-closure-classifier.js';
 import type { ValueIR } from '../value-ir.js';
+
+/** A regex-literal IR node — the value recorded in the TS regex-binding table. */
+type RegexLitIR = Extract<ValueIR, { kind: 'regexLit' }>;
+
+// Slice 0.9 — TS codegen is Node-only; it re-parses raw block-bodied arrow prop
+// values, so it injects the TypeScript-backed closure classifier. `parseExpr` is
+// the local binding all `parseExpression` calls in this module route through.
+const TS_PARSE_OPTS = { closureClassifier: typescriptClosureClassifier };
+function parseExpr(input: string): ReturnType<typeof parseExpression> {
+  return parseExpression(input, TS_PARSE_OPTS);
+}
+
 import { emitFmtTemplate, emitIdentifier, emitTypeAnnotation } from './emitters.js';
 import { emitStringKeyArray, parseKeys } from './ground-layer.js';
+import { REGEX_NONLITERAL_FAILCLOSE, regexMethodRegexArgIdent } from './regex-normalize.js';
 import { emitParamList } from './type-system.js';
 
 /** Slice 3e — caller-provided options, parity with the Python body emitter.
@@ -96,6 +112,15 @@ export interface BodyEmitResult {
 interface BodyEmitContext {
   gensymCounter: number;
   localScopes: Array<Map<string, 'const' | 'let' | 'cell'>>;
+  /** Slice-3b parity fix — per-scope regex-literal binding table, index-aligned
+   *  with `localScopes`. Mirrors the Python target's `regexScopes`: when a `let`
+   *  binds a direct regex literal (`let re = /…/`), we record the `regexLit` IR
+   *  so a downstream `s.match(re)` can resolve the ident to its literal and lower
+   *  through the SAME canonical adapter/fail-close a direct `s.match(/…/)` uses.
+   *  Without this, TS emitted raw `s.match(re)` while Python canonical-lowered
+   *  the let-bound regex — a cross-target divergence. A non-regex `let` (or a
+   *  reassignment to a non-regex) records `null`, masking any outer binding. */
+  regexScopes: Array<Map<string, RegexLitIR | null>>;
   /** Slice 4c review fix (OpenCode + Gemini critical) — depth of nested
    *  `try` blocks the emitter is currently inside. Propagation `?` lowers
    *  to a `return` that exits the function — that bypasses the enclosing
@@ -133,6 +158,7 @@ export function emitNativeKernBodyTSWithImports(handlerNode: IRNode, options?: B
   const ctx: BodyEmitContext = {
     gensymCounter: 0,
     localScopes: [],
+    regexScopes: [],
     tryDepth: 0,
     finallyDepth: 0,
     traceHooks: options?.traceHooks,
@@ -144,6 +170,11 @@ export function emitNativeKernBodyTSWithImports(handlerNode: IRNode, options?: B
     const outer = new Map<string, 'const' | 'let' | 'cell'>();
     for (const name of options.stateBindings) outer.set(name, 'cell');
     ctx.localScopes.push(outer);
+    // Index-align `regexScopes` with `localScopes`: state bindings are never
+    // regex literals (they come from `state name=…`), so seed them as null.
+    const outerRegex = new Map<string, RegexLitIR | null>();
+    for (const name of options.stateBindings) outerRegex.set(name, null);
+    ctx.regexScopes.push(outerRegex);
   }
   const code = emitChildrenTS(handlerNode.children ?? [], ctx, '').join('\n');
   return { code, imports: new Set<string>() };
@@ -180,6 +211,8 @@ function emitChildrenTS(
 ): string[] {
   const lines: string[] = [];
   ctx.localScopes.push(new Map(initialBindings));
+  // Index-aligned regex-binding scope (initial bindings are never regex literals).
+  ctx.regexScopes.push(new Map(initialBindings.map(([name]) => [name, null])));
   try {
     for (let i = 0; i < children.length; i++) {
       const child = children[i];
@@ -218,7 +251,7 @@ function emitChildrenTS(
         for (const line of emitReturnTS(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'if') {
         const condRaw = String(child.props?.cond ?? '');
-        const condIR = parseExpression(condRaw);
+        const condIR = parseExpr(condRaw);
         // Slice-2 review fix: propagation `?` in an `if` condition has no
         // sensible single-line lowering; reject early with a clear message
         // pointing users at the let-bind workaround.
@@ -227,7 +260,7 @@ function emitChildrenTS(
             "Propagation '?' is not allowed in `if cond=` — bind the call to a `let` first, then test the bound name.",
           );
         }
-        lines.push(`${indent}if (${emitExpression(condIR)}) {`);
+        lines.push(`${indent}if (${emitValueTS(condIR, ctx)}) {`);
         for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
         // Walk the `else` chain so byte-equivalent `else if` chains compile back
         // out as `else if (...)` instead of `else { if (...) {...} else {...} }`.
@@ -245,13 +278,13 @@ function emitChildrenTS(
           if (isChainable) {
             const ifNode = ec[0];
             const nestedCondRaw = String(ifNode.props?.cond ?? '');
-            const nestedCondIR = parseExpression(nestedCondRaw);
+            const nestedCondIR = parseExpr(nestedCondRaw);
             if (nestedCondIR.kind === 'propagate') {
               throw new Error(
                 "Propagation '?' is not allowed in `if cond=` — bind the call to a `let` first, then test the bound name.",
               );
             }
-            lines.push(`${indent}} else if (${emitExpression(nestedCondIR)}) {`);
+            lines.push(`${indent}} else if (${emitValueTS(nestedCondIR, ctx)}) {`);
             for (const sl of emitChildrenTS(ifNode.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
             elseCandidate = ec.length === 2 ? ec[1] : undefined;
           } else {
@@ -269,13 +302,13 @@ function emitChildrenTS(
         throw new Error('`else` must immediately follow an `if` sibling. Found orphan `else` in handler body.');
       } else if (child.type === 'while') {
         const condRaw = String(child.props?.cond ?? '');
-        const condIR = parseExpression(condRaw);
+        const condIR = parseExpr(condRaw);
         if (condIR.kind === 'propagate') {
           throw new Error(
             "Propagation '?' is not allowed in `while cond=` — bind the call to a `let` first, then test the bound name.",
           );
         }
-        lines.push(`${indent}while (${emitExpression(condIR)}) {`);
+        lines.push(`${indent}while (${emitValueTS(condIR, ctx)}) {`);
         for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
         lines.push(`${indent}}`);
       } else if (child.type === 'for') {
@@ -350,7 +383,9 @@ function emitChildrenTS(
             return `: ${t}`;
           })();
           lines.push(`${indent}} catch (${errName}${errType}) {`);
-          for (const cl of emitChildrenTS(catchNode.children ?? [], ctx, indent + INDENT_STEP)) lines.push(cl);
+          for (const cl of emitChildrenTS(catchNode.children ?? [], ctx, indent + INDENT_STEP, [[errName, 'let']])) {
+            lines.push(cl);
+          }
         }
         if (finallyNode !== null) {
           lines.push(`${indent}} finally {`);
@@ -383,7 +418,7 @@ function emitChildrenTS(
         // Read schema-compliant `name`/`in` first; accept legacy
         // `list`/`as` as a fallback for tests that pre-date this fix.
         const listRaw = String(child.props?.in ?? child.props?.list ?? '[]');
-        const listIR = parseExpression(listRaw);
+        const listIR = parseExpr(listRaw);
         // 2026-05-06 — pair-mode (`pairKey=k pairValue=v`) emits Map/iterable-of-pairs
         // destructuring `for (const [k, v] of m)`. Index-mode (`index=i`) emits
         // `for (const [i, x] of xs.entries())`. Default form is `for (const x of xs)`.
@@ -409,7 +444,7 @@ function emitChildrenTS(
             throw new Error('body-statement `each type=` cannot be combined with pair-mode `pairKey=`/`pairValue=`.');
           }
           loopBindings.push([String(pairKey), 'const'], [String(pairValue), 'const']);
-          const sourceExpr = emitExpression(listIR);
+          const sourceExpr = emitValueTS(listIR, ctx);
           const iterableExpr = entriesMode ? `Object.entries(${sourceExpr})` : sourceExpr;
           lines.push(
             `${indent}for${awaitPrefix} (const [${String(pairKey)}, ${String(pairValue)}] of ${iterableExpr}) {`,
@@ -428,7 +463,7 @@ function emitChildrenTS(
           if (rawItemType !== undefined && rawItemType !== '') {
             throw new Error('body-statement `each type=` cannot be combined with keyed-entry modes.');
           }
-          const sourceExpr = emitExpression(listIR);
+          const sourceExpr = emitValueTS(listIR, ctx);
           const iterableExpr = `Object.entries(${sourceExpr})`;
           if (entryKey && entryValue) {
             throw new Error('body-statement `each` cannot combine `entryKey=` and `entryValue=`.');
@@ -454,7 +489,7 @@ function emitChildrenTS(
           const typeAnn = itemType ? `: [number, ${itemType}]` : '';
           loopBindings.push([idxName, 'const'], [asName, 'const']);
           lines.push(
-            `${indent}for (const [${idxName}, ${asName}]${typeAnn} of (${emitExpression(listIR)}).entries()) {`,
+            `${indent}for (const [${idxName}, ${asName}]${typeAnn} of (${emitValueTS(listIR, ctx)}).entries()) {`,
           );
           primaryBinding = asName;
         } else {
@@ -462,7 +497,7 @@ function emitChildrenTS(
           const asName = String(child.props?.name ?? child.props?.as ?? 'item');
           const typeAnn = itemType ? `: ${itemType}` : '';
           loopBindings.push([asName, 'const']);
-          lines.push(`${indent}for${awaitPrefix} (const ${asName}${typeAnn} of ${emitExpression(listIR)}) {`);
+          lines.push(`${indent}for${awaitPrefix} (const ${asName}${typeAnn} of ${emitValueTS(listIR, ctx)}) {`);
           primaryBinding = asName;
         }
         if (ctx.traceHooks?.eachIterNext) {
@@ -514,6 +549,7 @@ function emitChildrenTS(
     }
   } finally {
     ctx.localScopes.pop();
+    ctx.regexScopes.pop();
   }
   return lines;
 }
@@ -531,17 +567,17 @@ function emitRangeForTS(node: IRNode, ctx: BodyEmitContext, indent: string): str
   validateIntegerRangeBound(String(rawFrom), 'from');
   validateIntegerRangeBound(String(rawTo), 'to');
   validatePositiveRangeStep(rawStep);
-  const fromIR = parseExpression(String(rawFrom));
-  const toIR = parseExpression(String(rawTo));
-  const stepIR = parseExpression(rawStep);
+  const fromIR = parseExpr(String(rawFrom));
+  const toIR = parseExpr(String(rawTo));
+  const stepIR = parseExpr(rawStep);
   if (fromIR.kind === 'propagate' || toIR.kind === 'propagate' || stepIR.kind === 'propagate') {
     throw new Error(
       "Propagation '?' is not allowed in `for from=`/`to=`/`step=` — bind the value to a `let` before the loop.",
     );
   }
-  const fromExpr = emitExpression(fromIR);
-  const toExpr = emitExpression(toIR);
-  const stepExpr = emitExpression(stepIR);
+  const fromExpr = emitValueTS(fromIR, ctx);
+  const toExpr = emitValueTS(toIR, ctx);
+  const stepExpr = emitValueTS(stepIR, ctx);
   const stepValue = parseRangeStepLiteral(rawStep);
   const update = stepValue === 1 ? `${name}++` : stepValue === -1 ? `${name}--` : `${name} += ${stepExpr}`;
   const compare = stepValue > 0 ? '<' : '>';
@@ -578,20 +614,26 @@ function emitWithTS(node: IRNode, ctx: BodyEmitContext, indent: string): string[
   const isAsync = props.async === true || props.async === 'true';
 
   const name = emitIdentifier(String(rawName), 'with', node);
+
+  const valueIR = parseExpr(String(rawValue));
+  if (valueIR.kind === 'propagate') {
+    throw new Error("Propagation '?' is not allowed in `with value=` or `with cleanup=` — bind to `let` first.");
+  }
+  const acquirePrefix = isAsync ? 'await ' : '';
+  const acquireExpr = emitValueTS(valueIR, ctx);
+
   declareLocalBinding(ctx, name, 'const');
 
-  const valueIR = parseExpression(String(rawValue));
-  const cleanupIR = parseExpression(String(rawCleanup));
-  if (valueIR.kind === 'propagate' || cleanupIR.kind === 'propagate') {
+  const cleanupIR = parseExpr(String(rawCleanup));
+  if (cleanupIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in `with value=` or `with cleanup=` — bind to `let` first.");
   }
 
-  const acquirePrefix = isAsync ? 'await ' : '';
   const cleanupPrefix = isAsync ? 'await ' : '';
-  const lines = [`${indent}const ${name} = ${acquirePrefix}${emitExpression(valueIR)};`, `${indent}try {`];
+  const lines = [`${indent}const ${name} = ${acquirePrefix}${acquireExpr};`, `${indent}try {`];
   for (const sl of emitChildrenTS(node.children ?? [], ctx, indent + INDENT_STEP, [[name, 'const']])) lines.push(sl);
   lines.push(`${indent}} finally {`);
-  lines.push(`${indent}${INDENT_STEP}${cleanupPrefix}${emitExpression(cleanupIR)};`);
+  lines.push(`${indent}${INDENT_STEP}${cleanupPrefix}${emitValueTS(cleanupIR, ctx)};`);
   lines.push(`${indent}}`);
   return lines;
 }
@@ -630,9 +672,9 @@ function emitBranchTS(node: IRNode, ctx: BodyEmitContext, indent: string): strin
   if (onRaw === '') {
     throw new Error('`branch` requires an `on=` expression in body-statement context.');
   }
-  const onIR = parseExpression(onRaw);
+  const onIR = parseExpr(onRaw);
   const out: string[] = [];
-  out.push(`${indent}switch (${emitExpression(onIR)}) {`);
+  out.push(`${indent}switch (${emitValueTS(onIR, ctx)}) {`);
   const inner = indent + INDENT_STEP;
   const innerBody = inner + INDENT_STEP;
   for (const child of node.children ?? []) {
@@ -699,11 +741,15 @@ function emitLetTS(node: IRNode, ctx: BodyEmitContext): string[] {
     }
     return [`${bindingKind} ${name}${typeAnn};`];
   }
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
+  // Slice-3b parity: record a direct regex-literal binding so a later
+  // `s.match(re)` resolves the ident to its literal and lowers canonically
+  // (matches Python's `setRegexBinding(ctx, userName, regexLit|null)`).
+  setRegexBinding(ctx, name, valueIR.kind === 'regexLit' ? valueIR : null);
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
-    const inner = emitExpression(valueIR.argument);
+    const inner = emitValueTS(valueIR.argument, ctx);
     const lines = [
       `const ${tmp} = ${inner};`,
       `if (${tmp}.kind === 'err') return ${tmp};`,
@@ -712,7 +758,7 @@ function emitLetTS(node: IRNode, ctx: BodyEmitContext): string[] {
     if (ctx.traceHooks?.letAssign) lines.push(letAssignTraceTS(name));
     return lines;
   }
-  const lines = [`${bindingKind} ${name}${typeAnn} = ${emitExpression(valueIR)};`];
+  const lines = [`${bindingKind} ${name}${typeAnn} = ${emitValueTS(valueIR, ctx)};`];
   if (ctx.traceHooks?.letAssign) lines.push(letAssignTraceTS(name));
   return lines;
 }
@@ -773,9 +819,9 @@ function emitClampTS(node: IRNode, ctx: BodyEmitContext): string[] {
   const rawMax = unwrapBodyExpr(props.max);
   if (rawMax === undefined || rawMax === '') throw new Error('body-statement `clamp` requires `max=`.');
 
-  const valueIR = parseExpression(rawValue);
-  const minIR = parseExpression(rawMin);
-  const maxIR = parseExpression(rawMax);
+  const valueIR = parseExpr(rawValue);
+  const minIR = parseExpr(rawMin);
+  const maxIR = parseExpr(rawMax);
   if (valueIR.kind === 'propagate' || minIR.kind === 'propagate' || maxIR.kind === 'propagate') {
     throw new Error(
       "Propagation '?' is not allowed in `clamp value=`/`min=`/`max=` — bind the value to a `let` first.",
@@ -784,7 +830,7 @@ function emitClampTS(node: IRNode, ctx: BodyEmitContext): string[] {
 
   const typeAnn = props.type ? `: ${emitTypeAnnotation(String(props.type), 'unknown', node)}` : '';
   const lines = [
-    `const ${name}${typeAnn} = Math.max(${emitExpression(minIR)}, Math.min(${emitExpression(maxIR)}, ${emitExpression(valueIR)}));`,
+    `const ${name}${typeAnn} = Math.max(${emitValueTS(minIR, ctx)}, Math.min(${emitValueTS(maxIR, ctx)}, ${emitValueTS(valueIR, ctx)}));`,
   ];
   if (ctx.traceHooks?.letAssign) lines.push(letAssignTraceTS(name));
   return lines;
@@ -804,11 +850,11 @@ function emitFirstTruthyTS(node: IRNode, ctx: BodyEmitContext): string[] {
   if (values.length < 2) throw new Error('body-statement `firstTruthy` requires at least two value expressions.');
 
   const emitted = values.map((value) => {
-    const valueIR = parseExpression(value);
+    const valueIR = parseExpr(value);
     if (valueIR.kind === 'propagate') {
       throw new Error("Propagation '?' is not allowed in `firstTruthy values=` — bind the value to a `let` first.");
     }
-    return emitFirstTruthyOperandTS(valueIR);
+    return emitFirstTruthyOperandTS(valueIR, ctx);
   });
 
   const typeAnn = props.type ? `: ${emitTypeAnnotation(String(props.type), 'unknown', node)}` : '';
@@ -832,11 +878,11 @@ function emitCoalesceTS(node: IRNode, ctx: BodyEmitContext): string[] {
   if (values.length < 2) throw new Error(`body-statement \`${type}\` requires at least two value expressions.`);
 
   const emitted = values.map((value) => {
-    const valueIR = parseExpression(value);
+    const valueIR = parseExpr(value);
     if (valueIR.kind === 'propagate') {
       throw new Error(`Propagation '?' is not allowed in \`${type} values=\` — bind the value to a \`let\` first.`);
     }
-    return emitCoalesceOperandTS(valueIR);
+    return emitCoalesceOperandTS(valueIR, ctx);
   });
 
   const typeAnn = props.type ? `: ${emitTypeAnnotation(String(props.type), 'unknown', node)}` : '';
@@ -845,13 +891,13 @@ function emitCoalesceTS(node: IRNode, ctx: BodyEmitContext): string[] {
   return lines;
 }
 
-function emitCoalesceOperandTS(valueIR: ValueIR): string {
-  const emitted = emitExpression(valueIR);
+function emitCoalesceOperandTS(valueIR: ValueIR, ctx: BodyEmitContext): string {
+  const emitted = emitValueTS(valueIR, ctx);
   return valueIR.kind === 'conditional' || valueIR.kind === 'binary' ? `(${emitted})` : emitted;
 }
 
-function emitFirstTruthyOperandTS(valueIR: ValueIR): string {
-  const emitted = emitExpression(valueIR);
+function emitFirstTruthyOperandTS(valueIR: ValueIR, ctx: BodyEmitContext): string {
+  const emitted = emitValueTS(valueIR, ctx);
   return valueIR.kind === 'conditional' ? `(${emitted})` : emitted;
 }
 
@@ -872,11 +918,11 @@ function emitObjectMergeTS(node: IRNode, ctx: BodyEmitContext): string[] {
     if (source.startsWith('...')) {
       throw new Error('body-statement `objectMerge` sources imply spreading; omit leading `...`.');
     }
-    const sourceIR = parseExpression(source);
+    const sourceIR = parseExpr(source);
     if (sourceIR.kind === 'propagate') {
       throw new Error("Propagation '?' is not allowed in `objectMerge sources=` — bind the value to a `let` first.");
     }
-    emitted.push(`...(${emitExpression(sourceIR)})`);
+    emitted.push(`...(${emitValueTS(sourceIR, ctx)})`);
   }
 
   const typeAnn = props.type ? `: ${emitTypeAnnotation(String(props.type), 'Record<string, unknown>', node)}` : '';
@@ -900,11 +946,11 @@ function emitObjectPickTS(node: IRNode, ctx: BodyEmitContext): string[] {
     throw new Error('body-statement `objectPick` requires `keys=`.');
   }
 
-  const inIR = parseExpression(rawIn);
+  const inIR = parseExpr(rawIn);
   if (inIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in `objectPick in=` — bind the value to a `let` first.");
   }
-  const inExpr = emitExpression(inIR);
+  const inExpr = emitValueTS(inIR, ctx);
 
   const keysList = parseKeys(rawKeys, node, 'objectPick keys=');
   const formattedKeys = emitStringKeyArray(keysList);
@@ -932,11 +978,11 @@ function emitObjectOmitTS(node: IRNode, ctx: BodyEmitContext): string[] {
     throw new Error('body-statement `objectOmit` requires `keys=`.');
   }
 
-  const inIR = parseExpression(rawIn);
+  const inIR = parseExpr(rawIn);
   if (inIR.kind === 'propagate') {
     throw new Error("Propagation '?' is not allowed in `objectOmit in=` — bind the value to a `let` first.");
   }
-  const inExpr = emitExpression(inIR);
+  const inExpr = emitValueTS(inIR, ctx);
 
   const keysList = parseKeys(rawKeys, node, 'objectOmit keys=');
   const formattedKeys = emitStringKeyArray(keysList);
@@ -979,7 +1025,7 @@ function emitAssignTS(node: IRNode, ctx: BodyEmitContext): string[] {
     // mirrors this; the emitter check is defense-in-depth for direct IR.
     throw new Error(`body-statement \`assign op="${rawOp}"\` is value-less; remove \`value=\`.`);
   }
-  const targetIR = parseExpression(String(rawTarget));
+  const targetIR = parseExpr(String(rawTarget));
   if (!isAssignableTarget(targetIR)) {
     throw new Error('body-statement `assign target=` must be an identifier, member access, or index access.');
   }
@@ -996,7 +1042,7 @@ function emitAssignTS(node: IRNode, ctx: BodyEmitContext): string[] {
       const baseOp = rawOp === '++' ? '+' : '-';
       return [`${setter}((prev) => prev ${baseOp} 1);`];
     }
-    const valueIR = parseExpression(String(rawValue));
+    const valueIR = parseExpr(String(rawValue));
     if (valueIR.kind === 'propagate') {
       throw new Error(
         `Propagation \`${valueIR.op}\` is not supported in \`assign value=\` — bind to \`let\` first, then assign.`,
@@ -1008,23 +1054,32 @@ function emitAssignTS(node: IRNode, ctx: BodyEmitContext): string[] {
       // capture a stale closure-bound `count`. The arrow param shadows the
       // outer binding, so the original RHS expression compiles unchanged.
       if (valueReferencesIdent(valueIR, targetIR.name)) {
-        return [`${setter}((${targetIR.name}) => ${emitExpression(valueIR)});`];
+        return [`${setter}((${targetIR.name}) => ${emitValueTS(valueIR, ctx)});`];
       }
-      return [`${setter}(${emitExpression(valueIR)});`];
+      return [`${setter}(${emitValueTS(valueIR, ctx)});`];
     }
     const baseOp = rawOp.slice(0, -1);
-    return [`${setter}((prev) => prev ${baseOp} ${emitExpression(valueIR)});`];
+    return [`${setter}((prev) => prev ${baseOp} ${emitValueTS(valueIR, ctx)});`];
   }
   if (isPostfix) {
-    return [`${emitExpression(targetIR)}${rawOp};`];
+    return [`${emitValueTS(targetIR, ctx)}${rawOp};`];
   }
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   if (valueIR.kind === 'propagate') {
     throw new Error(
       `Propagation \`${valueIR.op}\` is not supported in \`assign value=\` — bind to \`let\` first, then assign.`,
     );
   }
-  const stmt = `${emitExpression(targetIR)} ${rawOp} ${emitExpression(valueIR)};`;
+  // Emit the statement FIRST (its `emitValueTS` walk fail-closes any regex
+  // method on a bound regex ident) so the RHS is checked against the
+  // PRE-reassignment table (`re = s.match(re)` must still see `re` as a regex).
+  const stmt = `${emitValueTS(targetIR, ctx)} ${rawOp} ${emitValueTS(valueIR, ctx)};`;
+  // Reassign-invalidation (Slice-3c): keep the regex-binding table honest. A
+  // plain `=` to a direct regex literal stays a regex binding (still
+  // fail-closed); any compound op (`+=`, …) or non-regex RHS UNMARKS it.
+  if (targetIR.kind === 'ident') {
+    rebindRegexOnReassign(ctx, targetIR.name, rawOp === '=' ? valueIR : { kind: 'undefLit' });
+  }
   // Differential-harness opt-in (see BodyEmitOptions.traceHooks.letAssign): the
   // `assign` contract observes a reassignment via the same `{op:"assign"}` event
   // a `let` declaration emits. Scoped to identifier targets — the contract
@@ -1048,7 +1103,7 @@ function emitCellTS(node: IRNode, ctx: BodyEmitContext): string[] {
   const typeArg = type ? `<${emitTypeAnnotation(type, 'unknown', node)}>` : '';
   const rawInitial = props.initial;
   const initialEmitted =
-    rawInitial === undefined || rawInitial === '' ? 'undefined' : emitExpression(parseExpression(String(rawInitial)));
+    rawInitial === undefined || rawInitial === '' ? 'undefined' : emitValueTS(parseExpr(String(rawInitial)), ctx);
   return [`const [${name}, ${setter}] = useState${typeArg}(${initialEmitted});`];
 }
 
@@ -1069,7 +1124,7 @@ function emitSetTS(node: IRNode, ctx: BodyEmitContext): string[] {
   // We don't gate on lookupLocalBinding because the cell may be declared in
   // a parent scope outside this emitter's visibility.
   const setter = cellSetterName(name);
-  const valueIR = parseExpression(String(rawTo));
+  const valueIR = parseExpr(String(rawTo));
   if (valueIR.kind === 'propagate') {
     throw new Error(
       `Propagation \`${valueIR.op}\` is not supported in \`set to=\` — bind to \`let\` first, then call set.`,
@@ -1077,7 +1132,7 @@ function emitSetTS(node: IRNode, ctx: BodyEmitContext): string[] {
   }
   // touch ctx to suppress unused-var lint if needed
   void ctx;
-  return [`${setter}(${emitExpression(valueIR)});`];
+  return [`${setter}(${emitValueTS(valueIR, ctx)});`];
 }
 
 function cellSetterName(cellName: string): string {
@@ -1091,6 +1146,42 @@ function declareLocalBinding(ctx: BodyEmitContext, name: string, kind: 'const' |
     throw new Error(`body-statement local binding \`${name}\` is already declared in this scope.`);
   }
   scope.set(name, kind);
+  // Declare the regex binding as null by default (mirrors Python's
+  // `declareLocalBinding` → `setRegexBinding(ctx, name, null)`); `emitLetTS`
+  // overwrites it with the regex literal when the initializer is a `regexLit`.
+  setRegexBinding(ctx, name, null);
+}
+
+/** Record (or clear) the regex-literal bound to `name` in the current scope. */
+function setRegexBinding(ctx: BodyEmitContext, name: string, regex: RegexLitIR | null): void {
+  ctx.regexScopes.at(-1)?.set(name, regex);
+}
+
+/** Resolve an ident to its bound regex literal, walking enclosing scopes. */
+function lookupRegexBinding(ctx: BodyEmitContext, name: string): RegexLitIR | null {
+  for (let i = ctx.regexScopes.length - 1; i >= 0; i--) {
+    const scope = ctx.regexScopes[i];
+    if (scope.has(name)) return scope.get(name) ?? null;
+  }
+  return null;
+}
+
+/** Reassign-invalidation: when a tracked ident is REASSIGNED (`assign
+ *  target=re value=…`), update its regex marking IN THE SCOPE THAT OWNS IT
+ *  (not the innermost scope — that would shadow, leaking past the inner block).
+ *  Reassigned to a direct `regexLit` → stays a regex binding (still fail-closed);
+ *  reassigned to anything else → UNMARK (no longer fail-closed). This kills the
+ *  stale-binding class: a `re = /b/` after `let re = /a/` never lets a prior
+ *  literal leak, and a `re = someString` correctly drops the regex marking. */
+function rebindRegexOnReassign(ctx: BodyEmitContext, name: string, valueIR: ValueIR): void {
+  const next = valueIR.kind === 'regexLit' ? valueIR : null;
+  for (let i = ctx.regexScopes.length - 1; i >= 0; i--) {
+    const scope = ctx.regexScopes[i];
+    if (scope.has(name)) {
+      scope.set(name, next);
+      return;
+    }
+  }
 }
 
 function assertAssignableLocalTarget(target: ValueIR, ctx: BodyEmitContext): void {
@@ -1109,6 +1200,155 @@ function lookupLocalBinding(ctx: BodyEmitContext, name: string): 'const' | 'let'
     if (found) return found;
   }
   return undefined;
+}
+
+function emitValueTS(node: ValueIR, ctx: BodyEmitContext): string {
+  // Slice-3c: DETECT-and-fail-close a regex method called on a let-bound regex
+  // IDENT (`let re = /…/; s.match(re)`). The pure-expression TS emitter
+  // (`emitExpression`) only lowers a DIRECT regex literal in the regex
+  // position; an ident there falls through to a plain host method. The Python
+  // emitter makes the SAME decision (see `lowerRegexCallPython`), so we walk the
+  // IR HERE (where the binding table lives) and throw the SAME shared
+  // `REGEX_NONLITERAL_FAILCLOSE` whenever a regex method's regex position is an
+  // ident the table knows is regex-bound. A string-/unknown-bound ident is NOT
+  // flagged — it stays a plain host method (e.g. `s.match(stringVar)`), the
+  // common case the old resolve-to-literal substitution must never have broken.
+  assertNoBoundRegexMethodTS(node, ctx);
+  return emitExpression(node, exprCtxFor(ctx));
+}
+
+function exprCtxFor(ctx: BodyEmitContext): ExprEmitContext {
+  return {
+    isUserBinding: (name: string) => lookupLocalBinding(ctx, name) !== undefined,
+    validateRawBlock: validateClosureBlockHostNamespacesTS,
+  };
+}
+
+/** Recursively reject any regex-method call whose regex-position operand is an
+ *  ident KNOWN to be regex-bound in scope. Mirrors the per-call-node fail-close
+ *  the Python emitter makes inside `lowerRegexCallPython`, so the rejection is
+ *  symmetric at any nesting depth. Direct regex literals are never idents, so
+ *  the canonical Slice-3 lowering is untouched.
+ *
+ *  Slice-3d (TS/Python parity fix): a block-bodied arrow (`x => { … }`) carries
+ *  its body as OPAQUE raw text (`lambda.bodyBlock`) re-emitted verbatim on TS —
+ *  so a bound-regex method INSIDE the block (`x => { return s.match(re); }`)
+ *  slipped through the `ValueIR` walk and emitted RAW, while the Python emitter
+ *  RE-PARSES every block-closure expression (`emitPyExprCtx(parseExpr(raw),ctx)`
+ *  → `lowerRegexCallPython`) and FAIL-CLOSED the same construct — a SILENT
+ *  cross-target divergence. We close it by descending into `bodyBlock` through
+ *  the SAME closure-AST path the rest of the pipeline uses
+ *  (`parseClosureBlockAst`) and applying the SAME `ValueIR` detector to every
+ *  call inside it (re-parsed via the SAME `parseExpr` the Python lowerer uses),
+ *  so the fail-close decision is byte-for-byte symmetric. */
+function assertNoBoundRegexMethodTS(node: ValueIR, ctx: BodyEmitContext): void {
+  if (node.kind === 'call') {
+    const argName = regexMethodRegexArgIdent(node);
+    if (argName !== null && lookupRegexBinding(ctx, argName) !== null) {
+      throw new Error(REGEX_NONLITERAL_FAILCLOSE);
+    }
+  }
+  if (node.kind === 'lambda' && node.bodyBlock) {
+    assertNoBoundRegexMethodInBlockTS(node.bodyBlock.raw, ctx);
+  }
+  forEachValueIRChild(node, (child) => assertNoBoundRegexMethodTS(child, ctx));
+}
+
+/** Fail-close a bound-regex method called anywhere inside a block-bodied
+ *  arrow's raw body — the TS half of the Slice-3d parity fix.
+ *
+ *  Collects every CALL expression's source text from the raw block via the
+ *  shared `collectClosureBlockCallTexts` (the closure-AST path every other
+ *  consumer reads — never a fresh regex-text scanner; the `ts` AST walk stays
+ *  quarantined in `closure-eligibility.ts` so this module imports no
+ *  `typescript`). Each call's source text is re-parsed into
+ *  `ValueIR` through the SAME `parseExpr` the Python block-closure lowerer uses
+ *  (`emitPyExprCtx(parseExpr(expr.getText(sf)), ctx)`), and run through the SAME
+ *  `regexMethodRegexArgIdent` + `lookupRegexBinding(ctx, …)` detector. A
+ *  known-regex-bound ident in the regex position throws the SAME shared
+ *  `REGEX_NONLITERAL_FAILCLOSE` — making the rejection byte-for-byte symmetric
+ *  with Python. A string-/unknown-bound ident (`s.match(strVar)`) is NOT flagged
+ *  and stays a plain host method on both targets.
+ *
+ *  Binding resolution uses the SAME `ctx` (the body's regex-binding table) the
+ *  Python lowerer consults: a closure PARAM that shadows an outer regex name is
+ *  conservatively still flagged on BOTH targets (Python's `lookupRegexBinding`
+ *  also ignores `shadowedSymbols`) — over-rejection is SAFE and symmetric; the
+ *  silent divergence is not. If the block does not parse cleanly the gate
+ *  already rejected it upstream, so this is a defensive no-op. */
+function assertNoBoundRegexMethodInBlockTS(raw: string, ctx: BodyEmitContext): void {
+  for (const callText of collectClosureBlockCallTexts(raw)) {
+    const callIR = parseExpr(callText);
+    if (callIR.kind === 'call') {
+      const argName = regexMethodRegexArgIdent(callIR);
+      if (argName !== null && lookupRegexBinding(ctx, argName) !== null) {
+        throw new Error(REGEX_NONLITERAL_FAILCLOSE);
+      }
+    }
+  }
+}
+
+/** Visit each immediate child `ValueIR` of `node`. Covers every variant of the
+ *  value AST so the regex-method walk reaches calls nested inside any operand
+ *  (args, members, binaries, conditionals, template exprs, object/array
+ *  literals, …). `lambda.bodyBlock` is opaque raw TS text with no parsed IR, so
+ *  it has no child `ValueIR` nodes here — its bound-regex methods are reached
+ *  separately by `assertNoBoundRegexMethodInBlockTS` (called from
+ *  `assertNoBoundRegexMethodTS` on the lambda), which parses the raw block. */
+function forEachValueIRChild(node: ValueIR, visit: (child: ValueIR) => void): void {
+  switch (node.kind) {
+    case 'member':
+      visit(node.object);
+      return;
+    case 'index':
+      visit(node.object);
+      visit(node.index);
+      return;
+    case 'call':
+      visit(node.callee);
+      for (const a of node.args) visit(a);
+      return;
+    case 'lambda':
+      if (node.body) visit(node.body);
+      return;
+    case 'binary':
+      visit(node.left);
+      visit(node.right);
+      return;
+    case 'unary':
+    case 'spread':
+    case 'await':
+    case 'new':
+      visit(node.argument);
+      return;
+    case 'typeAssert':
+    case 'nonNull':
+      visit(node.expression);
+      return;
+    case 'propagate':
+      visit(node.argument);
+      return;
+    case 'tmplLit':
+      for (const e of node.expressions) visit(e);
+      return;
+    case 'objectLit':
+      for (const entry of node.entries) {
+        if ('kind' in entry && entry.kind === 'spread') visit(entry.argument);
+        else visit((entry as { value: ValueIR }).value);
+      }
+      return;
+    case 'arrayLit':
+      for (const item of node.items) visit(item);
+      return;
+    case 'conditional':
+      visit(node.test);
+      visit(node.consequent);
+      visit(node.alternate);
+      return;
+    default:
+      // Leaf nodes (numLit/strLit/boolLit/nullLit/undefLit/regexLit/ident): no children.
+      return;
+  }
 }
 
 function isAssignableTarget(node: ValueIR): boolean {
@@ -1203,9 +1443,9 @@ function emitDestructureTS(node: IRNode, ctx: BodyEmitContext): string[] {
   const pattern = formatBodyDestructurePattern(node);
   const kind = props.kind === 'let' ? 'let' : 'const';
   const typeAnn = props.type ? `: ${emitTypeAnnotation(String(props.type), 'unknown', node)}` : '';
-  const sourceIR = parseExpression(String(rawSource));
+  const sourceIR = parseExpr(String(rawSource));
   if (sourceIR.kind === 'propagate' && sourceIR.op === '?') rejectPropagationInsideTry(ctx);
-  return [`${kind} ${pattern}${typeAnn} = ${emitExpression(sourceIR)};`];
+  return [`${kind} ${pattern}${typeAnn} = ${emitValueTS(sourceIR, ctx)};`];
 }
 
 function formatBodyDestructurePattern(node: IRNode): string {
@@ -1260,14 +1500,14 @@ function emitReturnTS(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawValue === undefined || rawValue === '') {
     return [`return;`];
   }
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
-    const inner = emitExpression(valueIR.argument);
+    const inner = emitValueTS(valueIR.argument, ctx);
     return [`const ${tmp} = ${inner};`, `if (${tmp}.kind === 'err') return ${tmp};`, `return ${tmp}.value;`];
   }
-  return [`return ${emitExpression(valueIR)};`];
+  return [`return ${emitValueTS(valueIR, ctx)};`];
 }
 
 function emitThrowTS(node: IRNode, ctx: BodyEmitContext): string[] {
@@ -1276,14 +1516,14 @@ function emitThrowTS(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawValue === undefined || rawValue === '') {
     return [`throw new Error();`];
   }
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
-    const inner = emitExpression(valueIR.argument);
+    const inner = emitValueTS(valueIR.argument, ctx);
     return [`const ${tmp} = ${inner};`, `if (${tmp}.kind === 'err') return ${tmp};`, `throw ${tmp}.value;`];
   }
-  return [`throw ${emitExpression(valueIR)};`];
+  return [`throw ${emitValueTS(valueIR, ctx)};`];
 }
 
 function emitDoTS(node: IRNode, ctx: BodyEmitContext): string[] {
@@ -1292,14 +1532,14 @@ function emitDoTS(node: IRNode, ctx: BodyEmitContext): string[] {
   if (rawValue === undefined || rawValue === '') {
     return [];
   }
-  const valueIR = parseExpression(String(rawValue));
+  const valueIR = parseExpr(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
-    const inner = emitExpression(valueIR.argument);
+    const inner = emitValueTS(valueIR.argument, ctx);
     return [`const ${tmp} = ${inner};`, `if (${tmp}.kind === 'err') return ${tmp};`];
   }
-  return [`${emitExpression(valueIR)};`];
+  return [`${emitValueTS(valueIR, ctx)};`];
 }
 
 function emitFmtTS(node: IRNode, ctx: BodyEmitContext): string[] {
@@ -1342,9 +1582,12 @@ function emitExpressionV1TS(node: IRNode, ctx: BodyEmitContext): string[] {
   if (exprSource === undefined || exprSource === '') {
     throw new Error('body-statement `expression-v1` requires `expr=`.');
   }
-  const exprIR = parseExpression(exprSource);
+  const exprIR = parseExpr(exprSource);
   declareLocalBinding(ctx, name, 'const');
-  const lines = [`const ${name}${typeAnn} = ${emitExpression(exprIR)};`];
+  // Slice-3b parity: record a direct regex-literal binding (mirrors Python's
+  // `expression-v1` `setRegexBinding(ctx, userName, regexLit|null)`).
+  setRegexBinding(ctx, name, exprIR.kind === 'regexLit' ? exprIR : null);
+  const lines = [`const ${name}${typeAnn} = ${emitValueTS(exprIR, ctx)};`];
   if (ctx.traceHooks?.letAssign) lines.push(letAssignTraceTS(name));
   return lines;
 }
@@ -1363,7 +1606,8 @@ function emitFnTS(node: IRNode, ctx: BodyEmitContext, indent: string): string[] 
   if (props.params && node.children?.some((c) => c.type === 'param')) {
     throw new Error('body-statement `fn` cannot mix legacy `params=` with structured `param` children.');
   }
-  const paramList = emitParamList(node);
+  const bodyBindings = bodyContextBindingNames(ctx);
+  const paramList = emitParamList(node, { exprCtx: exprCtxFor(ctx), userBindings: bodyBindings });
 
   const lines: string[] = [];
   lines.push(`${indent}${asyncKw}function ${name}(${paramList})${retClause} {`);
@@ -1372,11 +1616,43 @@ function emitFnTS(node: IRNode, ctx: BodyEmitContext, indent: string): string[] 
   const bodyNodes = handlerNode ? (handlerNode.children ?? []) : (node.children ?? []);
   const stmtNodes = bodyNodes.filter((c) => c.type !== 'param' && c.type !== 'decorator');
 
-  for (const sl of emitChildrenTS(stmtNodes, ctx, indent + INDENT_STEP, paramBindingsFromSignature(paramList))) {
+  for (const sl of emitChildrenTS(stmtNodes, ctx, indent + INDENT_STEP, paramBindingsForBodyFn(node, paramList))) {
     lines.push(sl);
   }
   lines.push(`${indent}}`);
   return lines;
+}
+
+function bodyContextBindingNames(ctx: BodyEmitContext): ReadonlySet<string> {
+  const names = new Set<string>();
+  for (const scope of ctx.localScopes) {
+    for (const name of scope.keys()) names.add(name);
+  }
+  return names;
+}
+
+function paramBindingsForBodyFn(node: IRNode, paramList: string): Array<[string, 'const']> {
+  const names = new Set(paramBindingsFromSignature(paramList).map(([name]) => name));
+  for (const child of node.children ?? []) {
+    if (child.type !== 'param') continue;
+    for (const name of bodyBindingNamesFromPatternChildren(child)) names.add(name);
+  }
+  return [...names].map((name) => [name, 'const']);
+}
+
+function bodyBindingNamesFromPatternChildren(node: IRNode): string[] {
+  const names: string[] = [];
+  const hasPatternChildren = (node.children ?? []).some(
+    (child) => child.type === 'binding' || child.type === 'element',
+  );
+  const ownName = node.props?.name;
+  if (typeof ownName === 'string' && ownName.length > 0 && !hasPatternChildren) names.push(ownName);
+  for (const child of node.children ?? []) {
+    if (child.type !== 'binding' && child.type !== 'element') continue;
+    const name = child.props?.name;
+    if (typeof name === 'string' && name.length > 0) names.push(name);
+  }
+  return names;
 }
 
 function paramBindingsFromSignature(paramList: string): Array<[string, 'const']> {

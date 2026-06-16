@@ -12,12 +12,12 @@ import {
   isCoreNode,
   isTemplateNode,
   KernParseError,
-  parseStrict,
   parseWithDiagnostics,
   resolveConfig,
   sourceComment,
   validateSchema,
 } from '@kernlang/core';
+import { nativeEligibilityClassifier, typescriptClosureClassifier } from '@kernlang/core/node';
 import { loadEvolvedNodes } from '@kernlang/evolve';
 import { generateReactNode, isReactNode } from '@kernlang/react';
 import type { ChildProcess } from 'child_process';
@@ -90,9 +90,23 @@ interface FastApiModulePlanEntry {
 
 const GENERATED_FASTAPI_PACKAGE_INIT = '# Generated Python package marker.\n';
 
+/** Slice 0.9 — the CLI is Node-side, so every parse injects the TypeScript-backed
+ *  closure + native-eligibility classifiers. This keeps block-bodied arrows in
+ *  expression props parsing (and the `NATIVE_KERN_ELIGIBLE` hint firing) exactly
+ *  as before the browser-spine cut. Spread into every constructed `ParseOptions`. */
+const NODE_PARSE_CAPS = {
+  closureClassifier: typescriptClosureClassifier,
+  nativeEligibilityClassifier,
+} as const;
+
 function parseStrictWithOptions(source: string, parseOptions?: import('@kernlang/core').ParseOptions): IRNode {
-  if (!parseOptions) return parseStrict(source);
-  const { root, diagnostics } = parseWithDiagnostics(source, undefined, parseOptions);
+  // Review fix (kimi 0.85): ignore explicit undefined so caller options can
+  // never strip the Node capabilities and fail-close block-bodied arrows.
+  const opts: Record<string, unknown> = { ...NODE_PARSE_CAPS };
+  for (const [k, v] of Object.entries(parseOptions ?? {})) {
+    if (v !== undefined) opts[k] = v;
+  }
+  const { root, diagnostics } = parseWithDiagnostics(source, undefined, opts);
   const errors = diagnostics.filter((d) => d.severity === 'error');
   if (errors.length > 0) {
     const first = errors[0];
@@ -634,7 +648,10 @@ export async function runCompile(args: string[]): Promise<void> {
     if (targetArg) {
       for (const file of files) {
         const source = readFileSync(file, 'utf-8');
-        const parseOptions = { resolveImport: makeImportResolverForFile(resolve(file), crossModuleRegistry) };
+        const parseOptions = {
+          ...NODE_PARSE_CAPS,
+          resolveImport: makeImportResolverForFile(resolve(file), crossModuleRegistry),
+        };
         let skipTranspile = false;
 
         if (strictParse) {
@@ -702,7 +719,7 @@ export async function runCompile(args: string[]): Promise<void> {
         if (shadow) {
           try {
             const source = readFileSync(file, 'utf-8');
-            const { root: shadowRoot } = parseWithDiagnostics(source);
+            const { root: shadowRoot } = parseWithDiagnostics(source, undefined, NODE_PARSE_CAPS);
             const shadowOptions: ShadowAnalyzeOptions | undefined =
               shadowRealTypes && projectTypeNodeIndex
                 ? {
@@ -753,7 +770,7 @@ export async function runCompile(args: string[]): Promise<void> {
           jsonDiagnostics,
           shadow,
           isDir ? inputPath : undefined,
-          { resolveImport: makeImportResolverForFile(resolve(file), crossModuleRegistry) },
+          { ...NODE_PARSE_CAPS, resolveImport: makeImportResolverForFile(resolve(file), crossModuleRegistry) },
           shadowRealTypes,
           projectTypeNodeIndex,
         );
@@ -795,7 +812,10 @@ export async function runCompile(args: string[]): Promise<void> {
 
   function refreshSidecarEntry(file: string): void {
     const source = readFileSync(file, 'utf-8');
-    const parseOptions = { resolveImport: makeImportResolverForFile(resolve(file), crossModuleRegistry) };
+    const parseOptions = {
+      ...NODE_PARSE_CAPS,
+      resolveImport: makeImportResolverForFile(resolve(file), crossModuleRegistry),
+    };
     const { root } = parseWithDiagnostics(source, undefined, parseOptions);
     watchedSidecarEntries.set(resolve(file), sidecarEntryForFile(file, root));
   }
@@ -949,6 +969,7 @@ export async function runCompile(args: string[]): Promise<void> {
       fastApiModulePathByFile: plan?.modulePathByFile,
       outputBaseName: plannedEntry?.moduleName,
       outputRelDir: plannedEntry?.outputRelDir,
+      ...NODE_PARSE_CAPS,
       resolveImport: makeImportResolverForFile(resolve(filePath), registry),
       writeSidecarInstallFiles: false,
     });
@@ -960,7 +981,7 @@ export async function runCompile(args: string[]): Promise<void> {
     plan = fastApiModulePlan,
   ): SidecarInstallEntry {
     const source = readFileSync(filePath, 'utf-8');
-    const parseOptions = { resolveImport: makeImportResolverForFile(resolve(filePath), registry) };
+    const parseOptions = { ...NODE_PARSE_CAPS, resolveImport: makeImportResolverForFile(resolve(filePath), registry) };
     const { root } = parseWithDiagnostics(source, undefined, parseOptions);
     return sidecarEntryForFile(filePath, root, plan);
   }
@@ -1010,7 +1031,7 @@ export async function runCompile(args: string[]): Promise<void> {
           [],
           shadow,
           isDir ? inputPath : undefined,
-          { resolveImport: makeImportResolverForFile(resolve(filePath), crossModuleRegistry) },
+          { ...NODE_PARSE_CAPS, resolveImport: makeImportResolverForFile(resolve(filePath), crossModuleRegistry) },
           shadowRealTypes,
           projectTypeNodeIndex,
         );

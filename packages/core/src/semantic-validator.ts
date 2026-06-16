@@ -15,6 +15,7 @@
  *      symbols that the resolver proved exist.
  */
 
+import { analysisClosureClassifier } from './closure-classifier.js';
 import { hasDirectSuperCtorCall } from './constructor-super.js';
 import {
   type CoreShapeDiagnostic,
@@ -27,6 +28,17 @@ import { parseExpression } from './parser-expression.js';
 import { RAG_ASSERTION_KIND_SET, RAG_ASSERTION_KINDS } from './rag-assertions.js';
 import type { IRNode } from './types.js';
 import type { ValueIR } from './value-ir.js';
+
+// Slice 0.9 review fix (codex blocking, r2): the validator RE-PARSES expression
+// text purely to inspect its shape — text the main parse pipeline has already
+// gated. Bare `parseExpression` fail-closes on block-bodied arrows since the
+// spine cut, and the swallowing catches at these sites turned that into
+// silently-skipped semantic diagnostics. The analysis classifier accepts block
+// bodies WITHOUT validating them; nothing parsed here flows to an emitter.
+const ANALYSIS_PARSE_OPTS = { closureClassifier: analysisClosureClassifier } as const;
+function parseExprForAnalysis(text: string): ReturnType<typeof parseExpression> {
+  return parseExpression(text, ANALYSIS_PARSE_OPTS);
+}
 
 export interface SemanticViolation {
   rule: string;
@@ -3258,7 +3270,7 @@ function uninitializedRequiredFieldNames(info: ClassInfo, initializedFields: rea
 function thisMemberName(text: string | undefined): string | undefined {
   if (!text) return undefined;
   try {
-    const value = parseExpression(text);
+    const value = parseExprForAnalysis(text);
     if (value.kind === 'member' && value.object.kind === 'ident' && value.object.name === 'this') {
       return value.property;
     }
@@ -3284,7 +3296,7 @@ function superCallCountInNode(node: IRNode): number {
       const text = expressionPropText(candidate.props?.[prop]);
       if (!text) continue;
       try {
-        count += valueIRSuperConstructorCallCount(parseExpression(text));
+        count += valueIRSuperConstructorCallCount(parseExprForAnalysis(text));
       } catch {
         // Unparseable expression text contributes no super() calls.
       }
@@ -3562,7 +3574,7 @@ function validateEnumAccess(root: IRNode, violations: SemanticViolation[]): void
       if (!text) continue;
       let value: ValueIR;
       try {
-        value = parseExpression(text);
+        value = parseExprForAnalysis(text);
       } catch {
         continue;
       }
@@ -3636,7 +3648,7 @@ function validateAbstractInstantiations(
         if (!text) continue;
         let value: ValueIR;
         try {
-          value = parseExpression(text);
+          value = parseExprForAnalysis(text);
         } catch {
           continue;
         }
@@ -4471,7 +4483,7 @@ function directSuperConstructorCall(node: IRNode): Extract<ValueIR, { kind: 'cal
   const text = expressionPropText(node.props?.value);
   if (!text) return undefined;
   try {
-    const value = parseExpression(text);
+    const value = parseExprForAnalysis(text);
     return value.kind === 'call' && value.callee.kind === 'ident' && value.callee.name === 'super' ? value : undefined;
   } catch {
     return undefined;
@@ -4503,7 +4515,7 @@ function scanExpressionForConstructorEffects(
   node: IRNode,
 ): boolean {
   try {
-    const value = parseExpression(text);
+    const value = parseExprForAnalysis(text);
     scanValueIRForPreSuperAccess(value, state, ctx, node);
     const sawSuper = valueIRCallsSuperConstructor(value);
     if (sawSuper) ctx.sawSuper = true;
@@ -4688,7 +4700,7 @@ function validateClassShapeTarget(
   violations: SemanticViolation[],
 ): boolean {
   try {
-    const value = parseExpression(text);
+    const value = parseExprForAnalysis(text);
     if (value.kind !== 'member') return false;
     if (value.object.kind !== 'ident' || (value.object.name !== 'this' && value.object.name !== 'super')) return false;
     validateClassShapeAccess(
@@ -4716,7 +4728,7 @@ function validateClassShapeExpression(
   violations: SemanticViolation[],
 ): void {
   try {
-    validateClassShapeValueIR(info, node, parseExpression(text), staticContext, classByName, violations);
+    validateClassShapeValueIR(info, node, parseExprForAnalysis(text), staticContext, classByName, violations);
   } catch {
     return;
   }
@@ -5040,7 +5052,7 @@ function angleClosesBeforeNextTopLevelComma(raw: string, start: number): boolean
 function nodeBodyUsesSuper(node: IRNode): boolean {
   return nodeBodyExpressions(node).some((expr) => {
     try {
-      return valueIRUsesSuper(parseExpression(expr));
+      return valueIRUsesSuper(parseExprForAnalysis(expr));
     } catch {
       return false;
     }
@@ -5364,6 +5376,54 @@ function collectModuleVisibleNames(moduleNode: IRNode, externalImports: External
   return names;
 }
 
+export function moduleRuntimeBindingNames(moduleNode: IRNode): Set<string> {
+  const emptyExternalImports: ExternalImportSymbolTable = {
+    symbols: [],
+    byLocalName: new Map(),
+    byPackage: new Map(),
+    conflicts: [],
+  };
+  return new Set(collectModuleVisibleNames(moduleNode, emptyExternalImports).values);
+}
+
+export function moduleAmbientRuntimeBindingNames(moduleNode: IRNode): Set<string> {
+  const names: ModuleVisibleNames = {
+    all: new Set(),
+    untypedLocal: new Set(),
+    values: new Set(),
+    types: new Set(),
+  };
+  for (const child of moduleNode.children ?? []) {
+    if (child.type === 'use') {
+      for (const fromChild of child.children ?? []) {
+        if (fromChild.type !== 'from') continue;
+        const importedName = fromChild.props?.name;
+        const alias = fromChild.props?.as;
+        const localName =
+          typeof alias === 'string' && alias.length > 0
+            ? alias
+            : typeof importedName === 'string' && importedName.length > 0
+              ? importedName
+              : null;
+        if (localName) addUseVisibleName(names, fromChild, localName);
+      }
+    }
+
+    if (child.type === 'import' && !isExternalImportNode(child)) {
+      addHostImportBindings(names, child);
+    }
+
+    if (child.type === 'extern' && isHostExternNode(child)) {
+      addHostExternBindings(names, child);
+    }
+
+    if (child.type === 'island') {
+      addIslandVisibleNames(names, child);
+    }
+  }
+  return new Set(names.values);
+}
+
 function addUntypedLocalVisibleName(names: ModuleVisibleNames, name: string): void {
   names.all.add(name);
   names.untypedLocal.add(name);
@@ -5393,6 +5453,9 @@ function addDeclaredVisibleName(names: ModuleVisibleNames, nodeType: string, nam
     case 'fn':
     case 'function':
     case 'screen':
+    case 'action':
+    case 'repository':
+    case 'cache':
       addKindedVisibleName(names, name, 'value');
       return;
     default:
@@ -5419,6 +5482,9 @@ function addUseVisibleName(names: ModuleVisibleNames, fromNode: IRNode, name: st
     case 'fn':
     case 'function':
     case 'screen':
+    case 'action':
+    case 'repository':
+    case 'cache':
       addKindedVisibleName(names, name, 'value');
       return;
     default:

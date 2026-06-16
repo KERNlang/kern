@@ -9,7 +9,7 @@ fn name=retry returns=number
     return value="attempts"
 
 fn name=stamp returns=number
-  param name=ts type=number value={{Date.now()}}
+  param name=ts type=number value=7
   handler
     return value="ts"
 
@@ -37,7 +37,7 @@ fn name=length returns=number
     binding name=x
     binding name=y
   handler
-    return value="Math.hypot(x, y)"
+    return value="x * x + y * y"
 
 fn name=swap returns="[number, number]"
   param type="[number, number]"

@@ -27,7 +27,8 @@ describe('continue / break body-statements — Python target', () => {
     const out = emitNativeKernBodyPython(handler);
     expect(out).toContain('for __k_each_1 in items:');
     expect(out).toContain('item = __k_each_1');
-    expect(out).toContain('if item.skip:');
+    // Slice S4 — `if cond=` wraps the condition in `_kern_truthy(...)`.
+    expect(out).toContain('if _kern_truthy(item.skip):');
     expect(out).toContain('continue');
     expect(out).toContain('process(item)');
   });
@@ -52,7 +53,7 @@ describe('continue / break body-statements — Python target', () => {
     const out = emitNativeKernBodyPython(handler);
     expect(out).toContain('for __k_each_1 in items:');
     expect(out).toContain('item = __k_each_1');
-    expect(out).toContain('if item.matches:');
+    expect(out).toContain('if _kern_truthy(item.matches):');
     expect(out).toContain('found = item');
     expect(out).toContain('break');
   });

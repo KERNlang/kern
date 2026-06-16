@@ -1,3 +1,115 @@
+// Slice S7 — dual-sentinel nullish/equality substrate. `_KERN_UNDEFINED` is a
+// FIRST-CLASS Python value distinct from `None`: `undefined` is nullish with
+// `null` (loose `==` crossing TRUE, `??`/`?.` treat both as nullish) but is NOT
+// strictly equal to `null` (`===` FALSE). The two equality helpers split the JS
+// `==` (loose) and `===` (strict) operators that previously both lowered to
+// Python `==`:
+//   _kern_is_nullish(x)      -> x is None or x is _KERN_UNDEFINED
+//   _kern_strict_equal(a, b) -> SameValue-ish: a nullish operand is equal only
+//                               to the SAME nullish identity (undefined===undefined,
+//                               null===null, but undefined!==null); otherwise `==`.
+//   _kern_loose_equal(a, b)  -> both-nullish crossing is TRUE; else strict.
+// The sentinel is matched by IDENTITY (`is`), never by value, so the undefined
+// `__bool__ = False` override never leaks into the equality semantics. The block
+// self-defines `_KERN_UNDEFINED` via the same idempotent `try/except NameError`
+// guard the fmt/array/js helper blocks use, so it stands alone if registered
+// without them.
+export const KERN_NULLISH_HELPER_PY = [
+  'try:',
+  '    _KERN_UNDEFINED',
+  'except NameError:',
+  '    class _KernUndefined:',
+  '        def __bool__(self): return False',
+  "        def __repr__(self): return 'undefined'",
+  "        def __str__(self): return 'undefined'",
+  '    _KERN_UNDEFINED = _KernUndefined()',
+  '',
+  'def _kern_is_nullish(x):',
+  '    return x is None or x is _KERN_UNDEFINED',
+  '',
+  'def _kern_strict_equal(a, b):',
+  '    if a is _KERN_UNDEFINED or b is _KERN_UNDEFINED:',
+  '        return a is b',
+  '    if a is None or b is None:',
+  '        return a is b',
+  // Python `bool` subclasses `int`, so `0 == False` / `1 == True` are True — but
+  // JS `0 === false` / `1 === true` are FALSE. Reject a bool-vs-non-bool pair
+  // before the value compare so the numeric/boolean type distinction survives.
+  '    if (type(a) is bool) != (type(b) is bool):',
+  '        return False',
+  // Containers must recurse ELEMENT-WISE through `_kern_strict_equal`, not Python
+  // `==`: Python list/dict `==` compares elements with `==`, which re-leaks the
+  // `0 == False` / `1 == True` bool⊂int conflation one level down (`[0] ==
+  // [False]` is True). The KERN core runtime compares structurally with
+  // kind-discrimination at EVERY level, so the Python target must too or
+  // `[0] === [false]` diverges (True on Python vs False in core). Lists/tuples
+  // (array-kind) compare by length + positional recursion; dicts (record-kind)
+  // by key set + per-key recursion. Strings stay on `==` (no element kinds).
+  '    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):',
+  '        if len(a) != len(b):',
+  '            return False',
+  '        return all(_kern_strict_equal(__k_x, __k_y) for __k_x, __k_y in zip(a, b))',
+  '    if isinstance(a, dict) and isinstance(b, dict):',
+  '        if a.keys() != b.keys():',
+  '            return False',
+  '        return all(_kern_strict_equal(a[__k_k], b[__k_k]) for __k_k in a)',
+  // A list-vs-dict (or container-vs-scalar) mismatch is unequal — Python `==`
+  // already returns False there, but make it explicit so the recursion above is
+  // the ONLY container path and a scalar `==` never sees a container pair.
+  '    if isinstance(a, (list, tuple, dict)) or isinstance(b, (list, tuple, dict)):',
+  '        return False',
+  '    return a == b',
+  '',
+  'def _kern_loose_equal(a, b):',
+  '    if _kern_is_nullish(a) and _kern_is_nullish(b):',
+  '        return True',
+  '    return _kern_strict_equal(a, b)',
+].join('\n');
+
+// Slice S7 — sentinel-aware `Json.stringify` / `JSON.stringify` shim. Raw
+// `json.dumps` cannot model JS `JSON.stringify`'s undefined handling, so the
+// Python target routes through `_kern_json_stringify`:
+//   - top-level `_KERN_UNDEFINED` → returns the sentinel itself (host-observed
+//     `undefined`), matching JS `JSON.stringify(undefined) === undefined`.
+//   - object property whose value is the sentinel → key OMITTED.
+//   - array element that is the sentinel → JSON `null`.
+//   - rules apply recursively into nested objects/arrays.
+//   - `None` stays JSON `null`; compact separators + ensure_ascii=False
+//     preserve the existing byte-for-byte parity for sentinel-free inputs.
+// `_kern_json_prepare` returns a sentinel-free structure that `json.dumps` can
+// serialize; the top-level sentinel is short-circuited before dumps runs. The
+// block self-defines `_KERN_UNDEFINED` via the idempotent guard so it stands
+// alone. It references `__k_json`, which the emitter supplies via the stdlib
+// table's `requires.py: 'json'` → `import json as __k_json` (kept, NOT
+// self-imported here, so a body that ALSO calls `Json.parse` shares one import).
+export const KERN_JSON_STRINGIFY_SHIM_PY = [
+  'try:',
+  '    _KERN_UNDEFINED',
+  'except NameError:',
+  '    class _KernUndefined:',
+  '        def __bool__(self): return False',
+  "        def __repr__(self): return 'undefined'",
+  "        def __str__(self): return 'undefined'",
+  '    _KERN_UNDEFINED = _KernUndefined()',
+  '',
+  'def _kern_json_prepare(__k_v):',
+  '    if isinstance(__k_v, dict):',
+  '        __k_out = {}',
+  '        for __k_k, __k_val in __k_v.items():',
+  '            if __k_val is _KERN_UNDEFINED:',
+  '                continue',
+  '            __k_out[__k_k] = _kern_json_prepare(__k_val)',
+  '        return __k_out',
+  '    if isinstance(__k_v, (list, tuple)):',
+  '        return [None if __k_e is _KERN_UNDEFINED else _kern_json_prepare(__k_e) for __k_e in __k_v]',
+  '    return __k_v',
+  '',
+  'def _kern_json_stringify(__k_v):',
+  '    if __k_v is _KERN_UNDEFINED:',
+  '        return _KERN_UNDEFINED',
+  '    return __k_json.dumps(_kern_json_prepare(__k_v), separators=(",", ":"), ensure_ascii=False)',
+].join('\n');
+
 export const KERN_PAIR_HELPERS_PY = [
   'def _kern_pairs(__k_v):',
   '    return __k_v.items() if hasattr(__k_v, "items") else iter(__k_v)',
@@ -95,6 +207,127 @@ export const KERN_I32_HELPER_PY = [
   '    return ((val & 0xFFFFFFFF) ^ 0x80000000) - 0x80000000',
 ].join('\n');
 
+/**
+ * ToNumericPrimitive substrate (slice 0.75) — Python twin of the
+ * `@kernlang/core` `to-numeric` decision kernel.
+ *
+ * Single Python-side source of numeric coercion truth for the FROZEN primitive
+ * domain (numbers, ECMA numeric strings, booleans, null, undefined sentinel).
+ * The emitted Python encodes the ECMA-262 StringNumericLiteral grammar
+ * EXPLICITLY rather than delegating to `float(...)`, because `float()` diverges
+ * from JS `Number()` on three load-bearing cases: it accepts numeric separators
+ * (`float('1_000') == 1000.0`), case-insensitive infinity/NaN words
+ * (`float('infinity')`, `float('nan')`), and raises on `0x`/`0b`/`0o` prefixes.
+ *
+ * Return-type contract (tribunal amendments 1 & 2):
+ *   - `_kern_to_number(x)`            -> Python `float` for EVERY numeric output
+ *     (bool/null/hex/binary/octal inputs included); `-0.0` sign survives; NaN
+ *     and ±inf preserved.
+ *   - `_kern_string_to_number(text)` -> `float` (NaN for any non-grammar string).
+ *   - `_kern_number_to_int32(n)`     -> `int`   (signed 32-bit, shift-mask domain).
+ *   - `_kern_number_to_uint32(n)`    -> `int`   (unsigned 32-bit).
+ *   - `_kern_to_int32(x)`            -> `int`   = int32(to_number(x)).
+ *   - `_kern_to_uint32(x)`           -> `int`   = uint32(to_number(x)).
+ *   - `_kern_to_integer_or_infinity(x)` -> `float` (int-valued, or ±inf).
+ *
+ * Fail-closed: objects/arrays/functions/symbols/custom-valueOf RAISE
+ * `_KernNumericCoercionError` (the caller decides) — full ToPrimitive deferred.
+ *
+ * Single-source-of-int32 note: this block is the coercion-correct int32 path
+ * going forward. The legacy `_i32` (KERN_I32_HELPER_PY) embeds its OWN
+ * float()-based coercion and is still wired to production
+ * (codegen-body-python.ts ToInt32 lowering). Slice 0.75 is a PURE ADDITION —
+ * nothing is rerouted here, so both coexist; the future routing slice retires
+ * `_i32` in favor of `_kern_to_int32` once the fallback count hits zero.
+ *
+ * The ECMA whitespace string below is the exact `StrWhiteSpace` set
+ * (`WhiteSpace` + `LineTerminator`) JS trims from a StringNumericLiteral, kept
+ * byte-aligned with `ECMA_STR_WHITESPACE` in the TS kernel.
+ */
+export const KERN_TO_NUMBER_HELPER_PY = [
+  'import math',
+  'import re',
+  '',
+  'try:',
+  '    _KERN_UNDEFINED',
+  'except NameError:',
+  '    class _KernUndefined:',
+  '        def __bool__(self): return False',
+  "        def __repr__(self): return 'undefined'",
+  "        def __str__(self): return 'undefined'",
+  '    _KERN_UNDEFINED = _KernUndefined()',
+  '',
+  'class _KernNumericCoercionError(TypeError):',
+  '    pass',
+  '',
+  // ECMA StrWhiteSpace = WhiteSpace + LineTerminator. Encoded as \u escapes so
+  // the emitted source stays ASCII; Python materializes the real code points.
+  "_KERN_ECMA_WS = '\\t\\n\\x0b\\x0c\\r \\xa0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff'",
+  "_KERN_DECIMAL_RE = re.compile(r'^[+-]?(?:(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?|[0-9]+)$')",
+  "_KERN_HEX_RE = re.compile(r'^0[xX][0-9a-fA-F]+$')",
+  "_KERN_BIN_RE = re.compile(r'^0[bB][01]+$')",
+  "_KERN_OCT_RE = re.compile(r'^0[oO][0-7]+$')",
+  '',
+  'def _kern_string_to_number(text):',
+  '    s = text.strip(_KERN_ECMA_WS)',
+  "    if s == '':",
+  '        return 0.0',
+  "    if s == 'Infinity' or s == '+Infinity':",
+  "        return float('inf')",
+  "    if s == '-Infinity':",
+  "        return float('-inf')",
+  '    if _KERN_HEX_RE.match(s):',
+  '        return float(int(s[2:], 16))',
+  '    if _KERN_BIN_RE.match(s):',
+  '        return float(int(s[2:], 2))',
+  '    if _KERN_OCT_RE.match(s):',
+  '        return float(int(s[2:], 8))',
+  '    if not _KERN_DECIMAL_RE.match(s):',
+  "        return float('nan')",
+  '    try:',
+  '        return float(s)',
+  '    except ValueError:',
+  "        return float('nan')",
+  '',
+  'def _kern_to_number(x):',
+  '    if x is _KERN_UNDEFINED:',
+  "        return float('nan')",
+  '    if x is None:',
+  '        return 0.0',
+  '    if isinstance(x, bool):',
+  '        return 1.0 if x else 0.0',
+  '    if isinstance(x, (int, float)):',
+  '        return float(x)',
+  '    if isinstance(x, str):',
+  '        return _kern_string_to_number(x)',
+  "    raise _KernNumericCoercionError('KERN ToNumber supports only primitive values (slice-0.75); full ToPrimitive deferred')",
+  '',
+  'def _kern_number_to_int32(n):',
+  "    if n != n or n == 0 or n in (float('inf'), float('-inf')):",
+  '        return 0',
+  '    i = math.trunc(n)',
+  '    return ((i & 0xFFFFFFFF) ^ 0x80000000) - 0x80000000',
+  '',
+  'def _kern_number_to_uint32(n):',
+  "    if n != n or n == 0 or n in (float('inf'), float('-inf')):",
+  '        return 0',
+  '    return math.trunc(n) & 0xFFFFFFFF',
+  '',
+  'def _kern_to_int32(x):',
+  '    return _kern_number_to_int32(_kern_to_number(x))',
+  '',
+  'def _kern_to_uint32(x):',
+  '    return _kern_number_to_uint32(_kern_to_number(x))',
+  '',
+  'def _kern_to_integer_or_infinity(x):',
+  '    n = _kern_to_number(x)',
+  '    if n != n:',
+  '        return 0.0',
+  "    if n in (float('inf'), float('-inf')):",
+  '        return n',
+  '    return float(math.trunc(n))',
+].join('\n');
+
 export const KERN_TMOD_HELPER_PY = [
   'import math',
   'def _tmod(a, b):',
@@ -113,11 +346,36 @@ export const KERN_TMOD_HELPER_PY = [
 ].join('\n');
 
 export const KERN_JS_HELPER_PY = [
-  'def js_truthy(x):',
-  '    if x is None or x is False: return False',
-  '    if isinstance(x, (int, float)) and x == 0: return False',
-  '    if isinstance(x, str) and x == "": return False',
+  // Slice S4 — ToBoolean / KERN truthiness substrate. `js_truthy` is an EXPLICIT
+  // falsy-set predicate over the KERN value domain: falsy iff x is the undefined
+  // sentinel, None, a boolean False, numeric zero (+0/-0.0/0j), NaN, or "".
+  // Everything else is truthy — INCLUDING [], {}, callables, class instances, and
+  // user objects whose Python __bool__/__len__ are falsy. It NEVER delegates to
+  // bool(x), len(x), x.__bool__(), x.__len__(), or a ToNumber string conversion:
+  // "0", "false", " " are all truthy; only "" is falsy. `bool` is checked BEFORE
+  // the numeric branch because Python `bool` subclasses `int`. The undefined
+  // sentinel is matched by IDENTITY (`is _KERN_UNDEFINED`) — its __bool__ = False
+  // override is for bare-truthiness positions only and must NOT be generalized to
+  // user objects. `_kern_truthy` is the canonical name; `js_truthy` is the alias
+  // the existing array-predicate lowerings (filter/some/every/find-family) call.
+  'try:',
+  '    _KERN_UNDEFINED',
+  'except NameError:',
+  '    class _KernUndefined:',
+  '        def __bool__(self): return False',
+  "        def __repr__(self): return 'undefined'",
+  "        def __str__(self): return 'undefined'",
+  '    _KERN_UNDEFINED = _KernUndefined()',
+  'def _kern_truthy(x):',
+  '    if x is _KERN_UNDEFINED or x is None or x is False: return False',
+  '    if isinstance(x, bool): return x',
+  // `x == x` is False only for NaN, so `x != 0 and x == x` rejects both numeric
+  // zero (incl. -0.0 and 0j) and NaN without delegating to math.isnan / bool().
+  '    if isinstance(x, (int, float, complex)): return x != 0 and x == x',
+  '    if isinstance(x, str): return len(x) > 0',
   '    return True',
+  'def js_truthy(x):',
+  '    return _kern_truthy(x)',
   'def js_equals(a, b):',
   '    return a == b',
 ].join('\n');
@@ -175,6 +433,19 @@ export const KERN_JS_ARRAY_HELPERS_PY = [
 ].join('\n');
 
 export const KERN_JS_OBJECT_HELPERS_PY = [
+  // Slice S7 — `Object.keys/values/entries` must throw TypeError parity for BOTH
+  // null and the undefined sentinel (JS `Object.keys(undefined)` throws). The
+  // sentinel is defined here via the idempotent guard so the identity check is
+  // safe even when this block is registered without the fmt/nullish blocks.
+  'try:',
+  '    _KERN_UNDEFINED',
+  'except NameError:',
+  '    class _KernUndefined:',
+  '        def __bool__(self): return False',
+  "        def __repr__(self): return 'undefined'",
+  "        def __str__(self): return 'undefined'",
+  '    _KERN_UNDEFINED = _KernUndefined()',
+  '',
   'def _kern_js_is_array_index(__k_key):',
   '    __k_s = str(__k_key)',
   '    if not __k_s.isdigit(): return False',
@@ -183,7 +454,7 @@ export const KERN_JS_OBJECT_HELPERS_PY = [
   '    return 0 <= __k_n < 4294967295 and __k_s == str(__k_n)',
   '',
   'def _kern_js_property_items(__k_obj):',
-  '    if __k_obj is None:',
+  '    if __k_obj is None or __k_obj is _KERN_UNDEFINED:',
   '        raise TypeError("Cannot convert undefined or null to object")',
   '    if hasattr(__k_obj, "items"):',
   '        __k_raw = list(__k_obj.items())',
@@ -210,6 +481,199 @@ export const KERN_JS_OBJECT_HELPERS_PY = [
   '',
   'def _kern_js_object_entries(__k_obj):',
   '    return [[__k_k, __k_v] for __k_k, __k_v in _kern_js_property_items(__k_obj)]',
+  '',
+  'def _kern_js_object_assign(__k_target, *__k_sources):',
+  '    if __k_target is None or __k_target is _KERN_UNDEFINED:',
+  '        raise TypeError("Cannot convert undefined or null to object")',
+  '    if hasattr(__k_target, "update"):',
+  '        __k_out = __k_target',
+  '    elif isinstance(__k_target, list):',
+  '        __k_out = __k_target',
+  '    elif isinstance(__k_target, str):',
+  '        __k_out = {str(__k_i): __k_ch for __k_i, __k_ch in enumerate(__k_target)}',
+  '    else:',
+  '        __k_out = {}',
+  '    for __k_src in __k_sources:',
+  '        if __k_src is None or __k_src is _KERN_UNDEFINED:',
+  '            continue',
+  '        for __k_k, __k_v in _kern_js_property_items(__k_src):',
+  '            if isinstance(__k_out, list):',
+  '                if not _kern_js_is_array_index(__k_k):',
+  '                    raise TypeError("Object.assign cannot attach non-index properties to Python list target")',
+  '                __k_i = int(__k_k)',
+  '                while len(__k_out) <= __k_i:',
+  '                    __k_out.append(_KERN_UNDEFINED)',
+  '                __k_out[__k_i] = __k_v',
+  '            else:',
+  '                __k_out[__k_k] = __k_v',
+  '    return __k_out',
+].join('\n');
+
+// `Number.isInteger` / `Number.isSafeInteger` do NO coercion — a non-number
+// argument (incl. a boolean) is ALWAYS false (`Number.isInteger("5")` → false,
+// `Number.isInteger(true)` → false). Python's `bool` subclasses `int`, so the
+// integer test MUST reject `bool` explicitly or `Number.isInteger(true)` wrongly
+// returns True. NaN/±Infinity are non-integers. `isSafeInteger` additionally
+// requires `abs(x) <= 2**53 - 1`.
+export const KERN_JS_NUMBER_HELPERS_PY = [
+  'def _kern_number_is_integer(__k_x):',
+  '    if isinstance(__k_x, bool):',
+  '        return False',
+  '    if isinstance(__k_x, int):',
+  '        return True',
+  '    if isinstance(__k_x, float):',
+  '        return __k_x == __k_x and __k_x not in (float("inf"), float("-inf")) and __k_x.is_integer()',
+  '    return False',
+  '',
+  'def _kern_number_is_safe_integer(__k_x):',
+  '    if not _kern_number_is_integer(__k_x):',
+  '        return False',
+  '    return abs(__k_x) <= 9007199254740991',
+].join('\n');
+
+export const KERN_JS_MATH_HELPERS_PY = [
+  'import math',
+  '',
+  'def _kern_math_is_negative_zero(__k_n):',
+  '    return __k_n == 0 and math.copysign(1.0, __k_n) < 0',
+  '',
+  'def _kern_math_nan():',
+  '    return float("nan")',
+  '',
+  'def _kern_math_round(__k_x):',
+  '    __k_n = _kern_to_number(__k_x)',
+  '    if __k_n != __k_n or __k_n in (float("inf"), float("-inf")) or __k_n == 0:',
+  '        return __k_n',
+  '    __k_floor = math.floor(__k_n)',
+  '    __k_r = __k_floor + (1 if __k_n - __k_floor >= 0.5 else 0)',
+  '    if __k_r == 0 and __k_n < 0:',
+  '        return -0.0',
+  '    return __k_r',
+  '',
+  'def _kern_math_floor(__k_x):',
+  '    __k_n = _kern_to_number(__k_x)',
+  '    if __k_n != __k_n or __k_n in (float("inf"), float("-inf")) or __k_n == 0:',
+  '        return __k_n',
+  '    return math.floor(__k_n)',
+  '',
+  'def _kern_math_trunc(__k_x):',
+  '    __k_n = _kern_to_number(__k_x)',
+  '    if __k_n != __k_n or __k_n in (float("inf"), float("-inf")) or __k_n == 0:',
+  '        return __k_n',
+  '    __k_r = math.trunc(__k_n)',
+  '    if __k_r == 0 and __k_n < 0:',
+  '        return -0.0',
+  '    return __k_r',
+  '',
+  'def _kern_math_sign(__k_x):',
+  '    __k_n = _kern_to_number(__k_x)',
+  '    if __k_n != __k_n or __k_n == 0:',
+  '        return __k_n',
+  '    return 1 if __k_n > 0 else -1',
+  '',
+  'def _kern_math_max(*__k_args):',
+  '    if len(__k_args) == 0:',
+  '        return float("-inf")',
+  '    __k_best = float("-inf")',
+  '    for __k_arg in __k_args:',
+  '        __k_n = _kern_to_number(__k_arg)',
+  '        if __k_n != __k_n:',
+  '            return _kern_math_nan()',
+  '        if __k_n > __k_best or (__k_n == 0 and __k_best == 0 and not _kern_math_is_negative_zero(__k_n) and _kern_math_is_negative_zero(__k_best)):',
+  '            __k_best = __k_n',
+  '    return __k_best',
+  '',
+  'def _kern_math_min(*__k_args):',
+  '    if len(__k_args) == 0:',
+  '        return float("inf")',
+  '    __k_best = float("inf")',
+  '    for __k_arg in __k_args:',
+  '        __k_n = _kern_to_number(__k_arg)',
+  '        if __k_n != __k_n:',
+  '            return _kern_math_nan()',
+  '        if __k_n < __k_best or (__k_n == 0 and __k_best == 0 and _kern_math_is_negative_zero(__k_n) and not _kern_math_is_negative_zero(__k_best)):',
+  '            __k_best = __k_n',
+  '    return __k_best',
+].join('\n');
+
+export const KERN_JS_ARRAY_FROM_HELPER_PY = [
+  'import inspect',
+  '',
+  'try:',
+  '    RangeError',
+  'except NameError:',
+  '    class RangeError(ValueError):',
+  '        pass',
+  '',
+  'try:',
+  '    _KERN_UNDEFINED',
+  'except NameError:',
+  '    class _KernUndefined:',
+  '        def __bool__(self): return False',
+  "        def __repr__(self): return 'undefined'",
+  "        def __str__(self): return 'undefined'",
+  '    _KERN_UNDEFINED = _KernUndefined()',
+  '',
+  'def _kern_array_like_get(__k_source, __k_index):',
+  '    if isinstance(__k_source, dict):',
+  '        if __k_index in __k_source:',
+  '            return __k_source[__k_index]',
+  '        __k_key = str(__k_index)',
+  '        return __k_source[__k_key] if __k_key in __k_source else _KERN_UNDEFINED',
+  '    try:',
+  '        return __k_source[__k_index]',
+  '    except Exception:',
+  '        return _KERN_UNDEFINED',
+  '',
+  'def _kern_array_like_length(__k_source):',
+  '    if isinstance(__k_source, dict):',
+  '        __k_len = __k_source.get("length", 0)',
+  '    else:',
+  '        __k_len = getattr(__k_source, "length", None)',
+  '    if __k_len is None:',
+  '        return None',
+  '    try:',
+  '        __k_num = _kern_to_number(__k_len)',
+  '    except Exception:',
+  '        return 0',
+  '    if __k_num != __k_num or __k_num <= 0:',
+  '        return 0',
+  '    if __k_num == float("inf"):',
+  '        raise RangeError("Invalid array length")',
+  '    __k_length = int(__k_num)',
+  '    if __k_length > 4294967295:',
+  '        raise RangeError("Invalid array length")',
+  '    return __k_length',
+  '',
+  'def _kern_array_from(__k_source, __k_mapper=None):',
+  '    if __k_source is None or __k_source is _KERN_UNDEFINED:',
+  '        raise TypeError("Array.from requires an array-like or iterable source")',
+  '    __k_len = _kern_array_like_length(__k_source)',
+  '    if __k_len is not None:',
+  '        __k_values = [_kern_array_like_get(__k_source, __k_i) for __k_i in range(__k_len)]',
+  '    elif isinstance(__k_source, str):',
+  '        __k_values = list(__k_source)',
+  '    else:',
+  '        try:',
+  '            __k_values = list(__k_source)',
+  '        except TypeError:',
+  '            __k_values = []',
+  '    if __k_mapper is None:',
+  '        return list(__k_values)',
+  '    return [_kern_array_from_map(__k_mapper, __k_value, __k_index) for __k_index, __k_value in enumerate(__k_values)]',
+  '',
+  'def _kern_array_from_map(__k_mapper, __k_value, __k_index):',
+  '    try:',
+  '        __k_sig = inspect.signature(__k_mapper)',
+  '        __k_params = list(__k_sig.parameters.values())',
+  '        if any(__k_p.kind == inspect.Parameter.VAR_POSITIONAL for __k_p in __k_params):',
+  '            return __k_mapper(__k_value, __k_index)',
+  '        __k_positional = [__k_p for __k_p in __k_params if __k_p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)]',
+  '        if len(__k_positional) < 2:',
+  '            return __k_mapper(__k_value)',
+  '    except (TypeError, ValueError):',
+  '        pass',
+  '    return __k_mapper(__k_value, __k_index)',
 ].join('\n');
 
 export const KERN_JS_STRING_HELPERS_PY = [
@@ -266,4 +730,52 @@ export const KERN_JS_STRING_HELPERS_PY = [
   '        __k_parts.append(_kern_js_replacement(__k_repl, __k_search, __k_s[:__k_idx], __k_s[__k_end:]))',
   '        __k_pos = __k_end',
   '    return "".join(__k_parts)',
+].join('\n');
+
+// Milestone C, Slice 3 — portable regex MATCH-SET result helpers. JS `RegExp`
+// methods and Python `re` differ in RESULT SHAPE (not just pattern); these two
+// helpers normalize the Python `re.Match` surface into the canonical
+// target-neutral KERN shapes the TS emitter produces natively from a
+// `RegExpMatchArray`. They are byte-for-byte the lowering the Slice-3 oracle
+// (`.agon-goals/regex-slice3/oracle/run_py.py::canon_match_obj` / `lower_matchAll`)
+// certifies against node.
+//
+//   _kern_regex_match(pat, s, flags) -> `.match(s)` WITHOUT /g
+//     JS `String.match` (non-global) returns a match-array carrying `.index` and
+//     `.groups`, or `null` on no match. Python `re.search` returns a `re.Match`
+//     OBJECT (a DIFFERENT surface: `m[0]` raises, no `.index` attr) or `None`.
+//     We converge both onto `{full, groups, index, named}` | None — so a
+//     downstream `m["full"]` / `m["index"]` / `m["named"]` reads identically on
+//     each target. (THE load-bearing portability fix — spec §4.1, killer row
+//     `match_no_g_groups_KILLER`.)
+//
+//   _kern_regex_matchall(pat, s, flags) -> `.matchAll(s)` (/g required)
+//     JS `[...s.matchAll(re)]` yields match objects {full, g1.., index}; Python
+//     `re.finditer` yields `re.Match`es. We shape both to
+//     `[{full, groups, index}, ...]`, INCLUDING zero-width advances (e.g. `/x*/g`
+//     over "abc" -> 4 empty matches at 0..3) which `re.finditer` already enumerates
+//     identically to JS on modern engines (killer row `matchAll_empty_KILLER`).
+export const KERN_REGEX_MATCH_HELPER_PY = [
+  'def _kern_regex_match(__k_pat, __k_s, __k_flags):',
+  '    __k_m = __k_re.search(__k_pat, __k_s, __k_flags)',
+  '    if __k_m is None:',
+  '        return None',
+  '    return {',
+  '        "full": __k_m.group(0),',
+  '        "groups": [__k_g for __k_g in __k_m.groups()],',
+  '        "index": __k_m.start(),',
+  '        "named": dict(__k_m.groupdict()),',
+  '    }',
+].join('\n');
+
+export const KERN_REGEX_MATCHALL_HELPER_PY = [
+  'def _kern_regex_matchall(__k_pat, __k_s, __k_flags):',
+  '    return [',
+  '        {',
+  '            "full": __k_m.group(0),',
+  '            "groups": [__k_g for __k_g in __k_m.groups()],',
+  '            "index": __k_m.start(),',
+  '        }',
+  '        for __k_m in __k_re.finditer(__k_pat, __k_s, __k_flags)',
+  '    ]',
 ].join('\n');

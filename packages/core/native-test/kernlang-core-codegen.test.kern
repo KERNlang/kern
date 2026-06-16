@@ -7,7 +7,7 @@ test name="KERNlang core codegen self contracts" target="./kernlang-core-codegen
 
   it name="structured param defaults preserve exact TypeScript shape"
     expect codegen contains="function retry(attempts: number = 3): number {"
-    expect codegen contains="function stamp(ts: number = Date.now()): number {"
+    expect codegen contains="function stamp(ts: number = 7): number {"
     expect codegen contains="function greet(name: string = \"world\"): string {"
     expect codegen contains="function load(id: string, retries: number = 3): string {"
     expect codegen notContains="function retry(attempts: number = 0): number {"

@@ -13,6 +13,7 @@ import { createRequire } from 'node:module';
 import type { ProjectContextGraph } from '@kernlang/context';
 import type { ConceptMap, IRNode, ParseDiagnostic } from '@kernlang/core';
 import { countTokens, parseWithDiagnostics, serializeIR } from '@kernlang/core';
+import { nativeEligibilityClassifier, typescriptClosureClassifier } from '@kernlang/core/node';
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { dirname, join, relative, sep } from 'path';
 import { Project, type SourceFile } from 'ts-morph';
@@ -1070,10 +1071,18 @@ export function reviewKernSource(source: string, filePath = 'input.kern', _confi
   }
 
   // Parse .kern → IR tree + structured diagnostics
-  const { root, diagnostics: parseDiags } = safePhase('parse', () => parseWithDiagnostics(source), {
-    root: { type: 'document' } as IRNode,
-    diagnostics: [] as ParseDiagnostic[],
-  });
+  const { root, diagnostics: parseDiags } = safePhase(
+    'parse',
+    () =>
+      parseWithDiagnostics(source, undefined, {
+        closureClassifier: typescriptClosureClassifier,
+        nativeEligibilityClassifier,
+      }),
+    {
+      root: { type: 'document' } as IRNode,
+      diagnostics: [] as ParseDiagnostic[],
+    },
+  );
 
   // Map parse diagnostics → ReviewFindings (severity capped at 'warning' unless --strict-parse is enabled)
   const hasParseErrors = parseDiags.some((d) => d.severity === 'error');

@@ -106,7 +106,7 @@ describe('Expression parser → ValueIR', () => {
     // other host method (`x.toFixed(2)`) already does — the fix only removed an
     // arbitrary parse-time crash, it does not change the emit contract.
     expect(roundtrip('x.toString()')).toBe('x.toString()');
-    expect(roundtrip('Date.now().toString()')).toBe('Date.now().toString()');
+    expect(roundtrip('clock.now().toString()')).toBe('clock.now().toString()');
     expect(roundtrip('n.toString(36)')).toBe('n.toString(36)');
     expect(roundtrip('err.valueOf()')).toBe('err.valueOf()');
     expect(roundtrip('obj.hasOwnProperty("k")')).toBe('obj.hasOwnProperty("k")');

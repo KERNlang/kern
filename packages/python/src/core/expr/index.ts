@@ -2,15 +2,18 @@
  * Shared Python expression lowering — framework-agnostic.
  */
 
-import { lowerJsClosureBodyToPython, PORTABLE_LOGIC_PRIMITIVES, type PortableLogicPrimitiveId } from '@kernlang/core';
+import { PORTABLE_LOGIC_PRIMITIVES, type PortableLogicPrimitiveId } from '@kernlang/core';
+import { lowerJsClosureBodyToPython } from '@kernlang/core/node';
 import { toSnakeCase } from '../../type-map.js';
 import {
   KERN_I32_HELPER_PY,
+  KERN_JS_ARRAY_FROM_HELPER_PY,
   KERN_JS_ARRAY_HELPERS_PY,
   KERN_JS_HELPER_PY,
   KERN_JS_OBJECT_HELPERS_PY,
   KERN_JS_STRING_HELPERS_PY,
   KERN_TMOD_HELPER_PY,
+  KERN_TO_NUMBER_HELPER_PY,
 } from './helpers.js';
 import {
   isSharedPortableArrayMethod,
@@ -22,12 +25,29 @@ import {
 export {
   KERN_FMT_HELPER_PY,
   KERN_I32_HELPER_PY,
+  KERN_JS_ARRAY_FROM_HELPER_PY,
   KERN_JS_ARRAY_HELPERS_PY,
   KERN_JS_HELPER_PY,
+  KERN_JS_MATH_HELPERS_PY,
+  KERN_JS_NUMBER_HELPERS_PY,
   KERN_JS_OBJECT_HELPERS_PY,
   KERN_JS_STRING_HELPERS_PY,
+  // Slice S7 — sentinel-aware Json.stringify shim (`_kern_json_stringify`).
+  KERN_JSON_STRINGIFY_SHIM_PY,
+  // Slice S7 — dual-sentinel nullish/equality substrate
+  // (`_kern_is_nullish` / `_kern_strict_equal` / `_kern_loose_equal`).
+  KERN_NULLISH_HELPER_PY,
   KERN_PAIR_HELPERS_PY,
+  // Milestone C, Slice 3 — portable regex match-set result-shape helpers
+  // (`_kern_regex_match` / `_kern_regex_matchall`).
+  KERN_REGEX_MATCH_HELPER_PY,
+  KERN_REGEX_MATCHALL_HELPER_PY,
   KERN_TMOD_HELPER_PY,
+  // Slice-0.75 ToNumericPrimitive substrate. PURE ADDITION: not yet wired into
+  // any prelude/helper-block registry and not routed through production — the
+  // differential battery (ir-semantics-to-number-py.test.ts) is its only
+  // consumer until the future routing slice.
+  KERN_TO_NUMBER_HELPER_PY,
 } from './helpers.js';
 
 // Quoted strings absorbed by the alternation; only literal `===`/`!==`
@@ -235,6 +255,14 @@ function lowerArrowBlockClosure(arrow: { params: string[]; body: string }, ctx: 
     // Closure params are def-locals (never `nonlocal`); the lowerer excludes
     // them and block-locals from the written-free set.
     paramNames: arrow.params,
+    // Round-7 — the block-scope hooks are now REQUIRED (a missing wire is a
+    // compile error, no longer a silent fail-open). The route path screens host
+    // names through the `rewriteExpr` rewriter, NOT a per-block shadow stack, so
+    // it has no block-scope tracking to maintain here: it opts OUT explicitly
+    // with no-op (identity) implementations. This is the intentional route-path
+    // opt-out the interface documents — visible at the call site, not an accident.
+    enterBlockScope: () => {},
+    exitBlockScope: () => {},
   });
   if (!result.ok) return null;
   ctx.imports?.add(KERN_JS_HELPER_PY);
@@ -988,7 +1016,7 @@ function lowerMathBuiltinCalls(expr: string, imports?: Set<string>): string {
             break;
           case 'round':
             imports?.add('import math as __k_math');
-            out += `__k_math.floor(${arg} + 0.5)`;
+            out += legacyJsRoundExpr(arg);
             break;
           case 'abs':
             out += `abs(${arg})`;
@@ -1073,6 +1101,10 @@ function lowerMathBuiltinCalls(expr: string, imports?: Set<string>): string {
     i += 1;
   }
   return out;
+}
+
+function legacyJsRoundExpr(arg: string): string {
+  return `(lambda __k_n: __k_n if __k_n != __k_n or __k_n in (float("inf"), float("-inf")) or __k_n == 0 else (lambda __k_floor: (lambda __k_r: -0.0 if __k_r == 0 and __k_n < 0 else __k_r)(__k_floor + (1 if __k_n - __k_floor >= 0.5 else 0)))(__k_math.floor(__k_n)))(${arg})`;
 }
 
 // Find the start of the JS expression that ends just before the current position.
@@ -1543,8 +1575,70 @@ function lowerObjectArrayDateBuiltinCalls(expr: string, imports?: Set<string>): 
   return out;
 }
 
+// Normalize JS numeric word-literals (`Infinity`, `-Infinity`, `NaN`) that
+// reach the route-path Array.from `{length}` argument into their Python float
+// equivalents, respecting string/quote boundaries. The route pipeline's
+// `JS_LITERAL_RE` only rewrites `undefined|null|true|false`, so a bare
+// `Infinity`/`NaN` token survives to the emitted module as a Python NameError.
+// The Array.from length guard below feeds the count to `_kern_array_like_length`
+// via `{"length": <count>}`, so the count must be a valid Python value first.
+function normalizeNumericWordLiterals(expr: string): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') {
+        out += expr[i + 1] ?? '';
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    const rest = expr.slice(i);
+    const prev = expr[i - 1];
+    // Member access (`obj.Infinity`) must not be rewritten. The immediately-
+    // previous char rules out the compact form; for the spaced form
+    // (`obj . Infinity`) scan BACKWARD past contiguous whitespace and treat the
+    // token as member access when the first non-whitespace char found is `.`.
+    // A token at string-start (only whitespace before it) is NOT member access.
+    let memberAccess = !!(prev && /[\w.$]/.test(prev));
+    if (!memberAccess && prev !== undefined && /\s/.test(prev)) {
+      let k = i - 1;
+      while (k >= 0 && /\s/.test(expr[k])) k -= 1;
+      if (k >= 0 && expr[k] === '.') memberAccess = true;
+    }
+    const wordOk = !memberAccess;
+    const infM = wordOk ? rest.match(/^Infinity\b/) : null;
+    if (infM && !/[\w$]/.test(expr[i + infM[0].length] ?? '')) {
+      out += "float('inf')";
+      i += infM[0].length;
+      continue;
+    }
+    const nanM = wordOk ? rest.match(/^NaN\b/) : null;
+    if (nanM && !/[\w$]/.test(expr[i + nanM[0].length] ?? '')) {
+      out += "float('nan')";
+      i += nanM[0].length;
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
 // Build the Python comprehension for one `Array.from(...)` call's argument list.
-function tryLowerArrayFrom(args: string[]): string | null {
+function tryLowerArrayFrom(args: string[], imports?: Set<string>): string | null {
   if (args.length < 2) return null;
   const arg0 = args[0].trim();
   if (!arg0.startsWith('{') || matchBalancedParen(arg0, 0) !== arg0.length - 1) return null;
@@ -1581,7 +1675,46 @@ function tryLowerArrayFrom(args: string[]): string | null {
     const inner = body.slice(1, -1).trim();
     if (inner.startsWith('{')) body = inner;
   }
-  return `[${lowerArrayFromCalls(body)} for ${idxVar} in range(${lowerArrayFromCalls(count)})]`;
+  // The body is lowered for nested `Array.from`/stdlib calls but is NOT run
+  // through `normalizeNumericWordLiterals`. KNOWN LIMITATION (deliberate,
+  // fail-loud): a bare `Infinity`/`NaN` token in a mapper body — or an
+  // object-literal KEY named `Infinity`/`NaN` (e.g. `() => ({Infinity: 1})`) —
+  // emits a Python `NameError` (fail-loud) rather than being silently rewritten.
+  // String-level normalization cannot distinguish a value position from an
+  // object-literal key, because the object-key `:` is indistinguishable from a
+  // ternary `:`. Rewriting the body therefore corrupts the JS string key
+  // `"Infinity"` into `{float('inf'): 1}` (silent cross-target divergence), so
+  // we choose the loud NameError over silent corruption. `normalizeNumericWordLiterals`
+  // still runs on the COUNT below, where the position is unambiguous.
+  const loweredBody = lowerArrayFromCalls(body, imports);
+  // Fast-path for a statically-safe non-negative INTEGER literal count: emit the
+  // clean `range(<literal>)` form with NO length helper and NO normalize pass.
+  // `4294967295` (2**32-1) and below are valid JS array lengths (JS would also
+  // materialize them), so `range(<literal>)` is correct parity and the common
+  // case (`Array.from({length: 3}, …)`) pays zero helper/cold-start cost. A
+  // literal `> 4294967295` (e.g. `9007199254740992`) MUST still throw, so it is
+  // explicitly excluded here and routed through the guard below. Only a bare
+  // non-negative integer qualifies — NOT floats (`3.5`), NOT signed (`-1`), NOT
+  // identifiers/member-access/arithmetic/`Infinity`/`NaN`, all of which need the
+  // `_kern_array_like_length` validation.
+  const trimmedCount = count.trim();
+  if (/^\d+$/.test(trimmedCount) && Number(trimmedCount) <= 4294967295) {
+    return `[${loweredBody} for ${idxVar} in range(${trimmedCount})]`;
+  }
+  // Otherwise route the `{length: N}` count through the SAME validated length
+  // helper the native-body path uses (`_kern_array_like_length`) instead of
+  // emitting a raw `range(N)`. Without this guard the route path diverges from JS
+  // (and from the already-correct native-body path): `Array.from({length:
+  // Infinity}, …)` must throw a RangeError (not emit a Python NameError for
+  // `Infinity`), a length above 2**32-1 must throw, and `NaN`/≤0 must yield an
+  // empty array — never a 4-billion-element materialization (DoS).
+  // `_kern_array_like_length` self-defines `RangeError`/`_KERN_UNDEFINED` via its
+  // idempotent guards but calls `_kern_to_number`, so BOTH helper blocks are
+  // required (mirrors the `array-host` requirement pairing in codegen-body-python).
+  const loweredCount = normalizeNumericWordLiterals(lowerArrayFromCalls(count, imports));
+  imports?.add(KERN_TO_NUMBER_HELPER_PY);
+  imports?.add(KERN_JS_ARRAY_FROM_HELPER_PY);
+  return `[${loweredBody} for ${idxVar} in range(_kern_array_like_length({"length": ${loweredCount}}))]`;
 }
 
 // Expand JS object-literal shorthand properties to explicit `key: key`.
@@ -1629,7 +1762,7 @@ function expandObjectShorthand(expr: string): string {
 }
 
 // Lower `Array.from({ length: N }, (_, i) => BODY)` to a Python list comprehension.
-function lowerArrayFromCalls(expr: string): string {
+function lowerArrayFromCalls(expr: string, imports?: Set<string>): string {
   let out = '';
   let i = 0;
   let quote: string | null = null;
@@ -1658,7 +1791,7 @@ function lowerArrayFromCalls(expr: string): string {
       const openIdx = i + m[0].length - 1;
       const closeIdx = matchBalancedParen(expr, openIdx);
       if (closeIdx !== -1 && expr[closeIdx + 1] !== '.') {
-        const lowered = tryLowerArrayFrom(splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)));
+        const lowered = tryLowerArrayFrom(splitTopLevelArgs(expr.slice(openIdx + 1, closeIdx)), imports);
         if (lowered !== null) {
           out += lowered;
           i = closeIdx + 1;
@@ -2150,7 +2283,7 @@ export function rewriteExpr(
   let result = maskedExpr;
   result = lowerSpreadElements(result);
   result = expandObjectShorthand(result);
-  result = lowerArrayFromCalls(result);
+  result = lowerArrayFromCalls(result, imports);
   for (const param of pathParams) {
     result = result.replace(new RegExp(`\\bparams\\.${param}\\b`, 'g'), param);
   }

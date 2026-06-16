@@ -4,11 +4,13 @@
  * Extracted from codegen-core.ts for modular codegen architecture.
  */
 
+import type { ExprEmitContext } from '../codegen-expression.js';
 import { emitExpression } from '../codegen-expression.js';
 import { hasDirectSuperCtorCall } from '../constructor-super.js';
 import { propsOf } from '../node-props.js';
 import { parseExpression } from '../parser-expression.js';
 import { type IRNode, isExprObject } from '../types.js';
+import { typescriptClosureClassifier, validateClosureBlockHostNamespacesTS } from '../typescript-closure-classifier.js';
 import { emitNativeKernBodyTS } from './body-ts.js';
 import { emitIdentifier, emitTemplateSafe, emitTypeAnnotation } from './emitters.js';
 import {
@@ -20,6 +22,30 @@ import {
   handlerCode,
   parseParamList,
 } from './helpers.js';
+import {
+  beginIRHostNamespacesValidatedTS,
+  endIRHostNamespacesValidatedTS,
+  validatedHostNamespaceBindingsFor,
+} from './host-namespace-ir.js';
+
+const TS_PARSE_OPTS = { closureClassifier: typescriptClosureClassifier };
+const TOP_LEVEL_EXPR_CONTEXT: ExprEmitContext = {
+  isUserBinding: () => false,
+  validateRawBlock: validateClosureBlockHostNamespacesTS,
+};
+
+export interface TopLevelExpressionOptions {
+  userBindings?: ReadonlySet<string>;
+}
+
+function topLevelExprContext(options?: TopLevelExpressionOptions): ExprEmitContext {
+  const userBindings = options?.userBindings;
+  if (!userBindings || userBindings.size === 0) return TOP_LEVEL_EXPR_CONTEXT;
+  return {
+    isUserBinding: (name: string) => userBindings.has(name),
+    validateRawBlock: validateClosureBlockHostNamespacesTS,
+  };
+}
 
 /** Slice 4b — native KERN method body dispatch. Methods on `class` and
  *  `service` (both go through `emitClassBody`) get the same `lang=kern`
@@ -213,21 +239,21 @@ function emitClassHeader(
   };
 }
 
-export function generateClass(node: IRNode): string[] {
+export function generateClass(node: IRNode, options?: TopLevelExpressionOptions): string[] {
   const { exp, name, header, docs } = emitClassHeader(node, 'UnknownClass');
   const lines: string[] = [...docs];
   lines.push(header);
-  emitClassBody(node, lines);
+  emitClassBody(node, lines, options);
   lines.push('}');
   emitSingletons(node, lines, name, exp);
   return lines;
 }
 
-export function generateService(node: IRNode): string[] {
+export function generateService(node: IRNode, options?: TopLevelExpressionOptions): string[] {
   const { exp, name, header, docs } = emitClassHeader(node, 'UnknownService');
   const lines: string[] = [...docs];
   lines.push(header);
-  emitClassBody(node, lines);
+  emitClassBody(node, lines, options);
   lines.push('}');
   emitSingletons(node, lines, name, exp);
   return lines;
@@ -243,7 +269,7 @@ function emitSingletons(node: IRNode, lines: string[], className: string, exp: s
   }
 }
 
-function emitClassBody(node: IRNode, lines: string[]): void {
+function emitClassBody(node: IRNode, lines: string[], options?: TopLevelExpressionOptions): void {
   // Abstract members — handler-less methods/getters/setters under an
   // `abstract=true` class — emit a fail-fast `throw` body, identical to the
   // Python `raise`, so an un-overridden abstract member fails the same way on
@@ -282,7 +308,7 @@ function emitClassBody(node: IRNode, lines: string[]): void {
     const valuePresent = rawValue !== undefined && (rawValue !== '' || field.__quotedProps?.includes('value') === true);
     const init = (() => {
       if (valuePresent) {
-        return ` = ${emitConstValue(field, rawValue)}`;
+        return ` = ${emitConstValue(field, rawValue, 'value', topLevelExprContext(options))}`;
       }
       if (rawDefault === undefined || rawDefault === '') return '';
       if (isExprObject(rawDefault)) return ` = ${rawDefault.code}`;
@@ -295,7 +321,10 @@ function emitClassBody(node: IRNode, lines: string[]): void {
   const ctorNode = firstChild(node, 'constructor');
   if (ctorNode) {
     const ctorProps = propsOf<'constructor'>(ctorNode);
-    const ctorParams = emitParamList(ctorNode);
+    const ctorParams = emitParamList(ctorNode, {
+      exprCtx: topLevelExprContext(options),
+      userBindings: options?.userBindings,
+    });
     const generics = ctorProps.generics ? emitTypeAnnotation(ctorProps.generics, '', ctorNode) : '';
     const ctorCode = classMemberBodyCode(ctorNode);
     lines.push('');
@@ -325,7 +354,10 @@ function emitClassBody(node: IRNode, lines: string[]): void {
   for (const method of kids(node, 'method')) {
     const mp = propsOf<'method'>(method);
     const mname = emitIdentifier(mp.name, 'method', method);
-    const mparams = emitParamList(method);
+    const mparams = emitParamList(method, {
+      exprCtx: topLevelExprContext(options),
+      userBindings: options?.userBindings,
+    });
     const generics = mp.generics ? emitTypeAnnotation(mp.generics, '', method) : '';
     const isAsync = mp.async === 'true' || mp.async === true;
     const isStream = mp.stream === 'true' || mp.stream === true;
@@ -388,7 +420,11 @@ function emitClassBody(node: IRNode, lines: string[]): void {
     const sname = emitIdentifier(sp.name, 'setter', setter);
     const svis = sp.private === 'true' || sp.private === true ? 'private ' : '';
     const sstatic = sp.static === 'true' || sp.static === true ? 'static ' : '';
-    const sparams = emitParamList(setter, { fallback: 'value: unknown' });
+    const sparams = emitParamList(setter, {
+      fallback: 'value: unknown',
+      exprCtx: topLevelExprContext(options),
+      userBindings: options?.userBindings,
+    });
     const scode =
       isAbstractClass && isHandlerless(setter) ? abstractThrow('setter', sname) : classMemberBodyCode(setter);
     lines.push('');
@@ -463,7 +499,7 @@ export function generateEnum(node: IRNode): string[] {
 
 // ── Const ───────────────────────────────────────────────────────────────
 
-export function generateConst(node: IRNode): string[] {
+export function generateConst(node: IRNode, options?: TopLevelExpressionOptions): string[] {
   const props = propsOf<'const'>(node);
   const name = emitIdentifier(props.name, 'unknownConst', node);
   const constType = props.type;
@@ -478,7 +514,7 @@ export function generateConst(node: IRNode): string[] {
     return [...docs, `${exp}const ${name}${typeAnnotation} = ${code.trim()};`];
   }
   if (rawValue !== undefined && rawValue !== '') {
-    const value = emitConstValue(node, rawValue);
+    const value = emitConstValue(node, rawValue, 'value', topLevelExprContext(options));
     return [...docs, `${exp}const ${name}${typeAnnotation} = ${value};`];
   }
   return [...docs, `${exp}const ${name}${typeAnnotation};`];
@@ -684,21 +720,56 @@ export function generateSetLit(node: IRNode): string[] {
  *  - `<prop>={{ expr }}` (ExprObject) — emit `.code` raw (escape hatch for arbitrary TS).
  *  - `<prop>="literal"` (quoted, tracked in __quotedProps) — emit as JSON-quoted string
  *    so output is valid TS even when the literal contains expression-illegal characters.
- *  - bare `<prop>=...` — try ValueIR parse + emit for canonicalization. Fall back to raw
- *    string on parse failure (validator emits INVALID_EXPRESSION but codegen still ships).
+ *  - bare `<prop>=...` — try ValueIR parse, then emit for canonicalization. Fall back to raw
+ *    string only on parse failure (validator emits INVALID_EXPRESSION but codegen still ships);
+ *    emission errors from a successfully parsed ValueIR must stay loud.
  *
  *  Slice 3e — `propName` parameter (default 'value') lets non-`value` props
  *  participate in the same quoted-vs-bare distinction. `mapEntry.key` and
  *  `mapEntry.value` both flow through this with their own __quotedProps key. */
-export function emitConstValue(node: IRNode, rawValue: unknown, propName = 'value'): string {
+export function emitConstValue(
+  node: IRNode,
+  rawValue: unknown,
+  propName = 'value',
+  exprCtx: ExprEmitContext = TOP_LEVEL_EXPR_CONTEXT,
+): string {
+  exprCtx = expressionContextWithValidatedBindings(node, propName, exprCtx);
   if (isExprObject(rawValue)) return rawValue.code;
   if (typeof rawValue !== 'string') return String(rawValue);
   if (node.__quotedProps?.includes(propName)) return JSON.stringify(rawValue);
-  try {
-    return emitExpression(parseExpression(rawValue));
-  } catch {
+  const parsed = (() => {
+    try {
+      return parseExpression(rawValue, TS_PARSE_OPTS);
+    } catch {
+      return null;
+    }
+  })();
+  if (parsed === null) {
+    // GAP 3 — parse-FAILURE branch (escape-hatch raw text). We CANNOT run
+    // `validateRawHostNamespacesTS` here: there is no parsed AST to validate,
+    // and the regex-scanner threw on legitimately-unparseable raw input — a
+    // real regression, since valid escape-hatch values the user supplies
+    // verbatim were being rejected. Ship the raw text identically to the
+    // Python const-value path (which emits `value` unvalidated). The success
+    // path below is unchanged and still validates the parsed AST in full.
     return rawValue;
   }
+  return emitExpression(parsed, exprCtx);
+}
+
+function expressionContextWithValidatedBindings(
+  node: IRNode,
+  propName: string,
+  exprCtx: ExprEmitContext,
+): ExprEmitContext {
+  const bindings = validatedHostNamespaceBindingsFor(node, propName);
+  if (!bindings || bindings.size === 0) return exprCtx;
+  return {
+    isUserBinding(name: string): boolean {
+      return bindings.has(name) || exprCtx.isUserBinding(name);
+    },
+    validateRawBlock: exprCtx.validateRawBlock,
+  };
 }
 
 /**
@@ -723,7 +794,14 @@ export function emitConstValue(node: IRNode, rawValue: unknown, propName = 'valu
  * signatures — the implementation alone may carry defaults. Same flag as
  * the sibling `parseParamList`.
  */
-export function parseParamListFromChildren(paramNodes: IRNode[], options?: { stripDefaults?: boolean }): string {
+export interface ParamListOptions {
+  stripDefaults?: boolean;
+  fallback?: string;
+  exprCtx?: ExprEmitContext;
+  userBindings?: ReadonlySet<string>;
+}
+
+export function parseParamListFromChildren(paramNodes: IRNode[], options?: ParamListOptions): string {
   if (paramNodes.length === 0) return '';
   return paramNodes
     .map((paramNode) => {
@@ -750,7 +828,7 @@ export function parseParamListFromChildren(paramNodes: IRNode[], options?: { str
         rawValue !== undefined && (rawValue !== '' || paramNode.__quotedProps?.includes('value') === true);
 
       if (valuePresent) {
-        return `${pname}${optional}${typeAnn} = ${emitConstValue(paramNode, rawValue)}`;
+        return `${pname}${optional}${typeAnn} = ${emitConstValue(paramNode, rawValue, 'value', options?.exprCtx)}`;
       }
       if (rawDefault === undefined || rawDefault === '') return `${pname}${optional}${typeAnn}`;
       if (isExprObject(rawDefault)) return `${pname}${optional}${typeAnn} = ${rawDefault.code}`;
@@ -771,12 +849,17 @@ export function parseParamListFromChildren(paramNodes: IRNode[], options?: { str
  * Producers (importer, migrate-class-body) emit children all-or-nothing
  * per signature; consumers don't need to reconcile partial states.
  */
-export function emitParamList(node: IRNode, options?: { stripDefaults?: boolean; fallback?: string }): string {
-  const paramChildren = kids(node, 'param');
-  if (paramChildren.length > 0) {
-    return parseParamListFromChildren(paramChildren, options);
+export function emitParamList(node: IRNode, options?: ParamListOptions): string {
+  const didValidate = beginIRHostNamespacesValidatedTS(node, { userBindings: options?.userBindings });
+  try {
+    const paramChildren = kids(node, 'param');
+    if (paramChildren.length > 0) {
+      return parseParamListFromChildren(paramChildren, options);
+    }
+    const params = (p(node).params as string | undefined) ?? '';
+    if (params) return parseParamList(params, options);
+    return options?.fallback ?? '';
+  } finally {
+    endIRHostNamespacesValidatedTS(node, didValidate);
   }
-  const params = (p(node).params as string | undefined) ?? '';
-  if (params) return parseParamList(params, options);
-  return options?.fallback ?? '';
 }

@@ -5,6 +5,7 @@ import {
   type CoreFixtureValue,
   evaluateCoreContractOperation,
 } from '../core-contracts/index.js';
+import { numberToInt32, numberToUint32 } from '../ir/semantics/to-numeric.js';
 import { parseExpression } from '../parser-expression.js';
 import { splitPortableExpressionList } from '../portable-expression-list.js';
 import type { IRNode } from '../types.js';
@@ -234,7 +235,13 @@ export function kernTruthy(value: KernValue): boolean {
     case 'boolean':
       return value.value;
     case 'number':
-      return value.value !== 0;
+      // Slice S5 — KERN ToBoolean: a number is falsy iff it is +0/-0 OR NaN.
+      // Reject both zero and NaN, matching the Python `_kern_truthy` helper
+      // (`x != 0 and x == x`). NaN is currently unreachable here because
+      // `kNumber` rejects non-finite numbers, but this keeps the TS truthiness
+      // predicate parity-correct by construction (the Python leg DOES see NaN
+      // via `float('nan')`).
+      return value.value !== 0 && !Number.isNaN(value.value);
     case 'string':
       return value.value.length > 0;
     case 'array':
@@ -466,6 +473,14 @@ function evalUnary(node: Extract<ValueIR, { kind: 'unary' }>, env: CoreRuntimeEn
     if (arg.kind !== 'number') throw new Error(`KERN core runtime unary ${node.op} requires a number.`);
     return node.op === '-' ? dispatchCoreContractOperation('Number.negate', [arg.value]) : arg;
   }
+  // Slice 6 — bitwise NOT `~`: ToInt32(operand), bitwise-not, Int32 result.
+  // The operand is already an evaluated number here; ToInt32 = numberToInt32.
+  if (node.op === '~') {
+    if (arg.kind !== 'number') throw new Error('KERN core runtime unary ~ requires a number.');
+    // `~x === -(x+1)` on the Int32 value; recompute through numberToInt32 so
+    // the result stays in signed-32 range (matches JS `~`).
+    return kNumber(numberToInt32(~numberToInt32(arg.value)));
+  }
   throw new Error(`KERN core runtime unsupported unary operator: ${node.op}`);
 }
 
@@ -499,19 +514,74 @@ function evalBinary(node: Extract<ValueIR, { kind: 'binary' }>, env: CoreRuntime
     case '/':
     case '%':
       return evalNumberBinary(node.op, left, right);
+    // Slice S7 — split loose (`==`) and strict (`===`) equality so the
+    // null/undefined boundary matches JS: `undefined == null` is TRUE (both
+    // nullish) but `undefined === null` is FALSE (distinct kinds). Pre-S7 a
+    // single `kernEquals` served both ops and, since `undefined` and `null` are
+    // distinct KernValue kinds, made `undefined == null` wrongly FALSE.
     case '===':
+      return kBoolean(kernStrictEqual(left, right));
     case '==':
-      return kBoolean(kernEquals(left, right));
+      return kBoolean(kernLooseEqual(left, right));
     case '!==':
+      return kBoolean(!kernStrictEqual(left, right));
     case '!=':
-      return kBoolean(!kernEquals(left, right));
+      return kBoolean(!kernLooseEqual(left, right));
     case '<':
     case '<=':
     case '>':
     case '>=':
       return evalOrderedComparison(node.op, left, right);
+    // Slice 6 — bitwise / shift on the ToInt32 substrate. Operands are already
+    // evaluated numbers; ToInt32/ToUint32 = numberToInt32/numberToUint32.
+    case '&':
+    case '|':
+    case '^':
+    case '<<':
+    case '>>':
+    case '>>>':
+      return evalBitwiseBinary(node.op, left, right);
     default:
       throw new Error(`KERN core runtime unsupported binary operator: ${node.op}`);
+  }
+}
+
+/**
+ * Slice 6 — JS bitwise/shift semantics on the slice-0.75 ToInt32 substrate.
+ *
+ *   & | ^      ToInt32(a) <op> ToInt32(b) -> Int32
+ *   << >>      ToInt32(a) <op> (ToUint32(b) & 31) -> Int32
+ *   >>>        ToUint32(a) >> (ToUint32(b) & 31) -> Uint32 (zero-fill)
+ *
+ * The converted operands are already in signed/unsigned-32 range, so the native
+ * JS operators applied to them reproduce the spec exactly; the final
+ * numberToInt32/numberToUint32 re-normalizes (and, for `>>>`, lifts the result
+ * out of JS's signed-`>>` range into the 0..2^32-1 Uint32 codomain).
+ */
+function evalBitwiseBinary(op: string, left: KernValue, right: KernValue): KernValue {
+  if (left.kind !== 'number' || right.kind !== 'number') {
+    throw new Error(`KERN core runtime ${op} requires two numbers.`);
+  }
+  const a32 = numberToInt32(left.value);
+  switch (op) {
+    case '&':
+      return kNumber(numberToInt32(a32 & numberToInt32(right.value)));
+    case '|':
+      return kNumber(numberToInt32(a32 | numberToInt32(right.value)));
+    case '^':
+      return kNumber(numberToInt32(a32 ^ numberToInt32(right.value)));
+    case '<<':
+      return kNumber(numberToInt32(a32 << (numberToUint32(right.value) & 31)));
+    case '>>':
+      return kNumber(numberToInt32(a32 >> (numberToUint32(right.value) & 31)));
+    case '>>>': {
+      // Zero-fill: operate on the UNSIGNED left operand. JS `>>>` already yields
+      // a Uint32; numberToUint32 keeps it in the 0..2^32-1 codomain.
+      const shifted = numberToUint32(left.value) >>> (numberToUint32(right.value) & 31);
+      return kNumber(numberToUint32(shifted));
+    }
+    default:
+      throw new Error(`KERN core runtime unsupported bitwise operator: ${op}`);
   }
 }
 
@@ -1985,7 +2055,13 @@ function kernStringCoerce(value: KernValue): string {
   return String(toHostValue(value));
 }
 
-function kernEquals(left: KernValue, right: KernValue): boolean {
+/**
+ * Slice S7 — STRICT equality (`===` / `!==`). Different kinds are unequal, so
+ * `undefined === null` is FALSE. Same-nullish-kind is equal (`undefined ===
+ * undefined`, `null === null`). Arrays/records keep the structural-strict
+ * comparison KERN has always used (element identity recurses through strict).
+ */
+function kernStrictEqual(left: KernValue, right: KernValue): boolean {
   if (left.kind !== right.kind) return false;
   switch (left.kind) {
     case 'null':
@@ -2001,7 +2077,7 @@ function kernEquals(left: KernValue, right: KernValue): boolean {
       const rightArray = right as Extract<KernValue, { kind: 'array' }>;
       return (
         left.items.length === rightArray.items.length &&
-        left.items.every((item, i) => kernEquals(item, rightArray.items[i]))
+        left.items.every((item, i) => kernStrictEqual(item, rightArray.items[i]))
       );
     }
     case 'record': {
@@ -2011,7 +2087,8 @@ function kernEquals(left: KernValue, right: KernValue): boolean {
       return (
         leftKeys.length === rightKeys.length &&
         leftKeys.every(
-          (key) => Object.hasOwn(rightRecord.entries, key) && kernEquals(left.entries[key], rightRecord.entries[key]),
+          (key) =>
+            Object.hasOwn(rightRecord.entries, key) && kernStrictEqual(left.entries[key], rightRecord.entries[key]),
         )
       );
     }
@@ -2023,6 +2100,19 @@ function kernEquals(left: KernValue, right: KernValue): boolean {
     case 'super':
       return left === right;
   }
+}
+
+/**
+ * Slice S7 — LOOSE equality (`==` / `!=`). The ONLY divergence from strict in
+ * this slice is the null/undefined crossing: `undefined == null` and `null ==
+ * undefined` are TRUE (both nullish). Every other comparison defers to strict —
+ * KERN's typed value domain does not model the rest of JS's `==` coercion
+ * ladder (number↔string, boolean↔number), and the room contract scopes loose
+ * equality to the nullish boundary.
+ */
+function kernLooseEqual(left: KernValue, right: KernValue): boolean {
+  if (isNullish(left) && isNullish(right)) return true;
+  return kernStrictEqual(left, right);
 }
 
 function isNullish(value: KernValue): boolean {

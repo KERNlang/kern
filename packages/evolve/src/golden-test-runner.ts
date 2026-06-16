@@ -6,10 +6,15 @@
  */
 
 import { parse, registerParserHints, unregisterParserHints } from '@kernlang/core';
+import { nativeEligibilityClassifier, typescriptClosureClassifier } from '@kernlang/core/node';
 import { existsSync, readFileSync } from 'fs';
 import { join, resolve } from 'path';
 import type { EvolvedManifest } from './evolved-types.js';
 import { loadSandboxedGenerator } from './sandboxed-generator.js';
+
+// Slice 0.9 — Node-side: inject the TypeScript-backed classifiers so block-bodied
+// arrows in expression props keep parsing (instead of fail-closing).
+const NODE_PARSE_CAPS = { closureClassifier: typescriptClosureClassifier, nativeEligibilityClassifier } as const;
 
 export interface GoldenTestResult {
   keyword: string;
@@ -92,7 +97,7 @@ export function runGoldenTests(baseDir: string = process.cwd()): GoldenTestResul
       const expectedOutput = readFileSync(expectedPath, 'utf-8');
       const generator = loadSandboxedGenerator(codegenPath);
 
-      const ast = parse(kernSource);
+      const ast = parse(kernSource, undefined, NODE_PARSE_CAPS);
       const actual = generator(ast).join('\n');
 
       const pass = compareGoldenOutput(actual, expectedOutput);

@@ -43,22 +43,22 @@ describe('param.value — slice 3c (native ValueIR form)', () => {
       const code = gen(
         [
           'fn name=stamp returns=number',
-          '  param name=ts type=number value=Date.now',
+          '  param name=ts type=number value=clock.now',
           '  handler <<<',
           '    return ts;',
           '  >>>',
         ].join('\n'),
       );
-      expect(code).toContain('function stamp(ts: number = Date.now): number {');
+      expect(code).toContain('function stamp(ts: number = clock.now): number {');
     });
 
     it('{{ expr }} ExprObject form is emitted raw (escape hatch)', () => {
       const node = mk('fn', { name: 'stamp', returns: 'number' }, [
-        mk('param', { name: 'ts', type: 'number', value: { __expr: true, code: 'Date.now()' } }),
+        mk('param', { name: 'ts', type: 'number', value: { __expr: true, code: 'clock.now()' } }),
         mk('handler', { code: 'return ts;' }),
       ]);
       const code = generateCoreNode(node).join('\n');
-      expect(code).toContain('function stamp(ts: number = Date.now()): number {');
+      expect(code).toContain('function stamp(ts: number = clock.now()): number {');
     });
 
     it('quoted-string value emits as JSON literal', () => {
@@ -177,11 +177,11 @@ describe('param.value — slice 3c (native ValueIR form)', () => {
 
     it('default= as ExprObject emits raw', () => {
       const node = mk('fn', { name: 'stamp', returns: 'number' }, [
-        mk('param', { name: 'ts', type: 'number', default: { __expr: true, code: 'Date.now()' } }),
+        mk('param', { name: 'ts', type: 'number', default: { __expr: true, code: 'clock.now()' } }),
         mk('handler', { code: 'return ts;' }),
       ]);
       const code = generateCoreNode(node).join('\n');
-      expect(code).toContain('function stamp(ts: number = Date.now()): number {');
+      expect(code).toContain('function stamp(ts: number = clock.now()): number {');
     });
   });
 
@@ -345,11 +345,11 @@ describe('param.value — slice 3c (native ValueIR form)', () => {
     it('decompiler emits {{...}} for ExprObject value (preserves escape hatch)', () => {
       const node: IRNode = {
         type: 'param',
-        props: { name: 'ts', type: 'number', value: { __expr: true, code: 'Date.now()' } },
+        props: { name: 'ts', type: 'number', value: { __expr: true, code: 'clock.now()' } },
         children: [],
       };
       const { code } = decompile(node);
-      expect(code).toContain('value={{Date.now()}}');
+      expect(code).toContain('value={{clock.now()}}');
     });
 
     it('decompiler honours __quotedProps (round-trip bare vs quoted)', () => {

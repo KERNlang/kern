@@ -6,25 +6,41 @@ export {
   isPostfixMutationOperator,
   isSupportedAssignOperator,
   SUPPORTED_ASSIGN_OPERATORS,
-  supportedCompoundAssignmentOperator,
 } from './assignment-operators.js';
-// v1 closure gate — shared eligibility predicate + emission precondition for
-// block-bodied arrows (slices 0+1). Single owner consumed by parser, migrator
-// eligibility classifier, and the Python lowerer.
-export { classifyClosureBlock, collectFreeIdentifierNames, parseClosureBlockAst } from './closure-eligibility.js';
-export type {
-  LowerJsClosureBodyToPythonOptions,
-  LowerJsClosureBodyToPythonResult,
-} from './closure-python-lowering.js';
-export { lowerJsClosureBodyToPython } from './closure-python-lowering.js';
+// Slice 0.9 (browser spine cut) — the BROWSER-SAFE surface is the PARSER
+// subpath (`dist/parser-expression.js` / `dist/parser.js`), proven
+// typescript-free by `browser-spine-import-graph.test.ts`. This ROOT BARREL is
+// NOT typescript-free (r3 review fix — the earlier comment overclaimed): it
+// retains sanctioned `typescript` edges through the Node-only TS-codegen
+// re-parse path (`./codegen/body-ts.js`) and the DEPRECATED 4.x-compatibility
+// re-exports from `./node.js` at the bottom of this file (both pinned by the
+// import-graph test; both scheduled to shrink in 5.0). Browser consumers must
+// import the parser subpath, not this barrel. Node/codegen callers use:
+//   import { ... } from '@kernlang/core/node';
+// The browser-safe closure-classifier seam (interface + dependency-free default)
+// lives in `closure-classifier.ts` and is safe to re-export from the barrel.
+export type { ClosureClassifier } from './closure-classifier.js';
+export {
+  CLOSURE_PARSER_UNAVAILABLE_MESSAGE,
+  CLOSURE_PARSER_UNAVAILABLE_REASON,
+  unavailableClosureClassifier,
+} from './closure-classifier.js';
 export type { BodyEmitOptions, BodyEmitResult } from './codegen/body-ts.js';
 export { emitNativeKernBodyTS, emitNativeKernBodyTSWithImports } from './codegen/body-ts.js';
-export type { StdlibEntry } from './codegen/kern-stdlib.js';
+export {
+  HOST_NAMESPACE_EXEMPT_ROOTS,
+  isHostNamespaceRoot,
+  unmappedHostNamespaceMessage,
+} from './codegen/host-namespace.js';
+export type { StdlibCallEntry, StdlibEntry, StdlibPropertyEntry } from './codegen/kern-stdlib.js';
 export {
   applyTemplate,
   KERN_STDLIB,
   KERN_STDLIB_MODULES,
   lookupStdlib,
+  lookupStdlibCall,
+  lookupStdlibProperty,
+  suggestStdlibMember,
   suggestStdlibMethod,
 } from './codegen/kern-stdlib.js';
 export type {
@@ -44,6 +60,91 @@ export {
 } from './codegen/portable-logic-primitives.js';
 export type { ReactHookDep } from './codegen/react-hook-imports.js';
 export { detectReactHookDeps, injectReactHookImports } from './codegen/react-hook-imports.js';
+export type { RegexCaptureMeta, RegexIFoldFailReason, RegexIFoldResult } from './codegen/regex-normalize.js';
+// Milestone C, Slices 1 + /i — shared regex emission-normalization, consumed by
+// the TS emitter (here in core) and the Python emitter (@kernlang/python) so the
+// `\d \w \s` class transform AND the non-ASCII `/i` fold-class expansion are
+// byte-identical across both targets.
+export {
+  // Milestone C, Slice 2 — SHARED ValueIR adapters for the regex-literal-access
+  // classifier. Every ValueIR consumer (TS-emit core, Python-emit, IR-validate)
+  // routes a `/x/.<prop>` read / `/x/[idx]` read / `/x/.<m>(…)` dotted call
+  // through these so the fail-close decision (and message) is made by the ONE
+  // classifier, agreeing with the closure-block TS-AST walk by construction.
+  classifyRegexLiteralIndexReadFailClose,
+  classifyRegexLiteralMemberReadFailClose,
+  classifyRegexLiteralValueIRCallCalleeFailClose,
+  expandRegexIFold,
+  // Milestone C, Slice 2 — shared host-`RegExp` fail-close diagnostic + the
+  // regex-literal portable-property predicate (the empty read allowlist, the ONE
+  // seam to widen for a future portable read), both thrown/consulted byte-
+  // identically by the TS and Python emitters.
+  isPortableRegexLiteralProperty,
+  // Milestone C, Slice 3 — shared SYNTACTIC zero-width-capable predicate, used by
+  // BOTH the TS emitter and the Python emitter to make the IDENTICAL `.split`
+  // fail-close decision (no host-engine probe).
+  isZeroWidthCapableRegex,
+  lowerRegexAnchorsPython,
+  // Milestone C, Slice 4 — shared named-group PATTERN lowering (R6) so a `$<name>`
+  // repl ref resolves on the Python target.
+  lowerRegexNamedGroupsPython,
+  normalizeRegexClasses,
+  // Milestone C, Slice 5 — shared astral (non-BMP) fail-close (scanner + message),
+  // thrown byte-identically by both emitters.
+  REGEX_ASTRAL_FAILCLOSE_PREFIX,
+  // Milestone C, Slice 3 — shared regex-method fail-close diagnostics (thrown
+  // byte-identically by both emitters).
+  REGEX_EXEC_FAILCLOSE,
+  REGEX_HOST_REGEXP_FAILCLOSE,
+  REGEX_MATCHALL_NO_G_FAILCLOSE,
+  // FIX 2 — shared pattern-level fail-close for a non-portable named group
+  // (`(?<café>…)`), thrown byte-identically by both emitters.
+  REGEX_NAMEDGROUP_BAD_NAME_FAILCLOSE,
+  // Milestone C, Slice 3c — let-bound regex detect-and-fail-close (shared
+  // message + shared shape detector, used symmetrically by both emitters).
+  REGEX_NONLITERAL_FAILCLOSE,
+  // Milestone C, Slice 4 — shared .replace/.replaceAll replacement-string
+  // fail-close diagnostics (thrown byte-identically by both emitters).
+  REGEX_REPLACE_BAD_NAME_FAILCLOSE,
+  REGEX_REPLACE_BEFORE_AFTER_FAILCLOSE,
+  REGEX_REPLACE_NONLITERAL_REPL_FAILCLOSE,
+  REGEX_REPLACE_OOR_REF_FAILCLOSE,
+  REGEX_REPLACEALL_NO_G_FAILCLOSE,
+  REGEX_SPLIT_LIMIT_FAILCLOSE,
+  REGEX_SPLIT_ZEROWIDTH_FAILCLOSE,
+  REGEX_TEST_G_FAILCLOSE,
+  // Milestone C, Slice 5 — astral (non-BMP) compile-time fail-close diagnostic
+  // message, thrown byte-identically by both emitters when a regex literal
+  // contains a non-BMP codepoint.
+  regexAstralFailMessage,
+  // Milestone C, Slice 4 — shared replacement-string capture metadata (group
+  // count + named set) consumed by both emitters at the .replace lowering site.
+  regexCaptureMeta,
+  regexIFoldFailMessage,
+  // Slice 2 round 5 — shared transparent-receiver UNWRAP predicate. Resolves a
+  // (possibly-wrapped) `regexLit` receiver through `typeAssert`/`nonNull`, so the
+  // TS-emit, IR-validate, and Python-emit legs all screen a wrapped regex-literal
+  // access (`(/x/ as any).source`, `(/x/!)["test"](s)`) identically to the bare
+  // form — closing the wrapped-receiver fail-close bypass by construction.
+  regexLiteralReceiverIR,
+  regexMethodRegexArgIdent,
+  // Milestone C, Slice 5 — shared astral (non-BMP) scanner used by both emitters
+  // to detect-and-fail-close regex literals containing a non-BMP codepoint.
+  scanRegexAstral,
+  // Milestone C, Slice 4 — shared replacement-string translator (Python rewrite)
+  // + the TS-side validator (verbatim-but-validate, lockstep symmetric).
+  translateReplStringToPython,
+  // Slice 2 round 7 — shared transparent-receiver UNWRAP (`typeAssert`/`nonNull`
+  // fixpoint), re-exported so the Python `typeof` host-root fail-close peels a
+  // WRAPPED operand (`typeof (Date as any)`) identically to the TS-emit + IR
+  // legs before applying the host-root reject.
+  unwrapTransparentReceiverIR,
+  // FIX 2 — shared pattern-level named-group portability validator, called at the
+  // TS regex-literal emit chokepoints AND the Python `pyRegexPattern` lowering so
+  // a non-portable group name fail-closes symmetrically across targets.
+  validateRegexNamedGroupsPortable,
+  validateReplStringForTS,
+} from './codegen/regex-normalize.js';
 export type { KernStdlibUsage } from './codegen/stdlib-preamble.js';
 // Slice 4 layer 2 — Result / Option compact form preamble (TS-family targets)
 export {
@@ -280,9 +381,10 @@ export {
   validateCapabilityMetadata,
   validateImportMetadata,
 } from './import-metadata.js';
-// TS → .kern importer
-export type { ImportResult } from './importer.js';
-export { escapeKernString, importTypeScript } from './importer.js';
+// Slice 0.9 — the TS → .kern importer (`importer.ts`) statically imports
+// `typescript`, so it moved to the Node subpath `@kernlang/core/node` to keep
+// this barrel typescript-free. `ImportResult`/`escapeKernString`/`importTypeScript`
+// are re-exported from there.
 export type { InstanceofRhsRejectReason } from './instanceof-rhs.js';
 export {
   INSTANCEOF_RHS_BUILTIN_REJECT,
@@ -331,31 +433,68 @@ export {
   snapshotRegistry,
   tracesEqual,
 } from './ir/semantics/index.js';
+// ToNumericPrimitive decision kernel — slice-0.75 substrate (browser-safe).
+export type { KernNumericInput, NumericResult } from './ir/semantics/to-numeric.js';
+export {
+  ECMA_STR_WHITESPACE,
+  KERN_UNDEFINED_SENTINEL,
+  numberToInt32,
+  numberToIntegerOrInfinity,
+  numberToUint32,
+  stringToNumber,
+  toInt32,
+  toIntegerOrInfinity,
+  toNumber,
+  toUint32,
+} from './ir/semantics/to-numeric.js';
+// NOTE: the to-numeric differential FIXTURE arrays are deliberately NOT
+// exported from this public barrel (review finding: battery data is not
+// shipped runtime API). Test legs import './ir/semantics/to-numeric-fixtures.js'
+// (or its dist path) directly.
 export type { GapCategory, GapClassification } from './migrate-literals.js';
 export { classifyHandlerGap, isInlineSafeExpression, isInlineSafeLiteral } from './migrate-literals.js';
-// Native KERN handler eligibility (slice 5a) — heuristic classifier used by
-// the diagnostic layer and the future `kern migrate native-handlers` CLI.
-export type { EligibilityResult, FileEligibilityReport, RawBody } from './native-eligibility.js';
-export {
-  classifyHandlerBody,
-  extractRawBodies,
-  isExplicitForeignRawBody,
-  scanFileForEligibility,
-} from './native-eligibility.js';
-// Slice α-3: AST-walker classifier + shared helpers (migrator imports these).
-export type { AstEligibilityResult } from './native-eligibility-ast.js';
+// Native KERN handler eligibility (slice 5a) — browser-safe fence/regex layer.
+// `extractRawBodies`/`isExplicitForeignRawBody` are dependency-free; the
+// TypeScript-AST classifier (`classifyHandlerBody`/`scanFileForEligibility` bound
+// to the walker, plus `classifyHandlerBodyAst` and the migrator helpers) lives
+// at `@kernlang/core/node` to keep this barrel typescript-free (slice 0.9).
+export type { EligibilityResult, FileEligibilityReport, HandlerBodyClassifier, RawBody } from './native-eligibility.js';
+export { extractRawBodies, isExplicitForeignRawBody } from './native-eligibility.js';
+// ── DEPRECATED root-barrel compatibility (slice 0.9 review fix) ─────────────
+// These APIs moved to the `@kernlang/core/node` subpath (the single
+// TypeScript-dependent entrypoint). They are re-exported here ONLY so the move
+// is not a semver break inside the 4.x line — importing ANY of them from the
+// root barrel drags `typescript` (~10MB) into the consumer's module graph.
+// Browser consumers must use the parser subpath / barrel WITHOUT these names.
+/** @deprecated import from `@kernlang/core/node` instead — scheduled for removal in 5.0. */
+export type {
+  AstEligibilityResult,
+  ImportResult,
+  LowerJsClosureBodyToPythonOptions,
+  LowerJsClosureBodyToPythonResult,
+} from './node.js';
+/** @deprecated import from `@kernlang/core/node` instead — scheduled for removal in 5.0. */
 export {
   canonicalKernExpression,
   canonicalObjectEntriesSource,
+  classifyClosureBlock,
+  classifyHandlerBody,
   classifyHandlerBodyAst,
+  collectFreeIdentifierNames,
+  escapeKernString,
   hasComments,
   hasOnlyMigratableComments,
   hasTsOnlyTemplateEscape,
+  importTypeScript,
   isValidKernAssignmentTarget,
   isValidKernAssignmentValue,
   isValidKernExpression,
   isValidKernTypeAnnotation,
-} from './native-eligibility-ast.js';
+  lowerJsClosureBodyToPython,
+  parseClosureBlockAst,
+  scanFileForEligibility,
+  supportedCompoundAssignmentOperator,
+} from './node.js';
 export type {
   ActionProps,
   AssumeProps,
@@ -423,6 +562,7 @@ export {
 } from './parser.js';
 export type { ParseOptions } from './parser-core.js';
 // Native KERN handler bodies (slice 1) — expression parsing + body emit
+export type { ParseExpressionOptions } from './parser-expression.js';
 export { parseExpression } from './parser-expression.js';
 // Exported so unit tests can drive the validator directly with hand-built IR
 // (the parser drops `lang="kern" <<< raw >>>` bodies, so the lang-skip branch

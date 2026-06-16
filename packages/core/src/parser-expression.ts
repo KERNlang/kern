@@ -14,7 +14,11 @@
  *  require shape changes the body emitter doesn't have, so the parser
  *  deliberately rejects them. */
 
-import { classifyClosureBlock, parseClosureBlockAst } from './closure-eligibility.js';
+import {
+  CLOSURE_PARSER_UNAVAILABLE_MESSAGE,
+  type ClosureClassifier,
+  unavailableClosureClassifier,
+} from './closure-classifier.js';
 import type { ValueIR } from './value-ir.js';
 
 // ── Tokenizer ────────────────────────────────────────────────────────────
@@ -32,6 +36,12 @@ export type ExprTokenKind =
   | 'and'
   | 'pipe'
   | 'amp'
+  // Slice 6 — bitwise / shift operators on the ToInt32 substrate.
+  | 'caret' // ^ (bitwise XOR)
+  | 'tilde' // ~ (bitwise NOT, unary prefix)
+  | 'shl' // << (left shift)
+  | 'shr' // >> (signed right shift)
+  | 'ushr' // >>> (unsigned/zero-fill right shift)
   | 'lparen'
   | 'rparen'
   | 'lbrace'
@@ -113,6 +123,8 @@ const EXPR_START_KINDS: ReadonlySet<ExprTokenKind> = new Set<ExprTokenKind>([
   'spread',
   'bang',
   'minus',
+  // Slice 6 — `~x` can begin an expression (e.g. ternary consequent `c ? ~x : y`).
+  'tilde',
 ]);
 
 function isExprStartKind(kind: ExprTokenKind): boolean {
@@ -138,7 +150,13 @@ function isTypeAssertionBoundary(kind: ExprTokenKind): boolean {
     kind === 'minus' ||
     kind === 'star' ||
     kind === 'slash' ||
-    kind === 'percent'
+    kind === 'percent' ||
+    // Slice 6 review fix (codex 0.97): `^` is an expression operator with NO
+    // type-grammar meaning (unlike `|`/`&`, which stay in the type text as
+    // union/intersection — TS parses `x as Foo | y` as a union-type assertion).
+    // Without this boundary `x as Foo ^ y` swallowed `Foo ^ y` as type text
+    // instead of parsing `(x as Foo) ^ y`.
+    kind === 'caret'
   );
 }
 
@@ -153,10 +171,32 @@ function isTypeArgumentTokenKind(kind: ExprTokenKind): boolean {
     kind === 'comma' ||
     kind === 'lt' ||
     kind === 'gt' ||
+    // Slice 6 — nested generics close with `>>`/`>>>` (e.g. `Foo<Bar<Baz>>`),
+    // which the tokenizer lexes as a single `shr`/`ushr`; `<<` (`shl`) can open
+    // two levels. These count as angle brackets inside a type-argument list.
+    kind === 'shr' ||
+    kind === 'ushr' ||
+    kind === 'shl' ||
     kind === 'lbracket' ||
     kind === 'rbracket' ||
     kind === 'qmark'
   );
+}
+
+/** Slice 6 — how many `>` angle brackets a token carries (TS lexes `>>`/`>>>`
+ *  greedily, but in a TYPE-ARGUMENT context they close nested generics). */
+function angleCloseCount(kind: ExprTokenKind): number {
+  if (kind === 'gt') return 1;
+  if (kind === 'shr') return 2;
+  if (kind === 'ushr') return 3;
+  return 0;
+}
+
+/** Slice 6 — how many `<` angle brackets a token opens (`<<` opens two). */
+function angleOpenCount(kind: ExprTokenKind): number {
+  if (kind === 'lt') return 1;
+  if (kind === 'shl') return 2;
+  return 0;
 }
 
 const KEYWORDS: Record<string, ExprTokenKind> = {
@@ -363,6 +403,13 @@ function canStartRegex(tokens: ExprToken[]): boolean {
     prev.kind === 'and' ||
     prev.kind === 'pipe' ||
     prev.kind === 'amp' ||
+    // Slice 6 — a regex literal may follow a bitwise/shift operator or unary
+    // `~` (operator position), e.g. `flags & /re/.source`.
+    prev.kind === 'caret' ||
+    prev.kind === 'shl' ||
+    prev.kind === 'shr' ||
+    prev.kind === 'ushr' ||
+    prev.kind === 'tilde' ||
     prev.kind === 'eq' ||
     prev.kind === 'neq' ||
     prev.kind === 'strictEq' ||
@@ -494,6 +541,26 @@ export function tokenizeExpression(input: string): ExprToken[] {
       i++;
       continue;
     }
+    // Slice 6 — shift operators. Longest-match: `<<` before `<=`/`<`; and on
+    // the `>` side `>>>` before `>>` before `>=`/`>`. (Shift compound-assign
+    // `<<=`/`>>=`/`>>>=` is out of slice scope — KERN expressions have no
+    // assignment — so `<< =` would lex as `shl` then `eq`, and the parser
+    // rejects it downstream, which is the intended fail-closed behavior.)
+    if (ch === '<' && input[i + 1] === '<') {
+      tokens.push({ kind: 'shl', value: '<<', pos: i });
+      i += 2;
+      continue;
+    }
+    if (ch === '>' && input[i + 1] === '>' && input[i + 2] === '>') {
+      tokens.push({ kind: 'ushr', value: '>>>', pos: i });
+      i += 3;
+      continue;
+    }
+    if (ch === '>' && input[i + 1] === '>') {
+      tokens.push({ kind: 'shr', value: '>>', pos: i });
+      i += 2;
+      continue;
+    }
     // Slice 2c — relational. Multi-char first so `<=` / `>=` win over bare `<` / `>`.
     if (ch === '<' && input[i + 1] === '=') {
       tokens.push({ kind: 'lte', value: '<=', pos: i });
@@ -566,6 +633,18 @@ export function tokenizeExpression(input: string): ExprToken[] {
     }
     if (ch === '&') {
       tokens.push({ kind: 'amp', value: '&', pos: i });
+      i++;
+      continue;
+    }
+    // Slice 6 — bitwise XOR `^` and bitwise NOT `~` (unary prefix). KERN has no
+    // `^=`/`~=` (no assignment in expressions), so single-char is the only form.
+    if (ch === '^') {
+      tokens.push({ kind: 'caret', value: '^', pos: i });
+      i++;
+      continue;
+    }
+    if (ch === '~') {
+      tokens.push({ kind: 'tilde', value: '~', pos: i });
       i++;
       continue;
     }
@@ -686,6 +765,7 @@ class Parser {
   constructor(
     private tokens: ExprToken[],
     private input: string,
+    private closureClassifier: ClosureClassifier = unavailableClosureClassifier,
   ) {}
 
   private peek(offset = 0): ExprToken {
@@ -733,8 +813,12 @@ class Parser {
 
   /** Build a block-bodied arrow lambda (slices 0+1). Consumes the
    *  `closureBlock` token and validates the raw block at parse time:
-   *   1. `parseClosureBlockAst` must succeed (TS parse) — else fail-closed.
-   *   2. The v1 closure gate (`classifyClosureBlock`) must accept it — else
+   *   0. A closure-classifier capability must be injected — else fail closed
+   *      with the target-agnostic `closure-parser-unavailable` diagnostic. The
+   *      default browser-safe parser has none, keeping `typescript` out of the
+   *      import spine (slice 0.9).
+   *   1. `classifier.parseBlock` must succeed (TS parse) — else fail-closed.
+   *   2. The v1 closure gate (`classifier.classifyBlock`) must accept it — else
    *      fail-closed. A lambda with `bodyBlock` existing in the IR therefore
    *      implies it passed the gate; downstream emitters can trust it. */
   private buildBlockLambda(
@@ -744,12 +828,15 @@ class Parser {
   ): ValueIR {
     const tok = this.advance(); // closureBlock
     const raw = tok.value;
-    if (parseClosureBlockAst(raw) === null) {
+    if (!this.closureClassifier.available) {
+      throw new Error(CLOSURE_PARSER_UNAVAILABLE_MESSAGE);
+    }
+    if (this.closureClassifier.parseBlock(raw) === null) {
       throw new Error(
         `Unsupported closure body: the block at column ${tok.pos + 1} does not parse as a statement block.`,
       );
     }
-    const reason = classifyClosureBlock(raw);
+    const reason = this.closureClassifier.classifyBlock(raw);
     if (reason !== null) {
       throw new Error(`Unsupported closure body (${reason}) at column ${tok.pos + 1}.`);
     }
@@ -770,11 +857,21 @@ class Parser {
           let typeDepth = 0;
           for (let k = j + 2; k < this.tokens.length; k++) {
             const tk = this.tokens[k];
-            if (tk.kind === 'lparen' || tk.kind === 'lbracket' || tk.kind === 'lbrace' || tk.kind === 'lt') {
+            // Slice 6 — `<<`/`>>`/`>>>` carry multiple angle brackets when they
+            // appear inside a return-type's nested generics (`Foo<Bar<Baz>>`).
+            const opens = angleOpenCount(tk.kind);
+            const closes = angleCloseCount(tk.kind);
+            if (tk.kind === 'lparen' || tk.kind === 'lbracket' || tk.kind === 'lbrace') {
               typeDepth++;
-            } else if (tk.kind === 'rparen' || tk.kind === 'rbracket' || tk.kind === 'rbrace' || tk.kind === 'gt') {
+            } else if (opens > 0) {
+              typeDepth += opens;
+            } else if (tk.kind === 'rparen' || tk.kind === 'rbracket' || tk.kind === 'rbrace') {
               if (typeDepth === 0) return false;
               typeDepth--;
+            } else if (closes > 0) {
+              if (typeDepth === 0) return false;
+              typeDepth -= closes;
+              if (typeDepth < 0) typeDepth = 0;
             } else if (tk.kind === 'arrow' && typeDepth === 0) {
               return true;
             } else if (tk.kind === 'eof' || (tk.kind === 'comma' && typeDepth === 0)) {
@@ -840,10 +937,12 @@ class Parser {
       else if (t.kind === 'rbrace') {
         if (braceDepth === 0) break;
         braceDepth--;
-      } else if (t.kind === 'lt') angleDepth++;
-      else if (t.kind === 'gt') {
+      } else if (angleOpenCount(t.kind) > 0) angleDepth += angleOpenCount(t.kind);
+      else if (angleCloseCount(t.kind) > 0) {
+        // Slice 6 — `>>`/`>>>` close several nested generics at once.
         if (angleDepth === 0) break;
-        angleDepth--;
+        angleDepth -= angleCloseCount(t.kind);
+        if (angleDepth < 0) angleDepth = 0;
       }
       const advanced = this.advance();
       end = tokenEnd(advanced);
@@ -885,10 +984,12 @@ class Parser {
       else if (t.kind === 'rbrace') {
         if (braceDepth === 0) break;
         braceDepth--;
-      } else if (t.kind === 'lt') angleDepth++;
-      else if (t.kind === 'gt') {
+      } else if (angleOpenCount(t.kind) > 0) angleDepth += angleOpenCount(t.kind);
+      else if (angleCloseCount(t.kind) > 0) {
+        // Slice 6 — `>>`/`>>>` close several nested generics at once.
         if (angleDepth === 0) break;
-        angleDepth--;
+        angleDepth -= angleCloseCount(t.kind);
+        if (angleDepth < 0) angleDepth = 0;
       }
       const advanced = this.advance();
       end = tokenEnd(advanced);
@@ -945,11 +1046,47 @@ class Parser {
   }
 
   private parseAnd(): ValueIR {
-    let left = this.parseEquality();
+    let left = this.parseBitOr();
     while (this.peek().kind === 'and') {
       this.advance();
-      const right = this.parseEquality();
+      const right = this.parseBitOr();
       left = { kind: 'binary', op: '&&', left, right };
+    }
+    return left;
+  }
+
+  // Slice 6 — bitwise OR `|`, left-associative. JS precedence: BELOW `&&`,
+  // ABOVE `^`. So `1 | 2 && 0` parses `(1 | 2) && 0` (parseAnd wraps this) and
+  // `1 ^ 3 | 4` parses `(1 ^ 3) | 4`.
+  private parseBitOr(): ValueIR {
+    let left = this.parseBitXor();
+    while (this.peek().kind === 'pipe') {
+      this.advance();
+      const right = this.parseBitXor();
+      left = { kind: 'binary', op: '|', left, right };
+    }
+    return left;
+  }
+
+  // Slice 6 — bitwise XOR `^`, left-associative. Between `|` and `&`.
+  private parseBitXor(): ValueIR {
+    let left = this.parseBitAnd();
+    while (this.peek().kind === 'caret') {
+      this.advance();
+      const right = this.parseBitAnd();
+      left = { kind: 'binary', op: '^', left, right };
+    }
+    return left;
+  }
+
+  // Slice 6 — bitwise AND `&`, left-associative. ABOVE `^`, BELOW equality, so
+  // `1 & 3 === 1` parses `1 & (3 === 1)` (the equality binds tighter).
+  private parseBitAnd(): ValueIR {
+    let left = this.parseEquality();
+    while (this.peek().kind === 'amp') {
+      this.advance();
+      const right = this.parseEquality();
+      left = { kind: 'binary', op: '&', left, right };
     }
     return left;
   }
@@ -974,18 +1111,33 @@ class Parser {
   // in operator position after a complete operand, an `ident` named
   // `instanceof` can only be the operator.
   private parseRelational(): ValueIR {
-    let left = this.parseAdditive();
+    let left = this.parseShift();
     while (true) {
       const t = this.peek();
       if (t.kind === 'ident' && t.value === 'instanceof') {
         this.advance();
-        const right = this.parseAdditive();
+        const right = this.parseShift();
         left = { kind: 'binary', op: 'instanceof', left, right };
         continue;
       }
       const k = t.kind;
       if (k !== 'lt' && k !== 'lte' && k !== 'gt' && k !== 'gte') break;
       const op = this.advance().value as '<' | '<=' | '>' | '>=';
+      const right = this.parseShift();
+      left = { kind: 'binary', op, left, right };
+    }
+    return left;
+  }
+
+  // Slice 6 — shift (<<, >>, >>>), left-associative. JS precedence: ABOVE
+  // additive, BELOW relational. So `1 + 2 << 3` parses `(1 + 2) << 3` and
+  // `1 << 2 < 8` parses `(1 << 2) < 8`.
+  private parseShift(): ValueIR {
+    let left = this.parseAdditive();
+    while (true) {
+      const k = this.peek().kind;
+      if (k !== 'shl' && k !== 'shr' && k !== 'ushr') break;
+      const op = this.advance().value as '<<' | '>>' | '>>>';
       const right = this.parseAdditive();
       left = { kind: 'binary', op, left, right };
     }
@@ -1030,6 +1182,12 @@ class Parser {
     if (this.peek().kind === 'minus') {
       this.advance();
       return { kind: 'unary', op: '-', argument: this.parseUnary() };
+    }
+    // Slice 6 — bitwise NOT `~`, same precedence level as the other unary
+    // prefixes, right-recursive (so `~~x` and `~await f()` nest correctly).
+    if (this.peek().kind === 'tilde') {
+      this.advance();
+      return { kind: 'unary', op: '~', argument: this.parseUnary() };
     }
     if (this.peek().kind === 'ident' && this.peek().value === 'typeof') {
       this.advance();
@@ -1110,8 +1268,12 @@ class Parser {
       }
       if (parenDepth === 0 && bracketDepth === 0 && braceDepth === 0 && angleDepth === 0) {
         if (t.kind === 'ident' && t.value === 'as') break;
-        if (t.kind === 'lte' || t.kind === 'gte' || t.kind === 'gt') break;
-        if (t.kind === 'lt' && end !== t.pos) break;
+        // Slice 6 — at the top level `>`/`>=`/`<=` and the shift tokens `>>`/`>>>`
+        // are operator boundaries, not type punctuation. `<<` can't legally open
+        // a type at top level here either, but a top-level `<` (when text already
+        // started) is a comparison boundary, so the same rule covers `<<`.
+        if (t.kind === 'lte' || t.kind === 'gte' || t.kind === 'gt' || t.kind === 'shr' || t.kind === 'ushr') break;
+        if ((t.kind === 'lt' || t.kind === 'shl') && end !== t.pos) break;
       }
       if (t.kind === 'lparen') parenDepth++;
       else if (t.kind === 'rparen') {
@@ -1125,10 +1287,12 @@ class Parser {
       else if (t.kind === 'rbrace') {
         if (braceDepth === 0) break;
         braceDepth--;
-      } else if (t.kind === 'lt') angleDepth++;
-      else if (t.kind === 'gt') {
+      } else if (angleOpenCount(t.kind) > 0) angleDepth += angleOpenCount(t.kind);
+      else if (angleCloseCount(t.kind) > 0) {
+        // Multi-`>` token closes several nested generics (`Map<K, Set<V>>`).
         if (angleDepth === 0) break;
-        angleDepth--;
+        angleDepth -= angleCloseCount(t.kind);
+        if (angleDepth < 0) angleDepth = 0;
       }
       const advanced = this.advance();
       end = tokenEnd(advanced);
@@ -1194,9 +1358,19 @@ class Parser {
     let angleDepth = 0;
     for (let j = this.i; j < this.tokens.length; j++) {
       const t = this.tokens[j];
-      if (t.kind === 'lt') angleDepth++;
-      else if (t.kind === 'gt') {
-        angleDepth--;
+      // Slice 6 — `<<`/`>>`/`>>>` carry multiple angle brackets in a type
+      // context (e.g. `Foo<Bar<Baz>>`); count them, not one apiece.
+      const opens = angleOpenCount(t.kind);
+      const closes = angleCloseCount(t.kind);
+      if (opens > 0) angleDepth += opens;
+      else if (closes > 0) {
+        // Slice 6 review fix (codex 0.95): a multi-`>` token that closes MORE
+        // generics than are open (`f<Bar<Baz>>>(x)` — `>>>` against depth 2)
+        // is NOT a type-argument list. Rejecting here makes the malformed form
+        // fall back to ordinary comparison/shift expression parsing instead of
+        // silently swallowing the surplus `>`.
+        if (closes > angleDepth) return false;
+        angleDepth -= closes;
         if (angleDepth === 0) return this.tokens[j + 1]?.kind === 'lparen';
       } else if (angleDepth > 0 && !isTypeArgumentTokenKind(t.kind)) {
         return false;
@@ -1215,14 +1389,27 @@ class Parser {
     while (true) {
       const t = this.peek();
       if (t.kind === 'eof') throw new Error(`Unclosed type argument list at column ${startTok.pos + 1}`);
-      if (t.kind === 'lt') angleDepth++;
-      else if (t.kind === 'gt') {
-        angleDepth--;
-        if (angleDepth === 0) {
-          end = t.pos;
+      const opens = angleOpenCount(t.kind);
+      const closes = angleCloseCount(t.kind);
+      if (opens > 0) {
+        angleDepth += opens;
+      } else if (closes > 0) {
+        // A multi-`>` token (`>>`/`>>>`) closes several nested generics at once.
+        // The text ends BEFORE the `>` that returns depth to 0: of this token's
+        // `>`s, the inner `(angleDepth - 1)` belong to the text and the last one
+        // is the (excluded) closing bracket. (Single `>`, depth 1 -> `t.pos`.)
+        // Surplus `>`s beyond the open depth are malformed — the lookahead
+        // (`isTypeArgumentCallAhead`) rejects that shape, so reaching it here
+        // means an internal inconsistency, not user input; fail loudly.
+        if (closes > angleDepth) {
+          throw new Error(`Type argument list at column ${startTok.pos + 1} closes more generics than are open`);
+        }
+        if (closes === angleDepth) {
+          end = t.pos + (angleDepth - 1);
           this.advance();
           break;
         }
+        angleDepth -= closes;
       }
       if (angleDepth > 0) {
         const advanced = this.advance();
@@ -1422,7 +1609,11 @@ class Parser {
         const exprEnd = findMatchingBrace(this.input, pos);
         const exprSrc = this.input.slice(pos, exprEnd);
         const innerTokens = tokenizeExpression(exprSrc);
-        const innerParser = new Parser(innerTokens, exprSrc);
+        // Thread the closure classifier into the interpolation sub-parser so a
+        // block-bodied arrow inside `${…}` parses identically to a top-level one
+        // (slice 0.9 — without this the inner parser would fail closed even when
+        // a classifier is injected).
+        const innerParser = new Parser(innerTokens, exprSrc, this.closureClassifier);
         expressions.push(innerParser.parse());
         pos = exprEnd + 1;
         continue;
@@ -1529,8 +1720,16 @@ function findMatchingBrace(input: string, start: number): number {
   throw new Error(`Unclosed \${...} substitution starting at column ${start + 1}`);
 }
 
-export function parseExpression(input: string): ValueIR {
+/** Options for `parseExpression`. The closure-classifier capability lets a
+ *  Node/codegen caller inject the TypeScript-AST gate so block-bodied arrows
+ *  parse; without it (the browser-safe default) block-bodied arrows fail closed
+ *  with `closure-parser-unavailable` (slice 0.9). */
+export interface ParseExpressionOptions {
+  closureClassifier?: ClosureClassifier;
+}
+
+export function parseExpression(input: string, options?: ParseExpressionOptions): ValueIR {
   const tokens = tokenizeExpression(input);
-  const parser = new Parser(tokens, input);
+  const parser = new Parser(tokens, input, options?.closureClassifier ?? unavailableClosureClassifier);
   return parser.parse();
 }

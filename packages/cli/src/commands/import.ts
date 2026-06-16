@@ -1,14 +1,17 @@
-import type { ImportResult, ParseDiagnostic, SchemaViolation, SemanticViolation } from '@kernlang/core';
-import {
-  generateCoreNode,
-  importTypeScript,
-  parseDocumentWithDiagnostics,
-  validateSchema,
-  validateSemantics,
-} from '@kernlang/core';
+import type { ParseDiagnostic, SchemaViolation, SemanticViolation } from '@kernlang/core';
+import { generateCoreNode, parseDocumentWithDiagnostics, validateSchema, validateSemantics } from '@kernlang/core';
+import type { ImportResult } from '@kernlang/core/node';
+import { importTypeScript, nativeEligibilityClassifier, typescriptClosureClassifier } from '@kernlang/core/node';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { basename, dirname, relative, resolve } from 'path';
 import { hasFlag, parseFlag } from '../shared.js';
+
+// Slice 0.9 — Node-side: inject the TypeScript-backed classifiers so block-bodied
+// arrows in expression props keep parsing (instead of fail-closing).
+const NODE_PARSE_CAPS = {
+  closureClassifier: typescriptClosureClassifier,
+  nativeEligibilityClassifier,
+} as const;
 
 interface ImportFileReport {
   file: string;
@@ -83,7 +86,7 @@ function findCodegenErrors(root: ReturnType<typeof parseDocumentWithDiagnostics>
 function checkImportedKern(
   result: ImportResult,
 ): Omit<ImportFileReport, 'file' | 'output' | 'stats' | 'unmapped' | 'ok'> {
-  const parsed = parseDocumentWithDiagnostics(result.kern);
+  const parsed = parseDocumentWithDiagnostics(result.kern, undefined, NODE_PARSE_CAPS);
   // Slice 5a: NATIVE_KERN_ELIGIBLE is an opt-in hint, not an import-quality
   // signal — every importable TS handler that happens to be eligible would
   // otherwise flip `ok` to false. Filter at the import-check boundary so the

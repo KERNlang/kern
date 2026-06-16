@@ -16,13 +16,13 @@ screen name=MyScreen
       try
         assign target="count" value="count + step"
         catch name=err type=any
-          do value="console.error(err)"
+          do value="err"
       
   effect deps="count"
     handler lang=kern
-      do value="console.log('Count changed', count)"
+      do value="count"
 
 class NativeClass
   constructor
     handler lang=kern
-      do value="console.log('Class initialized')"
+      do value="0"

@@ -9,10 +9,16 @@ import { classifyClosureBlock, collectFreeIdentifierNames, parseClosureBlockAst 
 import { emitExpression } from '../src/codegen-expression.js';
 import { classifyHandlerBodyAst } from '../src/native-eligibility-ast.js';
 import { parseExpression } from '../src/parser-expression.js';
+import { typescriptClosureClassifier } from '../src/typescript-closure-classifier.js';
+
+// Slice 0.9 — block-bodied arrows require an injected closure classifier; these
+// tests exercise the full TypeScript-backed behavior, so they inject the adapter.
+const parseExpr = (input: string): ReturnType<typeof parseExpression> =>
+  parseExpression(input, { closureClassifier: typescriptClosureClassifier });
 
 describe('parseExpression — block-bodied arrow capture', () => {
   test('accepts let/const + return, storing the raw block verbatim', () => {
-    const ir = parseExpression('(x) => { const y = x * 2; return y; }') as Extract<
+    const ir = parseExpr('(x) => { const y = x * 2; return y; }') as Extract<
       ReturnType<typeof parseExpression>,
       { kind: 'lambda' }
     >;
@@ -22,7 +28,7 @@ describe('parseExpression — block-bodied arrow capture', () => {
   });
 
   test('accepts if/else with block and single-statement branches', () => {
-    const ir = parseExpression('(x) => { if (x > 2) { return 1 } return 0 }') as Extract<
+    const ir = parseExpr('(x) => { if (x > 2) { return 1 } return 0 }') as Extract<
       ReturnType<typeof parseExpression>,
       { kind: 'lambda' }
     >;
@@ -31,70 +37,65 @@ describe('parseExpression — block-bodied arrow capture', () => {
   });
 
   test('accepts single-ident param form (no parens) with a block body', () => {
-    const ir = parseExpression('x => { return x + 1; }') as Extract<
-      ReturnType<typeof parseExpression>,
-      { kind: 'lambda' }
-    >;
+    const ir = parseExpr('x => { return x + 1; }') as Extract<ReturnType<typeof parseExpression>, { kind: 'lambda' }>;
     expect(ir.kind).toBe('lambda');
     expect(ir.bodyBlock).toEqual({ raw: '{ return x + 1; }' });
   });
 
   test('THROWS on `this` inside a block', () => {
-    expect(() => parseExpression('(x) => { this.y = 1; return x; }')).toThrow(/closure-this/);
+    expect(() => parseExpr('(x) => { this.y = 1; return x; }')).toThrow(/closure-this/);
   });
 
   test('ACCEPTS a free-variable write (mutation v1) — `count++` parses', () => {
     // Mutation v1 lifted the assignment reject: a bare free write is accepted at
     // the gate (the Python emitter adds `nonlocal`; TS re-emits verbatim).
-    const ir = parseExpression('(x) => { count++; return count; }') as { kind: string; bodyBlock?: { raw: string } };
+    const ir = parseExpr('(x) => { count++; return count; }') as { kind: string; bodyBlock?: { raw: string } };
     expect(ir.kind).toBe('lambda');
     expect(ir.bodyBlock).toEqual({ raw: '{ count++; return count; }' });
   });
 
   test('THROWS on a `this`-rooted assign target (still closure-this)', () => {
-    expect(() => parseExpression('(x) => { this.y = 1; return x; }')).toThrow(/closure-this/);
+    expect(() => parseExpr('(x) => { this.y = 1; return x; }')).toThrow(/closure-this/);
   });
 
   test('THROWS on a value-position ++ (`arr.push(x++)`) — closure-incdec-value-position', () => {
-    expect(() => parseExpression('(x) => { arr.push(x++); return 0; }')).toThrow(/closure-incdec-value-position/);
+    expect(() => parseExpr('(x) => { arr.push(x++); return 0; }')).toThrow(/closure-incdec-value-position/);
   });
 
   test('THROWS on value-position assignments — closure-assign-value-position (agon review, claude 0.85)', () => {
     // Same drift class as value-position ++: the lowerer can only emit an
     // assignment that is the DIRECT expression of an ExpressionStatement.
-    expect(() => parseExpression('(x) => { arr.push(x = 5); return 0; }')).toThrow(/closure-assign-value-position/);
-    expect(() => parseExpression('(x) => { const y = (x = 5); return y; }')).toThrow(/closure-assign-value-position/);
-    expect(() => parseExpression('(x) => { return (x = 5); }')).toThrow(/closure-assign-value-position/);
-    expect(() => parseExpression('(x) => { let a = 0; a = (x = 2); return a; }')).toThrow(
-      /closure-assign-value-position/,
-    );
+    expect(() => parseExpr('(x) => { arr.push(x = 5); return 0; }')).toThrow(/closure-assign-value-position/);
+    expect(() => parseExpr('(x) => { const y = (x = 5); return y; }')).toThrow(/closure-assign-value-position/);
+    expect(() => parseExpr('(x) => { return (x = 5); }')).toThrow(/closure-assign-value-position/);
+    expect(() => parseExpr('(x) => { let a = 0; a = (x = 2); return a; }')).toThrow(/closure-assign-value-position/);
   });
 
   test('THROWS on an unsupported assignment operator (`x &= 1`) — closure-unsupported-operator', () => {
-    expect(() => parseExpression('(x) => { count &= 1; return count; }')).toThrow(/closure-unsupported-operator/);
+    expect(() => parseExpr('(x) => { count &= 1; return count; }')).toThrow(/closure-unsupported-operator/);
   });
 
   test('THROWS on a `for` loop inside the block', () => {
-    expect(() => parseExpression('(x) => { for (const a of x) { y(a); } return x; }')).toThrow(/closure-loop/);
+    expect(() => parseExpr('(x) => { for (const a of x) { y(a); } return x; }')).toThrow(/closure-loop/);
   });
 
   test('THROWS on destructuring declaration', () => {
-    expect(() => parseExpression('(x) => { const {a} = x; return a; }')).toThrow(/closure-destructure/);
+    expect(() => parseExpr('(x) => { const {a} = x; return a; }')).toThrow(/closure-destructure/);
   });
 
   test('THROWS on `await` inside the block', () => {
-    expect(() => parseExpression('(x) => { await f(); return 1; }')).toThrow(/closure-await/);
+    expect(() => parseExpr('(x) => { await f(); return 1; }')).toThrow(/closure-await/);
   });
 
   test('THROWS on a nested arrow', () => {
-    expect(() => parseExpression('(x) => { const g = (y) => y; return g(x) }')).toThrow(/closure-nested-function/);
+    expect(() => parseExpr('(x) => { const g = (y) => y; return g(x) }')).toThrow(/closure-nested-function/);
   });
 });
 
 describe('block-bodied arrow — quote-aware lexer capture', () => {
   test('captures braces inside string literals and templates correctly', () => {
     const src = '(x) => { const s = "a}b"; const t = `v: ${x}`; return s; }';
-    const ir = parseExpression(src) as Extract<ReturnType<typeof parseExpression>, { kind: 'lambda' }>;
+    const ir = parseExpr(src) as Extract<ReturnType<typeof parseExpression>, { kind: 'lambda' }>;
     expect(ir.bodyBlock).toEqual({ raw: '{ const s = "a}b"; const t = `v: ${x}`; return s; }' });
   });
 });
@@ -108,7 +109,7 @@ describe('TS re-emit — byte-stable round-trip', () => {
       '(x) => { acc.push(x * 2); return acc.length; }',
       '(x) => { const s = "a}b"; const t = `v: ${x}`; return s; }',
     ]) {
-      expect(emitExpression(parseExpression(src))).toBe(src);
+      expect(emitExpression(parseExpr(src))).toBe(src);
     }
   });
 });

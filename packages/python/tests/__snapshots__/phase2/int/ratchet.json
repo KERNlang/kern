@@ -1,0 +1,1265 @@
+{
+  "version": 1,
+  "baselineTag": "VOLATILE_PRE_STDREGISTRY_d9d35718",
+  "sourceTreeSha256": "1918e9b95070c26ef7ca43c8f42943593c3869f9ed6beb407ae59a14cbf51f0c",
+  "routeTableSha256": "1e9ed2ed4900a9393cc0ad04cf55784c07b506808ae83de82de394cc6062a4b9",
+  "routeTableSchemaSha256": "4fa98f32598688d1c9aebb1d4483f2f8bebe9afca82689bf0c3981eb68650b9b",
+  "corpusSha256": "d0e2b0d629d9b133c67e3a434b86c6e9ed329d7d6206ae79dbf6298268a1fe5f",
+  "discriminatorVersion": "census-v3",
+  "discriminatorSha256": "cd77da0135cecf6e43fa52ff2f83f6e810560c5767dd195049410da74b0f6278",
+  "selectedCaseIds": [
+    "bitwise-or-sign-bit",
+    "bitwise-shr-large-to-zero",
+    "bitwise-shl-count-mask",
+    "bitwise-computed-sum-or-wrap",
+    "bitwise-not-string-float",
+    "bitwise-ushr-negative-zero-shift",
+    "bitwise-precedence-or-before-andand",
+    "bitwise-eval-once-ushr-or-log",
+    "bitwise-nested-mod-ushr-composition",
+    "bitwise-generic-surplus-gt-boundary",
+    "logical-and-basic-expression",
+    "logical-or-basic-expression",
+    "logical-precedence-or-and",
+    "logical-call-child-parenthesized",
+    "logical-container-or-legacy-bug",
+    "logical-nan-and-legacy-bug",
+    "logical-precedence-calls-log",
+    "logical-impure-member-left-single-eval",
+    "logical-impure-index-left-single-eval",
+    "logical-nullish-boundary-zero",
+    "logical-ternary-consumer-container",
+    "logical-iterable-map-empty-list-or",
+    "logical-iterable-map-empty-string-or",
+    "logical-iterable-filter-container-or",
+    "logical-iterable-join-logical-receiver",
+    "logical-iterable-flat-logical-receiver",
+    "logical-iterable-map-nullish-source",
+    "logical-iterable-map-typeof-source",
+    "logical-iterable-map-ternary-source",
+    "logical-iterable-map-call-log",
+    "strict-num-bool-zero-false",
+    "strict-num-bool-one-true",
+    "strict-neq-num-bool",
+    "strict-string-num",
+    "strict-nan-self",
+    "strict-same-int",
+    "strict-same-string",
+    "strict-eval-once-calls"
+  ],
+  "summary": {
+    "selectedCaseCount": 38,
+    "ratchetCount": 10,
+    "byteEqualCount": 0,
+    "runtimeEqualByteDiffCount": 10,
+    "semanticBothWrongCount": 0,
+    "fallbackCount": 0
+  },
+  "records": [
+    {
+      "caseId": "bitwise-or-sign-bit",
+      "route": "bitwise",
+      "tags": [
+        "bitwise",
+        "int32",
+        "sign-bit",
+        "conformance"
+      ],
+      "sourceSha256": "04f56930902a1ec9e47fcadd713da6cb6a134bf33e0f3a5e14bc8f4947ae5ef9",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "a4efede34695a6b080de34cb59058b801f608e42fa146ca1d8b00678a92d99dd",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"-2147483648\"},\"calls\":[]}",
+        "error": null
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "015e4f284508896b406b60b758646ce8df2efa709b31cee2b6a0cffd611efe63",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"-2147483648\"},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"-2147483648\"},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"-2147483648\"},\"calls\":[]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "RUNTIME_EQUAL_BYTE_DIFF",
+      "triage": null
+    },
+    {
+      "caseId": "bitwise-shr-large-to-zero",
+      "route": "bitwise",
+      "tags": [
+        "bitwise",
+        "shift",
+        "toint32-left",
+        "conformance"
+      ],
+      "sourceSha256": "7ae57d0c2d30db3a0448a8176772170aebe1c71c43a7845d7d5f6a7a51640696",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "4bb36d07d25ac21604295b386a17cda91f830793d13ba7eea2aed89f587bc32c",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"0\"},\"calls\":[]}",
+        "error": null
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "682986615dee8fcfd9adae5420eaf30cb300ebf97de215e1226195ee554b03f3",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"0\"},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"0\"},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"0\"},\"calls\":[]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "RUNTIME_EQUAL_BYTE_DIFF",
+      "triage": null
+    },
+    {
+      "caseId": "bitwise-shl-count-mask",
+      "route": "bitwise",
+      "tags": [
+        "bitwise",
+        "shift",
+        "count-mask",
+        "conformance"
+      ],
+      "sourceSha256": "79ea421b940c347409cf3b94e873c3a5f4b7ca60ec5083e5e791ae3c00bd43fc",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "f40225f8e5088974364f78143d254201b9f10c04936bb1af936122dad0b810cc",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"2\"},\"calls\":[]}",
+        "error": null
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "8a5deaacbd37efffd13b22381e85ead5035ff8f5b61eaed2a7696c9f71e01593",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"2\"},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"2\"},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"2\"},\"calls\":[]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "RUNTIME_EQUAL_BYTE_DIFF",
+      "triage": null
+    },
+    {
+      "caseId": "bitwise-computed-sum-or-wrap",
+      "route": "bitwise",
+      "tags": [
+        "bitwise",
+        "computed-left",
+        "wraparound",
+        "conformance"
+      ],
+      "sourceSha256": "26d466f6f68750e9741c3aef247e024bb09e50a920ca87165dd7be14882ea862",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "672cdec467d64f462e6caeca8b978cbd9db5f1c0cac665f48b7a2efa3e1c1abf",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"-2147483648\"},\"calls\":[]}",
+        "error": null
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "971308c5fa3ee95e5be584a315f04ba6bffb7b5086ba093792c8e6911c45b392",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"-2147483648\"},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"-2147483648\"},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"-2147483648\"},\"calls\":[]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "RUNTIME_EQUAL_BYTE_DIFF",
+      "triage": null
+    },
+    {
+      "caseId": "bitwise-not-string-float",
+      "route": "bitwise",
+      "tags": [
+        "bitwise",
+        "unary",
+        "tonumber",
+        "string-float",
+        "conformance"
+      ],
+      "sourceSha256": "8d5679ec94e658e1de328401393caa90b352cc5bc28b6a3601f38f7fdf1de3cb",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "b3ea090dc8853fab6c2ee6201536b778694f745df7c4039f3dd1df54d24d655d",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"2\"},\"calls\":[]}",
+        "error": null
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "0428a773e0cd05ee9b956158675feebdf0ffc03ec1160a135bb3d028101f1c61",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"2\"},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"2\"},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"2\"},\"calls\":[]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "RUNTIME_EQUAL_BYTE_DIFF",
+      "triage": null
+    },
+    {
+      "caseId": "bitwise-ushr-negative-zero-shift",
+      "route": "bitwise",
+      "tags": [
+        "bitwise",
+        "unsigned-shift",
+        "uint32-result",
+        "conformance"
+      ],
+      "sourceSha256": "1db76a05c7b9a0906e5bd681e47ab38e23bd7af1d3d1726a5ce248a74dea2417",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "904dffcf64b5649a51818d9d4b2d635c24ce72085a780b1a7f00153e5cf7514d",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"4294967295\"},\"calls\":[]}",
+        "error": null
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "388eb9297013c2c1498d438264ddcb062f4d14615f584344f882b6fc70de2ff8",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"4294967295\"},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"4294967295\"},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"4294967295\"},\"calls\":[]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "RUNTIME_EQUAL_BYTE_DIFF",
+      "triage": null
+    },
+    {
+      "caseId": "bitwise-precedence-or-before-andand",
+      "route": "bitwise",
+      "tags": [
+        "bitwise",
+        "logical-boundary",
+        "precedence",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "0ecfb3a7e7d80d885c3ebbefb80a15fc18b52d49c303e4522be938472a0ec8d1",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "76f2d856c54a194da54b1ec2047c6e5879b4f3886de077030a070eaf75fa37ad",
+        "runtimeCanon": null,
+        "error": {
+          "code": "py:syntax-error",
+          "category": "emit"
+        }
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "f77c580eabf9fd216f77dfd59d59b76818d96a55cb4fcc0fde5ab82306a6d6bb",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"0\"},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"0\"},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"0\"},\"calls\":[]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "bitwise-eval-once-ushr-or-log",
+      "route": "bitwise",
+      "tags": [
+        "bitwise",
+        "unsigned-shift",
+        "eval-once",
+        "left-to-right",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "5361e1a3a9c8e08b4ee80b3084a9b4b46ce00240a8cc3b3618b084b78e662603",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "20f2ee1df46d4ce65b5976c04715537e965b1e20ba6b828725f9678def9ecf00",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"4294967295\"},\"calls\":[\"a\",\"b\",\"c\"]}",
+        "error": null
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "7c59cca53d5961a566e68e9d0a6af1afbc8e1b3a204018f1836d9d29bd4c5d9a",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"-1\"},\"calls\":[\"a\",\"b\",\"c\"]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"-1\"},\"calls\":[\"a\",\"b\",\"c\"]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"-1\"},\"calls\":[\"a\",\"b\",\"c\"]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "bitwise-nested-mod-ushr-composition",
+      "route": "bitwise",
+      "tags": [
+        "bitwise",
+        "modulo",
+        "unsigned-shift",
+        "composition",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "e6866c5bb4957c20fad9422921ca5a9c037318ff088de2551e8d1335b371ede2",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "66a80b6cb9cd2849f4e923a212931772aedf9060235db39781c8a3099980e3e9",
+        "runtimeCanon": null,
+        "error": {
+          "code": "py:typeerror",
+          "category": "runtime"
+        }
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "1a4a6f2313fdc62fa7ccd123e1c6ced2467fafdb86791dc18eb328f2dbaa0218",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"-1\"},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"-1\"},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"-1\"},\"calls\":[]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "bitwise-generic-surplus-gt-boundary",
+      "route": "bitwise",
+      "tags": [
+        "bitwise",
+        "parser-boundary",
+        "generics",
+        "surplus-gt",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "21f0f399ef0d1b2728c84190e51b1ee05d84a9aa968c0524abbc2f13d36c7579",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "d1e434734eae939ae2d30d3b1a3544f58a3460c8438bad581934a675fa7612bd",
+        "runtimeCanon": null,
+        "error": {
+          "code": "py:nameerror",
+          "category": "runtime"
+        }
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "a299b27ac20b478a3ff3b3479a5188102b0e884bef4694ef07d95faf1aa365a0",
+        "runtimeCanon": null,
+        "error": {
+          "code": "py:nameerror",
+          "category": "runtime"
+        },
+        "fallbackUsed": false
+      },
+      "tsCanon": null,
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"object\",\"entries\":[[\"parseShape\",{\"kind\":\"string\",\"value\":\"not-call-with-typeArgs\"}]]},\"calls\":[]}",
+      "expectedFirstCapture": "BOTH_BLOCKED_SAME",
+      "verdict": "BOTH_BLOCKED_SAME",
+      "triage": null
+    },
+    {
+      "caseId": "logical-and-basic-expression",
+      "route": "logical",
+      "tags": [
+        "logical",
+        "and",
+        "result-value",
+        "existing-test"
+      ],
+      "sourceSha256": "adad54e09949b0e92325b2815e303733216b502bd743d2e748e836e336db2d9b",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "adad54e09949b0e92325b2815e303733216b502bd743d2e748e836e336db2d9b",
+        "runtimeCanon": null,
+        "error": {
+          "code": "py:syntax-error",
+          "category": "emit"
+        }
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "7ba8366bec72bffba50f715ae9b63779bf1ce05b3b43c0cc3a02ded0fb80f5e8",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"right\"},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"right\"},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"right\"},\"calls\":[]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "logical-or-basic-expression",
+      "route": "logical",
+      "tags": [
+        "logical",
+        "or",
+        "result-value",
+        "existing-test"
+      ],
+      "sourceSha256": "f8dc2e8bbddcdfbe9a9fface8f87fe257a46ced1da0ffffeca8c408c3e17dce8",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "f8dc2e8bbddcdfbe9a9fface8f87fe257a46ced1da0ffffeca8c408c3e17dce8",
+        "runtimeCanon": null,
+        "error": {
+          "code": "py:syntax-error",
+          "category": "emit"
+        }
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "ff982f632c7edc52fe137d9c2bc6960748a6f5902bd03e80672ff307a2c4ce3c",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"fallback\"},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"fallback\"},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"fallback\"},\"calls\":[]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "logical-precedence-or-and",
+      "route": "logical",
+      "tags": [
+        "logical",
+        "or",
+        "and",
+        "precedence",
+        "existing-test"
+      ],
+      "sourceSha256": "33720cee3dabde0d47c9ed3d85e9804352b1aee9eeabec7b1fc672ef19b2dfb6",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "33720cee3dabde0d47c9ed3d85e9804352b1aee9eeabec7b1fc672ef19b2dfb6",
+        "runtimeCanon": null,
+        "error": {
+          "code": "py:syntax-error",
+          "category": "emit"
+        }
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "73d89205e61f2f4ffdb94b4ae6f45f9261b3fb7c219eed62b4409d5d268640f1",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"right\"},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"right\"},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"right\"},\"calls\":[]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "logical-call-child-parenthesized",
+      "route": "logical",
+      "tags": [
+        "logical",
+        "or",
+        "call-child",
+        "parentheses",
+        "existing-test"
+      ],
+      "sourceSha256": "6efeae5568617ca2c9880d2f0b10d4cc34e58c57e640c1327658e61631cfd49a",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "6efeae5568617ca2c9880d2f0b10d4cc34e58c57e640c1327658e61631cfd49a",
+        "runtimeCanon": null,
+        "error": {
+          "code": "py:syntax-error",
+          "category": "emit"
+        }
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "4edd824a59fcae45d6b29da72817e9821678151c7cd8cd205d5655ce77162a1f",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"callable-result\"},\"calls\":[\"fallback\"]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"callable-result\"},\"calls\":[\"fallback\"]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"callable-result\"},\"calls\":[\"fallback\"]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "logical-container-or-legacy-bug",
+      "route": "logical",
+      "tags": [
+        "logical",
+        "or",
+        "result-value",
+        "container-truthy",
+        "legacy-bug",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "f8dc2e8bbddcdfbe9a9fface8f87fe257a46ced1da0ffffeca8c408c3e17dce8",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "f8dc2e8bbddcdfbe9a9fface8f87fe257a46ced1da0ffffeca8c408c3e17dce8",
+        "runtimeCanon": null,
+        "error": {
+          "code": "py:syntax-error",
+          "category": "emit"
+        }
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "ff982f632c7edc52fe137d9c2bc6960748a6f5902bd03e80672ff307a2c4ce3c",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[]},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[]},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[]},\"calls\":[]}",
+      "expectedFirstCapture": "LEGACY_BLOCKED",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "logical-nan-and-legacy-bug",
+      "route": "logical",
+      "tags": [
+        "logical",
+        "and",
+        "nan-falsy",
+        "legacy-bug",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "adad54e09949b0e92325b2815e303733216b502bd743d2e748e836e336db2d9b",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "adad54e09949b0e92325b2815e303733216b502bd743d2e748e836e336db2d9b",
+        "runtimeCanon": null,
+        "error": {
+          "code": "py:syntax-error",
+          "category": "emit"
+        }
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "7ba8366bec72bffba50f715ae9b63779bf1ce05b3b43c0cc3a02ded0fb80f5e8",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"NaN\"},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"NaN\"},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"number\",\"value\":\"NaN\"},\"calls\":[]}",
+      "expectedFirstCapture": "LEGACY_BLOCKED",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "logical-precedence-calls-log",
+      "route": "logical",
+      "tags": [
+        "logical",
+        "or",
+        "and",
+        "precedence",
+        "eval-once",
+        "call-log",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "076d461cef76c6ec5fe0309ee74a3c81408c48944b311af2b265c2aa9e372fed",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "076d461cef76c6ec5fe0309ee74a3c81408c48944b311af2b265c2aa9e372fed",
+        "runtimeCanon": null,
+        "error": {
+          "code": "py:syntax-error",
+          "category": "emit"
+        }
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "3e64981df1fc326cae538b11dfc4448419e7c8a81f114bae56c74b698b3257e8",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"right\"},\"calls\":[\"A\",\"B\",\"C\"]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"right\"},\"calls\":[\"A\",\"B\",\"C\"]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"right\"},\"calls\":[\"A\",\"B\",\"C\"]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "logical-impure-member-left-single-eval",
+      "route": "logical",
+      "tags": [
+        "logical",
+        "or",
+        "member-left",
+        "eval-once",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "406a261c8f1f5e0fd699389c85641c91f383e0213495ce2717043cc100046f77",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "406a261c8f1f5e0fd699389c85641c91f383e0213495ce2717043cc100046f77",
+        "runtimeCanon": null,
+        "error": {
+          "code": "py:syntax-error",
+          "category": "emit"
+        }
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "905bb279220bf93415022f8290cbb2b5693343df00fa008170cd86e4c8a52910",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"fallback\"},\"calls\":[\"getObj\",\"R\"]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"fallback\"},\"calls\":[\"getObj\",\"R\"]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"fallback\"},\"calls\":[\"getObj\",\"R\"]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "logical-impure-index-left-single-eval",
+      "route": "logical",
+      "tags": [
+        "logical",
+        "or",
+        "index-left",
+        "container-truthy",
+        "eval-once",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "8be5ff12b182e1c341c9b3a97685fbaf2a256fe1cd472ee56bb17e0a146a358e",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "8be5ff12b182e1c341c9b3a97685fbaf2a256fe1cd472ee56bb17e0a146a358e",
+        "runtimeCanon": null,
+        "error": {
+          "code": "py:syntax-error",
+          "category": "emit"
+        }
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "3c1c32891f321854c432840326c33c8106fccab7eef6220e9d8bd0b19a5ed8f2",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[]},\"calls\":[\"I\"]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[]},\"calls\":[\"I\"]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[]},\"calls\":[\"I\"]}",
+      "expectedFirstCapture": "LEGACY_BLOCKED",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "logical-nullish-boundary-zero",
+      "route": "logical",
+      "tags": [
+        "logical",
+        "nullish-boundary",
+        "or",
+        "existing-test"
+      ],
+      "sourceSha256": "4058153972c6546f0ca405dafb5fbe9615aa9db8be54a08a75ed2851a17ecdee",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "dc0e4477d5a4a1ef67e2976a4520562017ec7b53114c15c515f7720503529081",
+        "runtimeCanon": null,
+        "error": {
+          "code": "py:syntax-error",
+          "category": "emit"
+        }
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "b072723652b739f6355ee43ccdb7e91f5e178c1ba3b9c7506a793e59293c9959",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"fallback\"},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"fallback\"},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"fallback\"},\"calls\":[]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "logical-ternary-consumer-container",
+      "route": "logical",
+      "tags": [
+        "logical",
+        "and",
+        "truthy-consumer",
+        "ternary",
+        "container-truthy",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "b8b0f982dca72ef5f2191281683a55c191dec6de168d08d2f8691d03a91c5709",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "b8b0f982dca72ef5f2191281683a55c191dec6de168d08d2f8691d03a91c5709",
+        "runtimeCanon": null,
+        "error": {
+          "code": "py:syntax-error",
+          "category": "emit"
+        }
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "314d3037b27f28eaf394d9745f642a16a8cef3373b0a01934614f9a7cbfc6556",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"then\"},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"then\"},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"then\"},\"calls\":[]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "logical-iterable-map-empty-list-or",
+      "route": "logical",
+      "tags": [
+        "logical",
+        "iterable-position",
+        "map-source",
+        "container-truthy",
+        "legacy-bug",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "dcd6d76f0c934d4f39263091c1b0755b5649d5740727d813cd20d8ae2a06da70",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "dcd6d76f0c934d4f39263091c1b0755b5649d5740727d813cd20d8ae2a06da70",
+        "runtimeCanon": null,
+        "error": {
+          "code": "py:syntax-error",
+          "category": "emit"
+        }
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "c5157ed99ecb075e947945e6d0f6ce6a97c75b5003b7a9c662409687d252f7a6",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[]},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[]},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[]},\"calls\":[]}",
+      "expectedFirstCapture": "LEGACY_BLOCKED",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "logical-iterable-map-empty-string-or",
+      "route": "logical",
+      "tags": [
+        "logical",
+        "iterable-position",
+        "map-source",
+        "runtime-equal",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "06d2626e877d28dfa86fc0b5243d66bff8ba98e443c9053daaa542b04de06a89",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "06d2626e877d28dfa86fc0b5243d66bff8ba98e443c9053daaa542b04de06a89",
+        "runtimeCanon": null,
+        "error": {
+          "code": "py:syntax-error",
+          "category": "emit"
+        }
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "498d4c4c3b157793177be39be7d4ead95137ac4fc992b5c29951a45ade206f5b",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"6\"},{\"kind\":\"number\",\"value\":\"8\"}]},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"6\"},{\"kind\":\"number\",\"value\":\"8\"}]},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"6\"},{\"kind\":\"number\",\"value\":\"8\"}]},\"calls\":[]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "logical-iterable-filter-container-or",
+      "route": "logical",
+      "tags": [
+        "logical",
+        "iterable-position",
+        "filter-source",
+        "container-truthy",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "bfb57cadc9475d22e0207b0e531689e5b48beff69cfb3d1d1e0aa9709a1d47cb",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "bfb57cadc9475d22e0207b0e531689e5b48beff69cfb3d1d1e0aa9709a1d47cb",
+        "runtimeCanon": null,
+        "error": {
+          "code": "py:syntax-error",
+          "category": "emit"
+        }
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "6f9bde876e3feb09c549aa97007939ebd4e8688f16a967afe174b64c5aa102fa",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"1\"},{\"kind\":\"number\",\"value\":\"2\"}]},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"1\"},{\"kind\":\"number\",\"value\":\"2\"}]},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"1\"},{\"kind\":\"number\",\"value\":\"2\"}]},\"calls\":[]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "logical-iterable-join-logical-receiver",
+      "route": "logical",
+      "tags": [
+        "logical",
+        "iterable-position",
+        "join-receiver",
+        "container-truthy",
+        "legacy-bug",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "dd17cc762d1d63edfe7a769c6a28a1a8cbcc3ed6ad2816402be9e9117ae184ff",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "04902b9f5bcd5219e5e1bdd6bd41f1ee6f200ab34de80872264317839d1ab491",
+        "runtimeCanon": null,
+        "error": {
+          "code": "py:syntax-error",
+          "category": "emit"
+        }
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "d1b522c739c7b57163d6f5f166defcfdb68580cefff23080e0ac22a4f2309940",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"\"},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"\"},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"string\",\"value\":\"\"},\"calls\":[]}",
+      "expectedFirstCapture": "LEGACY_BLOCKED",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "logical-iterable-flat-logical-receiver",
+      "route": "logical",
+      "tags": [
+        "logical",
+        "iterable-position",
+        "flat-receiver",
+        "container-truthy",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "6cb4da28ca8525709c0019264bd050b85d2644db74c04ffd63b5cc2d4af35b5d",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "abca03c5bdd4fec9a6e99531bc83c9c4100a41b72e77586f43b1a71e126abd6f",
+        "runtimeCanon": null,
+        "error": {
+          "code": "py:syntax-error",
+          "category": "emit"
+        }
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "b5c9da9b8682f2580588d1df6789cb85683824d866629ddb76f2580a3f6b8840",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"1\"},{\"kind\":\"number\",\"value\":\"2\"},{\"kind\":\"number\",\"value\":\"3\"}]},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"1\"},{\"kind\":\"number\",\"value\":\"2\"},{\"kind\":\"number\",\"value\":\"3\"}]},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"1\"},{\"kind\":\"number\",\"value\":\"2\"},{\"kind\":\"number\",\"value\":\"3\"}]},\"calls\":[]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "logical-iterable-map-nullish-source",
+      "route": "logical",
+      "tags": [
+        "logical",
+        "iterable-position",
+        "nullish-boundary",
+        "map-source",
+        "eval-once",
+        "call-log",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "6fa94f16675c93fcc57746556331ca8fff8810bb659e62206449c54acfa04f59",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "f51f3e6266ed1e626524974ffab5ae40d7571640daee331890caf3fa44f1181a",
+        "runtimeCanon": null,
+        "error": {
+          "code": "py:syntax-error",
+          "category": "emit"
+        }
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "e980105f53cef4ed32650f42f321bba46c6ab4c494a85e52ce95566da2d061d9",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"10\"}]},\"calls\":[\"F\"]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"10\"}]},\"calls\":[\"F\"]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"10\"}]},\"calls\":[\"F\"]}",
+      "expectedFirstCapture": "LEGACY_BLOCKED",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "logical-iterable-map-typeof-source",
+      "route": "logical",
+      "tags": [
+        "logical",
+        "iterable-position",
+        "typeof-boundary",
+        "map-source",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "464f66b22b96c1e55d6c167106528495fbe2907598155fe38c61fa5a8f84078c",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "464f66b22b96c1e55d6c167106528495fbe2907598155fe38c61fa5a8f84078c",
+        "runtimeCanon": null,
+        "error": {
+          "code": "py:syntax-error",
+          "category": "emit"
+        }
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "bb2837f9d835a2e6cea1a50ddd5e4cbdeba3f277c22e9f1c29e2ebe8db5fcf4d",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"string\",\"value\":\"n\"},{\"kind\":\"string\",\"value\":\"u\"},{\"kind\":\"string\",\"value\":\"m\"},{\"kind\":\"string\",\"value\":\"b\"},{\"kind\":\"string\",\"value\":\"e\"},{\"kind\":\"string\",\"value\":\"r\"}]},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"string\",\"value\":\"n\"},{\"kind\":\"string\",\"value\":\"u\"},{\"kind\":\"string\",\"value\":\"m\"},{\"kind\":\"string\",\"value\":\"b\"},{\"kind\":\"string\",\"value\":\"e\"},{\"kind\":\"string\",\"value\":\"r\"}]},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"string\",\"value\":\"n\"},{\"kind\":\"string\",\"value\":\"u\"},{\"kind\":\"string\",\"value\":\"m\"},{\"kind\":\"string\",\"value\":\"b\"},{\"kind\":\"string\",\"value\":\"e\"},{\"kind\":\"string\",\"value\":\"r\"}]},\"calls\":[]}",
+      "expectedFirstCapture": "LEGACY_BLOCKED",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "logical-iterable-map-ternary-source",
+      "route": "logical",
+      "tags": [
+        "logical",
+        "iterable-position",
+        "ternary-source",
+        "parenthesized-source",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "e1b4123e8293b3db7b480649b3e8220a4b4ee5129c6432d959e529d48a656e05",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "e1b4123e8293b3db7b480649b3e8220a4b4ee5129c6432d959e529d48a656e05",
+        "runtimeCanon": null,
+        "error": {
+          "code": "py:syntax-error",
+          "category": "emit"
+        }
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "10cb56b3adefe5bf9ae9c3ee90c77ac2ef664137f00dd4bcfbd0549f7db63f35",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"20\"},{\"kind\":\"number\",\"value\":\"30\"}]},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"20\"},{\"kind\":\"number\",\"value\":\"30\"}]},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"20\"},{\"kind\":\"number\",\"value\":\"30\"}]},\"calls\":[]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "logical-iterable-map-call-log",
+      "route": "logical",
+      "tags": [
+        "logical",
+        "iterable-position",
+        "map-source",
+        "eval-once",
+        "call-log",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "420f22221a3a4418bbfc05440665421145a8193cffa3e2a4b12d2994b4241462",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "420f22221a3a4418bbfc05440665421145a8193cffa3e2a4b12d2994b4241462",
+        "runtimeCanon": null,
+        "error": {
+          "code": "py:syntax-error",
+          "category": "emit"
+        }
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "c1ecb080a58ee97896169c0efbab0b69cb8d57685555bb8878ab331725171516",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"1\"}]},\"calls\":[\"A\",\"B\",\"C\"]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"1\"}]},\"calls\":[\"A\",\"B\",\"C\"]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"array\",\"items\":[{\"kind\":\"number\",\"value\":\"1\"}]},\"calls\":[\"A\",\"B\",\"C\"]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "strict-num-bool-zero-false",
+      "route": "strict-eq",
+      "tags": [
+        "strict-eq",
+        "number-bool-crossing",
+        "legacy-bug",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "4263e7675812304480565e755f6baff2ec2579a14fd1660bf3b0729a10ab05a8",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "9208254b5f8a8481376dd121a6de35a219435d80c1e200f6ab40d6b8356d67bf",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+        "error": null
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "f8a45f05c74179d2d234479837a4e40bcb1d08e52908089a1c9060a5944bb544",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+      "expectedFirstCapture": "LEGACY_BLOCKED",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "strict-num-bool-one-true",
+      "route": "strict-eq",
+      "tags": [
+        "strict-eq",
+        "number-bool-crossing",
+        "legacy-bug",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "4263e7675812304480565e755f6baff2ec2579a14fd1660bf3b0729a10ab05a8",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "9208254b5f8a8481376dd121a6de35a219435d80c1e200f6ab40d6b8356d67bf",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+        "error": null
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "f8a45f05c74179d2d234479837a4e40bcb1d08e52908089a1c9060a5944bb544",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+      "expectedFirstCapture": "LEGACY_BLOCKED",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "strict-neq-num-bool",
+      "route": "strict-eq",
+      "tags": [
+        "strict-eq",
+        "not-equal",
+        "number-bool-crossing",
+        "legacy-bug",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "3cf11f8790169c3f4e93eec8cfaba225b9201955683cc99d899704fc77e47ed5",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "7e88047a36603238b73ca1782d50305f89ab6a6d9421806e2e440e80aaa18d6d",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+        "error": null
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "e759cf605e5f3c7c861d76909aabe36fa614f88219bb738c9c65174ad9877205",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+      "expectedFirstCapture": "LEGACY_BLOCKED",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    },
+    {
+      "caseId": "strict-string-num",
+      "route": "strict-eq",
+      "tags": [
+        "strict-eq",
+        "string-number",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "4263e7675812304480565e755f6baff2ec2579a14fd1660bf3b0729a10ab05a8",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "9208254b5f8a8481376dd121a6de35a219435d80c1e200f6ab40d6b8356d67bf",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+        "error": null
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "f8a45f05c74179d2d234479837a4e40bcb1d08e52908089a1c9060a5944bb544",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "RUNTIME_EQUAL_BYTE_DIFF",
+      "triage": null
+    },
+    {
+      "caseId": "strict-nan-self",
+      "route": "strict-eq",
+      "tags": [
+        "strict-eq",
+        "nan",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "4263e7675812304480565e755f6baff2ec2579a14fd1660bf3b0729a10ab05a8",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "9208254b5f8a8481376dd121a6de35a219435d80c1e200f6ab40d6b8356d67bf",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+        "error": null
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "f8a45f05c74179d2d234479837a4e40bcb1d08e52908089a1c9060a5944bb544",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "RUNTIME_EQUAL_BYTE_DIFF",
+      "triage": null
+    },
+    {
+      "caseId": "strict-same-int",
+      "route": "strict-eq",
+      "tags": [
+        "strict-eq",
+        "same-kind",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "4263e7675812304480565e755f6baff2ec2579a14fd1660bf3b0729a10ab05a8",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "9208254b5f8a8481376dd121a6de35a219435d80c1e200f6ab40d6b8356d67bf",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+        "error": null
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "f8a45f05c74179d2d234479837a4e40bcb1d08e52908089a1c9060a5944bb544",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "RUNTIME_EQUAL_BYTE_DIFF",
+      "triage": null
+    },
+    {
+      "caseId": "strict-same-string",
+      "route": "strict-eq",
+      "tags": [
+        "strict-eq",
+        "same-kind",
+        "string",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "4263e7675812304480565e755f6baff2ec2579a14fd1660bf3b0729a10ab05a8",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "9208254b5f8a8481376dd121a6de35a219435d80c1e200f6ab40d6b8356d67bf",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+        "error": null
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "f8a45f05c74179d2d234479837a4e40bcb1d08e52908089a1c9060a5944bb544",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[]}",
+      "expectedFirstCapture": "RUNTIME_EQUAL_BYTE_DIFF",
+      "verdict": "RUNTIME_EQUAL_BYTE_DIFF",
+      "triage": null
+    },
+    {
+      "caseId": "strict-eval-once-calls",
+      "route": "strict-eq",
+      "tags": [
+        "strict-eq",
+        "number-bool-crossing",
+        "eval-once",
+        "call-log",
+        "legacy-bug",
+        "hand-authored-edge"
+      ],
+      "sourceSha256": "08e02e5cfdd0eaba964c0160ed5b0dfaa5d5c97fd60bc2410c2a5c2970038cad",
+      "pyLegacy": {
+        "status": "ok",
+        "artifactSha256": "eada17d9b6aa63077a9adbce55d4f0b69261b33a62f369b29f8c211dbf81a772",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":true},\"calls\":[\"A\",\"B\"]}",
+        "error": null
+      },
+      "pyAst": {
+        "status": "ok",
+        "artifactSha256": "34261fcc390299994a0e98cb57ce2eef740204e030363375d93de52f2ac990c0",
+        "runtimeCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[\"A\",\"B\"]}",
+        "error": null,
+        "fallbackUsed": false
+      },
+      "tsCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[\"A\",\"B\"]}",
+      "expectedCanon": "{\"version\":1,\"status\":\"ok\",\"value\":{\"kind\":\"boolean\",\"value\":false},\"calls\":[\"A\",\"B\"]}",
+      "expectedFirstCapture": "LEGACY_BLOCKED",
+      "verdict": "LEGACY_BLOCKED",
+      "triage": "legacy-bug"
+    }
+  ]
+}

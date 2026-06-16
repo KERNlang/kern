@@ -1,8 +1,13 @@
 import type { KernTarget, ResolvedKernConfig } from '@kernlang/core';
 import { parse, resolveConfig } from '@kernlang/core';
+import { nativeEligibilityClassifier, typescriptClosureClassifier } from '@kernlang/core/node';
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join, relative, resolve } from 'path';
 import { collectLanguageMetrics, type LanguageMetrics, mergeMetrics } from './metrics.js';
+
+// Slice 0.9 — Node-side: inject the TypeScript-backed classifiers so block-bodied
+// arrows in expression props keep parsing (instead of fail-closing).
+const NODE_PARSE_CAPS = { closureClassifier: typescriptClosureClassifier, nativeEligibilityClassifier } as const;
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -70,7 +75,7 @@ export function scanKernProject(cwd: string, config?: ResolvedKernConfig): Proje
   for (const file of kernFiles) {
     try {
       const source = readFileSync(resolve(cwd, file), 'utf-8');
-      const ast = parse(source);
+      const ast = parse(source, undefined, NODE_PARSE_CAPS);
       fileMetrics.push(collectLanguageMetrics(ast));
     } catch {
       // Intentional: skip unparseable files during metrics collection

@@ -21,13 +21,19 @@
  *  instead of a generic "ineligible". */
 
 import ts from 'typescript';
-import { supportedCompoundAssignmentOperator } from './assignment-operators.js';
+import { supportedCompoundAssignmentOperator } from './assignment-operators-ts.js';
 import { classifyClosureBlock } from './closure-eligibility.js';
 import { emitTypeAnnotation } from './codegen/emitters.js';
 import { deterministicRows, loadEligibilityTaxonomy } from './eligibility-taxonomy.js';
 import { instanceofRhsRejectReasonForName } from './instanceof-rhs.js';
 import { parseExpression } from './parser-expression.js';
+import { typescriptClosureClassifier } from './typescript-closure-classifier.js';
 import type { ValueIR } from './value-ir.js';
+
+// Node-side: this module already depends on `typescript`, so it always parses
+// expression props with the TypeScript-backed closure classifier injected —
+// preserving block-bodied-arrow validation (slice 0.9).
+const TS_PARSE_OPTS = { closureClassifier: typescriptClosureClassifier };
 
 /** ── Taxonomy AUTHORITY (grammar-sovereignty phase 2) ──────────────────────
  *
@@ -149,7 +155,7 @@ export function isValidKernExpression(exprText: string): boolean {
 export function isValidKernAssignmentTarget(exprText: string): boolean {
   if (canonicalKernExpression(exprText) === null) return false;
   try {
-    return isAssignableTarget(parseExpression(exprText));
+    return isAssignableTarget(parseExpression(exprText, TS_PARSE_OPTS));
   } catch {
     return false;
   }
@@ -158,7 +164,7 @@ export function isValidKernAssignmentTarget(exprText: string): boolean {
 export function isValidKernAssignmentValue(exprText: string): boolean {
   if (canonicalKernExpression(exprText) === null) return false;
   try {
-    const expr = parseExpression(exprText);
+    const expr = parseExpression(exprText, TS_PARSE_OPTS);
     return expr.kind !== 'propagate';
   } catch {
     return false;
@@ -187,7 +193,7 @@ export function isValidKernAssignmentValue(exprText: string): boolean {
  *  normalization introduces. */
 export function canonicalKernExpression(exprText: string): string | null {
   try {
-    parseExpression(exprText);
+    parseExpression(exprText, TS_PARSE_OPTS);
   } catch {
     return null;
   }

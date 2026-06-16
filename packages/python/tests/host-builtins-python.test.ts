@@ -187,7 +187,10 @@ describe('Host-builtin mapping (Python target)', () => {
     const code = routeContent(result, 'math');
     expect(code).toContain('__k_math.floor(1.8)');
     expect(code).toContain('__k_math.ceil(1.2)');
-    expect(code).toContain('__k_math.floor(2.5 + 0.5)');
+    expect(code).toContain(
+      '(lambda __k_n: __k_n if __k_n != __k_n or __k_n in (float("inf"), float("-inf")) or __k_n == 0',
+    );
+    expect(code).toContain('__k_floor + (1 if __k_n - __k_floor >= 0.5 else 0)');
     expect(code).toContain('abs(-2)');
     expect(code).toContain('__k_math.isfinite(2)');
     expect(code).toContain('__k_math.isnan(0 / 0)');

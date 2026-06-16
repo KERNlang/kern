@@ -1,6 +1,9 @@
 import ts from 'typescript';
 
 import * as facade from '../src/assignment-operators.js';
+// Slice 0.9 — `supportedCompoundAssignmentOperator` (ts.SyntaxKind based) was
+// split out of the browser-safe facade into the Node-side `assignment-operators-ts`.
+import { supportedCompoundAssignmentOperator } from '../src/assignment-operators-ts.js';
 import * as generated from '../src/generated/utils/assignment-operators.js';
 
 describe('generated assignment-operators behavior', () => {
@@ -52,7 +55,7 @@ describe('generated assignment-operators behavior', () => {
     [ts.SyntaxKind.GreaterThanGreaterThanEqualsToken, '>>='],
     [ts.SyntaxKind.EqualsToken, null],
   ] as const)('supportedCompoundAssignmentOperator(%p) returns %p', (kind, expected) => {
-    expect(facade.supportedCompoundAssignmentOperator(kind)).toBe(expected);
+    expect(supportedCompoundAssignmentOperator(kind)).toBe(expected);
   });
 
   it.each([
@@ -61,6 +64,6 @@ describe('generated assignment-operators behavior', () => {
     ts.SyntaxKind.BarBarEqualsToken,
     ts.SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken,
   ] as const)('supportedCompoundAssignmentOperator rejects unsupported compound kind %p', (kind) => {
-    expect(facade.supportedCompoundAssignmentOperator(kind)).toBeNull();
+    expect(supportedCompoundAssignmentOperator(kind)).toBeNull();
   });
 });

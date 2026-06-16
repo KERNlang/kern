@@ -13,7 +13,7 @@ import {
   emitPyExpression,
   emitPyExpressionWithImports,
 } from '../src/codegen-body-python.js';
-import { KERN_FMT_HELPER_PY } from '../src/core/expr/helpers.js';
+import { KERN_FMT_HELPER_PY, KERN_JS_HELPER_PY, KERN_NULLISH_HELPER_PY } from '../src/core/expr/helpers.js';
 import { generateFunction } from '../src/generators/core.js';
 
 function makeHandler(stmts: Array<{ type: string; props: Record<string, unknown>; children?: IRNode[] }>): IRNode {
@@ -28,6 +28,16 @@ function makeHandler(stmts: Array<{ type: string; props: Record<string, unknown>
 // (the _KERN_UNDEFINED sentinel + _kern_fmt + __kern_add helpers) whenever a body
 // is lowered, ending with a blank-line separator before the body statements.
 const PY_PRELUDE = `${KERN_FMT_HELPER_PY}\n\n`;
+// Slice S7 — a body that ratchets a value-site miss to the undefined sentinel
+// (destructure absent key / array out-of-range) surfaces the nullish helper
+// block (which defines `_KERN_UNDEFINED`).
+const PY_PRELUDE_NULLISH = `${KERN_NULLISH_HELPER_PY}\n\n`;
+// Slice S4 — a body whose `if cond=`/ternary/`!`/`firstTruthy` touches the
+// truthiness helper surfaces `KERN_JS_HELPER_PY`. `JS_PRELUDE` is that helper
+// alone (bodies with no value coercion); `PY_PRELUDE_WITH_TRUTHY` is the JS
+// helper followed by the fmt prelude (the JS helper is added to the Set first).
+const JS_PRELUDE = `${KERN_JS_HELPER_PY}\n\n`;
+const PY_PRELUDE_WITH_TRUTHY = `${KERN_JS_HELPER_PY}\n\n${KERN_FMT_HELPER_PY}\n\n`;
 
 describe('emitPyExpression — slice 1 lowering rules', () => {
   test('booleans lower to Python True/False', () => {
@@ -67,9 +77,11 @@ describe('emitPyExpression — slice 1 lowering rules', () => {
   });
 
   test('typed lambda return predicates erase on Python target', () => {
+    // Slice S7 — `value !== null` routes the strict inequality through
+    // `_kern_strict_equal` (so the null/undefined boundary matches JS).
     expect(
       emitPyExpression(parseExpression('values.filter((value: unknown): value is string => value !== null)')),
-    ).toBe('values.filter(lambda value: value != None)');
+    ).toBe('values.filter(lambda value: (not _kern_strict_equal(value, None)))');
   });
 
   test('TS generic call args and non-null assertions erase on Python target', () => {
@@ -84,22 +96,53 @@ describe('emitPyExpression — slice 1 lowering rules', () => {
       { type: 'let', props: { name: 'pattern', value: '/^ok$/i' } },
       { type: 'let', props: { name: 'ok', value: '/^ok$/i.test(value)' } },
       { type: 'let', props: { name: 'negated', value: '!/^ok$/i.test(value)' } },
-      { type: 'let', props: { name: 'bound', value: 'pattern.test(value)' } },
       { type: 'let', props: { name: 'clean', value: 'value.replace(/\\s+/g, " ")' } },
     ]);
     const result = emitNativeKernBodyPythonWithImports(h);
     expect(result.imports).toContain('re');
-    expect(result.code).toContain('pattern = __k_re.compile("^ok$", __k_re.IGNORECASE)');
-    expect(result.code).toContain('__k_re.search("^ok$", value, __k_re.IGNORECASE) is not None');
-    expect(result.code).toContain('not (__k_re.search("^ok$", value, __k_re.IGNORECASE) is not None)');
-    expect(result.code).toContain('bound = (__k_re.search("^ok$", value, __k_re.IGNORECASE) is not None)');
-    expect(result.code).toContain('__k_re.sub("\\\\s+", " ", value, count=0, flags=0)');
+    // Milestone C, Slice 1 — emission-normalization now lowers `^`→`\A` / `$`→`\Z`
+    // on the non-/m path and always injects `re.ASCII`. `/^ok$/i` therefore emits
+    // `\Aok\Z` with `IGNORECASE | ASCII`, and `/\s+/g` normalizes `\s`→ the ASCII
+    // whitespace class with `ASCII` flags (the `g` becomes count=0 in re.sub).
+    expect(result.code).toContain('pattern = __k_re.compile("\\\\Aok\\\\Z", __k_re.IGNORECASE | __k_re.ASCII)');
+    // DIRECT literal `.test` — lowers canonically (unchanged Slice-1/3 behavior).
+    expect(result.code).toContain('__k_re.search("\\\\Aok\\\\Z", value, __k_re.IGNORECASE | __k_re.ASCII) is not None');
+    // Slice S4 — `!x` consumes KERN ToBoolean: `(not _kern_truthy(...))`.
+    expect(result.code).toContain(
+      '(not _kern_truthy((__k_re.search("\\\\Aok\\\\Z", value, __k_re.IGNORECASE | __k_re.ASCII) is not None)))',
+    );
+    expect(result.code).toContain(
+      '__k_re.sub("[ \\\\t\\\\n\\\\r\\\\f\\\\v]+", " ", value, count=0, flags=__k_re.ASCII)',
+    );
+  });
+
+  test('Slice-3c — a regex method on a LET-BOUND regex ident fails closed (was resolve-to-literal)', () => {
+    // Slice-3c contract change: `let pattern = /^ok$/i; pattern.test(value)` is a
+    // regex method on a variable KNOWN to hold a regex — NOT portable. It now
+    // DETECT-and-fail-closes (symmetric with TS) instead of resolving `pattern`
+    // back to its literal and lowering canonically (the dropped, fragile FIX-3
+    // that emitted a STALE pattern after a reassignment).
+    const NONLIT =
+      'Portable regex methods (.match/.matchAll/.replace/.replaceAll/.split/.test/.exec) require a DIRECT regex literal (`/…/`) in the regex position; a variable bound to a regex is not portable across targets — inline the literal at the call site.';
+    const h = makeHandler([
+      { type: 'let', props: { name: 'pattern', value: '/^ok$/i' } },
+      { type: 'let', props: { name: 'bound', value: 'pattern.test(value)' } },
+    ]);
+    expect(() => emitNativeKernBodyPythonWithImports(h)).toThrow(NONLIT);
   });
 
   test('regex lowering rejects JS-only match and flag semantics on Python target', () => {
-    expect(() => emitPyExpression(parseExpression('value.match(/x/g)'))).toThrow(/String\.match/);
+    // Milestone C, Slice 3 — `.match(/.../g)` is now IN-CORE (was fail-close): it
+    // lowers to `finditer.group(0)` full matches (D2). The remaining stateful and
+    // flag rejections stay.
+    expect(emitPyExpression(parseExpression('value.match(/x/g)'))).toBe(
+      '([__k_m.group(0) for __k_m in __k_re.finditer("x", value, __k_re.ASCII)] or None)',
+    );
     expect(() => emitPyExpression(parseExpression('/x/g.test(value)'))).toThrow(/RegExp\.test/);
     expect(() => emitPyExpression(parseExpression('/x/y.test(value)'))).toThrow(/regex flag/);
+    // `.matchAll` WITHOUT /g still fail-closes (JS throws TypeError) — the new
+    // Slice-3 symmetric reject.
+    expect(() => emitPyExpression(parseExpression('value.matchAll(/x/)'))).toThrow(/matchAll requires the 'g' flag/);
   });
 
   test('strLit emits with double-quoted Python string', () => {
@@ -333,7 +376,11 @@ describe('emitNativeKernBodyPython — slice 1 statements', () => {
         children: [{ type: 'assign', props: { target: 'total', op: '+=', value: '1' }, children: [] }],
       },
     ]);
-    expect(emitNativeKernBodyPython(h)).toBe(['total = 0', 'if ready:', '    total += 1'].join('\n'));
+    // Slice S4 — `if cond=` wraps the condition in `_kern_truthy(...)` and
+    // surfaces the truthiness helper prelude.
+    expect(emitNativeKernBodyPython(h)).toBe(
+      JS_PRELUDE + ['total = 0', 'if _kern_truthy(ready):', '    total += 1'].join('\n'),
+    );
   });
 
   test('duplicate local let in the same scope is rejected', () => {
@@ -417,10 +464,16 @@ describe('emitNativeKernBodyPython — slice 1 statements', () => {
       },
       { type: 'return', props: { value: 'trackId' } },
     ]);
+    // Slice S7 — absent keys default to the undefined sentinel (so `typeof
+    // missing` is "undefined"); a present key whose value is the sentinel is
+    // preserved by `.get`.
     expect(emitNativeKernBodyPython(h, { symbolMap: { trackId: 'track_id' } })).toBe(
-      ['__k_d1 = body', 'track_id = __k_d1.get("track_id")', 'options = __k_d1.get("options")', 'return track_id'].join(
-        '\n',
-      ),
+      `${PY_PRELUDE_NULLISH}${[
+        '__k_d1 = body',
+        'track_id = __k_d1.get("track_id", _KERN_UNDEFINED)',
+        'options = __k_d1.get("options", _KERN_UNDEFINED)',
+        'return track_id',
+      ].join('\n')}`,
     );
   });
 
@@ -432,7 +485,9 @@ describe('emitNativeKernBodyPython — slice 1 statements', () => {
         children: [{ type: 'binding', props: { name: 'id', key: '' } }],
       },
     ]);
-    expect(emitNativeKernBodyPython(h)).toBe(['__k_d1 = body', 'id = __k_d1.get("id")'].join('\n'));
+    expect(emitNativeKernBodyPython(h)).toBe(
+      `${PY_PRELUDE_NULLISH}${['__k_d1 = body', 'id = __k_d1.get("id", _KERN_UNDEFINED)'].join('\n')}`,
+    );
   });
 
   test('array destructuring lowers to missing-safe index reads', () => {
@@ -446,12 +501,13 @@ describe('emitNativeKernBodyPython — slice 1 statements', () => {
         ],
       },
     ]);
+    // Slice S7 — out-of-range array-destructure elements default to the sentinel.
     expect(emitNativeKernBodyPython(h)).toBe(
-      [
+      `${PY_PRELUDE_NULLISH}${[
         '__k_d1 = pair',
-        'first = (__k_d1[0] if len(__k_d1) > 0 else None)',
-        'third = (__k_d1[2] if len(__k_d1) > 2 else None)',
-      ].join('\n'),
+        'first = (__k_d1[0] if len(__k_d1) > 0 else _KERN_UNDEFINED)',
+        'third = (__k_d1[2] if len(__k_d1) > 2 else _KERN_UNDEFINED)',
+      ].join('\n')}`,
     );
   });
 });
@@ -565,23 +621,35 @@ describe('emitNativeKernBodyPython — objectPick/objectOmit body statements', (
 });
 
 describe('emitNativeKernBodyPython — firstTruthy body statement', () => {
-  test('firstTruthy emits an ordered short-circuit fallback binding', () => {
+  // Slice S4 — `firstTruthy` selects the first KERN-truthy candidate via a
+  // `_kern_truthy`-gated, single-evaluation, lazy walrus chain (so `[]`/`{}`
+  // win and NaN is skipped), not bare Python `a or b`. Temps build right-to-left
+  // (`__k_ft2` wraps `__k_ft1`); the final candidate is the unguarded fallthrough.
+  test('firstTruthy emits a KERN-truthiness-gated ordered fallback binding', () => {
     const handler = makeHandler([
       { type: 'firstTruthy', props: { name: 'label', values: "preferred, nickname, 'Anonymous'" } },
       { type: 'return', props: { value: 'label' } },
     ]);
     expect(emitNativeKernBodyPython(handler)).toBe(
-      ['label = preferred or nickname or "Anonymous"', 'return label'].join('\n'),
+      JS_PRELUDE +
+        [
+          'label = (__k_ft2 if _kern_truthy(__k_ft2 := preferred) else (__k_ft1 if _kern_truthy(__k_ft1 := nickname) else "Anonymous"))',
+          'return label',
+        ].join('\n'),
     );
   });
 
-  test('firstTruthy parenthesizes conditional operands before joining fallbacks', () => {
+  test('firstTruthy parenthesizes conditional operands before gating fallbacks', () => {
     const handler = makeHandler([
       { type: 'firstTruthy', props: { name: 'label', values: "ready ? preferred : nickname, 'Anonymous'" } },
       { type: 'return', props: { value: 'label' } },
     ]);
     expect(emitNativeKernBodyPython(handler)).toBe(
-      ['label = (preferred if ready else nickname) or "Anonymous"', 'return label'].join('\n'),
+      JS_PRELUDE +
+        [
+          'label = (__k_ft1 if _kern_truthy(__k_ft1 := (preferred if _kern_truthy(ready) else nickname)) else "Anonymous")',
+          'return label',
+        ].join('\n'),
     );
   });
 

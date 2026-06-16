@@ -1,0 +1,92 @@
+{
+  "logical": {
+    "route": "logical",
+    "requiredFamilies": [
+      "success",
+      "divergence",
+      "eval-once",
+      "precedence",
+      "nullish-boundary",
+      "truthy-consumer",
+      "impure-left",
+      "iterable-position"
+    ],
+    "satisfiedBy": {
+      "success": [
+        "logical-and-basic-expression",
+        "logical-or-basic-expression",
+        "logical-container-or-legacy-bug"
+      ],
+      "divergence": [
+        "logical-container-or-legacy-bug",
+        "logical-nan-and-legacy-bug",
+        "logical-iterable-map-empty-list-or",
+        "logical-iterable-join-logical-receiver"
+      ],
+      "eval-once": [
+        "logical-precedence-calls-log",
+        "logical-impure-member-left-single-eval",
+        "logical-impure-index-left-single-eval",
+        "logical-iterable-map-nullish-source",
+        "logical-iterable-map-call-log"
+      ],
+      "precedence": [
+        "bitwise-precedence-or-before-andand",
+        "logical-precedence-or-and",
+        "logical-precedence-calls-log"
+      ],
+      "nullish-boundary": [
+        "logical-nullish-boundary-zero",
+        "logical-iterable-map-nullish-source"
+      ],
+      "truthy-consumer": [
+        "logical-ternary-consumer-container"
+      ],
+      "impure-left": [
+        "logical-impure-member-left-single-eval",
+        "logical-impure-index-left-single-eval"
+      ],
+      "iterable-position": [
+        "logical-iterable-map-empty-list-or",
+        "logical-iterable-map-empty-string-or",
+        "logical-iterable-filter-container-or",
+        "logical-iterable-join-logical-receiver",
+        "logical-iterable-flat-logical-receiver",
+        "logical-iterable-map-nullish-source",
+        "logical-iterable-map-typeof-source",
+        "logical-iterable-map-ternary-source",
+        "logical-iterable-map-call-log"
+      ]
+    },
+    "missingFamilies": []
+  },
+  "bitwise": {
+    "route": "bitwise",
+    "requiredFamilies": [
+      "success",
+      "eval-once",
+      "precedence",
+      "parser-boundary",
+      "logical-boundary"
+    ],
+    "satisfiedBy": {
+      "success": [
+        "bitwise-or-sign-bit",
+        "bitwise-ushr-negative-zero-shift"
+      ],
+      "eval-once": [
+        "bitwise-eval-once-ushr-or-log"
+      ],
+      "precedence": [
+        "bitwise-precedence-or-before-andand"
+      ],
+      "parser-boundary": [
+        "bitwise-generic-surplus-gt-boundary"
+      ],
+      "logical-boundary": [
+        "bitwise-precedence-or-before-andand"
+      ]
+    },
+    "missingFamilies": []
+  }
+}

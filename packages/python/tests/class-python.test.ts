@@ -635,7 +635,9 @@ describe('Python block-bodied arrow closures (slices 0+1)', () => {
     const handler = findHandler(parse(kern));
     const { code } = emitNativeKernBodyPythonWithImports(handler as IRNode, { outerBindings: ['c'] });
     const defIdx = code.indexOf('def __kern_closure_0(x):');
-    const ifIdx = code.indexOf('if __kern_closure_0(2):');
+    // Slice S4 — `if cond=` wraps the condition in `_kern_truthy(...)`; the closure
+    // hoist still lands the def before the (now helper-wrapped) if header.
+    const ifIdx = code.indexOf('if _kern_truthy(__kern_closure_0(2)):');
     expect(defIdx).toBeGreaterThan(-1);
     expect(ifIdx).toBeGreaterThan(-1);
     expect(defIdx).toBeLessThan(ifIdx);

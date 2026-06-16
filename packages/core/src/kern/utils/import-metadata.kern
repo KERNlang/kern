@@ -24,7 +24,7 @@ fn name=splitCapabilityList params="value:unknown" returns="string[]" export=tru
     let name=unwrapped value="trimmed.startsWith('[') && trimmed.endsWith(']') ? trimmed.slice(1, -1).trim() : trimmed"
     if cond="unwrapped === ''"
       return value="[]"
-    return value="unwrapped.split(',').map((part) => part.trim().replace(new RegExp('^[\"\\\\x27]|[\"\\\\x27]$', 'gu'), '')).filter(Boolean)"
+    return value="unwrapped.split(',').map((part) => part.trim().replace(/^[\"']|[\"']$/gu, '')).filter(Boolean)"
 
 fn name=importRegistryOf params="raw:unknown" returns=ExternalImportRegistry export=true
   handler
