@@ -18,6 +18,13 @@
  * own minimal local `evalValue`) — this module is scoped to scalar bindings.
  */
 
+import {
+  assertPortableDecimalLiteral,
+  type KDecimalCtor,
+  type KDecimalValue,
+  kernDecimalStr,
+  makeKDecimal,
+} from '../../decimal/contract.js';
 import type { ValueIR } from '../../value-ir.js';
 import type { SemanticEnv } from './index.js';
 
@@ -225,4 +232,107 @@ export function evalOrderedComparison(op: string, left: string | number, right: 
   if (op === '<=') return left <= right;
   if (op === '>') return left > right;
   return left >= right;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RUNNER-NATIVE Decimal (Slice 1: `Decimal.of` / `Decimal.add` / `Decimal.mul`).
+//
+// The ReferenceRunner executes the `Decimal` primitive natively as a THIRD "leg"
+// of the decimal differential oracle, byte-matching both emitted legs (decimal.js
+// on TS, stdlib `decimal` on Python). It does so by recognizing `Decimal.<method>`
+// member-calls — the SAME callee shape the emitters dispatch on (`callee.object`
+// is the bare `Decimal` namespace identifier) — and computing on a LOCAL cloned
+// decimal.js constructor pinned to the canonical context. Decimal stays a plain
+// `call` node; no new IR node type is introduced.
+//
+// Decimal values are NOT portable scalars (a live decimal.js instance is neither
+// string/number/boolean/null), so this lives ALONGSIDE `evalPortableValue` rather
+// than inside it — the portable-scalar domain is unchanged. The runner's in-flight
+// Decimal value is a live `KDecimalValue`; only at the OUTPUT boundary
+// ({@link evalDecimalExpression}) is it rendered to a canonical STRING via the
+// kernel's {@link kernDecimalStr}.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The Slice-1 Decimal namespace methods the runner evaluates natively. */
+const RUNNER_DECIMAL_METHODS = new Set(['of', 'add', 'mul']);
+
+/** True iff `node` is a `Decimal.<method>(...)` member-call on the bare `Decimal`
+ *  namespace identifier — the EXACT recognition shape the emitters use
+ *  (`callee.kind === 'member'`, `callee.object` is `ident 'Decimal'`). A user
+ *  binding named `decimal` or a member chain is NOT matched. */
+function isDecimalNamespaceCall(node: ValueIR): node is Extract<ValueIR, { kind: 'call' }> {
+  if (node.kind !== 'call') return false;
+  const callee = node.callee;
+  if (callee.kind !== 'member') return false;
+  return callee.object.kind === 'ident' && callee.object.name === 'Decimal';
+}
+
+/** Evaluate a `Decimal.<method>(...)` expression (or a recursively-nested operand
+ *  of one) to a live Decimal value, computing on the supplied LOCAL pinned
+ *  constructor `KDecimal`. Operands are evaluated recursively, so nested forms
+ *  like `Decimal.add(Decimal.of("1.5"), Decimal.mul(...))` work.
+ *
+ *  - `Decimal.of("lit")` — validates the literal with the shared portable-literal
+ *    validator (fail-close with the EXACT shared message on non-canonical input),
+ *    then constructs `new KDecimal("lit")`.
+ *  - `Decimal.add(a, b)` → `a.plus(b)`; `Decimal.mul(a, b)` → `a.times(b)`.
+ *
+ *  Throws on any non-Decimal-namespace node, an unknown/out-of-slice method, a
+ *  wrong arity, or a non-string-literal `of` argument — the runner refuses what it
+ *  cannot execute byte-identically rather than guessing. */
+function evalDecimalNode(node: ValueIR, KDecimal: KDecimalCtor, env: SemanticEnv): KDecimalValue {
+  if (!isDecimalNamespaceCall(node)) {
+    throw new Error('portable-decimal: expected a Decimal.<method>(...) namespace call');
+  }
+  // Narrowed: callee is a member on the `Decimal` ident.
+  const method = (node.callee as Extract<ValueIR, { kind: 'member' }>).property;
+  if (!RUNNER_DECIMAL_METHODS.has(method)) {
+    throw new Error(`portable-decimal: Decimal.${method} is outside the runner's Slice-1 surface (of/add/mul)`);
+  }
+
+  if (method === 'of') {
+    if (node.args.length !== 1) {
+      throw new Error('portable-decimal: Decimal.of expects exactly 1 argument');
+    }
+    const arg = node.args[0];
+    if (arg.kind !== 'strLit') {
+      throw new Error('portable-decimal: Decimal.of requires a string literal argument');
+    }
+    // Shared fail-close: a non-canonical literal throws the EXACT kernel message,
+    // byte-identical to what both emitters throw at the `Decimal.of` lowering site.
+    assertPortableDecimalLiteral(arg.value);
+    return new KDecimal(arg.value);
+  }
+
+  // add / mul — two Decimal operands, each evaluated recursively.
+  if (node.args.length !== 2) {
+    throw new Error(`portable-decimal: Decimal.${method} expects exactly 2 arguments`);
+  }
+  const a = evalDecimalNode(node.args[0], KDecimal, env);
+  const b = evalDecimalNode(node.args[1], KDecimal, env);
+  return method === 'add' ? a.plus(b) : a.times(b);
+}
+
+/** True iff `node` is a runner-evaluable Decimal expression — i.e. a
+ *  `Decimal.of/add/mul(...)` namespace call. Lets a caller route a Decimal
+ *  expression to {@link evalDecimalExpression} instead of the portable-scalar
+ *  evaluator (which has no Decimal domain). */
+export function isDecimalExpression(node: ValueIR): boolean {
+  if (!isDecimalNamespaceCall(node)) return false;
+  // Narrowed by isDecimalNamespaceCall: callee is a `member` on the Decimal ident.
+  const callee = node.callee as Extract<ValueIR, { kind: 'member' }>;
+  return RUNNER_DECIMAL_METHODS.has(callee.property);
+}
+
+/** Evaluate a `Decimal.<method>(...)` expression through the runner's native
+ *  Decimal evaluation and render the result to its KERN-canonical STRING — the
+ *  runner's third "leg" of the decimal differential oracle. Computes on a LOCAL
+ *  cloned constructor pinned to the canonical context (precision 28,
+ *  ROUND_HALF_EVEN, modulo ROUND_DOWN) — NEVER mutating the global decimal.js
+ *  constructor — and renders via the kernel's {@link kernDecimalStr}, so the output
+ *  is byte-identical to both emitted legs. A non-canonical `Decimal.of` literal
+ *  fails closed with the EXACT shared message. */
+export function evalDecimalExpression(node: ValueIR, env: SemanticEnv): string {
+  const KDecimal = makeKDecimal();
+  return kernDecimalStr(evalDecimalNode(node, KDecimal, env));
 }

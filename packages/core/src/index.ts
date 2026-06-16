@@ -476,6 +476,11 @@ export {
   snapshotRegistry,
   tracesEqual,
 } from './ir/semantics/index.js';
+// Runner-native Decimal (Slice 1) — the ReferenceRunner executes `Decimal.of/add/
+// mul` natively as a third "leg" of the decimal differential oracle, computing on a
+// local pinned decimal.js constructor and rendering through the canonical
+// stringifier so it is byte-identical to both emitted legs.
+export { evalDecimalExpression, isDecimalExpression } from './ir/semantics/portable-scalar.js';
 // ToNumericPrimitive decision kernel — slice-0.75 substrate (browser-safe).
 export type { KernNumericInput, NumericResult } from './ir/semantics/to-numeric.js';
 export {
