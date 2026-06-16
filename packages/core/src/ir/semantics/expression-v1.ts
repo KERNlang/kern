@@ -5,7 +5,12 @@
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
-import { evalPortableValue, isPortableBindingName } from './portable-scalar.js';
+import {
+  evalDecimalExpression,
+  evalPortableValue,
+  isDecimalExpression,
+  isPortableBindingName,
+} from './portable-scalar.js';
 import type { Trace } from './trace.js';
 
 interface ExpressionV1Props {
@@ -38,8 +43,17 @@ function expressionV1Preconditions(ir: IRNode, env: SemanticEnv): boolean {
   if (env.bindings.has(props.name)) return false;
   const expr = expressionSource(props.expr);
   if (!Object.hasOwn(ir.props ?? {}, 'expr') || expr === undefined || expr === '') return false;
+  const parsed = parseExpression(expr);
+  // Runner-native Decimal (Slice 1) — STRUCTURAL admit, do NOT evaluate. A
+  // structurally-valid `Decimal.of/add/mul(...)` (even with a non-canonical
+  // literal) passes the precondition so it reaches `effects`, which throws the
+  // canonical `Decimal.of` fail-close — byte-identical to the emitters, which
+  // compile the call but refuse at the lowering boundary. Routing on the
+  // structural predicate (not on a trial evaluation) is what preserves that
+  // message instead of collapsing it into a generic precondition failure.
+  if (isDecimalExpression(parsed)) return true;
   try {
-    evalPortableValue(parseExpression(expr), env);
+    evalPortableValue(parsed, env);
     return true;
   } catch {
     return false;
@@ -53,7 +67,19 @@ function expressionV1Effects(ir: IRNode, env: SemanticEnv): Trace {
   if (expr === undefined || expr === '') {
     throw new Error('expression-v1: missing expr');
   }
-  const value = evalPortableValue(parseExpression(expr), env);
+  const parsed = parseExpression(expr);
+  // Runner-native Decimal (Slice 1) — execute natively and bind the CANONICAL
+  // STRING (the runner's observable Decimal value). Binding a string keeps a live
+  // decimal.js instance out of the Trace (no Trace-representation trap) and stays
+  // byte-identical to both emitted legs. A non-canonical `Decimal.of` literal
+  // throws the shared canonical fail-close here, which `referenceRun` propagates
+  // verbatim.
+  if (isDecimalExpression(parsed)) {
+    const value = evalDecimalExpression(parsed);
+    env.bindings.set(name, value);
+    return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
+  }
+  const value = evalPortableValue(parsed, env);
   env.bindings.set(name, value);
   return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
 }

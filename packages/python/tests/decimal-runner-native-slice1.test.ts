@@ -37,20 +37,36 @@ import {
   decimalImportLineTS,
   decimalScaleFailMessage,
   emitExpressionWithImports,
-  evalDecimalExpression,
   isDecimalExpression,
   makeEnv,
   parseExpression,
+  referenceRun,
+  registerExpressionV1Contract,
 } from '@kernlang/core';
 import { emitPyExpressionWithImports } from '../src/codegen-body-python.js';
 import { KERN_DECIMAL_STR_HELPER_PY } from '../src/core/expr/index.js';
 
-// ── The RUNNER leg ───────────────────────────────────────────────────────────
-/** Parse a KERN expression and execute it through the runner's native Decimal
- *  evaluator, returning the KERN-canonical rendered string. */
+// ── The RUNNER leg (PRODUCTION PATH) ─────────────────────────────────────────
+// Slice 1 proves the *production* runner, not a test-only evaluator: every case
+// goes through `referenceRun` → the registered `expression-v1` contract →
+// (precondition structural-admit) → effects → native Decimal eval. So this leg
+// exercises EXACTLY the dispatch a real KERN body-statement binding takes.
+registerExpressionV1Contract(); // idempotent — safe to call once at module load.
+
+/** Run a KERN expression through the PRODUCTION runner: build an `expression-v1`
+ *  IR node binding the expression to `r`, dispatch via `referenceRun`, and read
+ *  the bound value back from the trace's `assign` event. This is the runner's
+ *  observable Decimal value — the KERN-canonical rendered string. */
 function runRef(src: string): string {
-  const node = parseExpression(src);
-  return evalDecimalExpression(node, makeEnv());
+  const node = { type: 'expression-v1', props: { name: 'r', expr: src } };
+  const trace = referenceRun(node, makeEnv());
+  const assign = trace.events.find(
+    (e): e is Extract<typeof e, { op: 'assign' }> => e.op === 'assign' && e.target === 'r',
+  );
+  if (!assign || typeof assign.value !== 'string') {
+    throw new Error(`runRef: expected a string assign for "r" from referenceRun, got ${JSON.stringify(trace.events)}`);
+  }
+  return assign.value;
 }
 
 // ── decimal.js resolution + runtime gate (mirrors the slice-3 oracle) ─────────
@@ -180,30 +196,64 @@ describe('Decimal Slice 1 — runner pins precision 28 (killer discriminates)', 
   });
 });
 
-// ── FAIL-CLOSE: non-canonical Decimal.of literal throws the EXACT shared message ─
-describe('Decimal Slice 1 — runner fail-close on non-canonical literal', () => {
-  test('Decimal.of("1.10") throws the byte-identical canonical scale fail-close', () => {
-    const node = parseExpression('Decimal.of("1.10")');
-    expect(() => evalDecimalExpression(node, makeEnv())).toThrow(decimalScaleFailMessage('1.10'));
+// ── FAIL-CLOSE through the PRODUCTION runner path ────────────────────────────
+// The structural-admit precondition lets a non-canonical `Decimal.of` literal
+// PASS the `expression-v1` precondition (structurally valid) and reach effects,
+// which throws the EXACT shared canonical-scale fail-close. `referenceRun`
+// propagates that throw verbatim — so the byte-identical refusal message surfaces
+// on the real dispatch, NOT collapsed into a generic "Preconditions failed".
+describe('Decimal Slice 1 — runner fail-close on non-canonical literal (production path)', () => {
+  test('referenceRun(Decimal.of("1.10")) throws the byte-identical canonical scale fail-close', () => {
+    expect(() => runRef('Decimal.of("1.10")')).toThrow(decimalScaleFailMessage('1.10'));
   });
 
-  test('Decimal.of("1E+2") throws the byte-identical canonical scale fail-close', () => {
-    const node = parseExpression('Decimal.of("1E+2")');
-    expect(() => evalDecimalExpression(node, makeEnv())).toThrow(decimalScaleFailMessage('1E+2'));
+  test('referenceRun(Decimal.of("1E+2")) throws the byte-identical canonical scale fail-close', () => {
+    expect(() => runRef('Decimal.of("1E+2")')).toThrow(decimalScaleFailMessage('1E+2'));
   });
 
   test('the fail-close message carries the shared DECIMAL_SCALE_FAILCLOSE prefix', () => {
-    const node = parseExpression('Decimal.of("1.10")');
-    expect(() => evalDecimalExpression(node, makeEnv())).toThrow(DECIMAL_SCALE_FAILCLOSE);
+    expect(() => runRef('Decimal.of("1.10")')).toThrow(DECIMAL_SCALE_FAILCLOSE);
   });
 
-  test('isDecimalExpression recognizes the Slice-1 surface and rejects non-Decimal calls', () => {
+  test('a non-canonical literal nested inside add fails closed through referenceRun', () => {
+    expect(() => runRef('Decimal.add(Decimal.of("1.10"), Decimal.of("2"))')).toThrow(decimalScaleFailMessage('1.10'));
+  });
+});
+
+// ── isDecimalExpression — RECURSIVE structural admission predicate ────────────
+// The invariant (codex finding): `isDecimalExpression(node) === true` ⟺ the
+// runner can evaluate `node` WITHOUT a structural error — it either succeeds or
+// throws ONLY a canonical `Decimal.of` fail-close. So the predicate must accept
+// the WHOLE operand tree, not just the top-level method name.
+describe('Decimal Slice 1 — isDecimalExpression recursive structural predicate', () => {
+  test('accepts structurally-valid Slice-1 shapes (incl. nested + non-canonical literal)', () => {
     expect(isDecimalExpression(parseExpression('Decimal.of("1.5")'))).toBe(true);
+    // Non-canonical literal is STILL structurally valid — effects fail-closes, not the predicate.
+    expect(isDecimalExpression(parseExpression('Decimal.of("1.10")'))).toBe(true);
     expect(isDecimalExpression(parseExpression('Decimal.add(Decimal.of("1"), Decimal.of("2"))'))).toBe(true);
     expect(isDecimalExpression(parseExpression('Decimal.mul(Decimal.of("1"), Decimal.of("2"))'))).toBe(true);
-    // Out-of-slice / non-Decimal shapes are NOT recognized.
+    // Arbitrarily nested.
+    expect(
+      isDecimalExpression(
+        parseExpression('Decimal.add(Decimal.of("1"), Decimal.mul(Decimal.of("2"), Decimal.of("3")))'),
+      ),
+    ).toBe(true);
+  });
+
+  test('rejects non-evaluable shapes the OLD top-level-only predicate wrongly accepted', () => {
+    // add/mul with NON-Decimal operands — the over-accept codex found.
+    expect(isDecimalExpression(parseExpression('Decimal.add(1, 2)'))).toBe(false);
+    // `of` with a non-string-literal (ident) operand — Slice-2, not Slice-1.
+    expect(isDecimalExpression(parseExpression('Decimal.of(x)'))).toBe(false);
+    // Arity violations.
+    expect(isDecimalExpression(parseExpression('Decimal.of("1", "2")'))).toBe(false);
+    expect(isDecimalExpression(parseExpression('Decimal.add(Decimal.of("1"))'))).toBe(false);
+    // Out-of-slice method.
     expect(isDecimalExpression(parseExpression('Decimal.div(Decimal.of("1"), Decimal.of("2"))'))).toBe(false);
+    // Not a Decimal namespace call at all.
     expect(isDecimalExpression(parseExpression('String(n)'))).toBe(false);
     expect(isDecimalExpression(parseExpression('1 + 2'))).toBe(false);
+    // One bad operand inside an otherwise-valid add poisons the whole tree.
+    expect(isDecimalExpression(parseExpression('Decimal.add(Decimal.of("1"), Decimal.add(1, 2))'))).toBe(false);
   });
 });
