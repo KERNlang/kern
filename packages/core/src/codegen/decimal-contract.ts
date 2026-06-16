@@ -51,6 +51,7 @@ export {
   decimalScaleFailMessage,
   isPortableDecimalLiteral,
 } from '../decimal/contract.js';
+
 import {
   DECIMAL_DIV_ZERO_FAILCLOSE,
   DECIMAL_MOD_ZERO_FAILCLOSE,

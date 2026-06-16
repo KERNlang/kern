@@ -39,9 +39,9 @@ import {
   emitExpressionWithImports,
   evalDecimalExpression,
   isDecimalExpression,
+  makeEnv,
   parseExpression,
 } from '@kernlang/core';
-import { makeEnv } from '@kernlang/core';
 import { emitPyExpressionWithImports } from '../src/codegen-body-python.js';
 import { KERN_DECIMAL_STR_HELPER_PY } from '../src/core/expr/index.js';
 
