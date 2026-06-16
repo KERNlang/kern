@@ -62,3 +62,25 @@ describe('ternary-precedence — guards (must stay byte-identical, no spurious p
     expect(py('a + b')).toBe('__kern_add(a, b)');
   });
 });
+
+// ── TRANSPARENT-WRAPPER blindness (D1) — Python ERASES `as T` / `!`, so a wrapped
+// conditional becomes a BARE conditional in a tight position. The operand predicate must
+// peel transparent wrappers (typeAssert/nonNull) and test the INNER kind. TS keeps the
+// wrapper (`(x as T)` self-parenthesizes) so TS is already correct — this is a Python-only
+// fix AND a TS↔Python byte-divergence until closed. (The recurring wrapper-bypass class.)
+describe('ternary-precedence — transparent-wrapped conditional operand (currently RED, Python)', () => {
+  test('(ternary as T) under a binary op — Python wraps the erased conditional', () => {
+    expect(py('((true ? 2 : 3) as any) * 5')).toBe('(2 if _kern_truthy(True) else 3) * 5');
+    // TS guard: already correct (keeps the cast, wraps the whole operand) — must not regress.
+    expect(ts('((true ? 2 : 3) as any) * 5')).toBe('((true ? 2 : 3) as any) * 5');
+  });
+  test('(ternary as T) as a call callee — Python', () => {
+    expect(py('((ok ? f : g) as any)(x)')).toBe('(f if _kern_truthy(ok) else g)(x)');
+  });
+  test('await (ternary as T) — Python', () => {
+    expect(py('await ((ok ? a() : b()) as any)')).toBe('await (a() if _kern_truthy(ok) else b())');
+  });
+  test('member object of a wrapped ternary is already wrapped — must stay (guard)', () => {
+    expect(py('((a ? b : c) as any).d')).toBe('(b if _kern_truthy(a) else c).d');
+  });
+});
