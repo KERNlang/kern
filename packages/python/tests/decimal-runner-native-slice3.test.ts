@@ -149,6 +149,14 @@ execDescribe('Decimal Slice 3 — RUNNER-NATIVE producers (ref === ts === py)', 
     ['Decimal.abs(Decimal.of("5"))', '5'],
     ['Decimal.abs(Decimal.neg(Decimal.of("5")))', '5'],
     ['Decimal.abs(Decimal.sub(Decimal.of("1"), Decimal.of("3")))', '2'],
+    // -0 RESIDUE: mul/abs/neg can yield a SIGN-BEARING zero (decimal.js .s=-1; Python
+    // str(Decimal("0")*Decimal("-1")) == "-0"). All three render paths must clamp it to
+    // unsigned "0" — decimal.js native .toString, the runner's kernDecimalStr isZero-clamp,
+    // and Python's _kern_decimal_str is_zero-clamp. mul(0,-1) is the KILLER: Python's RAW
+    // str() leaks "-0", so this fixture proves the Python clamp is load-bearing (a regression
+    // that dropped it would diverge the Py leg while TS+runner stay "0").
+    ['Decimal.mul(Decimal.of("0"), Decimal.of("-1"))', '0'],
+    ['Decimal.abs(Decimal.neg(Decimal.of("0")))', '0'],
     // div — the precision/rounding discriminators.
     ['Decimal.div(Decimal.of("6"), Decimal.of("3"))', '2'],
     ['Decimal.div(Decimal.of("10"), Decimal.of("4"))', '2.5'],
@@ -337,6 +345,16 @@ describe('Decimal Slice 3 — runner replicates the pow compile-gate (refuse wha
   });
   test('a syntactically-NEGATIVE base literal is REFUSED', () => {
     expect(() => runRefRaw('Decimal.pow(Decimal.of("-2"), Decimal.of("3"))')).toThrow(
+      DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE,
+    );
+  });
+  // TRANSPARENT WRAPPER (`as T` / `!`) on the exponent does NOT make it a provable integer
+  // literal: the emitters read the raw arg node and refuse a wrapped exponent (verified —
+  // emit throws POW_NON_INTEGER), so the runner's gate, reading the SAME raw node, must
+  // refuse identically rather than unwrap-and-accept. Guards the recurring transparent-
+  // wrapper operand-bypass class (cf. the slice-3 emission wrapper-bypass fixes).
+  test('a TRANSPARENT-WRAPPED exponent (`as Decimal`) is REFUSED, matching the emitters', () => {
+    expect(() => runRefRaw('Decimal.pow(Decimal.of("2"), Decimal.of("3") as Decimal)')).toThrow(
       DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE,
     );
   });
