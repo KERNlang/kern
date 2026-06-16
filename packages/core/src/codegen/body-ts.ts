@@ -133,6 +133,15 @@ interface BodyEmitContext {
   finallyDepth: number;
   /** Differential harness opt-in (see BodyEmitOptions.traceHooks). */
   traceHooks?: { eachIterNext?: boolean; forIterNext?: boolean; letAssign?: boolean };
+  /** DECIMAL Slice 2 (Finding A) — PER-EMISSION import-requirement sink. Threaded
+   *  into the expression emitter via `exprCtxFor` so a stdlib lowering that
+   *  declares `requires.ts` (currently only the Decimal namespace, which needs the
+   *  EXTERNAL `decimal.js` npm package) surfaces that requirement out of the body
+   *  emitter. ONE set per `emitNativeKernBodyTSWithImports` call (constructed fresh
+   *  alongside the rest of the context), NEVER module-global — so a body that does
+   *  NOT use Decimal returns an EMPTY set and never leaks a `decimal.js` import into
+   *  a generated file that doesn't need it. */
+  imports: Set<string>;
 }
 
 const INDENT_STEP = '  ';
@@ -155,6 +164,11 @@ export function emitNativeKernBodyTS(handlerNode: IRNode, options?: BodyEmitOpti
  *  Provided for symmetry with the Python target so generators that drive
  *  both languages have a uniform call shape. */
 export function emitNativeKernBodyTSWithImports(handlerNode: IRNode, options?: BodyEmitOptions): BodyEmitResult {
+  // DECIMAL Slice 2 (Finding A) — fresh PER-EMISSION import sink. The expression
+  // emitter records `requires.ts` requirements (e.g. `decimal.js`) into this set
+  // via `exprCtxFor`; it is returned below so a `lang="kern"` handler body that
+  // uses `Decimal.of`/`Decimal.add`/… surfaces the import a generator must render.
+  const imports = new Set<string>();
   const ctx: BodyEmitContext = {
     gensymCounter: 0,
     localScopes: [],
@@ -162,6 +176,7 @@ export function emitNativeKernBodyTSWithImports(handlerNode: IRNode, options?: B
     tryDepth: 0,
     finallyDepth: 0,
     traceHooks: options?.traceHooks,
+    imports,
   };
   // Outer scope carrying caller-supplied state bindings as `cell` so the
   // setter-rewrite path in emitAssignTS fires for surrounding-scope
@@ -177,7 +192,7 @@ export function emitNativeKernBodyTSWithImports(handlerNode: IRNode, options?: B
     ctx.regexScopes.push(outerRegex);
   }
   const code = emitChildrenTS(handlerNode.children ?? [], ctx, '').join('\n');
-  return { code, imports: new Set<string>() };
+  return { code, imports };
 }
 
 /** Body-statement node types that map to a SINGLE emitted line and may carry
@@ -1221,6 +1236,10 @@ function exprCtxFor(ctx: BodyEmitContext): ExprEmitContext {
   return {
     isUserBinding: (name: string) => lookupLocalBinding(ctx, name) !== undefined,
     validateRawBlock: validateClosureBlockHostNamespacesTS,
+    // DECIMAL Slice 2 (Finding A) — forward the per-emission import sink so the
+    // expression emitter's `registerStdlibRequirementTS` records `requires.ts`
+    // (e.g. `decimal.js`) into the body emitter's result instead of dropping it.
+    imports: ctx.imports,
   };
 }
 

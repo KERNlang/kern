@@ -6,7 +6,7 @@
 
 import { propsOf } from '../node-props.js';
 import type { ExprObject, IRNode } from '../types.js';
-import { emitNativeKernBodyTS } from './body-ts.js';
+import { emitNativeKernBodyTSWithImports } from './body-ts.js';
 import { emitIdentifier, emitTypeAnnotation } from './emitters.js';
 import { dedent, emitDocComment, exportPrefix, getChildren, getFirstChild, getProps, handlerCode } from './helpers.js';
 import { emitParamList, type TopLevelExpressionOptions } from './type-system.js';
@@ -15,15 +15,19 @@ import { emitParamList, type TopLevelExpressionOptions } from './type-system.js'
  *  Returns the emitted body when the fn's handler child opts in via `lang=kern`,
  *  otherwise returns the legacy raw `<<<…>>>` body via `handlerCode`.
  *
- *  Slice 3e — `emitNativeKernBodyTS` returns `{ code, imports }` for parity
- *  with the Python target. TS body emit currently never populates `imports`
- *  (Math/Map/Set are global, no module-level wiring needed yet), so we just
- *  unwrap `code`. Future TS-stdlib entries declaring `requires.ts` would
- *  need this caller to inject the imports above the function declaration. */
+ *  DECIMAL Slice 2 (Finding 1) — uses the import-aware `emitNativeKernBodyTSWithImports`
+ *  so the body's `requires.ts` requirement (e.g. `decimal.js`) is no longer DISCARDED
+ *  at this call site. The file-level `decimal.js` import + `Decimal.set(...)` preamble
+ *  is rendered by the post-transpile stdlib-preamble pass (which AST-detects
+ *  `lang="kern"` Decimal handlers — see `detectKernStdlibUsage`), placed at file
+ *  top-level where an ESM import is legal. We still return only `.code` here: the
+ *  body imports are surfaced for callers that thread them, and the preamble pass is
+ *  the single source of the rendered top-level import. (Python's twin injects the
+ *  import inline per-function — TS cannot, since ESM imports must be top-level.) */
 function fnBodyCode(node: IRNode): string {
   const handler = getFirstChild(node, 'handler');
   if (handler && getProps(handler).lang === 'kern') {
-    return emitNativeKernBodyTS(handler);
+    return emitNativeKernBodyTSWithImports(handler).code;
   }
   return handlerCode(node);
 }
@@ -190,9 +194,12 @@ export function generateError(node: IRNode): string[] {
   lines.push(`${exp}class ${name} extends ${ext} {`);
 
   // Native KERN body opt-in — same dispatch fn/method already honor.
+  // DECIMAL Slice 2 (Finding 1) — import-aware entry (see `fnBodyCode`).
   const errorHandler = getFirstChild(node, 'handler');
   const code =
-    errorHandler && getProps(errorHandler).lang === 'kern' ? emitNativeKernBodyTS(errorHandler) : handlerCode(node);
+    errorHandler && getProps(errorHandler).lang === 'kern'
+      ? emitNativeKernBodyTSWithImports(errorHandler).code
+      : handlerCode(node);
 
   if (fields.length > 0) {
     lines.push(`  constructor(`);

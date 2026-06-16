@@ -75,7 +75,9 @@
     "kern:check": "pnpm run kern:compile && git diff --exit-code -- src/generated/utils/version-detect.ts src/generated/utils/migrate-literals.ts src/generated/utils/python-sidecar.ts src/generated/utils/import-metadata.ts src/generated/utils/assignment-operators.ts src/generated/utils/ecosystem-signatures.ts src/generated/utils/external-boundary-utils.ts",
     "test": "pnpm run build && node ../../scripts/run-node-tests.mjs \"tests/**/*.test.ts\""
   },
-  "dependencies": {},
+  "dependencies": {
+    "decimal.js": "^10.6.0"
+  },
   "peerDependencies": {
     "typescript": "^6.0.0"
   },

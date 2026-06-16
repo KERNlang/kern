@@ -27,6 +27,38 @@ export {
 } from './closure-classifier.js';
 export type { BodyEmitOptions, BodyEmitResult } from './codegen/body-ts.js';
 export { emitNativeKernBodyTS, emitNativeKernBodyTSWithImports } from './codegen/body-ts.js';
+// DECIMAL Slice 1 — shared canonical-scale contract (single-sourced fail-close
+// + portability predicate consumed by BOTH the TS and Python emitters).
+export {
+  assertDecimalOperands,
+  assertNoDecimalOperator,
+  assertNonZeroDecimalDivisor,
+  assertPortableDecimalLiteral,
+  assertPortableDecimalPow,
+  DECIMAL_BARE_CONSTRUCTION_FAILCLOSE,
+  DECIMAL_DIV_ZERO_FAILCLOSE,
+  DECIMAL_MOD_ZERO_FAILCLOSE,
+  DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE,
+  DECIMAL_OPERATOR_FAILCLOSE,
+  DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE,
+  DECIMAL_POW_ZERO_NEGATIVE_EXP_FAILCLOSE,
+  DECIMAL_SCALE_FAILCLOSE,
+  DECIMAL_UNARY_OPERAND_FAILCLOSE,
+  decimalBareConstructionFailMessage,
+  decimalImportLineTS,
+  decimalNonDecimalOperandFailMessage,
+  decimalNonStringLiteralFailMessage,
+  decimalOfLiteralValue,
+  decimalOperatorFailMessage,
+  decimalOpsHelpersTS,
+  decimalPowFailMessage,
+  decimalScaleFailMessage,
+  decimalUnaryOperandFailMessage,
+  decimalZeroDivisorFailMessage,
+  isPortableDecimalLiteral,
+  isSyntacticDecimalProducer,
+  KERN_DECIMAL_OPS_HELPER_PY,
+} from './codegen/decimal-contract.js';
 export {
   HOST_NAMESPACE_EXEMPT_ROOTS,
   isHostNamespaceRoot,
@@ -205,7 +237,18 @@ export {
 // cross-target method dispatch. `applyTemplate` is the shared placeholder
 // substitution; `needsBinaryParens` is the shared precedence-aware paren
 // predicate so Python codegen reuses the same rule.
-export { emitExpression, needsArgParens, needsBinaryParens } from './codegen-expression.js';
+export {
+  type ExprEmitContext,
+  type ExpressionEmitResult,
+  emitExpression,
+  emitExpressionWithImports,
+  needsArgParens,
+  needsBinaryParens,
+  validateDecimalConstructionArg,
+  validateDecimalDivModArgs,
+  validateDecimalOperands,
+  validateDecimalPowArgs,
+} from './codegen-expression.js';
 export type {
   CallPayload,
   ConceptEdge,

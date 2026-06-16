@@ -29,6 +29,7 @@
  *      every target. */
 
 import type { IRNode } from '../types.js';
+import { decimalImportLineTS, decimalOpsHelpersTS } from './decimal-contract.js';
 
 export interface KernStdlibUsage {
   /** Module references `Result<…>` somewhere in a type annotation. */
@@ -39,6 +40,16 @@ export interface KernStdlibUsage {
    *  rewriter when a user wrote `expr!`. Optional for back-compat with
    *  callers who only construct the result/option flags. */
   unwrap?: boolean;
+  /** DECIMAL Slice 2 (Finding 1) — a `lang="kern"` handler body in this module
+   *  constructs/operates on a Decimal via the KERN_STDLIB.Decimal surface
+   *  (`Decimal.of`/`Decimal.add`/…). The TS leg lowers those to `decimal.js`
+   *  (`new Decimal(...)` / `.plus()` / …) — an EXTERNAL npm package, NOT a global
+   *  — so the generated TS file needs the `import Decimal from 'decimal.js'` line
+   *  PLUS the one-time `Decimal.set({...})` canonical-context preamble at file
+   *  top-level. This flag drives that injection in {@link kernStdlibPreamble}.
+   *  Optional for back-compat with callers that only build the result/option
+   *  flags. */
+  decimal?: boolean;
 }
 
 /** Regex anchored on word boundary + opening angle so a user identifier
@@ -55,10 +66,133 @@ const OPTION_REGEX = /\bOption\s*</;
  *  the only case where the auto-emitted definition is needed. */
 const UNWRAP_REGEX = /\bnew\s+KernUnwrapError\s*\(/;
 
+/** DECIMAL Slice 2 (Finding 1) / Slice 3 — match a call to the KERN_STDLIB.Decimal
+ *  surface that needs the `decimal.js` import + canonical-context preamble on the TS
+ *  leg. This is EVERY Decimal method that lowers to decimal.js: the producers
+ *  (`of`/`add`/`sub`/`mul`/`neg`/`abs` + Slice-3 `div`/`mod`/`pow`) AND the Slice-3
+ *  comparators (`eq`/`ne`/`lt`/`lte`/`gt`/`gte`/`cmp`), which lower to native
+ *  decimal.js methods (`.eq()`/`.cmp()`/…) and so equally require the import.
+ *  Anchored on a word boundary + the bare `Decimal` namespace ident + a known method
+ *  + `(` so a user identifier like `MyDecimal` or a member read `x.Decimal` does NOT
+ *  trip it. Detection runs ONLY inside a `lang="kern"` handler subtree (see
+ *  `scanDecimalInKernHandlers`) — a raw `lang="ts"` handler that itself imports
+ *  `decimal.js` is the author's own concern and must not be force-injected with the
+ *  KERN canonical-context preamble. Kept in lockstep with the KERN_STDLIB.Decimal
+ *  table — div/mod/pow additionally need the guarded-ops HELPERS, which ride the
+ *  same `usage.decimal` preamble block (see `kernStdlibPreamble`). */
+const DECIMAL_PRODUCER_REGEX = /\bDecimal\.(?:of|add|sub|mul|neg|abs|div|mod|pow|eq|ne|lt|lte|gt|gte|cmp)\s*\(/;
+
+/** DECIMAL Slice 2 (Finding 1 — remediation) — blank out comment and
+ *  string/template-literal CONTENT before applying {@link DECIMAL_PRODUCER_REGEX}
+ *  to a raw `lang="kern"` body, so a `Decimal.of(` mention that lives ONLY inside a
+ *  line/block comment or a `"…"` / `'…'` / `` `…` `` literal does NOT trip the
+ *  detector into injecting a spurious `decimal.js` import + `Decimal.set(...)`
+ *  preamble into a module that never actually lowers a Decimal.
+ *
+ *  This is the offset-preserving mask used by `parser-validate-effects.ts` /
+ *  `parser-validate-propagation.ts` (replace content with spaces, keep length), kept
+ *  byte-identical so the comment/string surface this detector ignores is exactly the
+ *  one the rest of the compiler already treats as non-code.
+ *
+ *  SOUNDNESS (the load-bearing property): it ONLY blanks content that cannot host a
+ *  real producer call — a genuine `Decimal.of("1.5")` keeps `Decimal.of(` intact
+ *  (only the `"1.5"` argument is masked to `"   "`), so the regex still matches and
+ *  a real producer is NEVER missed (no false NEGATIVE → no reintroduced missing
+ *  import).
+ *
+ *  SINGLE-PASS TOKENIZER (the load-bearing CORRECTNESS fix): comments and string /
+ *  template literals are matched by ONE left-to-right alternation, so a `//` or `/*`
+ *  marker that lives INSIDE a string (e.g. a URL `"http://x"`) is consumed as part of
+ *  the string token and is NEVER misread as a comment that blanks the rest of the
+ *  line. The prior sequential-`.replace()` chain stripped line comments BEFORE masking
+ *  strings, so a string-internal `//` blanked out the real `Decimal.of(` producer that
+ *  followed it on the same line — a false NEGATIVE that reintroduced the very
+ *  missing-import bug this mask exists to prevent. The first alternative that matches
+ *  at each position wins: a comment opener only fires when the cursor is OUTSIDE any
+ *  string (the string alternatives have already consumed string bodies).
+ *
+ *  OFFSET- AND QUOTE-PRESERVING: each token is replaced with an equal-length run so
+ *  offset-dependent callers stay correct; for string/template literals the surrounding
+ *  quote chars are kept (`"…"`→`"   "`, `` `…` ``→`` `   ` ``) to match the byte-shape
+ *  the shared `parser-validate-*` masks produce. Comments are blanked whole. */
+function maskCommentsAndStrings(code: string): string {
+  // Order matters: block comment, line comment, then the three string/template
+  // forms. Because alternation is leftmost-longest-by-alternative-order and the
+  // scan is left-to-right, a `//` or `/*` inside an already-open string literal is
+  // never reached as a comment — the string alternative consumes it first.
+  const tokenRegex = /\/\*[\s\S]*?\*\/|\/\/[^\n]*|"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
+  return code.replace(tokenRegex, (m) => {
+    const first = m[0];
+    // String / template literal — preserve the surrounding quote chars, blank the body.
+    if (first === '"' || first === "'" || first === '`') {
+      return `${first}${' '.repeat(Math.max(0, m.length - 2))}${first}`;
+    }
+    // Line / block comment — blank the whole token.
+    return ' '.repeat(m.length);
+  });
+}
+
+/** True iff `code` references a Decimal producer in REAL code (comment/string
+ *  mentions masked out first). The single choke point both the string-prop and the
+ *  ExprObject (`{{ … }}`) `.code` paths route through, so the false-positive fix is
+ *  applied uniformly. */
+function codeUsesDecimalProducer(code: string): boolean {
+  return DECIMAL_PRODUCER_REGEX.test(maskCommentsAndStrings(code));
+}
+
 function scanString(s: string, usage: KernStdlibUsage): void {
   if (!usage.result && RESULT_REGEX.test(s)) usage.result = true;
   if (!usage.option && OPTION_REGEX.test(s)) usage.option = true;
   if (UNWRAP_REGEX.test(s)) usage.unwrap = true;
+}
+
+/** DECIMAL Slice 2 (Finding 1) — true iff any string prop in `node`'s subtree
+ *  references a Decimal producer. Scans the WHOLE subtree (a Decimal call can live
+ *  in any body-statement prop — `let value=…`, `return value=…`, `if cond=…`, an
+ *  `expression-v1`, etc.), and recurses through nested control-flow children. */
+function subtreeUsesDecimalProducer(node: IRNode): boolean {
+  if (node.props) {
+    for (const value of Object.values(node.props)) {
+      // Mask comment / string-literal mentions before matching so a `Decimal.of(`
+      // that lives ONLY in a comment or string does not force a spurious import.
+      if (typeof value === 'string' && codeUsesDecimalProducer(value)) return true;
+      // The `{{ … }}` ExprObject escape hatch carries its source in `.code`.
+      if (
+        value !== null &&
+        typeof value === 'object' &&
+        (value as { __expr?: unknown }).__expr === true &&
+        typeof (value as { code?: unknown }).code === 'string' &&
+        codeUsesDecimalProducer((value as { code: string }).code)
+      ) {
+        return true;
+      }
+    }
+  }
+  if (node.children) {
+    for (const child of node.children) {
+      if (subtreeUsesDecimalProducer(child)) return true;
+    }
+  }
+  return false;
+}
+
+/** DECIMAL Slice 2 (Finding 1) — walk the IR for `handler lang="kern"` nodes and
+ *  flag `usage.decimal` when any such handler body uses a Decimal producer. Gated
+ *  on `lang="kern"` so the auto-injected `decimal.js` import + canonical-context
+ *  preamble is rendered ONLY when KERN itself lowered the Decimal call (raw
+ *  `lang="ts"`/`lang="python"` handlers own their imports). */
+function scanDecimalInKernHandlers(node: IRNode, usage: KernStdlibUsage): void {
+  if (usage.decimal) return;
+  if (node.type === 'handler' && node.props?.lang === 'kern' && subtreeUsesDecimalProducer(node)) {
+    usage.decimal = true;
+    return;
+  }
+  if (node.children) {
+    for (const child of node.children) {
+      scanDecimalInKernHandlers(child, usage);
+      if (usage.decimal) return;
+    }
+  }
 }
 
 function scanProps(props: Record<string, unknown> | undefined, usage: KernStdlibUsage): void {
@@ -75,9 +209,9 @@ function scanProps(props: Record<string, unknown> | undefined, usage: KernStdlib
 }
 
 export function detectKernStdlibUsage(root: IRNode): KernStdlibUsage {
-  // `unwrap` stays absent (rather than `false`) when not detected, so
-  // strict `toEqual({ result, option })` callers from the slice 4 layer 2
-  // test suite continue to match without requiring updates.
+  // `unwrap` (and `decimal`) stay absent (rather than `false`) when not detected,
+  // so strict `toEqual({ result, option })` callers from the slice 4 layer 2 test
+  // suite continue to match without requiring updates.
   const usage: KernStdlibUsage = { result: false, option: false };
 
   function walk(node: IRNode): void {
@@ -92,6 +226,10 @@ export function detectKernStdlibUsage(root: IRNode): KernStdlibUsage {
   }
 
   walk(root);
+  // DECIMAL Slice 2 (Finding 1) — separate pass so the result/option/unwrap
+  // short-circuit above can't skip a `lang="kern"` Decimal handler. Scoped to
+  // `lang="kern"` handler subtrees (raw `lang="ts"` handlers own their imports).
+  scanDecimalInKernHandlers(root, usage);
   return usage;
 }
 
@@ -152,9 +290,39 @@ const UNWRAP_ERROR_CLASS = [
 ];
 
 export function kernStdlibPreamble(usage: KernStdlibUsage): string[] {
-  if (!usage.result && !usage.option && !usage.unwrap) return [];
+  if (!usage.result && !usage.option && !usage.unwrap && !usage.decimal) return [];
 
-  const lines: string[] = ['// ── KERN stdlib (auto-emitted) ──────────────────────────────────────'];
+  const lines: string[] = [];
+  // DECIMAL Slice 2 (Finding 1) — the `decimal.js` import + canonical-context
+  // preamble lead the block: an `import` declaration must precede the type-alias /
+  // companion-object statements below (and the injector places this whole block
+  // after any hashbang / `'use client'` directive, where a top-level ESM import is
+  // legal). This is the TS twin of the Python leg's inline `import decimal as
+  // __k_decimal` (rendered per-function in `fnBodyCodePython`); ESM imports cannot
+  // live inside a function, so the TS leg surfaces it once at file top-level here.
+  if (usage.decimal) {
+    lines.push('// ── KERN Decimal runtime (auto-emitted) ─────────────────────────────');
+    lines.push(...decimalImportLineTS().split('\n'));
+    // DECIMAL Slice 3 — the guarded div/mod/pow helpers (single-sourced in
+    // `decimal-contract.ts`) ride the SAME `usage.decimal` block as the import, so
+    // a `Decimal.div(a,b)` lowering's `__k_decimal_div(...)` call resolves at file
+    // top-level. They are emitted UNCONDITIONALLY whenever any Decimal method is
+    // used — the helpers are tiny, only reference the already-imported `Decimal`,
+    // and a module that uses Decimal at all is overwhelmingly likely to want them;
+    // gating per-op would add a second AST scan for no real payoff. (A comparator-
+    // only module carries three unused helper functions — dead but harmless, the
+    // same trade-off the Result/Option companion objects already make.)
+    lines.push(...decimalOpsHelpersTS().split('\n'));
+    // Separator blank ONLY when a Result/Option/unwrap stdlib block follows — the
+    // shared trailing `push('')` below already supplies the single blank line that
+    // separates a decimal-ONLY preamble from user code. Pushing it here too produced
+    // a stray DOUBLE blank line in the decimal-only path (Slice 2 nit fix).
+    if (usage.result || usage.option || usage.unwrap) lines.push('');
+  }
+
+  if (usage.result || usage.option || usage.unwrap) {
+    lines.push('// ── KERN stdlib (auto-emitted) ──────────────────────────────────────');
+  }
   if (usage.result) {
     lines.push("type Result<T, E> = { kind: 'ok'; value: T } | { kind: 'err'; error: E };");
     lines.push(...RESULT_HELPERS);

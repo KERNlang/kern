@@ -1,5 +1,14 @@
 /** Serialize ValueIR to a TypeScript expression string. */
 
+import {
+  assertDecimalOperands,
+  assertNoDecimalOperator,
+  assertNonZeroDecimalDivisor,
+  assertPortableDecimalLiteral,
+  assertPortableDecimalPow,
+  decimalBareConstructionFailMessage,
+  decimalNonStringLiteralFailMessage,
+} from './codegen/decimal-contract.js';
 import { isHostNamespaceRoot, unmappedHostNamespaceMessage } from './codegen/host-namespace.js';
 import type { StdlibCallEntry } from './codegen/kern-stdlib.js';
 import {
@@ -41,6 +50,22 @@ import type { ValueIR } from './value-ir.js';
 export interface ExprEmitContext {
   isUserBinding(name: string): boolean;
   validateRawBlock?(rawBlock: string, isUserBinding: (name: string) => boolean): void;
+  /** DECIMAL Slice 1 — TS-leg import-requirement sink, the additive mirror of the
+   *  Python expression emitter's `ctx.imports`. When a stdlib lowering declares
+   *  `requires.ts` (currently only the Decimal namespace, which needs the EXTERNAL
+   *  `decimal.js` npm package — not a global like Math/JSON/RegExp), the emitter
+   *  records the requirement key here so a caller using `emitExpressionWithImports`
+   *  can render the corresponding `import` line. `emitExpression` (legacy
+   *  string-only entry point) passes no sink, so the existing global-only lowerings
+   *  are completely unaffected. */
+  imports?: Set<string>;
+}
+
+/** DECIMAL Slice 1 — public return shape for the TS expression emitter, parity
+ *  with the Python `emitPyExpressionWithImports` `{ code, imports }`. */
+export interface ExpressionEmitResult {
+  code: string;
+  imports: Set<string>;
 }
 
 const DIRECT_HOST_CALL_ROOTS: ReadonlySet<string> = new Set([
@@ -160,6 +185,33 @@ const PREC: Record<string, number> = {
   '/': 14,
   '%': 14,
 };
+
+/** DECIMAL Slice 1 — context-aware entry point returning `{ code, imports }`.
+ *  Mirrors the Python `emitPyExpressionWithImports`: lowers `node` to TS and
+ *  collects any external-package import requirements (e.g. `decimal.js` for the
+ *  Decimal namespace) into the returned `imports` set. `emitExpression` is the
+ *  legacy code-only wrapper; it discards imports, which is correct for every
+ *  global-backed lowering (Math/JSON/Object/Array/Number/RegExp). */
+export function emitExpressionWithImports(node: ValueIR, ctx?: ExprEmitContext): ExpressionEmitResult {
+  const imports = ctx?.imports ?? new Set<string>();
+  const next: ExprEmitContext = {
+    isUserBinding: (name: string) => ctx?.isUserBinding(name) === true,
+    imports,
+  };
+  if (ctx?.validateRawBlock) next.validateRawBlock = ctx.validateRawBlock;
+  const code = emitExpression(node, next);
+  return { code, imports };
+}
+
+/** DECIMAL Slice 1 — record a TS-side `requires.ts` import requirement into the
+ *  context sink, when present. The requirement key (e.g. `'decimal.js'`) is the
+ *  npm package the caller must import; rendering the actual `import` line is the
+ *  caller's job (see `decimalImportLineTS`). No-op when no sink is threaded, so
+ *  the string-only `emitExpression` path is unaffected. */
+function registerStdlibRequirementTS(requirement: string | undefined, ctx: ExprEmitContext | undefined): void {
+  if (!requirement) return;
+  ctx?.imports?.add(requirement);
+}
 
 export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
   switch (node.kind) {
@@ -281,6 +333,12 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
         // member-callee screen below misses it, and RegExp is not in
         // DIRECT_HOST_CALL_ROOTS) fails-close with the shared regex message.
         rejectHostRegExpValueTS(node.callee.name, ctx);
+        // DECIMAL Slice 1 — bare `Decimal(...)` (ident callee) fail-closes
+        // symmetrically. Only the namespace forms `Decimal.of`/`Decimal.add`
+        // (member callees, handled by `applyStdlibLoweringTS` above) are portable.
+        if (!isUserBinding(ctx, node.callee.name) && node.callee.name === 'Decimal') {
+          throw new Error(decimalBareConstructionFailMessage());
+        }
         if (DIRECT_HOST_CALL_ROOTS.has(node.callee.name)) rejectUnmappedHostNamespaceTS(node.callee.name, 'call', ctx);
       }
       if (node.callee.kind === 'member') {
@@ -324,8 +382,22 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       return `${params}${returnType} => ${emitExpression(node.body as ValueIR, lambdaCtx)}`;
     }
     case 'binary': {
+      // DECIMAL Slice 2 (item 3) — fail closed on `+`/`-`/`*` over a syntactically-
+      // proven Decimal operand (`Decimal.of(...)`/`Decimal.<m>(...)`). decimal.js's
+      // `+` calls .valueOf() → float (silent precision loss + TS↔Python divergence).
+      // Conservative: a no-op for plain numeric arithmetic. The Python leg makes the
+      // identical decision with the same shared message, so the refusal is symmetric.
+      //
+      // Slice-2 remediation (Finding 2): lower the operands FIRST, then assert. An
+      // operand that is a bad Decimal call — an unknown member (`Decimal.nope(...)`)
+      // or a non-canonical literal (`Decimal.of("1.10")`) — throws its OWN specific
+      // diagnostic during lowering, instead of being masked by the generic operator
+      // error. Lowering a VALID Decimal producer (`Decimal.of("1")`) succeeds, so the
+      // operator fail-close below still fires for real Decimal arithmetic. The Python
+      // leg mirrors this lower-then-assert order for symmetric diagnostics.
       const left = emitExpression(node.left, ctx);
       const right = emitExpression(node.right, ctx);
+      assertNoDecimalOperator(node);
       const lp = needsParens(node.left, node.op, 'left') ? `(${left})` : left;
       const rp = needsParens(node.right, node.op, 'right') ? `(${right})` : right;
       return `${lp} ${node.op} ${rp}`;
@@ -712,8 +784,34 @@ function applyStdlibLoweringTS(call: Extract<ValueIR, { kind: 'call' }>, ctx?: E
   if (moduleName === 'Array' && methodName === 'from' && call.args.some((arg) => arg.kind === 'spread')) {
     throw new Error('Array.from portable lowering does not accept spread arguments; pass source and mapper directly.');
   }
+  // DECIMAL Slice 1 — `Decimal.of(arg)` accepts ONLY a portable string literal:
+  // reject a non-string-literal arg AND any literal carrying scale/significance
+  // the two engines render divergently. The SAME shared-core checks run on the
+  // Python leg, so the refusal is byte-identical across targets.
+  validateDecimalConstructionArg(moduleName, methodName, call);
+  // DECIMAL Slice 3 — `Decimal.pow(base, exp)` ships INTEGER exponent on a
+  // non-negative base ONLY; the shared validator fail-closes a non-integer /
+  // non-literal exponent or a negative base with the byte-identical message the
+  // Python leg throws.
+  validateDecimalPowArgs(moduleName, methodName, call);
+  // DECIMAL Slice 3 (robustness) — a Decimal binary/unary op (add/sub/mul/div/mod/
+  // pow, neg/abs, the comparators — everything but `of`) takes ONLY Decimal
+  // operands. Reject a provably-non-Decimal LITERAL operand (a host number/string/…)
+  // with the byte-identical shared diagnostic, closing the silent cross-target
+  // divergence `Decimal.eq(Decimal.of("1"), 0.1)` would otherwise emit (TS coerces
+  // `0.1`, Python compares the exact binary float). Variables/calls flow through —
+  // they MAY be a Decimal (no typed IR yet), the conservative/sound default.
+  validateDecimalOperands(moduleName, methodName, call);
+  // DECIMAL Slice 3 — a SYNTACTICALLY-ZERO `Decimal.div`/`Decimal.mod` divisor literal
+  // (`Decimal.of("0")`) is a provable zero-divide: fail it closed at COMPILE time with
+  // the same byte-identical diagnostic the emitted runtime guard throws (a dynamic
+  // zero is still caught at runtime). The early-error twin of `assertPortableDecimalPow`.
+  validateDecimalDivModArgs(moduleName, methodName, call);
   const listLambda = lowerListLambdaTS(moduleName, methodName, call, ctx);
   if (listLambda !== null) return listLambda;
+  // DECIMAL Slice 1 — record the external-package import requirement (e.g.
+  // `decimal.js`) into the context sink, mirroring the Python `requires.py` path.
+  registerStdlibRequirementTS(entry.requires?.ts, ctx);
   const args = call.args.map((a, index) => {
     const emitted = emitExpression(a, ctx);
     return needsStdlibArgParens(a, entry.ts, index) ? `(${emitted})` : emitted;
@@ -896,6 +994,69 @@ function throwUnknownStdlibMember(moduleName: string, memberName: string): never
   const suggestion = suggestStdlibMethod(moduleName, memberName);
   const hint = suggestion ? ` Did you mean '${moduleName}.${suggestion}'?` : '';
   throw new Error(`Unknown KERN-stdlib method/member '${moduleName}.${memberName}'.${hint}`);
+}
+
+/** DECIMAL Slice 1 — validate the `Decimal.of(arg)` argument: it must be a STRING
+ *  literal carrying canonical (non-divergent) scale. Throws the shared-core
+ *  fail-close (identical text on both legs) otherwise. No-op for any other
+ *  module/method. Called from BOTH `applyStdlibLoweringTS` and its Python twin. */
+export function validateDecimalConstructionArg(
+  moduleName: string,
+  methodName: string,
+  call: Extract<ValueIR, { kind: 'call' }>,
+): void {
+  if (moduleName !== 'Decimal' || methodName !== 'of') return;
+  const arg = call.args[0];
+  // Arity (1) is enforced by the table; guard defensively for the 0-arg case.
+  if (arg === undefined || arg.kind !== 'strLit') {
+    throw new Error(decimalNonStringLiteralFailMessage());
+  }
+  assertPortableDecimalLiteral(arg.value);
+}
+
+/** DECIMAL Slice 3 — compile-time fail-close for `Decimal.pow(base, exp)`: only an
+ *  integer-literal exponent on a non-negative base is portable across the two
+ *  engines. Delegates to the shared `assertPortableDecimalPow` (byte-identical
+ *  message on both legs). No-op for any other module/method. Called from BOTH
+ *  `applyStdlibLoweringTS` and its Python twin. */
+export function validateDecimalPowArgs(
+  moduleName: string,
+  methodName: string,
+  call: Extract<ValueIR, { kind: 'call' }>,
+): void {
+  if (moduleName !== 'Decimal' || methodName !== 'pow') return;
+  // Arity (2) is enforced by the table before this runs; read positionally.
+  assertPortableDecimalPow(call.args[0], call.args[1]);
+}
+
+/** DECIMAL Slice 3 (robustness) — reject a provably-non-Decimal LITERAL operand
+ *  passed to a Decimal binary/unary op (everything but the `Decimal.of` string
+ *  constructor). Delegates to the shared `assertDecimalOperands` (byte-identical
+ *  message on both legs). No-op for any other module/method. Called from BOTH
+ *  `applyStdlibLoweringTS` and its Python twin so the fail-close is symmetric. */
+export function validateDecimalOperands(
+  moduleName: string,
+  methodName: string,
+  call: Extract<ValueIR, { kind: 'call' }>,
+): void {
+  if (moduleName !== 'Decimal') return;
+  assertDecimalOperands(methodName, call.args);
+}
+
+/** DECIMAL Slice 3 — compile-time fail-close for a SYNTACTICALLY-ZERO `Decimal.div`/
+ *  `Decimal.mod` divisor literal (`Decimal.of("0")`): the early-error twin of the
+ *  emitted runtime `b.isZero()` guard. Delegates to the shared
+ *  `assertNonZeroDecimalDivisor` (byte-identical message on both legs). A dynamic
+ *  zero is still caught by the runtime helper. No-op for any other module/method.
+ *  Called from BOTH `applyStdlibLoweringTS` and its Python twin. */
+export function validateDecimalDivModArgs(
+  moduleName: string,
+  methodName: string,
+  call: Extract<ValueIR, { kind: 'call' }>,
+): void {
+  if (moduleName !== 'Decimal') return;
+  // Arity (2) is enforced by the table before this runs; the divisor is arg[1].
+  assertNonZeroDecimalDivisor(methodName, call.args[1]);
 }
 
 function validateStdlibCallArity(
