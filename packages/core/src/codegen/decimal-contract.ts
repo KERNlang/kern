@@ -58,6 +58,19 @@ import {
   DECIMAL_POW_ZERO_NEGATIVE_EXP_FAILCLOSE,
   DECIMAL_TS_PACKAGE,
 } from '../decimal/contract.js';
+import {
+  assertNonZeroDecimalDivisor as assertNonZeroDecimalDivisorShared,
+  assertPortableDecimalPow as assertPortableDecimalPowShared,
+  type DecimalProbeAccessor,
+  type DecimalProbeNode,
+  decimalOfLiteralValue as decimalOfLiteralValueShared,
+} from '../decimal/probe-gates.js';
+
+export {
+  DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE,
+  decimalPowFailMessage,
+  decimalZeroDivisorFailMessage,
+} from '../decimal/probe-gates.js';
 
 /** Render the TS-leg preamble that a `Decimal.*` lowering requires: the
  *  `decimal.js` import PLUS a one-time global context configuration that mirrors
@@ -188,63 +201,6 @@ export function decimalOperatorFailMessage(op: string): string {
 // helper text, so the runner's native guards and the emitted helpers throw the
 // byte-identical string.
 
-/** COMPILE-TIME fail-close prefix when a `Decimal.pow` exponent is NOT a provably
- *  integer literal, or the base is a syntactically-negative literal. Integer
- *  exponent on a non-negative base is byte-exact across engines; a non-integer /
- *  negative-base power is correctly-rounded-transcendental on decimal.js and can
- *  diverge from Python by ~1 ulp, so it is REFUSED rather than lowered. */
-export const DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE =
-  'Decimal.pow supports only an integer exponent on a non-negative base';
-
-/** Build the byte-identical compile-error for a non-portable `Decimal.pow`. The
- *  `reason` distinguishes the refused shape (non-literal / fractional exp /
- *  negative base) but the prefix + remediation are shared, so the refusal is
- *  observably symmetric across TS and Python (both legs throw this exact text). */
-export function decimalPowFailMessage(reason: string): string {
-  return (
-    `${DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE}: ${reason}. ` +
-    `KERN's certified Decimal pow is INTEGER-exponent only (0**0=1, positive, and negative int like 2**-1) ` +
-    `on a non-negative base — these are byte-exact across decimal.js and Python's stdlib decimal. ` +
-    `A non-integer exponent or a negative base is correctly-rounded TRANSCENDENTAL on the TS leg ` +
-    `(decimal.js) and can diverge from the Python leg by ~1 ulp, so KERN cannot guarantee byte-exact ` +
-    `cross-target parity and refuses it at compile time. Pass an integer-literal exponent and a ` +
-    `non-negative base (e.g. Decimal.pow(Decimal.of("2"), Decimal.of("3"))). ` +
-    `Fractional/transcendental pow is deferred to a later correctly-rounded slice.`
-  );
-}
-
-/** The shared zero-divide diagnostic for a SYNTACTICALLY-ZERO divisor/modulus
- *  literal caught at COMPILE time (the early-error nicety): the SAME message the
- *  runtime helper would throw, so literal `Decimal.div(x, Decimal.of("0"))` fails
- *  closed identically whether caught at compile or run time. Wired into the dispatch
- *  by {@link assertNonZeroDecimalDivisor}. */
-export function decimalZeroDivisorFailMessage(op: 'div' | 'mod'): string {
-  return op === 'div' ? DECIMAL_DIV_ZERO_FAILCLOSE : DECIMAL_MOD_ZERO_FAILCLOSE;
-}
-
-/** COMPILE-TIME fail-close for a SYNTACTICALLY-ZERO `Decimal.div`/`Decimal.mod`
- *  divisor literal (analogous to {@link assertPortableDecimalPow} for pow). When the
- *  divisor is a direct `Decimal.of("0")` literal — the ONLY canonical zero form, since
- *  `"0.0"`/`"-0"` are already refused by `assertPortableDecimalLiteral` upstream — the
- *  zero divide is provable at compile time, so we throw the byte-identical
- *  {@link decimalZeroDivisorFailMessage} on BOTH legs rather than waiting for the
- *  emitted runtime helper's `b.isZero()` guard to fire. A DYNAMIC zero (a variable, a
- *  computed Decimal) cannot be proven here and is left to that runtime guard — the
- *  compile-time check is a strict, sound NARROWING of the runtime one, never a
- *  replacement. `divisor` is the SECOND arg node of the `Decimal.div`/`Decimal.mod`
- *  call. No-op unless `op` is `div`/`mod`. Called from BOTH legs' dispatch site with
- *  the SAME divisor node, so the refusal is symmetric. */
-export function assertNonZeroDecimalDivisor(op: string, divisor: unknown): void {
-  if (op !== 'div' && op !== 'mod') return;
-  const lit = decimalOfLiteralValue(divisor);
-  // The canonical grammar admits exactly one zero form (`"0"`); `"0.0"`/`"-0"` etc.
-  // are non-portable and already fail-closed at the `Decimal.of` construction site,
-  // so they can never reach here as a `Decimal.of` literal value.
-  if (lit === '0') {
-    throw new Error(decimalZeroDivisorFailMessage(op));
-  }
-}
-
 /** TS-leg helper functions for the divergent Decimal ops, single-sourced here and
  *  rendered into the file-level decimal preamble (alongside the `decimal.js`
  *  import) by `kernStdlibPreamble`. Each takes two `Decimal` values and returns a
@@ -323,10 +279,49 @@ function pyStr(s: string): string {
  *  union without importing it (keeps `decimal-contract.ts` dependency-free and
  *  callable from both the core TS emitter and the Python emitter). Only the fields
  *  the syntactic Decimal-producer check reads are modelled. */
-interface DecimalProbeNode {
-  kind: string;
-  callee?: { kind: string; object?: { kind: string; name?: string }; property?: string };
-  args?: Array<{ kind: string; value?: string }>;
+const DECIMAL_PROBE_ACCESSOR: DecimalProbeAccessor<DecimalProbeNode> = {
+  callKind: 'call',
+  receiverName(node) {
+    const callee = node.callee;
+    if (callee?.kind !== 'member') return null;
+    return callee.object?.kind === 'ident' ? (callee.object.name ?? null) : null;
+  },
+  methodName(node) {
+    const callee = node.callee;
+    if (callee?.kind !== 'member') return null;
+    return typeof callee.property === 'string' ? callee.property : null;
+  },
+  argNode(node, index) {
+    const arg = node.args?.[index];
+    return typeof arg === 'object' && arg !== null ? (arg as DecimalProbeNode) : null;
+  },
+  argKind(node) {
+    return typeof node.kind === 'string' ? node.kind : null;
+  },
+  argLiteralValue(node) {
+    return typeof node.value === 'string' ? node.value : null;
+  },
+};
+
+export function decimalOfLiteralValue(node: unknown): string | null {
+  if (typeof node !== 'object' || node === null) return null;
+  return decimalOfLiteralValueShared(node as DecimalProbeNode, DECIMAL_PROBE_ACCESSOR);
+}
+
+export function assertPortableDecimalPow(base: unknown, exp: unknown): void {
+  if (typeof base !== 'object' || base === null || typeof exp !== 'object' || exp === null) {
+    assertPortableDecimalPowShared(base as DecimalProbeNode, exp as DecimalProbeNode);
+    return;
+  }
+  assertPortableDecimalPowShared(base as DecimalProbeNode, exp as DecimalProbeNode, DECIMAL_PROBE_ACCESSOR);
+}
+
+export function assertNonZeroDecimalDivisor(op: string, divisor: unknown): void {
+  if (typeof divisor !== 'object' || divisor === null) {
+    assertNonZeroDecimalDivisorShared(op, divisor as DecimalProbeNode);
+    return;
+  }
+  assertNonZeroDecimalDivisorShared(op, divisor as DecimalProbeNode, DECIMAL_PROBE_ACCESSOR);
 }
 
 /** The provably-NON-Decimal literal node kinds. A `Decimal` binary/unary op
@@ -573,69 +568,6 @@ export function assertDecimalOperands(method: string, args: ReadonlyArray<unknow
   }
 }
 
-/** Extract the literal STRING value `s` of a `Decimal.of("s")` call node, or null
- *  if `node` is not exactly that syntactic shape. Used by the compile-time pow
- *  fail-close to read the exponent / base literal. CONSERVATIVE: only a direct
- *  `Decimal.of(<strLit>)` is recognised — a variable, a `Decimal.add(...)` result,
- *  or any non-literal exponent returns null and is therefore REFUSED by the caller
- *  (it cannot be proven an integer at compile time, the soundness-critical default). */
-export function decimalOfLiteralValue(node: unknown): string | null {
-  if (typeof node !== 'object' || node === null) return null;
-  const n = node as DecimalProbeNode;
-  if (n.kind !== 'call') return null;
-  const callee = n.callee;
-  if (!callee || callee.kind !== 'member' || callee.property !== 'of') return null;
-  if (callee.object?.kind !== 'ident' || callee.object.name !== 'Decimal') return null;
-  const arg = n.args?.[0];
-  if (!arg || arg.kind !== 'strLit' || typeof arg.value !== 'string') return null;
-  return arg.value;
-}
-
-/** COMPILE-TIME fail-close for `Decimal.pow(base, exp)`: ship ONLY a provably
- *  integer exponent literal on a non-negative base; refuse everything else with the
- *  byte-identical {@link decimalPowFailMessage}. Called from BOTH legs' dispatch
- *  site with the SAME `{base, exp}` arg nodes, so the refusal is symmetric.
- *
- *  Rules (each maps to a concrete divergence the integer-only contract avoids):
- *    - exponent MUST be a `Decimal.of("<int>")` literal — a non-literal (variable /
- *      arithmetic result) cannot be proven integer at compile time, so it is
- *      refused (the soundness-critical conservative default: a runtime check would
- *      let a fractional dynamic exponent reach decimal.js's transcendental pow and
- *      diverge from Python by ~1 ulp before any guard fires).
- *    - exponent literal MUST have NO fractional part (`"2.5"` → refused).
- *    - base, IF a `Decimal.of("<lit>")` literal, MUST NOT be syntactically negative
- *      (`Decimal.of("-2")` → refused; negative base + non-even exponent is
- *      complex/sign-divergent territory). A non-literal base is allowed through —
- *      the helper never produces a non-finite from a non-negative-or-any real base
- *      with an integer exponent except `0**neg`, which the runtime guard catches.
- *
- *  UPSTREAM-GATE DEPENDENCY (makes the string checks EXACT, not heuristic): any
- *  literal reaching here as a `Decimal.of("<lit>")` arg has ALREADY passed
- *  `assertPortableDecimalLiteral` at its construction site, so `<lit>` is in the
- *  canonical grammar `^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$` — NO exponent (`E`/`e`),
- *  NO whitespace, NO leading/signed zero, NO trailing-zero fraction, and any
- *  fraction has an integer part. So `.includes(".")` is an EXACT integer test
- *  (`"-.5"`, `"3.0E2"`, `"  -3 "` cannot appear — they fail the literal gate first)
- *  and a leading `-` is an EXACT sign test (sci-notation negatives like `"-3E2"`
- *  cannot appear). The checks are not string heuristics over arbitrary input. */
-export function assertPortableDecimalPow(base: unknown, exp: unknown): void {
-  const expLit = decimalOfLiteralValue(exp);
-  if (expLit === null) {
-    throw new Error(
-      decimalPowFailMessage(
-        'the exponent must be an integer Decimal literal (e.g. Decimal.of("3")), not a variable or computed value',
-      ),
-    );
-  }
-  if (expLit.includes('.')) {
-    throw new Error(decimalPowFailMessage(`the exponent Decimal.of("${expLit}") is not an integer`));
-  }
-  const baseLit = decimalOfLiteralValue(base);
-  if (baseLit !== null && baseLit.startsWith('-')) {
-    throw new Error(decimalPowFailMessage(`the base Decimal.of("${baseLit}") is negative`));
-  }
-}
-
 /** The EXACT set of `Decimal.<method>` calls that PRODUCE a Decimal value — the
  *  KERN_STDLIB.Decimal surface (`packages/core/src/codegen/kern-stdlib.ts`). The
  *  operator fail-close must fire ONLY on these, so an UNKNOWN member like
@@ -673,7 +605,7 @@ export function isSyntacticDecimalProducer(node: unknown): boolean {
   const n = node as DecimalProbeNode;
   if (n.kind !== 'call') return false;
   const callee = n.callee;
-  if (!callee || callee.kind !== 'member') return false;
+  if (callee?.kind !== 'member') return false;
   // Only the known Decimal-producing methods count. An unknown member is NOT a
   // proven Decimal producer — let the operand lower so its real diagnostic fires.
   if (typeof callee.property !== 'string' || !DECIMAL_PRODUCER_METHODS.has(callee.property)) return false;

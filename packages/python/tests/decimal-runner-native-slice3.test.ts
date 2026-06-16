@@ -258,11 +258,15 @@ describe('Decimal Slice 3 — runner resolves variable operands into producers',
     expect(runRefBlock([['d', 'Decimal.of("7")']], 'Decimal.neg(d)')).toBe('-7');
     expect(runRefBlock([['d', 'Decimal.neg(Decimal.of("7"))']], 'Decimal.abs(d)')).toBe('7');
   });
-  test('a COMPUTED binding round-trips through a producer: (1/3) bound, *3 == 1', () => {
-    // (1/3)*3 under prec-28 is EXACTLY 1 (the round-trip of the 28-three canonical).
+  test('a COMPUTED binding feeds a producer: (1/3)*3 stays 0.999…9 (NO host-float / unity collapse)', () => {
+    // (1/3)*3 under prec-28 is 0.9999999999999999999999999999 (28 nines) — NOT 1.
+    // 1/3 rounds to 28 threes, ×3 is exactly 28 nines (already 28 sig-figs, no further
+    // rounding). decimal.js, Python `decimal`, and the kernel all agree. This kills both
+    // a host-float impl (JS (1/3)*3 === 1) AND any "saturated-unity" normalization that
+    // forces the runner to 1 and diverges it from the two emitted legs.
     expect(
       runRefBlock([['third', 'Decimal.div(Decimal.of("1"), Decimal.of("3"))']], 'Decimal.mul(third, Decimal.of("3"))'),
-    ).toBe('1');
+    ).toBe('0.9999999999999999999999999999');
   });
   test('a bound result feeds a comparator (write path joins read path)', () => {
     expect(

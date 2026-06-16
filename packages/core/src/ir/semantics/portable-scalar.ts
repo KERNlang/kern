@@ -20,12 +20,24 @@
 
 import {
   assertPortableDecimalLiteral,
+  DECIMAL_DIV_ZERO_FAILCLOSE,
+  DECIMAL_MOD_ZERO_FAILCLOSE,
+  DECIMAL_POW_ZERO_NEGATIVE_EXP_FAILCLOSE,
   DECIMAL_SCALE_FAILCLOSE,
   type KDecimalCtor,
   type KDecimalValue,
+  kDecimalDiv,
+  kDecimalMod,
+  kDecimalPowInt,
   kernDecimalStr,
   makeKDecimal,
 } from '../../decimal/contract.js';
+import {
+  assertNonZeroDecimalDivisor,
+  assertPortableDecimalPow,
+  DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE,
+  type DecimalProbeAccessor,
+} from '../../decimal/probe-gates.js';
 import type { ValueIR } from '../../value-ir.js';
 import type { SemanticEnv } from './index.js';
 
@@ -307,9 +319,31 @@ export function evalOrderedComparison(op: string, left: string | number, right: 
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** The Decimal namespace methods that PRODUCE a Decimal value. */
-const RUNNER_DECIMAL_VALUE_METHODS = new Set(['of', 'add', 'mul']);
+const RUNNER_DECIMAL_VALUE_METHODS = new Set(['of', 'add', 'mul', 'sub', 'neg', 'abs', 'div', 'mod', 'pow']);
 /** The Decimal namespace methods that PRODUCE a portable scalar. */
 const RUNNER_DECIMAL_COMPARATOR_METHODS = new Set(['eq', 'ne', 'lt', 'lte', 'gt', 'gte', 'cmp']);
+
+const VALUE_IR_DECIMAL_PROBE_ACCESSOR: DecimalProbeAccessor<ValueIR> = {
+  callKind: 'call',
+  receiverName(node) {
+    if (node.kind !== 'call' || node.callee.kind !== 'member') return null;
+    return node.callee.object.kind === 'ident' ? node.callee.object.name : null;
+  },
+  methodName(node) {
+    if (node.kind !== 'call' || node.callee.kind !== 'member') return null;
+    return node.callee.property;
+  },
+  argNode(node, index) {
+    if (node.kind !== 'call') return null;
+    return node.args[index] ?? null;
+  },
+  argKind(node) {
+    return node.kind;
+  },
+  argLiteralValue(node) {
+    return node.kind === 'strLit' ? node.value : null;
+  },
+};
 
 /** A FRESH empty env for {@link evalDecimalExpression}'s default (a literal-rooted
  *  call has no idents to resolve). Returns a NEW object on every call — never a
@@ -364,6 +398,17 @@ export function isCanonicalDecimalLiteralFailure(error: unknown): boolean {
   return error instanceof Error && error.message.startsWith(DECIMAL_SCALE_FAILCLOSE);
 }
 
+export function isRunnerNativeDecimalFailClose(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return (
+    error.message.startsWith(DECIMAL_SCALE_FAILCLOSE) ||
+    error.message.startsWith(DECIMAL_DIV_ZERO_FAILCLOSE) ||
+    error.message.startsWith(DECIMAL_MOD_ZERO_FAILCLOSE) ||
+    error.message.startsWith(DECIMAL_POW_ZERO_NEGATIVE_EXP_FAILCLOSE) ||
+    error.message.startsWith(DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE)
+  );
+}
+
 /** Evaluate a `Decimal.<method>(...)` expression (or a recursively-nested operand
  *  of one) to a live Decimal value, computing on the supplied LOCAL pinned
  *  constructor `KDecimal`. Operands are evaluated recursively, so nested forms
@@ -372,7 +417,10 @@ export function isCanonicalDecimalLiteralFailure(error: unknown): boolean {
  *  - `Decimal.of("lit")` — validates the literal with the shared portable-literal
  *    validator (fail-close with the EXACT shared message on non-canonical input),
  *    then constructs `new KDecimal("lit")`.
- *  - `Decimal.add(a, b)` → `a.plus(b)`; `Decimal.mul(a, b)` → `a.times(b)`.
+ *  - `Decimal.add/sub/mul(a, b)` → `a.plus/minus/times(b)`.
+ *  - `Decimal.neg/abs(a)` → `a.neg()/abs()`.
+ *  - `Decimal.div/mod/pow(a, b)` use the shared syntactic pre-gates plus the kernel
+ *    guarded runtime helpers.
  *
  *  Throws on any non-Decimal-namespace node, an unknown/out-of-slice method, a
  *  wrong arity, or a non-string-literal `of` argument — the runner refuses what it
@@ -414,14 +462,42 @@ function evalDecimalNode(node: ValueIR, env: SemanticEnv, KDecimal: KDecimalCtor
     return new KDecimal(arg.value);
   }
 
-  // add / mul — two Decimal operands, each evaluated recursively (operands may be
-  // wrapped too, so the recursion unwraps each).
+  if (method === 'neg' || method === 'abs') {
+    if (inner.args.length !== 1) {
+      throw new Error(`portable-decimal: Decimal.${method} expects exactly 1 argument`);
+    }
+    const operand = evalDecimalNode(inner.args[0], env, KDecimal);
+    return method === 'neg' ? operand.neg() : operand.abs();
+  }
+
   if (inner.args.length !== 2) {
     throw new Error(`portable-decimal: Decimal.${method} expects exactly 2 arguments`);
   }
+
+  if (method === 'div' || method === 'mod') {
+    assertNonZeroDecimalDivisor(method, inner.args[1], VALUE_IR_DECIMAL_PROBE_ACCESSOR);
+  } else if (method === 'pow') {
+    assertPortableDecimalPow(inner.args[0], inner.args[1], VALUE_IR_DECIMAL_PROBE_ACCESSOR);
+  }
+
   const a = evalDecimalNode(inner.args[0], env, KDecimal);
   const b = evalDecimalNode(inner.args[1], env, KDecimal);
-  return method === 'add' ? a.plus(b) : a.times(b);
+  switch (method) {
+    case 'add':
+      return a.plus(b);
+    case 'sub':
+      return a.minus(b);
+    case 'mul':
+      return a.times(b);
+    case 'div':
+      return kDecimalDiv(a, b);
+    case 'mod':
+      return kDecimalMod(a, b);
+    case 'pow':
+      return kDecimalPowInt(KDecimal, a, b);
+    default:
+      throw new Error(`portable-decimal: unsupported Decimal value method "${method}"`);
+  }
 }
 
 function evalRunnerNativeDecimalScalarCall(
@@ -459,7 +535,7 @@ function evalRunnerNativeDecimalScalarCall(
 }
 
 /** True iff `node` is a STRUCTURALLY-EVALUABLE runner-native Decimal expression —
- *  i.e. either a Decimal VALUE producer (`Decimal.of/add/mul(...)`) or a Decimal
+ *  i.e. either a Decimal VALUE producer (`Decimal.of/add/sub/mul/neg/abs/div/mod/pow(...)`) or a Decimal
  *  comparator (`eq/ne/lt/lte/gt/gte/cmp`) whose operand tree is made of
  *  structurally-valid Decimal operands. This is the recursive admission predicate the
  *  runner routes on: it must accept EXACTLY the inputs {@link evalDecimalNode}
@@ -480,26 +556,27 @@ function evalRunnerNativeDecimalScalarCall(
  *
  *  Examples — `true`: `Decimal.of("1.5")`, `Decimal.of("1.10")`,
  *  `Decimal.add(Decimal.of("1"), Decimal.of("2"))`, arbitrarily nested
- *  `add`/`mul`, `Decimal.eq(d, Decimal.of("1"))`. `false`: `Decimal.add(1, 2)`
- *  (non-Decimal operand), `Decimal.div(...)` (out of
- *  slice), `Decimal.of("1","2")` (arity), `Decimal.of()` (arity),
+ *  producers, `Decimal.eq(d, Decimal.of("1"))`. `false`: `Decimal.add(1, 2)`
+ *  (non-Decimal operand), `Decimal.of("1","2")` (arity), `Decimal.of()` (arity),
  *  `String(n)` / `1 + 2` (not a Decimal namespace call). */
 export function isDecimalExpression(node: ValueIR): boolean {
-  function isDecimalOperand(operand: ValueIR): boolean {
-    const inner = unwrapTransparent(operand);
-    if (inner.kind === 'ident') return true;
-    return isDecimalExpression(inner);
-  }
-
   // Transparent wrappers (`expr!`, `expr as T`) are runtime no-ops the emitters
   // lower through, so recognize the wrapped form too.
   const inner = unwrapTransparent(node);
+  function isDecimalOperand(operand: ValueIR): boolean {
+    const unwrapped = unwrapTransparent(operand);
+    if (unwrapped.kind === 'ident') return true;
+    return isDecimalExpression(unwrapped);
+  }
   if (!isDecimalNamespaceCall(inner)) return false;
   // Narrowed by isDecimalNamespaceCall: callee is a `member` on the Decimal ident.
   const method = (inner.callee as Extract<ValueIR, { kind: 'member' }>).property;
   if (RUNNER_DECIMAL_VALUE_METHODS.has(method)) {
     if (method === 'of') {
       return inner.args.length === 1 && inner.args[0].kind === 'strLit';
+    }
+    if (method === 'neg' || method === 'abs') {
+      return inner.args.length === 1 && isDecimalOperand(inner.args[0]);
     }
     return inner.args.length === 2 && isDecimalOperand(inner.args[0]) && isDecimalOperand(inner.args[1]);
   }
