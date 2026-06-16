@@ -8,7 +8,8 @@ import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv
 import {
   evalDecimalExpression,
   evalPortableValue,
-  isDecimalExpression,
+  isCanonicalDecimalLiteralFailure,
+  isDecimalValueExpression,
   isPortableBindingName,
   makeDecimalValue,
 } from './portable-scalar.js';
@@ -45,7 +46,7 @@ function expressionSource(expr: unknown): string | undefined {
  *  abstain) instead of the runner misjudging it as the builtin and diverging from
  *  the emitted legs, which honor the user binding. */
 function routesToNativeDecimal(parsed: ReturnType<typeof parseExpression>, env: SemanticEnv): boolean {
-  return isDecimalExpression(parsed) && !env.bindings.has('Decimal');
+  return isDecimalValueExpression(parsed) && !env.bindings.has('Decimal');
 }
 
 function expressionV1Preconditions(ir: IRNode, env: SemanticEnv): boolean {
@@ -59,16 +60,22 @@ function expressionV1Preconditions(ir: IRNode, env: SemanticEnv): boolean {
     // return false here so `referenceRun` raises the normal "Preconditions failed
     // …", not a raw parser error escaping out of `preconditions`.
     const parsed = parseExpression(expr);
-    // Runner-native Decimal (Slice 1) — STRUCTURAL admit, do NOT evaluate. A
-    // structurally-valid `Decimal.of/add/mul(...)` (even with a non-canonical
-    // literal) passes the precondition so it reaches `effects`, which throws the
-    // canonical `Decimal.of` fail-close — byte-identical to the emitters, which
-    // compile the call but refuse at the lowering boundary. Routing on the
-    // structural predicate (not on a trial evaluation) is what preserves that
-    // message instead of collapsing it into a generic precondition failure.
+    // Runner-native Decimal — trial-evaluate against the current env so variable
+    // operands (`Decimal.eq(d, e)`, `Decimal.add(d, Decimal.of("1"))`) reject
+    // unbound/non-Decimal bindings at the precondition boundary. Preserve the
+    // shared canonical `Decimal.of("...")` fail-close by admitting that specific
+    // error through to effects unchanged, mirroring the emitters' lowering site.
     // A user-shadowed `Decimal` (see routesToNativeDecimal) is NOT native — it
     // falls through to the portable trial below and abstains.
-    if (routesToNativeDecimal(parsed, env)) return true;
+    if (routesToNativeDecimal(parsed, env)) {
+      try {
+        evalDecimalExpression(parsed, env);
+        return true;
+      } catch (error) {
+        if (isCanonicalDecimalLiteralFailure(error)) return true;
+        return false;
+      }
+    }
     // Trial-evaluate the portable expression: a DOWNSTREAM read of a Decimal
     // binding (`d === "1"`) hits `assertPortableScalar` on the tagged Decimal
     // value, which throws → the runner ABSTAINS (Slice-1 boundary; Slice-2 gives
@@ -104,7 +111,7 @@ function expressionV1Effects(ir: IRNode, env: SemanticEnv): Trace {
   // here, which `referenceRun` propagates verbatim. A user-shadowed `Decimal`
   // (see routesToNativeDecimal) is NOT native — it falls through to portable eval.
   if (routesToNativeDecimal(parsed, env)) {
-    const str = evalDecimalExpression(parsed);
+    const str = evalDecimalExpression(parsed, env);
     env.bindings.set(name, makeDecimalValue(str));
     return { events: [{ op: 'assign', target: name, value: str }], completion: { kind: 'normal' } };
   }
