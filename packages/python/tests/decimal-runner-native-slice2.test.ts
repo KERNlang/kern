@@ -276,6 +276,30 @@ describe('Decimal Slice 2 — runner resolves variable Decimal operands', () => 
       ),
     ).toBe('Y');
   });
+
+  // Review #2 — a COMPUTED signed zero, BOUND then resolved, compares equal to a
+  // literal 0. The runner stores canonical "0" (never "-0"); the emitters keep a live
+  // -0 instance, but -0 ≡ 0 in VALUE comparison on both legs, so all three agree.
+  test('a bound computed signed zero compares equal to literal 0 (eq + cmp)', () => {
+    const z = 'Decimal.mul(Decimal.of("-1"), Decimal.of("0"))';
+    expect(runRefBlock([['z', z]], 'Decimal.eq(z, Decimal.of("0"))')).toBe('true');
+    expect(runRefBlock([['z', z]], 'Decimal.cmp(z, Decimal.of("0"))')).toBe('0');
+  });
+
+  // Review #2 — a 28-significant-digit value, BOUND then resolved, round-trips through
+  // its canonical string EXACTLY (precision-28 rendering is lossless), so cmp against
+  // the identical literal is 0. Proves variable round-trip fidelity at the boundary.
+  test('a bound precision-28 value round-trips exactly (cmp == 0)', () => {
+    const big = 'Decimal.mul(Decimal.of("1.234567890123456789012345678"), Decimal.of("1.000000000000000000000000001"))';
+    expect(runRefBlock([['d', big]], 'Decimal.cmp(d, Decimal.of("1.234567890123456789012345679"))')).toBe('0');
+  });
+
+  // Review #9 — a bound operand resolves identically in EITHER argument position.
+  test('a bound operand resolves in either argument position (symmetry)', () => {
+    expect(runRefBlock([['d', 'Decimal.of("1")']], 'Decimal.eq(d, Decimal.of("1"))')).toBe('true');
+    expect(runRefBlock([['d', 'Decimal.of("1")']], 'Decimal.eq(Decimal.of("1"), d)')).toBe('true');
+    expect(runRefBlock([['d', 'Decimal.of("1")']], 'Decimal.lt(Decimal.of("0"), d)')).toBe('true');
+  });
 });
 
 // ── RUNTIME ABSTAIN — the runner REFUSES a divergent / unprovable operand ──────
@@ -317,5 +341,14 @@ describe('Decimal Slice 2 — runner abstains on a non-Decimal literal operand',
   });
   test('Decimal.eq(0.1, Decimal.of("1")) — operand-order, runner abstains', () => {
     expect(() => runRefRaw('Decimal.eq(0.1, Decimal.of("1"))')).toThrow('Preconditions failed');
+  });
+
+  // Review #9 — a comparator result is a portable scalar (int/bool), NOT a Decimal.
+  // Feeding a `cmp` result as a Decimal operand must ABSTAIN — the runner never
+  // re-uses the -1/0/1 as a Decimal (the emitters would emit divergent code here).
+  test('a cmp result fed as a Decimal operand ABSTAINS (not mis-used as a Decimal)', () => {
+    expect(() => runRefRaw('Decimal.add(Decimal.cmp(Decimal.of("1"), Decimal.of("2")), Decimal.of("1"))')).toThrow(
+      'Preconditions failed',
+    );
   });
 });

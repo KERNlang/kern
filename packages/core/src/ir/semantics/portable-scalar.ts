@@ -310,7 +310,14 @@ export function evalOrderedComparison(op: string, left: string | number, right: 
 const RUNNER_DECIMAL_VALUE_METHODS = new Set(['of', 'add', 'mul']);
 /** The Decimal namespace methods that PRODUCE a portable scalar. */
 const RUNNER_DECIMAL_COMPARATOR_METHODS = new Set(['eq', 'ne', 'lt', 'lte', 'gt', 'gte', 'cmp']);
-const EMPTY_DECIMAL_ENV: SemanticEnv = { bindings: new Map(), seed: 0, now: 0 };
+
+/** A FRESH empty env for {@link evalDecimalExpression}'s default (a literal-rooted
+ *  call has no idents to resolve). Returns a NEW object on every call — never a
+ *  shared module-level map — so a stray future mutation can never leak across
+ *  evaluations or contaminate another caller. */
+function freshDecimalEvalEnv(): SemanticEnv {
+  return { bindings: new Map(), seed: 0, now: 0 };
+}
 
 /** Strip TYPE-LEVEL transparent wrappers — a non-null assertion (`expr!`) and a
  *  type assertion (`expr as T`) — down to the runtime expression they wrap. Both
@@ -345,6 +352,14 @@ function decimalNamespaceMethod(node: ValueIR): string | null {
   return (inner.callee as Extract<ValueIR, { kind: 'member' }>).property;
 }
 
+/** True iff `error` is the SHARED canonical Decimal-literal scale fail-close (the one
+ *  {@link assertPortableDecimalLiteral} throws). The `expression-v1` precondition uses
+ *  this to RE-ADMIT that specific failure to effects — so the byte-identical fail-close
+ *  message surfaces on the production path — while abstaining on EVERY other throw
+ *  (e.g. an unbound / non-Decimal variable operand → "binding is not a Decimal value").
+ *  Matching the exported {@link DECIMAL_SCALE_FAILCLOSE} prefix is precise enough: it is
+ *  the only message family carrying that prefix, and slice-1's fail-close regression test
+ *  guards against a reword silently flipping re-admit into abstain. */
 export function isCanonicalDecimalLiteralFailure(error: unknown): boolean {
   return error instanceof Error && error.message.startsWith(DECIMAL_SCALE_FAILCLOSE);
 }
@@ -448,9 +463,15 @@ function evalRunnerNativeDecimalScalarCall(
  *  comparator (`eq/ne/lt/lte/gt/gte/cmp`) whose operand tree is made of
  *  structurally-valid Decimal operands. This is the recursive admission predicate the
  *  runner routes on: it must accept EXACTLY the inputs {@link evalDecimalNode}
- *  can reach without a STRUCTURAL throw, so a `true` result guarantees
- *  {@link evalDecimalExpression} either succeeds or throws ONLY the canonical
- *  `Decimal.of` fail-close (never an arity / shape / out-of-slice error).
+ *  can reach without a STRUCTURAL throw (an arity / shape / out-of-slice error). On a
+ *  `true` node, {@link evalDecimalExpression} either succeeds, throws the canonical
+ *  `Decimal.of` fail-close, OR — once VARIABLE operands exist — throws a binding
+ *  resolution error ("binding is not a Decimal value") for an `ident` operand that is
+ *  unbound or not a tagged Decimal. The `expression-v1` precondition distinguishes the
+ *  two non-success throws: it RE-ADMITS the canonical fail-close (see
+ *  {@link isCanonicalDecimalLiteralFailure}) so effects surfaces the byte-identical
+ *  message, and ABSTAINS on the binding error — so the over-accept of `ident` operands
+ *  is fail-SAFE, never a divergent value.
  *
  *  It deliberately does NOT check the literal's CANONICAL-ness: a non-canonical
  *  `Decimal.of("1.10")` is structurally valid → `true`, and effects fails closed
@@ -504,7 +525,7 @@ export function isDecimalValueExpression(node: ValueIR): boolean {
  *  constructor — and renders via the kernel's {@link kernDecimalStr}, so the output
  *  is byte-identical to both emitted legs. A non-canonical `Decimal.of` literal
  *  fails closed with the EXACT shared message. */
-export function evalDecimalExpression(node: ValueIR, env: SemanticEnv = EMPTY_DECIMAL_ENV): string {
+export function evalDecimalExpression(node: ValueIR, env: SemanticEnv = freshDecimalEvalEnv()): string {
   const KDecimal = makeKDecimal();
   return kernDecimalStr(evalDecimalNode(node, env, KDecimal));
 }
