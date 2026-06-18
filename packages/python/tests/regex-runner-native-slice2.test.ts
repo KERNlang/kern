@@ -149,6 +149,23 @@ execDescribe('Regex Slice 2 — RUNNER-NATIVE differential (ref === ts === py)',
     // canonical contract sorts keys (a future field reorder cannot silently break
     // parity under the sorted-key canon).
     ['"xy".match(/(?<b>x)(?<a>y)/)', { full: 'xy', groups: ['x', 'y'], index: 0, named: { b: 'x', a: 'y' } }],
+    // ── review-driven regression guards (3-leg consistent; each pins a fence) ──
+    // /i fold INSIDE a capture group — kills "group numbering shifts when
+    // expandRegexIFold rewrites the pattern": `(k)` -> `([kK])` keeps group 1.
+    ['"K".match(/(k)/i)', { full: 'K', groups: ['K'], index: 0, named: {} }],
+    // MIDDLE optional positional unmatched -> null in the MIDDLE slot (ordering).
+    ['"ac".match(/(a)(b)?(c)/)', { full: 'ac', groups: ['a', null, 'c'], index: 0, named: {} }],
+    // named BACKREFERENCE — portable only because the Python emitter rewrites
+    // `\k<x>` -> `(?P=x)`; the runner runs the JS form. Pins that rewrite.
+    ['"aa".match(/(?<x>a)\\k<x>/)', { full: 'aa', groups: ['a'], index: 0, named: { x: 'a' } }],
+    // ASCII `\w` on .match — `é` is NOT a word char on either leg (normalizer +
+    // re.ASCII). Regression guard that the class normalization holds for .match,
+    // not just .test (slice 1).
+    ['"café".match(/caf\\w/)', null],
+    // variable-width lookAHEAD is portable in BOTH JS and Python (only lookBEHIND
+    // is fixed-width-only in Python) — pins that the lookbehind fence does NOT
+    // over-reach to lookahead.
+    ['"ab".match(/a(?=b+)/)', { full: 'a', groups: [], index: 0, named: {} }],
   ];
 
   let dir = '';
@@ -281,6 +298,28 @@ describe('Regex Slice 2 — abstains (no native route) on out-of-slice inputs', 
   });
   test('astral PATTERN abstains (inherited slice-1 scanRegexAstral gate)', () => {
     expect(() => runRefMatch('"x".match(/𝕏/)')).toThrow();
+  });
+  test('LONE SURROGATE subject abstains — code-unit scan fences unpaired surrogates', () => {
+    // for…of (code points) skips a lone surrogate; the code-UNIT scan catches it.
+    expect(() => runRefMatch('"\\ud800x".match(/x/)')).toThrow();
+  });
+  test('variable-width LOOKBEHIND abstains — Python re is fixed-width-only (compile error)', () => {
+    // BLOCKER closed: runner+TS execute `(?<=a+)b`, Python `re` throws at compile
+    // ("look-behind requires fixed-width pattern") -> the runner must decline.
+    expect(() => runRefMatch('"aab".match(/(?<=a+)b/)')).toThrow();
+  });
+  test('negative variable-width lookbehind abstains', () => {
+    expect(() => runRefMatch('"xb".match(/(?<!a+)b/)')).toThrow();
+  });
+  test('FIXED-width lookbehind also abstains (safe over-abstain — width analysis is error-prone)', () => {
+    // `(?<=a)b` IS portable, but the gate rejects ALL lookbehind rather than risk a
+    // width-analysis bug; over-abstaining never diverges.
+    expect(() => runRefMatch('"ab".match(/(?<=a)b/)')).toThrow();
+  });
+  test('OPTIONAL CHAINING `?.match` abstains — emitter falls through to native ARRAY shape', () => {
+    // BLOCKER closed: `"a"?.match(/a/)` -> runner object, but the TS leg emits the
+    // native `["a"]` array (the `.match` lowering ignores `?.`) -> 3-leg divergence.
+    expect(() => runRefMatch('"a"?.match(/a/)')).toThrow();
   });
   test('bare unescaped `.` without /s abstains (inherited JS<->Python `\\r` divergence)', () => {
     expect(() => runRefMatch('"axb".match(/a.b/)')).toThrow();
