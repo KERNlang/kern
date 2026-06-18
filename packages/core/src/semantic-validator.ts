@@ -1458,6 +1458,31 @@ function validateRagChunking(
       'RAG chunking overlap must be smaller than maxTokens.',
     );
   }
+
+  const strategy = stringProp(chunking.node, 'strategy');
+  const unit = stringProp(chunking.node, 'unit');
+  if (
+    strategy !== undefined &&
+    strategy !== 'semantic' &&
+    strategy !== 'window' &&
+    strategy !== 'token' &&
+    strategy !== 'token-window'
+  ) {
+    pushRagViolation(
+      violations,
+      'rag-chunking-strategy-invalid',
+      chunking.node,
+      "RAG chunking strategy must be one of 'semantic', 'window', 'token', or 'token-window'.",
+    );
+  }
+  if (strategy === 'semantic' && unit === 'chars') {
+    pushRagViolation(
+      violations,
+      'rag-chunking-semantic-unit-invalid',
+      chunking.node,
+      'RAG semantic chunking currently requires unit=tokens; omit unit or set unit=tokens.',
+    );
+  }
 }
 
 function validateRagEmbed(

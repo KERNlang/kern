@@ -669,6 +669,8 @@ export {
   ingestRagFactsDeclaredLocalSources,
   RAG_CHUNK_ID_VERSION,
   RAG_CHUNKER_VERSION,
+  RAG_SEMANTIC_CHUNKER_VERSION,
+  RAG_TOKEN_WINDOW_CHUNKER_VERSION,
 } from './rag-ingest.js';
 export type {
   InMemoryRagRetriever,

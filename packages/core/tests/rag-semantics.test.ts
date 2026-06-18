@@ -507,6 +507,26 @@ describe('RAG language semantics', () => {
     );
   });
 
+  test('rejects semantic chunking with character units instead of silently downgrading strategy', () => {
+    const source = [
+      'corpus name=Docs',
+      '  source name=manuals uri="./docs/**/*.md"',
+      '  chunking source=manuals strategy=semantic maxTokens=64 overlap=8 unit=chars',
+    ].join('\n');
+
+    expect(rulesFor(source)).toContain('rag-chunking-semantic-unit-invalid');
+  });
+
+  test('rejects unsupported RAG chunking strategies instead of silently using window chunking', () => {
+    const source = [
+      'corpus name=Docs',
+      '  source name=manuals uri="./docs/**/*.md"',
+      '  chunking source=manuals strategy=semnatic maxTokens=64 overlap=8 unit=tokens',
+    ].join('\n');
+
+    expect(rulesFor(source)).toContain('rag-chunking-strategy-invalid');
+  });
+
   test('reports invalid RAG eval case and assertion contracts', () => {
     const source = [
       'corpus name=Docs',

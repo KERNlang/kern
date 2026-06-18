@@ -22,12 +22,7 @@ import {
   EmbeddingRagIndex,
   LocalSemanticEmbedder,
 } from './rag-embedding.js';
-import {
-  ingestRagDeclaredLocalSources,
-  RAG_CHUNK_ID_VERSION,
-  RAG_CHUNKER_VERSION,
-  type RagIngestResult,
-} from './rag-ingest.js';
+import { ingestRagDeclaredLocalSources, RAG_CHUNK_ID_VERSION, type RagIngestResult } from './rag-ingest.js';
 import {
   evaluateRagEvalContract,
   type RagChunkInput,
@@ -86,6 +81,7 @@ export interface RagEvalDocumentCorpusSource {
   readonly corpusSha256: string;
   readonly chunkIdVersion?: string;
   readonly chunkerVersion?: string;
+  readonly chunkerVersions?: readonly string[];
 }
 
 /**
@@ -145,7 +141,6 @@ export function evaluateRagEvalDocumentFromDeclaredSources(
         chunkCount: 0,
         corpusSha256: '',
         chunkIdVersion: RAG_CHUNK_ID_VERSION,
-        chunkerVersion: RAG_CHUNKER_VERSION,
       },
       diagnostics,
       evals: [],
@@ -214,12 +209,12 @@ function emptyDeclaredCorpusSource(sourcePath: string): RagEvalDocumentCorpusSou
     chunkCount: 0,
     corpusSha256: '',
     chunkIdVersion: RAG_CHUNK_ID_VERSION,
-    chunkerVersion: RAG_CHUNKER_VERSION,
   };
 }
 
 function declaredCorpusSource(sourcePath: string, ingestion: RagIngestResult): RagEvalDocumentCorpusSource {
   const files = Array.from(new Set(ingestion.sources.flatMap((source) => source.files))).sort();
+  const chunkerVersions = uniqueSortedMetadataValues(ingestion.chunks, 'chunkerVersion');
   return {
     mode: 'declared-local-sources',
     sourcePath,
@@ -230,8 +225,19 @@ function declaredCorpusSource(sourcePath: string, ingestion: RagIngestResult): R
     chunkCount: ingestion.chunks.length,
     corpusSha256: ingestion.corpusSha256,
     chunkIdVersion: RAG_CHUNK_ID_VERSION,
-    chunkerVersion: RAG_CHUNKER_VERSION,
+    ...(chunkerVersions.length === 1 ? { chunkerVersion: chunkerVersions[0] } : {}),
+    chunkerVersions,
   };
+}
+
+function uniqueSortedMetadataValues(chunks: readonly RagChunkInput[], key: string): string[] {
+  return Array.from(
+    new Set(
+      chunks
+        .map((chunk) => chunk.metadata?.[key])
+        .filter((value): value is string => typeof value === 'string' && value.trim() !== ''),
+    ),
+  ).sort();
 }
 
 function chunksSha256(chunks: readonly RagChunkInput[]): string {

@@ -105,6 +105,8 @@ rag name=AnswerDocs retriever=DocsSearch citations=true
       expect(report.corpusSource.fileCount).toBe(2);
       expect(report.corpusSource.chunkCount).toBe(2);
       expect(report.corpusSource.chunkIdVersion).toBe('kern-rag-chunk-v1');
+      expect(report.corpusSource.chunkerVersion).toBe('semantic-boundary-v1');
+      expect(report.corpusSource.chunkerVersions).toEqual(['semantic-boundary-v1']);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -176,6 +178,38 @@ embed name=UnusedEmbedding corpus=Unused model=text-embedding-3-small dims=1536 
       expect(report.passed).toBe(true);
       expect(report.corpusSource.mode).toBe('declared-local-sources');
       expect(report.corpusSource.patterns).toEqual(['./docs/**/*.md']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('declared-source report does not collapse mixed chunker provenance into one version', () => {
+    const doc = `corpus name=Docs title="Support docs"
+  source name=semanticDocs kind=local uri="./semantic/**/*.md" media=markdown
+  chunking source=semanticDocs strategy=semantic maxTokens=600 overlap=80 unit=tokens
+  source name=windowDocs kind=local uri="./window/**/*.md" media=markdown
+  chunking source=windowDocs strategy=window maxTokens=600 overlap=80 unit=tokens
+
+retriever name=DocsSearch corpus=Docs mode=hybrid topK=4 minScore=0.1
+
+rag name=AnswerDocs retriever=DocsSearch
+  ragEval name=Mixed metric=faithfulness threshold=0.85 mode=contract
+    ragCase name=refunds query="refund refunds policy window" topK=1
+      ragAssert kind=sourceGlob value="semantic/*" required=true
+`;
+    const dir = mkdtempSync(join(tmpdir(), 'kern-rag-mixed-chunker-'));
+    try {
+      mkdirSync(join(dir, 'semantic'));
+      mkdirSync(join(dir, 'window'));
+      writeFileSync(join(dir, 'semantic/refunds.md'), '# Refunds\nrefund refunds policy window thirty days.\n');
+      writeFileSync(join(dir, 'window/shipping.md'), 'shipping delivery courier tracking parcel.\n');
+      const sourcePath = join(dir, 'mydocs.kern');
+      writeFileSync(sourcePath, doc);
+
+      const report = evaluateRagEvalDocumentFromDeclaredSources(doc, { sourcePath });
+
+      expect(report.corpusSource.chunkerVersion).toBeUndefined();
+      expect(report.corpusSource.chunkerVersions).toEqual(['semantic-boundary-v1', 'token-window-v1']);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
