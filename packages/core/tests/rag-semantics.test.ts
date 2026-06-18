@@ -527,6 +527,39 @@ describe('RAG language semantics', () => {
     expect(rulesFor(source)).toContain('rag-chunking-strategy-invalid');
   });
 
+  test('rejects unsupported RAG embed models', () => {
+    const source = [
+      'corpus name=Docs',
+      'embed name=DocsEmbedding corpus=Docs model=unknown-embedder dims=64 metric=cosine',
+    ].join('\n');
+
+    expect(rulesFor(source)).toContain('rag-embed-model-unsupported');
+  });
+
+  test('rejects embed dimensions that disagree with a supported model', () => {
+    const source = [
+      'corpus name=Docs',
+      'embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=1536 metric=cosine',
+    ].join('\n');
+
+    expect(rulesFor(source)).toContain('rag-embed-dims-model-mismatch');
+  });
+
+  test('rejects embed dimensions that disagree with the default local semantic model', () => {
+    const source = ['corpus name=Docs', 'embed name=DocsEmbedding corpus=Docs dims=1536 metric=cosine'].join('\n');
+
+    expect(rulesFor(source)).toContain('rag-embed-dims-model-mismatch');
+  });
+
+  test('allows reduced OpenAI embedding dimensions supported by the provider API', () => {
+    const source = [
+      'corpus name=Docs',
+      'embed name=DocsEmbedding corpus=Docs model="openai:text-embedding-3-small" dims=512 metric=cosine',
+    ].join('\n');
+
+    expect(rulesFor(source)).not.toContain('rag-embed-dims-model-mismatch');
+  });
+
   test('reports invalid RAG eval case and assertion contracts', () => {
     const source = [
       'corpus name=Docs',

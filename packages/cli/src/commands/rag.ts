@@ -1,44 +1,50 @@
 import {
-  evaluateRagEvalDocument,
-  evaluateRagEvalDocumentFromDeclaredSources,
+  evaluateRagEvalDocumentAsync,
+  evaluateRagEvalDocumentFromDeclaredSourcesAsync,
   type RagChunkInput,
   type RagEvalDocumentReport,
 } from '@kernlang/core';
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
-import { parseFlagOrNext } from '../shared.js';
 
-const USAGE = 'Usage: kern rag eval <file.kern> [--corpus <chunks.json>]';
+const USAGE = 'Usage: kern rag eval <file.kern> [--corpus <chunks.json>] [--openai-api-key <key>]';
 
 /** `kern rag …` — run a RAG spec's contracts in the toolchain (dbt-test shape). */
-export function runRag(args: string[]): void {
+export async function runRag(args: string[]): Promise<void> {
   const sub = args[1];
   if (sub === 'eval') {
-    runRagEval(args.slice(2));
+    await runRagEval(args.slice(2));
     return;
   }
   console.error(USAGE);
   process.exit(1);
 }
 
-function runRagEval(args: string[]): void {
-  const corpusFlagPresent = args.some((arg) => arg === '--corpus' || arg.startsWith('--corpus='));
-  const corpusPath = parseFlagOrNext(args, '--corpus');
-  const filePath = args.find((arg) => !arg.startsWith('-') && arg !== corpusPath);
+async function runRagEval(args: string[]): Promise<void> {
+  const { corpusFlagPresent, corpusPath, filePath, openAiApiKeyFlag, openAiKeyFlagPresent } = parseRagEvalArgs(args);
 
   const resolvedFilePath = filePath ? resolve(filePath) : '';
   if (!filePath) fail(`missing <file.kern>.\n${USAGE}`);
-  if (corpusFlagPresent && (!corpusPath || corpusPath.startsWith('-'))) fail(`missing value for --corpus.\n${USAGE}`);
+  if (corpusFlagPresent && (!corpusPath?.trim() || corpusPath.startsWith('-'))) {
+    fail(`missing value for --corpus.\n${USAGE}`);
+  }
+  if (openAiKeyFlagPresent && (!openAiApiKeyFlag?.trim() || openAiApiKeyFlag.startsWith('-'))) {
+    fail(`missing value for --openai-api-key.\n${USAGE}`);
+  }
   if (!existsSync(resolvedFilePath)) fail(`file not found: ${filePath}`);
   if (corpusPath && !existsSync(corpusPath)) fail(`corpus not found: ${corpusPath}`);
 
   const source = readFileSync(resolvedFilePath, 'utf-8');
   const chunks = corpusPath ? readCorpus(corpusPath) : undefined;
+  const providerOptions = ragProviderOptions(openAiApiKeyFlag);
   let report: RagEvalDocumentReport;
   try {
     report = chunks
-      ? evaluateRagEvalDocument(source, chunks)
-      : evaluateRagEvalDocumentFromDeclaredSources(source, { sourcePath: resolvedFilePath });
+      ? await evaluateRagEvalDocumentAsync(source, chunks, providerOptions)
+      : await evaluateRagEvalDocumentFromDeclaredSourcesAsync(source, {
+          sourcePath: resolvedFilePath,
+          ...providerOptions,
+        });
   } catch (err) {
     fail(`evaluation failed: ${(err as Error).message}`);
   }
@@ -69,6 +75,58 @@ function readCorpus(corpusPath: string): RagChunkInput[] {
     }
   });
   return parsed as RagChunkInput[];
+}
+
+function ragProviderOptions(
+  openAiApiKeyFlag: string | undefined,
+): { readonly providers: { readonly openai: { readonly apiKey: string } } } | undefined {
+  const openAiApiKey = (openAiApiKeyFlag ?? process.env.KERN_OPENAI_API_KEY ?? process.env.OPENAI_API_KEY)?.trim();
+  return openAiApiKey ? { providers: { openai: { apiKey: openAiApiKey } } } : undefined;
+}
+
+interface ParsedRagEvalArgs {
+  readonly filePath?: string;
+  readonly corpusPath?: string;
+  readonly corpusFlagPresent: boolean;
+  readonly openAiApiKeyFlag?: string;
+  readonly openAiKeyFlagPresent: boolean;
+}
+
+function parseRagEvalArgs(args: readonly string[]): ParsedRagEvalArgs {
+  let filePath: string | undefined;
+  let corpusPath: string | undefined;
+  let corpusFlagPresent = false;
+  let openAiApiKeyFlag: string | undefined;
+  let openAiKeyFlagPresent = false;
+
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === '--corpus') {
+      corpusFlagPresent = true;
+      corpusPath = args[i + 1];
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith('--corpus=')) {
+      corpusFlagPresent = true;
+      corpusPath = arg.slice('--corpus='.length);
+      continue;
+    }
+    if (arg === '--openai-api-key') {
+      openAiKeyFlagPresent = true;
+      openAiApiKeyFlag = args[i + 1];
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith('--openai-api-key=')) {
+      openAiKeyFlagPresent = true;
+      openAiApiKeyFlag = arg.slice('--openai-api-key='.length);
+      continue;
+    }
+    if (!arg.startsWith('-') && filePath === undefined) filePath = arg;
+  }
+
+  return { filePath, corpusPath, corpusFlagPresent, openAiApiKeyFlag, openAiKeyFlagPresent };
 }
 
 function printReport(report: RagEvalDocumentReport, file: string, chunkCount: number): void {

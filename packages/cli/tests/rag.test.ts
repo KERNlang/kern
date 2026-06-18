@@ -65,6 +65,29 @@ describe('kern rag eval', () => {
     expect(result.stderr).toContain('missing value for --corpus');
   });
 
+  test('provider-backed specs use the async provider path in the CLI', () => {
+    const providerDoc = DOC.replace(
+      'retriever name=DocsSearch corpus=Docs',
+      [
+        'embed name=DocsEmbedding corpus=Docs model="openai:text-embedding-3-small" dims=1536 metric=cosine',
+        'retriever name=DocsSearch corpus=Docs embed=DocsEmbedding',
+      ].join('\n'),
+    );
+    writeFileSync(join(dir, 'provider.kern'), providerDoc);
+
+    const result = run(['rag', 'eval', 'provider.kern'], dir);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("RAG embed model 'openai:text-embedding-3-small' requires OpenAI provider options");
+    expect(result.stderr).not.toContain('requires async provider execution');
+  });
+
+  test('rejects --openai-api-key without a value', () => {
+    const result = run(['rag', 'eval', 'mydocs.kern', '--openai-api-key'], dir);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('missing value for --openai-api-key');
+  });
+
   test('reports empty declared source globs with the pattern', () => {
     rmSync(join(dir, 'docs'), { recursive: true, force: true });
     const result = run(['rag', 'eval', 'mydocs.kern'], dir);

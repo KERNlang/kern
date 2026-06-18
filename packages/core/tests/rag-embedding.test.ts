@@ -1,12 +1,18 @@
 import {
+  type AsyncEmbedder,
+  AsyncEmbeddingRagIndex,
+  asAsyncEmbedder,
   createEmbeddingRetriever,
   DEFAULT_HASH_EMBEDDER_ID,
   DEFAULT_LOCAL_SEMANTIC_EMBEDDER_ID,
   DeterministicHashEmbedder,
   EmbeddingRagIndex,
+  embedderFingerprint,
   embeddingCosine,
   fnv1a32,
+  InMemoryPgVectorRagStore,
   LocalSemanticEmbedder,
+  OpenAIEmbeddingAdapter,
   type RagChunkInput,
 } from '../src/index.js';
 
@@ -83,6 +89,103 @@ describe('LocalSemanticEmbedder', () => {
     const related = embedder.embed('the automobile moved quickly');
     const unrelated = embedder.embed('the weather forecast changed');
     expect(embeddingCosine(query, related)).toBeGreaterThan(embeddingCosine(query, unrelated));
+  });
+});
+
+describe('OpenAIEmbeddingAdapter', () => {
+  test('posts embeddings requests through injected fetch and validates dimensions', async () => {
+    const calls: unknown[] = [];
+    const fakeFetch = async (_url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      calls.push(JSON.parse(String(init?.body ?? '{}')));
+      return new Response(JSON.stringify({ data: [{ embedding: [1, 0, 0] }] }), { status: 200 });
+    };
+    const embedder = new OpenAIEmbeddingAdapter({
+      model: 'text-embedding-3-small',
+      dims: 3,
+      apiKey: 'test-key',
+      fetch: fakeFetch,
+    });
+
+    expect(Array.from(await embedder.embed('refund policy'))).toEqual([1, 0, 0]);
+    expect(calls).toEqual([{ model: 'text-embedding-3-small', input: 'refund policy', dimensions: 3 }]);
+  });
+
+  test('fails closed when constructed without an API key', () => {
+    expect(() => new OpenAIEmbeddingAdapter({ model: 'text-embedding-3-small', dims: 3 })).toThrow(
+      /requires an apiKey/u,
+    );
+  });
+
+  test('wraps provider transport errors with KERN context', async () => {
+    const embedder = new OpenAIEmbeddingAdapter({
+      model: 'text-embedding-3-small',
+      dims: 3,
+      apiKey: 'test-key',
+      fetch: async (): Promise<Response> => {
+        throw new Error('socket closed');
+      },
+    });
+
+    await expect(embedder.embed('refund policy')).rejects.toThrow(
+      /KERN OpenAI embedder request failed: socket closed/u,
+    );
+  });
+
+  test('fails closed on provider dimension mismatch', async () => {
+    const fakeFetch = async (): Promise<Response> =>
+      new Response(JSON.stringify({ data: [{ embedding: [1, 0] }] }), { status: 200 });
+    const embedder = new OpenAIEmbeddingAdapter({
+      model: 'text-embedding-3-small',
+      dims: 3,
+      apiKey: 'test-key',
+      fetch: fakeFetch,
+    });
+
+    await expect(embedder.embed('refund policy')).rejects.toThrow(/returned 2 dimensions/u);
+  });
+});
+
+describe('InMemoryPgVectorRagStore', () => {
+  test('rejects query vectors from a different embedding fingerprint', () => {
+    const embedder = new DeterministicHashEmbedder();
+    const fingerprint = embedderFingerprint(embedder, 'cosine');
+    const store = new InMemoryPgVectorRagStore(fingerprint, embedder.dims);
+    store.upsert(CORPUS[0], embedder.embed(CORPUS[0].text));
+
+    expect(() =>
+      store.search('refund policy', embedder.embed('refund policy'), {}, 'openai:model:1536:cosine'),
+    ).toThrow(/fingerprint mismatch/u);
+  });
+
+  test('async local adapter retrieves through the pgvector-like store', async () => {
+    const embedder = asAsyncEmbedder(new LocalSemanticEmbedder());
+    const fingerprint = embedderFingerprint(embedder, 'cosine');
+    const store = new InMemoryPgVectorRagStore(fingerprint, embedder.dims);
+    for (const chunk of CORPUS) store.upsert(chunk, await embedder.embed(chunk.text), fingerprint);
+
+    const query = 'refund refunds policy window thirty days money back';
+    const result = store.search(query, await embedder.embed(query), { topK: 1 });
+
+    expect(result.chunks[0].id).toBe('refunds');
+  });
+
+  test('async index deduplicates concurrent query embeddings', async () => {
+    let embedCalls = 0;
+    const embedder: AsyncEmbedder = {
+      id: 'async-test',
+      dims: 2,
+      async embed(text: string): Promise<Float64Array> {
+        embedCalls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        return text.includes('refund') ? new Float64Array([1, 0]) : new Float64Array([0, 1]);
+      },
+    };
+    const index = await AsyncEmbeddingRagIndex.create(CORPUS, { embedder });
+    embedCalls = 0;
+
+    await Promise.all([index.retrieve('refund policy'), index.retrieve('refund policy')]);
+
+    expect(embedCalls).toBe(1);
   });
 });
 

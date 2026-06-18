@@ -8,7 +8,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   evaluateRagEvalDocument,
+  evaluateRagEvalDocumentAsync,
   evaluateRagEvalDocumentFromDeclaredSources,
+  evaluateRagEvalDocumentFromDeclaredSourcesAsync,
   type RagChunkInput,
 } from '../src/index.js';
 
@@ -16,7 +18,7 @@ const DOC = `corpus name=Docs title="Support docs"
   source name=manuals kind=local uri="./docs/**/*.md" media=markdown
   chunking source=manuals strategy=semantic maxTokens=600 overlap=80 unit=tokens
 
-embed name=DocsEmbedding corpus=Docs model=text-embedding-3-small dims=1536 metric=cosine
+embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine
 
 retriever name=DocsSearch corpus=Docs embed=DocsEmbedding mode=hybrid topK=4 minScore=0.72
 
@@ -44,6 +46,71 @@ describe('evaluateRagEvalDocument (P1.2 end-to-end)', () => {
     expect(report.evals[0].evalName).toBe('Faithfulness');
     expect(report.passed).toBe(true);
     expect(report.evals[0].result.passedCaseCount).toBe(1);
+  });
+
+  test('sync eval fails closed when a retriever declares a provider embed model', () => {
+    const providerDoc = DOC.replace(
+      'model=local-semantic-v1 dims=64',
+      'model="openai:text-embedding-3-small" dims=1536',
+    );
+    expect(() => evaluateRagEvalDocument(providerDoc, CORPUS)).toThrow(/requires async provider execution/u);
+  });
+
+  test('async eval honors OpenAI embed declarations through injected fetch', async () => {
+    const providerDoc = DOC.replace(
+      'model=local-semantic-v1 dims=64',
+      'model="openai:text-embedding-3-small" dims=1536',
+    );
+    const fetchCalls: string[] = [];
+    const fakeFetch = async (_url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { input?: string | string[] };
+      const inputs = Array.isArray(body.input) ? body.input : [body.input ?? ''];
+      fetchCalls.push(...inputs);
+      return new Response(JSON.stringify({ data: inputs.map((input) => ({ embedding: openAiVector(input) })) }), {
+        status: 200,
+      });
+    };
+
+    const report = await evaluateRagEvalDocumentAsync(providerDoc, CORPUS, {
+      providers: { openai: { apiKey: 'test-key', fetch: fakeFetch } },
+    });
+
+    expect(report.passed).toBe(true);
+    expect(report.embedderId).toBe('openai:text-embedding-3-small:dims=1536');
+    expect(report.embedderIds).toEqual(['openai:text-embedding-3-small:dims=1536']);
+    expect(fetchCalls).toEqual(expect.arrayContaining(CORPUS.map((chunk) => chunk.text)));
+  });
+
+  test('async eval reuses a provider-backed index across pipelines that share a retriever', async () => {
+    const providerDoc = `${DOC.replace(
+      'model=local-semantic-v1 dims=64',
+      'model="openai:text-embedding-3-small" dims=1536',
+    )}
+rag name=AuditDocs retriever=DocsSearch citations=false
+  ragEval name=AuditFaithfulness metric=faithfulness threshold=0.85 mode=contract
+    ragCase name=refunds query="refund refunds policy window" topK=1
+      ragAssert kind=scoreGte threshold=0.5 required=true
+      ragAssert kind=sourceGlob value="docs/refunds*" required=true
+`;
+    const fetchCalls: string[] = [];
+    const fakeFetch = async (_url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { input?: string | string[] };
+      const inputs = Array.isArray(body.input) ? body.input : [body.input ?? ''];
+      fetchCalls.push(...inputs);
+      return new Response(JSON.stringify({ data: inputs.map((input) => ({ embedding: openAiVector(input) })) }), {
+        status: 200,
+      });
+    };
+
+    const report = await evaluateRagEvalDocumentAsync(providerDoc, CORPUS, {
+      providers: { openai: { apiKey: 'test-key', fetch: fakeFetch } },
+    });
+
+    expect(report.passed).toBe(true);
+    expect(report.evals).toHaveLength(2);
+    for (const chunk of CORPUS) {
+      expect(fetchCalls.filter((input) => input === chunk.text)).toHaveLength(1);
+    }
   });
 
   test('reports failure when the corpus cannot satisfy the assertions', () => {
@@ -121,8 +188,8 @@ corpus name=Other title="Other docs"
   source name=other kind=local uri="./other/**/*.md" media=markdown
   chunking source=other strategy=semantic maxTokens=600 overlap=80 unit=tokens
 
-embed name=DocsEmbedding corpus=Docs model=text-embedding-3-small dims=1536 metric=cosine
-embed name=OtherEmbedding corpus=Other model=text-embedding-3-small dims=1536 metric=cosine
+embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine
+embed name=OtherEmbedding corpus=Other model=local-semantic-v1 dims=64 metric=cosine
 
 retriever name=DocsSearch corpus=Docs embed=DocsEmbedding mode=hybrid topK=4 minScore=0.1
 
@@ -163,7 +230,7 @@ corpus name=Unused title="Unused"
   source name=missing kind=local uri="./missing/**/*.md" media=markdown
   chunking source=missing strategy=semantic maxTokens=600 overlap=80 unit=tokens
 
-embed name=UnusedEmbedding corpus=Unused model=text-embedding-3-small dims=1536 metric=cosine
+embed name=UnusedEmbedding corpus=Unused model=local-semantic-v1 dims=64 metric=cosine
 `;
     const dir = mkdtempSync(join(tmpdir(), 'kern-rag-unused-'));
     try {
@@ -215,6 +282,35 @@ rag name=AnswerDocs retriever=DocsSearch
     }
   });
 
+  test('declared-source async eval honors provider embed declarations', async () => {
+    const doc = DOC.replace('model=local-semantic-v1 dims=64', 'model="openai:text-embedding-3-small" dims=1536');
+    const dir = mkdtempSync(join(tmpdir(), 'kern-rag-doc-openai-'));
+    try {
+      mkdirSync(join(dir, 'docs'));
+      writeFileSync(join(dir, 'docs/refunds.md'), 'Refund policy: refunds return money within thirty days.\n');
+      writeFileSync(join(dir, 'docs/shipping.md'), 'Shipping delivery courier tracking parcel.\n');
+      const sourcePath = join(dir, 'mydocs.kern');
+      writeFileSync(sourcePath, doc);
+      const fakeFetch = async (_url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        const body = JSON.parse(String(init?.body ?? '{}')) as { input?: string | string[] };
+        const inputs = Array.isArray(body.input) ? body.input : [body.input ?? ''];
+        return new Response(JSON.stringify({ data: inputs.map((input) => ({ embedding: openAiVector(input) })) }), {
+          status: 200,
+        });
+      };
+
+      const report = await evaluateRagEvalDocumentFromDeclaredSourcesAsync(doc, {
+        sourcePath,
+        providers: { openai: { apiKey: 'test-key', fetch: fakeFetch } },
+      });
+
+      expect(report.passed).toBe(true);
+      expect(report.embedderId).toBe('openai:text-embedding-3-small:dims=1536');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('fails declared-source ingestion when a glob matches nothing', () => {
     const dir = mkdtempSync(join(tmpdir(), 'kern-rag-empty-'));
     try {
@@ -240,3 +336,11 @@ rag name=AnswerDocs retriever=DocsSearch
     }
   });
 });
+
+function openAiVector(input: string): number[] {
+  return Array.from({ length: 1536 }, (_, index) => {
+    if (index === 0 && input.toLowerCase().includes('refund')) return 1;
+    if (index === 1 && input.toLowerCase().includes('shipping')) return 1;
+    return 0;
+  });
+}
