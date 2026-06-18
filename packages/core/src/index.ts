@@ -476,13 +476,18 @@ export {
   snapshotRegistry,
   tracesEqual,
 } from './ir/semantics/index.js';
-export type { RegExpValue } from './ir/semantics/portable-regex.js';
+export type { RegExpMatchValue, RegExpValue } from './ir/semantics/portable-regex.js';
 export {
+  evalRegexMatchExpression,
   evalRegexTestExpression,
+  isRegExpMatchValue,
   isRegExpValue,
+  isRegexMatchExpression,
   isRegexTestExpression,
   isRunnerNativeRegexFailClose,
+  makeRegExpMatchValue,
   makeRegExpValue,
+  REGEXP_MATCH_VALUE_TAG,
   REGEXP_VALUE_TAG,
 } from './ir/semantics/portable-regex.js';
 // Runner-native Decimal (Slice 1) — the ReferenceRunner executes `Decimal.of/add/
