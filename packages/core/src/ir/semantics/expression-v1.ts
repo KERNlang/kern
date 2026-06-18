@@ -50,6 +50,13 @@ function routesToNativeDecimal(parsed: ReturnType<typeof parseExpression>, env: 
   return isDecimalValueExpression(parsed) && !env.bindings.has('Decimal');
 }
 
+// The runner executes `regexLit.test(str)` natively ONLY when `RegExp` is the
+// builtin (not user-shadowed), mirroring the decimal `!env.has('Decimal')` guard.
+// `/g` is deliberately ADMITTED by the gate and fail-closed inside the eval so the
+// precondition RE-ADMITS the shared `REGEX_TEST_G_FAILCLOSE` constant (effects
+// re-throws it) — this keeps the runner IN the `/g` parity story, surfacing the
+// byte-identical constant both emit legs produce. (Re-admit is parity, not
+// laziness; moving `/g` to a gate-abstain would drop the runner's leg for `/g`.)
 function routesToNativeRegexTest(parsed: ReturnType<typeof parseExpression>, env: SemanticEnv): boolean {
   return isRegexTestExpression(parsed) && !env.bindings.has('RegExp');
 }

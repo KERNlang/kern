@@ -10,6 +10,13 @@ import type { ValueIR } from '../../value-ir.js';
 import type { SemanticEnv } from './index.js';
 import { evalPortableValue } from './portable-scalar.js';
 
+// SLICE-1 SEAM (review G): the tagged RegExpValue is DEFINED BUT UNWIRED — slice 1
+// binds NO handle because `.test` is TERMINAL (returns a bool directly). It exists
+// for slice 2, and slice 2 is NOT just "wire this in": the stateful ops it unlocks
+// (.exec / .matchAll / .lastIndex) break the per-call trial-eval shape — a shared
+// mutable `lastIndex` cannot be re-derived per evaluation and stay byte-identical
+// across legs, so slice 2 needs a PERSISTENT RegExpValue binding model (an explicit
+// lastIndex/cursor field in the runner heap), not this frozen pattern+flags pair.
 export const REGEXP_VALUE_TAG: unique symbol = Symbol('kern.regexpValue');
 
 export interface RegExpValue {
@@ -74,10 +81,22 @@ export function isRegexTestExpression(node: ValueIR): boolean {
   if (regex === null) return false;
   if (node.args.length !== 1) return false;
   if (!hasOnlyRunnerRegexTestFlags(regex.flags)) return false;
+  // Defense-in-depth (review A): the KERN parser accepts DUPLICATE flags
+  // (`/x/ii`), which `new RegExp(p, 'ii')` rejects with a SyntaxError. Abstain
+  // structurally rather than rely on the constructor throwing at eval.
+  if (new Set(regex.flags).size !== regex.flags.length) return false;
 
-  const normalizedPattern = normalizeRegexClasses(regex.pattern);
-  if (!regex.flags.includes('s') && hasBareDotWithoutDotAll(normalizedPattern)) return false;
-  if (scanRegexAstral(normalizedPattern) !== null) return false;
+  // Scan the POST-FOLD pattern — the EXACT string eval builds its RegExp from —
+  // so the gate and eval can never disagree on bare-dot / astral (review B:
+  // gate == eval by construction, not by coincidence of the current fold).
+  // A `/i` Set-B/backref fold FAILS CLOSE here → abstain: the emitters compile-
+  // fail-close the same input on both legs, and the runner declines so the emit
+  // legs surface the canonical parameterized message rather than the runner
+  // risking a divergent one (review D).
+  const folded = expandRegexIFold(normalizeRegexClasses(regex.pattern), regex.flags);
+  if ('failClose' in folded) return false;
+  if (!regex.flags.includes('s') && hasBareDotWithoutDotAll(folded.pattern)) return false;
+  if (scanRegexAstral(folded.pattern) !== null) return false;
 
   return true;
 }

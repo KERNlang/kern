@@ -222,6 +222,25 @@ describe('Regex Slice 1 — abstains (no native route) on uncertified inputs', (
   test('non-string argument (JS coerces, Python raises — fail closed)', () => {
     expect(() => runRefBool('/1/.test(1 as any)')).toThrow();
   });
+  // Review D — a `/i` Set-B fold (ß→SS, length-changing) FAILS CLOSE in
+  // expandRegexIFold on BOTH emitted legs (verified: {failClose,reason:'setB'}).
+  // The runner ABSTAINS (it does not re-admit the PARAMETERIZED fold message —
+  // it lets the emit legs surface the canonical one), pinning that decision so a
+  // future flip to "re-admit" is caught.
+  test('/i Set-B fold (ß) abstains — runner declines the shared compile fail-close', () => {
+    expect(() => runRefBool('/ß/i.test("ss")')).toThrow();
+  });
+  // Review A — the KERN parser accepts DUPLICATE flags (`/x/ii`); the runner
+  // abstains structurally (uniqueness guard) rather than let `new RegExp(.,'ii')`
+  // throw a SyntaxError at eval.
+  test('duplicate flags (/x/ii) abstain — uniqueness guard, not a constructor throw', () => {
+    expect(() => runRefBool('/x/ii.test("x")')).toThrow();
+  });
+  // An astral (non-BMP) construct fails close on both emitted legs; the runner
+  // abstains (gate rejects via scanRegexAstral on the post-fold pattern).
+  test('astral (non-BMP) pattern abstains', () => {
+    expect(() => runRefBool('/𝕏/.test("x")')).toThrow();
+  });
   test('shadowed `RegExp` binding falls through to portable eval', () => {
     const node = { type: 'expression-v1', props: { name: 'r', expr: '/a/.test("a")' } };
     const env = makeEnv();
