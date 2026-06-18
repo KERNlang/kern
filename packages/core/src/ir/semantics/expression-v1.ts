@@ -5,6 +5,7 @@
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
+import { evalRegexTestExpression, isRegexTestExpression, isRunnerNativeRegexFailClose } from './portable-regex.js';
 import {
   evalDecimalExpression,
   evalPortableValue,
@@ -49,6 +50,10 @@ function routesToNativeDecimal(parsed: ReturnType<typeof parseExpression>, env: 
   return isDecimalValueExpression(parsed) && !env.bindings.has('Decimal');
 }
 
+function routesToNativeRegexTest(parsed: ReturnType<typeof parseExpression>, env: SemanticEnv): boolean {
+  return isRegexTestExpression(parsed) && !env.bindings.has('RegExp');
+}
+
 function expressionV1Preconditions(ir: IRNode, env: SemanticEnv): boolean {
   const props = asExpressionV1Props(ir);
   if (!isPortableBindingName(props.name)) return false;
@@ -73,6 +78,15 @@ function expressionV1Preconditions(ir: IRNode, env: SemanticEnv): boolean {
         return true;
       } catch (error) {
         if (isRunnerNativeDecimalFailClose(error)) return true;
+        return false;
+      }
+    }
+    if (routesToNativeRegexTest(parsed, env)) {
+      try {
+        evalRegexTestExpression(parsed, env);
+        return true;
+      } catch (error) {
+        if (isRunnerNativeRegexFailClose(error)) return true;
         return false;
       }
     }
@@ -114,6 +128,11 @@ function expressionV1Effects(ir: IRNode, env: SemanticEnv): Trace {
     const str = evalDecimalExpression(parsed, env);
     env.bindings.set(name, makeDecimalValue(str));
     return { events: [{ op: 'assign', target: name, value: str }], completion: { kind: 'normal' } };
+  }
+  if (routesToNativeRegexTest(parsed, env)) {
+    const value = evalRegexTestExpression(parsed, env);
+    env.bindings.set(name, value);
+    return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
   }
   const value = evalPortableValue(parsed, env);
   env.bindings.set(name, value);
