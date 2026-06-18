@@ -1,10 +1,12 @@
 import {
   createEmbeddingRetriever,
   DEFAULT_HASH_EMBEDDER_ID,
+  DEFAULT_LOCAL_SEMANTIC_EMBEDDER_ID,
   DeterministicHashEmbedder,
   EmbeddingRagIndex,
   embeddingCosine,
   fnv1a32,
+  LocalSemanticEmbedder,
   type RagChunkInput,
 } from '../src/index.js';
 
@@ -61,6 +63,26 @@ describe('DeterministicHashEmbedder', () => {
     const score = embeddingCosine(q, c);
     expect(score).toBe(Math.round(score * 1_000_000) / 1_000_000);
     expect(Object.is(score, -0)).toBe(false);
+  });
+});
+
+describe('LocalSemanticEmbedder', () => {
+  const embedder = new LocalSemanticEmbedder();
+
+  test('exposes a stable semantic id and dims', () => {
+    expect(embedder.id).toBe(DEFAULT_LOCAL_SEMANTIC_EMBEDDER_ID);
+    expect(embedder.dims).toBe(64);
+  });
+
+  test('same text embeds deterministically', () => {
+    expect(Array.from(embedder.embed('the car drove fast'))).toEqual(Array.from(embedder.embed('the car drove fast')));
+  });
+
+  test('semantic aliases rank above unrelated text', () => {
+    const query = embedder.embed('the car drove fast');
+    const related = embedder.embed('the automobile moved quickly');
+    const unrelated = embedder.embed('the weather forecast changed');
+    expect(embeddingCosine(query, related)).toBeGreaterThan(embeddingCosine(query, unrelated));
   });
 });
 

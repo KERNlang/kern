@@ -1,9 +1,14 @@
-import { evaluateRagEvalDocument, type RagChunkInput, type RagEvalDocumentReport } from '@kernlang/core';
+import {
+  evaluateRagEvalDocument,
+  evaluateRagEvalDocumentFromDeclaredSources,
+  type RagChunkInput,
+  type RagEvalDocumentReport,
+} from '@kernlang/core';
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 import { parseFlagOrNext } from '../shared.js';
 
-const USAGE = 'Usage: kern rag eval <file.kern> --corpus <chunks.json>';
+const USAGE = 'Usage: kern rag eval <file.kern> [--corpus <chunks.json>]';
 
 /** `kern rag …` — run a RAG spec's contracts in the toolchain (dbt-test shape). */
 export function runRag(args: string[]): void {
@@ -20,20 +25,23 @@ function runRagEval(args: string[]): void {
   const corpusPath = parseFlagOrNext(args, '--corpus');
   const filePath = args.find((arg) => !arg.startsWith('-') && arg !== corpusPath);
 
+  const resolvedFilePath = filePath ? resolve(filePath) : '';
   if (!filePath) fail(`missing <file.kern>.\n${USAGE}`);
-  if (!existsSync(filePath)) fail(`file not found: ${filePath}`);
-  if (!corpusPath) fail(`--corpus <chunks.json> is required (on-disk ingestion lands in P1.5).\n${USAGE}`);
-  if (!existsSync(corpusPath)) fail(`corpus not found: ${corpusPath}`);
+  if (!existsSync(resolvedFilePath)) fail(`file not found: ${filePath}`);
+  if (corpusPath && !existsSync(corpusPath)) fail(`corpus not found: ${corpusPath}`);
 
-  const chunks = readCorpus(corpusPath);
+  const source = readFileSync(resolvedFilePath, 'utf-8');
+  const chunks = corpusPath ? readCorpus(corpusPath) : undefined;
   let report: RagEvalDocumentReport;
   try {
-    report = evaluateRagEvalDocument(readFileSync(resolve(filePath), 'utf-8'), chunks);
+    report = chunks
+      ? evaluateRagEvalDocument(source, chunks)
+      : evaluateRagEvalDocumentFromDeclaredSources(source, { sourcePath: resolvedFilePath });
   } catch (err) {
     fail(`evaluation failed: ${(err as Error).message}`);
   }
 
-  printReport(report, filePath, chunks.length);
+  printReport(report, filePath, chunks?.length ?? report.corpusSource.chunkCount);
   if (report.diagnostics.length > 0) process.exit(1); // invalid spec — failed closed
   if (report.evals.length === 0) process.exit(0); // no ragEval to run is not a failure
   process.exit(report.passed ? 0 : 1);
@@ -62,7 +70,13 @@ function readCorpus(corpusPath: string): RagChunkInput[] {
 }
 
 function printReport(report: RagEvalDocumentReport, file: string, chunkCount: number): void {
-  console.log(`kern rag eval ${file}  (embedder=${report.embedderId}, ${chunkCount} chunks)`);
+  console.log(
+    `kern rag eval ${file}  (embedder=${report.embedderId}, mode=${report.corpusSource.mode}, ${chunkCount} chunks)`,
+  );
+  if (report.corpusSource.mode === 'declared-local-sources') {
+    const fileCount = report.corpusSource.fileCount ?? report.corpusSource.files?.length ?? 0;
+    console.log(`  corpus source: ${fileCount} file(s), sha256=${report.corpusSource.corpusSha256}`);
+  }
   if (report.diagnostics.length > 0) {
     console.log(`  invalid RAG spec — ${report.diagnostics.length} violation(s):`);
     for (const diagnostic of report.diagnostics) {

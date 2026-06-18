@@ -646,18 +646,30 @@ export {
   createEmbeddingRetriever,
   DEFAULT_EMBEDDING_DIMS,
   DEFAULT_HASH_EMBEDDER_ID,
+  DEFAULT_LOCAL_SEMANTIC_EMBEDDER_ID,
   DeterministicHashEmbedder,
   EMBEDDING_SCORE_DECIMALS,
   EmbeddingRagIndex,
   embeddingCosine,
   fnv1a32,
+  LocalSemanticEmbedder,
 } from './rag-embedding.js';
 export type {
+  RagEvalDeclaredDocumentOptions,
+  RagEvalDocumentCorpusSource,
+  RagEvalDocumentCorpusSourceMode,
   RagEvalDocumentEntry,
   RagEvalDocumentOptions,
   RagEvalDocumentReport,
 } from './rag-eval-runner.js';
-export { evaluateRagEvalDocument } from './rag-eval-runner.js';
+export { evaluateRagEvalDocument, evaluateRagEvalDocumentFromDeclaredSources } from './rag-eval-runner.js';
+export type { RagIngestedSource, RagIngestOptions, RagIngestResult } from './rag-ingest.js';
+export {
+  ingestRagDeclaredLocalSources,
+  ingestRagFactsDeclaredLocalSources,
+  RAG_CHUNK_ID_VERSION,
+  RAG_CHUNKER_VERSION,
+} from './rag-ingest.js';
 export type {
   InMemoryRagRetriever,
   ProvenancedRetrieveResult,

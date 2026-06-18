@@ -11,6 +11,7 @@
 import {
   createEmbeddingRetriever,
   createInMemoryRetriever,
+  DeterministicHashEmbedder,
   EmbeddingRagIndex,
   evaluateRagEvalContract,
   InMemoryRagCorpus,
@@ -91,7 +92,7 @@ function evalFact(cases: RagSemanticEvalCaseFact[]): RagSemanticEvalFact {
   return { name: 'RagOracle', ragName: 'AnswerDocs', metric: 'faithfulness', mode: 'contract', cases };
 }
 
-const realIndex = new EmbeddingRagIndex(CORPUS);
+const realIndex = new EmbeddingRagIndex(CORPUS, { embedder: new DeterministicHashEmbedder() });
 const realRetriever = createEmbeddingRetriever(realIndex);
 
 // ── Mutant retrievers — each violates exactly one correctness property ──

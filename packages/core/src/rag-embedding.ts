@@ -46,12 +46,14 @@ export interface Embedder {
 
 export const DEFAULT_EMBEDDING_DIMS = 256;
 export const DEFAULT_HASH_EMBEDDER_ID = 'local-hash-v1';
+export const DEFAULT_LOCAL_SEMANTIC_EMBEDDER_ID = 'local-semantic-v1';
 /** Scores are rounded to this many decimals (integerised fixed-point) for stable equality. */
 export const EMBEDDING_SCORE_DECIMALS = 6;
 
 const SCORE_SCALE = 1_000_000;
 const FNV_OFFSET_BASIS_32 = 0x811c9dc5;
 const FNV_PRIME_32 = 0x01000193;
+const LOCAL_SEMANTIC_DIMS = 64;
 
 /** Deterministic 32-bit FNV-1a over the UTF-8 bytes of `token`. Never the platform `hash()`. */
 export function fnv1a32(token: string): number {
@@ -94,6 +96,83 @@ export class DeterministicHashEmbedder implements Embedder {
     }
     return vector;
   }
+}
+
+/**
+ * Small zero-network semantic embedder for runner-native eval.
+ *
+ * This is deliberately versioned separately from `local-hash-v1`: known
+ * synonym/domain terms project into shared semantic axes, while unknown words
+ * still contribute deterministic hashed lexical features. It is not a neural
+ * model, but it is a real semantic lookup embedder with deterministic OOV
+ * fallback and a stable upgrade path for a future provider/model embedder.
+ */
+export class LocalSemanticEmbedder implements Embedder {
+  readonly id: string;
+  readonly dims: number;
+
+  constructor(options: { readonly id?: string } = {}) {
+    this.id = options.id ?? DEFAULT_LOCAL_SEMANTIC_EMBEDDER_ID;
+    this.dims = LOCAL_SEMANTIC_DIMS;
+  }
+
+  embed(text: string): Float64Array {
+    const vector = new Float64Array(this.dims);
+    const tokens = Array.from(tokenizeForRetrieval(text));
+    for (const token of tokens) {
+      const axis = SEMANTIC_AXIS_BY_TOKEN.get(token);
+      if (axis !== undefined) {
+        vector[axis] += 1;
+        addHashedFeature(vector, `semantic:${axis}:${token}`, 0.15);
+      } else {
+        addHashedFeature(vector, `token:${token}`, 0.35);
+      }
+      for (const ngram of charNgrams(token)) {
+        addHashedFeature(vector, `char:${ngram}`, 0.08);
+      }
+    }
+    const norm = vectorNorm(vector);
+    if (norm === 0) return vector;
+    for (let i = 0; i < vector.length; i += 1) {
+      vector[i] = vector[i] / norm;
+    }
+    return vector;
+  }
+}
+
+const SEMANTIC_GROUPS: readonly (readonly string[])[] = [
+  ['refund', 'refunds', 'return', 'returns', 'exchange', 'reimburse', 'moneyback', 'chargeback'],
+  ['shipping', 'ship', 'delivery', 'deliver', 'courier', 'parcel', 'tracking', 'shipment'],
+  ['account', 'user', 'profile', 'login', 'auth', 'authentication', 'register', 'signup'],
+  ['policy', 'rule', 'contract', 'terms', 'requirement', 'guarantee'],
+  ['error', 'failure', 'exception', 'diagnostic', 'violation', 'invalid'],
+  ['search', 'retrieval', 'retrieve', 'rank', 'ranking', 'query', 'index'],
+  ['chunk', 'chunking', 'segment', 'section', 'paragraph', 'window'],
+  ['embed', 'embedding', 'vector', 'semantic', 'similarity', 'cosine'],
+  ['car', 'automobile', 'vehicle', 'auto'],
+  ['dog', 'puppy', 'canine', 'hound'],
+  ['weather', 'forecast', 'rain', 'sunshine', 'temperature'],
+] as const;
+
+const SEMANTIC_AXIS_BY_TOKEN = new Map<string, number>(
+  SEMANTIC_GROUPS.flatMap((group, index) => group.map((token) => [token, index] as const)),
+);
+
+function addHashedFeature(vector: Float64Array, feature: string, weight: number): void {
+  const hash = fnv1a32(feature);
+  const index = hash % vector.length;
+  const sign = (hash & 0x80000000) === 0 ? 1 : -1;
+  vector[index] += sign * weight;
+}
+
+function charNgrams(token: string): string[] {
+  const padded = `^${token}$`;
+  const out: string[] = [];
+  for (let n = 3; n <= 5; n += 1) {
+    if (padded.length < n) continue;
+    for (let i = 0; i <= padded.length - n; i += 1) out.push(padded.slice(i, i + n));
+  }
+  return out;
 }
 
 /** L2 norm via left-fold (pinned accumulation order). */
