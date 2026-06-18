@@ -59,6 +59,12 @@ describe('kern rag eval', () => {
     expect(result.stdout).toContain('PASS');
   });
 
+  test('rejects --corpus without a value', () => {
+    const result = run(['rag', 'eval', 'mydocs.kern', '--corpus'], dir);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('missing value for --corpus');
+  });
+
   test('reports empty declared source globs with the pattern', () => {
     rmSync(join(dir, 'docs'), { recursive: true, force: true });
     const result = run(['rag', 'eval', 'mydocs.kern'], dir);

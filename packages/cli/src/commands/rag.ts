@@ -22,11 +22,13 @@ export function runRag(args: string[]): void {
 }
 
 function runRagEval(args: string[]): void {
+  const corpusFlagPresent = args.some((arg) => arg === '--corpus' || arg.startsWith('--corpus='));
   const corpusPath = parseFlagOrNext(args, '--corpus');
   const filePath = args.find((arg) => !arg.startsWith('-') && arg !== corpusPath);
 
   const resolvedFilePath = filePath ? resolve(filePath) : '';
   if (!filePath) fail(`missing <file.kern>.\n${USAGE}`);
+  if (corpusFlagPresent && (!corpusPath || corpusPath.startsWith('-'))) fail(`missing value for --corpus.\n${USAGE}`);
   if (!existsSync(resolvedFilePath)) fail(`file not found: ${filePath}`);
   if (corpusPath && !existsSync(corpusPath)) fail(`corpus not found: ${corpusPath}`);
 
