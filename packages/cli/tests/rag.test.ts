@@ -205,4 +205,44 @@ describe('kern rag', () => {
     expect(result.stderr).toContain('./docs/**/*.md');
     expect(result.stderr).toContain('matched no files');
   });
+
+  test('runs built-in RAG adapter conformance checks', () => {
+    const result = run(['rag', 'conformance'], dir);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('kern rag conformance');
+    expect(result.stdout).toContain('✓ memory');
+    expect(result.stdout).toContain('✓ local-persistent');
+  });
+
+  test('emits JSON for RAG adapter conformance checks', () => {
+    const result = run(['rag', 'conformance', '--adapter', 'memory', '--json'], dir);
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout) as {
+      readonly passed: boolean;
+      readonly reports: readonly [
+        { readonly manifest: { readonly name: string }; readonly summary: { readonly failed: number } },
+      ];
+    };
+    expect(parsed.passed).toBe(true);
+    expect(parsed.reports[0].manifest.name).toBe('memory');
+    expect(parsed.reports[0].summary.failed).toBe(0);
+  });
+
+  test('rejects unknown RAG conformance adapters', () => {
+    const result = run(['rag', 'conformance', '--adapter', 'pinecone'], dir);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("unknown RAG adapter 'pinecone'");
+  });
+
+  test('rejects RAG conformance adapter flag without a value', () => {
+    const result = run(['rag', 'conformance', '--adapter'], dir);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('missing value for --adapter');
+  });
+
+  test('rejects unexpected RAG conformance positional arguments', () => {
+    const result = run(['rag', 'conformance', 'memory'], dir);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('unexpected argument for conformance: memory');
+  });
 });
