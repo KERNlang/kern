@@ -112,9 +112,7 @@ function queryForRuntimeRetrieval(
   if (retrieval.queryParam) {
     const value = options.queryParams?.[retrieval.queryParam] ?? options.query;
     if (value !== undefined) return value;
-    throw new Error(
-      `KERN RAG runtime retrieval '${retrieval.name}' requires queryParam '${retrieval.queryParam}'.`,
-    );
+    throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' requires queryParam '${retrieval.queryParam}'.`);
   }
   throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' has no query source.`);
 }

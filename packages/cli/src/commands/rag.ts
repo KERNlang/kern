@@ -1,10 +1,10 @@
 import {
   evaluateRagEvalDocumentAsync,
   evaluateRagEvalDocumentFromDeclaredSourcesAsync,
-  ragRetrieveCorpusSourceSummary,
   type RagChunkInput,
   type RagEvalDocumentReport,
   type RagRetrieveDocumentReport,
+  ragRetrieveCorpusSourceSummary,
   retrieveRagDocument,
 } from '@kernlang/core';
 import { existsSync, readFileSync } from 'fs';
@@ -35,7 +35,8 @@ function runRagRetrieve(args: string[]): void {
   const resolvedFilePath = filePath ? resolve(filePath) : '';
   if (unknownFlags.length > 0) fail(`unknown flag for retrieve: ${unknownFlags[0]}.\n${USAGE}`);
   if (!filePath) fail(`missing <file.kern>.\n${USAGE}`);
-  if (queryFlagPresent && (!query?.trim() || query.trim().startsWith('-'))) fail(`missing value for --query.\n${USAGE}`);
+  if (queryFlagPresent && (!query?.trim() || query.trim().startsWith('-')))
+    fail(`missing value for --query.\n${USAGE}`);
   if (paramError) fail(`${paramError}.\n${USAGE}`);
   if (paramFlagPresent && Object.keys(queryParams).length === 0) fail(`missing value for --param.\n${USAGE}`);
   if (!existsSync(resolvedFilePath)) fail(`file not found: ${filePath}`);
@@ -235,7 +236,15 @@ function parseRagRetrieveArgs(args: readonly string[]): ParsedRagRetrieveArgs {
     if (filePath === undefined) filePath = arg;
   }
 
-  return { filePath, query, queryFlagPresent, queryParams, paramFlagPresent, ...(paramError ? { paramError } : {}), unknownFlags };
+  return {
+    filePath,
+    query,
+    queryFlagPresent,
+    queryParams,
+    paramFlagPresent,
+    ...(paramError ? { paramError } : {}),
+    unknownFlags,
+  };
 }
 
 function assignQueryParam(out: Record<string, string>, raw: string | undefined): string | undefined {

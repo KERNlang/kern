@@ -187,7 +187,9 @@ describe('kern rag', () => {
     const result = run(['rag', 'retrieve', 'provider-retrieve.kern', '--query', 'refund policy'], dir);
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("RAG embed model 'openai:text-embedding-3-small' requires async provider execution");
+    expect(result.stderr).toContain(
+      "RAG embed model 'openai:text-embedding-3-small' requires async provider execution",
+    );
   });
 
   test('rejects unknown retrieve flags before consuming their values as files', () => {

@@ -2749,10 +2749,7 @@ export function collectRagSemanticFacts(root: IRNode | readonly IRNode[]): RagSe
     ),
     unresolvedChunkingRefs: sortedUnique(
       infos.indexes
-        .filter(
-          (info) =>
-            !!info.chunkingName && !chunkingNamesByCorpus.has(`${info.corpusName}\0${info.chunkingName}`),
-        )
+        .filter((info) => !!info.chunkingName && !chunkingNamesByCorpus.has(`${info.corpusName}\0${info.chunkingName}`))
         .map((info) => info.chunkingName)
         .filter((name): name is string => !!name),
     ),
@@ -2763,10 +2760,9 @@ export function collectRagSemanticFacts(root: IRNode | readonly IRNode[]): RagSe
       ].filter((name): name is string => !!name && !retrieverNames.has(name)),
     ),
     unresolvedEmbedRefs: sortedUnique(
-      [
-        ...infos.retrievers.map((info) => info.embedName),
-        ...infos.indexes.map((info) => info.embedName),
-      ].filter((name): name is string => !!name && !embedNames.has(name)),
+      [...infos.retrievers.map((info) => info.embedName), ...infos.indexes.map((info) => info.embedName)].filter(
+        (name): name is string => !!name && !embedNames.has(name),
+      ),
     ),
     unresolvedRagRefs: sortedUnique(
       [
