@@ -287,12 +287,8 @@ describe('Regex Slice 2 — abstains (no native route) on out-of-slice inputs', 
     // The runner must DECLINE rather than emit a one-leg-only value.
     expect(() => runRefMatch('"💩x".match(/x/)')).toThrow();
   });
-  test('/g .match abstains — the native ARRAY-of-strings shape is a later slice', () => {
-    expect(() => runRefMatch('"xx".match(/x/g)')).toThrow();
-  });
-  test('.matchAll abstains — stateful iteration is a later slice', () => {
-    expect(() => runRefMatch('"xx".matchAll(/x/g)')).toThrow();
-  });
+  // NOTE: `/g .match` and `.matchAll` moved to slice-3 as CERTIFIED native ops
+  // (regex-runner-native-slice3.test.ts) — they no longer abstain here.
   test('.exec abstains — fail-closed on both emit legs (stateful lastIndex)', () => {
     expect(() => runRefMatch('/x/.exec("x")')).toThrow();
   });

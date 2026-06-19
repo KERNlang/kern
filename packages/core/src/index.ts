@@ -476,17 +476,24 @@ export {
   snapshotRegistry,
   tracesEqual,
 } from './ir/semantics/index.js';
-export type { RegExpMatchValue, RegExpValue } from './ir/semantics/portable-regex.js';
+export type { RegExpMatchListValue, RegExpMatchValue, RegExpValue } from './ir/semantics/portable-regex.js';
 export {
+  evalRegexGlobalMatchExpression,
+  evalRegexMatchAllExpression,
   evalRegexMatchExpression,
   evalRegexTestExpression,
+  isRegExpMatchListValue,
   isRegExpMatchValue,
   isRegExpValue,
+  isRegexGlobalMatchExpression,
+  isRegexMatchAllExpression,
   isRegexMatchExpression,
   isRegexTestExpression,
   isRunnerNativeRegexFailClose,
+  makeRegExpMatchListValue,
   makeRegExpMatchValue,
   makeRegExpValue,
+  REGEXP_MATCH_LIST_VALUE_TAG,
   REGEXP_MATCH_VALUE_TAG,
   REGEXP_VALUE_TAG,
 } from './ir/semantics/portable-regex.js';
