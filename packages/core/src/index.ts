@@ -669,6 +669,12 @@ export type {
   Embedder,
   EmbeddingFingerprintInput,
   OpenAIEmbeddingAdapterOptions,
+  RagVectorStoreAdapter,
+  RagVectorStoreKind,
+  RagVectorStoreMetric,
+  RagVectorStoreSnapshot,
+  RagVectorStoreUpsert,
+  SerializedVectorChunk,
 } from './rag-embedding.js';
 export {
   AsyncEmbeddingRagIndex,
@@ -688,6 +694,7 @@ export {
   InMemoryPgVectorRagStore,
   LocalSemanticEmbedder,
   OpenAIEmbeddingAdapter,
+  RAG_VECTOR_STORE_SNAPSHOT_VERSION,
 } from './rag-embedding.js';
 export type {
   RagEvalAsyncDocumentOptions,

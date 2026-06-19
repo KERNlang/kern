@@ -76,6 +76,7 @@ const FNV_PRIME_32 = 0x01000193;
 const LOCAL_SEMANTIC_DIMS = 64;
 const ASYNC_EMBED_BATCH_SIZE = 128;
 const ASYNC_QUERY_CACHE_MAX_ENTRIES = 256;
+export const RAG_VECTOR_STORE_SNAPSHOT_VERSION = 'kern-rag-vector-store-v1';
 
 /** Deterministic 32-bit FNV-1a over the UTF-8 bytes of `token`. Never the platform `hash()`. */
 export function fnv1a32(token: string): number {
@@ -391,7 +392,45 @@ export interface StoredVectorChunk {
   readonly fingerprint: string;
 }
 
-export class InMemoryPgVectorRagStore {
+export type RagVectorStoreKind = 'memory' | 'local-persistent';
+export type RagVectorStoreMetric = 'cosine';
+
+export interface SerializedVectorChunk {
+  readonly chunk: RagChunkInput;
+  readonly vector: readonly number[];
+  readonly fingerprint: string;
+}
+
+export interface RagVectorStoreUpsert {
+  readonly chunk: RagChunkInput;
+  readonly vector: Float64Array;
+  readonly fingerprint?: string;
+}
+
+export interface RagVectorStoreSnapshot {
+  readonly version: typeof RAG_VECTOR_STORE_SNAPSHOT_VERSION;
+  readonly fingerprint: string;
+  readonly dims: number;
+  readonly metric: RagVectorStoreMetric;
+  readonly entries: readonly SerializedVectorChunk[];
+}
+
+export interface RagVectorStoreAdapter {
+  readonly kind: RagVectorStoreKind;
+  readonly fingerprint: string;
+  readonly dims: number;
+  readonly metric: RagVectorStoreMetric;
+  upsert(chunk: RagChunkInput, vector: Float64Array, fingerprint?: string): void;
+  upsertMany(entries: Iterable<RagVectorStoreUpsert>): void;
+  search(query: string, queryVector: Float64Array, options?: RetrieveOptions, fingerprint?: string): RetrieveResult;
+  snapshot(): RagVectorStoreSnapshot;
+  clear(): void;
+  close(): void;
+}
+
+export class InMemoryPgVectorRagStore implements RagVectorStoreAdapter {
+  readonly kind: RagVectorStoreKind = 'memory';
+  readonly metric: RagVectorStoreMetric = 'cosine';
   private readonly entries = new Map<string, StoredVectorChunk>();
 
   constructor(
@@ -412,12 +451,17 @@ export class InMemoryPgVectorRagStore {
     });
   }
 
+  upsertMany(entries: Iterable<RagVectorStoreUpsert>): void {
+    for (const entry of entries) this.upsert(entry.chunk, entry.vector, entry.fingerprint);
+  }
+
   search(
     query: string,
     queryVector: Float64Array,
     options: RetrieveOptions = {},
     fingerprint = this.fingerprint,
   ): RetrieveResult {
+    if (typeof query !== 'string') throw new Error('KERN RAG runtime query must be a string.');
     this.assertCompatible(queryVector, fingerprint);
     const { topK, minScore } = normalizeEmbeddingRetrieveOptions(options);
     const chunks = Array.from(this.entries.values())
@@ -427,6 +471,30 @@ export class InMemoryPgVectorRagStore {
       .slice(0, topK)
       .map(({ chunk, score }) => toRetrievedChunk(chunk, score));
     return { query, chunks };
+  }
+
+  snapshot(): RagVectorStoreSnapshot {
+    return {
+      version: RAG_VECTOR_STORE_SNAPSHOT_VERSION,
+      fingerprint: this.fingerprint,
+      dims: this.dims,
+      metric: this.metric,
+      entries: Array.from(this.entries.values())
+        .sort((a, b) => compareChunkIds(a.chunk.id, b.chunk.id))
+        .map((entry) => ({
+          chunk: structuredClone(entry.chunk),
+          vector: Array.from(entry.vector),
+          fingerprint: entry.fingerprint,
+        })),
+    };
+  }
+
+  clear(): void {
+    this.entries.clear();
+  }
+
+  close(): void {
+    // In-memory stores hold no external resources.
   }
 
   private assertCompatible(vector: Float64Array, fingerprint: string): void {

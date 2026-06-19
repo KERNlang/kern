@@ -1,3 +1,7 @@
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import {
   type AsyncEmbedder,
   AsyncEmbeddingRagIndex,
@@ -14,7 +18,9 @@ import {
   LocalSemanticEmbedder,
   OpenAIEmbeddingAdapter,
   type RagChunkInput,
+  type RagVectorStoreAdapter,
 } from '../src/index.js';
+import { LocalPersistentRagVectorStoreAdapter } from '../src/rag-embedding-node.js';
 
 const CORPUS: RagChunkInput[] = [
   { id: 'refunds', text: 'refund refunds policy window thirty days money back', source: 'docs/refunds.md' },
@@ -150,7 +156,7 @@ describe('InMemoryPgVectorRagStore', () => {
     const embedder = new DeterministicHashEmbedder();
     const fingerprint = embedderFingerprint(embedder, 'cosine');
     const store = new InMemoryPgVectorRagStore(fingerprint, embedder.dims);
-    store.upsert(CORPUS[0], embedder.embed(CORPUS[0].text));
+    store.upsertMany([{ chunk: CORPUS[0], vector: embedder.embed(CORPUS[0].text) }]);
 
     expect(() =>
       store.search('refund policy', embedder.embed('refund policy'), {}, 'openai:model:1536:cosine'),
@@ -167,6 +173,236 @@ describe('InMemoryPgVectorRagStore', () => {
     const result = store.search(query, await embedder.embed(query), { topK: 1 });
 
     expect(result.chunks[0].id).toBe('refunds');
+  });
+
+  test('exposes deterministic adapter snapshots and clear semantics', () => {
+    const embedder = new DeterministicHashEmbedder();
+    const fingerprint = embedderFingerprint(embedder, 'cosine');
+    const store = new InMemoryPgVectorRagStore(fingerprint, embedder.dims);
+    store.upsert(CORPUS[0], embedder.embed(CORPUS[0].text));
+
+    expect(store.snapshot()).toEqual(
+      expect.objectContaining({
+        version: 'kern-rag-vector-store-v1',
+        fingerprint,
+        dims: embedder.dims,
+        metric: 'cosine',
+        entries: [
+          expect.objectContaining({
+            chunk: CORPUS[0],
+            fingerprint,
+          }),
+        ],
+      }),
+    );
+
+    expect(store.snapshot().entries.map((entry) => entry.chunk.id)).toEqual(['refunds']);
+    store.clear();
+    expect(store.search('refund policy', embedder.embed('refund policy')).chunks).toEqual([]);
+  });
+
+  test('adapter snapshots are sorted by chunk id', () => {
+    const embedder = new DeterministicHashEmbedder();
+    const fingerprint = embedderFingerprint(embedder, 'cosine');
+    const store = new InMemoryPgVectorRagStore(fingerprint, embedder.dims);
+    store.upsertMany(
+      [CORPUS[1], CORPUS[0]].map((chunk) => ({
+        chunk,
+        vector: embedder.embed(chunk.text),
+      })),
+    );
+
+    expect(store.snapshot().entries.map((entry) => entry.chunk.id)).toEqual(['refunds', 'shipping']);
+  });
+
+  test('local persistent adapter reloads vector entries from disk', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-rag-vector-store-'));
+    try {
+      const embedder = new LocalSemanticEmbedder();
+      const fingerprint = embedderFingerprint(embedder, 'cosine');
+      const first = new LocalPersistentRagVectorStoreAdapter({
+        directory: dir,
+        fingerprint,
+        dims: embedder.dims,
+      });
+      first.upsertMany(
+        CORPUS.slice(0, 2).map((chunk) => ({
+          chunk,
+          vector: embedder.embed(chunk.text),
+        })),
+      );
+      first.close();
+
+      const reloaded = new LocalPersistentRagVectorStoreAdapter({
+        directory: dir,
+        fingerprint,
+        dims: embedder.dims,
+      });
+      try {
+        const result = reloaded.search('refund refunds policy', embedder.embed('refund refunds policy'), { topK: 2 });
+
+        expect(result.chunks[0]).toEqual(expect.objectContaining({ id: 'refunds', source: 'docs/refunds.md' }));
+        expect(reloaded.snapshot().entries).toHaveLength(2);
+      } finally {
+        reloaded.close();
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('local persistent adapter rejects a second live writer for the same file', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-rag-vector-store-'));
+    try {
+      const embedder = new DeterministicHashEmbedder();
+      const options = {
+        directory: dir,
+        fingerprint: embedderFingerprint(embedder, 'cosine'),
+        dims: embedder.dims,
+      };
+      const first: RagVectorStoreAdapter = new LocalPersistentRagVectorStoreAdapter(options);
+      try {
+        expect(() => new LocalPersistentRagVectorStoreAdapter(options)).toThrow(/already open for writing/u);
+      } finally {
+        first.close();
+      }
+      const reopened = new LocalPersistentRagVectorStoreAdapter(options);
+      reopened.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('local persistent adapter fails closed on incompatible snapshots', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-rag-vector-store-'));
+    try {
+      const embedder = new DeterministicHashEmbedder();
+      writeFileSync(
+        join(dir, 'vectors.json'),
+        JSON.stringify({
+          version: 'kern-rag-vector-store-v1',
+          fingerprint: 'other',
+          dims: embedder.dims,
+          metric: 'cosine',
+          entries: [],
+        }),
+        'utf-8',
+      );
+
+      expect(
+        () =>
+          new LocalPersistentRagVectorStoreAdapter({
+            directory: dir,
+            fingerprint: embedderFingerprint(embedder, 'cosine'),
+            dims: embedder.dims,
+          }),
+      ).toThrow(/fingerprint mismatch/u);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('local persistent adapter recovers a complete temp snapshot on open', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-rag-vector-store-'));
+    try {
+      const embedder = new DeterministicHashEmbedder();
+      const fingerprint = embedderFingerprint(embedder, 'cosine');
+      writeFileSync(
+        join(dir, 'vectors.json.tmp'),
+        JSON.stringify({
+          version: 'kern-rag-vector-store-v1',
+          fingerprint,
+          dims: embedder.dims,
+          metric: 'cosine',
+          entries: [
+            {
+              chunk: CORPUS[0],
+              vector: Array.from(embedder.embed(CORPUS[0].text)),
+              fingerprint,
+            },
+          ],
+        }),
+        'utf-8',
+      );
+
+      const store = new LocalPersistentRagVectorStoreAdapter({ directory: dir, fingerprint, dims: embedder.dims });
+      try {
+        expect(store.snapshot().entries.map((entry) => entry.chunk.id)).toEqual(['refunds']);
+        expect(existsSync(join(dir, 'vectors.json'))).toBe(true);
+      } finally {
+        store.close();
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('local persistent adapter rejects malformed snapshot entries', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-rag-vector-store-'));
+    try {
+      const embedder = new DeterministicHashEmbedder();
+      const fingerprint = embedderFingerprint(embedder, 'cosine');
+      writeFileSync(
+        join(dir, 'vectors.json'),
+        JSON.stringify({
+          version: 'kern-rag-vector-store-v1',
+          fingerprint,
+          dims: embedder.dims,
+          metric: 'cosine',
+          entries: [null],
+        }),
+        'utf-8',
+      );
+
+      expect(
+        () =>
+          new LocalPersistentRagVectorStoreAdapter({
+            directory: dir,
+            fingerprint,
+            dims: embedder.dims,
+          }),
+      ).toThrow(/entry must be an object/u);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('local persistent adapter constrains custom snapshot file names', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-rag-vector-store-'));
+    try {
+      const embedder = new DeterministicHashEmbedder();
+      expect(
+        () =>
+          new LocalPersistentRagVectorStoreAdapter({
+            directory: dir,
+            fileName: '../vectors.json',
+            fingerprint: embedderFingerprint(embedder, 'cosine'),
+            dims: embedder.dims,
+          }),
+      ).toThrow(/plain file name/u);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('local persistent adapter validates file name before creating its directory', () => {
+    const parent = mkdtempSync(join(tmpdir(), 'kern-rag-vector-store-'));
+    const dir = join(parent, 'not-created');
+    try {
+      const embedder = new DeterministicHashEmbedder();
+      expect(
+        () =>
+          new LocalPersistentRagVectorStoreAdapter({
+            directory: dir,
+            fileName: '../vectors.json',
+            fingerprint: embedderFingerprint(embedder, 'cosine'),
+            dims: embedder.dims,
+          }),
+      ).toThrow(/plain file name/u);
+      expect(existsSync(dir)).toBe(false);
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
   });
 
   test('async index deduplicates concurrent query embeddings', async () => {
