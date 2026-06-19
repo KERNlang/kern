@@ -648,6 +648,22 @@ export {
   validatePortablePredicateAST,
 } from './portable-predicate.js';
 export { parsePortableNonNegativeIntLiteral, parsePortablePathSegments } from './portable-route-collection.js';
+export type {
+  RagAdapterPersistence,
+  RagVectorStoreAdapterCapabilities,
+  RagVectorStoreAdapterManifest,
+  RagVectorStoreConformanceCaseResult,
+  RagVectorStoreConformanceContext,
+  RagVectorStoreConformanceOptions,
+  RagVectorStoreConformanceReport,
+  RagVectorStoreConformanceStatus,
+} from './rag-adapter-conformance.js';
+export {
+  BUILTIN_RAG_VECTOR_STORE_MANIFESTS,
+  builtinRagVectorStoreManifest,
+  createInMemoryRagVectorStoreForConformance,
+  runRagVectorStoreConformance,
+} from './rag-adapter-conformance.js';
 export type { RagAssertionKind } from './rag-assertions.js';
 export { RAG_ASSERTION_KIND_SET, RAG_ASSERTION_KINDS } from './rag-assertions.js';
 export type { RagProviderEmbeddingOptions, RagSupportedEmbedModel } from './rag-embed-resolver.js';

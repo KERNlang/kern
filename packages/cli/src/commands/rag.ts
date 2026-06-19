@@ -1,18 +1,28 @@
 import {
+  BUILTIN_RAG_VECTOR_STORE_MANIFESTS,
+  builtinRagVectorStoreManifest,
+  createInMemoryRagVectorStoreForConformance,
   evaluateRagEvalDocumentAsync,
   evaluateRagEvalDocumentFromDeclaredSourcesAsync,
   type RagChunkInput,
   type RagEvalDocumentReport,
   type RagRetrieveDocumentReport,
+  type RagVectorStoreConformanceContext,
+  type RagVectorStoreConformanceReport,
+  type RagVectorStoreKind,
   ragRetrieveCorpusSourceSummary,
   retrieveRagDocument,
+  runRagVectorStoreConformance,
 } from '@kernlang/core';
-import { existsSync, readFileSync } from 'fs';
-import { resolve } from 'path';
+import { LocalPersistentRagVectorStoreAdapter } from '@kernlang/core/node';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join, resolve } from 'path';
 
 const USAGE =
   'Usage: kern rag eval <file.kern> [--corpus <chunks.json>] [--openai-api-key <key>]\n' +
-  '       kern rag retrieve <file.kern> --query <text> [--param name=value]  (local embed models only)';
+  '       kern rag retrieve <file.kern> --query <text> [--param name=value]  (local embed models only)\n' +
+  '       kern rag conformance [--adapter memory|local-persistent] [--json]';
 
 /** `kern rag …` — run a RAG spec's contracts in the toolchain (dbt-test shape). */
 export async function runRag(args: string[]): Promise<void> {
@@ -25,8 +35,74 @@ export async function runRag(args: string[]): Promise<void> {
     runRagRetrieve(args.slice(2));
     return;
   }
+  if (sub === 'conformance') {
+    runRagConformance(args.slice(2));
+    return;
+  }
   console.error(USAGE);
   process.exit(1);
+}
+
+function runRagConformance(args: string[]): void {
+  const { adapterFlagPresent, adapterName, json, unexpectedArgs, unknownFlags } = parseRagConformanceArgs(args);
+  if (unknownFlags.length > 0) fail(`unknown flag for conformance: ${unknownFlags[0]}.\n${USAGE}`);
+  if (unexpectedArgs.length > 0) fail(`unexpected argument for conformance: ${unexpectedArgs[0]}.\n${USAGE}`);
+  if (adapterFlagPresent && (!adapterName?.trim() || adapterName.trim().startsWith('-'))) {
+    fail(`missing value for --adapter.\n${USAGE}`);
+  }
+  const manifests = adapterName
+    ? [builtinRagVectorStoreManifest(adapterName) ?? fail(`unknown RAG adapter '${adapterName}'.\n${USAGE}`)]
+    : BUILTIN_RAG_VECTOR_STORE_MANIFESTS;
+
+  const reports: RagVectorStoreConformanceReport[] = [];
+  for (const manifest of manifests) {
+    const tmp = mkdtempSync(join(tmpdir(), `kern-rag-${manifest.name}-conformance-`));
+    try {
+      reports.push(
+        runRagVectorStoreConformance({
+          manifest,
+          createStore: (context) => createConformanceStore(manifest.adapterKind, context, tmp),
+        }),
+      );
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  }
+
+  const passed = reports.every((report) => report.passed);
+  if (json) {
+    console.log(JSON.stringify({ passed, reports }, null, 2));
+  } else {
+    console.log('kern rag conformance');
+    for (const report of reports) {
+      const mark = report.passed ? '✓' : '✗';
+      console.log(
+        `  ${mark} ${report.manifest.name} (${report.summary.passed} passed, ${report.summary.failed} failed, ${report.summary.skipped} skipped)`,
+      );
+      for (const entry of report.cases) {
+        if (entry.status === 'failed') console.log(`      ✗ ${entry.name}: ${entry.message ?? 'failed'}`);
+        if (entry.status === 'skipped') console.log(`      - ${entry.name}: ${entry.message ?? 'skipped'}`);
+      }
+    }
+  }
+  process.exit(passed ? 0 : 1);
+}
+
+function createConformanceStore(
+  adapterKind: RagVectorStoreKind,
+  context: RagVectorStoreConformanceContext,
+  directory: string,
+) {
+  if (adapterKind === 'memory') return createInMemoryRagVectorStoreForConformance(context);
+  if (adapterKind === 'local-persistent') {
+    return new LocalPersistentRagVectorStoreAdapter({
+      directory,
+      fileName: `${context.namespace}.json`,
+      fingerprint: context.fingerprint,
+      dims: context.dims,
+    });
+  }
+  fail(`unknown RAG adapter kind '${adapterKind}'.`);
 }
 
 function runRagRetrieve(args: string[]): void {
@@ -184,6 +260,54 @@ function parseRagEvalArgs(args: readonly string[]): ParsedRagEvalArgs {
   }
 
   return { filePath, corpusPath, corpusFlagPresent, openAiApiKeyFlag, openAiKeyFlagPresent };
+}
+
+interface ParsedRagConformanceArgs {
+  readonly adapterName?: string;
+  readonly adapterFlagPresent: boolean;
+  readonly json: boolean;
+  readonly unexpectedArgs: readonly string[];
+  readonly unknownFlags: readonly string[];
+}
+
+function parseRagConformanceArgs(args: readonly string[]): ParsedRagConformanceArgs {
+  let adapterName: string | undefined;
+  let adapterFlagPresent = false;
+  let json = false;
+  const unexpectedArgs: string[] = [];
+  const unknownFlags: string[] = [];
+
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === '--json') {
+      json = true;
+      continue;
+    }
+    if (arg === '--adapter') {
+      adapterFlagPresent = true;
+      adapterName = args[i + 1];
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith('--adapter=')) {
+      adapterFlagPresent = true;
+      adapterName = arg.slice('--adapter='.length);
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      unknownFlags.push(arg);
+      continue;
+    }
+    unexpectedArgs.push(arg);
+  }
+
+  return {
+    ...(adapterName !== undefined ? { adapterName } : {}),
+    adapterFlagPresent,
+    json,
+    unexpectedArgs,
+    unknownFlags,
+  };
 }
 
 interface ParsedRagRetrieveArgs {
