@@ -172,7 +172,10 @@ execDescribe('Regex Slice 4 — RUNNER-NATIVE split/replace differential (ref ==
     const imports = [...r.imports].map((m) => `import ${m} as __k_${m}`).join('\n');
     const helpers = [...r.helpers].join('\n\n');
     const file = join(dir, 'run.py');
-    writeFileSync(file, ['import json', imports, helpers, `print(json.dumps(${r.code}, ensure_ascii=False))`].join('\n'));
+    writeFileSync(
+      file,
+      ['import json', imports, helpers, `print(json.dumps(${r.code}, ensure_ascii=False))`].join('\n'),
+    );
     return JSON.parse(execFileSync('python3', [file], { encoding: 'utf8', timeout: 10_000 }).trim());
   }
 
@@ -273,7 +276,10 @@ execDescribe2('Regex Slice 4 — runner-only abstain (emit legs diverge; runner 
     const imports = [...r.imports].map((m) => `import ${m} as __k_${m}`).join('\n');
     const helpers = [...r.helpers].join('\n\n');
     const file = join(dir, 'd.py');
-    writeFileSync(file, ['import json', imports, helpers, `print(json.dumps(${r.code}, ensure_ascii=False))`].join('\n'));
+    writeFileSync(
+      file,
+      ['import json', imports, helpers, `print(json.dumps(${r.code}, ensure_ascii=False))`].join('\n'),
+    );
     return JSON.parse(execFileSync('python3', [file], { encoding: 'utf8', timeout: 10_000 }).trim());
   }
 
@@ -339,12 +345,8 @@ describe('Regex Slice 4 — terminal-tag boundary', () => {
   test('split binding is terminal-tagged: a downstream index read abstains', () => {
     const env = makeEnv();
     referenceRun({ type: 'expression-v1', props: { name: 'm', expr: '"a1b2".split(/(\\d)/)' } }, env);
-    expect(() =>
-      referenceRun({ type: 'expression-v1', props: { name: 'x', expr: 'm[0]' } }, env),
-    ).toThrow();
-    expect(() =>
-      referenceRun({ type: 'expression-v1', props: { name: 'n', expr: 'm.length' } }, env),
-    ).toThrow();
+    expect(() => referenceRun({ type: 'expression-v1', props: { name: 'x', expr: 'm[0]' } }, env)).toThrow();
+    expect(() => referenceRun({ type: 'expression-v1', props: { name: 'n', expr: 'm.length' } }, env)).toThrow();
   });
   test('replace binding is a plain readable string scalar', () => {
     const env = makeEnv();
