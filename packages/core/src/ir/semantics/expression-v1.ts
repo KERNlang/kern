@@ -5,7 +5,19 @@
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
-import { evalRegexTestExpression, isRegexTestExpression, isRunnerNativeRegexFailClose } from './portable-regex.js';
+import {
+  evalRegexGlobalMatchExpression,
+  evalRegexMatchAllExpression,
+  evalRegexMatchExpression,
+  evalRegexTestExpression,
+  isRegexGlobalMatchExpression,
+  isRegexMatchAllExpression,
+  isRegexMatchExpression,
+  isRegexTestExpression,
+  isRunnerNativeRegexFailClose,
+  makeRegExpMatchListValue,
+  makeRegExpMatchValue,
+} from './portable-regex.js';
 import {
   evalDecimalExpression,
   evalPortableValue,
@@ -61,6 +73,22 @@ function routesToNativeRegexTest(parsed: ReturnType<typeof parseExpression>, env
   return isRegexTestExpression(parsed) && !env.bindings.has('RegExp');
 }
 
+function routesToNativeRegexMatch(parsed: ReturnType<typeof parseExpression>, env: SemanticEnv): boolean {
+  return isRegexMatchExpression(parsed) && !env.bindings.has('RegExp');
+}
+
+// SLICE-3 — `<str>.match(/pat/g)` (GLOBAL array result) and `<str>.matchAll(/pat/g)`
+// route native ONLY when `RegExp` is the builtin (not user-shadowed), same guard.
+// `.matchAll` without /g is deliberately ADMITTED by the gate and fail-closed inside
+// the eval so the precondition RE-ADMITS the shared REGEX_MATCHALL_NO_G_FAILCLOSE.
+function routesToNativeRegexGlobalMatch(parsed: ReturnType<typeof parseExpression>, env: SemanticEnv): boolean {
+  return isRegexGlobalMatchExpression(parsed) && !env.bindings.has('RegExp');
+}
+
+function routesToNativeRegexMatchAll(parsed: ReturnType<typeof parseExpression>, env: SemanticEnv): boolean {
+  return isRegexMatchAllExpression(parsed) && !env.bindings.has('RegExp');
+}
+
 function expressionV1Preconditions(ir: IRNode, env: SemanticEnv): boolean {
   const props = asExpressionV1Props(ir);
   if (!isPortableBindingName(props.name)) return false;
@@ -91,6 +119,33 @@ function expressionV1Preconditions(ir: IRNode, env: SemanticEnv): boolean {
     if (routesToNativeRegexTest(parsed, env)) {
       try {
         evalRegexTestExpression(parsed, env);
+        return true;
+      } catch (error) {
+        if (isRunnerNativeRegexFailClose(error)) return true;
+        return false;
+      }
+    }
+    if (routesToNativeRegexMatch(parsed, env)) {
+      try {
+        evalRegexMatchExpression(parsed, env);
+        return true;
+      } catch (error) {
+        if (isRunnerNativeRegexFailClose(error)) return true;
+        return false;
+      }
+    }
+    if (routesToNativeRegexGlobalMatch(parsed, env)) {
+      try {
+        evalRegexGlobalMatchExpression(parsed, env);
+        return true;
+      } catch (error) {
+        if (isRunnerNativeRegexFailClose(error)) return true;
+        return false;
+      }
+    }
+    if (routesToNativeRegexMatchAll(parsed, env)) {
+      try {
+        evalRegexMatchAllExpression(parsed, env);
         return true;
       } catch (error) {
         if (isRunnerNativeRegexFailClose(error)) return true;
@@ -139,6 +194,27 @@ function expressionV1Effects(ir: IRNode, env: SemanticEnv): Trace {
   if (routesToNativeRegexTest(parsed, env)) {
     const value = evalRegexTestExpression(parsed, env);
     env.bindings.set(name, value);
+    return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
+  }
+  if (routesToNativeRegexMatch(parsed, env)) {
+    const value = evalRegexMatchExpression(parsed, env);
+    env.bindings.set(name, value === null ? null : makeRegExpMatchValue(value));
+    return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
+  }
+  // SLICE-3 — `<str>.match(/pat/g)` (GLOBAL): the Trace `assign.value` is the PLAIN
+  // array (or null) — the differential observable. The env BINDING holds the TAGGED
+  // list wrapper so a downstream read (`m[0]`, `m.length`) hits the tag and ABSTAINS
+  // (downstream array value semantics are a later slice). No-match binds plain null.
+  if (routesToNativeRegexGlobalMatch(parsed, env)) {
+    const value = evalRegexGlobalMatchExpression(parsed, env);
+    env.bindings.set(name, value === null ? null : makeRegExpMatchListValue(value));
+    return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
+  }
+  // SLICE-3 — `<str>.matchAll(/pat/g)`: always an array (possibly empty). Same
+  // split — plain array in the Trace, tagged wrapper in the binding.
+  if (routesToNativeRegexMatchAll(parsed, env)) {
+    const value = evalRegexMatchAllExpression(parsed, env);
+    env.bindings.set(name, makeRegExpMatchListValue(value));
     return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
   }
   const value = evalPortableValue(parsed, env);
