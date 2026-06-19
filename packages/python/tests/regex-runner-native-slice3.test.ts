@@ -180,6 +180,16 @@ execDescribe('Regex Slice 3 — RUNNER-NATIVE global differential (ref === ts ==
       ],
       'matchall',
     ],
+
+    // ── review-driven anchor-parity regression locks (verified node + python3) ──
+    // `$`/`^` are portable: the Python leg rewrites them to ABSOLUTE `\Z`/`\A`
+    // (lowerRegexAnchorsPython), so a trailing-newline subject does NOT diverge — pin
+    // it so a future anchor-lowering change can't silently break parity.
+    ['"x\\n".match(/$/g)', [''], 'gmatch'],
+    ['"x\\n".match(/x$/g)', null, 'gmatch'],
+    // /m anchor over a \n-only subject is portable (only NON-\n line terminators
+    // diverge — those abstain below); pin the portable \n case stays certified.
+    ['"a\\nb".match(/^/gm)', ['', ''], 'gmatch'],
   ];
 
   let dir = '';
@@ -314,6 +324,27 @@ describe('Regex Slice 3 — abstains (no native route) on out-of-slice inputs', 
   test('variable-width LOOKBEHIND abstains on both global ops (Python fixed-width-only)', () => {
     expect(() => runRefMatch('"aab".match(/(?<=a+)b/g)')).toThrow();
     expect(() => runRefMatch('"aab".matchAll(/(?<=a+)b/g)')).toThrow();
+  });
+  test('NULLABLE alternation abstains — JS advances vs CPython>=3.7 retries (BLOCKER)', () => {
+    // "ab".match(/(?:|a)/g) -> JS/TS ["","",""] but Python ["","a","",""]: after a
+    // zero-width match JS advances while CPython>=3.7 retries a non-empty match at the
+    // same position. Verified node + python3. Same for (?:^|a), (?:x*|a).
+    expect(() => runRefMatch('"ab".match(/(?:|a)/g)')).toThrow();
+    expect(() => runRefMatch('"ab".matchAll(/(?:|a)/g)')).toThrow();
+  });
+  test('ALL top-level alternation abstains — conservative fence (non-nullable is safe but undetected)', () => {
+    // `/a|b/g` is portable (no nullable branch), but precise nullable analysis is
+    // error-prone and a miss would be UNSOUND, so the gate over-abstains on ALL
+    // top-level alternation. A `|` inside a char class is NOT alternation (certified
+    // separately would be fine). Deferred refinement: admit provably-non-nullable.
+    expect(() => runRefMatch('"ab".match(/a|b/g)')).toThrow();
+    expect(() => runRefMatch('"abc".matchAll(/a|b|c/g)')).toThrow();
+  });
+  test('/m anchor over a non-\\n line terminator abstains — JS \\r/LS/PS vs Python \\n only (BLOCKER)', () => {
+    // "a\rb".match(/^/gm) -> JS/TS ["",""] but Python [""]: JS /m treats \r (and
+    // U+2028/U+2029) as line boundaries; Python `re` /m only \n. Verified node+python3.
+    expect(() => runRefMatch('"a\\rb".match(/^/gm)')).toThrow();
+    expect(() => runRefMatch('"a\\rb".matchAll(/^/gm)')).toThrow();
   });
   test('astral PATTERN abstains (inherited scanRegexAstral gate)', () => {
     expect(() => runRefMatch('"x".match(/𝕏/g)')).toThrow();
