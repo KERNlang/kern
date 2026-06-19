@@ -241,6 +241,20 @@ describe('Regex Slice 1 — abstains (no native route) on uncertified inputs', (
   test('astral (non-BMP) pattern abstains', () => {
     expect(() => runRefBool('/𝕏/.test("x")')).toThrow();
   });
+  // Slice-2 review parity: variable-width lookbehind compiles in JS but is a
+  // COMPILE error in Python `re` (fixed-width only) — admitting it would emit a
+  // bool matching only the TS leg. The gate rejects ALL lookbehind.
+  test('variable-width lookbehind abstains — Python re is fixed-width-only', () => {
+    expect(() => runRefBool('/(?<=a+)b/.test("aab")')).toThrow();
+  });
+  test('fixed-width lookbehind also abstains (safe over-abstain)', () => {
+    expect(() => runRefBool('/(?<=a)b/.test("ab")')).toThrow();
+  });
+  // Optional chaining routes through a form the emitter's `.test` lowering does
+  // not recognize; the runner declines both optional forms.
+  test('optional chaining `?.test` abstains', () => {
+    expect(() => runRefBool('(/a/)?.test("a")')).toThrow();
+  });
   test('shadowed `RegExp` binding falls through to portable eval', () => {
     const node = { type: 'expression-v1', props: { name: 'r', expr: '/a/.test("a")' } };
     const env = makeEnv();

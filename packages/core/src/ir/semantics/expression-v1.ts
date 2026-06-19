@@ -5,7 +5,14 @@
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
-import { evalRegexTestExpression, isRegexTestExpression, isRunnerNativeRegexFailClose } from './portable-regex.js';
+import {
+  evalRegexMatchExpression,
+  evalRegexTestExpression,
+  isRegexMatchExpression,
+  isRegexTestExpression,
+  isRunnerNativeRegexFailClose,
+  makeRegExpMatchValue,
+} from './portable-regex.js';
 import {
   evalDecimalExpression,
   evalPortableValue,
@@ -61,6 +68,10 @@ function routesToNativeRegexTest(parsed: ReturnType<typeof parseExpression>, env
   return isRegexTestExpression(parsed) && !env.bindings.has('RegExp');
 }
 
+function routesToNativeRegexMatch(parsed: ReturnType<typeof parseExpression>, env: SemanticEnv): boolean {
+  return isRegexMatchExpression(parsed) && !env.bindings.has('RegExp');
+}
+
 function expressionV1Preconditions(ir: IRNode, env: SemanticEnv): boolean {
   const props = asExpressionV1Props(ir);
   if (!isPortableBindingName(props.name)) return false;
@@ -91,6 +102,15 @@ function expressionV1Preconditions(ir: IRNode, env: SemanticEnv): boolean {
     if (routesToNativeRegexTest(parsed, env)) {
       try {
         evalRegexTestExpression(parsed, env);
+        return true;
+      } catch (error) {
+        if (isRunnerNativeRegexFailClose(error)) return true;
+        return false;
+      }
+    }
+    if (routesToNativeRegexMatch(parsed, env)) {
+      try {
+        evalRegexMatchExpression(parsed, env);
         return true;
       } catch (error) {
         if (isRunnerNativeRegexFailClose(error)) return true;
@@ -139,6 +159,11 @@ function expressionV1Effects(ir: IRNode, env: SemanticEnv): Trace {
   if (routesToNativeRegexTest(parsed, env)) {
     const value = evalRegexTestExpression(parsed, env);
     env.bindings.set(name, value);
+    return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
+  }
+  if (routesToNativeRegexMatch(parsed, env)) {
+    const value = evalRegexMatchExpression(parsed, env);
+    env.bindings.set(name, value === null ? null : makeRegExpMatchValue(value));
     return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
   }
   const value = evalPortableValue(parsed, env);
