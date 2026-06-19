@@ -2465,6 +2465,36 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
     allowedChildren: [],
   },
+  vectorStore: {
+    description:
+      'RAG vector store declaration — names a runtime vector storage adapter without reimplementing the database in Kern.',
+    example: 'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      kind: { kind: 'identifier' },
+      dims: { kind: 'number' },
+      metric: { kind: 'identifier' },
+      path: { kind: 'string' },
+      url: { kind: 'string' },
+      table: { kind: 'identifier' },
+      namespace: { kind: 'string' },
+    },
+    allowedChildren: [],
+  },
+  ragIndex: {
+    description:
+      'RAG runtime index declaration — binds corpus, embedding, chunking, and vector store contracts for runtime retrieval.',
+    example: 'ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding chunking=DocsChunks',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      corpus: { required: true, kind: 'identifier' },
+      store: { required: true, kind: 'identifier' },
+      embed: { kind: 'identifier' },
+      chunking: { kind: 'identifier' },
+      refresh: { kind: 'identifier' },
+    },
+    allowedChildren: [],
+  },
   retriever: {
     description:
       'RAG retriever declaration — binds a corpus and optional embedding contract to search policy such as topK/minScore.',
@@ -2492,7 +2522,26 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       answer: { kind: 'string' },
       citations: { kind: 'boolean' },
     },
-    allowedChildren: ['grounding', 'ragEval', 'ragAnswerContract'],
+    allowedChildren: ['grounding', 'ragRetrieve', 'ragEval', 'ragAnswerContract'],
+  },
+  ragRetrieve: {
+    description:
+      'RAG runtime retrieval contract — names a query-time retrieval surface backed by a declared ragIndex.',
+    example:
+      'ragRetrieve name=FindDocs index=DocsIndex queryParam=question as=context topK=4 minScore=0.72 output="RetrievedChunk[]" requireCitations=true',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      index: { required: true, kind: 'identifier' },
+      rag: { kind: 'identifier' },
+      queryParam: { kind: 'identifier' },
+      query: { kind: 'expression' },
+      as: { kind: 'identifier' },
+      topK: { kind: 'number' },
+      minScore: { kind: 'number' },
+      output: { kind: 'typeAnnotation' },
+      requireCitations: { kind: 'boolean' },
+    },
+    allowedChildren: [],
   },
   grounding: {
     description: 'RAG grounding policy — declares citation and context constraints for a RAG pipeline.',

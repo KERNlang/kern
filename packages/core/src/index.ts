@@ -809,11 +809,14 @@ export type {
   RagSemanticEvalFact,
   RagSemanticFacts,
   RagSemanticGroundingFact,
+  RagSemanticIndexFact,
   RagSemanticLocation,
   RagSemanticMcpRetrievalFact,
   RagSemanticPipelineFact,
   RagSemanticRetrieverFact,
+  RagSemanticRuntimeRetrieveFact,
   RagSemanticSourceFact,
+  RagSemanticVectorStoreFact,
   SemanticViolation,
 } from './semantic-validator.js';
 export {
@@ -821,6 +824,8 @@ export {
   collectRagSemanticFacts,
   RAG_MCP_RETRIEVE_OUTPUT_ITEM_SHAPE,
   RAG_MCP_RETRIEVE_OUTPUT_SHAPE,
+  RAG_RUNTIME_RETRIEVE_OUTPUT_ITEM_SHAPE,
+  RAG_RUNTIME_RETRIEVE_OUTPUT_SHAPE,
   validateClassSemantics,
   validateRagSemantics,
   validateSemantics,
