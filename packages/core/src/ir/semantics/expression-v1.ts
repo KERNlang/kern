@@ -9,10 +9,14 @@ import {
   evalRegexGlobalMatchExpression,
   evalRegexMatchAllExpression,
   evalRegexMatchExpression,
+  evalRegexReplaceExpression,
+  evalRegexSplitExpression,
   evalRegexTestExpression,
   isRegexGlobalMatchExpression,
   isRegexMatchAllExpression,
   isRegexMatchExpression,
+  isRegexReplaceExpression,
+  isRegexSplitExpression,
   isRegexTestExpression,
   isRunnerNativeRegexFailClose,
   makeRegExpMatchListValue,
@@ -89,6 +93,19 @@ function routesToNativeRegexMatchAll(parsed: ReturnType<typeof parseExpression>,
   return isRegexMatchAllExpression(parsed) && !env.bindings.has('RegExp');
 }
 
+// SLICE-4 — `<str>.split(/pat/)` (array result) and `<str>.replace`/`.replaceAll`
+// (string result) route native ONLY when `RegExp` is the builtin (not user-shadowed),
+// same guard. A LIMIT split, a zero-width-capable split pattern, a replaceAll without
+// /g, and a bad replacement `$`-surface are deliberately ADMITTED by the gate and
+// fail-closed inside the eval so the precondition RE-ADMITS the shared constants.
+function routesToNativeRegexSplit(parsed: ReturnType<typeof parseExpression>, env: SemanticEnv): boolean {
+  return isRegexSplitExpression(parsed) && !env.bindings.has('RegExp');
+}
+
+function routesToNativeRegexReplace(parsed: ReturnType<typeof parseExpression>, env: SemanticEnv): boolean {
+  return isRegexReplaceExpression(parsed) && !env.bindings.has('RegExp');
+}
+
 function expressionV1Preconditions(ir: IRNode, env: SemanticEnv): boolean {
   const props = asExpressionV1Props(ir);
   if (!isPortableBindingName(props.name)) return false;
@@ -146,6 +163,24 @@ function expressionV1Preconditions(ir: IRNode, env: SemanticEnv): boolean {
     if (routesToNativeRegexMatchAll(parsed, env)) {
       try {
         evalRegexMatchAllExpression(parsed, env);
+        return true;
+      } catch (error) {
+        if (isRunnerNativeRegexFailClose(error)) return true;
+        return false;
+      }
+    }
+    if (routesToNativeRegexSplit(parsed, env)) {
+      try {
+        evalRegexSplitExpression(parsed, env);
+        return true;
+      } catch (error) {
+        if (isRunnerNativeRegexFailClose(error)) return true;
+        return false;
+      }
+    }
+    if (routesToNativeRegexReplace(parsed, env)) {
+      try {
+        evalRegexReplaceExpression(parsed, env);
         return true;
       } catch (error) {
         if (isRunnerNativeRegexFailClose(error)) return true;
@@ -215,6 +250,22 @@ function expressionV1Effects(ir: IRNode, env: SemanticEnv): Trace {
   if (routesToNativeRegexMatchAll(parsed, env)) {
     const value = evalRegexMatchAllExpression(parsed, env);
     env.bindings.set(name, makeRegExpMatchListValue(value));
+    return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
+  }
+  // SLICE-4 — `<str>.split(/pat/)`: the Trace `assign.value` is the PLAIN array (the
+  // differential observable). The env BINDING holds the TAGGED list wrapper so a
+  // downstream read (`m[0]`, `m.length`) hits the tag and ABSTAINS (downstream array
+  // value semantics are a later slice), same terminal boundary as matchAll.
+  if (routesToNativeRegexSplit(parsed, env)) {
+    const value = evalRegexSplitExpression(parsed, env);
+    env.bindings.set(name, makeRegExpMatchListValue(value));
+    return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
+  }
+  // SLICE-4 — `<str>.replace`/`.replaceAll`: a plain STRING scalar. The binding holds
+  // the bare string (readable downstream), unlike the terminal-tagged array results.
+  if (routesToNativeRegexReplace(parsed, env)) {
+    const value = evalRegexReplaceExpression(parsed, env);
+    env.bindings.set(name, value);
     return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
   }
   const value = evalPortableValue(parsed, env);

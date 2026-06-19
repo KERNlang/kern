@@ -1,13 +1,23 @@
 import {
   expandRegexIFold,
+  isZeroWidthCapableRegex,
   normalizeRegexClasses,
   REGEX_MATCHALL_NO_G_FAILCLOSE,
   REGEX_NAMEDGROUP_BAD_NAME_FAILCLOSE,
+  REGEX_REPLACE_BAD_NAME_FAILCLOSE,
+  REGEX_REPLACE_BEFORE_AFTER_FAILCLOSE,
+  REGEX_REPLACE_NONLITERAL_REPL_FAILCLOSE,
+  REGEX_REPLACE_OOR_REF_FAILCLOSE,
+  REGEX_REPLACEALL_NO_G_FAILCLOSE,
+  REGEX_SPLIT_LIMIT_FAILCLOSE,
+  REGEX_SPLIT_ZEROWIDTH_FAILCLOSE,
   REGEX_TEST_G_FAILCLOSE,
+  regexCaptureMeta,
   regexIFoldFailMessage,
   regexLiteralReceiverIR,
   scanRegexAstral,
   validateRegexNamedGroupsPortable,
+  validateReplStringForTS,
 } from '../../codegen/regex-normalize.js';
 import type { ValueIR } from '../../value-ir.js';
 import type { SemanticEnv } from './index.js';
@@ -392,6 +402,21 @@ function assertNoMultilineLineTerminatorDivergence(subject: string, flags: strin
   }
 }
 
+// SLICE-4 \u2014 a BARE `.` (no `/s`) excludes a DIFFERENT line-terminator set on each leg:
+// JS `.` excludes `\n`, `\r`, U+2028 and U+2029, while Python `re` `.` (no DOTALL)
+// excludes ONLY `\n`. So a bare-dot pattern over a subject carrying `\r`/LS/PS matches
+// a DIFFERENT character set (verified: `"a\rb".split(/(.)/)` -> JS keeps `\r` as a
+// separator while Python `.` matches it). `\n` is excluded by BOTH legs so it does not
+// diverge. This is a SUBJECT concern (parallel to the `/m` fence), not a pattern one,
+// so the gate admits all bare-dot patterns and the eval declines only the divergent
+// subjects \u2014 letting a no-line-terminator subject (`"--a--b"`) certify. With `/s`
+// (DOTALL) `.` matches every char on both legs, so no fence is needed.
+function assertNoBareDotLineTerminatorDivergence(subject: string, pattern: string, flags: string): void {
+  if (!flags.includes('s') && hasBareDotWithoutDotAll(pattern) && /[\r\u2028\u2029]/u.test(subject)) {
+    throw new Error('portable-regex: bare `.` over a non-\\n line-terminator subject diverges (JS vs Python)');
+  }
+}
+
 // SLICE-3 — `<str>.match(/pat/g)` (GLOBAL) gate. Clone of `isRegexMatchExpression`
 // but REQUIRES `g` (non-/g is slice-2's territory; returning false here lets the
 // slice-2 route claim it). Same structural shape + same fences.
@@ -529,11 +554,177 @@ export function evalRegexMatchAllExpression(
   });
 }
 
+// SLICE-4 — `<str>.split(/pat/)` gate. Clone of `isRegexGlobalMatchExpression`, but
+// the callee property is `'split'`, the regex is the FIRST arg (not a /g receiver),
+// and there is NO alternation fence (zero-width-capable patterns — the only
+// dangerous split case — are RE-ADMITTED by the eval's `isZeroWidthCapableRegex`
+// gate; non-zero-width top-level alternation AGREES on both legs, verified). A 2-arg
+// (limit) split is ADMITTED here so the precondition routes to eval, which throws the
+// RE-ADMIT constant REGEX_SPLIT_LIMIT_FAILCLOSE (both emit legs compile-fail-close a
+// limit). Apply all the OTHER pattern fences.
+export function isRegexSplitExpression(node: ValueIR): boolean {
+  if (node.kind !== 'call') return false;
+  if (node.optional) return false; // `split?.(...)`
+  if (node.callee.kind !== 'member' || node.callee.property !== 'split') return false;
+  if (node.callee.optional) return false; // `?.split`
+  // Admit args.length >= 1 with a regex-literal FIRST arg: a 2-arg (limit) split
+  // routes to eval and RE-ADMITS the limit fail-close rather than abstaining here.
+  if (node.args.length < 1) return false;
+  const regex = regexLiteralReceiverIR(node.args[0]);
+  if (regex === null) return false;
+  if (!hasOnlyRunnerRegexTestFlags(regex.flags)) return false;
+  if (new Set(regex.flags).size !== regex.flags.length) return false;
+  if (hasLookbehind(regex.pattern)) return false;
+
+  const folded = expandRegexIFold(normalizeRegexClasses(regex.pattern), regex.flags);
+  if ('failClose' in folded) return false;
+  // NO pattern-level bare-dot fence for split: a bare `.` over a no-line-terminator
+  // subject AGREES on both legs (verified `"--a--b".split(/(.)/)`); the divergence is
+  // a SUBJECT concern handled in the eval (`assertNoBareDotLineTerminatorDivergence`).
+  if (scanRegexAstral(folded.pattern) !== null) return false;
+
+  return true;
+}
+
+// SLICE-4 — `<str>.replace(/pat/, "lit")` / `<str>.replaceAll(/pat/, "lit")` gate.
+// Clone but the callee property is `'replace'` OR `'replaceAll'` and there are
+// exactly TWO args. ADDS the top-level alternation fence (a nullable global
+// alternation diverges in `re.sub`: JS advances after a zero-width match while
+// CPython>=3.7 retries a non-empty match at the same position — verified
+// `"ab".replace(/(?:|a)/g,"-")` -> TS `"-a-b-"` vs PY `"---b-"`; sound over-abstain
+// on ALL top-level alternation, same posture as slice-3). The repl validity and the
+// /g requirement are RE-ADMITTED by the eval, not gated here.
+export function isRegexReplaceExpression(node: ValueIR): boolean {
+  if (node.kind !== 'call') return false;
+  if (node.optional) return false; // `replace?.(...)`
+  if (node.callee.kind !== 'member' || (node.callee.property !== 'replace' && node.callee.property !== 'replaceAll')) {
+    return false;
+  }
+  if (node.callee.optional) return false; // `?.replace`
+  if (node.args.length !== 2) return false;
+  const regex = regexLiteralReceiverIR(node.args[0]);
+  if (regex === null) return false;
+  if (!hasOnlyRunnerRegexTestFlags(regex.flags)) return false;
+  if (new Set(regex.flags).size !== regex.flags.length) return false;
+  if (hasLookbehind(regex.pattern)) return false;
+  // Nullable global alternation diverges in re.sub (JS advances vs CPython retries) —
+  // safe over-abstain on ALL top-level alternation.
+  if (hasUnescapedAlternation(regex.pattern)) return false;
+
+  const folded = expandRegexIFold(normalizeRegexClasses(regex.pattern), regex.flags);
+  if ('failClose' in folded) return false;
+  // NO pattern-level bare-dot fence: a bare `.` over a no-line-terminator subject
+  // AGREES on both legs (verified `"aabb".replace(/(.)\1/g,"X")`); the divergence is a
+  // SUBJECT concern handled in the eval (`assertNoBareDotLineTerminatorDivergence`).
+  if (scanRegexAstral(folded.pattern) !== null) return false;
+
+  return true;
+}
+
+// SLICE-4 — execute `<str>.split(/pat/)`. Returns the split parts INTERLEAVED with
+// capture groups (`"a1b2".split(/(\d)/)` -> `["a","1","b","2",""]`), with a
+// non-participating optional capture folded `undefined -> null`. A LIMIT 2nd arg and
+// a ZERO-WIDTH-capable pattern (including backref patterns) RE-ADMIT the shared
+// fail-close constants the emitters both produce.
+export function evalRegexSplitExpression(node: ValueIR, env: SemanticEnv): (string | null)[] {
+  if (node.kind !== 'call' || node.callee.kind !== 'member') {
+    throw new Error('portable-regex: expected string.split(/pat/) call');
+  }
+  const regex = regexLiteralReceiverIR(node.args[0]);
+  if (regex === null) {
+    throw new Error('portable-regex: expected regex literal argument');
+  }
+  const { pattern, flags } = regex;
+  validateRegexNamedGroupsPortable(pattern);
+  // RE-ADMIT: a split LIMIT (2nd arg) is non-portable — both emit legs fail-close it.
+  if (node.args.length > 1) {
+    throw new Error(REGEX_SPLIT_LIMIT_FAILCLOSE);
+  }
+  // RE-ADMIT: a zero-width-capable pattern (`/x*/`, `/(?:)/`, a backref pattern, …)
+  // makes `str.split` and `re.split` diverge — both emit legs fail-close it.
+  if (isZeroWidthCapableRegex(pattern)) {
+    throw new Error(REGEX_SPLIT_ZEROWIDTH_FAILCLOSE);
+  }
+
+  const subject = evalPortableValue(node.callee.object, env);
+  if (typeof subject !== 'string') {
+    throw new Error('portable-regex: .split receiver must evaluate to a string');
+  }
+  assertNoSurrogateSubject(subject);
+  assertNoMultilineLineTerminatorDivergence(subject, flags);
+
+  const folded = expandRegexIFold(normalizeRegexClasses(pattern), flags);
+  if ('failClose' in folded) {
+    throw new Error(regexIFoldFailMessage(folded.char, folded.reason));
+  }
+  assertNoBareDotLineTerminatorDivergence(subject, folded.pattern, flags);
+  const parts = subject.split(new RegExp(folded.pattern, flags));
+  // A non-participating optional capture yields `undefined` in JS / `None` in Python;
+  // both fold to `null` so the array is portable.
+  return parts.map((p) => (p === undefined ? null : p));
+}
+
+// SLICE-4 — execute `<str>.replace(/pat/, "lit")` / `<str>.replaceAll(/pat/, "lit")`.
+// Returns the replaced string (no /g: first match only; /g: all; replaceAll always
+// /g). The replacement is a STRING LITERAL whose `$`-surface (`$$`, `$&`, `$1`,
+// `$<name>`, …) is validated by the SAME shared validator the TS emitter calls, so a
+// bad `$`-surface (`$\``/`$'`, OOR ref, bad name), a non-literal repl, and a
+// replaceAll-without-/g all RE-ADMIT the shared fail-close constants.
+export function evalRegexReplaceExpression(node: ValueIR, env: SemanticEnv): string {
+  if (node.kind !== 'call' || node.callee.kind !== 'member') {
+    throw new Error('portable-regex: expected string.replace(/pat/, "lit") call');
+  }
+  const regex = regexLiteralReceiverIR(node.args[0]);
+  if (regex === null) {
+    throw new Error('portable-regex: expected regex literal argument');
+  }
+  const { pattern, flags } = regex;
+  const method = node.callee.property;
+  // RE-ADMIT: `.replaceAll` without /g throws a TypeError in JS — both emit legs
+  // compile-fail-close it.
+  if (method === 'replaceAll' && !flags.includes('g')) {
+    throw new Error(REGEX_REPLACEALL_NO_G_FAILCLOSE);
+  }
+  // RE-ADMIT: a non-literal replacement cannot be statically translated to Python.
+  const replArg = node.args[1];
+  if (replArg.kind !== 'strLit') {
+    throw new Error(REGEX_REPLACE_NONLITERAL_REPL_FAILCLOSE);
+  }
+  // RE-ADMIT: validate the `$`-surface against the pattern's capture meta (the same
+  // validator the TS emitter calls) — `$\``/`$'` -> BEFORE_AFTER, an out-of-range
+  // numbered ref -> OOR_REF, a bad `$<name>` -> BAD_NAME.
+  validateReplStringForTS(replArg.value, regexCaptureMeta(pattern));
+  validateRegexNamedGroupsPortable(pattern);
+
+  const subject = evalPortableValue(node.callee.object, env);
+  if (typeof subject !== 'string') {
+    throw new Error('portable-regex: .replace receiver must evaluate to a string');
+  }
+  assertNoSurrogateSubject(subject);
+  assertNoMultilineLineTerminatorDivergence(subject, flags);
+
+  const folded = expandRegexIFold(normalizeRegexClasses(pattern), flags);
+  if ('failClose' in folded) {
+    throw new Error(regexIFoldFailMessage(folded.char, folded.reason));
+  }
+  assertNoBareDotLineTerminatorDivergence(subject, folded.pattern, flags);
+  // V8 native `$`-surface expansion. `.replace` without /g hits the first match only;
+  // with /g all; `.replaceAll` always carries /g (gated above).
+  return subject.replace(new RegExp(folded.pattern, flags), replArg.value);
+}
+
 export function isRunnerNativeRegexFailClose(error: unknown): boolean {
   return (
     error instanceof Error &&
     (error.message === REGEX_TEST_G_FAILCLOSE ||
       error.message === REGEX_NAMEDGROUP_BAD_NAME_FAILCLOSE ||
-      error.message === REGEX_MATCHALL_NO_G_FAILCLOSE)
+      error.message === REGEX_MATCHALL_NO_G_FAILCLOSE ||
+      error.message === REGEX_SPLIT_LIMIT_FAILCLOSE ||
+      error.message === REGEX_SPLIT_ZEROWIDTH_FAILCLOSE ||
+      error.message === REGEX_REPLACEALL_NO_G_FAILCLOSE ||
+      error.message === REGEX_REPLACE_NONLITERAL_REPL_FAILCLOSE ||
+      error.message === REGEX_REPLACE_BEFORE_AFTER_FAILCLOSE ||
+      error.message === REGEX_REPLACE_OOR_REF_FAILCLOSE ||
+      error.message === REGEX_REPLACE_BAD_NAME_FAILCLOSE)
   );
 }
