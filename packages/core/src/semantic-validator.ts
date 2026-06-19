@@ -26,6 +26,12 @@ import { collectExternalImportSymbols, type ExternalImportSymbolTable } from './
 import { importRegistryOf } from './import-metadata.js';
 import { parseExpression } from './parser-expression.js';
 import { RAG_ASSERTION_KIND_SET, RAG_ASSERTION_KINDS } from './rag-assertions.js';
+import {
+  defaultDimsForRagEmbedModel,
+  isSupportedRagEmbedModel,
+  RAG_EMBED_MODEL_LOCAL_SEMANTIC,
+  ragEmbedModelAllowsCustomDims,
+} from './rag-embed-resolver.js';
 import type { IRNode } from './types.js';
 import type { ValueIR } from './value-ir.js';
 
@@ -1458,6 +1464,31 @@ function validateRagChunking(
       'RAG chunking overlap must be smaller than maxTokens.',
     );
   }
+
+  const strategy = stringProp(chunking.node, 'strategy');
+  const unit = stringProp(chunking.node, 'unit');
+  if (
+    strategy !== undefined &&
+    strategy !== 'semantic' &&
+    strategy !== 'window' &&
+    strategy !== 'token' &&
+    strategy !== 'token-window'
+  ) {
+    pushRagViolation(
+      violations,
+      'rag-chunking-strategy-invalid',
+      chunking.node,
+      "RAG chunking strategy must be one of 'semantic', 'window', 'token', or 'token-window'.",
+    );
+  }
+  if (strategy === 'semantic' && unit === 'chars') {
+    pushRagViolation(
+      violations,
+      'rag-chunking-semantic-unit-invalid',
+      chunking.node,
+      'RAG semantic chunking currently requires unit=tokens; omit unit or set unit=tokens.',
+    );
+  }
 }
 
 function validateRagEmbed(
@@ -1477,6 +1508,28 @@ function validateRagEmbed(
   const dims = numberProp(embed.node, 'dims');
   if (invalidNumberProp(embed.node, 'dims') || (dims !== undefined && (!Number.isInteger(dims) || dims <= 0))) {
     pushRagViolation(violations, 'rag-embed-dims-invalid', embed.node, 'RAG embed dims must be a positive integer.');
+  }
+
+  const model = stringProp(embed.node, 'model');
+  const effectiveModel = model ?? RAG_EMBED_MODEL_LOCAL_SEMANTIC;
+  if (model !== undefined && !isSupportedRagEmbedModel(model)) {
+    pushRagViolation(
+      violations,
+      'rag-embed-model-unsupported',
+      embed.node,
+      `RAG embed model '${model}' is not supported by the runner.`,
+    );
+  } else if (
+    dims !== undefined &&
+    (dims > defaultDimsForRagEmbedModel(effectiveModel) ||
+      (!ragEmbedModelAllowsCustomDims(effectiveModel) && dims !== defaultDimsForRagEmbedModel(effectiveModel)))
+  ) {
+    pushRagViolation(
+      violations,
+      'rag-embed-dims-model-mismatch',
+      embed.node,
+      `RAG embed dims must match model '${effectiveModel}' (${defaultDimsForRagEmbedModel(effectiveModel)}).`,
+    );
   }
 }
 

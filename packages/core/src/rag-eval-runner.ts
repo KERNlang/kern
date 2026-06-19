@@ -13,24 +13,64 @@
  * ingestion (`source uri=…` globs) lands in P1.5.
  */
 
+import { createHash } from 'node:crypto';
 import { parseDocument } from './parser.js';
 import {
+  type RagProviderEmbeddingOptions,
+  resolveAsyncRagEmbedderForPipeline,
+  resolveSyncRagEmbedderForPipeline,
+} from './rag-embed-resolver.js';
+import {
+  type AsyncEmbedder,
+  AsyncEmbeddingRagIndex,
+  createAsyncEmbeddingRetriever,
   createEmbeddingRetriever,
-  DEFAULT_HASH_EMBEDDER_ID,
+  DEFAULT_LOCAL_SEMANTIC_EMBEDDER_ID,
   type Embedder,
   EmbeddingRagIndex,
 } from './rag-embedding.js';
+import { ingestRagDeclaredLocalSources, RAG_CHUNK_ID_VERSION, type RagIngestResult } from './rag-ingest.js';
 import {
+  type AsyncRagContractRetriever,
   evaluateRagEvalContract,
+  evaluateRagEvalContractAsync,
   type RagChunkInput,
+  type RagContractRetriever,
   type RagEvalContractOptions,
   type RagEvalContractResult,
 } from './rag-runtime.js';
-import { collectRagSemanticFacts, type SemanticViolation, validateRagSemantics } from './semantic-validator.js';
+import {
+  collectRagSemanticFacts,
+  type RagSemanticFacts,
+  type RagSemanticPipelineFact,
+  type SemanticViolation,
+  validateRagSemantics,
+} from './semantic-validator.js';
+
+const UNRESOLVED_RAG_EMBEDDER_ID = 'unresolved';
 
 export interface RagEvalDocumentOptions extends RagEvalContractOptions {
-  /** Embedder behind the retrieval seam. Defaults to the deterministic hash embedder. */
+  /** Embedder behind the retrieval seam. Defaults to the local semantic embedder. */
   readonly embedder?: Embedder;
+  /** Reproducibility metadata for the corpus source feeding this eval. */
+  readonly corpusSource?: RagEvalDocumentCorpusSource;
+}
+
+export interface RagEvalAsyncDocumentOptions extends Omit<RagEvalDocumentOptions, 'embedder'> {
+  /** Optional explicit embedder override; otherwise resolved from retriever embed declarations. */
+  readonly embedder?: AsyncEmbedder;
+  /** Provider options. Supplying OpenAI here is the only path that can make network calls. */
+  readonly providers?: RagProviderEmbeddingOptions;
+}
+
+export interface RagEvalDeclaredDocumentOptions extends Omit<RagEvalDocumentOptions, 'corpusSource'> {
+  /** Path to the .kern file being evaluated; local source globs resolve relative to this file. */
+  readonly sourcePath: string;
+}
+
+export interface RagEvalDeclaredAsyncDocumentOptions extends Omit<RagEvalAsyncDocumentOptions, 'corpusSource'> {
+  /** Path to the .kern file being evaluated; local source globs resolve relative to this file. */
+  readonly sourcePath: string;
 }
 
 export interface RagEvalDocumentEntry {
@@ -42,11 +82,31 @@ export interface RagEvalDocumentEntry {
 export interface RagEvalDocumentReport {
   /** Identity of the embedder used, recorded for reproducibility. */
   readonly embedderId: string;
+  /** All embedder identities used by the evaluated pipelines. */
+  readonly embedderIds?: readonly string[];
+  /** Corpus source mode and provenance, recorded so eval reports are replayable/comparable. */
+  readonly corpusSource: RagEvalDocumentCorpusSource;
   /** RAG semantic violations. Non-empty ⇒ the spec is invalid and no eval ran (fail-closed). */
   readonly diagnostics: readonly SemanticViolation[];
   readonly evals: readonly RagEvalDocumentEntry[];
   /** True only when the spec is valid, at least one eval ran, and every eval passed. */
   readonly passed: boolean;
+}
+
+export type RagEvalDocumentCorpusSourceMode = 'explicit-corpus-json' | 'declared-local-sources';
+
+export interface RagEvalDocumentCorpusSource {
+  readonly mode: RagEvalDocumentCorpusSourceMode;
+  readonly sourcePath?: string;
+  readonly rootDir?: string;
+  readonly patterns?: readonly string[];
+  readonly files?: readonly string[];
+  readonly fileCount?: number;
+  readonly chunkCount: number;
+  readonly corpusSha256: string;
+  readonly chunkIdVersion?: string;
+  readonly chunkerVersion?: string;
+  readonly chunkerVersions?: readonly string[];
 }
 
 /**
@@ -66,7 +126,113 @@ export function evaluateRagEvalDocument(
   const diagnostics = validateRagSemantics(root);
   if (diagnostics.length > 0) {
     return {
-      embedderId: options.embedder?.id ?? DEFAULT_HASH_EMBEDDER_ID,
+      embedderId: unresolvedEmbedderId(options.embedder?.id),
+      corpusSource: options.corpusSource ?? emptyExplicitCorpusSource(),
+      diagnostics,
+      evals: [],
+      passed: false,
+    };
+  }
+
+  const chunkArray = Array.from(chunks);
+  const facts = collectRagSemanticFacts(root);
+  const embedderIds = new Set<string>();
+  const retrieverByPipeline = new Map<string, RagContractRetriever>();
+  const retrieverByEmbedding = new Map<string, RagContractRetriever>();
+  const getRetriever = (pipeline: RagSemanticPipelineFact): RagContractRetriever => {
+    let retriever = retrieverByPipeline.get(pipeline.name);
+    if (retriever === undefined) {
+      const embedder = resolveSyncRagEmbedderForPipeline(facts, pipeline, options);
+      embedderIds.add(embedder.id);
+      const cacheKey = explicitRetrieverCacheKey(embedder);
+      retriever = retrieverByEmbedding.get(cacheKey);
+      if (retriever === undefined) {
+        retriever = createEmbeddingRetriever(new EmbeddingRagIndex(chunkArray, { embedder }));
+        retrieverByEmbedding.set(cacheKey, retriever);
+      }
+      retrieverByPipeline.set(pipeline.name, retriever);
+    }
+    return retriever;
+  };
+
+  const evals = evaluatePipelineFacts(facts, getRetriever, options);
+
+  return {
+    embedderId: reportEmbedderId(embedderIds, options.embedder?.id),
+    embedderIds: Array.from(embedderIds).sort(),
+    corpusSource: options.corpusSource ?? explicitCorpusSource(chunkArray),
+    diagnostics,
+    evals,
+    passed: evals.length > 0 && evals.every((entry) => entry.result.passed),
+  };
+}
+
+export async function evaluateRagEvalDocumentAsync(
+  source: string,
+  chunks: Iterable<RagChunkInput>,
+  options: RagEvalAsyncDocumentOptions = {},
+): Promise<RagEvalDocumentReport> {
+  const root = parseDocument(source);
+  const diagnostics = validateRagSemantics(root);
+  if (diagnostics.length > 0) {
+    return {
+      embedderId: unresolvedEmbedderId(options.embedder?.id),
+      corpusSource: options.corpusSource ?? emptyExplicitCorpusSource(),
+      diagnostics,
+      evals: [],
+      passed: false,
+    };
+  }
+
+  const chunkArray = Array.from(chunks);
+  const facts = collectRagSemanticFacts(root);
+  const embedderIds = new Set<string>();
+  const retrieverByPipeline = new Map<string, AsyncRagContractRetriever>();
+  const retrieverByEmbedding = new Map<string, AsyncRagContractRetriever>();
+  const getRetriever = async (pipeline: RagSemanticPipelineFact): Promise<AsyncRagContractRetriever> => {
+    let retriever = retrieverByPipeline.get(pipeline.name);
+    if (retriever === undefined) {
+      const embedder = resolveAsyncRagEmbedderForPipeline(facts, pipeline, options);
+      embedderIds.add(embedder.id);
+      const cacheKey = explicitRetrieverCacheKey(embedder);
+      retriever = retrieverByEmbedding.get(cacheKey);
+      if (retriever === undefined) {
+        const index = await AsyncEmbeddingRagIndex.create(chunkArray, { embedder });
+        retriever = createAsyncEmbeddingRetriever(index);
+        retrieverByEmbedding.set(cacheKey, retriever);
+      }
+      retrieverByPipeline.set(pipeline.name, retriever);
+    }
+    return retriever;
+  };
+
+  const evals = await evaluatePipelineFactsAsync(facts, getRetriever, options);
+  return {
+    embedderId: reportEmbedderId(embedderIds, asyncOptionEmbedderId(options)),
+    embedderIds: Array.from(embedderIds).sort(),
+    corpusSource: options.corpusSource ?? explicitCorpusSource(chunkArray),
+    diagnostics,
+    evals,
+    passed: evals.length > 0 && evals.every((entry) => entry.result.passed),
+  };
+}
+
+export function evaluateRagEvalDocumentFromDeclaredSources(
+  source: string,
+  options: RagEvalDeclaredDocumentOptions,
+): RagEvalDocumentReport {
+  const root = parseDocument(source);
+  const diagnostics = validateRagSemantics(root);
+  if (diagnostics.length > 0) {
+    return {
+      embedderId: unresolvedEmbedderId(options.embedder?.id),
+      corpusSource: {
+        mode: 'declared-local-sources',
+        sourcePath: options.sourcePath,
+        chunkCount: 0,
+        corpusSha256: '',
+        chunkIdVersion: RAG_CHUNK_ID_VERSION,
+      },
       diagnostics,
       evals: [],
       passed: false,
@@ -74,21 +240,259 @@ export function evaluateRagEvalDocument(
   }
 
   const facts = collectRagSemanticFacts(root);
-  const index = new EmbeddingRagIndex(chunks, { embedder: options.embedder });
-  const retriever = createEmbeddingRetriever(index);
+  const evaluatedCorpusNames = corpusNamesForEvaluatedPipelines(facts);
+  if (evaluatedCorpusNames.length === 0) {
+    return {
+      embedderId: unresolvedEmbedderId(options.embedder?.id),
+      corpusSource: emptyDeclaredCorpusSource(options.sourcePath),
+      diagnostics,
+      evals: [],
+      passed: false,
+    };
+  }
 
-  const evals: RagEvalDocumentEntry[] = facts.pipelines.flatMap((pipeline) =>
-    pipeline.evals.map((evaluation) => ({
-      ragName: pipeline.name,
-      ...(evaluation.name !== undefined ? { evalName: evaluation.name } : {}),
-      result: evaluateRagEvalContract(evaluation, retriever, options),
-    })),
-  );
-
+  const ingestion = ingestRagDeclaredLocalSources(root, {
+    sourcePath: options.sourcePath,
+    corpusNames: evaluatedCorpusNames,
+  });
+  const retrieverByPipeline = new Map<string, RagContractRetriever>();
+  const retrieverByEmbedding = new Map<string, RagContractRetriever>();
+  const embedderIds = new Set<string>();
+  const getRetriever = (pipeline: RagSemanticPipelineFact): RagContractRetriever => {
+    let retriever = retrieverByPipeline.get(pipeline.name);
+    if (retriever === undefined) {
+      const corpusName = corpusNameForPipeline(facts, pipeline);
+      const corpusChunks = ingestion.chunks.filter((chunk) => chunkCorpusName(chunk) === corpusName);
+      const embedder = resolveSyncRagEmbedderForPipeline(facts, pipeline, options);
+      embedderIds.add(embedder.id);
+      const cacheKey = declaredRetrieverCacheKey(corpusName, embedder);
+      retriever = retrieverByEmbedding.get(cacheKey);
+      if (retriever === undefined) {
+        retriever = createEmbeddingRetriever(new EmbeddingRagIndex(corpusChunks, { embedder }));
+        retrieverByEmbedding.set(cacheKey, retriever);
+      }
+      retrieverByPipeline.set(pipeline.name, retriever);
+    }
+    return retriever;
+  };
+  const evals = evaluatePipelineFacts(facts, getRetriever, options);
   return {
-    embedderId: index.embedderId,
+    embedderId: reportEmbedderId(embedderIds, options.embedder?.id),
+    embedderIds: Array.from(embedderIds).sort(),
+    corpusSource: declaredCorpusSource(options.sourcePath, ingestion),
     diagnostics,
     evals,
     passed: evals.length > 0 && evals.every((entry) => entry.result.passed),
   };
+}
+
+export async function evaluateRagEvalDocumentFromDeclaredSourcesAsync(
+  source: string,
+  options: RagEvalDeclaredAsyncDocumentOptions,
+): Promise<RagEvalDocumentReport> {
+  const root = parseDocument(source);
+  const diagnostics = validateRagSemantics(root);
+  if (diagnostics.length > 0) {
+    return {
+      embedderId: unresolvedEmbedderId(options.embedder?.id),
+      corpusSource: {
+        mode: 'declared-local-sources',
+        sourcePath: options.sourcePath,
+        chunkCount: 0,
+        corpusSha256: '',
+        chunkIdVersion: RAG_CHUNK_ID_VERSION,
+      },
+      diagnostics,
+      evals: [],
+      passed: false,
+    };
+  }
+
+  const facts = collectRagSemanticFacts(root);
+  const evaluatedCorpusNames = corpusNamesForEvaluatedPipelines(facts);
+  if (evaluatedCorpusNames.length === 0) {
+    return {
+      embedderId: unresolvedEmbedderId(options.embedder?.id),
+      corpusSource: emptyDeclaredCorpusSource(options.sourcePath),
+      diagnostics,
+      evals: [],
+      passed: false,
+    };
+  }
+
+  const ingestion = ingestRagDeclaredLocalSources(root, {
+    sourcePath: options.sourcePath,
+    corpusNames: evaluatedCorpusNames,
+  });
+  const retrieverByPipeline = new Map<string, AsyncRagContractRetriever>();
+  const retrieverByEmbedding = new Map<string, AsyncRagContractRetriever>();
+  const embedderIds = new Set<string>();
+  const getRetriever = async (pipeline: RagSemanticPipelineFact): Promise<AsyncRagContractRetriever> => {
+    let retriever = retrieverByPipeline.get(pipeline.name);
+    if (retriever === undefined) {
+      const corpusName = corpusNameForPipeline(facts, pipeline);
+      const corpusChunks = ingestion.chunks.filter((chunk) => chunkCorpusName(chunk) === corpusName);
+      const embedder = resolveAsyncRagEmbedderForPipeline(facts, pipeline, options);
+      embedderIds.add(embedder.id);
+      const cacheKey = declaredRetrieverCacheKey(corpusName, embedder);
+      retriever = retrieverByEmbedding.get(cacheKey);
+      if (retriever === undefined) {
+        const index = await AsyncEmbeddingRagIndex.create(corpusChunks, { embedder });
+        retriever = createAsyncEmbeddingRetriever(index);
+        retrieverByEmbedding.set(cacheKey, retriever);
+      }
+      retrieverByPipeline.set(pipeline.name, retriever);
+    }
+    return retriever;
+  };
+  const evals = await evaluatePipelineFactsAsync(facts, getRetriever, options);
+  return {
+    embedderId: reportEmbedderId(embedderIds, asyncOptionEmbedderId(options)),
+    embedderIds: Array.from(embedderIds).sort(),
+    corpusSource: declaredCorpusSource(options.sourcePath, ingestion),
+    diagnostics,
+    evals,
+    passed: evals.length > 0 && evals.every((entry) => entry.result.passed),
+  };
+}
+
+function explicitCorpusSource(chunks: readonly RagChunkInput[]): RagEvalDocumentCorpusSource {
+  return {
+    mode: 'explicit-corpus-json',
+    chunkCount: chunks.length,
+    corpusSha256: chunksSha256(chunks),
+  };
+}
+
+function emptyExplicitCorpusSource(): RagEvalDocumentCorpusSource {
+  return {
+    mode: 'explicit-corpus-json',
+    chunkCount: 0,
+    corpusSha256: '',
+  };
+}
+
+function emptyDeclaredCorpusSource(sourcePath: string): RagEvalDocumentCorpusSource {
+  return {
+    mode: 'declared-local-sources',
+    sourcePath,
+    chunkCount: 0,
+    corpusSha256: '',
+    chunkIdVersion: RAG_CHUNK_ID_VERSION,
+  };
+}
+
+function declaredCorpusSource(sourcePath: string, ingestion: RagIngestResult): RagEvalDocumentCorpusSource {
+  const files = Array.from(new Set(ingestion.sources.flatMap((source) => source.files))).sort();
+  const chunkerVersions = uniqueSortedMetadataValues(ingestion.chunks, 'chunkerVersion');
+  return {
+    mode: 'declared-local-sources',
+    sourcePath,
+    rootDir: ingestion.sources[0]?.rootDir,
+    patterns: ingestion.sources.map((source) => source.uri),
+    files,
+    fileCount: files.length,
+    chunkCount: ingestion.chunks.length,
+    corpusSha256: ingestion.corpusSha256,
+    chunkIdVersion: RAG_CHUNK_ID_VERSION,
+    ...(chunkerVersions.length === 1 ? { chunkerVersion: chunkerVersions[0] } : {}),
+    chunkerVersions,
+  };
+}
+
+function uniqueSortedMetadataValues(chunks: readonly RagChunkInput[], key: string): string[] {
+  return Array.from(
+    new Set(
+      chunks
+        .map((chunk) => chunk.metadata?.[key])
+        .filter((value): value is string => typeof value === 'string' && value.trim() !== ''),
+    ),
+  ).sort();
+}
+
+function chunksSha256(chunks: readonly RagChunkInput[]): string {
+  const stable = chunks
+    .map((chunk) => `${chunk.id}\0${chunk.source}\0${chunk.text}`)
+    .sort()
+    .join('\n');
+  return createHash('sha256').update(stable).digest('hex');
+}
+
+function evaluatePipelineFacts(
+  facts: RagSemanticFacts,
+  getRetriever: (pipeline: RagSemanticPipelineFact) => RagContractRetriever,
+  options: RagEvalContractOptions,
+): RagEvalDocumentEntry[] {
+  return facts.pipelines.flatMap((pipeline) =>
+    pipeline.evals.map((evaluation) => ({
+      ragName: pipeline.name,
+      ...(evaluation.name !== undefined ? { evalName: evaluation.name } : {}),
+      result: evaluateRagEvalContract(evaluation, getRetriever(pipeline), options),
+    })),
+  );
+}
+
+async function evaluatePipelineFactsAsync(
+  facts: RagSemanticFacts,
+  getRetriever: (pipeline: RagSemanticPipelineFact) => Promise<AsyncRagContractRetriever>,
+  options: RagEvalContractOptions,
+): Promise<RagEvalDocumentEntry[]> {
+  const entries: RagEvalDocumentEntry[] = [];
+  for (const pipeline of facts.pipelines) {
+    if (pipeline.evals.length === 0) continue;
+    const retriever = await getRetriever(pipeline);
+    for (const evaluation of pipeline.evals) {
+      entries.push({
+        ragName: pipeline.name,
+        ...(evaluation.name !== undefined ? { evalName: evaluation.name } : {}),
+        result: await evaluateRagEvalContractAsync(evaluation, retriever, options),
+      });
+    }
+  }
+  return entries;
+}
+
+function corpusNamesForEvaluatedPipelines(facts: RagSemanticFacts): string[] {
+  const names = facts.pipelines
+    .filter((pipeline) => pipeline.evals.length > 0)
+    .map((pipeline) => corpusNameForPipeline(facts, pipeline));
+  return Array.from(new Set(names)).sort();
+}
+
+function corpusNameForPipeline(facts: RagSemanticFacts, pipeline: RagSemanticPipelineFact): string {
+  const retriever = facts.retrievers.find((entry) => entry.name === pipeline.retrieverName);
+  if (retriever === undefined) {
+    throw new Error(`KERN RAG pipeline '${pipeline.name}' references missing retriever '${pipeline.retrieverName}'.`);
+  }
+  return retriever.corpusName;
+}
+
+function chunkCorpusName(chunk: RagChunkInput): string | undefined {
+  const corpusName = chunk.metadata?.corpusName;
+  return typeof corpusName === 'string' ? corpusName : undefined;
+}
+
+function reportEmbedderId(embedderIds: ReadonlySet<string>, fallback: string | undefined): string {
+  if (embedderIds.size === 1) return Array.from(embedderIds)[0];
+  if (embedderIds.size > 1) return 'mixed';
+  return fallback ?? DEFAULT_LOCAL_SEMANTIC_EMBEDDER_ID;
+}
+
+function asyncOptionEmbedderId(options: RagEvalAsyncDocumentOptions): string {
+  return options.embedder?.id ?? DEFAULT_LOCAL_SEMANTIC_EMBEDDER_ID;
+}
+
+function unresolvedEmbedderId(fallback: string | undefined): string {
+  return fallback ?? UNRESOLVED_RAG_EMBEDDER_ID;
+}
+
+function explicitRetrieverCacheKey(embedder: Pick<AsyncEmbedder | Embedder, 'id' | 'dims'>): string {
+  return JSON.stringify(['explicit', embedder.id, embedder.dims]);
+}
+
+function declaredRetrieverCacheKey(
+  corpusName: string,
+  embedder: Pick<AsyncEmbedder | Embedder, 'id' | 'dims'>,
+): string {
+  return JSON.stringify(['declared', corpusName, embedder.id, embedder.dims]);
 }

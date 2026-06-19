@@ -650,23 +650,70 @@ export {
 export { parsePortableNonNegativeIntLiteral, parsePortablePathSegments } from './portable-route-collection.js';
 export type { RagAssertionKind } from './rag-assertions.js';
 export { RAG_ASSERTION_KIND_SET, RAG_ASSERTION_KINDS } from './rag-assertions.js';
-export type { Embedder } from './rag-embedding.js';
+export type { RagProviderEmbeddingOptions, RagSupportedEmbedModel } from './rag-embed-resolver.js';
 export {
+  canonicalRagEmbedModel,
+  defaultDimsForRagEmbedModel,
+  embedFactForPipeline,
+  isSupportedRagEmbedModel,
+  RAG_EMBED_MODEL_LOCAL_HASH,
+  RAG_EMBED_MODEL_LOCAL_SEMANTIC,
+  RAG_EMBED_MODEL_OPENAI_TEXT_EMBEDDING_3_LARGE,
+  RAG_EMBED_MODEL_OPENAI_TEXT_EMBEDDING_3_SMALL,
+  RAG_SUPPORTED_EMBED_MODELS,
+  resolveAsyncRagEmbedderForPipeline,
+  resolveSyncRagEmbedderForPipeline,
+} from './rag-embed-resolver.js';
+export type {
+  AsyncEmbedder,
+  Embedder,
+  EmbeddingFingerprintInput,
+  OpenAIEmbeddingAdapterOptions,
+} from './rag-embedding.js';
+export {
+  AsyncEmbeddingRagIndex,
+  asAsyncEmbedder,
+  createAsyncEmbeddingRetriever,
   createEmbeddingRetriever,
   DEFAULT_EMBEDDING_DIMS,
   DEFAULT_HASH_EMBEDDER_ID,
+  DEFAULT_LOCAL_SEMANTIC_EMBEDDER_ID,
   DeterministicHashEmbedder,
   EMBEDDING_SCORE_DECIMALS,
   EmbeddingRagIndex,
+  embedderFingerprint,
   embeddingCosine,
+  embeddingFingerprint,
   fnv1a32,
+  InMemoryPgVectorRagStore,
+  LocalSemanticEmbedder,
+  OpenAIEmbeddingAdapter,
 } from './rag-embedding.js';
 export type {
+  RagEvalAsyncDocumentOptions,
+  RagEvalDeclaredAsyncDocumentOptions,
+  RagEvalDeclaredDocumentOptions,
+  RagEvalDocumentCorpusSource,
+  RagEvalDocumentCorpusSourceMode,
   RagEvalDocumentEntry,
   RagEvalDocumentOptions,
   RagEvalDocumentReport,
 } from './rag-eval-runner.js';
-export { evaluateRagEvalDocument } from './rag-eval-runner.js';
+export {
+  evaluateRagEvalDocument,
+  evaluateRagEvalDocumentAsync,
+  evaluateRagEvalDocumentFromDeclaredSources,
+  evaluateRagEvalDocumentFromDeclaredSourcesAsync,
+} from './rag-eval-runner.js';
+export type { RagIngestedSource, RagIngestOptions, RagIngestResult } from './rag-ingest.js';
+export {
+  ingestRagDeclaredLocalSources,
+  ingestRagFactsDeclaredLocalSources,
+  RAG_CHUNK_ID_VERSION,
+  RAG_CHUNKER_VERSION,
+  RAG_SEMANTIC_CHUNKER_VERSION,
+  RAG_TOKEN_WINDOW_CHUNKER_VERSION,
+} from './rag-ingest.js';
 export type {
   InMemoryRagRetriever,
   ProvenancedRetrieveResult,
