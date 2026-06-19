@@ -155,7 +155,13 @@ function hasLookbehind(pattern: string): boolean {
 
 export function isRegexTestExpression(node: ValueIR): boolean {
   if (node.kind !== 'call') return false;
+  // OPTIONAL CHAINING abstain (shared with `.match`): `(/a/)?.test(…)` /
+  // `(/a/).test?.(…)` route through optional chaining the emitter's `.test`
+  // lowering does not recognize — decline both forms so the runner never routes
+  // an optional call the emit legs lower differently.
+  if (node.optional) return false; // `test?.(...)`
   if (node.callee.kind !== 'member' || node.callee.property !== 'test') return false;
+  if (node.callee.optional) return false; // `?.test`
   const regex = regexLiteralReceiverIR(node.callee.object);
   if (regex === null) return false;
   if (node.args.length !== 1) return false;
@@ -164,6 +170,11 @@ export function isRegexTestExpression(node: ValueIR): boolean {
   // (`/x/ii`), which `new RegExp(p, 'ii')` rejects with a SyntaxError. Abstain
   // structurally rather than rely on the constructor throwing at eval.
   if (new Set(regex.flags).size !== regex.flags.length) return false;
+  // LOOKBEHIND abstain (shared with `.match`): variable-width lookbehind compiles
+  // in JS but is a COMPILE error in Python `re` (fixed-width only) — admitting it
+  // would emit a bool matching only the TS leg while the Python leg throws at
+  // runtime. Reject ALL lookbehind (safe over-abstain).
+  if (hasLookbehind(regex.pattern)) return false;
 
   // Scan the POST-FOLD pattern — the EXACT string eval builds its RegExp from —
   // so the gate and eval can never disagree on bare-dot / astral (review B:
