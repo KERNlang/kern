@@ -20,12 +20,35 @@ rag name=AnswerDocs retriever=DocsSearch citations=true
       ragAssert kind=citesRequired
 `;
 
+const RETRIEVE_DOC = `corpus name=Docs
+  source name=manuals kind=local uri="./docs/**/*.md" media=markdown
+  chunking source=manuals strategy=semantic maxTokens=80 overlap=0 unit=tokens
+
+embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine
+vectorStore name=DocsMemory kind=memory dims=64 metric=cosine
+ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding
+retriever name=DocsSearch corpus=Docs embed=DocsEmbedding
+rag name=AnswerDocs retriever=DocsSearch citations=true
+  grounding requireCitations=true
+  ragRetrieve name=FindDocs index=DocsIndex queryParam=question topK=1 output="RetrievedChunk[]"
+`;
+
+const FIXED_RETRIEVE_DOC = RETRIEVE_DOC.replace(
+  'ragRetrieve name=FindDocs index=DocsIndex queryParam=question topK=1 output="RetrievedChunk[]"',
+  'ragRetrieve name=FindDocs index=DocsIndex query="refund policy money back" topK=1 output="RetrievedChunk[]"',
+);
+
+const DYNAMIC_RETRIEVE_DOC = RETRIEVE_DOC.replace(
+  'ragRetrieve name=FindDocs index=DocsIndex queryParam=question topK=1 output="RetrievedChunk[]"',
+  'ragRetrieve name=FindDocs index=DocsIndex query={{ "refund policy money back" }} topK=1 output="RetrievedChunk[]"',
+);
+
 function run(args: string[], cwd: string): { status: number | null; stdout: string; stderr: string } {
   const result = spawnSync(process.execPath, [CLI, ...args], { cwd, encoding: 'utf-8' });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
-describe('kern rag eval', () => {
+describe('kern rag', () => {
   let dir: string;
 
   beforeEach(() => {
@@ -34,6 +57,9 @@ describe('kern rag eval', () => {
     writeFileSync(join(dir, 'docs/refunds.md'), 'refund policy money back within thirty days\n');
     writeFileSync(join(dir, 'docs/shipping.md'), 'shipping delivery courier tracking parcel\n');
     writeFileSync(join(dir, 'mydocs.kern'), DOC);
+    writeFileSync(join(dir, 'retrieve.kern'), RETRIEVE_DOC);
+    writeFileSync(join(dir, 'fixed-retrieve.kern'), FIXED_RETRIEVE_DOC);
+    writeFileSync(join(dir, 'dynamic-retrieve.kern'), DYNAMIC_RETRIEVE_DOC);
   });
 
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
@@ -91,6 +117,90 @@ describe('kern rag eval', () => {
   test('reports empty declared source globs with the pattern', () => {
     rmSync(join(dir, 'docs'), { recursive: true, force: true });
     const result = run(['rag', 'eval', 'mydocs.kern'], dir);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('./docs/**/*.md');
+    expect(result.stderr).toContain('matched no files');
+  });
+
+  test('runs runtime ragRetrieve declarations from declared local sources', () => {
+    const result = run(['rag', 'retrieve', 'retrieve.kern', '--query', 'refund policy money back'], dir);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('kern rag retrieve retrieve.kern');
+    expect(result.stdout).toContain('AnswerDocs/FindDocs index=DocsIndex');
+    expect(result.stdout).toContain('refunds');
+    expect(result.stdout).toContain('refund policy money back within thirty days');
+  });
+
+  test('runs runtime ragRetrieve declarations with named query params', () => {
+    const result = run(['rag', 'retrieve', 'retrieve.kern', '--param', 'question=refund policy money back'], dir);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('kern rag retrieve retrieve.kern');
+    expect(result.stdout).toContain('AnswerDocs/FindDocs index=DocsIndex');
+    expect(result.stdout).toContain('refunds');
+  });
+
+  test('runs fixed literal runtime ragRetrieve declarations without CLI query input', () => {
+    const result = run(['rag', 'retrieve', 'fixed-retrieve.kern'], dir);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('AnswerDocs/FindDocs index=DocsIndex query="refund policy money back"');
+    expect(result.stdout).toContain('refunds');
+  });
+
+  test('rejects dynamic fixed runtime ragRetrieve expressions', () => {
+    const result = run(['rag', 'retrieve', 'dynamic-retrieve.kern'], dir);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('uses dynamic query=<expr>');
+  });
+
+  test('rejects retrieve without a query source', () => {
+    const result = run(['rag', 'retrieve', 'retrieve.kern'], dir);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("requires queryParam 'question'");
+  });
+
+  test('rejects malformed retrieve query params', () => {
+    const result = run(['rag', 'retrieve', 'retrieve.kern', '--param', 'question'], dir);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('missing value for --param (expected name=value)');
+  });
+
+  test('rejects empty retrieve query param names and values', () => {
+    const emptyName = run(['rag', 'retrieve', 'retrieve.kern', '--param', '=refund'], dir);
+    expect(emptyName.status).toBe(1);
+    expect(emptyName.stderr).toContain('missing value for --param (expected name=value)');
+
+    const emptyValue = run(['rag', 'retrieve', 'retrieve.kern', '--param', 'question='], dir);
+    expect(emptyValue.status).toBe(1);
+    expect(emptyValue.stderr).toContain('missing value for --param');
+  });
+
+  test('provider-backed runtime ragRetrieve specs fail closed in the local-only CLI path', () => {
+    const providerDoc = RETRIEVE_DOC.replace(
+      'embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine',
+      'embed name=DocsEmbedding corpus=Docs model="openai:text-embedding-3-small" dims=1536 metric=cosine',
+    ).replace(
+      'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
+      'vectorStore name=DocsMemory kind=memory dims=1536 metric=cosine',
+    );
+    writeFileSync(join(dir, 'provider-retrieve.kern'), providerDoc);
+
+    const result = run(['rag', 'retrieve', 'provider-retrieve.kern', '--query', 'refund policy'], dir);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      "RAG embed model 'openai:text-embedding-3-small' requires async provider execution",
+    );
+  });
+
+  test('rejects unknown retrieve flags before consuming their values as files', () => {
+    const result = run(['rag', 'retrieve', '--openai-api-key', 'sk-test', 'retrieve.kern', '--query', 'refund'], dir);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('unknown flag for retrieve: --openai-api-key');
+  });
+
+  test('reports empty declared source globs for retrieve', () => {
+    rmSync(join(dir, 'docs'), { recursive: true, force: true });
+    const result = run(['rag', 'retrieve', 'retrieve.kern', '--query', 'refund policy'], dir);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('./docs/**/*.md');
     expect(result.stderr).toContain('matched no files');

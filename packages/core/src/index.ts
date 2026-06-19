@@ -476,25 +476,13 @@ export {
   snapshotRegistry,
   tracesEqual,
 } from './ir/semantics/index.js';
-export type { RegExpMatchListValue, RegExpMatchValue, RegExpValue } from './ir/semantics/portable-regex.js';
+export type { RegExpValue } from './ir/semantics/portable-regex.js';
 export {
-  evalRegexGlobalMatchExpression,
-  evalRegexMatchAllExpression,
-  evalRegexMatchExpression,
   evalRegexTestExpression,
-  isRegExpMatchListValue,
-  isRegExpMatchValue,
   isRegExpValue,
-  isRegexGlobalMatchExpression,
-  isRegexMatchAllExpression,
-  isRegexMatchExpression,
   isRegexTestExpression,
   isRunnerNativeRegexFailClose,
-  makeRegExpMatchListValue,
-  makeRegExpMatchValue,
   makeRegExpValue,
-  REGEXP_MATCH_LIST_VALUE_TAG,
-  REGEXP_MATCH_VALUE_TAG,
   REGEXP_VALUE_TAG,
 } from './ir/semantics/portable-regex.js';
 // Runner-native Decimal (Slice 1) — the ReferenceRunner executes `Decimal.of/add/
@@ -681,6 +669,12 @@ export type {
   Embedder,
   EmbeddingFingerprintInput,
   OpenAIEmbeddingAdapterOptions,
+  RagVectorStoreAdapter,
+  RagVectorStoreKind,
+  RagVectorStoreMetric,
+  RagVectorStoreSnapshot,
+  RagVectorStoreUpsert,
+  SerializedVectorChunk,
 } from './rag-embedding.js';
 export {
   AsyncEmbeddingRagIndex,
@@ -700,6 +694,7 @@ export {
   InMemoryPgVectorRagStore,
   LocalSemanticEmbedder,
   OpenAIEmbeddingAdapter,
+  RAG_VECTOR_STORE_SNAPSHOT_VERSION,
 } from './rag-embedding.js';
 export type {
   RagEvalAsyncDocumentOptions,
@@ -726,6 +721,12 @@ export {
   RAG_SEMANTIC_CHUNKER_VERSION,
   RAG_TOKEN_WINDOW_CHUNKER_VERSION,
 } from './rag-ingest.js';
+export type {
+  RagRetrieveDocumentEntry,
+  RagRetrieveDocumentOptions,
+  RagRetrieveDocumentReport,
+} from './rag-retrieve-runner.js';
+export { ragRetrieveCorpusSourceSummary, retrieveRagDocument } from './rag-retrieve-runner.js';
 export type {
   InMemoryRagRetriever,
   ProvenancedRetrieveResult,
@@ -821,11 +822,14 @@ export type {
   RagSemanticEvalFact,
   RagSemanticFacts,
   RagSemanticGroundingFact,
+  RagSemanticIndexFact,
   RagSemanticLocation,
   RagSemanticMcpRetrievalFact,
   RagSemanticPipelineFact,
   RagSemanticRetrieverFact,
+  RagSemanticRuntimeRetrieveFact,
   RagSemanticSourceFact,
+  RagSemanticVectorStoreFact,
   SemanticViolation,
 } from './semantic-validator.js';
 export {
@@ -833,6 +837,8 @@ export {
   collectRagSemanticFacts,
   RAG_MCP_RETRIEVE_OUTPUT_ITEM_SHAPE,
   RAG_MCP_RETRIEVE_OUTPUT_SHAPE,
+  RAG_RUNTIME_RETRIEVE_OUTPUT_ITEM_SHAPE,
+  RAG_RUNTIME_RETRIEVE_OUTPUT_SHAPE,
   validateClassSemantics,
   validateRagSemantics,
   validateSemantics,

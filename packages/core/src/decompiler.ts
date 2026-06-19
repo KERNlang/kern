@@ -116,8 +116,11 @@ export function decompile(root: IRNode): DecompileResult {
       node.type === 'source' ||
       node.type === 'chunking' ||
       node.type === 'embed' ||
+      node.type === 'vectorStore' ||
+      node.type === 'ragIndex' ||
       node.type === 'retriever' ||
       node.type === 'rag' ||
+      node.type === 'ragRetrieve' ||
       node.type === 'grounding' ||
       node.type === 'ragEval' ||
       node.type === 'ragCase' ||
@@ -387,8 +390,22 @@ export function decompile(root: IRNode): DecompileResult {
       source: ['name', 'kind', 'uri', 'resource', 'media', 'acl'],
       chunking: ['name', 'corpus', 'source', 'strategy', 'maxTokens', 'overlap', 'unit'],
       embed: ['name', 'corpus', 'model', 'dims', 'metric'],
+      vectorStore: ['name', 'kind', 'dims', 'metric', 'path', 'url', 'table', 'namespace'],
+      ragIndex: ['name', 'corpus', 'store', 'embed', 'chunking', 'refresh'],
       retriever: ['name', 'corpus', 'embed', 'mode', 'topK', 'minScore', 'rerank'],
       rag: ['name', 'retriever', 'prompt', 'answer', 'citations'],
+      ragRetrieve: [
+        'name',
+        'index',
+        'rag',
+        'queryParam',
+        'query',
+        'as',
+        'topK',
+        'minScore',
+        'output',
+        'requireCitations',
+      ],
       grounding: ['name', 'rag', 'requireCitations', 'policy', 'maxContext'],
       ragEval: ['name', 'rag', 'metric', 'threshold', 'mode'],
       ragCase: ['name', 'query', 'tags', 'topK', 'minScore', 'chunkCount', 'sources'],
