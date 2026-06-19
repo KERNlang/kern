@@ -270,6 +270,7 @@ export interface RagSemanticRuntimeRetrieveFact {
   readonly ragName?: string;
   readonly queryParam?: string;
   readonly query?: string;
+  readonly queryKind?: 'literal' | 'expression';
   readonly as?: string;
   readonly topK?: number;
   readonly minScore?: number;
@@ -2909,6 +2910,9 @@ function ragRuntimeRetrieveFact(
     ...optionalStringValue('ragName', info.ragName),
     ...optionalStringFact(info.node, 'queryParam', 'queryParam'),
     ...optionalStringValue('query', expressionPropText(info.node.props?.query)),
+    ...(info.node.props?.query !== undefined
+      ? { queryKind: isExpressionObject(info.node.props.query) ? 'expression' : 'literal' }
+      : {}),
     ...optionalStringFact(info.node, 'as', 'as'),
     ...optionalNumberFact(info.node, 'topK', 'topK'),
     ...optionalNumberFact(info.node, 'minScore', 'minScore'),
