@@ -304,6 +304,21 @@ execDescribe2('Regex Slice 4 — runner-only abstain (emit legs diverge; runner 
     expect(() => runRef(src)).toThrow();
     expect(canon(tsVal(src))).not.toBe(canon(pyVal(src)));
   });
+  // bare `.` over a \r subject WITHOUT /m: JS `.` excludes \r/LS/PS, Python `.` (no
+  // DOTALL) excludes only \n -> divergent match set. This is a SUBJECT concern, NOT a
+  // /m concern, so a sound impl needs a dedicated bare-dot subject fence — an impl that
+  // only checks /m emits a divergent value here (verified node+python3:
+  // TS ["","a","\r","b",""] vs PY ["","a","","\r","","b",""]).
+  test('split bare-dot over \\r subject (no /m) diverges -> runner abstains', () => {
+    const src = '"a\\rb".split(/(.)/)';
+    expect(() => runRef(src)).toThrow();
+    expect(canon(tsVal(src))).not.toBe(canon(pyVal(src)));
+  });
+  test('replace bare-dot over \\r subject (no /m) diverges -> runner abstains', () => {
+    const src = '"a\\rb".replace(/(.)/g,"X")';
+    expect(() => runRef(src)).toThrow();
+    expect(canon(tsVal(src))).not.toBe(canon(pyVal(src)));
+  });
   // a subject carrying a UTF-16 surrogate splits by code UNIT in JS, code POINT in
   // Python -> the result strings/indices diverge. Runner-only abstain (legs don't
   // fail-close an astral SUBJECT — only an astral PATTERN).
