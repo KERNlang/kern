@@ -25,6 +25,14 @@ export function kernValueToCoreFixtureValue(value: KernValue): CoreFixtureValue 
     case 'number':
     case 'string':
       return value.value;
+    // Slice 1b — a runner-native Decimal serializes to its BARE CANONICAL STRING,
+    // exactly matching the ReferenceRunner's observable (`trace.events[0].value` is
+    // the canonical string `evalDecimalExpression` renders). This is what makes
+    // `observeCore(expr).value` === `observeReference(expr).value` for Decimal.
+    // NOTE: this is the SERIALIZATION boundary (a value the probe reads OUT), not a
+    // downstream operator USE — so it is correct for it to render rather than throw.
+    case 'decimal':
+      return value.canonical;
     case 'array':
       return value.items.map(kernValueToCoreFixtureValue);
     case 'record':
@@ -81,6 +89,16 @@ export function coreFixtureValueToKernValue(value: CoreFixtureValue): KernValue 
 }
 
 export function roundTripKernContractDataValue(value: KernValue): KernValue {
+  // Slice 1b — a `decimal` is a TERMINAL runtime value: it serializes to its bare
+  // canonical string ONLY for the parity-probe observable, which cannot be decoded
+  // back to a `decimal` (a bare string decodes to `{kind:'string'}`). Round-tripping
+  // it would SILENTLY change the value kind, so refuse loudly instead. Decimal is not
+  // contract-fixture data; this guard fails fast if a future caller routes one here.
+  if (value.kind === 'decimal') {
+    throw new CoreRuntimeContractAdapterError(
+      'KERN Decimal is a terminal runtime value and does not round-trip through contract fixture data.',
+    );
+  }
   return coreFixtureValueToKernValue(kernValueToCoreFixtureValue(value));
 }
 

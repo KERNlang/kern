@@ -373,14 +373,14 @@ function unwrapTransparent(node: ValueIR): ValueIR {
  *  namespace identifier — the EXACT recognition shape the emitters use
  *  (`callee.kind === 'member'`, `callee.object` is `ident 'Decimal'`). A user
  *  binding named `decimal` or a member chain is NOT matched. */
-function isDecimalNamespaceCall(node: ValueIR): node is Extract<ValueIR, { kind: 'call' }> {
+export function isDecimalNamespaceCall(node: ValueIR): node is Extract<ValueIR, { kind: 'call' }> {
   if (node.kind !== 'call') return false;
   const callee = node.callee;
   if (callee.kind !== 'member') return false;
   return callee.object.kind === 'ident' && callee.object.name === 'Decimal';
 }
 
-function decimalNamespaceMethod(node: ValueIR): string | null {
+export function decimalNamespaceMethod(node: ValueIR): string | null {
   const inner = unwrapTransparent(node);
   if (!isDecimalNamespaceCall(inner)) return null;
   return (inner.callee as Extract<ValueIR, { kind: 'member' }>).property;
@@ -500,7 +500,7 @@ function evalDecimalNode(node: ValueIR, env: SemanticEnv, KDecimal: KDecimalCtor
   }
 }
 
-function evalRunnerNativeDecimalScalarCall(
+export function evalRunnerNativeDecimalScalarCall(
   node: Extract<ValueIR, { kind: 'call' }>,
   env: SemanticEnv,
 ): PortableScalar | undefined {

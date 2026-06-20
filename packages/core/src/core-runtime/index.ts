@@ -5,6 +5,14 @@ import {
   type CoreFixtureValue,
   evaluateCoreContractOperation,
 } from '../core-contracts/index.js';
+import type { SemanticEnv } from '../ir/semantics/index.js';
+import {
+  decimalNamespaceMethod,
+  evalDecimalExpression,
+  evalRunnerNativeDecimalScalarCall,
+  isDecimalNamespaceCall,
+  makeDecimalValue,
+} from '../ir/semantics/portable-scalar.js';
 import { numberToInt32, numberToUint32 } from '../ir/semantics/to-numeric.js';
 import { parseExpression } from '../parser-expression.js';
 import { splitPortableExpressionList } from '../portable-expression-list.js';
@@ -29,6 +37,18 @@ export type KernValue =
   | { kind: 'boolean'; value: boolean }
   | { kind: 'number'; value: number }
   | { kind: 'string'; value: string }
+  // Slice 1b — runner-native Decimal. Carries ONLY the canonical rendered STRING
+  // (the whole nested `Decimal.<method>(...)` expression is computed in ONE
+  // `evalDecimalExpression` call routed to the reference's exported functions, so
+  // core never chains live decimal instances and never recomputes/re-renders).
+  // It is DELIBERATELY a terminal value: a DOWNSTREAM (non-`Decimal.*`-namespace)
+  // use of a decimal operand THROWS the documented "Decimal downstream value
+  // semantics are not yet supported" error, mirroring the ReferenceRunner's
+  // abstain (the oracle tags Decimal so `d === "1"` abstains rather than
+  // producing a value that diverges from both emitted legs). Real Decimal-as-
+  // operand semantics + natural operators are DEFERRED to a later slice — do NOT
+  // "fix" the downstream throws into a parity break.
+  | { kind: 'decimal'; canonical: string }
   | { kind: 'array'; items: KernValue[] }
   | { kind: 'record'; entries: Record<string, KernValue> }
   | KernFunctionValue
@@ -137,6 +157,25 @@ export class CoreRuntimeEnv {
     return this.bindings.has(name) || (this.parent?.has(name) ?? false);
   }
 
+  /** Slice 1b — flatten this scope chain into the `bindings` Map the reference's
+   *  Decimal evaluators read (`env.bindings.get(name)`), so a bound decimal value
+   *  is a reusable operand: `let d = Decimal.of("1"); Decimal.add(d, Decimal.of("2"))`.
+   *  Outer scopes are collected first so inner scopes shadow them (lexical scoping).
+   *  Decimals become tagged `DecimalValue`s; scalars pass through so a non-decimal
+   *  operand fails the reference's "not a Decimal value" guard identically to a real
+   *  reference run. Complex kinds (function/class/…) are omitted — they can only ever
+   *  be a rejected decimal operand, where absence yields the same reject. */
+  collectDecimalEvalBindings(into: Map<string, unknown> = new Map<string, unknown>()): Map<string, unknown> {
+    this.parent?.collectDecimalEvalBindings(into);
+    for (const [name, value] of this.bindings) {
+      if (value.kind === 'decimal') into.set(name, makeDecimalValue(value.canonical));
+      else if (value.kind === 'number' || value.kind === 'string' || value.kind === 'boolean')
+        into.set(name, value.value);
+      else if (value.kind === 'null') into.set(name, null);
+    }
+    return into;
+  }
+
   child(): CoreRuntimeEnv {
     return new CoreRuntimeEnv(this);
   }
@@ -158,6 +197,31 @@ export const kNumber = (value: number): KernValue => {
   return brandValue({ kind: 'number', value });
 };
 export const kString = (value: string): KernValue => brandValue({ kind: 'string', value });
+
+// Slice 1b — runner-native Decimal helpers.
+//
+// `DECIMAL_DOWNSTREAM_UNSUPPORTED` is thrown wherever a `decimal` KernValue
+// reaches a DOWNSTREAM (non-`Decimal.*`-namespace) position — equality,
+// ordering, arithmetic, truthiness, serialization-as-operand, member/index,
+// shape-validation. This MIRRORS the ReferenceRunner's abstain: the oracle tags
+// Decimal so a downstream read (`d === "1"`, `d + 1`, `!d`) refuses rather than
+// producing a value that diverges from both emitted legs. It is an intentional
+// IOU — real Decimal-as-operand value semantics are DEFERRED to a later slice.
+export const DECIMAL_DOWNSTREAM_UNSUPPORTED =
+  'KERN core runtime: Decimal downstream value semantics are not yet supported.';
+
+const kDecimal = (canonical: string): KernValue => brandValue({ kind: 'decimal', canonical });
+
+/** A SemanticEnv view of the core env for the reference's Decimal evaluators —
+ *  exposes the scope chain's decimal/scalar bindings so a bound decimal value is a
+ *  reusable operand. A literal-only expression resolves no bindings (empty Map),
+ *  identical to a fresh env. A new object per call keeps a stray mutation from ever
+ *  leaking across evaluations. */
+const decimalSemanticEnvFor = (env: CoreRuntimeEnv): SemanticEnv => ({
+  bindings: env.collectDecimalEvalBindings(),
+  seed: 0,
+  now: 0,
+});
 
 export function createCoreRuntimeEnv(options: CreateCoreRuntimeEnvOptions = {}): CoreRuntimeEnv {
   const env = new CoreRuntimeEnv(options.parent);
@@ -211,6 +275,11 @@ export function toHostValue(value: KernValue | undefined): unknown {
     case 'number':
     case 'string':
       return value.value;
+    // Slice 1b — a Decimal escaping to a host value is a DOWNSTREAM use; refuse
+    // (see DECIMAL_DOWNSTREAM_UNSUPPORTED). The runner-native Decimal is a terminal
+    // value; host materialization is deferred with the rest of downstream semantics.
+    case 'decimal':
+      throw new Error(DECIMAL_DOWNSTREAM_UNSUPPORTED);
     case 'array':
       return value.items.map(toHostValue);
     case 'record':
@@ -244,6 +313,10 @@ export function kernTruthy(value: KernValue): boolean {
       return value.value !== 0 && !Number.isNaN(value.value);
     case 'string':
       return value.value.length > 0;
+    // Slice 1b — `!d` / `d && x` is a DOWNSTREAM use of a Decimal; refuse rather
+    // than guess truthiness (the reference abstains here too).
+    case 'decimal':
+      throw new Error(DECIMAL_DOWNSTREAM_UNSUPPORTED);
     case 'array':
     case 'record':
     case 'function':
@@ -465,6 +538,9 @@ function evalObjectLiteral(node: Extract<ValueIR, { kind: 'objectLit' }>, env: C
 
 function evalUnary(node: Extract<ValueIR, { kind: 'unary' }>, env: CoreRuntimeEnv): KernValue {
   const arg = evalValueIR(node.argument, env);
+  // Slice 1b — a unary operator over a Decimal (`-d`, `!d`, `~d`, `+d`) is a
+  // DOWNSTREAM use; refuse with the documented message (the reference abstains).
+  if (arg.kind === 'decimal') throw new Error(DECIMAL_DOWNSTREAM_UNSUPPORTED);
   if (node.op === '!') {
     if (arg.kind !== 'boolean') throw new Error('KERN core runtime unary ! requires a boolean.');
     return dispatchCoreContractOperation('Boolean.not', [arg.value]);
@@ -500,6 +576,12 @@ function evalBinary(node: Extract<ValueIR, { kind: 'binary' }>, env: CoreRuntime
 
   const left = evalValueIR(node.left, env);
   const right = evalValueIR(node.right, env);
+  // Slice 1b — any binary operator (arithmetic, comparison, equality, bitwise)
+  // with a Decimal operand on EITHER side is a DOWNSTREAM use; refuse with the
+  // documented message (the reference abstains; natural operators are deferred).
+  if (left.kind === 'decimal' || right.kind === 'decimal') {
+    throw new Error(DECIMAL_DOWNSTREAM_UNSUPPORTED);
+  }
   switch (node.op) {
     case '+':
       if (left.kind === 'number' && right.kind === 'number') {
@@ -636,6 +718,8 @@ function evalMember(node: Extract<ValueIR, { kind: 'member' }>, env: CoreRuntime
   }
   if (object.kind === 'string') return evalStringMember(object, node.property);
   if (object.kind === 'boolean') return evalBooleanMember(object, node.property);
+  // Slice 1b — `d.something` is a DOWNSTREAM member read on a Decimal; refuse.
+  if (object.kind === 'decimal') throw new Error(DECIMAL_DOWNSTREAM_UNSUPPORTED);
   return kUndefined();
 }
 
@@ -660,6 +744,10 @@ function evalIndex(node: Extract<ValueIR, { kind: 'index' }>, env: CoreRuntimeEn
       index.kind === 'number' ? index.value : INTEGER_INDEX_RE.test(index.value) ? Number(index.value) : NaN;
     if (!Number.isFinite(charIndex) && index.kind !== 'number') return kUndefined();
     return dispatchCoreContractOperation('String.index', [object.value, charIndex]);
+  }
+  // Slice 1b — `d[i]` is a DOWNSTREAM index on a Decimal (object or index); refuse.
+  if (object.kind === 'decimal' || index.kind === 'decimal') {
+    throw new Error(DECIMAL_DOWNSTREAM_UNSUPPORTED);
   }
   return kUndefined();
 }
@@ -758,6 +846,17 @@ function coreOperationStrictTypeMessage(operationId: string): string {
 }
 
 function evalCall(node: Extract<ValueIR, { kind: 'call' }>, env: CoreRuntimeEnv): KernValue {
+  // Slice 1b — runner-native Decimal. Recognize a builtin-unshadowed
+  // `Decimal.<method>(...)` namespace call on the NODE (NOT on evaluated args —
+  // `Decimal` is not a real binding) and DELEGATE to the ReferenceRunner's exact
+  // exported evaluators, so core's Decimal output is byte-identical to the oracle
+  // (and to both emitted legs). A user-shadowed `Decimal` falls through to the
+  // generic call path below, mirroring the reference's `!env.bindings.has('Decimal')`
+  // gate. A non-canonical literal / non-Decimal operand / div-by-zero etc. throws
+  // the SHARED canonical message from inside the evaluators → core rejects with
+  // the identical message (fail-close parity).
+  const decimalResult = evalRunnerNativeDecimalCall(node, env);
+  if (decimalResult !== undefined) return decimalResult;
   const callee = evalValueIR(node.callee, env);
   if (isNullish(callee)) {
     if (node.optional) return kUndefined();
@@ -770,6 +869,55 @@ function evalCall(node: Extract<ValueIR, { kind: 'call' }>, env: CoreRuntimeEnv)
   if (callee.kind === 'bound-method') return callBoundMethodValue(callee, args).value;
   if (callee.kind === 'super') return callSuperConstructor(callee, args);
   throw new Error(`KERN core runtime cannot call ${callee.kind}.`);
+}
+
+/**
+ * Slice 1b — route a builtin-unshadowed `Decimal.<method>(...)` namespace call to
+ * the ReferenceRunner's exact exported evaluators. Returns `undefined` when the
+ * node is NOT a runner-native Decimal call (so `evalCall` continues with generic
+ * handling); throws the shared canonical Decimal message on a fail-close.
+ *
+ *  - VALUE methods (`of/add/sub/mul/div/mod/pow/neg/abs`) → a `decimal` KernValue
+ *    carrying the canonical string from {@link evalDecimalExpression} (the WHOLE,
+ *    possibly nested, expression computed in ONE call against a fresh empty env).
+ *  - COMPARATORS (`eq/ne/lt/lte/gt/gte/cmp`) → a `boolean` (eq/ne/lt/…) or `number`
+ *    (cmp) from {@link evalRunnerNativeDecimalScalarCall}.
+ *
+ * Gate: if a user binding named `Decimal` is in scope, this is NOT the builtin
+ * namespace — return `undefined` so the generic path resolves the user value. Core
+ * uses scoped `has` (lexically correct: a `Decimal` binding in ANY enclosing scope
+ * shadows the builtin), which agrees with the reference's flat
+ * `!env.bindings.has('Decimal')` on the portable flat subset the parity gate covers
+ * (the reference's SemanticEnv has no parent scopes).
+ *
+ * The value/comparator split is delegated to the reference itself (single source of
+ * truth — no local method-set copy to drift): `evalRunnerNativeDecimalScalarCall`
+ * returns a scalar for the seven comparators and `undefined` for everything else, so
+ * a non-comparator falls through to `evalDecimalExpression` (the value producer).
+ */
+function evalRunnerNativeDecimalCall(
+  node: Extract<ValueIR, { kind: 'call' }>,
+  env: CoreRuntimeEnv,
+): KernValue | undefined {
+  if (!isDecimalNamespaceCall(node)) return undefined;
+  if (env.has('Decimal')) return undefined;
+  if (decimalNamespaceMethod(node) === null) return undefined;
+  const semEnv = decimalSemanticEnvFor(env);
+  // COMPARATORS first: a scalar (boolean for eq/ne/lt/lte/gt/gte, number for cmp),
+  // `undefined` for a value method (→ fall through), or a THROWN shared fail-close
+  // on a bad operand. The reference owns the comparator set, so there is no copy here.
+  const scalar = evalRunnerNativeDecimalScalarCall(node, semEnv);
+  if (scalar !== undefined) {
+    // string/null are unreachable for these methods; narrow explicitly so a future
+    // shape drift fails loudly here.
+    if (typeof scalar === 'number') return kNumber(scalar);
+    if (typeof scalar === 'boolean') return kBoolean(scalar);
+    throw new Error('KERN core runtime: Decimal comparator produced a non-scalar result.');
+  }
+  // VALUE producers: evalDecimalExpression recognizes/validates/computes/renders the
+  // whole nested expression and THROWS the shared canonical message on a non-canonical
+  // literal / non-Decimal operand / div-mod-by-zero / bad pow / unknown Decimal method.
+  return kDecimal(evalDecimalExpression(node, semEnv));
 }
 
 function evalNew(node: Extract<ValueIR, { kind: 'new' }>, env: CoreRuntimeEnv): KernValue {
@@ -2052,6 +2200,12 @@ function kernStringCoerce(value: KernValue): string {
   if (value.kind === 'boolean') return value.value ? 'true' : 'false';
   if (value.kind === 'number') return String(value.value);
   if (value.kind === 'string') return value.value;
+  // Slice 1b — `String(d)` / `` `${d}` `` is a DOWNSTREAM coercion of a Decimal;
+  // refuse rather than render it (the emitters lower `String(d)` to the decimal's
+  // own toString, which is real downstream value semantics deferred to a later
+  // slice). `toHostValue` also throws for 'decimal', but throw explicitly here so
+  // the documented message is the surfaced one.
+  if (value.kind === 'decimal') throw new Error(DECIMAL_DOWNSTREAM_UNSUPPORTED);
   return String(toHostValue(value));
 }
 
@@ -2062,6 +2216,11 @@ function kernStringCoerce(value: KernValue): string {
  * comparison KERN has always used (element identity recurses through strict).
  */
 function kernStrictEqual(left: KernValue, right: KernValue): boolean {
+  // Slice 1b — equality with a Decimal operand on EITHER side is a DOWNSTREAM use
+  // (`d === "1"`, `d === e`); refuse rather than judge it (the reference abstains).
+  if (left.kind === 'decimal' || right.kind === 'decimal') {
+    throw new Error(DECIMAL_DOWNSTREAM_UNSUPPORTED);
+  }
   if (left.kind !== right.kind) return false;
   switch (left.kind) {
     case 'null':
@@ -2099,6 +2258,8 @@ function kernStrictEqual(left: KernValue, right: KernValue): boolean {
     case 'bound-method':
     case 'super':
       return left === right;
+    // NOTE: no 'decimal' arm — the guard at the top of kernStrictEqual throws for a
+    // decimal operand, so TS narrows it out of this switch (it is exhaustive without it).
   }
 }
 
@@ -2143,6 +2304,9 @@ function isKernValueShape(value: unknown, seen: WeakSet<object>): value is KernV
       return hasOnlyKeys(value, ['kind', 'value']) && typeof value.value === 'number' && Number.isFinite(value.value);
     case 'string':
       return hasOnlyKeys(value, ['kind', 'value']) && typeof value.value === 'string';
+    // Slice 1b — a runner-native Decimal is { kind:'decimal', canonical:string }.
+    case 'decimal':
+      return hasOnlyKeys(value, ['kind', 'canonical']) && typeof value.canonical === 'string';
     case 'array':
       return (
         hasOnlyKeys(value, ['kind', 'items']) &&
