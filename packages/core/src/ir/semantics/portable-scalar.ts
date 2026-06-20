@@ -257,11 +257,27 @@ export function evalPortableBinary(node: Extract<ValueIR, { kind: 'binary' }>, e
     case '/':
     case '%':
       return evalNumberBinary(node.op, left, right);
+    // D1a — STRICT `===`/`!==` cross-type equality is KIND-SENSITIVE and no longer
+    // abstains: un-same-typed scalars are simply NOT strictly-equal (`1 === "1"` →
+    // false, `true === 1` → false), matching core-runtime's `kernStrictEqual` AND
+    // both emitted legs (TS `===` is type-strict; Python routes through
+    // `_kern_strict_equal`). Same-type operands compare by value (so `1 === 1.0` is
+    // true — one numeric kind). This makes the reference a FULLER oracle; it was the
+    // only surface abstaining on a comparison the three producers already agree on.
+    // Scope: PORTABLE SCALARS only — a tagged Decimal (or any non-portable) operand
+    // never reaches here, it abstains UPSTREAM in `evalPortableValue` →
+    // `assertPortableScalar` (so `d === "1"` on a Decimal binding still throws).
     case '===':
+      return sameType(left, right) ? left === right : false;
+    case '!==':
+      return sameType(left, right) ? left !== right : true;
+    // LOOSE `==`/`!=` cross-type still ABSTAINS — DEFERRED to D1b. The TS leg
+    // currently JS-coerces (`1 == "1"` → true) where core/Python yield false; until
+    // the TS `__kern_loose_eq` helper lands, computing a value here would assert a
+    // result the TS producer contradicts. (Same-type loose === strict for scalars.)
     case '==':
       if (!sameType(left, right)) throw new Error('portable: equality operands must have the same portable type');
       return left === right;
-    case '!==':
     case '!=':
       if (!sameType(left, right)) throw new Error('portable: equality operands must have the same portable type');
       return left !== right;
