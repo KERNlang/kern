@@ -11,6 +11,7 @@ import type { RagChunkInput } from './rag-runtime.js';
 
 export type RagAdapterPersistence = 'ephemeral' | 'durable';
 export type RagVectorStoreConformanceStatus = 'passed' | 'failed' | 'skipped';
+export type RagVectorStoreConformanceProfileVersion = 'kern-rag-vector-store-conformance-v1';
 
 export interface RagVectorStoreAdapterCapabilities {
   readonly upsert: boolean;
@@ -29,6 +30,25 @@ export interface RagVectorStoreAdapterManifest {
   readonly maxDimensions: number;
   readonly persistence: RagAdapterPersistence;
   readonly capabilities: RagVectorStoreAdapterCapabilities;
+}
+
+export interface RagVectorStoreManifestValidationResult {
+  readonly valid: boolean;
+  readonly errors: readonly string[];
+}
+
+export interface RagVectorStoreAdapterContract {
+  readonly manifest: RagVectorStoreAdapterManifest;
+  readonly createStore: (context: RagVectorStoreConformanceContext) => RagVectorStoreAdapter;
+}
+
+export interface RagVectorStoreConformanceProfile {
+  readonly version: RagVectorStoreConformanceProfileVersion;
+  readonly kind: 'vectorStore';
+  readonly requiredCapabilities: readonly (keyof RagVectorStoreAdapterCapabilities)[];
+  readonly supportedAdapterKinds: readonly RagVectorStoreKind[];
+  readonly supportedMetrics: readonly RagVectorStoreMetric[];
+  readonly cases: readonly string[];
 }
 
 export interface RagVectorStoreConformanceCaseResult {
@@ -69,6 +89,35 @@ const CONFORMANCE_CORPUS: readonly RagChunkInput[] = [
 ];
 const CONFORMANCE_CORPUS_IDS = new Set(CONFORMANCE_CORPUS.map((chunk) => chunk.id));
 const CONFORMANT_RAG_VECTOR_STORE_KINDS: readonly RagVectorStoreKind[] = ['memory', 'local-persistent'];
+const REQUIRED_RAG_VECTOR_STORE_CAPABILITIES: readonly (keyof RagVectorStoreAdapterCapabilities)[] = [
+  'upsert',
+  'upsertMany',
+  'search',
+  'snapshot',
+  'clear',
+];
+const RAG_VECTOR_STORE_CONFORMANCE_CASE_NAMES: readonly string[] = [
+  'manifest-shape',
+  'manifest-matches-adapter',
+  'persistence-matches-adapter',
+  'empty-search-returns-empty-list',
+  'upsert-search-ranks-related-chunk',
+  'topk-is-respected',
+  'dimension-mismatch-fails-closed',
+  'fingerprint-mismatch-fails-closed',
+  'snapshot-is-deterministic-and-sorted',
+  'clear-removes-indexed-vectors',
+  'durable-round-trip',
+];
+
+export const RAG_VECTOR_STORE_CONFORMANCE_PROFILE: RagVectorStoreConformanceProfile = {
+  version: 'kern-rag-vector-store-conformance-v1',
+  kind: 'vectorStore',
+  requiredCapabilities: REQUIRED_RAG_VECTOR_STORE_CAPABILITIES,
+  supportedAdapterKinds: CONFORMANT_RAG_VECTOR_STORE_KINDS,
+  supportedMetrics: ['cosine'],
+  cases: RAG_VECTOR_STORE_CONFORMANCE_CASE_NAMES,
+};
 
 export const BUILTIN_RAG_VECTOR_STORE_MANIFESTS: readonly RagVectorStoreAdapterManifest[] = [
   {
@@ -115,6 +164,32 @@ export function createInMemoryRagVectorStoreForConformance(
   context: RagVectorStoreConformanceContext,
 ): RagVectorStoreAdapter {
   return new InMemoryPgVectorRagStore(context.fingerprint, context.dims);
+}
+
+export function validateRagVectorStoreAdapterManifest(manifest: unknown): RagVectorStoreManifestValidationResult {
+  const errors: string[] = [];
+  if (!manifest || typeof manifest !== 'object') {
+    errors.push('manifest must be an object.');
+  } else {
+    collectManifestErrors(manifest, errors);
+  }
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
+
+export function defineRagVectorStoreAdapterContract(
+  contract: RagVectorStoreAdapterContract,
+): RagVectorStoreAdapterContract {
+  if (typeof contract.createStore !== 'function') {
+    throw new Error('RAG vector store adapter contract createStore must be a function.');
+  }
+  const validation = validateRagVectorStoreAdapterManifest(contract.manifest);
+  if (!validation.valid) {
+    throw new Error(`invalid RAG vector store adapter manifest: ${validation.errors.join('; ')}`);
+  }
+  return contract;
 }
 
 export function runRagVectorStoreConformance(
@@ -259,19 +334,45 @@ export function runRagVectorStoreConformance(
 }
 
 function assertManifest(manifest: RagVectorStoreAdapterManifest): void {
-  if (!manifest.name.trim()) throw new Error('manifest name must be non-empty.');
-  if (!manifest.version.trim()) throw new Error('manifest version must be non-empty.');
-  if (manifest.kind !== 'vectorStore') throw new Error('manifest kind must be vectorStore.');
-  if (!CONFORMANT_RAG_VECTOR_STORE_KINDS.includes(manifest.adapterKind)) {
-    throw new Error(`manifest adapterKind '${manifest.adapterKind}' is not supported by this conformance profile.`);
+  const validation = validateRagVectorStoreAdapterManifest(manifest);
+  if (!validation.valid) throw new Error(validation.errors.join('; '));
+}
+
+function collectManifestErrors(manifest: object, errors: string[]): void {
+  const candidate = manifest as Partial<RagVectorStoreAdapterManifest>;
+  if (typeof candidate.name !== 'string' || !candidate.name.trim()) errors.push('manifest name must be non-empty.');
+  if (typeof candidate.version !== 'string' || !candidate.version.trim()) {
+    errors.push('manifest version must be non-empty.');
   }
-  if (!manifest.metrics.includes('cosine')) throw new Error('manifest must support cosine metric.');
-  if (!Number.isInteger(manifest.maxDimensions) || manifest.maxDimensions <= 0) {
-    throw new Error('manifest maxDimensions must be a positive integer.');
+  if (candidate.kind !== 'vectorStore') errors.push('manifest kind must be vectorStore.');
+  if (
+    !RAG_VECTOR_STORE_CONFORMANCE_PROFILE.supportedAdapterKinds.includes(candidate.adapterKind as RagVectorStoreKind)
+  ) {
+    errors.push(
+      `manifest adapterKind '${String(candidate.adapterKind)}' is not supported by this conformance profile.`,
+    );
   }
-  for (const capability of ['upsert', 'upsertMany', 'search', 'snapshot', 'clear'] as const) {
-    if (manifest.capabilities[capability] !== true)
-      throw new Error(`manifest capability '${capability}' must be true.`);
+  if (candidate.persistence !== 'ephemeral' && candidate.persistence !== 'durable') {
+    errors.push("manifest persistence must be 'ephemeral' or 'durable'.");
+  }
+  if (
+    !Array.isArray(candidate.metrics) ||
+    !candidate.metrics.some((metric) => RAG_VECTOR_STORE_CONFORMANCE_PROFILE.supportedMetrics.includes(metric)) ||
+    !candidate.metrics.every((metric) => RAG_VECTOR_STORE_CONFORMANCE_PROFILE.supportedMetrics.includes(metric))
+  ) {
+    errors.push(
+      `manifest metrics must include only supported metrics: ${RAG_VECTOR_STORE_CONFORMANCE_PROFILE.supportedMetrics.join(', ')}.`,
+    );
+  }
+  if (!Number.isInteger(candidate.maxDimensions) || (candidate.maxDimensions ?? 0) <= 0) {
+    errors.push('manifest maxDimensions must be a positive integer.');
+  }
+  if (!candidate.capabilities || typeof candidate.capabilities !== 'object') {
+    errors.push('manifest capabilities must be an object.');
+    return;
+  }
+  for (const capability of REQUIRED_RAG_VECTOR_STORE_CAPABILITIES) {
+    if (candidate.capabilities[capability] !== true) errors.push(`manifest capability '${capability}' must be true.`);
   }
 }
 

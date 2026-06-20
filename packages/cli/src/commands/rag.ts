@@ -4,6 +4,7 @@ import {
   createInMemoryRagVectorStoreForConformance,
   evaluateRagEvalDocumentAsync,
   evaluateRagEvalDocumentFromDeclaredSourcesAsync,
+  RAG_VECTOR_STORE_CONFORMANCE_PROFILE,
   type RagChunkInput,
   type RagEvalDocumentReport,
   type RagRetrieveDocumentReport,
@@ -22,7 +23,8 @@ import { join, resolve } from 'path';
 const USAGE =
   'Usage: kern rag eval <file.kern> [--corpus <chunks.json>] [--openai-api-key <key>]\n' +
   '       kern rag retrieve <file.kern> --query <text> [--param name=value]  (local embed models only)\n' +
-  '       kern rag conformance [--adapter memory|local-persistent] [--json]';
+  '       kern rag conformance [--adapter memory|local-persistent] [--json]\n' +
+  '       kern rag conformance --list [--json]';
 
 /** `kern rag …` — run a RAG spec's contracts in the toolchain (dbt-test shape). */
 export async function runRag(args: string[]): Promise<void> {
@@ -44,11 +46,16 @@ export async function runRag(args: string[]): Promise<void> {
 }
 
 function runRagConformance(args: string[]): void {
-  const { adapterFlagPresent, adapterName, json, unexpectedArgs, unknownFlags } = parseRagConformanceArgs(args);
+  const { adapterFlagPresent, adapterName, json, list, unexpectedArgs, unknownFlags } = parseRagConformanceArgs(args);
   if (unknownFlags.length > 0) fail(`unknown flag for conformance: ${unknownFlags[0]}.\n${USAGE}`);
   if (unexpectedArgs.length > 0) fail(`unexpected argument for conformance: ${unexpectedArgs[0]}.\n${USAGE}`);
+  if (list && adapterFlagPresent) fail(`--list cannot be combined with --adapter.\n${USAGE}`);
   if (adapterFlagPresent && (!adapterName?.trim() || adapterName.trim().startsWith('-'))) {
     fail(`missing value for --adapter.\n${USAGE}`);
+  }
+  if (list) {
+    printRagConformanceList(json);
+    process.exit(0);
   }
   const manifests = adapterName
     ? [builtinRagVectorStoreManifest(adapterName) ?? fail(`unknown RAG adapter '${adapterName}'.\n${USAGE}`)]
@@ -86,6 +93,30 @@ function runRagConformance(args: string[]): void {
     }
   }
   process.exit(passed ? 0 : 1);
+}
+
+function printRagConformanceList(json: boolean): void {
+  if (json) {
+    console.log(
+      JSON.stringify(
+        {
+          profile: RAG_VECTOR_STORE_CONFORMANCE_PROFILE,
+          adapters: BUILTIN_RAG_VECTOR_STORE_MANIFESTS,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+  console.log(`kern rag conformance ${RAG_VECTOR_STORE_CONFORMANCE_PROFILE.version}`);
+  console.log(`  required capabilities: ${RAG_VECTOR_STORE_CONFORMANCE_PROFILE.requiredCapabilities.join(', ')}`);
+  console.log(`  cases: ${RAG_VECTOR_STORE_CONFORMANCE_PROFILE.cases.length}`);
+  for (const manifest of BUILTIN_RAG_VECTOR_STORE_MANIFESTS) {
+    console.log(
+      `  ${manifest.name} kind=${manifest.adapterKind} persistence=${manifest.persistence} metrics=${manifest.metrics.join(',')} maxDims=${manifest.maxDimensions}`,
+    );
+  }
 }
 
 function createConformanceStore(
@@ -266,6 +297,7 @@ interface ParsedRagConformanceArgs {
   readonly adapterName?: string;
   readonly adapterFlagPresent: boolean;
   readonly json: boolean;
+  readonly list: boolean;
   readonly unexpectedArgs: readonly string[];
   readonly unknownFlags: readonly string[];
 }
@@ -274,6 +306,7 @@ function parseRagConformanceArgs(args: readonly string[]): ParsedRagConformanceA
   let adapterName: string | undefined;
   let adapterFlagPresent = false;
   let json = false;
+  let list = false;
   const unexpectedArgs: string[] = [];
   const unknownFlags: string[] = [];
 
@@ -281,6 +314,10 @@ function parseRagConformanceArgs(args: readonly string[]): ParsedRagConformanceA
     const arg = args[i];
     if (arg === '--json') {
       json = true;
+      continue;
+    }
+    if (arg === '--list') {
+      list = true;
       continue;
     }
     if (arg === '--adapter') {
@@ -305,6 +342,7 @@ function parseRagConformanceArgs(args: readonly string[]): ParsedRagConformanceA
     ...(adapterName !== undefined ? { adapterName } : {}),
     adapterFlagPresent,
     json,
+    list,
     unexpectedArgs,
     unknownFlags,
   };
