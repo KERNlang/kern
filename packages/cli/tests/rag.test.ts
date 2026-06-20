@@ -228,6 +228,34 @@ describe('kern rag', () => {
     expect(parsed.reports[0].summary.failed).toBe(0);
   });
 
+  test('lists RAG adapter conformance contracts', () => {
+    const result = run(['rag', 'conformance', '--list'], dir);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('kern rag conformance kern-rag-vector-store-conformance-v1');
+    expect(result.stdout).toContain('required capabilities:');
+    expect(result.stdout).toContain('memory kind=memory');
+    expect(result.stdout).toContain('local-persistent kind=local-persistent');
+  });
+
+  test('emits JSON for RAG adapter conformance contract listing', () => {
+    const result = run(['rag', 'conformance', '--list', '--json'], dir);
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout) as {
+      readonly profile: { readonly version: string; readonly cases: readonly string[] };
+      readonly adapters: readonly { readonly name: string }[];
+    };
+    expect(parsed.profile).toBeDefined();
+    expect(parsed.profile.version).toBe('kern-rag-vector-store-conformance-v1');
+    expect(parsed.profile.cases).toContain('durable-round-trip');
+    expect(parsed.adapters[0].name).toBe('memory');
+  });
+
+  test('rejects RAG conformance list combined with adapter filter', () => {
+    const result = run(['rag', 'conformance', '--list', '--adapter', 'memory'], dir);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('--list cannot be combined with --adapter');
+  });
+
   test('rejects unknown RAG conformance adapters', () => {
     const result = run(['rag', 'conformance', '--adapter', 'pinecone'], dir);
     expect(result.status).toBe(1);

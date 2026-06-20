@@ -651,18 +651,25 @@ export { parsePortableNonNegativeIntLiteral, parsePortablePathSegments } from '.
 export type {
   RagAdapterPersistence,
   RagVectorStoreAdapterCapabilities,
+  RagVectorStoreAdapterContract,
   RagVectorStoreAdapterManifest,
   RagVectorStoreConformanceCaseResult,
   RagVectorStoreConformanceContext,
   RagVectorStoreConformanceOptions,
+  RagVectorStoreConformanceProfile,
+  RagVectorStoreConformanceProfileVersion,
   RagVectorStoreConformanceReport,
   RagVectorStoreConformanceStatus,
+  RagVectorStoreManifestValidationResult,
 } from './rag-adapter-conformance.js';
 export {
   BUILTIN_RAG_VECTOR_STORE_MANIFESTS,
   builtinRagVectorStoreManifest,
   createInMemoryRagVectorStoreForConformance,
+  defineRagVectorStoreAdapterContract,
+  RAG_VECTOR_STORE_CONFORMANCE_PROFILE,
   runRagVectorStoreConformance,
+  validateRagVectorStoreAdapterManifest,
 } from './rag-adapter-conformance.js';
 export type { RagAssertionKind } from './rag-assertions.js';
 export { RAG_ASSERTION_KIND_SET, RAG_ASSERTION_KINDS } from './rag-assertions.js';
