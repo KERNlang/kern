@@ -48,7 +48,7 @@ jobs:
       BUILD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # Check out the exact commit CI validated, not the default-branch HEAD
           # (github.sha lies on workflow_run events).
