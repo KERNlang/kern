@@ -359,13 +359,13 @@ importers:
     devDependencies:
       '@inkjs/ui':
         specifier: 2.0.0
-        version: 2.0.0(ink@7.0.6(@types/react@19.2.17)(react@19.2.7))
+        version: 2.0.0(ink@7.1.0(@types/react@19.2.17)(react@19.2.7))
       '@types/react':
         specifier: 19.2.17
         version: 19.2.17
       ink:
-        specifier: 7.0.6
-        version: 7.0.6(@types/react@19.2.17)(react@19.2.7)
+        specifier: 7.1.0
+        version: 7.1.0(@types/react@19.2.17)(react@19.2.7)
       react:
         specifier: 19.2.7
         version: 19.2.7
@@ -1027,8 +1027,8 @@ packages:
   inherits@2.0.4:
     resolution: {integrity: sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==}
 
-  ink@7.0.6:
-    resolution: {integrity: sha512-/KG651f+LHln9gumb5ltieFqzNGJdhX1b/WwsCUd2Py7Htuk9KUzyFrk25ugmzjXyDneXSoXD3cm4ql4dWFGsQ==}
+  ink@7.1.0:
+    resolution: {integrity: sha512-VWE6/yeLtFCJBNLflyI2OSylyXK1Rc24LuXup8Qt+icwkmmycFNdbn8IkSp6Frc0h1iA0NOvvi1ajW44U/w3Qg==}
     engines: {node: '>=22'}
     peerDependencies:
       '@types/react': '>=19.2.0'
@@ -1596,13 +1596,13 @@ snapshots:
   '@img/sharp-win32-x64@0.34.5':
     optional: true
 
-  '@inkjs/ui@2.0.0(ink@7.0.6(@types/react@19.2.17)(react@19.2.7))':
+  '@inkjs/ui@2.0.0(ink@7.1.0(@types/react@19.2.17)(react@19.2.7))':
     dependencies:
       chalk: 5.6.2
       cli-spinners: 3.4.0
       deepmerge: 4.3.1
       figures: 6.1.0
-      ink: 7.0.6(@types/react@19.2.17)(react@19.2.7)
+      ink: 7.1.0(@types/react@19.2.17)(react@19.2.7)
 
   '@modelcontextprotocol/sdk@1.29.0(zod@4.4.3)':
     dependencies:
@@ -1999,7 +1999,7 @@ snapshots:
 
   inherits@2.0.4: {}
 
-  ink@7.0.6(@types/react@19.2.17)(react@19.2.7):
+  ink@7.1.0(@types/react@19.2.17)(react@19.2.7):
     dependencies:
       '@alcalzone/ansi-tokenize': 0.3.0
       ansi-escapes: 7.3.0
