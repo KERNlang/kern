@@ -18,10 +18,17 @@
  *   C) BOTH-REJECT    — both refuse.
  *   D) REVERSE-DIVERGENCE — reference ACCEPTS with a value, core REJECTS.
  *
- * The first-ever cross-check of these two engines surfaces a BIDIRECTIONAL drift:
- *   - core ⊋ reference on bitwise (`5 | 0`, `~5`) and cross-type (in)equality
- *     (`1 === "1"` → core `false`, matching the emitted TS/Py legs; reference
- *     abstains by throwing on un-same-typed operands), and
+ * The first-ever cross-check of these two engines surfaced a BIDIRECTIONAL drift.
+ * RECONCILED so far:
+ *   - STRICT cross-type (in)equality (`1 === "1"`, `true === 1`, `null === 0`, …)
+ *     is now AGREE — D1a relaxed the reference to COMPUTE kind-sensitive `===`/`!==`
+ *     (was a divergence where the reference abstained), matching core + both emitted
+ *     legs.
+ * STILL DIVERGENT (the remaining punch-list):
+ *   - core ⊋ reference on bitwise (`5 | 0`, `~5`) and on LOOSE cross-type equality
+ *     (`1 == "1"`, `true == 1`) — the latter DEFERRED to D1b, where the TS leg (which
+ *     currently JS-coerces) gets a `__kern_loose_eq` helper before the reference loose
+ *     branch is relaxed in lockstep.
  *   - reference ⊋ core on truthiness-based unary `!` over non-booleans
  *     (`!""` → reference `true`; core's `!` is boolean-only and REJECTS a string).
  * Each such fixture is a real reconciliation item, not a test defect.
@@ -101,17 +108,25 @@ const AGREE: readonly AgreeFixture[] = [
   { name: 'str_num', expr: 'String(100)', expected: '100' },
   { name: 'str_null', expr: 'String(null)', expected: 'null' },
   { name: 'str_false', expr: 'String(false)', expected: 'false' },
+  // D1a — STRICT cross-type equality reconciled: the reference now COMPUTES
+  // kind-sensitive `===`/`!==` (was DIVERGENCE/abstain), matching core + both
+  // emitted legs (TS `===` strict, Python `_kern_strict_equal`). Pin MULTIPLE
+  // mixed-kind classes (not just number↔string) so a future "special-case only
+  // string/number" regression of the relaxed rule fails loudly here.
+  { name: 'xtype_strict_eq_num_str', expr: '1 === "1"', expected: false },
+  { name: 'xtype_strict_ne_num_str', expr: '1 !== "1"', expected: true },
+  { name: 'xtype_strict_eq_bool_num', expr: 'true === 1', expected: false },
+  { name: 'xtype_strict_ne_bool_num', expr: 'true !== 1', expected: true },
+  { name: 'xtype_strict_eq_null_num', expr: 'null === 0', expected: false },
+  { name: 'xtype_strict_ne_null_num', expr: 'null !== 0', expected: true },
 ];
 
 // ── B) DIVERGENCE — core ACCEPTS with a value, reference REJECTS ──
 const DIVERGENCE: readonly DivergenceFixture[] = [
-  // Slice-0 finding: reference over-strict / lacks cross-type equality vs the emitted legs; tracked for reconciliation.
-  { name: 'xtype_strict_eq', expr: '1 === "1"', coreValue: false },
-  // Slice-0 finding: reference over-strict / lacks cross-type equality vs the emitted legs; tracked for reconciliation.
+  // LOOSE `==`/`!=` cross-type still DIVERGES — DEFERRED to D1b (the TS leg currently
+  // JS-coerces `1 == "1"` → true; the reference abstains until the TS `__kern_loose_eq`
+  // helper lands so it does not assert a value the TS producer contradicts).
   { name: 'xtype_loose_eq', expr: '1 == "1"', coreValue: false },
-  // Slice-0 finding: reference over-strict / lacks cross-type equality vs the emitted legs; tracked for reconciliation.
-  { name: 'xtype_strict_ne', expr: '1 !== "1"', coreValue: true },
-  // Slice-0 finding: reference over-strict / lacks cross-type equality vs the emitted legs; tracked for reconciliation.
   { name: 'xtype_bool_num_eq', expr: 'true == 1', coreValue: false },
   // Slice-0 finding: reference over-strict / lacks bitwise in the portable subset vs the emitted legs; tracked for reconciliation.
   { name: 'bitwise_or', expr: '5 | 0', coreValue: 5 },
@@ -139,8 +154,6 @@ const REVERSE_DIVERGENCE: readonly ReverseDivergenceFixture[] = [
   { name: 'not_empty', expr: '!""', referenceValue: true },
   { name: 'not_nonempty', expr: '!"x"', referenceValue: false },
 ];
-
-const ALL_FIXTURE_COUNT = AGREE.length + DIVERGENCE.length + BOTH_REJECT.length + REVERSE_DIVERGENCE.length;
 
 describe('core-runtime ↔ reference parity — A) AGREE (both ACCEPT, observable equal)', () => {
   it.each(AGREE.map((f) => [f.name, f] as const))('%s', (_name, fixture) => {
@@ -193,7 +206,7 @@ describe('false-thin guardrails', () => {
     expect(mismatches).toBeGreaterThanOrEqual(Math.ceil(AGREE.length / 2));
   });
 
-  it('DISTRIBUTION: the corpus is non-degenerate (≥30% core-ACCEPT and ≥30% some-REJECT)', () => {
+  it('DISTRIBUTION: the corpus is non-degenerate (substantial core-ACCEPT AND some-REJECT)', () => {
     let coreAccept = 0;
     let someReject = 0;
     for (const fixture of [...AGREE, ...DIVERGENCE, ...BOTH_REJECT, ...REVERSE_DIVERGENCE]) {
@@ -202,9 +215,12 @@ describe('false-thin guardrails', () => {
       if (core.ok) coreAccept += 1;
       if (!core.ok || !reference.ok) someReject += 1;
     }
-    const threshold = ALL_FIXTURE_COUNT * 0.3;
-    expect(coreAccept).toBeGreaterThanOrEqual(threshold);
-    expect(someReject).toBeGreaterThanOrEqual(threshold);
+    // Absolute floors, NOT a percentage: each reconciled divergence legitimately
+    // shifts the balance toward agreement (that is the whole point of the D1/D2
+    // slices), so a percentage threshold would erode and break on every reconcile.
+    // The intent is only "the corpus exercises plenty of BOTH outcomes".
+    expect(coreAccept).toBeGreaterThanOrEqual(10);
+    expect(someReject).toBeGreaterThanOrEqual(8);
   });
 
   it('THIN self-check: every category is non-empty (AGREE ≥ 15, DIVERGENCE ≥ 4, BOTH-REJECT ≥ 5, REVERSE ≥ 2)', () => {
