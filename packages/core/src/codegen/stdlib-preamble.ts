@@ -29,6 +29,7 @@
  *      every target. */
 
 import type { IRNode } from '../types.js';
+import { emitNativeKernBodyTSWithImports } from './body-ts.js';
 import { decimalImportLineTS, decimalOpsHelpersTS } from './decimal-contract.js';
 
 export interface KernStdlibUsage {
@@ -132,12 +133,15 @@ function maskCommentsAndStrings(code: string): string {
   });
 }
 
-/** True iff `code` references a Decimal producer in REAL code (comment/string
- *  mentions masked out first). The single choke point both the string-prop and the
- *  ExprObject (`{{ … }}`) `.code` paths route through, so the false-positive fix is
- *  applied uniformly. */
-function codeUsesDecimalProducer(code: string): boolean {
-  return DECIMAL_PRODUCER_REGEX.test(maskCommentsAndStrings(code));
+/** True iff `code` references a Decimal producer. With `mask` (default) comment /
+ *  string-literal mentions are blanked first so a `Decimal.of(` that lives ONLY in a
+ *  comment or string does not force a spurious import. With `mask=false` it is a cheap
+ *  RAW mention test (used as a gate before the authoritative emit-to-detect — see
+ *  {@link kernHandlerUsesDecimal}): the offset-preserving mask also blanks `${…}`
+ *  template interpolations, so a `Decimal.of(` the emitter DOES lower inside an
+ *  interpolation is invisible to the masked scan but visible to the raw one. */
+function codeUsesDecimalProducer(code: string, mask = true): boolean {
+  return DECIMAL_PRODUCER_REGEX.test(mask ? maskCommentsAndStrings(code) : code);
 }
 
 function scanString(s: string, usage: KernStdlibUsage): void {
@@ -150,19 +154,17 @@ function scanString(s: string, usage: KernStdlibUsage): void {
  *  references a Decimal producer. Scans the WHOLE subtree (a Decimal call can live
  *  in any body-statement prop — `let value=…`, `return value=…`, `if cond=…`, an
  *  `expression-v1`, etc.), and recurses through nested control-flow children. */
-function subtreeUsesDecimalProducer(node: IRNode): boolean {
+function subtreeUsesDecimalProducer(node: IRNode, mask = true): boolean {
   if (node.props) {
     for (const value of Object.values(node.props)) {
-      // Mask comment / string-literal mentions before matching so a `Decimal.of(`
-      // that lives ONLY in a comment or string does not force a spurious import.
-      if (typeof value === 'string' && codeUsesDecimalProducer(value)) return true;
+      if (typeof value === 'string' && codeUsesDecimalProducer(value, mask)) return true;
       // The `{{ … }}` ExprObject escape hatch carries its source in `.code`.
       if (
         value !== null &&
         typeof value === 'object' &&
         (value as { __expr?: unknown }).__expr === true &&
         typeof (value as { code?: unknown }).code === 'string' &&
-        codeUsesDecimalProducer((value as { code: string }).code)
+        codeUsesDecimalProducer((value as { code: string }).code, mask)
       ) {
         return true;
       }
@@ -170,10 +172,51 @@ function subtreeUsesDecimalProducer(node: IRNode): boolean {
   }
   if (node.children) {
     for (const child of node.children) {
-      if (subtreeUsesDecimalProducer(child)) return true;
+      if (subtreeUsesDecimalProducer(child, mask)) return true;
     }
   }
   return false;
+}
+
+/** D-interp — DETECTION == EMISSION for Decimal: ask the emitter directly. It records
+ *  `decimal.js` in its `imports` set exactly when KERN lowers a Decimal producer —
+ *  INCLUDING inside a `${…}` template interpolation that the offset-preserving
+ *  comment/string mask blanks (so `subtreeUsesDecimalProducer` misses it → the import
+ *  is dropped → emitted `new Decimal(...)` throws `ReferenceError` at runtime). This is
+ *  the same emitter-is-the-source-of-truth principle the D1b loose-eq fix used.
+ *
+ *  We call the emitter EXACTLY as the real codegen path does — `functions.ts` emits the
+ *  same handler via `emitNativeKernBodyTSWithImports(handler)` with no options too, and
+ *  whether `decimal.js` is required is target/ctx-invariant (a `Decimal.<op>(` always
+ *  lowers to `new Decimal(...)` + the import regardless of options) — so detection here
+ *  cannot diverge from emission there. `body-ts` does not import this module, so the
+ *  call is circular-safe. The catch is a never-throw safety net, not a real branch: the
+ *  preamble pass runs AFTER the main transpile already emitted this handler through the
+ *  same emitter, so a throw here is unreachable in practice; if it ever did fire we fall
+ *  back to the masked text-scan rather than letting the preamble pass crash. */
+function handlerEmitsDecimalImport(handler: IRNode): boolean {
+  try {
+    return emitNativeKernBodyTSWithImports(handler).imports.has('decimal.js');
+  } catch {
+    return subtreeUsesDecimalProducer(handler);
+  }
+}
+
+/** D-interp — does a `lang="kern"` handler use a Decimal producer the TS leg must import
+ *  for? The masked text-scan handles the common real-code case with NO emit. ONLY when a
+ *  RAW (unmasked) mention exists that the mask hid — i.e. a `Decimal.<op>(` inside a `${…}`
+ *  interpolation, a string, or a comment — do we pay the authoritative emit-to-detect,
+ *  which resolves it as real (interpolation → import) or inert (string/comment → none).
+ *  So a handler with NO raw `Decimal.<op>(` text at all is never re-emitted; the re-emit
+ *  cost is bounded to the rare handler that literally spells `Decimal.<op>(` somewhere the
+ *  mask blanked. Purely additive: the masked fast path is unchanged and no
+ *  currently-passing case can regress (an inert string/comment mention still yields no
+ *  import, an interpolation now correctly yields one). */
+function kernHandlerUsesDecimal(handler: IRNode): boolean {
+  return (
+    subtreeUsesDecimalProducer(handler) ||
+    (subtreeUsesDecimalProducer(handler, false) && handlerEmitsDecimalImport(handler))
+  );
 }
 
 /** DECIMAL Slice 2 (Finding 1) — walk the IR for `handler lang="kern"` nodes and
@@ -183,7 +226,7 @@ function subtreeUsesDecimalProducer(node: IRNode): boolean {
  *  `lang="ts"`/`lang="python"` handlers own their imports). */
 function scanDecimalInKernHandlers(node: IRNode, usage: KernStdlibUsage): void {
   if (usage.decimal) return;
-  if (node.type === 'handler' && node.props?.lang === 'kern' && subtreeUsesDecimalProducer(node)) {
+  if (node.type === 'handler' && node.props?.lang === 'kern' && kernHandlerUsesDecimal(node)) {
     usage.decimal = true;
     return;
   }
