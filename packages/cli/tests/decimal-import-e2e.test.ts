@@ -93,6 +93,40 @@ describe('Decimal Slice 2 — TS import channel renders end-to-end (Finding 1)',
     }
   });
 
+  test('D-interp — a Decimal producer INSIDE a `${…}` template interpolation gets the import (fail-open fix)', () => {
+    // RED at base: the offset-preserving comment/string mask blanked the WHOLE template
+    // literal incl. `${…}`, so the masked text-scan missed `Decimal.of(` here and the
+    // import was DROPPED → emitted `new Decimal(...)` → runtime ReferenceError. The
+    // emit-to-detect (`handlerEmitsDecimalImport`) asks the emitter, which lowers the
+    // interpolation to `new Decimal(...)` and reports `decimal.js` — detection==emission.
+    const interp = [
+      'fn name=fmtTotal returns=string export=true',
+      '  handler lang="kern"',
+      '    return value="`total=${Decimal.of(\\"1.5\\").add(Decimal.of(\\"2.5\\"))}`"',
+    ].join('\n');
+    const code = compile(interp, 'lib');
+    expect(code).toContain("import Decimal from 'decimal.js';");
+    expect(code).toContain('Decimal.set({ precision: 28');
+    expect(code).toContain('new Decimal("1.5")');
+    // exactly one import (the emit-to-detect must not double-trigger the injection).
+    expect(code.match(/import Decimal from 'decimal\.js';/g)?.length).toBe(1);
+  });
+
+  test('D-interp — a `Decimal.of(` mention ONLY inside a STRING literal does NOT get the import (inert)', () => {
+    // The raw (unmasked) gate sees the `Decimal.of(` mention and pays the emit-to-detect,
+    // which emits a plain string (no `new Decimal(`, no decimal.js requirement) → no
+    // import. Proves the authoritative check rejects inert mentions, not just the mask.
+    const inString = [
+      'fn name=note returns=string export=true',
+      '  handler lang="kern"',
+      '    return value="\\"see Decimal.of(x) in the docs\\""',
+    ].join('\n');
+    const code = compile(inString, 'lib');
+    expect(code).not.toContain('decimal.js');
+    expect(code).not.toContain('Decimal.set(');
+    expect(code).toContain('export function note');
+  });
+
   test('a raw lang="ts" handler does NOT get the auto-injected import (author owns its imports)', () => {
     // A raw TS handler that mentions Decimal is the author's own concern — the
     // canonical-context auto-injection only fires for KERN-lowered `lang="kern"`.
