@@ -27,6 +27,11 @@
 
 import vm from 'node:vm';
 import { emitNativeKernBodyTS } from '../../codegen/body-ts.js';
+import {
+  detectKernStdlibUsage,
+  emittedCodeUsesLooseEq,
+  KERN_LOOSE_EQ_HELPER_JS,
+} from '../../codegen/stdlib-preamble.js';
 import type { IRNode } from '../../types.js';
 import { lowerFixtureForTarget } from './fixture-lowering.js';
 import type { SemanticEnv } from './index.js';
@@ -114,6 +119,24 @@ export async function runTsEmitterLeg(fixture: FixtureForLeg, env: SemanticEnv):
     traceHooks: { eachIterNext: true, forIterNext: true, letAssign: shouldTraceLetAssign(fixture.ir) },
   });
 
+  // The program runs in a plain-JS `vm` context (NOT a TS-aware runtime). The ONLY
+  // stdlib helper a SEMANTIC (`==`/`!=`) fixture pulls in is looseEq, injected here
+  // type-free (`KERN_LOOSE_EQ_HELPER_JS`, sharing its body with the production typed
+  // helper — no drift). Detection is from the EMITTED body (ground truth): this harness
+  // lowers fixtures to STRUCTURED ValueIR where a `==` is not a scannable string prop,
+  // so the emitter produces `__kern_loose_eq(...)` and `emittedCodeUsesLooseEq(bodyCode)`
+  // is exact. Result/Option/unwrap/decimal preambles use syntax the vm cannot run
+  // (parameter properties, `type` aliases, ESM `import`) and are emitter concerns
+  // covered by stdlib-preamble/conformance/cli tests; they never appear in a
+  // differential SEMANTIC fixture, so fail loud if one ever does.
+  const usage = detectKernStdlibUsage(handlerWrapper);
+  if (usage.result || usage.option || usage.unwrap || usage.decimal) {
+    throw new TsLegError(
+      'TS-leg differential harness only supports the looseEq preamble; a fixture pulled in Result/Option/unwrap/decimal.',
+    );
+  }
+  const preamble = emittedCodeUsesLooseEq(bodyCode) ? KERN_LOOSE_EQ_HELPER_JS : '';
+
   const events: TraceEvent[] = [];
   const traceSink = (e: TraceEvent) => {
     events.push(e);
@@ -135,6 +158,7 @@ export async function runTsEmitterLeg(fixture: FixtureForLeg, env: SemanticEnv):
   sandbox.__KernThrow = KernThrowSentinel;
 
   const program = [
+    preamble,
     '(async function __kernRun() {',
     '  try {',
     bodyCode,
