@@ -342,7 +342,7 @@ describe('RAG language semantics', () => {
           'retriever name=DocsSearch corpus=Docs',
           'rag name=AnswerDocs retriever=DocsSearch citations=true',
           '  grounding requireCitations=true',
-          '  ragAnswerContract name=RefundAnswer query="How do refunds work?" answer="Refunds follow the refund policy." prompt="./answer.md" requireCitations=true minGroundingCoverage=0.8',
+          '  ragAnswerContract name=RefundAnswer query="How do refunds work?" answer="Refunds follow the refund policy." prompt="./answer.md" requireCitations=true minGroundingCoverage=0.8 minCitedChunks=2 minEvidenceChunks=2 minEvidenceScore=0.7 abstained=false allowAbstain=true abstainAnswer="I do not have enough evidence to answer."',
           '    answerSpan start=0 end=33 chunks="refunds,policy" required=true',
         ].join('\n'),
       ),
@@ -357,6 +357,11 @@ describe('RAG language semantics', () => {
         prompt: './answer.md',
         requireCitations: true,
         minGroundingCoverage: 0.8,
+        minCitedChunks: 2,
+        evidencePolicy: { minRetrievedChunks: 2, minTopScore: 0.7 },
+        abstained: false,
+        allowAbstain: true,
+        abstainAnswer: 'I do not have enough evidence to answer.',
         spans: [
           expect.objectContaining({
             start: 0,
@@ -375,11 +380,17 @@ describe('RAG language semantics', () => {
         'corpus name=Docs',
         'retriever name=DocsSearch corpus=Docs',
         'rag name=AnswerDocs retriever=DocsSearch',
-        '  ragAnswerContract name=Bad query="" answer="" requireCitations=true minGroundingCoverage=1.5',
+        '  ragAnswerContract name=Bad query="" answer="" requireCitations=true minGroundingCoverage=1.5 minCitedChunks=-1 minEvidenceChunks=1.5 minEvidenceScore=1.5 abstained=true',
         '    answerSpan start=4 end=4 chunks=""',
         '  ragAnswerContract name=LowCoverage query="q" answer="abcd" minGroundingCoverage=1',
         '    answerSpan start=0 end=2 chunks=half',
         '  ragAnswerContract name=LongSpan query="q" answer="abcd"',
+        '    answerSpan start=0 end=10 chunks=tooLong',
+        '  ragAnswerContract name=AbstainNoEvidence query="q" answer="I do not have enough evidence to answer." abstained=true allowAbstain=true abstainAnswer="I do not have enough evidence to answer."',
+        '  ragAnswerContract name=AbstainZeroEvidence query="q" answer="I do not have enough evidence to answer." abstained=true allowAbstain=true abstainAnswer="I do not have enough evidence to answer." minEvidenceChunks=0 minEvidenceScore=0',
+        '  ragAnswerContract name=AbstainBlankAnswer query="q" answer="   " abstained=true allowAbstain=true abstainAnswer="   " minEvidenceChunks=1',
+        '  ragAnswerContract name=AbstainMismatch query="q" answer="Unsupported claim." abstained=true allowAbstain=true abstainAnswer="I do not have enough evidence to answer." minEvidenceChunks=1',
+        '  ragAnswerContract name=AbstainLongSpan query="q" answer="abcd" abstained=true allowAbstain=true abstainAnswer="abcd" minEvidenceChunks=1',
         '    answerSpan start=0 end=10 chunks=tooLong',
         'ragAnswerContract name=Detached rag=Missing query="q" answer="a"',
         'answerSpan start=0 end=1 chunks=orphan',
@@ -391,6 +402,13 @@ describe('RAG language semantics', () => {
         'rag-answer-contract-query-required',
         'rag-answer-contract-answer-required',
         'rag-answer-contract-min-grounding-coverage-invalid',
+        'rag-answer-contract-min-cited-chunks-invalid',
+        'rag-answer-contract-min-evidence-chunks-invalid',
+        'rag-answer-contract-min-evidence-score-invalid',
+        'rag-answer-contract-abstain-answer-required',
+        'rag-answer-contract-abstain-answer-mismatch',
+        'rag-answer-contract-abstain-not-allowed',
+        'rag-answer-contract-abstain-evidence-policy-required',
         'rag-answer-contract-citations-require-grounding',
         'rag-answer-span-range-invalid',
         'rag-answer-span-chunks-required',
@@ -399,6 +417,21 @@ describe('RAG language semantics', () => {
         'rag-answer-span-missing-contract',
       ]),
     );
+  });
+
+  test('accepts abstained RAG answer contracts without grounding spans when evidence policy allows abstention', () => {
+    const rules = rulesFor(
+      [
+        'corpus name=Docs',
+        'retriever name=DocsSearch corpus=Docs',
+        'rag name=AnswerDocs retriever=DocsSearch',
+        '  ragAnswerContract name=Abstain query="q" answer="I do not have enough evidence to answer." minGroundingCoverage=1 abstained=true allowAbstain=true abstainAnswer="I do not have enough evidence to answer." minEvidenceChunks=1',
+      ].join('\n'),
+    );
+
+    expect(rules).not.toContain('rag-answer-contract-grounding-coverage-insufficient');
+    expect(rules).not.toContain('rag-answer-contract-abstain-not-allowed');
+    expect(rules).not.toContain('rag-answer-contract-abstain-evidence-policy-required');
   });
 
   test('keeps RAG eval case facts scoped to their parent eval node', () => {

@@ -338,6 +338,11 @@ export interface RagSemanticAnswerSpanFact {
   readonly loc?: RagSemanticLocation;
 }
 
+export interface RagSemanticAnswerEvidencePolicyFact {
+  readonly minRetrievedChunks?: number;
+  readonly minTopScore?: number;
+}
+
 export interface RagSemanticAnswerContractFact {
   readonly name: string;
   readonly ragName?: string;
@@ -346,6 +351,11 @@ export interface RagSemanticAnswerContractFact {
   readonly prompt?: string;
   readonly requireCitations: boolean;
   readonly minGroundingCoverage?: number;
+  readonly minCitedChunks?: number;
+  readonly evidencePolicy?: RagSemanticAnswerEvidencePolicyFact;
+  readonly abstained?: boolean;
+  readonly allowAbstain?: boolean;
+  readonly abstainAnswer?: string;
   readonly spans: readonly RagSemanticAnswerSpanFact[];
   readonly loc?: RagSemanticLocation;
 }
@@ -2353,8 +2363,95 @@ function validateRagAnswerContract(
       'RAG answer contract minGroundingCoverage must be between 0 and 1.',
     );
   }
+  const minCitedChunks = numberProp(contract.node, 'minCitedChunks');
+  if (
+    invalidNumberProp(contract.node, 'minCitedChunks') ||
+    (minCitedChunks !== undefined && (!Number.isInteger(minCitedChunks) || minCitedChunks < 0))
+  ) {
+    pushRagViolation(
+      violations,
+      'rag-answer-contract-min-cited-chunks-invalid',
+      contract.node,
+      'RAG answer contract minCitedChunks must be a non-negative integer.',
+    );
+  }
+  const minEvidenceChunks = numberProp(contract.node, 'minEvidenceChunks');
+  if (
+    invalidNumberProp(contract.node, 'minEvidenceChunks') ||
+    (minEvidenceChunks !== undefined && (!Number.isInteger(minEvidenceChunks) || minEvidenceChunks < 0))
+  ) {
+    pushRagViolation(
+      violations,
+      'rag-answer-contract-min-evidence-chunks-invalid',
+      contract.node,
+      'RAG answer contract minEvidenceChunks must be a non-negative integer.',
+    );
+  }
+  const minEvidenceScore = numberProp(contract.node, 'minEvidenceScore');
+  if (
+    invalidNumberProp(contract.node, 'minEvidenceScore') ||
+    (minEvidenceScore !== undefined && (minEvidenceScore < 0 || minEvidenceScore > 1))
+  ) {
+    pushRagViolation(
+      violations,
+      'rag-answer-contract-min-evidence-score-invalid',
+      contract.node,
+      'RAG answer contract minEvidenceScore must be between 0 and 1.',
+    );
+  }
+  const abstainAnswer = stringProp(contract.node, 'abstainAnswer');
+  const answer = stringProp(contract.node, 'answer');
+  const hasNonBlankAbstainAnswer = typeof abstainAnswer === 'string' && abstainAnswer.trim().length > 0;
+  if (ragBooleanProp(contract.node, 'abstained') && !hasNonBlankAbstainAnswer) {
+    pushRagViolation(
+      violations,
+      'rag-answer-contract-abstain-answer-required',
+      contract.node,
+      'RAG answer contract abstained=true requires abstainAnswer=<text>.',
+    );
+  }
+  if (
+    ragBooleanProp(contract.node, 'abstained') &&
+    hasNonBlankAbstainAnswer &&
+    answer &&
+    answer.trim() !== abstainAnswer.trim()
+  ) {
+    pushRagViolation(
+      violations,
+      'rag-answer-contract-abstain-answer-mismatch',
+      contract.node,
+      'RAG answer contract abstained=true requires answer to match abstainAnswer.',
+    );
+  }
+  if (ragBooleanProp(contract.node, 'abstained') && !ragBooleanProp(contract.node, 'allowAbstain')) {
+    pushRagViolation(
+      violations,
+      'rag-answer-contract-abstain-not-allowed',
+      contract.node,
+      'RAG answer contract abstained=true requires allowAbstain=true.',
+    );
+  }
+  if (
+    ragBooleanProp(contract.node, 'abstained') &&
+    !(
+      (minEvidenceChunks !== undefined && minEvidenceChunks >= 1) ||
+      (minEvidenceScore !== undefined && minEvidenceScore > 0)
+    )
+  ) {
+    pushRagViolation(
+      violations,
+      'rag-answer-contract-abstain-evidence-policy-required',
+      contract.node,
+      'RAG answer contract abstained=true requires minEvidenceChunks>=1 or minEvidenceScore>0.',
+    );
+  }
 
-  validateRagAnswerContractCoverage(contract, spans, minGroundingCoverage, violations);
+  validateRagAnswerContractCoverage(
+    contract,
+    spans,
+    ragBooleanProp(contract.node, 'abstained') ? undefined : minGroundingCoverage,
+    violations,
+  );
 
   if (
     ragBooleanProp(contract.node, 'requireCitations') &&
@@ -3018,6 +3115,7 @@ function ragAnswerContractFact(
   spans: readonly RagAnswerSpanInfo[],
 ): RagSemanticAnswerContractFact {
   const contractSpans = spans.filter((span) => span.contractNode === info.node);
+  const evidencePolicy = ragAnswerEvidencePolicyFact(info.node);
   return {
     name: info.name ?? '',
     ...optionalStringValue('ragName', info.ragName),
@@ -3026,9 +3124,24 @@ function ragAnswerContractFact(
     ...optionalStringFact(info.node, 'prompt', 'prompt'),
     requireCitations: ragBooleanProp(info.node, 'requireCitations'),
     ...optionalNumberFact(info.node, 'minGroundingCoverage', 'minGroundingCoverage'),
+    ...optionalNumberFact(info.node, 'minCitedChunks', 'minCitedChunks'),
+    ...(evidencePolicy ? { evidencePolicy } : {}),
+    ...(Object.hasOwn(info.node.props ?? {}, 'abstained') ? { abstained: ragBooleanProp(info.node, 'abstained') } : {}),
+    ...(Object.hasOwn(info.node.props ?? {}, 'allowAbstain')
+      ? { allowAbstain: ragBooleanProp(info.node, 'allowAbstain') }
+      : {}),
+    ...optionalStringFact(info.node, 'abstainAnswer', 'abstainAnswer'),
     spans: contractSpans.map(ragAnswerSpanFact),
     ...(info.node.loc ? { loc: ragLocation(info.node) } : {}),
   };
+}
+
+function ragAnswerEvidencePolicyFact(node: IRNode): RagSemanticAnswerEvidencePolicyFact | undefined {
+  const policy = {
+    ...optionalNumberFact(node, 'minEvidenceChunks', 'minRetrievedChunks'),
+    ...optionalNumberFact(node, 'minEvidenceScore', 'minTopScore'),
+  };
+  return Object.keys(policy).length > 0 ? policy : undefined;
 }
 
 function ragAnswerSpanFact(info: RagAnswerSpanInfo): RagSemanticAnswerSpanFact {

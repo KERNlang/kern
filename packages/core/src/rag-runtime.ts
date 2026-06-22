@@ -91,10 +91,16 @@ export interface RagMcpRetrieveProvenanceMapping {
   readonly compatible: boolean;
 }
 
-export type RagAnswerContractStatus = 'grounded' | 'partially_grounded' | 'ungrounded' | 'invalid';
+export type RagAnswerContractStatus = 'grounded' | 'partially_grounded' | 'ungrounded' | 'abstained' | 'invalid';
 
 export type RagAnswerContractDiagnosticCode =
   | 'ANSWER_EMPTY'
+  | 'ABSTAIN_ANSWER_MISMATCH'
+  | 'ABSTAIN_EVIDENCE_POLICY_REQUIRED'
+  | 'ABSTAIN_NOT_ALLOWED'
+  | 'ABSTAIN_WITH_SUFFICIENT_EVIDENCE'
+  | 'CITED_CHUNKS_BELOW_MINIMUM'
+  | 'EVIDENCE_INSUFFICIENT'
   | 'QUERY_MISMATCH'
   | 'RETRIEVER_ERROR'
   | 'PROVENANCE_MISMATCH'
@@ -111,6 +117,11 @@ export interface RagAnswerGroundingSpan {
   readonly required?: boolean;
 }
 
+export interface RagAnswerEvidencePolicy {
+  readonly minRetrievedChunks?: number;
+  readonly minTopScore?: number;
+}
+
 export interface RagAnswerContract {
   readonly id?: string;
   readonly ragName?: string;
@@ -121,7 +132,12 @@ export interface RagAnswerContract {
   readonly provenance?: RagRuntimeProvenance;
   readonly groundingSpans?: readonly RagAnswerGroundingSpan[];
   readonly requireCitations?: boolean;
+  readonly minCitedChunks?: number;
   readonly minGroundingCoverage?: number;
+  readonly evidencePolicy?: RagAnswerEvidencePolicy;
+  readonly abstained?: boolean;
+  readonly allowAbstain?: boolean;
+  readonly abstainAnswer?: string;
 }
 
 export interface RagAnswerContractDiagnostic {
@@ -140,6 +156,8 @@ export interface RagAnswerContractResult {
   readonly groundingCoverage: number;
   readonly groundedChars: number;
   readonly answerChars: number;
+  readonly evidenceSufficient: boolean;
+  readonly abstained: boolean;
   readonly citedChunkIds: readonly string[];
   readonly sources: readonly string[];
   readonly provenance?: RagRuntimeProvenance;
@@ -364,6 +382,8 @@ export function evaluateRagAnswerContract(contract: RagAnswerContract): RagAnswe
       groundingCoverage: 0,
       groundedChars: 0,
       answerChars: 0,
+      evidenceSufficient: false,
+      abstained: contract.abstained === true,
       citedChunkIds: [],
       sources: [],
       ...(contract.provenance ? { provenance: contract.provenance } : {}),
@@ -384,6 +404,14 @@ export function evaluateRagAnswerContract(contract: RagAnswerContract): RagAnswe
   }
 
   const minGroundingCoverage = normalizeGroundingCoverageThreshold(contract.minGroundingCoverage);
+  const minCitedChunks = normalizeNonNegativeInteger(contract.minCitedChunks, 'minCitedChunks');
+  const evidencePolicy = normalizeEvidencePolicy(contract.evidencePolicy);
+  const evidenceDiagnostics = evaluateEvidencePolicy(evidencePolicy, retrieval);
+  const evidenceSufficient = evidenceDiagnostics.length === 0;
+  const hasStrictEvidencePolicy =
+    contract.evidencePolicy !== undefined && (evidencePolicy.minRetrievedChunks > 0 || evidencePolicy.minTopScore > 0);
+  const abstained = contract.abstained === true;
+  const allowAbstain = contract.allowAbstain === true;
   const provenance = contract.provenance ?? retrieveResultProvenance(contract.retrieval);
   if (contract.query !== retrieval.query) {
     diagnostics.push({
@@ -463,32 +491,72 @@ export function evaluateRagAnswerContract(contract: RagAnswerContract): RagAnswe
 
   const groundedChars = countGroundedAnswerChars(answer, grounded);
   const groundingCoverage = answerChars === 0 ? 0 : groundedChars / answerChars;
-  if (
-    answerChars > 0 &&
-    contract.requireCitations &&
-    citationBearingChunkIds.size === 0 &&
-    groundingSpans.length === 0
-  ) {
-    diagnostics.push({
-      code: 'CITATION_REQUIRED',
-      message: 'RAG answer contract requires citations but no retrieved chunks were cited.',
-    });
-  }
-  if (answerChars > 0 && groundingCoverage < minGroundingCoverage) {
-    diagnostics.push({
-      code: 'GROUNDING_BELOW_THRESHOLD',
-      message: `RAG answer grounding coverage ${groundingCoverage.toFixed(3)} is below required threshold ${minGroundingCoverage.toFixed(3)}.`,
-    });
+  if (abstained) {
+    if (!allowAbstain) {
+      diagnostics.push({
+        code: 'ABSTAIN_NOT_ALLOWED',
+        message: 'RAG answer contract abstained but the contract does not allow abstention.',
+      });
+    }
+    if (typeof contract.abstainAnswer !== 'string' || contract.abstainAnswer.trim().length === 0) {
+      diagnostics.push({
+        code: 'ABSTAIN_ANSWER_MISMATCH',
+        message: 'RAG answer contract abstention requires a non-empty abstainAnswer.',
+      });
+    } else if (answer.trim() !== contract.abstainAnswer.trim()) {
+      diagnostics.push({
+        code: 'ABSTAIN_ANSWER_MISMATCH',
+        message: 'RAG answer contract abstention answer does not match the configured abstainAnswer.',
+      });
+    }
+    if (!hasStrictEvidencePolicy) {
+      diagnostics.push({
+        code: 'ABSTAIN_EVIDENCE_POLICY_REQUIRED',
+        message: 'RAG answer contract abstention requires a strict evidence policy.',
+      });
+    } else if (evidenceSufficient) {
+      diagnostics.push({
+        code: 'ABSTAIN_WITH_SUFFICIENT_EVIDENCE',
+        message: 'RAG answer contract abstained even though retrieved evidence satisfies the evidence policy.',
+      });
+    }
+  } else {
+    diagnostics.push(...evidenceDiagnostics);
+    if (
+      answerChars > 0 &&
+      contract.requireCitations &&
+      citationBearingChunkIds.size === 0 &&
+      groundingSpans.length === 0
+    ) {
+      diagnostics.push({
+        code: 'CITATION_REQUIRED',
+        message: 'RAG answer contract requires citations but no retrieved chunks were cited.',
+      });
+    }
+    if (answerChars > 0 && citedChunkIds.size < minCitedChunks) {
+      diagnostics.push({
+        code: 'CITED_CHUNKS_BELOW_MINIMUM',
+        message: `RAG answer cited ${citedChunkIds.size} retrieved chunks but requires at least ${minCitedChunks}.`,
+      });
+    }
+    if (answerChars > 0 && groundingCoverage < minGroundingCoverage) {
+      diagnostics.push({
+        code: 'GROUNDING_BELOW_THRESHOLD',
+        message: `RAG answer grounding coverage ${groundingCoverage.toFixed(3)} is below required threshold ${minGroundingCoverage.toFixed(3)}.`,
+      });
+    }
   }
 
   const passed = diagnostics.length === 0;
   return {
     ...base,
     passed,
-    status: passed ? 'grounded' : ragAnswerStatus(diagnostics, groundingCoverage),
+    status: passed ? (abstained ? 'abstained' : 'grounded') : ragAnswerStatus(diagnostics, groundingCoverage),
     groundingCoverage,
     groundedChars,
     answerChars,
+    evidenceSufficient,
+    abstained,
     citedChunkIds: [...citedChunkIds].sort(stableStringCompare),
     sources: uniqueOrdered([...citedChunkIds].map((chunkId) => chunkById.get(chunkId)?.source).filter(isString)),
     ...(provenance ? { provenance } : {}),
@@ -517,6 +585,11 @@ export function ragAnswerContractFromSemanticFact(
     })),
     requireCitations: fact.requireCitations,
     ...optionalNumberValue('minGroundingCoverage', fact.minGroundingCoverage),
+    ...optionalNumberValue('minCitedChunks', fact.minCitedChunks),
+    ...(fact.evidencePolicy ? { evidencePolicy: { ...fact.evidencePolicy } } : {}),
+    ...(fact.abstained !== undefined ? { abstained: fact.abstained } : {}),
+    ...(fact.allowAbstain !== undefined ? { allowAbstain: fact.allowAbstain } : {}),
+    ...optionalStringValue('abstainAnswer', fact.abstainAnswer),
   };
 }
 
@@ -618,6 +691,44 @@ function normalizeGroundingCoverageThreshold(value: number | undefined): number 
   return value;
 }
 
+function normalizeNonNegativeInteger(value: number | undefined, fieldName: string): number {
+  if (value === undefined) return 0;
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`KERN RAG answer contract ${fieldName} must be a non-negative integer.`);
+  }
+  return value;
+}
+
+function normalizeEvidencePolicy(policy: RagAnswerEvidencePolicy | undefined): Required<RagAnswerEvidencePolicy> {
+  const minRetrievedChunks = normalizeNonNegativeInteger(policy?.minRetrievedChunks, 'evidencePolicy.minRetrievedChunks');
+  const minTopScore = policy?.minTopScore ?? 0;
+  if (!Number.isFinite(minTopScore) || minTopScore < 0 || minTopScore > 1) {
+    throw new Error('KERN RAG answer contract evidencePolicy.minTopScore must be between 0 and 1.');
+  }
+  return { minRetrievedChunks, minTopScore };
+}
+
+function evaluateEvidencePolicy(
+  policy: Required<RagAnswerEvidencePolicy>,
+  retrieval: RetrieveResult,
+): RagAnswerContractDiagnostic[] {
+  const diagnostics: RagAnswerContractDiagnostic[] = [];
+  if (retrieval.chunks.length < policy.minRetrievedChunks) {
+    diagnostics.push({
+      code: 'EVIDENCE_INSUFFICIENT',
+      message: `RAG answer retrieved ${retrieval.chunks.length} chunks but requires at least ${policy.minRetrievedChunks}.`,
+    });
+  }
+  const topScore = retrieval.chunks.reduce((maxScore, chunk) => Math.max(maxScore, chunk.score), 0);
+  if (topScore < policy.minTopScore) {
+    diagnostics.push({
+      code: 'EVIDENCE_INSUFFICIENT',
+      message: `RAG answer top retrieval score ${topScore.toFixed(3)} is below required evidence threshold ${policy.minTopScore.toFixed(3)}.`,
+    });
+  }
+  return diagnostics;
+}
+
 function retrieveResultProvenance(
   result: RetrieveResult | ProvenancedRetrieveResult,
 ): RagRuntimeProvenance | undefined {
@@ -690,6 +801,12 @@ function ragAnswerStatus(
     diagnostics.some((diagnostic) =>
       [
         'ANSWER_EMPTY',
+        'ABSTAIN_ANSWER_MISMATCH',
+        'ABSTAIN_EVIDENCE_POLICY_REQUIRED',
+        'ABSTAIN_NOT_ALLOWED',
+        'ABSTAIN_WITH_SUFFICIENT_EVIDENCE',
+        'CITED_CHUNKS_BELOW_MINIMUM',
+        'EVIDENCE_INSUFFICIENT',
         'CITATION_REQUIRED',
         'QUERY_MISMATCH',
         'RETRIEVER_ERROR',
