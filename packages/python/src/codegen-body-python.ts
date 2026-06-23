@@ -44,8 +44,10 @@
 import type { ExprObject, IRNode, ValueIR } from '@kernlang/core';
 import {
   applyTemplate,
+  assertNoDecimalOperator,
   classifyRegexLiteralIndexReadFailClose,
   classifyRegexLiteralMemberReadFailClose,
+  decimalBareConstructionFailMessage,
   emitStringKeyArray,
   expandRegexIFold,
   instanceofRhsPythonType,
@@ -54,6 +56,7 @@ import {
   isPostfixMutationOperator,
   isSupportedAssignOperator,
   isZeroWidthCapableRegex,
+  KERN_DECIMAL_OPS_HELPER_PY,
   KERN_STDLIB_MODULES,
   lookupStdlibCall,
   lookupStdlibProperty,
@@ -83,6 +86,10 @@ import {
   translateReplStringToPython,
   unmappedHostNamespaceMessage,
   unwrapTransparentReceiverIR,
+  validateDecimalConstructionArg,
+  validateDecimalDivModArgs,
+  validateDecimalOperands,
+  validateDecimalPowArgs,
   validateRegexNamedGroupsPortable,
 } from '@kernlang/core';
 // Slice 0.9 — the TypeScript-AST closure helpers + classifier live on the Node
@@ -2105,8 +2112,10 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       const lowered = lowerChain(node, ctx);
       return wrapGuardIfAny(lowered, ctx);
     }
-    case 'await':
-      return `await ${emitPyExprCtx(node.argument, ctx)}`;
+    case 'await': {
+      const arg = emitPyExprCtx(node.argument, ctx);
+      return `await ${needsLowPrecedenceOperandParens(node.argument) ? `(${arg})` : arg}`;
+    }
     case 'new': {
       // Host Error mapping (spec §1): `new Error(args)` → `Exception(args)` on
       // Python, since `raise Error(...)` / `isinstance(x, Error)` would
@@ -2171,6 +2180,20 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       return out;
     }
     case 'binary': {
+      // DECIMAL Slice 2 (item 3) — fail closed on `+`/`-`/`*` over a syntactically-
+      // proven Decimal operand (`Decimal.of(...)`/`Decimal.<m>(...)`), the SAME
+      // decision the TS leg makes (shared `assertNoDecimalOperator` + message), so
+      // the refusal is byte-identical across targets. Conservative: a no-op for plain
+      // numeric arithmetic and for every non-`+`/`-`/`*` operator below.
+      //
+      // Slice-2 remediation (Finding 2): the assert is now performed AFTER the
+      // operands are lowered (see below, after `emitPyExprCtx(node.left/right)`),
+      // mirroring the TS leg's lower-then-assert order. A bad Decimal operand — an
+      // unknown member (`Decimal.nope(...)`) or a non-canonical literal
+      // (`Decimal.of("1.10")`) — then throws its OWN specific diagnostic during
+      // lowering instead of being masked by the generic operator error. The blocked
+      // operators are only `+`/`-`/`*`, so deferring the assert past the bitwise /
+      // shift / modulo branches below is safe (they never trip the Decimal check).
       // Slice 6 — bitwise / shift on the slice-0.75 ToInt32 substrate. Emitted
       // DIRECTLY as helper-wrapped strings (operands recurse through
       // `emitPyExprCtx`), so nested bitwise ops compose without the double-
@@ -2199,6 +2222,12 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       // expected `(a == b) < c` evaluation order.
       const left = emitPyExprCtx(node.left, ctx);
       const right = emitPyExprCtx(node.right, ctx);
+
+      // DECIMAL Slice 2 (item 3) — operator fail-close, now AFTER operand lowering
+      // (Finding-2 remediation) so a bad Decimal operand surfaces its own diagnostic
+      // first. No-op for every operator except `+`/`-`/`*`, so it never affects the
+      // bitwise/shift/modulo paths handled above or the comparison/logical paths below.
+      assertNoDecimalOperator(node);
 
       if (node.op === 'instanceof') {
         // JS `a instanceof B` → Python `isinstance(a, B)`. Emitting `instanceof`
@@ -2387,8 +2416,14 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
 
       const forceLeft = needsComparisonChainParens(node.left, node.op);
       const forceRight = needsComparisonChainParens(node.right, node.op);
-      const lp = forceLeft || needsBinaryParens(node.left, node.op, 'left') ? `(${left})` : left;
-      const rp = forceRight || needsBinaryParens(node.right, node.op, 'right') ? `(${right})` : right;
+      const lp =
+        forceLeft || needsLowPrecedenceOperandParens(node.left) || needsBinaryParens(node.left, node.op, 'left')
+          ? `(${left})`
+          : left;
+      const rp =
+        forceRight || needsLowPrecedenceOperandParens(node.right) || needsBinaryParens(node.right, node.op, 'right')
+          ? `(${right})`
+          : right;
       const op = mapBinaryOpToPython(node.op);
       return `${lp} ${op} ${rp}`;
     }
@@ -3173,6 +3208,13 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   if (node.callee.kind === 'ident') {
     rejectHostRegExpValuePython(node.callee.name, ctx);
   }
+  // DECIMAL Slice 1 — bare `Decimal(...)` (ident callee) fail-closes
+  // SYMMETRICALLY with the TS leg. Only `Decimal.of`/`Decimal.add` (member
+  // callees, handled by `applyStdlibLoweringPython` above) are portable. A
+  // proven user binding named `Decimal` is left alone.
+  if (node.callee.kind === 'ident' && node.callee.name === 'Decimal' && !isProvenUserBinding(ctx, 'Decimal')) {
+    throw new Error(decimalBareConstructionFailMessage());
+  }
   // Slice H — fail-closed on an UNMAPPED host-namespace member CALL. This runs
   // AFTER every explicit lowering hook above (stdlib, regex, lambda/array,
   // portable-array, super/String/Error) and BEFORE generic call emission, so a
@@ -3191,7 +3233,13 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   const inner: GuardedExpr =
     callee.kind === 'member' || callee.kind === 'call' || callee.kind === 'index'
       ? lowerChain(callee, ctx)
-      : { guard: null, expr: emitPyExprCtx(callee, ctx) };
+      : {
+          guard: null,
+          expr: (() => {
+            const emitted = emitPyExprCtx(callee, ctx);
+            return needsLowPrecedenceOperandParens(callee) ? `(${emitted})` : emitted;
+          })(),
+        };
   const args = node.args.map((a) => emitPyExprCtx(a, ctx)).join(', ');
   return { guard: inner.guard, expr: `${inner.expr}(${args})`, lambdaBind: inner.lambdaBind };
 }
@@ -3870,6 +3918,15 @@ function needsWalrusOperandParens(child: ValueIR): boolean {
   return child.kind === 'conditional' || child.kind === 'lambda';
 }
 
+/** Low-precedence operand positions (`a <op> b`, `await x`, `<callee>(...)`)
+ *  must wrap a conditional child so the surrounding operator/call binds to the
+ *  whole operand instead of one ternary arm. */
+function needsLowPrecedenceOperandParens(child: ValueIR): boolean {
+  let node = child;
+  while (node.kind === 'typeAssert' || node.kind === 'nonNull') node = node.expression;
+  return node.kind === 'conditional';
+}
+
 /** S5 review fix — run `fn` with `ctx.banWalrus` set (save/restore), for
  *  emitting an operand that will be interpolated into a comprehension/
  *  generator ITERABLE position, where CPython rejects `:=` outright (see
@@ -4157,6 +4214,22 @@ function applyStdlibLoweringPython(call: Extract<ValueIR, { kind: 'call' }>, ctx
   if (moduleName === 'Array' && methodName === 'from' && call.args.some((arg) => arg.kind === 'spread')) {
     throw new Error('Array.from portable lowering does not accept spread arguments; pass source and mapper directly.');
   }
+  // DECIMAL Slice 1 — `Decimal.of(arg)` string-literal + canonical-scale check,
+  // running the SAME shared-core validator the TS leg runs, so the fail-close is
+  // byte-identical across targets.
+  validateDecimalConstructionArg(moduleName, methodName, call);
+  // DECIMAL Slice 3 — same shared compile-time pow fail-close the TS leg runs, so a
+  // non-integer / non-literal exponent or a negative base is refused byte-identically.
+  validateDecimalPowArgs(moduleName, methodName, call);
+  // DECIMAL Slice 3 (robustness) — same shared non-Decimal-operand fail-close the TS
+  // leg runs: a provably-non-Decimal LITERAL operand (a host number/string/…) passed
+  // to any Decimal op but `of` is refused byte-identically, closing the silent
+  // cross-target divergence a raw `0.1` operand would otherwise emit.
+  validateDecimalOperands(moduleName, methodName, call);
+  // DECIMAL Slice 3 — same shared compile-time zero-divisor fail-close: a literal
+  // `Decimal.of("0")` divisor to `Decimal.div`/`Decimal.mod` is refused byte-
+  // identically with the runtime guard's message (a dynamic zero stays runtime-caught).
+  validateDecimalDivModArgs(moduleName, methodName, call);
   const listLambda = lowerListLambdaPython(moduleName, methodName, call, ctx);
   if (listLambda !== null) return listLambda;
   // Slice 3b — register required imports (e.g., `Number.floor` ⇒ `import math`).
@@ -4221,6 +4294,19 @@ function registerStdlibRequirementPython(requirement: string | undefined, ctx: B
   }
   if (requirement === 'number-host') {
     ctx.helpers.add(KERN_JS_NUMBER_HELPERS_PY);
+    return;
+  }
+  // DECIMAL Slice 3 — `Decimal.div/mod/pow` register the guarded-ops helper block
+  // (single-sourced in `decimal-contract.ts`) AND the `decimal` import (the helper
+  // body references `_KernDecimal` for the `0**0 → 1` special-case). The block's
+  // own `from decimal import Decimal as _KernDecimal` line supplies that binding;
+  // we still register the `decimal` module import so the Decimal VALUES the helper
+  // operates on (`__k_decimal.Decimal(...)` from their `Decimal.of` producers) keep
+  // their existing import path — and so a div/mod/pow used WITHOUT a co-located
+  // `Decimal.of` literal still imports decimal.
+  if (requirement === 'decimal-ops') {
+    ctx.helpers.add(KERN_DECIMAL_OPS_HELPER_PY);
+    ctx.imports.add('decimal');
     return;
   }
   ctx.imports.add(requirement);

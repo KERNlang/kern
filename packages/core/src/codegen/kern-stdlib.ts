@@ -271,6 +271,145 @@ export const KERN_STDLIB: Record<string, Record<string, StdlibEntry>> = {
       requires: { py: 'posixpath' },
     },
   },
+  // DECIMAL — first-class member, Slice 1 (feasibility foundation). KERN's
+  // arbitrary-precision decimal surface lowers to decimal.js on the TS leg and
+  // Python's stdlib `decimal` module on the Python leg. This is the FIRST stdlib
+  // entry to populate `requires.ts` (an EXTERNAL npm package, not a global) — the
+  // TS leg auto-injects `import Decimal from 'decimal.js'` + a one-time context
+  // configuration (precision 28, ROUND_HALF_EVEN, matching CPython's default
+  // context) via the new TS imports channel, mirroring how `requires.py: 'math'`
+  // auto-injects `import math as __k_math` on the Python leg.
+  //
+  // Surface (Slice 1, minimal): construction from a string literal + addition.
+  //   - `Decimal.of("1.5")`     — construct. TS `new Decimal("1.5")`, PY
+  //     `__k_decimal.Decimal("1.5")`. The string-literal arg is validated against
+  //     the canonical-scale contract (`assertPortableDecimalLiteral`) so a
+  //     significance-divergent literal (`"1.10"`, `"1E+2"`, `"-0"`) fails closed
+  //     SYMMETRICALLY on both legs — see `decimal-contract.ts`.
+  //   - `Decimal.add(a, b)`     — add. TS `$0.plus($1)` (NOT `$0 + $1`: JS `+`
+  //     on decimal.js objects calls `.valueOf()` → float, losing precision), PY
+  //     `$0 + $1` (native `Decimal.__add__` is exact). Both render `0.3` for
+  //     `Decimal.add(Decimal.of("0.1"), Decimal.of("0.2"))`.
+  //
+  // The `Decimal.of` arg-literal scale validation is enforced at the dispatch
+  // site (codegen-expression.ts / codegen-body-python.ts), not expressible as a
+  // template, because it inspects the arg IR (string-literal-only + canonical).
+  //
+  // DEFERRED past Slice 1 (documented in the slice report): the bare `Decimal(...)`
+  // construction sugar and the `+` OPERATOR on Decimal values — both need a
+  // type-carrying IR / typed-value pass so `+` can dispatch to `.plus()` on the TS
+  // leg when an operand is a Decimal that flowed through a variable/param/return.
+  // Bare `Decimal(...)` is fail-closed (not registered as a portable lowering) so
+  // it never verbatim-emits an undefined global.
+  Decimal: {
+    of: {
+      arity: 1,
+      ts: 'new Decimal($0)',
+      py: '__k_decimal.Decimal($0)',
+      requires: { ts: 'decimal.js', py: 'decimal' },
+    },
+    add: {
+      arity: 2,
+      ts: '$0.plus($1)',
+      // Parenthesized so the lowered binary `+` is SELF-DELIMITING when nested as
+      // an arg to an outer Decimal op (e.g. `Decimal.add(a, Decimal.add(b, c))` →
+      // `a + (b + c)`, not `a + b + c`). Addition is associative so the value is
+      // identical either way, but the parens keep the form correct-by-construction
+      // for the non-associative ops (`sub`/`div`) a later slice will add. The TS
+      // leg needs no wrap — `.plus()` is already a self-delimiting method call.
+      py: '($0 + $1)',
+      requires: { ts: 'decimal.js' },
+    },
+    // DECIMAL Slice 2 (item 4) — explicit safe arithmetic, each mirroring `add`'s
+    // dual lowering: TS uses a self-delimiting decimal.js method call (no wrap),
+    // Python parenthesizes the native operator so nesting stays correct-by-
+    // construction for the non-associative ops (`sub`). Both legs render through
+    // the canonical stringifier (decimal.js `.toString()` on TS; `_kern_decimal_str`
+    // on Python — wired in via `_kern_fmt` + the contract). These four carry ZERO
+    // new divergence axis under the pinned 28-digit / ROUND_HALF_EVEN context.
+    // `div`/`mod`/`pow` are DEFERRED (own divergence axes: div-by-zero, rounding,
+    // non-terminating quotients) per the Slice-2 spec.
+    sub: {
+      arity: 2,
+      ts: '$0.minus($1)',
+      py: '($0 - $1)',
+      requires: { ts: 'decimal.js' },
+    },
+    mul: {
+      arity: 2,
+      ts: '$0.times($1)',
+      py: '($0 * $1)',
+      requires: { ts: 'decimal.js' },
+    },
+    neg: {
+      arity: 1,
+      ts: '$0.neg()',
+      // Parenthesized unary minus keeps the form self-delimiting when nested as an
+      // arg to an outer Decimal op (e.g. `Decimal.add(Decimal.neg(a), b)` →
+      // `((-a) + b)`).
+      py: '(-$0)',
+      requires: { ts: 'decimal.js' },
+    },
+    abs: {
+      arity: 1,
+      ts: '$0.abs()',
+      // Python `abs(...)` is already a self-delimiting call — no extra wrap needed.
+      py: 'abs($0)',
+      requires: { ts: 'decimal.js' },
+    },
+    // DECIMAL Slice 3 — div/mod/pow lower to KERN-emitted GUARDED helpers on BOTH
+    // legs (single-sourced in `decimal-contract.ts`, rendered into each leg's
+    // decimal preamble/prelude). The helper call is the SAME shape on both targets
+    // (`__k_decimal_div(a, b)` / `__k_decimal_mod(...)` / `__k_decimal_pow_int(...)`),
+    // so the divergent-op divisor/zero/pow guard lives at ONE byte-identical
+    // diagnostic site per op. The call form is already self-delimiting (a function
+    // call), so no parenthesize wrap is needed on either leg. The empirical
+    // differential probe proved non-terminating div (1/3, 10/3, …) and negative-
+    // operand mod (-5.5%2, 5.5%-2, …) are byte-IDENTICAL across decimal.js 10.6.0
+    // and CPython `decimal` under the pinned prec-28 / ROUND_HALF_EVEN context, so
+    // all are SHIPPED (not fail-closed). `requires.py: 'decimal-ops'` registers the
+    // Python helper block; the TS preamble renders its twin via `decimalOpsHelpersTS`.
+    div: {
+      arity: 2,
+      ts: '__k_decimal_div($0, $1)',
+      py: '__k_decimal_div($0, $1)',
+      requires: { ts: 'decimal.js', py: 'decimal-ops' },
+    },
+    mod: {
+      arity: 2,
+      ts: '__k_decimal_mod($0, $1)',
+      py: '__k_decimal_mod($0, $1)',
+      requires: { ts: 'decimal.js', py: 'decimal-ops' },
+    },
+    // INTEGER-exponent, non-negative-base ONLY — the dispatch site runs
+    // `assertPortableDecimalPow` (shared, byte-identical on both legs) which
+    // compile-time fail-closes a non-integer / non-literal exponent or a negative
+    // base. The helper additionally guards 0**0 (→1) and 0**neg (zero-error).
+    pow: {
+      arity: 2,
+      ts: '__k_decimal_pow_int($0, $1)',
+      py: '__k_decimal_pow_int($0, $1)',
+      requires: { ts: 'decimal.js', py: 'decimal-ops' },
+    },
+    // DECIMAL Slice 3 — comparison/ordering. Lower to NATIVE decimal.js comparison
+    // methods (TS) and native Python comparison operators (Python). Results are
+    // plain `boolean`/`bool` (eq/ne/lt/lte/gt/gte) or plain int -1|0|1 (cmp) — NOT
+    // Decimal-typed, so they are NEVER routed through `_kern_decimal_str`. No
+    // non-finite Decimal can reach a comparator (div/mod are zero-guarded, pow is
+    // integer-only with a guarded 0**neg), so comparison is TOTAL and needs no
+    // guard. `-0 ≡ 0` on both legs (empirically verified). Python `Decimal.compare`
+    // returns a Decimal, so `cmp` wraps it in `int(...)` to yield a plain int that
+    // matches the JS `.cmp()` number. No `requires` — native operators/methods, no
+    // import or helper (the operand Decimals already pulled in `decimal.js` via
+    // their own `Decimal.of` producer's requirement).
+    eq: { arity: 2, ts: '$0.eq($1)', py: '($0 == $1)' },
+    ne: { arity: 2, ts: '!$0.eq($1)', py: '($0 != $1)' },
+    lt: { arity: 2, ts: '$0.lt($1)', py: '($0 < $1)' },
+    lte: { arity: 2, ts: '$0.lte($1)', py: '($0 <= $1)' },
+    gt: { arity: 2, ts: '$0.gt($1)', py: '($0 > $1)' },
+    gte: { arity: 2, ts: '$0.gte($1)', py: '($0 >= $1)' },
+    cmp: { arity: 2, ts: '$0.cmp($1)', py: 'int($0.compare($1))' },
+  },
 };
 
 export const KERN_STDLIB_MODULES = new Set(Object.keys(KERN_STDLIB));

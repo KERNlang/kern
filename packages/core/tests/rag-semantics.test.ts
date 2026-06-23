@@ -1,4 +1,5 @@
 import { generateCoreNode, isCoreNode } from '../src/codegen-core.js';
+import { decompile } from '../src/decompiler.js';
 import { parseDocumentWithDiagnostics } from '../src/parser.js';
 import { validateSchema } from '../src/schema.js';
 import { collectRagSemanticFacts, validateRagSemantics, validateSemantics } from '../src/semantic-validator.js';
@@ -18,8 +19,11 @@ describe('RAG language semantics', () => {
       'source',
       'chunking',
       'embed',
+      'vectorStore',
+      'ragIndex',
       'retriever',
       'rag',
+      'ragRetrieve',
       'grounding',
       'ragEval',
       'ragCase',
@@ -148,6 +152,101 @@ describe('RAG language semantics', () => {
         ],
       }),
     ]);
+  });
+
+  test('collects runtime RAG vector store index and retrieval contracts without emitting JS', () => {
+    const root = parseRoot(
+      [
+        'corpus name=Docs title="Support docs"',
+        '  source name=manuals kind=local uri="./docs/**/*.md" media=markdown',
+        '  chunking name=DocsChunks source=manuals strategy=semantic maxTokens=600 overlap=80 unit=tokens',
+        'embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine',
+        'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
+        'ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding chunking=DocsChunks refresh=manual',
+        'retriever name=DocsSearch corpus=Docs embed=DocsEmbedding mode=hybrid topK=8 minScore=0.72',
+        'rag name=AnswerDocs retriever=DocsSearch citations=true',
+        '  grounding requireCitations=true policy=strict maxContext=6000',
+        '  ragRetrieve name=FindDocs index=DocsIndex queryParam=question as=context topK=4 minScore=0.72 output="RetrievedChunk[]" requireCitations=true',
+      ].join('\n'),
+    );
+
+    expect(validateSchema(root)).toEqual([]);
+    expect(validateSemantics(root)).toEqual([]);
+    expect(generateCoreNode({ type: 'vectorStore', props: { name: 'DocsMemory' } })).toEqual([]);
+    expect(generateCoreNode({ type: 'ragIndex', props: { name: 'DocsIndex' } })).toEqual([]);
+    expect(generateCoreNode({ type: 'ragRetrieve', props: { name: 'FindDocs' } })).toEqual([]);
+    expect(decompile(root).code).toContain('vectorStore name=DocsMemory kind=memory dims=64 metric=cosine');
+    expect(decompile(root).code).toContain(
+      'ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding chunking=DocsChunks refresh=manual',
+    );
+    expect(decompile(root).code).toContain(
+      'ragRetrieve name=FindDocs index=DocsIndex queryParam=question as=context topK=4 minScore=0.72 output="RetrievedChunk[]" requireCitations=true',
+    );
+
+    const facts = collectRagSemanticFacts(root);
+    expect(facts.vectorStores).toEqual([
+      expect.objectContaining({
+        name: 'DocsMemory',
+        kind: 'memory',
+        dims: 64,
+        metric: 'cosine',
+      }),
+    ]);
+    expect(facts.indexes).toEqual([
+      expect.objectContaining({
+        name: 'DocsIndex',
+        corpusName: 'Docs',
+        storeName: 'DocsMemory',
+        embedName: 'DocsEmbedding',
+        chunkingName: 'DocsChunks',
+        refresh: 'manual',
+      }),
+    ]);
+    expect(facts.runtimeRetrievals).toEqual([
+      expect.objectContaining({
+        name: 'FindDocs',
+        indexName: 'DocsIndex',
+        ragName: 'AnswerDocs',
+        queryParam: 'question',
+        as: 'context',
+        topK: 4,
+        minScore: 0.72,
+        outputShape: 'RetrievedChunk[]',
+        outputItemShape: 'RetrievedChunk',
+        requireCitations: true,
+        effectiveRequiresCitations: true,
+      }),
+    ]);
+    expect(facts.mcpRetrievals).toEqual([]);
+    expect(facts.unresolvedVectorStoreRefs).toEqual([]);
+    expect(facts.unresolvedIndexRefs).toEqual([]);
+    expect(facts.unresolvedChunkingRefs).toEqual([]);
+  });
+
+  test('runtime RAG retrieval inherits citation requirements from its rag pipeline', () => {
+    const facts = collectRagSemanticFacts(
+      parseRoot(
+        [
+          'corpus name=Docs',
+          'embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine',
+          'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
+          'ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding',
+          'retriever name=DocsSearch corpus=Docs embed=DocsEmbedding',
+          'rag name=AnswerDocs retriever=DocsSearch citations=true',
+          '  grounding requireCitations=true',
+          '  ragRetrieve name=FindDocs index=DocsIndex queryParam=question output="RetrievedChunk[]"',
+        ].join('\n'),
+      ),
+    );
+
+    expect(facts.runtimeRetrievals[0]).toEqual(
+      expect.objectContaining({
+        name: 'FindDocs',
+        ragName: 'AnswerDocs',
+        effectiveRequiresCitations: true,
+      }),
+    );
+    expect(Object.hasOwn(facts.runtimeRetrievals[0] ?? {}, 'requireCitations')).toBe(false);
   });
 
   test('collects RAG eval case and assertion contracts as semantic facts', () => {
@@ -507,6 +606,59 @@ describe('RAG language semantics', () => {
     );
   });
 
+  test('rejects semantic chunking with character units instead of silently downgrading strategy', () => {
+    const source = [
+      'corpus name=Docs',
+      '  source name=manuals uri="./docs/**/*.md"',
+      '  chunking source=manuals strategy=semantic maxTokens=64 overlap=8 unit=chars',
+    ].join('\n');
+
+    expect(rulesFor(source)).toContain('rag-chunking-semantic-unit-invalid');
+  });
+
+  test('rejects unsupported RAG chunking strategies instead of silently using window chunking', () => {
+    const source = [
+      'corpus name=Docs',
+      '  source name=manuals uri="./docs/**/*.md"',
+      '  chunking source=manuals strategy=semnatic maxTokens=64 overlap=8 unit=tokens',
+    ].join('\n');
+
+    expect(rulesFor(source)).toContain('rag-chunking-strategy-invalid');
+  });
+
+  test('rejects unsupported RAG embed models', () => {
+    const source = [
+      'corpus name=Docs',
+      'embed name=DocsEmbedding corpus=Docs model=unknown-embedder dims=64 metric=cosine',
+    ].join('\n');
+
+    expect(rulesFor(source)).toContain('rag-embed-model-unsupported');
+  });
+
+  test('rejects embed dimensions that disagree with a supported model', () => {
+    const source = [
+      'corpus name=Docs',
+      'embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=1536 metric=cosine',
+    ].join('\n');
+
+    expect(rulesFor(source)).toContain('rag-embed-dims-model-mismatch');
+  });
+
+  test('rejects embed dimensions that disagree with the default local semantic model', () => {
+    const source = ['corpus name=Docs', 'embed name=DocsEmbedding corpus=Docs dims=1536 metric=cosine'].join('\n');
+
+    expect(rulesFor(source)).toContain('rag-embed-dims-model-mismatch');
+  });
+
+  test('allows reduced OpenAI embedding dimensions supported by the provider API', () => {
+    const source = [
+      'corpus name=Docs',
+      'embed name=DocsEmbedding corpus=Docs model="openai:text-embedding-3-small" dims=512 metric=cosine',
+    ].join('\n');
+
+    expect(rulesFor(source)).not.toContain('rag-embed-dims-model-mismatch');
+  });
+
   test('reports invalid RAG eval case and assertion contracts', () => {
     const source = [
       'corpus name=Docs',
@@ -732,6 +884,72 @@ describe('RAG language semantics', () => {
         'rag-eval-threshold-invalid',
       ]),
     );
+  });
+
+  test('reports invalid runtime RAG vector store index and retrieval contracts', () => {
+    const source = [
+      'corpus name=Docs',
+      'corpus name=OtherDocs',
+      '  chunking name=OtherChunks maxTokens=100',
+      'embed name=OtherEmbedding corpus=OtherDocs model=local-semantic-v1 dims=64 metric=cosine',
+      'embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine',
+      'vectorStore name=BadStore kind=local dims=0 metric=dot url="postgres://db" table=rag_chunks',
+      'vectorStore name=BadStore kind=memory dims=64 metric=cosine path="./bad"',
+      'vectorStore name=Store32 kind=memory dims=32 metric=cosine',
+      'ragIndex name=BadIndex corpus=MissingCorpus store=MissingStore embed=MissingEmbed chunking=MissingChunks',
+      'ragIndex name=MismatchIndex corpus=Docs store=BadStore embed=OtherEmbedding chunking=OtherChunks',
+      'ragIndex name=DimsMismatch corpus=Docs store=Store32 embed=DocsEmbedding',
+      'ragIndex name=DuplicateIndex corpus=Docs store=Store32 embed=DocsEmbedding',
+      'ragIndex name=DuplicateIndex corpus=Docs store=Store32 embed=DocsEmbedding',
+      'retriever name=DocsSearch corpus=Docs embed=DocsEmbedding',
+      'rag name=AnswerDocs retriever=DocsSearch',
+      '  ragRetrieve name=ConflictRetrieve index=DimsMismatch rag=OtherRag queryParam=question',
+      'rag name=OtherRag retriever=DocsSearch',
+      'rag name=CitedRag retriever=DocsSearch citations=true',
+      '  grounding requireCitations=true',
+      '  ragRetrieve name=WeakRetrieve index=DimsMismatch queryParam=question requireCitations=false',
+      '  ragRetrieve name=NeedsCitationOutput index=DimsMismatch queryParam=question requireCitations=true',
+      'ragRetrieve name=BadRetrieve index=MissingIndex rag=MissingRag queryParam=question query={{ question }} topK=0 minScore=1.5 output=RetrievedChunk',
+      'ragRetrieve name=BadRetrieve index=DimsMismatch output="Wrong[]"',
+    ].join('\n');
+
+    expect(rulesFor(source)).toEqual(
+      expect.arrayContaining([
+        'rag-duplicate-vector-store-name',
+        'rag-duplicate-index-name',
+        'rag-duplicate-runtime-retrieve-name',
+        'rag-vector-store-dims-invalid',
+        'rag-vector-store-metric-unsupported',
+        'rag-vector-store-path-required',
+        'rag-vector-store-memory-config-invalid',
+        'rag-vector-store-local-config-invalid',
+        'rag-index-unknown-corpus',
+        'rag-index-unknown-vector-store',
+        'rag-index-unknown-embed',
+        'rag-index-unknown-chunking',
+        'rag-index-embed-corpus-mismatch',
+        'rag-index-store-embed-dims-mismatch',
+        'rag-retrieve-unknown-index',
+        'rag-retrieve-unknown-rag',
+        'rag-retrieve-rag-conflicts-parent',
+        'rag-retrieve-citations-cannot-weaken-rag',
+        'rag-retrieve-query-required',
+        'rag-retrieve-query-exclusive',
+        'rag-retrieve-topk-invalid',
+        'rag-retrieve-minscore-invalid',
+        'rag-retrieve-output-required',
+        'rag-retrieve-output-array-required',
+        'rag-retrieve-output-unknown',
+      ]),
+    );
+
+    const facts = collectRagSemanticFacts(parseRoot(source));
+    expect(facts.unresolvedCorpusRefs).toEqual(['MissingCorpus']);
+    expect(facts.unresolvedVectorStoreRefs).toEqual(['MissingStore']);
+    expect(facts.unresolvedIndexRefs).toEqual(['MissingIndex']);
+    expect(facts.unresolvedChunkingRefs).toEqual(['MissingChunks', 'OtherChunks']);
+    expect(facts.unresolvedEmbedRefs).toEqual(['MissingEmbed']);
+    expect(facts.unresolvedRagRefs).toEqual(['MissingRag']);
   });
 
   test('reports duplicate RAG eval and case names in their contract namespaces', () => {

@@ -41,6 +41,7 @@ export interface RetrieveResult {
 
 export type InMemoryRagRetriever = (query: string, options?: RetrieveOptions) => RetrieveResult;
 export type RagContractRetriever = (query: string, options?: RetrieveOptions) => RetrieveResult;
+export type AsyncRagContractRetriever = (query: string, options?: RetrieveOptions) => Promise<RetrieveResult>;
 
 export const MAX_IN_MEMORY_RAG_TOP_K = 1000;
 
@@ -555,6 +556,35 @@ export function evaluateRagEvalContract(
   };
 }
 
+export async function evaluateRagEvalContractAsync(
+  evaluation: RagSemanticEvalFact,
+  retriever: AsyncRagContractRetriever,
+  options: RagEvalContractOptions = {},
+): Promise<RagEvalContractResult> {
+  const startedAt = runtimeNow(options);
+  const cases = await Promise.all(
+    (evaluation.cases ?? []).map((evaluationCase) =>
+      evaluateRagCaseAsync(evaluation, evaluationCase, retriever, options),
+    ),
+  );
+  const assertionCount = cases.reduce((count, evaluationCase) => count + evaluationCase.assertions.length, 0);
+  const passedAssertionCount = cases.reduce(
+    (count, evaluationCase) => count + evaluationCase.assertions.filter((assertion) => assertion.passed).length,
+    0,
+  );
+  return {
+    passed: cases.length > 0 && cases.every((evaluationCase) => evaluationCase.passed),
+    ...optionalStringValue('ragName', evaluation.ragName),
+    ...optionalStringValue('evalName', evaluation.name),
+    caseCount: cases.length,
+    passedCaseCount: cases.filter((evaluationCase) => evaluationCase.passed).length,
+    assertionCount,
+    passedAssertionCount,
+    durationMs: runtimeNow(options) - startedAt,
+    cases,
+  };
+}
+
 export function hashRetrievedChunkText(text: string): string {
   let left = 0xcbf29ce484222325n;
   let right = 0x84222325cbf29ce4n;
@@ -687,6 +717,48 @@ function evaluateRagCase(
   let assertions: RagEvalAssertionResult[] = [];
   try {
     chunks = validateRetrieveResult(retriever(evaluationCase.query, retrieveOptions)).chunks;
+  } catch (error) {
+    assertions = [
+      {
+        kind: 'retriever',
+        passed: false,
+        code: 'RETRIEVER_ERROR',
+        message: `RAG eval case '${evaluationCase.name}' retriever failed: ${error instanceof Error ? error.message : String(error)}.`,
+      },
+    ];
+  }
+  const durationMs = runtimeNow(options) - startedAt;
+  if (assertions.length === 0) {
+    assertions = [
+      ...evaluateExpectedCaseContracts(evaluationCase, chunks),
+      ...(evaluationCase.asserts ?? []).map((assertion) =>
+        evaluateRagAssertion(evaluation, evaluationCase, assertion, chunks, durationMs, options),
+      ),
+    ];
+  }
+  return {
+    name: evaluationCase.name,
+    query: evaluationCase.query,
+    passed: assertions.every(isPassingOrAdvisoryAssertion),
+    durationMs,
+    retrieveOptions,
+    chunks,
+    assertions,
+  };
+}
+
+async function evaluateRagCaseAsync(
+  evaluation: RagSemanticEvalFact,
+  evaluationCase: RagSemanticEvalCaseFact,
+  retriever: AsyncRagContractRetriever,
+  options: RagEvalContractOptions,
+): Promise<RagEvalCaseResult> {
+  const retrieveOptions = caseRetrieveOptions(evaluationCase);
+  const startedAt = runtimeNow(options);
+  let chunks: readonly RetrievedChunk[] = [];
+  let assertions: RagEvalAssertionResult[] = [];
+  try {
+    chunks = validateRetrieveResult(await retriever(evaluationCase.query, retrieveOptions)).chunks;
   } catch (error) {
     assertions = [
       {

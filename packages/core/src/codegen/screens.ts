@@ -28,7 +28,7 @@
 
 import { KernCodegenError } from '../errors.js';
 import type { ExprObject, IRNode } from '../types.js';
-import { emitNativeKernBodyTS } from './body-ts.js';
+import { emitNativeKernBodyTSWithImports } from './body-ts.js';
 import { emitFmtTemplate, emitIdentifier, emitTypeAnnotation } from './emitters.js';
 import { exportPrefix, getChildren, getFirstChild, getProps } from './helpers.js';
 import { emitConstValue } from './type-system.js';
@@ -79,7 +79,12 @@ function handlerContent(node: IRNode, stateBindings?: ReadonlyArray<string>): st
     // structured directives (assign/let/if/do) emit empty bodies because
     // they have no `code`/`body` text prop to read.
     if (hp.lang === 'kern') {
-      return emitNativeKernBodyTS(handler, stateBindings && stateBindings.length > 0 ? { stateBindings } : undefined);
+      // DECIMAL Slice 2 (Finding 1) — import-aware entry; the file-level decimal.js
+      // import is rendered by the post-transpile stdlib-preamble pass (top-level).
+      return emitNativeKernBodyTSWithImports(
+        handler,
+        stateBindings && stateBindings.length > 0 ? { stateBindings } : undefined,
+      ).code;
     }
     return (hp.code as string) || (hp.body as string) || '';
   }

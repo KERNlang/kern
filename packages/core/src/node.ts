@@ -71,6 +71,8 @@ export {
   isValidKernExpression,
   isValidKernTypeAnnotation,
 } from './native-eligibility-ast.js';
+export type { LocalPersistentRagVectorStoreOptions } from './rag-embedding-node.js';
+export { LocalPersistentRagVectorStoreAdapter } from './rag-embedding-node.js';
 export { typescriptClosureClassifier } from './typescript-closure-classifier.js';
 
 /** Convenience binding of `classifyHandlerBody` to the TypeScript-AST walker —

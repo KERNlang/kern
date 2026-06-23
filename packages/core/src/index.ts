@@ -27,6 +27,38 @@ export {
 } from './closure-classifier.js';
 export type { BodyEmitOptions, BodyEmitResult } from './codegen/body-ts.js';
 export { emitNativeKernBodyTS, emitNativeKernBodyTSWithImports } from './codegen/body-ts.js';
+// DECIMAL Slice 1 — shared canonical-scale contract (single-sourced fail-close
+// + portability predicate consumed by BOTH the TS and Python emitters).
+export {
+  assertDecimalOperands,
+  assertNoDecimalOperator,
+  assertNonZeroDecimalDivisor,
+  assertPortableDecimalLiteral,
+  assertPortableDecimalPow,
+  DECIMAL_BARE_CONSTRUCTION_FAILCLOSE,
+  DECIMAL_DIV_ZERO_FAILCLOSE,
+  DECIMAL_MOD_ZERO_FAILCLOSE,
+  DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE,
+  DECIMAL_OPERATOR_FAILCLOSE,
+  DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE,
+  DECIMAL_POW_ZERO_NEGATIVE_EXP_FAILCLOSE,
+  DECIMAL_SCALE_FAILCLOSE,
+  DECIMAL_UNARY_OPERAND_FAILCLOSE,
+  decimalBareConstructionFailMessage,
+  decimalImportLineTS,
+  decimalNonDecimalOperandFailMessage,
+  decimalNonStringLiteralFailMessage,
+  decimalOfLiteralValue,
+  decimalOperatorFailMessage,
+  decimalOpsHelpersTS,
+  decimalPowFailMessage,
+  decimalScaleFailMessage,
+  decimalUnaryOperandFailMessage,
+  decimalZeroDivisorFailMessage,
+  isPortableDecimalLiteral,
+  isSyntacticDecimalProducer,
+  KERN_DECIMAL_OPS_HELPER_PY,
+} from './codegen/decimal-contract.js';
 export {
   HOST_NAMESPACE_EXEMPT_ROOTS,
   isHostNamespaceRoot,
@@ -205,7 +237,18 @@ export {
 // cross-target method dispatch. `applyTemplate` is the shared placeholder
 // substitution; `needsBinaryParens` is the shared precedence-aware paren
 // predicate so Python codegen reuses the same rule.
-export { emitExpression, needsArgParens, needsBinaryParens } from './codegen-expression.js';
+export {
+  type ExprEmitContext,
+  type ExpressionEmitResult,
+  emitExpression,
+  emitExpressionWithImports,
+  needsArgParens,
+  needsBinaryParens,
+  validateDecimalConstructionArg,
+  validateDecimalDivModArgs,
+  validateDecimalOperands,
+  validateDecimalPowArgs,
+} from './codegen-expression.js';
 export type {
   CallPayload,
   ConceptEdge,
@@ -433,6 +476,20 @@ export {
   snapshotRegistry,
   tracesEqual,
 } from './ir/semantics/index.js';
+export type { RegExpValue } from './ir/semantics/portable-regex.js';
+export {
+  evalRegexTestExpression,
+  isRegExpValue,
+  isRegexTestExpression,
+  isRunnerNativeRegexFailClose,
+  makeRegExpValue,
+  REGEXP_VALUE_TAG,
+} from './ir/semantics/portable-regex.js';
+// Runner-native Decimal (Slice 1) — the ReferenceRunner executes `Decimal.of/add/
+// mul` natively as a third "leg" of the decimal differential oracle, computing on a
+// local pinned decimal.js constructor and rendering through the canonical
+// stringifier so it is byte-identical to both emitted legs.
+export { evalDecimalExpression, isDecimalExpression } from './ir/semantics/portable-scalar.js';
 // ToNumericPrimitive decision kernel — slice-0.75 substrate (browser-safe).
 export type { KernNumericInput, NumericResult } from './ir/semantics/to-numeric.js';
 export {
@@ -591,8 +648,108 @@ export {
   validatePortablePredicateAST,
 } from './portable-predicate.js';
 export { parsePortableNonNegativeIntLiteral, parsePortablePathSegments } from './portable-route-collection.js';
+export type {
+  RagAdapterPersistence,
+  RagVectorStoreAdapterCapabilities,
+  RagVectorStoreAdapterContract,
+  RagVectorStoreAdapterManifest,
+  RagVectorStoreConformanceCaseResult,
+  RagVectorStoreConformanceContext,
+  RagVectorStoreConformanceOptions,
+  RagVectorStoreConformanceProfile,
+  RagVectorStoreConformanceProfileVersion,
+  RagVectorStoreConformanceReport,
+  RagVectorStoreConformanceStatus,
+  RagVectorStoreManifestValidationResult,
+} from './rag-adapter-conformance.js';
+export {
+  BUILTIN_RAG_VECTOR_STORE_MANIFESTS,
+  builtinRagVectorStoreManifest,
+  createInMemoryRagVectorStoreForConformance,
+  defineRagVectorStoreAdapterContract,
+  RAG_VECTOR_STORE_CONFORMANCE_PROFILE,
+  runRagVectorStoreConformance,
+  validateRagVectorStoreAdapterManifest,
+} from './rag-adapter-conformance.js';
 export type { RagAssertionKind } from './rag-assertions.js';
 export { RAG_ASSERTION_KIND_SET, RAG_ASSERTION_KINDS } from './rag-assertions.js';
+export type { RagProviderEmbeddingOptions, RagSupportedEmbedModel } from './rag-embed-resolver.js';
+export {
+  canonicalRagEmbedModel,
+  defaultDimsForRagEmbedModel,
+  embedFactForPipeline,
+  isSupportedRagEmbedModel,
+  RAG_EMBED_MODEL_LOCAL_HASH,
+  RAG_EMBED_MODEL_LOCAL_SEMANTIC,
+  RAG_EMBED_MODEL_OPENAI_TEXT_EMBEDDING_3_LARGE,
+  RAG_EMBED_MODEL_OPENAI_TEXT_EMBEDDING_3_SMALL,
+  RAG_SUPPORTED_EMBED_MODELS,
+  resolveAsyncRagEmbedderForPipeline,
+  resolveSyncRagEmbedderForPipeline,
+} from './rag-embed-resolver.js';
+export type {
+  AsyncEmbedder,
+  Embedder,
+  EmbeddingFingerprintInput,
+  OpenAIEmbeddingAdapterOptions,
+  RagVectorStoreAdapter,
+  RagVectorStoreKind,
+  RagVectorStoreMetric,
+  RagVectorStoreSnapshot,
+  RagVectorStoreUpsert,
+  SerializedVectorChunk,
+} from './rag-embedding.js';
+export {
+  AsyncEmbeddingRagIndex,
+  asAsyncEmbedder,
+  createAsyncEmbeddingRetriever,
+  createEmbeddingRetriever,
+  DEFAULT_EMBEDDING_DIMS,
+  DEFAULT_HASH_EMBEDDER_ID,
+  DEFAULT_LOCAL_SEMANTIC_EMBEDDER_ID,
+  DeterministicHashEmbedder,
+  EMBEDDING_SCORE_DECIMALS,
+  EmbeddingRagIndex,
+  embedderFingerprint,
+  embeddingCosine,
+  embeddingFingerprint,
+  fnv1a32,
+  InMemoryPgVectorRagStore,
+  LocalSemanticEmbedder,
+  OpenAIEmbeddingAdapter,
+  RAG_VECTOR_STORE_SNAPSHOT_VERSION,
+} from './rag-embedding.js';
+export type {
+  RagEvalAsyncDocumentOptions,
+  RagEvalDeclaredAsyncDocumentOptions,
+  RagEvalDeclaredDocumentOptions,
+  RagEvalDocumentCorpusSource,
+  RagEvalDocumentCorpusSourceMode,
+  RagEvalDocumentEntry,
+  RagEvalDocumentOptions,
+  RagEvalDocumentReport,
+} from './rag-eval-runner.js';
+export {
+  evaluateRagEvalDocument,
+  evaluateRagEvalDocumentAsync,
+  evaluateRagEvalDocumentFromDeclaredSources,
+  evaluateRagEvalDocumentFromDeclaredSourcesAsync,
+} from './rag-eval-runner.js';
+export type { RagIngestedSource, RagIngestOptions, RagIngestResult } from './rag-ingest.js';
+export {
+  ingestRagDeclaredLocalSources,
+  ingestRagFactsDeclaredLocalSources,
+  RAG_CHUNK_ID_VERSION,
+  RAG_CHUNKER_VERSION,
+  RAG_SEMANTIC_CHUNKER_VERSION,
+  RAG_TOKEN_WINDOW_CHUNKER_VERSION,
+} from './rag-ingest.js';
+export type {
+  RagRetrieveDocumentEntry,
+  RagRetrieveDocumentOptions,
+  RagRetrieveDocumentReport,
+} from './rag-retrieve-runner.js';
+export { ragRetrieveCorpusSourceSummary, retrieveRagDocument } from './rag-retrieve-runner.js';
 export type {
   InMemoryRagRetriever,
   ProvenancedRetrieveResult,
@@ -688,11 +845,14 @@ export type {
   RagSemanticEvalFact,
   RagSemanticFacts,
   RagSemanticGroundingFact,
+  RagSemanticIndexFact,
   RagSemanticLocation,
   RagSemanticMcpRetrievalFact,
   RagSemanticPipelineFact,
   RagSemanticRetrieverFact,
+  RagSemanticRuntimeRetrieveFact,
   RagSemanticSourceFact,
+  RagSemanticVectorStoreFact,
   SemanticViolation,
 } from './semantic-validator.js';
 export {
@@ -700,6 +860,8 @@ export {
   collectRagSemanticFacts,
   RAG_MCP_RETRIEVE_OUTPUT_ITEM_SHAPE,
   RAG_MCP_RETRIEVE_OUTPUT_SHAPE,
+  RAG_RUNTIME_RETRIEVE_OUTPUT_ITEM_SHAPE,
+  RAG_RUNTIME_RETRIEVE_OUTPUT_SHAPE,
   validateClassSemantics,
   validateRagSemantics,
   validateSemantics,
