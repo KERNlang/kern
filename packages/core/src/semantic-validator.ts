@@ -32,6 +32,7 @@ import {
   RAG_EMBED_MODEL_LOCAL_SEMANTIC,
   ragEmbedModelAllowsCustomDims,
 } from './rag-embed-resolver.js';
+import type { RagVectorStoreKind } from './rag-embedding.js';
 import type { IRNode } from './types.js';
 import type { ValueIR } from './value-ir.js';
 
@@ -42,6 +43,8 @@ import type { ValueIR } from './value-ir.js';
 // silently-skipped semantic diagnostics. The analysis classifier accepts block
 // bodies WITHOUT validating them; nothing parsed here flows to an emitter.
 const ANALYSIS_PARSE_OPTS = { closureClassifier: analysisClosureClassifier } as const;
+const SUPPORTED_RAG_VECTOR_STORE_KINDS: readonly RagVectorStoreKind[] = ['memory', 'local-persistent'];
+
 function parseExprForAnalysis(text: string): ReturnType<typeof parseExpression> {
   return parseExpression(text, ANALYSIS_PARSE_OPTS);
 }
@@ -1684,6 +1687,16 @@ function validateRagVectorStore(vectorStore: RagVectorStoreInfo, violations: Sem
       vectorStore.node,
       'RAG vectorStore kind must be a non-empty adapter name.',
     );
+  } else if (
+    kind !== undefined &&
+    !SUPPORTED_RAG_VECTOR_STORE_KINDS.includes(kind as RagVectorStoreKind)
+  ) {
+    pushRagViolation(
+      violations,
+      'rag-vector-store-kind-unsupported',
+      vectorStore.node,
+      `RAG vectorStore kind '${kind}' is not supported by this runtime slice.`,
+    );
   }
 
   const dims = numberProp(vectorStore.node, 'dims');
@@ -1709,12 +1722,12 @@ function validateRagVectorStore(vectorStore: RagVectorStoreInfo, violations: Sem
   const path = stringProp(vectorStore.node, 'path');
   const url = stringProp(vectorStore.node, 'url');
   const table = stringProp(vectorStore.node, 'table');
-  if ((kind === 'local' || kind === 'local-persistent') && (!path || path.trim() === '')) {
+  if (kind === 'local-persistent' && (!path || path.trim() === '')) {
     pushRagViolation(
       violations,
       'rag-vector-store-path-required',
       vectorStore.node,
-      'RAG vectorStore kind=local or kind=local-persistent requires path=<index directory>.',
+      'RAG vectorStore kind=local-persistent requires path=<index directory>.',
     );
   }
   if ((kind === 'memory' || kind === undefined) && (path || url || table)) {
@@ -1725,12 +1738,12 @@ function validateRagVectorStore(vectorStore: RagVectorStoreInfo, violations: Sem
       'RAG vectorStore kind=memory or omitted kind cannot declare path, url, or table.',
     );
   }
-  if ((kind === 'local' || kind === 'local-persistent') && (url || table)) {
+  if (kind === 'local-persistent' && (url || table)) {
     pushRagViolation(
       violations,
       'rag-vector-store-local-config-invalid',
       vectorStore.node,
-      'RAG vectorStore kind=local or kind=local-persistent uses path=<index directory>, not url or table.',
+      'RAG vectorStore kind=local-persistent uses path=<index directory>, not url or table.',
     );
   }
 }

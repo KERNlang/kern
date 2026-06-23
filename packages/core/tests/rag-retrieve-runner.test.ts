@@ -35,6 +35,11 @@ const INDEX_CHUNKING_DOC = DOC.replace(
   'ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding chunking=Large',
 );
 
+const LOCAL_PERSISTENT_STORE_DOC = DOC.replace(
+  'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
+  'vectorStore name=DocsMemory kind=local-persistent dims=64 metric=cosine path="./index"',
+);
+
 describe('retrieveRagDocument', () => {
   let dir: string;
 
@@ -110,5 +115,14 @@ describe('retrieveRagDocument', () => {
         query: 'refund policy money back',
       }),
     ).toThrow(/index 'DocsIndex' with chunking='Large'/u);
+  });
+
+  test('fails closed instead of ignoring non-memory vector store contracts', () => {
+    expect(() =>
+      retrieveRagDocument(LOCAL_PERSISTENT_STORE_DOC, {
+        sourcePath: join(dir, 'spec.kern'),
+        query: 'refund policy money back',
+      }),
+    ).toThrow(/vectorStore 'DocsMemory' kind='local-persistent'/u);
   });
 });
