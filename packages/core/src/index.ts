@@ -181,6 +181,7 @@ export type { KernStdlibUsage } from './codegen/stdlib-preamble.js';
 // Slice 4 layer 2 — Result / Option compact form preamble (TS-family targets)
 export {
   detectKernStdlibUsage,
+  emittedCodeUsesLooseEq,
   injectKernStdlibPreamble,
   injectKernStdlibPreambleIntoSFC,
   kernStdlibPreamble,

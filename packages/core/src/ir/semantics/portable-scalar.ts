@@ -271,16 +271,22 @@ export function evalPortableBinary(node: Extract<ValueIR, { kind: 'binary' }>, e
       return sameType(left, right) ? left === right : false;
     case '!==':
       return sameType(left, right) ? left !== right : true;
-    // LOOSE `==`/`!=` cross-type still ABSTAINS — DEFERRED to D1b. The TS leg
-    // currently JS-coerces (`1 == "1"` → true) where core/Python yield false; until
-    // the TS `__kern_loose_eq` helper lands, computing a value here would assert a
-    // result the TS producer contradicts. (Same-type loose === strict for scalars.)
+    // D1b — LOOSE `==`/`!=` cross-type equality is now RECONCILED (was the last
+    // abstaining surface here). KERN's loose `==` is NOT JS `==`: it adds ONLY the
+    // null/undefined crossing on top of strict equality and does NOT model JS
+    // coercion, so un-same-typed scalars are simply NOT loose-equal (`1 == "1"` →
+    // false, `true == 1` → false), matching core-runtime's `kernLooseEqual` AND both
+    // emitted legs (TS now routes loose ops through the `__kern_loose_eq` helper;
+    // Python through `_kern_loose_equal`). Same-type → value compare (for scalars
+    // loose === strict). Identical kind-sensitive shape to the D1a strict relax
+    // above. The null/undefined crossing is NOT reachable in this reducer: undefined
+    // is non-portable → abstains UPSTREAM in `evalPortableValue` → `assertPortableScalar`
+    // (same as D1a), so no unreachable nullish handling is added here. A tagged
+    // Decimal (or any non-portable) operand still abstains UPSTREAM.
     case '==':
-      if (!sameType(left, right)) throw new Error('portable: equality operands must have the same portable type');
-      return left === right;
+      return sameType(left, right) ? left === right : false;
     case '!=':
-      if (!sameType(left, right)) throw new Error('portable: equality operands must have the same portable type');
-      return left !== right;
+      return sameType(left, right) ? left !== right : true;
     case '<':
     case '<=':
     case '>':

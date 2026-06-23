@@ -41,9 +41,14 @@ const { toSnakeCase } = await import(join(REPO, 'packages/python/dist/type-map.j
 // Statement-level (kind:'stmt') fixtures lower a native `lang=kern` handler BODY via these,
 // run it in an isolated subprocess (TS via --experimental-strip-types), and compare the
 // RETURNED value — capturing control-flow behaviour the expression harness cannot reach.
-const { parse, emitNativeKernBodyTSWithImports, generateCoreNode } = await import(
-  join(REPO, 'packages/core/dist/index.js')
-);
+const {
+  parse,
+  emitNativeKernBodyTSWithImports,
+  generateCoreNode,
+  detectKernStdlibUsage,
+  emittedCodeUsesLooseEq,
+  kernStdlibPreamble,
+} = await import(join(REPO, 'packages/core/dist/index.js'));
 const { emitNativeKernBodyPythonWithImports } = await import(join(REPO, 'packages/python/dist/codegen-body-python.js'));
 // Whole-file (kind:'whole-file') + compile-reject (kind:'compile-reject') fixtures compile a FULL
 // multi-declaration .kern module via the SAME entry class-conformance.mjs uses (`generateCoreNode`
@@ -613,6 +618,53 @@ const FIXTURES = [
     params: [{ name: 'x', type: 'number', value: 7 }, { name: 'c', type: 'boolean', value: true }],
     body: `let name=witness value="0" kind=let\nif cond="c"\n  let name=x value="100" kind=let\n  assign target="x" value="x + 1"\n  assign target="witness" value="x"\nreturn value="{ x: x, witness: witness }"`,
     expected: { x: 7, witness: 101 } },
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // D1b: LOOSE cross-type equality (`==`/`!=`) anti-drift, native-body stmt path.
+  // KERN's loose `==` is NOT JS `==` — it adds ONLY the null/undefined crossing on
+  // top of strict and does NOT JS-coerce. So `1 == "1"` is FALSE, `true == 1` is
+  // FALSE, a same-type compare matches, and `null == null` is TRUE. The TS leg now
+  // routes loose ops through `__kern_loose_eq`; Python through `_kern_loose_equal`.
+  // These run the SAME `lang=kern` body on BOTH targets and compare the boolean
+  // return, so the two helpers can never silently drift. Operands are PARAMS of
+  // DISTINCT types (the cross-type case the bug produced `true` on TS) per the stmt
+  // harness rule (no inline literals in the observable). A BUGGED TS leg (raw `==`,
+  // JS coercion) returns `xn: true` here and FAILS — this fixture is the lock.
+  { kind: 'stmt', name: 'stmt: D1b loose `==` number-vs-string is FALSE (no JS coercion)',
+    params: [{ name: 'n', type: 'number', value: 1 }, { name: 's', type: 'string', value: '1' }],
+    body: `return value="{ xn: n == s, same: n == 1 }"`,
+    expected: { xn: false, same: true } },
+  { kind: 'stmt', name: 'stmt: D1b loose `!=` number-vs-string is TRUE (no JS coercion)',
+    params: [{ name: 'n', type: 'number', value: 1 }, { name: 's', type: 'string', value: '1' }],
+    body: `return value="{ xn: n != s, same: n != 1 }"`,
+    expected: { xn: true, same: false } },
+  { kind: 'stmt', name: 'stmt: D1b loose `==` bool-vs-number is FALSE',
+    params: [{ name: 'flag', type: 'boolean', value: true }, { name: 'one', type: 'number', value: 1 }],
+    body: `return value="{ xb: flag == one }"`,
+    expected: { xb: false } },
+  { kind: 'stmt', name: 'stmt: D1b loose `==` null-vs-number is FALSE, null-vs-null is TRUE (nullish crossing)',
+    params: [{ name: 'nothing', type: 'any', value: null }, { name: 'zero', type: 'number', value: 0 }],
+    body: `return value="{ nz: nothing == zero, nn: nothing == nothing }"`,
+    expected: { nz: false, nn: true } },
+  { kind: 'stmt', name: 'stmt: D1b loose `==` empty-string-vs-zero and false-vs-zero are FALSE',
+    params: [{ name: 'empty', type: 'string', value: '' }, { name: 'zero', type: 'number', value: 0 }, { name: 'flag', type: 'boolean', value: false }],
+    body: `return value="{ ez: empty == zero, fz: flag == zero }"`,
+    expected: { ez: false, fz: false } },
+  { kind: 'stmt', name: 'stmt: D1b loose `==`/`!=` same-type controls compare by value',
+    params: [{ name: 'a', type: 'string', value: 'x' }, { name: 'b', type: 'string', value: 'x' }, { name: 'c', type: 'string', value: 'y' }],
+    body: `return value="{ eq: a == b, ne: a != c }"`,
+    expected: { eq: true, ne: true } },
+  // D1b nero-found fail-open lock: a loose `==` inside a TEMPLATE INTERPOLATION is
+  // lowered through `__kern_loose_eq` on TS (and `_kern_loose_equal` on Python). An
+  // earlier IR-walk detector missed `==` inside `${…}` (its mask blanked whole template
+  // literals) → missing helper DEF → runtime ReferenceError. `looseEq` is now derived
+  // from the EMITTED code (`emittedCodeUsesLooseEq`), so the def is always present. This
+  // fixture runs the interpolated body on BOTH legs end-to-end — it CRASHED at base
+  // before the fix, so it discriminates the regression.
+  { kind: 'stmt', name: 'stmt: D1b loose `==` inside a template interpolation (fail-open lock)',
+    params: [{ name: 'n', type: 'number', value: 1 }, { name: 's', type: 'string', value: '1' }],
+    body: 'return value="`xtype=${n == s}`"',
+    expected: 'xtype=false' },
 
   // ──────────────────────────────────────────────────────────────────────────
   // route: ROUTE-LEVEL HTTP response parity (kind:'route', goal: error-semantics 2026-05-28).
@@ -1632,7 +1684,16 @@ for (const fx of FIXTURES) {
       const pyEmit = emitNativeKernBodyPythonWithImports(handler, { outerBindings: names });
       const tsFile = join(dir, 'stmt.mjs');
       const pyFile = join(dir, 'stmt.py');
-      const tsSource = `${[...(ts.imports ?? [])].join('\n')}\nfunction __h(${names.join(', ')}: any): any {\n${ts.code}\n}\nconsole.log(JSON.stringify(__h(${fx.params.map((p) => JSON.stringify(p.value)).join(', ')})));`;
+      // Prepend the SAME stdlib preamble the production pipeline injects via
+      // `applyKernStdlibPreamble` (e.g. the D1b `__kern_loose_eq` helper) so the
+      // emitted body's helper calls resolve in this isolated subprocess. `looseEq` is
+      // set from the EMITTED body (`emittedCodeUsesLooseEq(ts.code)`) — exactly how
+      // the production site derives it — so detection == emission (the IR walk only
+      // feeds the other flags).
+      const usage = detectKernStdlibUsage(handler);
+      if (emittedCodeUsesLooseEq(ts.code)) usage.looseEq = true;
+      const tsPreamble = kernStdlibPreamble(usage).join('\n');
+      const tsSource = `${[...(ts.imports ?? [])].join('\n')}\n${tsPreamble}\nfunction __h(${names.join(', ')}: any): any {\n${ts.code}\n}\nconsole.log(JSON.stringify(__h(${fx.params.map((p) => JSON.stringify(p.value)).join(', ')})));`;
       writeFileSync(
         tsFile,
         tsCompiler.transpileModule(tsSource, {
@@ -1767,7 +1828,18 @@ for (const fx of FIXTURES) {
       let tsOut;
       phase = 'ts';
       if (!skip.has('node')) {
-        const tsSource = `${topNodes.map((n) => generateCoreNode(n).join('\n')).join('\n\n')}${probeLogTs}`;
+        // Apply the SAME stdlib preamble the production pipeline + stmt-conformance
+        // inject, so an emitter-emitted helper call (e.g. the D1b `__kern_loose_eq`)
+        // resolves a top-level def instead of throwing `ReferenceError`. `looseEq` is
+        // derived from the EMITTED code (`emittedCodeUsesLooseEq`) — detection ==
+        // emission. (No current whole-file fixture trips this, but the class-conformance
+        // ENUM1 loose-`==` case proved the same `generateCoreNode`-without-preamble path
+        // latent here too; fixed in lockstep.)
+        const tsBody = topNodes.map((n) => generateCoreNode(n).join('\n')).join('\n\n');
+        const usage = detectKernStdlibUsage(root);
+        if (emittedCodeUsesLooseEq(tsBody)) usage.looseEq = true;
+        const tsPreamble = kernStdlibPreamble(usage).join('\n');
+        const tsSource = `${tsPreamble ? `${tsPreamble}\n` : ''}${tsBody}${probeLogTs}`;
         const tsFile = join(dir, 'whole-file.mjs');
         writeFileSync(
           tsFile,

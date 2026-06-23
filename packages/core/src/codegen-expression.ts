@@ -59,6 +59,16 @@ export interface ExprEmitContext {
    *  string-only entry point) passes no sink, so the existing global-only lowerings
    *  are completely unaffected. */
   imports?: Set<string>;
+  /** D1b — when true, this is a NATIVE/portable (`lang="kern"`) body, so loose
+   *  equality (`==`/`!=`) lowers through the `__kern_loose_eq` helper (KERN loose
+   *  `==` adds ONLY the null/undefined crossing on top of strict — `1 == "1"` is
+   *  FALSE, not JS-coerced true). The mirror of the Python emitter's
+   *  `ctx.coerceJsValues` gate. DEFAULT/absent = FALSE (opt-in): Ground/escape-hatch
+   *  and every non-native path keeps raw `==`/`!=` so a user's hand-written raw
+   *  equality in a `lang="ts"` body is NEVER rewritten. Set true ONLY in
+   *  `exprCtxFor` (body-ts.ts), the single native-body→ExprEmitContext bridge. STRICT
+   *  `===`/`!==` are unaffected — TS `===` already IS JS strict, no helper needed. */
+  coerceJsValues?: boolean;
 }
 
 /** DECIMAL Slice 1 — public return shape for the TS expression emitter, parity
@@ -141,17 +151,19 @@ function isUserBinding(ctx: ExprEmitContext | undefined, name: string): boolean 
 function withAdditionalUserBindings(ctx: ExprEmitContext | undefined, names: string[]): ExprEmitContext | undefined {
   if (names.length === 0) return ctx;
   const local = new Set(names);
-  const next: ExprEmitContext = {
+  // D1b — SPREAD the incoming ctx so widening `isUserBinding` (for closure params)
+  // PRESERVES every other field. Rebuilding from scratch silently dropped
+  // `coerceJsValues` and `imports`, so an expression-bodied lambda inside a native
+  // body emitted raw `==`/`!=` (JS coercion → TS↔Python divergence) and could miss a
+  // `decimal.js` import. Same fix as `expressionContextWithValidatedBindings`.
+  // `validateRawBlock`, `coerceJsValues`, `imports`, and any future field are carried
+  // by the spread; only `isUserBinding` is widened with the closure params.
+  return {
+    ...ctx,
     isUserBinding(name: string): boolean {
       return local.has(name) || ctx?.isUserBinding(name) === true;
     },
   };
-  if (ctx?.validateRawBlock) {
-    next.validateRawBlock = (rawBlock: string, isUserBinding: (name: string) => boolean): void => {
-      ctx.validateRawBlock?.(rawBlock, isUserBinding);
-    };
-  }
-  return next;
 }
 
 // Slice 2c — extended precedence table covering equality, relational,
@@ -194,11 +206,18 @@ const PREC: Record<string, number> = {
  *  global-backed lowering (Math/JSON/Object/Array/Number/RegExp). */
 export function emitExpressionWithImports(node: ValueIR, ctx?: ExprEmitContext): ExpressionEmitResult {
   const imports = ctx?.imports ?? new Set<string>();
+  // D1b — SPREAD the incoming ctx so this exported context-aware entry point
+  // preserves `coerceJsValues` (and any future field), not just `isUserBinding`/
+  // `imports`. Without the spread a caller passing `{ coerceJsValues: true }` still
+  // got raw `a == b` instead of `__kern_loose_eq(a, b)` — an API inconsistency with
+  // `emitExpression`. `imports` is pinned to the resolved set below.
   const next: ExprEmitContext = {
+    ...ctx,
     isUserBinding: (name: string) => ctx?.isUserBinding(name) === true,
     imports,
   };
-  if (ctx?.validateRawBlock) next.validateRawBlock = ctx.validateRawBlock;
+  // `validateRawBlock`, `coerceJsValues`, and any other field are preserved by the
+  // `...ctx` spread above; only `isUserBinding`/`imports` are overridden here.
   const code = emitExpression(node, next);
   return { code, imports };
 }
@@ -398,6 +417,29 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       const left = emitExpression(node.left, ctx);
       const right = emitExpression(node.right, ctx);
       assertNoDecimalOperator(node);
+      // D1b — LOOSE equality (`==`/`!=`) in a NATIVE (`lang="kern"`) body lowers
+      // through the `__kern_loose_eq` helper so KERN's loose `==` (strict + the
+      // null/undefined crossing ONLY, NO JS coercion) is honored: `1 == "1"` is
+      // FALSE, not the raw-`==` JS-coerced true. Mirror of the Python emitter
+      // (codegen-body-python.ts ~:2410). GATED on `ctx.coerceJsValues` (set true ONLY
+      // in `exprCtxFor`); absent/false (Ground/escape-hatch/top-level/data) keeps the
+      // raw `==`/`!=` so a user's hand-written raw equality is never rewritten. STRICT
+      // `===`/`!==` are NOT routed here — TS `===` already IS JS strict.
+      //
+      // FUNCTION-CALL form (operands as args, NOT inlined): each operand is evaluated
+      // EXACTLY ONCE — an inlined ternary would double-call a side-effecting operand
+      // (`foo() == bar()`). Operands are passed as the bare emitted strings: a call
+      // argument needs no operator-precedence parens (the commas delimit), and each
+      // operand already self-parenthesizes internally where its OWN sub-structure
+      // requires it. The injected def is supplied once per module by
+      // `kernStdlibPreamble`, driven by `emittedCodeUsesLooseEq` scanning this emitted
+      // output (detection == emission). The static-kind fold (literal-`false` when both
+      // operand kinds are known) is deferred — kinds are frequently dynamic in KERN
+      // bodies; the helper is the correct general path.
+      if (ctx?.coerceJsValues === true && (node.op === '==' || node.op === '!=')) {
+        const call = `__kern_loose_eq(${left}, ${right})`;
+        return node.op === '!=' ? `!${call}` : call;
+      }
       const lp = needsParens(node.left, node.op, 'left') ? `(${left})` : left;
       const rp = needsParens(node.right, node.op, 'right') ? `(${right})` : right;
       return `${lp} ${node.op} ${rp}`;

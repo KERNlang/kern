@@ -205,6 +205,44 @@ describe('transpileForTarget — slice 4 stdlib preamble dispatch', () => {
     expect(code).toContain('return id ? Option.some({ id, name: "alice" }) : Option.none();');
   });
 
+  const NATIVE_LOOSE = [
+    'fn name=check params="a:number,b:string" returns=boolean export=true',
+    '  handler lang="kern"',
+    '    let name=r value="a == b"',
+    '    return value=r',
+  ].join('\n');
+
+  test('D1b — a native `lang="kern"` body with loose `==` injects `__kern_loose_eq` on lib (TS)', () => {
+    // Production-path coverage for the D1b helper: `applyKernStdlibPreamble` sets
+    // `looseEq` from the EMITTED code (`emittedCodeUsesLooseEq`), so the helper def is
+    // injected exactly when a `__kern_loose_eq(` call was emitted (detection==emission).
+    const code = compile(NATIVE_LOOSE, 'lib');
+    expect(code).toContain('function __kern_loose_eq(');
+    expect(code).toContain('__kern_loose_eq(a, b)');
+    // The def is injected ABOVE the call site.
+    expect(code.indexOf('function __kern_loose_eq(')).toBeLessThan(code.lastIndexOf('__kern_loose_eq(a, b)'));
+  });
+
+  test('D1b — the FastAPI (Python) target does NOT get the TS loose helper', () => {
+    // Python emits its own `_kern_loose_equal`; the TS helper would be a syntax error
+    // in a .py file. The dispatcher guard (TS-family only) must skip it.
+    const code = compile(NATIVE_LOOSE, 'fastapi');
+    expect(code).not.toContain('__kern_loose_eq');
+  });
+
+  test('D1b — a module with only strict `===` does NOT inject the loose helper', () => {
+    const code = compile(
+      [
+        'fn name=check params="a:number,b:number" returns=boolean export=true',
+        '  handler lang="kern"',
+        '    let name=r value="a === b"',
+        '    return value=r',
+      ].join('\n'),
+      'lib',
+    );
+    expect(code).not.toContain('__kern_loose_eq');
+  });
+
   test('mcp target gets the preamble for TS-family targets', () => {
     // MCP server emits TS — Result/Option aliases should land at the top.
     // We use `target=mcp` plus a minimal kern doc that the MCP transpiler

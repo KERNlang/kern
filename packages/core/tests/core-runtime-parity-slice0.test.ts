@@ -119,15 +119,23 @@ const AGREE: readonly AgreeFixture[] = [
   { name: 'xtype_strict_ne_bool_num', expr: 'true !== 1', expected: true },
   { name: 'xtype_strict_eq_null_num', expr: 'null === 0', expected: false },
   { name: 'xtype_strict_ne_null_num', expr: 'null !== 0', expected: true },
+  // D1b — LOOSE cross-type equality reconciled: the reference now COMPUTES
+  // kind-sensitive `==`/`!=` (was DIVERGENCE/abstain). KERN's loose `==` is NOT JS
+  // `==` — it adds ONLY the null/undefined crossing on top of strict, so `1 == "1"`
+  // and `true == 1` are FALSE on all three producers (core `kernLooseEqual`, the TS
+  // `__kern_loose_eq` helper, Python `_kern_loose_equal`). These two were the last
+  // entries in the DIVERGENCE block; moving them here proves the legs now AGREE.
+  { name: 'xtype_loose_eq', expr: '1 == "1"', expected: false },
+  { name: 'xtype_bool_num_eq', expr: 'true == 1', expected: false },
 ];
 
 // ── B) DIVERGENCE — core ACCEPTS with a value, reference REJECTS ──
 const DIVERGENCE: readonly DivergenceFixture[] = [
-  // LOOSE `==`/`!=` cross-type still DIVERGES — DEFERRED to D1b (the TS leg currently
-  // JS-coerces `1 == "1"` → true; the reference abstains until the TS `__kern_loose_eq`
-  // helper lands so it does not assert a value the TS producer contradicts).
-  { name: 'xtype_loose_eq', expr: '1 == "1"', coreValue: false },
-  { name: 'xtype_bool_num_eq', expr: 'true == 1', coreValue: false },
+  // D1b reconciled the loose `==`/`!=` cross-type entries that lived here (moved to
+  // the AGREE block — the reference now COMPUTES `1 == "1"` / `true == 1` as false,
+  // matching core + both legs). What REMAINS divergent is BITWISE: the reference's
+  // portable scalar subset has no `|`/`~`/ToInt32, so core accepts a value the
+  // reference refuses. Separately tracked for a later bitwise-into-portable slice.
   // Slice-0 finding: reference over-strict / lacks bitwise in the portable subset vs the emitted legs; tracked for reconciliation.
   { name: 'bitwise_or', expr: '5 | 0', coreValue: 5 },
   // Slice-0 finding: reference over-strict / lacks bitwise (ToInt32 wrap) vs the emitted legs; tracked for reconciliation.
@@ -223,9 +231,17 @@ describe('false-thin guardrails', () => {
     expect(someReject).toBeGreaterThanOrEqual(8);
   });
 
-  it('THIN self-check: every category is non-empty (AGREE ≥ 15, DIVERGENCE ≥ 4, BOTH-REJECT ≥ 5, REVERSE ≥ 2)', () => {
+  it('THIN self-check: every category is non-empty (AGREE ≥ 15, DIVERGENCE ≥ 3, BOTH-REJECT ≥ 5, REVERSE ≥ 2)', () => {
     expect(AGREE.length).toBeGreaterThanOrEqual(15);
-    expect(DIVERGENCE.length).toBeGreaterThanOrEqual(4);
+    // D1b lowered this floor 4 → 3 (NOT to mask thin coverage — the opposite). Each
+    // equality reconciliation legitimately MOVES a fixture out of DIVERGENCE into
+    // AGREE (D1a moved strict, D1b moves loose), so an absolute floor set when more
+    // divergences existed must track the honest post-reconciliation count. The 3
+    // remaining are all REAL, still-open divergences (bitwise `|`/`~`/ToInt32 absent
+    // from the reference's portable subset). Raising the count by padding synthetic
+    // divergences would be the masking move; lowering the floor to the true count is
+    // the correct one. Same rationale as the DISTRIBUTION guardrail's absolute floors.
+    expect(DIVERGENCE.length).toBeGreaterThanOrEqual(3);
     expect(BOTH_REJECT.length).toBeGreaterThanOrEqual(5);
     expect(REVERSE_DIVERGENCE.length).toBeGreaterThanOrEqual(2);
   });

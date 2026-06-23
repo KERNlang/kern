@@ -1240,6 +1240,12 @@ function exprCtxFor(ctx: BodyEmitContext): ExprEmitContext {
     // expression emitter's `registerStdlibRequirementTS` records `requires.ts`
     // (e.g. `decimal.js`) into the body emitter's result instead of dropping it.
     imports: ctx.imports,
+    // D1b — this is THE native-body→ExprEmitContext bridge (it backs both body-statement
+    // expression emission and body-statement `fn` param defaults; both are portable
+    // native semantics). Flag the context so loose `==`/`!=` lower through
+    // `__kern_loose_eq`. This is the ONLY site that opts in; every other ExprEmitContext
+    // (Ground/data/machines/top-level) leaves it absent → raw `==`, the safe default.
+    coerceJsValues: true,
   };
 }
 
