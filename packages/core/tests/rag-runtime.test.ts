@@ -928,9 +928,7 @@ describe('RAG answer runtime contracts', () => {
     expect(fabricatedCitation.diagnostics).toEqual(
       expect.arrayContaining([expect.objectContaining({ code: 'CHUNK_REF_UNKNOWN', chunkId: 'made-up' })]),
     );
-    expect(tooFewCitations.diagnostics).toEqual([
-      expect.objectContaining({ code: 'CITED_CHUNKS_BELOW_MINIMUM' }),
-    ]);
+    expect(tooFewCitations.diagnostics).toEqual([expect.objectContaining({ code: 'CITED_CHUNKS_BELOW_MINIMUM' })]);
     expect(missingCitationMetadata.diagnostics).toEqual(
       expect.arrayContaining([expect.objectContaining({ code: 'CITATION_REQUIRED' })]),
     );
@@ -948,12 +946,8 @@ describe('RAG answer runtime contracts', () => {
         diagnostics: [],
       }),
     );
-    expect(hallucinatedAbstain.diagnostics).toEqual([
-      expect.objectContaining({ code: 'ABSTAIN_ANSWER_MISMATCH' }),
-    ]);
-    expect(disallowedAbstain.diagnostics).toEqual([
-      expect.objectContaining({ code: 'ABSTAIN_NOT_ALLOWED' }),
-    ]);
+    expect(hallucinatedAbstain.diagnostics).toEqual([expect.objectContaining({ code: 'ABSTAIN_ANSWER_MISMATCH' })]);
+    expect(disallowedAbstain.diagnostics).toEqual([expect.objectContaining({ code: 'ABSTAIN_NOT_ALLOWED' })]);
     expect(missingEvidencePolicyAbstain.diagnostics).toEqual([
       expect.objectContaining({ code: 'ABSTAIN_EVIDENCE_POLICY_REQUIRED' }),
     ]);

@@ -700,7 +700,10 @@ function normalizeNonNegativeInteger(value: number | undefined, fieldName: strin
 }
 
 function normalizeEvidencePolicy(policy: RagAnswerEvidencePolicy | undefined): Required<RagAnswerEvidencePolicy> {
-  const minRetrievedChunks = normalizeNonNegativeInteger(policy?.minRetrievedChunks, 'evidencePolicy.minRetrievedChunks');
+  const minRetrievedChunks = normalizeNonNegativeInteger(
+    policy?.minRetrievedChunks,
+    'evidencePolicy.minRetrievedChunks',
+  );
   const minTopScore = policy?.minTopScore ?? 0;
   if (!Number.isFinite(minTopScore) || minTopScore < 0 || minTopScore > 1) {
     throw new Error('KERN RAG answer contract evidencePolicy.minTopScore must be between 0 and 1.');

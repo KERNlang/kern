@@ -1687,10 +1687,7 @@ function validateRagVectorStore(vectorStore: RagVectorStoreInfo, violations: Sem
       vectorStore.node,
       'RAG vectorStore kind must be a non-empty adapter name.',
     );
-  } else if (
-    kind !== undefined &&
-    !SUPPORTED_RAG_VECTOR_STORE_KINDS.includes(kind as RagVectorStoreKind)
-  ) {
+  } else if (kind !== undefined && !SUPPORTED_RAG_VECTOR_STORE_KINDS.includes(kind as RagVectorStoreKind)) {
     pushRagViolation(
       violations,
       'rag-vector-store-kind-unsupported',
