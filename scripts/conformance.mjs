@@ -1828,7 +1828,18 @@ for (const fx of FIXTURES) {
       let tsOut;
       phase = 'ts';
       if (!skip.has('node')) {
-        const tsSource = `${topNodes.map((n) => generateCoreNode(n).join('\n')).join('\n\n')}${probeLogTs}`;
+        // Apply the SAME stdlib preamble the production pipeline + stmt-conformance
+        // inject, so an emitter-emitted helper call (e.g. the D1b `__kern_loose_eq`)
+        // resolves a top-level def instead of throwing `ReferenceError`. `looseEq` is
+        // derived from the EMITTED code (`emittedCodeUsesLooseEq`) — detection ==
+        // emission. (No current whole-file fixture trips this, but the class-conformance
+        // ENUM1 loose-`==` case proved the same `generateCoreNode`-without-preamble path
+        // latent here too; fixed in lockstep.)
+        const tsBody = topNodes.map((n) => generateCoreNode(n).join('\n')).join('\n\n');
+        const usage = detectKernStdlibUsage(root);
+        if (emittedCodeUsesLooseEq(tsBody)) usage.looseEq = true;
+        const tsPreamble = kernStdlibPreamble(usage).join('\n');
+        const tsSource = `${tsPreamble ? `${tsPreamble}\n` : ''}${tsBody}${probeLogTs}`;
         const tsFile = join(dir, 'whole-file.mjs');
         writeFileSync(
           tsFile,

@@ -24,7 +24,9 @@ import { fileURLToPath } from 'node:url';
 import { canon, makeTmpDir, runNode, runPython, transpileTs } from './conformance-helpers.mjs';
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
-const { parse, generateCoreNode } = await import(join(REPO, 'packages/core/dist/index.js'));
+const { parse, generateCoreNode, detectKernStdlibUsage, emittedCodeUsesLooseEq, kernStdlibPreamble } = await import(
+  join(REPO, 'packages/core/dist/index.js')
+);
 const { generatePythonCoreNode } = await import(join(REPO, 'packages/python/dist/codegen-python.js'));
 const tsCompiler = await import('typescript');
 
@@ -1847,8 +1849,19 @@ for (let i = 0; i < FIXTURES.length; i++) {
     // A single top-level decl parses as the node itself; multiple decls wrap in a root.
     const topNodes = root.type === 'class' || root.type === 'fn' ? [root] : (root.children ?? []);
 
-    // TypeScript module
-    const tsSource = `${topNodes.map((n) => generateCoreNode(n).join('\n')).join('\n\n')}\nconsole.log(JSON.stringify(probe()));`;
+    // TypeScript module. Apply the SAME stdlib preamble the production pipeline
+    // (`applyKernStdlibPreamble`) and the stmt-conformance harness inject, so any
+    // emitter-emitted helper call (e.g. the D1b `__kern_loose_eq` for loose `==`/`!=`)
+    // resolves a top-level def in this isolated module instead of throwing
+    // `ReferenceError`. `looseEq` is derived from the EMITTED code
+    // (`emittedCodeUsesLooseEq`) — detection == emission, exactly how the production
+    // site derives it; the IR walk feeds the other stdlib flags. (Python needs no
+    // injection here: its whole-file emit inlines the helper defs inside the function.)
+    const tsBody = topNodes.map((n) => generateCoreNode(n).join('\n')).join('\n\n');
+    const usage = detectKernStdlibUsage(root);
+    if (emittedCodeUsesLooseEq(tsBody)) usage.looseEq = true;
+    const tsPreamble = kernStdlibPreamble(usage).join('\n');
+    const tsSource = `${tsPreamble ? `${tsPreamble}\n` : ''}${tsBody}\nconsole.log(JSON.stringify(probe()));`;
     const tsFile = join(dir, `mod-${i}.mjs`);
     writeFileSync(tsFile, transpileTs(tsCompiler, tsSource));
 
