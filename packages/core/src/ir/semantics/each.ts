@@ -43,6 +43,8 @@
 
 import type { IRNode } from '../../types.js';
 import {
+  childEnv,
+  defineBinding,
   getBinding,
   hasBinding,
   type NodeContract,
@@ -249,14 +251,15 @@ function eachEffects(ir: IRNode, env: SemanticEnv): Trace {
   for (const step of iterateCollection(shape, collection, p)) {
     out.events.push({ op: 'iter-next', binding: step.primary[0], value: step.primary[1] });
 
-    const childEnv: SemanticEnv = {
-      bindings: new Map(env.bindings),
-      seed: env.seed,
-      now: env.now,
-    };
-    for (const [k, v] of step.bindings) childEnv.bindings.set(k, v);
+    // Fresh CHILD scope per element: the element binding(s) and any inner `let`
+    // live only here (fresh per element, no post-loop leak), while an `assign` to
+    // an OUTER binding writes THROUGH to its declaring scope — so an `each`
+    // accumulator persists across elements, byte-identical to the emitted loops.
+    // (Previously this forked `new Map(env.bindings)`, discarding outer mutations.)
+    const iterEnv = childEnv(env);
+    for (const [k, v] of step.bindings) defineBinding(iterEnv, k, v);
 
-    const childTrace = referenceRunSequence(children, childEnv);
+    const childTrace = referenceRunSequence(children, iterEnv);
     out.events.push(...childTrace.events);
 
     const c = childTrace.completion;

@@ -189,6 +189,22 @@ const CERT: Array<[string, string[], number]> = [
     ],
     3,
   ],
+  // `while` body runs in a child scope: an inner `let` is fresh each iteration
+  // (no cross-iteration redeclaration abstain) while the `assign n += 1` writes
+  // through so the condition still terminates.
+  [
+    'while + inner let accumulates',
+    [
+      'let kind=let name=n value="0"',
+      'let kind=let name=s value="0"',
+      'while cond="n < 4"',
+      '  assign target=n value="n + 1"',
+      '  let name=tmp value="n * 1"',
+      '  assign target=s value="s + tmp"',
+      'return value="s"',
+    ],
+    10,
+  ],
 ];
 
 execDescribe('Interpreter-grade runner — loop/scope differential (ref === ts === py)', () => {
@@ -219,6 +235,26 @@ describe('Interpreter-grade runner — accumulator value killer', () => {
       'return value="sum"',
     ]);
     expect(runRef(src)).toBe(15);
+  });
+
+  test('an `each` over a bound collection accumulates into an outer mutable binding (not 0)', () => {
+    // `each` cannot yet be driven through the 3-leg harness — the runner has no
+    // array-literal evaluator, so the collection must be SEEDED in the env (a
+    // separate, larger "array values in the runner" feature is deferred). Assert
+    // the runner value directly: per-element child scopes + write-through `assign`
+    // must accumulate (this returned 0 before the each child-scope fix).
+    const handler = handlerOf(
+      fixture([
+        'let kind=let name=s value="0"',
+        'each name=v in="xs"',
+        '  assign target=s value="s + v"',
+        'return value="s"',
+      ]),
+    );
+    const env = makeEnv({ bindings: new Map<string, unknown>([['xs', [10, 20, 30]]]) });
+    const trace = referenceRunSequence(handler.children ?? [], env);
+    expect(trace.completion.kind).toBe('return');
+    expect((trace.completion as { value: unknown }).value).toBe(60);
   });
 });
 
