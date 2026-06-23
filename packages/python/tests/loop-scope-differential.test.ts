@@ -256,6 +256,68 @@ describe('Interpreter-grade runner — accumulator value killer', () => {
     expect(trace.completion.kind).toBe('return');
     expect((trace.completion as { value: unknown }).value).toBe(60);
   });
+
+  test('a `branch` path body `assign` writes through to an outer binding (not the old fork)', () => {
+    // Hand-built IR avoids surface-parse subtleties (branch uses strict no-coercion
+    // value matching). The selected path's `assign` to outer `r` must PERSIST — the
+    // old `new Map(env.bindings)` fork discarded it (returning 0). And a branch
+    // NESTED IN A LOOP must see + accumulate the outer binding through the parent
+    // chain (agon review blocker: codex/kimi 1.00).
+    const writeThrough = [
+      { type: 'let', props: { kind: 'let', name: 'r', value: '0' } },
+      { type: 'let', props: { name: 'x', value: '"b"' } },
+      {
+        type: 'branch',
+        props: { on: 'x' },
+        children: [
+          {
+            type: 'path',
+            props: { value: '"b"' },
+            children: [{ type: 'assign', props: { target: 'r', value: '100' } }],
+          },
+          {
+            type: 'path',
+            props: { default: true },
+            children: [{ type: 'assign', props: { target: 'r', value: '1' } }],
+          },
+        ],
+      },
+      { type: 'return', props: { value: 'r' } },
+    ] as unknown as IRNode[];
+    const t1 = referenceRunSequence(writeThrough, makeEnv());
+    expect(t1.completion.kind).toBe('return');
+    expect((t1.completion as { value: unknown }).value).toBe(100);
+
+    const branchInLoop = [
+      { type: 'let', props: { kind: 'let', name: 'sum', value: '0' } },
+      {
+        type: 'for',
+        props: { name: 'i', from: '1', to: '4' },
+        children: [
+          {
+            type: 'branch',
+            props: { on: 'i' },
+            children: [
+              {
+                type: 'path',
+                props: { value: '2' },
+                children: [{ type: 'assign', props: { target: 'sum', value: 'sum + 100' } }],
+              },
+              {
+                type: 'path',
+                props: { default: true },
+                children: [{ type: 'assign', props: { target: 'sum', value: 'sum + 1' } }],
+              },
+            ],
+          },
+        ],
+      },
+      { type: 'return', props: { value: 'sum' } },
+    ] as unknown as IRNode[];
+    const t2 = referenceRunSequence(branchInLoop, makeEnv());
+    expect(t2.completion.kind).toBe('return');
+    expect((t2.completion as { value: unknown }).value).toBe(102); // i=1->+1, i=2->+100, i=3->+1
+  });
 });
 
 // ── FAIL-CLOSE FENCE — the runner ABSTAINS (non-portable scope) ──────────────

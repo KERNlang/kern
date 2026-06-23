@@ -27,6 +27,7 @@
 
 import type { IRNode } from '../../types.js';
 import {
+  childEnv,
   getBinding,
   hasBinding,
   type NodeContract,
@@ -162,12 +163,14 @@ function selectPath(ir: IRNode, env: SemanticEnv): IRNode | undefined {
 function branchEffects(ir: IRNode, env: SemanticEnv): Trace {
   const selected = selectPath(ir, env);
   if (!selected) return emptyTrace();
-  const childEnv: SemanticEnv = {
-    bindings: new Map(env.bindings),
-    seed: env.seed,
-    now: env.now,
-  };
-  return referenceRunSequence(selected.children ?? [], childEnv);
+  // Run the selected path body in a CHILD scope: path-local `let`s stay scoped to
+  // the case block (the "hoist path-local bindings out of their case block"
+  // forbidden rewrite) while an `assign` to an OUTER binding writes THROUGH to its
+  // declaring scope — so a branch nested in a loop accumulates correctly and stays
+  // byte-identical to the emitted TS switch / Python if-chain. (Previously forked
+  // `new Map(env.bindings)`: it discarded outer mutations AND severed the parent
+  // chain, making outer bindings invisible when a branch ran inside a child scope.)
+  return referenceRunSequence(selected.children ?? [], childEnv(env));
 }
 
 function branchCompletion(ir: IRNode, env: SemanticEnv) {
