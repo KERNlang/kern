@@ -746,11 +746,16 @@ export {
   RAG_TOKEN_WINDOW_CHUNKER_VERSION,
 } from './rag-ingest.js';
 export type {
+  RagRetrieveAsyncDocumentOptions,
   RagRetrieveDocumentEntry,
   RagRetrieveDocumentOptions,
   RagRetrieveDocumentReport,
 } from './rag-retrieve-runner.js';
-export { ragRetrieveCorpusSourceSummary, retrieveRagDocument } from './rag-retrieve-runner.js';
+export {
+  ragRetrieveCorpusSourceSummary,
+  retrieveRagDocument,
+  retrieveRagDocumentAsync,
+} from './rag-retrieve-runner.js';
 export type {
   InMemoryRagRetriever,
   ProvenancedRetrieveResult,

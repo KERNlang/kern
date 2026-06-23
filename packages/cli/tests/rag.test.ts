@@ -205,7 +205,7 @@ describe('kern rag', () => {
     expect(emptyValue.stderr).toContain('missing value for --param');
   });
 
-  test('provider-backed runtime ragRetrieve specs fail closed in the local-only CLI path', () => {
+  test('provider-backed runtime ragRetrieve specs use the async provider path in the CLI', () => {
     const providerDoc = RETRIEVE_DOC.replace(
       'embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine',
       'embed name=DocsEmbedding corpus=Docs model="openai:text-embedding-3-small" dims=1536 metric=cosine',
@@ -218,15 +218,20 @@ describe('kern rag', () => {
     const result = run(['rag', 'retrieve', 'provider-retrieve.kern', '--query', 'refund policy'], dir);
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain(
-      "RAG embed model 'openai:text-embedding-3-small' requires async provider execution",
-    );
+    expect(result.stderr).toContain("RAG embed model 'openai:text-embedding-3-small' requires OpenAI provider options");
+    expect(result.stderr).not.toContain('requires async provider execution');
+  });
+
+  test('rejects retrieve --openai-api-key without a value', () => {
+    const result = run(['rag', 'retrieve', 'retrieve.kern', '--query', 'refund', '--openai-api-key'], dir);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('missing value for --openai-api-key');
   });
 
   test('rejects unknown retrieve flags before consuming their values as files', () => {
-    const result = run(['rag', 'retrieve', '--openai-api-key', 'sk-test', 'retrieve.kern', '--query', 'refund'], dir);
+    const result = run(['rag', 'retrieve', '--openai-api-kee', 'sk-test', 'retrieve.kern', '--query', 'refund'], dir);
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('unknown flag for retrieve: --openai-api-key');
+    expect(result.stderr).toContain('unknown flag for retrieve: --openai-api-kee');
   });
 
   test('rejects extra retrieve positional arguments', () => {

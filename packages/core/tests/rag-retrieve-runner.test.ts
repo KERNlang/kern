@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { retrieveRagDocument } from '../src/index.js';
+import { retrieveRagDocument, retrieveRagDocumentAsync } from '../src/index.js';
 
 const DOC = `corpus name=Docs
   source name=manuals kind=local uri="./docs/**/*.md" media=markdown
@@ -40,6 +40,10 @@ const LOCAL_PERSISTENT_STORE_DOC = DOC.replace(
   'vectorStore name=DocsMemory kind=local-persistent dims=64 metric=cosine path="./index"',
 );
 
+const PROVIDER_RETRIEVE_DOC = RETRIEVE_DOC_PROVIDER(DOC, 'memory');
+
+const PROVIDER_LOCAL_PERSISTENT_RETRIEVE_DOC = RETRIEVE_DOC_PROVIDER(DOC, 'local-persistent');
+
 const LOCAL_PERSISTENT_ESCAPE_DOC = LOCAL_PERSISTENT_STORE_DOC.replace('path="./index"', 'path="../outside"');
 
 const LOCAL_PERSISTENT_SYMLINK_DOC = LOCAL_PERSISTENT_STORE_DOC.replace('path="./index"', 'path="./index-link"');
@@ -63,6 +67,41 @@ const LOCAL_PERSISTENT_SHARED_NAMESPACE_DOC = LOCAL_PERSISTENT_STORE_DOC.replace
 ragIndex name=DocsIndexMirror corpus=Docs store=DocsMemory embed=DocsEmbedding
   ragRetrieve name=FindDocsAgain index=DocsIndexMirror queryParam=question topK=1 output="RetrievedChunk[]"`,
 );
+
+function RETRIEVE_DOC_PROVIDER(source: string, storeKind: 'local-persistent' | 'memory'): string {
+  return source
+    .replace(
+      'embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine',
+      'embed name=DocsEmbedding corpus=Docs model="openai:text-embedding-3-small" dims=3 metric=cosine',
+    )
+    .replace(
+      'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
+      storeKind === 'memory'
+        ? 'vectorStore name=DocsMemory kind=memory dims=3 metric=cosine'
+        : 'vectorStore name=DocsMemory kind=local-persistent dims=3 metric=cosine path="./index"',
+    );
+}
+
+function fakeOpenAiFetch(counter?: { count: number }): typeof fetch {
+  return (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    counter && (counter.count += 1);
+    const body = JSON.parse(String(init?.body ?? '{}')) as { readonly input?: string | readonly string[] };
+    const inputs = Array.isArray(body.input) ? body.input : [body.input ?? ''];
+    return new Response(
+      JSON.stringify({
+        data: inputs.map((text) => ({ embedding: providerVector(text) })),
+      }),
+      { headers: { 'content-type': 'application/json' }, status: 200 },
+    );
+  }) as typeof fetch;
+}
+
+function providerVector(text: string): number[] {
+  const normalized = text.toLowerCase();
+  if (normalized.includes('refund') || normalized.includes('money')) return [1, 0, 0];
+  if (normalized.includes('shipping') || normalized.includes('delivery')) return [0, 1, 0];
+  return [0, 0, 1];
+}
 
 describe('retrieveRagDocument', () => {
   let dir: string;
@@ -135,6 +174,47 @@ describe('retrieveRagDocument', () => {
     expect(() => retrieveRagDocument(DYNAMIC_QUERY_DOC, { sourcePath: join(dir, 'spec.kern') })).toThrow(
       /uses dynamic query=<expr>/u,
     );
+  });
+
+  test('async retrieval executes provider-backed memory vector stores', async () => {
+    const report = await retrieveRagDocumentAsync(PROVIDER_RETRIEVE_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+      providers: { openai: { apiKey: 'test-key', fetch: fakeOpenAiFetch() } },
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    expect(report.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
+  });
+
+  test('async retrieval fails closed when provider options are missing', async () => {
+    await expect(
+      retrieveRagDocumentAsync(PROVIDER_RETRIEVE_DOC, {
+        sourcePath: join(dir, 'spec.kern'),
+        query: 'refund policy money back',
+      }),
+    ).rejects.toThrow(/requires OpenAI provider options/u);
+  });
+
+  test('async retrieval reuses provider-backed local-persistent snapshots', async () => {
+    const calls = { count: 0 };
+    const options = {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+      providers: { openai: { apiKey: 'test-key', fetch: fakeOpenAiFetch(calls) } },
+    };
+
+    const first = await retrieveRagDocumentAsync(PROVIDER_LOCAL_PERSISTENT_RETRIEVE_DOC, options);
+    const snapshotPath = join(dir, 'index', 'DocsIndex.json');
+    const firstSnapshot = readFileSync(snapshotPath, 'utf-8');
+    const firstCallCount = calls.count;
+    const second = await retrieveRagDocumentAsync(PROVIDER_LOCAL_PERSISTENT_RETRIEVE_DOC, options);
+
+    expect(first.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
+    expect(second.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
+    expect(readFileSync(snapshotPath, 'utf-8')).toBe(firstSnapshot);
+    expect(firstCallCount).toBe(2);
+    expect(calls.count).toBe(3);
   });
 
   test('fails closed instead of ignoring index-level chunking overrides', () => {
