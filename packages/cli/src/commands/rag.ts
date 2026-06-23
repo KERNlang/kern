@@ -137,10 +137,11 @@ function createConformanceStore(
 }
 
 function runRagRetrieve(args: string[]): void {
-  const { filePath, paramError, paramFlagPresent, query, queryFlagPresent, queryParams, unknownFlags } =
+  const { filePath, paramError, paramFlagPresent, query, queryFlagPresent, queryParams, unexpectedArgs, unknownFlags } =
     parseRagRetrieveArgs(args);
   const resolvedFilePath = filePath ? resolve(filePath) : '';
   if (unknownFlags.length > 0) fail(`unknown flag for retrieve: ${unknownFlags[0]}.\n${USAGE}`);
+  if (unexpectedArgs.length > 0) fail(`unexpected argument for retrieve: ${unexpectedArgs[0]}.\n${USAGE}`);
   if (!filePath) fail(`missing <file.kern>.\n${USAGE}`);
   if (queryFlagPresent && (!query?.trim() || query.trim().startsWith('-')))
     fail(`missing value for --query.\n${USAGE}`);
@@ -385,6 +386,7 @@ interface ParsedRagRetrieveArgs {
   readonly queryParams: Record<string, string>;
   readonly paramFlagPresent: boolean;
   readonly paramError?: string;
+  readonly unexpectedArgs: readonly string[];
   readonly unknownFlags: readonly string[];
 }
 
@@ -394,6 +396,7 @@ function parseRagRetrieveArgs(args: readonly string[]): ParsedRagRetrieveArgs {
   let queryFlagPresent = false;
   let paramFlagPresent = false;
   let paramError: string | undefined;
+  const unexpectedArgs: string[] = [];
   const unknownFlags: string[] = [];
   const queryParams: Record<string, string> = {};
 
@@ -425,7 +428,11 @@ function parseRagRetrieveArgs(args: readonly string[]): ParsedRagRetrieveArgs {
       unknownFlags.push(arg);
       continue;
     }
-    if (filePath === undefined) filePath = arg;
+    if (filePath === undefined) {
+      filePath = arg;
+      continue;
+    }
+    unexpectedArgs.push(arg);
   }
 
   return {
@@ -435,6 +442,7 @@ function parseRagRetrieveArgs(args: readonly string[]): ParsedRagRetrieveArgs {
     queryParams,
     paramFlagPresent,
     ...(paramError ? { paramError } : {}),
+    unexpectedArgs,
     unknownFlags,
   };
 }

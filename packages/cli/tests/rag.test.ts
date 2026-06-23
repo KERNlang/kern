@@ -210,6 +210,15 @@ describe('kern rag', () => {
     expect(result.stderr).toContain('unknown flag for retrieve: --openai-api-key');
   });
 
+  test('rejects extra retrieve positional arguments', () => {
+    const result = run(
+      ['rag', 'retrieve', 'retrieve.kern', 'extra.kern', '--param', 'question=refund policy money back'],
+      dir,
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('unexpected argument for retrieve: extra.kern');
+  });
+
   test('reports empty declared source globs for retrieve', () => {
     rmSync(join(dir, 'docs'), { recursive: true, force: true });
     const result = run(['rag', 'retrieve', 'retrieve.kern', '--query', 'refund policy'], dir);

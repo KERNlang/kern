@@ -57,6 +57,11 @@ export function retrieveRagDocument(source: string, options: RagRetrieveDocument
   const preparedRetrievals = facts.runtimeRetrievals.map((retrieval) => {
     const index = indexByName.get(retrieval.indexName);
     if (!index) throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' references missing index.`);
+    if (index.chunkingName) {
+      throw new Error(
+        `KERN RAG runtime retrieval '${retrieval.name}' references index '${index.name}' with chunking='${index.chunkingName}', which is not supported by the synchronous ragRetrieve runner yet.`,
+      );
+    }
     const query = queryForRuntimeRetrieval(retrieval, options);
     const embedder = options.embedder ?? embedderForIndex(facts, index.embedName);
     return { retrieval, index, query, embedder };

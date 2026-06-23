@@ -27,6 +27,14 @@ const DYNAMIC_QUERY_DOC = DOC.replace(
   'ragRetrieve name=FindDocs index=DocsIndex query={{ "refund policy money back" }} topK=1 output="RetrievedChunk[]"',
 );
 
+const INDEX_CHUNKING_DOC = DOC.replace(
+  'chunking source=manuals strategy=semantic maxTokens=80 overlap=0 unit=tokens',
+  'chunking name=Large source=manuals strategy=semantic maxTokens=80 overlap=0 unit=tokens',
+).replace(
+  'ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding',
+  'ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding chunking=Large',
+);
+
 describe('retrieveRagDocument', () => {
   let dir: string;
 
@@ -93,5 +101,14 @@ describe('retrieveRagDocument', () => {
     expect(() => retrieveRagDocument(DYNAMIC_QUERY_DOC, { sourcePath: join(dir, 'spec.kern') })).toThrow(
       /uses dynamic query=<expr>/u,
     );
+  });
+
+  test('fails closed instead of ignoring index-level chunking overrides', () => {
+    expect(() =>
+      retrieveRagDocument(INDEX_CHUNKING_DOC, {
+        sourcePath: join(dir, 'spec.kern'),
+        query: 'refund policy money back',
+      }),
+    ).toThrow(/index 'DocsIndex' with chunking='Large'/u);
   });
 });
