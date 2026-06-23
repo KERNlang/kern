@@ -19,6 +19,7 @@ import {
   detectKernStdlibUsage,
   detectReactHookDeps,
   detectTarget,
+  emittedCodeUsesLooseEq,
   expandTemplateNode,
   generateCoreNode,
   injectKernStdlibPreamble,
@@ -1109,6 +1110,17 @@ function applyKernStdlibPreamble(
   if (!TS_FAMILY_TARGETS.has(target) && !isSfc) return result;
 
   const usage = detectKernStdlibUsage(ast);
+  // D1b — `looseEq` is determined by what the emitter ACTUALLY produced, not an IR
+  // text-scan: the `__kern_loose_eq(` token in the emitted output. Scanned BEFORE the
+  // preamble is injected (the helper def itself contains the token), over `result.code`
+  // plus every TS artifact. This makes detection == emission exactly, closing the
+  // IR-walk divergence (`==` inside `${…}` interpolations / structured-IR fixtures).
+  if (
+    emittedCodeUsesLooseEq(result.code) ||
+    (result.artifacts?.some((art) => isTsArtifactPath(art.path) && emittedCodeUsesLooseEq(art.content)) ?? false)
+  ) {
+    usage.looseEq = true;
+  }
   const preamble = kernStdlibPreamble(usage);
   if (preamble.length === 0) return result;
 

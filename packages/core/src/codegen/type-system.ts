@@ -768,11 +768,18 @@ function expressionContextWithValidatedBindings(
 ): ExprEmitContext {
   const bindings = validatedHostNamespaceBindingsFor(node, propName);
   if (!bindings || bindings.size === 0) return exprCtx;
+  // D1b — SPREAD the incoming ctx so the rebuild (which only needs to WIDEN
+  // `isUserBinding` with the validated host bindings) PRESERVES every other field.
+  // Previously this constructed a fresh object with just `isUserBinding` +
+  // `validateRawBlock`, silently DROPPING `coerceJsValues` (and `imports`): a param
+  // default WITH host-namespace bindings inside a native body would lose the loose-eq
+  // gate and emit raw `==` — a silent TS↔Python divergence in that narrow case (and
+  // it equally dropped the Decimal import sink). Spreading keeps both.
   return {
+    ...exprCtx,
     isUserBinding(name: string): boolean {
       return bindings.has(name) || exprCtx.isUserBinding(name);
     },
-    validateRawBlock: exprCtx.validateRawBlock,
   };
 }
 
