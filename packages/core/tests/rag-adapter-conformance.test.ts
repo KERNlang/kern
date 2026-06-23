@@ -186,6 +186,26 @@ describe('RAG vector store adapter conformance', () => {
     }
   });
 
+  test('local persistent adapter recovers malformed stale locks', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-rag-malformed-lock-'));
+    try {
+      writeFileSync(join(dir, 'vectors.json.lock'), '{');
+
+      const store = new LocalPersistentRagVectorStoreAdapter({
+        directory: dir,
+        fingerprint: 'test-fingerprint',
+        dims: 3,
+      });
+      try {
+        expect(store.kind).toBe('local-persistent');
+      } finally {
+        store.close();
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('manifest shape failures are reported instead of thrown', () => {
     const manifest = {
       ...builtinRagVectorStoreManifest('memory')!,

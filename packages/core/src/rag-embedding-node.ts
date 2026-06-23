@@ -31,6 +31,11 @@ export interface LocalPersistentRagVectorStoreOptions {
   readonly fingerprint: string;
   readonly dims: number;
   readonly fileName?: string;
+  /**
+   * Open a stale-fingerprint snapshot as an empty in-memory store so callers can
+   * rebuild it. The stale disk snapshot is preserved until the rebuild flushes.
+   */
+  readonly rebuildOnFingerprintMismatch?: boolean;
 }
 
 /**
@@ -63,6 +68,9 @@ export class LocalPersistentRagVectorStoreAdapter extends InMemoryPgVectorRagSto
     try {
       this.loadFromDisk();
     } catch (error) {
+      if (options.rebuildOnFingerprintMismatch && isLocalVectorStoreFingerprintMismatch(error)) {
+        return;
+      }
       OPEN_LOCAL_PERSISTENT_VECTOR_STORE_FILES.delete(this.filePath);
       releaseLocalVectorStoreLock(this.lockPath, this.lockFd);
       this.lockFd = undefined;
@@ -99,6 +107,19 @@ export class LocalPersistentRagVectorStoreAdapter extends InMemoryPgVectorRagSto
     const before = this.snapshot();
     super.clear();
     try {
+      this.flushToDisk();
+    } catch (error) {
+      this.restoreSnapshot(before);
+      throw error;
+    }
+  }
+
+  replaceAll(entries: Iterable<RagVectorStoreUpsert>): void {
+    this.assertOpen();
+    const before = this.snapshot();
+    try {
+      super.clear();
+      for (const entry of entries) super.upsert(entry.chunk, entry.vector, entry.fingerprint);
       this.flushToDisk();
     } catch (error) {
       this.restoreSnapshot(before);
@@ -182,7 +203,7 @@ export class LocalPersistentRagVectorStoreAdapter extends InMemoryPgVectorRagSto
     const tmpPath = `${this.filePath}.tmp`;
     try {
       const payload = `${JSON.stringify(this.snapshot(), null, 2)}\n`;
-      if (new TextEncoder().encode(payload).byteLength > MAX_LOCAL_PERSISTENT_VECTOR_STORE_BYTES) {
+      if (Buffer.byteLength(payload, 'utf-8') > MAX_LOCAL_PERSISTENT_VECTOR_STORE_BYTES) {
         throw new Error(`KERN local vector store snapshot exceeds ${MAX_LOCAL_PERSISTENT_VECTOR_STORE_BYTES} bytes.`);
       }
       writeFileSync(tmpPath, payload, 'utf-8');
@@ -227,12 +248,26 @@ function localVectorStoreFilePath(directory: string, fileName = LOCAL_PERSISTENT
 function acquireLocalVectorStoreLock(lockPath: string, filePath: string): number {
   const acquire = (): number => {
     const fd = openSync(lockPath, 'wx');
-    writeFileSync(
-      fd,
-      `${JSON.stringify({ version: LOCAL_VECTOR_STORE_LOCK_VERSION, pid: process.pid, filePath })}\n`,
-      'utf-8',
-    );
-    return fd;
+    try {
+      writeFileSync(
+        fd,
+        `${JSON.stringify({ version: LOCAL_VECTOR_STORE_LOCK_VERSION, pid: process.pid, filePath })}\n`,
+        'utf-8',
+      );
+      return fd;
+    } catch (error) {
+      try {
+        closeSync(fd);
+      } catch {
+        // Preserve the write error; the descriptor cleanup is best effort.
+      }
+      try {
+        if (existsSync(lockPath)) unlinkSync(lockPath);
+      } catch {
+        // Preserve the write error; stale lock cleanup is best effort.
+      }
+      throw error;
+    }
   };
   try {
     return acquire();
@@ -272,7 +307,7 @@ function isStaleLocalVectorStoreLock(lockPath: string): boolean {
   try {
     parsed = JSON.parse(readFileSync(lockPath, 'utf-8'));
   } catch {
-    return false;
+    return true;
   }
   if (!parsed || typeof parsed !== 'object') return false;
   const lock = parsed as { version?: unknown; pid?: unknown };
@@ -295,6 +330,10 @@ function isStaleLocalVectorStoreLock(lockPath: string): boolean {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error;
+}
+
+function isLocalVectorStoreFingerprintMismatch(error: unknown): boolean {
+  return error instanceof Error && /embedding fingerprint mismatch/u.test(error.message);
 }
 
 function parseVectorStoreSnapshot(raw: unknown, fingerprint: string, dims: number): RagVectorStoreSnapshot {

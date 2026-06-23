@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -43,6 +43,11 @@ const DYNAMIC_RETRIEVE_DOC = RETRIEVE_DOC.replace(
   'ragRetrieve name=FindDocs index=DocsIndex query={{ "refund policy money back" }} topK=1 output="RetrievedChunk[]"',
 );
 
+const LOCAL_PERSISTENT_RETRIEVE_DOC = RETRIEVE_DOC.replace(
+  'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
+  'vectorStore name=DocsMemory kind=local-persistent dims=64 metric=cosine path="./index"',
+);
+
 function run(args: string[], cwd: string): { status: number | null; stdout: string; stderr: string } {
   const result = spawnSync(process.execPath, [CLI, ...args], { cwd, encoding: 'utf-8' });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
@@ -58,6 +63,7 @@ describe('kern rag', () => {
     writeFileSync(join(dir, 'docs/shipping.md'), 'shipping delivery courier tracking parcel\n');
     writeFileSync(join(dir, 'mydocs.kern'), DOC);
     writeFileSync(join(dir, 'retrieve.kern'), RETRIEVE_DOC);
+    writeFileSync(join(dir, 'persistent-retrieve.kern'), LOCAL_PERSISTENT_RETRIEVE_DOC);
     writeFileSync(join(dir, 'fixed-retrieve.kern'), FIXED_RETRIEVE_DOC);
     writeFileSync(join(dir, 'dynamic-retrieve.kern'), DYNAMIC_RETRIEVE_DOC);
   });
@@ -149,6 +155,19 @@ describe('kern rag', () => {
     expect(result.stdout).toContain('kern rag retrieve retrieve.kern');
     expect(result.stdout).toContain('AnswerDocs/FindDocs index=DocsIndex');
     expect(result.stdout).toContain('refunds');
+  });
+
+  test('runs local-persistent runtime ragRetrieve declarations across repeated CLI invocations', () => {
+    const first = run(['rag', 'retrieve', 'persistent-retrieve.kern', '--query', 'refund policy money back'], dir);
+    expect(first.status).toBe(0);
+    expect(first.stdout).toContain('refunds');
+
+    const snapshot = readFileSync(join(dir, 'index', 'DocsIndex.json'), 'utf-8');
+    const second = run(['rag', 'retrieve', 'persistent-retrieve.kern', '--query', 'refund policy money back'], dir);
+
+    expect(second.status).toBe(0);
+    expect(second.stdout).toContain('refunds');
+    expect(readFileSync(join(dir, 'index', 'DocsIndex.json'), 'utf-8')).toBe(snapshot);
   });
 
   test('runs fixed literal runtime ragRetrieve declarations without CLI query input', () => {
