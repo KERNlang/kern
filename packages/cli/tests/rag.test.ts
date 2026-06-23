@@ -114,6 +114,18 @@ describe('kern rag', () => {
     expect(result.stderr).toContain('missing value for --openai-api-key');
   });
 
+  test('rejects unknown eval flags before reading files', () => {
+    const result = run(['rag', 'eval', '--openai-api-kee', 'sk-test', 'mydocs.kern'], dir);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('unknown flag for eval: --openai-api-kee');
+  });
+
+  test('rejects extra eval positional arguments', () => {
+    const result = run(['rag', 'eval', 'mydocs.kern', 'extra.kern'], dir);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('unexpected argument for eval: extra.kern');
+  });
+
   test('reports empty declared source globs with the pattern', () => {
     rmSync(join(dir, 'docs'), { recursive: true, force: true });
     const result = run(['rag', 'eval', 'mydocs.kern'], dir);

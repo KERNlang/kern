@@ -185,9 +185,19 @@ function runRagRetrieve(args: string[]): void {
 }
 
 async function runRagEval(args: string[]): Promise<void> {
-  const { corpusFlagPresent, corpusPath, filePath, openAiApiKeyFlag, openAiKeyFlagPresent } = parseRagEvalArgs(args);
+  const {
+    corpusFlagPresent,
+    corpusPath,
+    filePath,
+    openAiApiKeyFlag,
+    openAiKeyFlagPresent,
+    unexpectedArgs,
+    unknownFlags,
+  } = parseRagEvalArgs(args);
 
   const resolvedFilePath = filePath ? resolve(filePath) : '';
+  if (unknownFlags.length > 0) fail(`unknown flag for eval: ${unknownFlags[0]}.\n${USAGE}`);
+  if (unexpectedArgs.length > 0) fail(`unexpected argument for eval: ${unexpectedArgs[0]}.\n${USAGE}`);
   if (!filePath) fail(`missing <file.kern>.\n${USAGE}`);
   if (corpusFlagPresent && (!corpusPath?.trim() || corpusPath.startsWith('-'))) {
     fail(`missing value for --corpus.\n${USAGE}`);
@@ -254,6 +264,8 @@ interface ParsedRagEvalArgs {
   readonly corpusFlagPresent: boolean;
   readonly openAiApiKeyFlag?: string;
   readonly openAiKeyFlagPresent: boolean;
+  readonly unexpectedArgs: readonly string[];
+  readonly unknownFlags: readonly string[];
 }
 
 function parseRagEvalArgs(args: readonly string[]): ParsedRagEvalArgs {
@@ -262,6 +274,8 @@ function parseRagEvalArgs(args: readonly string[]): ParsedRagEvalArgs {
   let corpusFlagPresent = false;
   let openAiApiKeyFlag: string | undefined;
   let openAiKeyFlagPresent = false;
+  const unexpectedArgs: string[] = [];
+  const unknownFlags: string[] = [];
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
@@ -287,10 +301,26 @@ function parseRagEvalArgs(args: readonly string[]): ParsedRagEvalArgs {
       openAiApiKeyFlag = arg.slice('--openai-api-key='.length);
       continue;
     }
-    if (!arg.startsWith('-') && filePath === undefined) filePath = arg;
+    if (arg.startsWith('-')) {
+      unknownFlags.push(arg);
+      continue;
+    }
+    if (filePath === undefined) {
+      filePath = arg;
+      continue;
+    }
+    unexpectedArgs.push(arg);
   }
 
-  return { filePath, corpusPath, corpusFlagPresent, openAiApiKeyFlag, openAiKeyFlagPresent };
+  return {
+    filePath,
+    corpusPath,
+    corpusFlagPresent,
+    openAiApiKeyFlag,
+    openAiKeyFlagPresent,
+    unexpectedArgs,
+    unknownFlags,
+  };
 }
 
 interface ParsedRagConformanceArgs {

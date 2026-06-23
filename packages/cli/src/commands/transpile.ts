@@ -334,6 +334,7 @@ export function printHelp(): void {
   );
   console.log('  import <file.ts|dir> [options]                Convert TypeScript source into starter .kern files');
   console.log('  migrate <name> [dir] [--write]                In-place .kern migrations (e.g. literal-const)');
+  console.log('  rag eval|retrieve|conformance [options]       Run RAG contract checks and adapter conformance');
   console.log(
     '  review <file.ts|dir> [--git=<repo|github-url>] [options]  Static analysis, Cognitive Complexity & CI Gate',
   );
