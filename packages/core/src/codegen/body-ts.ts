@@ -213,6 +213,7 @@ const TRAILING_COMMENT_TYPES = new Set([
   'objectPick',
   'return',
   'throw',
+  'print',
   'do',
   'continue',
   'break',

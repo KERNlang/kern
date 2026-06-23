@@ -183,3 +183,24 @@ describe('print primitive — fail-close fence (runner abstains on non-portable)
     });
   }
 });
+
+// ── TRAILING-COMMENT ROUND-TRIP (emitter-only — GREEN without python3) ────────
+// `print` is in both emitters' TRAILING_COMMENT_TYPES, so a migrated inline
+// comment (the migrator captures it as `trailingComment=`) reattaches to the
+// emitted line instead of being silently dropped — byte-clean migration
+// round-trip, parallel to `return`/`do`.
+describe('print primitive — trailing comment reattaches in both targets', () => {
+  const handler: IRNode = {
+    type: 'handler',
+    props: { lang: 'kern' },
+    children: [{ type: 'print', props: { value: '42', trailingComment: '// the answer' } }],
+  };
+
+  test('TS reattaches the trailing comment', () => {
+    expect(emitNativeKernBodyTSWithImports(handler).code).toBe('console.log(`${42}`); // the answer');
+  });
+
+  test('Python reattaches the trailing comment', () => {
+    expect(emitNativeKernBodyPythonWithImports(handler).code).toBe('print(_kern_fmt(42))  # the answer');
+  });
+});
