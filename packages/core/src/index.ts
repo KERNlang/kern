@@ -442,13 +442,14 @@ export {
 } from './ir/semantics/expression-v1.js';
 export type { LowerTarget } from './ir/semantics/fixture-lowering.js';
 export { lowerFixtureForTarget, serializeValue } from './ir/semantics/fixture-lowering.js';
-// IR runtime semantics — executable contracts + differential harness.
+// IR runtime semantics — executable contracts (runtime barrel) + differential
+// harness (test-only barrel). The spine-clean runtime entry is
+// `@kernlang/core/runner`; this `.` barrel remains the full Node surface.
 export type {
   CanonicalError,
   CompletionKind,
   CompletionRecord,
   ContractDoc,
-  DifferentialResult,
   FixtureSample,
   NodeContract,
   NodeFixture,
@@ -456,7 +457,6 @@ export type {
   SemanticEnv,
   Trace,
   TraceEvent,
-  Verdict,
 } from './ir/semantics/index.js';
 export {
   CONTRACT_REGISTRY,
@@ -470,8 +470,6 @@ export {
   referenceRunSequence,
   registerAllContracts,
   registerContract,
-  runAllContracts,
-  runDifferential,
   serializeJson,
   serializeMarkdown,
   snapshotRegistry,
@@ -491,6 +489,11 @@ export {
 // local pinned decimal.js constructor and rendering through the canonical
 // stringifier so it is byte-identical to both emitted legs.
 export { evalDecimalExpression, isDecimalExpression } from './ir/semantics/portable-scalar.js';
+// Harness symbols stay on `.` for backward compatibility, but are now sourced
+// from the test-only `./ir/semantics/testing.js` barrel (NOT the runtime
+// `./ir/semantics/index.js`), so the runtime barrel no longer re-exports the
+// ~10MB-TS harness chain (`harness → ts-leg → body-ts → closure-eligibility`).
+export { type DifferentialResult, runAllContracts, runDifferential, type Verdict } from './ir/semantics/testing.js';
 // ToNumericPrimitive decision kernel — slice-0.75 substrate (browser-safe).
 export type { KernNumericInput, NumericResult } from './ir/semantics/to-numeric.js';
 export {
