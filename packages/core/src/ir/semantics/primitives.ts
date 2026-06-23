@@ -17,7 +17,10 @@
  * helper — it is never emitted by user code.
  */
 
-import { type NodeContract, type NodeFixture, registerContract } from './index.js';
+import { parseExpression } from '../../parser-expression.js';
+import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
+import { evalExplicitThrowError } from './portable-error.js';
+import { evalPortableValue } from './portable-scalar.js';
 import type { CanonicalError, TraceEvent } from './trace.js';
 
 const NO_FIXTURES: readonly NodeFixture[] = [];
@@ -56,35 +59,94 @@ export const continueContract: NodeContract = {
   fixtures: NO_FIXTURES,
 };
 
+/**
+ * Resolve a `return` node's value. Two shapes:
+ *
+ *   1. A NON-string `props.value` (a hand-built fixture's raw `42` / `9` / `7`,
+ *      or `undefined`) — passed through verbatim, exactly as before. Reference-
+ *      runner fixtures (each/branch/while/if/try) rely on this raw passthrough.
+ *   2. A STRING `props.value` (the parser's `return value="m"` /
+ *      `return value="e.message"`) — evaluated as a portable expression against
+ *      the current env, so a binding read resolves to its value and the
+ *      error-substrate `<caughtBinding>.message` read returns the literal
+ *      message. A string that is NOT a portable expression (`return e` bare,
+ *      `return e.name`/`e.stack`) throws → the runner abstains (fail-close).
+ *
+ * `import`s are deferred-resolved (parser/portable evaluator) at call time, so
+ * this stays a tiny primitive.
+ */
+function resolveReturnValue(ir: { props?: Record<string, unknown> }, env: SemanticEnv): unknown {
+  const value = ir.props?.value;
+  if (typeof value !== 'string') return value;
+  return evalPortableValue(parseExpression(value), env);
+}
+
 export const returnContract: NodeContract = {
   nodeType: 'return',
-  preconditions: () => true,
-  effects: (ir) => ({
+  preconditions: (ir, env) => {
+    // A non-string value always admits (raw passthrough). A string value must be
+    // a portable expression resolvable in the current env, else the runner
+    // abstains cleanly here instead of throwing from effects.
+    if (typeof ir.props?.value !== 'string') return true;
+    try {
+      resolveReturnValue(ir, env);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  effects: (ir, env) => ({
     events: [],
-    completion: { kind: 'return', value: ir.props?.value },
+    completion: { kind: 'return', value: resolveReturnValue(ir, env) },
   }),
-  completion: (ir) => ({ kind: 'return', value: ir.props?.value }),
+  completion: (ir, env) => ({ kind: 'return', value: resolveReturnValue(ir, env) }),
   forbiddenRewrites: [],
   fixtures: NO_FIXTURES,
 };
 
+/**
+ * Resolve a `throw` node to its canonical error, supporting BOTH forms:
+ *
+ *   1. The fixture/primitive form `{ errorKind: "Error", messagePattern?: … }`
+ *      — used by the try/each/branch contract fixtures. Unchanged.
+ *   2. The body-statement form `throw value="new Error(\"boom\")"` — the
+ *      EXPLICIT canonical-Error throw the parser produces. Its `value` is a
+ *      string expression; it is admitted ONLY when it parses to the canonical
+ *      `new Error(<string-expr>)` shape (see {@link evalExplicitThrowError}),
+ *      carrying the EVALUATED LITERAL message. A bare-value throw
+ *      (`throw "raw"`, `throw 42`, `new TypeError(...)`) is NOT admitted here —
+ *      it throws, so the precondition fails and the runner abstains (the
+ *      error-substrate fail-close fence).
+ *
+ * Throws on an unrecognized shape so the precondition (which wraps this in a
+ * try) returns false → `referenceRun` raises the normal "Preconditions failed".
+ */
+function resolveThrowError(ir: { props?: Record<string, unknown> }, env: SemanticEnv): CanonicalError {
+  if (typeof ir.props?.errorKind === 'string') {
+    return {
+      kind: ir.props.errorKind,
+      messagePattern: ir.props.messagePattern as RegExp | undefined,
+    };
+  }
+  if (typeof ir.props?.value === 'string') {
+    // Body-statement explicit throw. parseExpression is INSIDE the caller's try.
+    return evalExplicitThrowError(parseExpression(ir.props.value), env);
+  }
+  throw new Error('throw: missing errorKind or explicit `new Error(...)` value');
+}
+
 export const throwContract: NodeContract = {
   nodeType: 'throw',
-  preconditions: (ir) => typeof ir.props?.errorKind === 'string',
-  effects: (ir) => {
-    const error: CanonicalError = {
-      kind: ir.props?.errorKind as string,
-      messagePattern: ir.props?.messagePattern as RegExp | undefined,
-    };
-    return { events: [], completion: { kind: 'throw', error } };
+  preconditions: (ir, env) => {
+    try {
+      resolveThrowError(ir, env);
+      return true;
+    } catch {
+      return false;
+    }
   },
-  completion: (ir) => ({
-    kind: 'throw',
-    error: {
-      kind: ir.props?.errorKind as string,
-      messagePattern: ir.props?.messagePattern as RegExp | undefined,
-    },
-  }),
+  effects: (ir, env) => ({ events: [], completion: { kind: 'throw', error: resolveThrowError(ir, env) } }),
+  completion: (ir, env) => ({ kind: 'throw', error: resolveThrowError(ir, env) }),
   forbiddenRewrites: [],
   fixtures: NO_FIXTURES,
 };
