@@ -3,9 +3,9 @@
  *
  * This is the first-class executor surface for "KERN runs on its own": the
  * tree-walking ReferenceRunner plus the lazy expression parser the runner calls
- * at eval time, and nothing else. Its STATIC import closure is pinned to 28
- * modules with `decimal.js` as the only external dependency and ZERO `typescript`
- * — proven by `tests/runner-entry-import-graph.test.ts` (the anti-rot gate).
+ * at eval time, and nothing else. Its STATIC import closure has `decimal.js` as
+ * its ONLY external dependency and ZERO `typescript` — pinned by
+ * `tests/runner-entry-import-graph.test.ts` (the anti-rot gate).
  *
  * Why a dedicated entry: importing from the `.` barrel (`@kernlang/core`) loads
  * the whole module graph, which still includes Node-only TS-backed codegen and

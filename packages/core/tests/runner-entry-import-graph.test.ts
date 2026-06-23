@@ -7,12 +7,13 @@
  *  differential-test harness chain (`harness → ts-leg → body-ts →
  *  closure-eligibility`) or any of the 5 compiler-puller modules.
  *
- *  This is the regression guard for the decoupling: the runner closure was
- *  measured at 28 modules / `decimal.js`-only after the single
+ *  This is the regression guard for the decoupling: after the single
  *  `ir/semantics/index.ts` harness re-export was moved to the test-only
- *  `ir/semantics/testing.ts` barrel. Any future PR that imports a TS-backed
- *  helper into a contract, the runner, or the parser spine re-acquires the ~10MB
- *  compiler edge and FAILS here.
+ *  `ir/semantics/testing.ts` barrel, the runner closure's only external dependency
+ *  is `decimal.js` (the pinned invariant below — module COUNT is deliberately not
+ *  pinned, since legitimately adding a contract would churn it). Any future PR that
+ *  imports a TS-backed helper into a contract, the runner, or the parser spine
+ *  re-acquires the ~10MB compiler edge and FAILS the `decimal.js`-only pin here.
  *
  *  Mechanism mirrors `browser-spine-import-graph.test.ts`: recursively read each
  *  ESM module's static `import`/`export … from` specifiers (emitted dist is plain
@@ -23,17 +24,26 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DIST = resolve(HERE, '../dist');
 
 /** Extract the module specifiers of every STATIC `import`/`export … from`
- *  statement. Deliberately ignores dynamic `import(…)` calls. */
+ *  statement. Deliberately ignores dynamic `import(…)` calls.
+ *
+ *  The middle is `[^;]*?` (NOT `[^;\n]*?`): it tolerates NEWLINES so a tsc-emitted
+ *  MULTILINE re-export (`export {\n  a,\n  b,\n} from './x.js'`) and `export * from
+ *  './x.js'` are both captured — the line-anchored `\n`-excluding variant under-
+ *  approximated the graph (a real false-negative risk for an anti-rot gate). The
+ *  `(?:^|\n)\s*(?:import|export)` STATEMENT anchor still rejects a `from '…'` that
+ *  appears inside a comment or string literal (those lines start with `*`/`//`/code,
+ *  not `import`/`export`), so the broadening adds no spurious specifiers. The `;`
+ *  bound keeps a match from running across statements. */
 function staticSpecifiers(source: string): string[] {
   const specs: string[] = [];
-  const re = /(?:^|\n)\s*(?:import|export)\b[^;\n]*?\bfrom\s*['"]([^'"]+)['"]|(?:^|\n)\s*import\s*['"]([^'"]+)['"]/g;
+  const re = /(?:^|\n)\s*(?:import|export)\b[^;]*?\bfrom\s*['"]([^'"]+)['"]|(?:^|\n)\s*import\s*['"]([^'"]+)['"]/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(source)) !== null) {
     const spec = m[1] ?? m[2];
@@ -99,7 +109,10 @@ describe('@kernlang/core/runner — standalone runtime entry import-graph proof'
   test('runner closure never reaches the harness chain or any compiler-puller module', () => {
     const { visited } = walkGraph(entry);
     for (const forbidden of FORBIDDEN_MODULES) {
-      const reached = [...visited].some((p) => p.endsWith(`/${forbidden}`));
+      // basename equality, not `endsWith('/' + forbidden)`: `resolve()` yields
+      // backslash separators on Windows, where a forward-slash suffix check would
+      // silently never match (a false negative in the anti-rot gate).
+      const reached = [...visited].some((p) => basename(p) === forbidden);
       expect({ forbidden, reached }).toEqual({ forbidden, reached: false });
     }
   });

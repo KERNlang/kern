@@ -8,13 +8,15 @@
  * entry `@kernlang/core/runner`.
  *
  * The paired runtime helpers (`makeEnv`, `CONTRACT_REGISTRY`,
- * `registerAllContracts`) are re-exported here too so a differential test can
- * import its whole toolkit from one place.
+ * `registerAllContracts`, `ReferenceRunnerError`) are re-exported here too so a
+ * differential test can import its whole toolkit — including the error
+ * `referenceRun` throws — from one place.
  */
 
 export {
   CONTRACT_REGISTRY,
   makeEnv,
+  ReferenceRunnerError,
   referenceRun,
   referenceRunSequence,
   registerAllContracts,
