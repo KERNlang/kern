@@ -231,6 +231,18 @@
       ]
     },
     {
+      "nodeType": "print",
+      "forbiddenRewrites": [
+        "suppress or reorder a print relative to its surrounding side effects",
+        "coalesce adjacent prints into one stdout write (newline boundaries are observable)",
+        "raw Python str()/print() coercion for bool/null without canonicalization (True/None vs true/null)",
+        "admit unsafe integers (>2^53) — JS rounds, Python keeps precision",
+        "append the newline by hand instead of relying on console.log / print default"
+      ],
+      "fixtureCount": 0,
+      "fixtureSamples": []
+    },
+    {
       "nodeType": "return",
       "forbiddenRewrites": [],
       "fixtureCount": 0,

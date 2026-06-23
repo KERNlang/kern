@@ -632,6 +632,8 @@ function emitChildrenPy(
         for (const line of emitObjectPickPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'return') {
         for (const line of emitReturnPy(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'print') {
+        for (const line of emitPrintPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'if') {
         const condRaw = String(child.props?.cond ?? '');
         const condIR = parseExpr(condRaw);
@@ -1976,6 +1978,21 @@ function emitReturnPy(node: IRNode, ctx: BodyEmitContext): string[] {
     return [`${tmp} = ${inner}`, `if ${tmp}.kind == 'err':`, errPropagationLine(tmp, ctx), `return ${tmp}.value`];
   }
   return [`return ${emitPyExprCtx(valueIR, ctx)}`];
+}
+
+function emitPrintPy(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const rawValue = props.value;
+  if (rawValue === undefined || rawValue === '') {
+    throw new Error('body-statement `print` requires `value=`.');
+  }
+  const valueIR = parseExpr(String(rawValue));
+  // Route through `_kern_fmt` so bool/None/int-valued-float render with JS
+  // value->string coercion semantics (true/false/null, base-10 ints) — byte
+  // identical to the TS `console.log(`${x}`)` leg and the reference runner.
+  // Python `print` then appends exactly one newline, matching `console.log`.
+  ctx.helpers.add(KERN_FMT_HELPER_PY);
+  return [`print(_kern_fmt(${emitPyExprCtx(valueIR, ctx)}))`];
 }
 
 function emitThrowPy(node: IRNode, ctx: BodyEmitContext): string[] {
