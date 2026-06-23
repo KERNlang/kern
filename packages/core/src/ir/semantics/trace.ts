@@ -26,10 +26,22 @@ export interface CompletionRecord {
  * Canonical error shape. Cross-target equality compares `kind` exactly and
  * `messagePattern` as a regex match against the runtime error message —
  * NOT raw text, which diverges between V8 and CPython.
+ *
+ * `message` carries an EVALUATED LITERAL message and is ONLY set for an
+ * EXPLICIT `throw new Error("…")` body-statement (where the message text is
+ * authored as a string literal and is therefore byte-identical across V8 and
+ * CPython — `Error("x").message` === `str(Exception("x"))`). It exists so a
+ * caught-binding `.message` read can return the exact literal. The
+ * messagePattern-based canonicalization (used by the fixture differential
+ * harness for IMPLICIT/primitive throws, whose raw text diverges) is left
+ * untouched: `message` and `messagePattern` are independent, and an error may
+ * carry either, both, or neither.
  */
 export interface CanonicalError {
   kind: string;
   messagePattern?: RegExp;
+  /** Evaluated literal message of an explicit `throw new Error("…")`. */
+  message?: string;
 }
 
 export type TraceEvent =
@@ -145,6 +157,9 @@ export function completionsEqual(a: CompletionRecord, b: CompletionRecord): bool
   if (!a.error && !b.error) return true;
   if (!a.error || !b.error) return false;
   if (a.error.kind !== b.error.kind) return false;
+  // Evaluated literal message (explicit `throw new Error("…")`). Additive: when
+  // both sides omit it (the messagePattern-canonicalized path), this is a no-op.
+  if (a.error.message !== b.error.message) return false;
   if (!a.error.messagePattern && !b.error.messagePattern) return true;
   if (!a.error.messagePattern || !b.error.messagePattern) return false;
   return (

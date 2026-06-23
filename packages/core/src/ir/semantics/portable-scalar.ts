@@ -136,6 +136,41 @@ export function makeDecimalValue(canonical: string): DecimalValue {
   return Object.freeze({ [DECIMAL_VALUE_TAG]: true as const, canonical });
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// TAGGED runtime CAUGHT-ERROR VALUE — the runner's internal representation of an
+// error bound to a `catch name=…` binding (error-substrate Slice 1). Like the
+// Decimal tag above it is DELIBERATELY not a portable scalar, so any downstream
+// read of the catch binding OTHER than the admitted `.message` access hits
+// `assertPortableScalar` and throws → the precondition catches it → the runner
+// ABSTAINS (the fail-close fence: a bare `return e`, `e.name`, `e.stack` never
+// produce a divergent value). Only the `member` case below reads through the
+// tag, and ONLY for `.message`. The tag + recognition helpers live in
+// `portable-error.ts`; the VALUE shape lives here so the `member` case can read
+// it without a module cycle.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Brand symbol marking a runtime CAUGHT-ERROR value (see `portable-error.ts`). */
+export const CAUGHT_ERROR_TAG: unique symbol = Symbol('kern.caughtError');
+
+/** The runner's tagged caught-error value: a frozen object carrying the brand,
+ *  the canonical error `kind`, and the evaluated literal `message`. NOT a
+ *  portable scalar. */
+export interface CaughtErrorValue {
+  readonly [CAUGHT_ERROR_TAG]: true;
+  readonly kind: string;
+  readonly message: string;
+}
+
+/** True iff `value` is a tagged caught-error value. */
+export function isCaughtErrorValue(value: unknown): value is CaughtErrorValue {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { [CAUGHT_ERROR_TAG]?: unknown })[CAUGHT_ERROR_TAG] === true &&
+    typeof (value as { message?: unknown }).message === 'string'
+  );
+}
+
 /** True iff `value` is a tagged runtime Decimal value produced by
  *  {@link makeDecimalValue}. */
 export function isDecimalValue(value: unknown): value is DecimalValue {
@@ -195,6 +230,31 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
       return portableTruthy(evalPortableValue(node.test, env))
         ? evalPortableValue(node.consequent, env)
         : evalPortableValue(node.alternate, env);
+    case 'member': {
+      // Error-substrate Slice 1 — the ONLY admitted member read in the portable
+      // domain is `<caughtErrorBinding>.message` (a non-optional `.message` on
+      // an ident resolving to a tagged caught-error value). It returns the
+      // EVALUATED LITERAL message stored when the explicit `throw new Error("…")`
+      // was caught — byte-identical to TS `e.message` and Python `str(e)`.
+      // EVERYTHING else (a different property, an optional `?.`, a non-ident
+      // object, an ident that is not a caught error) throws → the runner
+      // ABSTAINS. This is the fail-close fence: `e.name`/`e.stack`/`e` (bare)
+      // and any non-caught-error member access never produce a one-leg value.
+      if (node.optional) throw new Error('portable: optional member access is outside the portable scalar domain');
+      if (node.object.kind !== 'ident') {
+        throw new Error('portable: member access is only admitted on a caught-error binding');
+      }
+      const obj = env.bindings.get(node.object.name);
+      if (!isCaughtErrorValue(obj)) {
+        throw new Error(`portable: member access on "${node.object.name}" is outside the portable scalar domain`);
+      }
+      if (node.property !== 'message') {
+        throw new Error(
+          `portable: caught error has no portable property "${node.property}" (only .message is admitted)`,
+        );
+      }
+      return obj.message;
+    }
     case 'typeAssert':
     case 'nonNull':
       return evalPortableValue(node.expression, env);

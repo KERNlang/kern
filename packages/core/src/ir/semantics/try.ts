@@ -33,6 +33,7 @@
 
 import type { IRNode } from '../../types.js';
 import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
+import { makeCaughtErrorValue } from './portable-error.js';
 import { referenceRunSequence } from './reference-runner.js';
 import { type CompletionRecord, emptyTrace, type Trace } from './trace.js';
 
@@ -75,10 +76,36 @@ function tryEffects(ir: IRNode, env: SemanticEnv): Trace {
   let completion: CompletionRecord = bodyTrace.completion;
 
   if (completion.kind === 'throw' && catchNode) {
-    // Catch-all: the single catch handles the canonical error. The catch body
-    // does not read the error binding (raw-error access is out of domain), so
-    // we run it in the same env; its completion replaces the body's.
+    // Catch-all: the single catch handles the canonical error. Error-substrate
+    // Slice 1 — bind the caught error to the catch `name` so the catch body can
+    // read `<name>.message` (the ONLY admitted error-binding read; see
+    // portable-scalar's `member` case). The binding is a TAGGED caught-error
+    // value carrying the EVALUATED LITERAL message of the explicit
+    // `throw new Error("…")`. An error WITHOUT a literal message (an implicit/
+    // primitive throw modeled by messagePattern) yields `null` from
+    // makeCaughtErrorValue → the binding stays UNSET → any read of it abstains
+    // (out of domain). The catch runs in the same env; its completion replaces
+    // the body's. The binding is local to this catch execution; a finally-only
+    // `try` never reaches here.
+    const caught = catchNode.props?.name;
+    const hasBinding = typeof caught === 'string' && caught !== '';
+    // SCOPE the catch binding to the catch body (codex review: env-binding leak).
+    // Snapshot the name's prior state and restore it after the catch runs. The
+    // tagged caught-error — and any inner shadow of the same name — must NOT
+    // survive the catch: TS block-scopes the catch parameter and Python `del`s it
+    // at the end of `except`, so a POST-catch (or finally) `<name>` read must
+    // ABSTAIN, never certify a value both emitted targets reject.
+    const hadPrev = hasBinding && env.bindings.has(caught as string);
+    const prevValue = hadPrev ? env.bindings.get(caught as string) : undefined;
+    if (completion.error && hasBinding) {
+      const caughtValue = makeCaughtErrorValue(completion.error);
+      if (caughtValue !== null) env.bindings.set(caught as string, caughtValue);
+    }
     const catchTrace = referenceRunSequence(catchNode.children ?? [], env);
+    if (hasBinding) {
+      if (hadPrev) env.bindings.set(caught as string, prevValue);
+      else env.bindings.delete(caught as string);
+    }
     out.events.push(...catchTrace.events);
     completion = catchTrace.completion;
   }
