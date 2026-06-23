@@ -140,6 +140,55 @@ const CERT: Array<[string, string[], number]> = [
     ],
     10,
   ],
+  // INLINE `if` conditions — full expressions, no pre-computed boolean needed.
+  [
+    'if inline comparison (x > 3)',
+    [
+      'let kind=let name=r value="0"',
+      'let name=x value="5"',
+      'if cond="x > 3"',
+      '  assign target=r value="10"',
+      'return value="r"',
+    ],
+    10,
+  ],
+  [
+    'if boolean composition (a && b)',
+    [
+      'let kind=let name=r value="0"',
+      'let name=a value="true"',
+      'let name=b value="true"',
+      'if cond="a && b"',
+      '  assign target=r value="7"',
+      'return value="r"',
+    ],
+    7,
+  ],
+  [
+    'if negation (!done)',
+    [
+      'let kind=let name=r value="0"',
+      'let name=done value="false"',
+      'if cond="!done"',
+      '  assign target=r value="3"',
+      'return value="r"',
+    ],
+    3,
+  ],
+  // a `for` driving an inline-condition `if` in its body — composition of both slices.
+  // (`i % 2 < 1` rather than `== 0` to avoid the loose-eq stdlib helper, which this
+  // minimal 3-leg harness does not inline; the runner/emitters all support `==`.)
+  [
+    'for + inline-if: count evens 1..6',
+    [
+      'let kind=let name=c value="0"',
+      'for name=i from="1" to="7"',
+      '  if cond="i % 2 < 1"',
+      '    assign target=c value="c + 1"',
+      'return value="c"',
+    ],
+    3,
+  ],
 ];
 
 execDescribe('Interpreter-grade runner — loop/scope differential (ref === ts === py)', () => {
@@ -195,6 +244,12 @@ describe('Interpreter-grade runner — loop scope fail-close fence', () => {
       '  assign target=s value="s + tmp"',
       'return value="tmp"',
     ]);
+    expect(() => runRef(src)).toThrow();
+  });
+  // A non-boolean container condition is non-portable (JS `[]` truthy, Python `[]`
+  // falsy) — `portableTruthy` rejects it, so an `if` over an array fails closed.
+  test('an `if` condition over an array literal fails closed (divergent truthiness)', () => {
+    const src = fixture(['if cond="[1, 2, 3]"', '  return value="1"', 'return value="0"']);
     expect(() => runRef(src)).toThrow();
   });
 });
