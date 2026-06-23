@@ -256,7 +256,13 @@ function ragProviderOptions(
   openAiApiKeyFlag: string | undefined,
 ): { readonly providers: { readonly openai: { readonly apiKey: string } } } | undefined {
   const openAiApiKey = (openAiApiKeyFlag ?? process.env.KERN_OPENAI_API_KEY ?? process.env.OPENAI_API_KEY)?.trim();
-  return openAiApiKey ? { providers: { openai: { apiKey: openAiApiKey } } } : undefined;
+  if (!openAiApiKey) return undefined;
+  const openai = {};
+  Object.defineProperty(openai, 'apiKey', {
+    value: openAiApiKey,
+    enumerable: false,
+  });
+  return { providers: { openai: openai as { readonly apiKey: string } } };
 }
 
 interface ParsedRagEvalArgs {

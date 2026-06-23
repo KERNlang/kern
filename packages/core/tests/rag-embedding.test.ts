@@ -17,6 +17,7 @@ import {
   InMemoryPgVectorRagStore,
   LocalSemanticEmbedder,
   OpenAIEmbeddingAdapter,
+  type OpenAIEmbeddingAdapterOptions,
   type RagChunkInput,
   type RagVectorStoreAdapter,
 } from '../src/index.js';
@@ -120,6 +121,26 @@ describe('OpenAIEmbeddingAdapter', () => {
     expect(() => new OpenAIEmbeddingAdapter({ model: 'text-embedding-3-small', dims: 3 })).toThrow(
       /requires an apiKey/u,
     );
+  });
+
+  test('accepts non-enumerable API key options', async () => {
+    const fakeFetch = async (_url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      expect(init?.headers).toEqual(
+        expect.objectContaining({
+          authorization: 'Bearer test-key',
+        }),
+      );
+      return new Response(JSON.stringify({ data: [{ embedding: [1, 0, 0] }] }), { status: 200 });
+    };
+    const options = { model: 'text-embedding-3-small', dims: 3, fetch: fakeFetch } as OpenAIEmbeddingAdapterOptions;
+    Object.defineProperty(options, 'apiKey', {
+      value: 'test-key',
+      enumerable: false,
+    });
+
+    expect(JSON.stringify(options)).not.toContain('test-key');
+    const embedder = new OpenAIEmbeddingAdapter(options);
+    await expect(embedder.embed('refund policy')).resolves.toEqual(new Float64Array([1, 0, 0]));
   });
 
   test('wraps provider transport errors with KERN context', async () => {
