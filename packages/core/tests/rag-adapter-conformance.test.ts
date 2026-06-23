@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -149,6 +149,38 @@ describe('RAG vector store adapter conformance', () => {
 
       expect(first.passed).toBe(true);
       expect(second.passed).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('local persistent adapter recovers stale locks from dead processes', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-rag-stale-lock-'));
+    try {
+      const context: RagVectorStoreConformanceContext = {
+        namespace: 'stale-lock',
+        fingerprint: 'test-fingerprint',
+        dims: 3,
+      };
+      writeFileSync(
+        join(dir, 'vectors.json.lock'),
+        JSON.stringify({
+          version: 'kern-rag-vector-store-lock-v1',
+          pid: 99999999,
+          filePath: join(dir, 'vectors.json'),
+        }),
+      );
+
+      const store = new LocalPersistentRagVectorStoreAdapter({
+        directory: dir,
+        fingerprint: context.fingerprint,
+        dims: context.dims,
+      });
+      try {
+        expect(store.kind).toBe('local-persistent');
+      } finally {
+        store.close();
+      }
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

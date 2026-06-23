@@ -27,6 +27,19 @@ const DYNAMIC_QUERY_DOC = DOC.replace(
   'ragRetrieve name=FindDocs index=DocsIndex query={{ "refund policy money back" }} topK=1 output="RetrievedChunk[]"',
 );
 
+const INDEX_CHUNKING_DOC = DOC.replace(
+  'chunking source=manuals strategy=semantic maxTokens=80 overlap=0 unit=tokens',
+  'chunking name=Large source=manuals strategy=semantic maxTokens=80 overlap=0 unit=tokens',
+).replace(
+  'ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding',
+  'ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding chunking=Large',
+);
+
+const LOCAL_PERSISTENT_STORE_DOC = DOC.replace(
+  'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
+  'vectorStore name=DocsMemory kind=local-persistent dims=64 metric=cosine path="./index"',
+);
+
 describe('retrieveRagDocument', () => {
   let dir: string;
 
@@ -93,5 +106,23 @@ describe('retrieveRagDocument', () => {
     expect(() => retrieveRagDocument(DYNAMIC_QUERY_DOC, { sourcePath: join(dir, 'spec.kern') })).toThrow(
       /uses dynamic query=<expr>/u,
     );
+  });
+
+  test('fails closed instead of ignoring index-level chunking overrides', () => {
+    expect(() =>
+      retrieveRagDocument(INDEX_CHUNKING_DOC, {
+        sourcePath: join(dir, 'spec.kern'),
+        query: 'refund policy money back',
+      }),
+    ).toThrow(/index 'DocsIndex' with chunking='Large'/u);
+  });
+
+  test('fails closed instead of ignoring non-memory vector store contracts', () => {
+    expect(() =>
+      retrieveRagDocument(LOCAL_PERSISTENT_STORE_DOC, {
+        sourcePath: join(dir, 'spec.kern'),
+        query: 'refund policy money back',
+      }),
+    ).toThrow(/vectorStore 'DocsMemory' kind='local-persistent'/u);
   });
 });

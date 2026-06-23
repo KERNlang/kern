@@ -54,9 +54,25 @@ export function retrieveRagDocument(source: string, options: RagRetrieveDocument
 
   const facts = collectRagSemanticFacts(root);
   const indexByName = new Map(facts.indexes.map((index) => [index.name, index]));
+  const vectorStoreByName = new Map(facts.vectorStores.map((store) => [store.name, store]));
   const preparedRetrievals = facts.runtimeRetrievals.map((retrieval) => {
     const index = indexByName.get(retrieval.indexName);
     if (!index) throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' references missing index.`);
+    const vectorStore = vectorStoreByName.get(index.storeName);
+    if (!vectorStore) {
+      throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' references missing vector store.`);
+    }
+    const vectorStoreKind = vectorStore.kind ?? 'memory';
+    if (vectorStoreKind !== 'memory') {
+      throw new Error(
+        `KERN RAG runtime retrieval '${retrieval.name}' references vectorStore '${vectorStore.name}' kind='${vectorStoreKind}', but the synchronous ragRetrieve runner only supports kind=memory.`,
+      );
+    }
+    if (index.chunkingName) {
+      throw new Error(
+        `KERN RAG runtime retrieval '${retrieval.name}' references index '${index.name}' with chunking='${index.chunkingName}', which is not supported by the synchronous ragRetrieve runner yet.`,
+      );
+    }
     const query = queryForRuntimeRetrieval(retrieval, options);
     const embedder = options.embedder ?? embedderForIndex(facts, index.embedName);
     return { retrieval, index, query, embedder };

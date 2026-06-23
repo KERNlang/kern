@@ -112,6 +112,7 @@ export function resolveAsyncRagEmbedderForPipeline(
     if (!openai?.apiKey?.trim()) throw new Error(`RAG embed model '${model}' requires OpenAI provider options.`);
     return new OpenAIEmbeddingAdapter({
       ...openai,
+      apiKey: openai.apiKey,
       model: model.replace(/^openai:/u, ''),
       dims,
     });

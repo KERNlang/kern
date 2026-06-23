@@ -137,10 +137,11 @@ function createConformanceStore(
 }
 
 function runRagRetrieve(args: string[]): void {
-  const { filePath, paramError, paramFlagPresent, query, queryFlagPresent, queryParams, unknownFlags } =
+  const { filePath, paramError, paramFlagPresent, query, queryFlagPresent, queryParams, unexpectedArgs, unknownFlags } =
     parseRagRetrieveArgs(args);
   const resolvedFilePath = filePath ? resolve(filePath) : '';
   if (unknownFlags.length > 0) fail(`unknown flag for retrieve: ${unknownFlags[0]}.\n${USAGE}`);
+  if (unexpectedArgs.length > 0) fail(`unexpected argument for retrieve: ${unexpectedArgs[0]}.\n${USAGE}`);
   if (!filePath) fail(`missing <file.kern>.\n${USAGE}`);
   if (queryFlagPresent && (!query?.trim() || query.trim().startsWith('-')))
     fail(`missing value for --query.\n${USAGE}`);
@@ -185,9 +186,19 @@ function runRagRetrieve(args: string[]): void {
 }
 
 async function runRagEval(args: string[]): Promise<void> {
-  const { corpusFlagPresent, corpusPath, filePath, openAiApiKeyFlag, openAiKeyFlagPresent } = parseRagEvalArgs(args);
+  const {
+    corpusFlagPresent,
+    corpusPath,
+    filePath,
+    openAiApiKeyFlag,
+    openAiKeyFlagPresent,
+    unexpectedArgs,
+    unknownFlags,
+  } = parseRagEvalArgs(args);
 
   const resolvedFilePath = filePath ? resolve(filePath) : '';
+  if (unknownFlags.length > 0) fail(`unknown flag for eval: ${unknownFlags[0]}.\n${USAGE}`);
+  if (unexpectedArgs.length > 0) fail(`unexpected argument for eval: ${unexpectedArgs[0]}.\n${USAGE}`);
   if (!filePath) fail(`missing <file.kern>.\n${USAGE}`);
   if (corpusFlagPresent && (!corpusPath?.trim() || corpusPath.startsWith('-'))) {
     fail(`missing value for --corpus.\n${USAGE}`);
@@ -245,7 +256,13 @@ function ragProviderOptions(
   openAiApiKeyFlag: string | undefined,
 ): { readonly providers: { readonly openai: { readonly apiKey: string } } } | undefined {
   const openAiApiKey = (openAiApiKeyFlag ?? process.env.KERN_OPENAI_API_KEY ?? process.env.OPENAI_API_KEY)?.trim();
-  return openAiApiKey ? { providers: { openai: { apiKey: openAiApiKey } } } : undefined;
+  if (!openAiApiKey) return undefined;
+  const openai = {};
+  Object.defineProperty(openai, 'apiKey', {
+    value: openAiApiKey,
+    enumerable: false,
+  });
+  return { providers: { openai: openai as { readonly apiKey: string } } };
 }
 
 interface ParsedRagEvalArgs {
@@ -254,6 +271,8 @@ interface ParsedRagEvalArgs {
   readonly corpusFlagPresent: boolean;
   readonly openAiApiKeyFlag?: string;
   readonly openAiKeyFlagPresent: boolean;
+  readonly unexpectedArgs: readonly string[];
+  readonly unknownFlags: readonly string[];
 }
 
 function parseRagEvalArgs(args: readonly string[]): ParsedRagEvalArgs {
@@ -262,6 +281,8 @@ function parseRagEvalArgs(args: readonly string[]): ParsedRagEvalArgs {
   let corpusFlagPresent = false;
   let openAiApiKeyFlag: string | undefined;
   let openAiKeyFlagPresent = false;
+  const unexpectedArgs: string[] = [];
+  const unknownFlags: string[] = [];
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
@@ -287,10 +308,26 @@ function parseRagEvalArgs(args: readonly string[]): ParsedRagEvalArgs {
       openAiApiKeyFlag = arg.slice('--openai-api-key='.length);
       continue;
     }
-    if (!arg.startsWith('-') && filePath === undefined) filePath = arg;
+    if (arg.startsWith('-')) {
+      unknownFlags.push(arg);
+      continue;
+    }
+    if (filePath === undefined) {
+      filePath = arg;
+      continue;
+    }
+    unexpectedArgs.push(arg);
   }
 
-  return { filePath, corpusPath, corpusFlagPresent, openAiApiKeyFlag, openAiKeyFlagPresent };
+  return {
+    filePath,
+    corpusPath,
+    corpusFlagPresent,
+    openAiApiKeyFlag,
+    openAiKeyFlagPresent,
+    unexpectedArgs,
+    unknownFlags,
+  };
 }
 
 interface ParsedRagConformanceArgs {
@@ -355,6 +392,7 @@ interface ParsedRagRetrieveArgs {
   readonly queryParams: Record<string, string>;
   readonly paramFlagPresent: boolean;
   readonly paramError?: string;
+  readonly unexpectedArgs: readonly string[];
   readonly unknownFlags: readonly string[];
 }
 
@@ -364,6 +402,7 @@ function parseRagRetrieveArgs(args: readonly string[]): ParsedRagRetrieveArgs {
   let queryFlagPresent = false;
   let paramFlagPresent = false;
   let paramError: string | undefined;
+  const unexpectedArgs: string[] = [];
   const unknownFlags: string[] = [];
   const queryParams: Record<string, string> = {};
 
@@ -395,7 +434,11 @@ function parseRagRetrieveArgs(args: readonly string[]): ParsedRagRetrieveArgs {
       unknownFlags.push(arg);
       continue;
     }
-    if (filePath === undefined) filePath = arg;
+    if (filePath === undefined) {
+      filePath = arg;
+      continue;
+    }
+    unexpectedArgs.push(arg);
   }
 
   return {
@@ -405,6 +448,7 @@ function parseRagRetrieveArgs(args: readonly string[]): ParsedRagRetrieveArgs {
     queryParams,
     paramFlagPresent,
     ...(paramError ? { paramError } : {}),
+    unexpectedArgs,
     unknownFlags,
   };
 }
