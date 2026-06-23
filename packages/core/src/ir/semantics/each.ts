@@ -42,7 +42,14 @@
  */
 
 import type { IRNode } from '../../types.js';
-import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
+import {
+  getBinding,
+  hasBinding,
+  type NodeContract,
+  type NodeFixture,
+  registerContract,
+  type SemanticEnv,
+} from './index.js';
 import { referenceRunSequence } from './reference-runner.js';
 import { emptyTrace, type Trace } from './trace.js';
 
@@ -228,10 +235,10 @@ function eachEffects(ir: IRNode, env: SemanticEnv): Trace {
     throw new Error('each: invariant violated — preconditions passed but shape is null');
   }
   const inName = p.in as string;
-  if (!env.bindings.has(inName)) {
+  if (!hasBinding(env, inName)) {
     throw new Error(`each: binding "${inName}" not found in env`);
   }
-  const collection = env.bindings.get(inName);
+  const collection = getBinding(env, inName);
   if (collection === null || collection === undefined) {
     throw new Error(`each: binding "${inName}" is nullish`);
   }

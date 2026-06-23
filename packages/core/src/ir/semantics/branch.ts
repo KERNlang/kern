@@ -26,7 +26,14 @@
  */
 
 import type { IRNode } from '../../types.js';
-import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
+import {
+  getBinding,
+  hasBinding,
+  type NodeContract,
+  type NodeFixture,
+  registerContract,
+  type SemanticEnv,
+} from './index.js';
 import { referenceRunSequence } from './reference-runner.js';
 import { emptyTrace, type Trace } from './trace.js';
 
@@ -83,10 +90,10 @@ function evalExpressionInContractDomain(raw: unknown, env: SemanticEnv, label: s
   if (!isIdentifier(text)) {
     throw new Error(`branch: ${label} expression is outside the contract domain`);
   }
-  if (!env.bindings.has(text)) {
+  if (!hasBinding(env, text)) {
     throw new Error(`branch: binding "${text}" not found in env`);
   }
-  return assertPortableValue(env.bindings.get(text), label);
+  return assertPortableValue(getBinding(env, text), label);
 }
 
 function evalPathValue(path: IRNode, env: SemanticEnv): BranchValue {

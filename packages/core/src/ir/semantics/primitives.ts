@@ -18,7 +18,7 @@
  */
 
 import { parseExpression } from '../../parser-expression.js';
-import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
+import { getBinding, type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
 import { evalExplicitThrowError } from './portable-error.js';
 import { evalPortableValue } from './portable-scalar.js';
 import type { CanonicalError, TraceEvent } from './trace.js';
@@ -158,7 +158,7 @@ export const breakIfEqualContract: NodeContract = {
     const name = ir.props?.name as string;
     return {
       events: [],
-      completion: Object.is(env.bindings.get(name), ir.props?.value) ? { kind: 'break' } : { kind: 'normal' },
+      completion: Object.is(getBinding(env, name), ir.props?.value) ? { kind: 'break' } : { kind: 'normal' },
     };
   },
   completion: (ir, env) => breakIfEqualContract.effects(ir, env).completion,
@@ -175,7 +175,7 @@ export const assignIndexContract: NodeContract = {
     Object.hasOwn(ir.props, 'value'),
   effects: (ir, env) => {
     const targetName = ir.props?.target as string;
-    const target = env.bindings.get(targetName);
+    const target = getBinding(env, targetName);
     if (!Array.isArray(target)) {
       throw new Error(`__assignIndex: binding "${targetName}" must be an array`);
     }

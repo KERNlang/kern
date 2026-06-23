@@ -32,7 +32,16 @@
  */
 
 import type { IRNode } from '../../types.js';
-import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
+import {
+  defineBinding,
+  deleteOwnBinding,
+  getBinding,
+  hasOwnBinding,
+  type NodeContract,
+  type NodeFixture,
+  registerContract,
+  type SemanticEnv,
+} from './index.js';
 import { makeCaughtErrorValue } from './portable-error.js';
 import { referenceRunSequence } from './reference-runner.js';
 import { type CompletionRecord, emptyTrace, type Trace } from './trace.js';
@@ -95,16 +104,16 @@ function tryEffects(ir: IRNode, env: SemanticEnv): Trace {
     // survive the catch: TS block-scopes the catch parameter and Python `del`s it
     // at the end of `except`, so a POST-catch (or finally) `<name>` read must
     // ABSTAIN, never certify a value both emitted targets reject.
-    const hadPrev = hasBinding && env.bindings.has(caught as string);
-    const prevValue = hadPrev ? env.bindings.get(caught as string) : undefined;
+    const hadPrev = hasBinding && hasOwnBinding(env, caught as string);
+    const prevValue = hadPrev ? getBinding(env, caught as string) : undefined;
     if (completion.error && hasBinding) {
       const caughtValue = makeCaughtErrorValue(completion.error);
-      if (caughtValue !== null) env.bindings.set(caught as string, caughtValue);
+      if (caughtValue !== null) defineBinding(env, caught as string, caughtValue);
     }
     const catchTrace = referenceRunSequence(catchNode.children ?? [], env);
     if (hasBinding) {
-      if (hadPrev) env.bindings.set(caught as string, prevValue);
-      else env.bindings.delete(caught as string);
+      if (hadPrev) defineBinding(env, caught as string, prevValue);
+      else deleteOwnBinding(env, caught as string);
     }
     out.events.push(...catchTrace.events);
     completion = catchTrace.completion;
