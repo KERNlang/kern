@@ -88,13 +88,24 @@ function tryEffects(ir: IRNode, env: SemanticEnv): Trace {
     // the body's. The binding is local to this catch execution; a finally-only
     // `try` never reaches here.
     const caught = catchNode.props?.name;
-    if (completion.error) {
+    const hasBinding = typeof caught === 'string' && caught !== '';
+    // SCOPE the catch binding to the catch body (codex review: env-binding leak).
+    // Snapshot the name's prior state and restore it after the catch runs. The
+    // tagged caught-error — and any inner shadow of the same name — must NOT
+    // survive the catch: TS block-scopes the catch parameter and Python `del`s it
+    // at the end of `except`, so a POST-catch (or finally) `<name>` read must
+    // ABSTAIN, never certify a value both emitted targets reject.
+    const hadPrev = hasBinding && env.bindings.has(caught as string);
+    const prevValue = hadPrev ? env.bindings.get(caught as string) : undefined;
+    if (completion.error && hasBinding) {
       const caughtValue = makeCaughtErrorValue(completion.error);
-      if (typeof caught === 'string' && caught !== '' && caughtValue !== null) {
-        env.bindings.set(caught, caughtValue);
-      }
+      if (caughtValue !== null) env.bindings.set(caught as string, caughtValue);
     }
     const catchTrace = referenceRunSequence(catchNode.children ?? [], env);
+    if (hasBinding) {
+      if (hadPrev) env.bindings.set(caught as string, prevValue);
+      else env.bindings.delete(caught as string);
+    }
     out.events.push(...catchTrace.events);
     completion = catchTrace.completion;
   }

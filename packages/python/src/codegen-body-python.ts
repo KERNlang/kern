@@ -597,12 +597,22 @@ function emitChildrenPy(
       } else if (child.type === 'set') {
         for (const line of emitSetPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'let') {
+        // Error-substrate Slice 1 (codex review: shadowing) — a `let` that rebinds
+        // a caught-error name SHADOWS the catch binding, so from here on its
+        // `.message` is an ordinary property access (matching TS), NOT `str(e)`.
+        // Drop it from the caught set so the rewrite no longer fires.
+        const letName = child.props?.name;
+        if (typeof letName === 'string') ctx.caughtBindings.delete(letName);
         for (const line of emitLetPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'expression-v1') {
         for (const line of emitExpressionV1Py(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'fn') {
         for (const line of emitFnPy(child, ctx, indent)) lines.push(line);
       } else if (child.type === 'assign') {
+        // Same shadowing guard for a bare-identifier assignment target: after
+        // `assign target="e" …`, `e` is no longer the caught error.
+        const tgt = child.props?.target;
+        if (typeof tgt === 'string' && /^[A-Za-z_$][\w$]*$/.test(tgt)) ctx.caughtBindings.delete(tgt);
         for (const line of emitAssignPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'destructure') {
         for (const line of emitDestructurePy(child, ctx)) lines.push(`${indent}${line}`);

@@ -76,13 +76,22 @@ function runRef(src: string): unknown {
   const handler = handlerOf(src);
   const children = handler.children ?? [];
   if (children.length === 0) throw new Error('runRef: empty handler body');
-  // All fixtures are a single top-level `try`; run it directly (it owns the contract).
-  const top = children[0];
-  const trace = referenceRun(top, makeEnv());
-  if (trace.completion.kind !== 'return') {
-    throw new Error(`runRef: no return completion, got ${JSON.stringify(trace.completion)}`);
+  // Run the FULL handler body sequence, threading env — so a POST-catch read of
+  // the catch binding is exercised (the env-scope fence). A child that abstains
+  // throws → runRef throws (the fail-close suite asserts on that directly).
+  const env = makeEnv();
+  let completion: { kind: string; value?: unknown } = { kind: 'normal' };
+  for (const child of children) {
+    const trace = referenceRun(child, env);
+    if (trace.completion.kind !== 'normal') {
+      completion = trace.completion;
+      break;
+    }
   }
-  return trace.completion.value;
+  if (completion.kind !== 'return') {
+    throw new Error(`runRef: no return completion, got ${JSON.stringify(completion)}`);
+  }
+  return completion.value;
 }
 
 /** TS leg — emit the handler body, wrap in a fn, run via node, capture the return. */
@@ -227,6 +236,35 @@ describe('Error-substrate Slice 1 — fail-close fence (runner abstains)', () =>
   // any non-.message field — host-specific, out of domain.
   test('reading e.stack fails closed', () => {
     const src = fixture(['try', '  throw value="new Error(\\"x\\")"', '  catch name=e', '    return value="e.stack"']);
+    expect(() => runRef(src)).toThrow();
+  });
+  // BLOCKER 1 (codex: env-binding leak) — the catch binding must NOT survive the
+  // catch. Both emitters scope `e` out (TS block scope; Python `del`s it at the end
+  // of `except`), so a POST-catch `e.message` errors on both. The runner must
+  // ABSTAIN, not certify the leaked value.
+  test('reading e.message AFTER the catch fails closed (binding does not leak)', () => {
+    const src = fixture([
+      'try',
+      '  throw value="new Error(\\"x\\")"',
+      '  catch name=e',
+      '    let name=d value="1"',
+      'return value="e.message"',
+    ]);
+    expect(() => runRef(src)).toThrow();
+  });
+  // BLOCKER 2 (codex: Python shadowing) — an inner `let name=e` SHADOWS the catch
+  // binding, so `e` is now an ordinary value; its `.message` is a normal property
+  // access (NOT str(e)). The runner abstains (e is no longer a caught error), and
+  // the Python emitter must drop `e` from its caught-binding set so it does not
+  // rewrite the shadowed read.
+  test('a let shadowing the catch binding fails closed (no str(e) rewrite)', () => {
+    const src = fixture([
+      'try',
+      '  throw value="new Error(\\"x\\")"',
+      '  catch name=e',
+      '    let name=e value="\\"shadowed\\""',
+      '    return value="e.message"',
+    ]);
     expect(() => runRef(src)).toThrow();
   });
 });
