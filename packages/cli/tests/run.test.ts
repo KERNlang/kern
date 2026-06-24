@@ -200,6 +200,25 @@ describe('kern run — executes a void main and replays stdout (exit 0)', () => 
     expect(r.stdout).toBe('0\n1\n2\n');
     expect(r.status).toBe(0);
   });
+
+  test('ARRAYS: each over an array literal prints each element in order', () => {
+    const r = runProgram(['let name=xs value="[1,2,3]"', 'each name=x in=xs', '  print value="x"']);
+    expect(r.stdout).toBe('1\n2\n3\n');
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+  });
+
+  test('ARRAYS: nested array literals iterate as real values (double-nested each)', () => {
+    const r = runProgram([
+      'let name=rows value="[[1,2],[3]]"',
+      'each name=row in=rows',
+      '  each name=v in=row',
+      '    print value="v"',
+    ]);
+    expect(r.stdout).toBe('1\n2\n3\n');
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+  });
 });
 
 // ── FAIL-CLOSE ATOMICITY: abstain produces NO stdout, exit 2 ──────────────────
@@ -224,10 +243,23 @@ describe('kern run — abstains atomically on non-portable ops (exit 2, no stdou
     expect(r.status).toBe(2);
   });
 
-  test('a not-yet-executable value (array literal) abstains rather than half-running', () => {
-    // Arrays have no runner evaluator yet (gap #2): a `let` bound to an array
-    // literal abstains, so `kern run` MUST fail-close to exit 2 with no stdout.
+  test('whole-array print abstains (the array now BINDS; printing it is deferred)', () => {
+    // Slice-2a binds the array literal, but printing a WHOLE array is deferred
+    // (the `print` contract fail-closes arrays — and a lossy comma-join is a
+    // later rendering decision). So `print xs` abstains -> exit 2, no stdout.
     const r = runProgram(['let name=xs value="[1, 2, 3]"', 'print value="xs"']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+  });
+
+  test('array index access abstains (deferred — core OOB semantics are not 3-leg portable)', () => {
+    const r = runProgram(['let name=xs value="[1,2,3]"', 'print value="xs[1]"']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+  });
+
+  test('a float ELEMENT abstains when iterated/printed (print float fails closed)', () => {
+    const r = runProgram(['let name=xs value="[1.5]"', 'each name=x in=xs', '  print value="x"']);
     expect(r.stdout).toBe('');
     expect(r.status).toBe(2);
   });
