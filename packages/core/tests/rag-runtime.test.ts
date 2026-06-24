@@ -346,6 +346,24 @@ describe('RAG eval runtime contracts', () => {
     ).toEqual(
       expect.objectContaining({ passed: true, caseCount: 1, metrics: expect.objectContaining({ hitRate: null }) }),
     );
+    expect(
+      evaluateRagEvalContract(
+        {
+          name: 'NoHitsExpected',
+          cases: [
+            {
+              name: 'no-results',
+              query: 'unmatched query',
+              tags: [],
+              expected: { chunkCount: 0 },
+            },
+          ],
+        },
+        createInMemoryRetriever(corpus),
+      ),
+    ).toEqual(
+      expect.objectContaining({ passed: true, caseCount: 1, metrics: expect.objectContaining({ hitRate: null }) }),
+    );
   });
 
   test('treats non-required assertion failures as advisory diagnostics', () => {

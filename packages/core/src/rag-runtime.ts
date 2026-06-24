@@ -968,21 +968,26 @@ function ragEvalMetrics(cases: readonly RagEvalCaseResult[]): RagEvalContractMet
   };
 }
 
+const RAG_RETRIEVAL_HIT_ASSERTION_KINDS = new Set([
+  'expected.minScore',
+  'expected.chunkCount',
+  'expected.sources',
+  'scoreGte',
+  'scoreLte',
+  'contains',
+  'sourceEq',
+  'sourceGlob',
+  'uniqueSourcesGte',
+  'chunkCountEq',
+  'chunkHash',
+]);
+
 function isRetrievalHitAssertion(assertion: RagEvalAssertionResult): boolean {
   if (assertion.code !== 'PASS' && assertion.code !== 'ASSERTION_FAIL') return false;
-  return [
-    'expected.minScore',
-    'expected.chunkCount',
-    'expected.sources',
-    'scoreGte',
-    'scoreLte',
-    'contains',
-    'sourceEq',
-    'sourceGlob',
-    'uniqueSourcesGte',
-    'chunkCountEq',
-    'chunkHash',
-  ].includes(assertion.kind);
+  // Count only evaluated relevance/source checks as retrieval hits; structural
+  // or empty-result checks should not make an eval look successful.
+  if (assertion.kind === 'expected.chunkCount' && assertion.expected === 0) return false;
+  return RAG_RETRIEVAL_HIT_ASSERTION_KINDS.has(assertion.kind);
 }
 
 function isGroundingAssertion(assertion: RagEvalAssertionResult): boolean {
