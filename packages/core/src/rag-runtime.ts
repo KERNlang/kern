@@ -196,6 +196,20 @@ export interface RagEvalCaseResult {
   readonly assertions: readonly RagEvalAssertionResult[];
 }
 
+export interface RagEvalGroundingMetrics {
+  readonly passed: boolean;
+  readonly passRate: number;
+  readonly passedCaseCount: number;
+  readonly failedCaseCount: number;
+}
+
+export interface RagEvalContractMetrics {
+  readonly hitRate: number;
+  readonly citationCoverage: number;
+  readonly minRelevance: number | null;
+  readonly grounding: RagEvalGroundingMetrics;
+}
+
 export interface RagEvalContractResult {
   readonly passed: boolean;
   readonly ragName?: string;
@@ -206,6 +220,7 @@ export interface RagEvalContractResult {
   readonly passedAssertionCount: number;
   readonly durationMs: number;
   readonly cases: readonly RagEvalCaseResult[];
+  readonly metrics: RagEvalContractMetrics;
 }
 
 export interface RagSemanticAnswerContractOptions {
@@ -626,6 +641,7 @@ export function evaluateRagEvalContract(
     passedAssertionCount,
     durationMs: runtimeNow(options) - startedAt,
     cases,
+    metrics: ragEvalMetrics(cases),
   };
 }
 
@@ -655,6 +671,7 @@ export async function evaluateRagEvalContractAsync(
     passedAssertionCount,
     durationMs: runtimeNow(options) - startedAt,
     cases,
+    metrics: ragEvalMetrics(cases),
   };
 }
 
@@ -914,6 +931,36 @@ function caseRetrieveOptions(evaluationCase: RagSemanticEvalCaseFact): RetrieveO
     ...optionalNumberValue('topK', evaluationCase.expected?.topK),
     ...optionalNumberValue('minScore', evaluationCase.expected?.minScore),
   };
+}
+
+function ragEvalMetrics(cases: readonly RagEvalCaseResult[]): RagEvalContractMetrics {
+  const passedCaseCount = cases.filter((evaluationCase) => evaluationCase.passed).length;
+  const totalChunks = cases.reduce((count, evaluationCase) => count + evaluationCase.chunks.length, 0);
+  const citedChunks = cases.reduce(
+    (count, evaluationCase) => count + evaluationCase.chunks.filter(chunkHasCitation).length,
+    0,
+  );
+  const relevanceScores = cases.flatMap((evaluationCase) => evaluationCase.chunks.map((chunk) => chunk.score));
+  const groundingPassedCaseCount = cases.filter((evaluationCase) =>
+    evaluationCase.assertions
+      .filter((assertion) => assertion.kind === 'citesRequired')
+      .every((assertion) => assertion.passed),
+  ).length;
+  return {
+    hitRate: ratio(passedCaseCount, cases.length),
+    citationCoverage: ratio(citedChunks, totalChunks),
+    minRelevance: relevanceScores.length > 0 ? Math.min(...relevanceScores) : null,
+    grounding: {
+      passed: cases.length > 0 && groundingPassedCaseCount === cases.length,
+      passRate: ratio(groundingPassedCaseCount, cases.length),
+      passedCaseCount: groundingPassedCaseCount,
+      failedCaseCount: cases.length - groundingPassedCaseCount,
+    },
+  };
+}
+
+function ratio(numerator: number, denominator: number): number {
+  return denominator === 0 ? 0 : numerator / denominator;
 }
 
 function evaluateExpectedCaseContracts(

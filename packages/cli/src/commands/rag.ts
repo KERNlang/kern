@@ -23,7 +23,7 @@ import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 
 const USAGE =
-  'Usage: kern rag eval <file.kern> [--corpus <chunks.json>] [--openai-api-key <key>]\n' +
+  'Usage: kern rag eval <file.kern> [--corpus <chunks.json>] [--json] [--openai-api-key <key>]\n' +
   '       kern rag retrieve <file.kern> --query <text> [--param name=value] [--openai-api-key <key>]\n' +
   '       kern rag index <file.kern> [--status] [--json] [--force-rebuild] [--openai-api-key <key>]\n' +
   '       kern rag conformance [--adapter memory|local-persistent] [--json]\n' +
@@ -276,6 +276,7 @@ async function runRagEval(args: string[]): Promise<void> {
     corpusFlagPresent,
     corpusPath,
     filePath,
+    json,
     openAiApiKeyFlag,
     openAiKeyFlagPresent,
     unexpectedArgs,
@@ -310,7 +311,8 @@ async function runRagEval(args: string[]): Promise<void> {
     fail(`evaluation failed: ${(err as Error).message}`);
   }
 
-  printReport(report, filePath, chunks?.length ?? report.corpusSource.chunkCount);
+  if (json) console.log(JSON.stringify(report, null, 2));
+  else printReport(report, filePath, chunks?.length ?? report.corpusSource.chunkCount);
   if (report.diagnostics.length > 0) process.exit(1); // invalid spec — failed closed
   if (report.evals.length === 0) process.exit(0); // no ragEval to run is not a failure
   process.exit(report.passed ? 0 : 1);
@@ -355,6 +357,7 @@ interface ParsedRagEvalArgs {
   readonly filePath?: string;
   readonly corpusPath?: string;
   readonly corpusFlagPresent: boolean;
+  readonly json: boolean;
   readonly openAiApiKeyFlag?: string;
   readonly openAiKeyFlagPresent: boolean;
   readonly unexpectedArgs: readonly string[];
@@ -365,6 +368,7 @@ function parseRagEvalArgs(args: readonly string[]): ParsedRagEvalArgs {
   let filePath: string | undefined;
   let corpusPath: string | undefined;
   let corpusFlagPresent = false;
+  let json = false;
   let openAiApiKeyFlag: string | undefined;
   let openAiKeyFlagPresent = false;
   const unexpectedArgs: string[] = [];
@@ -381,6 +385,10 @@ function parseRagEvalArgs(args: readonly string[]): ParsedRagEvalArgs {
     if (arg.startsWith('--corpus=')) {
       corpusFlagPresent = true;
       corpusPath = arg.slice('--corpus='.length);
+      continue;
+    }
+    if (arg === '--json') {
+      json = true;
       continue;
     }
     if (arg === '--openai-api-key') {
@@ -409,6 +417,7 @@ function parseRagEvalArgs(args: readonly string[]): ParsedRagEvalArgs {
     filePath,
     corpusPath,
     corpusFlagPresent,
+    json,
     openAiApiKeyFlag,
     openAiKeyFlagPresent,
     unexpectedArgs,

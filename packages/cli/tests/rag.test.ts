@@ -91,6 +91,41 @@ describe('kern rag', () => {
     expect(result.stdout).toContain('PASS');
   });
 
+  test('emits CI-friendly JSON eval reports with retrieval metrics', () => {
+    const result = run(['rag', 'eval', 'mydocs.kern', '--json'], dir);
+
+    expect(result.status).toBe(0);
+    const report = JSON.parse(result.stdout) as {
+      readonly passed: boolean;
+      readonly corpusSource: { readonly mode: string };
+      readonly evals: readonly [
+        {
+          readonly ragName: string;
+          readonly evalName: string;
+          readonly result: {
+            readonly metrics: {
+              readonly hitRate: number;
+              readonly citationCoverage: number;
+              readonly minRelevance: number | null;
+              readonly grounding: { readonly passed: boolean; readonly passRate: number };
+            };
+          };
+        },
+      ];
+    };
+    expect(report.passed).toBe(true);
+    expect(report.corpusSource.mode).toBe('declared-local-sources');
+    expect(report.evals[0]).toEqual(expect.objectContaining({ ragName: 'AnswerDocs', evalName: 'Faithfulness' }));
+    expect(typeof report.evals[0].result.metrics.minRelevance).toBe('number');
+    expect(report.evals[0].result.metrics).toEqual(
+      expect.objectContaining({
+        hitRate: 1,
+        citationCoverage: 1,
+        grounding: expect.objectContaining({ passed: true, passRate: 1 }),
+      }),
+    );
+  });
+
   test('rejects --corpus without a value', () => {
     const result = run(['rag', 'eval', 'mydocs.kern', '--corpus'], dir);
     expect(result.status).toBe(1);
