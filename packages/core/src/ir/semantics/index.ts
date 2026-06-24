@@ -207,7 +207,13 @@ export {
   serializeMarkdown,
   snapshotRegistry,
 } from './doc-generator.js';
-export { type DifferentialResult, runAllContracts, runDifferential, type Verdict } from './harness.js';
+// NOTE: the differential-TEST harness (`runDifferential`, `runAllContracts`,
+// `DifferentialResult`, `Verdict`) is DELIBERATELY NOT re-exported here. It pulls
+// the in-process TS-emitter leg (`harness → ts-leg → body-ts → closure-eligibility
+// → typescript`, ~10MB) and is test-only. Keeping it out of this runtime barrel is
+// what lets the standalone runner entry (`@kernlang/core/runner`) stay typescript-
+// free. The harness lives in the sibling `./testing.js` barrel; the anti-rot guard
+// `tests/runner-entry-import-graph.test.ts` pins the runner closure to zero TS.
 export { ReferenceRunnerError, referenceRun, referenceRunSequence } from './reference-runner.js';
 export { registerAllContracts } from './register-all.js';
 export type {
