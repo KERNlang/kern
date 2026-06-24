@@ -575,27 +575,31 @@ function runtimeEvalRetrieveName(indexName: string, query: string, retrieveOptio
 }
 
 function stableJson(value: unknown, seen = new WeakSet<object>()): string {
-  if (value === undefined) return '"__undefined__"';
-  if (typeof value === 'bigint') return JSON.stringify(`bigint:${value.toString()}`);
-  if (typeof value === 'function') return JSON.stringify(`function:${value.name}`);
-  if (typeof value === 'symbol') return JSON.stringify(String(value));
+  if (value === undefined) return stableJsonTagged('undefined', '');
+  if (typeof value === 'bigint') return stableJsonTagged('bigint', value.toString());
+  if (typeof value === 'function') return stableJsonTagged('function', value.name);
+  if (typeof value === 'symbol') return stableJsonTagged('symbol', String(value));
   if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? '"__unserializable__"';
-  const jsonValue = (value as { readonly toJSON?: unknown }).toJSON;
-  if (typeof jsonValue === 'function') return stableJson(jsonValue.call(value), seen);
   if (seen.has(value)) throw new Error('KERN RAG eval retrieve options cannot contain circular values.');
   seen.add(value);
-  if (Array.isArray(value)) {
-    const out = `[${value.map((entry) => stableJson(entry, seen)).join(',')}]`;
+  try {
+    const jsonValue = (value as { readonly toJSON?: unknown }).toJSON;
+    if (typeof jsonValue === 'function') return stableJson(jsonValue.call(value), seen);
+    if (Array.isArray(value)) {
+      return `[${value.map((entry) => stableJson(entry, seen)).join(',')}]`;
+    }
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(record[key], seen)}`)
+      .join(',')}}`;
+  } finally {
     seen.delete(value);
-    return out;
   }
-  const record = value as Record<string, unknown>;
-  const out = `{${Object.keys(record)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableJson(record[key], seen)}`)
-    .join(',')}}`;
-  seen.delete(value);
-  return out;
+}
+
+function stableJsonTagged(kind: string, value: string): string {
+  return `{"\\u0000kernStableJson":${JSON.stringify(kind)},"value":${JSON.stringify(value)}}`;
 }
 
 function optionalRuntimeRetrieveNumber(name: string, value: number | undefined): string[] {
