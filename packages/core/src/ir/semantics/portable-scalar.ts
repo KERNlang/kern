@@ -40,6 +40,7 @@ import {
 } from '../../decimal/probe-gates.js';
 import type { ValueIR } from '../../value-ir.js';
 import type { SemanticEnv } from './index.js';
+import { getBinding, hasBinding } from './index.js';
 
 export type PortableScalar = string | number | boolean | null;
 
@@ -211,8 +212,8 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
     case 'nullLit':
       return null;
     case 'ident': {
-      if (!env.bindings.has(node.name)) throw new Error(`portable: binding "${node.name}" not found`);
-      return assertPortableScalar(env.bindings.get(node.name), `binding "${node.name}"`);
+      if (!hasBinding(env, node.name)) throw new Error(`portable: binding "${node.name}" not found`);
+      return assertPortableScalar(getBinding(env, node.name), `binding "${node.name}"`);
     }
     case 'unary': {
       const value = evalPortableValue(node.argument, env);
@@ -244,7 +245,7 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
       if (node.object.kind !== 'ident') {
         throw new Error('portable: member access is only admitted on a caught-error binding');
       }
-      const obj = env.bindings.get(node.object.name);
+      const obj = getBinding(env, node.object.name);
       if (!isCaughtErrorValue(obj)) {
         throw new Error(`portable: member access on "${node.object.name}" is outside the portable scalar domain`);
       }
@@ -515,7 +516,7 @@ function evalDecimalNode(node: ValueIR, env: SemanticEnv, KDecimal: KDecimalCtor
   // the emitters lower through — so a wrapped producer evaluates natively.
   const inner = unwrapTransparent(node);
   if (inner.kind === 'ident') {
-    const bound = env.bindings.get(inner.name);
+    const bound = getBinding(env, inner.name);
     if (!isDecimalValue(bound)) {
       throw new Error(`portable-decimal: binding "${inner.name}" is not a Decimal value`);
     }
@@ -586,7 +587,7 @@ export function evalRunnerNativeDecimalScalarCall(
   node: Extract<ValueIR, { kind: 'call' }>,
   env: SemanticEnv,
 ): PortableScalar | undefined {
-  if (env.bindings.has('Decimal')) return undefined;
+  if (hasBinding(env, 'Decimal')) return undefined;
   const method = decimalNamespaceMethod(node);
   if (method === null || !RUNNER_DECIMAL_COMPARATOR_METHODS.has(method)) return undefined;
   if (node.args.length !== 2) {

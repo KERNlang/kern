@@ -12,7 +12,16 @@
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
-import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
+import {
+  childEnv,
+  defineBinding,
+  getBinding,
+  hasBinding,
+  type NodeContract,
+  type NodeFixture,
+  registerContract,
+  type SemanticEnv,
+} from './index.js';
 import { referenceRunSequence } from './reference-runner.js';
 import { emptyTrace, type Trace } from './trace.js';
 
@@ -49,8 +58,8 @@ function evalValue(expr: ValueIR, env: SemanticEnv): unknown {
     case 'numLit':
       return expr.value;
     case 'ident': {
-      if (!env.bindings.has(expr.name)) throw new Error(`for: binding "${expr.name}" not found in env`);
-      return env.bindings.get(expr.name);
+      if (!hasBinding(env, expr.name)) throw new Error(`for: binding "${expr.name}" not found in env`);
+      return getBinding(env, expr.name);
     }
     case 'index': {
       const target = evalValue(expr.object, env);
@@ -87,14 +96,18 @@ function forEffects(ir: IRNode, env: SemanticEnv): Trace {
   for (let i = from; step > 0 ? i < to : i > to; i += step) {
     out.events.push({ op: 'iter-next', binding: name, value: i });
 
-    const childEnv: SemanticEnv = {
-      bindings: new Map(env.bindings),
-      seed: env.seed,
-      now: env.now,
-    };
-    childEnv.bindings.set(name, i);
+    // Each iteration runs in a FRESH CHILD scope. The loop variable and any inner
+    // `let` declared in the body live only in this child — so they are fresh per
+    // iteration and do not leak after the loop (a post-loop read fails closed,
+    // matching TS block-scoping; Python would leak it, so it is non-portable).
+    // An `assign` to an OUTER binding writes THROUGH to its declaring scope, so
+    // mutable accumulators persist across iterations — byte-identical to the
+    // emitted TS/Python loops. (Previously this forked `new Map(env.bindings)`,
+    // discarding outer mutations: a `sum += i` accumulator returned 0, not 15.)
+    const iterEnv = childEnv(env);
+    defineBinding(iterEnv, name, i);
 
-    const childTrace = referenceRunSequence(children, childEnv);
+    const childTrace = referenceRunSequence(children, iterEnv);
     out.events.push(...childTrace.events);
 
     const c = childTrace.completion;
