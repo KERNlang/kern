@@ -56,6 +56,56 @@ describe('RAG in-memory runtime retrieval', () => {
     expect(retrieveFromInMemoryCorpus(corpus, 'refund policy', { minScore: 0.5 }).chunks).toEqual([]);
   });
 
+  test('filters results by exact chunk metadata before applying topK', () => {
+    const corpus = new InMemoryRagCorpus([
+      {
+        id: 'refunds',
+        text: 'refund policy',
+        source: 'docs/refunds.md',
+        metadata: { relativePath: 'docs/refunds.md', sourceName: 'manuals' },
+      },
+      {
+        id: 'shipping',
+        text: 'refund shipping policy',
+        source: 'docs/shipping.md',
+        metadata: { relativePath: 'docs/shipping.md', sourceName: 'shipping' },
+      },
+    ]);
+
+    const result = retrieveFromInMemoryCorpus(corpus, 'refund policy', {
+      topK: 1,
+      metadataFilter: { relativePath: './docs\\refunds.md' },
+    });
+
+    expect(result.chunks).toHaveLength(1);
+    expect(result.chunks[0]?.id).toBe('refunds');
+    expect(result.chunks[0]?.metadata).toEqual(
+      expect.objectContaining({ relativePath: 'docs/refunds.md', sourceName: 'manuals' }),
+    );
+
+    const sourceFallback = retrieveFromInMemoryCorpus(
+      new InMemoryRagCorpus([{ id: 'fallback', text: 'refund policy', source: './docs\\refunds.md' }]),
+      'refund policy',
+      { metadataFilter: { relativePath: 'docs/refunds.md' } },
+    );
+    expect(sourceFallback.chunks[0]?.id).toBe('fallback');
+  });
+
+  test('rejects malformed metadata filters from runtime callers', () => {
+    const corpus = new InMemoryRagCorpus([{ id: 'refunds', text: 'refund policy', source: 'docs/refunds.md' }]);
+
+    expect(() =>
+      retrieveFromInMemoryCorpus(corpus, 'refund', {
+        metadataFilter: { sourceName: '' },
+      }),
+    ).toThrow(/metadataFilter\.sourceName must be a non-empty string/u);
+    expect(() =>
+      retrieveFromInMemoryCorpus(corpus, 'refund', {
+        metadataFilter: { unknownKey: 'x' } as never,
+      }),
+    ).toThrow(/metadataFilter key 'unknownKey' is not supported/u);
+  });
+
   test('orders results by descending score', () => {
     const corpus = new InMemoryRagCorpus([
       { id: 'partial', text: 'refund shipping', source: 'docs/partial.md' },

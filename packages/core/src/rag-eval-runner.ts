@@ -46,6 +46,12 @@ import {
   type RetrieveOptions,
 } from './rag-runtime.js';
 import {
+  cloneRagMetadataFilter,
+  RAG_METADATA_FILTER_KEY_TO_PROP,
+  type RagMetadataFilter,
+  type RagMetadataFilterKey,
+} from './rag-metadata-filter.js';
+import {
   collectRagSemanticFacts,
   type RagSemanticFacts,
   type RagSemanticPipelineFact,
@@ -759,6 +765,7 @@ function runtimeEvalRetrieveSource(
     `query=${kernString(query)}`,
     ...optionalRuntimeRetrieveNumber('topK', retrieveOptions.topK),
     ...optionalRuntimeRetrieveNumber('minScore', retrieveOptions.minScore),
+    ...optionalRuntimeRetrieveMetadataFilter(retrieveOptions.metadataFilter),
     'output="RetrievedChunk[]"',
   ];
   return `${source.replace(/\s*$/u, '')}\n${fields.join(' ')}\n`;
@@ -804,8 +811,20 @@ function optionalRuntimeRetrieveNumber(name: string, value: number | undefined):
   return value === undefined ? [] : [`${name}=${String(value)}`];
 }
 
+function optionalRuntimeRetrieveMetadataFilter(filter: RagMetadataFilter | undefined): string[] {
+  const normalized = cloneRagMetadataFilter(filter);
+  if (!normalized) return [];
+  return (Object.entries(normalized) as [RagMetadataFilterKey, string][])
+    .sort(([left], [right]) => compareCodePoint(left, right))
+    .map(([key, value]) => `${RAG_METADATA_FILTER_KEY_TO_PROP[key]}=${kernString(value)}`);
+}
+
 function kernString(value: string): string {
   return JSON.stringify(value);
+}
+
+function compareCodePoint(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function recordIndexLifecycle(

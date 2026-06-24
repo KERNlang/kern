@@ -6,6 +6,11 @@ import type {
   RagSemanticMcpRetrievalFact,
 } from './semantic-validator.js';
 import { RAG_MCP_RETRIEVE_OUTPUT_ITEM_SHAPE, RAG_MCP_RETRIEVE_OUTPUT_SHAPE } from './semantic-validator.js';
+import {
+  cloneRagMetadataFilter,
+  matchesRagMetadataFilter,
+  type RagMetadataFilter,
+} from './rag-metadata-filter.js';
 
 export interface RagCitation {
   readonly uri?: string;
@@ -32,6 +37,7 @@ export interface RetrievedChunk {
 export interface RetrieveOptions {
   readonly topK?: number;
   readonly minScore?: number;
+  readonly metadataFilter?: RagMetadataFilter;
 }
 
 export interface RetrieveResult {
@@ -273,11 +279,12 @@ export class InMemoryRagCorpus {
 
   retrieve(query: string, options: RetrieveOptions = {}): RetrieveResult {
     if (typeof query !== 'string') throw new Error('KERN RAG runtime query must be a string.');
-    const { topK, minScore } = normalizeRetrieveOptions(options);
+    const { topK, minScore, metadataFilter } = normalizeRetrieveOptions(options);
     const queryTerms = tokenizeForRetrieval(query);
     if (queryTerms.size === 0) return { query, chunks: [] };
 
     const chunks = Array.from(this.chunks.values())
+      .filter((stored) => matchesRagMetadataFilter(stored.chunk, metadataFilter))
       .map((stored) => ({ chunk: stored.chunk, score: jaccardScore(queryTerms, stored.terms) }))
       .filter((candidate) => candidate.score > 0 && candidate.score >= minScore)
       .sort((a, b) => b.score - a.score || a.chunk.id.localeCompare(b.chunk.id))
@@ -689,16 +696,27 @@ export function hashRetrievedChunkText(text: string): string {
   return `${left.toString(16).padStart(16, '0')}${right.toString(16).padStart(16, '0')}`;
 }
 
-function normalizeRetrieveOptions(options: RetrieveOptions): Required<RetrieveOptions> {
+interface NormalizedRetrieveOptions {
+  readonly topK: number;
+  readonly minScore: number;
+  readonly metadataFilter?: RagMetadataFilter;
+}
+
+function normalizeRetrieveOptions(options: RetrieveOptions): NormalizedRetrieveOptions {
   const topK = options.topK ?? 5;
   const minScore = options.minScore ?? 0;
+  const metadataFilter = cloneRagMetadataFilter(options.metadataFilter);
   if (!Number.isInteger(topK) || topK <= 0 || topK > MAX_IN_MEMORY_RAG_TOP_K) {
     throw new Error(`KERN RAG runtime topK must be a positive integer up to ${MAX_IN_MEMORY_RAG_TOP_K}.`);
   }
   if (!Number.isFinite(minScore) || minScore < 0 || minScore > 1) {
     throw new Error('KERN RAG runtime minScore must be between 0 and 1.');
   }
-  return { topK, minScore };
+  return {
+    topK,
+    minScore,
+    ...(metadataFilter ? { metadataFilter } : {}),
+  };
 }
 
 function normalizeGroundingCoverageThreshold(value: number | undefined): number {
@@ -1345,7 +1363,7 @@ function optionalAssertionValue(key: 'expected' | 'actual', value: unknown): Rec
 
 function normalizeProvenanceRetrieveOptions(options: RetrieveOptions | undefined): RetrieveOptions {
   if (options === undefined) return {};
-  const out: { topK?: number; minScore?: number } = {};
+  const out: { topK?: number; minScore?: number; metadataFilter?: RagMetadataFilter } = {};
   if (options.topK !== undefined) {
     if (!Number.isInteger(options.topK) || options.topK <= 0 || options.topK > MAX_IN_MEMORY_RAG_TOP_K) {
       throw new Error(`KERN RAG runtime topK must be a positive integer up to ${MAX_IN_MEMORY_RAG_TOP_K}.`);
@@ -1357,6 +1375,10 @@ function normalizeProvenanceRetrieveOptions(options: RetrieveOptions | undefined
       throw new Error('KERN RAG runtime minScore must be between 0 and 1.');
     }
     out.minScore = options.minScore;
+  }
+  if (options.metadataFilter !== undefined) {
+    const metadataFilter = cloneRagMetadataFilter(options.metadataFilter);
+    if (metadataFilter !== undefined) out.metadataFilter = metadataFilter;
   }
   return out;
 }

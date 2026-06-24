@@ -43,6 +43,16 @@ const PROFILE_OVERRIDE_DOC = PROFILE_DOC.replace(
   'ragRetrieve name=FindDocs index=DocsIndex profile=SupportDefault query="refund policy money back" topK=1 minScore=0',
 );
 
+const PROFILE_FILTER_DOC = PROFILE_DOC.replace(
+  'retrievalProfile name=SupportDefault queryParam=question topK=2 minScore=0.1 output="RetrievedChunk[]"',
+  'retrievalProfile name=SupportDefault queryParam=question topK=2 minScore=0 filterPath="docs/shipping.md" output="RetrievedChunk[]"',
+);
+
+const PROFILE_FILTER_OVERRIDE_DOC = PROFILE_FILTER_DOC.replace(
+  'ragRetrieve name=FindDocs index=DocsIndex profile=SupportDefault',
+  'ragRetrieve name=FindDocs index=DocsIndex profile=SupportDefault filterPath="docs/refunds.md"',
+);
+
 const INDEX_CHUNKING_DOC = DOC.replace(
   'chunking source=manuals strategy=semantic maxTokens=80 overlap=0 unit=tokens',
   'chunking name=Large source=manuals strategy=window maxTokens=2 overlap=0 unit=tokens',
@@ -218,6 +228,43 @@ describe('retrieveRagDocument', () => {
       }),
     );
     expect(report.retrievals[0]?.result.chunks).toHaveLength(1);
+  });
+
+  test('applies named retrieval profile metadata filters before ranking', () => {
+    const report = retrieveRagDocument(PROFILE_FILTER_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund shipping delivery',
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    expect(report.retrievals[0]?.retrieveOptions).toEqual({
+      topK: 2,
+      minScore: 0,
+      metadataFilter: { relativePath: 'docs/shipping.md' },
+    });
+    expect(report.retrievals[0]?.result.chunks).toHaveLength(1);
+    expect(report.retrievals[0]?.result.chunks[0]).toEqual(
+      expect.objectContaining({
+        source: 'docs/shipping.md',
+        metadata: expect.objectContaining({ relativePath: 'docs/shipping.md' }),
+      }),
+    );
+  });
+
+  test('lets ragRetrieve override named retrieval profile metadata filters', () => {
+    const report = retrieveRagDocument(PROFILE_FILTER_OVERRIDE_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    expect(report.retrievals[0]?.retrieveOptions).toEqual({
+      topK: 2,
+      minScore: 0,
+      metadataFilter: { relativePath: 'docs/refunds.md' },
+    });
+    expect(report.retrievals[0]?.result.chunks).toHaveLength(1);
+    expect(report.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
   });
 
   test('fails closed for dynamic fixed-query expressions in the synchronous runner', () => {

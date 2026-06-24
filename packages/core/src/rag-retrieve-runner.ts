@@ -27,6 +27,7 @@ import {
   type SemanticViolation,
   validateRagSemantics,
 } from './semantic-validator.js';
+import { cloneRagMetadataFilter } from './rag-metadata-filter.js';
 
 export interface RagRetrieveDocumentOptions {
   readonly sourcePath: string;
@@ -429,9 +430,11 @@ function queryForRuntimeRetrieval(
 }
 
 function retrieveOptionsForFact(retrieval: RagSemanticRuntimeRetrieveFact): RetrieveOptions {
+  const metadataFilter = cloneRagMetadataFilter(retrieval.metadataFilter);
   return {
     ...(retrieval.topK !== undefined ? { topK: retrieval.topK } : {}),
     ...(retrieval.minScore !== undefined ? { minScore: retrieval.minScore } : {}),
+    ...(metadataFilter !== undefined ? { metadataFilter } : {}),
   };
 }
 

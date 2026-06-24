@@ -35,6 +35,11 @@ import {
   tokenizeForRetrieval,
 } from './rag-runtime.js';
 import {
+  cloneRagMetadataFilter,
+  matchesRagMetadataFilter,
+  type RagMetadataFilter,
+} from './rag-metadata-filter.js';
+import {
   RagEmbeddingProviderAuthError,
   RagEmbeddingProviderDimensionMismatchError,
   RagEmbeddingProviderRateLimitError,
@@ -407,9 +412,10 @@ export class EmbeddingRagIndex {
 
   retrieve(query: string, options: RetrieveOptions = {}): RetrieveResult {
     if (typeof query !== 'string') throw new Error('KERN RAG runtime query must be a string.');
-    const { topK, minScore } = normalizeEmbeddingRetrieveOptions(options);
+    const { topK, minScore, metadataFilter } = normalizeEmbeddingRetrieveOptions(options);
     const queryVector = this.embedder.embed(query);
     const chunks = Array.from(this.entries.values())
+      .filter((entry) => matchesRagMetadataFilter(entry.chunk, metadataFilter))
       .map((entry) => ({ chunk: entry.chunk, score: embeddingCosine(queryVector, entry.vector) }))
       .filter((candidate) => candidate.score > 0 && candidate.score >= minScore)
       .sort((a, b) => b.score - a.score || compareChunkIds(a.chunk.id, b.chunk.id))
@@ -514,8 +520,9 @@ export class InMemoryPgVectorRagStore implements RagVectorStoreAdapter {
   ): RetrieveResult {
     if (typeof query !== 'string') throw new Error('KERN RAG runtime query must be a string.');
     this.assertCompatible(queryVector, fingerprint);
-    const { topK, minScore } = normalizeEmbeddingRetrieveOptions(options);
+    const { topK, minScore, metadataFilter } = normalizeEmbeddingRetrieveOptions(options);
     const chunks = Array.from(this.entries.values())
+      .filter((entry) => matchesRagMetadataFilter(entry.chunk, metadataFilter))
       .map((entry) => ({ chunk: entry.chunk, score: embeddingCosine(queryVector, entry.vector) }))
       .filter((candidate) => candidate.score > 0 && candidate.score >= minScore)
       .sort((a, b) => b.score - a.score || compareChunkIds(a.chunk.id, b.chunk.id))
@@ -672,14 +679,25 @@ function assertChunkInput(chunk: RagChunkInput): void {
   }
 }
 
-function normalizeEmbeddingRetrieveOptions(options: RetrieveOptions): Required<RetrieveOptions> {
+interface NormalizedEmbeddingRetrieveOptions {
+  readonly topK: number;
+  readonly minScore: number;
+  readonly metadataFilter?: RagMetadataFilter;
+}
+
+function normalizeEmbeddingRetrieveOptions(options: RetrieveOptions): NormalizedEmbeddingRetrieveOptions {
   const topK = options.topK ?? 5;
   const minScore = options.minScore ?? 0;
+  const metadataFilter = cloneRagMetadataFilter(options.metadataFilter);
   if (!Number.isInteger(topK) || topK <= 0 || topK > MAX_IN_MEMORY_RAG_TOP_K) {
     throw new Error(`KERN RAG runtime topK must be a positive integer up to ${MAX_IN_MEMORY_RAG_TOP_K}.`);
   }
   if (!Number.isFinite(minScore) || minScore < 0 || minScore > 1) {
     throw new Error('KERN RAG runtime minScore must be between 0 and 1.');
   }
-  return { topK, minScore };
+  return {
+    topK,
+    minScore,
+    ...(metadataFilter ? { metadataFilter } : {}),
+  };
 }

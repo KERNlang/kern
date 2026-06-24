@@ -33,6 +33,12 @@ import {
   ragEmbedModelAllowsCustomDims,
 } from './rag-embed-resolver.js';
 import type { RagVectorStoreKind } from './rag-embedding.js';
+import {
+  mergeRagMetadataFilters,
+  ragMetadataFilterFromProps,
+  RAG_RETRIEVE_FILTER_PROPS,
+  type RagMetadataFilter,
+} from './rag-metadata-filter.js';
 import type { IRNode } from './types.js';
 import type { ValueIR } from './value-ir.js';
 
@@ -250,6 +256,7 @@ export interface RagSemanticRetrievalProfileFact {
   readonly queryParam?: string;
   readonly topK?: number;
   readonly minScore?: number;
+  readonly metadataFilter?: RagMetadataFilter;
   readonly outputShape?: string;
   readonly outputItemShape?: string;
   readonly requireCitations?: boolean;
@@ -289,6 +296,7 @@ export interface RagSemanticRuntimeRetrieveFact {
   readonly as?: string;
   readonly topK?: number;
   readonly minScore?: number;
+  readonly metadataFilter?: RagMetadataFilter;
   readonly outputShape?: string;
   readonly outputItemShape?: string;
   readonly requireCitations?: boolean;
@@ -1112,6 +1120,8 @@ function validateRagGraphRoots(roots: readonly IRNode[], violations: SemanticVio
       retrieval,
       indexByName,
       retrievalProfileByName,
+      sourceNamesByCorpus,
+      infos.chunking,
       ragByName,
       citationRequiredRagNames,
       violations,
@@ -1919,6 +1929,13 @@ function validateRagRetriever(
 }
 
 function validateRagRetrievalProfile(profile: RagRetrievalProfileInfo, violations: SemanticViolation[]): void {
+  validateRagMetadataFilterProps(
+    profile.node,
+    'rag-retrieval-profile-filter-empty',
+    'RAG retrievalProfile metadata filter',
+    violations,
+  );
+
   const topK = numberProp(profile.node, 'topK');
   if (invalidNumberProp(profile.node, 'topK') || (topK !== undefined && (!Number.isInteger(topK) || topK <= 0))) {
     pushRagViolation(
@@ -1969,11 +1986,21 @@ function validateRagRuntimeRetrieve(
   retrieval: RagRuntimeRetrieveInfo,
   indexByName: ReadonlyMap<string, RagIndexInfo>,
   profileByName: ReadonlyMap<string, RagRetrievalProfileInfo>,
+  sourceNamesByCorpus: ReadonlyMap<string, ReadonlySet<string>>,
+  chunking: readonly RagChunkingInfo[],
   ragByName: ReadonlyMap<string, RagPipelineInfo>,
   citationRequiredRagNames: ReadonlySet<string>,
   violations: SemanticViolation[],
 ): void {
-  if (!indexByName.has(retrieval.indexName)) {
+  validateRagMetadataFilterProps(
+    retrieval.node,
+    'rag-retrieve-filter-empty',
+    'RAG runtime retrieval metadata filter',
+    violations,
+  );
+
+  const index = indexByName.get(retrieval.indexName);
+  if (!index) {
     pushRagViolation(
       violations,
       'rag-retrieve-unknown-index',
@@ -2000,6 +2027,50 @@ function validateRagRuntimeRetrieve(
       retrieval.node,
       `RAG runtime retrieval '${retrieval.name}' references unknown retrievalProfile '${profileName}'.`,
     );
+  }
+
+  const metadataFilter = mergeRagMetadataFilters(
+    profile ? ragMetadataFilterFromProps((prop) => stringProp(profile.node, prop)) : undefined,
+    ragMetadataFilterFromProps((prop) => stringProp(retrieval.node, prop)),
+  );
+  if (metadataFilter?.corpusName && index && metadataFilter.corpusName !== index.corpusName) {
+    pushRagViolation(
+      violations,
+      'rag-retrieve-filter-corpus-mismatch',
+      retrieval.node,
+      `RAG runtime retrieval '${retrieval.name}' filters corpus '${metadataFilter.corpusName}' but index '${index.name}' uses corpus '${index.corpusName}'.`,
+    );
+  }
+  if (metadataFilter?.sourceName && index) {
+    const sourceNames = sourceNamesByCorpus.get(index.corpusName);
+    if (!sourceNames?.has(metadataFilter.sourceName)) {
+      pushRagViolation(
+        violations,
+        'rag-retrieve-filter-source-unknown',
+        retrieval.node,
+        `RAG runtime retrieval '${retrieval.name}' filters source '${metadataFilter.sourceName}' but corpus '${index.corpusName}' has no declared source with that name.`,
+      );
+    }
+  }
+  if (metadataFilter?.chunkingName && index) {
+    const chunkingExists = chunking.some(
+      (entry) => entry.corpusName === index.corpusName && entry.name === metadataFilter.chunkingName,
+    );
+    if (!chunkingExists) {
+      pushRagViolation(
+        violations,
+        'rag-retrieve-filter-chunking-unknown',
+        retrieval.node,
+        `RAG runtime retrieval '${retrieval.name}' filters chunking '${metadataFilter.chunkingName}' but corpus '${index.corpusName}' has no declared chunking with that name.`,
+      );
+    } else if (index.chunkingName && index.chunkingName !== metadataFilter.chunkingName) {
+      pushRagViolation(
+        violations,
+        'rag-retrieve-filter-chunking-mismatch',
+        retrieval.node,
+        `RAG runtime retrieval '${retrieval.name}' filters chunking '${metadataFilter.chunkingName}' but index '${index.name}' uses chunking '${index.chunkingName}'.`,
+      );
+    }
   }
 
   const explicitRagName = stringProp(retrieval.node, 'rag');
@@ -2102,6 +2173,20 @@ function validateRagRuntimeRetrieve(
       retrieval.node,
       `RAG runtime retrieval output '${outputShape}' is not supported; use RetrievedChunk[] for this slice.`,
     );
+  }
+}
+
+function validateRagMetadataFilterProps(
+  node: IRNode,
+  rule: string,
+  label: string,
+  violations: SemanticViolation[],
+): void {
+  for (const prop of RAG_RETRIEVE_FILTER_PROPS) {
+    const raw = node.props?.[prop];
+    if (Object.hasOwn(node.props ?? {}, prop) && (typeof raw !== 'string' || raw.trim().length === 0)) {
+      pushRagViolation(violations, rule, node, `${label} ${prop}= must be a non-empty string.`);
+    }
   }
 }
 
@@ -3114,11 +3199,13 @@ function ragRetrieverFact(info: RagRetrieverInfo): RagSemanticRetrieverFact {
 
 function ragRetrievalProfileFact(info: RagRetrievalProfileInfo): RagSemanticRetrievalProfileFact {
   const outputShape = stringProp(info.node, 'output');
+  const metadataFilter = ragMetadataFilterFromProps((prop) => stringProp(info.node, prop));
   return {
     name: info.name,
     ...optionalStringFact(info.node, 'queryParam', 'queryParam'),
     ...optionalNumberFact(info.node, 'topK', 'topK'),
     ...optionalNumberFact(info.node, 'minScore', 'minScore'),
+    ...(metadataFilter ? { metadataFilter } : {}),
     ...optionalStringValue('outputShape', outputShape),
     ...(outputShape === RAG_RUNTIME_RETRIEVE_OUTPUT_SHAPE
       ? { outputItemShape: RAG_RUNTIME_RETRIEVE_OUTPUT_ITEM_SHAPE }
@@ -3152,6 +3239,10 @@ function ragRuntimeRetrieveFact(
   const hasQueryProp = queryProp !== undefined;
   const queryText = expressionPropText(queryProp);
   const hasLocalQuery = queryText !== undefined && queryText.trim().length > 0;
+  const metadataFilter = mergeRagMetadataFilters(
+    profile ? ragMetadataFilterFromProps((prop) => stringProp(profile.node, prop)) : undefined,
+    ragMetadataFilterFromProps((prop) => stringProp(info.node, prop)),
+  );
   return {
     name: info.name,
     indexName: info.indexName,
@@ -3172,6 +3263,7 @@ function ragRuntimeRetrieveFact(
       'minScore',
       numberProp(info.node, 'minScore') ?? (profile ? numberProp(profile.node, 'minScore') : undefined),
     ),
+    ...(metadataFilter ? { metadataFilter } : {}),
     ...optionalStringValue('outputShape', effectiveOutputShape),
     ...(effectiveOutputShape === RAG_RUNTIME_RETRIEVE_OUTPUT_SHAPE
       ? { outputItemShape: RAG_RUNTIME_RETRIEVE_OUTPUT_ITEM_SHAPE }
