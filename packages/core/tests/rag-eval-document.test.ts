@@ -65,6 +65,23 @@ describe('evaluateRagEvalDocument (P1.2 end-to-end)', () => {
     expect(report.evals[0].result.passedCaseCount).toBe(1);
   });
 
+  test('runs keyword-mode retrievers without resolving an embedder', () => {
+    const keywordDoc = DOC.replace(
+      [
+        'embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine',
+        '',
+        'retriever name=DocsSearch corpus=Docs embed=DocsEmbedding mode=hybrid topK=4 minScore=0.72',
+      ].join('\n'),
+      'retriever name=DocsSearch corpus=Docs mode=keyword topK=4 minScore=0.1',
+    );
+    const report = evaluateRagEvalDocument(keywordDoc, CORPUS);
+
+    expect(report.embedderId).toBe('unresolved');
+    expect(report.embedderIds).toEqual([]);
+    expect(report.passed).toBe(true);
+    expect(report.evals[0].result.passedCaseCount).toBe(1);
+  });
+
   test('sync eval fails closed when a retriever declares a provider embed model', () => {
     const providerDoc = DOC.replace(
       'model=local-semantic-v1 dims=64',
@@ -241,6 +258,37 @@ rag name=AnswerDocs retriever=DocsSearch citations=true
         }),
       ]);
       expect(readFileSync(join(dir, 'index', 'DocsIndex.json'), 'utf-8')).toBe(snapshot);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('declared-source keyword retrievers bypass compatible ragIndex snapshots', () => {
+    const keywordIndexedDoc = INDEXED_DOC.replace(
+      'retriever name=DocsSearch corpus=Docs embed=DocsEmbedding mode=hybrid topK=4 minScore=0.1',
+      'retriever name=DocsSearch corpus=Docs mode=keyword topK=4 minScore=0.1',
+    );
+    const dir = mkdtempSync(join(tmpdir(), 'kern-rag-eval-keyword-index-'));
+    try {
+      mkdirSync(join(dir, 'docs'));
+      writeFileSync(join(dir, 'docs/refunds.md'), 'Refund policy: refunds return money within thirty days.\n');
+      writeFileSync(join(dir, 'docs/shipping.md'), 'Shipping delivery courier tracking parcel.\n');
+      const sourcePath = join(dir, 'mydocs.kern');
+      writeFileSync(sourcePath, keywordIndexedDoc);
+
+      const report = evaluateRagEvalDocumentFromDeclaredSources(keywordIndexedDoc, { sourcePath });
+
+      expect(report.passed).toBe(true);
+      expect(report.embedderId).toBe('unresolved');
+      expect(report.embedderIds).toEqual([]);
+      expect(report.indexes).toEqual([]);
+      expect(report.target.mode).toBe('declared-sources');
+      expect(() =>
+        evaluateRagEvalDocumentFromDeclaredSources(keywordIndexedDoc, {
+          sourcePath,
+          target: { retrieverName: 'DocsSearch', indexName: 'DocsIndex' },
+        }),
+      ).toThrow(/ragIndex 'DocsIndex' is incompatible with retriever 'DocsSearch'/u);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -594,7 +642,7 @@ embed name=UnusedEmbedding corpus=Unused model=local-semantic-v1 dims=64 metric=
   source name=windowDocs kind=local uri="./window/**/*.md" media=markdown
   chunking source=windowDocs strategy=window maxTokens=600 overlap=80 unit=tokens
 
-retriever name=DocsSearch corpus=Docs mode=hybrid topK=4 minScore=0.1
+retriever name=DocsSearch corpus=Docs mode=keyword topK=4 minScore=0.1
 
 rag name=AnswerDocs retriever=DocsSearch
   ragEval name=Mixed metric=faithfulness threshold=0.85 mode=contract
@@ -612,6 +660,8 @@ rag name=AnswerDocs retriever=DocsSearch
 
       const report = evaluateRagEvalDocumentFromDeclaredSources(doc, { sourcePath });
 
+      expect(report.embedderId).toBe('unresolved');
+      expect(report.embedderIds).toEqual([]);
       expect(report.corpusSource.chunkerVersion).toBeUndefined();
       expect(report.corpusSource.chunkerVersions).toEqual(['semantic-boundary-v1', 'token-window-v1']);
     } finally {

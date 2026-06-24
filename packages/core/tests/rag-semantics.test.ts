@@ -788,6 +788,60 @@ describe('RAG language semantics', () => {
     );
   });
 
+  test('accepts explicit RAG retriever declaration shapes', () => {
+    const source = [
+      'corpus name=Docs',
+      'embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine',
+      'retriever name=KeywordDocs corpus=Docs mode=keyword topK=3',
+      'retriever name=VectorDocs corpus=Docs embed=DocsEmbedding mode=vector minScore=0.1',
+      'retriever name=HybridDocs corpus=Docs embed=DocsEmbedding mode=hybrid rerank="local-cross-encoder"',
+    ].join('\n');
+    const facts = collectRagSemanticFacts(parseRoot(source));
+
+    expect(validateSemantics(parseRoot(source))).toEqual([]);
+    expect(facts.retrievers).toEqual([
+      expect.objectContaining({ name: 'KeywordDocs', corpusName: 'Docs', mode: 'keyword', topK: 3 }),
+      expect.objectContaining({
+        name: 'VectorDocs',
+        corpusName: 'Docs',
+        embedName: 'DocsEmbedding',
+        mode: 'vector',
+        minScore: 0.1,
+      }),
+      expect.objectContaining({
+        name: 'HybridDocs',
+        corpusName: 'Docs',
+        embedName: 'DocsEmbedding',
+        mode: 'hybrid',
+        rerank: 'local-cross-encoder',
+      }),
+    ]);
+  });
+
+  test('rejects incompatible RAG retriever declaration shapes', () => {
+    const source = [
+      'corpus name=Docs',
+      'embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine',
+      'retriever name=BadMode corpus=Docs mode=semantic',
+      'retriever name=VectorMissingEmbed corpus=Docs mode=vector',
+      'retriever name=HybridMissingEmbed corpus=Docs mode=hybrid',
+      'retriever name=KeywordWithEmbed corpus=Docs embed=DocsEmbedding mode=keyword',
+      'retriever name=VectorRerank corpus=Docs embed=DocsEmbedding mode=vector rerank="local-cross-encoder"',
+      'retriever name=ImplicitRerank corpus=Docs rerank="local-cross-encoder"',
+    ].join('\n');
+
+    expect(rulesFor(source)).toEqual(
+      expect.arrayContaining([
+        'rag-retriever-mode-invalid',
+        'rag-retriever-vector-requires-embed',
+        'rag-retriever-hybrid-requires-embed',
+        'rag-retriever-keyword-forbids-embed',
+        'rag-retriever-rerank-requires-hybrid',
+      ]),
+    );
+    expect(rulesFor(source).filter((rule) => rule === 'rag-retriever-rerank-requires-hybrid')).toHaveLength(2);
+  });
+
   test('rejects semantic chunking with character units instead of silently downgrading strategy', () => {
     const source = [
       'corpus name=Docs',

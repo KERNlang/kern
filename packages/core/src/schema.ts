@@ -2506,7 +2506,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   retriever: {
     description:
-      'RAG retriever declaration — binds a corpus and optional embedding contract to search policy such as topK/minScore.',
+      'RAG retriever declaration — binds a corpus and search policy. Explicit modes are keyword, vector, and hybrid; vector/hybrid modes require embed=, keyword mode forbids it, and rerank= is hybrid-only.',
     example: 'retriever name=DocsSearch corpus=Docs embed=DocsEmbedding mode=hybrid topK=8 minScore=0.72',
     props: {
       name: { required: true, kind: 'identifier' },

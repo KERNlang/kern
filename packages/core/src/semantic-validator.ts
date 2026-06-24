@@ -50,6 +50,8 @@ import type { ValueIR } from './value-ir.js';
 // bodies WITHOUT validating them; nothing parsed here flows to an emitter.
 const ANALYSIS_PARSE_OPTS = { closureClassifier: analysisClosureClassifier } as const;
 const SUPPORTED_RAG_VECTOR_STORE_KINDS: readonly RagVectorStoreKind[] = ['memory', 'local-persistent'];
+const RAG_RETRIEVER_MODES = ['keyword', 'vector', 'hybrid'] as const;
+type RagRetrieverMode = (typeof RAG_RETRIEVER_MODES)[number];
 
 function parseExprForAnalysis(text: string): ReturnType<typeof parseExpression> {
   return parseExpression(text, ANALYSIS_PARSE_OPTS);
@@ -1907,6 +1909,49 @@ function validateRagRetriever(
     }
   }
 
+  const mode = stringProp(retriever.node, 'mode');
+  const rerank = stringProp(retriever.node, 'rerank');
+  if (mode && !isRagRetrieverMode(mode)) {
+    pushRagViolation(
+      violations,
+      'rag-retriever-mode-invalid',
+      retriever.node,
+      "RAG retriever mode only supports 'keyword', 'vector', or 'hybrid'.",
+    );
+  }
+  if (mode === 'vector' && !retriever.embedName) {
+    pushRagViolation(
+      violations,
+      'rag-retriever-vector-requires-embed',
+      retriever.node,
+      `RAG retriever '${retriever.name}' with mode=vector must declare embed=.`,
+    );
+  }
+  if (mode === 'hybrid' && !retriever.embedName) {
+    pushRagViolation(
+      violations,
+      'rag-retriever-hybrid-requires-embed',
+      retriever.node,
+      `RAG retriever '${retriever.name}' with mode=hybrid must declare embed=.`,
+    );
+  }
+  if (mode === 'keyword' && retriever.embedName) {
+    pushRagViolation(
+      violations,
+      'rag-retriever-keyword-forbids-embed',
+      retriever.node,
+      `RAG retriever '${retriever.name}' with mode=keyword must not declare embed=.`,
+    );
+  }
+  if (rerank && mode !== 'hybrid') {
+    pushRagViolation(
+      violations,
+      'rag-retriever-rerank-requires-hybrid',
+      retriever.node,
+      `RAG retriever '${retriever.name}' rerank= is only supported with mode=hybrid.`,
+    );
+  }
+
   const topK = numberProp(retriever.node, 'topK');
   if (invalidNumberProp(retriever.node, 'topK') || (topK !== undefined && (!Number.isInteger(topK) || topK <= 0))) {
     pushRagViolation(
@@ -1926,6 +1971,10 @@ function validateRagRetriever(
       'RAG retriever minScore must be between 0 and 1.',
     );
   }
+}
+
+function isRagRetrieverMode(mode: string): mode is RagRetrieverMode {
+  return (RAG_RETRIEVER_MODES as readonly string[]).includes(mode);
 }
 
 function validateRagRetrievalProfile(profile: RagRetrievalProfileInfo, violations: SemanticViolation[]): void {
