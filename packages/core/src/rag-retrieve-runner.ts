@@ -40,6 +40,8 @@ export interface RagRetrieveDocumentOptions {
   readonly query?: string;
   /** Named runtime query inputs. Values here take precedence over the global query fallback. */
   readonly queryParams?: Readonly<Record<string, string>>;
+  /** Optional internal filter for callers that synthesize a single runtime retrieval. */
+  readonly runtimeRetrievalNames?: readonly string[];
   /** Override embedder for local, synchronous retrieval tests and tools. Provider-backed retrieval is future async work. */
   readonly embedder?: Embedder;
 }
@@ -299,27 +301,31 @@ export async function retrieveRagDocumentAsync(
 
 function prepareRuntimeRetrievals<TEmbedder extends Pick<Embedder, 'dims' | 'id'>>(
   facts: RagSemanticFacts,
-  options: Pick<RagRetrieveDocumentOptions, 'query' | 'queryParams'>,
+  options: Pick<RagRetrieveDocumentOptions, 'query' | 'queryParams' | 'runtimeRetrievalNames'>,
   embedderFor: (index: RagSemanticIndexFact) => TEmbedder,
 ): PreparedRagRetrieval<TEmbedder>[] {
   const indexByName = new Map(facts.indexes.map((index) => [index.name, index]));
   const vectorStoreByName = new Map(facts.vectorStores.map((store) => [store.name, store]));
-  return facts.runtimeRetrievals.map((retrieval) => {
-    const index = indexByName.get(retrieval.indexName);
-    if (!index) throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' references missing index.`);
-    const vectorStore = vectorStoreByName.get(index.storeName);
-    if (!vectorStore) {
-      throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' references missing vector store.`);
-    }
-    const vectorStoreKind = vectorStore.kind ?? 'memory';
-    if (vectorStoreKind !== 'memory' && vectorStoreKind !== 'local-persistent') {
-      throw new Error(
-        `KERN RAG runtime retrieval '${retrieval.name}' references vectorStore '${vectorStore.name}' kind='${vectorStoreKind}', but the ragRetrieve runner only supports kind=memory and kind=local-persistent.`,
-      );
-    }
-    const query = queryForRuntimeRetrieval(retrieval, options);
-    return { retrieval, index, query, embedder: embedderFor(index), vectorStore };
-  });
+  const runtimeRetrievalNames =
+    options.runtimeRetrievalNames === undefined ? undefined : new Set(options.runtimeRetrievalNames);
+  return facts.runtimeRetrievals
+    .filter((retrieval) => runtimeRetrievalNames?.has(retrieval.name) ?? true)
+    .map((retrieval) => {
+      const index = indexByName.get(retrieval.indexName);
+      if (!index) throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' references missing index.`);
+      const vectorStore = vectorStoreByName.get(index.storeName);
+      if (!vectorStore) {
+        throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' references missing vector store.`);
+      }
+      const vectorStoreKind = vectorStore.kind ?? 'memory';
+      if (vectorStoreKind !== 'memory' && vectorStoreKind !== 'local-persistent') {
+        throw new Error(
+          `KERN RAG runtime retrieval '${retrieval.name}' references vectorStore '${vectorStore.name}' kind='${vectorStoreKind}', but the ragRetrieve runner only supports kind=memory and kind=local-persistent.`,
+        );
+      }
+      const query = queryForRuntimeRetrieval(retrieval, options);
+      return { retrieval, index, query, embedder: embedderFor(index), vectorStore };
+    });
 }
 
 function ingestForPreparedRetrievals(

@@ -281,15 +281,17 @@ export function evaluateRagEvalDocumentFromDeclaredSources(
         const embedder = resolveSyncRagEmbedderForPipeline(facts, pipeline, options);
         embedderIds.add(embedder.id);
         retriever = (query, retrieveOptions) => {
+          const retrievalName = runtimeEvalRetrieveName(runtimeIndex.name, query, retrieveOptions ?? {});
           const report = retrieveRagDocument(
-            runtimeEvalRetrieveSource(source, runtimeIndex.name, query, retrieveOptions ?? {}),
+            runtimeEvalRetrieveSource(source, retrievalName, runtimeIndex.name, query, retrieveOptions ?? {}),
             {
               sourcePath: options.sourcePath,
+              runtimeRetrievalNames: [retrievalName],
               ...(options.embedder ? { embedder: options.embedder } : {}),
             },
           );
           recordIndexLifecycle(indexLifecycleByName, report.indexes);
-          const retrieval = report.retrievals[0];
+          const retrieval = report.retrievals.find((entry) => entry.name === retrievalName);
           if (!retrieval) {
             throw new Error(`KERN RAG eval could not execute runtime retrieval for ragIndex '${runtimeIndex.name}'.`);
           }
@@ -376,16 +378,18 @@ export async function evaluateRagEvalDocumentFromDeclaredSourcesAsync(
         const embedder = resolveAsyncRagEmbedderForPipeline(facts, pipeline, options);
         embedderIds.add(embedder.id);
         retriever = async (query, retrieveOptions) => {
+          const retrievalName = runtimeEvalRetrieveName(runtimeIndex.name, query, retrieveOptions ?? {});
           const report = await retrieveRagDocumentAsync(
-            runtimeEvalRetrieveSource(source, runtimeIndex.name, query, retrieveOptions ?? {}),
+            runtimeEvalRetrieveSource(source, retrievalName, runtimeIndex.name, query, retrieveOptions ?? {}),
             {
               sourcePath: options.sourcePath,
+              runtimeRetrievalNames: [retrievalName],
               ...(options.embedder ? { embedder: options.embedder } : {}),
               ...(options.providers ? { providers: options.providers } : {}),
             },
           );
           recordIndexLifecycle(indexLifecycleByName, report.indexes);
-          const retrieval = report.retrievals[0];
+          const retrieval = report.retrievals.find((entry) => entry.name === retrievalName);
           if (!retrieval) {
             throw new Error(`KERN RAG eval could not execute runtime retrieval for ragIndex '${runtimeIndex.name}'.`);
           }
@@ -546,12 +550,13 @@ function runtimeIndexForPipeline(
 
 function runtimeEvalRetrieveSource(
   source: string,
+  retrievalName: string,
   indexName: string,
   query: string,
   retrieveOptions: RetrieveOptions,
 ): string {
   const fields = [
-    'ragRetrieve name=__KernRagEvalRuntimeRetrieve',
+    `ragRetrieve name=${retrievalName}`,
     `index=${kernString(indexName)}`,
     `query=${kernString(query)}`,
     ...optionalRuntimeRetrieveNumber('topK', retrieveOptions.topK),
@@ -559,6 +564,14 @@ function runtimeEvalRetrieveSource(
     'output="RetrievedChunk[]"',
   ];
   return `${source.replace(/\s*$/u, '')}\n${fields.join(' ')}\n`;
+}
+
+function runtimeEvalRetrieveName(indexName: string, query: string, retrieveOptions: RetrieveOptions): string {
+  const digest = createHash('sha256')
+    .update(JSON.stringify([indexName, query, retrieveOptions.topK ?? null, retrieveOptions.minScore ?? null]))
+    .digest('hex')
+    .slice(0, 12);
+  return `__KernRagEvalRuntimeRetrieve_${digest}`;
 }
 
 function optionalRuntimeRetrieveNumber(name: string, value: number | undefined): string[] {
