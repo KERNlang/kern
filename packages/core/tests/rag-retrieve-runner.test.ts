@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { retrieveRagDocument, retrieveRagDocumentAsync } from '../src/index.js';
+import { type AsyncEmbedder, retrieveRagDocument, retrieveRagDocumentAsync } from '../src/index.js';
 
 const DOC = `corpus name=Docs
   source name=manuals kind=local uri="./docs/**/*.md" media=markdown
@@ -29,10 +29,31 @@ const DYNAMIC_QUERY_DOC = DOC.replace(
 
 const INDEX_CHUNKING_DOC = DOC.replace(
   'chunking source=manuals strategy=semantic maxTokens=80 overlap=0 unit=tokens',
-  'chunking name=Large source=manuals strategy=semantic maxTokens=80 overlap=0 unit=tokens',
+  'chunking name=Large source=manuals strategy=window maxTokens=2 overlap=0 unit=tokens',
 ).replace(
   'ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding',
   'ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding chunking=Large',
+);
+
+const INDEX_CHUNKING_SOURCE_MISMATCH_DOC = INDEX_CHUNKING_DOC.replace(
+  'source name=manuals kind=local uri="./docs/**/*.md" media=markdown',
+  [
+    'source name=manuals kind=local uri="./docs/refunds.md" media=markdown',
+    '  source name=shipping kind=local uri="./docs/shipping.md" media=markdown',
+  ].join('\n  '),
+);
+
+const ASYNC_PROVIDER_MEMORY_DOC = DOC.replace(
+  'embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine',
+  'embed name=DocsEmbedding corpus=Docs model="openai:text-embedding-3-small" dims=3 metric=cosine',
+).replace(
+  'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
+  'vectorStore name=DocsMemory kind=memory dims=3 metric=cosine',
+);
+
+const ASYNC_PROVIDER_LOCAL_PERSISTENT_DOC = ASYNC_PROVIDER_MEMORY_DOC.replace(
+  'vectorStore name=DocsMemory kind=memory dims=3 metric=cosine',
+  'vectorStore name=DocsMemory kind=local-persistent dims=3 metric=cosine path="./index"',
 );
 
 const LOCAL_PERSISTENT_STORE_DOC = DOC.replace(
@@ -102,6 +123,24 @@ function providerVector(text: string): number[] {
   if (normalized.includes('shipping') || normalized.includes('delivery')) return [0, 1, 0];
   return [0, 0, 1];
 }
+
+function fakeProviderVector(text: string): Float64Array {
+  const lower = text.toLowerCase();
+  if (lower.includes('refund') || lower.includes('money')) return new Float64Array([1, 0, 0]);
+  if (lower.includes('shipping') || lower.includes('delivery')) return new Float64Array([0, 1, 0]);
+  return new Float64Array([0, 0, 1]);
+}
+
+const fakeAsyncEmbedder: AsyncEmbedder = {
+  id: 'provider:fake-rag-test:dims=3',
+  dims: 3,
+  async embed(text: string): Promise<Float64Array> {
+    return fakeProviderVector(text);
+  },
+  async embedMany(texts: readonly string[]): Promise<readonly Float64Array[]> {
+    return texts.map(fakeProviderVector);
+  },
+};
 
 describe('retrieveRagDocument', () => {
   let dir: string;
@@ -217,13 +256,32 @@ describe('retrieveRagDocument', () => {
     expect(calls.count).toBe(3);
   });
 
-  test('fails closed instead of ignoring index-level chunking overrides', () => {
+  test('executes index-level chunking overrides during retrieval', () => {
+    const report = retrieveRagDocument(INDEX_CHUNKING_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    expect(report.indexes[0]).toEqual(
+      expect.objectContaining({
+        indexName: 'DocsIndex',
+        chunkingName: 'Large',
+        status: 'indexed',
+      }),
+    );
+    expect(report.ingestion?.chunks.length).toBeGreaterThan(2);
+    expect(report.ingestion?.chunks.every((chunk) => chunk.metadata?.chunkingName === 'Large')).toBe(true);
+    expect(report.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
+  });
+
+  test('fails closed when index-level chunking does not apply to a corpus source', () => {
     expect(() =>
-      retrieveRagDocument(INDEX_CHUNKING_DOC, {
+      retrieveRagDocument(INDEX_CHUNKING_SOURCE_MISMATCH_DOC, {
         sourcePath: join(dir, 'spec.kern'),
         query: 'refund policy money back',
       }),
-    ).toThrow(/index 'DocsIndex' with chunking='Large'/u);
+    ).toThrow(/chunking 'Large' does not apply to source 'shipping'/u);
   });
 
   test('executes local-persistent vector stores and reuses matching snapshots', () => {
@@ -233,6 +291,8 @@ describe('retrieveRagDocument', () => {
     });
 
     expect(first.diagnostics).toEqual([]);
+    expect(first.indexes[0]?.status).toBe('indexed');
+    expect(first.indexes[0]?.snapshotPath).toBe('index/DocsIndex.json');
     expect(first.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
     const snapshotPath = join(dir, 'index', 'DocsIndex.json');
     const firstSnapshot = readFileSync(snapshotPath, 'utf-8');
@@ -249,6 +309,7 @@ describe('retrieveRagDocument', () => {
     });
 
     expect(second.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
+    expect(second.indexes[0]?.status).toBe('reused');
     expect(readFileSync(snapshotPath, 'utf-8')).toBe(firstSnapshot);
   });
 
@@ -323,6 +384,7 @@ describe('retrieveRagDocument', () => {
     const after = JSON.parse(readFileSync(snapshotPath, 'utf-8')) as { readonly fingerprint: string };
 
     expect(report.retrievals[0]?.result.chunks[0]?.text).toContain('receipt approval');
+    expect(report.indexes[0]?.status).toBe('rebuilt');
     expect(after.fingerprint).not.toBe(before.fingerprint);
   });
 
@@ -344,6 +406,7 @@ describe('retrieveRagDocument', () => {
     };
 
     expect(report.retrievals[0]?.result.chunks[0]?.metadata?.sourceUri).toBe('docs/**/*.md');
+    expect(report.indexes[0]?.status).toBe('rebuilt');
     expect(after.entries[0]?.chunk.metadata?.sourceUri).toBe('docs/**/*.md');
     expect(after.fingerprint).not.toBe(before.fingerprint);
   });
@@ -369,6 +432,64 @@ describe('retrieveRagDocument', () => {
     };
 
     expect(report.retrievals[0]?.result.chunks[0]?.text).toContain('refund policy money back');
+    expect(report.indexes[0]?.status).toBe('rebuilt');
     expect(after.entries.some((entry) => entry.chunk.text === 'stale tampered text')).toBe(false);
+  });
+
+  test('async provider-backed memory retrieval executes runtime ragRetrieve declarations', async () => {
+    const report = await retrieveRagDocumentAsync(ASYNC_PROVIDER_MEMORY_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+      embedder: fakeAsyncEmbedder,
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    expect(report.indexes[0]).toEqual(
+      expect.objectContaining({
+        indexName: 'DocsIndex',
+        storeKind: 'memory',
+        status: 'indexed',
+      }),
+    );
+    expect(report.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
+  });
+
+  test('async provider-backed local-persistent retrieval reuses matching snapshots', async () => {
+    const first = await retrieveRagDocumentAsync(ASYNC_PROVIDER_LOCAL_PERSISTENT_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+      embedder: fakeAsyncEmbedder,
+    });
+    const snapshotPath = join(dir, 'index', 'DocsIndex.json');
+    const firstSnapshot = readFileSync(snapshotPath, 'utf-8');
+
+    const second = await retrieveRagDocumentAsync(ASYNC_PROVIDER_LOCAL_PERSISTENT_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+      embedder: fakeAsyncEmbedder,
+    });
+
+    expect(first.indexes[0]?.status).toBe('indexed');
+    expect(second.indexes[0]?.status).toBe('reused');
+    expect(second.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
+    expect(readFileSync(snapshotPath, 'utf-8')).toBe(firstSnapshot);
+  });
+
+  test('async provider-backed retrieval wraps provider failures with KERN context', async () => {
+    const failingEmbedder: AsyncEmbedder = {
+      id: 'provider:fake-broken',
+      dims: 3,
+      async embed(): Promise<Float64Array> {
+        throw new Error('socket closed for sk-test-secret');
+      },
+    };
+
+    await expect(
+      retrieveRagDocumentAsync(ASYNC_PROVIDER_MEMORY_DOC, {
+        sourcePath: join(dir, 'spec.kern'),
+        query: 'refund policy money back',
+        embedder: failingEmbedder,
+      }),
+    ).rejects.toThrow(/KERN RAG provider-backed retrieval failed for index 'DocsIndex'.*socket closed for sk-\*\*\*/u);
   });
 });

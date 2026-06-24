@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { lstatSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { parseDocument } from './parser.js';
 import {
@@ -45,10 +45,24 @@ export interface RagRetrieveDocumentOptions {
 }
 
 export interface RagRetrieveAsyncDocumentOptions extends Omit<RagRetrieveDocumentOptions, 'embedder'> {
-  /** Optional explicit async embedder override; otherwise resolved from ragIndex embed declarations. */
-  readonly embedder?: AsyncEmbedder;
+  /** Override embedder for async provider-backed retrieval tests and tools. */
+  readonly embedder?: AsyncEmbedder | Embedder;
   /** Provider options. Supplying OpenAI here is the only path that can make network calls. */
   readonly providers?: RagProviderEmbeddingOptions;
+}
+
+export type RagRetrieveIndexLifecycleStatus = 'indexed' | 'reused' | 'rebuilt';
+
+export interface RagRetrieveIndexLifecycle {
+  readonly indexName: string;
+  readonly corpusName: string;
+  readonly storeName: string;
+  readonly storeKind: 'memory' | 'local-persistent';
+  readonly chunkingName?: string;
+  readonly status: RagRetrieveIndexLifecycleStatus;
+  readonly chunkCount: number;
+  readonly fingerprint?: string;
+  readonly snapshotPath?: string;
 }
 
 export interface RagRetrieveDocumentEntry {
@@ -62,8 +76,22 @@ export interface RagRetrieveDocumentEntry {
 
 export interface RagRetrieveDocumentReport {
   readonly diagnostics: readonly SemanticViolation[];
+  readonly indexes: readonly RagRetrieveIndexLifecycle[];
   readonly retrievals: readonly RagRetrieveDocumentEntry[];
   readonly ingestion?: RagIngestResult;
+}
+
+interface PreparedRagRetrieval<TEmbedder extends Pick<Embedder, 'dims' | 'id'>> {
+  readonly retrieval: RagSemanticRuntimeRetrieveFact;
+  readonly index: RagSemanticIndexFact;
+  readonly query: string;
+  readonly embedder: TEmbedder;
+  readonly vectorStore: RagSemanticVectorStoreFact;
+}
+
+interface RetrievalIngestions {
+  readonly byIndexKey: ReadonlyMap<string, RagIngestResult>;
+  readonly combined: RagIngestResult;
 }
 
 /**
@@ -74,51 +102,29 @@ export interface RagRetrieveDocumentReport {
 export function retrieveRagDocument(source: string, options: RagRetrieveDocumentOptions): RagRetrieveDocumentReport {
   const root = parseDocument(source);
   const diagnostics = validateRagSemantics(root);
-  if (diagnostics.length > 0) return { diagnostics, retrievals: [] };
+  if (diagnostics.length > 0) return { diagnostics, indexes: [], retrievals: [] };
 
   const facts = collectRagSemanticFacts(root);
-  const indexByName = new Map(facts.indexes.map((index) => [index.name, index]));
-  const vectorStoreByName = new Map(facts.vectorStores.map((store) => [store.name, store]));
-  const preparedRetrievals = facts.runtimeRetrievals.map((retrieval) => {
-    const index = indexByName.get(retrieval.indexName);
-    if (!index) throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' references missing index.`);
-    const vectorStore = vectorStoreByName.get(index.storeName);
-    if (!vectorStore) {
-      throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' references missing vector store.`);
-    }
-    const vectorStoreKind = vectorStore.kind ?? 'memory';
-    if (vectorStoreKind !== 'memory' && vectorStoreKind !== 'local-persistent') {
-      throw new Error(
-        `KERN RAG runtime retrieval '${retrieval.name}' references vectorStore '${vectorStore.name}' kind='${vectorStoreKind}', but the synchronous ragRetrieve runner only supports kind=memory and kind=local-persistent.`,
-      );
-    }
-    if (index.chunkingName) {
-      throw new Error(
-        `KERN RAG runtime retrieval '${retrieval.name}' references index '${index.name}' with chunking='${index.chunkingName}', which is not supported by the synchronous ragRetrieve runner yet.`,
-      );
-    }
-    const query = queryForRuntimeRetrieval(retrieval, options);
-    const embedder = options.embedder ?? embedderForIndex(facts, index.embedName);
-    return { retrieval, index, query, embedder, vectorStore };
-  });
-  const corpusNames = Array.from(new Set(preparedRetrievals.map(({ index }) => index.corpusName))).sort();
-  if (corpusNames.length === 0) return { diagnostics, retrievals: [] };
+  const preparedRetrievals = prepareRuntimeRetrievals(
+    facts,
+    options,
+    (index) => options.embedder ?? embedderForIndex(facts, index),
+  );
+  if (preparedRetrievals.length === 0) return { diagnostics, indexes: [], retrievals: [] };
 
-  const ingestion = ingestRagDeclaredLocalSources(root, {
-    sourcePath: options.sourcePath,
-    corpusNames,
-  });
+  const { byIndexKey, combined: ingestion } = ingestForPreparedRetrievals(root, preparedRetrievals, options.sourcePath);
   const embeddingIndexByKey = new Map<string, EmbeddingRagIndex>();
   const persistentStoreByKey = new Map<
     string,
     { readonly fingerprint: string; readonly store: LocalPersistentRagVectorStoreAdapter }
   >();
+  const indexLifecycleByName = new Map<string, RagRetrieveIndexLifecycle>();
   let retrievals: RagRetrieveDocumentEntry[] = [];
   let retrievalError: unknown;
   let closeError: unknown;
   try {
     retrievals = preparedRetrievals.map(({ retrieval, index, query, embedder, vectorStore }) => {
-      const corpusChunks = ingestion.chunks.filter((chunk) => chunk.metadata?.corpusName === index.corpusName);
+      const corpusChunks = chunksForIndex(byIndexKey, index);
       const retrieveOptions = retrieveOptionsForFact(retrieval);
       let result: RetrieveResult;
       if ((vectorStore.kind ?? 'memory') === 'local-persistent') {
@@ -143,15 +149,25 @@ export function retrieveRagDocument(source: string, options: RagRetrieveDocument
           persistentStoreByKey.set(config.physicalKey, entry);
         }
         const { fingerprint, store } = entry;
-        ensureLocalPersistentStoreIndexed(store, fingerprint, embedder, corpusChunks);
+        const status = ensureLocalPersistentStoreIndexed(
+          store,
+          fingerprint,
+          embedder,
+          corpusChunks,
+          config.snapshotExists,
+        );
+        indexLifecycleByName.set(index.name, indexLifecycleEntry(index, vectorStore, corpusChunks, status, config));
         result = store.search(query, embedder.embed(query), retrieveOptions, fingerprint);
       } else {
-        const cacheKey = JSON.stringify([index.corpusName, embedder.id, embedder.dims]);
+        const cacheKey = JSON.stringify([index.corpusName, index.chunkingName ?? '', embedder.id, embedder.dims]);
         let embeddingIndex = embeddingIndexByKey.get(cacheKey);
+        let status: RagRetrieveIndexLifecycleStatus = 'reused';
         if (!embeddingIndex) {
           embeddingIndex = new EmbeddingRagIndex(corpusChunks, { embedder });
           embeddingIndexByKey.set(cacheKey, embeddingIndex);
+          status = 'indexed';
         }
+        indexLifecycleByName.set(index.name, indexLifecycleEntry(index, vectorStore, corpusChunks, status));
         result = embeddingIndex.retrieve(query, retrieveOptions);
       }
       return {
@@ -169,14 +185,11 @@ export function retrieveRagDocument(source: string, options: RagRetrieveDocument
     closeError = closeLocalPersistentStores(persistentStoreByKey.values());
   }
   if (retrievalError) {
-    if (closeError && retrievalError instanceof Error) {
-      (retrievalError as Error & { closeError?: unknown }).closeError = closeError;
-    }
-    throw retrievalError;
+    throw errorWithCloseError(retrievalError, closeError);
   }
   if (closeError) throw closeError;
 
-  return { diagnostics, retrievals, ingestion };
+  return { diagnostics, indexes: Array.from(indexLifecycleByName.values()), retrievals, ingestion };
 }
 
 export async function retrieveRagDocumentAsync(
@@ -185,51 +198,27 @@ export async function retrieveRagDocumentAsync(
 ): Promise<RagRetrieveDocumentReport> {
   const root = parseDocument(source);
   const diagnostics = validateRagSemantics(root);
-  if (diagnostics.length > 0) return { diagnostics, retrievals: [] };
+  if (diagnostics.length > 0) return { diagnostics, indexes: [], retrievals: [] };
 
   const facts = collectRagSemanticFacts(root);
-  const indexByName = new Map(facts.indexes.map((index) => [index.name, index]));
-  const vectorStoreByName = new Map(facts.vectorStores.map((store) => [store.name, store]));
-  const preparedRetrievals = facts.runtimeRetrievals.map((retrieval) => {
-    const index = indexByName.get(retrieval.indexName);
-    if (!index) throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' references missing index.`);
-    const vectorStore = vectorStoreByName.get(index.storeName);
-    if (!vectorStore) {
-      throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' references missing vector store.`);
-    }
-    const vectorStoreKind = vectorStore.kind ?? 'memory';
-    if (vectorStoreKind !== 'memory' && vectorStoreKind !== 'local-persistent') {
-      throw new Error(
-        `KERN RAG runtime retrieval '${retrieval.name}' references vectorStore '${vectorStore.name}' kind='${vectorStoreKind}', but the async ragRetrieve runner only supports kind=memory and kind=local-persistent.`,
-      );
-    }
-    if (index.chunkingName) {
-      throw new Error(
-        `KERN RAG runtime retrieval '${retrieval.name}' references index '${index.name}' with chunking='${index.chunkingName}', which is not supported by the async ragRetrieve runner yet.`,
-      );
-    }
-    const query = queryForRuntimeRetrieval(retrieval, options);
-    const embedder = options.embedder ?? asyncEmbedderForIndex(facts, index.embedName, options);
-    return { retrieval, index, query, embedder, vectorStore };
-  });
-  const corpusNames = Array.from(new Set(preparedRetrievals.map(({ index }) => index.corpusName))).sort();
-  if (corpusNames.length === 0) return { diagnostics, retrievals: [] };
+  const preparedRetrievals = prepareRuntimeRetrievals(facts, options, (index) =>
+    options.embedder ? ensureAsyncEmbedder(options.embedder) : safeAsyncEmbedderForIndex(facts, index, options),
+  );
+  if (preparedRetrievals.length === 0) return { diagnostics, indexes: [], retrievals: [] };
 
-  const ingestion = ingestRagDeclaredLocalSources(root, {
-    sourcePath: options.sourcePath,
-    corpusNames,
-  });
-  const embeddingIndexByKey = new Map<string, Promise<AsyncEmbeddingRagIndex>>();
+  const { byIndexKey, combined: ingestion } = ingestForPreparedRetrievals(root, preparedRetrievals, options.sourcePath);
+  const embeddingIndexByKey = new Map<string, AsyncEmbeddingRagIndex>();
   const persistentStoreByKey = new Map<
     string,
     { readonly fingerprint: string; readonly store: LocalPersistentRagVectorStoreAdapter }
   >();
+  const indexLifecycleByName = new Map<string, RagRetrieveIndexLifecycle>();
   const retrievals: RagRetrieveDocumentEntry[] = [];
   let retrievalError: unknown;
   let closeError: unknown;
   try {
     for (const { retrieval, index, query, embedder, vectorStore } of preparedRetrievals) {
-      const corpusChunks = ingestion.chunks.filter((chunk) => chunk.metadata?.corpusName === index.corpusName);
+      const corpusChunks = chunksForIndex(byIndexKey, index);
       const retrieveOptions = retrieveOptionsForFact(retrieval);
       let result: RetrieveResult;
       if ((vectorStore.kind ?? 'memory') === 'local-persistent') {
@@ -254,16 +243,37 @@ export async function retrieveRagDocumentAsync(
           persistentStoreByKey.set(config.physicalKey, entry);
         }
         const { fingerprint, store } = entry;
-        await ensureLocalPersistentStoreIndexedAsync(store, fingerprint, embedder, corpusChunks);
-        result = store.search(query, await embedder.embed(query), retrieveOptions, fingerprint);
-      } else {
-        const cacheKey = JSON.stringify([index.corpusName, embedder.id, embedder.dims]);
-        let embeddingIndex = embeddingIndexByKey.get(cacheKey);
-        if (!embeddingIndex) {
-          embeddingIndex = AsyncEmbeddingRagIndex.create(corpusChunks, { embedder });
-          embeddingIndexByKey.set(cacheKey, embeddingIndex);
+        let queryVector: Float64Array;
+        let status: RagRetrieveIndexLifecycleStatus;
+        try {
+          status = await ensureLocalPersistentStoreIndexedAsync(
+            store,
+            fingerprint,
+            embedder,
+            corpusChunks,
+            config.snapshotExists,
+          );
+          queryVector = await embedder.embed(query);
+        } catch (error) {
+          throw providerError(error, index, embedder);
         }
-        result = await (await embeddingIndex).retrieve(query, retrieveOptions);
+        indexLifecycleByName.set(index.name, indexLifecycleEntry(index, vectorStore, corpusChunks, status, config));
+        result = store.search(query, queryVector, retrieveOptions, fingerprint);
+      } else {
+        const cacheKey = JSON.stringify([index.corpusName, index.chunkingName ?? '', embedder.id, embedder.dims]);
+        let embeddingIndex = embeddingIndexByKey.get(cacheKey);
+        let status: RagRetrieveIndexLifecycleStatus = 'reused';
+        try {
+          if (!embeddingIndex) {
+            embeddingIndex = await AsyncEmbeddingRagIndex.create(corpusChunks, { embedder });
+            embeddingIndexByKey.set(cacheKey, embeddingIndex);
+            status = 'indexed';
+          }
+          result = await embeddingIndex.retrieve(query, retrieveOptions);
+        } catch (error) {
+          throw providerError(error, index, embedder);
+        }
+        indexLifecycleByName.set(index.name, indexLifecycleEntry(index, vectorStore, corpusChunks, status));
       }
       retrievals.push({
         name: retrieval.name,
@@ -280,14 +290,119 @@ export async function retrieveRagDocumentAsync(
     closeError = closeLocalPersistentStores(persistentStoreByKey.values());
   }
   if (retrievalError) {
-    if (closeError && retrievalError instanceof Error) {
-      (retrievalError as Error & { closeError?: unknown }).closeError = closeError;
-    }
-    throw retrievalError;
+    throw errorWithCloseError(retrievalError, closeError);
   }
   if (closeError) throw closeError;
 
-  return { diagnostics, retrievals, ingestion };
+  return { diagnostics, indexes: Array.from(indexLifecycleByName.values()), retrievals, ingestion };
+}
+
+function prepareRuntimeRetrievals<TEmbedder extends Pick<Embedder, 'dims' | 'id'>>(
+  facts: RagSemanticFacts,
+  options: Pick<RagRetrieveDocumentOptions, 'query' | 'queryParams'>,
+  embedderFor: (index: RagSemanticIndexFact) => TEmbedder,
+): PreparedRagRetrieval<TEmbedder>[] {
+  const indexByName = new Map(facts.indexes.map((index) => [index.name, index]));
+  const vectorStoreByName = new Map(facts.vectorStores.map((store) => [store.name, store]));
+  return facts.runtimeRetrievals.map((retrieval) => {
+    const index = indexByName.get(retrieval.indexName);
+    if (!index) throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' references missing index.`);
+    const vectorStore = vectorStoreByName.get(index.storeName);
+    if (!vectorStore) {
+      throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' references missing vector store.`);
+    }
+    const vectorStoreKind = vectorStore.kind ?? 'memory';
+    if (vectorStoreKind !== 'memory' && vectorStoreKind !== 'local-persistent') {
+      throw new Error(
+        `KERN RAG runtime retrieval '${retrieval.name}' references vectorStore '${vectorStore.name}' kind='${vectorStoreKind}', but the ragRetrieve runner only supports kind=memory and kind=local-persistent.`,
+      );
+    }
+    const query = queryForRuntimeRetrieval(retrieval, options);
+    return { retrieval, index, query, embedder: embedderFor(index), vectorStore };
+  });
+}
+
+function ingestForPreparedRetrievals(
+  root: ReturnType<typeof parseDocument>,
+  preparedRetrievals: readonly PreparedRagRetrieval<Pick<Embedder, 'dims' | 'id'>>[],
+  sourcePath: string,
+): RetrievalIngestions {
+  const byIndexKey = new Map<string, RagIngestResult>();
+  for (const { index } of preparedRetrievals) {
+    const key = indexIngestionKey(index);
+    if (byIndexKey.has(key)) continue;
+    byIndexKey.set(
+      key,
+      ingestRagDeclaredLocalSources(root, {
+        sourcePath,
+        corpusNames: [index.corpusName],
+        chunkingNameByCorpus: {
+          [index.corpusName]: index.chunkingName,
+        },
+      }),
+    );
+  }
+  const chunks = Array.from(byIndexKey.values())
+    .flatMap((ingestion) => ingestion.chunks)
+    .sort((a, b) => stableJson(a).localeCompare(stableJson(b)));
+  const sources = Array.from(byIndexKey.values())
+    .flatMap((ingestion) => ingestion.sources)
+    .sort((a, b) => stableJson(a).localeCompare(stableJson(b)));
+  return {
+    byIndexKey,
+    combined: {
+      chunks,
+      sources,
+      corpusSha256: sha256(stableCorpusHashInput(chunks)),
+    },
+  };
+}
+
+function chunksForIndex(
+  byIndexKey: ReadonlyMap<string, RagIngestResult>,
+  index: RagSemanticIndexFact,
+): readonly RagChunkInput[] {
+  const ingestion = byIndexKey.get(indexIngestionKey(index));
+  if (!ingestion) {
+    throw new Error(
+      `KERN RAG runtime retrieval index '${index.name}' could not prepare corpus '${index.corpusName}'` +
+        `${index.chunkingName ? ` with chunking '${index.chunkingName}'` : ''}.`,
+    );
+  }
+  return ingestion.chunks.filter((chunk) => chunk.metadata?.corpusName === index.corpusName);
+}
+
+function indexIngestionKey(index: RagSemanticIndexFact): string {
+  return JSON.stringify([index.corpusName, index.chunkingName ?? '']);
+}
+
+function indexLifecycleEntry(
+  index: RagSemanticIndexFact,
+  vectorStore: RagSemanticVectorStoreFact,
+  chunks: readonly RagChunkInput[],
+  status: RagRetrieveIndexLifecycleStatus,
+  config?: ReturnType<typeof localPersistentStoreConfig>,
+): RagRetrieveIndexLifecycle {
+  return {
+    indexName: index.name,
+    corpusName: index.corpusName,
+    storeName: vectorStore.name,
+    storeKind: (vectorStore.kind ?? 'memory') as 'memory' | 'local-persistent',
+    ...(index.chunkingName ? { chunkingName: index.chunkingName } : {}),
+    status,
+    chunkCount: chunks.length,
+    ...(config
+      ? { fingerprint: config.fingerprint, snapshotPath: localPersistentDisplayPath(vectorStore, config) }
+      : {}),
+  };
+}
+
+function localPersistentDisplayPath(
+  vectorStore: RagSemanticVectorStoreFact,
+  config: ReturnType<typeof localPersistentStoreConfig>,
+): string {
+  const base = vectorStore.path?.replace(/\\/gu, '/').replace(/\/+$/u, '') ?? '.';
+  return `${base}/${config.fileName}`.replace(/^\.\//u, '');
 }
 
 function queryForRuntimeRetrieval(
@@ -323,13 +438,15 @@ function retrieveOptionsForFact(retrieval: RagSemanticRuntimeRetrieveFact): Retr
 function localPersistentStoreConfig(
   vectorStore: RagSemanticVectorStoreFact,
   index: RagSemanticIndexFact,
-  embedder: Pick<Embedder | AsyncEmbedder, 'dims' | 'id'>,
+  embedder: Pick<Embedder, 'dims' | 'id'>,
   chunks: readonly RagChunkInput[],
   sourcePath: string,
 ): {
   readonly physicalKey: string;
   readonly directory: string;
   readonly fileName: string;
+  readonly snapshotPath: string;
+  readonly snapshotExists: boolean;
   readonly fingerprint: string;
 } {
   if (!vectorStore.path?.trim()) {
@@ -352,11 +469,14 @@ function localPersistentStoreConfig(
   }
   const confinedDirectory = confinedRealDirectory(vectorStore, baseDir, directory);
   const fileName = `${safeLocalStoreFileName(vectorStore.namespace ?? index.name)}.json`;
+  const snapshotPath = resolve(confinedDirectory, fileName);
   const fingerprint = localPersistentFingerprint(vectorStore, index, embedder, chunks);
   return {
     physicalKey: JSON.stringify([confinedDirectory, fileName]),
     directory: confinedDirectory,
     fileName,
+    snapshotPath,
+    snapshotExists: existsSync(snapshotPath),
     fingerprint,
   };
 }
@@ -366,11 +486,16 @@ function ensureLocalPersistentStoreIndexed(
   fingerprint: string,
   embedder: Embedder,
   chunks: readonly RagChunkInput[],
-): void {
+  snapshotExists: boolean,
+): RagRetrieveIndexLifecycleStatus {
   const snapshot = store.snapshot();
   const actualChunks = snapshot.entries.map((entry) => entry.chunk);
-  if (snapshot.entries.length === chunks.length && stableChunkDigest(actualChunks) === stableChunkDigest(chunks)) {
-    return;
+  if (
+    snapshot.fingerprint === fingerprint &&
+    snapshot.entries.length === chunks.length &&
+    stableChunkDigest(actualChunks) === stableChunkDigest(chunks)
+  ) {
+    return 'reused';
   }
   store.replaceAll(
     chunks.map((chunk) => ({
@@ -379,6 +504,7 @@ function ensureLocalPersistentStoreIndexed(
       fingerprint,
     })),
   );
+  return snapshotExists || snapshot.entries.length > 0 ? 'rebuilt' : 'indexed';
 }
 
 async function ensureLocalPersistentStoreIndexedAsync(
@@ -386,18 +512,23 @@ async function ensureLocalPersistentStoreIndexedAsync(
   fingerprint: string,
   embedder: AsyncEmbedder,
   chunks: readonly RagChunkInput[],
-): Promise<void> {
+  snapshotExists: boolean,
+): Promise<RagRetrieveIndexLifecycleStatus> {
   const snapshot = store.snapshot();
   const actualChunks = snapshot.entries.map((entry) => entry.chunk);
-  if (snapshot.entries.length === chunks.length && stableChunkDigest(actualChunks) === stableChunkDigest(chunks)) {
-    return;
+  if (
+    snapshot.fingerprint === fingerprint &&
+    snapshot.entries.length === chunks.length &&
+    stableChunkDigest(actualChunks) === stableChunkDigest(chunks)
+  ) {
+    return 'reused';
   }
   const vectors = await embedManyForRetrieve(
     embedder,
     chunks.map((chunk) => chunk.text),
   );
   if (vectors.length !== chunks.length) {
-    throw new Error(`KERN async embedder returned ${vectors.length} vectors for ${chunks.length} retrieval chunks.`);
+    throw new Error(`KERN async embedder returned ${vectors.length} vectors for ${chunks.length} inputs.`);
   }
   store.replaceAll(
     chunks.map((chunk, index) => ({
@@ -406,13 +537,7 @@ async function ensureLocalPersistentStoreIndexedAsync(
       fingerprint,
     })),
   );
-}
-
-async function embedManyForRetrieve(
-  embedder: AsyncEmbedder,
-  texts: readonly string[],
-): Promise<readonly Float64Array[]> {
-  return embedder.embedMany ? embedder.embedMany(texts) : Promise.all(texts.map((text) => embedder.embed(text)));
+  return snapshotExists || snapshot.entries.length > 0 ? 'rebuilt' : 'indexed';
 }
 
 function closeLocalPersistentStores(
@@ -429,10 +554,17 @@ function closeLocalPersistentStores(
   return firstError;
 }
 
+function errorWithCloseError(error: unknown, closeError: unknown): unknown {
+  if (!closeError) return error;
+  const primary = error instanceof Error ? error : new Error(String(error));
+  (primary as Error & { closeError?: unknown }).closeError = closeError;
+  return primary;
+}
+
 function localPersistentFingerprint(
   vectorStore: RagSemanticVectorStoreFact,
   index: RagSemanticIndexFact,
-  embedder: Pick<Embedder | AsyncEmbedder, 'dims' | 'id'>,
+  embedder: Pick<Embedder, 'dims' | 'id'>,
   chunks: readonly RagChunkInput[],
 ): string {
   return sha256(
@@ -440,6 +572,7 @@ function localPersistentFingerprint(
       version: 'kern-rag-local-persistent-retrieve-v1',
       corpusName: index.corpusName,
       indexName: index.name,
+      chunkingName: index.chunkingName ?? '',
       storeName: vectorStore.name,
       embedderId: embedder.id,
       dims: embedder.dims,
@@ -455,6 +588,13 @@ function stableChunkDigest(chunks: readonly RagChunkInput[]): string {
       .sort()
       .join('\n'),
   );
+}
+
+function stableCorpusHashInput(chunks: readonly RagChunkInput[]): string {
+  return chunks
+    .map((chunk) => `${chunk.id}\0${chunk.source}\0${chunk.text}`)
+    .sort()
+    .join('\n');
 }
 
 function sha256(text: string): string {
@@ -520,11 +660,8 @@ function safeLocalStoreFileName(name: string): string {
   return name.replace(/[^a-z0-9_-]+/giu, '-').replace(/^-+|-+$/gu, '') || 'index';
 }
 
-function embedderForIndex(facts: RagSemanticFacts, embedName: string | undefined): Embedder {
-  const embed = embedName
-    ? facts.corpora.flatMap((corpus) => corpus.embeds).find((entry) => entry.name === embedName)
-    : undefined;
-  if (embedName && !embed) throw new Error(`KERN RAG embed '${embedName}' not found.`);
+function embedderForIndex(facts: RagSemanticFacts, index: RagSemanticIndexFact): Embedder {
+  const embed = embedFactForIndex(facts, index);
   const model = canonicalRagEmbedModel(embed?.model);
   const dims = embed?.dims ?? defaultDimsForRagEmbedModel(model);
   if (model === RAG_EMBED_MODEL_LOCAL_HASH) return new DeterministicHashEmbedder({ dims });
@@ -534,13 +671,10 @@ function embedderForIndex(facts: RagSemanticFacts, embedName: string | undefined
 
 function asyncEmbedderForIndex(
   facts: RagSemanticFacts,
-  embedName: string | undefined,
+  index: RagSemanticIndexFact,
   options: Pick<RagRetrieveAsyncDocumentOptions, 'providers'>,
 ): AsyncEmbedder {
-  const embed = embedName
-    ? facts.corpora.flatMap((corpus) => corpus.embeds).find((entry) => entry.name === embedName)
-    : undefined;
-  if (embedName && !embed) throw new Error(`KERN RAG embed '${embedName}' not found.`);
+  const embed = embedFactForIndex(facts, index);
   const model = canonicalRagEmbedModel(embed?.model);
   const dims = embed?.dims ?? defaultDimsForRagEmbedModel(model);
   if (model === RAG_EMBED_MODEL_LOCAL_HASH) return asAsyncEmbedder(new DeterministicHashEmbedder({ dims }));
@@ -551,14 +685,107 @@ function asyncEmbedderForIndex(
   ) {
     const openai = options.providers?.openai;
     if (!openai?.apiKey?.trim()) throw new Error(`RAG embed model '${model}' requires OpenAI provider options.`);
-    return new OpenAIEmbeddingAdapter({
+    const adapter = new OpenAIEmbeddingAdapter({
       ...openai,
       apiKey: openai.apiKey,
       model: model.replace(/^openai:/u, ''),
       dims,
     });
+    return providerScopedOpenAIEmbedder(adapter, openai);
   }
-  throw new Error(`Unhandled RAG embed model '${model}'.`);
+  throw new Error(`Unhandled RAG embed model '${String(model)}'.`);
+}
+
+function providerScopedOpenAIEmbedder(
+  adapter: OpenAIEmbeddingAdapter,
+  openai: NonNullable<RagProviderEmbeddingOptions['openai']>,
+): AsyncEmbedder {
+  const providerScope = sha256(
+    JSON.stringify({
+      endpoint: openai.endpoint ?? 'https://api.openai.com/v1/embeddings',
+      fetch: openai.fetch ? 'custom-fetch' : 'global-fetch',
+    }),
+  ).slice(0, 12);
+  return {
+    id: `${adapter.id}:provider=${providerScope}`,
+    dims: adapter.dims,
+    embed: (text) => adapter.embed(text),
+    embedMany: (texts) => adapter.embedMany(texts),
+  };
+}
+
+function safeAsyncEmbedderForIndex(
+  facts: RagSemanticFacts,
+  index: RagSemanticIndexFact,
+  options: Pick<RagRetrieveAsyncDocumentOptions, 'providers'>,
+): AsyncEmbedder {
+  try {
+    return asyncEmbedderForIndex(facts, index, options);
+  } catch (error) {
+    throw providerError(error, index, { id: index.embedName ?? 'unresolved' });
+  }
+}
+
+function ensureAsyncEmbedder(embedder: AsyncEmbedder | Embedder): AsyncEmbedder {
+  return {
+    id: embedder.id,
+    dims: embedder.dims,
+    embed: async (text: string) => embedder.embed(text),
+    embedMany: async (texts: readonly string[]) => {
+      const maybeBatch = (embedder as AsyncEmbedder).embedMany;
+      if (maybeBatch) return maybeBatch.call(embedder, texts);
+      return Promise.all(texts.map((text) => embedder.embed(text)));
+    },
+  };
+}
+
+function embedFactForIndex(facts: RagSemanticFacts, index: RagSemanticIndexFact) {
+  const embed = index.embedName
+    ? facts.corpora
+        .filter((corpus) => corpus.name === index.corpusName)
+        .flatMap((corpus) => corpus.embeds)
+        .find((entry) => entry.name === index.embedName)
+    : undefined;
+  if (index.embedName && !embed) throw new Error(`KERN RAG embed '${index.embedName}' not found.`);
+  return embed;
+}
+
+async function embedManyForRetrieve(
+  embedder: AsyncEmbedder,
+  texts: readonly string[],
+): Promise<readonly Float64Array[]> {
+  return embedder.embedMany ? embedder.embedMany(texts) : Promise.all(texts.map((text) => embedder.embed(text)));
+}
+
+class KernRagProviderError extends Error {
+  readonly code = 'KERN_RAG_PROVIDER_ERROR';
+
+  constructor(message: string, options?: { readonly cause?: unknown }) {
+    super(message);
+    if (options && 'cause' in options) {
+      (this as Error & { cause?: unknown }).cause = options.cause;
+    }
+  }
+}
+
+function providerError(error: unknown, index: RagSemanticIndexFact, embedder: Pick<AsyncEmbedder, 'id'>): Error {
+  if (error instanceof KernRagProviderError) return error;
+  const message = error instanceof Error ? error.message : String(error);
+  return new KernRagProviderError(
+    `KERN RAG provider-backed retrieval failed for index '${index.name}' using embedder '${embedder.id}': ${sanitizeProviderMessage(message)}`,
+    { cause: error },
+  );
+}
+
+function sanitizeProviderMessage(message: string): string {
+  const redacted = message
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/giu, 'Bearer ***')
+    .replace(/\b(?:sk|pk|rk|api[_-]?key|token)[-_][A-Za-z0-9._~+/=-]{8,}/giu, (match) => {
+      const [prefix] = match.split(/[-_]/u);
+      return `${prefix}-***`;
+    })
+    .replace(/\b[A-Za-z0-9._~+/=-]{40,}\b/gu, '***');
+  return redacted.length > 240 ? `${redacted.slice(0, 237)}...` : redacted;
 }
 
 export function ragRetrieveCorpusSourceSummary(report: RagRetrieveDocumentReport): string {
