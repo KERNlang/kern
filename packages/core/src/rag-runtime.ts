@@ -969,8 +969,8 @@ function ragEvalMetrics(cases: readonly RagEvalCaseResult[]): RagEvalContractMet
 }
 
 function isRetrievalHitAssertion(assertion: RagEvalAssertionResult): boolean {
+  if (assertion.code !== 'PASS' && assertion.code !== 'ASSERTION_FAIL') return false;
   return [
-    'expected.topK',
     'expected.minScore',
     'expected.chunkCount',
     'expected.sources',
