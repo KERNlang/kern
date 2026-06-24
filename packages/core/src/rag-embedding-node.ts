@@ -205,9 +205,7 @@ export class LocalPersistentRagVectorStoreAdapter extends InMemoryPgVectorRagSto
   private readSnapshotFile(filePath: string): RagVectorStoreSnapshot {
     const { size } = statSync(filePath);
     if (size > MAX_LOCAL_PERSISTENT_VECTOR_STORE_BYTES) {
-      throw new LocalVectorStoreSnapshotLoadError(
-        `KERN local vector store snapshot exceeds ${MAX_LOCAL_PERSISTENT_VECTOR_STORE_BYTES} bytes.`,
-      );
+      throw new Error(`KERN local vector store snapshot exceeds ${MAX_LOCAL_PERSISTENT_VECTOR_STORE_BYTES} bytes.`);
     }
     const raw = readFileSync(filePath, 'utf-8');
     let parsed: unknown;
@@ -222,6 +220,7 @@ export class LocalPersistentRagVectorStoreAdapter extends InMemoryPgVectorRagSto
     try {
       return parseVectorStoreSnapshot(parsed, this.fingerprint, this.dims);
     } catch (error) {
+      if (isLocalVectorStoreFingerprintMismatch(error)) throw error;
       throw new LocalVectorStoreSnapshotLoadError(error instanceof Error ? error.message : String(error), {
         cause: error,
       });

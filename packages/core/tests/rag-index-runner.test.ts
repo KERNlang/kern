@@ -137,6 +137,11 @@ describe('indexRagDocumentAsync', () => {
     const rebuilt = await indexRagDocumentAsync(DOC, { sourcePath: join(dir, 'spec.kern') });
 
     expect(rebuilt.indexes[0]).toEqual(expect.objectContaining({ status: 'stale', action: 'rebuilt' }));
+    const repaired = JSON.parse(readFileSync(snapshotPath, 'utf-8')) as {
+      readonly entries?: { readonly chunk?: { readonly id?: string } }[];
+    };
+    expect(repaired.entries?.[0]?.chunk?.id).not.toBe('');
+    expect(repaired.entries).toHaveLength(2);
     const fresh = await indexRagDocumentAsync(DOC, { sourcePath: join(dir, 'spec.kern') });
     expect(fresh.indexes[0]).toEqual(expect.objectContaining({ status: 'fresh', action: 'reused' }));
   });
