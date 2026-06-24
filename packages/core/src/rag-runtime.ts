@@ -986,8 +986,17 @@ function isRetrievalHitAssertion(assertion: RagEvalAssertionResult): boolean {
   if (assertion.code !== 'PASS' && assertion.code !== 'ASSERTION_FAIL') return false;
   // Count only evaluated relevance/source checks as retrieval hits; structural
   // or empty-result checks should not make an eval look successful.
-  if (assertion.kind === 'expected.chunkCount' && assertion.expected === 0) return false;
+  if (isZeroCountRetrievalAssertion(assertion)) return false;
   return RAG_RETRIEVAL_HIT_ASSERTION_KINDS.has(assertion.kind);
+}
+
+function isZeroCountRetrievalAssertion(assertion: RagEvalAssertionResult): boolean {
+  return (
+    assertion.expected === 0 &&
+    (assertion.kind === 'expected.chunkCount' ||
+      assertion.kind === 'chunkCountEq' ||
+      assertion.kind === 'uniqueSourcesGte')
+  );
 }
 
 function isGroundingAssertion(assertion: RagEvalAssertionResult): boolean {

@@ -366,6 +366,48 @@ describe('RAG eval runtime contracts', () => {
     );
   });
 
+  test('excludes empty-result assertions from hit-rate evidence', () => {
+    const corpus = new InMemoryRagCorpus([{ id: 'refunds', text: 'refund policy', source: 'docs/refunds.md' }]);
+
+    expect(
+      evaluateRagEvalContract(
+        {
+          name: 'OnlyEmptyResultChecks',
+          cases: [
+            {
+              name: 'no-results',
+              query: 'unmatched query',
+              tags: [],
+              expected: { chunkCount: 0 },
+              asserts: [assertFact('chunkCountEq', 0), assertFact('uniqueSourcesGte', 0)],
+            },
+          ],
+        },
+        createInMemoryRetriever(corpus),
+      ),
+    ).toEqual(
+      expect.objectContaining({ passed: true, caseCount: 1, metrics: expect.objectContaining({ hitRate: null }) }),
+    );
+
+    expect(
+      evaluateRagEvalContract(
+        {
+          name: 'MixedEmptyAndRelevanceChecks',
+          cases: [
+            {
+              name: 'no-results',
+              query: 'unmatched query',
+              tags: [],
+              expected: { chunkCount: 0 },
+              asserts: [assertFact('chunkCountEq', 0), assertFact('contains', 'refund')],
+            },
+          ],
+        },
+        createInMemoryRetriever(corpus),
+      ).metrics.hitRate,
+    ).toBe(0);
+  });
+
   test('treats non-required assertion failures as advisory diagnostics', () => {
     const corpus = new InMemoryRagCorpus([
       { id: 'refunds', text: 'refund policy', source: 'docs/refunds.md', citation: { uri: 'docs/refunds.md' } },
