@@ -12,6 +12,7 @@ import { runInit } from './commands/init.js';
 import { runMigrate } from './commands/migrate.js';
 import { runRag } from './commands/rag.js';
 import { runReview } from './commands/review.js';
+import { runRun } from './commands/run.js';
 import { runInitTemplates, runScan } from './commands/scan.js';
 import { runSchema } from './commands/schema.js';
 import { runSelfCoverage } from './commands/self-coverage.js';
@@ -36,6 +37,7 @@ const COMMANDS: Record<string, (args: string[]) => void | Promise<void>> = {
   import: runImport,
   migrate: runMigrate,
   rag: runRag,
+  run: runRun,
   review: runReview,
   context: runContext,
   apply: runApply,
