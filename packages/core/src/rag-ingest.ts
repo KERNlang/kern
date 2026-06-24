@@ -23,6 +23,7 @@ export const RAG_CHUNKER_VERSION = RAG_TOKEN_WINDOW_CHUNKER_VERSION;
 export interface RagIngestOptions {
   readonly sourcePath: string;
   readonly corpusNames?: readonly string[];
+  readonly chunkingNameByCorpus?: Readonly<Record<string, string | undefined>>;
 }
 
 export interface RagIngestedSource {
@@ -40,6 +41,7 @@ export interface RagIngestResult {
 }
 
 interface ChunkingConfig {
+  readonly name?: string;
   readonly strategy: 'semantic' | 'window';
   readonly maxTokens: number;
   readonly overlap: number;
@@ -81,7 +83,7 @@ export function ingestRagFactsDeclaredLocalSources(
       if (!isLocalSource(source)) continue;
       const sourceName = source.name ?? basename(source.uri);
       const files = resolveSourceFiles(source, baseDir, baseRealPath, specRealPath);
-      const chunking = chunkingForSource(facts, corpus.name, source.name);
+      const chunking = chunkingForSource(facts, corpus.name, source.name, options.chunkingNameByCorpus?.[corpus.name]);
       const sourceRecord: RagIngestedSource = {
         corpusName: corpus.name,
         sourceName,
@@ -119,6 +121,7 @@ export function ingestRagFactsDeclaredLocalSources(
             citation: { uri: relPath, locator: `chars:${window.start}-${window.end}` },
             metadata: {
               chunkIdVersion: RAG_CHUNK_ID_VERSION,
+              ...(chunking.name ? { chunkingName: chunking.name } : {}),
               chunkerVersion: chunking.version,
               chunkingStrategy: chunking.strategy,
               corpusName: corpus.name,
@@ -312,9 +315,24 @@ function walkFiles(root: string): string[] {
   return files;
 }
 
-function chunkingForSource(facts: RagSemanticFacts, corpusName: string, sourceName?: string): ChunkingConfig {
+function chunkingForSource(
+  facts: RagSemanticFacts,
+  corpusName: string,
+  sourceName?: string,
+  chunkingName?: string,
+): ChunkingConfig {
   const corpus = facts.corpora.find((entry) => entry.name === corpusName);
+  const namedChunking = chunkingName
+    ? (corpus?.chunking.find((entry) => entry.name === chunkingName && sourceName && entry.sourceName === sourceName) ??
+      corpus?.chunking.find((entry) => entry.name === chunkingName && !entry.sourceName))
+    : undefined;
+  if (chunkingName && !namedChunking) {
+    throw new Error(
+      `KERN RAG index chunking '${chunkingName}' does not apply to source '${sourceName ?? '(unnamed)'}' in corpus '${corpusName}'.`,
+    );
+  }
   const chunking =
+    namedChunking ??
     corpus?.chunking.find((entry) => sourceName && entry.sourceName === sourceName) ??
     corpus?.chunking.find((entry) => !entry.sourceName);
   const unit = chunking?.unit === 'chars' ? 'chars' : 'tokens';
@@ -335,6 +353,7 @@ function chunkingForSource(facts: RagSemanticFacts, corpusName: string, sourceNa
   const maxTokens = Math.max(1, chunking?.maxTokens ?? 512);
   const overlap = Math.max(0, chunking?.overlap ?? 0);
   return {
+    ...(chunking?.name ? { name: chunking.name } : {}),
     strategy,
     maxTokens,
     overlap: overlap >= maxTokens ? 0 : overlap,

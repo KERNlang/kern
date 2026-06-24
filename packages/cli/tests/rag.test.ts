@@ -144,6 +144,7 @@ describe('kern rag', () => {
     const result = run(['rag', 'retrieve', 'retrieve.kern', '--query', 'refund policy money back'], dir);
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('kern rag retrieve retrieve.kern');
+    expect(result.stdout).toContain('DocsIndex store=DocsMemory kind=memory status=indexed');
     expect(result.stdout).toContain('AnswerDocs/FindDocs index=DocsIndex');
     expect(result.stdout).toContain('refunds');
     expect(result.stdout).toContain('refund policy money back within thirty days');
@@ -161,12 +162,33 @@ describe('kern rag', () => {
     const first = run(['rag', 'retrieve', 'persistent-retrieve.kern', '--query', 'refund policy money back'], dir);
     expect(first.status).toBe(0);
     expect(first.stdout).toContain('refunds');
+    expect(first.stdout).toContain('DocsIndex store=DocsMemory kind=local-persistent status=indexed');
 
     const snapshot = readFileSync(join(dir, 'index', 'DocsIndex.json'), 'utf-8');
     const second = run(['rag', 'retrieve', 'persistent-retrieve.kern', '--query', 'refund policy money back'], dir);
 
     expect(second.status).toBe(0);
     expect(second.stdout).toContain('refunds');
+    expect(second.stdout).toContain('DocsIndex store=DocsMemory kind=local-persistent status=reused');
+    expect(readFileSync(join(dir, 'index', 'DocsIndex.json'), 'utf-8')).toBe(snapshot);
+  });
+
+  test('indexes local-persistent ragIndex snapshots and reports status as JSON', () => {
+    const first = run(['rag', 'index', 'persistent-retrieve.kern'], dir);
+    expect(first.status).toBe(0);
+    expect(first.stdout).toContain('DocsIndex store=DocsMemory kind=local-persistent status=missing action=indexed');
+    expect(first.stdout).toContain('snapshot=index/DocsIndex.json');
+    expect(first.stdout).toContain('manifest=index/DocsIndex.manifest.json');
+
+    const snapshot = readFileSync(join(dir, 'index', 'DocsIndex.json'), 'utf-8');
+    writeFileSync(join(dir, 'docs/refunds.md'), 'refund policy now requires receipt approval\n');
+
+    const status = run(['rag', 'index', 'persistent-retrieve.kern', '--status', '--json'], dir);
+    expect(status.status).toBe(0);
+    const parsed = JSON.parse(status.stdout) as {
+      readonly indexes: readonly [{ readonly status: string; readonly action: string }];
+    };
+    expect(parsed.indexes[0]).toEqual(expect.objectContaining({ status: 'stale', action: 'inspected' }));
     expect(readFileSync(join(dir, 'index', 'DocsIndex.json'), 'utf-8')).toBe(snapshot);
   });
 
@@ -205,7 +227,7 @@ describe('kern rag', () => {
     expect(emptyValue.stderr).toContain('missing value for --param');
   });
 
-  test('provider-backed runtime ragRetrieve specs fail closed in the local-only CLI path', () => {
+  test('provider-backed runtime ragRetrieve specs require provider options in the CLI path', () => {
     const providerDoc = RETRIEVE_DOC.replace(
       'embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine',
       'embed name=DocsEmbedding corpus=Docs model="openai:text-embedding-3-small" dims=1536 metric=cosine',
@@ -218,15 +240,19 @@ describe('kern rag', () => {
     const result = run(['rag', 'retrieve', 'provider-retrieve.kern', '--query', 'refund policy'], dir);
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain(
-      "RAG embed model 'openai:text-embedding-3-small' requires async provider execution",
-    );
+    expect(result.stderr).toContain("RAG embed model 'openai:text-embedding-3-small' requires OpenAI provider options");
   });
 
   test('rejects unknown retrieve flags before consuming their values as files', () => {
-    const result = run(['rag', 'retrieve', '--openai-api-key', 'sk-test', 'retrieve.kern', '--query', 'refund'], dir);
+    const result = run(['rag', 'retrieve', '--openai-api-kee', 'sk-test', 'retrieve.kern', '--query', 'refund'], dir);
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('unknown flag for retrieve: --openai-api-key');
+    expect(result.stderr).toContain('unknown flag for retrieve: --openai-api-kee');
+  });
+
+  test('rejects retrieve --openai-api-key without a value', () => {
+    const result = run(['rag', 'retrieve', 'retrieve.kern', '--openai-api-key'], dir);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('missing value for --openai-api-key');
   });
 
   test('rejects extra retrieve positional arguments', () => {

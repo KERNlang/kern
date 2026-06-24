@@ -739,6 +739,15 @@ export {
   evaluateRagEvalDocumentFromDeclaredSources,
   evaluateRagEvalDocumentFromDeclaredSourcesAsync,
 } from './rag-eval-runner.js';
+export type {
+  RagIndexDocumentOptions,
+  RagIndexDocumentReport,
+  RagIndexEntryReport,
+  RagIndexLifecycleAction,
+  RagIndexProvenance,
+  RagIndexSnapshotStatus,
+} from './rag-index-runner.js';
+export { indexRagDocumentAsync, stableRagChunkDigest } from './rag-index-runner.js';
 export type { RagIngestedSource, RagIngestOptions, RagIngestResult } from './rag-ingest.js';
 export {
   ingestRagDeclaredLocalSources,
@@ -749,11 +758,18 @@ export {
   RAG_TOKEN_WINDOW_CHUNKER_VERSION,
 } from './rag-ingest.js';
 export type {
+  RagRetrieveAsyncDocumentOptions,
   RagRetrieveDocumentEntry,
   RagRetrieveDocumentOptions,
   RagRetrieveDocumentReport,
+  RagRetrieveIndexLifecycle,
+  RagRetrieveIndexLifecycleStatus,
 } from './rag-retrieve-runner.js';
-export { ragRetrieveCorpusSourceSummary, retrieveRagDocument } from './rag-retrieve-runner.js';
+export {
+  ragRetrieveCorpusSourceSummary,
+  retrieveRagDocument,
+  retrieveRagDocumentAsync,
+} from './rag-retrieve-runner.js';
 export type {
   InMemoryRagRetriever,
   ProvenancedRetrieveResult,
