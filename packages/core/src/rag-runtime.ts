@@ -970,15 +970,17 @@ function ragEvalMetrics(cases: readonly RagEvalCaseResult[]): RagEvalContractMet
 
 function isRetrievalHitAssertion(assertion: RagEvalAssertionResult): boolean {
   return [
+    'expected.topK',
+    'expected.minScore',
     'expected.chunkCount',
     'expected.sources',
     'scoreGte',
     'scoreLte',
+    'contains',
     'sourceEq',
     'sourceGlob',
     'uniqueSourcesGte',
     'chunkCountEq',
-    'factId',
     'chunkHash',
   ].includes(assertion.kind);
 }
