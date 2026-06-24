@@ -568,10 +568,20 @@ function runtimeEvalRetrieveSource(
 
 function runtimeEvalRetrieveName(indexName: string, query: string, retrieveOptions: RetrieveOptions): string {
   const digest = createHash('sha256')
-    .update(JSON.stringify([indexName, query, retrieveOptions]))
+    .update(JSON.stringify([indexName, query, stableJson(retrieveOptions)]))
     .digest('hex')
     .slice(0, 32);
   return `__KernRagEvalRuntimeRetrieve_${digest}`;
+}
+
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'undefined';
+  if (Array.isArray(value)) return `[${value.map((entry) => stableJson(entry)).join(',')}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+    .join(',')}}`;
 }
 
 function optionalRuntimeRetrieveNumber(name: string, value: number | undefined): string[] {
