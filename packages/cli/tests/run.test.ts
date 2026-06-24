@@ -177,6 +177,29 @@ describe('kern run — executes a void main and replays stdout (exit 0)', () => 
     expect(r.stdout).toBe('7\n');
     expect(r.status).toBe(0);
   });
+
+  test('if/else takes the branch its (comparison) condition selects', () => {
+    const r = runProgram([
+      'let name=x value="5"',
+      'if cond="x > 3"',
+      '  print value="\\"big\\""',
+      'else',
+      '  print value="\\"small\\""',
+    ]);
+    expect(r.stdout).toBe('big\n');
+    expect(r.status).toBe(0);
+  });
+
+  test('while loops until its condition goes false', () => {
+    const r = runProgram([
+      'let kind=let name=n value="0"',
+      'while cond="n < 3"',
+      '  print value="n"',
+      '  assign target=n value="n + 1"',
+    ]);
+    expect(r.stdout).toBe('0\n1\n2\n');
+    expect(r.status).toBe(0);
+  });
 });
 
 // ── FAIL-CLOSE ATOMICITY: abstain produces NO stdout, exit 2 ──────────────────
@@ -201,13 +224,10 @@ describe('kern run — abstains atomically on non-portable ops (exit 2, no stdou
     expect(r.status).toBe(2);
   });
 
-  test('a not-yet-executable construct (if) abstains rather than half-running', () => {
-    // This is a REAL user-authored `if` (production `condition=` prop). The runner
-    // abstains on it today — the `if` contract still reads the fixture-era `cond`
-    // prop, so production `if`/`while` fail-close (a known runner gap; wiring the
-    // `condition` prop in is the next slice). Either way `kern run` MUST fail-close
-    // to exit 2 with no stdout, which is what this asserts.
-    const r = runProgram(['let name=b value="true"', 'if condition="b"', '  print value="1"']);
+  test('a not-yet-executable value (array literal) abstains rather than half-running', () => {
+    // Arrays have no runner evaluator yet (gap #2): a `let` bound to an array
+    // literal abstains, so `kern run` MUST fail-close to exit 2 with no stdout.
+    const r = runProgram(['let name=xs value="[1, 2, 3]"', 'print value="xs"']);
     expect(r.stdout).toBe('');
     expect(r.status).toBe(2);
   });
