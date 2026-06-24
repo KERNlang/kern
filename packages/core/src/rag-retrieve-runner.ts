@@ -585,7 +585,7 @@ function stableChunkDigest(chunks: readonly RagChunkInput[]): string {
   return sha256(
     chunks
       .map((chunk) => stableJson(chunk))
-      .sort()
+      .sort(compareCodePoint)
       .join('\n'),
   );
 }
@@ -593,8 +593,12 @@ function stableChunkDigest(chunks: readonly RagChunkInput[]): string {
 function stableCorpusHashInput(chunks: readonly RagChunkInput[]): string {
   return chunks
     .map((chunk) => `${chunk.id}\0${chunk.source}\0${chunk.text}`)
-    .sort()
+    .sort(compareCodePoint)
     .join('\n');
+}
+
+function compareCodePoint(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 function sha256(text: string): string {

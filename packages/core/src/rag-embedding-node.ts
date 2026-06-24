@@ -36,6 +36,12 @@ export interface LocalPersistentRagVectorStoreOptions {
    * rebuild it. The stale disk snapshot is preserved until the rebuild flushes.
    */
   readonly rebuildOnFingerprintMismatch?: boolean;
+  /**
+   * Open an unreadable or incompatible snapshot as an empty in-memory store so
+   * lifecycle callers can repair corrupt local indexes. The existing disk file
+   * is preserved until the rebuild flushes successfully.
+   */
+  readonly rebuildOnSnapshotLoadFailure?: boolean;
 }
 
 /**
@@ -68,7 +74,10 @@ export class LocalPersistentRagVectorStoreAdapter extends InMemoryPgVectorRagSto
     try {
       this.loadFromDisk();
     } catch (error) {
-      if (options.rebuildOnFingerprintMismatch && isLocalVectorStoreFingerprintMismatch(error)) {
+      if (
+        options.rebuildOnSnapshotLoadFailure ||
+        (options.rebuildOnFingerprintMismatch && isLocalVectorStoreFingerprintMismatch(error))
+      ) {
         return;
       }
       OPEN_LOCAL_PERSISTENT_VECTOR_STORE_FILES.delete(this.filePath);

@@ -81,6 +81,32 @@ describe('indexRagDocumentAsync', () => {
     expect(readFileSync(snapshotPath, 'utf-8')).toBe(snapshot);
   });
 
+  test('repairs corrupt snapshots on rebuild', async () => {
+    await indexRagDocumentAsync(DOC, { sourcePath: join(dir, 'spec.kern') });
+    const snapshotPath = join(dir, 'index', 'DocsIndex.json');
+    writeFileSync(snapshotPath, '{not-json');
+
+    const rebuilt = await indexRagDocumentAsync(DOC, { sourcePath: join(dir, 'spec.kern') });
+
+    expect(rebuilt.indexes[0]).toEqual(expect.objectContaining({ status: 'corrupt', action: 'rebuilt' }));
+    const snapshot = JSON.parse(readFileSync(snapshotPath, 'utf-8')) as { readonly entries?: unknown[] };
+    expect(snapshot.entries).toHaveLength(2);
+  });
+
+  test('repairs incompatible snapshots on rebuild', async () => {
+    await indexRagDocumentAsync(DOC, { sourcePath: join(dir, 'spec.kern') });
+    const snapshotPath = join(dir, 'index', 'DocsIndex.json');
+    const snapshot = JSON.parse(readFileSync(snapshotPath, 'utf-8')) as { version?: string };
+    snapshot.version = 'old-version';
+    writeFileSync(snapshotPath, `${JSON.stringify(snapshot, null, 2)}\n`);
+
+    const rebuilt = await indexRagDocumentAsync(DOC, { sourcePath: join(dir, 'spec.kern') });
+
+    expect(rebuilt.indexes[0]).toEqual(expect.objectContaining({ status: 'incompatible', action: 'rebuilt' }));
+    const repaired = JSON.parse(readFileSync(snapshotPath, 'utf-8')) as { readonly version?: string };
+    expect(repaired.version).not.toBe('old-version');
+  });
+
   test('rejects shared local-persistent namespaces with incompatible fingerprints', async () => {
     await expect(indexRagDocumentAsync(SHARED_NAMESPACE_DOC, { sourcePath: join(dir, 'spec.kern') })).rejects.toThrow(
       /multiple incompatible fingerprints/u,

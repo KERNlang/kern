@@ -304,7 +304,9 @@ async function rebuildIndex(
     fingerprint: config.fingerprint,
     dims: embedder.dims,
     rebuildOnFingerprintMismatch: true,
+    rebuildOnSnapshotLoadFailure: true,
   });
+  let rebuildError: unknown;
   try {
     let vectors: readonly Float64Array[];
     try {
@@ -321,9 +323,17 @@ async function rebuildIndex(
       chunks.map((chunk, index) => ({ chunk, vector: vectors[index], fingerprint: config.fingerprint })),
     );
     writeManifest(config);
-  } finally {
-    store.close();
+  } catch (error) {
+    rebuildError = error;
   }
+  let closeError: unknown;
+  try {
+    store.close();
+  } catch (error) {
+    closeError = error;
+  }
+  if (rebuildError) throw errorWithCloseError(rebuildError, closeError);
+  if (closeError) throw closeError;
 }
 
 function writeManifest(config: LocalPersistentIndexConfig): void {
@@ -532,6 +542,13 @@ function sanitizeProviderMessage(message: string): string {
     .replace(/\b(?:sk|pk|rk)-[A-Za-z0-9._~+/=-]{4,}/giu, (match) => `${match.split('-')[0]}-***`)
     .replace(/([?&](?:api[_-]?key|token|access_token)=)[^&\s]+/giu, '$1***');
   return redacted.length > 240 ? `${redacted.slice(0, 237)}...` : redacted;
+}
+
+function errorWithCloseError(error: unknown, closeError: unknown): unknown {
+  if (!closeError) return error;
+  const primary = error instanceof Error ? error : new Error(String(error));
+  (primary as Error & { closeError?: unknown }).closeError = closeError;
+  return primary;
 }
 
 function readJson(path: string): { readonly status: 'ok'; readonly value: unknown } | Inspection {
