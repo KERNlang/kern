@@ -3,7 +3,7 @@
  * cosine retriever (not the lexical reference corpus) and yields pass/fail.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -35,6 +35,23 @@ const CORPUS: RagChunkInput[] = [
   { id: 'refunds', text: 'refund refunds policy window thirty days money back', source: 'docs/refunds.md' },
   { id: 'shipping', text: 'shipping delivery courier tracking parcel', source: 'docs/shipping.md' },
 ];
+
+const INDEXED_DOC = `corpus name=Docs title="Support docs"
+  source name=manuals kind=local uri="./docs/**/*.md" media=markdown
+  chunking name=DocsChunks source=manuals strategy=semantic maxTokens=600 overlap=80 unit=tokens
+
+embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine
+vectorStore name=DocsMemory kind=local-persistent dims=64 metric=cosine path="./index"
+ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding chunking=DocsChunks
+retriever name=DocsSearch corpus=Docs embed=DocsEmbedding mode=hybrid topK=4 minScore=0.1
+
+rag name=AnswerDocs retriever=DocsSearch citations=true
+  grounding name=StrictGrounding requireCitations=true policy=strict maxContext=6000
+  ragEval name=Faithfulness metric=faithfulness threshold=0.85 mode=contract
+    ragCase name=refunds query="refund refunds policy window" topK=1
+      ragAssert kind=sourceGlob value="docs/refunds*" required=true
+      ragAssert kind=citesRequired
+`;
 
 describe('evaluateRagEvalDocument (P1.2 end-to-end)', () => {
   test('runs a parsed ragEval against real cosine retrieval and passes', () => {
@@ -174,6 +191,73 @@ rag name=AnswerDocs retriever=DocsSearch citations=true
       expect(report.corpusSource.chunkIdVersion).toBe('kern-rag-chunk-v1');
       expect(report.corpusSource.chunkerVersion).toBe('semantic-boundary-v1');
       expect(report.corpusSource.chunkerVersions).toEqual(['semantic-boundary-v1']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('declared-source eval uses local-persistent ragIndex snapshots across repeated runs', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-rag-eval-index-'));
+    try {
+      mkdirSync(join(dir, 'docs'));
+      writeFileSync(join(dir, 'docs/refunds.md'), 'Refund policy: refunds return money within thirty days.\n');
+      writeFileSync(join(dir, 'docs/shipping.md'), 'Shipping delivery courier tracking parcel.\n');
+      const sourcePath = join(dir, 'mydocs.kern');
+      writeFileSync(sourcePath, INDEXED_DOC);
+
+      const first = evaluateRagEvalDocumentFromDeclaredSources(INDEXED_DOC, { sourcePath });
+      const snapshot = readFileSync(join(dir, 'index', 'DocsIndex.json'), 'utf-8');
+      const second = evaluateRagEvalDocumentFromDeclaredSources(INDEXED_DOC, { sourcePath });
+
+      expect(first.passed).toBe(true);
+      expect(first.indexes).toEqual([
+        expect.objectContaining({
+          indexName: 'DocsIndex',
+          storeKind: 'local-persistent',
+          status: 'indexed',
+          snapshotPath: 'index/DocsIndex.json',
+        }),
+      ]);
+      expect(second.passed).toBe(true);
+      expect(second.indexes).toEqual([
+        expect.objectContaining({
+          indexName: 'DocsIndex',
+          storeKind: 'local-persistent',
+          status: 'reused',
+          snapshotPath: 'index/DocsIndex.json',
+        }),
+      ]);
+      expect(readFileSync(join(dir, 'index', 'DocsIndex.json'), 'utf-8')).toBe(snapshot);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('declared-source eval reports bad retrieval assertions against ragIndex snapshots', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-rag-eval-index-bad-'));
+    try {
+      mkdirSync(join(dir, 'docs'));
+      writeFileSync(join(dir, 'docs/refunds.md'), 'Refund policy: refunds return money within thirty days.\n');
+      writeFileSync(join(dir, 'docs/shipping.md'), 'Shipping delivery courier tracking parcel.\n');
+      const sourcePath = join(dir, 'mydocs.kern');
+      const badDoc = INDEXED_DOC.replace('value="docs/refunds*"', 'value="docs/shipping*"');
+      writeFileSync(sourcePath, badDoc);
+
+      const report = evaluateRagEvalDocumentFromDeclaredSources(badDoc, { sourcePath });
+
+      expect(report.passed).toBe(false);
+      expect(report.indexes).toEqual([
+        expect.objectContaining({
+          indexName: 'DocsIndex',
+          storeKind: 'local-persistent',
+          status: 'indexed',
+          snapshotPath: 'index/DocsIndex.json',
+        }),
+      ]);
+      expect(report.evals[0].result.metrics.hitRate).toBe(0);
+      expect(report.evals[0].result.cases[0].assertions).toEqual(
+        expect.arrayContaining([expect.objectContaining({ kind: 'sourceGlob', passed: false })]),
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

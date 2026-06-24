@@ -666,6 +666,16 @@ function printReport(report: RagEvalDocumentReport, file: string, chunkCount: nu
     const fileCount = report.corpusSource.fileCount ?? report.corpusSource.files?.length ?? 0;
     console.log(`  corpus source: ${fileCount} file(s), sha256=${report.corpusSource.corpusSha256}`);
   }
+  if (report.indexes.length > 0) {
+    console.log('  indexes:');
+    for (const index of report.indexes) {
+      const chunking = index.chunkingName ? ` chunking=${index.chunkingName}` : '';
+      const snapshot = index.snapshotPath ? ` snapshot=${index.snapshotPath}` : '';
+      console.log(
+        `    ${index.indexName} store=${index.storeName} kind=${index.storeKind}${chunking} status=${index.status} chunks=${index.chunkCount}${snapshot}`,
+      );
+    }
+  }
   if (report.diagnostics.length > 0) {
     console.log(`  invalid RAG spec — ${report.diagnostics.length} violation(s):`);
     for (const diagnostic of report.diagnostics) {

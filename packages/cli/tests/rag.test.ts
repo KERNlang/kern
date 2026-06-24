@@ -48,6 +48,22 @@ const LOCAL_PERSISTENT_RETRIEVE_DOC = RETRIEVE_DOC.replace(
   'vectorStore name=DocsMemory kind=local-persistent dims=64 metric=cosine path="./index"',
 );
 
+const LOCAL_PERSISTENT_EVAL_DOC = `corpus name=Docs
+  source name=manuals kind=local uri="./docs/**/*.md" media=markdown
+  chunking name=DocsChunks source=manuals strategy=semantic maxTokens=80 overlap=0 unit=tokens
+
+embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine
+vectorStore name=DocsMemory kind=local-persistent dims=64 metric=cosine path="./index"
+ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding chunking=DocsChunks
+retriever name=DocsSearch corpus=Docs embed=DocsEmbedding
+rag name=AnswerDocs retriever=DocsSearch citations=true
+  grounding name=StrictGrounding requireCitations=true policy=strict maxContext=6000
+  ragEval name=Faithfulness metric=faithfulness threshold=0.85 mode=contract
+    ragCase name=refunds query="refund policy money back" topK=1
+      ragAssert kind=sourceGlob value="docs/refunds*" required=true
+      ragAssert kind=citesRequired
+`;
+
 function run(args: string[], cwd: string): { status: number | null; stdout: string; stderr: string } {
   const result = spawnSync(process.execPath, [CLI, ...args], { cwd, encoding: 'utf-8' });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
@@ -64,6 +80,7 @@ describe('kern rag', () => {
     writeFileSync(join(dir, 'mydocs.kern'), DOC);
     writeFileSync(join(dir, 'retrieve.kern'), RETRIEVE_DOC);
     writeFileSync(join(dir, 'persistent-retrieve.kern'), LOCAL_PERSISTENT_RETRIEVE_DOC);
+    writeFileSync(join(dir, 'persistent-eval.kern'), LOCAL_PERSISTENT_EVAL_DOC);
     writeFileSync(join(dir, 'fixed-retrieve.kern'), FIXED_RETRIEVE_DOC);
     writeFileSync(join(dir, 'dynamic-retrieve.kern'), DYNAMIC_RETRIEVE_DOC);
   });
@@ -124,6 +141,36 @@ describe('kern rag', () => {
         grounding: expect.objectContaining({ passed: true, passRate: 1 }),
       }),
     );
+  });
+
+  test('emits runtime index lifecycle in JSON eval reports', () => {
+    const first = run(['rag', 'eval', 'persistent-eval.kern', '--json'], dir);
+    const snapshot = readFileSync(join(dir, 'index', 'DocsIndex.json'), 'utf-8');
+    const second = run(['rag', 'eval', 'persistent-eval.kern', '--json'], dir);
+
+    expect(first.status).toBe(0);
+    expect(second.status).toBe(0);
+    const firstReport = JSON.parse(first.stdout) as {
+      readonly passed: boolean;
+      readonly indexes: readonly [
+        { readonly indexName: string; readonly status: string; readonly snapshotPath: string },
+      ];
+    };
+    const secondReport = JSON.parse(second.stdout) as {
+      readonly passed: boolean;
+      readonly indexes: readonly [
+        { readonly indexName: string; readonly status: string; readonly snapshotPath: string },
+      ];
+    };
+    expect(firstReport.passed).toBe(true);
+    expect(firstReport.indexes[0]).toEqual(
+      expect.objectContaining({ indexName: 'DocsIndex', status: 'indexed', snapshotPath: 'index/DocsIndex.json' }),
+    );
+    expect(secondReport.passed).toBe(true);
+    expect(secondReport.indexes[0]).toEqual(
+      expect.objectContaining({ indexName: 'DocsIndex', status: 'reused', snapshotPath: 'index/DocsIndex.json' }),
+    );
+    expect(readFileSync(join(dir, 'index', 'DocsIndex.json'), 'utf-8')).toBe(snapshot);
   });
 
   test('rejects --corpus without a value', () => {

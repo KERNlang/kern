@@ -31,6 +31,11 @@ import {
 } from './rag-embedding.js';
 import { ingestRagDeclaredLocalSources, RAG_CHUNK_ID_VERSION, type RagIngestResult } from './rag-ingest.js';
 import {
+  type RagRetrieveIndexLifecycle,
+  retrieveRagDocument,
+  retrieveRagDocumentAsync,
+} from './rag-retrieve-runner.js';
+import {
   type AsyncRagContractRetriever,
   evaluateRagEvalContract,
   evaluateRagEvalContractAsync,
@@ -38,6 +43,7 @@ import {
   type RagContractRetriever,
   type RagEvalContractOptions,
   type RagEvalContractResult,
+  type RetrieveOptions,
 } from './rag-runtime.js';
 import {
   collectRagSemanticFacts,
@@ -88,6 +94,8 @@ export interface RagEvalDocumentReport {
   readonly corpusSource: RagEvalDocumentCorpusSource;
   /** RAG semantic violations. Non-empty ⇒ the spec is invalid and no eval ran (fail-closed). */
   readonly diagnostics: readonly SemanticViolation[];
+  /** Declared runtime indexes used by eval retrieval, including snapshot lifecycle state when available. */
+  readonly indexes: readonly RagRetrieveIndexLifecycle[];
   readonly evals: readonly RagEvalDocumentEntry[];
   /** True only when the spec is valid, at least one eval ran, and every eval passed. */
   readonly passed: boolean;
@@ -129,6 +137,7 @@ export function evaluateRagEvalDocument(
       embedderId: unresolvedEmbedderId(options.embedder?.id),
       corpusSource: options.corpusSource ?? emptyExplicitCorpusSource(),
       diagnostics,
+      indexes: [],
       evals: [],
       passed: false,
     };
@@ -162,6 +171,7 @@ export function evaluateRagEvalDocument(
     embedderIds: Array.from(embedderIds).sort(),
     corpusSource: options.corpusSource ?? explicitCorpusSource(chunkArray),
     diagnostics,
+    indexes: [],
     evals,
     passed: evals.length > 0 && evals.every((entry) => entry.result.passed),
   };
@@ -179,6 +189,7 @@ export async function evaluateRagEvalDocumentAsync(
       embedderId: unresolvedEmbedderId(options.embedder?.id),
       corpusSource: options.corpusSource ?? emptyExplicitCorpusSource(),
       diagnostics,
+      indexes: [],
       evals: [],
       passed: false,
     };
@@ -212,6 +223,7 @@ export async function evaluateRagEvalDocumentAsync(
     embedderIds: Array.from(embedderIds).sort(),
     corpusSource: options.corpusSource ?? explicitCorpusSource(chunkArray),
     diagnostics,
+    indexes: [],
     evals,
     passed: evals.length > 0 && evals.every((entry) => entry.result.passed),
   };
@@ -234,6 +246,7 @@ export function evaluateRagEvalDocumentFromDeclaredSources(
         chunkIdVersion: RAG_CHUNK_ID_VERSION,
       },
       diagnostics,
+      indexes: [],
       evals: [],
       passed: false,
     };
@@ -246,6 +259,7 @@ export function evaluateRagEvalDocumentFromDeclaredSources(
       embedderId: unresolvedEmbedderId(options.embedder?.id),
       corpusSource: emptyDeclaredCorpusSource(options.sourcePath),
       diagnostics,
+      indexes: [],
       evals: [],
       passed: false,
     };
@@ -257,10 +271,33 @@ export function evaluateRagEvalDocumentFromDeclaredSources(
   });
   const retrieverByPipeline = new Map<string, RagContractRetriever>();
   const retrieverByEmbedding = new Map<string, RagContractRetriever>();
+  const indexLifecycleByName = new Map<string, RagRetrieveIndexLifecycle>();
   const embedderIds = new Set<string>();
   const getRetriever = (pipeline: RagSemanticPipelineFact): RagContractRetriever => {
     let retriever = retrieverByPipeline.get(pipeline.name);
     if (retriever === undefined) {
+      const runtimeIndex = runtimeIndexForPipeline(facts, pipeline);
+      if (runtimeIndex) {
+        const embedder = resolveSyncRagEmbedderForPipeline(facts, pipeline, options);
+        embedderIds.add(embedder.id);
+        retriever = (query, retrieveOptions) => {
+          const report = retrieveRagDocument(
+            runtimeEvalRetrieveSource(source, runtimeIndex.name, query, retrieveOptions ?? {}),
+            {
+              sourcePath: options.sourcePath,
+              ...(options.embedder ? { embedder: options.embedder } : {}),
+            },
+          );
+          recordIndexLifecycle(indexLifecycleByName, report.indexes);
+          const retrieval = report.retrievals[0];
+          if (!retrieval) {
+            throw new Error(`KERN RAG eval could not execute runtime retrieval for ragIndex '${runtimeIndex.name}'.`);
+          }
+          return retrieval.result;
+        };
+        retrieverByPipeline.set(pipeline.name, retriever);
+        return retriever;
+      }
       const corpusName = corpusNameForPipeline(facts, pipeline);
       const corpusChunks = ingestion.chunks.filter((chunk) => chunkCorpusName(chunk) === corpusName);
       const embedder = resolveSyncRagEmbedderForPipeline(facts, pipeline, options);
@@ -281,6 +318,7 @@ export function evaluateRagEvalDocumentFromDeclaredSources(
     embedderIds: Array.from(embedderIds).sort(),
     corpusSource: declaredCorpusSource(options.sourcePath, ingestion),
     diagnostics,
+    indexes: sortedIndexLifecycle(indexLifecycleByName),
     evals,
     passed: evals.length > 0 && evals.every((entry) => entry.result.passed),
   };
@@ -303,6 +341,7 @@ export async function evaluateRagEvalDocumentFromDeclaredSourcesAsync(
         chunkIdVersion: RAG_CHUNK_ID_VERSION,
       },
       diagnostics,
+      indexes: [],
       evals: [],
       passed: false,
     };
@@ -315,6 +354,7 @@ export async function evaluateRagEvalDocumentFromDeclaredSourcesAsync(
       embedderId: unresolvedEmbedderId(options.embedder?.id),
       corpusSource: emptyDeclaredCorpusSource(options.sourcePath),
       diagnostics,
+      indexes: [],
       evals: [],
       passed: false,
     };
@@ -326,10 +366,34 @@ export async function evaluateRagEvalDocumentFromDeclaredSourcesAsync(
   });
   const retrieverByPipeline = new Map<string, AsyncRagContractRetriever>();
   const retrieverByEmbedding = new Map<string, AsyncRagContractRetriever>();
+  const indexLifecycleByName = new Map<string, RagRetrieveIndexLifecycle>();
   const embedderIds = new Set<string>();
   const getRetriever = async (pipeline: RagSemanticPipelineFact): Promise<AsyncRagContractRetriever> => {
     let retriever = retrieverByPipeline.get(pipeline.name);
     if (retriever === undefined) {
+      const runtimeIndex = runtimeIndexForPipeline(facts, pipeline);
+      if (runtimeIndex) {
+        const embedder = resolveAsyncRagEmbedderForPipeline(facts, pipeline, options);
+        embedderIds.add(embedder.id);
+        retriever = async (query, retrieveOptions) => {
+          const report = await retrieveRagDocumentAsync(
+            runtimeEvalRetrieveSource(source, runtimeIndex.name, query, retrieveOptions ?? {}),
+            {
+              sourcePath: options.sourcePath,
+              ...(options.embedder ? { embedder: options.embedder } : {}),
+              ...(options.providers ? { providers: options.providers } : {}),
+            },
+          );
+          recordIndexLifecycle(indexLifecycleByName, report.indexes);
+          const retrieval = report.retrievals[0];
+          if (!retrieval) {
+            throw new Error(`KERN RAG eval could not execute runtime retrieval for ragIndex '${runtimeIndex.name}'.`);
+          }
+          return retrieval.result;
+        };
+        retrieverByPipeline.set(pipeline.name, retriever);
+        return retriever;
+      }
       const corpusName = corpusNameForPipeline(facts, pipeline);
       const corpusChunks = ingestion.chunks.filter((chunk) => chunkCorpusName(chunk) === corpusName);
       const embedder = resolveAsyncRagEmbedderForPipeline(facts, pipeline, options);
@@ -351,6 +415,7 @@ export async function evaluateRagEvalDocumentFromDeclaredSourcesAsync(
     embedderIds: Array.from(embedderIds).sort(),
     corpusSource: declaredCorpusSource(options.sourcePath, ingestion),
     diagnostics,
+    indexes: sortedIndexLifecycle(indexLifecycleByName),
     evals,
     passed: evals.length > 0 && evals.every((entry) => entry.result.passed),
   };
@@ -465,6 +530,65 @@ function corpusNameForPipeline(facts: RagSemanticFacts, pipeline: RagSemanticPip
     throw new Error(`KERN RAG pipeline '${pipeline.name}' references missing retriever '${pipeline.retrieverName}'.`);
   }
   return retriever.corpusName;
+}
+
+function runtimeIndexForPipeline(
+  facts: RagSemanticFacts,
+  pipeline: RagSemanticPipelineFact,
+): RagSemanticFacts['indexes'][number] | undefined {
+  const retriever = facts.retrievers.find((entry) => entry.name === pipeline.retrieverName);
+  if (!retriever) return undefined;
+  const matches = facts.indexes.filter(
+    (index) => index.corpusName === retriever.corpusName && (index.embedName ?? '') === (retriever.embedName ?? ''),
+  );
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function runtimeEvalRetrieveSource(
+  source: string,
+  indexName: string,
+  query: string,
+  retrieveOptions: RetrieveOptions,
+): string {
+  const fields = [
+    'ragRetrieve name=__KernRagEvalRuntimeRetrieve',
+    `index=${kernString(indexName)}`,
+    `query=${kernString(query)}`,
+    ...optionalRuntimeRetrieveNumber('topK', retrieveOptions.topK),
+    ...optionalRuntimeRetrieveNumber('minScore', retrieveOptions.minScore),
+    'output="RetrievedChunk[]"',
+  ];
+  return `${source.replace(/\s*$/u, '')}\n${fields.join(' ')}\n`;
+}
+
+function optionalRuntimeRetrieveNumber(name: string, value: number | undefined): string[] {
+  return value === undefined ? [] : [`${name}=${String(value)}`];
+}
+
+function kernString(value: string): string {
+  return JSON.stringify(value);
+}
+
+function recordIndexLifecycle(
+  out: Map<string, RagRetrieveIndexLifecycle>,
+  indexes: readonly RagRetrieveIndexLifecycle[],
+): void {
+  for (const index of indexes) {
+    const current = out.get(index.indexName);
+    if (!current || indexLifecyclePriority(index.status) >= indexLifecyclePriority(current.status)) {
+      out.set(index.indexName, index);
+    }
+  }
+}
+
+function indexLifecyclePriority(status: RagRetrieveIndexLifecycle['status']): number {
+  if (status === 'rebuilt') return 3;
+  if (status === 'indexed') return 2;
+  return 1;
+}
+
+function sortedIndexLifecycle(indexes: ReadonlyMap<string, RagRetrieveIndexLifecycle>): RagRetrieveIndexLifecycle[] {
+  return Array.from(indexes.values()).sort((left, right) => left.indexName.localeCompare(right.indexName));
 }
 
 function chunkCorpusName(chunk: RagChunkInput): string | undefined {
