@@ -124,6 +124,16 @@ const CERT: Array<[string, string[], string]> = [
     ],
     '6\n',
   ],
+  [
+    'if/else comparison branch',
+    ['let name=x value="5"', 'if cond="x > 3"', '  print value="\\"big\\""', 'else', '  print value="\\"small\\""'],
+    'big\n',
+  ],
+  [
+    'while loop counts down its condition',
+    ['let kind=let name=n value="0"', 'while cond="n < 3"', '  print value="n"', '  assign target=n value="n + 1"'],
+    '0\n1\n2\n',
+  ],
 ];
 
 execDescribe('kern run — 3-leg CLI differential (kern-run === ts === py)', () => {
