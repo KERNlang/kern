@@ -201,10 +201,11 @@ export interface RagEvalGroundingMetrics {
   readonly passRate: number;
   readonly passedCaseCount: number;
   readonly failedCaseCount: number;
+  readonly evaluatedCaseCount: number;
 }
 
 export interface RagEvalContractMetrics {
-  readonly hitRate: number;
+  readonly hitRate: number | null;
   readonly citationCoverage: number;
   readonly minRelevance: number | null;
   readonly grounding: RagEvalGroundingMetrics;
@@ -934,29 +935,66 @@ function caseRetrieveOptions(evaluationCase: RagSemanticEvalCaseFact): RetrieveO
 }
 
 function ragEvalMetrics(cases: readonly RagEvalCaseResult[]): RagEvalContractMetrics {
-  const passedCaseCount = cases.filter((evaluationCase) => evaluationCase.passed).length;
   const totalChunks = cases.reduce((count, evaluationCase) => count + evaluationCase.chunks.length, 0);
   const citedChunks = cases.reduce(
     (count, evaluationCase) => count + evaluationCase.chunks.filter(chunkHasCitation).length,
     0,
   );
-  const relevanceScores = cases.flatMap((evaluationCase) => evaluationCase.chunks.map((chunk) => chunk.score));
-  const groundingPassedCaseCount = cases.filter((evaluationCase) =>
-    evaluationCase.assertions
-      .filter((assertion) => assertion.kind === 'citesRequired')
-      .every((assertion) => assertion.passed),
+  const relevanceAssertions = cases.flatMap((evaluationCase) =>
+    evaluationCase.assertions.filter(isRetrievalHitAssertion),
+  );
+  const groundingCases = cases
+    .map((evaluationCase) => evaluationCase.assertions.filter(isGroundingAssertion))
+    .filter((assertions) => assertions.length > 0);
+  const groundingPassedCaseCount = cases.filter(
+    (evaluationCase) =>
+      evaluationCase.assertions.some(isGroundingAssertion) &&
+      evaluationCase.assertions.filter(isGroundingAssertion).every((assertion) => assertion.passed),
   ).length;
   return {
-    hitRate: ratio(passedCaseCount, cases.length),
+    hitRate:
+      relevanceAssertions.length > 0
+        ? ratio(relevanceAssertions.filter((assertion) => assertion.passed).length, relevanceAssertions.length)
+        : null,
     citationCoverage: ratio(citedChunks, totalChunks),
-    minRelevance: relevanceScores.length > 0 ? Math.min(...relevanceScores) : null,
+    minRelevance: minRetrievedScore(cases),
     grounding: {
-      passed: cases.length > 0 && groundingPassedCaseCount === cases.length,
-      passRate: ratio(groundingPassedCaseCount, cases.length),
+      passed: groundingCases.length > 0 && groundingPassedCaseCount === groundingCases.length,
+      passRate: ratio(groundingPassedCaseCount, groundingCases.length),
       passedCaseCount: groundingPassedCaseCount,
-      failedCaseCount: cases.length - groundingPassedCaseCount,
+      failedCaseCount: groundingCases.length - groundingPassedCaseCount,
+      evaluatedCaseCount: groundingCases.length,
     },
   };
+}
+
+function isRetrievalHitAssertion(assertion: RagEvalAssertionResult): boolean {
+  return [
+    'expected.chunkCount',
+    'expected.sources',
+    'scoreGte',
+    'scoreLte',
+    'sourceEq',
+    'sourceGlob',
+    'uniqueSourcesGte',
+    'chunkCountEq',
+    'factId',
+    'chunkHash',
+  ].includes(assertion.kind);
+}
+
+function isGroundingAssertion(assertion: RagEvalAssertionResult): boolean {
+  return assertion.kind === 'citesRequired';
+}
+
+function minRetrievedScore(cases: readonly RagEvalCaseResult[]): number | null {
+  let minScore: number | undefined;
+  for (const evaluationCase of cases) {
+    for (const chunk of evaluationCase.chunks) {
+      minScore = minScore === undefined ? chunk.score : Math.min(minScore, chunk.score);
+    }
+  }
+  return minScore ?? null;
 }
 
 function ratio(numerator: number, denominator: number): number {

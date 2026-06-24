@@ -239,7 +239,7 @@ describe('RAG eval runtime contracts', () => {
       hitRate: 1,
       citationCoverage: 1,
       minRelevance: 1,
-      grounding: { passed: true, passRate: 1, passedCaseCount: 1, failedCaseCount: 0 },
+      grounding: { passed: true, passRate: 1, passedCaseCount: 1, failedCaseCount: 0, evaluatedCaseCount: 1 },
     });
     expect(JSON.parse(JSON.stringify(result))).toEqual(result);
   });
@@ -277,7 +277,8 @@ describe('RAG eval runtime contracts', () => {
     expect(result.passed).toBe(false);
     expect(result.metrics.hitRate).toBe(0);
     expect(result.metrics.citationCoverage).toBe(0);
-    expect(result.metrics.grounding.passed).toBe(true);
+    expect(result.metrics.grounding.passed).toBe(false);
+    expect(result.metrics.grounding.evaluatedCaseCount).toBe(0);
     expect(result.cases[0]?.assertions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ kind: 'expected.chunkCount', passed: false, code: 'ASSERTION_FAIL' }),

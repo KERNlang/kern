@@ -308,7 +308,7 @@ async function runRagEval(args: string[]): Promise<void> {
           ...providerOptions,
         });
   } catch (err) {
-    fail(`evaluation failed: ${(err as Error).message}`);
+    fail(`evaluation failed: ${errorMessageWithClose(err)}`);
   }
 
   if (json) console.log(JSON.stringify(report, null, 2));
