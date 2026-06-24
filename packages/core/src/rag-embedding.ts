@@ -428,6 +428,24 @@ export interface RagVectorStoreAdapter {
   close(): void;
 }
 
+export interface AsyncRagVectorStoreAdapter {
+  readonly kind: RagVectorStoreKind;
+  readonly fingerprint: string;
+  readonly dims: number;
+  readonly metric: RagVectorStoreMetric;
+  upsert(chunk: RagChunkInput, vector: Float64Array, fingerprint?: string): Promise<void>;
+  upsertMany(entries: Iterable<RagVectorStoreUpsert>): Promise<void>;
+  search(
+    query: string,
+    queryVector: Float64Array,
+    options?: RetrieveOptions,
+    fingerprint?: string,
+  ): Promise<RetrieveResult>;
+  snapshot(): Promise<RagVectorStoreSnapshot>;
+  clear(): Promise<void>;
+  close(): void | Promise<void>;
+}
+
 export class InMemoryPgVectorRagStore implements RagVectorStoreAdapter {
   readonly kind: RagVectorStoreKind = 'memory';
   readonly metric: RagVectorStoreMetric = 'cosine';

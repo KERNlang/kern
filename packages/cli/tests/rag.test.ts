@@ -455,8 +455,9 @@ describe('kern rag', () => {
     const result = run(['rag', 'conformance'], dir);
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('kern rag conformance');
-    expect(result.stdout).toContain('✓ memory');
+    expect(result.stdout).toContain('✓ memory mode=sync');
     expect(result.stdout).toContain('✓ local-persistent');
+    expect(result.stdout).toContain('transport=in-process batchUpsert=true namespaces=false filters=none');
   });
 
   test('emits JSON for RAG adapter conformance checks', () => {
@@ -465,21 +466,35 @@ describe('kern rag', () => {
     const parsed = JSON.parse(result.stdout) as {
       readonly passed: boolean;
       readonly reports: readonly [
-        { readonly manifest: { readonly name: string }; readonly summary: { readonly failed: number } },
+        {
+          readonly adapterMode: string;
+          readonly manifest: {
+            readonly name: string;
+            readonly transport: string;
+            readonly capabilities: { readonly upsertMany: boolean; readonly namespaces: boolean };
+          };
+          readonly summary: { readonly failed: number };
+        },
       ];
     };
     expect(parsed.passed).toBe(true);
+    expect(parsed.reports[0].adapterMode).toBe('sync');
     expect(parsed.reports[0].manifest.name).toBe('memory');
+    expect(parsed.reports[0].manifest.transport).toBe('in-process');
+    expect(parsed.reports[0].manifest.capabilities.upsertMany).toBe(true);
+    expect(parsed.reports[0].manifest.capabilities.namespaces).toBe(false);
     expect(parsed.reports[0].summary.failed).toBe(0);
   });
 
   test('lists RAG adapter conformance contracts', () => {
     const result = run(['rag', 'conformance', '--list'], dir);
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain('kern rag conformance kern-rag-vector-store-conformance-v1');
-    expect(result.stdout).toContain('required capabilities:');
+    expect(result.stdout).toContain('kern rag conformance kern-rag-vector-store-conformance-v2');
+    expect(result.stdout).toContain('required operations:');
+    expect(result.stdout).toContain('required manifest fields:');
     expect(result.stdout).toContain('memory kind=memory');
     expect(result.stdout).toContain('local-persistent kind=local-persistent');
+    expect(result.stdout).toContain('transport=in-process batchUpsert=true namespaces=false filters=none');
   });
 
   test('emits JSON for RAG adapter conformance contract listing', () => {
@@ -487,12 +502,20 @@ describe('kern rag', () => {
     expect(result.status).toBe(0);
     const parsed = JSON.parse(result.stdout) as {
       readonly profile: { readonly version: string; readonly cases: readonly string[] };
-      readonly adapters: readonly { readonly name: string }[];
+      readonly adapters: readonly {
+        readonly name: string;
+        readonly transport: string;
+        readonly capabilities: { readonly upsertMany: boolean; readonly filters: readonly string[] };
+      }[];
     };
     expect(parsed.profile).toBeDefined();
-    expect(parsed.profile.version).toBe('kern-rag-vector-store-conformance-v1');
+    expect(parsed.profile.version).toBe('kern-rag-vector-store-conformance-v2');
     expect(parsed.profile.cases).toContain('durable-round-trip');
+    expect(parsed.profile.cases).toContain('namespace-isolation');
     expect(parsed.adapters[0].name).toBe('memory');
+    expect(parsed.adapters[0].transport).toBe('in-process');
+    expect(parsed.adapters[0].capabilities.upsertMany).toBe(true);
+    expect(parsed.adapters[0].capabilities.filters).toEqual([]);
   });
 
   test('rejects RAG conformance list combined with adapter filter', () => {

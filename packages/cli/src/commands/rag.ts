@@ -121,8 +121,9 @@ function runRagConformance(args: string[]): void {
     for (const report of reports) {
       const mark = report.passed ? '✓' : '✗';
       console.log(
-        `  ${mark} ${report.manifest.name} (${report.summary.passed} passed, ${report.summary.failed} failed, ${report.summary.skipped} skipped)`,
+        `  ${mark} ${report.manifest.name} mode=${report.adapterMode} (${report.summary.passed} passed, ${report.summary.failed} failed, ${report.summary.skipped} skipped)`,
       );
+      console.log(`      ${ragAdapterCapabilitySummary(report.manifest)}`);
       for (const entry of report.cases) {
         if (entry.status === 'failed') console.log(`      ✗ ${entry.name}: ${entry.message ?? 'failed'}`);
         if (entry.status === 'skipped') console.log(`      - ${entry.name}: ${entry.message ?? 'skipped'}`);
@@ -172,13 +173,27 @@ function printRagConformanceList(json: boolean): void {
     return;
   }
   console.log(`kern rag conformance ${RAG_VECTOR_STORE_CONFORMANCE_PROFILE.version}`);
-  console.log(`  required capabilities: ${RAG_VECTOR_STORE_CONFORMANCE_PROFILE.requiredCapabilities.join(', ')}`);
+  console.log(`  required operations: ${RAG_VECTOR_STORE_CONFORMANCE_PROFILE.requiredCapabilities.join(', ')}`);
+  console.log(`  required manifest fields: ${RAG_VECTOR_STORE_CONFORMANCE_PROFILE.requiredManifestFields.join(', ')}`);
   console.log(`  cases: ${RAG_VECTOR_STORE_CONFORMANCE_PROFILE.cases.length}`);
   for (const manifest of BUILTIN_RAG_VECTOR_STORE_MANIFESTS) {
     console.log(
       `  ${manifest.name} kind=${manifest.adapterKind} persistence=${manifest.persistence} metrics=${manifest.metrics.join(',')} maxDims=${manifest.maxDimensions}`,
     );
+    console.log(`    ${ragAdapterCapabilitySummary(manifest)}`);
   }
+}
+
+function ragAdapterCapabilitySummary(manifest: {
+  readonly transport: string;
+  readonly capabilities: {
+    readonly upsertMany: boolean;
+    readonly namespaces: boolean;
+    readonly filters: readonly string[];
+  };
+}): string {
+  const filters = manifest.capabilities.filters.length > 0 ? manifest.capabilities.filters.join(',') : 'none';
+  return `transport=${manifest.transport} batchUpsert=${manifest.capabilities.upsertMany} namespaces=${manifest.capabilities.namespaces} filters=${filters}`;
 }
 
 function createConformanceStore(

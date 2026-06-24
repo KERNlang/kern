@@ -654,9 +654,11 @@ export {
 export { parsePortableNonNegativeIntLiteral, parsePortablePathSegments } from './portable-route-collection.js';
 export type {
   RagAdapterPersistence,
+  RagVectorStoreAdapterTransport,
   RagVectorStoreAdapterCapabilities,
   RagVectorStoreAdapterContract,
   RagVectorStoreAdapterManifest,
+  RagVectorStoreAsyncConformanceOptions,
   RagVectorStoreConformanceCaseResult,
   RagVectorStoreConformanceContext,
   RagVectorStoreConformanceOptions,
@@ -664,6 +666,7 @@ export type {
   RagVectorStoreConformanceProfileVersion,
   RagVectorStoreConformanceReport,
   RagVectorStoreConformanceStatus,
+  RagVectorStoreFilterCapability,
   RagVectorStoreManifestValidationResult,
 } from './rag-adapter-conformance.js';
 export {
@@ -673,6 +676,7 @@ export {
   defineRagVectorStoreAdapterContract,
   RAG_VECTOR_STORE_CONFORMANCE_PROFILE,
   runRagVectorStoreConformance,
+  runRagVectorStoreConformanceAsync,
   validateRagVectorStoreAdapterManifest,
 } from './rag-adapter-conformance.js';
 export type { RagAssertionKind } from './rag-assertions.js';
@@ -693,6 +697,7 @@ export {
 } from './rag-embed-resolver.js';
 export type {
   AsyncEmbedder,
+  AsyncRagVectorStoreAdapter,
   Embedder,
   EmbeddingFingerprintInput,
   OpenAIEmbeddingAdapterOptions,
