@@ -406,6 +406,41 @@ describe('RAG eval runtime contracts', () => {
         createInMemoryRetriever(corpus),
       ).metrics.hitRate,
     ).toBe(0);
+
+    expect(
+      evaluateRagEvalContract(
+        {
+          name: 'VacuousSourceCheckWithHit',
+          cases: [
+            {
+              name: 'has-results',
+              query: 'refund policy',
+              tags: [],
+              asserts: [assertFact('uniqueSourcesGte', 0), assertFact('scoreGte', 0.25)],
+            },
+          ],
+        },
+        createInMemoryRetriever(corpus),
+      ).metrics.hitRate,
+    ).toBe(1);
+
+    expect(
+      evaluateRagEvalContract(
+        {
+          name: 'NonVacuousSourceFailure',
+          cases: [
+            {
+              name: 'no-results',
+              query: 'unmatched query',
+              tags: [],
+              expected: { chunkCount: 0 },
+              asserts: [assertFact('uniqueSourcesGte', 1)],
+            },
+          ],
+        },
+        createInMemoryRetriever(corpus),
+      ).metrics.hitRate,
+    ).toBe(0);
   });
 
   test('treats non-required assertion failures as advisory diagnostics', () => {
