@@ -681,20 +681,47 @@ export {
 } from './rag-adapter-conformance.js';
 export type { RagAssertionKind } from './rag-assertions.js';
 export { RAG_ASSERTION_KIND_SET, RAG_ASSERTION_KINDS } from './rag-assertions.js';
-export type { RagProviderEmbeddingOptions, RagSupportedEmbedModel } from './rag-embed-resolver.js';
+export type {
+  RagCanonicalEmbedModel,
+  RagEmbeddingProviderAdapter,
+  RagEmbeddingProviderManifest,
+  RagEmbeddingProviderModelManifest,
+  RagProviderEmbeddingOptions,
+  RagProviderFakeEmbeddingOptions,
+  RagSupportedEmbedModel,
+} from './rag-embed-resolver.js';
 export {
   canonicalRagEmbedModel,
   defaultDimsForRagEmbedModel,
+  defaultRagEmbeddingProviderRegistry,
   embedFactForPipeline,
   isSupportedRagEmbedModel,
+  RAG_EMBED_MODEL_FAKE_DETERMINISTIC,
   RAG_EMBED_MODEL_LOCAL_HASH,
   RAG_EMBED_MODEL_LOCAL_SEMANTIC,
   RAG_EMBED_MODEL_OPENAI_TEXT_EMBEDDING_3_LARGE,
   RAG_EMBED_MODEL_OPENAI_TEXT_EMBEDDING_3_SMALL,
+  RAG_EMBEDDING_PROVIDER_MANIFEST_VERSION,
+  RAG_EMBEDDING_PROVIDER_MANIFESTS,
   RAG_SUPPORTED_EMBED_MODELS,
+  RagEmbeddingProviderRegistry,
+  ragEmbedderIdentityForModel,
+  ragEmbedModelAllowsCustomDims,
+  resolveAsyncRagEmbedderForModel,
   resolveAsyncRagEmbedderForPipeline,
+  resolveSyncRagEmbedderForModel,
   resolveSyncRagEmbedderForPipeline,
 } from './rag-embed-resolver.js';
+export type { RagEmbeddingProviderErrorCode, RagEmbeddingProviderErrorOptions } from './rag-provider-errors.js';
+export {
+  RagEmbeddingProviderAuthError,
+  RagEmbeddingProviderConfigurationError,
+  RagEmbeddingProviderDimensionMismatchError,
+  RagEmbeddingProviderError,
+  RagEmbeddingProviderModelNotFoundError,
+  RagEmbeddingProviderRateLimitError,
+  RagEmbeddingProviderUnavailableError,
+} from './rag-provider-errors.js';
 export type {
   AsyncEmbedder,
   AsyncRagVectorStoreAdapter,

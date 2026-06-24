@@ -93,8 +93,8 @@ describe('evaluateRagEvalDocument (P1.2 end-to-end)', () => {
     });
 
     expect(report.passed).toBe(true);
-    expect(report.embedderId).toBe('openai:text-embedding-3-small:dims=1536');
-    expect(report.embedderIds).toEqual(['openai:text-embedding-3-small:dims=1536']);
+    expect(report.embedderId).toMatch(/^openai:text-embedding-3-small:dims=1536:provider=[a-f0-9]{12}$/u);
+    expect(report.embedderIds).toEqual([report.embedderId]);
     expect(fetchCalls).toEqual(expect.arrayContaining(CORPUS.map((chunk) => chunk.text)));
   });
 
@@ -642,7 +642,7 @@ rag name=AnswerDocs retriever=DocsSearch
       });
 
       expect(report.passed).toBe(true);
-      expect(report.embedderId).toBe('openai:text-embedding-3-small:dims=1536');
+      expect(report.embedderId).toMatch(/^openai:text-embedding-3-small:dims=1536:provider=[a-f0-9]{12}$/u);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

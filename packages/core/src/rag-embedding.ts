@@ -34,6 +34,12 @@ import {
   type RetrieveResult,
   tokenizeForRetrieval,
 } from './rag-runtime.js';
+import {
+  RagEmbeddingProviderAuthError,
+  RagEmbeddingProviderDimensionMismatchError,
+  RagEmbeddingProviderRateLimitError,
+  RagEmbeddingProviderUnavailableError,
+} from './rag-provider-errors.js';
 
 /** Pluggable text→vector embedder. Implementations must be pure + deterministic. */
 export interface Embedder {
@@ -197,15 +203,15 @@ export class OpenAIEmbeddingAdapter implements AsyncEmbedder {
     this.id = `openai:${this.model}:dims=${this.dims}`;
     this.apiKey = options.apiKey?.trim();
     if (!this.apiKey) {
-      throw new Error('KERN OpenAI embedder requires an apiKey.');
+      throw new RagEmbeddingProviderAuthError('openai', 'KERN OpenAI embedder requires an apiKey.');
     }
     if (/[\r\n]/u.test(this.apiKey)) {
-      throw new Error('KERN OpenAI embedder apiKey must not contain newlines.');
+      throw new RagEmbeddingProviderAuthError('openai', 'KERN OpenAI embedder apiKey must not contain newlines.');
     }
     this.endpoint = options.endpoint ?? 'https://api.openai.com/v1/embeddings';
     const fetchImpl = options.fetch ?? globalThis.fetch;
     if (typeof fetchImpl !== 'function') {
-      throw new Error('KERN OpenAI embedder requires a fetch implementation.');
+      throw new RagEmbeddingProviderUnavailableError('openai', 'KERN OpenAI embedder requires a fetch implementation.');
     }
     this.fetchImpl = fetchImpl;
   }
@@ -231,30 +237,57 @@ export class OpenAIEmbeddingAdapter implements AsyncEmbedder {
         }),
       });
     } catch (error) {
-      throw new Error(`KERN OpenAI embedder request failed: ${(error as Error).message}`);
+      throw new RagEmbeddingProviderUnavailableError(
+        'openai',
+        `KERN OpenAI embedder request failed: ${(error as Error).message}`,
+        error,
+      );
     }
     if (!response.ok) {
-      throw new Error(`KERN OpenAI embedder request failed with HTTP ${response.status}.`);
+      const message = `KERN OpenAI embedder request failed with HTTP ${response.status}.`;
+      if (response.status === 401 || response.status === 403) throw new RagEmbeddingProviderAuthError('openai', message);
+      if (response.status === 429) throw new RagEmbeddingProviderRateLimitError('openai', message);
+      throw new RagEmbeddingProviderUnavailableError('openai', message);
     }
-    const body = (await response.json()) as unknown;
+    let body: unknown;
+    try {
+      body = (await response.json()) as unknown;
+    } catch (error) {
+      throw new RagEmbeddingProviderUnavailableError('openai', 'KERN OpenAI embedder returned invalid JSON.', error);
+    }
     return openAIEmbeddingVectors(body, texts.length, this.model, this.dims).map((vector) => new Float64Array(vector));
   }
 }
 
 function openAIEmbeddingVectors(body: unknown, expectedCount: number, model: string, dims: number): number[][] {
-  if (!body || typeof body !== 'object') throw new Error('KERN OpenAI embedder returned invalid JSON.');
+  if (!body || typeof body !== 'object') {
+    throw new RagEmbeddingProviderUnavailableError('openai', 'KERN OpenAI embedder returned invalid JSON.');
+  }
   const data = (body as { data?: unknown }).data;
-  if (!Array.isArray(data) || data.length === 0) throw new Error('KERN OpenAI embedder returned no embeddings.');
+  if (!Array.isArray(data) || data.length === 0) {
+    throw new RagEmbeddingProviderUnavailableError('openai', 'KERN OpenAI embedder returned no embeddings.');
+  }
   if (data.length !== expectedCount) {
-    throw new Error(`KERN OpenAI embedder returned ${data.length} embeddings, expected ${expectedCount}.`);
+    throw new RagEmbeddingProviderUnavailableError(
+      'openai',
+      `KERN OpenAI embedder returned ${data.length} embeddings, expected ${expectedCount}.`,
+    );
   }
   return data.map((entry) => {
     const embedding = (entry as { embedding?: unknown } | undefined)?.embedding;
     if (!Array.isArray(embedding) || embedding.some((value) => typeof value !== 'number' || !Number.isFinite(value))) {
-      throw new Error('KERN OpenAI embedder returned a malformed embedding vector.');
+      throw new RagEmbeddingProviderUnavailableError(
+        'openai',
+        'KERN OpenAI embedder returned a malformed embedding vector.',
+      );
     }
     if (embedding.length !== dims) {
-      throw new Error(`KERN OpenAI embedder returned ${embedding.length} dimensions for '${model}', expected ${dims}.`);
+      throw new RagEmbeddingProviderDimensionMismatchError(
+        'openai',
+        `KERN OpenAI embedder returned ${embedding.length} dimensions for '${model}', expected ${dims}.`,
+        dims,
+        embedding.length,
+      );
     }
     return embedding as number[];
   });

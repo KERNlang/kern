@@ -5,21 +5,15 @@ import { parseDocument } from './parser.js';
 import {
   canonicalRagEmbedModel,
   defaultDimsForRagEmbedModel,
-  RAG_EMBED_MODEL_LOCAL_HASH,
-  RAG_EMBED_MODEL_LOCAL_SEMANTIC,
-  RAG_EMBED_MODEL_OPENAI_TEXT_EMBEDDING_3_LARGE,
-  RAG_EMBED_MODEL_OPENAI_TEXT_EMBEDDING_3_SMALL,
   type RagProviderEmbeddingOptions,
+  resolveAsyncRagEmbedderForModel,
+  resolveSyncRagEmbedderForModel,
 } from './rag-embed-resolver.js';
 import {
   type AsyncEmbedder,
   AsyncEmbeddingRagIndex,
-  asAsyncEmbedder,
-  DeterministicHashEmbedder,
   type Embedder,
   EmbeddingRagIndex,
-  LocalSemanticEmbedder,
-  OpenAIEmbeddingAdapter,
 } from './rag-embedding.js';
 import { LocalPersistentRagVectorStoreAdapter } from './rag-embedding-node.js';
 import { ingestRagDeclaredLocalSources, type RagIngestResult } from './rag-ingest.js';
@@ -674,9 +668,7 @@ function embedderForIndex(facts: RagSemanticFacts, index: RagSemanticIndexFact):
   const embed = embedFactForIndex(facts, index);
   const model = canonicalRagEmbedModel(embed?.model);
   const dims = embed?.dims ?? defaultDimsForRagEmbedModel(model);
-  if (model === RAG_EMBED_MODEL_LOCAL_HASH) return new DeterministicHashEmbedder({ dims });
-  if (model === RAG_EMBED_MODEL_LOCAL_SEMANTIC) return new LocalSemanticEmbedder();
-  throw new Error(`RAG embed model '${model}' requires async provider execution.`);
+  return resolveSyncRagEmbedderForModel(model, dims);
 }
 
 function asyncEmbedderForIndex(
@@ -687,41 +679,7 @@ function asyncEmbedderForIndex(
   const embed = embedFactForIndex(facts, index);
   const model = canonicalRagEmbedModel(embed?.model);
   const dims = embed?.dims ?? defaultDimsForRagEmbedModel(model);
-  if (model === RAG_EMBED_MODEL_LOCAL_HASH) return asAsyncEmbedder(new DeterministicHashEmbedder({ dims }));
-  if (model === RAG_EMBED_MODEL_LOCAL_SEMANTIC) return asAsyncEmbedder(new LocalSemanticEmbedder());
-  if (
-    model === RAG_EMBED_MODEL_OPENAI_TEXT_EMBEDDING_3_SMALL ||
-    model === RAG_EMBED_MODEL_OPENAI_TEXT_EMBEDDING_3_LARGE
-  ) {
-    const openai = options.providers?.openai;
-    if (!openai?.apiKey?.trim()) throw new Error(`RAG embed model '${model}' requires OpenAI provider options.`);
-    const adapter = new OpenAIEmbeddingAdapter({
-      ...openai,
-      apiKey: openai.apiKey,
-      model: model.replace(/^openai:/u, ''),
-      dims,
-    });
-    return providerScopedOpenAIEmbedder(adapter, openai);
-  }
-  throw new Error(`Unhandled RAG embed model '${String(model)}'.`);
-}
-
-function providerScopedOpenAIEmbedder(
-  adapter: OpenAIEmbeddingAdapter,
-  openai: NonNullable<RagProviderEmbeddingOptions['openai']>,
-): AsyncEmbedder {
-  const providerScope = sha256(
-    JSON.stringify({
-      endpoint: openai.endpoint ?? 'https://api.openai.com/v1/embeddings',
-      fetch: openai.fetch ? 'custom-fetch' : 'global-fetch',
-    }),
-  ).slice(0, 12);
-  return {
-    id: `${adapter.id}:provider=${providerScope}`,
-    dims: adapter.dims,
-    embed: (text) => adapter.embed(text),
-    embedMany: (texts) => adapter.embedMany(texts),
-  };
+  return resolveAsyncRagEmbedderForModel(model, dims, options);
 }
 
 function safeAsyncEmbedderForIndex(

@@ -51,6 +51,11 @@ const ASYNC_PROVIDER_MEMORY_DOC = DOC.replace(
   'vectorStore name=DocsMemory kind=memory dims=3 metric=cosine',
 );
 
+const FAKE_PROVIDER_MEMORY_DOC = ASYNC_PROVIDER_MEMORY_DOC.replace(
+  'model="openai:text-embedding-3-small"',
+  'model="fake:deterministic"',
+);
+
 const ASYNC_PROVIDER_LOCAL_PERSISTENT_DOC = ASYNC_PROVIDER_MEMORY_DOC.replace(
   'vectorStore name=DocsMemory kind=memory dims=3 metric=cosine',
   'vectorStore name=DocsMemory kind=local-persistent dims=3 metric=cosine path="./index"',
@@ -372,6 +377,24 @@ describe('retrieveRagDocument', () => {
       }),
     );
     expect(report.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
+  });
+
+  test('async retrieval resolves a declared deterministic fake provider without OpenAI options', async () => {
+    const report = await retrieveRagDocumentAsync(FAKE_PROVIDER_MEMORY_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+      providers: { fake: { seed: 'runtime-test' } },
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    expect(report.indexes[0]).toEqual(
+      expect.objectContaining({
+        indexName: 'DocsIndex',
+        storeKind: 'memory',
+        status: 'indexed',
+      }),
+    );
+    expect(report.retrievals[0]?.result.chunks).toHaveLength(1);
   });
 
   test('async provider-backed local-persistent retrieval reuses matching snapshots', async () => {
