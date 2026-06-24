@@ -75,7 +75,7 @@ export class LocalPersistentRagVectorStoreAdapter extends InMemoryPgVectorRagSto
       this.loadFromDisk();
     } catch (error) {
       if (
-        options.rebuildOnSnapshotLoadFailure ||
+        (options.rebuildOnSnapshotLoadFailure && isLocalVectorStoreRebuildableSnapshotLoadFailure(error)) ||
         (options.rebuildOnFingerprintMismatch && isLocalVectorStoreFingerprintMismatch(error))
       ) {
         return;
@@ -343,6 +343,11 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
 
 function isLocalVectorStoreFingerprintMismatch(error: unknown): boolean {
   return error instanceof Error && /embedding fingerprint mismatch/u.test(error.message);
+}
+
+function isLocalVectorStoreRebuildableSnapshotLoadFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return /^KERN local vector store (?:snapshot|entry)/u.test(error.message);
 }
 
 function parseVectorStoreSnapshot(raw: unknown, fingerprint: string, dims: number): RagVectorStoreSnapshot {

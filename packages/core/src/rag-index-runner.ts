@@ -333,7 +333,11 @@ async function rebuildIndex(
     closeError = error;
   }
   if (rebuildError) throw errorWithCloseError(rebuildError, closeError);
-  if (closeError) throw closeError;
+  if (closeError) {
+    const wrapped = new Error(`KERN RAG index '${config.provenance.store.namespace}' rebuilt but failed to close.`);
+    (wrapped as Error & { cause?: unknown }).cause = closeError;
+    throw wrapped;
+  }
 }
 
 function writeManifest(config: LocalPersistentIndexConfig): void {

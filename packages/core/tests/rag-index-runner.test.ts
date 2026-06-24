@@ -91,6 +91,8 @@ describe('indexRagDocumentAsync', () => {
     expect(rebuilt.indexes[0]).toEqual(expect.objectContaining({ status: 'corrupt', action: 'rebuilt' }));
     const snapshot = JSON.parse(readFileSync(snapshotPath, 'utf-8')) as { readonly entries?: unknown[] };
     expect(snapshot.entries).toHaveLength(2);
+    const fresh = await indexRagDocumentAsync(DOC, { sourcePath: join(dir, 'spec.kern') });
+    expect(fresh.indexes[0]).toEqual(expect.objectContaining({ status: 'fresh', action: 'reused' }));
   });
 
   test('repairs incompatible snapshots on rebuild', async () => {
@@ -105,6 +107,8 @@ describe('indexRagDocumentAsync', () => {
     expect(rebuilt.indexes[0]).toEqual(expect.objectContaining({ status: 'incompatible', action: 'rebuilt' }));
     const repaired = JSON.parse(readFileSync(snapshotPath, 'utf-8')) as { readonly version?: string };
     expect(repaired.version).not.toBe('old-version');
+    const fresh = await indexRagDocumentAsync(DOC, { sourcePath: join(dir, 'spec.kern') });
+    expect(fresh.indexes[0]).toEqual(expect.objectContaining({ status: 'fresh', action: 'reused' }));
   });
 
   test('rejects shared local-persistent namespaces with incompatible fingerprints', async () => {
