@@ -568,7 +568,7 @@ function runtimeEvalRetrieveSource(
 
 function runtimeEvalRetrieveName(indexName: string, query: string, retrieveOptions: RetrieveOptions): string {
   const digest = createHash('sha256')
-    .update(JSON.stringify([indexName, query, retrieveOptions.topK ?? null, retrieveOptions.minScore ?? null]))
+    .update(JSON.stringify([indexName, query, retrieveOptions]))
     .digest('hex')
     .slice(0, 32);
   return `__KernRagEvalRuntimeRetrieve_${digest}`;
