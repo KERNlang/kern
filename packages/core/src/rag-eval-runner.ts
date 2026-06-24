@@ -574,14 +574,28 @@ function runtimeEvalRetrieveName(indexName: string, query: string, retrieveOptio
   return `__KernRagEvalRuntimeRetrieve_${digest}`;
 }
 
-function stableJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'undefined';
-  if (Array.isArray(value)) return `[${value.map((entry) => stableJson(entry)).join(',')}]`;
+function stableJson(value: unknown, seen = new WeakSet<object>()): string {
+  if (value === undefined) return '"__undefined__"';
+  if (typeof value === 'bigint') return JSON.stringify(`bigint:${value.toString()}`);
+  if (typeof value === 'function') return JSON.stringify(`function:${value.name}`);
+  if (typeof value === 'symbol') return JSON.stringify(String(value));
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? '"__unserializable__"';
+  const jsonValue = (value as { readonly toJSON?: unknown }).toJSON;
+  if (typeof jsonValue === 'function') return stableJson(jsonValue.call(value), seen);
+  if (seen.has(value)) throw new Error('KERN RAG eval retrieve options cannot contain circular values.');
+  seen.add(value);
+  if (Array.isArray(value)) {
+    const out = `[${value.map((entry) => stableJson(entry, seen)).join(',')}]`;
+    seen.delete(value);
+    return out;
+  }
   const record = value as Record<string, unknown>;
-  return `{${Object.keys(record)
+  const out = `{${Object.keys(record)
     .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+    .map((key) => `${JSON.stringify(key)}:${stableJson(record[key], seen)}`)
     .join(',')}}`;
+  seen.delete(value);
+  return out;
 }
 
 function optionalRuntimeRetrieveNumber(name: string, value: number | undefined): string[] {
