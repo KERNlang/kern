@@ -205,7 +205,9 @@ export class LocalPersistentRagVectorStoreAdapter extends InMemoryPgVectorRagSto
   private readSnapshotFile(filePath: string): RagVectorStoreSnapshot {
     const { size } = statSync(filePath);
     if (size > MAX_LOCAL_PERSISTENT_VECTOR_STORE_BYTES) {
-      throw new Error(`KERN local vector store snapshot exceeds ${MAX_LOCAL_PERSISTENT_VECTOR_STORE_BYTES} bytes.`);
+      throw new LocalVectorStoreSnapshotLoadError(
+        `KERN local vector store snapshot exceeds ${MAX_LOCAL_PERSISTENT_VECTOR_STORE_BYTES} bytes.`,
+      );
     }
     const raw = readFileSync(filePath, 'utf-8');
     let parsed: unknown;
