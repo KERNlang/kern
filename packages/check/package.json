@@ -1,7 +1,7 @@
 {
   "name": "@kernlang/check",
-  "version": "4.0.0",
-  "description": "KERN nominal assignability core \u2014 lifted Liskov subtype and override-variance checks",
+  "version": "4.1.0",
+  "description": "KERN nominal assignability core — lifted Liskov subtype and override-variance checks",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
