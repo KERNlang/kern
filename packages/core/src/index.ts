@@ -730,8 +730,13 @@ export type {
   RagEvalDocumentCorpusSource,
   RagEvalDocumentCorpusSourceMode,
   RagEvalDocumentEntry,
+  RagEvalDocumentEntryTarget,
+  RagEvalDocumentEntryTargetMode,
   RagEvalDocumentOptions,
   RagEvalDocumentReport,
+  RagEvalDocumentTargetMode,
+  RagEvalDocumentTargetOptions,
+  RagEvalDocumentTargetReport,
 } from './rag-eval-runner.js';
 export {
   evaluateRagEvalDocument,

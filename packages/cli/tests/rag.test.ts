@@ -173,6 +173,103 @@ describe('kern rag', () => {
     expect(readFileSync(join(dir, 'index', 'DocsIndex.json'), 'utf-8')).toBe(snapshot);
   });
 
+  test('emits explicit eval target provenance in JSON reports', () => {
+    const result = run(['rag', 'eval', 'persistent-eval.kern', '--rag-index', 'DocsIndex', '--json'], dir);
+
+    expect(result.status).toBe(0);
+    const report = JSON.parse(result.stdout) as {
+      readonly passed: boolean;
+      readonly target: {
+        readonly requested: { readonly indexName: string };
+        readonly mode: string;
+        readonly retrieverNames: readonly string[];
+        readonly indexNames: readonly string[];
+      };
+      readonly evals: readonly [
+        {
+          readonly target: {
+            readonly retrieverName: string;
+            readonly indexName: string;
+            readonly mode: string;
+          };
+        },
+      ];
+    };
+    expect(report.passed).toBe(true);
+    expect(report.target).toEqual(
+      expect.objectContaining({
+        requested: { indexName: 'DocsIndex' },
+        mode: 'explicit-index',
+        retrieverNames: ['DocsSearch'],
+        indexNames: ['DocsIndex'],
+      }),
+    );
+    expect(report.evals[0].target).toEqual({
+      retrieverName: 'DocsSearch',
+      indexName: 'DocsIndex',
+      mode: 'explicit-index',
+    });
+  });
+
+  test('supports explicit eval retriever and retriever/index pair targets', () => {
+    const retriever = run(['rag', 'eval', 'persistent-eval.kern', '--rag-retriever', 'DocsSearch', '--json'], dir);
+    const pair = run(
+      ['rag', 'eval', 'persistent-eval.kern', '--rag-retriever', 'DocsSearch', '--rag-index', 'DocsIndex', '--json'],
+      dir,
+    );
+
+    expect(retriever.status).toBe(0);
+    expect(pair.status).toBe(0);
+    const retrieverReport = JSON.parse(retriever.stdout) as {
+      readonly target: { readonly mode: string; readonly retrieverNames: readonly string[] };
+    };
+    const pairReport = JSON.parse(pair.stdout) as {
+      readonly target: {
+        readonly requested: { readonly retrieverName: string; readonly indexName: string };
+        readonly mode: string;
+        readonly retrieverNames: readonly string[];
+        readonly indexNames: readonly string[];
+      };
+    };
+    expect(retrieverReport.target).toEqual(
+      expect.objectContaining({
+        mode: 'explicit-retriever',
+        retrieverNames: ['DocsSearch'],
+      }),
+    );
+    expect(pairReport.target).toEqual(
+      expect.objectContaining({
+        requested: { retrieverName: 'DocsSearch', indexName: 'DocsIndex' },
+        mode: 'explicit-pair',
+        retrieverNames: ['DocsSearch'],
+        indexNames: ['DocsIndex'],
+      }),
+    );
+  });
+
+  test('rejects eval target flags with explicit corpus mode', () => {
+    const corpus = [
+      { id: 'refunds', text: 'refund policy money back within thirty days', source: 'docs/refunds.md' },
+      { id: 'shipping', text: 'shipping delivery courier tracking parcel', source: 'docs/shipping.md' },
+    ];
+    writeFileSync(join(dir, 'chunks.json'), JSON.stringify(corpus));
+
+    const result = run(['rag', 'eval', 'persistent-eval.kern', '--corpus', 'chunks.json', '--rag-index', 'DocsIndex'], dir);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('--corpus cannot be combined with --rag-retriever or --rag-index');
+  });
+
+  test('rejects eval target flags without values', () => {
+    const missingRetriever = run(['rag', 'eval', 'persistent-eval.kern', '--rag-retriever'], dir);
+    const missingIndex = run(['rag', 'eval', 'persistent-eval.kern', '--rag-index'], dir);
+
+    expect(missingRetriever.status).toBe(1);
+    expect(missingRetriever.stderr).toContain('missing value for --rag-retriever');
+    expect(missingIndex.status).toBe(1);
+    expect(missingIndex.stderr).toContain('missing value for --rag-index');
+  });
+
   test('rejects --corpus without a value', () => {
     const result = run(['rag', 'eval', 'mydocs.kern', '--corpus'], dir);
     expect(result.status).toBe(1);

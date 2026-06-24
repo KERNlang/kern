@@ -144,6 +144,19 @@ rag name=AuditDocs retriever=DocsSearch citations=false
     expect(report.passed).toBe(false);
   });
 
+  test('sync eval does not resolve provider retrievers when no ragEval is declared', () => {
+    const providerDoc = `corpus name=Docs title="Support docs"
+embed name=DocsEmbedding corpus=Docs model="openai:text-embedding-3-small" dims=1536 metric=cosine
+retriever name=DocsSearch corpus=Docs embed=DocsEmbedding mode=hybrid topK=4 minScore=0.72
+rag name=AnswerDocs retriever=DocsSearch citations=false
+`;
+
+    const report = evaluateRagEvalDocument(providerDoc, CORPUS);
+
+    expect(report.evals).toHaveLength(0);
+    expect(report.passed).toBe(false);
+  });
+
   test('a valid spec reports no diagnostics', () => {
     expect(evaluateRagEvalDocument(DOC, CORPUS).diagnostics).toEqual([]);
   });
@@ -258,6 +271,192 @@ rag name=AnswerDocs retriever=DocsSearch citations=true
       expect(report.evals[0].result.cases[0].assertions).toEqual(
         expect.arrayContaining([expect.objectContaining({ kind: 'sourceGlob', passed: false })]),
       );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('declared-source eval can explicitly target one compatible ragIndex', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-rag-eval-target-index-'));
+    try {
+      mkdirSync(join(dir, 'docs'));
+      writeFileSync(join(dir, 'docs/refunds.md'), 'Refund policy: refunds return money within thirty days.\n');
+      writeFileSync(join(dir, 'docs/shipping.md'), 'Shipping delivery courier tracking parcel.\n');
+      const sourcePath = join(dir, 'mydocs.kern');
+      const doc = INDEXED_DOC.replace(
+        'vectorStore name=DocsMemory kind=local-persistent dims=64 metric=cosine path="./index"',
+        [
+          'vectorStore name=DocsMemory kind=local-persistent dims=64 metric=cosine path="./index"',
+          'vectorStore name=AltMemory kind=local-persistent dims=64 metric=cosine path="./alt-index"',
+        ].join('\n'),
+      ).replace(
+        'ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding chunking=DocsChunks',
+        [
+          'ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding chunking=DocsChunks',
+          'ragIndex name=AltIndex corpus=Docs store=AltMemory embed=DocsEmbedding chunking=DocsChunks',
+        ].join('\n'),
+      );
+      writeFileSync(sourcePath, doc);
+
+      const auto = evaluateRagEvalDocumentFromDeclaredSources(doc, { sourcePath });
+      const targeted = evaluateRagEvalDocumentFromDeclaredSources(doc, {
+        sourcePath,
+        target: { indexName: 'AltIndex' },
+      });
+      const paired = evaluateRagEvalDocumentFromDeclaredSources(doc, {
+        sourcePath,
+        target: { retrieverName: 'DocsSearch', indexName: 'AltIndex' },
+      });
+
+      expect(auto.passed).toBe(true);
+      expect(auto.indexes).toEqual([]);
+      expect(auto.target).toEqual(
+        expect.objectContaining({
+          mode: 'declared-sources',
+          indexNames: [],
+        }),
+      );
+      expect(targeted.passed).toBe(true);
+      expect(targeted.indexes).toEqual([
+        expect.objectContaining({
+          indexName: 'AltIndex',
+          storeKind: 'local-persistent',
+          status: 'indexed',
+          snapshotPath: 'alt-index/AltIndex.json',
+        }),
+      ]);
+      expect(targeted.target).toEqual(
+        expect.objectContaining({
+          requested: { indexName: 'AltIndex' },
+          mode: 'explicit-index',
+          retrieverNames: ['DocsSearch'],
+          indexNames: ['AltIndex'],
+        }),
+      );
+      expect(targeted.evals[0].target).toEqual({
+        retrieverName: 'DocsSearch',
+        indexName: 'AltIndex',
+        mode: 'explicit-index',
+      });
+      expect(paired.passed).toBe(true);
+      expect(paired.target).toEqual(
+        expect.objectContaining({
+          requested: { retrieverName: 'DocsSearch', indexName: 'AltIndex' },
+          mode: 'explicit-pair',
+          retrieverNames: ['DocsSearch'],
+          indexNames: ['AltIndex'],
+        }),
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('declared-source async eval can explicitly target one compatible ragIndex', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-rag-eval-target-index-async-'));
+    try {
+      mkdirSync(join(dir, 'docs'));
+      writeFileSync(join(dir, 'docs/refunds.md'), 'Refund policy: refunds return money within thirty days.\n');
+      writeFileSync(join(dir, 'docs/shipping.md'), 'Shipping delivery courier tracking parcel.\n');
+      const sourcePath = join(dir, 'mydocs.kern');
+      writeFileSync(sourcePath, INDEXED_DOC);
+
+      const report = await evaluateRagEvalDocumentFromDeclaredSourcesAsync(INDEXED_DOC, {
+        sourcePath,
+        target: { retrieverName: 'DocsSearch', indexName: 'DocsIndex' },
+      });
+
+      expect(report.passed).toBe(true);
+      expect(report.target).toEqual(
+        expect.objectContaining({
+          requested: { retrieverName: 'DocsSearch', indexName: 'DocsIndex' },
+          mode: 'explicit-pair',
+          retrieverNames: ['DocsSearch'],
+          indexNames: ['DocsIndex'],
+        }),
+      );
+      expect(report.evals[0].target).toEqual({
+        retrieverName: 'DocsSearch',
+        indexName: 'DocsIndex',
+        mode: 'explicit-index',
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('declared-source eval can explicitly target evals for one retriever', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-rag-eval-target-retriever-'));
+    try {
+      mkdirSync(join(dir, 'docs'));
+      writeFileSync(join(dir, 'docs/refunds.md'), 'Refund policy: refunds return money within thirty days.\n');
+      writeFileSync(join(dir, 'docs/shipping.md'), 'Shipping delivery courier tracking parcel.\n');
+      const sourcePath = join(dir, 'mydocs.kern');
+      const doc = `${INDEXED_DOC}
+retriever name=ShippingSearch corpus=Docs embed=DocsEmbedding mode=hybrid topK=4 minScore=0.1
+rag name=ShippingDocs retriever=ShippingSearch citations=false
+  ragEval name=ShippingOnly metric=faithfulness threshold=0.85 mode=contract
+    ragCase name=refunds query="refund refunds policy window" topK=1
+      ragAssert kind=sourceGlob value="docs/refunds*" required=true
+`;
+      writeFileSync(sourcePath, doc);
+
+      const report = evaluateRagEvalDocumentFromDeclaredSources(doc, {
+        sourcePath,
+        target: { retrieverName: 'ShippingSearch' },
+      });
+
+      expect(report.passed).toBe(true);
+      expect(report.evals).toHaveLength(1);
+      expect(report.evals[0].ragName).toBe('ShippingDocs');
+      expect(report.target).toEqual(
+        expect.objectContaining({
+          requested: { retrieverName: 'ShippingSearch' },
+          mode: 'explicit-retriever',
+          retrieverNames: ['ShippingSearch'],
+          indexNames: ['DocsIndex'],
+        }),
+      );
+      expect(report.evals[0].target).toEqual({
+        retrieverName: 'ShippingSearch',
+        indexName: 'DocsIndex',
+        mode: 'auto-compatible-index',
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('declared-source eval fails closed for unknown and incompatible explicit targets', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-rag-eval-target-error-'));
+    try {
+      mkdirSync(join(dir, 'docs'));
+      mkdirSync(join(dir, 'other'));
+      writeFileSync(join(dir, 'docs/refunds.md'), 'Refund policy: refunds return money within thirty days.\n');
+      writeFileSync(join(dir, 'other/refunds.md'), 'Other refund policy text.\n');
+      const sourcePath = join(dir, 'mydocs.kern');
+      const doc = `${INDEXED_DOC}
+corpus name=Other title="Other docs"
+  source name=other kind=local uri="./other/**/*.md" media=markdown
+  chunking name=OtherChunks source=other strategy=semantic maxTokens=600 overlap=80 unit=tokens
+embed name=OtherEmbedding corpus=Other model=local-semantic-v1 dims=64 metric=cosine
+vectorStore name=OtherMemory kind=local-persistent dims=64 metric=cosine path="./other-index"
+ragIndex name=OtherIndex corpus=Other store=OtherMemory embed=OtherEmbedding chunking=OtherChunks
+`;
+      writeFileSync(sourcePath, doc);
+
+      expect(() =>
+        evaluateRagEvalDocumentFromDeclaredSources(doc, {
+          sourcePath,
+          target: { retrieverName: 'MissingSearch' },
+        }),
+      ).toThrow(/ragRetriever 'MissingSearch' was not declared/u);
+      expect(() =>
+        evaluateRagEvalDocumentFromDeclaredSources(doc, {
+          sourcePath,
+          target: { retrieverName: 'DocsSearch', indexName: 'OtherIndex' },
+        }),
+      ).toThrow(/ragIndex 'OtherIndex' is incompatible with retriever 'DocsSearch'/u);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

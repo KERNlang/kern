@@ -72,17 +72,55 @@ export interface RagEvalAsyncDocumentOptions extends Omit<RagEvalDocumentOptions
 export interface RagEvalDeclaredDocumentOptions extends Omit<RagEvalDocumentOptions, 'corpusSource'> {
   /** Path to the .kern file being evaluated; local source globs resolve relative to this file. */
   readonly sourcePath: string;
+  /** Optional explicit declared retrieval target for the eval run. */
+  readonly target?: RagEvalDocumentTargetOptions;
 }
 
 export interface RagEvalDeclaredAsyncDocumentOptions extends Omit<RagEvalAsyncDocumentOptions, 'corpusSource'> {
   /** Path to the .kern file being evaluated; local source globs resolve relative to this file. */
   readonly sourcePath: string;
+  /** Optional explicit declared retrieval target for the eval run. */
+  readonly target?: RagEvalDocumentTargetOptions;
 }
 
 export interface RagEvalDocumentEntry {
   readonly ragName: string;
   readonly evalName?: string;
+  readonly target?: RagEvalDocumentEntryTarget;
   readonly result: RagEvalContractResult;
+}
+
+export interface RagEvalDocumentTargetOptions {
+  readonly retrieverName?: string;
+  readonly indexName?: string;
+}
+
+export type RagEvalDocumentTargetMode =
+  | 'explicit-corpus'
+  | 'declared-sources'
+  | 'auto-compatible-index'
+  | 'explicit-retriever'
+  | 'explicit-index'
+  | 'explicit-pair'
+  | 'mixed';
+
+export type RagEvalDocumentEntryTargetMode =
+  | 'explicit-corpus'
+  | 'declared-sources'
+  | 'auto-compatible-index'
+  | 'explicit-index';
+
+export interface RagEvalDocumentEntryTarget {
+  readonly retrieverName: string;
+  readonly indexName?: string;
+  readonly mode: RagEvalDocumentEntryTargetMode;
+}
+
+export interface RagEvalDocumentTargetReport {
+  readonly requested: RagEvalDocumentTargetOptions;
+  readonly mode: RagEvalDocumentTargetMode;
+  readonly retrieverNames: readonly string[];
+  readonly indexNames: readonly string[];
 }
 
 export interface RagEvalDocumentReport {
@@ -96,6 +134,8 @@ export interface RagEvalDocumentReport {
   readonly diagnostics: readonly SemanticViolation[];
   /** Declared runtime indexes used by eval retrieval, including snapshot lifecycle state when available. */
   readonly indexes: readonly RagRetrieveIndexLifecycle[];
+  /** Declared retrieval target provenance for CI reports. */
+  readonly target?: RagEvalDocumentTargetReport;
   readonly evals: readonly RagEvalDocumentEntry[];
   /** True only when the spec is valid, at least one eval ran, and every eval passed. */
   readonly passed: boolean;
@@ -138,6 +178,7 @@ export function evaluateRagEvalDocument(
       corpusSource: options.corpusSource ?? emptyExplicitCorpusSource(),
       diagnostics,
       indexes: [],
+      target: targetReport(undefined, [], 'explicit-corpus'),
       evals: [],
       passed: false,
     };
@@ -164,7 +205,10 @@ export function evaluateRagEvalDocument(
     return retriever;
   };
 
-  const evals = evaluatePipelineFacts(facts, getRetriever, options);
+  const evals = evaluatePipelineFacts(facts.pipelines, getRetriever, options, (pipeline) => ({
+    retrieverName: pipeline.retrieverName,
+    mode: 'explicit-corpus',
+  }));
 
   return {
     embedderId: reportEmbedderId(embedderIds, options.embedder?.id),
@@ -172,6 +216,7 @@ export function evaluateRagEvalDocument(
     corpusSource: options.corpusSource ?? explicitCorpusSource(chunkArray),
     diagnostics,
     indexes: [],
+    target: targetReport(undefined, evals, 'explicit-corpus'),
     evals,
     passed: evals.length > 0 && evals.every((entry) => entry.result.passed),
   };
@@ -190,6 +235,7 @@ export async function evaluateRagEvalDocumentAsync(
       corpusSource: options.corpusSource ?? emptyExplicitCorpusSource(),
       diagnostics,
       indexes: [],
+      target: targetReport(undefined, [], 'explicit-corpus'),
       evals: [],
       passed: false,
     };
@@ -217,13 +263,17 @@ export async function evaluateRagEvalDocumentAsync(
     return retriever;
   };
 
-  const evals = await evaluatePipelineFactsAsync(facts, getRetriever, options);
+  const evals = await evaluatePipelineFactsAsync(facts.pipelines, getRetriever, options, (pipeline) => ({
+    retrieverName: pipeline.retrieverName,
+    mode: 'explicit-corpus',
+  }));
   return {
     embedderId: reportEmbedderId(embedderIds, asyncOptionEmbedderId(options)),
     embedderIds: Array.from(embedderIds).sort(),
     corpusSource: options.corpusSource ?? explicitCorpusSource(chunkArray),
     diagnostics,
     indexes: [],
+    target: targetReport(undefined, evals, 'explicit-corpus'),
     evals,
     passed: evals.length > 0 && evals.every((entry) => entry.result.passed),
   };
@@ -253,13 +303,15 @@ export function evaluateRagEvalDocumentFromDeclaredSources(
   }
 
   const facts = collectRagSemanticFacts(root);
-  const evaluatedCorpusNames = corpusNamesForEvaluatedPipelines(facts);
+  const pipelines = evaluationPipelinesForTarget(facts, options.target);
+  const evaluatedCorpusNames = corpusNamesForPipelines(facts, pipelines);
   if (evaluatedCorpusNames.length === 0) {
     return {
       embedderId: unresolvedEmbedderId(options.embedder?.id),
       corpusSource: emptyDeclaredCorpusSource(options.sourcePath),
       diagnostics,
       indexes: [],
+      target: targetReport(options.target, [], 'declared-sources'),
       evals: [],
       passed: false,
     };
@@ -273,13 +325,19 @@ export function evaluateRagEvalDocumentFromDeclaredSources(
   const retrieverByEmbedding = new Map<string, RagContractRetriever>();
   const indexLifecycleByName = new Map<string, RagRetrieveIndexLifecycle>();
   const embedderIds = new Set<string>();
+  const targetByPipeline = new Map<string, RagEvalDocumentEntryTarget>();
   const getRetriever = (pipeline: RagSemanticPipelineFact): RagContractRetriever => {
     let retriever = retrieverByPipeline.get(pipeline.name);
     if (retriever === undefined) {
-      const runtimeIndex = runtimeIndexForPipeline(facts, pipeline);
+      const runtimeIndex = runtimeIndexForPipeline(facts, pipeline, options.target);
       if (runtimeIndex) {
         const embedder = resolveSyncRagEmbedderForPipeline(facts, pipeline, options);
         embedderIds.add(embedder.id);
+        targetByPipeline.set(pipeline.name, {
+          retrieverName: pipeline.retrieverName,
+          indexName: runtimeIndex.name,
+          mode: options.target?.indexName ? 'explicit-index' : 'auto-compatible-index',
+        });
         retriever = (query, retrieveOptions) => {
           const retrievalName = runtimeEvalRetrieveName(runtimeIndex.name, query, retrieveOptions ?? {});
           const report = retrieveRagDocument(
@@ -304,6 +362,10 @@ export function evaluateRagEvalDocumentFromDeclaredSources(
       const corpusChunks = ingestion.chunks.filter((chunk) => chunkCorpusName(chunk) === corpusName);
       const embedder = resolveSyncRagEmbedderForPipeline(facts, pipeline, options);
       embedderIds.add(embedder.id);
+      targetByPipeline.set(pipeline.name, {
+        retrieverName: pipeline.retrieverName,
+        mode: 'declared-sources',
+      });
       const cacheKey = declaredRetrieverCacheKey(corpusName, embedder);
       retriever = retrieverByEmbedding.get(cacheKey);
       if (retriever === undefined) {
@@ -314,13 +376,14 @@ export function evaluateRagEvalDocumentFromDeclaredSources(
     }
     return retriever;
   };
-  const evals = evaluatePipelineFacts(facts, getRetriever, options);
+  const evals = evaluatePipelineFacts(pipelines, getRetriever, options, (pipeline) => targetByPipeline.get(pipeline.name));
   return {
     embedderId: reportEmbedderId(embedderIds, options.embedder?.id),
     embedderIds: Array.from(embedderIds).sort(),
     corpusSource: declaredCorpusSource(options.sourcePath, ingestion),
     diagnostics,
     indexes: sortedIndexLifecycle(indexLifecycleByName),
+    target: targetReport(options.target, evals, 'declared-sources'),
     evals,
     passed: evals.length > 0 && evals.every((entry) => entry.result.passed),
   };
@@ -350,13 +413,15 @@ export async function evaluateRagEvalDocumentFromDeclaredSourcesAsync(
   }
 
   const facts = collectRagSemanticFacts(root);
-  const evaluatedCorpusNames = corpusNamesForEvaluatedPipelines(facts);
+  const pipelines = evaluationPipelinesForTarget(facts, options.target);
+  const evaluatedCorpusNames = corpusNamesForPipelines(facts, pipelines);
   if (evaluatedCorpusNames.length === 0) {
     return {
       embedderId: unresolvedEmbedderId(options.embedder?.id),
       corpusSource: emptyDeclaredCorpusSource(options.sourcePath),
       diagnostics,
       indexes: [],
+      target: targetReport(options.target, [], 'declared-sources'),
       evals: [],
       passed: false,
     };
@@ -370,13 +435,19 @@ export async function evaluateRagEvalDocumentFromDeclaredSourcesAsync(
   const retrieverByEmbedding = new Map<string, AsyncRagContractRetriever>();
   const indexLifecycleByName = new Map<string, RagRetrieveIndexLifecycle>();
   const embedderIds = new Set<string>();
+  const targetByPipeline = new Map<string, RagEvalDocumentEntryTarget>();
   const getRetriever = async (pipeline: RagSemanticPipelineFact): Promise<AsyncRagContractRetriever> => {
     let retriever = retrieverByPipeline.get(pipeline.name);
     if (retriever === undefined) {
-      const runtimeIndex = runtimeIndexForPipeline(facts, pipeline);
+      const runtimeIndex = runtimeIndexForPipeline(facts, pipeline, options.target);
       if (runtimeIndex) {
         const embedder = resolveAsyncRagEmbedderForPipeline(facts, pipeline, options);
         embedderIds.add(embedder.id);
+        targetByPipeline.set(pipeline.name, {
+          retrieverName: pipeline.retrieverName,
+          indexName: runtimeIndex.name,
+          mode: options.target?.indexName ? 'explicit-index' : 'auto-compatible-index',
+        });
         retriever = async (query, retrieveOptions) => {
           const retrievalName = runtimeEvalRetrieveName(runtimeIndex.name, query, retrieveOptions ?? {});
           const report = await retrieveRagDocumentAsync(
@@ -402,6 +473,10 @@ export async function evaluateRagEvalDocumentFromDeclaredSourcesAsync(
       const corpusChunks = ingestion.chunks.filter((chunk) => chunkCorpusName(chunk) === corpusName);
       const embedder = resolveAsyncRagEmbedderForPipeline(facts, pipeline, options);
       embedderIds.add(embedder.id);
+      targetByPipeline.set(pipeline.name, {
+        retrieverName: pipeline.retrieverName,
+        mode: 'declared-sources',
+      });
       const cacheKey = declaredRetrieverCacheKey(corpusName, embedder);
       retriever = retrieverByEmbedding.get(cacheKey);
       if (retriever === undefined) {
@@ -413,13 +488,19 @@ export async function evaluateRagEvalDocumentFromDeclaredSourcesAsync(
     }
     return retriever;
   };
-  const evals = await evaluatePipelineFactsAsync(facts, getRetriever, options);
+  const evals = await evaluatePipelineFactsAsync(
+    pipelines,
+    getRetriever,
+    options,
+    (pipeline) => targetByPipeline.get(pipeline.name),
+  );
   return {
     embedderId: reportEmbedderId(embedderIds, asyncOptionEmbedderId(options)),
     embedderIds: Array.from(embedderIds).sort(),
     corpusSource: declaredCorpusSource(options.sourcePath, ingestion),
     diagnostics,
     indexes: sortedIndexLifecycle(indexLifecycleByName),
+    target: targetReport(options.target, evals, 'declared-sources'),
     evals,
     passed: evals.length > 0 && evals.every((entry) => entry.result.passed),
   };
@@ -488,32 +569,40 @@ function chunksSha256(chunks: readonly RagChunkInput[]): string {
 }
 
 function evaluatePipelineFacts(
-  facts: RagSemanticFacts,
+  pipelines: readonly RagSemanticPipelineFact[],
   getRetriever: (pipeline: RagSemanticPipelineFact) => RagContractRetriever,
   options: RagEvalContractOptions,
+  getTarget?: (pipeline: RagSemanticPipelineFact) => RagEvalDocumentEntryTarget | undefined,
 ): RagEvalDocumentEntry[] {
-  return facts.pipelines.flatMap((pipeline) =>
-    pipeline.evals.map((evaluation) => ({
+  return pipelines.flatMap((pipeline) => {
+    if (pipeline.evals.length === 0) return [];
+    const retriever = getRetriever(pipeline);
+    const target = getTarget?.(pipeline);
+    return pipeline.evals.map((evaluation) => ({
       ragName: pipeline.name,
       ...(evaluation.name !== undefined ? { evalName: evaluation.name } : {}),
-      result: evaluateRagEvalContract(evaluation, getRetriever(pipeline), options),
-    })),
-  );
+      ...(target !== undefined ? { target } : {}),
+      result: evaluateRagEvalContract(evaluation, retriever, options),
+    }));
+  });
 }
 
 async function evaluatePipelineFactsAsync(
-  facts: RagSemanticFacts,
+  pipelines: readonly RagSemanticPipelineFact[],
   getRetriever: (pipeline: RagSemanticPipelineFact) => Promise<AsyncRagContractRetriever>,
   options: RagEvalContractOptions,
+  getTarget?: (pipeline: RagSemanticPipelineFact) => RagEvalDocumentEntryTarget | undefined,
 ): Promise<RagEvalDocumentEntry[]> {
   const entries: RagEvalDocumentEntry[] = [];
-  for (const pipeline of facts.pipelines) {
+  for (const pipeline of pipelines) {
     if (pipeline.evals.length === 0) continue;
     const retriever = await getRetriever(pipeline);
+    const target = getTarget?.(pipeline);
     for (const evaluation of pipeline.evals) {
       entries.push({
         ragName: pipeline.name,
         ...(evaluation.name !== undefined ? { evalName: evaluation.name } : {}),
+        ...(target !== undefined ? { target } : {}),
         result: await evaluateRagEvalContractAsync(evaluation, retriever, options),
       });
     }
@@ -521,10 +610,8 @@ async function evaluatePipelineFactsAsync(
   return entries;
 }
 
-function corpusNamesForEvaluatedPipelines(facts: RagSemanticFacts): string[] {
-  const names = facts.pipelines
-    .filter((pipeline) => pipeline.evals.length > 0)
-    .map((pipeline) => corpusNameForPipeline(facts, pipeline));
+function corpusNamesForPipelines(facts: RagSemanticFacts, pipelines: readonly RagSemanticPipelineFact[]): string[] {
+  const names = pipelines.map((pipeline) => corpusNameForPipeline(facts, pipeline));
   return Array.from(new Set(names)).sort();
 }
 
@@ -539,13 +626,124 @@ function corpusNameForPipeline(facts: RagSemanticFacts, pipeline: RagSemanticPip
 function runtimeIndexForPipeline(
   facts: RagSemanticFacts,
   pipeline: RagSemanticPipelineFact,
+  target: RagEvalDocumentTargetOptions | undefined,
 ): RagSemanticFacts['indexes'][number] | undefined {
   const retriever = facts.retrievers.find((entry) => entry.name === pipeline.retrieverName);
   if (!retriever) return undefined;
+  if (target?.indexName) {
+    const index = facts.indexes.find((entry) => entry.name === target.indexName);
+    if (!index) throw unknownRagEvalTargetError('ragIndex', target.indexName, facts.indexes.map((entry) => entry.name));
+    if (!isIndexCompatibleWithRetriever(index, retriever)) {
+      throw incompatibleRagEvalTargetError(index, retriever);
+    }
+    return index;
+  }
   const matches = facts.indexes.filter(
-    (index) => index.corpusName === retriever.corpusName && (index.embedName ?? '') === (retriever.embedName ?? ''),
+    (index) => isIndexCompatibleWithRetriever(index, retriever),
   );
   return matches.length === 1 ? matches[0] : undefined;
+}
+
+function evaluationPipelinesForTarget(
+  facts: RagSemanticFacts,
+  target: RagEvalDocumentTargetOptions | undefined,
+): RagSemanticPipelineFact[] {
+  let pipelines = facts.pipelines.filter((pipeline) => pipeline.evals.length > 0);
+  if (!target?.retrieverName && !target?.indexName) return pipelines;
+
+  if (target.retrieverName && !facts.retrievers.some((entry) => entry.name === target.retrieverName)) {
+    throw unknownRagEvalTargetError(
+      'ragRetriever',
+      target.retrieverName,
+      facts.retrievers.map((entry) => entry.name),
+    );
+  }
+  const index = target.indexName ? facts.indexes.find((entry) => entry.name === target.indexName) : undefined;
+  if (target.indexName && !index) {
+    throw unknownRagEvalTargetError(
+      'ragIndex',
+      target.indexName,
+      facts.indexes.map((entry) => entry.name),
+    );
+  }
+  if (target.retrieverName && index) {
+    const retriever = facts.retrievers.find((entry) => entry.name === target.retrieverName);
+    if (retriever && !isIndexCompatibleWithRetriever(index, retriever)) {
+      throw incompatibleRagEvalTargetError(index, retriever);
+    }
+  }
+
+  if (target.retrieverName) {
+    pipelines = pipelines.filter((pipeline) => pipeline.retrieverName === target.retrieverName);
+  }
+  if (index) {
+    pipelines = pipelines.filter((pipeline) => {
+      const retriever = facts.retrievers.find((entry) => entry.name === pipeline.retrieverName);
+      return retriever !== undefined && isIndexCompatibleWithRetriever(index, retriever);
+    });
+  }
+  if (pipelines.length === 0) {
+    throw new Error(
+      `KERN RAG eval target did not match any ragEval declarations (retriever=${target.retrieverName ?? '*'} index=${target.indexName ?? '*'}).`,
+    );
+  }
+  return pipelines;
+}
+
+function isIndexCompatibleWithRetriever(
+  index: RagSemanticFacts['indexes'][number],
+  retriever: RagSemanticFacts['retrievers'][number],
+): boolean {
+  return index.corpusName === retriever.corpusName && (index.embedName ?? '') === (retriever.embedName ?? '');
+}
+
+function unknownRagEvalTargetError(kind: 'ragIndex' | 'ragRetriever', name: string, available: readonly string[]): Error {
+  const list = available.length > 0 ? available.join(', ') : '(none)';
+  return new Error(`KERN RAG eval target ${kind} '${name}' was not declared. Available ${kind}s: ${list}.`);
+}
+
+function incompatibleRagEvalTargetError(
+  index: RagSemanticFacts['indexes'][number],
+  retriever: RagSemanticFacts['retrievers'][number],
+): Error {
+  return new Error(
+    `KERN RAG eval target ragIndex '${index.name}' is incompatible with retriever '${retriever.name}' (index corpus='${index.corpusName}' embed='${index.embedName ?? ''}', retriever corpus='${retriever.corpusName}' embed='${retriever.embedName ?? ''}').`,
+  );
+}
+
+function targetReport(
+  requested: RagEvalDocumentTargetOptions | undefined,
+  evals: readonly RagEvalDocumentEntry[],
+  emptyMode: RagEvalDocumentTargetMode,
+): RagEvalDocumentTargetReport {
+  const retrieverNames = Array.from(
+    new Set(evals.map((entry) => entry.target?.retrieverName).filter((name): name is string => name !== undefined)),
+  ).sort();
+  const indexNames = Array.from(
+    new Set(evals.map((entry) => entry.target?.indexName).filter((name): name is string => name !== undefined)),
+  ).sort();
+  return {
+    requested: requested ?? {},
+    mode: targetMode(requested, evals, emptyMode),
+    retrieverNames,
+    indexNames,
+  };
+}
+
+function targetMode(
+  requested: RagEvalDocumentTargetOptions | undefined,
+  evals: readonly RagEvalDocumentEntry[],
+  emptyMode: RagEvalDocumentTargetMode,
+): RagEvalDocumentTargetMode {
+  if (requested?.retrieverName && requested.indexName) return 'explicit-pair';
+  if (requested?.indexName) return 'explicit-index';
+  if (requested?.retrieverName) return 'explicit-retriever';
+  const modes = Array.from(
+    new Set(evals.map((entry) => entry.target?.mode).filter((mode): mode is RagEvalDocumentEntryTargetMode => mode !== undefined)),
+  );
+  if (modes.length === 1) return modes[0];
+  if (modes.length > 1) return 'mixed';
+  return emptyMode;
 }
 
 function runtimeEvalRetrieveSource(
