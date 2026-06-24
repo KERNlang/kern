@@ -1,0 +1,302 @@
+/**
+ * `kern run <file.kern>` — slice-1 oracle (CLI behavior + fail-close contract).
+ *
+ * `kern run` is KERN's native entry point: it parses a `.kern` file, locates the
+ * single `fn name=main returns=void` whose `handler lang="kern"` body holds the
+ * program, executes that body through the ReferenceRunner (`referenceRunSequence`,
+ * the SAME executor the 3-leg parity suite certifies), and replays the resulting
+ * `{op:'stdout'}` trace events to REAL stdout. This is "KERN runs on its own".
+ *
+ * Contract under test (slice-1):
+ *   - Entry resolution is STRICT: exactly one top-level `fn name=main`, it must
+ *     declare `returns=void`, carry no params and not be async, and contain
+ *     exactly one `handler lang="kern"`. Anything else is a deterministic
+ *     stderr diagnostic + exit 2 — never a stack trace, never partial stdout.
+ *   - Program stdout (the replayed trace events, each `text + "\n"`) goes to
+ *     stdout ONLY; diagnostics go to stderr ONLY.
+ *   - FAIL-CLOSE atomicity: when the runner ABSTAINS on a non-portable op
+ *     (precondition fails -> referenceRunSequence throws), `kern run` emits NO
+ *     stdout at all (not even output produced before the abstaining statement)
+ *     and exits 2. Silent partial output is the one unforgivable bug.
+ *   - Exit codes: 0 = normal/return completion; 2 = setup failure (parse / entry
+ *     resolution / unreadable file) OR runner abstention. (Exit 1 is reserved for
+ *     a future uncaught KERN `throw`; `throw` ABSTAINS in the runner today, so it
+ *     fail-closes to 2 in slice-1.)
+ *
+ * Executable surface in slice-1 is exactly what the runner certifies today:
+ * print / let / assign / for / return / portable arithmetic. Constructs the
+ * runner does not yet execute over PRODUCTION IR (if/while/each/branch/try/throw,
+ * fmt interpolation, arrays/objects) ABSTAIN -> exit 2, by design.
+ *
+ * Every expected stdout byte below was verified empirically against the built
+ * runner before this oracle was authored (the `(1/3)*3 != 1` lesson).
+ *
+ * NOTE: assertions on diagnostic text are intentionally LOOSE (non-empty stderr,
+ * plus a required keyword where the contract demands one). The exact wording of a
+ * diagnostic is the implementation's choice; coupling the oracle to verbatim
+ * message strings would let the implementation define its own contract.
+ */
+
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+const CLI = resolve(ROOT, 'packages/cli/dist/cli.js');
+
+let dir: string;
+
+beforeAll(() => {
+  // The CLI is spawned, so the built entry must exist (the package `test` script
+  // runs `build` first). Fail with a clear message instead of confusing ENOENT.
+  if (!existsSync(CLI)) {
+    throw new Error(`kern run tests require a built CLI at ${CLI} — run \`pnpm --filter @kernlang/cli build\` first.`);
+  }
+  dir = mkdtempSync(join(tmpdir(), 'kern-run-'));
+});
+afterAll(() => {
+  if (dir) rmSync(dir, { recursive: true, force: true });
+});
+
+let counter = 0;
+function writeFile(source: string): string {
+  const file = join(dir, `prog-${counter++}.kern`);
+  writeFileSync(file, source);
+  return file;
+}
+
+/** Wrap body statement lines in a void `fn main` + kern handler (the entry convention). */
+function mainProgram(bodyLines: string[]): string {
+  return ['fn name=main returns=void', '  handler lang="kern"', ...bodyLines.map((l) => `    ${l}`)].join('\n');
+}
+
+interface RunResult {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+}
+
+function runFile(file: string): RunResult {
+  // `timeout` guards against a hung runner; surface a spawn error or a
+  // signal-kill (e.g. the timeout) rather than a confusing null status.
+  const r = spawnSync(process.execPath, [CLI, 'run', file], { encoding: 'utf-8', timeout: 20000 });
+  if (r.error) throw r.error;
+  if (r.signal) throw new Error(`kern run was killed by signal ${r.signal}`);
+  return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
+}
+
+function runProgram(bodyLines: string[]): RunResult {
+  return runFile(writeFile(mainProgram(bodyLines)));
+}
+
+// ── HAPPY PATH: exact stdout, exit 0, clean stderr ───────────────────────────
+describe('kern run — executes a void main and replays stdout (exit 0)', () => {
+  // Portable scalars (values + expected bytes proven by print-stdout-differential).
+  const PORTABLE_PRINTS: Array<[string, string[], string]> = [
+    ['bool true -> lowercase', ['print value="true"'], 'true\n'],
+    ['bool false -> lowercase', ['print value="false"'], 'false\n'],
+    ['null -> lowercase', ['print value="null"'], 'null\n'],
+    ['positive integer base-10', ['print value="42"'], '42\n'],
+    ['zero', ['print value="0"'], '0\n'],
+    ['negative integer keeps sign', ['print value="0 - 7"'], '-7\n'],
+    ['integer-valued arithmetic collapses to integer', ['print value="6 / 2"'], '3\n'],
+    ['string passthrough', ['print value="\\"hello\\""'], 'hello\n'],
+    ['empty string still emits its newline', ['print value="\\"\\""'], '\n'],
+    ['unicode preserved', ['print value="\\"café→😀\\""'], 'café→😀\n'],
+    ['embedded newline replayed exactly', ['print value="\\"a\\\\nb\\""'], 'a\nb\n'],
+    ['embedded quote round-trips', ['print value="\\"a\\\\\\"b\\""'], 'a"b\n'],
+  ];
+
+  for (const [name, body, expected] of PORTABLE_PRINTS) {
+    test(`prints ${name}`, () => {
+      const r = runProgram(body);
+      expect(r.stdout).toBe(expected);
+      expect(r.status).toBe(0);
+      expect(r.stderr).toBe('');
+    });
+  }
+
+  test('two prints preserve order + per-line newline', () => {
+    const r = runProgram(['print value="42"', 'print value="7"']);
+    expect(r.stdout).toBe('42\n7\n');
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+  });
+
+  test('prints a value read from a binding (not literal-only)', () => {
+    const r = runProgram(['let name=x value="5"', 'print value="x"']);
+    expect(r.stdout).toBe('5\n');
+    expect(r.status).toBe(0);
+  });
+
+  test('for-loop body accumulates ordered lines (fresh iteration binding)', () => {
+    const r = runProgram(['for name=i from="1" to="4"', '  print value="i"']);
+    expect(r.stdout).toBe('1\n2\n3\n');
+    expect(r.status).toBe(0);
+  });
+
+  test('FLAGSHIP: let + for + assign accumulation through real lexical scope', () => {
+    // sum 1..3 via a write-through `assign` to an OUTER binding from inside the
+    // loop body — kills a per-iteration env reset and a per-statement re-eval bug.
+    // `kind=let` = MUTABLE (a plain `let` is immutable and the emitters reject the
+    // reassign), so this program is genuinely 3-leg portable (ref === ts === py).
+    const r = runProgram([
+      'let kind=let name=total value="0"',
+      'for name=i from="1" to="4"',
+      '  assign target=total value="total + i"',
+      'print value="total"',
+    ]);
+    expect(r.stdout).toBe('6\n');
+    expect(r.status).toBe(0);
+  });
+
+  test('empty main succeeds with no output (NOT a nonzero exit)', () => {
+    const r = runProgram([]);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(0);
+  });
+
+  test('a `return` in a void main ends the program after prior stdout', () => {
+    const r = runProgram(['print value="1"', 'return']);
+    expect(r.stdout).toBe('1\n');
+    expect(r.status).toBe(0);
+  });
+
+  test('a helper fn beside main is ignored; only main runs', () => {
+    const source = [
+      'fn name=helper returns=number',
+      '  handler lang="kern"',
+      '    return value="99"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="7"',
+    ].join('\n');
+    const r = runFile(writeFile(source));
+    expect(r.stdout).toBe('7\n');
+    expect(r.status).toBe(0);
+  });
+});
+
+// ── FAIL-CLOSE ATOMICITY: abstain produces NO stdout, exit 2 ──────────────────
+describe('kern run — abstains atomically on non-portable ops (exit 2, no stdout)', () => {
+  test('a non-integer float print abstains with no output', () => {
+    const r = runProgram(['print value="3 / 2"']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+    expect(r.stderr).not.toBe('');
+  });
+
+  test('ATOMICITY: a later abstaining print suppresses ALL prior stdout', () => {
+    // The "1" must NOT leak: render only happens after the whole body succeeds.
+    const r = runProgram(['print value="1"', 'print value="3 / 2"']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+  });
+
+  test('an unsafe integer (>2^53) abstains (JS/Python disagree)', () => {
+    const r = runProgram(['print value="9007199254740993"']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+  });
+
+  test('a not-yet-executable construct (if) abstains rather than half-running', () => {
+    // This is a REAL user-authored `if` (production `condition=` prop). The runner
+    // abstains on it today — the `if` contract still reads the fixture-era `cond`
+    // prop, so production `if`/`while` fail-close (a known runner gap; wiring the
+    // `condition` prop in is the next slice). Either way `kern run` MUST fail-close
+    // to exit 2 with no stdout, which is what this asserts.
+    const r = runProgram(['let name=b value="true"', 'if condition="b"', '  print value="1"']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+  });
+});
+
+// ── ENTRY RESOLUTION: deterministic diagnostics, exit 2, no stdout ────────────
+describe('kern run — strict entry resolution (exit 2, diagnostic on stderr)', () => {
+  test('no fn main -> diagnostic, not a crash', () => {
+    const source = ['fn name=other returns=void', '  handler lang="kern"', '    print value="1"'].join('\n');
+    const r = runFile(writeFile(source));
+    expect(r.status).toBe(2);
+    expect(r.stdout).toBe('');
+    expect(r.stderr).not.toBe('');
+    expect(r.stderr.toLowerCase()).toContain('main');
+  });
+
+  test('duplicate fn main -> rejected (no first-wins)', () => {
+    const source = [
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="1"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="2"',
+    ].join('\n');
+    const r = runFile(writeFile(source));
+    expect(r.status).toBe(2);
+    expect(r.stdout).toBe('');
+  });
+
+  test('main with params -> rejected in slice-1', () => {
+    const source = ['fn name=main params="x:number" returns=void', '  handler lang="kern"', '    print value="1"'].join(
+      '\n',
+    );
+    const r = runFile(writeFile(source));
+    expect(r.status).toBe(2);
+    expect(r.stdout).toBe('');
+  });
+
+  test('main returns a non-void type -> rejected in slice-1', () => {
+    const source = ['fn name=main returns=number', '  handler lang="kern"', '    return value="1"'].join('\n');
+    const r = runFile(writeFile(source));
+    expect(r.status).toBe(2);
+    expect(r.stdout).toBe('');
+  });
+
+  test('main whose handler is foreign (lang=ts) -> rejected', () => {
+    const source = ['fn name=main returns=void', '  handler lang="ts"', '    print value="1"'].join('\n');
+    const r = runFile(writeFile(source));
+    expect(r.status).toBe(2);
+    expect(r.stdout).toBe('');
+  });
+
+  test('async main -> rejected in slice-1', () => {
+    const source = ['fn name=main async=true returns=void', '  handler lang="kern"', '    print value="1"'].join('\n');
+    const r = runFile(writeFile(source));
+    expect(r.status).toBe(2);
+    expect(r.stdout).toBe('');
+  });
+
+  // (zero kern handlers is exercised by the foreign-handler case above — main with
+  // only a `lang=ts` handler resolves to zero kern handlers and is rejected.)
+  test('main with two kern handlers -> rejected (no first-handler-wins)', () => {
+    const source = [
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="1"',
+      '  handler lang="kern"',
+      '    print value="2"',
+    ].join('\n');
+    const r = runFile(writeFile(source));
+    expect(r.status).toBe(2);
+    expect(r.stdout).toBe('');
+  });
+});
+
+// ── FILE / PARSE FAILURES ────────────────────────────────────────────────────
+describe('kern run — file + parse failures (exit 2, no stdout)', () => {
+  test('a parse error fails closed', () => {
+    const r = runFile(writeFile('fn name=main returns=void\n  handler lang="kern"\n    print value='));
+    expect(r.status).toBe(2);
+    expect(r.stdout).toBe('');
+    expect(r.stderr).not.toBe('');
+  });
+
+  test('a nonexistent file is a clean diagnostic, not a stack trace', () => {
+    const r = runFile(join(dir, 'does-not-exist.kern'));
+    expect(r.status).toBe(2);
+    expect(r.stdout).toBe('');
+    expect(r.stderr).not.toBe('');
+  });
+});
